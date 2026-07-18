@@ -176,55 +176,84 @@ export async function setProjectState(params: {
   const clientKey = CLIENT_KEYS[params.centerCode] || "headpinzftmyers";
   const locationId = PANDORA_LOCATION_IDS[params.centerCode] || "TXBSQN0FEKQ11";
 
-  try {
-    const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
-    const pandoraRes = await fetch(`${PANDORA_BASE}/v2/bmi/reservation/state`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${pandoraKey}`,
-      },
-      body: JSON.stringify({
-        locationID: locationId,
-        projectId: params.projectId,
-        stateID: params.stateId,
-      }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (pandoraRes.ok) {
+  const viaPandora = async (): Promise<boolean> => {
+    try {
+      const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
+      const pandoraRes = await fetch(`${PANDORA_BASE}/v2/bmi/reservation/state`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${pandoraKey}`,
+        },
+        body: JSON.stringify({
+          locationID: locationId,
+          projectId: params.projectId,
+          stateID: params.stateId,
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      return pandoraRes.ok;
+    } catch {
+      return false;
+    }
+  };
+
+  const viaOfficeApi = async (): Promise<void> => {
+    const token = await getOfficeToken(clientKey);
+    const headers = apiHeaders(token, clientKey);
+    const getRes = await httpsRequest(
+      "GET",
+      `/api/${clientKey}/project/${params.projectId}`,
+      headers,
+    );
+    if (getRes.status >= 400) throw new Error(`Failed to fetch project: ${getRes.status}`);
+    const project = JSON.parse(getRes.body);
+    const minimal = toMinimalProject(project);
+    minimal.stateId = params.stateId;
+    const putRes = await httpsRequest(
+      "PUT",
+      `/api/${clientKey}/project`,
+      headers,
+      JSON.stringify(minimal),
+    );
+    if (putRes.status >= 400) throw new Error(`Failed to update project status: ${putRes.status}`);
+    console.log(
+      `[bmi-office] project ${params.projectId} state → ${params.stateId} via Office API${params.label ? ` (${params.label})` : ""}`,
+    );
+  };
+
+  // CUSTOM state ids (e.g. the kiosk's 55397028): Pandora returns 200 but
+  // silently normalizes/no-ops the write — live 2026-07-18, W52109 logged
+  // "55397028 via Pandora" while BMI showed plain Confirmation (the same
+  // 200-and-no-op pathology as the converted-reservation memo lesson). The
+  // Office project PUT is the path that actually lands custom states, so they
+  // go OFFICE-FIRST; built-in states (negative ids, e.g. -3) keep Pandora
+  // first — that path is proven for them.
+  const isCustomState = !params.stateId.startsWith("-");
+  if (isCustomState) {
+    try {
+      await viaOfficeApi();
+      return;
+    } catch (err) {
+      console.warn("[bmi-office] Office-API state update failed, trying Pandora:", err);
+    }
+    if (await viaPandora()) {
       console.log(
-        `[bmi-office] project ${params.projectId} state → ${params.stateId} via Pandora${params.label ? ` (${params.label})` : ""}`,
+        `[bmi-office] project ${params.projectId} state → ${params.stateId} via Pandora (fallback)${params.label ? ` (${params.label})` : ""}`,
       );
       return;
     }
-    console.warn(
-      `[bmi-office] Pandora state update failed (${pandoraRes.status}), falling back to Office API`,
-    );
-  } catch (err) {
-    console.warn("[bmi-office] Pandora state update error, falling back to Office API:", err);
+    throw new Error(`state ${params.stateId} update failed on both paths`);
   }
 
-  const token = await getOfficeToken(clientKey);
-  const headers = apiHeaders(token, clientKey);
-  const getRes = await httpsRequest(
-    "GET",
-    `/api/${clientKey}/project/${params.projectId}`,
-    headers,
-  );
-  if (getRes.status >= 400) throw new Error(`Failed to fetch project: ${getRes.status}`);
-  const project = JSON.parse(getRes.body);
-  const minimal = toMinimalProject(project);
-  minimal.stateId = params.stateId;
-  const putRes = await httpsRequest(
-    "PUT",
-    `/api/${clientKey}/project`,
-    headers,
-    JSON.stringify(minimal),
-  );
-  if (putRes.status >= 400) throw new Error(`Failed to update project status: ${putRes.status}`);
-  console.log(
-    `[bmi-office] project ${params.projectId} state → ${params.stateId}${params.label ? ` (${params.label})` : ""}`,
-  );
+  if (await viaPandora()) {
+    console.log(
+      `[bmi-office] project ${params.projectId} state → ${params.stateId} via Pandora${params.label ? ` (${params.label})` : ""}`,
+    );
+    return;
+  }
+  console.warn(`[bmi-office] Pandora state update failed, falling back to Office API`);
+  await viaOfficeApi();
 }
 
 // ── Update project to Confirmation (after deposit paid) ─────────────
@@ -636,7 +665,11 @@ export async function appendProjectPrivateNote(params: {
   // Re-read the private memo and report whether the appended note landed.
   const noteVisible = async (): Promise<boolean> => {
     try {
-      const res = await httpsRequest("GET", `/api/${clientKey}/project/${params.projectId}`, headers);
+      const res = await httpsRequest(
+        "GET",
+        `/api/${clientKey}/project/${params.projectId}`,
+        headers,
+      );
       if (res.status >= 400) return false;
       const fresh = JSON.parse(res.body) as { logs?: Array<{ public: boolean; memo: string }> };
       return (fresh.logs || []).some((l) => !l.public && (l.memo || "").includes(params.note));

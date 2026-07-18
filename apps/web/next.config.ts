@@ -116,8 +116,13 @@ const nextConfig: NextConfig = {
         { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains; preload" },
         // Referrer policy — stop leaking full URLs to third parties
         { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-        // Permissions policy — disable unused browser features
-        { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+        // Permissions policy — disable unused browser features. camera=(self):
+        // the kiosk's waiver-photo capture needs getUserMedia on OUR origin
+        // (camera=() denied it site-wide — cameras "worked on every other
+        // website" but never here, failing instantly with no prompt, owner
+        // 2026-07-18). self-only keeps third-party iframes blocked, and the
+        // browser permission prompt still gates actual use.
+        { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=()" },
         // Content Security Policy
         {
           key: "Content-Security-Policy",

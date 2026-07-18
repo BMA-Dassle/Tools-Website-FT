@@ -125,8 +125,9 @@ export function buildKioskRacers(session: BookingSession, raceItems: RaceItem[])
           racerName: member?.lastName
             ? `${member.firstName} ${member.lastName}`
             : (member?.firstName ?? "Unknown"),
-          // bmiPersonId is a raw digit string — pass through untouched.
-          personId: member?.bmiPersonId ?? null,
+          // Prefer the SHORT Pandora id — the schedule endpoint rejects the
+          // 17-digit Office id (W52109's 500s, 2026-07-18). Raw strings only.
+          personId: member?.pandoraPersonId ?? member?.bmiPersonId ?? null,
           product: product?.name ?? "Race",
           productId: h.productId,
           // REQUIRED by /bmi/schedule (omitting → 400). tier/category from the

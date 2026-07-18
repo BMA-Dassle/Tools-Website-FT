@@ -68,6 +68,16 @@ export interface KioskConfig {
   cardReaderBaud?: number | null;
   /** USB vendor/product of the granted serial adapter — reconnect matching. */
   cardReaderPortInfo?: { usbVendorId?: number; usbProductId?: number } | null;
+  /**
+   * Guest-photo cameras for waiver-time capture (owner 2026-07-18: photo
+   * required for adults, optional for minors, on the waiver page). Device ids
+   * from enumerateDevices(); UPPER = adult height, LOWER = kids/wheelchair
+   * height. Single-camera kiosks set upper only; neither set = capture is
+   * skipped (photo taken at check-in instead — hardware absence never blocks
+   * a booking).
+   */
+  cameraUpperId?: string | null;
+  cameraLowerId?: string | null;
 }
 
 /** Stable per-device id used to pull the saved setup back from Neon. */
@@ -177,7 +187,15 @@ export function resolveKioskConfig(partial: Partial<KioskConfig>): KioskConfig |
     cardReaderEnabled: partial.cardReaderEnabled ?? false,
     cardReaderBaud: partial.cardReaderBaud ?? null,
     cardReaderPortInfo: partial.cardReaderPortInfo ?? null,
+    cameraUpperId: partial.cameraUpperId ?? null,
+    cameraLowerId: partial.cameraLowerId ?? null,
   };
+}
+
+/** Any guest-photo camera configured on this kiosk? (Absent hardware must never
+ *  block a booking — the waiver photo is skipped with a check-in marker.) */
+export function kioskHasCamera(cfg: KioskConfig | null): boolean {
+  return !!(cfg?.cameraUpperId || cfg?.cameraLowerId);
 }
 
 /**

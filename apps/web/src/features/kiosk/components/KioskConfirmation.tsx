@@ -16,6 +16,8 @@ import QRCode from "qrcode";
 import { useKioskConfig } from "../KioskConfigContext";
 import { resetToKiosk } from "../version";
 import { KIOSK_LOGOS } from "../assets";
+import { readGzFulfillment, type GzFulfillmentPayload } from "../service/gz-fulfillment";
+import { KioskGzFulfillment } from "./KioskGzFulfillment";
 
 const AUTO_RESET_SECONDS = 60;
 
@@ -34,6 +36,27 @@ export function KioskConfirmation({ src }: { src: string | null }) {
   const { config } = useKioskConfig();
   const [secondsLeft, setSecondsLeft] = useState(AUTO_RESET_SECONDS);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  // Game Zone cards bought WITH the booking — checkout stashed the charged row
+  // pointers; this screen fulfills them (dispense/load) alongside the booking
+  // confirmation (owner: "combining the you're-booked and card-dispense screen").
+  // Read client-side after mount (sessionStorage) to keep hydration clean.
+  const [gzPayload, setGzPayload] = useState<GzFulfillmentPayload | null>(null);
+  const [gzBusy, setGzBusy] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      await Promise.resolve(); // defer past the sync effect body (lint + hydration)
+      if (!alive) return;
+      const p = readGzFulfillment();
+      if (p) {
+        setGzPayload(p);
+        setGzBusy(true);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
   const code = codeFromSrc(src);
 
   // Encode the booking code as a QR so staff can scan it at check-in (the SMS +
@@ -52,6 +75,11 @@ export function KioskConfirmation({ src }: { src: string | null }) {
   }, [code]);
 
   useEffect(() => {
+    // NEVER auto-reset while cards are still dispensing/loading — the reset
+    // unmounts the fulfillment mid-hardware-cycle. Countdown restarts fresh
+    // when fulfillment reports done.
+    if (gzBusy) return;
+    setSecondsLeft(AUTO_RESET_SECONDS);
     const iv = setInterval(() => {
       setSecondsLeft((s) => {
         if (s <= 1) {
@@ -69,10 +97,16 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       clearInterval(iv);
       document.removeEventListener("pointerdown", onTouch);
     };
-  }, [router]);
+  }, [router, gzBusy]);
 
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-[36px] overflow-hidden bg-[#000418] px-[64px] text-center">
+    <div
+      // With a card-fulfillment panel the column can exceed the canvas — scroll
+      // from the top instead of center-clipping.
+      className={`absolute inset-0 flex flex-col items-center gap-[36px] bg-[#000418] px-[64px] text-center ${
+        gzPayload ? "justify-start overflow-y-auto py-[56px]" : "justify-center overflow-hidden"
+      }`}
+    >
       <div
         className="pointer-events-none absolute inset-0"
         style={{
@@ -99,6 +133,9 @@ export function KioskConfirmation({ src }: { src: string | null }) {
         Your confirmation and check-in links were just texted and emailed to you — that&rsquo;s your
         ticket, nothing to print.
       </p>
+      {gzPayload && (
+        <KioskGzFulfillment payload={gzPayload} onBusyChange={(busy) => setGzBusy(busy)} />
+      )}
       {qrDataUrl ? (
         <div className="relative rounded-[24px] bg-white p-[20px]">
           {/* eslint-disable-next-line @next/next/no-img-element */}

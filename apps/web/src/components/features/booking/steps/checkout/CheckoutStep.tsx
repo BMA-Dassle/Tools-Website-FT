@@ -43,7 +43,10 @@ import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { LoyaltySection } from "./LoyaltySection";
 import { PromoCodeInput } from "./PromoCodeInput";
 import { contactIsComplete } from "../ContactStep";
-import { kioskTerminalEnabled } from "~/features/kiosk/flags";
+import { kioskTerminalEnabled, kioskGzCartEnabled } from "~/features/kiosk/flags";
+import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
+import { centerCodeFor } from "~/config/intercard-centers";
+import { stashGzFulfillment as stashKioskGameCards } from "~/features/kiosk/service/gz-fulfillment";
 import dynamic from "next/dynamic";
 
 // Kiosk-only card-present capture. Dynamically imported so the kiosk feature
@@ -506,6 +509,31 @@ export function CheckoutStep({
       const total = Math.max(0, grossTotal - rewardDiscount);
       const tax = quotedTotal != null ? Math.max(0, quotedTotal - preTaxSubtotal) : estTax;
 
+      // KIOSK: Game Zone cards riding this cart (owner 2026-07-18) — flat
+      // charge lines on the DEPOSIT order (no tax, matching the standalone
+      // Game Zone checkout). Added AFTER subtotal/tax so the booking math is
+      // untouched; cashOwed (what the reader charges + the server verifies)
+      // includes them, so displayed == charged end to end.
+      let gzCartDollars = 0;
+      if (session.context?.kiosk && kioskGzCartEnabled() && session.gameCardPurchase) {
+        try {
+          const gz = resolveCartPurchase(session.gameCardPurchase);
+          if (gz) {
+            for (const l of gz.orderLines) {
+              const qty = Number(l.quantity) || 1;
+              reviewLines.push({
+                name: `Game Zone — ${l.name}`,
+                quantity: qty,
+                amount: (l.amountCents * qty) / 100,
+              });
+            }
+            gzCartDollars = gz.totalCents / 100;
+          }
+        } catch {
+          /* bad pointers → the server rejects the charge; show without cards */
+        }
+      }
+
       // USA250: total saved across all reviewed lines (race/attraction lines
       // arrive pre-discounted from bmiOverview; bowling + combo stamped above).
       const promoSavings =
@@ -520,8 +548,8 @@ export function CheckoutStep({
         lines: reviewLines,
         subtotal: preTaxSubtotal,
         tax,
-        total,
-        cashOwed: total,
+        total: total + gzCartDollars,
+        cashOwed: total + gzCartDollars,
         creditApplied: bmiOverview?.creditApplied ?? 0,
         isCreditOrder: preTaxSubtotal <= 0,
         promoCode: session.appliedPromo?.code ?? null,
@@ -1222,6 +1250,7 @@ export function CheckoutStep({
             bookingType: "bowling",
           });
 
+          stashKioskGameCards((result as { gameCards?: unknown }).gameCards);
           await saveBookingDetails(session, `bowl-${result.qamfReservationId}`, overview, contact);
           clearBookingSession(storageKey);
 
@@ -1319,6 +1348,7 @@ export function CheckoutStep({
             bookingType: hasBmi ? "racing" : "bowling",
           });
 
+          stashKioskGameCards((result as { gameCards?: unknown }).gameCards);
           await saveBookingDetails(sessionForReserve, effectiveBillId, overview, contact);
           clearBookingSession(storageKey);
 
@@ -1392,6 +1422,15 @@ export function CheckoutStep({
                 item: bowlingItemForTerminal,
                 rewardDiscountCents: session.loyalty?.selectedRewardTier?.discountCents,
                 depositLocationId: kioskDepositLocationId,
+                // Game Zone cards riding this cart join the deposit order.
+                gameCardPurchase:
+                  kioskGzCartEnabled() && session.context?.kiosk
+                    ? session.gameCardPurchase
+                    : undefined,
+                gameCardLocationCode:
+                  kioskGzCartEnabled() && session.context?.kiosk && session.gameCardPurchase
+                    ? centerCodeFor(session.center ?? "fort-myers", session.entryBrand)
+                    : undefined,
               })
           : undefined;
         return (

@@ -64,6 +64,15 @@ export interface PartyMember {
    * for new racers.
    */
   bmiPersonId?: string;
+  /**
+   * SHORT Pandora/public person id — Pandora's waiver-sign and race-schedule
+   * endpoints REJECT the 17-digit Office id a returning-racer lookup yields
+   * (live 2026-07-18: waiver sign 500s), so the kiosk resolves this via the
+   * upsert-style Pandora create (known person → same id, never a duplicate)
+   * and prefers it for every Pandora call. New racers' bmiPersonId IS already
+   * this short id.
+   */
+  pandoraPersonId?: string;
   /** Drives Starter-only filter + per-first-timer license fee. */
   isNewRacer: boolean;
   /** Adult / junior — drives race product eligibility. */
@@ -480,6 +489,15 @@ export interface LoyaltyState {
 
 /* ───────────────────────── BookingSession ──────────────────────── */
 
+/** KIOSK: Game Zone cards attached to the booking cart (see
+ *  BookingSession.gameCardPurchase). One purchase per session; `cards` are
+ *  selection pointers (packageId + the read account for reloads) — never
+ *  prices. */
+export interface GameCardCartPurchase {
+  mode: "new_card" | "reload";
+  cards: Array<{ packageId: string; accountNumber?: string }>;
+}
+
 export interface BookingSession {
   /** Lazy — created when the first item is committed to Square. */
   squareOrderId: string | null;
@@ -524,6 +542,17 @@ export interface BookingSession {
    * the eligible variant for the party via eligiblePackages(). Web never sets it.
    */
   preferredPackageId?: string;
+  /**
+   * KIOSK only: Game Zone cards riding the booking cart (owner 2026-07-18 —
+   * "if we have items in cart… it should just be in the cart"). Paid WITH the
+   * booking deposit at the shared checkout: the cards become real catalog
+   * lines on the DEPOSIT order (token + activation-fee catalog ids), never a
+   * day-of order; fulfillment (dispense/load or bridge reload) runs on the
+   * kiosk confirmation screen after payment. Server re-derives every price
+   * from TOKEN_PACKAGES — these entries are selection pointers only. Web
+   * never sets it.
+   */
+  gameCardPurchase?: GameCardCartPurchase;
   /**
    * Roster of party members doing activities. May be empty (e.g. the
    * customer hasn't reached the party step yet). The billing customer

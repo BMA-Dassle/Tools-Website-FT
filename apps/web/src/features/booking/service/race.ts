@@ -140,13 +140,21 @@ export async function bookHeatsOnAdvance(
     }
     await assertHeatBookable(session, heat, availability, item.date);
 
-    const result = await bmiAdapter.bookHeat({
-      productId: target.productId,
-      quantity: 1,
-      proposal: matchingProposal,
-      orderId: billId,
-      personId,
+    const { result, billId: billAfter } = await bookHeatWithFreshBillRetry({
+      bookArgs: {
+        productId: target.productId,
+        quantity: 1,
+        proposal: matchingProposal,
+        orderId: billId,
+        personId,
+      },
+      item,
+      // bookedCount incremented above for THIS attempt — >1 means a prior heat
+      // just booked on the bill, so it's alive and a fresh-bill retry is wrong.
+      anythingBookedThisRun: bookedCount > 1,
+      dispatch,
     });
+    billId = billAfter;
 
     if (!billId) {
       billId = result.rawOrderId;
@@ -229,6 +237,43 @@ export interface HoldHeatsResult {
  * Heats only. POV + the package disclaimer memo stay on the advance-time path
  * (bookHeatsOnAdvance), which still runs as an idempotent backstop.
  */
+/**
+ * bookHeat with a one-shot FRESH-BILL retry (owner 2026-07-18: "why not create
+ * a new order"). Chaining onto a bill BMI already auto-cancelled (the
+ * Pending-Online timeout) "books" but returns no orderId → the guest got
+ * "Couldn't hold that heat — BMI booking returned no orderId" with no way
+ * forward. When NOTHING is held yet anywhere on the item (so heats can't split
+ * across two bills), drop the dead bill and book onto a brand-new one; the
+ * caller's `if (!billId)` block then adopts the fresh id + attaches the
+ * contact. Anything-already-held keeps the old fail-fast (charge-time
+ * rebuildRaceBillIfExpired remains the deep-recovery path).
+ */
+async function bookHeatWithFreshBillRetry(args: {
+  bookArgs: Parameters<typeof bmiAdapter.bookHeat>[0];
+  item: RaceItem;
+  anythingBookedThisRun: boolean;
+  dispatch: Dispatch<Action>;
+}): Promise<{ result: Awaited<ReturnType<typeof bmiAdapter.bookHeat>>; billId: string | null }> {
+  const { bookArgs, item, anythingBookedThisRun, dispatch } = args;
+  try {
+    return { result: await bmiAdapter.bookHeat(bookArgs), billId: bookArgs.orderId ?? null };
+  } catch (err) {
+    const deadChainedBill =
+      bookArgs.orderId != null &&
+      err instanceof Error &&
+      err.message.includes("returned no orderId") &&
+      !anythingBookedThisRun &&
+      !item.heats.some((h) => h.bmiLineId);
+    if (!deadChainedBill) throw err;
+    console.warn(
+      `[race] bill ${bookArgs.orderId} appears dead (no orderId on book) — retrying on a FRESH bill`,
+    );
+    dispatch({ type: "setBmiBillId", id: null });
+    const result = await bmiAdapter.bookHeat({ ...bookArgs, orderId: null });
+    return { result, billId: null };
+  }
+}
+
 export async function holdPickedHeats(
   session: BookingSession,
   item: RaceItem,
@@ -264,13 +309,19 @@ export async function holdPickedHeats(
       if (!matchingProposal) throw new Error("that time just filled up");
       await assertHeatBookable(session, heat, availability, item.date);
 
-      const result = await bmiAdapter.bookHeat({
-        productId: target.productId,
-        quantity: 1,
-        proposal: matchingProposal,
-        orderId: billId,
-        personId,
+      const { result, billId: billAfter } = await bookHeatWithFreshBillRetry({
+        bookArgs: {
+          productId: target.productId,
+          quantity: 1,
+          proposal: matchingProposal,
+          orderId: billId,
+          personId,
+        },
+        item,
+        anythingBookedThisRun: booked.length > 0,
+        dispatch,
       });
+      billId = billAfter;
 
       if (!billId) {
         billId = result.rawOrderId;

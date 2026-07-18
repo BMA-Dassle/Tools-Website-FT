@@ -365,6 +365,7 @@ function DeviceTab({
         on={!!draft.msrEnabled}
         onToggle={(v) => patch({ msrEnabled: v })}
       />
+      <CameraPickers draft={draft} patch={patch} />
       <p className="-mt-2 text-xs text-white/40">
         {draft.dispenserId
           ? "Dispenser present → full Game Zone (buy + reload); MSR setting ignored."
@@ -379,6 +380,193 @@ function DeviceTab({
       >
         Save setup (local + cloud)
       </button>
+    </div>
+  );
+}
+
+/**
+ * Guest-photo camera pickers (owner 2026-07-18: waiver-time photo, some kiosks
+ * have an UPPER + LOWER camera). "Detect cameras" asks for the one-time camera
+ * permission (labels are blank until granted), then lists videoinputs for each
+ * slot. Single-camera kiosks set Upper only; clearing both disables capture
+ * (the waiver flow falls back to a photo-at-check-in marker).
+ */
+function CameraPickers({
+  draft,
+  patch,
+}: {
+  draft: Partial<KioskConfig>;
+  patch: (p: Partial<KioskConfig>) => void;
+}) {
+  const [cams, setCams] = useState<Array<{ deviceId: string; label: string }>>([]);
+  const [detectMsg, setDetectMsg] = useState<string | null>(null);
+  const previewRef = useRef<HTMLVideoElement>(null);
+  const [previewOn, setPreviewOn] = useState(false);
+
+  /**
+   * Fire the browser's permission POPUP directly (owner 2026-07-18: a button
+   * that makes Edge prompt Allow) and PROVE the camera with a 5s live preview.
+   * If Edge was previously set to Block, getUserMedia rejects WITHOUT
+   * prompting — the failure message spells out where to unblock. Also reports
+   * the Web-Serial (card reader) grant status; that one is a device PICKER,
+   * paired deliberately on the Card Reader tab.
+   */
+  const requestPermissions = async () => {
+    setDetectMsg("Asking the browser for camera permission…");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      setPreviewOn(true);
+      // Live proof for 5s, then release the camera.
+      requestAnimationFrame(() => {
+        if (previewRef.current) {
+          previewRef.current.srcObject = stream;
+          void previewRef.current.play().catch(() => {});
+        }
+      });
+      setTimeout(() => {
+        stream.getTracks().forEach((t) => t.stop());
+        setPreviewOn(false);
+      }, 5000);
+      // Labels populate after a grant — refresh the pickers too.
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const vids = devices
+        .filter((d) => d.kind === "videoinput")
+        .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Camera ${i + 1}` }));
+      setCams(vids);
+      let serialNote = "";
+      try {
+        const nav = navigator as Navigator & { serial?: { getPorts(): Promise<unknown[]> } };
+        if (nav.serial) {
+          const ports = await nav.serial.getPorts();
+          serialNote =
+            ports.length > 0
+              ? " Card-reader serial: already granted."
+              : " Card-reader serial: pair it on the Card Reader tab.";
+        }
+      } catch {
+        /* serial status is informational only */
+      }
+      setDetectMsg(
+        `Camera permission GRANTED — ${vids.length} camera(s) available. Assign them below.${serialNote}`,
+      );
+    } catch (err) {
+      const name = err instanceof DOMException ? err.name : "";
+      setDetectMsg(
+        name === "NotAllowedError"
+          ? "Blocked without prompting — Edge has this site set to Block. Click the camera icon in the address bar (or edge://settings/content/camera) and set Allow, AND check Windows Settings → Privacy & security → Camera → 'Let desktop apps access your camera'. Then tap this again."
+          : name === "NotFoundError"
+            ? "No camera detected on this PC — check the USB connection."
+            : name === "NotReadableError"
+              ? "Another app is holding the camera (close Teams/Zoom/Camera) and try again."
+              : `Permission request failed${err instanceof Error && err.message ? `: ${err.message}` : ""}`,
+      );
+    }
+  };
+
+  const detect = async () => {
+    setDetectMsg("Detecting…");
+    try {
+      // Grant once so enumerateDevices returns real labels; stop immediately.
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      stream.getTracks().forEach((t) => t.stop());
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const vids = devices
+        .filter((d) => d.kind === "videoinput")
+        .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Camera ${i + 1}` }));
+      setCams(vids);
+      setDetectMsg(vids.length === 0 ? "No cameras found." : `${vids.length} camera(s) found.`);
+    } catch (err) {
+      // Name the failure precisely — "NotAllowedError" with the SITE permission
+      // set to Allow almost always means the WINDOWS privacy toggle: Settings →
+      // Privacy & security → Camera → "Let desktop apps access your camera".
+      const name = err instanceof DOMException ? err.name : "";
+      const hint =
+        name === "NotAllowedError"
+          ? " — if Chrome's site permission is Allow, check Windows Settings → Privacy & security → Camera → 'Let desktop apps access your camera'."
+          : name === "NotFoundError"
+            ? " — no camera detected on this PC (check the USB connection)."
+            : name === "NotReadableError"
+              ? " — another app is using the camera (close Teams/Zoom/Camera)."
+              : "";
+      setDetectMsg(
+        `Camera check failed${name ? ` (${name})` : ""}${
+          err instanceof Error && err.message ? `: ${err.message}` : ""
+        }${hint}`,
+      );
+    }
+  };
+
+  const camSelect = (
+    label: string,
+    value: string | null | undefined,
+    onPick: (id: string | null) => void,
+  ) => (
+    <Field label={label}>
+      <select
+        className={selectClass}
+        value={value ?? ""}
+        onChange={(e) => onPick(e.target.value || null)}
+      >
+        <option value="">None</option>
+        {/* Keep a saved id selectable even before Detect runs. */}
+        {value && !cams.some((c) => c.deviceId === value) && (
+          <option value={value}>Saved camera ({value.slice(0, 8)}…)</option>
+        )}
+        {cams.map((c) => (
+          <option key={c.deviceId} value={c.deviceId}>
+            {c.label}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+
+  return (
+    <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-semibold text-white/70">
+          Guest photo cameras (waiver capture)
+        </span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => void requestPermissions()}
+            className="rounded-lg bg-[#00e2e5] px-3 py-1.5 text-xs font-bold text-[#04252b]"
+          >
+            Prompt for permissions
+          </button>
+          <button
+            type="button"
+            onClick={() => void detect()}
+            className="rounded-lg border border-[#00e2e5]/40 px-3 py-1.5 text-xs font-bold text-[#00e2e5]"
+          >
+            Detect cameras
+          </button>
+        </div>
+      </div>
+      {detectMsg && <p className="text-xs text-white/45">{detectMsg}</p>}
+      {previewOn && (
+        // Live 5-second proof the grant + camera actually work.
+        // eslint-disable-next-line jsx-a11y/media-has-caption
+        <video
+          ref={previewRef}
+          autoPlay
+          playsInline
+          muted
+          className="w-full rounded-lg border border-white/15"
+          style={{ transform: "scaleX(-1)", maxHeight: 220, objectFit: "cover" }}
+        />
+      )}
+      {camSelect("Camera — upper (adults)", draft.cameraUpperId, (id) =>
+        patch({ cameraUpperId: id }),
+      )}
+      {camSelect("Camera — lower (kids / wheelchair)", draft.cameraLowerId, (id) =>
+        patch({ cameraLowerId: id }),
+      )}
+      <p className="text-xs text-white/40">
+        Photo is required for adults and optional for minors at waiver signing. No camera set →
+        capture is skipped and the front desk takes the photo at check-in.
+      </p>
     </div>
   );
 }

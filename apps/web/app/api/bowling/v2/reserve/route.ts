@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomBytes } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import { buildGanPrefix } from "@/lib/gan";
+import { kioskGzCartEnabled } from "~/features/kiosk/flags";
+import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
+import { startTxn, markCharged, markLoadState } from "~/features/game-cards/data/transactions-log";
 import {
   createReservation,
   getReservation,
@@ -65,6 +68,16 @@ const CONFIRM_RETRY_QUEUE = "qamf:bowling:confirm-retry";
  *  (`kiosk:terminal:anchor:${seed}`) so a single terminal-orphan reconcile can
  *  recover both. Best-effort: Square holds the durable order/payment; this is
  *  only the fast pointer (reconcile can also recover via the order's reference_id). */
+/** KIOSK Game Zone cards riding a terminal deposit order — ledger row pointers
+ *  persisted at PREPARE so finalize marks them charged (see unified rail). */
+type AnchorGameCards = {
+  mode: "new_card" | "reload";
+  groupId: string;
+  locationCode: number;
+  totalCents: number;
+  cards: Array<{ txnId: string; packageId: string; accountNumber: string }>;
+};
+
 async function writeBowlingTerminalAnchor(
   seed: string,
   anchor: {
@@ -73,6 +86,7 @@ async function writeBowlingTerminalAnchor(
     locationId: string;
     /** Stamped once the reader has captured (persist-at-capture, for reconcile). */
     paymentId?: string;
+    gameCards?: AnchorGameCards;
   },
 ): Promise<void> {
   try {
@@ -278,6 +292,19 @@ interface ReserveBody {
    */
   prepareOnly?: boolean;
   terminalSeed?: string;
+  /**
+   * KIOSK: Game Zone cards riding this bowling cart (owner 2026-07-18) — the
+   * card lines join the DEPOSIT order and the reader charge; fulfillment runs
+   * on the kiosk confirmation. Selection pointers only; the server re-derives
+   * every price from TOKEN_PACKAGES. Sent on BOTH prepareOnly and the finalize
+   * call (same session), so the idempotent order re-derivation byte-matches.
+   */
+  gameCardPurchase?: {
+    mode: "new_card" | "reload";
+    cards: Array<{ packageId: string; accountNumber?: string }>;
+  };
+  /** Intercard location code for the cards (kiosk center/brand derived). */
+  gameCardLocationCode?: number;
   externalPayment?: {
     paymentId: string;
     depositOrderId: string;
@@ -403,22 +430,72 @@ export async function POST(req: NextRequest) {
     }
     const prepLocationId = body.locationId ?? centerCode;
     try {
+      // Game Zone cards riding this cart: resolve server-side (never trust
+      // client cents), persist a ledger row per card BEFORE the order exists,
+      // and stash the pointers on the anchor for finalize. Mirrors the unified
+      // rail exactly.
+      const gz =
+        kioskGzCartEnabled() && body.gameCardPurchase
+          ? resolveCartPurchase(body.gameCardPurchase)
+          : null;
+      const gzCents = gz?.totalCents ?? 0;
+      let anchorGameCards: AnchorGameCards | undefined;
+      if (gz) {
+        const gzLoc = body.gameCardLocationCode;
+        if (typeof gzLoc !== "number") {
+          return NextResponse.json(
+            { error: "gameCardLocationCode required for Game Zone cards" },
+            { status: 400 },
+          );
+        }
+        const groupId = randomUUID();
+        const cards: AnchorGameCards["cards"] = [];
+        for (const c of gz.cards) {
+          const txnId = randomUUID();
+          await startTxn({
+            txnId,
+            groupId,
+            kind: gz.mode,
+            locationCode: gzLoc,
+            accountNumber: c.accountNumber,
+            packageId: c.packageId,
+            tokens: c.pkg.tokens,
+            bonusTokens: c.pkg.bonusTokens,
+            amountCents: c.pkg.priceCents,
+            tpiTransactionId: `${gz.mode === "new_card" ? "newcard" : "reload"}-${txnId}`,
+            contact: body.guest?.email
+              ? { name: body.guest.name, email: body.guest.email, phone: body.guest.phone }
+              : undefined,
+          });
+          cards.push({ txnId, packageId: c.packageId, accountNumber: c.accountNumber });
+        }
+        anchorGameCards = {
+          mode: gz.mode,
+          groupId,
+          locationCode: gzLoc,
+          totalCents: gzCents,
+          cards,
+        };
+      }
       const { depositOrderId } = await createDepositOrder({
         baseKey: seed,
         locationId: prepLocationId,
         amountCents: depositForReader,
         note: `Kiosk deposit ${seed.slice(0, 12)}`,
         asGiftCardLine: true,
+        extraLines: gz?.orderLines,
       });
       await writeBowlingTerminalAnchor(seed, {
         depositOrderId,
         depositCents: depositForReader,
         locationId: prepLocationId,
+        ...(anchorGameCards ? { gameCards: anchorGameCards } : {}),
       });
       console.log(
-        `[bowling/v2/reserve] TERMINAL PREPARE seed=${seed} order=${depositOrderId} deposit=${depositForReader}c loc=${prepLocationId}`,
+        `[bowling/v2/reserve] TERMINAL PREPARE seed=${seed} order=${depositOrderId} deposit=${depositForReader}c gz=${gzCents}c loc=${prepLocationId}`,
       );
-      return NextResponse.json({ seed, depositOrderId, depositCents: depositForReader });
+      // The reader charges the ORDER TOTAL: booking deposit + card lines.
+      return NextResponse.json({ seed, depositOrderId, depositCents: depositForReader + gzCents });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "prepare failed";
       console.error("[bowling/v2/reserve] TERMINAL PREPARE failed:", msg);
@@ -432,6 +509,15 @@ export async function POST(req: NextRequest) {
   if (!webOfferId || !bookedAt || !players?.length || !guest?.name) {
     return NextResponse.json(
       { error: "webOfferId, bookedAt, players, and guest are required" },
+      { status: 400 },
+    );
+  }
+
+  // Game Zone cards ride ONLY the kiosk reader rail — fail closed so a typed
+  // card payment can never silently drop paid-for cards.
+  if (body.gameCardPurchase?.cards?.length && !body.externalPayment) {
+    return NextResponse.json(
+      { error: "Game Zone cards in the cart require the reader payment." },
       { status: 400 },
     );
   }
@@ -974,6 +1060,21 @@ export async function POST(req: NextRequest) {
   let rewardDiscountCents = body.rewardDiscountCents ?? 0;
   let depositCents = 0; // actual charged amount (tax-inclusive)
   let totalCents = 0; // tax-inclusive day-of order total
+  /** KIOSK: charged Game Zone card rows for the confirmation screen to fulfill. */
+  let gameCardsResult:
+    | {
+        mode: "new_card" | "reload";
+        groupId: string;
+        locationCode: number;
+        cards: Array<{
+          txnId: string;
+          packageId: string;
+          accountNumber: string;
+          tokens: number;
+          bonusTokens: number;
+        }>;
+      }
+    | undefined;
 
   if (needsPayment) {
     const squareLocationId = body.locationId ?? centerCode;
@@ -1369,11 +1470,41 @@ export async function POST(req: NextRequest) {
         // verifies the payment server-side (COMPLETED + right order + amount +
         // location), then funds the gift card. Idempotent, so a retry replays. ──
         const ep = body.externalPayment;
+        // Game Zone cards riding the order: re-resolve the SAME lines prepare
+        // used (idempotent re-derivation must byte-match) + read the anchor for
+        // the ledger row pointers. Anchor lost with cards paid = fail loud.
+        const gzFin =
+          kioskGzCartEnabled() && body.gameCardPurchase
+            ? resolveCartPurchase(body.gameCardPurchase)
+            : null;
+        const gzFinCents = gzFin?.totalCents ?? 0;
+        let gzAnchorCards: AnchorGameCards | null = null;
+        if (gzFin) {
+          const anchorRaw = await redis.get(`kiosk:terminal:anchor:${ep.seed}`).catch(() => null);
+          const anchor =
+            typeof anchorRaw === "string"
+              ? (JSON.parse(anchorRaw) as { gameCards?: AnchorGameCards })
+              : (anchorRaw as { gameCards?: AnchorGameCards } | null);
+          gzAnchorCards = anchor?.gameCards ?? null;
+          if (!gzAnchorCards) {
+            console.error(
+              `[bowling/v2/reserve] gz cards paid but anchor lost seed=${ep.seed} — refusing to finalize silently`,
+            );
+            return NextResponse.json(
+              {
+                error:
+                  "We received your payment but couldn't find the card records — please see the front desk (do not pay again).",
+                terminal: true,
+              },
+              { status: 500 },
+            );
+          }
+        }
         // Displayed==charged tripwire: the amount the reader shows/charges is the
-        // prepare deposit; it must equal what reserve independently computes.
-        if (ep.amountCents !== chargeCents) {
+        // prepare deposit (+ cards); it must equal what reserve independently computes.
+        if (ep.amountCents !== chargeCents + gzFinCents) {
           console.error(
-            `[bowling/v2/reserve] terminal amount drift: reader ${ep.amountCents}c vs reserve ${chargeCents}c — refusing to finalize`,
+            `[bowling/v2/reserve] terminal amount drift: reader ${ep.amountCents}c vs reserve ${chargeCents + gzFinCents}c — refusing to finalize`,
           );
         }
         try {
@@ -1381,17 +1512,46 @@ export async function POST(req: NextRequest) {
           const depositResult = await finalizeDepositFromExternalPayment({
             baseKey: ep.seed,
             locationId: squareLocationId,
-            amountCents: chargeCents, // server-authoritative; finalize verifies the reader paid EXACTLY this
+            amountCents: chargeCents, // server-authoritative; finalize verifies the reader paid EXACTLY this (+ card lines)
             ganPrefix,
             ganSuffix,
             note: depositNote,
             externalPaymentId: ep.paymentId,
+            extraLines: gzFin?.orderLines,
+            extraCents: gzFinCents,
           });
           squareDepositOrderId = depositResult.depositOrderId;
           squareDepositPaymentId = depositResult.depositPaymentId;
           squareGiftCardId = depositResult.giftCardId ?? undefined;
           squareGiftCardGan = depositResult.giftCardGan ?? undefined;
           depositCents = chargeCents;
+          // Payment verified — mark the card rows charged (reloads also pending
+          // for the bridge) + hand the fulfillment payload back to the kiosk.
+          if (gzAnchorCards && gzFin) {
+            for (const c of gzAnchorCards.cards) {
+              await markCharged(c.txnId, depositResult.depositOrderId ?? "", {
+                card: ep.paymentId,
+              });
+              if (gzAnchorCards.mode === "reload") {
+                await markLoadState(c.txnId, "pending", "awaiting on-prem bridge load");
+              }
+            }
+            gameCardsResult = {
+              mode: gzAnchorCards.mode,
+              groupId: gzAnchorCards.groupId,
+              locationCode: gzAnchorCards.locationCode,
+              cards: gzAnchorCards.cards.map((c) => {
+                const resolved = gzFin.cards.find((r) => r.packageId === c.packageId);
+                return {
+                  txnId: c.txnId,
+                  packageId: c.packageId,
+                  accountNumber: c.accountNumber,
+                  tokens: resolved?.pkg.tokens ?? 0,
+                  bonusTokens: resolved?.pkg.bonusTokens ?? 0,
+                };
+              }),
+            };
+          }
         } catch (err) {
           // Money is ALREADY captured on the reader. Do NOT delete the QAMF
           // reservation and do NOT imply a re-charge. Stamp the paymentId on the
@@ -1909,5 +2069,8 @@ export async function POST(req: NextRequest) {
     confirmationPath: shortCode
       ? `${confirmBase}?code=${shortCode}`
       : `${confirmBase}?neonId=${neonId}`,
+    // KIOSK: Game Zone cards charged with this booking — the confirmation
+    // screen fulfills them (dispense/load or bridge reload).
+    ...(gameCardsResult ? { gameCards: gameCardsResult } : {}),
   });
 }

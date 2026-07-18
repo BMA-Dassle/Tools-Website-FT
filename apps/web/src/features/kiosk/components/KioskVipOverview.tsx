@@ -10,7 +10,11 @@
  * with the VIP photo backdrop.
  */
 import type { ComboLeg, ComboSpecial } from "~/features/combos";
-import { comboPriceCentsForDate, comboMinHeadcount } from "~/features/combos/combo-specials";
+import {
+  comboPriceCentsForDate,
+  comboMinHeadcount,
+  comboStartHoursLabel,
+} from "~/features/combos/combo-specials";
 import { todayYmd } from "../service/first-available";
 import { KIOSK_LOGOS } from "../assets";
 
@@ -74,6 +78,13 @@ export function KioskVipOverview({
           ${(combo.price.weekday / 100).toFixed(0)}/person Mon–Thu · $
           {(combo.price.weekend / 100).toFixed(0)}/person Fri–Sun
         </div>
+        {/* Estimated start times (owner 2026-07-18) — registry-driven, so a
+            future combo with different hours self-updates. */}
+        {combo.startHours?.length ? (
+          <div className="mt-[8px] text-[26px] font-semibold text-[#e8b14c] tabular-nums">
+            Estimated start times: {comboStartHoursLabel(combo)}
+          </div>
+        ) : null}
       </div>
 
       <div className="k-flow-body">

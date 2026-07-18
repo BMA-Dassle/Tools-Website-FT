@@ -23,7 +23,7 @@ import { useEffect, useRef, useState } from "react";
 import PaymentForm from "@/components/square/PaymentForm";
 import { KioskTerminalCheckoutGate } from "./KioskTerminalCheckoutGate";
 import { creditTokensViaBridge } from "../service/game-card-bridge";
-import { kioskTerminalEnabled } from "~/features/kiosk/flags";
+import { kioskTerminalEnabled, kioskGzCartEnabled } from "~/features/kiosk/flags";
 import {
   TOKEN_PACKAGES,
   ACTIVATION_FEE_CENTS,
@@ -32,6 +32,7 @@ import {
 import { centerCodeFor } from "~/config/intercard-centers";
 import type { Brand, CenterCode } from "~/features/booking";
 import { useGameCardDispenser, type FaultBehavior } from "../card-reader";
+import type { GameCardCartPurchase } from "~/features/booking/state/types";
 import { useKioskConfig } from "../KioskConfigContext";
 import { BrandedLoader } from "./BrandedLoader";
 import { KioskDispenserHold } from "./KioskDispenserHold";
@@ -89,12 +90,25 @@ function displayCardNumber(acct: string): string {
   return acct.replace(/^0+(?=\d)/, "");
 }
 
+/** One recent-activity row from the verify lookup (web ReloadFlow parity). */
+interface BalanceTxn {
+  transType?: string;
+  tokens?: number;
+  bonusTokens?: number;
+  points?: number;
+  timeStamp?: string;
+  location?: string;
+  device?: string;
+}
+
 /** Balance-check card state (mode "balance" — one card at a time, owner rule). */
 interface BalanceCard {
   accountNumber: string;
   status: "reading" | "checking" | "ok" | "bad";
   name?: string;
   balance?: { tokens: number; bonusTokens: number; eTickets: number; timeMinutes: number };
+  /** Recent card activity — shown like the web reload page (owner 2026-07-18). */
+  transactions?: BalanceTxn[];
 }
 
 /** Token-package tile body — labels the amount as TOKENS and calls out the free
@@ -303,6 +317,7 @@ export function KioskGameZone({
             eTickets: bal.eTickets ?? 0,
             timeMinutes: bal.timeMinutes ?? 0,
           },
+          transactions: Array.isArray(data.transactions) ? data.transactions : undefined,
         });
       } else {
         setBalCard({ accountNumber: acct, status: "bad" });
@@ -321,6 +336,29 @@ export function KioskGameZone({
     }
     await fetchBalance(r.value);
   };
+
+  // AUTO-ARM the card slot (owner 2026-07-18: "guest should never have to push
+  // a button to insert a card"): whenever a screen is WAITING on a card — the
+  // balance screen with none read yet, or the expanded reload row with no
+  // account — open the gate ourselves. acceptAndRead times out after 30s (and
+  // the gate closes after every read), so this re-arms on a 400ms debounce;
+  // dispenser.busy guards double-arming and the cleanup cancels stale arms.
+  // Placed AFTER the read handlers so the closure never references them
+  // before declaration; still above every early return (hooks order safe).
+  useEffect(() => {
+    if (!readerReady || dispenser.busy || phase !== "cart") return;
+    const armBalance = mode === "balance" && !balCard;
+    const reloadRow = mode === "reload" && reloadEditIdx != null ? cards[reloadEditIdx] : undefined;
+    const armReload =
+      !!reloadRow && !reloadRow.accountNumber.trim() && reloadRow.status === "unverified";
+    if (!armBalance && !armReload) return;
+    const t = setTimeout(() => {
+      if (armBalance) void readBalanceCard();
+      else if (reloadEditIdx != null) void readReloadCard(reloadEditIdx);
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readerReady, dispenser.busy, phase, mode, balCard, reloadEditIdx, cards]);
 
   // BUY: one upfront charge for the basket, THEN dispense + load + present each
   // card one at a time (load must clear before a card is handed over).
@@ -803,6 +841,45 @@ export function KioskGameZone({
                 </div>
               )}
             </div>
+            {/* Recent activity — web /reload parity (owner 2026-07-18). */}
+            {balCard.transactions && balCard.transactions.length > 0 && (
+              <div className="mt-5 border-t border-white/10 pt-4">
+                <div className="text-sm font-bold uppercase tracking-[0.25em] text-white/45">
+                  Recent activity
+                </div>
+                <ul className="mt-2 max-h-[420px] space-y-1.5 overflow-y-auto pr-1">
+                  {balCard.transactions.slice(0, 10).map((t, i) => {
+                    const tok = t.tokens || t.bonusTokens || 0;
+                    const detail = tok
+                      ? `${tok > 0 ? "+" : ""}${tok} tokens`
+                      : t.points
+                        ? `${t.points > 0 ? "+" : ""}${t.points} eTickets`
+                        : "";
+                    const when = t.timeStamp ? t.timeStamp.slice(0, 16) : "";
+                    return (
+                      <li
+                        key={i}
+                        className="flex items-start justify-between gap-3 rounded-lg bg-white/[0.03] px-4 py-2.5"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-base text-white/80">
+                            {t.transType || "Activity"}
+                            {t.device ? ` · ${t.device}` : ""}
+                          </div>
+                          <div className="text-sm text-white/40">
+                            {t.location || "—"}
+                            {when ? ` · ${when}` : ""}
+                          </div>
+                        </div>
+                        <span className="shrink-0 text-base font-semibold tabular-nums text-white/70">
+                          {detail}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
             <div className="mt-6 grid grid-cols-2 gap-3">
               <button
                 type="button"
@@ -1124,15 +1201,36 @@ export function KioskGameZone({
               includes ${(ACTIVATION_FEE_CENTS / 100).toFixed(0)} activation per card
             </div>
           </div>
-          <button
-            type="button"
-            disabled={!readerReady || dispenser.stacker === "empty"}
-            onClick={() => setPhase("paying")}
-            className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
-          >
-            Pay &amp; dispense
-          </button>
+          {addToVisit ? (
+            <button
+              type="button"
+              disabled={!readerReady || dispenser.stacker === "empty"}
+              onClick={() =>
+                addToVisit({
+                  mode: "new_card",
+                  cards: newCards.map((c) => ({ packageId: c.packageId })),
+                })
+              }
+              className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
+            >
+              Add to my visit
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={!readerReady || dispenser.stacker === "empty"}
+              onClick={() => setPhase("paying")}
+              className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
+            >
+              Pay &amp; dispense
+            </button>
+          )}
         </div>
+        {addToVisit && (
+          <p className="mt-2 text-center text-sm text-white/45">
+            Cards are paid with your booking at checkout and dispense on the confirmation screen.
+          </p>
+        )}
         {!readerReady ? (
           <p className="mt-2 text-center text-sm text-amber-300/80">
             {dispenser.reconnecting
@@ -1225,7 +1323,25 @@ export function KioskGameZone({
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-2 py-6">
+    <div className="relative mx-auto max-w-2xl px-2 py-6">
+      {/* READ LOCK (owner 2026-07-18: a guest tapped "+ Add another card" mid-
+          read): while the reader is holding/reading a card, block every button
+          on this screen. The utility strip (Start over / Guest assistance)
+          lives outside this component and stays reachable; a no-card read
+          times out on its own in ~30s. */}
+      {dispenser.busy && (
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center rounded-2xl bg-[#000418]/88 backdrop-blur-sm">
+          <BrandedLoader
+            brand={brand}
+            label={dispenser.busy === "presenting card" ? "Take your card" : "Insert your card"}
+            sublabel={
+              dispenser.busy === "presenting card"
+                ? "It's coming back out now"
+                : "Reading it takes a second — it comes right back"
+            }
+          />
+        </div>
+      )}
       <div className="mb-5 flex items-center justify-between">
         <h1 className="font-heading text-4xl font-extrabold italic">Reload game cards</h1>
         <button
@@ -1397,15 +1513,39 @@ export function KioskGameZone({
         <div className="font-heading text-2xl font-extrabold tabular-nums">
           ${(totalCents / 100).toFixed(2)}
         </div>
-        <button
-          type="button"
-          disabled={!allReady}
-          onClick={() => setPhase("paying")}
-          className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
-        >
-          Pay &amp; load
-        </button>
+        {addToVisit ? (
+          <button
+            type="button"
+            disabled={!allReady}
+            onClick={() =>
+              addToVisit({
+                mode: "reload",
+                cards: cards.map((c) => ({
+                  packageId: c.packageId,
+                  accountNumber: c.accountNumber.trim(),
+                })),
+              })
+            }
+            className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
+          >
+            Add to my visit
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={!allReady}
+            onClick={() => setPhase("paying")}
+            className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
+          >
+            Pay &amp; load
+          </button>
+        )}
       </div>
+      {addToVisit && (
+        <p className="mt-2 text-center text-sm text-white/45">
+          Tokens are paid with your booking at checkout and load right after payment.
+        </p>
+      )}
       {!allReady && (
         <p className="mt-2 text-center text-sm text-white/40">
           Check each card number to continue.

@@ -7,7 +7,8 @@
  * /api/bowling/v2/reserve (not /api/booking/v2/reserve).
  */
 import type { BookingService, BookingQuote } from "./index";
-import type { BowlingItem, KbfItem, BookingSession } from "../state/types";
+import type { BowlingItem, KbfItem, BookingSession, GameCardCartPurchase } from "../state/types";
+import { centerCodeFor } from "~/config/intercard-centers";
 import type { ContactInfo } from "../types";
 import type { PaymentSourceKind } from "~/features/card-vault/types";
 import type { Dispatch } from "react";
@@ -173,6 +174,19 @@ export interface BowlingReserveResult {
   squareDayofOrderId: string | null;
   depositCents: number;
   totalCents: number;
+  /** KIOSK: charged Game Zone card rows for the confirmation screen to fulfill. */
+  gameCards?: {
+    mode: "new_card" | "reload";
+    groupId: string;
+    locationCode: number;
+    cards: Array<{
+      txnId: string;
+      packageId: string;
+      accountNumber: string;
+      tokens: number;
+      bonusTokens: number;
+    }>;
+  };
 }
 
 export async function bowlingReserve(params: BowlingReserveParams): Promise<BowlingReserveResult> {
@@ -254,6 +268,15 @@ export async function bowlingReserve(params: BowlingReserveParams): Promise<Bowl
       ...(session.appliedPromo ? { promoCode: session.appliedPromo.code } : {}),
       // Kiosk sessions stamp their source so the admin board can badge them.
       ...(session.context?.kiosk ? { bookingSource: "kiosk" } : {}),
+      // KIOSK: Game Zone cards riding this cart — the reserve route re-resolves
+      // the exact deposit-order lines prepare created and marks the ledger rows
+      // charged (owner 2026-07-18). Same session on prepare + finalize.
+      ...(session.context?.kiosk && session.gameCardPurchase
+        ? {
+            gameCardPurchase: session.gameCardPurchase,
+            gameCardLocationCode: centerCodeFor(session.center ?? "fort-myers", session.entryBrand),
+          }
+        : {}),
       // World Cup match-mode bookings: the slug lets the route run the
       // fixture/center validation + staff title/banner (bowling-only carts
       // reserve through this route, not unified-reserve).
@@ -324,6 +347,8 @@ export async function bowlingReserve(params: BowlingReserveParams): Promise<Bowl
     squareDayofOrderId: data.squareDayofOrderId ?? null,
     depositCents: data.depositCents ?? 0,
     totalCents: data.totalCents ?? 0,
+    // KIOSK: charged Game Zone card rows — the confirmation screen fulfills them.
+    ...(data.gameCards ? { gameCards: data.gameCards } : {}),
   };
 }
 
@@ -348,6 +373,9 @@ export async function bowlingTerminalPrepare(params: {
    * bowling center's own location, unchanged.
    */
   depositLocationId?: string;
+  /** KIOSK: Game Zone cards riding this cart — lines join the deposit order. */
+  gameCardPurchase?: GameCardCartPurchase;
+  gameCardLocationCode?: number;
 }): Promise<{ seed: string; depositOrderId: string; depositCents: number }> {
   const { item } = params;
   const seed = params.seed ?? crypto.randomUUID();
@@ -372,6 +400,13 @@ export async function bowlingTerminalPrepare(params: {
       centerId,
       locationId,
       depositCents,
+      // Game Zone cards riding the cart → lines on the deposit order.
+      ...(params.gameCardPurchase
+        ? {
+            gameCardPurchase: params.gameCardPurchase,
+            gameCardLocationCode: params.gameCardLocationCode,
+          }
+        : {}),
       // Enough to satisfy the body shape; the prepare branch returns before the
       // full-booking required-fields gate reads these.
       webOfferId: item.webOfferId,
