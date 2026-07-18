@@ -20,10 +20,36 @@ export class LogRing {
   private nextId = 1;
   private listeners = new Set<() => void>();
   private snapshotCache: readonly LogEntry[] = [];
-  private dirty = false;
+  private flushScheduled = false;
 
   constructor(capacity = 300) {
     this.capacity = capacity;
+  }
+
+  /**
+   * Publish the current entries to subscribers, at most once per scheduled
+   * tick. The snapshot is rebuilt HERE (not lazily in snapshot()) so the value
+   * only advances together with a notification — useSyncExternalStore never sees
+   * a changed snapshot without a matching subscribe callback (no tearing).
+   */
+  private flush = (): void => {
+    this.flushScheduled = false;
+    this.snapshotCache = this.entries.slice();
+    for (const cb of this.listeners) cb();
+  };
+
+  /**
+   * Coalesce bursts: a wrong-baud probe (or line noise) can emit hundreds of
+   * frame/garbage events in a tick. Notifying React synchronously on each one
+   * re-renders the whole admin panel per byte and FREEZES the tab the moment the
+   * COM device connects. Batching to ~one notify per 40ms tick makes a flood
+   * survivable while keeping the live log responsive. (Owner 2026-07-19: admin
+   * froze as soon as the COM device connected.)
+   */
+  private scheduleFlush(): void {
+    if (this.flushScheduled) return;
+    this.flushScheduled = true;
+    setTimeout(this.flush, 40);
   }
 
   push(e: EngineLogEvent): void {
@@ -31,22 +57,18 @@ export class LogRing {
     if (this.entries.length > this.capacity) {
       this.entries.splice(0, this.entries.length - this.capacity);
     }
-    this.dirty = true;
-    for (const cb of this.listeners) cb();
+    this.scheduleFlush();
   }
 
   clear(): void {
     this.entries = [];
-    this.dirty = true;
+    this.snapshotCache = [];
+    this.flushScheduled = false;
     for (const cb of this.listeners) cb();
   }
 
-  /** Newest-last; identity stable between mutations. */
+  /** Newest-last; identity stable between flushes. */
   snapshot(): readonly LogEntry[] {
-    if (this.dirty) {
-      this.snapshotCache = [...this.entries];
-      this.dirty = false;
-    }
     return this.snapshotCache;
   }
 
