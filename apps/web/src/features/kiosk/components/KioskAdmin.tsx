@@ -365,6 +365,7 @@ function DeviceTab({
         on={!!draft.msrEnabled}
         onToggle={(v) => patch({ msrEnabled: v })}
       />
+      <CameraPickers draft={draft} patch={patch} />
       <p className="-mt-2 text-xs text-white/40">
         {draft.dispenserId
           ? "Dispenser present → full Game Zone (buy + reload); MSR setting ignored."
@@ -379,6 +380,96 @@ function DeviceTab({
       >
         Save setup (local + cloud)
       </button>
+    </div>
+  );
+}
+
+/**
+ * Guest-photo camera pickers (owner 2026-07-18: waiver-time photo, some kiosks
+ * have an UPPER + LOWER camera). "Detect cameras" asks for the one-time camera
+ * permission (labels are blank until granted), then lists videoinputs for each
+ * slot. Single-camera kiosks set Upper only; clearing both disables capture
+ * (the waiver flow falls back to a photo-at-check-in marker).
+ */
+function CameraPickers({
+  draft,
+  patch,
+}: {
+  draft: Partial<KioskConfig>;
+  patch: (p: Partial<KioskConfig>) => void;
+}) {
+  const [cams, setCams] = useState<Array<{ deviceId: string; label: string }>>([]);
+  const [detectMsg, setDetectMsg] = useState<string | null>(null);
+
+  const detect = async () => {
+    setDetectMsg("Detecting…");
+    try {
+      // Grant once so enumerateDevices returns real labels; stop immediately.
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      stream.getTracks().forEach((t) => t.stop());
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const vids = devices
+        .filter((d) => d.kind === "videoinput")
+        .map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Camera ${i + 1}` }));
+      setCams(vids);
+      setDetectMsg(vids.length === 0 ? "No cameras found." : `${vids.length} camera(s) found.`);
+    } catch (err) {
+      setDetectMsg(
+        err instanceof Error ? `Camera permission failed: ${err.message}` : "Camera check failed.",
+      );
+    }
+  };
+
+  const camSelect = (
+    label: string,
+    value: string | null | undefined,
+    onPick: (id: string | null) => void,
+  ) => (
+    <Field label={label}>
+      <select
+        className={selectClass}
+        value={value ?? ""}
+        onChange={(e) => onPick(e.target.value || null)}
+      >
+        <option value="">None</option>
+        {/* Keep a saved id selectable even before Detect runs. */}
+        {value && !cams.some((c) => c.deviceId === value) && (
+          <option value={value}>Saved camera ({value.slice(0, 8)}…)</option>
+        )}
+        {cams.map((c) => (
+          <option key={c.deviceId} value={c.deviceId}>
+            {c.label}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
+
+  return (
+    <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold text-white/70">
+          Guest photo cameras (waiver capture)
+        </span>
+        <button
+          type="button"
+          onClick={() => void detect()}
+          className="rounded-lg border border-[#00e2e5]/40 px-3 py-1.5 text-xs font-bold text-[#00e2e5]"
+        >
+          Detect cameras
+        </button>
+      </div>
+      {detectMsg && <p className="text-xs text-white/45">{detectMsg}</p>}
+      {camSelect("Camera — upper (adults)", draft.cameraUpperId, (id) =>
+        patch({ cameraUpperId: id }),
+      )}
+      {camSelect("Camera — lower (kids / wheelchair)", draft.cameraLowerId, (id) =>
+        patch({ cameraLowerId: id }),
+      )}
+      <p className="text-xs text-white/40">
+        Photo is required for adults and optional for minors at waiver signing. No camera set →
+        capture is skipped and the front desk takes the photo at check-in.
+      </p>
     </div>
   );
 }

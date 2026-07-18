@@ -36,6 +36,9 @@ import {
   ReturningRacerLookup,
   type PersonData,
 } from "~/components/features/booking/steps/race/ReturningRacerLookup";
+import { useKioskConfig } from "../KioskConfigContext";
+import { kioskHasCamera } from "../config";
+import { KioskWaiverPhoto } from "../components/KioskWaiverPhoto";
 
 /** Waiver-gated attraction slugs (duckpin is exempt — uses the party-count step). */
 const WAIVER_SLUGS = new Set(["gel-blaster", "laser-tag", "shuffly"]);
@@ -114,6 +117,11 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   // needed" before the check resolves (owner 2026-07-19). Shown as "Checking
   // waiver…" instead, with no Set up button until we actually know.
   const [checkingIds, setCheckingIds] = useState<Set<string>>(new Set());
+  // Waiver-time photo (owner 2026-07-18): captured BEFORE the signature —
+  // required for adults, optional for minors. Tracks WHICH member's photo step
+  // has been completed/skipped so each signer gets their own capture.
+  const { config: kioskCfg } = useKioskConfig();
+  const [photoDoneFor, setPhotoDoneFor] = useState<string | null>(null);
 
   const adults = party.filter((m) => !m.isMinor);
   const setBusyAll = (b: boolean) => setBusyLocal(b);
@@ -909,35 +917,65 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         </div>
       )}
 
-      {/* the REAL waiver: Pandora template + touch signature → signWaiverDigital */}
-      {waiverFor && (
-        <div className="fixed inset-0 z-[76] overflow-y-auto bg-[#000418] p-[48px]">
-          <div className="mx-auto max-w-[900px]">
-            <WaiverSigning
-              personId={waiverFor.personId}
-              template={waiverFor.template}
-              location={brandLocation}
-              heading={isRace ? "Racing Waiver" : "Activity Waiver"}
-              subheading="Read and sign below — it stays on file for your whole visit."
-              onComplete={() => {
-                dispatch({
-                  type: "updatePartyMember",
-                  id: waiverFor.memberId,
-                  patch: { waiverValid: true },
-                });
-                setWaiverFor(null);
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => setWaiverFor(null)}
-              className="mt-[24px] w-full rounded-2xl border border-white/15 px-[28px] py-[18px] text-[24px] font-semibold text-white/60"
-            >
-              Cancel — sign later
-            </button>
-          </div>
-        </div>
-      )}
+      {/* the REAL waiver: photo first (required adults / optional minors), then
+          Pandora template + touch signature → signWaiverDigital. One overlay =
+          "the same page" (owner 2026-07-18); no camera configured → straight to
+          the signature (front desk photographs at check-in). */}
+      {waiverFor &&
+        (() => {
+          const signer = party.find((p) => p.id === waiverFor.memberId);
+          const needPhoto = kioskHasCamera(kioskCfg) && photoDoneFor !== waiverFor.memberId;
+          return (
+            <div className="fixed inset-0 z-[76] overflow-y-auto bg-[#000418] p-[48px]">
+              {needPhoto ? (
+                <KioskWaiverPhoto
+                  memberName={signer?.firstName ?? "Guest"}
+                  isMinor={!!signer?.isMinor}
+                  onCaptured={(pngBase64) => {
+                    // Fire-and-forget: the route persists to Neon FIRST and the
+                    // sweep retries Pandora — never hold the waiver on network.
+                    void fetch("/api/pandora/person-picture", {
+                      method: "POST",
+                      headers: { "content-type": "application/json" },
+                      body: JSON.stringify({
+                        personId: waiverFor.personId,
+                        location: session.center === "naples" ? "naples" : brandLocation,
+                        pngBase64,
+                      }),
+                    }).catch(() => {});
+                    setPhotoDoneFor(waiverFor.memberId);
+                  }}
+                  onSkip={() => setPhotoDoneFor(waiverFor.memberId)}
+                />
+              ) : (
+                <div className="mx-auto max-w-[900px]">
+                  <WaiverSigning
+                    personId={waiverFor.personId}
+                    template={waiverFor.template}
+                    location={brandLocation}
+                    heading={isRace ? "Racing Waiver" : "Activity Waiver"}
+                    subheading="Read and sign below — it stays on file for your whole visit."
+                    onComplete={() => {
+                      dispatch({
+                        type: "updatePartyMember",
+                        id: waiverFor.memberId,
+                        patch: { waiverValid: true },
+                      });
+                      setWaiverFor(null);
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setWaiverFor(null)}
+                    className="mt-[24px] w-full rounded-2xl border border-white/15 px-[28px] py-[18px] text-[24px] font-semibold text-white/60"
+                  >
+                    Cancel — sign later
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })()}
     </div>
   );
 };
