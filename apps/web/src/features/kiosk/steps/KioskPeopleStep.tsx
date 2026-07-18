@@ -350,19 +350,64 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           });
         }
       } else {
-        // Account exists — just capture the waiver (no duplicate Pandora person).
-        const template = await pandoraFetchWaiverTemplate(age, brandLocation);
-        dispatch({
-          type: "updatePartyMember",
-          id: member.id,
-          patch: {
-            isMinor: minor,
-            category: age < 13 ? "junior" : "adult",
-            guardianMemberId: minor ? gid : undefined,
-          },
-        });
-        resetForm();
-        setWaiverFor({ memberId: member.id, personId: member.bmiPersonId, template });
+        // Account exists (returning racer) — but the lookup's id is the
+        // 17-digit OFFICE id, which Pandora's waiver-sign endpoint REJECTS
+        // (live 2026-07-18: sign 500s; the "second time worked" because the
+        // upsert-style Pandora create resolved the same human to their SHORT
+        // id). Resolve the short id via that same upsert (known person → same
+        // personId, never a duplicate) using the member's OWN phone/email as
+        // the dedup identity, then sign against it. It also returns the REAL
+        // waiver status — a regular with a current waiver skips signing.
+        const dedupPhone = member.phone?.trim() ?? "";
+        const dedupEmail = member.email?.trim() ?? "";
+        if (dedupPhone || dedupEmail) {
+          const guardian = minor ? party.find((m) => m.id === gid) : undefined;
+          const result = await pandoraOnboardGuest(
+            {
+              firstName: member.firstName,
+              lastName: member.lastName ?? "",
+              email: dedupEmail,
+              phone: dedupPhone,
+              birthdate: toIsoDob(dob),
+              guardianID: guardian?.pandoraPersonId ?? guardian?.bmiPersonId,
+            },
+            brandLocation,
+          );
+          dispatch({
+            type: "updatePartyMember",
+            id: member.id,
+            patch: {
+              pandoraPersonId: result.personId,
+              waiverValid: result.waiverValid,
+              isMinor: minor,
+              category: age < 13 ? "junior" : "adult",
+              guardianMemberId: minor ? gid : undefined,
+            },
+          });
+          resetForm();
+          if (!result.waiverValid && result.template) {
+            setWaiverFor({
+              memberId: member.id,
+              personId: result.personId,
+              template: result.template,
+            });
+          }
+        } else {
+          // No phone/email on file to dedup against — DON'T upsert (risk of a
+          // duplicate person). Old path; the front desk can sign at check-in.
+          const template = await pandoraFetchWaiverTemplate(age, brandLocation);
+          dispatch({
+            type: "updatePartyMember",
+            id: member.id,
+            patch: {
+              isMinor: minor,
+              category: age < 13 ? "junior" : "adult",
+              guardianMemberId: minor ? gid : undefined,
+            },
+          });
+          resetForm();
+          setWaiverFor({ memberId: member.id, personId: member.bmiPersonId, template });
+        }
       }
     } catch (err) {
       setFormError(
