@@ -89,3 +89,42 @@ export async function readSquarePayment(id: string): Promise<{
     locationId: p.location_id,
   };
 }
+
+export type SquarePaymentRead = NonNullable<Awaited<ReturnType<typeof readSquarePayment>>>;
+
+/** Payment statuses that will never become COMPLETED — stop polling immediately. */
+const TERMINAL_FAILURE_STATUSES = new Set(["FAILED", "CANCELED"]);
+
+/**
+ * Read a reader payment, tolerating Square's brief post-checkout propagation
+ * lag. A Terminal checkout flips to COMPLETED (and hands us a payment id) a
+ * moment before `GET /payments/{id}` reflects that same payment as COMPLETED —
+ * sometimes it 404s or reads back APPROVED (autocomplete still capturing) for a
+ * second or two. A single read therefore rejected a perfectly good capture as
+ * "unverified", stranding the guest's money (the reload-alerts / reconcile cron
+ * only recovers rows we managed to mark charged — and we throw BEFORE that).
+ *
+ * So poll: return as soon as the payment reads COMPLETED, bail early on a
+ * terminal failure (declined/canceled — don't wait it out), else keep trying to
+ * the attempt budget. Only COMPLETED is ever accepted by the caller, so this
+ * never weakens the server-side tripwire — it just gives a real capture time to
+ * settle. ~4s worst case (6 reads, 700 ms apart) fits inside the finalize POST.
+ */
+export async function readSquarePaymentSettled(
+  id: string,
+  opts: { attempts?: number; delayMs?: number } = {},
+): Promise<SquarePaymentRead | null> {
+  const attempts = Math.max(1, opts.attempts ?? 6);
+  const delayMs = opts.delayMs ?? 700;
+  let last: SquarePaymentRead | null = null;
+  for (let i = 0; i < attempts; i++) {
+    last = await readSquarePayment(id);
+    if (last?.status === "COMPLETED") return last;
+    if (last && TERMINAL_FAILURE_STATUSES.has(last.status)) return last;
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+  }
+  console.error(
+    `[game-cards] reader payment ${id} not COMPLETED after ${attempts} reads — last status=${last?.status ?? "not-found"}`,
+  );
+  return last;
+}

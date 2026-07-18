@@ -260,6 +260,38 @@ export async function getSquarePayment(id: string): Promise<{
   }
 }
 
+/** Payment statuses that will never become COMPLETED — stop polling early. */
+const TERMINAL_FAILURE_STATUSES = new Set(["FAILED", "CANCELED"]);
+
+/**
+ * getSquarePayment with a short retry for Square's post-checkout propagation
+ * lag: a card-present Terminal checkout reports COMPLETED (and hands the client
+ * a payment id) a beat before `GET /payments/{id}` reflects it — the read can
+ * 404 or come back APPROVED for a second or two while autocomplete captures. A
+ * single read therefore rejected a good capture as "unverified" (and reserve
+ * throws BEFORE recording it → the guest's money sits captured with no booking).
+ * Only COMPLETED is accepted by the caller, so this never weakens the tripwire;
+ * it just lets a real capture settle. Bails early on a terminal failure.
+ */
+export async function getSquarePaymentSettled(
+  id: string,
+  opts: { attempts?: number; delayMs?: number } = {},
+): Promise<Awaited<ReturnType<typeof getSquarePayment>>> {
+  const attempts = Math.max(1, opts.attempts ?? 6);
+  const delayMs = opts.delayMs ?? 700;
+  let last: Awaited<ReturnType<typeof getSquarePayment>> = null;
+  for (let i = 0; i < attempts; i++) {
+    last = await getSquarePayment(id);
+    if (last?.status === "COMPLETED") return last;
+    if (last && TERMINAL_FAILURE_STATUSES.has(last.status)) return last;
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+  }
+  console.error(
+    `[deposit] reader payment ${id} not COMPLETED after ${attempts} reads — last status=${last?.status ?? "not-found"}`,
+  );
+  return last;
+}
+
 /**
  * KIOSK DIRECT-TERMINAL finalize — "record the reader payment, do NOT re-charge".
  *

@@ -22,7 +22,7 @@ import { getPackage } from "../constants";
 import { GameCardHttpError } from "../errors";
 import type { TerminalPrepareInput, TerminalFinalizeInput } from "../schemas";
 import { verifyAccount, IntercardError } from "../data/intercard";
-import { createReloadOrder, readSquarePayment } from "../data/square-order";
+import { createReloadOrder, readSquarePaymentSettled } from "../data/square-order";
 import { startTxn, markCharged, markLoadState, getTxn } from "../data/transactions-log";
 
 export interface TerminalPreparedRow {
@@ -174,8 +174,10 @@ export async function finalizeTerminalPurchase(
   const expectedCents = txns.reduce((s, t) => s + t.amountCents, 0);
 
   // Verify the reader payment server-side (displayed==charged tripwire lives here).
+  // Poll briefly: the Terminal checkout reports COMPLETED a beat before
+  // GET /payments reflects it, so a single read stranded good captures.
   const ep = input.externalPayment;
-  const pay = await readSquarePayment(ep.paymentId);
+  const pay = await readSquarePaymentSettled(ep.paymentId);
   if (!pay || pay.status !== "COMPLETED") {
     throw new GameCardHttpError(
       402,
