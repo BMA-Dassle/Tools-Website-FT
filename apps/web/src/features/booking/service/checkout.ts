@@ -323,20 +323,37 @@ export async function saveBookingDetails(
     /* non-fatal */
   }
 
-  // Comprehensive booking record (90d TTL)
+  // Comprehensive booking record (90d TTL). These racers are later POSTed to
+  // /bmi/schedule (session assignment) by the confirmation page — that endpoint
+  // REQUIRES tier, category, and heatStop (strings); omitting them 400s and the
+  // racers are silently never assigned (proven live 2026-07-19). Include them.
+  const heatStopFrom = (startIso: string): string => {
+    // +7 min on the naive center-local clock (matches the /bmi/schedule doc
+    // example 16:00→16:07); parse-as-UTC so it round-trips regardless of host TZ.
+    const d = new Date(startIso.endsWith("Z") ? startIso : `${startIso}Z`);
+    d.setUTCMinutes(d.getUTCMinutes() + 7);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}T${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+  };
   const racerAssignments = raceItems.flatMap((r) =>
     r.heats
       .filter((h) => h.assignedTo && h.heatId)
       .map((h) => {
         const member = session.party.find((m) => m.id === h.assignedTo);
         const raceProduct = h.productId ? getRaceProductById(h.productId) : null;
+        const heatStart = h.heatId as string;
         return {
-          racerName: member?.firstName ?? "Unknown",
+          racerName: member?.lastName
+            ? `${member.firstName} ${member.lastName}`
+            : (member?.firstName ?? "Unknown"),
           personId: member?.bmiPersonId ?? null,
           product: raceProduct?.name ?? "Race",
           productId: h.productId,
+          tier: raceProduct?.tier ?? "starter",
           track: h.track,
-          heatStart: h.heatId,
+          category: member?.category ?? raceProduct?.category ?? "adult",
+          heatStart,
+          heatStop: heatStopFrom(heatStart),
           heatName: raceProduct?.name ?? "",
         };
       }),
@@ -697,7 +714,11 @@ export async function reserveBooking(params: ReserveParams): Promise<ReserveResu
         lastName: contact.lastName,
         email: contact.email,
         phone: contact.phone,
+        smsOptIn: contact.smsOptIn,
       },
+      // Origin — "kiosk" stamps the board row + fires the shared kiosk
+      // post-reserve rail (SMS/email, session assignment, memo, office state).
+      bookingSource: session.context?.kiosk ? "kiosk" : "web",
       bookingKind,
       bookingMetadata,
       cartItems,
@@ -1191,6 +1212,10 @@ export interface ReserveAllParams {
   loyaltyAccountId?: string;
   rewardTierId?: string;
   rewardDiscountCents?: number;
+  /** Kiosk direct-Terminal charge (owner: NO saved card) — the reader already
+   *  captured the card against OUR deposit order. Mutually exclusive with a card
+   *  token. Flag-gated + fail-closed server-side. */
+  externalPayment?: { paymentId: string; depositOrderId: string; amountCents: number };
 }
 
 export interface ReserveAllResult {
@@ -1225,6 +1250,14 @@ export async function reserveAll(params: ReserveAllParams): Promise<ReserveAllRe
       loyaltyAccountId: params.loyaltyAccountId,
       rewardTierId: params.rewardTierId,
       rewardDiscountCents: params.rewardDiscountCents,
+      externalPayment: params.externalPayment
+        ? {
+            paymentId: params.externalPayment.paymentId,
+            depositOrderId: params.externalPayment.depositOrderId,
+            amountCents: params.externalPayment.amountCents,
+            source: "terminal" as const,
+          }
+        : undefined,
     }),
   });
 

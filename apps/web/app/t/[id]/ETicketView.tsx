@@ -293,7 +293,7 @@ export default function ETicketView({
         {ticket.movedTo ? (
           <MovedCard details={ticket} movedTo={ticket.movedTo} />
         ) : !onSession && !isPast && !loadingStatus ? (
-          <InvalidCard details={ticket} />
+          <InvalidCard details={ticket} pending={ticket.pendingAssignment} />
         ) : isPast ? (
           <PastCard details={ticket} />
         ) : checkingIn ? (

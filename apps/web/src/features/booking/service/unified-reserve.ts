@@ -9,7 +9,14 @@
  */
 import { randomBytes } from "crypto";
 import { buildGanPrefix } from "@/lib/gan";
-import { createDepositAndCharge } from "./deposit";
+import {
+  createDepositAndCharge,
+  createDepositOrder,
+  finalizeDepositFromExternalPayment,
+  type ExternalTerminalPayment,
+} from "./deposit";
+import { kioskTerminalEnabled } from "~/features/kiosk/flags";
+import { after } from "next/server";
 import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
 import { confirmBmiPayment, bmiBillIsLive } from "./bmi-confirm";
 import { reserveBaseKey } from "./reserve-idempotency";
@@ -109,6 +116,23 @@ export interface UnifiedReserveInput {
   loyaltyAccountId?: string;
   rewardTierId?: string;
   rewardDiscountCents?: number;
+  /**
+   * Kiosk direct-Terminal charge (owner rule: NO saved card). When set, the
+   * guest's card was ALREADY captured on the paired reader against OUR deposit
+   * order; reserve funds the gift card from that completed paymentId and NEVER
+   * charges a token. Only honored when kioskTerminalEnabled(). See
+   * tasks/kiosk-terminal-charge.md.
+   */
+  externalPayment?: ExternalTerminalPayment;
+}
+
+/** Result of prepareUnifiedDeposit — the deposit order the reader must pay. */
+export interface PrepareDepositResult {
+  __prepare: true;
+  seed: string;
+  depositOrderId: string;
+  depositCents: number;
+  locationId: string;
 }
 
 export interface UnifiedReserveResult {
@@ -315,6 +339,69 @@ function buildCombinedLineItems(session: BookingSession): {
   return { sqLineItems, depositPct, promoSavingsCents };
 }
 
+// ── Kiosk direct-Terminal persist-first anchor ────────────────────────
+//
+// The reader charges the deposit order BEFORE reserve runs (the inversion), so a
+// durable record must exist the instant the order is prepared and the instant the
+// card is captured — otherwise a browser death between tap and reserve strands a
+// captured payment with no pointer. We key a small Redis record on the session
+// seed. Square itself is the source of truth for the captured funds (the deposit
+// order + payment live there forever); this anchor is the fast pointer the
+// terminal-orphan reconcile follows. 48h TTL comfortably outlives a kiosk session.
+interface TerminalAnchor {
+  depositOrderId: string;
+  depositCents: number;
+  locationId: string;
+  baseKey: string;
+  paymentId?: string;
+  stampedAt?: string;
+}
+const TERMINAL_ANCHOR_TTL_S = 48 * 3600;
+const terminalAnchorKey = (seed: string) => `kiosk:terminal:anchor:${seed}`;
+
+async function writeTerminalAnchor(seed: string, anchor: TerminalAnchor): Promise<void> {
+  try {
+    await redis.set(terminalAnchorKey(seed), JSON.stringify(anchor), "EX", TERMINAL_ANCHOR_TTL_S);
+  } catch {
+    /* Redis down — Square still holds the durable order/payment; reconcile can
+       recover from Square by the deposit order's reference_id (the seed). */
+  }
+}
+
+/** Stamp a captured paymentId onto the prepare anchor (persist-at-capture). Called
+ *  by the terminal-checkout poll route on COMPLETED AND by reserve's finalize
+ *  catch, so an orphan always leaves a pointer. Merges onto the existing anchor. */
+export async function stampTerminalPaymentOnAnchor(seed: string, paymentId: string): Promise<void> {
+  try {
+    const raw = await redis.get(terminalAnchorKey(seed));
+    const prev: Partial<TerminalAnchor> =
+      typeof raw === "string"
+        ? (JSON.parse(raw) as Partial<TerminalAnchor>)
+        : raw
+          ? (raw as Partial<TerminalAnchor>)
+          : {};
+    await redis.set(
+      terminalAnchorKey(seed),
+      JSON.stringify({ ...prev, paymentId, stampedAt: new Date().toISOString() }),
+      "EX",
+      TERMINAL_ANCHOR_TTL_S,
+    );
+  } catch {
+    /* non-fatal */
+  }
+}
+
+/** Read a terminal anchor (reconcile / diagnostics). */
+export async function readTerminalAnchor(seed: string): Promise<TerminalAnchor | null> {
+  try {
+    const raw = await redis.get(terminalAnchorKey(seed));
+    if (!raw) return null;
+    return typeof raw === "string" ? (JSON.parse(raw) as TerminalAnchor) : (raw as TerminalAnchor);
+  } catch {
+    return null;
+  }
+}
+
 // ── Route-entry idempotency guard + lock ──────────────────────────────
 
 /**
@@ -443,7 +530,47 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
   }
 
   try {
-    return await unifiedReserveInner(input, seedSource);
+    // The full path never sets prepareOnly, so the result is always a
+    // UnifiedReserveResult (prepareUnifiedDeposit is the only prepareOnly caller).
+    return (await unifiedReserveInner(input, seedSource)) as UnifiedReserveResult;
+  } finally {
+    if (lockKey && lockHeld) {
+      await redis.del(lockKey).catch(() => {});
+    }
+  }
+}
+
+/**
+ * KIOSK direct-Terminal PREPARE (owner: NO saved card). Runs the SAME pre-charge
+ * guards + day-of order creation as reserve (so nothing fallible remains after
+ * the money moves — H3074 rule), then creates the GIFT_CARD deposit order the
+ * paired reader will pay and writes a persist-first anchor. The client taps the
+ * reader against `depositOrderId`, then calls reserve-all with the completed
+ * paymentId as `externalPayment`. Idempotent via the session seed → reserve
+ * replays the SAME day-of + deposit orders. Serialized by the same NX lock as
+ * reserve so a prepare and a reserve can't race. Flag-gated at the route.
+ */
+export async function prepareUnifiedDeposit(
+  input: UnifiedReserveInput,
+): Promise<PrepareDepositResult> {
+  const { session } = input;
+  const bowlingItems = session.items.filter(isBowlingLike);
+  const seedSource =
+    session.bmiBillId ?? session.squareOrderId ?? bowlingItems[0]?.qamfReservationId ?? null;
+
+  const lockKey = seedSource ? `reserve:lock:${seedSource}` : null;
+  let lockHeld = false;
+  if (lockKey) {
+    try {
+      lockHeld = (await redis.set(lockKey, "1", "EX", 120, "NX")) === "OK";
+    } catch {
+      lockHeld = true;
+    }
+    if (!lockHeld) throw new ReserveInProgressError();
+  }
+  try {
+    const result = (await unifiedReserveInner(input, seedSource, true)) as PrepareDepositResult;
+    return result;
   } finally {
     if (lockKey && lockHeld) {
       await redis.del(lockKey).catch(() => {});
@@ -454,7 +581,8 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
 async function unifiedReserveInner(
   input: UnifiedReserveInput,
   seedSource: string | null,
-): Promise<UnifiedReserveResult> {
+  prepareOnly = false,
+): Promise<UnifiedReserveResult | PrepareDepositResult> {
   const { session, contact } = input;
   const locationId = resolveLocationId(session);
   // Deterministic idempotency seed — same session anchor → same Square keys on
@@ -776,11 +904,9 @@ async function unifiedReserveInner(
     giftCardGan: string | null;
   } = { depositOrderId: null, depositPaymentId: null, giftCardId: null, giftCardGan: null };
 
-  if (depositCents > 0) {
-    if (!input.cardSourceId && !input.giftCardNonce) {
-      throw new Error("Card or gift card required for paid orders");
-    }
+  const useTerminal = kioskTerminalEnabled() && !!input.externalPayment;
 
+  if (depositCents > 0) {
     const ganPrefix = buildGanPrefix("WEB", locationId);
     // Stable GAN suffix from the session anchor (matches reserve's bill.slice(-8))
     // so a retry replays gc-${baseKey} with the SAME requested GAN — one card,
@@ -791,35 +917,108 @@ async function unifiedReserveInner(
       seedSource ??
       baseKey
     ).slice(-8);
+    const depositNote = `Deposit - ${ganPrefix}${ganSuffix} - ${new Date().toISOString().slice(0, 10)}`;
 
-    try {
-      const dr = await createDepositAndCharge({
-        amountCents: depositCents,
+    // ── KIOSK PREPARE: create the deposit order the reader will pay, persist a
+    // recoverable anchor, then STOP. The full reserve re-runs (idempotently)
+    // once the reader has captured the card. All fallible guards above already
+    // ran, so no money moves after a step that can still fail (H3074 rule). ──
+    if (prepareOnly) {
+      console.log(
+        `[kiosk-terminal] PREPARE dayofTotalCents=${dayofTotalCents} depositPct=${depositPct} → depositCents=${depositCents} loc=${locationId} seed=${seedSource ?? baseKey}`,
+      );
+      const { depositOrderId } = await createDepositOrder({
+        baseKey,
         locationId,
-        cardSourceId: input.cardSourceId,
-        giftCardNonce: input.giftCardNonce,
-        squareCustomerId: input.squareCustomerId,
-        ganPrefix,
-        ganSuffix,
-        note: `Deposit - ${ganPrefix}${ganSuffix} - ${new Date().toISOString().slice(0, 10)}`,
+        amountCents: depositCents,
+        note: depositNote,
+        asGiftCardLine: true,
+      });
+      console.log(`[kiosk-terminal] PREPARE created deposit order ${depositOrderId}`);
+      await writeTerminalAnchor(seedSource ?? baseKey, {
+        depositOrderId,
+        depositCents,
+        locationId,
         baseKey,
       });
-      depositResult = {
-        depositOrderId: dr.depositOrderId,
-        depositPaymentId: dr.depositPaymentId,
-        giftCardId: dr.giftCardId,
-        giftCardGan: dr.giftCardGan,
+      return {
+        __prepare: true,
+        seed: seedSource ?? baseKey,
+        depositOrderId,
+        depositCents,
+        locationId,
       };
-    } catch (err) {
-      // Clean up loyalty reward if deposit fails
-      if (loyaltyRewardId) {
-        await fetch(`${SQUARE_BASE}/loyalty/rewards/${loyaltyRewardId}`, {
-          method: "DELETE",
-          headers: sqHeaders(),
-        }).catch(() => {});
-      }
-      throw err;
     }
+
+    if (useTerminal) {
+      // Reader already captured the card against OUR deposit order — record it,
+      // never re-charge. finalize verifies the payment server-side + funds the GC.
+      const ep = input.externalPayment!;
+      try {
+        const dr = await finalizeDepositFromExternalPayment({
+          baseKey,
+          locationId,
+          amountCents: depositCents,
+          ganPrefix,
+          ganSuffix,
+          note: depositNote,
+          externalPaymentId: ep.paymentId,
+        });
+        depositResult = {
+          depositOrderId: dr.depositOrderId,
+          depositPaymentId: dr.depositPaymentId,
+          giftCardId: dr.giftCardId,
+          giftCardGan: dr.giftCardGan,
+        };
+      } catch (err) {
+        // Money is ALREADY captured on the reader. Do NOT re-charge; stamp the
+        // paymentId on the anchor (persist-first) so the terminal-orphan
+        // reconcile finds it, then rethrow to page on-call.
+        await stampTerminalPaymentOnAnchor(seedSource ?? baseKey, ep.paymentId).catch(() => {});
+        throw err;
+      }
+    } else {
+      if (!input.cardSourceId && !input.giftCardNonce) {
+        throw new Error("Card or gift card required for paid orders");
+      }
+      try {
+        const dr = await createDepositAndCharge({
+          amountCents: depositCents,
+          locationId,
+          cardSourceId: input.cardSourceId,
+          giftCardNonce: input.giftCardNonce,
+          squareCustomerId: input.squareCustomerId,
+          ganPrefix,
+          ganSuffix,
+          note: depositNote,
+          baseKey,
+        });
+        depositResult = {
+          depositOrderId: dr.depositOrderId,
+          depositPaymentId: dr.depositPaymentId,
+          giftCardId: dr.giftCardId,
+          giftCardGan: dr.giftCardGan,
+        };
+      } catch (err) {
+        // Clean up loyalty reward if deposit fails
+        if (loyaltyRewardId) {
+          await fetch(`${SQUARE_BASE}/loyalty/rewards/${loyaltyRewardId}`, {
+            method: "DELETE",
+            headers: sqHeaders(),
+          }).catch(() => {});
+        }
+        throw err;
+      }
+    }
+  } else if (prepareOnly) {
+    // $0 deposit (fully credit-covered etc.) — nothing to charge on the reader.
+    return {
+      __prepare: true,
+      seed: seedSource ?? baseKey,
+      depositOrderId: "",
+      depositCents: 0,
+      locationId,
+    };
   }
 
   // ── Record the USA250 redemption (idempotent, soft-fail) ──────────
@@ -1450,6 +1649,13 @@ async function unifiedReserveInner(
       bmiReservationNumber = bmiResult.reservationNumber;
       bmiReservationCode = bmiResult.reservationCode;
 
+      // BMI Office project id = orderId + 1 (last-10-digit math stays under
+      // MAX_SAFE_INTEGER; the rest of the id is preserved as raw text). Computed
+      // ONCE here so the Pandora state flip below AND the kiosk post-reserve rail
+      // target the SAME project — never recompute it independently.
+      const officeProjectIdNum = (Number(bmiBillId.slice(-10)) + 1).toString();
+      const officeProjectId = bmiBillId.slice(0, -officeProjectIdNum.length) + officeProjectIdNum;
+
       // Idempotency cache for /api/booking/confirm — the v2 confirmation page calls
       // that endpoint on load; without this it cache-MISSES and re-runs BMI
       // payment/confirm, and the second confirm reverts the project state back to
@@ -1480,8 +1686,6 @@ async function unifiedReserveInner(
       // bmi-cancel-sweep cron. projectId = orderId + 1 (last-10-digit math stays
       // under MAX_SAFE_INTEGER; the rest of the id is preserved as raw text).
       try {
-        const projectIdNum = (Number(bmiBillId.slice(-10)) + 1).toString();
-        const projectId = bmiBillId.slice(0, -projectIdNum.length) + projectIdNum;
         const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
         const pandoraLocationId =
           raceItems.length > 0
@@ -1497,12 +1701,16 @@ async function unifiedReserveInner(
               "Content-Type": "application/json",
               Authorization: `Bearer ${pandoraKey}`,
             },
-            body: JSON.stringify({ locationID: pandoraLocationId, projectId, stateID: "-3" }),
+            body: JSON.stringify({
+              locationID: pandoraLocationId,
+              projectId: officeProjectId,
+              stateID: "-3",
+            }),
             signal: AbortSignal.timeout(10_000),
           },
         );
         console.log(
-          `[unified-reserve] Pandora project ${projectId} state → -3 (Confirmation): ${stateRes.ok ? "OK" : stateRes.status}`,
+          `[unified-reserve] Pandora project ${officeProjectId} state → -3 (Confirmation): ${stateRes.ok ? "OK" : stateRes.status}`,
         );
       } catch (pandoraErr) {
         console.error("[unified-reserve] Pandora state update failed (non-fatal):", pandoraErr);
@@ -1535,6 +1743,51 @@ async function unifiedReserveInner(
           console.error("[unified-reserve] BMI confirmed-status update failed (non-fatal):", err);
         }
       }
+
+      // ── Kiosk post-reserve rail (server-side; WEB never enters) ──────
+      // A self-service kiosk terminal has no client-side confirmation step to
+      // fire the guest notification / Pandora session assignment the web
+      // confirmation page runs. Do it here, gated STRICTLY on the kiosk context
+      // flag so the web path is byte-identical. Lazy-imported so the module (and
+      // its bmi-office-actions chain) never loads on the web path. Never throws
+      // out of reserve — the booking is already confirmed + charged.
+      if (session.context?.kiosk && bmiReservationNumber && raceItems.length > 0) {
+        // Run the rail AFTER the response is sent (Next after()) so the guest
+        // isn't held at the reader while the notification + memo + office-state +
+        // the 8s-delayed Pandora session assignment fire. Vercel keeps the
+        // function alive for the after() callback, so it still completes
+        // reliably. Snapshot the args now (bmiReservationCode is reassigned
+        // above). Never throws into reserve.
+        // Snapshot the (narrowed) values — bmiReservationNumber is a `let` that
+        // the closure would otherwise widen back to string | null.
+        const resNumber: string = bmiReservationNumber;
+        const resCode = bmiReservationCode;
+        const runKioskPost = async () => {
+          try {
+            const { runKioskPostReserve, buildKioskRacers } = await import("./kiosk-post-reserve");
+            await runKioskPostReserve({
+              racers: buildKioskRacers(session, raceItems),
+              contact,
+              bmiBillId,
+              bmiReservationNumber: resNumber,
+              bmiReservationCode: resCode,
+              officeProjectId,
+              centerCode,
+              location: session.center === "naples" ? "naples" : "fort-myers",
+              isNewRacer: session.party.some((m) => m.isNewRacer),
+            });
+          } catch (e) {
+            console.error("[kiosk-post] failed (non-fatal):", e);
+          }
+        };
+        try {
+          after(runKioskPost);
+        } catch {
+          // after() outside a request scope (script/cron) — run inline; those
+          // contexts stay alive so a fire-and-forget still completes.
+          void runKioskPost();
+        }
+      }
     } catch (err) {
       // Captured deposit stays put (forward recovery, never auto-refund). Mark
       // the anchor confirm_failed; race-confirm-reconcile retries BMI confirm.
@@ -1553,7 +1806,9 @@ async function unifiedReserveInner(
   // End of the fan-out: every leg's Neon row exists. Quietly keep the deposit
   // card on file so staff can charge approved edit differences later.
   // captureCardFromDeposit never throws by contract; belt-and-braces wrap.
-  if (depositResult.depositPaymentId && input.squareCustomerId) {
+  // NEVER on a kiosk terminal booking — the reader charge vaults no card
+  // (owner rule: "Kiosk is NOT going to use saved card").
+  if (depositResult.depositPaymentId && input.squareCustomerId && !input.externalPayment) {
     try {
       await captureCardFromDeposit({
         squareCustomerId: input.squareCustomerId,

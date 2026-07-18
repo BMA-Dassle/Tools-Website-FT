@@ -447,7 +447,7 @@ export default function GroupETicketView({ group, initial }: Props) {
                         {m.movedTo ? (
                           <MovedCard details={m} movedTo={m.movedTo} />
                         ) : !s.onSession && !isPast && !loadingStatus ? (
-                          <InvalidCard details={m} />
+                          <InvalidCard details={m} pending={m.pendingAssignment} />
                         ) : isPast ? (
                           <PastCard details={m} />
                         ) : s.checkingIn ? (

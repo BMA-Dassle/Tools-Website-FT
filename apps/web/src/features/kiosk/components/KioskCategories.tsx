@@ -24,6 +24,9 @@ import {
 } from "~/features/booking";
 import { enabledCombos, type ComboSpecial } from "~/features/combos";
 import { KIOSK_PHOTOS } from "../assets";
+import { AdminTapZone } from "./AdminTapZone";
+import { useKioskConfig } from "../KioskConfigContext";
+import { gameZoneCapability } from "../config";
 
 type CategoryKey = "exp" | "attr";
 
@@ -47,6 +50,8 @@ export function KioskCategories({
   onOpenGameZone,
 }: KioskCategoriesProps) {
   const [cat, setCat] = useState<CategoryKey | null>(null);
+  const { config } = useKioskConfig();
+  const gameZone = gameZoneCapability(config); // "full" | "reload" | "none"
   const offerings = landingOfferingsFor(brand, center);
   const combos = enabledCombos().filter((c) => c.center === center);
   const hasCart = session.items.length > 0;
@@ -69,7 +74,9 @@ export function KioskCategories({
 
   if (cat === null) {
     return (
-      <div className="flex h-full flex-col px-[64px] pb-[28px] pt-[72px]">
+      <div className="relative flex h-full flex-col px-[64px] pb-[28px] pt-[72px]">
+        {/* Hidden staff entry: 5 taps in the header area → admin. */}
+        <AdminTapZone />
         <h1 className="k-display mb-[32px] text-[82px]">
           {hasCart ? "Add anything else?" : "What are we doing today?"}
         </h1>
@@ -91,21 +98,33 @@ export function KioskCategories({
             blurb="Racing, bowling, blasters & more — pick a time and go"
             onClick={() => setCat("attr")}
           />
-          <CategoryCard
-            photo={KIOSK_PHOTOS.arcade}
-            eyebrow="Reload · buy · 1 to 10 cards"
-            accent="#f800c6"
-            title="Game Zone"
-            blurb="Buy or reload arcade tokens — no waiting"
-            onClick={onOpenGameZone}
-          />
+          {gameZone === "none" ? (
+            <GameZoneUnavailableCard />
+          ) : (
+            <CategoryCard
+              photo={KIOSK_PHOTOS.arcade}
+              eyebrow={
+                gameZone === "reload" ? "Reload arcade tokens" : "Reload · buy · 1 to 10 cards"
+              }
+              accent="#f800c6"
+              title="Game Zone"
+              blurb={
+                gameZone === "reload"
+                  ? "Reload your arcade card — no waiting"
+                  : "Buy or reload arcade tokens — no waiting"
+              }
+              onClick={onOpenGameZone}
+            />
+          )}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col px-[64px] pb-[28px] pt-[72px]">
+    <div className="relative flex h-full flex-col px-[64px] pb-[28px] pt-[72px]">
+      {/* Hidden staff entry: 5 taps in the top strip (above the back button) → admin. */}
+      <AdminTapZone className="absolute inset-x-0 top-0 z-20 h-[64px] w-full opacity-0" />
       <button
         type="button"
         onClick={() => setCat(null)}
@@ -140,7 +159,12 @@ export function KioskCategories({
           {cat === "attr" && (
             <div className="grid grid-cols-2 gap-[24px]">
               {offerings.map((o) => (
-                <OfferingTile key={o.slug} offering={o} onClick={() => onPickOffering(o)} />
+                <OfferingTile
+                  key={o.slug}
+                  offering={o}
+                  wide={brand === "fasttrax" && o.slug === "race"}
+                  onClick={() => onPickOffering(o)}
+                />
               ))}
             </div>
           )}
@@ -154,6 +178,35 @@ export function KioskCategories({
 function EmptyShelf({ note }: { note: string }) {
   return (
     <div className="k-glass px-[40px] py-[64px] text-center text-[28px] text-white/55">{note}</div>
+  );
+}
+
+/** Shown in the Game Zone slot when this kiosk has no card hardware (no dispenser
+ *  and no MSR reader) — owner 2026-07-19. Non-interactive: guests are pointed to
+ *  another kiosk or Guest Services. */
+function GameZoneUnavailableCard() {
+  return (
+    <div
+      className="k-ph relative min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/10"
+      style={
+        {
+          ["--k-img"]: `url(${KIOSK_PHOTOS.arcade})`,
+          filter: "grayscale(0.5) brightness(0.5)",
+        } as React.CSSProperties
+      }
+      aria-label="Game Zone cards not available on this kiosk"
+    >
+      <div className="absolute inset-0 flex flex-col items-center justify-center px-[64px] text-center">
+        <div className="k-eyebrow mb-[12px] text-[24px] text-white/50">Game Zone</div>
+        <div className="k-display text-[48px] leading-[1.15] text-white/90">
+          Game Zone cards not available on this kiosk
+        </div>
+        <div className="mt-[16px] text-[26px] leading-[1.4] text-white/55">
+          Please use another kiosk or see Guest Services
+        </div>
+      </div>
+      <div className="absolute inset-x-0 bottom-0 h-[8px] bg-white/20" />
+    </div>
   );
 }
 
@@ -246,14 +299,22 @@ function ShelfBanner({
   );
 }
 
-function OfferingTile({ offering, onClick }: { offering: ActivityOffering; onClick: () => void }) {
+function OfferingTile({
+  offering,
+  wide,
+  onClick,
+}: {
+  offering: ActivityOffering;
+  wide?: boolean;
+  onClick: () => void;
+}) {
   const accent = offering.accentColor ?? "#00e2e5";
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label={offering.displayName}
-      className="k-ph k-tap relative h-[340px] overflow-hidden rounded-[28px] border border-white/10 text-left"
+      className={`k-ph k-tap relative overflow-hidden rounded-[28px] border border-white/10 text-left ${wide ? "col-span-2 h-[300px]" : "h-[340px]"}`}
       style={
         offering.heroImage
           ? ({ ["--k-img"]: `url(${offering.heroImage})` } as React.CSSProperties)
@@ -261,8 +322,10 @@ function OfferingTile({ offering, onClick }: { offering: ActivityOffering; onCli
       }
     >
       <div className="absolute bottom-[40px] left-[36px] right-[36px]">
-        <div className="k-display text-[40px] leading-none">{offering.displayName}</div>
-        <div className="mt-[8px] line-clamp-1 text-[24px] text-white/65">{offering.blurb}</div>
+        <div className="k-display text-[36px] leading-[1.15]">{offering.displayName}</div>
+        <div className="mt-[8px] line-clamp-2 text-[24px] leading-[1.3] text-white/65">
+          {offering.blurb}
+        </div>
       </div>
       <div className="absolute inset-x-0 bottom-0 h-[8px]" style={{ background: accent }} />
     </button>

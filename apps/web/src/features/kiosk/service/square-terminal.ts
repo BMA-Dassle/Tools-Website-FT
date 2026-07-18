@@ -128,6 +128,12 @@ export async function createTerminalCheckout(args: {
    * When omitted, Square creates an implicit order for the amount.
    */
   orderId?: string;
+  /**
+   * Deterministic idempotency key (kiosk money path passes `term-${baseKey}`) so
+   * a double-POST / retry replays the SAME checkout — the reader is armed once,
+   * never tapped twice. Omitted for non-money callers → random per call.
+   */
+  idempotencyKey?: string;
 }): Promise<TerminalCheckoutResult | null> {
   if (!SQUARE_TOKEN) return null;
   const checkout: Record<string, unknown> = {
@@ -146,7 +152,13 @@ export async function createTerminalCheckout(args: {
   }
   const { body } = await sq<{ checkout?: { id?: string; status?: string } }>(
     "/terminals/checkouts",
-    { method: "POST", body: JSON.stringify({ idempotency_key: crypto.randomUUID(), checkout }) },
+    {
+      method: "POST",
+      body: JSON.stringify({
+        idempotency_key: args.idempotencyKey ?? crypto.randomUUID(),
+        checkout,
+      }),
+    },
   );
   const c = body.checkout;
   return c?.id ? { checkoutId: c.id, status: c.status ?? "PENDING" } : null;

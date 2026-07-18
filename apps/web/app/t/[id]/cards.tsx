@@ -358,33 +358,46 @@ export function LoadingStatusCard({ details }: { details: CardDetails }) {
   );
 }
 
-export function InvalidCard({ details }: { details?: CardDetails }) {
+export function InvalidCard({ details, pending }: { details?: CardDetails; pending?: boolean }) {
   const trackColor = details ? trackColorFor(details) : "#9ca3af";
+  // "pending" = a confirmed booking whose session assignment hasn't landed yet
+  // (never rostered) — NOT removed. Reassure instead of alarming (owner 2026-07-19).
+  const accent = pending ? "#00E2E5" : "#9ca3af";
   return (
     <div className="rounded-2xl border border-white/15 bg-white/[0.04] p-6 sm:p-8 text-center">
       <div
         className="inline-flex items-center justify-center w-14 h-14 rounded-full mb-4"
         style={{
-          backgroundColor: "rgba(156,163,175,0.15)",
-          border: "1px solid rgba(156,163,175,0.35)",
+          backgroundColor: `${accent}26`,
+          border: `1px solid ${accent}59`,
         }}
       >
         <svg
-          className="w-7 h-7 text-white/50"
+          className="w-7 h-7"
+          style={{ color: pending ? accent : "rgba(255,255,255,0.5)" }}
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
           viewBox="0 0 24 24"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          {pending ? (
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 8v4l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          ) : (
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          )}
         </svg>
       </div>
       <p className="text-white font-display uppercase tracking-wider text-xl mb-2">
-        Ticket No Longer Valid
+        {pending ? "E-Ticket Updating" : "Ticket No Longer Valid"}
       </p>
       <p className="text-white/50 text-sm leading-relaxed max-w-xs mx-auto">
-        You&apos;re no longer assigned to this session. If you think this is a mistake, please see
-        Guest Services.
+        {pending
+          ? "Your race is confirmed — your e-ticket will fill in with your check-in details shortly. Check back in a few minutes."
+          : "You're no longer assigned to this session. If you think this is a mistake, please see Guest Services."}
       </p>
 
       {details && (

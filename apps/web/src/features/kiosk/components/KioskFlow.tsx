@@ -50,6 +50,7 @@ import { comboBowlingComponent, getComboSpecial, type ComboSpecial } from "~/fea
 import { holdComboBowling } from "~/features/combos/combo-booking";
 import { qamfCenterIdForCode } from "~/features/booking/types";
 import { useKioskConfig } from "../KioskConfigContext";
+import { gameZoneCapability } from "../config";
 import {
   KIOSK_SCHEMA_VERSION,
   KIOSK_SESSION_STORAGE_KEY,
@@ -465,6 +466,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
         <KioskGameZone
           center={config.center}
           brand={config.brand}
+          capability={gameZoneCapability(config) === "reload" ? "reload" : "full"}
           onExit={() => setGzOpen(false)}
         />
       </div>,

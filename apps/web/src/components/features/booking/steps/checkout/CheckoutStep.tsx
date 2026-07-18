@@ -39,12 +39,22 @@ import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { LoyaltySection } from "./LoyaltySection";
 import { PromoCodeInput } from "./PromoCodeInput";
 import { contactIsComplete } from "../ContactStep";
+import { kioskTerminalEnabled } from "~/features/kiosk/flags";
 import dynamic from "next/dynamic";
 
 // Kiosk-only card-present capture. Dynamically imported so the kiosk feature
 // isn't bundled into the web checkout and there's no booking↔kiosk import cycle.
 const KioskReaderPayment = dynamic(
   () => import("~/features/kiosk/components/KioskReaderPayment").then((m) => m.KioskReaderPayment),
+  { ssr: false },
+);
+// Kiosk direct-Terminal charge gate (owner: NO saved card). Flag-gated; dynamic
+// for the same reason as above.
+const KioskTerminalCheckoutGate = dynamic(
+  () =>
+    import("~/features/kiosk/components/KioskTerminalCheckoutGate").then(
+      (m) => m.KioskTerminalCheckoutGate,
+    ),
   { ssr: false },
 );
 
@@ -91,6 +101,13 @@ type Phase =
   | {
       step: "paying";
       overview: BillOverview;
+      // The FULL-PRICE review overview (before per-racer credit redemption is
+      // applied). Kept so a "back"/cancel from payment restores review to its
+      // un-redeemed base — the review render re-derives credit $0 lines from the
+      // LIVE toggle each render, and applyCreditRedemptionsToOverview only ADDS
+      // credit lines (it can't strip them). If we restored the credit-APPLIED
+      // overview here instead, a later UNCHECK could never undo the credit.
+      reviewOverview: BillOverview;
       bmiBillId: string;
       squareCustomerId?: string;
       savedCards?: SavedCard[];
@@ -522,6 +539,10 @@ export function CheckoutStep({
   async function handleConfirm(
     reserveSession: BookingSession,
     overview: BillOverview,
+    // Full-price base (credits NOT applied) — carried into the paying phase so a
+    // cancel/back returns review to its un-redeemed base, keeping the credit
+    // toggle honest. `overview` above is the credit-applied charge overview.
+    reviewOverview: BillOverview,
     bmiBillId: string,
   ) {
     void recordClickwrap({
@@ -568,6 +589,7 @@ export function CheckoutStep({
     setPhase({
       step: "paying",
       overview,
+      reviewOverview,
       bmiBillId,
       squareCustomerId: sqCustomer.customerId,
       savedCards: sqCustomer.cards,
@@ -1094,7 +1116,7 @@ export function CheckoutStep({
           </button>
           <button
             type="button"
-            onClick={() => handleConfirm(sessionForReserve, overview, bmiBillId)}
+            onClick={() => handleConfirm(sessionForReserve, overview, baseOverview, bmiBillId)}
             disabled={!clickwrapAccepted}
             title={!clickwrapAccepted ? "Please agree to the cancellation policy above" : undefined}
             className="inline-flex items-center gap-2 rounded-xl bg-[#00E2E5] px-8 py-4 text-base font-bold text-[#000418] shadow-lg shadow-[#00E2E5]/25 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
@@ -1111,7 +1133,7 @@ export function CheckoutStep({
   }
 
   if (phase.step === "paying") {
-    const { overview, bmiBillId, squareCustomerId, savedCards } = phase;
+    const { overview, reviewOverview, bmiBillId, squareCustomerId, savedCards } = phase;
     // Square location for the payment SDK (and any /api/square/pay fallback).
     // Must come from the SESSION's center first — the hostname can't tell
     // Naples from Fort Myers, which mis-located every fallback charge.
@@ -1133,6 +1155,10 @@ export function CheckoutStep({
       saveCardConsent: boolean;
       /** Kiosk reader: the card-on-file's owning Square customer (SAVE_CARD). */
       squareCustomerIdOverride?: string;
+      /** Kiosk direct-Terminal (owner: NO saved card): the reader already captured
+       *  the card against OUR prepared deposit order. When set, reserve records it
+       *  as collected and no card token is sent. */
+      externalPayment?: { paymentId: string; depositOrderId: string; amountCents: number };
     }) {
       setPhase({ step: "confirming", bmiBillId });
       const effectiveCustomerId =
@@ -1203,37 +1229,72 @@ export function CheckoutStep({
           // customer's dwell, rebuild the heats into a FRESH bill BEFORE charging
           // (never charge a dead bill). Returns the original id when still live;
           // throws only when a heat's time is gone → show "pick again", no charge.
-          let liveBillId: string | null;
-          try {
-            liveBillId = await rebuildRaceBillIfExpired(sessionForReserve, contact, dispatch);
-          } catch (rebuildErr) {
-            setPhase({
-              step: "error",
-              message:
-                rebuildErr instanceof Error
-                  ? rebuildErr.message
-                  : "Your held time expired — please go back and pick a time again.",
-            });
-            return;
+          let effectiveBillId: string;
+          if (params.externalPayment) {
+            // TERMINAL: the reader already paid the deposit order tied to the
+            // PREPARE-time session seed. Rebuilding the bill here would change the
+            // seed → reserve re-derives a DIFFERENT (unpaid) deposit order and the
+            // reader's captured payment wouldn't match it (orphan charge). Prepare
+            // already validated the bill was live, so keep the same bill — no rebuild.
+            effectiveBillId = bmiBillId ?? session.bmiBillId ?? "";
+          } else {
+            let liveBillId: string | null;
+            try {
+              liveBillId = await rebuildRaceBillIfExpired(sessionForReserve, contact, dispatch);
+            } catch (rebuildErr) {
+              setPhase({
+                step: "error",
+                message:
+                  rebuildErr instanceof Error
+                    ? rebuildErr.message
+                    : "Your held time expired — please go back and pick a time again.",
+              });
+              return;
+            }
+            effectiveBillId = liveBillId ?? bmiBillId ?? session.bmiBillId ?? "";
           }
-          const effectiveBillId = liveBillId ?? bmiBillId ?? session.bmiBillId;
 
           const sessionWithBill = {
             ...sessionForReserve,
             bmiBillId: effectiveBillId,
           };
-          const result = await reserveAll({
+          const reserveParams = {
             session: sessionWithBill,
             contact,
-            cardSourceId: params.savedCardId ?? params.cardNonce ?? undefined,
+            // Terminal path: the reader already captured the card → NO token.
+            cardSourceId: params.externalPayment
+              ? undefined
+              : (params.savedCardId ?? params.cardNonce ?? undefined),
             giftCardNonce: params.giftCardNonce ?? undefined,
             sourceKind: params.sourceKind,
             saveCardConsent: params.saveCardConsent,
-            squareCustomerId: effectiveCustomerId,
+            squareCustomerId: params.externalPayment ? undefined : effectiveCustomerId,
             loyaltyAccountId: session.loyalty?.accountId,
             rewardTierId: session.loyalty?.selectedRewardTier?.id,
             rewardDiscountCents: session.loyalty?.selectedRewardTier?.discountCents,
-          });
+            externalPayment: params.externalPayment,
+          };
+          // The externalPayment path is fully idempotent (the reader charged once;
+          // finalize replays via the deterministic baseKey and never re-charges), so
+          // a transient reserve failure AFTER the reader charged must be retried, not
+          // surfaced as an orphan. Retry a few times before giving up.
+          let result: Awaited<ReturnType<typeof reserveAll>>;
+          if (params.externalPayment) {
+            let lastErr: unknown = null;
+            let ok: Awaited<ReturnType<typeof reserveAll>> | null = null;
+            for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+              if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
+              try {
+                ok = await reserveAll(reserveParams);
+              } catch (e) {
+                lastErr = e;
+              }
+            }
+            if (!ok) throw lastErr instanceof Error ? lastErr : new Error("Reservation failed");
+            result = ok;
+          } else {
+            result = await reserveAll(reserveParams);
+          }
 
           void recordClickwrap({
             billId: effectiveBillId,
@@ -1268,39 +1329,86 @@ export function CheckoutStep({
           }
         }
       } catch (err) {
+        // Terminal path: the reader already captured the card. Never imply the
+        // guest must pay again — tell them we have the payment and to see staff
+        // (the terminal-orphan reconcile / staff can complete it). Otherwise the
+        // normal message.
         setPhase({
           step: "error",
-          message: err instanceof Error ? err.message : "Reservation failed",
+          message: params.externalPayment
+            ? "We received your payment but couldn't finish the booking — please see the front desk (do not pay again)."
+            : err instanceof Error
+              ? err.message
+              : "Reservation failed",
         });
       }
     }
 
-    // Kiosk card-present: capture the card on the reader (SAVE_CARD → card
-    // on file), then charge it via the SAME reserve rail as a saved card.
+    // Kiosk card-present on the paired reader.
     if (readerDeviceId) {
-      return (
-        <div className="mx-auto max-w-md">
-          <KioskReaderPayment
-            brand={session.entryBrand}
-            deviceId={readerDeviceId}
-            referenceId={bmiBillId}
-            amountLabelCents={Math.round(overview.cashOwed * 100)}
-            contact={contact}
-            onCaptured={({ cardId, customerId }) =>
-              void handleTokenize({
-                cardNonce: null,
-                savedCardId: cardId,
-                giftCardNonce: null,
-                sourceKind: "saved",
-                saveCardConsent: false,
-                squareCustomerIdOverride: customerId,
-              })
-            }
-            onCancel={() => setPhase({ step: "review", overview, bmiBillId })}
-          />
-          {cancelControl}
-        </div>
+      const bowlingOnlyReader = session.items.every(
+        (i) => i.kind === "bowling" || i.kind === "kbf",
       );
+      // Terminal DIRECT charge (owner: NO saved card) — flag-gated for the live
+      // reader smoke. The reader charges OUR deposit order → reserve records the
+      // completed paymentId. Only the unified rail is wired (Phase 1), so a
+      // bowling-only cart falls through to the typed card (never a saved card)
+      // until the bowling terminal rail lands (Phase 2).
+      if (kioskTerminalEnabled() && !bowlingOnlyReader) {
+        return (
+          <div className="mx-auto max-w-md">
+            <KioskTerminalCheckoutGate
+              session={sessionForReserve}
+              contact={contact}
+              brand={session.entryBrand}
+              deviceId={readerDeviceId}
+              bmiBillId={bmiBillId}
+              depositCentsExpected={Math.round(overview.cashOwed * 100)}
+              onCaptured={(ep) =>
+                void handleTokenize({
+                  cardNonce: null,
+                  savedCardId: null,
+                  giftCardNonce: null,
+                  sourceKind: "card",
+                  saveCardConsent: false,
+                  externalPayment: ep,
+                })
+              }
+              onCancel={() => setPhase({ step: "review", overview: reviewOverview, bmiBillId })}
+            />
+            {cancelControl}
+          </div>
+        );
+      }
+      // Interim (flag off): capture the card on the reader (SAVE_CARD → card on
+      // file), then charge via the saved-card reserve rail. Retired once the
+      // terminal flag flips on after the smoke.
+      if (!kioskTerminalEnabled()) {
+        return (
+          <div className="mx-auto max-w-md">
+            <KioskReaderPayment
+              brand={session.entryBrand}
+              deviceId={readerDeviceId}
+              referenceId={bmiBillId}
+              amountLabelCents={Math.round(overview.cashOwed * 100)}
+              contact={contact}
+              onCaptured={({ cardId, customerId }) =>
+                void handleTokenize({
+                  cardNonce: null,
+                  savedCardId: cardId,
+                  giftCardNonce: null,
+                  sourceKind: "saved",
+                  saveCardConsent: false,
+                  squareCustomerIdOverride: customerId,
+                })
+              }
+              onCancel={() => setPhase({ step: "review", overview: reviewOverview, bmiBillId })}
+            />
+            {cancelControl}
+          </div>
+        );
+      }
+      // else: flag on + bowling-only → fall through to the typed card path below.
     }
 
     return (
@@ -1318,7 +1426,7 @@ export function CheckoutStep({
           onTokenize={handleTokenize}
           onSuccess={(result) => handlePaymentSuccess(result, bmiBillId)}
           onError={(msg) => setPhase({ step: "error", message: msg })}
-          onCancel={() => setPhase({ step: "review", overview, bmiBillId })}
+          onCancel={() => setPhase({ step: "review", overview: reviewOverview, bmiBillId })}
         />
         {cancelControl}
       </div>

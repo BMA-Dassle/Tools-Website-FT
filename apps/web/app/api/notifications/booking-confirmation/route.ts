@@ -205,6 +205,7 @@ export async function POST(req: NextRequest) {
       confirmationV2,
       comboSpecialId,
       comboReorder,
+      kioskMode,
     } = body;
     const codes: string[] = Array.isArray(povCodes) ? povCodes : [];
     // Rookie Pack hint — adds a one-liner pointing at the
@@ -359,6 +360,73 @@ export async function POST(req: NextRequest) {
     }
 
     const results: { email: boolean; sms: boolean | null } = { email: false, sms: null };
+
+    // ── KIOSK lightweight confirmation (owner 2026-07-19) ──────────────
+    // A kiosk guest is in-center; they don't need the QR or the desk check-in
+    // steps now — those arrive later with the e-ticket. Send a short "you're
+    // booked, e-ticket coming" note. Reuses the sender + dedup + sales-log above.
+    // Kiosk racing is always FastTrax. Early-return so none of the web template
+    // (QR, Guest-Services instructions, express-lane) runs. Web path is untouched.
+    if (kioskMode) {
+      const when =
+        (typeof reservationTime === "string" && reservationTime) ||
+        (scheduled[0]?.start
+          ? new Date(`${String(scheduled[0].start).replace(/Z?$/, "")}Z`).toLocaleString("en-US", {
+              timeZone: "America/New_York",
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            })
+          : "");
+      const racerCount = scheduled.reduce((n, s) => n + (s.persons ?? s.quantity ?? 1), 0) || 1;
+      const who = racerCount === 1 ? "1 racer" : `${racerCount} racers`;
+      const first = firstName || "Racer";
+      const subject = "You're booked at FastTrax!";
+      const smsBody = `FastTrax: you're booked!${when ? ` ${when} ·` : ""} ${who}. Your e-ticket with check-in details will text you shortly — nothing to print. See you at the track!`;
+      const emailHtml = `<!doctype html><html><body style="margin:0;background:#000418;font-family:Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#000418;padding:32px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px;background:#0d1a36;border-radius:16px;overflow:hidden;">
+        <tr><td style="background:linear-gradient(90deg,#00E2E5,#3b82f6);height:6px;"></td></tr>
+        <tr><td style="padding:32px 32px 8px 32px;color:#fff;font-size:26px;font-weight:800;font-style:italic;">You're booked!</td></tr>
+        <tr><td style="padding:0 32px;color:#b7c3da;font-size:15px;line-height:1.5;">
+          Thanks ${first} — your FastTrax racing is confirmed.
+        </td></tr>
+        <tr><td style="padding:16px 32px;">
+          <table role="presentation" width="100%" style="background:#0a1430;border-radius:12px;">
+            <tr><td style="padding:16px 20px;color:#fff;font-size:16px;font-weight:700;">${when || "Today"} · ${who}</td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="padding:8px 32px 28px 32px;color:#b7c3da;font-size:15px;line-height:1.6;">
+          Your <strong style="color:#fff;">e-ticket</strong> — with your check-in time and everything you need at the track — is on its way by text and email. Nothing to print, nothing to do at the desk. See you soon!
+        </td></tr>
+        <tr><td style="background:#0a1430;padding:16px 32px;color:#6b7a99;font-size:12px;">FastTrax · 14501 Global Parkway, Fort Myers</td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+
+      results.email = email ? await sendEmail(email, subject, emailHtml, "FastTrax") : false;
+      if (smsOptIn && phone) {
+        results.sms = await sendSms(normalizePhone(phone), smsBody, VOX_FROM_FASTTRAX);
+      }
+      try {
+        await redis.set(
+          notifKey,
+          JSON.stringify({ kiosk: true, sentAt: new Date().toISOString() }),
+          "EX",
+          90 * 24 * 60 * 60,
+        );
+      } catch {
+        /* dedup mark best-effort */
+      }
+      console.log(
+        `[booking-confirmation] KIOSK confirmation sent for ${reservationNumber}: email=${results.email} sms=${results.sms}`,
+      );
+      return NextResponse.json({ success: true, kiosk: true, results });
+    }
 
     // Determine which venue each line item checks in at. Racing
     // lives at FastTrax; gel-blasters / laser tag / shuffleboard

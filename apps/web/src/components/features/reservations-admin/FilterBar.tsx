@@ -30,6 +30,9 @@ export default function FilterBar({
   setHideCancelled,
   hideWalkins,
   setHideWalkins,
+  kioskOnly,
+  setKioskOnly,
+  kioskCount,
   kindFilter,
   setKindFilter,
   date,
@@ -46,6 +49,9 @@ export default function FilterBar({
   setHideCancelled: Dispatch<SetStateAction<boolean>>;
   hideWalkins: boolean;
   setHideWalkins: Dispatch<SetStateAction<boolean>>;
+  kioskOnly: boolean;
+  setKioskOnly: Dispatch<SetStateAction<boolean>>;
+  kioskCount: number;
   kindFilter: string | null;
   setKindFilter: Dispatch<SetStateAction<string | null>>;
   date: string;
@@ -98,6 +104,23 @@ export default function FilterBar({
           }}
         >
           {hideWalkins ? "Web Only" : "All Sources"}
+        </button>
+        {/* Kiosk-only — self-service kiosk bookings (amber, matches the row badge).
+            Orthogonal to the source toggle above. */}
+        <button
+          type="button"
+          onClick={() => setKioskOnly((v) => !v)}
+          style={{
+            ...NAV_BTN,
+            fontSize: "0.7rem",
+            fontWeight: 700,
+            backgroundColor: kioskOnly ? "rgba(245,158,11,0.15)" : "var(--ba-input-bg)",
+            borderColor: kioskOnly ? "rgba(245,158,11,0.4)" : "var(--ba-input-border)",
+            color: kioskOnly ? "#f59e0b" : "var(--ba-muted)",
+          }}
+        >
+          Kiosk
+          <span style={{ marginLeft: 3, opacity: 0.7, fontSize: "0.6rem" }}>({kioskCount})</span>
         </button>
         {(["kbf", "open", "race", "attraction"] as const).map((k) => {
           const badge = KIND_BADGE[k];

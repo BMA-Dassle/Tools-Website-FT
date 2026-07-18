@@ -81,13 +81,18 @@ function mockCardNumber(i: number): string {
 export function KioskGameZone({
   center,
   brand,
+  capability = "full",
   onExit,
 }: {
   center: CenterCode;
   brand: Brand;
+  /** "full" = dispenser (buy + reload); "reload" = MSR reader only (reload, no
+   *  new-card dispense). Owner 2026-07-19. */
+  capability?: "full" | "reload";
   onExit: () => void;
 }) {
-  const [mode, setMode] = useState<Mode>("choose");
+  // Reload-only kiosks skip the buy/reload chooser and land straight on reload.
+  const [mode, setMode] = useState<Mode>(capability === "reload" ? "reload" : "choose");
   const [cards, setCards] = useState<CartCard[]>([
     { accountNumber: "", packageId: TOKEN_PACKAGES[1].id, status: "unverified" },
   ]);

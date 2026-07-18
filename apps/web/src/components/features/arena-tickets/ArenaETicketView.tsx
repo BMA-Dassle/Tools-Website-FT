@@ -175,7 +175,7 @@ export default function ArenaETicketView({ ticket }: Props) {
         {ticket.movedTo ? (
           <ArenaMovedCard details={details} movedTo={ticket.movedTo} />
         ) : !onSession && !isPast ? (
-          <ArenaInvalidCard details={details} />
+          <ArenaInvalidCard details={details} pending={ticket.pendingAssignment} />
         ) : isPast ? (
           <ArenaPastCard details={details} />
         ) : checkedIn ? (
