@@ -6,6 +6,7 @@
  * web registry — zero risk to the live booking flow.
  */
 import { STEP_REGISTRY, type SessionItem, type StepDef } from "~/features/booking";
+import { getPackage } from "@/lib/packages";
 import { KioskSlotStep } from "../steps/KioskSlotStep";
 import { KioskBowlingDetailsStep } from "../steps/KioskBowlingDetailsStep";
 import { KioskBowlingTimeStep } from "../steps/KioskBowlingTimeStep";
@@ -48,6 +49,33 @@ function insertAfter(steps: StepDef[], afterId: string, step: StepDef): StepDef[
   return [...steps.slice(0, idx + 1), step, ...steps.slice(idx + 1)];
 }
 
+/**
+ * Skip the race product step when the guest launched from an Experiences package
+ * tile (session.preferredPackageId) AND the flow has already resolved that
+ * package onto the item — they picked it by tapping the tile, so no reselect
+ * (owner 2026-07-19). Because visible steps are filtered by isVisible, hiding it
+ * also makes Back skip it. Falls back to showing the step whenever nothing was
+ * preseeded (mixed party / no single eligible variant / normal racing / combo),
+ * so no other path is disrupted.
+ */
+function skipWhenPreselected(step: StepDef): StepDef {
+  const stepCategory = step.id.includes("junior") ? "junior" : "adult";
+  return {
+    ...step,
+    isVisible: (item, session) => {
+      if (!step.isVisible(item, session)) return false;
+      const pkgId = (item as { packageId?: string }).packageId;
+      const preferred = session.preferredPackageId;
+      if (!preferred || typeof pkgId !== "string" || !pkgId.startsWith(preferred)) return true;
+      // Skip ONLY the product step whose category matches the preseeded package —
+      // a mixed party (a later-added junior on an adult preseed) still gets its
+      // own product step, so no racer is left without a package.
+      const pkgCategory = getPackage(pkgId)?.category;
+      return !(pkgCategory === "any" || pkgCategory === stepCategory);
+    },
+  };
+}
+
 export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   // Kiosk = walk-up: no race date step — KioskFlow stamps item.date = today
   // at creation; the (fully reused) heat picker then shows today's heats,
@@ -64,9 +92,15 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
       // Drop the web combo OVERVIEW step (combo-intro) — the kiosk shows its own
       // readable KioskVipOverview BEFORE the flow, so the in-flow one was a
       // duplicate (owner: "not sure why we have two steps").
-      STEP_REGISTRY.race.filter(
-        (s) => s.id !== "race-date" && s.id !== "race-experience" && s.id !== "combo-intro",
-      ),
+      STEP_REGISTRY.race
+        .filter((s) => s.id !== "race-date" && s.id !== "race-experience" && s.id !== "combo-intro")
+        // Preselected-package launch (Experiences → Ultimate Qualifier tile) skips
+        // the product step so the guest doesn't reselect what they just tapped.
+        .map((s) =>
+          s.id === "race-product-adult" || s.id === "race-product-junior"
+            ? skipWhenPreselected(s)
+            : s,
+        ),
       "race-party",
       KioskRacePeopleStep as StepDef,
     ),

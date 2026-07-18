@@ -92,6 +92,7 @@ export type Action =
    * contract as `applyPromo`.
    */
   | { type: "setComboSpecial"; id: string | null }
+  | { type: "setPreferredPackage"; id: string | null }
 
   /* ── bowling holds ─────────────────────────────────────────────── */
   /** Store QAMF temporary reservation info on a bowling/kbf item. */
@@ -306,6 +307,15 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
         return next;
       }
       return { ...state, comboSpecialId: action.id };
+    }
+
+    case "setPreferredPackage": {
+      if (action.id == null) {
+        const next = { ...state };
+        delete next.preferredPackageId;
+        return next;
+      }
+      return { ...state, preferredPackageId: action.id };
     }
 
     /* ──────── bowling holds ──────── */

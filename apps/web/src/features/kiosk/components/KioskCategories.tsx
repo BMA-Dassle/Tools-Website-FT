@@ -36,6 +36,8 @@ export interface KioskCategoriesProps {
   session: BookingSession;
   onPickOffering: (offering: ActivityOffering) => void;
   onPickCombo: (combo: ComboSpecial) => void;
+  /** Launch racing with a package FAMILY preselected (Experiences package tile). */
+  onPickPackageExperience: (family: string) => void;
   onOpenCart: () => void;
   onOpenGameZone: () => void;
 }
@@ -46,6 +48,7 @@ export function KioskCategories({
   session,
   onPickOffering,
   onPickCombo,
+  onPickPackageExperience,
   onOpenCart,
   onOpenGameZone,
 }: KioskCategoriesProps) {
@@ -54,6 +57,9 @@ export function KioskCategories({
   const gameZone = gameZoneCapability(config); // "full" | "reload" | "none"
   const offerings = landingOfferingsFor(brand, center);
   const combos = enabledCombos().filter((c) => c.center === center);
+  // The Ultimate Qualifier is a premium FastTrax racing PACKAGE (not a combo);
+  // surface it in Experiences wherever racing is offered.
+  const showQualifier = offerings.some((o) => o.kind === "race");
   const hasCart = session.items.length > 0;
 
   const strip = hasCart ? (
@@ -151,7 +157,17 @@ export function KioskCategories({
                   onClick={() => onPickCombo(combo)}
                 />
               ))}
-              {combos.length === 0 && (
+              {showQualifier && (
+                <ShelfBanner
+                  photo={KIOSK_PHOTOS.race}
+                  eyebrow="Premium racing"
+                  accent="#e53935"
+                  title="Ultimate Qualifier"
+                  blurb="Qualify in a Starter race, then level up to an Intermediate an hour later — POV video, a free appetizer & your license included."
+                  onClick={() => onPickPackageExperience("ultimate-qualifier")}
+                />
+              )}
+              {combos.length === 0 && !showQualifier && (
                 <EmptyShelf note="No bundled experiences are running at this location today." />
               )}
             </div>

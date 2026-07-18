@@ -517,6 +517,14 @@ export interface BookingSession {
    */
   comboSpecialId?: string;
   /**
+   * Kiosk only: the guest entered the race flow from an Experiences tile for a
+   * specific package FAMILY (e.g. "ultimate-qualifier"), so the product step
+   * should preselect that package and skip — no reselecting what they just
+   * tapped. Kept as the family id (not a schedule variant); the flow resolves
+   * the eligible variant for the party via eligiblePackages(). Web never sets it.
+   */
+  preferredPackageId?: string;
+  /**
    * Roster of party members doing activities. May be empty (e.g. the
    * customer hasn't reached the party step yet). The billing customer
    * is in here if they're participating (with `isBillingCustomer: true`).

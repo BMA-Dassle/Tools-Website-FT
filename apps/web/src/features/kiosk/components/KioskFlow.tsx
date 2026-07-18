@@ -48,6 +48,7 @@ import {
   releaseHeatBmiLines,
 } from "~/features/booking/service/checkout";
 import { comboBowlingComponent, getComboSpecial, type ComboSpecial } from "~/features/combos";
+import { eligiblePackages, scheduleForDate } from "@/lib/packages";
 import { holdComboBowling } from "~/features/combos/combo-booking";
 import { qamfCenterIdForCode } from "~/features/booking/types";
 import { useKioskConfig } from "../KioskConfigContext";
@@ -256,6 +257,56 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     }
     dispatch({ type: "addItem", item });
   };
+
+  // Experiences → a premium racing PACKAGE tile (Ultimate Qualifier): start a
+  // fresh race session with that package family preselected so the product step
+  // is skipped (owner: don't make them reselect what they just tapped). The
+  // actual variant is resolved after the party is set (see the effect below).
+  const pickPackageExperience = (family: string) => {
+    if (session.items.length > 0) {
+      setKioskError(
+        "Finish or remove your current activities before starting a premium racing experience.",
+      );
+      return;
+    }
+    dispatch({ type: "setPreferredPackage", id: family });
+    const item = stampToday(newItem("race"));
+    dispatch({ type: "addItem", item });
+    dispatch({ type: "setActiveItem", id: item.id });
+  };
+
+  // Preselect the tapped Experiences package once the party is known, so the
+  // product step can skip. SAFE by construction: it resolves via the SAME
+  // eligiblePackages() the product step uses (never a package the step wouldn't
+  // offer), and ONLY when the party is uniform + all-new with exactly one eligible
+  // variant. Any other case (returning racer, mixed adult+junior, no/multiple
+  // variants) leaves packageId unset → the product step shows normally.
+  useEffect(() => {
+    const preferred = session.preferredPackageId;
+    if (!preferred) return;
+    const race = session.items.find((i) => i.kind === "race") as
+      | (SessionItem & { packageId?: string; date?: string })
+      | undefined;
+    if (!race || race.packageId || !race.date) return;
+    const party = session.party;
+    if (party.length === 0) return; // wait for the party step
+    if (party.some((m) => !m.isNewRacer)) return; // packages are new-racer-only
+    const cats = new Set(party.map((m) => m.category ?? "adult"));
+    if (cats.size !== 1) return; // mixed adult+junior → let the product step handle it
+    const category = [...cats][0] as "adult" | "junior";
+    const variants = eligiblePackages({
+      racerType: "new",
+      schedule: scheduleForDate(race.date),
+      category,
+    }).filter((p) => p.id.startsWith(preferred));
+    if (variants.length === 1) {
+      dispatch({
+        type: "updateItem",
+        id: race.id,
+        patch: { packageId: variants[0].id } as Partial<SessionItem>,
+      });
+    }
+  }, [session.preferredPackageId, session.party, session.items, dispatch]);
 
   // Show the itinerary overview first (owner: the approved VIP overview screen).
   const pickCombo = (combo: ComboSpecial) => {
@@ -499,6 +550,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
         session={session}
         onPickOffering={pickOffering}
         onPickCombo={pickCombo}
+        onPickPackageExperience={pickPackageExperience}
         onOpenCart={() => setCartActive(true)}
         onOpenGameZone={() => setGzOpen(true)}
       />,
