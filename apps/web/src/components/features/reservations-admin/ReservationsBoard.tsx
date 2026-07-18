@@ -84,6 +84,8 @@ export default function ReservationsBoard({
   const [search, setSearch] = useState("");
   const [hideCancelled, setHideCancelled] = useState(true);
   const [hideWalkins, setHideWalkins] = useState(true);
+  // Isolate self-service kiosk bookings (owner ask). Orthogonal to kind/source.
+  const [kioskOnly, setKioskOnly] = useState(false);
   // ?view=vip deep link (Teams movement cards) opens straight to the ★VIP filter.
   const [kindFilter, setKindFilter] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -198,6 +200,10 @@ export default function ReservationsBoard({
     if (kindFilter && kindFilter !== "vip") {
       list = list.filter((r) => r.productKind === kindFilter);
     }
+    if (kioskOnly) {
+      // Show ONLY self-service kiosk bookings (excludes QAMF-"K" walk-ins).
+      list = list.filter(isBookingFlowKiosk);
+    }
     if (search.trim()) {
       const q = search.toLowerCase().trim();
       list = list.filter((r) => {
@@ -214,7 +220,7 @@ export default function ReservationsBoard({
       });
     }
     return list;
-  }, [reservations, search, hideCancelled, hideWalkins, kindFilter]);
+  }, [reservations, search, hideCancelled, hideWalkins, kindFilter, kioskOnly]);
 
   // VIP combos grouped with live schedules. Recomputes when the 10s poll
   // lands fresh arrays; nowEtWallMs() is read at that moment (retirement
@@ -272,6 +278,7 @@ export default function ReservationsBoard({
   const totalWalkins = reservations.filter(
     (r) => r.bookingSource && r.bookingSource !== "web" && !isBookingFlowKiosk(r),
   ).length;
+  const totalKiosk = reservations.filter(isBookingFlowKiosk).length;
   const totalHidden = totalCancelledAll + totalCompletedAll;
   // Combo rows carry the COMBINED total across their two day-of orders (and are
   // 100% prepaid, so deposit == total); use it so revenue isn't under/double-counted.
@@ -511,6 +518,9 @@ export default function ReservationsBoard({
         setHideCancelled={setHideCancelled}
         hideWalkins={hideWalkins}
         setHideWalkins={setHideWalkins}
+        kioskOnly={kioskOnly}
+        setKioskOnly={setKioskOnly}
+        kioskCount={totalKiosk}
         kindFilter={kindFilter}
         setKindFilter={setKindFilter}
         date={date}
