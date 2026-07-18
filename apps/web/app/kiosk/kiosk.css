@@ -417,6 +417,37 @@
   font-size: 22px;
   color: var(--k-dim);
 }
+/* Guest assistance (owner 2026-07-18): the whole screen flashes red as a
+   beacon staff can see across the room; the kiosk holds exactly where it is
+   until the Clear button is tapped. */
+@keyframes k-assist-flash {
+  0%,
+  100% {
+    background-color: rgba(190, 18, 28, 0.94);
+  }
+  50% {
+    background-color: rgba(110, 6, 14, 0.97);
+  }
+}
+.kiosk-canvas .k-assist-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 95;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  padding: 64px;
+  text-align: center;
+  animation: k-assist-flash 0.9s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .kiosk-canvas .k-assist-overlay {
+    animation: none;
+    background-color: rgba(190, 18, 28, 0.95);
+  }
+}
 .kiosk-canvas .k-cart-pill {
   height: 76px;
   padding: 0 26px;

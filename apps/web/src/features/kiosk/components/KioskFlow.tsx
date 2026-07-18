@@ -146,6 +146,10 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   } | null>(null);
   const [reservationExpired, setReservationExpired] = useState(false);
   const [resetting, setResetting] = useState(false);
+  // Guest assistance (owner 2026-07-18): flashes the whole screen red as a
+  // staff beacon and HOLDS the kiosk exactly where it is (idle reset paused)
+  // until Clear is tapped.
+  const [assistActive, setAssistActive] = useState(false);
   const timerRef = useRef<ReservationTimerHandle>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const seededGotoRef = useRef(false);
@@ -433,7 +437,10 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     await releaseHeatBmiLines(session, removed);
   };
 
-  const cartCount = session.items.length;
+  // Game Zone cards count as a cart entry (owner 2026-07-18: race + cards
+  // showed "1 item") — they're paid at the same checkout, so the pill/banner
+  // must reflect them.
+  const cartCount = session.items.length + (session.gameCardPurchase?.cards.length ? 1 : 0);
   const openCart = () => {
     setCheckoutActive(false);
     setCartActive(true);
@@ -459,7 +466,15 @@ export function KioskFlow({ goto }: { goto: string | null }) {
         </svg>
         Start over
       </button>
-      <div className="k-util-help">Need help? A team member at the front desk can assist</div>
+      <button
+        type="button"
+        onClick={() => setAssistActive(true)}
+        className="k-util-btn k-tap"
+        style={{ borderColor: "rgba(239,68,68,0.5)", color: "#fca5a5" }}
+      >
+        Guest assistance
+      </button>
+      <div className="k-util-help">A team member can help — tap Guest assistance</div>
       {cartCount > 0 && (
         <button type="button" onClick={openCart} className="k-cart-pill k-tap">
           <svg
@@ -549,9 +564,25 @@ export function KioskFlow({ goto }: { goto: string | null }) {
       {utilityStrip}
       <IdleWatcher
         timeoutMs={checkoutActive ? IDLE_CHECKOUT_MS : IDLE_FLOW_MS}
-        paused={bookingHeats || stepBusy || resetting}
+        paused={bookingHeats || stepBusy || resetting || assistActive}
         onReset={() => void handleStartOver()}
       />
+      {assistActive && (
+        <div className="k-assist-overlay">
+          <div className="k-display text-[110px] leading-none text-white">Help is on the way</div>
+          <p className="max-w-[26ch] text-[34px] font-semibold text-white/90">
+            Stay right here — a team member is coming to assist you. Your booking is held exactly
+            where you left it.
+          </p>
+          <button
+            type="button"
+            onClick={() => setAssistActive(false)}
+            className="k-tap h-[112px] rounded-full border-4 border-white bg-white/10 px-[72px] text-[36px] font-extrabold uppercase tracking-widest text-white"
+          >
+            All set — clear
+          </button>
+        </div>
+      )}
       {resetting && <BrandedLoaderOverlay brand={config.brand} label="Clearing this session…" />}
       {reservationExpired && hasActiveHold && (
         <ReservationExpiredModal onExtend={handleExtendReservation} onStartOver={handleStartOver} />

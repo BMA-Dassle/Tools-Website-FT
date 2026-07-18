@@ -74,8 +74,15 @@ export function KioskWaiverPhoto({
         }
       } catch (err) {
         if (!cancelled) {
+          const name = err instanceof DOMException ? err.name : "";
           setCamError(
-            err instanceof Error ? `Camera unavailable: ${err.message}` : "Camera unavailable.",
+            name === "NotAllowedError"
+              ? "Camera blocked — Windows privacy settings must allow desktop apps to use the camera."
+              : name === "NotReadableError"
+                ? "The camera is in use by another app."
+                : err instanceof Error
+                  ? `Camera unavailable: ${err.message}`
+                  : "Camera unavailable.",
           );
         }
       }

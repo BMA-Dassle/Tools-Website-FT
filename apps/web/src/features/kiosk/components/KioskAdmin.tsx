@@ -414,8 +414,22 @@ function CameraPickers({
       setCams(vids);
       setDetectMsg(vids.length === 0 ? "No cameras found." : `${vids.length} camera(s) found.`);
     } catch (err) {
+      // Name the failure precisely — "NotAllowedError" with the SITE permission
+      // set to Allow almost always means the WINDOWS privacy toggle: Settings →
+      // Privacy & security → Camera → "Let desktop apps access your camera".
+      const name = err instanceof DOMException ? err.name : "";
+      const hint =
+        name === "NotAllowedError"
+          ? " — if Chrome's site permission is Allow, check Windows Settings → Privacy & security → Camera → 'Let desktop apps access your camera'."
+          : name === "NotFoundError"
+            ? " — no camera detected on this PC (check the USB connection)."
+            : name === "NotReadableError"
+              ? " — another app is using the camera (close Teams/Zoom/Camera)."
+              : "";
       setDetectMsg(
-        err instanceof Error ? `Camera permission failed: ${err.message}` : "Camera check failed.",
+        `Camera check failed${name ? ` (${name})` : ""}${
+          err instanceof Error && err.message ? `: ${err.message}` : ""
+        }${hint}`,
       );
     }
   };

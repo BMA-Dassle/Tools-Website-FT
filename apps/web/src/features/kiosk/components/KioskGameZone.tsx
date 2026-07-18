@@ -176,6 +176,27 @@ export function KioskGameZone({
       ? onAddToVisit
       : null;
 
+  // AUTO-ARM the card slot (owner 2026-07-18: "guest should never have to push
+  // a button to insert a card"): whenever a screen is WAITING on a card — the
+  // balance screen with none read yet, or the expanded reload row with no
+  // account — open the gate ourselves. acceptAndRead times out after 30s (and
+  // the gate closes after every read), so this re-arms on a 400ms debounce;
+  // dispenser.busy guards double-arming and the cleanup cancels stale arms.
+  useEffect(() => {
+    if (!readerReady || dispenser.busy || phase !== "cart") return;
+    const armBalance = mode === "balance" && !balCard;
+    const reloadRow = mode === "reload" && reloadEditIdx != null ? cards[reloadEditIdx] : undefined;
+    const armReload =
+      !!reloadRow && !reloadRow.accountNumber.trim() && reloadRow.status === "unverified";
+    if (!armBalance && !armReload) return;
+    const t = setTimeout(() => {
+      if (armBalance) void readBalanceCard();
+      else if (reloadEditIdx != null) void readReloadCard(reloadEditIdx);
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readerReady, dispenser.busy, phase, mode, balCard, reloadEditIdx, cards]);
+
   // When leaving reload, stop the gate from accepting more cards.
   useEffect(() => {
     if (mode !== "reload") return;
