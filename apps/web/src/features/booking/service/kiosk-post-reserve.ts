@@ -171,6 +171,32 @@ export function buildKioskRacersFromHeats(heats: Array<Record<string, unknown>>)
     });
 }
 
+/**
+ * Retry a flaky vendor action — the BMI Office / Pandora APIs intermittently
+ * 500/503 for a beat (live 2026-07-18: W52076's memo append died on "Office
+ * auth failed: 500" and its session assignment on a 503, one minute after
+ * W52073's identical calls succeeded). Single-attempt calls made those
+ * one-in-a-while hiccups permanent gaps; a couple of spaced retries make the
+ * rail land. Throws only when EVERY attempt failed (callers keep their
+ * never-throw try/catch).
+ */
+async function withRetry<T>(label: string, fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      console.error(
+        `[kiosk-post] ${label} attempt ${i}/${attempts} failed:`,
+        err instanceof Error ? err.message : err,
+      );
+      if (i < attempts) await new Promise((r) => setTimeout(r, 1500 * i));
+    }
+  }
+  throw lastErr;
+}
+
 export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<void> {
   const {
     racers,
@@ -248,12 +274,14 @@ export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<v
   // Rolling read-merge-write private note with the verified booking/memo
   // escalation for CONVERTED racing reservations (bmi-office-actions).
   try {
-    const ok = await appendProjectPrivateNote({
-      centerCode,
-      projectId: officeProjectId,
-      note: "Kiosk Booking, please check into session",
-      billId: bmiBillId,
-    });
+    const ok = await withRetry("booking memo append", () =>
+      appendProjectPrivateNote({
+        centerCode,
+        projectId: officeProjectId,
+        note: "Kiosk Booking, please check into session",
+        billId: bmiBillId,
+      }),
+    );
     console.log(
       `[kiosk-post] booking memo append for project ${officeProjectId}: ${ok ? "OK" : "not-visible"}`,
     );
@@ -265,12 +293,14 @@ export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<v
   // setProjectState tries Pandora first, falls back to the Office API (which is
   // the owner-intended landing spot if Pandora rejects the custom state id).
   try {
-    await setProjectState({
-      centerCode,
-      projectId: officeProjectId,
-      stateId: "55397028",
-      label: "Kiosk confirmation",
-    });
+    await withRetry("office state 55397028", () =>
+      setProjectState({
+        centerCode,
+        projectId: officeProjectId,
+        stateId: "55397028",
+        label: "Kiosk confirmation",
+      }),
+    );
     console.log(`[kiosk-post] office state 55397028 set for project ${officeProjectId}`);
   } catch (err) {
     console.error("[kiosk-post] office state 55397028 failed (non-fatal):", err);
@@ -291,28 +321,34 @@ export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<v
     } else {
       await new Promise((resolve) => setTimeout(resolve, PANDORA_SYNC_DELAY_MS));
       const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
-      const res = await fetch(
-        `${PANDORA_BASE}/bmi/schedule/${FASTTRAX_RACING_LOCATION_ID}/${bmiReservationNumber}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${pandoraKey}`,
-            "Content-Type": "application/json",
+      // A non-OK response THROWS inside withRetry so a transient Pandora 503
+      // (live 2026-07-18, W52076) gets retried instead of logged-and-lost.
+      const inserted = await withRetry("session assignment", async () => {
+        const res = await fetch(
+          `${PANDORA_BASE}/bmi/schedule/${FASTTRAX_RACING_LOCATION_ID}/${bmiReservationNumber}`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${pandoraKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ racers: returningRacers }),
+            signal: AbortSignal.timeout(15_000),
           },
-          body: JSON.stringify({ racers: returningRacers }),
-          signal: AbortSignal.timeout(15_000),
-        },
-      );
-      const data = (await res.json().catch(() => null)) as {
-        success?: boolean;
-        data?: { inserted?: number };
-      } | null;
+        );
+        const data = (await res.json().catch(() => null)) as {
+          success?: boolean;
+          data?: { inserted?: number };
+        } | null;
+        if (!res.ok || !data?.success) {
+          throw new Error(
+            `schedule POST ${res.status}${data?.success === false ? " (success=false)" : ""}`,
+          );
+        }
+        return data?.data?.inserted ?? 0;
+      });
       console.log(
-        `[kiosk-post] session assignment ${bmiReservationNumber}: ${
-          res.ok && data?.success
-            ? `OK (${data?.data?.inserted ?? 0} racers)`
-            : `FAIL ${res.status}`
-        }`,
+        `[kiosk-post] session assignment ${bmiReservationNumber}: OK (${inserted} racers)`,
       );
     }
   } catch (err) {
