@@ -13,15 +13,27 @@
  *  - Readers: live list of paired Square Terminals for the location (pick one
  *    with no code needed) OR pair a new one (device code the operator types
  *    into the Terminal) OR enter a device id directly.
- *  - Diagnostics: reader ping, scanner test-read, dispenser test (stubs where
- *    hardware isn't wired yet).
+ *  - Card reader: the CRT-591 dispenser/reader test panel (Web Serial) —
+ *    connect, init, motion, dispense, RF/Mifare read-write, raw commands,
+ *    TX/RX log. See docs/crt-591/README.md.
+ *  - Diagnostics: reader ping, scanner test-read; the dispenser row opens the
+ *    Card reader tab.
  *  - Comps: add race-credit comps to a signed-in person by BMI personId.
  */
 import { useEffect, useRef, useState } from "react";
 import { useKioskConfig } from "../KioskConfigContext";
 import { kioskId, resolveKioskConfig, type KioskConfig, type KioskVariant } from "../config";
+import { KioskAdminCardReader } from "./KioskAdminCardReader";
 
-type Tab = "device" | "readers" | "diag" | "comps";
+type Tab = "device" | "readers" | "cardreader" | "diag" | "comps";
+
+const TAB_LABELS: Record<Tab, string> = {
+  device: "Device",
+  readers: "Readers",
+  cardreader: "Card reader",
+  diag: "Diagnostics",
+  comps: "Comps",
+};
 type Reader = { deviceId: string; name: string; code: string; status: string };
 
 async function adminFetch(pin: string, url: string, init?: RequestInit) {
@@ -161,16 +173,16 @@ export function KioskAdmin() {
         </div>
 
         <div className="flex gap-2">
-          {(["device", "readers", "diag", "comps"] as Tab[]).map((t) => (
+          {(["device", "readers", "cardreader", "diag", "comps"] as Tab[]).map((t) => (
             <button
               key={t}
               type="button"
               onClick={() => setTab(t)}
-              className={`rounded-full px-5 py-2 text-sm font-bold capitalize ${
+              className={`rounded-full px-5 py-2 text-sm font-bold ${
                 tab === t ? "bg-[#00e2e5] text-[#04252b]" : "border border-white/15 text-white/60"
               }`}
             >
-              {t === "diag" ? "Diagnostics" : t}
+              {TAB_LABELS[t]}
             </button>
           ))}
         </div>
@@ -211,7 +223,18 @@ export function KioskAdmin() {
           />
         )}
 
-        {tab === "diag" && <DiagTab draft={draft} pin={pin} setMsg={setMsg} />}
+        {tab === "cardreader" && (
+          <KioskAdminCardReader draft={draft} persist={persist} setMsg={setMsg} />
+        )}
+
+        {tab === "diag" && (
+          <DiagTab
+            draft={draft}
+            pin={pin}
+            setMsg={setMsg}
+            onOpenCardReader={() => setTab("cardreader")}
+          />
+        )}
 
         {tab === "comps" && <CompsTab pin={pin} setMsg={setMsg} />}
       </div>
@@ -317,6 +340,11 @@ function DeviceTab({
           label="USB card swipe attached"
           on={!!draft.swipeEnabled}
           onToggle={(v) => patch({ swipeEnabled: v })}
+        />
+        <Toggle
+          label="CRT-591 card reader (COM)"
+          on={!!draft.cardReaderEnabled}
+          onToggle={(v) => patch({ cardReaderEnabled: v })}
         />
       </div>
       <Field label="Game Zone card dispenser device id (optional)">
@@ -502,10 +530,12 @@ function DiagTab({
   draft,
   pin,
   setMsg,
+  onOpenCardReader,
 }: {
   draft: Partial<KioskConfig>;
   pin: string;
   setMsg: (m: string) => void;
+  onOpenCardReader: () => void;
 }) {
   const pingReader = async () => {
     if (!draft.readerId) return setMsg("No reader selected.");
@@ -543,10 +573,14 @@ function DiagTab({
         onRun={() => setMsg("Swipe test wires up with the reader/swipe payment build.")}
       />
       <DiagRow
-        label="Card dispenser"
-        detail={draft.dispenserId ?? "none"}
-        action="Test"
-        onRun={() => setMsg("Dispenser test lands with the Game Zone / Intercard bridge stage.")}
+        label="Card reader / dispenser (CRT-591)"
+        detail={
+          draft.cardReaderEnabled
+            ? `enabled — ${draft.dispenserId ?? "serial pending"} @ ${draft.cardReaderBaud ?? "auto"} baud`
+            : "not set up"
+        }
+        action="Open panel"
+        onRun={onOpenCardReader}
       />
     </div>
   );

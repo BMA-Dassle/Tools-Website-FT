@@ -74,6 +74,41 @@ describe("resolveKioskConfig", () => {
       brand: "headpinz",
     });
   });
+
+  it("defaults the card-reader fields off/null", () => {
+    expect(resolveKioskConfig({ center: "fort-myers" })).toMatchObject({
+      cardReaderEnabled: false,
+      cardReaderBaud: null,
+      cardReaderPortInfo: null,
+    });
+  });
+
+  it("card-reader fields survive resolve + merge (readStorage re-resolves on boot)", () => {
+    const saved = resolveKioskConfig({
+      center: "fort-myers",
+      cardReaderEnabled: true,
+      cardReaderBaud: 38400,
+      cardReaderPortInfo: { usbVendorId: 0x0403, usbProductId: 0x6001 },
+      dispenserId: "SN42",
+    });
+    expect(saved).toMatchObject({
+      cardReaderEnabled: true,
+      cardReaderBaud: 38400,
+      cardReaderPortInfo: { usbVendorId: 0x0403, usbProductId: 0x6001 },
+      dispenserId: "SN42",
+    });
+    // Round-trip through resolve again (what readStorage does) — no stripping.
+    expect(resolveKioskConfig(saved!)).toMatchObject({
+      cardReaderEnabled: true,
+      cardReaderBaud: 38400,
+      cardReaderPortInfo: { usbVendorId: 0x0403, usbProductId: 0x6001 },
+    });
+    // And through a URL merge that touches unrelated fields.
+    expect(mergeKioskConfig(saved, { variant: "pitcrew" })).toMatchObject({
+      cardReaderEnabled: true,
+      cardReaderBaud: 38400,
+    });
+  });
 });
 
 describe("mergeKioskConfig", () => {

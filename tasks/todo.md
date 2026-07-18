@@ -1,5 +1,24 @@
 # Open Tasks
 
+## Kiosk CRT-591 card reader/dispenser — DRIVER + TEST PANEL BUILT 2026-07-17 (hardware session pending)
+
+Built on branch `kiosk`: full Web Serial driver for the CRT-591 COM protocol
+(`apps/web/src/features/kiosk/card-reader/` — frame codec w/ STX-resync, ACK/NAK/EOT engine,
+typed commands, e1/e0 error decode w/ staff hints, auto-baud connect + identity discovery,
+B0 auto-reinit for reads only) + staff test panel (`/kiosk/admin` → Card reader tab: init,
+motion, dispense, entry insert-watch, RF/Mifare read-write, raw console, TX/RX hex log) +
+USB keyboard-wedge capture (ISO 7811 parse — the HB-HDN unit reads cards over USB, separate
+from COM). 68 new unit tests (141 kiosk-dir green); tsc + eslint clean on touched files;
+docs at `docs/crt-591/{README,protocol}.md` (full 50-page spec transcription).
+
+- [ ] **Hardware session on the kiosk** — dev-loop steps + verification checklist in
+      `docs/crt-591/README.md` (record actual firmware string, negative-head byte, USB
+      enumeration mode)
+- [ ] Request the CRT-591-(R02)HB-HDN protocol doc from the vendor (magstripe command set —
+      only the M001 RFID/IC doc exists publicly)
+- [ ] Follow-up PR: wire Game Zone flow (replace `simDispense()`, insert-to-reload); needs
+      Intercard new-account issuance API (doesn't exist in `features/game-cards/` yet)
+
 ## Gate /api/bmi-office behind OTP verification — NOT STARTED (security)
 
 `/api/bmi-office` is an unauthenticated proxy to BMI Office: anyone can call

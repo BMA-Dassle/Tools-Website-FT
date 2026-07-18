@@ -4,6 +4,11 @@ const nextConfig: NextConfig = {
   // Hide the local dev-mode indicator badge (it overlays content during review;
   // never appears in production).
   devIndicators: false,
+  // DEV ONLY: Next blocks cross-origin requests to /_next/* dev assets, so a
+  // kiosk browsing to a dev laptop by LAN IP gets HTML but no JS (the kiosk
+  // canvas renders unscaled/broken). Allow the private LAN ranges we dev on —
+  // ignored entirely by production builds. See docs/crt-591/README.md dev loop.
+  allowedDevOrigins: ["10.48.0.*", "192.168.*.*", "localhost", "127.0.0.1"],
   images: {
     remotePatterns: [
       {

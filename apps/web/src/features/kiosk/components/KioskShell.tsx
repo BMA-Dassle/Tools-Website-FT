@@ -34,6 +34,14 @@ function KioskChrome({ children }: { children: React.ReactNode }) {
     const isLocal =
       typeof window !== "undefined" &&
       (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+    // The staff admin screen must NOT auto-fullscreen on tap: requestFullscreen()
+    // consumes the click's transient activation, which then starves the Web
+    // Serial chooser (requestPort → SecurityError "browser blocked access").
+    // Admin also legitimately needs browser dialogs (the serial port picker),
+    // so the guest lockdown doesn't apply here.
+    const isAdmin =
+      typeof window !== "undefined" && window.location.pathname.startsWith("/kiosk/admin");
+    const noFullscreen = isLocal || isAdmin;
 
     let wakeLock: { release: () => Promise<void>; addEventListener?: unknown } | null = null;
 
@@ -50,7 +58,7 @@ function KioskChrome({ children }: { children: React.ReactNode }) {
     };
 
     const enterFullscreen = () => {
-      if (isLocal) return;
+      if (noFullscreen) return;
       const el = document.documentElement;
       if (document.fullscreenElement) return;
       el.requestFullscreen?.().catch(() => {
@@ -59,7 +67,10 @@ function KioskChrome({ children }: { children: React.ReactNode }) {
     };
 
     const onPointerDown = () => {
-      // First tap is the user gesture fullscreen + wake lock both need.
+      // First tap is the user gesture fullscreen + wake lock both need. On the
+      // admin screen we do neither, so a button's click keeps its transient
+      // activation for APIs that need it (Web Serial requestPort).
+      if (noFullscreen) return;
       wantsFullscreenRef.current = true;
       enterFullscreen();
       if (!wakeLock) void acquireWakeLock();
