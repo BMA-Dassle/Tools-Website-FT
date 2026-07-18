@@ -832,6 +832,18 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           onChangeParty={() => setShowHeightConfirm(false)}
         />
       )}
+
+      {/* Combo schedule confirm books BOTH races + holds the VIP lane — a real
+          ~minute of vendor calls. Cover the heat grid with a clear branded
+          "Booking…" overlay so it never reads as "stuck on the race screen"
+          (owner 2026-07-18: "returned to the race selection for a minute"). */}
+      {currentStep.id === "combo-start" && stepBusy && (
+        <BrandedLoaderOverlay
+          brand={config.brand}
+          label="Booking your experience"
+          sublabel="Reserving your races and holding your lane…"
+        />
+      )}
     </>,
     backdropPhoto,
   );

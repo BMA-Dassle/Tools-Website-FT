@@ -118,6 +118,17 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   const adults = party.filter((m) => !m.isMinor);
   const setBusyAll = (b: boolean) => setBusyLocal(b);
 
+  // The MAIN (billing contact) always renders first (owner 2026-07-18). Stable
+  // sort — everyone else keeps add order.
+  const orderedParty = [...party].sort(
+    (a, b) => Number(!!b.isBillingCustomer) - Number(!!a.isBillingCustomer),
+  );
+
+  // A person chosen as someone's guardian can't be removed — that would orphan
+  // the minor's booking (owner 2026-07-18). Their Remove is hidden until the
+  // minor they cover is removed first.
+  const isGuardianForSomeone = (m: PartyMember) => party.some((p) => p.guardianMemberId === m.id);
+
   // Block the wizard's "Continue" whenever a sign-in lookup, add-player form, or
   // onboarding is in progress — otherwise tapping Continue (or OSK "Done" then
   // Continue) advances PAST the OTP step without verifying (owner: entering the
@@ -168,6 +179,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   };
 
   const removeMember = (id: string) => {
+    // Never remove a selected guardian — the minor they cover would be orphaned
+    // (owner 2026-07-18). The UI hides Remove for guardians; this is the guard.
+    if (party.some((p) => p.guardianMemberId === id)) return;
     // Also drop this person as anyone's guardian, and from the attraction set.
     party.forEach((m) => {
       if (m.guardianMemberId === id) {
@@ -577,9 +591,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         </div>
       )}
 
-      {/* roster */}
+      {/* roster — main always first */}
       <div className="space-y-[16px]">
-        {party.map((m) => {
+        {orderedParty.map((m) => {
           const isIn = included.has(m.id);
           const badge = badgeFor(m);
           const guardian = m.guardianMemberId
@@ -680,14 +694,23 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                       {m.bmiPersonId ? "Sign waiver" : "Set up"}
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => removeMember(m.id)}
-                    aria-label={`Remove ${m.firstName}`}
-                    className="text-[22px] text-white/40"
-                  >
-                    Remove
-                  </button>
+                  {isGuardianForSomeone(m) ? (
+                    <span
+                      className="text-[20px] font-semibold text-white/30"
+                      title="Guardian for a minor in your group — remove the minor first"
+                    >
+                      Guardian
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => removeMember(m.id)}
+                      aria-label={`Remove ${m.firstName}`}
+                      className="text-[22px] text-white/40"
+                    >
+                      Remove
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
