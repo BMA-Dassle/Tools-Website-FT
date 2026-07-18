@@ -104,11 +104,12 @@ export function KioskAdmin() {
           <input
             type="password"
             inputMode="numeric"
-            data-osk="off"
+            data-osk-layout="numeric"
             value={pin}
             onChange={(e) => setPin(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && tryAuth()}
             placeholder="PIN"
+            autoFocus
             className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-center text-2xl tracking-[0.4em] text-white focus:border-[#00E2E5] focus:outline-none"
           />
           {authError && <p className="text-sm text-red-300">{authError}</p>}

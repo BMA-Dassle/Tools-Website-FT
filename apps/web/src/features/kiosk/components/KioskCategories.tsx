@@ -24,6 +24,7 @@ import {
 } from "~/features/booking";
 import { enabledCombos, type ComboSpecial } from "~/features/combos";
 import { KIOSK_PHOTOS } from "../assets";
+import { AdminTapZone } from "./AdminTapZone";
 
 type CategoryKey = "exp" | "attr";
 
@@ -69,7 +70,9 @@ export function KioskCategories({
 
   if (cat === null) {
     return (
-      <div className="flex h-full flex-col px-[64px] pb-[28px] pt-[72px]">
+      <div className="relative flex h-full flex-col px-[64px] pb-[28px] pt-[72px]">
+        {/* Hidden staff entry: 5 taps in the header area → admin. */}
+        <AdminTapZone />
         <h1 className="k-display mb-[32px] text-[82px]">
           {hasCart ? "Add anything else?" : "What are we doing today?"}
         </h1>
@@ -105,7 +108,9 @@ export function KioskCategories({
   }
 
   return (
-    <div className="flex h-full flex-col px-[64px] pb-[28px] pt-[72px]">
+    <div className="relative flex h-full flex-col px-[64px] pb-[28px] pt-[72px]">
+      {/* Hidden staff entry: 5 taps in the top strip (above the back button) → admin. */}
+      <AdminTapZone className="absolute inset-x-0 top-0 z-20 h-[64px] w-full opacity-0" />
       <button
         type="button"
         onClick={() => setCat(null)}
@@ -140,7 +145,12 @@ export function KioskCategories({
           {cat === "attr" && (
             <div className="grid grid-cols-2 gap-[24px]">
               {offerings.map((o) => (
-                <OfferingTile key={o.slug} offering={o} onClick={() => onPickOffering(o)} />
+                <OfferingTile
+                  key={o.slug}
+                  offering={o}
+                  wide={brand === "fasttrax" && o.slug === "race"}
+                  onClick={() => onPickOffering(o)}
+                />
               ))}
             </div>
           )}
@@ -246,14 +256,22 @@ function ShelfBanner({
   );
 }
 
-function OfferingTile({ offering, onClick }: { offering: ActivityOffering; onClick: () => void }) {
+function OfferingTile({
+  offering,
+  wide,
+  onClick,
+}: {
+  offering: ActivityOffering;
+  wide?: boolean;
+  onClick: () => void;
+}) {
   const accent = offering.accentColor ?? "#00e2e5";
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label={offering.displayName}
-      className="k-ph k-tap relative h-[340px] overflow-hidden rounded-[28px] border border-white/10 text-left"
+      className={`k-ph k-tap relative overflow-hidden rounded-[28px] border border-white/10 text-left ${wide ? "col-span-2 h-[300px]" : "h-[340px]"}`}
       style={
         offering.heroImage
           ? ({ ["--k-img"]: `url(${offering.heroImage})` } as React.CSSProperties)
@@ -261,8 +279,10 @@ function OfferingTile({ offering, onClick }: { offering: ActivityOffering; onCli
       }
     >
       <div className="absolute bottom-[40px] left-[36px] right-[36px]">
-        <div className="k-display text-[40px] leading-none">{offering.displayName}</div>
-        <div className="mt-[8px] line-clamp-1 text-[24px] text-white/65">{offering.blurb}</div>
+        <div className="k-display text-[36px] leading-[1.15]">{offering.displayName}</div>
+        <div className="mt-[8px] line-clamp-2 text-[24px] leading-[1.3] text-white/65">
+          {offering.blurb}
+        </div>
       </div>
       <div className="absolute inset-x-0 bottom-0 h-[8px]" style={{ background: accent }} />
     </button>
