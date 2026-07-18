@@ -109,6 +109,11 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   } | null>(null);
   // Linked family are OPT-IN suggestions — tap to add, never auto-pulled in.
   const [linked, setLinked] = useState<LinkedSuggestion[]>([]);
+  // Members whose Pandora waiver status is still being fetched — a returning racer
+  // lands with waiverValid unknown, so without this the card flashes "Waiver
+  // needed" before the check resolves (owner 2026-07-19). Shown as "Checking
+  // waiver…" instead, with no Set up button until we actually know.
+  const [checkingIds, setCheckingIds] = useState<Set<string>>(new Set());
 
   const adults = party.filter((m) => !m.isMinor);
   const setBusyAll = (b: boolean) => setBusyLocal(b);
@@ -118,9 +123,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   // Continue) advances PAST the OTP step without verifying (owner: entering the
   // phone jumped to the next page). Finish or cancel the lookup to continue.
   useEffect(() => {
-    setBusy?.(lookupOpen || form !== null || busy);
+    setBusy?.(lookupOpen || form !== null || busy || checkingIds.size > 0);
     return () => setBusy?.(false);
-  }, [lookupOpen, form, busy, setBusy]);
+  }, [lookupOpen, form, busy, setBusy, checkingIds]);
 
   const setIncluded = (ids: Set<string>) => {
     if (isRace) return;
@@ -358,11 +363,22 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
    *  allRelated=true here (the ONE call that needs the family array); the
    *  per-relative detail fetches below stay fast (route default allRelated=false). */
   const importLinked = async (personId: string, memberId: string, alreadyIds: Set<string>) => {
+    // Flip the main member's card to "Checking waiver…" as soon as we're known to
+    // be verifying (cleared the instant the waiver status is applied below).
+    const doneChecking = () =>
+      setCheckingIds((s) => {
+        const n = new Set(s);
+        n.delete(memberId);
+        return n;
+      });
     try {
       const res = await fetch(
         `/api/pandora?personId=${personId}&picture=false&allRelated=true&location=${brandLocation}`,
       );
-      if (!res.ok) return;
+      if (!res.ok) {
+        doneChecking();
+        return;
+      }
       const data = await res.json();
       // Patch the main person's waiver validity from the authoritative check.
       if (typeof data.valid === "boolean") {
@@ -384,6 +400,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           },
         });
       }
+      // Main waiver status now known — flip the card (ready / waiver needed)
+      // BEFORE the slower per-relative fetches below.
+      doneChecking();
       const relatedIds: string[] = (data.related || [])
         .map((r: unknown) => (typeof r === "string" ? r : ((r as { id?: string })?.id ?? "")))
         .filter(Boolean);
@@ -425,6 +444,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       }
     } catch {
       /* non-fatal */
+    } finally {
+      doneChecking(); // belt-and-braces — never leave a card stuck "checking"
     }
   };
 
@@ -476,6 +497,16 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     const alreadyIds = new Set(
       [person.personId, ...party.map((m) => m.bmiPersonId)].filter(Boolean) as string[],
     );
+    // Mark "checking waiver…" until the authoritative Pandora status lands, so the
+    // card doesn't flash "Waiver needed" first (owner 2026-07-19). Skip if the
+    // Office lookup already returned a valid waiver.
+    if (!person.waiverValid) {
+      setCheckingIds((s) => {
+        const n = new Set(s);
+        n.add(member.id);
+        return n;
+      });
+    }
     // Authoritative waiver check + linked family (mirrors web RacePartyStep).
     void importLinked(person.personId, member.id, alreadyIds);
   };
@@ -525,6 +556,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             ? party.find((g) => g.id === m.guardianMemberId)
             : null;
           const ready = !needsSetup(m);
+          const checking = !ready && checkingIds.has(m.id);
           return (
             <div
               key={m.id}
@@ -532,7 +564,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                 !isRace && !isIn ? "opacity-55" : ""
               }`}
               style={{
-                borderLeft: `8px solid ${ready ? "#46d68c" : "#f0b341"}`,
+                borderLeft: `8px solid ${ready ? "#46d68c" : checking ? "#00e2e5" : "#f0b341"}`,
               }}
             >
               <div className="flex items-center gap-[20px]">
@@ -584,6 +616,11 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                       <span className="font-semibold text-[#46d68c]">
                         ✓ Account &amp; waiver ready
                       </span>
+                    ) : checking ? (
+                      <span className="flex items-center gap-[10px] font-semibold text-[#00e2e5]">
+                        <span className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-[#00e2e5]/30 border-t-[#00e2e5]" />
+                        Checking waiver…
+                      </span>
                     ) : (
                       <span className="font-semibold text-[#f0b341]">
                         {m.bmiPersonId ? "Waiver needed" : "Account + waiver needed"}
@@ -604,7 +641,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-[12px]">
-                  {!ready && (
+                  {!ready && !checking && (
                     <button
                       type="button"
                       onClick={() => openSetup(m)}
