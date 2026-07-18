@@ -7,27 +7,101 @@
  * post-booking, optionally). Writes BowlingCommon.players; the reserve paths
  * push real names/sizes/bumpers to QAMF and persist the roster to Neon.
  *
- * Shoe-size vocabulary mirrors the confirmation editor's ranges
- * (Toddler/Kids/Mens/Womens) in a touch-friendly chip rail. "Own shoes"
- * records null size explicitly — sizes are only required for renters, but
- * the CHOICE is required for everyone.
+ * Shoe size is picked the SAME cascading way as the web confirmation editor
+ * (BowlingPlayersEditor): choose a CATEGORY (Toddler / Men's / Women's) first,
+ * then a size within it — never one giant undifferentiated list (owner 2026-07-19).
+ * The stored value uses the canonical "Male 9" / "Female 8" / "Toddler 10"
+ * vocabulary the players API + KDS parser expect (formatShoeSize maps
+ * male/female/toddler). "Own shoes" records "" (normalized to null at reserve);
+ * the CHOICE is required for everyone, a rental SIZE only for renters.
  */
+import { useState } from "react";
 import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
 
 type RosterPlayer = { name: string; shoeSize: string | null; bumpers: boolean | null };
 type BowlItem = BowlingItem | KbfItem;
 
-const SHOE_SIZES: string[] = [
-  ...["8T", "9T", "10T", "11T", "12T", "13T"].map((s) => `Toddler ${s.replace("T", "")}`),
-  ...[1, 2, 3, 4, 5, 6].map((n) => `Kids ${n}`),
-  ...[5, 6, 7, 8, 9, 10, 11].map((n) => `Womens ${n}`),
-  ...[6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map((n) => `Mens ${n}`),
+/** Canonical category value → sizes, mirroring the web confirmation editor so
+ *  the saved label ("Male 9") matches what the players API + KDS expect. */
+const SHOE_SIZES: Record<string, string[]> = {
+  Toddler: ["6", "7", "8", "9", "10", "11", "12", "13"],
+  Male: [
+    "1",
+    "1.5",
+    "2",
+    "2.5",
+    "3",
+    "3.5",
+    "4",
+    "4.5",
+    "5",
+    "5.5",
+    "6",
+    "6.5",
+    "7",
+    "7.5",
+    "8",
+    "8.5",
+    "9",
+    "9.5",
+    "10",
+    "10.5",
+    "11",
+    "11.5",
+    "12",
+    "12.5",
+    "13",
+    "13.5",
+    "14",
+    "14.5",
+    "15",
+  ],
+  Female: [
+    "1",
+    "1.5",
+    "2",
+    "2.5",
+    "3",
+    "3.5",
+    "4",
+    "4.5",
+    "5",
+    "5.5",
+    "6",
+    "6.5",
+    "7",
+    "7.5",
+    "8",
+    "8.5",
+    "9",
+    "9.5",
+    "10",
+    "10.5",
+    "11",
+    "11.5",
+    "12",
+  ],
+};
+
+/** Family-friendly labels over the canonical stored values. */
+const SHOE_CATEGORIES: Array<{ value: keyof typeof SHOE_SIZES; label: string }> = [
+  { value: "Toddler", label: "Toddler" },
+  { value: "Male", label: "Men's" },
+  { value: "Female", label: "Women's" },
 ];
 
 /** "Own shoes" sentinel — an explicit answer that isn't a rental size.
  *  Encoded as "" in players.shoeSize; the reserve mappings normalize "" → null
  *  so Neon/QAMF only ever see a real size or nothing. */
 const OWN_SHOES = "";
+
+/** Category part of a stored "Male 9" value ("" for own shoes / null / unknown). */
+function categoryOf(shoeSize: string | null): string | null {
+  if (shoeSize === null) return null;
+  if (shoeSize === OWN_SHOES) return OWN_SHOES;
+  const cat = shoeSize.split(" ")[0];
+  return cat in SHOE_SIZES ? cat : null;
+}
 
 function playerCountOf(item: BowlItem): number {
   return item.kind === "bowling" ? item.playerCount : item.bowlers.length + item.paidAdults;
@@ -54,6 +128,9 @@ function playerComplete(p: RosterPlayer): boolean {
 
 const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item, onChange }) => {
   const roster = rosterOf(item);
+  // Which shoe category is expanded per bowler. Undefined → derive from the
+  // stored size (so a saved "Male 9" reopens on Men's with 9 selected).
+  const [openCat, setOpenCat] = useState<Record<number, string>>({});
   const update = (index: number, patch: Partial<RosterPlayer>) => {
     const next = roster.map((p, i) => (i === index ? { ...p, ...patch } : p));
     onChange({ players: next } as Partial<BowlItem>);
@@ -105,33 +182,70 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
               <span className="mb-[8px] block text-[22px] font-semibold uppercase tracking-widest text-white/40">
                 Shoe size
               </span>
-              <div className="mb-[20px] flex gap-[10px] overflow-x-auto pb-[6px]">
-                <button
-                  type="button"
-                  onClick={() => update(i, { shoeSize: OWN_SHOES })}
-                  className={`shrink-0 rounded-2xl border-2 px-[24px] py-[16px] text-[24px] font-semibold ${
-                    p.shoeSize === OWN_SHOES
-                      ? "border-[#00E2E5] bg-[#00E2E5]/10 text-white"
-                      : "border-white/10 text-white/50"
-                  }`}
-                >
-                  Own shoes
-                </button>
-                {SHOE_SIZES.map((size) => (
-                  <button
-                    key={size}
-                    type="button"
-                    onClick={() => update(i, { shoeSize: size })}
-                    className={`shrink-0 rounded-2xl border-2 px-[24px] py-[16px] text-[24px] font-semibold tabular-nums ${
-                      p.shoeSize === size
-                        ? "border-[#00E2E5] bg-[#00E2E5]/10 text-white"
-                        : "border-white/10 text-white/50"
-                    }`}
-                  >
-                    {size}
-                  </button>
-                ))}
-              </div>
+              {/* Category first (Own shoes / Toddler / Men's / Women's), then a
+                  short size grid for that category — never one giant list. */}
+              {(() => {
+                const selCat = openCat[i] !== undefined ? openCat[i] : categoryOf(p.shoeSize);
+                return (
+                  <>
+                    <div className="mb-[12px] flex flex-wrap gap-[10px]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOpenCat((c) => ({ ...c, [i]: OWN_SHOES }));
+                          update(i, { shoeSize: OWN_SHOES });
+                        }}
+                        className={`rounded-2xl border-2 px-[28px] py-[16px] text-[24px] font-semibold ${
+                          p.shoeSize === OWN_SHOES
+                            ? "border-[#00E2E5] bg-[#00E2E5]/10 text-white"
+                            : "border-white/10 text-white/50"
+                        }`}
+                      >
+                        Own shoes
+                      </button>
+                      {SHOE_CATEGORIES.map((cat) => (
+                        <button
+                          key={cat.value}
+                          type="button"
+                          onClick={() => {
+                            setOpenCat((c) => ({ ...c, [i]: cat.value }));
+                            // Switching category clears a stale cross-category size.
+                            if (categoryOf(p.shoeSize) !== cat.value) update(i, { shoeSize: null });
+                          }}
+                          className={`rounded-2xl border-2 px-[28px] py-[16px] text-[24px] font-semibold ${
+                            selCat === cat.value
+                              ? "border-[#00E2E5] bg-[#00E2E5]/10 text-white"
+                              : "border-white/10 text-white/50"
+                          }`}
+                        >
+                          {cat.label}
+                        </button>
+                      ))}
+                    </div>
+                    {selCat && selCat !== OWN_SHOES && SHOE_SIZES[selCat] && (
+                      <div className="mb-[20px] flex flex-wrap gap-[10px]">
+                        {SHOE_SIZES[selCat].map((size) => {
+                          const value = `${selCat} ${size}`;
+                          return (
+                            <button
+                              key={size}
+                              type="button"
+                              onClick={() => update(i, { shoeSize: value })}
+                              className={`min-w-[74px] rounded-2xl border-2 px-[18px] py-[16px] text-center text-[24px] font-semibold tabular-nums ${
+                                p.shoeSize === value
+                                  ? "border-[#00E2E5] bg-[#00E2E5]/10 text-white"
+                                  : "border-white/10 text-white/50"
+                              }`}
+                            >
+                              {size}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
 
               <div className="flex items-center gap-[20px]">
                 <span className="text-[22px] font-semibold uppercase tracking-widest text-white/40">
