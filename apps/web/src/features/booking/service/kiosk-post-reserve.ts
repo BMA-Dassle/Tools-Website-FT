@@ -55,16 +55,35 @@ const FASTTRAX_RACING_LOCATION_ID = "LAB52GY480CJF";
 // state all land first, none of them depend on Pandora reservation sync).
 const PANDORA_SYNC_DELAY_MS = 8_000;
 
-/** One racer→heat assignment, shaped exactly like the web's booking-record
- *  racers array (app/book/confirmation/v2 → /api/pandora/schedule). */
+/** One racer→heat assignment for POST /bmi/schedule. The endpoint VALIDATES and
+ *  REQUIRES tier, category, and heatStop (all strings) — omitting them 400s with
+ *  "expected string, received undefined" (proven live 2026-07-19; the web's
+ *  minimal shape in checkout.ts is silently broken the same way). */
 interface KioskRacer {
   racerName: string;
   personId: string | null;
   product: string;
   productId: string | null;
+  tier: string;
   track: "Red" | "Blue" | "Mega" | null;
-  heatStart: string | null;
+  category: string;
   heatName: string;
+  heatStart: string | null;
+  heatStop: string | null;
+}
+
+/** FastTrax race heat length — matches the /bmi/schedule doc example (16:00→16:07)
+ *  and the live-verified insert; used to derive heatStop from the block start. */
+const HEAT_DURATION_MIN = 7;
+
+/** Add minutes to a NAIVE center-local ISO ("YYYY-MM-DDThh:mm:ss") without a
+ *  timezone shift (parse as UTC, add, reformat naive) so it round-trips on a
+ *  UTC serverless host. */
+function addMinutesNaive(iso: string, min: number): string {
+  const d = new Date(iso.endsWith("Z") ? iso : `${iso}Z`);
+  d.setUTCMinutes(d.getUTCMinutes() + min);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}T${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
 }
 
 export interface KioskPostReserveArgs {
@@ -95,15 +114,23 @@ function buildRacers(session: BookingSession, raceItems: RaceItem[]): KioskRacer
       .map((h) => {
         const member = session.party.find((m) => m.id === h.assignedTo);
         const product = h.productId ? getRaceProductById(h.productId) : null;
+        const heatStart = h.heatId as string; // heatId IS the block start ISO (filtered non-null)
         return {
-          racerName: member?.firstName ?? "Unknown",
+          racerName: member?.lastName
+            ? `${member.firstName} ${member.lastName}`
+            : (member?.firstName ?? "Unknown"),
           // bmiPersonId is a raw digit string — pass through untouched.
           personId: member?.bmiPersonId ?? null,
           product: product?.name ?? "Race",
           productId: h.productId,
+          // REQUIRED by /bmi/schedule (omitting → 400). tier/category from the
+          // product; category prefers the member's bucket.
+          tier: product?.tier ?? "starter",
           track: h.track,
-          heatStart: h.heatId, // heatId IS the block start ISO
-          heatName: product?.name ?? "",
+          category: member?.category ?? product?.category ?? "adult",
+          heatName: product?.name ?? "Race",
+          heatStart,
+          heatStop: addMinutesNaive(heatStart, HEAT_DURATION_MIN),
         };
       }),
   );
@@ -162,7 +189,11 @@ export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<v
         email: contact.email,
         phone: contact.phone,
         firstName: contact.firstName,
-        smsOptIn: contact.smsOptIn,
+        // Default the confirmation TEXT on for kiosk: it's transactional (the
+        // guest handed us their mobile at the kiosk to get this booking), and the
+        // kiosk contact never sets smsOptIn, so leaving it undefined silently
+        // skipped the SMS (W51654 got the email, no text).
+        smsOptIn: contact.smsOptIn ?? true,
         reservationNumber: bmiReservationNumber,
         reservationCode: bmiReservationCode ?? `r${bmiBillId}`,
         billId: bmiBillId,
