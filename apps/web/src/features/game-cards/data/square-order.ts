@@ -5,7 +5,11 @@
  * Reuses the account module's shared Square HTTP client.
  */
 import { squareFetch, squareErrorDetail } from "~/features/account/data/square-client";
-import { SQUARE_TOKEN_CATALOG_ID } from "../constants";
+import {
+  SQUARE_TOKEN_CATALOG_ID,
+  SQUARE_ACTIVATION_FEE_CATALOG_ID,
+  ACTIVATION_FEE_CENTS,
+} from "../constants";
 
 export interface ReloadOrderLine {
   /** Receipt label, e.g. "500 Tokens + 100 Bonus". */
@@ -27,7 +31,7 @@ export interface CreateReloadOrderParams {
 export async function createReloadOrder(params: CreateReloadOrderParams): Promise<string> {
   const { squareLocation, baseKey, lines, purpose = "reload" } = params;
   const verb = purpose === "purchase" ? "purchase" : "reload";
-  const lineItems = lines.map((l) => ({
+  const lineItems: Array<Record<string, unknown>> = lines.map((l) => ({
     quantity: "1",
     base_price_money: { amount: l.amountCents, currency: "USD" },
     catalog_object_id: SQUARE_TOKEN_CATALOG_ID,
@@ -35,6 +39,22 @@ export async function createReloadOrder(params: CreateReloadOrderParams): Promis
     // New cards have no account yet — omit the "→ card N" suffix for a purchase.
     name: purpose === "purchase" ? `${l.label} (new card)` : `${l.label} → card ${l.accountNumber}`,
   }));
+
+  // NEW cards carry a one-time $2 activation fee — one line, its own catalog id
+  // so Square reporting separates fees from token sales (owner 2026-07-18).
+  // Reloads never activate, so no fee line. The fee is ON TOP of the token price;
+  // prepareTerminalPurchase's totalCents + finalizeTerminalPurchase's expected
+  // amount add the identical fee, so the order total, the reader charge, and the
+  // server verify all agree.
+  if (purpose === "purchase") {
+    lineItems.push({
+      quantity: String(lines.length),
+      base_price_money: { amount: ACTIVATION_FEE_CENTS, currency: "USD" },
+      catalog_object_id: SQUARE_ACTIVATION_FEE_CATALOG_ID,
+      item_type: "ITEM",
+      name: "Card activation fee",
+    });
+  }
 
   const { ok, data } = await squareFetch<{ order?: { id?: string }; errors?: unknown }>("/orders", {
     method: "POST",

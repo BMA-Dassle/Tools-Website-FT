@@ -18,7 +18,7 @@
  */
 import { randomBytes, randomUUID } from "crypto";
 import { getCenter } from "~/config/intercard-centers";
-import { getPackage } from "../constants";
+import { getPackage, activationFeeCents } from "../constants";
 import { GameCardHttpError } from "../errors";
 import type { TerminalPrepareInput, TerminalFinalizeInput } from "../schemas";
 import { verifyAccount, IntercardError } from "../data/intercard";
@@ -92,7 +92,12 @@ export async function prepareTerminalPurchase(
 
   const groupId = randomUUID();
   const baseKey = randomBytes(8).toString("hex");
-  const totalCents = resolved.reduce((s, r) => s + r.pkg.priceCents, 0);
+  // New cards owe the $2 activation fee ON TOP of the token prices; createReloadOrder
+  // adds the identical fee line for a "purchase", so this total == the order total
+  // the reader charges (and == finalize's expected amount below).
+  const totalCents =
+    resolved.reduce((s, r) => s + r.pkg.priceCents, 0) +
+    activationFeeCents(input.kind, resolved.length);
 
   // Persist BEFORE the order/charge (throws if the DB is down → no money moves).
   const rows: TerminalPreparedRow[] = [];
@@ -171,7 +176,9 @@ export async function finalizeTerminalPurchase(
     }
     txns.push(row);
   }
-  const expectedCents = txns.reduce((s, t) => s + t.amountCents, 0);
+  // Match prepare's total: token prices + the new-card activation fee (per card).
+  const expectedCents =
+    txns.reduce((s, t) => s + t.amountCents, 0) + activationFeeCents(input.kind, txns.length);
 
   // Verify the reader payment server-side (displayed==charged tripwire lives here).
   // Poll briefly: the Terminal checkout reports COMPLETED a beat before

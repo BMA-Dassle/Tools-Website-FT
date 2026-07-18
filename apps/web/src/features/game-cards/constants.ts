@@ -16,6 +16,22 @@ import { SQUARE_CATALOG_IDS } from "~/features/booking/data/square-catalog-map";
 /** One Square catalog item backs every token package (price overridden per package). */
 export const SQUARE_TOKEN_CATALOG_ID = SQUARE_CATALOG_IDS.GAME_TOKENS;
 
+/**
+ * A brand-NEW physical card carries a one-time $2 activation fee — its OWN
+ * Square catalog id so reporting separates activation fees from token sales
+ * (owner 2026-07-18). Charged once per new card; reloads never activate, so no
+ * fee. The fee is a separate order line ON TOP of the token package price
+ * (e.g. a new 50-token card = $5 tokens + $2 = $7), threaded identically through
+ * the reader charge and the server-side finalize so displayed == charged.
+ */
+export const SQUARE_ACTIVATION_FEE_CATALOG_ID = "YEUGYDCTUUHSCVJU45LPN7BR";
+export const ACTIVATION_FEE_CENTS = 200;
+
+/** The activation fee owed for a purchase of `cardCount` NEW cards (0 for reloads). */
+export function activationFeeCents(kind: "new_card" | "reload", cardCount: number): number {
+  return kind === "new_card" ? ACTIVATION_FEE_CENTS * Math.max(0, cardCount) : 0;
+}
+
 export interface TokenPackage {
   id: string;
   label: string;

@@ -24,7 +24,11 @@ import PaymentForm from "@/components/square/PaymentForm";
 import { KioskTerminalCheckoutGate } from "./KioskTerminalCheckoutGate";
 import { creditTokensViaBridge } from "../service/game-card-bridge";
 import { kioskTerminalEnabled } from "~/features/kiosk/flags";
-import { TOKEN_PACKAGES } from "~/features/game-cards/constants";
+import {
+  TOKEN_PACKAGES,
+  ACTIVATION_FEE_CENTS,
+  activationFeeCents,
+} from "~/features/game-cards/constants";
 import { centerCodeFor } from "~/config/intercard-centers";
 import type { Brand, CenterCode } from "~/features/booking";
 import { useGameCardDispenser } from "../card-reader";
@@ -142,10 +146,14 @@ export function KioskGameZone({
   }, 0);
   const allReady = cards.length > 0 && cards.every((c) => c.status === "ok" && c.packageId);
 
-  const newTotalCents = newCards.reduce((sum, c) => {
-    const pkg = TOKEN_PACKAGES.find((p) => p.id === c.packageId);
-    return sum + (pkg?.priceCents ?? 0);
-  }, 0);
+  // New cards owe a $2 activation fee each (owner 2026-07-18) — added here so the
+  // displayed total matches what the reader charges (prepareTerminalPurchase adds
+  // the identical fee). Reloads never activate → totalCents above carries no fee.
+  const newTotalCents =
+    newCards.reduce((sum, c) => {
+      const pkg = TOKEN_PACKAGES.find((p) => p.id === c.packageId);
+      return sum + (pkg?.priceCents ?? 0);
+    }, 0) + activationFeeCents("new_card", newCards.length);
   const setNewCard = (i: number, patch: Partial<NewCard>) =>
     setNewCards((cs) => cs.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
   const addNewCard = () =>
@@ -740,8 +748,13 @@ export function KioskGameZone({
         )}
 
         <div className="mt-6 flex items-center justify-between rounded-2xl border border-[#00e2e5]/35 bg-white/[0.04] px-6 py-4">
-          <div className="font-heading text-2xl font-extrabold tabular-nums">
-            ${(newTotalCents / 100).toFixed(2)}
+          <div>
+            <div className="font-heading text-2xl font-extrabold tabular-nums">
+              ${(newTotalCents / 100).toFixed(2)}
+            </div>
+            <div className="text-xs text-white/45">
+              includes ${(ACTIVATION_FEE_CENTS / 100).toFixed(0)} activation per card
+            </div>
           </div>
           <button
             type="button"
