@@ -187,21 +187,22 @@ function EmptyShelf({ note }: { note: string }) {
 function GameZoneUnavailableCard() {
   return (
     <div
-      className="k-ph relative min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/10 opacity-70 [--k-img:url(var(--kgz))]"
+      className="k-ph relative min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/10"
       style={
         {
           ["--k-img"]: `url(${KIOSK_PHOTOS.arcade})`,
-          filter: "grayscale(0.6)",
+          filter: "grayscale(0.5) brightness(0.5)",
         } as React.CSSProperties
       }
       aria-label="Game Zone cards not available on this kiosk"
     >
-      <div className="absolute bottom-[40px] left-[48px] right-[48px]">
-        <div className="k-eyebrow text-white/45">Game Zone</div>
-        <div className="k-display mt-[8px] text-[52px] text-white/85">Cards not available here</div>
-        <div className="mt-[10px] text-[28px] text-white/60">
-          This kiosk can&rsquo;t sell or reload Game Zone cards. Please use another kiosk or see
-          Guest Services.
+      <div className="absolute inset-0 flex flex-col items-center justify-center px-[64px] text-center">
+        <div className="k-eyebrow mb-[12px] text-[24px] text-white/50">Game Zone</div>
+        <div className="k-display text-[48px] leading-[1.15] text-white/90">
+          Game Zone cards not available on this kiosk
+        </div>
+        <div className="mt-[16px] text-[26px] leading-[1.4] text-white/55">
+          Please use another kiosk or see Guest Services
         </div>
       </div>
       <div className="absolute inset-x-0 bottom-0 h-[8px] bg-white/20" />

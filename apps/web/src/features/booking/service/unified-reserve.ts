@@ -16,6 +16,7 @@ import {
   type ExternalTerminalPayment,
 } from "./deposit";
 import { kioskTerminalEnabled } from "~/features/kiosk/flags";
+import { after } from "next/server";
 import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
 import { confirmBmiPayment, bmiBillIsLive } from "./bmi-confirm";
 import { reserveBaseKey } from "./reserve-idempotency";
@@ -1648,6 +1649,13 @@ async function unifiedReserveInner(
       bmiReservationNumber = bmiResult.reservationNumber;
       bmiReservationCode = bmiResult.reservationCode;
 
+      // BMI Office project id = orderId + 1 (last-10-digit math stays under
+      // MAX_SAFE_INTEGER; the rest of the id is preserved as raw text). Computed
+      // ONCE here so the Pandora state flip below AND the kiosk post-reserve rail
+      // target the SAME project — never recompute it independently.
+      const officeProjectIdNum = (Number(bmiBillId.slice(-10)) + 1).toString();
+      const officeProjectId = bmiBillId.slice(0, -officeProjectIdNum.length) + officeProjectIdNum;
+
       // Idempotency cache for /api/booking/confirm — the v2 confirmation page calls
       // that endpoint on load; without this it cache-MISSES and re-runs BMI
       // payment/confirm, and the second confirm reverts the project state back to
@@ -1678,8 +1686,6 @@ async function unifiedReserveInner(
       // bmi-cancel-sweep cron. projectId = orderId + 1 (last-10-digit math stays
       // under MAX_SAFE_INTEGER; the rest of the id is preserved as raw text).
       try {
-        const projectIdNum = (Number(bmiBillId.slice(-10)) + 1).toString();
-        const projectId = bmiBillId.slice(0, -projectIdNum.length) + projectIdNum;
         const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
         const pandoraLocationId =
           raceItems.length > 0
@@ -1695,12 +1701,16 @@ async function unifiedReserveInner(
               "Content-Type": "application/json",
               Authorization: `Bearer ${pandoraKey}`,
             },
-            body: JSON.stringify({ locationID: pandoraLocationId, projectId, stateID: "-3" }),
+            body: JSON.stringify({
+              locationID: pandoraLocationId,
+              projectId: officeProjectId,
+              stateID: "-3",
+            }),
             signal: AbortSignal.timeout(10_000),
           },
         );
         console.log(
-          `[unified-reserve] Pandora project ${projectId} state → -3 (Confirmation): ${stateRes.ok ? "OK" : stateRes.status}`,
+          `[unified-reserve] Pandora project ${officeProjectId} state → -3 (Confirmation): ${stateRes.ok ? "OK" : stateRes.status}`,
         );
       } catch (pandoraErr) {
         console.error("[unified-reserve] Pandora state update failed (non-fatal):", pandoraErr);
@@ -1731,6 +1741,47 @@ async function unifiedReserveInner(
           });
         } catch (err) {
           console.error("[unified-reserve] BMI confirmed-status update failed (non-fatal):", err);
+        }
+      }
+
+      // ── Kiosk post-reserve rail (server-side; WEB never enters) ──────
+      // A self-service kiosk terminal has no client-side confirmation step to
+      // fire the guest notification / Pandora session assignment the web
+      // confirmation page runs. Do it here, gated STRICTLY on the kiosk context
+      // flag so the web path is byte-identical. Lazy-imported so the module (and
+      // its bmi-office-actions chain) never loads on the web path. Never throws
+      // out of reserve — the booking is already confirmed + charged.
+      if (session.context?.kiosk && bmiReservationNumber && raceItems.length > 0) {
+        // Run the rail AFTER the response is sent (Next after()) so the guest
+        // isn't held at the reader while the notification + memo + office-state +
+        // the 8s-delayed Pandora session assignment fire. Vercel keeps the
+        // function alive for the after() callback, so it still completes
+        // reliably. Snapshot the args now (bmiReservationCode is reassigned
+        // above). Never throws into reserve.
+        const kioskPostArgs = {
+          session,
+          contact,
+          bmiBillId,
+          bmiReservationNumber,
+          bmiReservationCode,
+          officeProjectId,
+          centerCode,
+          raceItems,
+        };
+        const runKioskPost = async () => {
+          try {
+            const { runKioskPostReserve } = await import("./kiosk-post-reserve");
+            await runKioskPostReserve(kioskPostArgs);
+          } catch (e) {
+            console.error("[kiosk-post] failed (non-fatal):", e);
+          }
+        };
+        try {
+          after(runKioskPost);
+        } catch {
+          // after() outside a request scope (script/cron) — run inline; those
+          // contexts stay alive so a fire-and-forget still completes.
+          void runKioskPost();
         }
       }
     } catch (err) {

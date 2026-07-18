@@ -101,6 +101,13 @@ type Phase =
   | {
       step: "paying";
       overview: BillOverview;
+      // The FULL-PRICE review overview (before per-racer credit redemption is
+      // applied). Kept so a "back"/cancel from payment restores review to its
+      // un-redeemed base — the review render re-derives credit $0 lines from the
+      // LIVE toggle each render, and applyCreditRedemptionsToOverview only ADDS
+      // credit lines (it can't strip them). If we restored the credit-APPLIED
+      // overview here instead, a later UNCHECK could never undo the credit.
+      reviewOverview: BillOverview;
       bmiBillId: string;
       squareCustomerId?: string;
       savedCards?: SavedCard[];
@@ -532,6 +539,10 @@ export function CheckoutStep({
   async function handleConfirm(
     reserveSession: BookingSession,
     overview: BillOverview,
+    // Full-price base (credits NOT applied) — carried into the paying phase so a
+    // cancel/back returns review to its un-redeemed base, keeping the credit
+    // toggle honest. `overview` above is the credit-applied charge overview.
+    reviewOverview: BillOverview,
     bmiBillId: string,
   ) {
     void recordClickwrap({
@@ -578,6 +589,7 @@ export function CheckoutStep({
     setPhase({
       step: "paying",
       overview,
+      reviewOverview,
       bmiBillId,
       squareCustomerId: sqCustomer.customerId,
       savedCards: sqCustomer.cards,
@@ -1104,7 +1116,7 @@ export function CheckoutStep({
           </button>
           <button
             type="button"
-            onClick={() => handleConfirm(sessionForReserve, overview, bmiBillId)}
+            onClick={() => handleConfirm(sessionForReserve, overview, baseOverview, bmiBillId)}
             disabled={!clickwrapAccepted}
             title={!clickwrapAccepted ? "Please agree to the cancellation policy above" : undefined}
             className="inline-flex items-center gap-2 rounded-xl bg-[#00E2E5] px-8 py-4 text-base font-bold text-[#000418] shadow-lg shadow-[#00E2E5]/25 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
@@ -1121,7 +1133,7 @@ export function CheckoutStep({
   }
 
   if (phase.step === "paying") {
-    const { overview, bmiBillId, squareCustomerId, savedCards } = phase;
+    const { overview, reviewOverview, bmiBillId, squareCustomerId, savedCards } = phase;
     // Square location for the payment SDK (and any /api/square/pay fallback).
     // Must come from the SESSION's center first — the hostname can't tell
     // Naples from Fort Myers, which mis-located every fallback charge.
@@ -1323,7 +1335,7 @@ export function CheckoutStep({
                   externalPayment: ep,
                 })
               }
-              onCancel={() => setPhase({ step: "review", overview, bmiBillId })}
+              onCancel={() => setPhase({ step: "review", overview: reviewOverview, bmiBillId })}
             />
             {cancelControl}
           </div>
@@ -1351,7 +1363,7 @@ export function CheckoutStep({
                   squareCustomerIdOverride: customerId,
                 })
               }
-              onCancel={() => setPhase({ step: "review", overview, bmiBillId })}
+              onCancel={() => setPhase({ step: "review", overview: reviewOverview, bmiBillId })}
             />
             {cancelControl}
           </div>
@@ -1375,7 +1387,7 @@ export function CheckoutStep({
           onTokenize={handleTokenize}
           onSuccess={(result) => handlePaymentSuccess(result, bmiBillId)}
           onError={(msg) => setPhase({ step: "error", message: msg })}
-          onCancel={() => setPhase({ step: "review", overview, bmiBillId })}
+          onCancel={() => setPhase({ step: "review", overview: reviewOverview, bmiBillId })}
         />
         {cancelControl}
       </div>

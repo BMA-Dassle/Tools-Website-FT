@@ -45,6 +45,24 @@ import SquareOrderModal, { type OrderTarget } from "./modals/SquareOrderModal";
 import ManageReservationModal from "./manage/ManageReservationModal";
 import { BOARD_CSS, baThemeCss } from "./theme";
 
+/**
+ * True for a self-service KIOSK booking made through our booking flow
+ * (bookingSource "kiosk", stamped by unified-reserve / bowling service).
+ *
+ * NAMING COLLISION: the qamf-bowling webhook ALSO tags lane-side walk-ins
+ * with bookingSource "kiosk" when the QAMF id starts with "K" (counter
+ * kiosk walk-ins). Those are genuine walk-ins, not our booking-flow kiosk,
+ * so we exclude any row whose QAMF reservation id is K-prefixed. This keeps
+ * our kiosk bookings surfaced (they carry no K-prefixed QAMF id) while
+ * QAMF-K walk-ins stay hidden by the "Web Only" filter like other walk-ins.
+ */
+function isBookingFlowKiosk(r: Reservation): boolean {
+  return (
+    r.bookingSource === "kiosk" &&
+    !(r.qamfReservationId && r.qamfReservationId.toUpperCase().startsWith("K"))
+  );
+}
+
 export default function ReservationsBoard({
   token,
   embedded,
@@ -148,7 +166,14 @@ export default function ReservationsBoard({
   const filtered = useMemo(() => {
     let list = reservations;
     if (hideWalkins) {
-      list = list.filter((r) => !r.bookingSource || r.bookingSource === "web");
+      // "Web Only" hides QAMF-side entries (conqueror, admin) and lane-side
+      // walk-ins — but NOT our self-service kiosk bookings. Those are real
+      // guest bookings made through the booking flow (bookingSource "kiosk")
+      // and belong alongside web bookings, clearly badged. See
+      // isBookingFlowKiosk for the walk-in collision it guards against.
+      list = list.filter(
+        (r) => !r.bookingSource || r.bookingSource === "web" || isBookingFlowKiosk(r),
+      );
     }
     if (hideCancelled) {
       // "Active Only": drop cancelled + completed. Also drop `arrived` RACING
@@ -241,8 +266,11 @@ export default function ReservationsBoard({
   const active = displayRows.filter((r) => r.status !== "cancelled" && r.status !== "completed");
   const totalCancelledAll = reservations.filter((r) => r.status === "cancelled").length;
   const totalCompletedAll = reservations.filter((r) => r.status === "completed").length;
+  // Walk-in count = QAMF-side entries the "Web Only" filter hides. Excludes
+  // our booking-flow kiosk rows, which are now shown alongside web (so they
+  // are not "hidden walk-ins").
   const totalWalkins = reservations.filter(
-    (r) => r.bookingSource && r.bookingSource !== "web",
+    (r) => r.bookingSource && r.bookingSource !== "web" && !isBookingFlowKiosk(r),
   ).length;
   const totalHidden = totalCancelledAll + totalCompletedAll;
   // Combo rows carry the COMBINED total across their two day-of orders (and are
