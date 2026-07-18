@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { buildGanPrefix } from "@/lib/gan";
 import { createDepositAndCharge, DepositPaymentError } from "~/features/booking/service/deposit";
 import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
@@ -146,7 +146,11 @@ interface ReserveRequest {
     lastName: string;
     email: string;
     phone: string;
+    smsOptIn?: boolean;
   };
+  /** Booking origin — "kiosk" for self-service kiosk bookings (stamped on the
+   *  board row + triggers the kiosk post-reserve rail). Defaults "web". */
+  bookingSource?: string;
   bookingKind: "race" | "attraction";
   bookingMetadata?: Record<string, unknown>;
   cartItems: CartItem[];
@@ -616,7 +620,7 @@ export async function POST(req: NextRequest) {
             guestEmail: body.contact.email,
             guestPhone: body.contact.phone,
             notes: `v2 ${body.bookingKind} booking`,
-            bookingSource: "web",
+            bookingSource: body.bookingSource === "kiosk" ? "kiosk" : "web",
             squareCustomerId: body.squareCustomerId ?? undefined,
             squareLoyaltyRewardId: loyaltyRewardId ?? undefined,
             rewardDiscountCents: loyaltyRewardId ? rewardDiscountCents : undefined,
@@ -823,6 +827,42 @@ export async function POST(req: NextRequest) {
         );
       } catch (pandoraErr) {
         console.error("[v2/reserve] Pandora state update failed (non-fatal):", pandoraErr);
+      }
+
+      // ── Kiosk post-reserve rail (SHARED with reserve-all/unifiedReserve) ──
+      // The credit / $0 race path runs through THIS route (not unifiedReserve), so
+      // without this a kiosk credit booking got no SMS/email, no session
+      // assignment, and no office confirmation state (owner: W51656). Same rail,
+      // gated on the kiosk source, run AFTER the response (Next after()) so the
+      // guest isn't held, and never throwing into reserve.
+      if (body.bookingSource === "kiosk" && body.bookingKind === "race" && reservationNumber) {
+        const resNumber = reservationNumber;
+        const resCode = reservationCode;
+        const heats = (body.bookingMetadata?.heats ?? []) as Array<Record<string, unknown>>;
+        const runKioskPost = async () => {
+          try {
+            const { runKioskPostReserve, buildKioskRacersFromHeats } =
+              await import("~/features/booking/service/kiosk-post-reserve");
+            await runKioskPostReserve({
+              racers: buildKioskRacersFromHeats(heats),
+              contact: { ...body.contact, smsOptIn: body.contact.smsOptIn ?? true },
+              bmiBillId: body.bmiBillId,
+              bmiReservationNumber: resNumber,
+              bmiReservationCode: resCode,
+              officeProjectId: projectId,
+              centerCode: body.centerCode ?? "fort-myers",
+              location: body.centerCode === "naples" ? "naples" : "fort-myers",
+              isNewRacer: false, // credit redemption ⇒ returning racers
+            });
+          } catch (e) {
+            console.error("[kiosk-post] v2/reserve rail failed (non-fatal):", e);
+          }
+        };
+        try {
+          after(runKioskPost);
+        } catch {
+          void runKioskPost();
+        }
       }
     } catch (err) {
       console.error("[v2/reserve] BMI confirm error:", err);

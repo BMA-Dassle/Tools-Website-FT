@@ -1758,20 +1758,24 @@ async function unifiedReserveInner(
         // function alive for the after() callback, so it still completes
         // reliably. Snapshot the args now (bmiReservationCode is reassigned
         // above). Never throws into reserve.
-        const kioskPostArgs = {
-          session,
-          contact,
-          bmiBillId,
-          bmiReservationNumber,
-          bmiReservationCode,
-          officeProjectId,
-          centerCode,
-          raceItems,
-        };
+        // Snapshot the (narrowed) values — bmiReservationNumber is a `let` that
+        // the closure would otherwise widen back to string | null.
+        const resNumber: string = bmiReservationNumber;
+        const resCode = bmiReservationCode;
         const runKioskPost = async () => {
           try {
-            const { runKioskPostReserve } = await import("./kiosk-post-reserve");
-            await runKioskPostReserve(kioskPostArgs);
+            const { runKioskPostReserve, buildKioskRacers } = await import("./kiosk-post-reserve");
+            await runKioskPostReserve({
+              racers: buildKioskRacers(session, raceItems),
+              contact,
+              bmiBillId,
+              bmiReservationNumber: resNumber,
+              bmiReservationCode: resCode,
+              officeProjectId,
+              centerCode,
+              location: session.center === "naples" ? "naples" : "fort-myers",
+              isNewRacer: session.party.some((m) => m.isNewRacer),
+            });
           } catch (e) {
             console.error("[kiosk-post] failed (non-fatal):", e);
           }

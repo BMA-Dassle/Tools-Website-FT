@@ -714,7 +714,11 @@ export async function reserveBooking(params: ReserveParams): Promise<ReserveResu
         lastName: contact.lastName,
         email: contact.email,
         phone: contact.phone,
+        smsOptIn: contact.smsOptIn,
       },
+      // Origin — "kiosk" stamps the board row + fires the shared kiosk
+      // post-reserve rail (SMS/email, session assignment, memo, office state).
+      bookingSource: session.context?.kiosk ? "kiosk" : "web",
       bookingKind,
       bookingMetadata,
       cartItems,

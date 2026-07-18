@@ -87,27 +87,33 @@ function addMinutesNaive(iso: string, min: number): string {
 }
 
 export interface KioskPostReserveArgs {
-  session: BookingSession;
+  /** Pre-built racer rows (see buildKioskRacers / buildKioskRacersFromHeats) so
+   *  BOTH reserve rails (unified reserve-all AND the race v2/reserve credit path)
+   *  share this ONE flow. */
+  racers: KioskRacer[];
   contact: ContactInfo;
   /** Raw BMI bill/order id (17-digit string — never Number() it). */
   bmiBillId: string;
   /** From confirmBmiPayment. */
   bmiReservationNumber: string;
   bmiReservationCode: string | null;
-  /** BMI Office project id (bill id + 1) — computed ONCE in unified-reserve and
-   *  passed in so this rail and the state flip target the same project. */
+  /** BMI Office project id (bill id + 1) — computed ONCE by the caller and passed
+   *  in so this rail and the state flip target the same project. */
   officeProjectId: string;
   /** session.center ?? "fort-myers" — resolved once by the caller. */
   centerCode: string;
-  raceItems: RaceItem[];
+  /** Notification location key ("fort-myers" | "naples"). */
+  location: string;
+  /** Any brand-new racer in the party → drives the notification's isNewRacer. */
+  isNewRacer: boolean;
 }
 
 /**
- * Build the racer→heat assignment rows from the live session, replicating the
- * web's `racerAssignments` builder (checkout.ts) so the Pandora schedule
- * payload is identical in shape to what the browser sends.
+ * Build racer→heat rows from the live session (unified reserve-all path),
+ * matching the web's racerAssignments shape. Exported so callers build the racers
+ * and hand them to runKioskPostReserve (the ONE shared post-reserve flow).
  */
-function buildRacers(session: BookingSession, raceItems: RaceItem[]): KioskRacer[] {
+export function buildKioskRacers(session: BookingSession, raceItems: RaceItem[]): KioskRacer[] {
   return raceItems.flatMap((r) =>
     r.heats
       .filter((h) => h.assignedTo && h.heatId)
@@ -136,19 +142,47 @@ function buildRacers(session: BookingSession, raceItems: RaceItem[]): KioskRacer
   );
 }
 
+/**
+ * Build racer→heat rows from the race v2/reserve route's `bookingMetadata.heats`
+ * (raceHeatsMetadata shape: bmiPersonId, racer, heatId, track, tier, category,
+ * productId). The credit path (v2/reserve) has no session object, so it hands us
+ * these instead. Same output shape as buildKioskRacers.
+ */
+export function buildKioskRacersFromHeats(heats: Array<Record<string, unknown>>): KioskRacer[] {
+  return heats
+    .filter((h) => typeof h.bmiPersonId === "string" && typeof h.heatId === "string")
+    .map((h) => {
+      const productId = (h.productId as string) ?? null;
+      const product = productId ? getRaceProductById(productId) : null;
+      const heatStart = h.heatId as string;
+      const track = (h.track as KioskRacer["track"]) ?? null;
+      return {
+        racerName: (h.racer as string) || "Racer",
+        personId: (h.bmiPersonId as string) ?? null,
+        product: product?.name ?? "Race",
+        productId,
+        tier: (h.tier as string) || product?.tier || "starter",
+        track,
+        category: (h.category as string) || product?.category || "adult",
+        heatName: product?.name ?? "Race",
+        heatStart,
+        heatStop: addMinutesNaive(heatStart, HEAT_DURATION_MIN),
+      };
+    });
+}
+
 export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<void> {
   const {
-    session,
+    racers,
     contact,
     bmiBillId,
     bmiReservationNumber,
     bmiReservationCode,
     officeProjectId,
     centerCode,
-    raceItems,
+    location,
+    isNewRacer,
   } = args;
-
-  const racers = buildRacers(session, raceItems);
 
   // ── 1. Guest confirmation SMS + email ──────────────────────────────
   // Reuse the full notification pipeline. Idempotent (Redis notif: dedup keyed
@@ -177,15 +211,13 @@ export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<v
     }));
     const productNames = [...new Set(racers.map((r) => r.product))];
 
-    // Kiosk RACE booking: always the FastTrax brand at Fort Myers (racing has no
-    // Naples location). Brand drives the email subject + SMS from-number.
-    const location = session.center === "naples" ? "naples" : "fort-myers";
-    const isNewRacer = session.party.some((m) => m.isNewRacer);
-
     const res = await fetch(`${NOTIFY_BASE}/api/notifications/booking-confirmation`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        // kioskMode → the route sends the lightweight kiosk confirmation (no QR,
+        // no desk check-in; "e-ticket coming"), not the full web template.
+        kioskMode: true,
         email: contact.email,
         phone: contact.phone,
         firstName: contact.firstName,
