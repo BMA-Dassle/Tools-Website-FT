@@ -23,7 +23,7 @@ import { useEffect, useRef, useState } from "react";
 import PaymentForm from "@/components/square/PaymentForm";
 import { KioskTerminalCheckoutGate } from "./KioskTerminalCheckoutGate";
 import { creditTokensViaBridge } from "../service/game-card-bridge";
-import { kioskTerminalEnabled } from "~/features/kiosk/flags";
+import { kioskTerminalEnabled, kioskGzCartEnabled } from "~/features/kiosk/flags";
 import {
   TOKEN_PACKAGES,
   ACTIVATION_FEE_CENTS,
@@ -31,6 +31,7 @@ import {
 } from "~/features/game-cards/constants";
 import { centerCodeFor } from "~/config/intercard-centers";
 import type { Brand, CenterCode } from "~/features/booking";
+import type { GameCardCartPurchase } from "~/features/booking/state/types";
 import { useGameCardDispenser } from "../card-reader";
 import { useKioskConfig } from "../KioskConfigContext";
 import { BrandedLoader } from "./BrandedLoader";
@@ -120,6 +121,8 @@ export function KioskGameZone({
   brand,
   capability = "full",
   onExit,
+  cartHasItems = false,
+  onAddToVisit,
 }: {
   center: CenterCode;
   brand: Brand;
@@ -127,6 +130,11 @@ export function KioskGameZone({
    *  new-card dispense). Owner 2026-07-19. */
   capability?: "full" | "reload";
   onExit: () => void;
+  /** KIOSK cart mode (owner 2026-07-18): with activities already in the cart,
+   *  cards join the BOOKING instead of checking out here — one payment at the
+   *  shared checkout, fulfillment on the confirmation screen. */
+  cartHasItems?: boolean;
+  onAddToVisit?: (purchase: GameCardCartPurchase) => void;
 }) {
   // Reload-only kiosks skip the buy/reload chooser and land straight on reload.
   const [mode, setMode] = useState<Mode>(capability === "reload" ? "reload" : "choose");
@@ -154,6 +162,19 @@ export function KioskGameZone({
   const { config } = useKioskConfig();
   const dispenser = useGameCardDispenser({ config });
   const readerReady = dispenser.ready;
+
+  // Cart mode (owner 2026-07-18): with activities already in the cart, cards
+  // ride the BOOKING — "Add to my visit" replaces the standalone checkout.
+  // Requires the Square-reader rail (the cards join the deposit order the
+  // reader charges); the standalone empty-cart flow is untouched.
+  const addToVisit =
+    cartHasItems &&
+    onAddToVisit &&
+    kioskGzCartEnabled() &&
+    kioskTerminalEnabled() &&
+    config?.readerId
+      ? onAddToVisit
+      : null;
 
   // When leaving reload, stop the gate from accepting more cards.
   useEffect(() => {
@@ -990,15 +1011,36 @@ export function KioskGameZone({
               includes ${(ACTIVATION_FEE_CENTS / 100).toFixed(0)} activation per card
             </div>
           </div>
-          <button
-            type="button"
-            disabled={!readerReady || dispenser.stacker === "empty"}
-            onClick={() => setPhase("paying")}
-            className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
-          >
-            Pay &amp; dispense
-          </button>
+          {addToVisit ? (
+            <button
+              type="button"
+              disabled={!readerReady || dispenser.stacker === "empty"}
+              onClick={() =>
+                addToVisit({
+                  mode: "new_card",
+                  cards: newCards.map((c) => ({ packageId: c.packageId })),
+                })
+              }
+              className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
+            >
+              Add to my visit
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={!readerReady || dispenser.stacker === "empty"}
+              onClick={() => setPhase("paying")}
+              className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
+            >
+              Pay &amp; dispense
+            </button>
+          )}
         </div>
+        {addToVisit && (
+          <p className="mt-2 text-center text-sm text-white/45">
+            Cards are paid with your booking at checkout and dispense on the confirmation screen.
+          </p>
+        )}
         {!readerReady ? (
           <p className="mt-2 text-center text-sm text-amber-300/80">
             Card dispenser is offline — please see an attendant to buy new cards.
@@ -1261,15 +1303,39 @@ export function KioskGameZone({
         <div className="font-heading text-2xl font-extrabold tabular-nums">
           ${(totalCents / 100).toFixed(2)}
         </div>
-        <button
-          type="button"
-          disabled={!allReady}
-          onClick={() => setPhase("paying")}
-          className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
-        >
-          Pay &amp; load
-        </button>
+        {addToVisit ? (
+          <button
+            type="button"
+            disabled={!allReady}
+            onClick={() =>
+              addToVisit({
+                mode: "reload",
+                cards: cards.map((c) => ({
+                  packageId: c.packageId,
+                  accountNumber: c.accountNumber.trim(),
+                })),
+              })
+            }
+            className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
+          >
+            Add to my visit
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={!allReady}
+            onClick={() => setPhase("paying")}
+            className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
+          >
+            Pay &amp; load
+          </button>
+        )}
       </div>
+      {addToVisit && (
+        <p className="mt-2 text-center text-sm text-white/45">
+          Tokens are paid with your booking at checkout and load right after payment.
+        </p>
+      )}
       {!allReady && (
         <p className="mt-2 text-center text-sm text-white/40">
           Check each card number to continue.

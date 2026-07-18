@@ -40,3 +40,15 @@ export function kioskPacksEnabled(): boolean {
 export function kioskTerminalEnabled(): boolean {
   return process.env.NEXT_PUBLIC_KIOSK_TERMINAL_ENABLED === "true";
 }
+
+/**
+ * Game Zone cards riding the booking cart (owner 2026-07-18: with items in the
+ * cart, cards "should just be in the cart" — one payment at the shared
+ * checkout, card lines on the DEPOSIT order, fulfillment on the confirmation
+ * screen). Kill switch, defaults ON: the standalone empty-cart Game Zone
+ * checkout is untouched either way, and the terminal rail this rides is
+ * already live-smoked. Set the literal "false" in Vercel + redeploy to kill.
+ */
+export function kioskGzCartEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_GZ_CART_ENABLED !== "false";
+}

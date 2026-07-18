@@ -7,7 +7,7 @@
  *
  * Per restructuring rules: business logic lives here, API route is a thin shell.
  */
-import { randomBytes } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 import { buildGanPrefix } from "@/lib/gan";
 import {
   createDepositAndCharge,
@@ -15,7 +15,10 @@ import {
   finalizeDepositFromExternalPayment,
   type ExternalTerminalPayment,
 } from "./deposit";
-import { kioskTerminalEnabled } from "~/features/kiosk/flags";
+import { kioskTerminalEnabled, kioskGzCartEnabled } from "~/features/kiosk/flags";
+import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
+import { startTxn, markCharged, markLoadState } from "~/features/game-cards/data/transactions-log";
+import { centerCodeFor } from "~/config/intercard-centers";
 import { after } from "next/server";
 import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
 import { confirmBmiPayment, bmiBillIsLive } from "./bmi-confirm";
@@ -135,6 +138,25 @@ export interface PrepareDepositResult {
   locationId: string;
 }
 
+/**
+ * KIOSK: Game Zone cards charged with the booking — the row pointers the
+ * confirmation screen fulfills (dispense+load for new cards, bridge-load for
+ * reloads). Amounts/tokens are informational for the progress UI; the server
+ * re-validates everything at /load-card time.
+ */
+export interface GameCardFulfillment {
+  mode: "new_card" | "reload";
+  groupId: string;
+  locationCode: number;
+  cards: Array<{
+    txnId: string;
+    packageId: string;
+    accountNumber: string;
+    tokens: number;
+    bonusTokens: number;
+  }>;
+}
+
 export interface UnifiedReserveResult {
   neonIds: number[];
   shortCodes: string[];
@@ -145,6 +167,8 @@ export interface UnifiedReserveResult {
   giftCardGan: string | null;
   depositCents: number;
   totalCents: number;
+  /** Present only when Game Zone cards rode this booking (kiosk). */
+  gameCards?: GameCardFulfillment;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -373,6 +397,19 @@ interface TerminalAnchor {
   baseKey: string;
   paymentId?: string;
   stampedAt?: string;
+  /**
+   * KIOSK Game Zone cards riding this deposit order (owner 2026-07-18): the
+   * ledger rows persisted at PREPARE, so finalize can mark them charged and
+   * hand them to the confirmation screen for fulfillment. Order matches the
+   * session's cards at prepare time.
+   */
+  gameCards?: {
+    mode: "new_card" | "reload";
+    groupId: string;
+    locationCode: number;
+    totalCents: number;
+    cards: Array<{ txnId: string; packageId: string; accountNumber: string }>;
+  };
 }
 const TERMINAL_ANCHOR_TTL_S = 48 * 3600;
 const terminalAnchorKey = (seed: string) => `kiosk:terminal:anchor:${seed}`;
@@ -929,8 +966,38 @@ async function unifiedReserveInner(
     giftCardId: string | null;
     giftCardGan: string | null;
   } = { depositOrderId: null, depositPaymentId: null, giftCardId: null, giftCardGan: null };
+  /** KIOSK: charged Game Zone card rows for the confirmation screen to fulfill. */
+  let gameCardFulfillment: GameCardFulfillment | undefined;
 
   const useTerminal = kioskTerminalEnabled() && !!input.externalPayment;
+
+  // ── KIOSK Game Zone cards riding this cart (owner 2026-07-18) ────────
+  // Resolved server-side from TOKEN_PACKAGES — the session carries pointers
+  // only, never prices. The card lines ride the DEPOSIT order (never day-of);
+  // their total adds to the reader charge; the gift card still funds the
+  // booking deposit alone. Terminal (reader) rail only — the kiosk client
+  // gates "Add to my visit" on the reader, and we fail CLOSED here so a
+  // non-terminal payment can never silently drop paid-for cards.
+  const gzPurchase =
+    session.context?.kiosk && kioskGzCartEnabled()
+      ? resolveCartPurchase(session.gameCardPurchase)
+      : null;
+  const gzCents = gzPurchase?.totalCents ?? 0;
+  if (gzPurchase && !prepareOnly && !useTerminal) {
+    throw new Error(
+      "Game Zone cards in the cart require the reader payment — please see the front desk.",
+    );
+  }
+  if (gzPurchase && depositCents <= 0) {
+    // Fully-credit-covered booking + cards would leave nothing for the GC line
+    // to anchor. Rare edge — buy the cards standalone instead.
+    throw new Error(
+      "This booking is fully covered by credits — please buy the Game Zone cards separately.",
+    );
+  }
+  const gzLocationCode = gzPurchase
+    ? centerCodeFor(session.center ?? "fort-myers", session.entryBrand)
+    : null;
 
   if (depositCents > 0) {
     const ganPrefix = buildGanPrefix("WEB", locationId);
@@ -951,14 +1018,51 @@ async function unifiedReserveInner(
     // ran, so no money moves after a step that can still fail (H3074 rule). ──
     if (prepareOnly) {
       console.log(
-        `[kiosk-terminal] PREPARE dayofTotalCents=${dayofTotalCents} depositPct=${depositPct} → depositCents=${depositCents} loc=${locationId} seed=${seedSource ?? baseKey}`,
+        `[kiosk-terminal] PREPARE dayofTotalCents=${dayofTotalCents} depositPct=${depositPct} → depositCents=${depositCents} gzCents=${gzCents} loc=${locationId} seed=${seedSource ?? baseKey}`,
       );
+      // Game Zone cards: persist one ledger row per card BEFORE the order exists
+      // (persist-first — every card durable before any money moves), and stash
+      // the row pointers on the anchor so finalize can mark them charged.
+      let anchorGameCards: TerminalAnchor["gameCards"];
+      if (gzPurchase && gzLocationCode != null) {
+        const groupId = randomUUID();
+        const cards: NonNullable<TerminalAnchor["gameCards"]>["cards"] = [];
+        for (const c of gzPurchase.cards) {
+          const txnId = randomUUID();
+          await startTxn({
+            txnId,
+            groupId,
+            kind: gzPurchase.mode,
+            locationCode: gzLocationCode,
+            accountNumber: c.accountNumber,
+            packageId: c.packageId,
+            tokens: c.pkg.tokens,
+            bonusTokens: c.pkg.bonusTokens,
+            amountCents: c.pkg.priceCents,
+            tpiTransactionId: `${gzPurchase.mode === "new_card" ? "newcard" : "reload"}-${txnId}`,
+            contact: {
+              name: `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim() || undefined,
+              email: contact.email,
+              phone: contact.phone,
+            },
+          });
+          cards.push({ txnId, packageId: c.packageId, accountNumber: c.accountNumber });
+        }
+        anchorGameCards = {
+          mode: gzPurchase.mode,
+          groupId,
+          locationCode: gzLocationCode,
+          totalCents: gzCents,
+          cards,
+        };
+      }
       const { depositOrderId } = await createDepositOrder({
         baseKey,
         locationId,
         amountCents: depositCents,
         note: depositNote,
         asGiftCardLine: true,
+        extraLines: gzPurchase?.orderLines,
       });
       console.log(`[kiosk-terminal] PREPARE created deposit order ${depositOrderId}`);
       await writeTerminalAnchor(seedSource ?? baseKey, {
@@ -966,12 +1070,14 @@ async function unifiedReserveInner(
         depositCents,
         locationId,
         baseKey,
+        ...(anchorGameCards ? { gameCards: anchorGameCards } : {}),
       });
       return {
         __prepare: true,
         seed: seedSource ?? baseKey,
         depositOrderId,
-        depositCents,
+        // The reader charges the ORDER TOTAL: booking deposit + card lines.
+        depositCents: depositCents + gzCents,
         locationId,
       };
     }
@@ -980,6 +1086,20 @@ async function unifiedReserveInner(
       // Reader already captured the card against OUR deposit order — record it,
       // never re-charge. finalize verifies the payment server-side + funds the GC.
       const ep = input.externalPayment!;
+      // Game Zone cards riding the order: the row pointers live on the PREPARE
+      // anchor (this exact session wrote them); the payment must cover the
+      // booking deposit + the card lines, while the GC funds the deposit only.
+      const anchorForGz = gzPurchase ? await readTerminalAnchor(seedSource ?? baseKey) : null;
+      const anchorGz = anchorForGz?.gameCards ?? null;
+      if (gzPurchase && !anchorGz) {
+        // Anchor lost (Redis) — the payment covered card lines we can't tie to
+        // ledger rows. Fail LOUD (payment stays put; ops reconciles from the
+        // order's card lines) rather than silently confirming without cards.
+        await stampTerminalPaymentOnAnchor(seedSource ?? baseKey, ep.paymentId).catch(() => {});
+        throw new Error(
+          "Game Zone card records for this payment couldn't be found — please see the front desk (do not pay again).",
+        );
+      }
       try {
         const dr = await finalizeDepositFromExternalPayment({
           baseKey,
@@ -989,6 +1109,8 @@ async function unifiedReserveInner(
           ganSuffix,
           note: depositNote,
           externalPaymentId: ep.paymentId,
+          extraLines: gzPurchase?.orderLines,
+          extraCents: gzCents,
         });
         depositResult = {
           depositOrderId: dr.depositOrderId,
@@ -1002,6 +1124,34 @@ async function unifiedReserveInner(
         // reconcile finds it, then rethrow to page on-call.
         await stampTerminalPaymentOnAnchor(seedSource ?? baseKey, ep.paymentId).catch(() => {});
         throw err;
+      }
+      // Payment verified: mark every card row charged (reloads additionally go
+      // pending-awaiting-bridge, standalone-reload parity) and build the
+      // fulfillment payload the kiosk confirmation screen dispenses/loads from.
+      if (anchorGz) {
+        for (const c of anchorGz.cards) {
+          await markCharged(c.txnId, depositResult.depositOrderId ?? "", {
+            card: ep.paymentId,
+          });
+          if (anchorGz.mode === "reload") {
+            await markLoadState(c.txnId, "pending", "awaiting on-prem bridge load");
+          }
+        }
+        gameCardFulfillment = {
+          mode: anchorGz.mode,
+          groupId: anchorGz.groupId,
+          locationCode: anchorGz.locationCode,
+          cards: anchorGz.cards.map((c) => {
+            const resolved = gzPurchase!.cards.find((r) => r.packageId === c.packageId);
+            return {
+              txnId: c.txnId,
+              packageId: c.packageId,
+              accountNumber: c.accountNumber,
+              tokens: resolved?.pkg.tokens ?? 0,
+              bonusTokens: resolved?.pkg.bonusTokens ?? 0,
+            };
+          }),
+        };
       }
     } else {
       if (!input.cardSourceId && !input.giftCardNonce) {
@@ -1916,6 +2066,7 @@ async function unifiedReserveInner(
     giftCardGan: depositResult.giftCardGan,
     depositCents,
     totalCents: dayofTotalCents,
+    ...(gameCardFulfillment ? { gameCards: gameCardFulfillment } : {}),
   };
 }
 

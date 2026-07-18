@@ -184,6 +184,20 @@ export async function createDepositOrder(params: {
   amountCents: number;
   note: string;
   asGiftCardLine: boolean;
+  /**
+   * KIOSK: extra ITEM lines riding the deposit order — Game Zone cards bought
+   * with the booking (owner 2026-07-18: card lines live on the DEPOSIT order,
+   * never day-of). The gift card still activates against the GIFT_CARD line
+   * only (by uid), so these lines are pure revenue lines paid by the same
+   * reader capture. MUST be deterministic for a given baseKey — finalize
+   * re-derives the identical order (Square idempotency rejects a changed body).
+   */
+  extraLines?: Array<{
+    name: string;
+    quantity: string;
+    catalogObjectId: string;
+    amountCents: number;
+  }>;
 }): Promise<{ depositOrderId: string; depositLineItemUid?: string }> {
   const depositOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
     method: "POST",
@@ -200,6 +214,13 @@ export async function createDepositOrder(params: {
             ...(params.asGiftCardLine ? { item_type: "GIFT_CARD" } : {}),
             base_price_money: { amount: params.amountCents, currency: "USD" },
           },
+          ...(params.extraLines ?? []).map((l) => ({
+            name: l.name,
+            quantity: l.quantity,
+            item_type: "ITEM",
+            catalog_object_id: l.catalogObjectId,
+            base_price_money: { amount: l.amountCents, currency: "USD" },
+          })),
         ],
       },
     }),
@@ -307,12 +328,25 @@ export async function getSquarePaymentSettled(
 export async function finalizeDepositFromExternalPayment(params: {
   baseKey: string;
   locationId: string;
-  amountCents: number; // server-authoritative depositCents
+  amountCents: number; // server-authoritative depositCents (funds the gift card)
   ganPrefix: string;
   ganSuffix: string;
   note: string;
   externalPaymentId: string;
+  /**
+   * KIOSK Game Zone cards riding the deposit order: the lines (re-derivation
+   * must byte-match prepare's order) and their total. The reader payment must
+   * cover amountCents + extraCents; the gift card still funds amountCents ONLY.
+   */
+  extraLines?: Array<{
+    name: string;
+    quantity: string;
+    catalogObjectId: string;
+    amountCents: number;
+  }>;
+  extraCents?: number;
 }): Promise<DepositResult> {
+  const extraCents = params.extraCents ?? 0;
   // 1. Recreate the deposit order idempotently → the SAME id + line uid prepare
   //    created (GIFT_CARD-typed). The client-supplied id is never trusted.
   const { depositOrderId, depositLineItemUid } = await createDepositOrder({
@@ -321,21 +355,22 @@ export async function finalizeDepositFromExternalPayment(params: {
     amountCents: params.amountCents,
     note: params.note,
     asGiftCardLine: true,
+    extraLines: params.extraLines,
   });
   if (!depositLineItemUid) {
     throw new Error("terminal deposit order has no GIFT_CARD line uid");
   }
 
   // 2. Verify the reader payment server-side (never trust the browser).
-  const pay = await getSquarePayment(params.externalPaymentId);
+  const pay = await getSquarePaymentSettled(params.externalPaymentId);
   if (!pay || pay.status !== "COMPLETED") {
     throw new TerminalPaymentUnverifiedError("terminal payment not COMPLETED");
   }
   if (pay.orderId && pay.orderId !== depositOrderId) {
     throw new TerminalPaymentUnverifiedError("terminal payment paid a different order");
   }
-  if (pay.amountCents !== params.amountCents) {
-    throw new TerminalAmountMismatchError(pay.amountCents, params.amountCents);
+  if (pay.amountCents !== params.amountCents + extraCents) {
+    throw new TerminalAmountMismatchError(pay.amountCents, params.amountCents + extraCents);
   }
   if (pay.locationId && pay.locationId !== params.locationId) {
     throw new TerminalPaymentUnverifiedError("terminal payment location mismatch");

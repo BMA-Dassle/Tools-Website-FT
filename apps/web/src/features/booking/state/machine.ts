@@ -19,6 +19,7 @@ import {
   hasKbfItem,
   newKbfIdentity,
   type BookingSession,
+  type GameCardCartPurchase,
   type KbfIdentityState,
   type LoyaltyState,
   type PartyMember,
@@ -93,6 +94,11 @@ export type Action =
    */
   | { type: "setComboSpecial"; id: string | null }
   | { type: "setPreferredPackage"; id: string | null }
+  /**
+   * KIOSK: attach (or clear) the Game Zone cards riding this cart — paid with
+   * the booking deposit at the shared checkout (see types.GameCardCartPurchase).
+   */
+  | { type: "setGameCardPurchase"; purchase: GameCardCartPurchase | null }
 
   /* ── bowling holds ─────────────────────────────────────────────── */
   /** Store QAMF temporary reservation info on a bowling/kbf item. */
@@ -316,6 +322,15 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
         return next;
       }
       return { ...state, preferredPackageId: action.id };
+    }
+
+    case "setGameCardPurchase": {
+      if (action.purchase == null) {
+        const next = { ...state };
+        delete next.gameCardPurchase;
+        return next;
+      }
+      return { ...state, gameCardPurchase: action.purchase };
     }
 
     /* ──────── bowling holds ──────── */

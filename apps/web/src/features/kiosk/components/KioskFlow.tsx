@@ -411,7 +411,12 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     const wasLast = session.items.length <= 1;
     dispatch({ type: "removeItem", id });
     if (item) await releaseItemBmiLines(session, item);
-    if (wasLast) setCartActive(false);
+    if (wasLast) {
+      // Cards can't ride an empty cart (they pay with the booking deposit) —
+      // clear them too; the guest can buy them standalone from Game Zone.
+      if (session.gameCardPurchase) dispatch({ type: "setGameCardPurchase", purchase: null });
+      setCartActive(false);
+    }
   };
 
   const handleRemoveHeat = async (itemId: string, productId: string, heatId: string) => {
@@ -484,8 +489,11 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   // the cart, tap → cart. Hidden on the cart/checkout screens themselves
   // (navigating away mid-payment would be risky, and it's redundant there).
   const mainGuest = session.party.find((m) => m.isBillingCustomer) ?? session.party[0];
+  const hasGameCards = !!session.gameCardPurchase?.cards.length;
   const sessionBanner =
-    (session.party.length > 0 || cartCount > 0) && !cartActive && !checkoutActive ? (
+    (session.party.length > 0 || cartCount > 0 || hasGameCards) &&
+    !cartActive &&
+    !checkoutActive ? (
       <button
         type="button"
         onClick={openCart}
@@ -508,9 +516,13 @@ export function KioskFlow({ goto }: { goto: string | null }) {
             <span className="truncate">Visit in progress</span>
           )}
         </span>
-        {cartCount > 0 && (
+        {(cartCount > 0 || hasGameCards) && (
           <span className="shrink-0 text-[24px] font-bold text-[#00e2e5]">
-            {session.items.map((i) => itemLabel(i.kind)).join(" · ")} · View cart ›
+            {[
+              ...session.items.map((i) => itemLabel(i.kind)),
+              ...(hasGameCards ? ["Game cards"] : []),
+            ].join(" · ")}{" "}
+            · View cart ›
           </span>
         )}
       </button>
@@ -612,6 +624,11 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           }}
           onNewBooking={handleStartOver}
           onRemoveCombo={session.comboSpecialId ? handleRemoveCombo : undefined}
+          onRemoveGameCards={
+            session.gameCardPurchase
+              ? () => dispatch({ type: "setGameCardPurchase", purchase: null })
+              : undefined
+          }
         />
       </div>,
     );
@@ -626,6 +643,14 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           brand={config.brand}
           capability={gameZoneCapability(config) === "reload" ? "reload" : "full"}
           onExit={() => setGzOpen(false)}
+          // With activities in the cart, cards JOIN the booking (owner
+          // 2026-07-18) — one payment at the shared checkout, fulfillment on
+          // the confirmation screen.
+          cartHasItems={session.items.length > 0}
+          onAddToVisit={(purchase) => {
+            dispatch({ type: "setGameCardPurchase", purchase });
+            setGzOpen(false);
+          }}
         />
       </div>,
       KIOSK_PHOTOS.arcade,

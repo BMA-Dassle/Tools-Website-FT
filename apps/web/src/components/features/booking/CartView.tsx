@@ -18,6 +18,7 @@ import { getPackage } from "~/features/booking/service/packages";
 import { raceItemChargeLines } from "~/features/booking/service/checkout";
 import { applyPromoToBillLines, promoFactor } from "~/features/booking/service/promo-pricing";
 import { getComboSpecial } from "~/features/combos/combo-specials";
+import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { modalBackdropProps } from "@/lib/a11y";
 /**
  * Session-level cart view.
@@ -57,6 +58,8 @@ export interface CartViewProps {
    * (confirm modal + landing link) unchanged.
    */
   onAllActivities?: () => void;
+  /** KIOSK: remove the Game Zone cards riding this cart (session.gameCardPurchase). */
+  onRemoveGameCards?: () => void;
 }
 
 export function CartView({
@@ -69,6 +72,7 @@ export function CartView({
   onNewBooking,
   onRemoveCombo,
   onAllActivities,
+  onRemoveGameCards,
 }: CartViewProps) {
   // Back-to-landing prefers the validated `appliedPromo.code` (set when the
   // code resolved + matched scope), falls back to the raw `?code=` from
@@ -143,6 +147,61 @@ export function CartView({
           </div>
         );
       })()}
+
+      {/* KIOSK: Game Zone cards riding this cart — paid with the deposit at
+          checkout, dispensed/loaded on the confirmation screen. Web sessions
+          never carry gameCardPurchase, so this renders nothing on web. */}
+      {session.gameCardPurchase &&
+        (() => {
+          let gz: ReturnType<typeof resolveCartPurchase>;
+          try {
+            gz = resolveCartPurchase(session.gameCardPurchase);
+          } catch {
+            gz = null;
+          }
+          if (!gz) return null;
+          return (
+            <div
+              className="mt-4 rounded-xl border p-3 text-sm"
+              style={{ borderColor: "rgba(248,0,198,0.4)", backgroundColor: "rgba(7,16,39,0.5)" }}
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-semibold" style={{ color: "#f800c6" }}>
+                  Game Zone cards
+                </span>
+                {onRemoveGameCards && (
+                  <button
+                    type="button"
+                    onClick={onRemoveGameCards}
+                    className="shrink-0 rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-400/70 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              <ul className="mt-1.5 space-y-0.5 text-white/70">
+                {gz.orderLines.map((l, i) => {
+                  const qty = Number(l.quantity) || 1;
+                  return (
+                    <li key={i} className="flex justify-between gap-3">
+                      <span className="min-w-0 truncate">
+                        {l.name}
+                        {qty > 1 ? ` ×${qty}` : ""}
+                      </span>
+                      <span className="shrink-0 tabular-nums">
+                        ${((l.amountCents * qty) / 100).toFixed(2)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+              <div className="mt-1.5 flex justify-between border-t border-white/10 pt-1.5 font-bold text-white">
+                <span>Cards total — paid with your booking</span>
+                <span className="tabular-nums">${(gz.totalCents / 100).toFixed(2)}</span>
+              </div>
+            </div>
+          );
+        })()}
 
       {session.items.length === 0 ? (
         <p className="mt-6 text-sm text-white/50">No items yet.</p>
