@@ -539,6 +539,21 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     return null;
   };
 
+  // Why Continue is disabled — surfaced as a prominent banner so a greyed-out
+  // Continue is never a mystery (owner 2026-07-19). Suppressed while a waiver
+  // check is still resolving (the cards show "Checking waiver…" then) or while a
+  // form/lookup is open (the guest is mid-task).
+  const readyState = peopleReady(party, Array.from(included));
+  const blockReason =
+    party.length > 0 &&
+    checkingIds.size === 0 &&
+    form === null &&
+    !lookupOpen &&
+    !waiverFor &&
+    readyState !== true
+      ? readyState.reason
+      : null;
+
   return (
     <div className="space-y-[24px]">
       <p className="text-[26px] text-white/55">
@@ -546,6 +561,21 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           ? "Your group is signed in — everyone here needs an account and a signed waiver."
           : "Add everyone playing. Each person gets an account and signs the waiver right here — so check-in is the Express Lane, not a line."}
       </p>
+
+      {blockReason && (
+        <div className="flex items-start gap-[18px] rounded-2xl border-2 border-[#f0b341]/60 bg-[#f0b341]/12 px-[28px] py-[22px]">
+          <span
+            aria-hidden="true"
+            className="mt-[4px] grid h-[36px] w-[36px] shrink-0 place-items-center rounded-full bg-[#f0b341] text-[26px] font-black text-[#2a1c00]"
+          >
+            !
+          </span>
+          <div>
+            <div className="k-eyebrow text-[#f0b341]">Before you continue</div>
+            <div className="mt-[4px] text-[28px] font-bold text-[#f5d38a]">{blockReason}</div>
+          </div>
+        </div>
+      )}
 
       {/* roster */}
       <div className="space-y-[16px]">

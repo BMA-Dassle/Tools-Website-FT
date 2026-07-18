@@ -231,7 +231,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 const selectClass =
-  "w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-white focus:border-[#00E2E5] focus:outline-none";
+  // color-scheme:dark makes the NATIVE dropdown popup render dark too — otherwise
+  // the open <option> list is white-on-white and unreadable (owner 2026-07-19).
+  "w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-white [color-scheme:dark] focus:border-[#00E2E5] focus:outline-none";
 
 function DeviceTab({
   draft,

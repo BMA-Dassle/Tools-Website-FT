@@ -47,9 +47,20 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
       laneCount: Math.max(1, Math.ceil(next.length / 6)),
     } as Partial<BowlItem>);
 
+  // Player.name stays the single source of truth (the reserve + QAMF roster read
+  // it), but the UI edits it as separate First / Last fields (owner 2026-07-19 —
+  // last name was silently required). Compose "First Last" from the two fields.
   const setName = (i: number, name: string) => {
     writeRows(players.map((p, idx) => (idx === i ? { ...p, name } : p)));
     if (i === mainIdx) dispatch({ type: "setContact", patch: splitName(name) });
+  };
+  const setFirst = (i: number, first: string) => {
+    const { lastName } = splitName(players[i].name);
+    setName(i, `${first.trim()} ${lastName}`.trim());
+  };
+  const setLast = (i: number, last: string) => {
+    const { firstName } = splitName(players[i].name);
+    setName(i, `${firstName} ${last.trim()}`.trim());
   };
   const addRow = () => writeRows([...players, { name: "", shoeSize: null, bumpers: null }]);
   const removeRow = (i: number) => {
@@ -79,10 +90,18 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
               <div className="flex items-center gap-[16px]">
                 <input
                   type="text"
-                  value={p.name}
-                  onChange={(e) => setName(i, e.target.value)}
-                  placeholder={`Bowler ${i + 1}`}
-                  aria-label={`Bowler ${i + 1} name`}
+                  value={splitName(p.name).firstName}
+                  onChange={(e) => setFirst(i, e.target.value)}
+                  placeholder="First name"
+                  aria-label={`Bowler ${i + 1} first name`}
+                  className="min-w-0 flex-1 rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[18px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
+                />
+                <input
+                  type="text"
+                  value={splitName(p.name).lastName}
+                  onChange={(e) => setLast(i, e.target.value)}
+                  placeholder={isMain ? "Last name" : "Last name (optional)"}
+                  aria-label={`Bowler ${i + 1} last name`}
                   className="min-w-0 flex-1 rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[18px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
                 />
                 <button
@@ -157,12 +176,12 @@ export const KioskBowlingPeopleStep: StepDef<BowlItem> = {
   isVisible: () => true,
   canAdvance: (item, session) => {
     const players = item.players ?? [];
-    if (players.length === 0 || players.some((p) => !p.name.trim())) {
-      return { reason: "Add a name for every bowler." };
+    if (players.length === 0 || players.some((p) => !splitName(p.name).firstName)) {
+      return { reason: "Add a first name for every bowler." };
     }
     const c = session.contact;
     if (!c.firstName?.trim() || !c.lastName?.trim()) {
-      return { reason: "The main person needs a full name (first & last)." };
+      return { reason: "The main person needs a first and last name." };
     }
     if (!c.email?.includes("@")) return { reason: "The main person needs an email." };
     if ((c.phone ?? "").replace(/\D/g, "").length < 10) {
