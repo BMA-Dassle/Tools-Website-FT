@@ -128,5 +128,12 @@ export const LoadCardSchema = z.object({
   txnId: z.string().uuid(),
   accountNumber,
   locationCode: z.number().int(),
+  /**
+   * The kiosk PC's on-prem bridge already credited the tokens via the local EIS
+   * server (the fast path). When true, the server records the load WITHOUT
+   * re-crediting through the cloud SOAP path — never double-load. Absent/false →
+   * the server credits via SOAP (the fallback when no bridge is reachable).
+   */
+  preLoaded: z.boolean().optional(),
 });
 export type LoadCardInput = z.infer<typeof LoadCardSchema>;

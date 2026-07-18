@@ -22,6 +22,7 @@
 import { useEffect, useRef, useState } from "react";
 import PaymentForm from "@/components/square/PaymentForm";
 import { KioskTerminalCheckoutGate } from "./KioskTerminalCheckoutGate";
+import { creditTokensViaBridge } from "../service/game-card-bridge";
 import { kioskTerminalEnabled } from "~/features/kiosk/flags";
 import { TOKEN_PACKAGES } from "~/features/game-cards/constants";
 import { centerCodeFor } from "~/config/intercard-centers";
@@ -264,11 +265,28 @@ export function KioskGameZone({
       setDispenseMsg(`Loading tokens onto card ${i + 1}…`);
       let loaded = false;
       let balanceTokens: number | undefined;
+      // On-prem FIRST: load through the kiosk-PC bridge → local EIS server (fast).
+      // If it isn't reachable, the server falls back to the cloud SOAP path
+      // (preLoaded:false). Never both — no double-credit.
+      const pkg = TOKEN_PACKAGES.find((p) => p.id === newCards[i]?.packageId);
+      const bridged = pkg
+        ? await creditTokensViaBridge({
+            accountNumber: account,
+            tokens: pkg.tokens,
+            bonusTokens: pkg.bonusTokens,
+          })
+        : false;
       try {
         const res = await fetch("/api/game-cards/load-card", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ groupId, txnId, accountNumber: account, locationCode }),
+          body: JSON.stringify({
+            groupId,
+            txnId,
+            accountNumber: account,
+            locationCode,
+            preLoaded: bridged,
+          }),
         });
         const data = await res.json();
         loaded = res.ok && data.loaded === true;

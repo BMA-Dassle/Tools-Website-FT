@@ -1,0 +1,13 @@
+{
+  "name": "game-card-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Kiosk-PC bridge that loads Intercard tokens via the on-prem EIS server (raw TCP :3044). No dependencies.",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

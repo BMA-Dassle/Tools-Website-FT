@@ -63,25 +63,35 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
   await setTxnAccount(input.txnId, input.accountNumber);
 
   let loaded = false;
-  try {
-    const { code } = await creditTokens({
-      locationCode: input.locationCode,
-      accountNumber: input.accountNumber,
-      tokens: pkg.tokens,
-      bonusTokens: pkg.bonusTokens,
-      tpiTransactionID: row.tpiTransactionId,
-    });
-    loaded = code === 0;
-    if (!loaded) {
+  if (input.preLoaded) {
+    // The kiosk PC's on-prem bridge already credited the tokens via the local
+    // EIS server — record it, do NOT re-credit through the cloud SOAP path
+    // (the two paths don't share dedup, so double-crediting must be avoided).
+    loaded = true;
+    console.log(
+      `[game-cards] new-card load via on-prem bridge txn=${row.txnId} card=${input.accountNumber}`,
+    );
+  } else {
+    try {
+      const { code } = await creditTokens({
+        locationCode: input.locationCode,
+        accountNumber: input.accountNumber,
+        tokens: pkg.tokens,
+        bonusTokens: pkg.bonusTokens,
+        tpiTransactionID: row.tpiTransactionId,
+      });
+      loaded = code === 0;
+      if (!loaded) {
+        console.error(
+          `[game-cards] new-card load code ${code} txn=${row.txnId} card=${input.accountNumber} — pending`,
+        );
+      }
+    } catch (err) {
       console.error(
-        `[game-cards] new-card load code ${code} txn=${row.txnId} card=${input.accountNumber} — pending`,
+        `[game-cards] new-card load threw txn=${row.txnId} card=${input.accountNumber}:`,
+        err instanceof Error ? err.message : err,
       );
     }
-  } catch (err) {
-    console.error(
-      `[game-cards] new-card load threw txn=${row.txnId} card=${input.accountNumber}:`,
-      err instanceof Error ? err.message : err,
-    );
   }
   await markLoadState(
     input.txnId,
