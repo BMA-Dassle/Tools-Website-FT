@@ -153,7 +153,11 @@ export function KioskCategories({
                   eyebrow="Most popular"
                   accent="#e8b14c"
                   title={combo.name}
-                  blurb={`${combo.shortDescription} · From $${(combo.price.weekday / 100).toFixed(0)}/person`}
+                  // Tile = concise teaser (the full description lives on the
+                  // overview screen this opens). The prose shortDescription was
+                  // too long for the tile and overran it (owner 2026-07-18) — use
+                  // the "what you get" list, which is short + scannable.
+                  blurb={`${combo.includes.slice(0, 3).join(" · ")} · From $${(combo.price.weekday / 100).toFixed(0)}/person`}
                   onClick={() => onPickCombo(combo)}
                 />
               ))}
@@ -163,7 +167,7 @@ export function KioskCategories({
                   eyebrow="Premium racing"
                   accent="#e53935"
                   title="Ultimate Qualifier"
-                  blurb="Qualify in a Starter race, then level up to an Intermediate an hour later — POV video, a free appetizer & your license included."
+                  blurb="Qualify on a Starter, then level up to an Intermediate — POV video, free appetizer & license included."
                   onClick={() => onPickPackageExperience("ultimate-qualifier")}
                 />
               )}
@@ -302,7 +306,7 @@ function ShelfBanner({
           {eyebrow}
         </div>
         <div className="k-display mt-[8px] text-[56px] leading-[1.05] text-balance">{title}</div>
-        <div className="mt-[12px] text-[28px] leading-snug text-pretty break-words text-white/70">
+        <div className="mt-[12px] line-clamp-3 text-[28px] leading-snug text-pretty break-words text-white/70">
           {blurb}
         </div>
       </div>
