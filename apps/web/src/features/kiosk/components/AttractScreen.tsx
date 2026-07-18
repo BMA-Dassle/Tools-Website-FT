@@ -24,6 +24,7 @@ import {
 import { useKioskConfig } from "../KioskConfigContext";
 import { KIOSK_AD_SLIDES, KIOSK_LOGOS, KIOSK_PHOTOS } from "../assets";
 import { BrandedLoader } from "./BrandedLoader";
+import { useKioskClock, syncGlowPhase } from "../hooks/useKioskClock";
 
 const AD_ROTATE_MS = 8000;
 
@@ -32,9 +33,13 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   const { config } = useKioskConfig();
   const [adIndex, setAdIndex] = useState(0);
   const [booting, setBooting] = useState(true);
+  // Shared wall-clock so every kiosk shows the same ad slide + glow phase at the
+  // same instant (owner 2026-07-19). serverNow = Date.now() + offset.
+  const { offset } = useKioskClock();
   // Hidden staff gesture ref — declared with the other hooks (BEFORE any early
   // return) so hook order is stable when config transitions null→set.
   const cornerTaps = useRef<number[]>([]);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   // Boot: merge provisioning URL params over stored config; if the device has
   // no local config yet but the URL names a venue, pull the saved setup from
@@ -73,12 +78,24 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
     };
   }, [urlConfig]);
 
+  // Ad index derived from the SHARED clock (not a local counter) so every kiosk
+  // is on the same slide. Tick fast enough that the flip lands within a fraction
+  // of a second of the shared 8s boundary — imperceptible, and never drifts.
   useEffect(() => {
-    const iv = setInterval(() => {
-      setAdIndex((i) => (i + 1) % KIOSK_AD_SLIDES.length);
-    }, AD_ROTATE_MS);
+    const tick = () => {
+      setAdIndex(Math.floor((Date.now() + offset) / AD_ROTATE_MS) % KIOSK_AD_SLIDES.length);
+    };
+    tick();
+    const iv = setInterval(tick, 500);
     return () => clearInterval(iv);
-  }, []);
+  }, [offset]);
+
+  // Phase-align the glow / ken-burns / sweep / pulse animations to the shared
+  // clock via negative animation-delay, re-applied whenever the clock (re)syncs
+  // or the attract screen mounts (config null→set). All kiosks breathe together.
+  useEffect(() => {
+    syncGlowPhase(rootRef.current, offset);
+  }, [offset, config]);
 
   // While the cloud fallback resolves, hold the loader instead of flashing
   // the staff setup card at a guest.
@@ -107,7 +124,7 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   };
 
   return (
-    <div className="absolute inset-0 flex flex-col overflow-hidden bg-[#000418]">
+    <div ref={rootRef} className="absolute inset-0 flex flex-col overflow-hidden bg-[#000418]">
       {/* Hidden staff entry — 5 taps top-left corner → admin (no visible affordance) */}
       <button
         type="button"
