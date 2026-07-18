@@ -294,15 +294,17 @@ function ShelfBanner({
       type="button"
       onClick={onClick}
       aria-label={title}
-      className="k-ph k-tap relative h-[280px] overflow-hidden rounded-[28px] border border-white/10 text-left"
+      className="k-ph k-tap relative h-[340px] overflow-hidden rounded-[28px] border border-white/10 text-left"
       style={{ ["--k-img"]: `url(${photo})` } as React.CSSProperties}
     >
-      <div className="absolute inset-y-0 left-[48px] right-[110px] flex flex-col justify-center">
+      <div className="absolute inset-y-0 left-[48px] right-[128px] flex flex-col justify-center">
         <div className="k-eyebrow" style={{ color: accent }}>
           {eyebrow}
         </div>
-        <div className="k-display mt-[8px] text-[56px]">{title}</div>
-        <div className="mt-[8px] text-[28px] text-white/65">{blurb}</div>
+        <div className="k-display mt-[8px] text-[56px] leading-[1.05] text-balance">{title}</div>
+        <div className="mt-[12px] text-[28px] leading-snug text-pretty break-words text-white/70">
+          {blurb}
+        </div>
       </div>
       <span
         className="k-display absolute right-[48px] top-1/2 -translate-y-1/2 text-[52px]"
