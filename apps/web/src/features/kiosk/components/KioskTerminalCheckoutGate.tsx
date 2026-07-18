@@ -41,11 +41,13 @@ export function KioskTerminalCheckoutGate({
   onCaptured,
   onCancel,
 }: {
-  session: BookingSession;
-  contact: ContactInfo;
+  /** Booking props — used ONLY by the default unified prepare. A caller that
+   *  passes its own prepareFn (e.g. Game Zone) may omit them. */
+  session?: BookingSession;
+  contact?: ContactInfo;
+  bmiBillId?: string;
   brand: Brand;
   deviceId: string;
-  bmiBillId: string;
   /** The displayed "due now" in cents — the server deposit MUST equal this. */
   depositCentsExpected: number;
   /**
@@ -83,6 +85,10 @@ export function KioskTerminalCheckoutGate({
         } catch (e) {
           data = { error: e instanceof Error ? e.message : "prepare failed" };
         }
+      } else if (!session || !contact) {
+        setError("Couldn't start the payment. Please see the front desk.");
+        setPhase("error");
+        return;
       } else {
         // Default: unified racing rail — runs all pre-charge guards server-side.
         const res = await fetch("/api/booking/v2/reserve-prepare", {
@@ -191,7 +197,7 @@ export function KioskTerminalCheckoutGate({
       <KioskReaderCheckout
         brand={brand}
         deviceId={deviceId}
-        seed={prepared.seed || bmiBillId}
+        seed={prepared.seed || bmiBillId || ""}
         depositOrderId={prepared.depositOrderId}
         depositCents={prepared.depositCents}
         onCaptured={({ paymentId }) =>

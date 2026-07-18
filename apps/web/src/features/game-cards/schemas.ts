@@ -91,6 +91,37 @@ export const PurchaseSchema = z
   });
 export type PurchaseInput = z.infer<typeof PurchaseSchema>;
 
+/**
+ * KIOSK direct-Terminal (Square reader) — two-phase, persist-first:
+ *  1. PREPARE: verify (reload) + persist a ledger row per card + create the
+ *     Square order the reader will charge. No money moves yet.
+ *  2. FINALIZE: the reader already captured the card against that order — verify
+ *     the payment server-side, mark the rows charged, then load (reload) or hand
+ *     the rows back to dispense (new_card). NEVER re-charges.
+ * Mirrors the bowling/racing terminal rail; keeps the embed path untouched.
+ */
+export const TerminalPrepareSchema = z.object({
+  kind: z.enum(["reload", "new_card"]),
+  locationCode: z.number().int(),
+  items: z.array(PurchaseItemSchema).min(1).max(10),
+  contact: contact.optional(),
+});
+export type TerminalPrepareInput = z.infer<typeof TerminalPrepareSchema>;
+
+export const TerminalFinalizeSchema = z.object({
+  kind: z.enum(["reload", "new_card"]),
+  locationCode: z.number().int(),
+  groupId: z.string().uuid(),
+  /** The ledger rows created by PREPARE (server re-reads each for its amount). */
+  txnIds: z.array(z.string().uuid()).min(1).max(10),
+  externalPayment: z.object({
+    paymentId: z.string().min(1).max(128),
+    orderId: z.string().min(1).max(128),
+    amountCents: z.number().int().nonnegative(),
+  }),
+});
+export type TerminalFinalizeInput = z.infer<typeof TerminalFinalizeSchema>;
+
 /** Attach + load tokens onto ONE just-dispensed new card (post-charge). */
 export const LoadCardSchema = z.object({
   groupId: z.string().uuid(),

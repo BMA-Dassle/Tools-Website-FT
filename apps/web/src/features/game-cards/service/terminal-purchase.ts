@@ -1,0 +1,285 @@
+/**
+ * KIOSK direct-Terminal (Square reader) game-card purchase — persist-first,
+ * two-phase sibling of purchase.ts's embed flow (owner 2026-07-19: the kiosk
+ * must charge on the paired reader, not the card iframe). It reuses the SAME
+ * primitives (verify → persist ledger rows → Square order → Intercard load) as
+ * purchase.ts, but splits at the order so the reader can charge it:
+ *
+ *   prepare()  — verify (reload) + startTxn per card + createReloadOrder → the
+ *                order id the reader charges. NOTHING charges here (persist-first:
+ *                every card has a durable ledger row before any money moves).
+ *   finalize() — the reader already captured the card against that order; verify
+ *                the payment server-side (COMPLETED + OUR order + amount +
+ *                location), mark the rows charged, then load (reload) / hand the
+ *                rows back to dispense (new_card).
+ *
+ * There is structurally NO card token here → no double-charge path. Kept in its
+ * own file so purchase.ts (the embed rail) is untouched.
+ */
+import { randomBytes, randomUUID } from "crypto";
+import { getCenter } from "~/config/intercard-centers";
+import { getPackage } from "../constants";
+import { GameCardHttpError } from "../errors";
+import type { TerminalPrepareInput, TerminalFinalizeInput } from "../schemas";
+import type { CardLoadResult } from "../types";
+import { creditTokens, verifyAccount, IntercardError } from "../data/intercard";
+import { createReloadOrder, readSquarePayment } from "../data/square-order";
+import { startTxn, markCharged, markLoadState, getTxn } from "../data/transactions-log";
+
+export interface TerminalPreparedRow {
+  txnId: string;
+  packageId: string;
+  tokens: number;
+  bonusTokens: number;
+  amountCents: number;
+  /** "" for a new_card (account attached when the blank is dispensed). */
+  accountNumber: string;
+}
+
+export interface TerminalPrepareResult {
+  groupId: string;
+  orderId: string;
+  totalCents: number;
+  rows: TerminalPreparedRow[];
+}
+
+/**
+ * PHASE 1 — verify (reload), persist one ledger row per card, and create the
+ * Square order the reader will charge. Returns the order + rows; nothing charges.
+ */
+export async function prepareTerminalPurchase(
+  input: TerminalPrepareInput,
+): Promise<TerminalPrepareResult> {
+  const center = getCenter(input.locationCode);
+  if (!center) throw new GameCardHttpError(400, "UNKNOWN_LOCATION", "Pick a valid location.");
+  if (input.items.length === 0) {
+    throw new GameCardHttpError(400, "EMPTY_CART", "Add at least one card.");
+  }
+
+  const resolved = input.items.map((it) => {
+    const pkg = getPackage(it.packageId);
+    if (!pkg) throw new GameCardHttpError(400, "UNKNOWN_PACKAGE", "That package isn't available.");
+    if (input.kind === "reload" && !it.accountNumber) {
+      throw new GameCardHttpError(400, "CARD_NOT_FOUND", "A card number is required to reload.");
+    }
+    return { pkg, accountNumber: it.accountNumber ?? "" };
+  });
+
+  // Reload: verify EVERY card (read-only) BEFORE arming the reader.
+  if (input.kind === "reload") {
+    for (const r of resolved) {
+      try {
+        const v = await verifyAccount(r.accountNumber, input.locationCode);
+        if (!v.exists) {
+          throw new GameCardHttpError(
+            400,
+            "CARD_NOT_FOUND",
+            `We couldn't find card ${r.accountNumber}.`,
+          );
+        }
+      } catch (err) {
+        if (err instanceof GameCardHttpError) throw err;
+        if (err instanceof IntercardError) {
+          throw new GameCardHttpError(
+            503,
+            "VERIFY_UNAVAILABLE",
+            "We couldn't check the card(s) right now. Please try again in a moment.",
+          );
+        }
+        throw err;
+      }
+    }
+  }
+
+  const groupId = randomUUID();
+  const baseKey = randomBytes(8).toString("hex");
+  const totalCents = resolved.reduce((s, r) => s + r.pkg.priceCents, 0);
+
+  // Persist BEFORE the order/charge (throws if the DB is down → no money moves).
+  const rows: TerminalPreparedRow[] = [];
+  for (const r of resolved) {
+    const txnId = randomUUID();
+    const tpiTransactionId = input.kind === "new_card" ? `newcard-${txnId}` : `reload-${txnId}`;
+    await startTxn({
+      txnId,
+      groupId,
+      kind: input.kind,
+      locationCode: input.locationCode,
+      accountNumber: r.accountNumber,
+      packageId: r.pkg.id,
+      tokens: r.pkg.tokens,
+      bonusTokens: r.pkg.bonusTokens,
+      amountCents: r.pkg.priceCents,
+      tpiTransactionId,
+      contact: input.contact,
+    });
+    rows.push({
+      txnId,
+      packageId: r.pkg.id,
+      tokens: r.pkg.tokens,
+      bonusTokens: r.pkg.bonusTokens,
+      amountCents: r.pkg.priceCents,
+      accountNumber: r.accountNumber,
+    });
+  }
+
+  const orderId = await createReloadOrder({
+    squareLocation: center.squareLocation,
+    baseKey,
+    purpose: input.kind === "new_card" ? "purchase" : "reload",
+    lines: resolved.map((r) => ({
+      label: r.pkg.label,
+      amountCents: r.pkg.priceCents,
+      accountNumber: r.accountNumber,
+    })),
+  });
+
+  return { groupId, orderId, totalCents, rows };
+}
+
+export interface TerminalFinalizeResult {
+  ok: true;
+  charged: true;
+  groupId: string;
+  /** reload — per-card load outcomes. */
+  results?: CardLoadResult[];
+  /** new_card — the charged rows to dispense + load per card, client-side. */
+  rows?: TerminalPreparedRow[];
+  anyPending?: boolean;
+}
+
+/**
+ * PHASE 2 — the reader captured the card against our order. Verify the payment
+ * server-side, mark the rows charged (NEVER re-charge), then load (reload) or
+ * hand the rows back to dispense (new_card).
+ */
+export async function finalizeTerminalPurchase(
+  input: TerminalFinalizeInput,
+): Promise<TerminalFinalizeResult> {
+  const center = getCenter(input.locationCode);
+  if (!center) throw new GameCardHttpError(400, "UNKNOWN_LOCATION", "Pick a valid location.");
+
+  // Re-read the persisted rows — amounts are server-authoritative, never trusted
+  // from the client (which only supplies the txn id pointers PREPARE returned).
+  const txns = [];
+  for (const txnId of input.txnIds) {
+    const row = await getTxn(txnId);
+    if (!row || row.groupId !== input.groupId) {
+      throw new GameCardHttpError(
+        400,
+        "TXN_NOT_FOUND",
+        "We couldn't match your payment to the order. Please see the front desk.",
+      );
+    }
+    txns.push(row);
+  }
+  const expectedCents = txns.reduce((s, t) => s + t.amountCents, 0);
+
+  // Verify the reader payment server-side (displayed==charged tripwire lives here).
+  const ep = input.externalPayment;
+  const pay = await readSquarePayment(ep.paymentId);
+  if (!pay || pay.status !== "COMPLETED") {
+    throw new GameCardHttpError(
+      402,
+      "PAYMENT_UNVERIFIED",
+      "We couldn't confirm the reader payment. Please see the front desk (do not pay again).",
+    );
+  }
+  if (pay.orderId && pay.orderId !== ep.orderId) {
+    throw new GameCardHttpError(
+      402,
+      "PAYMENT_ORDER_MISMATCH",
+      "That payment doesn't match this order. Please see the front desk.",
+    );
+  }
+  if (pay.amountCents !== expectedCents) {
+    throw new GameCardHttpError(
+      402,
+      "PAYMENT_AMOUNT_MISMATCH",
+      "The charged amount didn't match the order. Please see the front desk.",
+    );
+  }
+  if (pay.locationId && pay.locationId !== center.squareLocation) {
+    throw new GameCardHttpError(
+      402,
+      "PAYMENT_LOCATION_MISMATCH",
+      "Payment location mismatch. Please see the front desk.",
+    );
+  }
+
+  // Record the capture on every row (no re-charge; card-present payment id).
+  for (const t of txns) await markCharged(t.txnId, ep.orderId, { card: ep.paymentId });
+
+  // new_card: hand the charged rows back — dispense + per-card load run client-side.
+  if (input.kind === "new_card") {
+    return {
+      ok: true,
+      charged: true,
+      groupId: input.groupId,
+      rows: txns.map((t) => ({
+        txnId: t.txnId,
+        packageId: t.packageId,
+        tokens: t.tokens,
+        bonusTokens: t.bonusTokens,
+        amountCents: t.amountCents,
+        accountNumber: t.accountNumber,
+      })),
+    };
+  }
+
+  // reload: load each card now (recover-forward per card; a failure stays pending).
+  const results: CardLoadResult[] = [];
+  for (const t of txns) {
+    let loaded = false;
+    try {
+      const { code } = await creditTokens({
+        locationCode: input.locationCode,
+        accountNumber: t.accountNumber,
+        tokens: t.tokens,
+        bonusTokens: t.bonusTokens,
+        tpiTransactionID: t.tpiTransactionId,
+      });
+      if (code === 0) loaded = true;
+      else console.error(`[game-cards/terminal] load code ${code} txn=${t.txnId} — pending`);
+    } catch (err) {
+      console.error(
+        `[game-cards/terminal] load threw txn=${t.txnId}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+    await markLoadState(
+      t.txnId,
+      loaded ? "loaded" : "pending",
+      loaded ? undefined : "load not confirmed",
+    );
+
+    let balance;
+    let transactions;
+    if (loaded) {
+      try {
+        const v = await verifyAccount(t.accountNumber, input.locationCode);
+        balance = v.balance;
+        transactions = v.transactions;
+      } catch {
+        /* non-fatal */
+      }
+    }
+    results.push({
+      accountNumber: t.accountNumber,
+      tokens: t.tokens,
+      bonusTokens: t.bonusTokens,
+      loaded,
+      creditPending: !loaded,
+      balance,
+      transactions,
+    });
+  }
+
+  return {
+    ok: true,
+    charged: true,
+    groupId: input.groupId,
+    results,
+    anyPending: results.some((r) => r.creditPending),
+  };
+}

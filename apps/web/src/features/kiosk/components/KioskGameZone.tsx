@@ -19,8 +19,10 @@
  * created. Swap simDispense() for real create-account + purchase + hardware
  * dispense once the dispenser + Intercard new-account issuance are wired.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import PaymentForm from "@/components/square/PaymentForm";
+import { KioskTerminalCheckoutGate } from "./KioskTerminalCheckoutGate";
+import { kioskTerminalEnabled } from "~/features/kiosk/flags";
 import { TOKEN_PACKAGES } from "~/features/game-cards/constants";
 import { centerCodeFor } from "~/config/intercard-centers";
 import type { Brand, CenterCode } from "~/features/booking";
@@ -325,6 +327,94 @@ export function KioskGameZone({
     }
   };
 
+  // ── Kiosk direct-Terminal (Square reader) rail ──
+  // Mirrors pay()/payNewCards() but the reader charges OUR prepared order (no card
+  // token). PREPARE persists the ledger rows + creates the order; the gate charges
+  // it on the reader; FINALIZE verifies the payment + loads (reload) / hands rows
+  // back to dispense (new_card). readerPrep holds PREPARE's rows for FINALIZE.
+  const readerPrep = useRef<{
+    groupId: string;
+    orderId: string;
+    totalCents: number;
+    rows: Array<{ txnId: string }>;
+  } | null>(null);
+
+  const readerPrepare = async (kind: "reload" | "new_card") => {
+    const items =
+      kind === "new_card"
+        ? newCards.map((c) => ({ packageId: c.packageId }))
+        : cards.map((c) => ({ accountNumber: c.accountNumber.trim(), packageId: c.packageId }));
+    const res = await fetch("/api/game-cards/terminal-prepare", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind, locationCode, items }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.orderId || !(data.totalCents > 0)) {
+      throw new Error(errText(data) || "Couldn't start the reader payment.");
+    }
+    readerPrep.current = data;
+    return { seed: data.groupId, depositOrderId: data.orderId, depositCents: data.totalCents };
+  };
+
+  const readerFinalize = async (
+    kind: "reload" | "new_card",
+    ep: { paymentId: string; depositOrderId: string; amountCents: number },
+  ) => {
+    const prep = readerPrep.current;
+    if (!prep) {
+      setError("Payment session expired. Please see the front desk.");
+      setPhase("error");
+      return;
+    }
+    setPhase("loading");
+    setError(null);
+    try {
+      const res = await fetch("/api/game-cards/terminal-finalize", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          kind,
+          locationCode,
+          groupId: prep.groupId,
+          txnIds: prep.rows.map((r) => r.txnId),
+          externalPayment: {
+            paymentId: ep.paymentId,
+            orderId: ep.depositOrderId,
+            amountCents: ep.amountCents,
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.ok === false) {
+        // Money is ALREADY captured on the reader — never imply "pay again".
+        setError(
+          errText(data) ||
+            "We received your payment but couldn't finish — please see the front desk (do not pay again).",
+        );
+        setPhase("error");
+        return;
+      }
+      if (kind === "new_card") {
+        setNewCards((cs) =>
+          cs.map((c, i) => ({
+            ...c,
+            txnId: data.rows?.[i]?.txnId,
+            cardStatus: "pending" as const,
+          })),
+        );
+        await dispenseNewCards(data.groupId, data.rows ?? []);
+      } else {
+        setPhase("done");
+      }
+    } catch {
+      setError(
+        "We received your payment but couldn't finish — please see the front desk (do not pay again).",
+      );
+      setPhase("error");
+    }
+  };
+
   // ── Mode chooser: New card vs Reload ──
   if (mode === "choose") {
     return (
@@ -581,8 +671,14 @@ export function KioskGameZone({
 
   if (phase === "paying") {
     const isNew = mode === "newcard";
-    const payAmount = (isNew ? newTotalCents : totalCents) / 100;
+    const payTotalCents = isNew ? newTotalCents : totalCents;
+    const payAmount = payTotalCents / 100;
     const payCount = isNew ? newCards.length : cards.length;
+    // Charge on the paired Square reader when one is configured (owner: kiosk
+    // uses the reader, not the embedded card iframe). Falls back to the typed
+    // card only on a readerless device.
+    const readerId = config?.readerId ?? null;
+    const useReader = kioskTerminalEnabled() && !!readerId;
     return (
       <div className="mx-auto max-w-md py-8 kiosk-zoom">
         <div className="mb-6 text-center">
@@ -594,35 +690,46 @@ export function KioskGameZone({
             {isNew ? "cards dispense once payment clears" : "tokens load the moment payment clears"}
           </p>
         </div>
-        <PaymentForm
-          amount={payAmount}
-          itemName="Game Zone tokens"
-          billId={
-            isNew
-              ? `gznew-${newCards.length}x`
-              : `gz-${cards
-                  .map((c) => c.accountNumber.trim())
-                  .join("-")
-                  .slice(0, 40)}`
-          }
-          contact={{ firstName: "Game", lastName: "Zone", email: "", phone: "" }}
-          locationId={
-            center === "naples" ? "naples" : brand === "headpinz" ? "headpinz" : "fasttrax"
-          }
-          onTokenize={async ({ cardNonce }) => {
-            if (!cardNonce) return;
-            if (isNew) await payNewCards(cardNonce);
-            else await pay(cardNonce);
-          }}
-          onSuccess={() => {
-            /* tokenize-only mode: the charge happens in onTokenize → pay()/payNewCards() */
-          }}
-          onError={(m) => {
-            setError(m);
-            setPhase("error");
-          }}
-          onCancel={() => setPhase("cart")}
-        />
+        {useReader && readerId ? (
+          <KioskTerminalCheckoutGate
+            brand={brand}
+            deviceId={readerId}
+            depositCentsExpected={payTotalCents}
+            prepareFn={() => readerPrepare(isNew ? "new_card" : "reload")}
+            onCaptured={(ep) => void readerFinalize(isNew ? "new_card" : "reload", ep)}
+            onCancel={() => setPhase("cart")}
+          />
+        ) : (
+          <PaymentForm
+            amount={payAmount}
+            itemName="Game Zone tokens"
+            billId={
+              isNew
+                ? `gznew-${newCards.length}x`
+                : `gz-${cards
+                    .map((c) => c.accountNumber.trim())
+                    .join("-")
+                    .slice(0, 40)}`
+            }
+            contact={{ firstName: "Game", lastName: "Zone", email: "", phone: "" }}
+            locationId={
+              center === "naples" ? "naples" : brand === "headpinz" ? "headpinz" : "fasttrax"
+            }
+            onTokenize={async ({ cardNonce }) => {
+              if (!cardNonce) return;
+              if (isNew) await payNewCards(cardNonce);
+              else await pay(cardNonce);
+            }}
+            onSuccess={() => {
+              /* tokenize-only mode: the charge happens in onTokenize → pay()/payNewCards() */
+            }}
+            onError={(m) => {
+              setError(m);
+              setPhase("error");
+            }}
+            onCancel={() => setPhase("cart")}
+          />
+        )}
         <button
           type="button"
           onClick={() => setPhase("cart")}

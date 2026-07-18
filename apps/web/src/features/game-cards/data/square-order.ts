@@ -56,3 +56,36 @@ export async function createReloadOrder(params: CreateReloadOrderParams): Promis
   }
   return orderId;
 }
+
+/**
+ * Read a Square payment for server-side verification of a kiosk card-present
+ * (Terminal) capture. The browser is NEVER trusted for a reader charge — the
+ * finalize step re-reads the payment to confirm it COMPLETED, paid OUR order,
+ * for the right amount at the right location. Returns null on any fetch error.
+ */
+export async function readSquarePayment(id: string): Promise<{
+  id: string;
+  status: string;
+  amountCents: number;
+  orderId?: string;
+  locationId?: string;
+} | null> {
+  const { ok, data } = await squareFetch<{
+    payment?: {
+      id?: string;
+      status?: string;
+      amount_money?: { amount?: number };
+      order_id?: string;
+      location_id?: string;
+    };
+  }>(`/payments/${encodeURIComponent(id)}`, { method: "GET" });
+  const p = data?.payment;
+  if (!ok || !p?.id) return null;
+  return {
+    id: p.id,
+    status: p.status ?? "UNKNOWN",
+    amountCents: p.amount_money?.amount ?? -1,
+    orderId: p.order_id,
+    locationId: p.location_id,
+  };
+}
