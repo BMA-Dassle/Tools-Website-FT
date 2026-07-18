@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
       contract_signed_at = ${signedAt},
       contract_status = 'signed',
       document_seal = ${seal},
-      tax_file_url = ${taxFileUrl || null},
+      tax_file_url = COALESCE(${taxFileUrl || null}, tax_file_url),
       updated_at = NOW()
     WHERE id = ${quote.id}
   `;

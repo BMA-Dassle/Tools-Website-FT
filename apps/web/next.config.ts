@@ -68,6 +68,11 @@ const nextConfig: NextConfig = {
       source: "/documents/:path*",
       destination: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/documents/:path*",
     },
+    // Guest-uploaded DR-14 tax exempt certificates (contract page).
+    {
+      source: "/tax-exempt/:path*",
+      destination: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/tax-exempt/:path*",
+    },
   ],
   headers: async () => [
     // Admin embed pages — allow portal.headpinz.com to iframe them.

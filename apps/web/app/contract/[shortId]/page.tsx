@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
+import { head } from "@vercel/blob";
 import {
   getGfQuoteByShortId,
   appendAuditLog,
@@ -8,6 +9,29 @@ import {
   type ContractVersion,
 } from "@/lib/group-function-db";
 import ContractClient from "./ContractClient";
+
+/**
+ * Docs uploaded before tax_file_url was persisted at capture only exist in
+ * Blob storage at the deterministic per-quote path — probe for them.
+ * Returns a brand-domain path (served via the next.config /tax-exempt/*
+ * rewrite), never the raw blob-store URL.
+ */
+async function findLegacyTaxDoc(shortId: string): Promise<string | null> {
+  const probes = ["pdf", "jpg", "jpeg", "png"].map((ext) => {
+    const pathname = `tax-exempt/${shortId}-dr14.${ext}`;
+    return head(pathname).then(
+      (b) => ({ pathname, uploadedAt: b.uploadedAt.getTime() }),
+      () => null,
+    );
+  });
+  const found = (await Promise.all(probes)).filter(Boolean) as Array<{
+    pathname: string;
+    uploadedAt: number;
+  }>;
+  // A guest may have uploaded under several extensions — show only the latest.
+  found.sort((a, b) => b.uploadedAt - a.uploadedAt);
+  return found[0]?.pathname ?? null;
+}
 
 export default async function ContractPage(props: {
   params: Promise<{ shortId: string }>;
@@ -55,6 +79,24 @@ export default async function ContractPage(props: {
     latestChanges = curr.changes || [];
   }
 
+  // Existing DR-14 doc: DB first, else probe Blob for uploads that predate
+  // capture-time persistence. Always surfaced as a brand-domain URL.
+  let existingTaxDocUrl: string | null = null;
+  if (quote.is_tax_exempt) {
+    if (quote.tax_file_url) {
+      // Rows written before the brand-domain switch hold raw blob-store URLs.
+      existingTaxDocUrl = quote.tax_file_url.replace(
+        /^https:\/\/[^/]+\.blob\.vercel-storage\.com\//,
+        `${quote.base_url || "https://headpinz.com"}/`,
+      );
+    } else {
+      const legacyPath = await findLegacyTaxDoc(quote.contract_short_id!).catch(() => null);
+      if (legacyPath) {
+        existingTaxDocUrl = `${quote.base_url || "https://headpinz.com"}/${legacyPath}`;
+      }
+    }
+  }
+
   const signedPdfHistory = (quote.signed_pdf_history ?? []) as Array<{
     url: string;
     signedAt: string | null;
@@ -99,6 +141,7 @@ export default async function ContractPage(props: {
         giftCardGan: quote.square_gift_card_gan,
         status: quote.status,
         isTaxExempt: quote.is_tax_exempt,
+        existingTaxDocUrl,
         isPostPaid: quote.approval_required || false,
         priorDepositCents:
           !quote.deposit_paid_at && quote.status === "contract_sent" ? priorDepositCents : 0,

@@ -54,6 +54,7 @@ interface QuoteProps {
   giftCardGan: string | null;
   status: string;
   isTaxExempt: boolean;
+  existingTaxDocUrl: string | null;
   isPostPaid: boolean;
   priorDepositCents: number;
   savedCardLast4: string | null;
@@ -222,8 +223,9 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
 
   // Tax exempt file upload
   const [taxFile, setTaxFile] = useState<File | null>(null);
-  const [taxFileUrl, setTaxFileUrl] = useState<string | null>(null);
+  const [taxFileUrl, setTaxFileUrl] = useState<string | null>(quote.existingTaxDocUrl);
   const [taxUploading, setTaxUploading] = useState(false);
+  const [taxError, setTaxError] = useState<string | null>(null);
 
   const taxValid = taxExempt === "no" || (taxExempt === "yes" && Boolean(taxFileUrl));
   const allAgreed =
@@ -1507,25 +1509,77 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                           <p className="mb-3 text-xs text-gray-400">
                             Required to apply tax exemption. PDF, JPG, or PNG accepted.
                           </p>
+                          <input
+                            id="tax-doc-input"
+                            type="file"
+                            accept=".pdf,.jpg,.jpeg,.png"
+                            className="hidden"
+                            onChange={async (e) => {
+                              const input = e.target;
+                              const file = input.files?.[0];
+                              if (!file) return;
+                              setTaxFile(file);
+                              setTaxUploading(true);
+                              setTaxError(null);
+                              try {
+                                const form = new FormData();
+                                form.append("file", file);
+                                form.append("shortId", quote.contractShortId);
+                                const res = await fetch("/api/group-function/upload-tax-doc", {
+                                  method: "POST",
+                                  body: form,
+                                });
+                                const data = await res.json().catch(() => null);
+                                if (data?.url) setTaxFileUrl(data.url);
+                                else setTaxError(data?.error || "Upload failed. Please try again.");
+                              } catch {
+                                setTaxError("Upload failed. Please try again.");
+                              } finally {
+                                setTaxUploading(false);
+                                input.value = "";
+                              }
+                            }}
+                          />
                           {taxFileUrl ? (
-                            <div className="flex items-center gap-2 rounded-lg bg-emerald-400/10 px-3 py-2 text-sm text-emerald-400">
-                              <svg
-                                className="h-4 w-4 flex-shrink-0"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  d="M5 13l4 4L19 7"
-                                />
-                              </svg>
-                              <span className="truncate">{taxFile?.name || "Uploaded"}</span>
+                            <div className="flex items-center justify-between gap-3 rounded-lg bg-emerald-400/10 px-3 py-2 text-sm">
+                              <div className="flex min-w-0 items-center gap-2 text-emerald-400">
+                                <svg
+                                  className="h-4 w-4 flex-shrink-0"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                  strokeWidth={2}
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M5 13l4 4L19 7"
+                                  />
+                                </svg>
+                                <span className="truncate">
+                                  {taxFile?.name || "Certificate on file"}
+                                </span>
+                              </div>
+                              <div className="flex flex-shrink-0 items-center gap-3 text-xs font-semibold">
+                                <a
+                                  href={taxFileUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-cyan-400 hover:text-cyan-300"
+                                >
+                                  View
+                                </a>
+                                <label
+                                  htmlFor="tax-doc-input"
+                                  className="cursor-pointer text-gray-400 hover:text-gray-200"
+                                >
+                                  {taxUploading ? "Uploading..." : "Replace"}
+                                </label>
+                              </div>
                             </div>
                           ) : (
                             <label
+                              htmlFor="tax-doc-input"
                               className={`flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-3 text-sm transition-colors ${taxUploading ? "border-cyan-400/30 text-cyan-400" : "border-white/20 text-gray-400 hover:border-cyan-400/40 hover:text-cyan-300"}`}
                             >
                               {taxUploading ? (
@@ -1551,34 +1605,10 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
                                   Choose file
                                 </>
                               )}
-                              <input
-                                type="file"
-                                accept=".pdf,.jpg,.jpeg,.png"
-                                className="hidden"
-                                onChange={async (e) => {
-                                  const file = e.target.files?.[0];
-                                  if (!file) return;
-                                  setTaxFile(file);
-                                  setTaxUploading(true);
-                                  try {
-                                    const form = new FormData();
-                                    form.append("file", file);
-                                    form.append("shortId", quote.contractShortId);
-                                    const res = await fetch("/api/group-function/upload-tax-doc", {
-                                      method: "POST",
-                                      body: form,
-                                    });
-                                    const data = await res.json();
-                                    if (data.url) setTaxFileUrl(data.url);
-                                    else setError(data.error || "Upload failed");
-                                  } catch {
-                                    setError("Upload failed. Please try again.");
-                                  } finally {
-                                    setTaxUploading(false);
-                                  }
-                                }}
-                              />
                             </label>
+                          )}
+                          {taxError && (
+                            <p className="mt-2 text-xs font-medium text-red-400">{taxError}</p>
                           )}
                         </div>
                       )}
