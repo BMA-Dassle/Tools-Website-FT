@@ -510,3 +510,20 @@
 .kiosk-canvas .kiosk-zoom {
   zoom: 1.3;
 }
+
+/* Cart review + checkout are shorter than the tall portrait body and were pinned
+   to the TOP — the interactive parts (pay button, gift-card entry) sat too high to
+   reach comfortably (owner 2026-07-19: "too tall for some people"). Center them
+   vertically in the reach band. `safe` centering falls back to top-align + scroll
+   when the content is taller than the body, so a long cart never clips its top.
+   align-items:center keeps the mx-auto max-w-* cards centered horizontally. */
+.kiosk-canvas .k-flow-body.kiosk-zoom {
+  display: flex;
+  flex-direction: column;
+  justify-content: safe center;
+}
+/* Children stay full-width (their own mx-auto max-w-* keeps the card centered
+   exactly as in the prior block layout — only the VERTICAL position changes). */
+.kiosk-canvas .k-flow-body.kiosk-zoom > * {
+  width: 100%;
+}
