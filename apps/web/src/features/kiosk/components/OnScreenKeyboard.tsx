@@ -116,8 +116,13 @@ export function OnScreenKeyboardHost() {
 
   const press = (code: string) => {
     if (code === OSK_DONE) {
+      // Blur ONLY — let the focusout handler's 150ms-debounced hide unmount the
+      // sheet. Calling hide() synchronously here unmounted the keyboard mid-tap,
+      // so this tap's pointerup/click fell THROUGH to the wizard's Continue button
+      // docked at the same bottom position — firing the wrong action and skipping
+      // steps (owner 2026-07-19: "Done does incorrect functions / reaches cart
+      // mid-flow"). Keeping the sheet mounted through the tap prevents that.
       target.blur();
-      hide();
       return;
     }
     if (code === OSK_SHIFT) {
