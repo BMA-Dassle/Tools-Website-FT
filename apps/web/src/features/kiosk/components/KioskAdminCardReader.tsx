@@ -166,12 +166,11 @@ function ConnectionCard({
 
       {connection.state === "unsupported" && (
         <p className="text-sm text-amber-300">
-          Web Serial isn’t available here. Use desktop Chrome or Edge — and note that a dev URL over
-          the LAN needs the kiosk’s Chrome launched with{" "}
-          <code className="rounded bg-white/10 px-1">
-            --unsafely-treat-insecure-origin-as-secure
-          </code>{" "}
-          (see docs/crt-591/README.md).
+          Web Serial isn’t available in this browser. It needs desktop <b>Chrome or Edge</b> on an{" "}
+          <b>HTTPS</b> page (production is HTTPS — if you’re on an{" "}
+          <code className="rounded bg-white/10 px-1">http://</code> URL, that’s why). Not Safari,
+          Firefox, or mobile. It can also be turned off by device- management policy — see
+          docs/crt-591/README.md.
         </p>
       )}
 
@@ -206,7 +205,16 @@ function ConnectionCard({
 
       <div className="flex flex-wrap gap-2">
         {connection.state !== "connected" && connection.state !== "connecting" && (
-          <button type="button" className={btnPrimary} onClick={() => void connect()}>
+          <button
+            type="button"
+            className={btnPrimary}
+            // Stop the event reaching KioskShell's document-level pointerdown
+            // handler, which requests fullscreen and would consume this gesture's
+            // transient activation — starving Web Serial's requestPort() and
+            // throwing the "browser blocked serial access" permissions error.
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => void connect()}
+          >
             Choose COM port &amp; connect…
           </button>
         )}
@@ -216,6 +224,12 @@ function ConnectionCard({
           </button>
         )}
       </div>
+      {connection.state !== "connected" && connection.state !== "connecting" && (
+        <p className="text-xs text-white/40">
+          Tapping this opens the browser’s COM-port chooser. If nothing appears, this browser is
+          blocking serial access (device-management policy) or isn’t Chrome/Edge on HTTPS.
+        </p>
+      )}
     </div>
   );
 }

@@ -228,15 +228,25 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
       port = await navigator.serial.requestPort();
     } catch (err) {
       if (err instanceof DOMException && err.name === "NotFoundError") {
-        // Chooser dismissed with nothing selected — quietly stay put.
-        await disconnect();
+        // NotFoundError = the picker closed with nothing chosen. That's a plain
+        // cancel — OR (the production gotcha) no picker ever appeared because a
+        // managed browser blocks serial ports by policy, or there are no ports.
+        // Show a hint rather than silently doing nothing.
+        setConnection({
+          state: "error",
+          canRetry: true,
+          message:
+            "No COM port was selected. If no chooser appeared, Web Serial is likely blocked by " +
+            "device-management policy on this browser (allowlist this site's serial access), or this " +
+            "isn't a desktop Chrome/Edge window on HTTPS. Otherwise, tap Connect and pick the port.",
+        });
         return;
       }
       setConnection({ state: "error", message: openErrorMessage(err), canRetry: true });
       return;
     }
     await beginConnect(port);
-  }, [beginConnect, disconnect]);
+  }, [beginConnect]);
 
   // Silent auto-reconnect for a provisioned kiosk: reopen a remembered port
   // with no picker (open() needs no user gesture). Only when this kiosk has
