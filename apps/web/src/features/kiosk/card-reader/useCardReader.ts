@@ -104,10 +104,13 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
   const [polling, setPolling] = useState(false);
 
   const clientRef = useRef<CrtReaderClient | null>(null);
+  // The busy LOCK is this ref, managed synchronously inside run() — it used to
+  // be effect-synced from the `busy` state, which raced: in a tight await chain
+  // (present → waitTaken → next dispense, the multi-card buy loop) the next
+  // run() saw the PREVIOUS op's stale "busy" and returned undefined instantly —
+  // surfacing as "couldn't dispense a card" on every card after the first
+  // (owner 2026-07-18). State `busy` remains for UI display only.
   const busyRef = useRef<string | null>(null);
-  useEffect(() => {
-    busyRef.current = busy;
-  }, [busy]);
 
   const onConnectedRef = useRef(onConnected);
   useEffect(() => {
@@ -280,11 +283,13 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
     };
   }, [trustSingleGrant, portInfo, beginConnect]);
 
-  /** Busy/error bookkeeping wrapper for panel buttons. */
+  /** Busy/error bookkeeping wrapper — the ref is the mutex (set/cleared
+   *  synchronously so back-to-back awaited ops never see a stale lock). */
   const run = useCallback(
     async <T>(label: string, fn: (c: CrtReaderClient) => Promise<T>): Promise<T | undefined> => {
       const c = clientRef.current;
       if (!c || busyRef.current) return undefined;
+      busyRef.current = label;
       setBusy(label);
       setLastError(null);
       try {
@@ -293,6 +298,7 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
         setLastError(toErrorInfo(err));
         return undefined;
       } finally {
+        busyRef.current = null;
         setBusy(null);
       }
     },

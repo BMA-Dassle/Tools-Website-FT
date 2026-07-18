@@ -68,7 +68,28 @@ function errText(data: unknown): string | null {
 }
 
 type Phase = "cart" | "paying" | "loading" | "done" | "error";
-type Mode = "choose" | "reload" | "newcard";
+type Mode = "choose" | "reload" | "newcard" | "balance";
+
+/**
+ * Guest-facing card number. The mag track pads the account to a fixed-width
+ * digit field with LEADING ZEROS (track2 "P6283=0000000001037356"), but the
+ * number PRINTED on the card is the unpadded form — showing the raw track read
+ * as "the card number" looked wrong to guests (owner 2026-07-18, visual only:
+ * Intercard accepts both forms, so verify/load always worked). Display strips
+ * the zeros; EVERY API call keeps the raw value it was given (the on-prem EIS
+ * bridge is only proven with the as-read form).
+ */
+function displayCardNumber(acct: string): string {
+  return acct.replace(/^0+(?=\d)/, "");
+}
+
+/** Balance-check card state (mode "balance" — one card at a time, owner rule). */
+interface BalanceCard {
+  accountNumber: string;
+  status: "reading" | "checking" | "ok" | "bad";
+  name?: string;
+  balance?: { tokens: number; bonusTokens: number; eTickets: number; timeMinutes: number };
+}
 
 /** Token-package tile body — labels the amount as TOKENS and calls out the free
  *  bonus clearly (owner ask 2026-07-18). Shared by the reload + new-card grids. */
@@ -122,6 +143,9 @@ export function KioskGameZone({
   const [newEditIdx, setNewEditIdx] = useState<number | null>(0);
   const [reloadEditIdx, setReloadEditIdx] = useState<number | null>(0);
   const [dispenseMsg, setDispenseMsg] = useState<string | null>(null);
+  // Balance check (mode "balance") — ONE card at a time (owner rule).
+  const [balCard, setBalCard] = useState<BalanceCard | null>(null);
+  const [balTyped, setBalTyped] = useState("");
   const locationCode = centerCodeFor(center, brand);
 
   // The CRT-591 dispenser owns ONE connection for the whole Game Zone session
@@ -206,12 +230,55 @@ export function KioskGameZone({
 
   // RELOAD read: insert a card → the reader reads its account and returns it
   // (always — never captures a guest's card), then we verify to show balance.
+  // acceptAndRead closes the entry gate before we present, so the unit can't
+  // auto-swallow the returned card (the "it takes it" bug).
   const readReloadCard = async (i: number) => {
     const acct = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
     await dispenser.present(); // ALWAYS hand the card back
     if (!acct) return; // read failed — dispenser.error shows why
     setCard(i, { accountNumber: acct, status: "unverified" });
     await verify(i, acct);
+  };
+
+  // BALANCE CHECK: insert → read → give the card straight back → look it up.
+  const fetchBalance = async (acct: string) => {
+    setBalCard({ accountNumber: acct, status: "checking" });
+    try {
+      const res = await fetch("/api/game-cards/verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accountNumber: acct, locationCode }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok !== false && (data.balance || data.tokens != null)) {
+        const bal = data.balance ?? data;
+        setBalCard({
+          accountNumber: acct,
+          status: "ok",
+          name: bal.name ?? data.name,
+          balance: {
+            tokens: bal.tokens ?? 0,
+            bonusTokens: bal.bonusTokens ?? 0,
+            eTickets: bal.eTickets ?? 0,
+            timeMinutes: bal.timeMinutes ?? 0,
+          },
+        });
+      } else {
+        setBalCard({ accountNumber: acct, status: "bad" });
+      }
+    } catch {
+      setBalCard({ accountNumber: acct, status: "bad" });
+    }
+  };
+  const readBalanceCard = async () => {
+    setBalCard({ accountNumber: "", status: "reading" });
+    const acct = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
+    await dispenser.present(); // give it straight back — we only need the number
+    if (!acct) {
+      setBalCard(null); // dispenser.error banner explains what happened
+      return;
+    }
+    await fetchBalance(acct);
   };
 
   // BUY: one upfront charge for the basket, THEN dispense + load + present each
@@ -515,7 +582,174 @@ export function KioskGameZone({
               Add tokens to 1–10 cards you already have
             </div>
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              setBalCard(null);
+              setBalTyped("");
+              setMode("balance");
+            }}
+            className="k-glass k-tap p-[40px] text-left"
+            style={{ borderLeft: "8px solid #46d68c" }}
+          >
+            <div className="k-display text-[48px]">Check card balance</div>
+            <div className="mt-[10px] text-[28px] text-white/55">
+              Insert a card to see its tokens, bonus tokens &amp; eTickets
+            </div>
+          </button>
         </div>
+      </div>
+    );
+  }
+
+  // ── Balance check — ONE card at a time (owner 2026-07-18) ──
+  if (mode === "balance") {
+    const bal = balCard?.balance;
+    return (
+      <div className="mx-auto max-w-2xl px-2 py-6 kiosk-zoom">
+        <div className="mb-5 flex items-center justify-between">
+          <h1 className="font-heading text-4xl font-extrabold italic">Card balance</h1>
+          <button
+            type="button"
+            onClick={() => (capability === "reload" ? onExit() : setMode("choose"))}
+            className="rounded-full border border-white/15 px-5 py-2 text-sm text-white/60"
+          >
+            Back
+          </button>
+        </div>
+
+        {dispenser.error && (
+          <div className="mb-4 rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-amber-100">
+            {dispenser.error.message}
+            {dispenser.error.hint ? ` — ${dispenser.error.hint}` : ""}
+          </div>
+        )}
+
+        {balCard?.status === "reading" || balCard?.status === "checking" ? (
+          <div className="flex justify-center py-12">
+            <BrandedLoader
+              brand={brand}
+              label={balCard.status === "reading" ? "Insert your card" : "Checking balance…"}
+              sublabel={
+                balCard.status === "reading"
+                  ? "It reads in a second and comes right back out"
+                  : undefined
+              }
+            />
+          </div>
+        ) : balCard?.status === "ok" && bal ? (
+          <div className="rounded-2xl border border-[#46d68c]/40 bg-white/[0.04] p-6">
+            <div className="text-sm uppercase tracking-[0.25em] text-white/45">
+              Card #{displayCardNumber(balCard.accountNumber)}
+              {balCard.name ? ` · ${balCard.name}` : ""}
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] px-5 py-4">
+                <div className="font-heading text-4xl font-extrabold tabular-nums text-[#00e2e5]">
+                  {bal.tokens}
+                </div>
+                <div className="mt-1 text-xs font-bold uppercase tracking-[0.2em] text-white/45">
+                  Tokens
+                </div>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] px-5 py-4">
+                <div className="font-heading text-4xl font-extrabold tabular-nums text-[#46d68c]">
+                  {bal.bonusTokens}
+                </div>
+                <div className="mt-1 text-xs font-bold uppercase tracking-[0.2em] text-white/45">
+                  Bonus tokens
+                </div>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-white/[0.03] px-5 py-4">
+                <div className="font-heading text-4xl font-extrabold tabular-nums text-[#e8b14c]">
+                  {bal.eTickets}
+                </div>
+                <div className="mt-1 text-xs font-bold uppercase tracking-[0.2em] text-white/45">
+                  eTickets
+                </div>
+              </div>
+              {bal.timeMinutes > 0 && (
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] px-5 py-4">
+                  <div className="font-heading text-4xl font-extrabold tabular-nums text-white">
+                    {bal.timeMinutes}
+                  </div>
+                  <div className="mt-1 text-xs font-bold uppercase tracking-[0.2em] text-white/45">
+                    Time play (min)
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setBalCard(null);
+                  setBalTyped("");
+                }}
+                className="rounded-xl border border-white/15 px-5 py-3.5 text-base font-semibold text-white/60"
+              >
+                Check another card
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  // Hand-off to reload with this card pre-verified.
+                  setCards([
+                    {
+                      accountNumber: balCard.accountNumber,
+                      packageId: TOKEN_PACKAGES[1].id,
+                      status: "ok",
+                      balance: { tokens: bal.tokens, bonusTokens: bal.bonusTokens },
+                      holderName: balCard.name,
+                    },
+                  ]);
+                  setReloadEditIdx(0);
+                  setMode("reload");
+                }}
+                className="rounded-xl bg-[#00e2e5] px-5 py-3.5 text-base font-bold text-[#04252b]"
+              >
+                Reload this card
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {balCard?.status === "bad" && (
+              <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-red-100">
+                We couldn&rsquo;t find that card — try inserting it again.
+              </div>
+            )}
+            {readerReady ? (
+              <button
+                type="button"
+                disabled={!!dispenser.busy}
+                onClick={() => void readBalanceCard()}
+                className="w-full rounded-2xl bg-[#00e2e5] px-6 py-6 text-xl font-extrabold text-[#04252b] disabled:opacity-40"
+              >
+                Insert your card to check it
+              </button>
+            ) : (
+              // Readerless kiosk fallback only — with a reader, insert is the ONE way.
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={balTyped}
+                  onChange={(e) => setBalTyped(e.target.value)}
+                  placeholder="Card number"
+                  className="flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-lg text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => balTyped.trim() && void fetchBalance(balTyped.trim())}
+                  className="rounded-xl bg-[#00e2e5] px-5 py-2.5 text-sm font-bold text-[#04252b]"
+                >
+                  Check
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </div>
     );
   }
@@ -556,7 +790,7 @@ export function KioskGameZone({
                       Card {i + 1}
                     </div>
                     <div className="font-heading text-xl font-extrabold tabular-nums">
-                      {c.account ?? "Dispensing…"}
+                      {c.account ? displayCardNumber(c.account) : "Dispensing…"}
                     </div>
                   </div>
                   <div className="text-right">
@@ -613,7 +847,7 @@ export function KioskGameZone({
                       Card {i + 1}
                     </div>
                     <div className="font-heading text-xl font-extrabold tabular-nums">
-                      {c.account ?? "—"}
+                      {c.account ? displayCardNumber(c.account) : "—"}
                     </div>
                   </div>
                   <div className="font-heading text-lg font-extrabold tabular-nums text-[#46d68c]">
@@ -932,30 +1166,33 @@ export function KioskGameZone({
                           : "Insert card to read"}
                     </button>
                   )}
-                  <div className="mt-3 flex gap-2">
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={c.accountNumber}
-                      onChange={(e) =>
-                        setCard(i, { accountNumber: e.target.value, status: "unverified" })
-                      }
-                      onBlur={() =>
-                        c.accountNumber.trim() && c.status === "unverified" && verify(i)
-                      }
-                      placeholder={
-                        readerReady ? "…or type the number" : "Card number (scan or type)"
-                      }
-                      className="flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-lg text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => verify(i)}
-                      className="rounded-xl bg-[#00e2e5] px-5 py-2.5 text-sm font-bold text-[#04252b]"
-                    >
-                      {c.status === "verifying" ? "…" : "Check"}
-                    </button>
-                  </div>
+                  {/* Typed entry ONLY on a readerless kiosk — with a reader, insert
+                      is the one way in (owner 2026-07-18: "should not have an
+                      option to type in card"). */}
+                  {!readerReady && (
+                    <div className="mt-3 flex gap-2">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={c.accountNumber}
+                        onChange={(e) =>
+                          setCard(i, { accountNumber: e.target.value, status: "unverified" })
+                        }
+                        onBlur={() =>
+                          c.accountNumber.trim() && c.status === "unverified" && verify(i)
+                        }
+                        placeholder="Card number (scan or type)"
+                        className="flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-lg text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => verify(i)}
+                        className="rounded-xl bg-[#00e2e5] px-5 py-2.5 text-sm font-bold text-[#04252b]"
+                      >
+                        {c.status === "verifying" ? "…" : "Check"}
+                      </button>
+                    </div>
+                  )}
                   {c.status === "ok" && (
                     <div className="mt-2 text-sm text-[#46d68c]">
                       {c.holderName ? `${c.holderName} · ` : ""}balance {c.balance?.tokens ?? 0}{" "}
@@ -991,8 +1228,10 @@ export function KioskGameZone({
                 </>
               ) : (
                 <div className="mt-1 text-lg font-semibold text-white/80">
-                  {c.accountNumber.trim() ? `#${c.accountNumber.trim()}` : "No card number"} ·{" "}
-                  {pkgLabel(c.packageId)}
+                  {c.accountNumber.trim()
+                    ? `#${displayCardNumber(c.accountNumber.trim())}`
+                    : "No card number"}{" "}
+                  · {pkgLabel(c.packageId)}
                   {c.status === "ok" ? (
                     <span className="text-[#46d68c]"> · ✓</span>
                   ) : (

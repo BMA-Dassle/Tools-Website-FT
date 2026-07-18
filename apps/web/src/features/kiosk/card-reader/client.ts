@@ -505,8 +505,17 @@ export class CrtReaderClient {
     opts: { timeoutMs?: number; signal?: AbortSignal } = {},
   ): Promise<MagTracks> {
     await this.permitEntry();
-    await this.waitForCard({ ...opts, requireReadPosition: true });
-    return this.magRead();
+    try {
+      await this.waitForCard({ ...opts, requireReadPosition: true });
+      return await this.magRead();
+    } finally {
+      // Close the gate BEFORE the caller presents the card back: with entry
+      // still permitted, the unit treats the presented card as a fresh
+      // insertion and auto-carries it straight back inside (spec 3.1.4) — the
+      // reload "it takes the card" bug (owner 2026-07-18). Best-effort so a
+      // gate error never masks the read result.
+      await this.prohibitEntry().catch(() => {});
+    }
   }
 
   /**

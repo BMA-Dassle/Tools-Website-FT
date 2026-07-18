@@ -13,7 +13,7 @@
 import { randomBytes, randomUUID } from "crypto";
 import { authorizeMultiTender, SquarePaymentError } from "@/lib/square-gift-card";
 import { getCenter } from "~/config/intercard-centers";
-import { getPackage, type TokenPackage } from "../constants";
+import { getPackage, activationFeeCents, type TokenPackage } from "../constants";
 import { GameCardHttpError } from "../errors";
 import type { PurchaseInput } from "../schemas";
 import type { CardLoadResult, PurchaseResult } from "../types";
@@ -89,7 +89,12 @@ export async function chargeNewCardOrder(
 
   const groupId = randomUUID();
   const baseKey = randomBytes(8).toString("hex");
-  const totalCents = resolved.reduce((sum, r) => sum + r.pkg.priceCents, 0);
+  // New cards owe the $2 activation fee — createReloadOrder(purpose:"purchase")
+  // adds the matching fee line, so the charge MUST include it or the payment
+  // wouldn't cover the order total.
+  const totalCents =
+    resolved.reduce((sum, r) => sum + r.pkg.priceCents, 0) +
+    activationFeeCents("new_card", resolved.length);
 
   // Persist one row per card BEFORE charging (account attached later at load).
   const rows: NewCardRow[] = [];
