@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { getSession } from "~/features/account";
 import { PurchaseSchema } from "~/features/game-cards/schemas";
-import { purchase } from "~/features/game-cards/service/purchase";
+import { purchase, chargeNewCardOrder } from "~/features/game-cards/service/purchase";
 import { GameCardHttpError, jsonOk, toErrorResponse } from "~/features/game-cards/errors";
 
 export const runtime = "nodejs";
@@ -24,7 +24,12 @@ export async function POST(req: NextRequest) {
     const verifiedCustomerId =
       session && wanted && session.squareCustomerIds.includes(wanted) ? wanted : undefined;
 
-    const result = await purchase(parsed.data, { verifiedCustomerId });
+    // BUY (new cards): charge once, hand back rows to dispense + load per card.
+    // RELOAD: verify + charge + load all cards in one shot.
+    const result =
+      parsed.data.kind === "new_card"
+        ? await chargeNewCardOrder(parsed.data, { verifiedCustomerId })
+        : await purchase(parsed.data, { verifiedCustomerId });
     return jsonOk({ ...result });
   } catch (err) {
     return toErrorResponse(err);

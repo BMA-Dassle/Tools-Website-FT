@@ -8,6 +8,11 @@ export {
   type UseCardReaderOptions,
 } from "./useCardReader";
 export {
+  useGameCardDispenser,
+  type UseGameCardDispenserOptions,
+  type GameCardDispenser,
+} from "./useGameCardDispenser";
+export {
   CrtReaderClient,
   type CrtDeviceInfo,
   type CrtResult,

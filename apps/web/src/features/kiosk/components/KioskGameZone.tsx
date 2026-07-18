@@ -19,17 +19,14 @@
  * created. Swap simDispense() for real create-account + purchase + hardware
  * dispense once the dispenser + Intercard new-account issuance are wired.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import PaymentForm from "@/components/square/PaymentForm";
 import { TOKEN_PACKAGES } from "~/features/game-cards/constants";
+import { centerCodeFor } from "~/config/intercard-centers";
 import type { Brand, CenterCode } from "~/features/booking";
+import { useGameCardDispenser } from "../card-reader";
+import { useKioskConfig } from "../KioskConfigContext";
 import { BrandedLoader } from "./BrandedLoader";
-
-/** Intercard location code per venue (SWFLPassport map; load is account-global). */
-function intercardLocationCode(center: CenterCode, brand: Brand): number {
-  if (center === "naples") return 6; // HeadPinz Naples
-  return brand === "headpinz" ? 9 : 11; // HeadPinz FM : FastTrax FM
-}
 
 interface CartCard {
   accountNumber: string;
@@ -39,10 +36,28 @@ interface CartCard {
   holderName?: string;
 }
 
-/** A brand-new card being purchased (SIMULATED dispense — no account yet). */
+/**
+ * A brand-new card being purchased. Its Intercard account is read off the
+ * blank as it's dispensed (pre-encoded stock); tokens are loaded before the
+ * card is presented. `txnId` ties it to the charged ledger row.
+ */
 interface NewCard {
   packageId: string;
-  simNumber?: string; // filled once the simulated dispense "prints" a number
+  txnId?: string; // ledger row from the upfront charge
+  account?: string; // read off the blank during dispense
+  loaded?: boolean; // tokens confirmed loaded
+  cardStatus?: "pending" | "dispensing" | "loaded" | "failed";
+  balanceTokens?: number; // real balance after load
+}
+
+/** The game-cards API returns errors as `{ error: string, code }`. */
+function errText(data: unknown): string | null {
+  if (data && typeof data === "object") {
+    const d = data as { error?: unknown; message?: unknown };
+    if (typeof d.error === "string") return d.error;
+    if (typeof d.message === "string") return d.message;
+  }
+  return null;
 }
 
 type Phase = "cart" | "paying" | "loading" | "done" | "error";
@@ -72,12 +87,6 @@ function pkgLabel(packageId: string): string {
   return `${p.tokens} tokens${p.bonusTokens ? ` +${p.bonusTokens} free` : ""} · $${(p.priceCents / 100).toFixed(0)}`;
 }
 
-/** Plausible 16-digit card number for the simulated dispense — not a real Intercard account. */
-function mockCardNumber(i: number): string {
-  const digits = (7000000000000000 + i * 1234567).toString().slice(0, 16);
-  return digits.replace(/(\d{4})(?=\d)/g, "$1 ");
-}
-
 export function KioskGameZone({
   center,
   brand,
@@ -98,14 +107,31 @@ export function KioskGameZone({
   ]);
   const [phase, setPhase] = useState<Phase>("cart");
   const [error, setError] = useState<string | null>(null);
-  // New-card (simulated): a cart of 1–10 fresh cards, each with its own package.
-  // No account number to verify — these don't exist until "dispensed."
+  // New-card cart: 1–10 fresh cards, each with its own package. Accounts are
+  // read off each blank as it's dispensed (see the buy dispense loop).
   const [newCards, setNewCards] = useState<NewCard[]>([{ packageId: TOKEN_PACKAGES[1].id }]);
   // Which card is EXPANDED (showing the package grid); the rest collapse to a
   // one-line summary + Edit so more cards fit on screen (owner ask 2026-07-18).
   const [newEditIdx, setNewEditIdx] = useState<number | null>(0);
   const [reloadEditIdx, setReloadEditIdx] = useState<number | null>(0);
-  const locationCode = intercardLocationCode(center, brand);
+  const [dispenseMsg, setDispenseMsg] = useState<string | null>(null);
+  const locationCode = centerCodeFor(center, brand);
+
+  // The CRT-591 dispenser owns ONE connection for the whole Game Zone session
+  // (this component stays mounted until the guest exits). Auto-reconnects
+  // silently on a provisioned kiosk.
+  const { config } = useKioskConfig();
+  const dispenser = useGameCardDispenser({ config });
+  const readerReady = dispenser.ready;
+
+  // When leaving reload, stop the gate from accepting more cards.
+  useEffect(() => {
+    if (mode !== "reload") return;
+    return () => {
+      if (dispenser.ready) void dispenser.stopAccepting();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
 
   const totalCents = cards.reduce((sum, c) => {
     const pkg = TOKEN_PACKAGES.find((p) => p.id === c.packageId);
@@ -126,8 +152,8 @@ export function KioskGameZone({
   const setCard = (i: number, patch: Partial<CartCard>) =>
     setCards((cs) => cs.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
 
-  const verify = async (i: number) => {
-    const acct = cards[i].accountNumber.trim();
+  const verify = async (i: number, acctOverride?: string) => {
+    const acct = (acctOverride ?? cards[i].accountNumber).trim();
     if (!acct) return;
     setCard(i, { status: "verifying" });
     try {
@@ -160,21 +186,112 @@ export function KioskGameZone({
     );
   const removeCard = (i: number) => setCards((cs) => cs.filter((_, idx) => idx !== i));
 
-  // New card (SIMULATED dispense): full UX — pick packages, pay, "dispense" one
-  // card per package — but no physical card is ejected and no real charge/account
-  // is created yet (owner 2026-07-18: build the full flow, simulate the dispense
-  // until the dispenser + Intercard new-account issuance are wired). Swap
-  // simDispense() for the real create-account + purchase + hardware dispense later.
   const newTokensTotal = newCards.reduce((sum, c) => {
     const pkg = TOKEN_PACKAGES.find((p) => p.id === c.packageId);
     return sum + (pkg ? pkg.tokens + (pkg.bonusTokens || 0) : 0);
   }, 0);
-  const simDispense = async () => {
+  const setNewCardAt = (i: number, patch: Partial<NewCard>) =>
+    setNewCards((cs) => cs.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
+
+  // RELOAD read: insert a card → the reader reads its account and returns it
+  // (always — never captures a guest's card), then we verify to show balance.
+  const readReloadCard = async (i: number) => {
+    const acct = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
+    await dispenser.present(); // ALWAYS hand the card back
+    if (!acct) return; // read failed — dispenser.error shows why
+    setCard(i, { accountNumber: acct, status: "unverified" });
+    await verify(i, acct);
+  };
+
+  // BUY: one upfront charge for the basket, THEN dispense + load + present each
+  // card one at a time (load must clear before a card is handed over).
+  const payNewCards = async (cardNonce: string) => {
     setPhase("loading");
     setError(null);
-    // Simulate the dispense + activation delay, then "print" a number per card.
-    await new Promise((r) => setTimeout(r, 1400));
-    setNewCards((cs) => cs.map((c, i) => ({ ...c, simNumber: mockCardNumber(i) })));
+    setDispenseMsg("Processing payment…");
+    try {
+      const res = await fetch("/api/game-cards/purchase", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          kind: "new_card",
+          locationCode,
+          items: newCards.map((c) => ({ packageId: c.packageId })),
+          cardNonce,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.ok === false || !Array.isArray(data.rows)) {
+        setError(errText(data) || "Payment failed. Please see the front desk.");
+        setPhase("error");
+        return;
+      }
+      // Seed each card with its charged ledger row, then dispense sequentially.
+      setNewCards((cs) =>
+        cs.map((c, i) => ({ ...c, txnId: data.rows[i]?.txnId, cardStatus: "pending" as const })),
+      );
+      await dispenseNewCards(data.groupId, data.rows);
+    } catch {
+      setError("Payment failed. Please try again or see the front desk.");
+      setPhase("error");
+    }
+  };
+
+  // Dispense → read → load → present, ONE card at a time. A load that fails
+  // captures the blank (never hand over an empty card); the row stays pending.
+  const dispenseNewCards = async (groupId: string, rows: Array<{ txnId: string }>) => {
+    for (let i = 0; i < newCards.length; i++) {
+      const txnId = rows[i]?.txnId;
+      if (!txnId) break;
+      setNewCardAt(i, { cardStatus: "dispensing" });
+      setDispenseMsg(`Dispensing card ${i + 1} of ${newCards.length}…`);
+
+      const account = await dispenser.dispenseAndRead();
+      if (!account) {
+        // Jam / empty stacker / read fail — stop; charged-but-undispensed rows
+        // stay pending (staff resolves). Never auto-refund.
+        setNewCardAt(i, { cardStatus: "failed" });
+        setError(
+          dispenser.error?.message ??
+            "We couldn't dispense a card. Your payment is safe — please see an attendant.",
+        );
+        setPhase("error");
+        return;
+      }
+
+      setDispenseMsg(`Loading tokens onto card ${i + 1}…`);
+      let loaded = false;
+      let balanceTokens: number | undefined;
+      try {
+        const res = await fetch("/api/game-cards/load-card", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ groupId, txnId, accountNumber: account, locationCode }),
+        });
+        const data = await res.json();
+        loaded = res.ok && data.loaded === true;
+        balanceTokens = data.balance?.tokens;
+      } catch {
+        loaded = false;
+      }
+
+      if (loaded) {
+        setNewCardAt(i, { account, loaded: true, cardStatus: "loaded", balanceTokens });
+        setDispenseMsg(`Take card ${i + 1}…`);
+        await dispenser.present();
+        await dispenser.waitTaken({ timeoutMs: 30_000 });
+      } else {
+        // Don't hand over an unloaded blank — bin it; row recovers forward.
+        setNewCardAt(i, { account, loaded: false, cardStatus: "failed" });
+        await dispenser.capture();
+        setError(
+          "A card couldn't be loaded and was retained. Your payment is safe — please see an attendant.",
+        );
+        setPhase("error");
+        return;
+      }
+    }
+    setDispenseMsg(null);
     setPhase("done");
   };
 
@@ -197,9 +314,7 @@ export function KioskGameZone({
       });
       const data = await res.json();
       if (!res.ok || data.ok === false) {
-        setError(
-          data.error?.message || data.message || "Reload failed. Please see the front desk.",
-        );
+        setError(errText(data) || "Reload failed. Please see the front desk.");
         setPhase("error");
         return;
       }
@@ -265,7 +380,9 @@ export function KioskGameZone({
               : "Loading your tokens…"
           }
           sublabel={
-            mode === "newcard" ? "Dispensing (simulated)" : "Charging once, loading each card"
+            mode === "newcard"
+              ? (dispenseMsg ?? "Dispensing your cards")
+              : "Charging once, loading each card"
           }
         />
       </div>
@@ -273,7 +390,7 @@ export function KioskGameZone({
   }
 
   if (phase === "done") {
-    // New-card success (simulated dispense) shows every fresh card number.
+    // New-card success: each dispensed card with its loaded token balance.
     if (mode === "newcard") {
       return (
         <div className="mx-auto max-w-md py-12 text-center kiosk-zoom">
@@ -287,7 +404,7 @@ export function KioskGameZone({
           <div className="mt-6 space-y-3 text-left">
             {newCards.map((c, i) => {
               const pkg = TOKEN_PACKAGES.find((p) => p.id === c.packageId);
-              const toks = pkg ? pkg.tokens + (pkg.bonusTokens || 0) : 0;
+              const toks = c.balanceTokens ?? (pkg ? pkg.tokens + (pkg.bonusTokens || 0) : 0);
               return (
                 <div
                   key={i}
@@ -298,7 +415,7 @@ export function KioskGameZone({
                       Card {i + 1}
                     </div>
                     <div className="font-heading text-xl font-extrabold tabular-nums">
-                      {c.simNumber}
+                      {c.account ?? "—"}
                     </div>
                   </div>
                   <div className="font-heading text-lg font-extrabold tabular-nums text-[#46d68c]">
@@ -308,8 +425,8 @@ export function KioskGameZone({
               );
             })}
           </div>
-          <p className="mt-4 text-sm text-amber-300">
-            Simulated dispense — grab your card{newCards.length > 1 ? "s" : ""} from the attendant.
+          <p className="mt-4 text-sm text-white/50">
+            Grab your card{newCards.length > 1 ? "s" : ""} from the dispenser — tap in at the games.
           </p>
           <button
             type="button"
@@ -339,8 +456,8 @@ export function KioskGameZone({
     );
   }
 
-  // ── New cards (simulated) — add 1–10 cards, pick a package each, "pay & dispense" ──
-  if (mode === "newcard") {
+  // ── New cards — add 1–10 cards, pick a package each, "pay & dispense" ──
+  if (mode === "newcard" && phase === "cart") {
     return (
       <div className="mx-auto max-w-2xl px-2 py-6 kiosk-zoom">
         <div className="mb-5 flex items-center justify-between">
@@ -438,46 +555,67 @@ export function KioskGameZone({
           </div>
           <button
             type="button"
-            onClick={() => void simDispense()}
-            className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b]"
+            disabled={!readerReady || dispenser.stacker === "empty"}
+            onClick={() => setPhase("paying")}
+            className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
           >
             Pay &amp; dispense
           </button>
         </div>
-        <p className="mt-2 text-center text-sm text-amber-300/80">
-          Dispensing is simulated for now — no physical card is ejected.
-        </p>
+        {!readerReady ? (
+          <p className="mt-2 text-center text-sm text-amber-300/80">
+            Card dispenser is offline — please see an attendant to buy new cards.
+          </p>
+        ) : dispenser.stacker === "empty" ? (
+          <p className="mt-2 text-center text-sm text-amber-300/80">
+            The card dispenser is out of cards — please see an attendant.
+          </p>
+        ) : dispenser.stacker === "few" ? (
+          <p className="mt-2 text-center text-sm text-white/40">
+            Pay, then take each card as it&rsquo;s dispensed.
+          </p>
+        ) : null}
       </div>
     );
   }
 
   if (phase === "paying") {
+    const isNew = mode === "newcard";
+    const payAmount = (isNew ? newTotalCents : totalCents) / 100;
+    const payCount = isNew ? newCards.length : cards.length;
     return (
       <div className="mx-auto max-w-md py-8 kiosk-zoom">
         <div className="mb-6 text-center">
           <div className="font-heading text-3xl font-extrabold italic">
-            Pay ${(totalCents / 100).toFixed(2)}
+            Pay ${payAmount.toFixed(2)}
           </div>
           <p className="mt-1 text-sm text-white/50">
-            {cards.length} card{cards.length > 1 ? "s" : ""} · tokens load the moment payment clears
+            {payCount} card{payCount > 1 ? "s" : ""} ·{" "}
+            {isNew ? "cards dispense once payment clears" : "tokens load the moment payment clears"}
           </p>
         </div>
         <PaymentForm
-          amount={totalCents / 100}
+          amount={payAmount}
           itemName="Game Zone tokens"
-          billId={`gz-${cards
-            .map((c) => c.accountNumber.trim())
-            .join("-")
-            .slice(0, 40)}`}
+          billId={
+            isNew
+              ? `gznew-${newCards.length}x`
+              : `gz-${cards
+                  .map((c) => c.accountNumber.trim())
+                  .join("-")
+                  .slice(0, 40)}`
+          }
           contact={{ firstName: "Game", lastName: "Zone", email: "", phone: "" }}
           locationId={
             center === "naples" ? "naples" : brand === "headpinz" ? "headpinz" : "fasttrax"
           }
           onTokenize={async ({ cardNonce }) => {
-            if (cardNonce) await pay(cardNonce);
+            if (!cardNonce) return;
+            if (isNew) await payNewCards(cardNonce);
+            else await pay(cardNonce);
           }}
           onSuccess={() => {
-            /* tokenize-only mode: the reload happens in onTokenize → pay() */
+            /* tokenize-only mode: the charge happens in onTokenize → pay()/payNewCards() */
           }}
           onError={(m) => {
             setError(m);
@@ -509,13 +647,20 @@ export function KioskGameZone({
         </button>
       </div>
       <p className="mb-5 text-white/55">
-        Add each card and pick its token package — scan the barcode or type the number. One payment
-        covers them all.
+        {readerReady
+          ? "Add each card and pick its token package — insert each card to read it. One payment covers them all."
+          : "Add each card and pick its token package — scan the barcode or type the number. One payment covers them all."}
       </p>
 
       {error && phase === "error" && (
         <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-red-100">
           {error}
+        </div>
+      )}
+      {dispenser.error && (
+        <div className="mb-4 rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-amber-100">
+          {dispenser.error.message}
+          {dispenser.error.hint ? ` — ${dispenser.error.hint}` : ""}
         </div>
       )}
 
@@ -553,6 +698,20 @@ export function KioskGameZone({
 
               {expanded ? (
                 <>
+                  {readerReady && (
+                    <button
+                      type="button"
+                      disabled={!!dispenser.busy}
+                      onClick={() => void readReloadCard(i)}
+                      className="mt-3 w-full rounded-xl bg-[#00e2e5] px-5 py-3.5 text-base font-bold text-[#04252b] disabled:opacity-40"
+                    >
+                      {dispenser.busy && c.status !== "ok"
+                        ? "Insert your card…"
+                        : c.accountNumber.trim()
+                          ? "Insert a different card"
+                          : "Insert card to read"}
+                    </button>
+                  )}
                   <div className="mt-3 flex gap-2">
                     <input
                       type="text"
@@ -564,7 +723,9 @@ export function KioskGameZone({
                       onBlur={() =>
                         c.accountNumber.trim() && c.status === "unverified" && verify(i)
                       }
-                      placeholder="Card number (scan or type)"
+                      placeholder={
+                        readerReady ? "…or type the number" : "Card number (scan or type)"
+                      }
                       className="flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-lg text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
                     />
                     <button

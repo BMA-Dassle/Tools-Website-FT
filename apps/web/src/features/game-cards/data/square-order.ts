@@ -20,16 +20,20 @@ export interface CreateReloadOrderParams {
   /** Fixed-length idempotency seed (≤45-char Square limit with prefixes). */
   baseKey: string;
   lines: ReloadOrderLine[];
+  /** "reload" (existing cards, default) vs "purchase" (new cards being sold). */
+  purpose?: "reload" | "purchase";
 }
 
 export async function createReloadOrder(params: CreateReloadOrderParams): Promise<string> {
-  const { squareLocation, baseKey, lines } = params;
+  const { squareLocation, baseKey, lines, purpose = "reload" } = params;
+  const verb = purpose === "purchase" ? "purchase" : "reload";
   const lineItems = lines.map((l) => ({
     quantity: "1",
     base_price_money: { amount: l.amountCents, currency: "USD" },
     catalog_object_id: SQUARE_TOKEN_CATALOG_ID,
     item_type: "ITEM",
-    name: `${l.label} → card ${l.accountNumber}`,
+    // New cards have no account yet — omit the "→ card N" suffix for a purchase.
+    name: purpose === "purchase" ? `${l.label} (new card)` : `${l.label} → card ${l.accountNumber}`,
   }));
 
   const { ok, data } = await squareFetch<{ order?: { id?: string }; errors?: unknown }>("/orders", {
@@ -40,9 +44,9 @@ export async function createReloadOrder(params: CreateReloadOrderParams): Promis
         location_id: squareLocation,
         line_items: lineItems,
         note:
-          lines.length === 1
+          lines.length === 1 && purpose === "reload"
             ? `Game card reload — card ${lines[0].accountNumber}`
-            : `Game card reload — ${lines.length} cards`,
+            : `Game card ${verb} — ${lines.length} card${lines.length === 1 ? "" : "s"}`,
       },
     }),
   });
