@@ -19,20 +19,19 @@ import { raceItemChargeLines } from "~/features/booking/service/checkout";
 import { applyPromoToBillLines, promoFactor } from "~/features/booking/service/promo-pricing";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { modalBackdropProps } from "@/lib/a11y";
-import { AdditionalActivities } from "./AdditionalActivities";
-
 /**
  * Session-level cart view.
  *
- * Renders the customer's current items, the AdditionalActivities cross-sell,
- * and a Checkout CTA. Race items get a structured preview pulled from
- * RaceItem state (product registry name + chosen track + per-heat racer
- * assignments + estimated total) so the customer can verify what's in their
- * cart before paying — replaces the generic "High-Speed Electric Racing"
- * placeholder that just read offering displayName.
+ * Renders the customer's current items and a Checkout CTA. Race items get a
+ * structured preview pulled from RaceItem state (product registry name +
+ * chosen track + per-heat racer assignments + estimated total) so the
+ * customer can verify what's in their cart before paying — replaces the
+ * generic "High-Speed Electric Racing" placeholder that just read offering
+ * displayName.
  *
  * The "All activities" link kills the in-memory session, so it gates on a
- * confirmation modal when the cart has items.
+ * confirmation modal when the cart has items (web); the kiosk passes
+ * `onAllActivities` and goes straight back to its category chooser instead.
  */
 export interface CartViewProps {
   session: BookingSession;
@@ -49,6 +48,15 @@ export interface CartViewProps {
   /** Remove the combo special as a UNIT (both seeded items + the stamp,
    *  vendor holds released). Shown on the combo banner. */
   onRemoveCombo?: () => Promise<void> | void;
+  /**
+   * KIOSK: "← All activities" goes HERE directly — no leave-confirm modal, no
+   * /book/v2 navigation (the kiosk's anchor guard blocks web links, which made
+   * the modal's "Add more activities" a dead button — owner 2026-07-18). The
+   * kiosk wires this to its category chooser; the session/cart is kept, exactly
+   * like the web modal's "Add more activities" intent. Absent = web behavior
+   * (confirm modal + landing link) unchanged.
+   */
+  onAllActivities?: () => void;
 }
 
 export function CartView({
@@ -60,6 +68,7 @@ export function CartView({
   onCheckout,
   onNewBooking,
   onRemoveCombo,
+  onAllActivities,
 }: CartViewProps) {
   // Back-to-landing prefers the validated `appliedPromo.code` (set when the
   // code resolved + matched scope), falls back to the raw `?code=` from
@@ -73,7 +82,17 @@ export function CartView({
   return (
     <section className="mx-auto max-w-2xl p-4 sm:p-6">
       <div className="mb-4">
-        {hasItems ? (
+        {onAllActivities ? (
+          // Kiosk: straight back to the category chooser, session kept — no
+          // modal, no web navigation.
+          <button
+            type="button"
+            onClick={onAllActivities}
+            className="inline-flex items-center gap-2 rounded-lg border border-white/15 px-4 py-2 text-sm font-semibold text-white/60 transition-colors hover:border-white/30 hover:text-white"
+          >
+            ← All activities
+          </button>
+        ) : hasItems ? (
           <button
             type="button"
             onClick={() => setLeaveConfirm(true)}

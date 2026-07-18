@@ -555,6 +555,13 @@ export function KioskFlow({ goto }: { goto: string | null }) {
         <CartView
           session={session}
           urlCode={null}
+          // "← All activities" goes straight to the category chooser, cart kept
+          // (owner 2026-07-18: the web leave-confirm modal's buttons were dead
+          // on the kiosk — its "Add more activities" is a blocked web link).
+          onAllActivities={() => {
+            setCartActive(false);
+            dispatch({ type: "setActiveItem", id: null });
+          }}
           onEditItem={(id) => {
             setCartActive(false);
             dispatch({ type: "setActiveItem", id });
@@ -938,13 +945,24 @@ export function KioskFlow({ goto }: { goto: string | null }) {
               fits them — your picked heats are saved — or continue without racing them.
             </p>
             <div className="flex flex-col gap-[16px] pt-[4px]">
-              <button type="button" onClick={addRaceForUnracered} className="k-btn-primary k-tap">
+              {/* k-btn-primary's flex:1 squashes its height in this column
+                  layout (the ghost keeps its full 112px, so the pair rendered
+                  uneven — owner 2026-07-18 "make buttons even"). Inline style
+                  because the unlayered .kiosk-canvas rules out-cascade Tailwind
+                  utilities. */}
+              <button
+                type="button"
+                onClick={addRaceForUnracered}
+                className="k-btn-primary k-tap"
+                style={{ flex: "0 0 auto" }}
+              >
                 Add a race for {unraceredPrompt.members.map((m) => m.firstName).join(" & ")}
               </button>
               <button
                 type="button"
                 onClick={() => void continueWithoutUnracered()}
                 className="k-btn-ghost k-tap"
+                style={{ flex: "0 0 auto" }}
               >
                 Not racing today — continue
               </button>
