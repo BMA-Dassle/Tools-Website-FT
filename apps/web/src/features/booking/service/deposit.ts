@@ -98,6 +98,24 @@ export interface DepositParams {
   baseKey?: string;
 }
 
+/**
+ * Kiosk direct-Terminal charge (owner rule: NO saved card). Threaded through the
+ * reserve rails; when present, the guest's card was ALREADY captured on the paired
+ * Square reader against OUR deposit order, so reserve records it as collected and
+ * NEVER charges a token. Only honored when kioskTerminalEnabled(); otherwise ignored.
+ */
+export interface ExternalTerminalPayment {
+  /** Square paymentId the reader produced (must be COMPLETED). */
+  paymentId: string;
+  /** The deposit order the reader paid. Echoed for logging only — finalize
+   *  RE-DERIVES the authoritative id from baseKey and verifies the payment's
+   *  order_id matches, so a spoofed client value can never be trusted. */
+  depositOrderId: string;
+  /** Captured amount (client claim; the server re-reads it from Square). */
+  amountCents: number;
+  source: "terminal";
+}
+
 export interface DepositResult {
   depositOrderId: string;
   depositPaymentId: string;
@@ -149,6 +167,173 @@ export const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
 // rail — see the H3074 six-charge lesson). Manual card entry (below) is the
 // proven kiosk path until then.
 
+/**
+ * Create the single-line deposit order (extracted from createDepositAndCharge so
+ * the kiosk direct-Terminal path can create the SAME order — idempotent via
+ * `dep-order-${baseKey}` — for the reader to pay, then re-derive it in finalize).
+ *
+ * `asGiftCardLine` forces `item_type: "GIFT_CARD"`: the typed-card path follows
+ * `giftCardSaleEnabled()`, but the Terminal path ALWAYS needs a GIFT_CARD line so
+ * the order-linked ACTIVATE (order_id + line_item_uid) can fund the card from the
+ * already-captured reader payment. No tax either way — the deposit is already a
+ * fraction of the tax-inclusive day-of total.
+ */
+export async function createDepositOrder(params: {
+  baseKey: string;
+  locationId: string;
+  amountCents: number;
+  note: string;
+  asGiftCardLine: boolean;
+}): Promise<{ depositOrderId: string; depositLineItemUid?: string }> {
+  const depositOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify({
+      idempotency_key: `dep-order-${params.baseKey}`,
+      order: {
+        location_id: params.locationId,
+        reference_id: params.note.slice(0, 40),
+        line_items: [
+          {
+            name: DEPOSIT_LINE_ITEM_NAME,
+            quantity: "1",
+            ...(params.asGiftCardLine ? { item_type: "GIFT_CARD" } : {}),
+            base_price_money: { amount: params.amountCents, currency: "USD" },
+          },
+        ],
+      },
+    }),
+  });
+  const depositOrderData = await depositOrderRes.json();
+
+  if (!depositOrderRes.ok || depositOrderData.errors) {
+    const sqErr = depositOrderData.errors?.[0];
+    const detail = sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(depositOrderData);
+    throw new Error(`Failed to create deposit order: ${detail}`);
+  }
+
+  const depositOrderId: string = depositOrderData.order?.id;
+  if (!depositOrderId) {
+    throw new Error("Deposit order returned no ID");
+  }
+  // GIFT_CARD activation links to this line item by uid. Captured from the
+  // create response so we never have to re-fetch the order on the happy path.
+  const depositLineItemUid: string | undefined = depositOrderData.order?.line_items?.[0]?.uid;
+  if (params.asGiftCardLine && !depositLineItemUid) {
+    throw new Error("GIFT_CARD deposit order returned no line item uid");
+  }
+  return { depositOrderId, depositLineItemUid };
+}
+
+/**
+ * Read a Square payment for server-side verification (kiosk Terminal path). The
+ * browser is NEVER trusted for a card-present capture — finalize re-reads the
+ * payment to confirm it COMPLETED, paid OUR order, and for the right amount at
+ * the right location. Returns null on any fetch error.
+ */
+export async function getSquarePayment(id: string): Promise<{
+  id: string;
+  status: string;
+  amountCents: number;
+  orderId?: string;
+  locationId?: string;
+} | null> {
+  if (!SQUARE_TOKEN) return null;
+  try {
+    const res = await fetch(`${SQUARE_BASE}/payments/${encodeURIComponent(id)}`, {
+      headers: sqHeaders(),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const p = data.payment;
+    if (!p?.id) return null;
+    return {
+      id: p.id,
+      status: p.status ?? "UNKNOWN",
+      amountCents: p.amount_money?.amount ?? -1,
+      orderId: p.order_id,
+      locationId: p.location_id,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * KIOSK DIRECT-TERMINAL finalize — "record the reader payment, do NOT re-charge".
+ *
+ * The card was already captured on the paired reader against OUR deposit order.
+ * This re-derives that order idempotently (dep-order-${baseKey}), verifies the
+ * payment server-side (COMPLETED + right order + amount + location — a mismatch
+ * throws a paging error and NEVER re-charges), then funds the gift card via the
+ * proven order-linked ACTIVATE (same form as giftCardSaleEnabled()). Idempotent
+ * via gc-${baseKey} / gc-act-${baseKey}, so re-running reserve with the same
+ * externalPayment is a pure no-op replay. There is structurally NO card token
+ * here → no double-charge is possible. See tasks/kiosk-terminal-charge.md.
+ */
+export async function finalizeDepositFromExternalPayment(params: {
+  baseKey: string;
+  locationId: string;
+  amountCents: number; // server-authoritative depositCents
+  ganPrefix: string;
+  ganSuffix: string;
+  note: string;
+  externalPaymentId: string;
+}): Promise<DepositResult> {
+  // 1. Recreate the deposit order idempotently → the SAME id + line uid prepare
+  //    created (GIFT_CARD-typed). The client-supplied id is never trusted.
+  const { depositOrderId, depositLineItemUid } = await createDepositOrder({
+    baseKey: params.baseKey,
+    locationId: params.locationId,
+    amountCents: params.amountCents,
+    note: params.note,
+    asGiftCardLine: true,
+  });
+  if (!depositLineItemUid) {
+    throw new Error("terminal deposit order has no GIFT_CARD line uid");
+  }
+
+  // 2. Verify the reader payment server-side (never trust the browser).
+  const pay = await getSquarePayment(params.externalPaymentId);
+  if (!pay || pay.status !== "COMPLETED") {
+    throw new TerminalPaymentUnverifiedError("terminal payment not COMPLETED");
+  }
+  if (pay.orderId && pay.orderId !== depositOrderId) {
+    throw new TerminalPaymentUnverifiedError("terminal payment paid a different order");
+  }
+  if (pay.amountCents !== params.amountCents) {
+    throw new TerminalAmountMismatchError(pay.amountCents, params.amountCents);
+  }
+  if (pay.locationId && pay.locationId !== params.locationId) {
+    throw new TerminalPaymentUnverifiedError("terminal payment location mismatch");
+  }
+
+  // 3. Fund the gift card from the ALREADY-CAPTURED payment — no charge. Idempotent.
+  const { giftCardId, giftCardGan } = await activateGiftCardForDeposit({
+    baseKey: params.baseKey,
+    locationId: params.locationId,
+    amountCents: params.amountCents,
+    ganPrefix: params.ganPrefix,
+    ganSuffix: params.ganSuffix,
+    paymentIds: [params.externalPaymentId],
+    depositOrderId,
+    lineItemUid: depositLineItemUid, // order-linked form
+  });
+
+  console.log(
+    `[deposit] terminal finalize depositOrderId=${depositOrderId} amount=${params.amountCents} payment=${params.externalPaymentId}`,
+  );
+  return {
+    depositOrderId,
+    depositPaymentId: params.externalPaymentId,
+    giftCardId,
+    giftCardGan,
+    gcApprovedCents: 0,
+    cardApprovedCents: params.amountCents,
+  };
+}
+
 export async function createDepositAndCharge(params: DepositParams): Promise<DepositResult> {
   const {
     amountCents,
@@ -172,46 +357,13 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
   const saleMode = giftCardSaleEnabled();
 
   // ── 1. Deposit order ─────────────────────────────────────────────────
-  // In gift-card-sale mode the single line item is typed GIFT_CARD so Square
-  // books it as a gift-card sale (not gross sales). No tax either way — the
-  // deposit is already a fraction of the tax-inclusive day-of total.
-  const depositOrderRes = await fetch(`${SQUARE_BASE}/orders`, {
-    method: "POST",
-    headers: sqHeaders(),
-    body: JSON.stringify({
-      idempotency_key: `dep-order-${baseKey}`,
-      order: {
-        location_id: locationId,
-        reference_id: note.slice(0, 40),
-        line_items: [
-          {
-            name: DEPOSIT_LINE_ITEM_NAME,
-            quantity: "1",
-            ...(saleMode ? { item_type: "GIFT_CARD" } : {}),
-            base_price_money: { amount: amountCents, currency: "USD" },
-          },
-        ],
-      },
-    }),
+  const { depositOrderId, depositLineItemUid } = await createDepositOrder({
+    baseKey,
+    locationId,
+    amountCents,
+    note,
+    asGiftCardLine: saleMode,
   });
-  const depositOrderData = await depositOrderRes.json();
-
-  if (!depositOrderRes.ok || depositOrderData.errors) {
-    const sqErr = depositOrderData.errors?.[0];
-    const detail = sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(depositOrderData);
-    throw new Error(`Failed to create deposit order: ${detail}`);
-  }
-
-  const depositOrderId: string = depositOrderData.order?.id;
-  if (!depositOrderId) {
-    throw new Error("Deposit order returned no ID");
-  }
-  // GIFT_CARD activation links to this line item by uid. Captured from the
-  // create response so we never have to re-fetch the order on the happy path.
-  const depositLineItemUid: string | undefined = depositOrderData.order?.line_items?.[0]?.uid;
-  if (saleMode && !depositLineItemUid) {
-    throw new Error("GIFT_CARD deposit order returned no line item uid");
-  }
 
   // ── 2. Charge via multi-tender ───────────────────────────────────────
   let gcPaymentId: string | undefined;
@@ -447,5 +599,33 @@ export class DepositPaymentError extends Error {
     this.name = "DepositPaymentError";
     this.code = code;
     this.friendlyMessage = friendlyMessage;
+  }
+}
+
+/**
+ * Kiosk Terminal: the reader payment failed server-side verification (not
+ * COMPLETED, wrong order, or wrong location). The money may be captured — the
+ * caller must NOT re-charge; it stamps the paymentId on the anchor and pages.
+ */
+export class TerminalPaymentUnverifiedError extends Error {
+  constructor(detail: string) {
+    super(detail);
+    this.name = "TerminalPaymentUnverifiedError";
+  }
+}
+
+/**
+ * Kiosk Terminal: the reader captured a DIFFERENT amount than the server's
+ * authoritative deposit (displayed != charged). The funds are captured — recover
+ * forward via the terminal-orphan reconcile and page on-call. NEVER re-charge.
+ */
+export class TerminalAmountMismatchError extends Error {
+  chargedCents: number;
+  expectedCents: number;
+  constructor(chargedCents: number, expectedCents: number) {
+    super(`terminal charged ${chargedCents}¢ but server deposit is ${expectedCents}¢`);
+    this.name = "TerminalAmountMismatchError";
+    this.chargedCents = chargedCents;
+    this.expectedCents = expectedCents;
   }
 }

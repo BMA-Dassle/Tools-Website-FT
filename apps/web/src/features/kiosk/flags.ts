@@ -23,3 +23,20 @@ export function kioskEnabled(): boolean {
 export function kioskPacksEnabled(): boolean {
   return process.env.NEXT_PUBLIC_KIOSK_PACKS_ENABLED === "true";
 }
+
+/**
+ * Direct Square Terminal (card-present reader) charging — OPT-IN (defaults OFF).
+ *
+ * When ON, the kiosk charges the guest's card DIRECTLY on the paired Square
+ * reader (Terminal checkout pays the deposit order → yields a completed
+ * paymentId) instead of tokenizing a typed card. NO card is vaulted — the
+ * SAVE_CARD path is retired for the kiosk (owner rule: "Kiosk is NOT going to
+ * use saved card"). This re-sequences the money rail (charge on the reader
+ * BEFORE reserve records it as an externalPayment), so it MUST ship with a live
+ * card-present smoke on real hardware before going live (H3074 six-charge rule).
+ * The reader flow stays dormant and the kiosk falls back to the proven typed-card
+ * path until this is set to "true" in Vercel + redeployed, after the smoke.
+ */
+export function kioskTerminalEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_TERMINAL_ENABLED === "true";
+}
