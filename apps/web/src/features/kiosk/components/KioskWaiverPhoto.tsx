@@ -149,7 +149,7 @@ export function KioskWaiverPhoto({
         {/* Live preview (mirrored — guests expect a mirror) or the captured shot */}
         {shot ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={shot} alt="Your photo" className="block w-full" />
+          <img src={shot} alt="How you'll appear at check-in" className="block w-full" />
         ) : (
           <video
             ref={videoRef}
