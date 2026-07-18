@@ -319,9 +319,21 @@ function OfferingTile({
           : undefined
       }
     >
-      <div className="absolute bottom-[40px] left-[36px] right-[36px]">
-        <div className="k-display text-[36px] leading-[1.15]">{offering.displayName}</div>
-        <div className="mt-[8px] line-clamp-2 text-[24px] leading-[1.3] text-white/65">
+      {/* FIXED text geometry (owner 2026-07-18: wrap broke + lines didn't align
+          across boxes): the title zone is always 2 lines tall (1-line titles sit
+          at its bottom) and the blurb zone always 2 lines, so every card's text
+          lands at identical heights. textWrap:normal overrides k-display's
+          text-wrap:balance — balance + clamping is a Chromium wrap-breaker. */}
+      <div className="absolute inset-x-[36px] bottom-[36px]">
+        <div className="flex h-[84px] items-end">
+          <span
+            className="k-display line-clamp-2 break-words text-[36px] leading-[1.15]"
+            style={{ textWrap: "normal" }}
+          >
+            {offering.displayName}
+          </span>
+        </div>
+        <div className="mt-[8px] line-clamp-2 h-[64px] break-words text-[24px] leading-[1.3] text-white/65">
           {offering.blurb}
         </div>
       </div>
