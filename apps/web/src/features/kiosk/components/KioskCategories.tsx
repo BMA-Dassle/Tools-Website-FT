@@ -147,7 +147,7 @@ export function KioskCategories({
                   eyebrow="Most popular"
                   accent="#e8b14c"
                   title={combo.name}
-                  blurb={`From $${(combo.price.weekday / 100).toFixed(0)} per person`}
+                  blurb={`${combo.shortDescription} · From $${(combo.price.weekday / 100).toFixed(0)}/person`}
                   onClick={() => onPickCombo(combo)}
                 />
               ))}

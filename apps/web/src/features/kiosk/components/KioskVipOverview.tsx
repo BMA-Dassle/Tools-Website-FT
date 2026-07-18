@@ -12,6 +12,7 @@
 import type { ComboLeg, ComboSpecial } from "~/features/combos";
 import { comboPriceCentsForDate, comboMinHeadcount } from "~/features/combos/combo-specials";
 import { todayYmd } from "../service/first-available";
+import { KIOSK_LOGOS } from "../assets";
 
 const ATTRACTION_LABEL: Record<string, string> = {
   "gel-blaster": "Gel Blaster",
@@ -32,6 +33,14 @@ function legLabel(leg: ComboLeg): { title: string; sub: string } {
     };
   }
   return { title: ATTRACTION_LABEL[leg.slug] ?? "Attraction", sub: "Included in your experience" };
+}
+
+/** Which venue (brand) each leg happens at — racing is FastTrax, bowling +
+ *  attractions are HeadPinz. Shown as a logo on the leg so guests know where to
+ *  walk for each step (owner 2026-07-19). */
+function legVenue(leg: ComboLeg): { logo: string; name: string } {
+  if (leg.kind === "race") return { logo: KIOSK_LOGOS.fasttrax, name: "FastTrax" };
+  return { logo: KIOSK_LOGOS.headpinz, name: "HeadPinz" };
 }
 
 export function KioskVipOverview({
@@ -69,11 +78,16 @@ export function KioskVipOverview({
 
       <div className="k-flow-body">
         <p className="mb-[28px] text-[28px] text-white/60">
-          Everything below on one easy price — racer accounts &amp; waivers set up right here.
+          {combo.longDescription || combo.shortDescription}
+        </p>
+        <p className="mb-[20px] text-[24px] text-white/45">
+          Your afternoon, step by step — the logo shows where each part happens. Racer accounts
+          &amp; waivers are set up right here.
         </p>
         <div className="relative space-y-[20px]">
           {combo.components.map((leg, i) => {
             const { title, sub } = legLabel(leg);
+            const venue = legVenue(leg);
             return (
               <div key={i} className="flex items-stretch gap-[24px]">
                 <div className="flex flex-col items-center">
@@ -84,9 +98,22 @@ export function KioskVipOverview({
                     <div className="mt-[6px] w-[3px] flex-1 rounded-full bg-gradient-to-b from-[#e8b14c]/70 to-[#00e2e5]/40" />
                   )}
                 </div>
-                <div className="k-glass mb-[4px] flex-1 p-[24px]">
-                  <div className="k-display text-[40px]">{title}</div>
-                  <div className="mt-[6px] text-[26px] text-white/55">{sub}</div>
+                <div className="k-glass mb-[4px] flex flex-1 items-center justify-between gap-[20px] p-[24px]">
+                  <div className="min-w-0">
+                    <div className="k-display text-[40px]">{title}</div>
+                    <div className="mt-[6px] text-[26px] text-white/55">{sub}</div>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-center gap-[6px]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={venue.logo}
+                      alt={venue.name}
+                      className="h-[52px] w-[104px] object-contain"
+                    />
+                    <span className="text-[18px] uppercase tracking-widest text-white/40">
+                      at {venue.name}
+                    </span>
+                  </div>
                 </div>
               </div>
             );
