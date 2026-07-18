@@ -76,6 +76,17 @@ export function getCenter(code: number): CenterConfig | null {
   return CENTERS[code] ?? null;
 }
 
+/**
+ * Canonical Intercard location code for a kiosk's (booking) center + brand.
+ * Use this everywhere instead of hand-rolled maps — a wrong code makes
+ * `getCenter()` return null and the purchase throws UNKNOWN_LOCATION.
+ * ("naples" is HeadPinz-only; Fort Myers splits by brand.)
+ */
+export function centerCodeFor(center: string, brand: Brand): number {
+  if (center === "naples") return 6; // HeadPinz Naples
+  return brand === "headpinz" ? 12 : 13; // HeadPinz FM : FastTrax FM
+}
+
 export function isValidLocationCode(code: number): boolean {
   return code in CENTERS;
 }

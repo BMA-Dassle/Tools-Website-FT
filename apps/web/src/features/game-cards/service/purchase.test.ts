@@ -202,3 +202,49 @@ describe("purchase order engine (cart)", () => {
     expect(order).toContain("markLoadState:pending");
   });
 });
+
+describe("chargeNewCardOrder (buy: charge upfront, no verify/load)", () => {
+  it("charges once for the basket, persists a row per card, never verifies or loads", async () => {
+    const { intercard, sq } = await loadMocks();
+    const { chargeNewCardOrder } = await import("./purchase");
+
+    const res = await chargeNewCardOrder({
+      kind: "new_card",
+      locationCode: 12,
+      items: [{ packageId: "tok-500" }, { packageId: "tok-100" }],
+      cardNonce: "cnon-1",
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.charged).toBe(true);
+    expect(res.groupId).toBeTruthy();
+    expect(res.rows).toHaveLength(2);
+    expect(res.rows[0]).toMatchObject({ packageId: "tok-500", tokens: 500, bonusTokens: 100 });
+    // Exactly one charge; two rows persisted BEFORE it.
+    expect(sq.authorizeMultiTender).toHaveBeenCalledTimes(1);
+    expect(order.filter((o) => o === "startTxn")).toHaveLength(2);
+    expect(order.lastIndexOf("startTxn")).toBeLessThan(order.indexOf("charge"));
+    // New-card charge NEVER verifies or loads — that happens per card via loadCard.
+    expect(intercard.verifyAccount).not.toHaveBeenCalled();
+    expect(intercard.creditTokens).not.toHaveBeenCalled();
+    expect(order).not.toContain("markLoadState:loaded");
+  });
+
+  it("marks every row charge-failed and throws on a decline", async () => {
+    const { sq } = await loadMocks();
+    (sq.authorizeMultiTender as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new sq.SquarePaymentError("CARD_DECLINED", "declined"),
+    );
+    const { chargeNewCardOrder } = await import("./purchase");
+
+    await expect(
+      chargeNewCardOrder({
+        kind: "new_card",
+        locationCode: 12,
+        items: [{ packageId: "tok-100" }],
+        cardNonce: "cnon-1",
+      }),
+    ).rejects.toMatchObject({ code: "CARD_DECLINED" });
+    expect(order).toContain("markChargeFailed");
+  });
+});

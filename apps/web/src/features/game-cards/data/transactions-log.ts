@@ -162,6 +162,21 @@ export async function markLoadState(
   });
 }
 
+/**
+ * Attach the real account number to a row after it's read off the dispensed
+ * blank (new-card flow — the row was created with an empty account at charge
+ * time). Follows the file's "updates swallow" rule.
+ */
+export async function setTxnAccount(txnId: string, accountNumber: string): Promise<void> {
+  await safeUpdate(async (q) => {
+    await q`
+      UPDATE intercard_transactions
+      SET account_number = ${accountNumber}
+      WHERE txn_id = ${txnId}
+    `;
+  });
+}
+
 /** Bump the reconcile attempt counter; returns the new count. */
 export async function incrementAttempt(txnId: string): Promise<number> {
   if (!isDbConfigured()) return 0;

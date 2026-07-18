@@ -48,6 +48,144 @@ interface CartRow {
   tpiTransactionId: string;
 }
 
+/** One charged-but-unloaded new-card row, handed back for per-card dispense+load. */
+export interface NewCardRow {
+  txnId: string;
+  packageId: string;
+  tokens: number;
+  bonusTokens: number;
+  amountCents: number;
+}
+
+export interface NewCardChargeResult {
+  ok: true;
+  charged: true;
+  groupId: string;
+  rows: NewCardRow[];
+}
+
+/**
+ * BUY (new cards): charge ONCE for a basket of blanks, then hand back one
+ * ledger row per card. The account numbers aren't known yet — each blank is
+ * dispensed + read + loaded afterward via `loadCard()` (service/load-card.ts).
+ * No verify (nothing to verify) and NO load here — that's the whole point of
+ * the split (charge must land before we dispense; load lands per card after).
+ */
+export async function chargeNewCardOrder(
+  input: PurchaseInput,
+  opts: PurchaseOptions = {},
+): Promise<NewCardChargeResult> {
+  const center = getCenter(input.locationCode);
+  if (!center) throw new GameCardHttpError(400, "UNKNOWN_LOCATION", "Pick a valid location.");
+  if (input.items.length === 0) {
+    throw new GameCardHttpError(400, "EMPTY_CART", "Add at least one card.");
+  }
+
+  const resolved = input.items.map((it) => {
+    const pkg = getPackage(it.packageId);
+    if (!pkg) throw new GameCardHttpError(400, "UNKNOWN_PACKAGE", "That package isn't available.");
+    return { pkg };
+  });
+
+  const groupId = randomUUID();
+  const baseKey = randomBytes(8).toString("hex");
+  const totalCents = resolved.reduce((sum, r) => sum + r.pkg.priceCents, 0);
+
+  // Persist one row per card BEFORE charging (account attached later at load).
+  const rows: NewCardRow[] = [];
+  const txnByRow: { txnId: string }[] = [];
+  for (const r of resolved) {
+    const txnId = randomUUID();
+    await startTxn({
+      txnId,
+      groupId,
+      kind: "new_card",
+      locationCode: input.locationCode,
+      accountNumber: "", // filled at load time (setTxnAccount)
+      packageId: r.pkg.id,
+      tokens: r.pkg.tokens,
+      bonusTokens: r.pkg.bonusTokens,
+      amountCents: r.pkg.priceCents,
+      tpiTransactionId: `newcard-${txnId}`,
+      contact: input.contact,
+    });
+    rows.push({
+      txnId,
+      packageId: r.pkg.id,
+      tokens: r.pkg.tokens,
+      bonusTokens: r.pkg.bonusTokens,
+      amountCents: r.pkg.priceCents,
+    });
+    txnByRow.push({ txnId });
+  }
+
+  // One Square order + one charge for the whole basket.
+  let orderId: string;
+  try {
+    orderId = await createReloadOrder({
+      squareLocation: center.squareLocation,
+      baseKey,
+      purpose: "purchase",
+      lines: resolved.map((r) => ({
+        label: r.pkg.label,
+        amountCents: r.pkg.priceCents,
+        accountNumber: "",
+      })),
+    });
+  } catch {
+    for (const t of txnByRow) await markChargeFailed(t.txnId, "order setup failed");
+    throw new GameCardHttpError(
+      502,
+      "PAYMENT_SETUP_FAILED",
+      "Couldn't start the payment. Try again.",
+    );
+  }
+
+  let paymentIds: { gc: string | null; card: string | null };
+  try {
+    const t = await authorizeMultiTender({
+      orderId,
+      locationId: center.squareLocation,
+      totalCents,
+      baseKey,
+      giftCardNonce: input.giftCardNonce,
+      cardSourceId: input.cardNonce,
+      customerId: input.squareCustomerId,
+      buyerEmail: input.contact?.email,
+      note: `${rows.length}-card purchase @ ${center.label}`,
+    });
+    paymentIds = { gc: t.gcPaymentId ?? null, card: t.cardPaymentId ?? null };
+  } catch (err) {
+    if (err instanceof SquarePaymentError) {
+      for (const t of txnByRow) await markChargeFailed(t.txnId, `${err.code}: ${err.message}`);
+      throw new GameCardHttpError(400, err.code, FRIENDLY_DECLINE[err.code] || err.message);
+    }
+    const msg = err instanceof Error ? err.message : "charge failed";
+    for (const t of txnByRow) await markChargeFailed(t.txnId, msg);
+    throw err;
+  }
+
+  for (const t of txnByRow) await markCharged(t.txnId, orderId, paymentIds);
+
+  // Best-effort: save the payment card for a signed-in guest (no cards to link yet).
+  if (opts.verifiedCustomerId && input.saveCard && paymentIds.card) {
+    try {
+      await saveCardOnFile({
+        customerId: opts.verifiedCustomerId,
+        cardToken: paymentIds.card,
+        idempotencyKey: `gc-savecard-${baseKey}`,
+      });
+    } catch (err) {
+      console.error(
+        "[game-cards] saveCardOnFile failed:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  return { ok: true, charged: true, groupId, rows };
+}
+
 export async function purchase(
   input: PurchaseInput,
   opts: PurchaseOptions = {},
@@ -63,6 +201,10 @@ export async function purchase(
   const resolved = input.items.map((it) => {
     const pkg = getPackage(it.packageId);
     if (!pkg) throw new GameCardHttpError(400, "UNKNOWN_PACKAGE", "That package isn't available.");
+    // Reload requires a card number (schema refines this; guard keeps the type string).
+    if (!it.accountNumber) {
+      throw new GameCardHttpError(400, "CARD_NOT_FOUND", "A card number is required to reload.");
+    }
     return { accountNumber: it.accountNumber, pkg };
   });
 

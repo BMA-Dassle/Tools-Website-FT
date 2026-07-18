@@ -24,9 +24,13 @@ export const VerifyCardSchema = z.object({
 });
 export type VerifyCardInput = z.infer<typeof VerifyCardSchema>;
 
-/** One line in the reload cart: a card + the package to load onto it. */
+/**
+ * One line in the cart: the package to load, plus (for a reload) the existing
+ * card it loads onto. New-card lines have NO accountNumber at purchase time —
+ * the account is read off each blank as it's dispensed and attached at load.
+ */
 export const PurchaseItemSchema = z.object({
-  accountNumber,
+  accountNumber: accountNumber.optional(),
   packageId: z.string().min(1).max(64),
 });
 export type PurchaseItemInput = z.infer<typeof PurchaseItemSchema>;
@@ -64,7 +68,9 @@ export type DisableSavedCardInput = z.infer<typeof DisableSavedCardSchema>;
 
 export const PurchaseSchema = z
   .object({
-    kind: z.literal("reload"),
+    // "reload" loads existing cards; "new_card" charges for blanks that are
+    // dispensed + loaded one at a time afterward (see /load-card).
+    kind: z.enum(["reload", "new_card"]),
     // One location per transaction (one Square order books to one location).
     locationCode: z.number().int(),
     // Cart of 1-10 cards, each with its own package (single card = cart of 1).
@@ -78,5 +84,18 @@ export const PurchaseSchema = z
   .refine((v) => !!v.cardNonce || !!v.giftCardNonce, {
     message: "A card or gift card is required",
     path: ["cardNonce"],
+  })
+  .refine((v) => v.kind !== "reload" || v.items.every((it) => !!it.accountNumber), {
+    message: "Each reload card needs an account number",
+    path: ["items"],
   });
 export type PurchaseInput = z.infer<typeof PurchaseSchema>;
+
+/** Attach + load tokens onto ONE just-dispensed new card (post-charge). */
+export const LoadCardSchema = z.object({
+  groupId: z.string().uuid(),
+  txnId: z.string().uuid(),
+  accountNumber,
+  locationCode: z.number().int(),
+});
+export type LoadCardInput = z.infer<typeof LoadCardSchema>;
