@@ -42,7 +42,14 @@ import {
 } from "~/features/world-cup";
 import { enrichFixture } from "~/features/world-cup/live-teams";
 import { notifyWorldCupBooked } from "~/features/world-cup/notify.server";
-import { createDepositAndCharge, DepositPaymentError } from "~/features/booking/service/deposit";
+import {
+  createDepositAndCharge,
+  createDepositOrder,
+  finalizeDepositFromExternalPayment,
+  DepositPaymentError,
+  TerminalPaymentUnverifiedError,
+  TerminalAmountMismatchError,
+} from "~/features/booking/service/deposit";
 import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
 import { bowlingPricingMode } from "~/features/booking/service/bowling-booked-pricing";
 import {
@@ -53,6 +60,37 @@ import {
 } from "~/features/booking/service/kbf-pricing";
 
 const CONFIRM_RETRY_QUEUE = "qamf:bowling:confirm-retry";
+
+/** Kiosk direct-Terminal anchor — SHARED namespace with the racing rail
+ *  (`kiosk:terminal:anchor:${seed}`) so a single terminal-orphan reconcile can
+ *  recover both. Best-effort: Square holds the durable order/payment; this is
+ *  only the fast pointer (reconcile can also recover via the order's reference_id). */
+async function writeBowlingTerminalAnchor(
+  seed: string,
+  anchor: {
+    depositOrderId: string;
+    depositCents: number;
+    locationId: string;
+    /** Stamped once the reader has captured (persist-at-capture, for reconcile). */
+    paymentId?: string;
+  },
+): Promise<void> {
+  try {
+    await redis.set(
+      `kiosk:terminal:anchor:${seed}`,
+      JSON.stringify({
+        ...anchor,
+        baseKey: seed,
+        source: "bowling",
+        ...(anchor.paymentId ? { stampedAt: new Date().toISOString() } : {}),
+      }),
+      "EX",
+      48 * 3600,
+    );
+  } catch {
+    /* Redis down — reconcile recovers from Square by the order's reference_id. */
+  }
+}
 
 // Square Loyalty constants for reward redemption during booking
 const SQUARE_BASE = "https://connect.squareup.com/v2";
@@ -228,6 +266,25 @@ interface ReserveBody {
   locationId?: string;
   notes?: string;
   /**
+   * KIOSK direct-Terminal (owner: NO saved card). Two-phase, mirroring the
+   * unified racing rail:
+   *  - prepareOnly + terminalSeed → create the GIFT_CARD deposit order the paired
+   *    reader will charge, write a recoverable anchor, and return WITHOUT touching
+   *    QAMF/Neon (nothing else moves before the tap).
+   *  - externalPayment → the reader already captured the card against that order;
+   *    reserve records it (finalize funds the gift card, NEVER re-charges).
+   * The seed rides on externalPayment so finalize recreates the exact order the
+   * reader paid, independent of any QAMF hold→fresh fallback.
+   */
+  prepareOnly?: boolean;
+  terminalSeed?: string;
+  externalPayment?: {
+    paymentId: string;
+    depositOrderId: string;
+    amountCents: number;
+    seed: string;
+  };
+  /**
    * Pre-created Square day-of order ID from the quote step.
    * When provided, bowling-orders skips creating the day-of order.
    */
@@ -323,6 +380,50 @@ export async function POST(req: NextRequest) {
     centerId = id;
   } else {
     return NextResponse.json({ error: "centerId or centerCode required" }, { status: 400 });
+  }
+
+  // ── KIOSK direct-Terminal PREPARE ───────────────────────────────
+  // Runs BEFORE the full-booking required-fields gate: create the GIFT_CARD
+  // deposit order the reader will charge, persist a recoverable anchor, then STOP
+  // — no QAMF, no Neon (nothing that can fail after money would move). The reader
+  // charges this exact order; reserve later finalizes it via externalPayment.
+  // depositCents is authoritative (the kiosk always quotes), so what the reader
+  // shows == charges == what reserve records.
+  if (body.prepareOnly) {
+    const seed = body.terminalSeed;
+    if (!seed) {
+      return NextResponse.json({ error: "terminalSeed required for prepareOnly" }, { status: 400 });
+    }
+    const depositForReader = body.depositCents ?? 0;
+    if (!(depositForReader > 0)) {
+      return NextResponse.json(
+        { error: "depositCents required (and > 0) for a terminal deposit" },
+        { status: 400 },
+      );
+    }
+    const prepLocationId = body.locationId ?? centerCode;
+    try {
+      const { depositOrderId } = await createDepositOrder({
+        baseKey: seed,
+        locationId: prepLocationId,
+        amountCents: depositForReader,
+        note: `Kiosk deposit ${seed.slice(0, 12)}`,
+        asGiftCardLine: true,
+      });
+      await writeBowlingTerminalAnchor(seed, {
+        depositOrderId,
+        depositCents: depositForReader,
+        locationId: prepLocationId,
+      });
+      console.log(
+        `[bowling/v2/reserve] TERMINAL PREPARE seed=${seed} order=${depositOrderId} deposit=${depositForReader}c loc=${prepLocationId}`,
+      );
+      return NextResponse.json({ seed, depositOrderId, depositCents: depositForReader });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "prepare failed";
+      console.error("[bowling/v2/reserve] TERMINAL PREPARE failed:", msg);
+      return NextResponse.json({ error: msg }, { status: 500 });
+    }
   }
 
   const { webOfferId, bookedAt, players, guest, lineItems = [], notes } = body;
@@ -596,7 +697,13 @@ export async function POST(req: NextRequest) {
   // reward covers the entire deposit (client sends depositCents: 0).
   const needsPayment = preTaxTotalCents > 0;
   const effectiveClientDeposit = body.depositCents ?? preTaxTotalCents; // pre-tax fallback
-  if (needsPayment && effectiveClientDeposit > 0 && !body.squareToken && !body.giftCardNonce) {
+  if (
+    needsPayment &&
+    effectiveClientDeposit > 0 &&
+    !body.squareToken &&
+    !body.giftCardNonce &&
+    !body.externalPayment
+  ) {
     return NextResponse.json(
       { error: "squareToken or giftCardNonce required when deposit > 0" },
       { status: 400 },
@@ -1065,7 +1172,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (actualDepositToCharge > 0 && (body.squareToken || body.giftCardNonce)) {
+    if (
+      actualDepositToCharge > 0 &&
+      (body.squareToken || body.giftCardNonce || body.externalPayment)
+    ) {
       // ── Build day-of order (or reuse pre-created from quote) ────
       if (body.dayofOrderId) {
         squareDayofOrderId = body.dayofOrderId;
@@ -1252,54 +1362,119 @@ export async function POST(req: NextRequest) {
       const ganSuffix = qamfReservationId.replace(/[^A-Za-z0-9]/g, "");
       const depositNote = `Deposit – ${qamfReservationId} – ${bookedAt.slice(0, 10).replace(/(\d{4})-(\d{2})-(\d{2})/, "$2/$3/$1")}`;
 
-      try {
-        // Explicit baseKey (same shape createDepositAndCharge would generate)
-        // so the card-vault capture below can derive its CreateCard key from
-        // the deposit attempt's idempotency seed.
-        depositBaseKey = randomBytes(8).toString("hex");
-        const depositResult = await createDepositAndCharge({
-          amountCents: chargeCents,
-          locationId: squareLocationId,
-          cardSourceId: body.squareToken,
-          giftCardNonce: body.giftCardNonce,
-          squareCustomerId: resolvedSquareCustomerId,
-          ganPrefix,
-          ganSuffix,
-          note: depositNote,
-          baseKey: depositBaseKey,
-        });
-
-        squareDepositOrderId = depositResult.depositOrderId;
-        squareDepositPaymentId = depositResult.depositPaymentId;
-        squareGiftCardId = depositResult.giftCardId ?? undefined;
-        squareGiftCardGan = depositResult.giftCardGan ?? undefined;
-        depositCents = chargeCents;
-      } catch (err) {
-        // Payment failed — delete loyalty reward to return points
-        if (loyaltyRewardId) {
-          await fetch(`${SQUARE_BASE}/loyalty/rewards/${loyaltyRewardId}`, {
-            method: "DELETE",
-            headers: sqLoyaltyHeaders(),
-          }).catch(() => {});
-          loyaltyRewardId = undefined;
-        }
-        // Best effort: delete the QAMF reservation to avoid orphan
-        try {
-          const { deleteReservation } = await import("@/lib/qamf-bowling");
-          await deleteReservation(centerId, qamfReservationId);
-        } catch {
-          // Non-fatal
-        }
-
-        if (err instanceof DepositPaymentError) {
-          return NextResponse.json(
-            { error: err.friendlyMessage, code: err.code, detail: err.message },
-            { status: 400 },
+      if (body.externalPayment) {
+        // ── KIOSK direct-Terminal: the reader ALREADY captured the card against
+        // OUR prepared deposit order. Record it — NEVER re-charge (there is no
+        // card token here). finalize recreates that exact order via the seed,
+        // verifies the payment server-side (COMPLETED + right order + amount +
+        // location), then funds the gift card. Idempotent, so a retry replays. ──
+        const ep = body.externalPayment;
+        // Displayed==charged tripwire: the amount the reader shows/charges is the
+        // prepare deposit; it must equal what reserve independently computes.
+        if (ep.amountCents !== chargeCents) {
+          console.error(
+            `[bowling/v2/reserve] terminal amount drift: reader ${ep.amountCents}c vs reserve ${chargeCents}c — refusing to finalize`,
           );
         }
-        const msg = err instanceof Error ? err.message : "Payment failed";
-        console.error("[bowling/v2/reserve] deposit charge failed:", msg);
-        return NextResponse.json({ error: msg }, { status: 500 });
+        try {
+          depositBaseKey = ep.seed; // finalize recreates dep-order-${seed} = the paid order
+          const depositResult = await finalizeDepositFromExternalPayment({
+            baseKey: ep.seed,
+            locationId: squareLocationId,
+            amountCents: chargeCents, // server-authoritative; finalize verifies the reader paid EXACTLY this
+            ganPrefix,
+            ganSuffix,
+            note: depositNote,
+            externalPaymentId: ep.paymentId,
+          });
+          squareDepositOrderId = depositResult.depositOrderId;
+          squareDepositPaymentId = depositResult.depositPaymentId;
+          squareGiftCardId = depositResult.giftCardId ?? undefined;
+          squareGiftCardGan = depositResult.giftCardGan ?? undefined;
+          depositCents = chargeCents;
+        } catch (err) {
+          // Money is ALREADY captured on the reader. Do NOT delete the QAMF
+          // reservation and do NOT imply a re-charge. Stamp the paymentId on the
+          // anchor (persist-first) so the terminal-orphan reconcile can complete
+          // or refund, then surface a "see the front desk" message.
+          await writeBowlingTerminalAnchor(ep.seed, {
+            depositOrderId: ep.depositOrderId,
+            depositCents: chargeCents,
+            locationId: squareLocationId,
+            paymentId: ep.paymentId,
+          }).catch(() => {});
+          if (loyaltyRewardId) {
+            await fetch(`${SQUARE_BASE}/loyalty/rewards/${loyaltyRewardId}`, {
+              method: "DELETE",
+              headers: sqLoyaltyHeaders(),
+            }).catch(() => {});
+            loyaltyRewardId = undefined;
+          }
+          const verifyFail =
+            err instanceof TerminalPaymentUnverifiedError ||
+            err instanceof TerminalAmountMismatchError;
+          const msg = err instanceof Error ? err.message : "Payment verification failed";
+          console.error("[bowling/v2/reserve] terminal finalize failed:", msg);
+          return NextResponse.json(
+            {
+              error:
+                "We received your payment but couldn't finish the booking — please see the front desk (do not pay again).",
+              detail: msg,
+              terminal: true,
+            },
+            { status: verifyFail ? 402 : 500 },
+          );
+        }
+      } else {
+        try {
+          // Explicit baseKey (same shape createDepositAndCharge would generate)
+          // so the card-vault capture below can derive its CreateCard key from
+          // the deposit attempt's idempotency seed.
+          depositBaseKey = randomBytes(8).toString("hex");
+          const depositResult = await createDepositAndCharge({
+            amountCents: chargeCents,
+            locationId: squareLocationId,
+            cardSourceId: body.squareToken,
+            giftCardNonce: body.giftCardNonce,
+            squareCustomerId: resolvedSquareCustomerId,
+            ganPrefix,
+            ganSuffix,
+            note: depositNote,
+            baseKey: depositBaseKey,
+          });
+
+          squareDepositOrderId = depositResult.depositOrderId;
+          squareDepositPaymentId = depositResult.depositPaymentId;
+          squareGiftCardId = depositResult.giftCardId ?? undefined;
+          squareGiftCardGan = depositResult.giftCardGan ?? undefined;
+          depositCents = chargeCents;
+        } catch (err) {
+          // Payment failed — delete loyalty reward to return points
+          if (loyaltyRewardId) {
+            await fetch(`${SQUARE_BASE}/loyalty/rewards/${loyaltyRewardId}`, {
+              method: "DELETE",
+              headers: sqLoyaltyHeaders(),
+            }).catch(() => {});
+            loyaltyRewardId = undefined;
+          }
+          // Best effort: delete the QAMF reservation to avoid orphan
+          try {
+            const { deleteReservation } = await import("@/lib/qamf-bowling");
+            await deleteReservation(centerId, qamfReservationId);
+          } catch {
+            // Non-fatal
+          }
+
+          if (err instanceof DepositPaymentError) {
+            return NextResponse.json(
+              { error: err.friendlyMessage, code: err.code, detail: err.message },
+              { status: 400 },
+            );
+          }
+          const msg = err instanceof Error ? err.message : "Payment failed";
+          console.error("[bowling/v2/reserve] deposit charge failed:", msg);
+          return NextResponse.json({ error: msg }, { status: 500 });
+        }
       }
     } else {
       // $0 deposit (reward covered it) or no token — day-of order from quote
@@ -1549,7 +1724,14 @@ export async function POST(req: NextRequest) {
   // The reservation row exists; quietly keep the deposit card on file so
   // staff can charge approved edit differences later. captureCardFromDeposit
   // never throws by contract; the wrap is belt-and-braces.
-  if (squareDepositPaymentId && resolvedSquareCustomerId && depositBaseKey) {
+  // Kiosk direct-Terminal is NEVER vaulted (owner: no saved card on a public
+  // device; a card-present EMV payment has no reusable token anyway).
+  if (
+    squareDepositPaymentId &&
+    resolvedSquareCustomerId &&
+    depositBaseKey &&
+    !body.externalPayment
+  ) {
     try {
       await captureCardFromDeposit({
         squareCustomerId: resolvedSquareCustomerId,

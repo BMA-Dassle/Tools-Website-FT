@@ -37,6 +37,7 @@ export function KioskTerminalCheckoutGate({
   deviceId,
   bmiBillId,
   depositCentsExpected,
+  prepareFn,
   onCaptured,
   onCancel,
 }: {
@@ -47,8 +48,21 @@ export function KioskTerminalCheckoutGate({
   bmiBillId: string;
   /** The displayed "due now" in cents — the server deposit MUST equal this. */
   depositCentsExpected: number;
-  /** Completed reader payment → CheckoutStep reserves with it as externalPayment. */
-  onCaptured: (ep: { paymentId: string; depositOrderId: string; amountCents: number }) => void;
+  /**
+   * How to create the deposit order the reader will charge. Defaults to the
+   * unified racing rail (POST /api/booking/v2/reserve-prepare). A bowling-only
+   * cart passes its own prepare (bowlingTerminalPrepare) so it reuses this exact
+   * reader UX + verification while keeping the proven bowling reserve route.
+   */
+  prepareFn?: () => Promise<Prepared>;
+  /** Completed reader payment → CheckoutStep reserves with it as externalPayment.
+   *  `seed` lets the bowling route recreate the exact order the reader paid. */
+  onCaptured: (ep: {
+    paymentId: string;
+    depositOrderId: string;
+    amountCents: number;
+    seed: string;
+  }) => void;
   onCancel: () => void;
 }) {
   const [phase, setPhase] = useState<"preparing" | "ready" | "error">("preparing");
@@ -61,24 +75,40 @@ export function KioskTerminalCheckoutGate({
     setError(null);
     setPhase("preparing");
     try {
-      const res = await fetch("/api/booking/v2/reserve-prepare", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          session,
-          contact: {
-            firstName: contact.firstName,
-            lastName: contact.lastName,
-            email: contact.email,
-            phone: contact.phone,
-          },
-        }),
-      });
-      const data = await res.json();
+      let data: { seed?: string; depositOrderId?: string; depositCents?: number; error?: string };
+      if (prepareFn) {
+        // Bowling-only cart: create the deposit order via the bowling rail.
+        try {
+          data = await prepareFn();
+        } catch (e) {
+          data = { error: e instanceof Error ? e.message : "prepare failed" };
+        }
+      } else {
+        // Default: unified racing rail — runs all pre-charge guards server-side.
+        const res = await fetch("/api/booking/v2/reserve-prepare", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            session,
+            contact: {
+              firstName: contact.firstName,
+              lastName: contact.lastName,
+              email: contact.email,
+              phone: contact.phone,
+            },
+          }),
+        });
+        data = await res.json();
+        if (!res.ok && !data.error) data.error = `prepare failed (${res.status})`;
+      }
       console.log(
-        `[kiosk-terminal] prepare → status=${res.status} depositCents=${data.depositCents} shown=${depositCentsExpected} order=${data.depositOrderId} seed=${data.seed} err=${data.error ?? ""}`,
+        `[kiosk-terminal] prepare → depositCents=${data.depositCents} shown=${depositCentsExpected} order=${data.depositOrderId} seed=${data.seed} err=${data.error ?? ""}`,
       );
-      if (!res.ok || !data.depositOrderId || !(data.depositCents > 0)) {
+      if (
+        data.error ||
+        !data.depositOrderId ||
+        !(data.depositCents != null && data.depositCents > 0)
+      ) {
         setError(data.error || "Couldn't start the payment. Please see the front desk.");
         setPhase("error");
         return;
@@ -102,7 +132,7 @@ export function KioskTerminalCheckoutGate({
         return;
       }
       setPrepared({
-        seed: data.seed,
+        seed: data.seed ?? "",
         depositOrderId: data.depositOrderId,
         depositCents: data.depositCents,
       });
@@ -111,7 +141,7 @@ export function KioskTerminalCheckoutGate({
       setError("Couldn't start the payment. Please try again or see the front desk.");
       setPhase("error");
     }
-  }, [session, contact, depositCentsExpected]);
+  }, [session, contact, depositCentsExpected, prepareFn]);
 
   useEffect(() => {
     if (preparedOnce.current) return;
@@ -169,6 +199,7 @@ export function KioskTerminalCheckoutGate({
             paymentId,
             depositOrderId: prepared.depositOrderId,
             amountCents: prepared.depositCents,
+            seed: prepared.seed,
           })
         }
         onCancel={onCancel}

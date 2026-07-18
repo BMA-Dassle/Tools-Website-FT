@@ -155,6 +155,15 @@ export interface BowlingReserveParams {
   rewardTierId?: string;
   rewardDiscountCents?: number;
   smsOptIn?: boolean;
+  /** KIOSK direct-Terminal: the reader already captured the card against OUR
+   *  prepared deposit order (bowlingTerminalPrepare). When set, no card token is
+   *  sent and the route finalizes (funds the gift card, never re-charges). */
+  externalPayment?: {
+    paymentId: string;
+    depositOrderId: string;
+    amountCents: number;
+    seed: string;
+  };
 }
 
 export interface BowlingReserveResult {
@@ -255,6 +264,8 @@ export async function bowlingReserve(params: BowlingReserveParams): Promise<Bowl
       rawItems: item.rawItems.length > 0 ? item.rawItems : undefined,
       squareToken: params.cardToken,
       giftCardNonce: params.giftCardNonce ?? undefined,
+      // Kiosk direct-Terminal: the reader already paid — finalize, don't charge.
+      ...(params.externalPayment ? { externalPayment: params.externalPayment } : {}),
       sourceKind: params.sourceKind,
       saveCardConsent: params.saveCardConsent,
       locationId,
@@ -313,5 +324,60 @@ export async function bowlingReserve(params: BowlingReserveParams): Promise<Bowl
     squareDayofOrderId: data.squareDayofOrderId ?? null,
     depositCents: data.depositCents ?? 0,
     totalCents: data.totalCents ?? 0,
+  };
+}
+
+/**
+ * KIOSK direct-Terminal PREPARE for a bowling/KBF-only cart. Creates the
+ * GIFT_CARD deposit order the paired reader will charge (server-side, no QAMF/Neon
+ * yet) and returns its id + amount + the shared `seed`. The reader charges that
+ * exact order; then `bowlingReserve({ externalPayment })` finalizes it (funds the
+ * gift card, never re-charges). The deposit is the SAME amount bowlingReserve would
+ * charge — item.quoteDepositCents minus any reward — so displayed == charged.
+ */
+export async function bowlingTerminalPrepare(params: {
+  item: BowlingLikeItem;
+  /** Idempotency seed shared by prepare → finalize. Generated if omitted. */
+  seed?: string;
+  rewardDiscountCents?: number;
+}): Promise<{ seed: string; depositOrderId: string; depositCents: number }> {
+  const { item } = params;
+  const seed = params.seed ?? crypto.randomUUID();
+  const centerId = item.qamfCenterId;
+  if (!centerId) throw new Error("No QAMF center on bowling item");
+  const locationId = centerId === 9172 ? "TXBSQN0FEKQ11" : "PPTR5G2N0QXF7";
+  // The kiosk always quotes before checkout; without it we can't fix the amount
+  // the reader charges, so refuse to arm rather than guess.
+  if (item.quoteDepositCents == null || item.quoteDayofOrderId == null) {
+    throw new Error("Bowling quote missing — cannot start the reader payment");
+  }
+  const depositCents = Math.max(0, item.quoteDepositCents - (params.rewardDiscountCents ?? 0));
+  if (!(depositCents > 0)) throw new Error("Nothing to charge on the reader");
+
+  const res = await fetch("/api/bowling/v2/reserve", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      prepareOnly: true,
+      terminalSeed: seed,
+      centerId,
+      locationId,
+      depositCents,
+      // Enough to satisfy the body shape; the prepare branch returns before the
+      // full-booking required-fields gate reads these.
+      webOfferId: item.webOfferId,
+      bookedAt: item.bookedAt,
+      players: [],
+      guest: { name: "", email: "", phone: "" },
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data.depositOrderId || !(data.depositCents > 0)) {
+    throw new Error(data.error || "Couldn't start the reader payment");
+  }
+  return {
+    seed: data.seed ?? seed,
+    depositOrderId: data.depositOrderId,
+    depositCents: data.depositCents ?? depositCents,
   };
 }
