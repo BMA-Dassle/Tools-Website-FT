@@ -39,12 +39,22 @@ import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { LoyaltySection } from "./LoyaltySection";
 import { PromoCodeInput } from "./PromoCodeInput";
 import { contactIsComplete } from "../ContactStep";
+import { kioskTerminalEnabled } from "~/features/kiosk/flags";
 import dynamic from "next/dynamic";
 
 // Kiosk-only card-present capture. Dynamically imported so the kiosk feature
 // isn't bundled into the web checkout and there's no booking↔kiosk import cycle.
 const KioskReaderPayment = dynamic(
   () => import("~/features/kiosk/components/KioskReaderPayment").then((m) => m.KioskReaderPayment),
+  { ssr: false },
+);
+// Kiosk direct-Terminal charge gate (owner: NO saved card). Flag-gated; dynamic
+// for the same reason as above.
+const KioskTerminalCheckoutGate = dynamic(
+  () =>
+    import("~/features/kiosk/components/KioskTerminalCheckoutGate").then(
+      (m) => m.KioskTerminalCheckoutGate,
+    ),
   { ssr: false },
 );
 
@@ -1133,6 +1143,10 @@ export function CheckoutStep({
       saveCardConsent: boolean;
       /** Kiosk reader: the card-on-file's owning Square customer (SAVE_CARD). */
       squareCustomerIdOverride?: string;
+      /** Kiosk direct-Terminal (owner: NO saved card): the reader already captured
+       *  the card against OUR prepared deposit order. When set, reserve records it
+       *  as collected and no card token is sent. */
+      externalPayment?: { paymentId: string; depositOrderId: string; amountCents: number };
     }) {
       setPhase({ step: "confirming", bmiBillId });
       const effectiveCustomerId =
@@ -1225,14 +1239,18 @@ export function CheckoutStep({
           const result = await reserveAll({
             session: sessionWithBill,
             contact,
-            cardSourceId: params.savedCardId ?? params.cardNonce ?? undefined,
+            // Terminal path: the reader already captured the card → NO token.
+            cardSourceId: params.externalPayment
+              ? undefined
+              : (params.savedCardId ?? params.cardNonce ?? undefined),
             giftCardNonce: params.giftCardNonce ?? undefined,
             sourceKind: params.sourceKind,
             saveCardConsent: params.saveCardConsent,
-            squareCustomerId: effectiveCustomerId,
+            squareCustomerId: params.externalPayment ? undefined : effectiveCustomerId,
             loyaltyAccountId: session.loyalty?.accountId,
             rewardTierId: session.loyalty?.selectedRewardTier?.id,
             rewardDiscountCents: session.loyalty?.selectedRewardTier?.discountCents,
+            externalPayment: params.externalPayment,
           });
 
           void recordClickwrap({
@@ -1275,32 +1293,71 @@ export function CheckoutStep({
       }
     }
 
-    // Kiosk card-present: capture the card on the reader (SAVE_CARD → card
-    // on file), then charge it via the SAME reserve rail as a saved card.
+    // Kiosk card-present on the paired reader.
     if (readerDeviceId) {
-      return (
-        <div className="mx-auto max-w-md">
-          <KioskReaderPayment
-            brand={session.entryBrand}
-            deviceId={readerDeviceId}
-            referenceId={bmiBillId}
-            amountLabelCents={Math.round(overview.cashOwed * 100)}
-            contact={contact}
-            onCaptured={({ cardId, customerId }) =>
-              void handleTokenize({
-                cardNonce: null,
-                savedCardId: cardId,
-                giftCardNonce: null,
-                sourceKind: "saved",
-                saveCardConsent: false,
-                squareCustomerIdOverride: customerId,
-              })
-            }
-            onCancel={() => setPhase({ step: "review", overview, bmiBillId })}
-          />
-          {cancelControl}
-        </div>
+      const bowlingOnlyReader = session.items.every(
+        (i) => i.kind === "bowling" || i.kind === "kbf",
       );
+      // Terminal DIRECT charge (owner: NO saved card) — flag-gated for the live
+      // reader smoke. The reader charges OUR deposit order → reserve records the
+      // completed paymentId. Only the unified rail is wired (Phase 1), so a
+      // bowling-only cart falls through to the typed card (never a saved card)
+      // until the bowling terminal rail lands (Phase 2).
+      if (kioskTerminalEnabled() && !bowlingOnlyReader) {
+        return (
+          <div className="mx-auto max-w-md">
+            <KioskTerminalCheckoutGate
+              session={sessionForReserve}
+              contact={contact}
+              brand={session.entryBrand}
+              deviceId={readerDeviceId}
+              bmiBillId={bmiBillId}
+              depositCentsExpected={Math.round(overview.cashOwed * 100)}
+              onCaptured={(ep) =>
+                void handleTokenize({
+                  cardNonce: null,
+                  savedCardId: null,
+                  giftCardNonce: null,
+                  sourceKind: "card",
+                  saveCardConsent: false,
+                  externalPayment: ep,
+                })
+              }
+              onCancel={() => setPhase({ step: "review", overview, bmiBillId })}
+            />
+            {cancelControl}
+          </div>
+        );
+      }
+      // Interim (flag off): capture the card on the reader (SAVE_CARD → card on
+      // file), then charge via the saved-card reserve rail. Retired once the
+      // terminal flag flips on after the smoke.
+      if (!kioskTerminalEnabled()) {
+        return (
+          <div className="mx-auto max-w-md">
+            <KioskReaderPayment
+              brand={session.entryBrand}
+              deviceId={readerDeviceId}
+              referenceId={bmiBillId}
+              amountLabelCents={Math.round(overview.cashOwed * 100)}
+              contact={contact}
+              onCaptured={({ cardId, customerId }) =>
+                void handleTokenize({
+                  cardNonce: null,
+                  savedCardId: cardId,
+                  giftCardNonce: null,
+                  sourceKind: "saved",
+                  saveCardConsent: false,
+                  squareCustomerIdOverride: customerId,
+                })
+              }
+              onCancel={() => setPhase({ step: "review", overview, bmiBillId })}
+            />
+            {cancelControl}
+          </div>
+        );
+      }
+      // else: flag on + bowling-only → fall through to the typed card path below.
     }
 
     return (
