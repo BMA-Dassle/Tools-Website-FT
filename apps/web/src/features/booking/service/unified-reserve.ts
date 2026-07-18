@@ -1685,7 +1685,14 @@ async function unifiedReserveInner(
       // attraction bookings confirm immediately instead of relying on the
       // bmi-cancel-sweep cron. projectId = orderId + 1 (last-10-digit math stays
       // under MAX_SAFE_INTEGER; the rest of the id is preserved as raw text).
-      try {
+      //
+      // RETRIED at book time (owner 2026-07-18: a reservation sat "Pending online"
+      // until a cron flipped it hours later). A single transient Pandora failure
+      // used to leave the project unconfirmed until race-confirm-reconcile /
+      // bmi-cancel-sweep ran; a few quick retries land the confirm before the
+      // guest even leaves the kiosk. Still non-fatal — the crons stay the backstop
+      // if Pandora is genuinely down (a loud log flags that case for ops).
+      {
         const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
         const pandoraLocationId =
           raceItems.length > 0
@@ -1693,27 +1700,42 @@ async function unifiedReserveInner(
             : session.center === "naples"
               ? "PPTR5G2N0QXF7"
               : "TXBSQN0FEKQ11";
-        const stateRes = await fetch(
-          "https://bma-pandora-api.azurewebsites.net/v2/bmi/reservation/state",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${pandoraKey}`,
-            },
-            body: JSON.stringify({
-              locationID: pandoraLocationId,
-              projectId: officeProjectId,
-              stateID: "-3",
-            }),
-            signal: AbortSignal.timeout(10_000),
-          },
-        );
-        console.log(
-          `[unified-reserve] Pandora project ${officeProjectId} state → -3 (Confirmation): ${stateRes.ok ? "OK" : stateRes.status}`,
-        );
-      } catch (pandoraErr) {
-        console.error("[unified-reserve] Pandora state update failed (non-fatal):", pandoraErr);
+        let stateConfirmed = false;
+        for (let attempt = 1; attempt <= 3 && !stateConfirmed; attempt++) {
+          try {
+            const stateRes = await fetch(
+              "https://bma-pandora-api.azurewebsites.net/v2/bmi/reservation/state",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${pandoraKey}`,
+                },
+                body: JSON.stringify({
+                  locationID: pandoraLocationId,
+                  projectId: officeProjectId,
+                  stateID: "-3",
+                }),
+                signal: AbortSignal.timeout(10_000),
+              },
+            );
+            stateConfirmed = stateRes.ok;
+            console.log(
+              `[unified-reserve] Pandora project ${officeProjectId} state → -3 (Confirmation) attempt ${attempt}: ${stateRes.ok ? "OK" : stateRes.status}`,
+            );
+          } catch (pandoraErr) {
+            console.error(
+              `[unified-reserve] Pandora state update attempt ${attempt} failed (non-fatal):`,
+              pandoraErr,
+            );
+          }
+          if (!stateConfirmed && attempt < 3) await new Promise((r) => setTimeout(r, 600));
+        }
+        if (!stateConfirmed) {
+          console.error(
+            `[unified-reserve] Pandora confirm (state -3) NOT set for project ${officeProjectId} after 3 attempts — reservation may sit "Pending online" until the reconcile cron. bill=${bmiBillId}`,
+          );
+        }
       }
 
       // Heat setup patch — set each booked heat block's name/style for its race

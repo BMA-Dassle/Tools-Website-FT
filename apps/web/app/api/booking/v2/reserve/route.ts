@@ -803,30 +803,49 @@ export async function POST(req: NextRequest) {
       // Workaround until BMI fixes payment/confirm.
       const projectIdNum = (Number(body.bmiBillId.slice(-10)) + 1).toString();
       const projectId = body.bmiBillId.slice(0, -projectIdNum.length) + projectIdNum;
-      try {
+      // RETRIED at book time (owner 2026-07-18: reservations sat "Pending online"
+      // until a cron confirmed them). A single transient Pandora failure left the
+      // project unconfirmed; a few quick retries land the confirm before the guest
+      // leaves. Still non-fatal — the bmi-cancel-sweep cron is the backstop.
+      {
         const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
         const pandoraLocationId = body.bookingKind === "race" ? "LAB52GY480CJF" : "TXBSQN0FEKQ11";
-        const pandoraRes = await fetch(
-          "https://bma-pandora-api.azurewebsites.net/v2/bmi/reservation/state",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${pandoraKey}`,
-            },
-            body: JSON.stringify({
-              locationID: pandoraLocationId,
-              projectId,
-              stateID: "-3",
-            }),
-            signal: AbortSignal.timeout(10_000),
-          },
-        );
-        console.log(
-          `[v2/reserve] Pandora project ${projectId} state → -3 (Confirmation): ${pandoraRes.ok ? "OK" : pandoraRes.status}`,
-        );
-      } catch (pandoraErr) {
-        console.error("[v2/reserve] Pandora state update failed (non-fatal):", pandoraErr);
+        let stateConfirmed = false;
+        for (let attempt = 1; attempt <= 3 && !stateConfirmed; attempt++) {
+          try {
+            const pandoraRes = await fetch(
+              "https://bma-pandora-api.azurewebsites.net/v2/bmi/reservation/state",
+              {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${pandoraKey}`,
+                },
+                body: JSON.stringify({
+                  locationID: pandoraLocationId,
+                  projectId,
+                  stateID: "-3",
+                }),
+                signal: AbortSignal.timeout(10_000),
+              },
+            );
+            stateConfirmed = pandoraRes.ok;
+            console.log(
+              `[v2/reserve] Pandora project ${projectId} state → -3 (Confirmation) attempt ${attempt}: ${pandoraRes.ok ? "OK" : pandoraRes.status}`,
+            );
+          } catch (pandoraErr) {
+            console.error(
+              `[v2/reserve] Pandora state update attempt ${attempt} failed (non-fatal):`,
+              pandoraErr,
+            );
+          }
+          if (!stateConfirmed && attempt < 3) await new Promise((r) => setTimeout(r, 600));
+        }
+        if (!stateConfirmed) {
+          console.error(
+            `[v2/reserve] Pandora confirm (state -3) NOT set for project ${projectId} after 3 attempts — reservation may sit "Pending online" until the cron. bill=${body.bmiBillId}`,
+          );
+        }
       }
 
       // ── Kiosk post-reserve rail (SHARED with reserve-all/unifiedReserve) ──
