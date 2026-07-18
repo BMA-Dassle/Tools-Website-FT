@@ -54,7 +54,7 @@ import { BOARD_CSS, baThemeCss } from "./theme";
  * kiosk walk-ins). Those are genuine walk-ins, not our booking-flow kiosk,
  * so we exclude any row whose QAMF reservation id is K-prefixed. This keeps
  * our kiosk bookings surfaced (they carry no K-prefixed QAMF id) while
- * QAMF-K walk-ins stay hidden by the "Web Only" filter like other walk-ins.
+ * QAMF-K walk-ins stay hidden by the "Web + Kiosk" filter like other walk-ins.
  */
 function isBookingFlowKiosk(r: Reservation): boolean {
   return (
@@ -168,7 +168,7 @@ export default function ReservationsBoard({
   const filtered = useMemo(() => {
     let list = reservations;
     if (hideWalkins) {
-      // "Web Only" hides QAMF-side entries (conqueror, admin) and lane-side
+      // "Web + Kiosk" hides QAMF-side entries (conqueror, admin) and lane-side
       // walk-ins — but NOT our self-service kiosk bookings. Those are real
       // guest bookings made through the booking flow (bookingSource "kiosk")
       // and belong alongside web bookings, clearly badged. See
@@ -272,7 +272,7 @@ export default function ReservationsBoard({
   const active = displayRows.filter((r) => r.status !== "cancelled" && r.status !== "completed");
   const totalCancelledAll = reservations.filter((r) => r.status === "cancelled").length;
   const totalCompletedAll = reservations.filter((r) => r.status === "completed").length;
-  // Walk-in count = QAMF-side entries the "Web Only" filter hides. Excludes
+  // Walk-in count = QAMF-side entries the "Web + Kiosk" filter hides. Excludes
   // our booking-flow kiosk rows, which are now shown alongside web (so they
   // are not "hidden walk-ins").
   const totalWalkins = reservations.filter(

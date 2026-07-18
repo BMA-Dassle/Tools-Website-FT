@@ -1,10 +1,11 @@
 "use client";
 
 /**
- * Filter bar for the admin reservations board: Active-Only / Web-Only
+ * Filter bar for the admin reservations board: Active-Only / Web+Kiosk
  * toggles, kind chips (with counts) + the ★VIP special filter, date nav,
- * search, and the stats line. Extracted verbatim from
- * app/admin/[token]/reservations/ReservationsClient.tsx.
+ * search, and the stats line. The "Web + Kiosk" source toggle hides
+ * QAMF/admin walk-ins but keeps both web AND self-service kiosk bookings
+ * (bookingSource "web" or booking-flow "kiosk" — see ReservationsBoard).
  */
 import type { Dispatch, SetStateAction } from "react";
 import { KIND_BADGE } from "~/features/reservations-admin/constants";
@@ -103,7 +104,7 @@ export default function FilterBar({
             color: hideWalkins ? "#22c55e" : "var(--ba-muted)",
           }}
         >
-          {hideWalkins ? "Web Only" : "All Sources"}
+          {hideWalkins ? "Web + Kiosk" : "All Sources"}
         </button>
         {/* Kiosk-only — self-service kiosk bookings (amber, matches the row badge).
             Orthogonal to the source toggle above. */}
@@ -171,44 +172,59 @@ export default function FilterBar({
             </button>
           );
         })()}
-        <button
-          type="button"
-          onClick={() => setDate(todayET())}
+        {/* Date navigation — kept together as one non-wrapping cluster so the
+            ← / → arrows never split onto separate lines on mobile (owner
+            2026-07-18: the arrows were landing on different rows). The whole
+            cluster wraps as a unit within the filter row. */}
+        <div
           style={{
-            ...NAV_BTN,
-            fontSize: "0.75rem",
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
-            fontWeight: 600,
+            display: "flex",
+            gap: "0.75rem",
+            alignItems: "center",
+            flexWrap: "nowrap",
           }}
         >
-          Today
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const d = new Date(date + "T12:00:00");
-            d.setDate(d.getDate() - 1);
-            setDate(d.toISOString().slice(0, 10));
-          }}
-          style={NAV_BTN}
-        >
-          &larr;
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const d = new Date(date + "T12:00:00");
-            d.setDate(d.getDate() + 1);
-            setDate(d.toISOString().slice(0, 10));
-          }}
-          style={NAV_BTN}
-        >
-          &rarr;
-        </button>
-        <span style={{ color: "var(--ba-muted)", fontSize: "0.875rem" }}>
-          {fmtDate(date + "T12:00:00")}
-        </span>
+          <button
+            type="button"
+            onClick={() => setDate(todayET())}
+            style={{
+              ...NAV_BTN,
+              fontSize: "0.75rem",
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              fontWeight: 600,
+            }}
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const d = new Date(date + "T12:00:00");
+              d.setDate(d.getDate() - 1);
+              setDate(d.toISOString().slice(0, 10));
+            }}
+            style={NAV_BTN}
+            aria-label="Previous day"
+          >
+            &larr;
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const d = new Date(date + "T12:00:00");
+              d.setDate(d.getDate() + 1);
+              setDate(d.toISOString().slice(0, 10));
+            }}
+            style={NAV_BTN}
+            aria-label="Next day"
+          >
+            &rarr;
+          </button>
+          <span style={{ color: "var(--ba-muted)", fontSize: "0.875rem", whiteSpace: "nowrap" }}>
+            {fmtDate(date + "T12:00:00")}
+          </span>
+        </div>
       </div>
 
       {/* Search */}
