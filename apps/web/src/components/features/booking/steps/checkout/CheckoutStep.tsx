@@ -1229,26 +1229,36 @@ export function CheckoutStep({
           // customer's dwell, rebuild the heats into a FRESH bill BEFORE charging
           // (never charge a dead bill). Returns the original id when still live;
           // throws only when a heat's time is gone → show "pick again", no charge.
-          let liveBillId: string | null;
-          try {
-            liveBillId = await rebuildRaceBillIfExpired(sessionForReserve, contact, dispatch);
-          } catch (rebuildErr) {
-            setPhase({
-              step: "error",
-              message:
-                rebuildErr instanceof Error
-                  ? rebuildErr.message
-                  : "Your held time expired — please go back and pick a time again.",
-            });
-            return;
+          let effectiveBillId: string;
+          if (params.externalPayment) {
+            // TERMINAL: the reader already paid the deposit order tied to the
+            // PREPARE-time session seed. Rebuilding the bill here would change the
+            // seed → reserve re-derives a DIFFERENT (unpaid) deposit order and the
+            // reader's captured payment wouldn't match it (orphan charge). Prepare
+            // already validated the bill was live, so keep the same bill — no rebuild.
+            effectiveBillId = bmiBillId ?? session.bmiBillId ?? "";
+          } else {
+            let liveBillId: string | null;
+            try {
+              liveBillId = await rebuildRaceBillIfExpired(sessionForReserve, contact, dispatch);
+            } catch (rebuildErr) {
+              setPhase({
+                step: "error",
+                message:
+                  rebuildErr instanceof Error
+                    ? rebuildErr.message
+                    : "Your held time expired — please go back and pick a time again.",
+              });
+              return;
+            }
+            effectiveBillId = liveBillId ?? bmiBillId ?? session.bmiBillId ?? "";
           }
-          const effectiveBillId = liveBillId ?? bmiBillId ?? session.bmiBillId;
 
           const sessionWithBill = {
             ...sessionForReserve,
             bmiBillId: effectiveBillId,
           };
-          const result = await reserveAll({
+          const reserveParams = {
             session: sessionWithBill,
             contact,
             // Terminal path: the reader already captured the card → NO token.
@@ -1263,7 +1273,28 @@ export function CheckoutStep({
             rewardTierId: session.loyalty?.selectedRewardTier?.id,
             rewardDiscountCents: session.loyalty?.selectedRewardTier?.discountCents,
             externalPayment: params.externalPayment,
-          });
+          };
+          // The externalPayment path is fully idempotent (the reader charged once;
+          // finalize replays via the deterministic baseKey and never re-charges), so
+          // a transient reserve failure AFTER the reader charged must be retried, not
+          // surfaced as an orphan. Retry a few times before giving up.
+          let result: Awaited<ReturnType<typeof reserveAll>>;
+          if (params.externalPayment) {
+            let lastErr: unknown = null;
+            let ok: Awaited<ReturnType<typeof reserveAll>> | null = null;
+            for (let attempt = 0; attempt < 3 && !ok; attempt++) {
+              if (attempt > 0) await new Promise((r) => setTimeout(r, 1500 * attempt));
+              try {
+                ok = await reserveAll(reserveParams);
+              } catch (e) {
+                lastErr = e;
+              }
+            }
+            if (!ok) throw lastErr instanceof Error ? lastErr : new Error("Reservation failed");
+            result = ok;
+          } else {
+            result = await reserveAll(reserveParams);
+          }
 
           void recordClickwrap({
             billId: effectiveBillId,
@@ -1298,9 +1329,17 @@ export function CheckoutStep({
           }
         }
       } catch (err) {
+        // Terminal path: the reader already captured the card. Never imply the
+        // guest must pay again — tell them we have the payment and to see staff
+        // (the terminal-orphan reconcile / staff can complete it). Otherwise the
+        // normal message.
         setPhase({
           step: "error",
-          message: err instanceof Error ? err.message : "Reservation failed",
+          message: params.externalPayment
+            ? "We received your payment but couldn't finish the booking — please see the front desk (do not pay again)."
+            : err instanceof Error
+              ? err.message
+              : "Reservation failed",
         });
       }
     }
