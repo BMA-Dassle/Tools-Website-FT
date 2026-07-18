@@ -56,11 +56,16 @@ export function useReservationHold({
   const [refreshing, setRefreshing] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const extendRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const startedRef = useRef<string | null>(null);
   // Bumped on every click/keypress; the BMI auto-extend below only pings the
   // vendor when this changed since the last check, so an active session stays
   // held while an idle one still lapses.
   const activityRef = useRef(0);
+  // Latest onExpired without being a countdown-effect dep — a new callback
+  // identity must never restart (or kill) a running countdown.
+  const onExpiredRef = useRef(onExpired);
+  useEffect(() => {
+    onExpiredRef.current = onExpired;
+  });
 
   function startCountdown(seconds: number) {
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -69,7 +74,7 @@ export function useReservationHold({
       setSecondsLeft((prev) => {
         if (prev <= 1) {
           if (intervalRef.current) clearInterval(intervalRef.current);
-          onExpired?.();
+          onExpiredRef.current?.();
           return 0;
         }
         return prev - 1;
@@ -77,22 +82,28 @@ export function useReservationHold({
     }, 1000);
   }
 
-  // Reset timer when holdKey first appears or changes
+  // Countdown lifecycle — keyed ONLY on the hold identity. The vendor
+  // keep-alive lives in its own effect below: with both in one effect, adding
+  // a SECOND hold (race booked first, then a bowling lane → qamfHoldId joins
+  // the deps) re-ran the cleanup, cleared both intervals, and the started-key
+  // guard skipped the restart — a frozen display over a silently lapsing hold.
   useEffect(() => {
     if (!holdKey) {
-      startedRef.current = null;
       setSecondsLeft(maxSeconds);
       if (intervalRef.current) clearInterval(intervalRef.current);
-      if (extendRef.current) clearInterval(extendRef.current);
       return;
     }
-    if (startedRef.current === holdKey) return;
-    startedRef.current = holdKey;
     startCountdown(maxSeconds);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [holdKey, maxSeconds]);
 
+  // Vendor keep-alive — independent of the countdown so hold-composition
+  // changes only ever swap the pinger, never the visible timer.
+  useEffect(() => {
     // QAMF: auto-extend every 8 minutes to keep the hold alive
     if (isQamf && qamfHoldId) {
-      if (extendRef.current) clearInterval(extendRef.current);
       extendRef.current = setInterval(() => {
         fetch(`/api/bowling/v2/reserve/hold/${encodeURIComponent(qamfHoldId)}`, {
           method: "PATCH",
@@ -105,7 +116,6 @@ export function useReservationHold({
       // activityRef), keep the hold alive by touching the bill — the same
       // call the "Extend" button uses. If they go idle (no activity since the
       // last check) we stop pinging, so the hold still lapses.
-      if (extendRef.current) clearInterval(extendRef.current);
       let lastSeen = activityRef.current;
       extendRef.current = setInterval(() => {
         if (activityRef.current === lastSeen) return;
@@ -113,12 +123,10 @@ export function useReservationHold({
         fetch(`/api/sms?endpoint=bill%2Foverview&billId=${bmiBillId}`).catch(() => {});
       }, BMI_EXTEND_CHECK);
     }
-
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
       if (extendRef.current) clearInterval(extendRef.current);
     };
-  }, [holdKey, maxSeconds, isQamf, qamfHoldId, qamfCenterId, bmiBillId, onExpired]);
+  }, [isQamf, qamfHoldId, qamfCenterId, bmiBillId]);
 
   // Renew on activity: any click/keypress resets the visible countdown and
   // marks the session active. The auto-extend above turns that into a real
@@ -158,7 +166,7 @@ export function useReservationHold({
     } finally {
       setRefreshing(false);
     }
-  }, [holdKey, refreshing, isQamf, qamfHoldId, qamfCenterId, bmiBillId, maxSeconds, onExpired]);
+  }, [holdKey, refreshing, isQamf, qamfHoldId, qamfCenterId, bmiBillId, maxSeconds]);
 
   const minutes = Math.floor(secondsLeft / 60);
   const secs = secondsLeft % 60;
