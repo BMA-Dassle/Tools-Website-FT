@@ -375,6 +375,40 @@ export function KioskGameZone({
     return { seed: data.groupId, depositOrderId: data.orderId, depositCents: data.totalCents };
   };
 
+  // reload via the reader: after the charge, load each already-charged card on the
+  // on-prem bridge, then report through /load-card (preLoaded=true → the server
+  // records it without re-crediting via SOAP; preLoaded=false → SOAP fallback). A
+  // failed report leaves the row pending for the reconcile cron — never a
+  // double-credit (the two paths don't share dedup).
+  const loadReloadViaBridge = async (
+    groupId: string,
+    rows: Array<{ txnId: string; accountNumber: string; tokens: number; bonusTokens: number }>,
+  ) => {
+    for (const r of rows) {
+      const bridged = await creditTokensViaBridge({
+        accountNumber: r.accountNumber,
+        tokens: r.tokens,
+        bonusTokens: r.bonusTokens,
+      });
+      try {
+        await fetch("/api/game-cards/load-card", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            groupId,
+            txnId: r.txnId,
+            accountNumber: r.accountNumber,
+            locationCode,
+            preLoaded: bridged,
+          }),
+        });
+      } catch {
+        /* pending → reconcile cron recovers via cloud SOAP */
+      }
+    }
+    setPhase("done");
+  };
+
   const readerFinalize = async (
     kind: "reload" | "new_card",
     ep: { paymentId: string; depositOrderId: string; amountCents: number },
@@ -423,7 +457,10 @@ export function KioskGameZone({
         );
         await dispenseNewCards(data.groupId, data.rows ?? []);
       } else {
-        setPhase("done");
+        // reload: cards are already in the guest's hand — load each on the on-prem
+        // bridge, then report through /load-card (owner: kiosk reload uses the
+        // bridge, not SOAP).
+        await loadReloadViaBridge(data.groupId, data.rows ?? []);
       }
     } catch {
       setError(

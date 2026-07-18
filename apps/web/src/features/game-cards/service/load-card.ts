@@ -35,8 +35,11 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
   if (!row || row.groupId !== input.groupId) {
     throw new GameCardHttpError(404, "TXN_NOT_FOUND", "That purchase couldn't be found.");
   }
-  if (row.kind !== "new_card") {
-    throw new GameCardHttpError(400, "WRONG_KIND", "That transaction isn't a new-card purchase.");
+  // new_card (blank dispensed then loaded) OR reload (existing card, loaded on the
+  // kiosk PC's on-prem bridge then reported here). The website reload path never
+  // calls this — it credits inline via SOAP.
+  if (row.kind !== "new_card" && row.kind !== "reload") {
+    throw new GameCardHttpError(400, "WRONG_KIND", "That transaction can't be loaded here.");
   }
 
   const pkg = getPackage(row.packageId);
@@ -59,8 +62,18 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
     throw new GameCardHttpError(409, "NOT_CHARGED", "That card hasn't been paid for yet.");
   }
 
-  // Attach the account read off the blank (the row was charged with an empty account).
-  await setTxnAccount(input.txnId, input.accountNumber);
+  // new_card: attach the account read off the blank (the row was charged with an
+  // empty account). reload: the account was known at purchase — guard it matches
+  // rather than overwrite, so a mixed-up client payload can't credit a stranger.
+  if (row.kind === "new_card") {
+    await setTxnAccount(input.txnId, input.accountNumber);
+  } else if (row.accountNumber && row.accountNumber !== input.accountNumber) {
+    throw new GameCardHttpError(
+      400,
+      "ACCOUNT_MISMATCH",
+      "The card doesn't match this transaction.",
+    );
+  }
 
   let loaded = false;
   if (input.preLoaded) {

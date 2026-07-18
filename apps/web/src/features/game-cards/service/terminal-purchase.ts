@@ -21,8 +21,7 @@ import { getCenter } from "~/config/intercard-centers";
 import { getPackage } from "../constants";
 import { GameCardHttpError } from "../errors";
 import type { TerminalPrepareInput, TerminalFinalizeInput } from "../schemas";
-import type { CardLoadResult } from "../types";
-import { creditTokens, verifyAccount, IntercardError } from "../data/intercard";
+import { verifyAccount, IntercardError } from "../data/intercard";
 import { createReloadOrder, readSquarePayment } from "../data/square-order";
 import { startTxn, markCharged, markLoadState, getTxn } from "../data/transactions-log";
 
@@ -141,11 +140,10 @@ export interface TerminalFinalizeResult {
   ok: true;
   charged: true;
   groupId: string;
-  /** reload — per-card load outcomes. */
-  results?: CardLoadResult[];
-  /** new_card — the charged rows to dispense + load per card, client-side. */
+  /** The charged rows to load per card client-side (via the on-prem bridge).
+   *  Both reload + new_card return these; new_card dispenses first, reload's
+   *  accounts are already known. */
   rows?: TerminalPreparedRow[];
-  anyPending?: boolean;
 }
 
 /**
@@ -227,59 +225,24 @@ export async function finalizeTerminalPurchase(
     };
   }
 
-  // reload: load each card now (recover-forward per card; a failure stays pending).
-  const results: CardLoadResult[] = [];
+  // reload: hand the charged rows back so the kiosk PC loads each via the on-prem
+  // bridge, then reports through /load-card (owner 2026-07-19: ALL kiosk cards load
+  // on the bridge — only the WEBSITE reload uses cloud SOAP). Mark pending now so
+  // the reconcile cron is the safety net if the client never reports.
   for (const t of txns) {
-    let loaded = false;
-    try {
-      const { code } = await creditTokens({
-        locationCode: input.locationCode,
-        accountNumber: t.accountNumber,
-        tokens: t.tokens,
-        bonusTokens: t.bonusTokens,
-        tpiTransactionID: t.tpiTransactionId,
-      });
-      if (code === 0) loaded = true;
-      else console.error(`[game-cards/terminal] load code ${code} txn=${t.txnId} — pending`);
-    } catch (err) {
-      console.error(
-        `[game-cards/terminal] load threw txn=${t.txnId}:`,
-        err instanceof Error ? err.message : err,
-      );
-    }
-    await markLoadState(
-      t.txnId,
-      loaded ? "loaded" : "pending",
-      loaded ? undefined : "load not confirmed",
-    );
-
-    let balance;
-    let transactions;
-    if (loaded) {
-      try {
-        const v = await verifyAccount(t.accountNumber, input.locationCode);
-        balance = v.balance;
-        transactions = v.transactions;
-      } catch {
-        /* non-fatal */
-      }
-    }
-    results.push({
-      accountNumber: t.accountNumber,
-      tokens: t.tokens,
-      bonusTokens: t.bonusTokens,
-      loaded,
-      creditPending: !loaded,
-      balance,
-      transactions,
-    });
+    await markLoadState(t.txnId, "pending", "awaiting on-prem bridge load");
   }
-
   return {
     ok: true,
     charged: true,
     groupId: input.groupId,
-    results,
-    anyPending: results.some((r) => r.creditPending),
+    rows: txns.map((t) => ({
+      txnId: t.txnId,
+      packageId: t.packageId,
+      tokens: t.tokens,
+      bonusTokens: t.bonusTokens,
+      amountCents: t.amountCents,
+      accountNumber: t.accountNumber,
+    })),
   };
 }
