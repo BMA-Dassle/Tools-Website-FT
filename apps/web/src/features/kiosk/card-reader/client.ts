@@ -465,12 +465,33 @@ export class CrtReaderClient {
     // the documented 31h dispense only if that ever reads nothing.
     try {
       await this.moveToMagPosition();
-      return await this.magRead();
+      return await this.readMagAfterSettle();
     } catch {
       await this.moveCard("icPosition"); // 31h: documented stacker dispense (→ gate)
       await this.moveToMagPosition(); // 34h: retract to the read station
-      return this.magRead();
+      return this.readMagAfterSettle();
     }
+  }
+
+  /**
+   * Read the magnetic stripe after letting the card settle under the head, with
+   * one retry. A read fired the instant after MOVE 34h positions the card often
+   * comes back with NO track data — the card is still moving/settling — which the
+   * buy flow surfaced as "couldn't read the dispensed card." The reload path
+   * already waits (waitForCard requireReadPosition) before reading; the buy path
+   * did not. A short settle + a single retry makes the first read reliable.
+   * (Owner 2026-07-19: new-card dispense "attempted to read, something went wrong".)
+   */
+  private async readMagAfterSettle(): Promise<MagTracks> {
+    await delay(250);
+    try {
+      const first = await this.magRead();
+      if (first.cardNumber) return first;
+    } catch {
+      /* no track data on the first pass — settle longer, then read once more */
+    }
+    await delay(300);
+    return this.magRead();
   }
 
   /**
