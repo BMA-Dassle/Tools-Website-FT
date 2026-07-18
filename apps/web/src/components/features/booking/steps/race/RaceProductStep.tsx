@@ -300,8 +300,13 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
 
         {/* Ultimate VIP upsell (owner ask) — once per flow, on the first
             category step. $X more = combo price vs the cheapest single race
-            (+ license for new racers, who buy one regardless). */}
-        {(category === "adult" || !hasAdults) &&
+            (+ license for new racers, who buy one regardless). NOT on the
+            kiosk: the card upgrades via window.location to /book/combo (a web
+            navigation that escapes the kiosk shell — owner 2026-07-18 "brings
+            you to website"); the kiosk sells the Ultimate VIP on its
+            Experiences shelf instead. */}
+        {!session.context?.kiosk &&
+          (category === "adult" || !hasAdults) &&
           (() => {
             const singles = sorted.filter((p) => !p.packType || p.packType === "none");
             const minRaceCents = singles.length

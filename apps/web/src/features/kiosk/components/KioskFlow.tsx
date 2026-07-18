@@ -292,6 +292,26 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   };
 
   const pickOffering = (offering: ActivityOffering) => {
+    // A bundle owns its race + bowling legs: the individual tiles used to
+    // RE-OPEN those seeded items (racing re-entered the combo wizard, bowling
+    // has no visible steps → dead cart bounce) — "gets all messed up" (owner
+    // 2026-07-18). Racing is covered by the bundle outright. A SECOND lane for
+    // extra guests is a real ask (owner: "don't block it") — until the second
+    // lane can live in the same cart (needs the combo pricing collapse to
+    // ignore it — separate verified change), steer to a follow-on booking.
+    // Independent attractions (gel/laser/duckpin/shuffleboard) stay available.
+    if (session.comboSpecialId && offering.kind === "race") {
+      setKioskError(
+        "Your Ultimate VIP experience already includes racing — it's all in one price.",
+      );
+      return;
+    }
+    if (session.comboSpecialId && (offering.kind === "bowling" || offering.kind === "kbf")) {
+      setKioskError(
+        "Your Ultimate VIP includes a VIP lane. To add a separate lane for extra guests, finish this checkout first, then book bowling as its own order — takes under a minute.",
+      );
+      return;
+    }
     const existing = session.items.find(
       (i) =>
         i.kind === offering.kind &&
@@ -313,6 +333,15 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   // is skipped (owner: don't make them reselect what they just tapped). The
   // actual variant is resolved after the party is set (see the effect below).
   const pickPackageExperience = (family: string) => {
+    // Re-entry: tapping the tile, backing out, then tapping it again used to
+    // dead-end ("finish or remove…") because the draft race item was already in
+    // the cart (owner 2026-07-18: "you cannot click it again"). If the cart is
+    // JUST that same preseeded draft, re-open it instead of erroring.
+    const existingRace = session.items.find((i) => i.kind === "race");
+    if (existingRace && session.items.length === 1 && session.preferredPackageId === family) {
+      dispatch({ type: "setActiveItem", id: existingRace.id });
+      return;
+    }
     if (session.items.length > 0) {
       setKioskError(
         "Finish or remove your current activities before starting a premium racing experience.",
@@ -327,6 +356,15 @@ export function KioskFlow({ goto }: { goto: string | null }) {
 
   // Show the itinerary overview first (owner: the approved VIP overview screen).
   const pickCombo = (combo: ComboSpecial) => {
+    // Re-entry: this combo is already seeded in the cart (guest backed out
+    // mid-flow) — re-open its race item instead of dead-ending on the error.
+    if (session.comboSpecialId === combo.id) {
+      const race = session.items.find((i) => i.kind === "race");
+      if (race) {
+        dispatch({ type: "setActiveItem", id: race.id });
+        return;
+      }
+    }
     if (session.items.length > 0) {
       setKioskError("Finish or remove your current activities before adding a bundled experience.");
       return;

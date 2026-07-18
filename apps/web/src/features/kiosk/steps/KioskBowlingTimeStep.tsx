@@ -22,8 +22,24 @@ import { todayYmd } from "../service/first-available";
 
 type BowlingLikeItem = BowlingItem | KbfItem;
 
+/** Vendor wall-clock ISO → center-local minutes-since-midnight (kiosk = today),
+ *  in the same 0–26h notation the hour chips use (past-midnight → +24h). */
+function wallMinutes(iso: string): number | null {
+  const naive = iso.replace(/Z$/, "").replace(/[+-]\d{2}:\d{2}$/, "");
+  const d = new Date(naive);
+  if (Number.isNaN(d.getTime())) return null;
+  const m = d.getHours() * 60 + d.getMinutes();
+  return m < 6 * 60 ? m + 24 * 60 : m;
+}
+
+/** Same flat per-activity window the combo engine schedules with. */
+const ASSUMED_ACTIVITY_MINUTES = 30;
+/** Duration isn't picked until the offer step — assume the shortest session. */
+const MIN_BOWLING_MINUTES = 60;
+
 const KioskBowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   item,
+  session,
   onChange,
 }) => {
   const centerId = item.qamfCenterId ?? 9172;
@@ -55,12 +71,54 @@ const KioskBowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   const slots: Slot[] = openHours
     .flatMap((h) => [0, 15, 30, 45].map((minute) => ({ hour: h, minute })))
     .filter((s) => s.hour * 60 + s.minute >= nextQuarter);
-  const first = slots[0] ?? null;
+
+  // Conflict honoring (owner 2026-07-18: the rail "is not honoring the conflict
+  // block"): times already booked THIS session block the bowling rail. Each
+  // booked race heat / attraction slot occupies ~30 min; with the bowling
+  // duration not yet picked (offer step, ≥60 min), a slot conflicts when a
+  // 60-min session starting there would overlap a booked window.
+  const busy: Array<{ startMin: number; endMin: number; label: string }> = [];
+  for (const other of session.items) {
+    if (other.id === item.id) continue;
+    if (other.kind === "race") {
+      const seen = new Set<string>();
+      for (const h of other.heats) {
+        if (!h.heatId || seen.has(h.heatId)) continue;
+        seen.add(h.heatId);
+        const m = wallMinutes(h.heatId);
+        if (m != null)
+          busy.push({ startMin: m, endMin: m + ASSUMED_ACTIVITY_MINUTES, label: "You're racing" });
+      }
+    } else if (other.kind === "attraction" && other.slot) {
+      const m = wallMinutes(other.slot);
+      if (m != null)
+        busy.push({ startMin: m, endMin: m + ASSUMED_ACTIVITY_MINUTES, label: "You're booked" });
+    } else if ((other.kind === "bowling" || other.kind === "kbf") && other.hour != null) {
+      const start = other.hour * 60 + (other.minute ?? 0);
+      busy.push({
+        startMin: start,
+        endMin: start + (other.durationMinutes ?? MIN_BOWLING_MINUTES),
+        label: "You're bowling",
+      });
+    }
+  }
+  const conflictOf = (s: Slot): string | null => {
+    const sStart = s.hour * 60 + s.minute;
+    const sEnd = sStart + MIN_BOWLING_MINUTES;
+    const hit = busy.find((b) => sStart < b.endMin && sEnd > b.startMin);
+    return hit ? hit.label : null;
+  };
+  const anyConflicts = slots.some((s) => conflictOf(s) != null);
+
+  // The hero "bowl now" pick skips conflicted times — first CLEAR slot wins.
+  const first = slots.find((s) => !conflictOf(s)) ?? null;
   const isSel = (s: Slot) => item.hour === s.hour && item.minute === s.minute;
   const heroSelected = first != null && isSel(first);
 
-  const pick = (s: Slot) =>
+  const pick = (s: Slot) => {
+    if (conflictOf(s)) return;
     onChange({ hour: s.hour, minute: s.minute } as Partial<BowlingLikeItem>);
+  };
 
   return (
     <div className="space-y-[32px]">
@@ -93,18 +151,28 @@ const KioskBowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         <div>
           <div className="k-eyebrow mb-[16px] text-white/40">Or pick another time today</div>
           <div className="grid grid-cols-4 gap-[14px]">
-            {slots.map((s) => (
-              <button
-                key={`${s.hour}:${s.minute}`}
-                type="button"
-                onClick={() => pick(s)}
-                className={`k-chip k-tap ${isSel(s) ? "sel" : ""}`}
-              >
-                {bowlingTimeLabel(s.hour, s.minute)}
-              </button>
-            ))}
+            {slots.map((s) => {
+              const conflict = conflictOf(s);
+              return (
+                <button
+                  key={`${s.hour}:${s.minute}`}
+                  type="button"
+                  onClick={() => pick(s)}
+                  disabled={!!conflict}
+                  title={conflict ?? undefined}
+                  className={`k-chip k-tap ${isSel(s) ? "sel" : ""} ${
+                    conflict ? "opacity-35 line-through" : ""
+                  }`}
+                >
+                  {bowlingTimeLabel(s.hour, s.minute)}
+                </button>
+              );
+            })}
           </div>
           <p className="mt-[16px] text-[24px] text-white/40">
+            {anyConflicts
+              ? "Crossed-out times overlap something you've already booked this visit. "
+              : ""}
             Exact lane availability is confirmed on the next step — if a time just filled,
             we&rsquo;ll offer the closest open one.
           </p>
