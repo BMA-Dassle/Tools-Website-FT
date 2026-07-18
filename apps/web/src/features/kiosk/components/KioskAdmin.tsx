@@ -17,7 +17,7 @@
  *    hardware isn't wired yet).
  *  - Comps: add race-credit comps to a signed-in person by BMI personId.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useKioskConfig } from "../KioskConfigContext";
 import { kioskId, resolveKioskConfig, type KioskConfig, type KioskVariant } from "../config";
 
@@ -56,7 +56,24 @@ export function KioskAdmin() {
     () => config ?? { center: "fort-myers", brand: "fasttrax" },
   );
 
-  const patch = (p: Partial<KioskConfig>) => setDraft((d) => ({ ...d, ...p }));
+  // The config store returns the null SSR snapshot on the hydration render, so
+  // the useState initializer above captures null and the fields would show
+  // defaults, not the saved setup. Re-seed the draft the moment the real config
+  // hydrates (or changes) — but only until the staff start editing, so a save
+  // (which updates config) never clobbers an in-progress edit. (Owner 2026-07-19:
+  // "the admin should load all current settings in all the fields".)
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (config && !seeded.current) {
+      seeded.current = true;
+      setDraft(config);
+    }
+  }, [config]);
+
+  const patch = (p: Partial<KioskConfig>) => {
+    seeded.current = true; // staff touched a field — stop auto-reseeding
+    setDraft((d) => ({ ...d, ...p }));
+  };
 
   /** Persist the draft (+ optional change) to BOTH localStorage and Neon in one
    *  step — so selecting a reader (or any change) actually saves, no separate
@@ -109,7 +126,6 @@ export function KioskAdmin() {
             onChange={(e) => setPin(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && tryAuth()}
             placeholder="PIN"
-            autoFocus
             className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-center text-2xl tracking-[0.4em] text-white focus:border-[#00E2E5] focus:outline-none"
           />
           {authError && <p className="text-sm text-red-300">{authError}</p>}
@@ -301,7 +317,7 @@ function DeviceTab({
           onToggle={(v) => patch({ swipeEnabled: v })}
         />
       </div>
-      <Field label="Card dispenser device id (optional)">
+      <Field label="Game Zone card dispenser device id (optional)">
         <input
           type="text"
           data-osk="off"
@@ -310,7 +326,22 @@ function DeviceTab({
           placeholder="e.g. USB dispenser serial"
           className={selectClass}
         />
+        <p className="mt-1.5 text-xs text-white/40">
+          A dispenser reads &amp; writes cards → this kiosk can BUY new + RELOAD Game Zone cards.
+        </p>
       </Field>
+      <Toggle
+        label="Game Zone card reader (MSR) — reload only"
+        on={!!draft.msrEnabled}
+        onToggle={(v) => patch({ msrEnabled: v })}
+      />
+      <p className="-mt-2 text-xs text-white/40">
+        {draft.dispenserId
+          ? "Dispenser present → full Game Zone (buy + reload); MSR setting ignored."
+          : draft.msrEnabled
+            ? "No dispenser → Game Zone is RELOAD ONLY on this kiosk."
+            : "No dispenser and no MSR → Game Zone cards are UNAVAILABLE on this kiosk."}
+      </p>
       <button
         type="button"
         onClick={onSave}

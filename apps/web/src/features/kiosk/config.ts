@@ -33,8 +33,17 @@ export interface KioskConfig {
   variant: KioskVariant;
   /** Staff-assigned kiosk number at this location (e.g. 1, 2). */
   kioskNumber?: number | null;
-  /** Connected card-dispenser device id (null = none / type-in card). */
+  /**
+   * Connected Game Zone card DISPENSER device id (null = none). A dispenser
+   * reads AND writes cards, so it enables BOTH buying a new card and reloading.
+   */
   dispenserId?: string | null;
+  /**
+   * Whether a Game Zone card MSR (magnetic-stripe reader) is attached. An MSR
+   * reads/writes an EXISTING card but can't dispense a new one, so it enables
+   * RELOAD ONLY (owner 2026-07-19). Ignored when a dispenser is present.
+   */
+  msrEnabled?: boolean;
   /** Whether a keyboard-wedge QR/barcode scanner is attached (login codes + vouchers). */
   scannerEnabled?: boolean;
   /**
@@ -151,10 +160,24 @@ export function resolveKioskConfig(partial: Partial<KioskConfig>): KioskConfig |
     variant: partial.variant ?? "podium",
     kioskNumber: partial.kioskNumber ?? 1,
     dispenserId: partial.dispenserId ?? null,
+    msrEnabled: partial.msrEnabled ?? false,
     scannerEnabled: partial.scannerEnabled ?? false,
     cardInputMethod: partial.cardInputMethod ?? (partial.readerId ? "reader" : "manual"),
     swipeEnabled: partial.swipeEnabled ?? false,
   };
+}
+
+/**
+ * What Game Zone card actions this kiosk's hardware supports (owner 2026-07-19):
+ *  - "full"   — a card DISPENSER is connected (reads + writes): buy new + reload.
+ *  - "reload" — only an MSR reader is attached (reads/writes an existing card): reload only.
+ *  - "none"   — no card hardware: Game Zone cards unavailable on this kiosk.
+ */
+export function gameZoneCapability(cfg: KioskConfig | null): "full" | "reload" | "none" {
+  if (!cfg) return "none";
+  if (cfg.dispenserId) return "full";
+  if (cfg.msrEnabled) return "reload";
+  return "none";
 }
 
 /** URL params win over stored values field-by-field. */

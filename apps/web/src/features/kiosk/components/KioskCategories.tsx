@@ -25,6 +25,8 @@ import {
 import { enabledCombos, type ComboSpecial } from "~/features/combos";
 import { KIOSK_PHOTOS } from "../assets";
 import { AdminTapZone } from "./AdminTapZone";
+import { useKioskConfig } from "../KioskConfigContext";
+import { gameZoneCapability } from "../config";
 
 type CategoryKey = "exp" | "attr";
 
@@ -48,6 +50,8 @@ export function KioskCategories({
   onOpenGameZone,
 }: KioskCategoriesProps) {
   const [cat, setCat] = useState<CategoryKey | null>(null);
+  const { config } = useKioskConfig();
+  const gameZone = gameZoneCapability(config); // "full" | "reload" | "none"
   const offerings = landingOfferingsFor(brand, center);
   const combos = enabledCombos().filter((c) => c.center === center);
   const hasCart = session.items.length > 0;
@@ -94,14 +98,24 @@ export function KioskCategories({
             blurb="Racing, bowling, blasters & more — pick a time and go"
             onClick={() => setCat("attr")}
           />
-          <CategoryCard
-            photo={KIOSK_PHOTOS.arcade}
-            eyebrow="Reload · buy · 1 to 10 cards"
-            accent="#f800c6"
-            title="Game Zone"
-            blurb="Buy or reload arcade tokens — no waiting"
-            onClick={onOpenGameZone}
-          />
+          {gameZone === "none" ? (
+            <GameZoneUnavailableCard />
+          ) : (
+            <CategoryCard
+              photo={KIOSK_PHOTOS.arcade}
+              eyebrow={
+                gameZone === "reload" ? "Reload arcade tokens" : "Reload · buy · 1 to 10 cards"
+              }
+              accent="#f800c6"
+              title="Game Zone"
+              blurb={
+                gameZone === "reload"
+                  ? "Reload your arcade card — no waiting"
+                  : "Buy or reload arcade tokens — no waiting"
+              }
+              onClick={onOpenGameZone}
+            />
+          )}
         </div>
       </div>
     );
@@ -164,6 +178,34 @@ export function KioskCategories({
 function EmptyShelf({ note }: { note: string }) {
   return (
     <div className="k-glass px-[40px] py-[64px] text-center text-[28px] text-white/55">{note}</div>
+  );
+}
+
+/** Shown in the Game Zone slot when this kiosk has no card hardware (no dispenser
+ *  and no MSR reader) — owner 2026-07-19. Non-interactive: guests are pointed to
+ *  another kiosk or Guest Services. */
+function GameZoneUnavailableCard() {
+  return (
+    <div
+      className="k-ph relative min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/10 opacity-70 [--k-img:url(var(--kgz))]"
+      style={
+        {
+          ["--k-img"]: `url(${KIOSK_PHOTOS.arcade})`,
+          filter: "grayscale(0.6)",
+        } as React.CSSProperties
+      }
+      aria-label="Game Zone cards not available on this kiosk"
+    >
+      <div className="absolute bottom-[40px] left-[48px] right-[48px]">
+        <div className="k-eyebrow text-white/45">Game Zone</div>
+        <div className="k-display mt-[8px] text-[52px] text-white/85">Cards not available here</div>
+        <div className="mt-[10px] text-[28px] text-white/60">
+          This kiosk can&rsquo;t sell or reload Game Zone cards. Please use another kiosk or see
+          Guest Services.
+        </div>
+      </div>
+      <div className="absolute inset-x-0 bottom-0 h-[8px] bg-white/20" />
+    </div>
   );
 }
 
