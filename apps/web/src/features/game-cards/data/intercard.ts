@@ -16,11 +16,7 @@
  * decimals. Auth is the MAC alone.
  */
 
-import {
-  INTERCARD_MAC,
-  INTERCARD_TPI_URL,
-  INTERCARD_BALANCE_URL,
-} from "~/config/intercard-centers";
+import { macForCenter, INTERCARD_TPI_URL, INTERCARD_BALANCE_URL } from "~/config/intercard-centers";
 import type { CardBalance, CardTxn, VerifyResult } from "../types";
 
 const TEMPURI = "http://tempuri.org/";
@@ -114,9 +110,14 @@ const CENTER_TZ = "America/New_York"; // all corp-6283 sites are Eastern
 
 // ── SOAP transport ───────────────────────────────────────────────────────────
 
-async function soapCall(url: string, opName: string, innerXml: string): Promise<string> {
-  if (!INTERCARD_MAC) {
-    throw new IntercardError("NO_MAC", "INTERCARD_MAC is not configured");
+async function soapCall(
+  url: string,
+  opName: string,
+  innerXml: string,
+  mac: string,
+): Promise<string> {
+  if (!mac) {
+    throw new IntercardError("NO_MAC", "Intercard MAC is not configured for this location");
   }
   const envelope =
     `<?xml version="1.0" encoding="utf-8"?>` +
@@ -165,8 +166,8 @@ const BRIDGE_EMP = {
   last: "Reload",
 };
 
-function macXml(): string {
-  return `<MAC_ID><string>${xmlEscape(INTERCARD_MAC)}</string></MAC_ID>`;
+function macXml(mac: string): string {
+  return `<MAC_ID><string>${xmlEscape(mac)}</string></MAC_ID>`;
 }
 
 // ── Operations ────────────────────────────────────────────────────────────────
@@ -189,6 +190,7 @@ export interface CreditTokensParams {
  */
 export async function creditTokens(params: CreditTokensParams): Promise<{ code: number }> {
   const { locationCode, accountNumber, tokens, bonusTokens, tpiTransactionID } = params;
+  const mac = macForCenter(locationCode); // per-location registration
   const now = new Date();
   const stamp = sqlDateTime(now, CENTER_TZ);
 
@@ -203,7 +205,7 @@ export async function creditTokens(params: CreditTokensParams): Promise<{ code: 
     `</CreditAccount></CreditAccounts>`;
 
   const inner =
-    macXml() +
+    macXml(mac) +
     `<LocationID>${locationCode}</LocationID>` +
     `<tpiSessionID>${xmlEscape(params.sessionId || tpiTransactionID)}</tpiSessionID>` +
     `<tpiTransactionID>${xmlEscape(tpiTransactionID)}</tpiTransactionID>` +
@@ -214,7 +216,7 @@ export async function creditTokens(params: CreditTokensParams): Promise<{ code: 
     timeDateMapXml("UTC_DateTime", now, "UTC") +
     `<creditAccountsXML>${xmlEscape(creditAccountsXml)}</creditAccountsXML>`;
 
-  const resp = await soapCall(INTERCARD_TPI_URL, "TPICreditAccounts", inner);
+  const resp = await soapCall(INTERCARD_TPI_URL, "TPICreditAccounts", inner, mac);
   const raw = extractTag(resp, "TPICreditAccountsResult");
   const code = raw == null ? NaN : Number(raw);
   if (Number.isNaN(code)) {
@@ -243,9 +245,10 @@ export async function verifyAccount(
   const now = new Date();
   const isoNow = sqlDateTime(now, "UTC").replace(" ", "T");
   const loc = locationCode ?? 12; // balance is account-global; LocID is just history context
+  const mac = macForCenter(loc); // per-location registration
 
   const inner =
-    macXml() +
+    macXml(mac) +
     `<Account>${accountNumber}</Account>` +
     `<LT_Datetime>${isoNow}</LT_Datetime>` +
     `<GMT_StartPeriod>2012-01-01T00:00:00</GMT_StartPeriod>` +
@@ -253,7 +256,7 @@ export async function verifyAccount(
     `<LocID>${loc}</LocID>` +
     `<LT_Diff>-4</LT_Diff>`;
 
-  const resp = await soapCall(INTERCARD_BALANCE_URL, "AcountHistoryWithPhotoXML", inner);
+  const resp = await soapCall(INTERCARD_BALANCE_URL, "AcountHistoryWithPhotoXML", inner, mac);
 
   const resultRaw = extractTag(resp, "AcountHistoryWithPhotoXMLResult");
   const result = resultRaw == null ? NaN : Number(resultRaw);

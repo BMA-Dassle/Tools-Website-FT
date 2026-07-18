@@ -458,22 +458,67 @@ export function KioskGameZone({
   }
 
   if (phase === "loading") {
+    // New-card dispense: show a LIVE per-card list — card number (once read off
+    // the blank) + the tokens being loaded + status — so the guest can see each
+    // card fill in, not just a spinner (owner 2026-07-19).
+    if (mode === "newcard") {
+      const statusLabel = (c: NewCard): string => {
+        if (c.cardStatus === "loaded") return "Loaded ✓";
+        if (c.cardStatus === "failed") return "See attendant";
+        if (c.cardStatus === "dispensing") return "Dispensing…";
+        if (c.account) return "Loading tokens…";
+        return "Waiting…";
+      };
+      return (
+        <div className="mx-auto max-w-md py-10 kiosk-zoom">
+          <div className="mb-6 text-center">
+            <div className="font-heading text-4xl font-extrabold italic">
+              {newCards.length > 1 ? "Setting up your cards…" : "Setting up your card…"}
+            </div>
+            {dispenseMsg && <p className="mt-2 text-sm text-white/55">{dispenseMsg}</p>}
+          </div>
+          <div className="space-y-3 text-left">
+            {newCards.map((c, i) => {
+              const pkg = TOKEN_PACKAGES.find((p) => p.id === c.packageId);
+              const toks = c.balanceTokens ?? (pkg ? pkg.tokens + (pkg.bonusTokens || 0) : 0);
+              const done = c.cardStatus === "loaded";
+              const failed = c.cardStatus === "failed";
+              return (
+                <div
+                  key={i}
+                  className="flex items-center justify-between rounded-2xl border border-white/15 bg-white/[0.04] px-6 py-4"
+                >
+                  <div className="min-w-0">
+                    <div className="font-heading text-[0.65rem] font-bold uppercase tracking-[0.3em] text-white/45">
+                      Card {i + 1}
+                    </div>
+                    <div className="font-heading text-xl font-extrabold tabular-nums">
+                      {c.account ?? "Dispensing…"}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="font-heading text-lg font-extrabold tabular-nums text-[#00e2e5]">
+                      {toks} tk
+                    </div>
+                    <div
+                      className={`text-xs ${failed ? "text-red-300" : done ? "text-[#46d68c]" : "text-white/50"}`}
+                    >
+                      {statusLabel(c)}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex h-full items-center justify-center py-16">
         <BrandedLoader
           brand={brand}
-          label={
-            mode === "newcard"
-              ? newCards.length > 1
-                ? "Setting up your cards…"
-                : "Setting up your card…"
-              : "Loading your tokens…"
-          }
-          sublabel={
-            mode === "newcard"
-              ? (dispenseMsg ?? "Dispensing your cards")
-              : "Charging once, loading each card"
-          }
+          label="Loading your tokens…"
+          sublabel="Charging once, loading each card"
         />
       </div>
     );

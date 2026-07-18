@@ -2,22 +2,32 @@
  * Intercard game-card configuration (corp 6283).
  *
  * Auth model: the Intercard SOAP surface authenticates on the MAC id alone
- * (identity + tenant + routing). Corp 6283 is a single tenant, so ONE MAC
- * authenticates every reload regardless of which physical location the guest
- * picks — the card account resolves by number. The guest-picked location only
- * sets the credit call's `LocationID` (transaction attribution) and which
- * Square location the sale books under. Per-center MACs are a future
- * enhancement; today the MAC is constant.
+ * (identity + tenant + routing). Each LOCATION is a SEPARATE MAC registration
+ * (owner 2026-07-19), so the MAC MUST match the center the load books to — a
+ * wrong MAC is rejected (-2 MAC not registered). Resolve it with macForCenter().
  *
- * NEVER commit the MAC — it's the whole credential. Set INTERCARD_MAC in Vercel.
+ * NEVER commit a MAC — it's the whole credential. Set the per-location secrets in
+ * Vercel: INTERCARD_MAC_12 (HeadPinz Fort Myers), INTERCARD_MAC_6 (HeadPinz
+ * Naples), INTERCARD_MAC_13 (FastTrax Fort Myers). INTERCARD_MAC (legacy single)
+ * is used only as a fallback when a site-specific one isn't set.
  */
 
 import { SQUARE_LOCATIONS } from "~/features/booking/data/square-catalog-map";
 
 export const CORP_ID = 6283;
 
-/** Single MAC for all reloads (Vercel secret). Empty locally → calls fail closed. */
+/** Legacy single MAC — fallback only; prefer the per-location secrets. */
 export const INTERCARD_MAC = process.env.INTERCARD_MAC || "";
+
+/**
+ * The Intercard MAC for a specific location code. Each site registers its own
+ * MAC, so this must be keyed to the center the tokens load to. Falls back to the
+ * shared INTERCARD_MAC (single-tenant legacy) when a per-site secret is absent.
+ * Empty (no secret at all) → calls fail closed (NO_MAC).
+ */
+export function macForCenter(code: number): string {
+  return process.env[`INTERCARD_MAC_${code}`] || INTERCARD_MAC || "";
+}
 
 /** Data-center SOAP endpoints (overridable via env; defaults are the live hosts). */
 export const INTERCARD_TPI_URL =
