@@ -22,7 +22,11 @@ import {
   memberEligibleCreditTotal,
   memberEligibleBreakdown,
 } from "~/features/booking/data/race-credits";
-import { bowlingReserve, buildBowlingQuoteLineItems } from "~/features/booking/service/bowling";
+import {
+  bowlingReserve,
+  bowlingTerminalPrepare,
+  buildBowlingQuoteLineItems,
+} from "~/features/booking/service/bowling";
 import { applyPromoToAmount } from "~/features/booking/service/promo-pricing";
 import { calculateTax } from "~/features/booking/service/race-pricing";
 import { activeComboSpecial } from "~/features/combos/combo-pricing";
@@ -1157,8 +1161,15 @@ export function CheckoutStep({
       squareCustomerIdOverride?: string;
       /** Kiosk direct-Terminal (owner: NO saved card): the reader already captured
        *  the card against OUR prepared deposit order. When set, reserve records it
-       *  as collected and no card token is sent. */
-      externalPayment?: { paymentId: string; depositOrderId: string; amountCents: number };
+       *  as collected and no card token is sent. `seed` lets the bowling route
+       *  recreate the exact order the reader paid (racing re-derives it from the
+       *  bill and ignores this field). */
+      externalPayment?: {
+        paymentId: string;
+        depositOrderId: string;
+        amountCents: number;
+        seed: string;
+      };
     }) {
       setPhase({ step: "confirming", bmiBillId });
       const effectiveCustomerId =
@@ -1185,6 +1196,9 @@ export function CheckoutStep({
             cardToken:
               params.cardNonce ?? (readerDeviceId ? (params.savedCardId ?? undefined) : undefined),
             giftCardNonce: params.giftCardNonce ?? undefined,
+            // Kiosk direct-Terminal: reader already paid our prepared deposit
+            // order — reserve finalizes it (funds the gift card, never re-charges).
+            externalPayment: params.externalPayment,
             sourceKind: params.sourceKind,
             saveCardConsent: params.saveCardConsent,
             squareCustomerId: effectiveCustomerId,
@@ -1351,10 +1365,24 @@ export function CheckoutStep({
       );
       // Terminal DIRECT charge (owner: NO saved card) — flag-gated for the live
       // reader smoke. The reader charges OUR deposit order → reserve records the
-      // completed paymentId. Only the unified rail is wired (Phase 1), so a
-      // bowling-only cart falls through to the typed card (never a saved card)
-      // until the bowling terminal rail lands (Phase 2).
-      if (kioskTerminalEnabled() && !bowlingOnlyReader) {
+      // completed paymentId. Racing/mixed prepare via the unified rail; a
+      // bowling/KBF-only cart prepares via the bowling rail (bowlingTerminalPrepare)
+      // so it reuses this exact reader UX + server-side verification while keeping
+      // the proven bowling reserve route.
+      if (kioskTerminalEnabled()) {
+        const bowlingItemForTerminal = bowlingOnlyReader
+          ? (session.items.find((i) => i.kind === "bowling" || i.kind === "kbf") as
+              | BowlingItem
+              | KbfItem
+              | undefined)
+          : undefined;
+        const bowlingPrepare = bowlingItemForTerminal
+          ? () =>
+              bowlingTerminalPrepare({
+                item: bowlingItemForTerminal,
+                rewardDiscountCents: session.loyalty?.selectedRewardTier?.discountCents,
+              })
+          : undefined;
         return (
           <div className="mx-auto max-w-md">
             <KioskTerminalCheckoutGate
@@ -1364,6 +1392,7 @@ export function CheckoutStep({
               deviceId={readerDeviceId}
               bmiBillId={bmiBillId}
               depositCentsExpected={Math.round(overview.cashOwed * 100)}
+              prepareFn={bowlingPrepare}
               onCaptured={(ep) =>
                 void handleTokenize({
                   cardNonce: null,
@@ -1408,7 +1437,9 @@ export function CheckoutStep({
           </div>
         );
       }
-      // else: flag on + bowling-only → fall through to the typed card path below.
+      // A kiosk with a paired reader ALWAYS returns above (flag on → terminal,
+      // flag off → reader capture). Only a readerless device / web falls through
+      // to the typed card path below.
     }
 
     return (

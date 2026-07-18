@@ -65,6 +65,13 @@ export function OnScreenKeyboardHost() {
   const [layout, setLayout] = useState<OskLayoutId>("qwerty");
   const [shift, setShift] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // After "Done", a transparent full-canvas shield briefly swallows the next tap
+  // so it can't fall THROUGH to whatever sits under the (now-closing) keyboard —
+  // e.g. the wizard's Continue button docked at the same bottom edge, which on
+  // the returning-racer lookup was advancing the flow to the cart (owner
+  // 2026-07-19). Timing-independent: works even for a slow/firm Done press.
+  const [shield, setShield] = useState(false);
+  const shieldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hide = useCallback(() => {
     setTarget(null);
@@ -100,13 +107,30 @@ export function OnScreenKeyboardHost() {
       document.removeEventListener("focusout", onFocusOut);
       window.removeEventListener("blur", onWindowBlur);
       if (hideTimer.current) clearTimeout(hideTimer.current);
+      if (shieldTimer.current) clearTimeout(shieldTimer.current);
     };
   }, [hide]);
 
   // Route change = new screen = no stale keyboard.
   useEffect(() => hide(), [pathname, hide]);
 
-  if (!target) return null;
+  // Swallow the post-"Done" fall-through tap (see press()). Rendered even after
+  // the keyboard itself has closed (target null), for the brief shield window.
+  const swallow = (e: { preventDefault: () => void; stopPropagation: () => void }) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  const clickShield = shield ? (
+    <div
+      className="fixed inset-0 z-[100]"
+      aria-hidden="true"
+      onPointerDownCapture={swallow}
+      onPointerUpCapture={swallow}
+      onClickCapture={swallow}
+    />
+  ) : null;
+
+  if (!target) return clickShield;
 
   const rows = OSK_LAYOUTS[layout];
   const letterCase =
@@ -116,13 +140,15 @@ export function OnScreenKeyboardHost() {
 
   const press = (code: string) => {
     if (code === OSK_DONE) {
-      // Blur ONLY — let the focusout handler's 150ms-debounced hide unmount the
-      // sheet. Calling hide() synchronously here unmounted the keyboard mid-tap,
-      // so this tap's pointerup/click fell THROUGH to the wizard's Continue button
-      // docked at the same bottom position — firing the wrong action and skipping
-      // steps (owner 2026-07-19: "Done does incorrect functions / reaches cart
-      // mid-flow"). Keeping the sheet mounted through the tap prevents that.
+      // Close the sheet AND raise the click-shield so this tap can't fall through
+      // to the Continue button under the keyboard (which was advancing the
+      // returning-racer lookup to the cart). The shield covers the canvas for a
+      // beat and swallows the very next pointer/click event, then removes itself.
       target.blur();
+      hide();
+      setShield(true);
+      if (shieldTimer.current) clearTimeout(shieldTimer.current);
+      shieldTimer.current = setTimeout(() => setShield(false), 500);
       return;
     }
     if (code === OSK_SHIFT) {
