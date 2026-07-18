@@ -31,9 +31,15 @@ import {
 } from "~/features/game-cards/constants";
 import { centerCodeFor } from "~/config/intercard-centers";
 import type { Brand, CenterCode } from "~/features/booking";
-import { useGameCardDispenser } from "../card-reader";
+import { useGameCardDispenser, type FaultBehavior } from "../card-reader";
 import { useKioskConfig } from "../KioskConfigContext";
 import { BrandedLoader } from "./BrandedLoader";
+import { KioskDispenserHold } from "./KioskDispenserHold";
+
+/** A recoverable dispenser fault the flow holds on until staff resume. */
+type HoldFault = Extract<FaultBehavior, { kind: "hold" }>;
+
+const SEE_ATTENDANT_SAFE = "Your payment is safe — please see an attendant.";
 
 interface CartCard {
   accountNumber: string;
@@ -120,6 +126,7 @@ export function KioskGameZone({
   brand,
   capability = "full",
   onExit,
+  onBusyChange,
 }: {
   center: CenterCode;
   brand: Brand;
@@ -127,6 +134,9 @@ export function KioskGameZone({
    *  new-card dispense). Owner 2026-07-19. */
   capability?: "full" | "reload";
   onExit: () => void;
+  /** Fires true while the dispenser is mid-operation/holding so the flow can
+   *  pause the idle watchdog (don't reset a guest mid-dispense). */
+  onBusyChange?: (busy: boolean) => void;
 }) {
   // Reload-only kiosks skip the buy/reload chooser and land straight on reload.
   const [mode, setMode] = useState<Mode>(capability === "reload" ? "reload" : "choose");
@@ -155,6 +165,32 @@ export function KioskGameZone({
   const dispenser = useGameCardDispenser({ config });
   const readerReady = dispenser.ready;
 
+  // Recoverable-fault hold: the flow pauses on a full-screen hold overlay until
+  // staff resume. `holdRef` carries the promise resolver the dispense loop
+  // awaits (true = resume + retry the same card, false = give up → attendant).
+  const [holdFault, setHoldFault] = useState<HoldFault | null>(null);
+  const holdRef = useRef<{ resolve: (resume: boolean) => void; reinit: boolean } | null>(null);
+  const [reloadPending, setReloadPending] = useState(false);
+
+  const holdUntilResolved = (fault: HoldFault): Promise<boolean> =>
+    new Promise<boolean>((resolve) => {
+      holdRef.current = { resolve, reinit: fault.reinitOnResume };
+      setHoldFault(fault);
+    });
+  const onHoldResume = async () => {
+    const h = holdRef.current;
+    holdRef.current = null;
+    setHoldFault(null);
+    if (h?.reinit) await dispenser.reinit(); // device lost its card position
+    h?.resolve(true);
+  };
+  const onHoldAttendant = () => {
+    const h = holdRef.current;
+    holdRef.current = null;
+    setHoldFault(null);
+    h?.resolve(false);
+  };
+
   // When leaving reload, stop the gate from accepting more cards.
   useEffect(() => {
     if (mode !== "reload") return;
@@ -163,6 +199,11 @@ export function KioskGameZone({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
+
+  // Pause the idle watchdog while the dispenser is working or holding.
+  useEffect(() => {
+    onBusyChange?.(phase === "loading" || phase === "paying" || holdFault != null);
+  }, [phase, holdFault, onBusyChange]);
 
   const totalCents = cards.reduce((sum, c) => {
     const pkg = TOKEN_PACKAGES.find((p) => p.id === c.packageId);
@@ -233,11 +274,11 @@ export function KioskGameZone({
   // acceptAndRead closes the entry gate before we present, so the unit can't
   // auto-swallow the returned card (the "it takes it" bug).
   const readReloadCard = async (i: number) => {
-    const acct = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
-    await dispenser.present(); // ALWAYS hand the card back
-    if (!acct) return; // read failed — dispenser.error shows why
-    setCard(i, { accountNumber: acct, status: "unverified" });
-    await verify(i, acct);
+    const r = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
+    await dispenser.present(); // ALWAYS hand the card back, whatever happened
+    if (!r.ok) return; // read/card fault — the dispenser.error banner explains; guest retries
+    setCard(i, { accountNumber: r.value, status: "unverified" });
+    await verify(i, r.value);
   };
 
   // BALANCE CHECK: insert → read → give the card straight back → look it up.
@@ -272,13 +313,13 @@ export function KioskGameZone({
   };
   const readBalanceCard = async () => {
     setBalCard({ accountNumber: "", status: "reading" });
-    const acct = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
+    const r = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
     await dispenser.present(); // give it straight back — we only need the number
-    if (!acct) {
+    if (!r.ok) {
       setBalCard(null); // dispenser.error banner explains what happened
       return;
     }
-    await fetchBalance(acct);
+    await fetchBalance(r.value);
   };
 
   // BUY: one upfront charge for the basket, THEN dispense + load + present each
@@ -315,27 +356,47 @@ export function KioskGameZone({
     }
   };
 
-  // Dispense → read → load → present, ONE card at a time. A load that fails
-  // captures the blank (never hand over an empty card); the row stays pending.
+  // Dispense → read → load → present, ONE card at a time. Faults are handled by
+  // category: a recoverable "hold" (out of cards, jam, bin) pauses on the hold
+  // overlay and, on staff resume, retries the SAME card; a bad blank is captured
+  // and re-dispensed (bounded); a dead-end aborts (money safe, rows pending).
   const dispenseNewCards = async (groupId: string, rows: Array<{ txnId: string }>) => {
+    const abort = (i: number, message: string) => {
+      setNewCardAt(i, { cardStatus: "failed" });
+      setError(message);
+      setPhase("error");
+    };
+    let blanksBad = 0; // consecutive bad-blank captures (bounded before abort)
+
     for (let i = 0; i < newCards.length; i++) {
       const txnId = rows[i]?.txnId;
       if (!txnId) break;
       setNewCardAt(i, { cardStatus: "dispensing" });
       setDispenseMsg(`Dispensing card ${i + 1} of ${newCards.length}…`);
 
-      const account = await dispenser.dispenseAndRead();
-      if (!account) {
-        // Jam / empty stacker / read fail — stop; charged-but-undispensed rows
-        // stay pending (staff resolves). Never auto-refund.
-        setNewCardAt(i, { cardStatus: "failed" });
-        setError(
-          dispenser.error?.message ??
-            "We couldn't dispense a card. Your payment is safe — please see an attendant.",
+      const r = await dispenser.dispenseAndRead();
+      if (!r.ok) {
+        const f = r.fault;
+        if (f.kind === "hold") {
+          const resumed = await holdUntilResolved(f);
+          if (!resumed) return abort(i, SEE_ATTENDANT_SAFE);
+          i--; // retry the same paid card once the fault is cleared
+          continue;
+        }
+        if (f.kind === "card-retry") {
+          // A bad blank — bin it and try the next one, up to a limit.
+          await dispenser.capture();
+          if (++blanksBad > 3) return abort(i, `${r.info.message}. ${SEE_ATTENDANT_SAFE}`);
+          i--;
+          continue;
+        }
+        return abort(
+          i,
+          f.kind === "abort" ? f.message : `${r.info.message}. ${SEE_ATTENDANT_SAFE}`,
         );
-        setPhase("error");
-        return;
       }
+      blanksBad = 0;
+      const account = r.value;
 
       setDispenseMsg(`Loading tokens onto card ${i + 1}…`);
       let loaded = false;
@@ -459,6 +520,7 @@ export function KioskGameZone({
     groupId: string,
     rows: Array<{ txnId: string; accountNumber: string; tokens: number; bonusTokens: number }>,
   ) => {
+    let anyPending = false;
     for (const r of rows) {
       const bridged = await creditTokensViaBridge({
         accountNumber: r.accountNumber,
@@ -466,7 +528,7 @@ export function KioskGameZone({
         bonusTokens: r.bonusTokens,
       });
       try {
-        await fetch("/api/game-cards/load-card", {
+        const res = await fetch("/api/game-cards/load-card", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
@@ -477,10 +539,15 @@ export function KioskGameZone({
             preLoaded: bridged,
           }),
         });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.loaded !== true) anyPending = true;
       } catch {
-        /* pending → reconcile cron recovers via cloud SOAP */
+        anyPending = true; // pending → reconcile cron recovers via cloud SOAP
       }
     }
+    // The card is already back in the guest's hand — always finish, but flag a
+    // soft "may take a minute" note if any credit didn't confirm (recover-forward).
+    setReloadPending(anyPending);
     setPhase("done");
   };
 
@@ -545,6 +612,42 @@ export function KioskGameZone({
     }
   };
 
+  // ── Dispenser offline & couldn't reconnect: disable Game Zone entirely ──
+  // No dispenser → can't dispense → don't sell or offer it. Highest priority.
+  if (dispenser.unavailable) {
+    return (
+      <div className="mx-auto max-w-lg py-16 text-center kiosk-zoom">
+        <div className="font-heading text-5xl font-extrabold italic text-amber-300">
+          Game Zone is temporarily unavailable
+        </div>
+        <p className="mt-5 text-lg text-white/65">
+          The card machine is offline right now, so we can&rsquo;t sell or reload cards here. Please
+          see an attendant — they can help at the front desk.
+        </p>
+        <button
+          type="button"
+          onClick={onExit}
+          className="font-heading mt-10 h-16 w-full rounded-full bg-[#00e2e5] text-xl font-extrabold uppercase italic text-[#04252b]"
+        >
+          Back
+        </button>
+      </div>
+    );
+  }
+
+  // ── Recoverable dispenser fault: full-screen hold until staff resume ──
+  // Takes over whenever active (can arise mid-dispense), above every other view.
+  if (holdFault) {
+    return (
+      <KioskDispenserHold
+        fault={holdFault}
+        getStatusNow={dispenser.getStatusNow}
+        onResume={() => void onHoldResume()}
+        onSeeAttendant={onHoldAttendant}
+      />
+    );
+  }
+
   // ── Mode chooser: New card vs Reload ──
   if (mode === "choose") {
     return (
@@ -562,13 +665,18 @@ export function KioskGameZone({
         <div className="grid gap-[24px]">
           <button
             type="button"
+            disabled={!readerReady}
             onClick={() => setMode("newcard")}
-            className="k-glass k-tap p-[40px] text-left"
+            className="k-glass k-tap p-[40px] text-left disabled:opacity-40"
             style={{ borderLeft: "8px solid #f800c6" }}
           >
             <div className="k-display text-[48px]">New Game Zone cards</div>
             <div className="mt-[10px] text-[28px] text-white/55">
-              Set up 1–10 fresh cards — pick a token package for each
+              {readerReady
+                ? "Set up 1–10 fresh cards — pick a token package for each"
+                : dispenser.reconnecting
+                  ? "Connecting to the card dispenser…"
+                  : "Card dispenser unavailable — see an attendant"}
             </div>
           </button>
           <button
@@ -872,10 +980,20 @@ export function KioskGameZone({
     }
     return (
       <div className="mx-auto max-w-md py-16 text-center kiosk-zoom">
-        <div className="font-heading text-6xl font-extrabold italic">Tokens loaded!</div>
+        <div className="font-heading text-6xl font-extrabold italic">
+          {reloadPending ? "Payment received!" : "Tokens loaded!"}
+        </div>
         <p className="mt-4 text-lg text-white/60">
-          {cards.length === 1 ? "Your card is" : `All ${cards.length} cards are`} ready — tap in at
-          the games.
+          {reloadPending ? (
+            <>
+              Your tokens may take a minute to appear — if your balance looks off, see an attendant.
+            </>
+          ) : (
+            <>
+              {cards.length === 1 ? "Your card is" : `All ${cards.length} cards are`} ready — tap in
+              at the games.
+            </>
+          )}
         </p>
         <button
           type="button"
@@ -1001,7 +1119,9 @@ export function KioskGameZone({
         </div>
         {!readerReady ? (
           <p className="mt-2 text-center text-sm text-amber-300/80">
-            Card dispenser is offline — please see an attendant to buy new cards.
+            {dispenser.reconnecting
+              ? "Connecting to the card dispenser…"
+              : "Card dispenser is offline — please see an attendant to buy new cards."}
           </p>
         ) : dispenser.stacker === "empty" ? (
           <p className="mt-2 text-center text-sm text-amber-300/80">

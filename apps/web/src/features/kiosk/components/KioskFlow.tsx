@@ -129,6 +129,9 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   const [cartActive, setCartActive] = useState(false);
   const [checkoutActive, setCheckoutActive] = useState(false);
   const [gzOpen, setGzOpen] = useState(false);
+  // True while the Game Zone dispenser is mid-operation/holding — pauses the
+  // idle watchdog so a guest isn't reset mid-dispense or during a fault hold.
+  const [gzBusy, setGzBusy] = useState(false);
   const [vipCombo, setVipCombo] = useState<ComboSpecial | null>(null);
   const [stepBusy, setStepBusy] = useState(false);
   const [bookingHeats, setBookingHeats] = useState(false);
@@ -537,7 +540,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
       {utilityStrip}
       <IdleWatcher
         timeoutMs={checkoutActive ? IDLE_CHECKOUT_MS : IDLE_FLOW_MS}
-        paused={bookingHeats || stepBusy || resetting}
+        paused={bookingHeats || stepBusy || resetting || gzBusy}
         onReset={() => void handleStartOver()}
       />
       {resetting && <BrandedLoaderOverlay brand={config.brand} label="Clearing this session…" />}
@@ -625,7 +628,11 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           center={config.center}
           brand={config.brand}
           capability={gameZoneCapability(config) === "reload" ? "reload" : "full"}
-          onExit={() => setGzOpen(false)}
+          onExit={() => {
+            setGzBusy(false);
+            setGzOpen(false);
+          }}
+          onBusyChange={setGzBusy}
         />
       </div>,
       KIOSK_PHOTOS.arcade,

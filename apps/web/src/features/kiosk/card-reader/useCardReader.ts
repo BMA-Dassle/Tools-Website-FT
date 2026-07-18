@@ -24,6 +24,9 @@ export type CardReaderConnection =
   | { state: "connected"; info: CrtDeviceInfo }
   | { state: "error"; message: string; canRetry: boolean };
 
+/** Result of a reader op — the fault is returned (not just set on `lastError`). */
+export type RunResult<T> = { ok: true; value: T } | { ok: false; error: CrtErrorInfo };
+
 export interface UseCardReaderOptions {
   preferredBaud?: number | null;
   portInfo?: { usbVendorId?: number; usbProductId?: number } | null;
@@ -39,6 +42,9 @@ export interface UseCardReaderOptions {
 
 const EMPTY_LOG: readonly LogEntry[] = [];
 const POLL_MS = 1_200;
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Backoff (ms) between silent reconnect attempts; last entry = final try. */
+const RECONNECT_BACKOFFS = [800, 1_500, 3_000, 5_000, 8_000] as const;
 
 function toErrorInfo(err: unknown): CrtErrorInfo {
   if (err instanceof CrtError) return err.info;
@@ -102,6 +108,9 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
   const [busy, setBusy] = useState<string | null>(null);
   const [lastError, setLastError] = useState<CrtErrorInfo | null>(null);
   const [polling, setPolling] = useState(false);
+  // Terminal: the reader dropped and auto-reconnect gave up. Consumers use this
+  // to disable functionality that needs the hardware (no dispense → no sale).
+  const [unavailable, setUnavailable] = useState(false);
 
   const clientRef = useRef<CrtReaderClient | null>(null);
   // The busy LOCK is this ref, managed synchronously inside run() — it used to
@@ -116,6 +125,16 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
   useEffect(() => {
     onConnectedRef.current = onConnected;
   }, [onConnected]);
+
+  // Reconnect wiring uses refs so beginConnect's onDisconnected closure can call
+  // the reconnect loop without a dependency cycle (loop → reopen → beginConnect).
+  const trustRef = useRef(trustSingleGrant);
+  useEffect(() => {
+    trustRef.current = trustSingleGrant;
+  }, [trustSingleGrant]);
+  const attemptReconnectRef = useRef<() => void>(() => {});
+  const reconnectActiveRef = useRef(false);
+  const stopReconnectRef = useRef(false);
 
   // Feature-detect + report whether a previous grant exists (no prompting).
   // Deferred past the synchronous effect body (react-hooks/set-state-in-effect);
@@ -142,15 +161,18 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
     };
   }, []);
 
-  // Close the port when the panel unmounts.
+  // Close the port + stop reconnecting when the owner unmounts.
   useEffect(() => {
     return () => {
+      stopReconnectRef.current = true;
       void clientRef.current?.close();
       clientRef.current = null;
     };
   }, []);
 
   const disconnect = useCallback(async () => {
+    stopReconnectRef.current = true; // deliberate close — don't fight it with a reconnect
+    setUnavailable(false);
     const c = clientRef.current;
     clientRef.current = null;
     setClient(null);
@@ -184,6 +206,7 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
         );
         clientRef.current = c;
         setClient(c);
+        setUnavailable(false); // recovered — clear any prior terminal state
         setConnection({ state: "connected", info: c.info });
         c.onStatus((s) => setStatus(s));
         c.onDisconnected((reason) => {
@@ -191,11 +214,21 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
           setClient(null);
           setPolling(false);
           setBusy(null);
-          setConnection({
-            state: "error",
-            message: `Reader disconnected${reason ? ` — ${reason}` : ""}. Check the cable, then reconnect.`,
-            canRetry: true,
-          });
+          if (trustRef.current) {
+            // Provisioned kiosk — recover automatically (backoff loop); only
+            // mark unavailable if that gives up.
+            setConnection({
+              state: "connecting",
+              detail: `Reader disconnected${reason ? ` — ${reason}` : ""}. Reconnecting…`,
+            });
+            attemptReconnectRef.current();
+          } else {
+            setConnection({
+              state: "error",
+              message: `Reader disconnected${reason ? ` — ${reason}` : ""}. Check the cable, then reconnect.`,
+              canRetry: true,
+            });
+          }
         });
         onConnectedRef.current?.(c.info, chosen.getInfo());
       } catch (err) {
@@ -219,6 +252,8 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
       return;
     }
     if (clientRef.current) return;
+    stopReconnectRef.current = true; // a manual connect supersedes the auto loop
+    setUnavailable(false);
     setLastError(null);
 
     // CRITICAL: requestPort() must be the FIRST await after the click, or the
@@ -251,58 +286,121 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
     await beginConnect(port);
   }, [beginConnect]);
 
-  // Silent auto-reconnect for a provisioned kiosk: reopen a remembered port
-  // with no picker (open() needs no user gesture). Only when this kiosk has
-  // connected before (trustSingleGrant) and exactly one grant exists, or one
-  // matches the saved USB ids — never guesses among many.
+  // Reopen a remembered port with NO picker (open() needs no user gesture).
+  // Matches the saved USB ids, or a lone grant — never guesses among many.
+  // Returns true once connected.
+  const reopenSilently = useCallback(async (): Promise<boolean> => {
+    if (typeof navigator === "undefined" || !("serial" in navigator)) return false;
+    if (clientRef.current) return true;
+    const granted = await navigator.serial.getPorts().catch(() => [] as SerialPort[]);
+    if (granted.length === 0) return false;
+    let match: SerialPort | null = null;
+    if (portInfo?.usbVendorId != null) {
+      match =
+        granted.find((p) => {
+          const info = p.getInfo();
+          return (
+            info.usbVendorId === portInfo.usbVendorId &&
+            (portInfo.usbProductId == null || info.usbProductId === portInfo.usbProductId)
+          );
+        }) ?? null;
+    }
+    if (!match && granted.length === 1) match = granted[0];
+    if (!match) return false;
+    await beginConnect(match, { silent: true });
+    return clientRef.current != null;
+  }, [portInfo, beginConnect]);
+
+  // Auto-reconnect loop (provisioned kiosks): retry the silent reopen with
+  // backoff. Succeeds → connected (unavailable cleared in beginConnect). Gives
+  // up → `unavailable` = true so consumers can disable the feature (no dispense
+  // → no sale). A manual connect / disconnect sets stopReconnectRef to bail.
+  const attemptReconnect = useCallback(async () => {
+    if (reconnectActiveRef.current) return;
+    reconnectActiveRef.current = true;
+    stopReconnectRef.current = false;
+    try {
+      for (let i = 0; i < RECONNECT_BACKOFFS.length; i++) {
+        if (stopReconnectRef.current || clientRef.current) return;
+        setConnection({
+          state: "connecting",
+          detail: `Reconnecting to the card reader… (${i + 1}/${RECONNECT_BACKOFFS.length})`,
+        });
+        if (await reopenSilently()) return; // connected
+        if (stopReconnectRef.current) return;
+        await delay(RECONNECT_BACKOFFS[i]);
+      }
+      if (!clientRef.current && !stopReconnectRef.current) {
+        setUnavailable(true);
+        setConnection({
+          state: "error",
+          canRetry: true,
+          message: "The card reader is offline and couldn't reconnect. Please see an attendant.",
+        });
+      }
+    } finally {
+      reconnectActiveRef.current = false;
+    }
+  }, [reopenSilently]);
+
+  useEffect(() => {
+    attemptReconnectRef.current = () => void attemptReconnect();
+  }, [attemptReconnect]);
+
+  // On mount, a provisioned kiosk silently connects (and, if it can't, runs the
+  // reconnect loop → marks unavailable so the flow can gate the feature).
   const triedAutoRef = useRef(false);
   useEffect(() => {
     if (!trustSingleGrant || triedAutoRef.current) return;
     if (typeof navigator === "undefined" || !("serial" in navigator)) return;
     triedAutoRef.current = true;
-    let alive = true;
-    void (async () => {
-      const granted = await navigator.serial.getPorts().catch(() => [] as SerialPort[]);
-      if (!alive || clientRef.current || granted.length === 0) return;
-      let match: SerialPort | null = null;
-      if (portInfo?.usbVendorId != null) {
-        match =
-          granted.find((p) => {
-            const info = p.getInfo();
-            return (
-              info.usbVendorId === portInfo.usbVendorId &&
-              (portInfo.usbProductId == null || info.usbProductId === portInfo.usbProductId)
-            );
-          }) ?? null;
-      }
-      if (!match && granted.length === 1) match = granted[0];
-      if (match) await beginConnect(match, { silent: true });
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [trustSingleGrant, portInfo, beginConnect]);
+    void attemptReconnect();
+  }, [trustSingleGrant, attemptReconnect]);
 
-  /** Busy/error bookkeeping wrapper — the ref is the mutex (set/cleared
-   *  synchronously so back-to-back awaited ops never see a stale lock). */
-  const run = useCallback(
-    async <T>(label: string, fn: (c: CrtReaderClient) => Promise<T>): Promise<T | undefined> => {
+  /**
+   * Busy/error bookkeeping wrapper that RETURNS the fault — the ref is the
+   * mutex (set/cleared synchronously so back-to-back awaited ops never see a
+   * stale lock). Callers that need to branch on the fault category (the
+   * recovery policy) use this; `run()` below is the value|undefined shim.
+   */
+  const runResult = useCallback(
+    async <T>(label: string, fn: (c: CrtReaderClient) => Promise<T>): Promise<RunResult<T>> => {
       const c = clientRef.current;
-      if (!c || busyRef.current) return undefined;
+      if (!c) {
+        return {
+          ok: false,
+          error: { code: "NC", message: "Reader is not connected.", category: "fatal" },
+        };
+      }
+      if (busyRef.current) {
+        return {
+          ok: false,
+          error: { code: "BUSY", message: "Reader is busy.", category: "retryable" },
+        };
+      }
       busyRef.current = label;
       setBusy(label);
       setLastError(null);
       try {
-        return await fn(c);
+        return { ok: true, value: await fn(c) };
       } catch (err) {
-        setLastError(toErrorInfo(err));
-        return undefined;
+        const error = toErrorInfo(err);
+        setLastError(error);
+        return { ok: false, error };
       } finally {
         busyRef.current = null;
         setBusy(null);
       }
     },
     [],
+  );
+
+  const run = useCallback(
+    async <T>(label: string, fn: (c: CrtReaderClient) => Promise<T>): Promise<T | undefined> => {
+      const r = await runResult(label, fn);
+      return r.ok ? r.value : undefined;
+    },
+    [runResult],
   );
 
   // Status/sensor polling — paused while a command is in flight so the log
@@ -348,5 +446,7 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
     connect,
     disconnect,
     run,
+    runResult,
+    unavailable,
   };
 }

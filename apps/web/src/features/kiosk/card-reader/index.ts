@@ -11,7 +11,9 @@ export {
   useGameCardDispenser,
   type UseGameCardDispenserOptions,
   type GameCardDispenser,
+  type OpResult,
 } from "./useGameCardDispenser";
+export { classifyFault, type FaultBehavior } from "./recovery";
 export {
   CrtReaderClient,
   type CrtDeviceInfo,
