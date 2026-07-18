@@ -95,7 +95,10 @@ export async function createDeviceCode(
   name: string,
 ): Promise<{ code: string; id: string } | null> {
   if (!SQUARE_TOKEN) return null;
-  const { body } = await sq<{ device_code?: { id?: string; code?: string } }>("/devices/codes", {
+  const { status, body } = await sq<{
+    device_code?: { id?: string; code?: string };
+    errors?: Array<{ code?: string; detail?: string; field?: string }>;
+  }>("/devices/codes", {
     method: "POST",
     body: JSON.stringify({
       idempotency_key: crypto.randomUUID(),
@@ -103,7 +106,11 @@ export async function createDeviceCode(
     }),
   });
   const dc = body.device_code;
-  return dc?.code ? { code: dc.code, id: dc.id ?? "" } : null;
+  if (dc?.code) return { code: dc.code, id: dc.id ?? "" };
+  const e = body.errors?.[0];
+  const detail = e ? `${e.code}${e.field ? ` [${e.field}]` : ""}: ${e.detail}` : `HTTP ${status}`;
+  console.error(`[square-terminal] createDeviceCode rejected loc=${locationId} → ${detail}`);
+  throw new Error(`Square reader pairing failed — ${detail}`);
 }
 
 export interface TerminalCheckoutResult {
@@ -150,18 +157,27 @@ export async function createTerminalCheckout(args: {
   } else {
     checkout.amount_money = { amount: args.amountCents, currency: "USD" };
   }
-  const { body } = await sq<{ checkout?: { id?: string; status?: string } }>(
-    "/terminals/checkouts",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        idempotency_key: args.idempotencyKey ?? crypto.randomUUID(),
-        checkout,
-      }),
-    },
-  );
+  const { status, body } = await sq<{
+    checkout?: { id?: string; status?: string };
+    errors?: Array<{ code?: string; detail?: string; field?: string }>;
+  }>("/terminals/checkouts", {
+    method: "POST",
+    body: JSON.stringify({
+      idempotency_key: args.idempotencyKey ?? crypto.randomUUID(),
+      checkout,
+    }),
+  });
   const c = body.checkout;
-  return c?.id ? { checkoutId: c.id, status: c.status ?? "PENDING" } : null;
+  if (c?.id) return { checkoutId: c.id, status: c.status ?? "PENDING" };
+  // The reader/token exist (we got here) but Square rejected the checkout —
+  // surface the REAL reason (device offline, bad order, amount, etc.) instead of
+  // a misleading "Square not configured". Throw so the route returns the detail.
+  const e = body.errors?.[0];
+  const detail = e ? `${e.code}${e.field ? ` [${e.field}]` : ""}: ${e.detail}` : `HTTP ${status}`;
+  console.error(
+    `[square-terminal] createTerminalCheckout rejected device=${args.deviceId} order=${args.orderId ?? "(none)"} amount=${args.amountCents} → ${detail}`,
+  );
+  throw new Error(`Square reader checkout failed — ${detail}`);
 }
 
 /** Poll a terminal checkout (kiosk client hits this on an interval). */
