@@ -49,7 +49,6 @@ export function KioskCategories({
   onPickOffering,
   onPickCombo,
   onPickPackageExperience,
-  onOpenCart,
   onOpenGameZone,
 }: KioskCategoriesProps) {
   const [cat, setCat] = useState<CategoryKey | null>(null);
@@ -61,22 +60,8 @@ export function KioskCategories({
   // surface it in Experiences wherever racing is offered.
   const showQualifier = offerings.some((o) => o.kind === "race");
   const hasCart = session.items.length > 0;
-
-  const strip = hasCart ? (
-    <button
-      type="button"
-      onClick={onOpenCart}
-      className="k-glass k-tap mb-[28px] flex w-full items-center justify-between gap-6 px-[32px] py-[24px] text-left"
-    >
-      <div className="min-w-0">
-        <div className="k-eyebrow">Your visit so far</div>
-        <div className="mt-[6px] truncate text-[28px] text-white/70">
-          {session.items.map((i) => labelForItem(i.kind)).join(" · ")}
-        </div>
-      </div>
-      <span className="k-display shrink-0 text-[28px] text-[#00e2e5]">View cart ›</span>
-    </button>
-  ) : null;
+  // (The old "Your visit so far" strip is gone — KioskFlow's chrome now shows
+  // the persistent signed-in + cart session banner on every screen instead.)
 
   if (cat === null) {
     return (
@@ -86,7 +71,6 @@ export function KioskCategories({
         <h1 className="k-display mb-[32px] text-[82px]">
           {hasCart ? "Add anything else?" : "What are we doing today?"}
         </h1>
-        {strip}
         <div className="flex min-h-0 flex-1 flex-col gap-[28px]">
           <CategoryCard
             photo={KIOSK_PHOTOS.vip}
@@ -141,7 +125,6 @@ export function KioskCategories({
       <h1 className="k-display mb-[28px] text-[74px]">
         {cat === "exp" ? "Pick your experience" : "Pick an attraction"}
       </h1>
-      {strip}
       <div className="relative min-h-0 flex-1">
         <div className="kiosk-scroll h-full pb-[24px]">
           {cat === "exp" && (
@@ -228,13 +211,6 @@ function GameZoneUnavailableCard() {
       <div className="absolute inset-x-0 bottom-0 h-[8px] bg-white/20" />
     </div>
   );
-}
-
-function labelForItem(kind: string): string {
-  if (kind === "race") return "Racing";
-  if (kind === "bowling") return "Bowling";
-  if (kind === "kbf") return "Kids Bowl Free";
-  return "Attraction";
 }
 
 function CategoryCard({

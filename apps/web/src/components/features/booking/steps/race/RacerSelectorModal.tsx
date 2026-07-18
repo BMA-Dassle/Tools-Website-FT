@@ -44,6 +44,14 @@ interface Props {
   raceTier: RaceTier;
   /** PartyMember ids already on this heat (greyed + unselectable). */
   alreadyBookedMemberIds?: string[];
+  /**
+   * PartyMember ids already racing a DIFFERENT race type this visit (another
+   * tier via the "Add another race" loop). They stay fully pickable but are NOT
+   * preselected — on the second race type the default should be the guests who
+   * don't have a race yet, not re-adding the one who already does (mixed-tier
+   * party, owner 2026-07-18). Same-tier multi-heat picks are unaffected.
+   */
+  assignedOtherRaceMemberIds?: string[];
   onConfirm: (selectedRacers: PartyMember[]) => void;
   onCancel: () => void;
 }
@@ -52,6 +60,7 @@ export function RacerSelectorModal({
   racers,
   raceTier,
   alreadyBookedMemberIds = [],
+  assignedOtherRaceMemberIds = [],
   onConfirm,
   onCancel,
 }: Props) {
@@ -59,11 +68,19 @@ export function RacerSelectorModal({
   const isPickable = (r: PartyMember): boolean =>
     isQualified(r) && !alreadyBookedMemberIds.includes(r.id);
 
-  // Default: all qualified, not-yet-booked racers preselected — v1 default.
+  // Default: qualified, not-yet-booked racers preselected — v1 default — minus
+  // anyone already racing a different race type (they can still be tapped in).
+  // If EVERY pickable racer already races elsewhere (a deliberate re-race),
+  // fall back to the v1 default so the modal never opens with nobody selected.
   const [selected, setSelected] = useState<Set<string>>(() => {
     const next = new Set<string>();
     for (const r of racers) {
-      if (isPickable(r)) next.add(r.id);
+      if (isPickable(r) && !assignedOtherRaceMemberIds.includes(r.id)) next.add(r.id);
+    }
+    if (next.size === 0) {
+      for (const r of racers) {
+        if (isPickable(r)) next.add(r.id);
+      }
     }
     return next;
   });

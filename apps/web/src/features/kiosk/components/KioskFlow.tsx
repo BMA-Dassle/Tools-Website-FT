@@ -25,6 +25,7 @@ import {
   type ActivityOffering,
   type AttractionItem,
   type BowlingItem,
+  type PartyMember,
   type RaceItem,
   type SessionItem,
   type StepDef,
@@ -70,6 +71,14 @@ function stampToday(item: SessionItem): SessionItem {
     return { ...item, date: todayYmd() };
   }
   return item;
+}
+
+/** Short cart labels for the session banner. */
+function itemLabel(kind: string): string {
+  if (kind === "race") return "Racing";
+  if (kind === "bowling") return "Bowling";
+  if (kind === "kbf") return "Kids Bowl Free";
+  return "Attraction";
 }
 
 const IDLE_FLOW_MS = 120_000;
@@ -126,6 +135,15 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   const [bookingHeatsProgress, setBookingHeatsProgress] = useState("Holding your spot…");
   const [kioskError, setKioskError] = useState<string | null>(null);
   const [showHeightConfirm, setShowHeightConfirm] = useState(false);
+  // Mixed-tier guard (owner 2026-07-18): guests in the category with NO heat
+  // assigned when Continue is tapped on a heat step — the flow used to advance
+  // silently with them dropped (e.g. the Starter-level racer crossed out of an
+  // Intermediate heat). The sheet offers the add-another-race loop or an
+  // explicit "not racing" opt-out.
+  const [unraceredPrompt, setUnraceredPrompt] = useState<{
+    category: "adult" | "junior";
+    members: PartyMember[];
+  } | null>(null);
   const [reservationExpired, setReservationExpired] = useState(false);
   const [resetting, setResetting] = useState(false);
   const timerRef = useRef<ReservationTimerHandle>(null);
@@ -422,6 +440,44 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     </div>
   );
 
+  // Session banner (owner 2026-07-18: "make it more clear when someone is
+  // logged into account and has open cart"): slim persistent strip on every
+  // kiosk screen while a guest session is live — who's signed in + what's in
+  // the cart, tap → cart. Hidden on the cart/checkout screens themselves
+  // (navigating away mid-payment would be risky, and it's redundant there).
+  const mainGuest = session.party.find((m) => m.isBillingCustomer) ?? session.party[0];
+  const sessionBanner =
+    (session.party.length > 0 || cartCount > 0) && !cartActive && !checkoutActive ? (
+      <button
+        type="button"
+        onClick={openCart}
+        disabled={cartCount === 0}
+        className="k-glass k-tap mx-[48px] mt-[20px] flex shrink-0 items-center justify-between gap-[20px] px-[28px] py-[16px] text-left"
+      >
+        <span className="flex min-w-0 items-center gap-[14px] text-[24px] text-white/75">
+          <span
+            className="h-[14px] w-[14px] shrink-0 rounded-full bg-[#46d68c]"
+            aria-hidden="true"
+          />
+          {mainGuest ? (
+            <span className="truncate">
+              Signed in · <strong className="text-white">{mainGuest.firstName}</strong>
+              {session.party.length > 1
+                ? ` + ${session.party.length - 1} guest${session.party.length > 2 ? "s" : ""}`
+                : ""}
+            </span>
+          ) : (
+            <span className="truncate">Visit in progress</span>
+          )}
+        </span>
+        {cartCount > 0 && (
+          <span className="shrink-0 text-[24px] font-bold text-[#00e2e5]">
+            {session.items.map((i) => itemLabel(i.kind)).join(" · ")} · View cart ›
+          </span>
+        )}
+      </button>
+    ) : null;
+
   // Podium chrome — the fixed canvas as a flex column: optional full-bleed photo
   // backdrop (z0) · content region (z2) · pinned util strip · overlays.
   const chrome = (children: React.ReactNode, bg?: string | null) => (
@@ -436,7 +492,10 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           aria-hidden="true"
         />
       ) : null}
-      <div className="relative z-[2] flex min-h-0 flex-1 flex-col">{children}</div>
+      <div className="relative z-[2] flex min-h-0 flex-1 flex-col">
+        {sessionBanner}
+        {children}
+      </div>
       {utilityStrip}
       <IdleWatcher
         timeoutMs={checkoutActive ? IDLE_CHECKOUT_MS : IDLE_FLOW_MS}
@@ -611,6 +670,50 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     dispatch(target === stepIndex + 1 ? { type: "next" } : { type: "goto", index: target });
   };
 
+  /** Book the picked (unbooked) heats with BMI, then advance — shared by the
+   *  normal heat-step Continue and the unracered-sheet "continue anyway". */
+  const bookHeatsAndAdvance = async (raceItem: RaceItem) => {
+    const hasUnbooked = raceItem.heats.some((h) => h.heatId && !h.bmiLineId);
+    if (hasUnbooked) {
+      setBookingHeatsProgress("Reserving your heats…");
+      setBookingHeats(true);
+    }
+    try {
+      await bookHeatsOnAdvance(session, raceItem, dispatch, setBookingHeatsProgress);
+      advanceToNextStep();
+    } catch (err) {
+      setKioskError(
+        err instanceof Error
+          ? `Couldn't reserve those heats: ${err.message}`
+          : "Couldn't reserve those heats. Please try again.",
+      );
+    } finally {
+      setBookingHeats(false);
+    }
+  };
+
+  /** Unracered sheet → "Add a race for X": the exact add-another-race loop the
+   *  heat picker offers — clear the category's product (fresh pick), back to the
+   *  product step. Picked heats persist on item.heats and accumulate. */
+  const addRaceForUnracered = () => {
+    if (!unraceredPrompt || !activeItem || activeItem.kind !== "race") return;
+    const patch =
+      unraceredPrompt.category === "adult"
+        ? { productIdAdult: null, productTrackAdult: null }
+        : { productIdJunior: null, productTrackJunior: null };
+    dispatch({ type: "updateItem", id: activeItem.id, patch: patch as Partial<SessionItem> });
+    dispatch({ type: "back" });
+    setUnraceredPrompt(null);
+  };
+
+  /** Unracered sheet → explicit "they're not racing" opt-out (spectators are
+   *  legitimate) — book what's picked and move on. */
+  const continueWithoutUnracered = async () => {
+    if (!activeItem || activeItem.kind !== "race") return;
+    setUnraceredPrompt(null);
+    await bookHeatsAndAdvance(activeItem as RaceItem);
+  };
+
   const handleNext = async () => {
     if (stepBusy) return;
     setKioskError(null);
@@ -629,23 +732,26 @@ export function KioskFlow({ goto }: { goto: string | null }) {
       activeItem.kind === "race"
     ) {
       const raceItem = activeItem as RaceItem;
-      const hasUnbooked = raceItem.heats.some((h) => h.heatId && !h.bmiLineId);
-      if (hasUnbooked) {
-        setBookingHeatsProgress("Reserving your heats…");
-        setBookingHeats(true);
-      }
-      try {
-        await bookHeatsOnAdvance(session, raceItem, dispatch, setBookingHeatsProgress);
-        advanceToNextStep();
-      } catch (err) {
-        setKioskError(
-          err instanceof Error
-            ? `Couldn't reserve those heats: ${err.message}`
-            : "Couldn't reserve those heats. Please try again.",
+      // Mixed-tier guard (owner 2026-07-18): the product step offers the tier the
+      // HIGHEST racer earned, so a lower-tier guest gets crossed out of the heat
+      // and the flow used to advance with them silently dropped. Never advance
+      // past a guest with no race — offer the add-another-race loop (the path
+      // back the guest "couldn't find") or an explicit not-racing opt-out.
+      // Packages own their race selections, so they're exempt.
+      if (!raceItem.packageId) {
+        const category = currentStep.id === "race-heat-adult" ? "adult" : "junior";
+        const assigned = new Set(
+          raceItem.heats.filter((h) => h.heatId && h.assignedTo).map((h) => h.assignedTo),
         );
-      } finally {
-        setBookingHeats(false);
+        const unracered = session.party.filter(
+          (m) => (m.category ?? "adult") === category && !assigned.has(m.id),
+        );
+        if (unracered.length > 0 && raceItem.heats.some((h) => h.heatId)) {
+          setUnraceredPrompt({ category, members: unracered });
+          return;
+        }
       }
+      await bookHeatsAndAdvance(raceItem);
       return;
     }
 
@@ -815,6 +921,36 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           }}
           onChangeParty={() => setShowHeightConfirm(false)}
         />
+      )}
+
+      {/* Mixed-tier guard: someone in this category has no race yet — make the
+          add-another-race path obvious instead of silently dropping them. */}
+      {unraceredPrompt && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
+          <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
+            <div className="k-eyebrow text-[#f0b341]">Before you continue</div>
+            <div className="k-display text-[46px] leading-[1.05]">
+              {unraceredPrompt.members.map((m) => m.firstName).join(" & ")}{" "}
+              {unraceredPrompt.members.length === 1 ? "isn't" : "aren't"} in a race yet
+            </div>
+            <p className="text-[26px] leading-snug text-white/60">
+              This race is above their level or they weren&rsquo;t added to a heat. Add a race that
+              fits them — your picked heats are saved — or continue without racing them.
+            </p>
+            <div className="flex flex-col gap-[16px] pt-[4px]">
+              <button type="button" onClick={addRaceForUnracered} className="k-btn-primary k-tap">
+                Add a race for {unraceredPrompt.members.map((m) => m.firstName).join(" & ")}
+              </button>
+              <button
+                type="button"
+                onClick={() => void continueWithoutUnracered()}
+                className="k-btn-ghost k-tap"
+              >
+                Not racing today — continue
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Combo schedule confirm books BOTH races + holds the VIP lane — a real

@@ -954,6 +954,13 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
               )
               .map((h) => h.assignedTo)
               .filter((id): id is string => !!id)}
+            // Second race TYPE (the "Add another race" loop): default-select only
+            // the guests who don't have a race yet — compared by TIER so same-tier
+            // multi-heat/multi-track picks keep the select-everyone default.
+            assignedOtherRaceMemberIds={categoryHeats
+              .filter((h) => !!h.heatId && !!h.tier && h.tier !== product.tier)
+              .map((h) => h.assignedTo)
+              .filter((id): id is string => !!id)}
             onConfirm={handleRacerSelectorConfirm}
             onCancel={() => setPendingHeat(null)}
           />
