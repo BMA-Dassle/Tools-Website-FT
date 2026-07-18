@@ -591,6 +591,7 @@ export async function middleware(request: NextRequest) {
     !pathname.startsWith("/api") &&
     !pathname.startsWith("/s/") &&
     !pathname.startsWith("/documents") &&
+    !pathname.startsWith("/tax-exempt") &&
     !isRootMetadataPath &&
     !isSharedTopLevelRoute
   ) {
