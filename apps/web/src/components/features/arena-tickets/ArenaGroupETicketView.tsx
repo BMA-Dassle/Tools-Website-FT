@@ -261,7 +261,7 @@ export default function ArenaGroupETicketView({ group }: Props) {
                 {m.movedTo ? (
                   <ArenaMovedCard details={details} movedTo={m.movedTo} />
                 ) : !s.onSession && !isPast ? (
-                  <ArenaInvalidCard details={details} />
+                  <ArenaInvalidCard details={details} pending={m.pendingAssignment} />
                 ) : isPast ? (
                   <ArenaPastCard details={details} />
                 ) : s.checkedIn ? (
