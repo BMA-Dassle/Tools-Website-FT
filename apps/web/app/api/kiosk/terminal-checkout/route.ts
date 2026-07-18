@@ -42,6 +42,9 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
+  console.log(
+    `[kiosk-terminal] CHECKOUT start device=${body.deviceId} amount=${body.amountCents} order=${body.orderId ?? "(none)"} ref=${body.referenceId} idem=${body.idempotencyKey ?? "(random)"}`,
+  );
   try {
     const result = await createTerminalCheckout({
       deviceId: body.deviceId,
@@ -52,10 +55,15 @@ export async function POST(req: NextRequest) {
       idempotencyKey: body.idempotencyKey,
     });
     if (!result) {
+      console.error("[kiosk-terminal] CHECKOUT createTerminalCheckout returned null (no token?)");
       return NextResponse.json({ error: "Square not configured" }, { status: 500 });
     }
+    console.log(
+      `[kiosk-terminal] CHECKOUT ok checkoutId=${result.checkoutId} status=${result.status}`,
+    );
     return NextResponse.json(result);
   } catch (err) {
+    console.error("[kiosk-terminal] CHECKOUT error:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "checkout error" },
       { status: 500 },

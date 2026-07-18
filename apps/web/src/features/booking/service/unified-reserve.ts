@@ -923,6 +923,9 @@ async function unifiedReserveInner(
     // once the reader has captured the card. All fallible guards above already
     // ran, so no money moves after a step that can still fail (H3074 rule). ──
     if (prepareOnly) {
+      console.log(
+        `[kiosk-terminal] PREPARE dayofTotalCents=${dayofTotalCents} depositPct=${depositPct} → depositCents=${depositCents} loc=${locationId} seed=${seedSource ?? baseKey}`,
+      );
       const { depositOrderId } = await createDepositOrder({
         baseKey,
         locationId,
@@ -930,6 +933,7 @@ async function unifiedReserveInner(
         note: depositNote,
         asGiftCardLine: true,
       });
+      console.log(`[kiosk-terminal] PREPARE created deposit order ${depositOrderId}`);
       await writeTerminalAnchor(seedSource ?? baseKey, {
         depositOrderId,
         depositCents,

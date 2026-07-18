@@ -112,7 +112,11 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       <button
         type="button"
         onClick={() => router.replace("/kiosk")}
-        className="k-btn-primary k-tap relative mt-[16px] w-full max-w-[70%] text-[36px]"
+        // k-btn-primary is flex:1 for the wizard's action ROW; here it sits in a
+        // flex COLUMN, where flex:1 stretched it into a full-height arch. Reset to
+        // its intended fixed height (inline wins over the .kiosk-canvas selector).
+        style={{ flex: "0 0 auto" }}
+        className="k-btn-primary k-tap relative mt-[16px] h-[112px] w-full max-w-[70%] text-[36px]"
       >
         Done — start over
       </button>

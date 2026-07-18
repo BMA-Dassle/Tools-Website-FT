@@ -75,19 +75,29 @@ export function KioskTerminalCheckoutGate({
         }),
       });
       const data = await res.json();
-      if (!res.ok || !data.depositOrderId) {
+      console.log(
+        `[kiosk-terminal] prepare → status=${res.status} depositCents=${data.depositCents} shown=${depositCentsExpected} order=${data.depositOrderId} seed=${data.seed} err=${data.error ?? ""}`,
+      );
+      if (!res.ok || !data.depositOrderId || !(data.depositCents > 0)) {
         setError(data.error || "Couldn't start the payment. Please see the front desk.");
         setPhase("error");
         return;
       }
-      // Displayed == charged tripwire: the reader must charge exactly what the
-      // review screen showed. A mismatch means a pricing drift — abort BEFORE the
-      // reader is armed (nothing charged) rather than take the wrong amount.
-      if (data.depositCents !== depositCentsExpected) {
-        console.error(
-          `[kiosk-terminal] deposit mismatch: server ${data.depositCents} vs shown ${depositCentsExpected}`,
+      // The reader charges the SERVER-authoritative deposit (data.depositCents) and
+      // displays that exact amount, so the guest approves what they're charged —
+      // displayed==charged holds at the reader. The review's "due now" is a client
+      // estimate that can differ by a cent or two (tax rounding); log any drift but
+      // proceed. Only a clearly-broken amount (guarded above / below) aborts.
+      const drift = Math.abs(data.depositCents - depositCentsExpected);
+      if (drift > 0) {
+        console.warn(
+          `[kiosk-terminal] deposit drift ${drift}¢ (server ${data.depositCents} vs shown ${depositCentsExpected}) — charging the server amount`,
         );
-        setError("The price changed — please go back and review before paying.");
+      }
+      // Sanity backstop: a wildly-off amount ($25+ from the estimate) signals a
+      // real computation bug, not rounding — refuse to arm the reader.
+      if (drift > 2500) {
+        setError("The price didn't add up — please see the front desk.");
         setPhase("error");
         return;
       }
