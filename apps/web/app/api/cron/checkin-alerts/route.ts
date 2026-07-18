@@ -63,6 +63,10 @@ interface Candidate {
   /** Picker's verdict — racer's own contact, or guardian fallback for
    *  minors. null when neither is reachable (silent skip). */
   resolved?: ContactCandidate | null;
+  /** True for express-sourced candidates NOT on the Pandora roster — a
+   *  confirmed booking whose session assignment hasn't landed. Stamped onto the
+   *  minted ticket so the page shows "e-ticket updating" not "no longer valid". */
+  pendingAssignment?: boolean;
 }
 
 async function fetchCurrentRaces(): Promise<CurrentRaces> {
@@ -686,6 +690,7 @@ function memberFromCandidate(c: Candidate): GroupTicketMember {
     track: c.trackDisplay,
     raceType: c.race.raceType,
     heatNumber: c.race.heatNumber,
+    pendingAssignment: c.pendingAssignment || undefined,
   };
 }
 
@@ -788,7 +793,8 @@ export async function GET(req: NextRequest) {
         candidates.push({ race, trackDisplay, participant: p });
       }
       for (const p of freshExpress) {
-        candidates.push({ race, trackDisplay, participant: p });
+        // Never on the Pandora roster → confirmed booking, assignment pending.
+        candidates.push({ race, trackDisplay, participant: p, pendingAssignment: true });
       }
       sessionResults.push({ track: trackKey, sessionId });
     }
@@ -893,6 +899,7 @@ export async function GET(req: NextRequest) {
           heatNumber: c.race.heatNumber,
           viaGuardian: isGuardianFlavored || undefined,
           guardianFirstName: isGuardianFlavored ? guardianFirstName : undefined,
+          pendingAssignment: c.pendingAssignment || undefined,
         };
 
         if (dryRun) {

@@ -50,6 +50,12 @@ export interface RaceTicket {
    *  ambiguous InvalidCard) pointing at the new ticket. Carries the NEW
    *  heat's display detail + ticket id. */
   movedTo?: MovedTo;
+  /** True when this ticket was minted for a racer who is NOT YET on the Pandora
+   *  session roster (a confirmed booking whose /bmi/schedule assignment hasn't
+   *  landed) — as opposed to one who was assigned and later removed. Lets the
+   *  /t/{id} page show "e-ticket updating, check back soon" instead of the
+   *  alarming "no longer valid" (owner 2026-07-19). */
+  pendingAssignment?: boolean;
 }
 
 /** New-heat detail stamped onto a superseded ticket (RaceTicket.movedTo /
@@ -220,6 +226,9 @@ export interface GroupTicketMember {
   /** Set when THIS member was moved to a different heat — the /g page renders
    *  a "your race moved" card for just this member instead of InvalidCard. */
   movedTo?: MovedTo;
+  /** See RaceTicket.pendingAssignment — this member is confirmed but not yet on
+   *  the session roster; show "e-ticket updating" instead of "no longer valid". */
+  pendingAssignment?: boolean;
 }
 
 export interface GroupTicket {
