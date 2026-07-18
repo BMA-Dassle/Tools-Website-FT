@@ -340,12 +340,21 @@ export async function bowlingTerminalPrepare(params: {
   /** Idempotency seed shared by prepare → finalize. Generated if omitted. */
   seed?: string;
   rewardDiscountCents?: number;
+  /**
+   * KIOSK: the Square location the deposit order must be created at — the
+   * KIOSK'S OWN location, because the paired reader can only charge orders at
+   * its device's location (a FastTrax kiosk selling a HeadPinz lane died with
+   * "device's location must match the order's location"). Omitted (web) = the
+   * bowling center's own location, unchanged.
+   */
+  depositLocationId?: string;
 }): Promise<{ seed: string; depositOrderId: string; depositCents: number }> {
   const { item } = params;
   const seed = params.seed ?? crypto.randomUUID();
   const centerId = item.qamfCenterId;
   if (!centerId) throw new Error("No QAMF center on bowling item");
-  const locationId = centerId === 9172 ? "TXBSQN0FEKQ11" : "PPTR5G2N0QXF7";
+  const locationId =
+    params.depositLocationId ?? (centerId === 9172 ? "TXBSQN0FEKQ11" : "PPTR5G2N0QXF7");
   // The kiosk always quotes before checkout; without it we can't fix the amount
   // the reader charges, so refuse to arm rather than guess.
   if (item.quoteDepositCents == null || item.quoteDayofOrderId == null) {

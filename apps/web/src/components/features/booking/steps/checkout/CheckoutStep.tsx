@@ -1376,11 +1376,22 @@ export function CheckoutStep({
               | KbfItem
               | undefined)
           : undefined;
+        // KIOSK: the deposit order must live at the KIOSK'S location — the paired
+        // reader can only charge its own device's location. (Web never gets here;
+        // this branch is kiosk-terminal only, but derive defensively anyway.)
+        const kioskDepositLocationId = session.context?.kiosk
+          ? session.center === "naples"
+            ? "PPTR5G2N0QXF7"
+            : session.entryBrand === "headpinz"
+              ? "TXBSQN0FEKQ11"
+              : "LAB52GY480CJF"
+          : undefined;
         const bowlingPrepare = bowlingItemForTerminal
           ? () =>
               bowlingTerminalPrepare({
                 item: bowlingItemForTerminal,
                 rewardDiscountCents: session.loyalty?.selectedRewardTier?.discountCents,
+                depositLocationId: kioskDepositLocationId,
               })
           : undefined;
         return (

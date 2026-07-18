@@ -160,6 +160,24 @@ function isBowlingLike(item: { kind: string }): item is BowlingLikeItem {
 // Fort-Myers entities' Square revenue separate.
 const FASTTRAX_ATTRACTION_SLUGS = new Set<string>(["duck-pin"]);
 
+/**
+ * KIOSK deposit location — the kiosk's OWN Square location (by its configured
+ * brand/center), NOT the activity's owning entity. A paired Square Terminal can
+ * only charge orders created at ITS device's location; a FastTrax kiosk
+ * legitimately sells HeadPinz attractions (gel blasters — owner 2026-07-18:
+ * "it's just a deposit"), which used to die with "the device's location must
+ * match the order's location". Revenue is untouched: the DAY-OF order keeps the
+ * owning entity's location (resolveLocationId), and the deposit gift card
+ * redeems cross-location — exactly how the combo's one-GC/two-entity model has
+ * worked in production since 6/11.
+ */
+function resolveKioskDepositLocationId(session: BookingSession): string {
+  if (session.center === "naples") return SQUARE_LOCATIONS.HEADPINZ_NAP;
+  return session.entryBrand === "headpinz"
+    ? SQUARE_LOCATIONS.HEADPINZ_FM
+    : SQUARE_LOCATIONS.FASTTRAX_FM;
+}
+
 function resolveLocationId(session: BookingSession): string {
   // Route the Square day-of order to the entity that OWNS the products:
   //   HeadPinz (FM/Naples by center) — bowling, KBF, gel blaster, laser tag, shuffly
@@ -584,7 +602,14 @@ async function unifiedReserveInner(
   prepareOnly = false,
 ): Promise<UnifiedReserveResult | PrepareDepositResult> {
   const { session, contact } = input;
-  const locationId = resolveLocationId(session);
+  // Day-of order → the entity that OWNS the products (revenue split stays
+  // exact). Deposit/gift-card/payment → the KIOSK's own location when this is a
+  // kiosk session (the paired reader can only charge its device's location);
+  // web sessions keep the single entity location for both.
+  const dayofLocationId = resolveLocationId(session);
+  const locationId = session.context?.kiosk
+    ? resolveKioskDepositLocationId(session)
+    : dayofLocationId;
   // Deterministic idempotency seed — same session anchor → same Square keys on
   // every retry, so all 7 keys replay the SAME order / payment / gift card.
   const baseKey = seedSource ? reserveBaseKey(seedSource) : randomBytes(8).toString("hex");
@@ -802,7 +827,8 @@ async function unifiedReserveInner(
     // The reward applies to squareDayofOrderId (ft when present, else hp).
     primaryDayofPreRewardCents = ft?.totalCents ?? hp?.totalCents ?? 0;
   } else {
-    const single = await createDayofOrder(locationId, sqLineItems, "single");
+    // Entity-owned location — NOT the kiosk deposit location (revenue routing).
+    const single = await createDayofOrder(dayofLocationId, sqLineItems, "single");
     squareDayofOrderId = single.orderId;
     bowlingDayofOrderId = single.orderId;
     bowlingOrderTotalCents = single.totalCents;
