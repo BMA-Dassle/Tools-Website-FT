@@ -203,17 +203,25 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       ) : null}
       <button
         type="button"
-        onClick={() => void resetToKiosk(() => router.replace("/kiosk"))}
+        onClick={() => {
+          // Don't let Done unmount the fulfillment mid-dispense — the card is
+          // still in the machine until gzBusy clears.
+          if (gzBusy) return;
+          void resetToKiosk(() => router.replace("/kiosk"));
+        }}
+        disabled={gzBusy}
         // k-btn-primary is flex:1 for the wizard's action ROW; here it sits in a
         // flex COLUMN, where flex:1 stretched it into a full-height arch. Reset to
         // its intended fixed height (inline wins over the .kiosk-canvas selector).
         style={{ flex: "0 0 auto" }}
-        className="k-btn-primary k-tap relative mt-[16px] h-[112px] w-full max-w-[70%] text-[36px]"
+        className="k-btn-primary k-tap relative mt-[16px] h-[112px] w-full max-w-[70%] text-[36px] disabled:opacity-40"
       >
-        Done — start over
+        {gzBusy ? "Dispensing your cards…" : "Done — start over"}
       </button>
       <p className="relative text-[24px] text-white/40 tabular-nums">
-        Returning to start in {secondsLeft}s — touch anywhere to stay
+        {gzBusy
+          ? "Grab each card as it comes out — we’ll finish up automatically."
+          : `Returning to start in ${secondsLeft}s — touch anywhere to stay`}
       </p>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
