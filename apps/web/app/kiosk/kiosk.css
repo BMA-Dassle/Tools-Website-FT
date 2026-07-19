@@ -220,6 +220,9 @@
   position: relative;
   overflow: hidden;
   background: var(--k-card);
+  /* Own stacking context so the negative-z photo/scrim pseudos below stay
+     INSIDE the card instead of dropping behind the page. */
+  isolation: isolate;
 }
 .kiosk-canvas .k-ph::before {
   content: "";
@@ -229,7 +232,13 @@
   background-size: cover;
   background-position: center;
   filter: saturate(0.78) brightness(0.82);
-  z-index: 0;
+  /* -1 (not 0) so EVERY child — static or positioned — paints above the photo
+     without needing a forced position. The old `.k-ph > * { position:
+     relative }` lift OVERRODE children's `absolute` (higher specificity than
+     the Tailwind utility), which silently turned bottom-anchored card text
+     into flow content with a left-offset — first lines ran off the card edge
+     and accent bars floated mid-card (owner 2026-07-18 "still cut off"). */
+  z-index: -1;
 }
 .kiosk-canvas .k-ph::after {
   content: "";
@@ -241,7 +250,7 @@
     rgba(4, 14, 44, 0.6) 55%,
     rgba(7, 20, 60, 0.48)
   );
-  z-index: 0;
+  z-index: -1;
 }
 .kiosk-canvas .k-ph.soft::after {
   background: linear-gradient(
@@ -262,10 +271,9 @@
     rgba(0, 4, 24, 0.88)
   );
 }
-.kiosk-canvas .k-ph > * {
-  position: relative;
-  z-index: 1;
-}
+/* (deleted: `.k-ph > * { position: relative; z-index: 1 }` — it force-overrode
+   children's `position: absolute` and broke every bottom-anchored card layout;
+   the negative-z pseudos above make the lift unnecessary.) */
 
 /* flow shell: flex column filling the canvas */
 .kiosk-canvas .k-flow {
