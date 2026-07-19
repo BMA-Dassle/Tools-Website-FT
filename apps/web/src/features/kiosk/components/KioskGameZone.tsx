@@ -42,6 +42,22 @@ type HoldFault = Extract<FaultBehavior, { kind: "hold" }>;
 
 const SEE_ATTENDANT_SAFE = "Your payment is safe — please see an attendant.";
 
+/** Consecutive unreadable/duplicate blanks tolerated before we STOP dispensing
+ *  and hold for staff. Bounded so a stack loaded facing the wrong way can't be
+ *  fed through the reader one card at a time until the whole stacker is gone. */
+const MAX_BAD_BLANKS = 3;
+
+/** Hold shown when too many blanks in a row can't be read — almost always the
+ *  stock loaded facing the wrong way. No sensor can confirm orientation, so
+ *  Resume is enabled immediately (staff judgment) and re-inits on resume. */
+const BAD_READ_HOLD: HoldFault = {
+  kind: "hold",
+  title: "Check the card stock",
+  message: "Several new cards in a row couldn't be read — they may be loaded facing the wrong way.",
+  hint: "Reload the dispenser with the cards facing the correct direction, then resume.",
+  reinitOnResume: true,
+};
+
 interface CartCard {
   accountNumber: string;
   packageId: string;
@@ -418,14 +434,15 @@ export function KioskGameZone({
   // Dispense → read → load → present, ONE card at a time. Faults are handled by
   // category: a recoverable "hold" (out of cards, jam, bin) pauses on the hold
   // overlay and, on staff resume, retries the SAME card; a bad blank is captured
-  // and re-dispensed (bounded); a dead-end aborts (money safe, rows pending).
+  // and re-dispensed, but only up to MAX_BAD_BLANKS in a row — then it holds for
+  // staff too (wrong-way stock); a dead-end aborts (money safe, rows pending).
   const dispenseNewCards = async (groupId: string, rows: Array<{ txnId: string }>) => {
     const abort = (i: number, message: string) => {
       setNewCardAt(i, { cardStatus: "failed" });
       setError(message);
       setPhase("error");
     };
-    let blanksBad = 0; // consecutive bad-blank captures (bounded before abort)
+    let blanksBad = 0; // consecutive bad-blank captures (bounded → hold for staff)
     // Every dispensed blank has a UNIQUE pre-encoded account. A repeat means the
     // reader handed back a stale/duplicate read (the "2124 on four cards" bug) —
     // treat it as a bad read so we never load the same account twice.
@@ -447,9 +464,16 @@ export function KioskGameZone({
           continue;
         }
         if (f.kind === "card-retry") {
-          // A bad blank — bin it and try the next one, up to a limit.
+          // Unreadable blank (e.g. loaded facing the wrong way) — bin it to the
+          // error bin. A lone misfeed clears on the next card; too many in a row
+          // means the stock is wrong-way, so HOLD for staff instead of feeding
+          // the whole stacker through one card at a time.
           await dispenser.capture();
-          if (++blanksBad > 3) return abort(i, `${r.info.message}. ${SEE_ATTENDANT_SAFE}`);
+          if (++blanksBad >= MAX_BAD_BLANKS) {
+            const resumed = await holdUntilResolved(BAD_READ_HOLD);
+            if (!resumed) return abort(i, SEE_ATTENDANT_SAFE);
+            blanksBad = 0; // staff fixed the stock — start the count fresh
+          }
           i--;
           continue;
         }
@@ -461,11 +485,16 @@ export function KioskGameZone({
       const account = r.value;
 
       // Stale/duplicate read guard — bin this blank and re-dispense rather than
-      // credit an account we already loaded this session.
+      // credit an account we already loaded this session. Same bounded-then-hold
+      // guard so a run of bad reads can't drain the stacker.
       if (usedAccounts.has(account)) {
         await dispenser.capture();
-        if (++blanksBad > 3) {
-          return abort(i, `Couldn't get a clean read from the dispenser. ${SEE_ATTENDANT_SAFE}`);
+        if (++blanksBad >= MAX_BAD_BLANKS) {
+          const resumed = await holdUntilResolved(BAD_READ_HOLD);
+          if (!resumed) {
+            return abort(i, `Couldn't get a clean read from the dispenser. ${SEE_ATTENDANT_SAFE}`);
+          }
+          blanksBad = 0;
         }
         i--;
         continue;

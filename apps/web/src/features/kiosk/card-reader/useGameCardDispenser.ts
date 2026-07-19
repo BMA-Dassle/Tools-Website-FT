@@ -78,6 +78,12 @@ export function useGameCardDispenser({ config, onConnected }: UseGameCardDispens
     [runResult],
   );
 
+  /** One-shot current status (for the hold screen to gate its Resume button). */
+  const getStatusNow = useCallback(async (): Promise<CrtStatus | null> => {
+    const r = await runResult("status", (c) => c.getStatus());
+    return r.ok ? r.value.status : null;
+  }, [runResult]);
+
   /**
    * BUY: dispense a blank from the stacker to the read station and read its
    * (pre-encoded) account number. The card is held inside — load it, then
@@ -85,15 +91,31 @@ export function useGameCardDispenser({ config, onConnected }: UseGameCardDispens
    * device's A0 fault → a `hold` (not a pre-checked throw), so the flow can
    * pause for a refill.
    */
-  const dispenseAndRead = useCallback(
-    (): Promise<OpResult<string>> =>
-      attempt("dispensing card", async (c) => {
-        const mag = await c.issueAndReadCard();
-        if (!mag.cardNumber) throw new Error("Couldn't read the dispensed card.");
-        return mag.cardNumber;
-      }),
-    [attempt],
-  );
+  const dispenseAndRead = useCallback(async (): Promise<OpResult<string>> => {
+    const r = await attempt("dispensing card", async (c) => {
+      const mag = await c.issueAndReadCard();
+      if (!mag.cardNumber) throw new Error("Couldn't read the dispensed card.");
+      return mag.cardNumber;
+    });
+    if (r.ok || r.fault.kind === "hold") return r;
+    // Safety net: a dispense that failed while the stacker sensor reads empty is
+    // "out of cards" — no matter how the device coded the error. Surface the
+    // resumable Out-of-cards hold instead of a dead-end abort. (Layer 1,
+    // decodeError's byte-order tolerance, already turns the observed "0A" into
+    // an A0 hold, so this only fires for an empty stacker the device reported
+    // with some other/unknown code.)
+    const s = await getStatusNow();
+    if (s?.stacker === "empty") {
+      const info: CrtErrorInfo = {
+        code: "A0",
+        message: "Card stacker is empty",
+        category: "attention",
+        hint: "Refill the stacker with blank cards.",
+      };
+      return { ok: false, fault: classifyFault(info), info };
+    }
+    return r;
+  }, [attempt, getStatusNow]);
 
   /**
    * RELOAD: permit a card in, wait for the guest to insert one, read its
@@ -137,12 +159,6 @@ export function useGameCardDispenser({ config, onConnected }: UseGameCardDispens
       attempt("re-initializing", (c) => c.init("leaveCard").then(() => undefined)),
     [attempt],
   );
-
-  /** One-shot current status (for the hold screen to gate its Resume button). */
-  const getStatusNow = useCallback(async (): Promise<CrtStatus | null> => {
-    const r = await runResult("status", (c) => c.getStatus());
-    return r.ok ? r.value.status : null;
-  }, [runResult]);
 
   /**
    * Poll status until `pred` holds, or the window elapses / the signal aborts.

@@ -125,6 +125,22 @@ export function decodeError(e1: number, e0: number): CrtErrorInfo {
   const code = String.fromCharCode(e1, e0);
   const known = ERROR_TABLE[code];
   if (known) return { code, ...known };
+
+  // Byte-order tolerance. This CRT-591 unit deviates from the M001 doc in
+  // several places (it negotiates 115200 baud, not the documented 57600, and
+  // was observed returning the empty-stacker code as "0A" — the spec's "A0"
+  // with e1/e0 swapped). Reversed, that fell through to "unknown → fatal →
+  // abort" and blocked the resumable "Out of cards" hold. If the received
+  // pair is meaningless but its reverse is a documented code, decode it as the
+  // canonical code so downstream classification (recovery.ts switches on the
+  // canonical code string) still works. Guarded by "direct code unknown" so a
+  // correctly-ordered code is NEVER reinterpreted. Only the numeric pairs that
+  // are each other's reverse (01/10, 04/40, 05/50, 14/41) stay ambiguous and
+  // would need hardware confirmation.
+  const reversed = String.fromCharCode(e0, e1);
+  const knownReversed = ERROR_TABLE[reversed];
+  if (knownReversed) return { code: reversed, ...knownReversed };
+
   return {
     code,
     message: `Unknown device error "${code}"`,
