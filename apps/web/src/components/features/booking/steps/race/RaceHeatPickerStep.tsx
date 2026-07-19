@@ -64,7 +64,12 @@ import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track
  */
 
 // Minimum minutes between "now" and a new racer's heat start (check-in buffer).
+// Web = 40: the racer still has to get to the building and check in. Kiosk = 20
+// (owner 2026-07-19: "only require 20 minutes here") — the new racer is already
+// IN the building finishing their account/waiver at the device, so the buffer
+// only needs to cover the license + kart briefing.
 const NEW_RACER_LEAD_MINUTES = 40;
+const KIOSK_NEW_RACER_LEAD_MINUTES = 20;
 
 // Single-race products have no fixed raceCount and NO per-racer heat cap
 // (owner 2026-07-02: racers may book as many heats as they like) — the
@@ -211,6 +216,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
           racerCount={partySize}
           category={pkg.category !== "any" ? pkg.category : category}
           expressEligible={allReturningHaveWaivers}
+          kiosk={!!session.context?.kiosk}
           onConfirm={(picks: PackagePick[]) => {
             const newHeats: RaceHeatAssignment[] = picks.flatMap((pick) =>
               racers.map((r) => ({
@@ -472,7 +478,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
 
     // (anyNewInCategory / allReturningHaveWaivers are computed above the
     // package early-return so the package grid shares the signal.)
-    const leadMinutes = allReturningHaveWaivers ? 0 : NEW_RACER_LEAD_MINUTES;
+    const leadMinutes = allReturningHaveWaivers
+      ? 0
+      : session.context?.kiosk
+        ? KIOSK_NEW_RACER_LEAD_MINUTES
+        : NEW_RACER_LEAD_MINUTES;
     const leadCutoffMs = anyNewInCategory ? Date.now() + leadMinutes * 60_000 : 0;
 
     const allProposals = useMemo<TrackedProposal[]>(() => {
@@ -520,6 +530,9 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
               ? undefined
               : crossTierBlocks.allByTrack.get(fp.track ?? ""),
             expressEligible: allReturningHaveWaivers,
+            // Presentation-only: kiosk hides rules that carry a kioskPresentation
+            // (VIP anchor holds) instead of greying them.
+            kiosk: !!session.context?.kiosk,
           });
           if (verdict.blocked && verdict.action === "hide") continue;
           list.push({
@@ -537,7 +550,14 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         (a, b) => parseLocal(a.block.start).getTime() - parseLocal(b.block.start).getTime(),
       );
       return list;
-    }, [queries, fetchPlan, leadCutoffMs, allReturningHaveWaivers, crossTierBlocks]);
+    }, [
+      queries,
+      fetchPlan,
+      leadCutoffMs,
+      allReturningHaveWaivers,
+      crossTierBlocks,
+      session.context?.kiosk,
+    ]);
 
     // Hold a just-picked block all-or-nothing. Reserves the new heats with BMI
     // immediately; on failure releases anything that succeeded and reverts the

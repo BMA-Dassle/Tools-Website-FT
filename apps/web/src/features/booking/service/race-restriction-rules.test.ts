@@ -744,6 +744,26 @@ describe("evaluateRaceRestrictions — VIP combo anchor reserve", () => {
     expect(r.cardLabel).toBe("VIP Reserved");
   });
 
+  it("kiosk surface HIDES the anchor hold instead of greying it (owner 2026-07-19)", () => {
+    const r = evaluateRaceRestrictions(vipCtx({ kiosk: true }));
+    expect(r.blocked).toBe(true); // blocking identical — presentation only
+    expect(r.ruleId).toBe("vip-combo-anchor-reserve");
+    expect(r.action).toBe("hide");
+    expect(r.cardLabel).toBeUndefined();
+    // Rules WITHOUT a kioskPresentation keep their web presentation on kiosk.
+    const opening = evaluateRaceRestrictions(
+      vipCtx({
+        kiosk: true,
+        expressEligible: false,
+        candidateStartMs: ms(13, 12),
+        candidateStartLocal: wd(13, 12), // Tue opening window 1:00–1:24 PM
+        productBlocks: [blk(13, 12, 10)],
+      }),
+    );
+    expect(opening.ruleId).toBe("opening-heats-express-only");
+    expect(opening.action).toBe("disable");
+  });
+
   it("blocks every tier and category — the empty slot is shared inventory", () => {
     const int = evaluateRaceRestrictions(
       vipCtx({

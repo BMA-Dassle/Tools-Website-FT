@@ -43,6 +43,9 @@ interface Props {
   category: "adult" | "junior";
   /** allReturningHaveWaivers from the step — the opening-heats signal. */
   expressEligible: boolean;
+  /** Rendering on the in-center kiosk — presentation-only (rules with a
+   *  kioskPresentation hide instead of grey, e.g. the VIP anchor holds). */
+  kiosk?: boolean;
   onConfirm: (picks: PackagePick[]) => void;
   onCancel: () => void;
 }
@@ -166,6 +169,7 @@ export function PackageHeatPicker({
   racerCount,
   category,
   expressEligible,
+  kiosk,
   onConfirm,
   onCancel,
 }: Props) {
@@ -282,6 +286,7 @@ export function PackageHeatPicker({
               : undefined,
           trackAllTierBlocks: trackFailed ? undefined : crossTierBlocks.allByTrack.get(fi.track),
           expressEligible,
+          kiosk,
         });
         if (verdict.blocked && verdict.action === "hide") continue;
         list.push({
@@ -298,7 +303,7 @@ export function PackageHeatPicker({
     });
     list.sort((a, b) => parseLocal(a.block.start).getTime() - parseLocal(b.block.start).getTime());
     return list;
-  }, [queries, fetchItems, category, expressEligible, crossTierBlocks]);
+  }, [queries, fetchItems, category, expressEligible, kiosk, crossTierBlocks]);
 
   // Effective min-gap per component. Defaults to the configured value (e.g. the
   // Ultimate Qualifier's 60 min after the Starter), but when NO heat for this
