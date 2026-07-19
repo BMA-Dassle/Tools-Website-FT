@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { searchAvailability } from "@/lib/qamf-bowling";
 import { getBowlingExperiences, type BowlingExperienceKind } from "@/lib/bowling-db";
 import { HP_LOCATIONS } from "@/lib/headpinz-locations";
+import {
+  earliestProbeMin,
+  etNowDateAndMinutes,
+} from "~/features/booking/service/availability-window";
+import {
+  evaluateWindow,
+  resolveOptionMinutes,
+  type ProbeMap,
+} from "~/features/booking/service/duration-feasibility";
+import { etMinutesOfDay } from "~/components/features/booking/steps/bowling/availability-client";
 
 // Cold-start + 4-7 batches of 8 probes can exceed the default 10s budget
 // when QAMF auth is also cold. Other QAMF-touching routes use 30s; match
@@ -101,6 +111,12 @@ function slotExceedsClose(bookedAt: string, durationMin: number, closeHour24: nu
   return endHour24 > closeHour24;
 }
 
+/** A probe instant: ET minutes-of-day (0-26h notation) + the ISO QAMF gets. */
+interface ProbeSlot {
+  min: number;
+  iso: string;
+}
+
 function buildProbeTime(date: string, hour: number, minute: number, tzOffset: string): string {
   const [y, mo, d] = date.split("-").map(Number);
   const calHour = hour % 24;
@@ -118,8 +134,9 @@ function buildFullDayProbeTimes(
   openHour: number,
   closeHour: number,
   stepMinutes = 15,
-): string[] {
-  const times: string[] = [];
+  earliestMin = 0,
+): ProbeSlot[] {
+  const times: ProbeSlot[] = [];
   const [y, mo, d] = date.split("-").map(Number);
   const nextDate = new Date(y, mo - 1, d + 1);
   const nextDateStr = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, "0")}-${String(nextDate.getDate()).padStart(2, "0")}`;
@@ -128,15 +145,24 @@ function buildFullDayProbeTimes(
   // (one probe per slot), so a finer step = more probes = slower. Callers that
   // need the WHOLE day (the bowling time picker) pass a coarser step (e.g. 60)
   // to stay under the function timeout; KBF reschedule keeps the 15-min default.
+  //
+  // `earliestMin` floors the scan for today (now + leadMinutes) — QAMF happily
+  // reports availability at times already past, which is how "12:00 PM" was
+  // still offered at 12:17 PM in every full-day consumer (tier badges, the
+  // offer step's widen scan, combos, KBF admin). The grid stays anchored at
+  // openHour so slot alignment (on-the-hour chips) is unchanged; past steps
+  // are skipped rather than shifting the grid.
   const step = Math.max(15, stepMinutes);
   for (let t = openHour * 60; t <= closeHour * 60; t += step) {
+    if (t < earliestMin) continue;
     const h = Math.floor(t / 60);
     const m = t % 60;
     const calHour = h % 24;
     const calDate = h >= 24 ? nextDateStr : date;
-    times.push(
-      `${calDate}T${String(calHour).padStart(2, "0")}:${String(m).padStart(2, "0")}:00${tzOffset}`,
-    );
+    times.push({
+      min: t,
+      iso: `${calDate}T${String(calHour).padStart(2, "0")}:${String(m).padStart(2, "0")}:00${tzOffset}`,
+    });
   }
   return times;
 }
@@ -201,9 +227,20 @@ export async function GET(req: NextRequest) {
   const windowMinutes = windowMinutesStr ? Math.max(15, parseInt(windowMinutesStr, 10)) : 300;
   // How close to "now" a today probe may start (minutes). Guest flows keep
   // the 15-min default; the admin combo time-shift passes 5 so a manager can
-  // pull bowling nearly to now when the races finish early.
+  // pull bowling nearly to now when the races finish early; the kiosk passes
+  // 0 (walk-up ASAP — owner 7/17: no artificial minimum lead time).
   const leadMinutesStr = searchParams.get("leadMinutes");
   const leadMinutes = leadMinutesStr ? Math.max(0, parseInt(leadMinutesStr, 10) || 0) : 15;
+  // optionCheck=accurate (2026-07-19): duration-accurate mode. The default
+  // response echoes every configured Time option per slot — QAMF returns the
+  // full option triple regardless of whether the LANE is actually free for
+  // that long, which is how the 2-hour offer showed at any time the 1.5-hour
+  // was open. Accurate mode window-filters each Time option against the
+  // point-in-time probe map (branch D of the plan: a duration is only
+  // POSSIBLE if its offer shows availability at every probed instant of the
+  // window — sound rejection; unprobed instants fail open). Opt-in so legacy
+  // consumers see zero behavior change.
+  const accurate = searchParams.get("optionCheck") === "accurate";
 
   if (isNaN(centerId) || isNaN(players) || players < 1) {
     console.log(`[avail] EXIT: invalid centerId or players`);
@@ -250,6 +287,25 @@ export async function GET(req: NextRequest) {
   // Collect the set of known offer IDs for server-side post-filtering
   const validOfferIds = new Set(validExperiences.map((e) => e.qamfWebOfferId));
 
+  // Accurate mode: experiences sharing each offer (Fun 4 All shares 154 with
+  // regular-mon-thur) — resolveOptionMinutes needs the union — plus the
+  // longest configured duration, which bounds how far past the display window
+  // the probe fan-out must extend for tail checks.
+  const offerConfigs = new Map<number, typeof validExperiences>();
+  let maxDurationMin = 0;
+  if (accurate) {
+    for (const e of validExperiences) {
+      const arr = offerConfigs.get(e.qamfWebOfferId) ?? [];
+      arr.push(e);
+      offerConfigs.set(e.qamfWebOfferId, arr);
+      const durations = [
+        e.qamfOfferDurationMinutes ?? 0,
+        ...(e.durationOptions ?? []).map((d) => d.durationMinutes),
+      ];
+      maxDurationMin = Math.max(maxDurationMin, ...durations);
+    }
+  }
+
   // Both centers are in Southwest Florida (Eastern time).
   const month = parseInt(startDate.slice(5, 7), 10);
   const tzOffset = month >= 3 && month <= 11 ? "-04:00" : "-05:00";
@@ -257,52 +313,36 @@ export async function GET(req: NextRequest) {
   // ── Build probe times ────────────────────────────────────────────
   const hasSelectedTime = hourStr !== null && minuteStr !== null;
   const { open: openHour, close: closeHour } = centerHoursForDate(centerId, startDate);
-  let probeTimes: string[];
+
+  // Earliest allowed probe (minutes from midnight, 0-26h notation): opening
+  // time for future dates, now + leadMinutes for today (incl. the weekend
+  // post-midnight tail). Applied to BOTH modes — full-day previously had no
+  // floor, which is how past slots (12:00 PM at 12:17 PM) reached the tier
+  // badges, the widen scan, combos and the KBF admin.
+  const { nowDateEt, nowMinutesEt } = etNowDateAndMinutes();
+  const earliestMin = earliestProbeMin({
+    startDate,
+    nowDateEt,
+    nowMinutesEt,
+    openHour,
+    closeHour,
+    leadMinutes,
+  });
+
+  let probeTimes: ProbeSlot[];
+  // Accurate mode, targeted window: extra probes PAST the display window so
+  // tail-window checks for the last displayed slots have data. Never shown —
+  // they only feed the probe map.
+  const extraProbeTimes: ProbeSlot[] = [];
 
   if (hasSelectedTime) {
-    // Targeted mode: probe ±5 hours around the selected time so the tier
-    // step can show "Next available at …" when the exact time is sold out.
-    // Never probe before the current time if startDate is today.
+    // Targeted mode: probe ±windowMinutes around the selected time so the
+    // tier step can show "Next available at …" when the exact time is sold
+    // out. Default 300 (±5h); the coarse→fine bowling picker passes a small
+    // value (e.g. 45) to probe just the chosen hour at 15-min granularity.
     const hour = parseInt(hourStr!, 10);
     const minute = parseInt(minuteStr!, 10);
 
-    // Determine earliest allowed probe (in total minutes from midnight).
-    // For today: current ET time + 15 min lead. For future dates: open hour.
-    const todayET = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-    let earliestMin = openHour * 60;
-    if (startDate === todayET) {
-      const parts = new Intl.DateTimeFormat("en-US", {
-        hour: "numeric",
-        minute: "numeric",
-        hourCycle: "h23",
-        timeZone: "America/New_York",
-      }).formatToParts(new Date());
-      const nowH = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
-      const nowM = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
-      let nowTotalMin = nowH * 60 + nowM;
-      // Post-midnight (0–2 AM) → convert to 24+ notation so late-night
-      // Fri/Sat slots (hour 24–26) are correctly gated. BUT only apply
-      // this when the center actually HAS post-midnight hours (closeHour > 24,
-      // i.e. Fri/Sat). On other days, pre-opening browsing (e.g. 3 AM on
-      // Monday) should just use openHour as the floor — the +24*60 shift
-      // would push earliestMin past closeHour, generating zero probes.
-      if (nowH < 6 && closeHour > 24) {
-        nowTotalMin += 24 * 60;
-      }
-      // Only apply the "don't probe past times" filter when we're within
-      // operating hours. Before opening, openHour already floors the window.
-      if (nowTotalMin >= openHour * 60) {
-        earliestMin = Math.max(earliestMin, nowTotalMin + leadMinutes);
-      }
-    }
-    // Snap earliestMin UP to next multiple of 15 so QAMF gets clean
-    // quarter-hour probe times (QAMF rejects minutes not divisible by 5).
-    earliestMin = Math.ceil(earliestMin / 15) * 15;
-
-    // windowMinutes controls how far the probe fans out around the selected
-    // time. Default 300 (±5h — the "next available near X" behavior). The
-    // coarse→fine bowling picker passes a small value (e.g. 45) to probe just
-    // the chosen hour at 15-min granularity (~5 probes) instead of ±5h.
     const windowStart = Math.max(hour * 60 + minute - windowMinutes, earliestMin);
     const windowEnd = Math.min(hour * 60 + minute + windowMinutes, closeHour * 60);
 
@@ -310,11 +350,30 @@ export async function GET(req: NextRequest) {
     for (let t = windowStart; t <= windowEnd; t += 15) {
       const probeH = Math.floor(t / 60);
       const probeM = t % 60;
-      probeTimes.push(buildProbeTime(startDate, probeH, probeM, tzOffset));
+      probeTimes.push({ min: t, iso: buildProbeTime(startDate, probeH, probeM, tzOffset) });
+    }
+
+    if (accurate && maxDurationMin > 15) {
+      const tailEnd = Math.min(windowEnd + maxDurationMin - 15, closeHour * 60);
+      for (let t = windowEnd + 15; t <= tailEnd; t += 15) {
+        const probeH = Math.floor(t / 60);
+        const probeM = t % 60;
+        extraProbeTimes.push({ min: t, iso: buildProbeTime(startDate, probeH, probeM, tzOffset) });
+      }
     }
   } else {
-    // Full-day mode: probe open→close at the requested granularity (stepMinutes).
-    probeTimes = buildFullDayProbeTimes(startDate, tzOffset, openHour, closeHour, stepMinutes);
+    // Full-day mode: probe open→close at the requested granularity, floored
+    // to earliestMin for today. (No tail probes needed — the grid already
+    // reaches close, and past-close durations are dropped by the close
+    // filter before the window check matters.)
+    probeTimes = buildFullDayProbeTimes(
+      startDate,
+      tzOffset,
+      openHour,
+      closeHour,
+      stepMinutes,
+      earliestMin,
+    );
   }
 
   // ── Probe QAMF ──────────────────────────────────────────────────
@@ -329,7 +388,6 @@ export async function GET(req: NextRequest) {
     // silently, producing { Availabilities: [] } and a false "no slots"
     // UI. A single retry catches that transient blip without inflating
     // latency on the warm path.
-    let probeErrors = 0;
     type ProbeResult = {
       Availabilities: Array<{
         TotalPlayers: number;
@@ -337,37 +395,41 @@ export async function GET(req: NextRequest) {
         WebOffer: { Id: string | number; Options: Record<string, unknown>; Services: string[] };
       }>;
     };
-    const results: ProbeResult[] = [];
-    async function probeOne(bookedAt: string): Promise<ProbeResult> {
+    type ProbeOutcome = { slot: ProbeSlot; ok: boolean; data: ProbeResult };
+    let probeErrorsLogged = 0;
+    async function probeOne(slot: ProbeSlot): Promise<ProbeOutcome> {
       const call = () =>
         searchAvailability(centerId, {
-          BookedAtRange: { StartAt: bookedAt, EndAt: bookedAt },
+          BookedAtRange: { StartAt: slot.iso, EndAt: slot.iso },
           TotalPlayers: players,
           WebOffer: { Services: ["BookForLater"] },
         });
       try {
-        return await call();
-      } catch (err1) {
+        return { slot, ok: true, data: await call() };
+      } catch {
         try {
-          return await call();
+          return { slot, ok: true, data: await call() };
         } catch (err2) {
-          probeErrors++;
-          if (probeErrors <= 3) {
+          probeErrorsLogged++;
+          if (probeErrorsLogged <= 3) {
             console.warn(
-              `[avail] probe error at ${bookedAt} (after retry): ${err2 instanceof Error ? err2.message : String(err2)}`,
+              `[avail] probe error at ${slot.iso} (after retry): ${err2 instanceof Error ? err2.message : String(err2)}`,
             );
           }
-          return { Availabilities: [] };
+          return { slot, ok: false, data: { Availabilities: [] } };
         }
       }
     }
-    for (let i = 0; i < probeTimes.length; i += 8) {
-      const batch = probeTimes.slice(i, i + 8);
-      const batchResults = await Promise.all(batch.map(probeOne));
-      results.push(...batchResults);
+    const allSlots = [...probeTimes, ...extraProbeTimes];
+    const outcomes: ProbeOutcome[] = [];
+    for (let i = 0; i < allSlots.length; i += 8) {
+      const batch = allSlots.slice(i, i + 8);
+      outcomes.push(...(await Promise.all(batch.map(probeOne))));
     }
+    const displayOutcomes = outcomes.slice(0, probeTimes.length);
+    const probeErrors = displayOutcomes.filter((o) => !o.ok).length;
 
-    // When *every* probe failed even after retry, we have no signal —
+    // When *every* display probe failed even after retry, we have no signal —
     // returning 200 + empty would be indistinguishable from "this day
     // is sold out" and the client would render "No slots available."
     // Surface a 502 so the wizard can show a retry-able banner instead
@@ -382,13 +444,27 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Probe map for accurate-mode window checks: minutes-of-day → the offer
+    // ids QAMF reported at that instant. Only SUCCESSFUL probes get a key —
+    // a failed probe must read as "unknown" (fail-open), never "no offers".
+    const probeMap: ProbeMap = new Map();
+    if (accurate) {
+      for (const o of outcomes) {
+        if (!o.ok) continue;
+        const ids = new Set<number>();
+        for (const a of o.data.Availabilities ?? []) ids.add(Number(a.WebOffer.Id));
+        probeMap.set(o.slot.min, ids);
+      }
+    }
+
     // Flatten, deduplicate by (BookedAt + WebOffer.Id), filter to valid offers.
     // QAMF's spec types WebOffer.Id as string | number and we've seen it flip
     // per-center; normalize to number here so the client can use strict ===
     // against DB-sourced numeric offer IDs without silent type-mismatch.
+    // DISPLAY probes only — the tail probes exist purely for the window check.
     const seen = new Set<string>();
-    let availabilities = results
-      .flatMap((r) => r.Availabilities)
+    let availabilities = displayOutcomes
+      .flatMap((o) => o.data.Availabilities)
       .map((a) => ({ ...a, WebOffer: { ...a.WebOffer, Id: Number(a.WebOffer.Id) } }))
       .filter((a) => {
         if (!validOfferIds.has(a.WebOffer.Id)) return false;
@@ -429,8 +505,41 @@ export async function GET(req: NextRequest) {
       })
       .filter((a): a is NonNullable<typeof a> => a !== null);
 
+    // ── Accurate mode: duration-window filter ───────────────────────
+    // Strip Time options whose full duration window is provably blocked
+    // (offer absent at a probed instant inside [start, start+minutes)), and
+    // drop slots whose explicit durationMinutes doesn't fit. Duration per
+    // option comes from OUR config (resolveOptionMinutes) — QAMF's Minutes
+    // field is never read for logic. Options we can't resolve are kept
+    // (fail-open); the hold-time guard is the final arbiter.
+    if (accurate) {
+      availabilities = availabilities
+        .map((a) => {
+          const cfgs = offerConfigs.get(a.WebOffer.Id) ?? [];
+          const startMin = etMinutesOfDay(a.BookedAt);
+          if (durationMinOver) {
+            return evaluateWindow(probeMap, a.WebOffer.Id, startMin, durationMinOver) ? a : null;
+          }
+          const timeOpts = (
+            a.WebOffer?.Options as { Time?: Array<{ Id: string | number; Minutes?: number }> }
+          )?.Time;
+          if (!timeOpts?.length) return a; // Game/Unlimited — no duration semantics
+          const fitting = timeOpts.filter((t) => {
+            const minutes = resolveOptionMinutes(cfgs, Number(t.Id));
+            return minutes == null || evaluateWindow(probeMap, a.WebOffer.Id, startMin, minutes);
+          });
+          if (fitting.length === 0) return null;
+          if (fitting.length === timeOpts.length) return a;
+          return {
+            ...a,
+            WebOffer: { ...a.WebOffer, Options: { ...a.WebOffer.Options, Time: fitting } },
+          };
+        })
+        .filter((a): a is NonNullable<typeof a> => a !== null);
+    }
+
     console.log(
-      `[avail] centerId=${centerId} date=${startDate} hour=${hourStr} min=${minuteStr} probes=${probeTimes.length} errors=${probeErrors} raw=${results.reduce((n, r) => n + r.Availabilities.length, 0)} filtered=${availabilities.length}`,
+      `[avail] centerId=${centerId} date=${startDate} hour=${hourStr} min=${minuteStr} probes=${probeTimes.length}+${extraProbeTimes.length} errors=${probeErrors} accurate=${accurate} raw=${displayOutcomes.reduce((n, o) => n + o.data.Availabilities.length, 0)} filtered=${availabilities.length}`,
     );
     if (availabilities.length > 0) {
       console.log(
@@ -438,7 +547,14 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    return NextResponse.json({ Availabilities: availabilities });
+    return NextResponse.json({
+      Availabilities: availabilities,
+      meta: {
+        optionAccuracy: accurate ? "windowed" : "optimistic",
+        probeCount: allSlots.length,
+        probeErrors,
+      },
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";
     console.error(`[avail] fatal error: ${msg}`);

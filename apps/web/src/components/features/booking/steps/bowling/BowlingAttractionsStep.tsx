@@ -2,7 +2,9 @@
 
 import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
 
-const CORAL = "#fd5b56";
+// Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
+// seems negative"); FastTrax red stays on racing only. VIP keeps gold.
+const BLUE = "#00E2E5";
 
 type BowlingLikeItem = BowlingItem | KbfItem;
 

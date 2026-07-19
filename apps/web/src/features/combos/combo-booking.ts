@@ -600,9 +600,13 @@ export async function fetchBowlingLegCandidates(args: {
   // race-start + 45 (e.g. a 2 PM race → 2:45 lane) must be a real candidate,
   // else the engine rounds bowling up to the next :00/:30 slot. Doubles the
   // QAMF probe count for the day; acceptable for the combo wizard's spinner.
+  // optionCheck=accurate (2026-07-19): the option-inclusion check below now
+  // means "this duration actually FITS at this start" — the optimistic
+  // response echoed every configured option, so a combo leg could land on a
+  // slot whose 90/120-min tail was already booked.
   const slots = parseAvailabilities(
     await probeAvailability(
-      `/api/bowling/v2/availability?centerId=${centerId}&players=${players}&startDate=${dateYmd}&kind=open,hourly&stepMinutes=15`,
+      `/api/bowling/v2/availability?centerId=${centerId}&players=${players}&startDate=${dateYmd}&kind=open,hourly&stepMinutes=15&optionCheck=accurate`,
     ),
   );
 

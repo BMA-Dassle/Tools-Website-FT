@@ -75,6 +75,12 @@ export interface EntryContext {
    * steps that behave differently on a shared public device.
    */
   kiosk?: true;
+  /**
+   * Preview opt-in for the single-time-pick bowling flow (`?bowlingV3=1`) —
+   * activates the v3 Date/Experience/Time steps for this session while the
+   * env flag is still dark. See src/features/booking/flags.ts.
+   */
+  bowlingV3?: true;
 }
 
 /** Convenience: an empty context. Used when the entry URL carried nothing. */

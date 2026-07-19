@@ -111,6 +111,17 @@ export function BookingFlow({
   const prevCursorRef = useRef<number | null>(null);
   const timerRef = useRef<ReservationTimerHandle>(null);
 
+  // `?bowlingV3=1` preview opt-in must also reach a PERSISTED session —
+  // context is only seeded at creation, so without this a browser that
+  // already carries a booking session silently ignores the param (owner hit
+  // this on the first preview).
+  useEffect(() => {
+    if (!hydrated) return;
+    if (initialContext?.bowlingV3 && !session.context?.bowlingV3) {
+      dispatch({ type: "enableBowlingV3" });
+    }
+  }, [hydrated, initialContext?.bowlingV3, session.context?.bowlingV3, dispatch]);
+
   // Seed first item or detect cross-sell arrival — runs after storage hydration
   useEffect(() => {
     if (!hydrated) return;

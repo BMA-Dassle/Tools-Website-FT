@@ -3,7 +3,9 @@
 import { useState } from "react";
 import type { KbfItem, StepDef } from "~/features/booking";
 
-const CORAL = "#fd5b56";
+// Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
+// seems negative"); FastTrax red stays on racing only. VIP keeps gold.
+const BLUE = "#00E2E5";
 
 interface PassWithMembers {
   id: number;
@@ -153,7 +155,7 @@ const KbfIdentityStepComponent: StepDef<KbfItem>["Component"] = ({
               onClick={() => setTab(m)}
               className="flex-1 rounded-md py-2 text-xs font-semibold uppercase tracking-wider transition-colors"
               style={{
-                backgroundColor: tab === m ? CORAL : "transparent",
+                backgroundColor: tab === m ? BLUE : "transparent",
                 color: tab === m ? "#0a1628" : "rgba(255,255,255,0.45)",
               }}
             >
@@ -172,14 +174,14 @@ const KbfIdentityStepComponent: StepDef<KbfItem>["Component"] = ({
               onKeyDown={(e) => e.key === "Enter" && void handleLookup()}
               placeholder="parent@example.com"
               className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/25 focus:outline-none"
-              style={{ borderColor: `${CORAL}30` }}
+              style={{ borderColor: `${BLUE}30` }}
             />
             <button
               type="button"
               onClick={() => void handleLookup()}
               disabled={busy || !emailInput.includes("@")}
               className="w-full rounded-full py-3 text-sm font-bold uppercase tracking-wider text-white transition-all disabled:opacity-40"
-              style={{ backgroundColor: CORAL }}
+              style={{ backgroundColor: BLUE }}
             >
               {busy ? "Looking up…" : "Send verification code"}
             </button>
@@ -197,14 +199,14 @@ const KbfIdentityStepComponent: StepDef<KbfItem>["Component"] = ({
               onKeyDown={(e) => e.key === "Enter" && void handleLookup()}
               placeholder="(239) 555-1234"
               className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-center text-sm tracking-wider text-white placeholder:text-white/25 focus:outline-none"
-              style={{ borderColor: `${CORAL}30` }}
+              style={{ borderColor: `${BLUE}30` }}
             />
             <button
               type="button"
               onClick={() => void handleLookup()}
               disabled={busy || phoneInput.replace(/\D/g, "").length !== 10}
               className="w-full rounded-full py-3 text-sm font-bold uppercase tracking-wider text-white transition-all disabled:opacity-40"
-              style={{ backgroundColor: CORAL }}
+              style={{ backgroundColor: BLUE }}
             >
               {busy ? "Looking up…" : "Send verification code"}
             </button>
@@ -215,8 +217,8 @@ const KbfIdentityStepComponent: StepDef<KbfItem>["Component"] = ({
           <div
             className="rounded-xl px-4 py-4"
             style={{
-              backgroundColor: "rgba(253,91,86,0.05)",
-              border: "1px solid rgba(253,91,86,0.20)",
+              backgroundColor: "rgba(0,226,229,0.05)",
+              border: "1px solid rgba(0,226,229,0.20)",
             }}
           >
             <p className="text-xs leading-relaxed text-white/65">
@@ -258,7 +260,7 @@ const KbfIdentityStepComponent: StepDef<KbfItem>["Component"] = ({
           onKeyDown={(e) => e.key === "Enter" && void handleVerify()}
           placeholder="000000"
           className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-4 text-center text-2xl tracking-[0.5em] text-white placeholder:text-white/20 focus:outline-none"
-          style={{ borderColor: `${CORAL}30` }}
+          style={{ borderColor: `${BLUE}30` }}
         />
 
         <button
@@ -266,7 +268,7 @@ const KbfIdentityStepComponent: StepDef<KbfItem>["Component"] = ({
           onClick={() => void handleVerify()}
           disabled={busy || code.length !== 6}
           className="w-full rounded-full py-3 text-sm font-bold uppercase tracking-wider text-white transition-all disabled:opacity-40"
-          style={{ backgroundColor: CORAL }}
+          style={{ backgroundColor: BLUE }}
         >
           {busy ? "Verifying…" : "Verify"}
         </button>

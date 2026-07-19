@@ -24,6 +24,14 @@ export interface RawAvailability {
       Options?: Record<string, Array<{ Id: number; Minutes?: number }>>;
     };
   }>;
+  /** Present since 2026-07-19. optionAccuracy !== "optimistic" means the
+   *  server duration-window-filtered the Time options (optionCheck=accurate)
+   *  and availableTimeOptionIds can be TRUSTED to gate duration buttons. */
+  meta?: {
+    optionAccuracy?: "qamf" | "filtered" | "windowed" | "optimistic";
+    probeCount?: number;
+    probeErrors?: number;
+  };
 }
 
 export interface AvailabilitySlot {
@@ -33,16 +41,23 @@ export interface AvailabilitySlot {
   optionId?: number;
   optionType?: "Game" | "Time" | "Unlimited";
   availableTimeOptionIds?: number[];
+  /**
+   * True when the server ran the duration-accurate filter for this response.
+   * RULE: availableTimeOptionIds may only gate duration buttons when this is
+   * true — the optimistic response echoes every configured option (the
+   * "2-hour shown when only 1.5h fits" bug).
+   */
+  optionsVerified: boolean;
 }
 
 /**
- * Fetch QAMF availability with cold-start retry (502/503/504). The first
- * request after a deploy — or any request that lands on a freshly-spun cold
- * worker under load — can fail the route's all-probes-failed guard; retry a
- * few times with growing backoff before surfacing a "no times" UX that's
- * actually an upstream blip. (v1 parity: BowlingWizard.tsx fetchSlots.)
+ * GET a JSON endpoint with cold-start retry (502/503/504). The first request
+ * after a deploy — or any request that lands on a freshly-spun cold worker
+ * under load — can fail transiently; retry a few times with growing backoff
+ * before surfacing an error UX that's actually an upstream blip.
+ * (v1 parity: BowlingWizard.tsx fetchSlots.)
  */
-export async function probeAvailability(url: string): Promise<RawAvailability> {
+export async function fetchJsonWithRetry<T>(url: string): Promise<T> {
   const backoffs = [600, 1500, 2500];
   let lastStatus = 0;
   for (let attempt = 0; attempt <= backoffs.length; attempt++) {
@@ -50,7 +65,7 @@ export async function probeAvailability(url: string): Promise<RawAvailability> {
     // server, so this same client works when the cached availability endpoint
     // calls it server-side.
     const res = await fetch(`${apiBase()}${url}`);
-    if (res.ok) return (await res.json()) as RawAvailability;
+    if (res.ok) return (await res.json()) as T;
     lastStatus = res.status;
     const retryable = res.status === 502 || res.status === 503 || res.status === 504;
     if (!retryable || attempt === backoffs.length) break;
@@ -59,8 +74,15 @@ export async function probeAvailability(url: string): Promise<RawAvailability> {
   throw new Error(`Availability request failed: ${lastStatus}`);
 }
 
+/** Fetch QAMF availability with cold-start retry. */
+export async function probeAvailability(url: string): Promise<RawAvailability> {
+  return fetchJsonWithRetry<RawAvailability>(url);
+}
+
 /** Map a QAMF availability response to our slot shape. */
 export function parseAvailabilities(data: RawAvailability): AvailabilitySlot[] {
+  const optionsVerified =
+    data.meta?.optionAccuracy != null && data.meta.optionAccuracy !== "optimistic";
   return (data.Availabilities ?? []).map((a) => {
     const twoGame = a.WebOffer.Options?.Game?.find((g) => g.Id);
     const timeOpts = a.WebOffer.Options?.Time ?? [];
@@ -90,6 +112,7 @@ export function parseAvailabilities(data: RawAvailability): AvailabilitySlot[] {
       optionId,
       optionType,
       availableTimeOptionIds: timeOpts.map((t) => t.Id),
+      optionsVerified,
     };
   });
 }
