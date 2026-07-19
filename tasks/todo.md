@@ -1,5 +1,22 @@
 # Open Tasks
 
+## Bowling reservation flow redesign (single time pick + offer-accurate availability) — PLANNED 2026-07-19
+
+Full plan: [tasks/bowling-reservation-flow-plan.md](bowling-reservation-flow-plan.md) (branch
+`claude/bowling-reservation-flow-0rd3nx`). Fixes four owner-reported problems in web booking v2
+AND kiosk bowling: double time selection, offers shown at times not actually bookable for that
+duration (1.5h available ⇒ 2h shown), dated offer screen, past times shown as available
+(12:00 PM at 12:17 PM). Approach: package-before-time flow built off the kiosk "Next Available"
+pattern (`KioskSlotStep`), merged modern Experience screen, one Time step with eager hold;
+availability route gains `optionCheck=accurate` semantics; hold/reserve/reschedule get duration
+guards; past-time now-floor for full-day scans ships first as PR0.
+
+- [ ] Run QAMF probes P1–P8 from local dev (`scripts/qamf-duration-probe.mts`, plan §7) — the
+      P6 blocked-window experiment picks the availability design branch (A–E)
+- [ ] PR0 past-time quick fix → PR1 extractions → PR1.5 guards+schema → PR2 web dark →
+      PR3 kiosk dark → PR4 polish → PR5 flip (ops sign-off on Vercel preview) → PR6 delete
+- [ ] Every PR: dev walk-through + workspace build + Vercel preview smoke (`?bowlingV3=1`)
+
 ## Kiosk Online & Group Waiver — ON MAIN, BUTTON OFF BY DEFAULT (2026-07-18/19)
 
 Attract-screen entry → `/kiosk/waiver`: guest picks today's reservation (next 2h, waiver
