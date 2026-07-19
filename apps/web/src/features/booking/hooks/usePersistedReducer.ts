@@ -14,8 +14,10 @@ const STORAGE_KEY = "booking_session";
  * e.g. the up-front contact step) or pre-filled state from a prior flow.
  *
  * v2 (2026-06-07): inserted the required ContactStep, shifting step indices.
+ * v3 (2026-07-19): RaceItem.packageId split into packageIdAdult/packageIdJunior
+ *     (per-category package pricing) — old envelopes lack the new fields.
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 interface PersistedEnvelope {
   v: number;

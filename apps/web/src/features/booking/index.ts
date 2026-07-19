@@ -17,6 +17,9 @@ export {
   newItem,
   newKbfIdentity,
   newPartyMember,
+  packageIdForCategory,
+  racePackageIds,
+  raceItemFullyPackaged,
 } from "./state/types";
 export type {
   AttractionItem,

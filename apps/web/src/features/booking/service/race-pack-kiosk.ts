@@ -173,7 +173,12 @@ export interface PackCoverage {
  */
 export function computePackCoverage(
   session: {
-    items: Array<{ kind: string; packageId?: string | null; heats?: RaceHeatAssignment[] }>;
+    items: Array<{
+      kind: string;
+      packageIdAdult?: string | null;
+      packageIdJunior?: string | null;
+      heats?: RaceHeatAssignment[];
+    }>;
   },
   packs: ResolvedKioskPack[],
   alreadyRedeemed: Set<RaceHeatAssignment>,
@@ -186,9 +191,13 @@ export function computePackCoverage(
 
   for (const item of session.items) {
     if (item.kind !== "race" || !item.heats) continue;
-    if (item.packageId) continue; // premium bundles price their own races
     for (const [idx, h] of item.heats.entries()) {
       if (!h.heatId || !h.assignedTo) continue;
+      // Premium bundles price their own races — per CATEGORY: an adult package
+      // must not block pack coverage of the junior side's single races.
+      const heatPkg =
+        (h.category ?? "adult") === "junior" ? item.packageIdJunior : item.packageIdAdult;
+      if (heatPkg) continue;
       const pack = byMember.get(h.assignedTo);
       if (!pack) continue;
       if (alreadyRedeemed.has(h)) continue;

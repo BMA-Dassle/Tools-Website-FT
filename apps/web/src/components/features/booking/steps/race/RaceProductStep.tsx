@@ -3,6 +3,7 @@
 import { useMemo, useState, type ComponentProps } from "react";
 import { IconDiscount2 } from "@tabler/icons-react";
 import type { RaceItem, StepDef } from "~/features/booking";
+import { packageIdForCategory } from "~/features/booking";
 import { membershipDiscountsForNames } from "~/features/booking/service/membership-discounts";
 import {
   filterProducts,
@@ -224,18 +225,30 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
       return eligiblePackages({ racerType, schedule, category });
     }, [item.date, racerType]);
 
-    // Package selection lives on item.packageId so back-nav doesn't lose it
+    // Package selection lives on item.packageIdAdult/Junior (one per category —
+    // adult and junior variants price differently) so back-nav doesn't lose it
     // AND so saveBookingDetails can write it to /api/booking-record (which
     // feeds sales_log.package_id via the v1 confirmation page).
-    const selectedPackageId = item.packageId;
+    const selectedPackageId = packageIdForCategory(item, category);
 
     const selectedProductId = category === "adult" ? item.productIdAdult : item.productIdJunior;
 
+    // Picking a single race also CLEARS this category's package — the two are
+    // mutually exclusive per category, and a stale package id would price the
+    // single heats at the package per-racer rate (checkout keys on the field).
     const setProductWithTrack = (productId: string, track: string | null) =>
       onChange(
         category === "adult"
-          ? { productIdAdult: productId, productTrackAdult: track }
-          : { productIdJunior: productId, productTrackJunior: track },
+          ? {
+              productIdAdult: productId,
+              productTrackAdult: track,
+              packageIdAdult: null,
+            }
+          : {
+              productIdJunior: productId,
+              productTrackJunior: track,
+              packageIdJunior: null,
+            },
       );
 
     const handleCardClick = (product: RaceProduct) => {
@@ -388,20 +401,23 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
                   setOpenPackDetails((cur) => (cur === pkg.id ? null : pkg.id))
                 }
                 onSelect={() => {
-                  // Persist the package pick on item state so back-nav
-                  // doesn't lose it + so saveBookingDetails forwards it
-                  // to the booking-record (drives sales_log.package_id).
-                  // Clearing individual product pick keeps the cart shape
-                  // consistent — package picks own their own race selections.
+                  // Persist the package pick on THIS CATEGORY's field so
+                  // back-nav doesn't lose it + so saveBookingDetails forwards
+                  // it to the booking-record (drives sales_log.package_id).
+                  // Per-category fields keep a mixed party's adult and junior
+                  // variants (different SKUs AND prices) from overwriting
+                  // each other. Clearing the individual product pick keeps
+                  // the cart shape consistent — package picks own their own
+                  // race selections.
                   onChange(
                     category === "adult"
                       ? {
-                          packageId: pkg.id,
+                          packageIdAdult: pkg.id,
                           productIdAdult: null,
                           productTrackAdult: null,
                         }
                       : {
-                          packageId: pkg.id,
+                          packageIdJunior: pkg.id,
                           productIdJunior: null,
                           productTrackJunior: null,
                         },
@@ -711,7 +727,7 @@ export const RaceProductStepAdult: StepDef<RaceItem> = {
   isVisible: (_item, session) => hasCategory(session, "adult"),
   canAdvance: (item, session) => {
     if (!hasCategory(session, "adult")) return true;
-    if (item.packageId) return true;
+    if (item.packageIdAdult) return true;
     if (item.productIdAdult) return true;
     // Already added races via "Add another" (which clears the product)? Continue.
     const adultIds = new Set(
@@ -729,7 +745,7 @@ export const RaceProductStepJunior: StepDef<RaceItem> = {
   isVisible: (_item, session) => hasCategory(session, "junior"),
   canAdvance: (item, session) => {
     if (!hasCategory(session, "junior")) return true;
-    if (item.packageId) return true;
+    if (item.packageIdJunior) return true;
     if (item.productIdJunior) return true;
     // Already added races via "Add another" (which clears the product)? Continue.
     const juniorIds = new Set(

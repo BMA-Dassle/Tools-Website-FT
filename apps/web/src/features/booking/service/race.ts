@@ -15,6 +15,7 @@
 import type { Dispatch } from "react";
 import type { Action } from "../state/machine";
 import type { BookingSession, PartyMember, RaceItem, RaceHeatAssignment } from "../state/types";
+import { packageIdForCategory, racePackageIds, raceItemFullyPackaged } from "../state/types";
 import {
   bmiAdapter,
   type BmiProposal,
@@ -179,9 +180,23 @@ export async function bookHeatsOnAdvance(
   // Square (inside the package bundle, or as a standalone POV line). Packages set
   // includesPov (not povQuantity), so derive the qty from the package + racers.
   if (billId && !item.povSold) {
-    const pkg = item.packageId ? getPackage(item.packageId) : null;
-    const racerCount = new Set(item.heats.map((h) => h.assignedTo).filter(Boolean)).size || 1;
-    const povQty = pkg?.includesPov ? racerCount : item.povQuantity;
+    // Package POV is per CATEGORY (adult/junior variants are separate packages):
+    // each variant with includesPov covers exactly ITS category's racers; the
+    // item-level povQuantity still applies to any non-packaged remainder (the
+    // POV step is visible unless every category is packaged — same seam).
+    let povQty = 0;
+    for (const category of ["adult", "junior"] as const) {
+      const pkg = getPackage(packageIdForCategory(item, category));
+      if (!pkg?.includesPov) continue;
+      const catRacers = new Set(
+        item.heats
+          .filter((h) => (h.category ?? "adult") === category)
+          .map((h) => h.assignedTo)
+          .filter(Boolean),
+      ).size;
+      povQty += catRacers || 1;
+    }
+    if (!raceItemFullyPackaged(item, session.party)) povQty += item.povQuantity;
     // A failed sellPov must NOT set povSold — that flag is the only retry
     // gate, so marking it on failure meant the $0 POV line never reached the
     // bill (and the confirmation page had no POV line to claim codes from).
@@ -192,8 +207,17 @@ export async function bookHeatsOnAdvance(
     let wroteMemo = false;
     // Package disclaimer trail (e.g. Ultimate Qualifier qualification terms) so
     // ops sees the acknowledgment at check-in. v1 parity (page.tsx booking/memo).
-    if (pkg?.disclaimers?.billMemo) {
-      await writeBillMemo(billId, pkg.disclaimers.billMemo);
+    // Deduped across the item's packages — the adult + junior variants of one
+    // family share the same memo text, which should land once, not twice.
+    const memos = [
+      ...new Set(
+        racePackageIds(item)
+          .map((id) => getPackage(id)?.disclaimers?.billMemo)
+          .filter((m): m is string => !!m),
+      ),
+    ];
+    for (const memo of memos) {
+      await writeBillMemo(billId, memo);
       wroteMemo = true;
     }
     // NOTE: the combo VIP memo is NOT written here. BMI's booking/memo is a
