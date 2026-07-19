@@ -1,5 +1,35 @@
 # Open Tasks
 
+## Kiosk Online & Group Waiver — BUILT, DARK (2026-07-18/19, on main)
+
+Attract-screen entry (flag-gated) → `/kiosk/waiver`: guest picks today's reservation
+(next 2h, waiver events, event name or "First L." labels — daily-events group/online split),
+sees "First L." of everyone registered with a currently-valid waiver, adds people via the
+extracted `KioskPartyManager` (the exact race-flow new-player/returning-lookup/photo+sign
+screens). Joins persist to Neon `kiosk_waiver_joins` FIRST; BMI `registerProjectPerson`
+attach is gated behind `KIOSK_WAIVER_BMI_ATTACH` pending the probe. Race now / Bowl now
+attract chips hidden same day (owner: "might come back later" — commented in AttractScreen).
+
+Probe `apps/web/scripts/kiosk-waiver-attach-probe.mts` dry-run DONE (2026-07-19):
+A1 = personsByIds has NO waiver fields (Pandora fan-out in roster route is required);
+A2 = Pandora person GET accepts 17-digit Office ids (live-verified). Plan file:
+`~/.claude/plans/virtual-pondering-willow.md`.
+
+- [ ] **A3 probe (gates BMI attach):** staff-create a THROWAWAY test reservation + test
+      person, run `PROJECT_ID=… PERSON_ID=… APPLY=1 npx tsx scripts/kiosk-waiver-attach-probe.mts`
+      → require projectPersons +1, state/products unchanged, idempotency understood →
+      set `KIOSK_WAIVER_BMI_ATTACH=1` in Vercel. (Until then joins are Neon-only —
+      staff board waiver % will NOT count kiosk signers.)
+- [ ] **Owner live smoke** on a real kiosk via typed URL `/kiosk/waiver` (picker window +
+      labels, new person photo+sign, returning OTP person, minor+guardian, sequential
+      second signer, idle reset) → then set `NEXT_PUBLIC_KIOSK_GROUP_WAIVER_ENABLED=true`
+      + redeploy to show the attract button.
+- [ ] Extraction regression eyeball: kiosk race + gel-blaster people screens (now render
+      through `KioskPartyManager`) — behavior must be identical to pre-extraction.
+- [ ] Follow-up: migrate `app/event/[slug]/page.tsx` local `makeDisplayName` to
+      `@/lib/display-name`; consider a retry sweep for `kiosk_waiver_joins` rows with
+      `bmi_attach_status='failed'` (`listFailedJoins()` exists).
+
 ## Kiosk CRT-591 card reader/dispenser — DRIVER + TEST PANEL + GAME ZONE WIRED (branch `kiosk`)
 
 **Driver + test panel (2026-07-17, hardware-verified):** Web Serial driver for the CRT-591 COM

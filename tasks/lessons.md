@@ -1768,3 +1768,71 @@ captured money with no DB record (violates persist-first); deterministic externa
 6. Every payment failure/decline is appended to contract_audit_log
    (deposit_declined/deposit_payment_failed/balance_declined/balance_payment_failed) so
    the admin Contract tab timeline shows what the guest experienced.
+
+## QAMF v1.3 lane add/delete work — Game-lane duration is computed from players (2026-07-15)
+
+**Re-probe** (`apps/web/scripts/_qamf-lane-add-delete-reprobe.mts`, live center 9172, throwaway
+Confirmed reservations X158957/X158958, self-cleaned):
+
+- **`POST /reservations/{id}/lanes` (add lane) WORKS** under `api-version: 1.3` on a Confirmed
+  reservation — the 7/14 "zero-duration lane" was OUR body, not a vendor bug. On **Game-based
+  offers the server IGNORES the EndTime you send and RECOMPUTES the lane's duration from its
+  players × games** — `Players: []` legitimately computes to 0 minutes (that was the 7/14
+  corruption, and its follow-on DELETE 409 `LaneNotAvailable`). Send explicit StartTime AND
+  EndTime **plus named players inline** (`Players: [{ Name, ShoeSize, ActivateBumpers }]`,
+  `GamesPerPlayer` set) → 201 with a real lane. Notably, inline players in the lane POST are
+  accepted — no `PriceKeyNotFound`, unlike the dedicated `POST .../players` endpoint (still
+  409s, center price-key config).
+- **`DELETE /reservations/{id}/lanes/{laneId}` WORKS** — 200 first try, lane gone in a
+  DELAYED re-read (immediate GETs echo requests; always verify delayed, same as the lanes
+  PATCH).
+- **Caveat before relying on in-place adds:** the added lane got 20 min for 2 players × 1 game
+  while the original lane holds 40 min for the same 2 × 1 — the per-game duration applied on
+  the add path may differ from the create path (different price option?). Verify in Conqueror.
+- **Player-DELETE (`DELETE .../players/{id}`) is STILL a bare 500** under BOTH 1.2 and 1.3 on
+  Confirmed with fresh version-matched ids (`_qamf-player-delete-reprobe.mts`, re-probed 7/15
+  post-upgrade). Vendor bug, escalated to QubicaAMF 7/11 — the `qamf-sync.ts` graceful
+  fallback (sync names/title + staff "adjust bowler count in Conqueror" warning) stays.
+
+**Consequence:** reservation-edit's lane-count change no longer NEEDS the delete+create rebook
+(`intent: "rebook"`) for API reasons — in-place lane add/remove is viable once the duration
+caveat is verified. Player-count decreases remain blocked on the vendor fix (then also switch
+`syncQamfPlayers`' GET from api-version 1.2 → 1.3; 1.2 serves stale player ids post-confirm).
+
+## Player add/remove: exhaustive variants probe — it is NOT our request shape (2026-07-16)
+
+After the lane lesson above, re-challenged the player-DELETE 500 the same way
+(`_qamf-player-mutation-variants-probe.mts` + the version-sweep in
+`_qamf-player-delete-reprobe.mts`; X158959–X158962, self-cleaned). Full matrix, all on
+center 9172:
+
+- **DELETE .../players/{id}: bare 500 everywhere it can exist.** api-versions 1.2 AND 1.3
+  (1.0/1.1 GETs don't expose player `Id` at all, so the endpoint is unreachable pre-1.2);
+  Temporary AND Confirmed (7/14); Game AND Time offers (kills the "Game duration recompute
+  crashes" theory); id read fresh from the SAME version's GET seconds earlier; default-named
+  (Player1…) and renamed players. Empty response body (the API's real guards return proper
+  problem+json 409s) ⇒ unhandled server exception. **Vendor bug confirmed — keep the
+  QubicaAMF escalation, keep the qamf-sync.ts manual fallback.**
+- **PUT .../players count-change is DELIBERATELY blocked**, not broken: 3→2 and 3→4 both
+  409 `"Requested updated players are 2, but actual players are 3"` (ReservationPlayers…
+  code). Same-count rename remains the only PUT use. The lib comment "same-count-only" is
+  now probe-verified.
+- **PATCH /lanes with inline Players is a SILENT NO-OP for count** — 200 but the lane keeps
+  its 3 players. Never use it to change player count and think it worked.
+- **Player ids are UNSTABLE** — they regenerated across GETs even after a *409'd* PUT
+  (baseline [4050149-51] → [4050152-54] after a failed V1). Any future player-DELETE caller
+  must GET-then-DELETE atomically; never persist QAMF player ids.
+
+So: add/remove players on an existing QAMF reservation has NO working API path today.
+Increase = works only via inline Players on an added lane (see lane lesson) or Conqueror;
+decrease = Conqueror-manual until QubicaAMF fixes the DELETE.
+
+## Run the FULL build (a11y-gate), not just `tsc`, before pushing kiosk/UI (2026-07-19)
+
+Pushed `autoFocus` on the admin PIN input after only running `npx tsc --noEmit` — it
+typechecked fine but the Vercel build failed at the **postbuild a11y-gate**
+(`jsx-a11y/no-autofocus`, `scripts/a11y-gate.mjs`). tsc does NOT run jsx-a11y; the gate only
+runs inside `npm run build`. **Rule: for any JSX/UI change, run `npm run build` locally
+(it runs tsc + the a11y-gate) before pushing — never just `tsc`.** Common jsx-a11y trips on
+this repo: `autoFocus`, click handlers on non-button elements without role/label, controls
+without an accessible label. See `apps/web/lib/a11y.ts` for the helper props.
