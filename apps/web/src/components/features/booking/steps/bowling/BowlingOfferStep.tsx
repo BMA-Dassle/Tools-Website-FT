@@ -10,6 +10,12 @@ import type {
   BowlingExperienceDurationOption,
 } from "@/lib/bowling-db";
 import { KBF_VIP_LANE_UPCHARGE_PER_PERSON_CENTS } from "~/features/booking/service/kbf-pricing";
+import {
+  bowlingLaneCount,
+  buildBowlingLineItems,
+  effectiveBowlingOptionId,
+  holdBowlingSlot,
+} from "~/features/booking/service/bowling-offer";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
 import {
   type AvailabilitySlot,
@@ -81,7 +87,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     item.kind === "bowling"
       ? (item as BowlingItem).playerCount
       : (item as KbfItem).bowlers.length + (item as KbfItem).paidAdults;
-  const laneCount = Math.max(1, Math.ceil(playerCount / 6));
+  const laneCount = bowlingLaneCount(playerCount);
 
   const [experiences, setExperiences] = useState<BowlingExperienceWithDetails[]>([]);
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
@@ -231,37 +237,6 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     }
   }, [loading, slots, experiences, tierExperiences, item.date, item.tier, selectedHour]);
 
-  function buildLineItems(
-    exp: BowlingExperienceWithDetails,
-    durationOpt: BowlingExperienceDurationOption | null,
-  ) {
-    const isPerLane = exp.kind === "hourly" || exp.slug.startsWith("pizza-bowl");
-    const qtyMultiplier = isPerLane ? laneCount : playerCount;
-    const durationMultiplier = durationOpt?.squareMultiplier ?? 1;
-
-    return (exp.items ?? []).map((ei) => {
-      const isPrimary = ei.sortOrder === 0;
-      const useOverride = isPrimary && durationOpt?.overrideSquareProductId;
-
-      return {
-        squareProductId: useOverride ? durationOpt!.overrideSquareProductId! : ei.squareProductId,
-        quantity: isPrimary
-          ? ei.quantity * qtyMultiplier * durationMultiplier
-          : ei.quantity * laneCount,
-        label: ei.label,
-        priceCents: useOverride
-          ? (durationOpt!.overridePriceCents ?? ei.priceCents)
-          : ei.priceCents,
-        depositPct: useOverride
-          ? (durationOpt!.overrideDepositPct ?? ei.depositPct)
-          : ei.depositPct,
-        squareCatalogObjectId: useOverride
-          ? (durationOpt!.overrideCatalogObjectId ?? ei.squareCatalogObjectId)
-          : ei.squareCatalogObjectId,
-      };
-    });
-  }
-
   async function selectSlot(
     exp: BowlingExperienceWithDetails,
     slot: AvailabilitySlot,
@@ -279,40 +254,25 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     setError(null);
 
     try {
-      // Option precedence:
-      //  1. durationOpt    — the duration the customer explicitly picked (hourly).
-      //  2. exp.qamfOptionId — the experience's seeded offer option. Open packages
-      //     (Pizza Bowl 2hr, Fun 4 All 1.5hr) have no duration buttons but DO carry
-      //     the correct Time option here.
-      //  3. slot.optionId  — QAMF-derived, last resort ONLY.
-      // We must NOT trust slot.optionId for fixed-duration packages: QAMF returns a
-      // 60/90/120-min option triple with Minutes often undefined and lists the 60-min
-      // option first, so parseAvailabilities' "longest" degrades to 1 hour — the
-      // Pizza Bowl / Fun 4 All short-booking bug.
-      const effectiveOptionId = durationOpt?.qamfOptionId ?? exp.qamfOptionId ?? slot.optionId;
+      // Option precedence guard (Pizza Bowl / Fun 4 All short-booking bug) —
+      // see effectiveBowlingOptionId in service/bowling-offer.ts.
+      const effectiveOptionId = effectiveBowlingOptionId(durationOpt, exp, slot.optionId);
 
-      const holdRes = await fetch("/api/bowling/v2/reserve/hold", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          centerId,
-          webOfferId: slot.webOfferId,
-          optionId: effectiveOptionId,
-          optionType: slot.optionType,
-          bookedAt: slot.bookedAt,
-          players: playerCount,
-          service: "BookForLater",
-        }),
+      // holdBowlingSlot releases the superseded hold first (re-pick after an
+      // earlier selection used to leak the old hold for its full 10-min TTL).
+      const { qamfReservationId } = await holdBowlingSlot({
+        centerId,
+        webOfferId: slot.webOfferId,
+        optionId: effectiveOptionId,
+        optionType: slot.optionType,
+        bookedAt: slot.bookedAt,
+        players: playerCount,
+        service: "BookForLater",
+        previousHoldId: item.qamfReservationId,
+        previousCenterId: item.qamfCenterId,
       });
-      const holdData = await holdRes.json();
 
-      if (!holdRes.ok) {
-        setError(holdData.error ?? "Couldn't reserve this slot. Try another time.");
-        return;
-      }
-
-      const qamfReservationId = holdData.qamfReservationId as string;
-      const lineItems = buildLineItems(exp, durationOpt);
+      const lineItems = buildBowlingLineItems(exp, durationOpt, playerCount, laneCount);
 
       dispatch({
         type: "setBowlingHold",

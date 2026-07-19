@@ -1,0 +1,202 @@
+/**
+ * Static center-hours + date helpers for the bowling/KBF steps.
+ *
+ * Extracted verbatim from BowlingSlotsStep.tsx (2026-07-19) so the kiosk time
+ * step and the v3 bowling steps can share them without importing a step
+ * component. Pure module — no fetching, no React.
+ */
+
+import type { BookingSession } from "../state/types";
+import { findOffering } from "../activities-catalog";
+import { HP_LOCATIONS } from "@/lib/headpinz-locations";
+import { getPublicReopenMinutes } from "@/lib/group-events";
+
+const ACTIVITY_ICON: Record<string, string> = {
+  "gel-blaster": "🔫",
+  "laser-tag": "🎯",
+  "duck-pin": "🎳",
+  shuffly: "🎲",
+};
+
+export interface OtherActivity {
+  key: string;
+  label: string;
+  icon: string;
+  timeLabel: string;
+  /** ET hour in 0-26 notation, matching the time chips (or null if unscheduled). */
+  hour: number | null;
+}
+
+/** Wall-clock hour (0-26) of a race/attraction ISO. These are stored as
+ *  wall-clock-in-Z notation (see RaceHeatPickerStep.parseLocal), so a naive
+ *  local parse yields the intended ET hour on any browser. */
+export function wallClockHour(iso: string): number {
+  const h = new Date(iso.replace(/Z$/, "")).getHours();
+  return h < 6 ? h + 24 : h; // post-midnight → 24-26 (matches chip notation)
+}
+
+export function wallClockLabel(iso: string): string {
+  return new Date(iso.replace(/Z$/, "")).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+export function bowlingTimeLabel(hour: number, minute: number | null): string {
+  const ampm = hour % 24 >= 12 ? "PM" : "AM";
+  const hr = hour % 12 || 12;
+  return `${hr}:${String(minute ?? 0).padStart(2, "0")} ${ampm}`;
+}
+
+/**
+ * Other cart activities scheduled on `date`, sorted by time — so the bowling
+ * time picker can show (and mark) when the customer is already booked that day.
+ */
+export function otherActivitiesOnDate(
+  session: BookingSession,
+  currentId: string,
+  date: string,
+): OtherActivity[] {
+  const out: OtherActivity[] = [];
+  for (const it of session.items) {
+    if (it.id === currentId) continue;
+    if (it.kind === "race") {
+      const seen = new Set<string>();
+      for (const h of it.heats) {
+        if (!h.heatId) continue;
+        const naive = h.heatId.replace(/Z$/, "");
+        if (!naive.startsWith(date) || seen.has(naive)) continue;
+        seen.add(naive);
+        out.push({
+          key: `${it.id}:${naive}`,
+          label: "Racing",
+          icon: "🏁",
+          timeLabel: wallClockLabel(h.heatId),
+          hour: wallClockHour(h.heatId),
+        });
+      }
+    } else if (it.kind === "attraction") {
+      if (it.date !== date || !it.slot) continue;
+      out.push({
+        key: it.id,
+        label: findOffering(it.slug ?? "")?.displayName ?? "Activity",
+        icon: ACTIVITY_ICON[it.slug ?? ""] ?? "📍",
+        timeLabel: wallClockLabel(it.slot),
+        hour: wallClockHour(it.slot),
+      });
+    } else {
+      // bowling | kbf — ET hour lives on item.hour directly
+      if (it.date !== date || it.hour == null) continue;
+      out.push({
+        key: it.id,
+        label: it.kind === "kbf" ? "Kids Bowl Free" : "Bowling",
+        icon: "🎳",
+        timeLabel: bowlingTimeLabel(it.hour, it.minute),
+        hour: it.hour,
+      });
+    }
+  }
+  return out.sort((a, b) => (a.hour ?? 99) - (b.hour ?? 99));
+}
+
+export const CENTERS: Record<number, { hpSlug: string; name: string }> = {
+  9172: { hpSlug: "fort-myers", name: "HeadPinz Fort Myers" },
+  3148: { hpSlug: "naples", name: "HeadPinz Naples" },
+};
+
+function ymdFromDate(dt: Date): string {
+  return dt.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
+
+export function todayYmd(): string {
+  return ymdFromDate(new Date());
+}
+
+export function etNowMinutes(): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "numeric",
+    hourCycle: "h23",
+    timeZone: "America/New_York",
+  }).formatToParts(new Date());
+  const h = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
+  const m = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
+  return h * 60 + m;
+}
+
+/** Today's operating date: before 2 AM on a weekend night, "today" is still
+ *  yesterday's operating day (Fri/Sat close at 2 AM). */
+export function effectiveToday(): string {
+  const today = todayYmd();
+  const nowMins = etNowMinutes();
+  if (nowMins >= 120) return today;
+  const d = new Date(`${today}T12:00:00`);
+  d.setDate(d.getDate() - 1);
+  const yesterday = ymdFromDate(d);
+  const dow = new Date(`${yesterday}T12:00:00`).getDay();
+  if (dow === 5 || dow === 6) return yesterday;
+  return today;
+}
+
+export function addDays(ymd: string, n: number): string {
+  const d = new Date(`${ymd}T12:00:00`);
+  d.setDate(d.getDate() + n);
+  return ymdFromDate(d);
+}
+
+function parseHourToken(token: string): number {
+  const match = token.trim().match(/^(\d+)(AM|PM)$/i);
+  if (!match) return 11;
+  let h = parseInt(match[1], 10);
+  const period = match[2].toUpperCase();
+  if (period === "PM" && h !== 12) h += 12;
+  else if (period === "AM" && h === 12) h = 24;
+  else if (period === "AM" && h < 9) h += 24;
+  return h;
+}
+
+export function parseHoursRange(hoursStr: string): { open: number; close: number } {
+  const timePart = hoursStr.split(" ").pop() ?? "11AM-2AM";
+  const dash = timePart.lastIndexOf("-");
+  return {
+    open: parseHourToken(timePart.slice(0, dash)),
+    close: parseHourToken(timePart.slice(dash + 1)),
+  };
+}
+
+/**
+ * Bookable hours (0-26 notation) for a date — STATIC, no QAMF probe. Center
+ * open→close (weekday vs weekend), minus hours already past when the date is
+ * today, with the KBF Friday 5 PM cap. The package step is what checks real
+ * availability for the chosen hour (and widens to next-available if it's full),
+ * so the chips load instantly. (v1 parity: time chips are static operating
+ * hours; availability is resolved on selection.)
+ */
+export function operatingHours(centerHpSlug: string, dateStr: string, isKbf: boolean): number[] {
+  const dow = new Date(`${dateStr}T12:00:00`).getDay();
+  const isWeekend = dow === 5 || dow === 6;
+  const loc = HP_LOCATIONS[centerHpSlug];
+  const range = loc
+    ? parseHoursRange(isWeekend ? loc.hoursWeekend : loc.hours)
+    : isWeekend
+      ? { open: 11, close: 26 }
+      : { open: 11, close: 24 };
+  let hours = Array.from({ length: range.close - range.open }, (_, i) => i + range.open);
+
+  // KBF Friday: cap at 5 PM (v1 parity — BowlingWizard.tsx:1430)
+  if (isKbf && dow === 5) hours = hours.filter((h) => h < 17);
+
+  // Morning-only buyout: drop hours that end before the public reopen time
+  // (an hour stays if its last :45 start is at-or-after reopen). The offer step
+  // further drops the pre-reopen minute starts within the boundary hour.
+  const reopenMins = getPublicReopenMinutes(dateStr);
+  if (reopenMins != null) hours = hours.filter((h) => h * 60 + 45 >= reopenMins);
+
+  // For today, drop hours already passed (15-min booking lead).
+  if (dateStr === todayYmd()) {
+    const nm = etNowMinutes();
+    hours = hours.filter((h) => h * 60 + 45 >= nm + 15);
+  }
+  return hours;
+}

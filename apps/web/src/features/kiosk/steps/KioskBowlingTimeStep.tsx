@@ -17,7 +17,7 @@ import {
   bowlingTimeLabel,
   CENTERS,
   operatingHours,
-} from "~/components/features/booking/steps/bowling/BowlingSlotsStep";
+} from "~/features/booking/service/bowling-hours";
 import { todayYmd } from "../service/first-available";
 
 type BowlingLikeItem = BowlingItem | KbfItem;

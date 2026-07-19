@@ -339,6 +339,13 @@ interface BowlingCommon {
   durationMinutes: number | null;
   /** Square line-item multiplier for the primary bowling product. */
   durationMultiplier: number;
+  /**
+   * bowling_experience_duration_options.id of the picked duration (hourly
+   * experiences only). Persisted so the v3 Time step can rebuild lineItems
+   * after back-nav / re-hold without component-local state. Optional so
+   * sessions persisted before this field hydrate undefined → null-ish.
+   */
+  durationOptionId?: number | null;
   /** Shoe rental selections: bowling_square_products.id → quantity. */
   shoeSelections: Record<number, number>;
   /**
@@ -678,6 +685,7 @@ export function newItem(activity: Activity): SessionItem {
         laneCount: 1,
         durationMinutes: null,
         durationMultiplier: 1,
+        durationOptionId: null,
         shoeSelections: {},
         attractionAddons: [],
         pizzaModifierSelections: [{}],
@@ -715,6 +723,7 @@ export function newItem(activity: Activity): SessionItem {
         laneCount: 1,
         durationMinutes: null,
         durationMultiplier: 1,
+        durationOptionId: null,
         shoeSelections: {},
         attractionAddons: [],
         pizzaModifierSelections: [{}],
