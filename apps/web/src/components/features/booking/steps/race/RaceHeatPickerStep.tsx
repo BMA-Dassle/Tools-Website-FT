@@ -34,7 +34,7 @@ import {
   getPublicReopenMinutes,
 } from "@/lib/group-events";
 import { getPackage } from "~/features/booking/service/packages";
-import { PackageHeatPicker, type PackagePick } from "./PackageHeatPicker";
+import { PackageCategoryBanner, PackageHeatPicker, type PackagePick } from "./PackageHeatPicker";
 import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track-visuals";
 
 /**
@@ -203,7 +203,6 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
   }) => {
     const allRacers = session.party;
     const racers = racersOfCategory(allRacers, category);
-    const partySize = racers.length;
     const productId = productIdForCategory(item, category);
 
     // Package flow: when a package is selected instead of an individual
@@ -235,7 +234,8 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         <PackageHeatPicker
           pkg={pkg}
           date={item.date}
-          racerCount={partySize}
+          racers={racers}
+          mixedParty={hasCategory(session, "adult") && hasCategory(session, "junior")}
           category={pkg.category !== "any" ? pkg.category : category}
           expressEligible={allReturningHaveWaivers}
           kiosk={!!session.context?.kiosk}
@@ -250,9 +250,12 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
               : 0
           }
           crossCategoryHeats={otherCategoryHeats(session.items, category)}
-          onConfirm={(picks: PackagePick[]) => {
+          onConfirm={(picks: PackagePick[], selectedRacers) => {
+            // Heats go to the SELECTED racers only (the picker's roster
+            // checklist) — a deselected member isn't booked for the package;
+            // the kiosk unracered guard catches them at advance.
             const newHeats: RaceHeatAssignment[] = picks.flatMap((pick) =>
-              racers.map((r) => ({
+              selectedRacers.map((r) => ({
                 productId: pick.productId,
                 track: pick.track as RaceHeatAssignment["track"],
                 // $0 build-key parts: package component SKUs aren't in
@@ -279,13 +282,33 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         );
         return { label: comp.label, time: heat ? formatTime(heat.heatId!) : "—" };
       });
+      // WHO the picked package covers — assignedIds spans all categories'
+      // heats; intersecting with THIS category's roster keeps both steps of a
+      // mixed party correct.
+      const assignedIds = new Set(
+        item.heats.filter((h) => h.heatId && h.assignedTo).map((h) => h.assignedTo),
+      );
+      const included = racers.filter((r) => assignedIds.has(r.id));
+      const excluded = racers.filter((r) => !assignedIds.has(r.id));
+      const isMixedParty = hasCategory(session, "adult") && hasCategory(session, "junior");
       return (
         <div className="space-y-6">
+          {isMixedParty && <PackageCategoryBanner category={category} />}
           <div className="text-center">
             <h2 className="font-display text-2xl uppercase tracking-widest text-white">
               Heats Selected
             </h2>
             <p className="mt-1 text-sm text-white/50">{pkg.name} — ready to reserve</p>
+            {included.length > 0 && (
+              <p className="mt-1 text-sm text-white/80">
+                For: {included.map((r) => r.firstName).join(", ")}
+              </p>
+            )}
+            {excluded.length > 0 && (
+              <p className="mt-1 text-sm text-amber-400">
+                Not racing this package: {excluded.map((r) => r.firstName).join(", ")}
+              </p>
+            )}
           </div>
           <div className="mx-auto max-w-md space-y-2">
             {pickSummary.map((s) => (
