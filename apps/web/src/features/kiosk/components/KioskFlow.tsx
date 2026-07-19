@@ -341,6 +341,30 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     }
   }, [session.preferredPackageId, session.party, session.items, dispatch]);
 
+  // Mixed party (a returning racer + new racer(s)): the product step hides packs
+  // for a mixed group (packs are new-racer-only), so the new racer's Rookie Pack
+  // can't be chosen there and the license/POV step is the only picker. Owner
+  // 2026-07-19: auto-enroll the new racer(s) in the FULL Rookie Pack (license +
+  // POV + appetizer) and skip that step (see skipLicenseForMixedParty in the
+  // registry). The license already charges per new racer; POV needs povQuantity;
+  // the appetizer needs rookiePack. Gated on the Rookie flow flag.
+  useEffect(() => {
+    if (process.env.NEXT_PUBLIC_ROOKIE_PACK_ENABLED !== "1") return;
+    const race = session.items.find((i) => i.kind === "race") as
+      | (SessionItem & { packageId?: string; rookiePack?: boolean | null; povQuantity?: number })
+      | undefined;
+    if (!race || race.packageId) return;
+    const newRacerCount = session.party.filter((m) => m.isNewRacer).length;
+    const hasReturning = session.party.some((m) => !m.isNewRacer);
+    if (newRacerCount === 0 || !hasReturning) return; // only the mixed case
+    if (race.rookiePack === true && race.povQuantity === newRacerCount) return; // already applied
+    dispatch({
+      type: "updateItem",
+      id: race.id,
+      patch: { rookiePack: true, povQuantity: newRacerCount } as Partial<SessionItem>,
+    });
+  }, [session.items, session.party, dispatch]);
+
   if (!hydrated || !config) {
     return (
       <div className="absolute inset-0 flex items-center justify-center bg-[#000418]">
