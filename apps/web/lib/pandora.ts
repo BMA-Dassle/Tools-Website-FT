@@ -66,6 +66,9 @@ export interface PandoraSignWaiverInput {
   location?: PandoraCenterKey | string;
   /** "YYYY-MM-DD" — calculated from template duration. If omitted, API uses default. */
   invalidationDate?: string;
+  /** SHORT Pandora id of the person SIGNING, when not the person themselves —
+   *  a guardian signing a minor's waiver. Omitted = self-sign. */
+  sigPersonID?: string;
 }
 
 export interface PandoraSignWaiverResult {

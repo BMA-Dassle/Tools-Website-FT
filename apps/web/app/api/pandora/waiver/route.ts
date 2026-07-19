@@ -88,7 +88,7 @@ async function waiverNowValid(locationID: string, personID: string): Promise<boo
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { personID, waiverContentID, signature, location, invalidationDate } = body;
+    const { personID, waiverContentID, signature, location, invalidationDate, sigPersonID } = body;
 
     if (!personID || !waiverContentID || !signature) {
       return NextResponse.json(
@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
     // Every log line carries the full sign context — the 2026-07-18 kiosk
     // failures were undiagnosable because errors logged neither WHO was being
     // signed nor with what (owner: "maybe add logging to this?").
-    const meta = `person=${personID} content=${waiverContentID} loc=${locationID} sig=${sigBuffer.length}B invalidation=${invalidationDate || "default"}`;
+    const meta = `person=${personID} signer=${sigPersonID || personID} content=${waiverContentID} loc=${locationID} sig=${sigBuffer.length}B invalidation=${invalidationDate || "default"}`;
 
     // Build multipart/form-data body manually
     const boundary = `----PandoraWaiver${Date.now()}`;
@@ -123,7 +123,9 @@ export async function POST(req: NextRequest) {
     addField("locationID", locationID);
     addField("personID", personID);
     addField("waiverContentID", waiverContentID);
-    addField("sigPersonID", personID); // adult signs for themselves
+    // Signer defaults to the person themselves; a guardian signing a minor's
+    // waiver passes their own (SHORT Pandora) id here instead.
+    addField("sigPersonID", sigPersonID || personID);
     addField("invalidationDate", invalidationDate || "");
 
     // Signature file part

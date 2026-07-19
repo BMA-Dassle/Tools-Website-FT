@@ -102,10 +102,13 @@ export interface PartyMember {
    */
   redeemCredits?: boolean;
   /**
-   * Kiosk: for a MINOR participant (age < 18), the party member id of the adult
-   * who is their responsible guardian on the waiver (owner rule 2026-07-18 — a
-   * minor needs a registered adult guardian). Resolved to the guardian's
-   * bmiPersonId at Pandora onboard time. Ignored by the web flow.
+   * Kiosk: for a MINOR participant (age < 18), the id of the adult who signed
+   * their waiver — references either a `party` member OR a `session.guardians`
+   * entry (signer-only adult, not purchasing). Only required when the minor
+   * actually needed a waiver signed this session (owner rule 2026-07-18,
+   * revised 2026-07-18: a returning minor with a valid waiver needs no
+   * guardian). Resolved to the guardian's Pandora person id at onboard/sign
+   * time. Ignored by the web flow.
    */
   guardianMemberId?: string;
   /** Kiosk: true when this member is a minor (age < 18) — needs a guardian to
@@ -559,6 +562,15 @@ export interface BookingSession {
    * is in here if they're participating (with `isBillingCustomer: true`).
    */
   party: PartyMember[];
+  /**
+   * KIOSK only: signer-only guardians — adults who signed a minor's waiver but
+   * are NOT part of the purchase (owner 2026-07-18: the parent may just be
+   * paying for the kids). Excluded from items/charges/BMI bill registration BY
+   * CONSTRUCTION — they are not in `party`, so no purchase-path consumer ever
+   * sees them. "Join the fun" moves the entry into `party` keeping its id, so
+   * minors' guardianMemberId refs stay valid. Web never sets it.
+   */
+  guardians?: PartyMember[];
   /**
    * KBF identity verification state — present ONLY when at least one
    * KbfItem exists in items[]. Reducer auto-clears when the last KBF

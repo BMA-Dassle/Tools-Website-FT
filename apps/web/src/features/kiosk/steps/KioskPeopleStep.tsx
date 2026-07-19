@@ -18,8 +18,13 @@
  *     downstream product/heat steps already span tiers for a mixed party and
  *     Starter-gate the new racers at heat selection.
  *   - one person is the MAIN contact for the reservation (tap to set).
- *   - a MINOR (age < 18) needs a registered ADULT guardian picked from the
- *     roster; the guardian's person id rides Pandora onboarding.
+ *   - a MINOR (age < 18) can register FIRST — no adult required up front. A
+ *     guardian is only involved when the minor's waiver actually needs signing
+ *     (first-timer or expired); the adult signs it as sigPersonID and can be a
+ *     party adult, a NEW adult, or an existing account found via lookup. A
+ *     signer-only guardian lives in session.guardians — NEVER in the purchase
+ *     (owner 2026-07-18: the parent may just be paying for the kids) — with a
+ *     "Join the fun" escape hatch onto the roster.
  */
 import { useEffect, useState } from "react";
 import type { AttractionItem, PartyMember, RaceItem, StepDef } from "~/features/booking";
@@ -30,6 +35,8 @@ import WaiverSigning from "@/components/pandora/WaiverSigning";
 import {
   pandoraOnboardGuest,
   pandoraFetchWaiverTemplate,
+  pandoraCreatePerson,
+  pandoraCheckWaiver,
   type PandoraWaiverTemplate,
 } from "@/lib/pandora";
 import {
@@ -102,14 +109,40 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   const [dob, setDob] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [guardianId, setGuardianId] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusyLocal] = useState(false);
   const [waiverFor, setWaiverFor] = useState<{
     memberId: string;
     personId: string;
     template: PandoraWaiverTemplate;
+    /** Guardian signing a MINOR's waiver: the guardian's SHORT Pandora id +
+     *  display name (rides Pandora's sigPersonID). Absent = self-sign. */
+    signerPersonId?: string;
+    signerName?: string;
   } | null>(null);
+  // Guardian resolution for a minor whose waiver needs signing (owner
+  // 2026-07-18): the minor registers FIRST, then this flow finds the adult who
+  // signs — a party adult, a NEW adult, or an existing account via lookup. The
+  // adult signs their OWN waiver first if it isn't current, then the minor's.
+  // Cleared on cancel (minor stays "needs setup") and on minor-waiver success.
+  const [guardianFlow, setGuardianFlow] = useState<{
+    minorMemberId: string;
+    /** SHORT Pandora id resolved at onboard (17-digit Office fallback only in
+     *  the no-dedup-identity branch — pre-existing sign limitation). */
+    minorPersonId: string;
+    minorTemplate: PandoraWaiverTemplate;
+    /** Resolved guardian — a party member id OR a session.guardians entry id. */
+    guardianId?: string;
+    stage: "choose" | "new-form" | "lookup";
+  } | null>(null);
+  // Guardian "Add a new adult" form fields — separate from the player form so
+  // the two can never contaminate each other.
+  const [gFirst, setGFirst] = useState("");
+  const [gLast, setGLast] = useState("");
+  const [gDob, setGDob] = useState("");
+  const [gPhone, setGPhone] = useState("");
+  const [gEmail, setGEmail] = useState("");
+  const [gError, setGError] = useState<string | null>(null);
   // Linked family are OPT-IN suggestions — tap to add, never auto-pulled in.
   const [linked, setLinked] = useState<LinkedSuggestion[]>([]);
   // Members whose Pandora waiver status is still being fetched — a returning racer
@@ -124,7 +157,26 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   const [photoDoneFor, setPhotoDoneFor] = useState<string | null>(null);
 
   const adults = party.filter((m) => !m.isMinor);
+  // Signer-only guardians — NOT in the party, so purchase paths (products,
+  // heats, charges, BMI bill registration) never see them by construction.
+  const guardians = session.guardians ?? [];
   const setBusyAll = (b: boolean) => setBusyLocal(b);
+
+  /** Look a person up across BOTH rosters (party + signer-only guardians). */
+  const findPerson = (id: string): PartyMember | undefined =>
+    party.find((p) => p.id === id) ?? guardians.find((g) => g.id === id);
+
+  /** Patch a person wherever they live (party or guardians). */
+  const patchPerson = (id: string, patch: Partial<PartyMember>) => {
+    if (party.some((p) => p.id === id)) dispatch({ type: "updatePartyMember", id, patch });
+    else dispatch({ type: "updateGuardian", id, patch });
+  };
+
+  /** The SHORT Pandora id Pandora's waiver-sign accepts (the 17-digit Office id
+   *  500s). New-created persons' bmiPersonId IS the short id; a returning-lookup
+   *  id is 17-digit and needs the upsert-create resolve first. */
+  const shortPandoraId = (m: PartyMember): string | null =>
+    m.pandoraPersonId ?? (m.bmiPersonId && m.bmiPersonId.length <= 12 ? m.bmiPersonId : null);
 
   // The MAIN (billing contact) always renders first (owner 2026-07-18). Stable
   // sort — everyone else keeps add order.
@@ -142,9 +194,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   // Continue) advances PAST the OTP step without verifying (owner: entering the
   // phone jumped to the next page). Finish or cancel the lookup to continue.
   useEffect(() => {
-    setBusy?.(lookupOpen || form !== null || busy || checkingIds.size > 0);
+    setBusy?.(lookupOpen || form !== null || busy || checkingIds.size > 0 || guardianFlow !== null);
     return () => setBusy?.(false);
-  }, [lookupOpen, form, busy, setBusy, checkingIds]);
+  }, [lookupOpen, form, busy, setBusy, checkingIds, guardianFlow]);
 
   const setIncluded = (ids: Set<string>) => {
     if (isRace) return;
@@ -211,8 +263,16 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     setDob("");
     setPhone("");
     setEmail("");
-    setGuardianId("");
     setFormError(null);
+  };
+
+  const resetGuardianForm = () => {
+    setGFirst("");
+    setGLast("");
+    setGDob("");
+    setGPhone("");
+    setGEmail("");
+    setGError(null);
   };
 
   const isMainDefault = party.length === 0; // first person added becomes main
@@ -250,21 +310,14 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       setFormError("The main person needs an email for the confirmation.");
       return;
     }
+    // Minors register FIRST — no adult precondition (owner 2026-07-18). The
+    // upsert-style create + waiver check below is what tells us whether a
+    // guardian is even needed: a returning minor with a current waiver resolves
+    // to their existing person and needs no guardian at all.
     const minor = age < 18;
-    if (minor && adults.length === 0) {
-      setFormError("Add an adult to the group first — a minor needs a guardian.");
-      return;
-    }
-    if (minor && !guardianId) {
-      setFormError("Pick this minor's guardian.");
-      return;
-    }
     setBusyAll(true);
     setFormError(null);
     try {
-      const guardianPersonId = minor
-        ? party.find((m) => m.id === guardianId)?.bmiPersonId
-        : undefined;
       const result = await pandoraOnboardGuest(
         {
           firstName: firstName.trim(),
@@ -272,7 +325,6 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           email: email.trim() || session.contact.email || "",
           phone: phone.trim(),
           birthdate: toIsoDob(dob),
-          guardianID: guardianPersonId,
         },
         brandLocation,
       );
@@ -282,19 +334,33 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         isNewRacer: true, // new person → Starter-only for racing
         category: age < 13 ? "junior" : "adult",
         isMinor: minor,
-        guardianMemberId: minor ? guardianId : undefined,
         bmiPersonId: result.personId,
         waiverValid: result.waiverValid,
         isBillingCustomer: isMain, // first person is main by default
         phone: phone.trim(),
         email: email.trim() || undefined,
+        dobIso: toIsoDob(dob),
       });
       dispatch({ type: "addPartyMember", member });
       if (isMain) setContactFrom(member); // main person → booking contact
       if (!isRace) setIncluded(new Set([...included, member.id]));
       resetForm();
       if (!result.waiverValid && result.template) {
-        setWaiverFor({ memberId: member.id, personId: result.personId, template: result.template });
+        if (minor) {
+          // A minor never signs their own waiver — resolve a guardian first.
+          setGuardianFlow({
+            minorMemberId: member.id,
+            minorPersonId: result.personId,
+            minorTemplate: result.template,
+            stage: "choose",
+          });
+        } else {
+          setWaiverFor({
+            memberId: member.id,
+            personId: result.personId,
+            template: result.template,
+          });
+        }
       }
     } catch (err) {
       setFormError(
@@ -322,21 +388,27 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       );
       return;
     }
+    // A minor needing a signature gets a guardian AFTER onboarding — the
+    // waiver check below decides whether one is needed at all (owner 2026-07-18).
     const minor = age < 18;
-    const gid = member.guardianMemberId || guardianId;
-    if (minor && adults.filter((a) => a.id !== member.id).length === 0) {
-      setFormError("Add an adult to the group first — a minor needs a guardian.");
-      return;
-    }
-    if (minor && !gid) {
-      setFormError("Pick this minor's guardian.");
-      return;
-    }
     setBusyAll(true);
     setFormError(null);
+    // Route an unsigned minor into the guardian flow instead of the signature
+    // pad — a minor never signs their own waiver.
+    const openWaiverOrGuardian = (personId: string, template: PandoraWaiverTemplate) => {
+      if (minor) {
+        setGuardianFlow({
+          minorMemberId: member.id,
+          minorPersonId: personId,
+          minorTemplate: template,
+          stage: "choose",
+        });
+      } else {
+        setWaiverFor({ memberId: member.id, personId, template });
+      }
+    };
     try {
       if (!member.bmiPersonId) {
-        const guardianPersonId = minor ? party.find((m) => m.id === gid)?.bmiPersonId : undefined;
         const result = await pandoraOnboardGuest(
           {
             firstName: member.firstName,
@@ -344,7 +416,6 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             email: session.contact.email ?? "",
             phone: session.contact.phone ?? "",
             birthdate: toIsoDob(dob),
-            guardianID: guardianPersonId,
           },
           brandLocation,
         );
@@ -356,16 +427,12 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             waiverValid: result.waiverValid,
             isMinor: minor,
             category: age < 13 ? "junior" : "adult",
-            guardianMemberId: minor ? gid : undefined,
+            dobIso: toIsoDob(dob),
           },
         });
         resetForm();
         if (!result.waiverValid && result.template) {
-          setWaiverFor({
-            memberId: member.id,
-            personId: result.personId,
-            template: result.template,
-          });
+          openWaiverOrGuardian(result.personId, result.template);
         }
       } else {
         // Account exists (returning racer) — but the lookup's id is the
@@ -379,7 +446,6 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         const dedupPhone = member.phone?.trim() ?? "";
         const dedupEmail = member.email?.trim() ?? "";
         if (dedupPhone || dedupEmail) {
-          const guardian = minor ? party.find((m) => m.id === gid) : undefined;
           const result = await pandoraOnboardGuest(
             {
               firstName: member.firstName,
@@ -387,7 +453,6 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
               email: dedupEmail,
               phone: dedupPhone,
               birthdate: toIsoDob(dob),
-              guardianID: guardian?.pandoraPersonId ?? guardian?.bmiPersonId,
             },
             brandLocation,
           );
@@ -399,20 +464,18 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
               waiverValid: result.waiverValid,
               isMinor: minor,
               category: age < 13 ? "junior" : "adult",
-              guardianMemberId: minor ? gid : undefined,
+              dobIso: toIsoDob(dob),
             },
           });
           resetForm();
           if (!result.waiverValid && result.template) {
-            setWaiverFor({
-              memberId: member.id,
-              personId: result.personId,
-              template: result.template,
-            });
+            openWaiverOrGuardian(result.personId, result.template);
           }
         } else {
           // No phone/email on file to dedup against — DON'T upsert (risk of a
           // duplicate person). Old path; the front desk can sign at check-in.
+          // For a minor this keeps the 17-digit Office id (pre-existing sign
+          // limitation — Pandora may 500; front desk is the fallback).
           const template = await pandoraFetchWaiverTemplate(age, brandLocation);
           dispatch({
             type: "updatePartyMember",
@@ -420,11 +483,11 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             patch: {
               isMinor: minor,
               category: age < 13 ? "junior" : "adult",
-              guardianMemberId: minor ? gid : undefined,
+              dobIso: toIsoDob(dob),
             },
           });
           resetForm();
-          setWaiverFor({ memberId: member.id, personId: member.bmiPersonId, template });
+          openWaiverOrGuardian(member.bmiPersonId, template);
         }
       }
     } catch (err) {
@@ -436,6 +499,263 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     } finally {
       setBusyAll(false);
     }
+  };
+
+  /* ── guardian resolution (minor waiver signing) ─────────────────────────── */
+
+  /** Guardian resolved (short id + own-waiver status known): sign their OWN
+   *  waiver first if it isn't current, otherwise go straight to the minor's
+   *  waiver with the guardian as sigPersonID. */
+  const proceedWithGuardian = (
+    g: PartyMember,
+    sid: string,
+    ownValid: boolean,
+    ownTemplate: PandoraWaiverTemplate | null,
+    gf: NonNullable<typeof guardianFlow>,
+  ) => {
+    setGuardianFlow({ ...gf, guardianId: g.id });
+    if (ownValid) {
+      setWaiverFor({
+        memberId: gf.minorMemberId,
+        personId: gf.minorPersonId,
+        template: gf.minorTemplate,
+        signerPersonId: sid,
+        signerName: g.firstName,
+      });
+    } else if (ownTemplate) {
+      // Own waiver first (owner rule) — the sign-complete handler chains to the
+      // minor's waiver.
+      setWaiverFor({ memberId: g.id, personId: sid, template: ownTemplate });
+    }
+  };
+
+  /** Tap on an adult already here (party adult or a prior guardian chip):
+   *  resolve their SHORT Pandora id (upsert on their own phone/email if needed)
+   *  and re-check their waiver authoritatively before they sign for the minor. */
+  const chooseGuardian = async (g: PartyMember) => {
+    const gf = guardianFlow;
+    if (!gf) return;
+    setBusyAll(true);
+    setGError(null);
+    try {
+      let sid = shortPandoraId(g);
+      if (!sid) {
+        const gPhoneTrim = g.phone?.trim() ?? "";
+        const gEmailTrim = g.email?.trim() ?? "";
+        if (!gPhoneTrim && !gEmailTrim) {
+          throw new Error(`We can't verify ${g.firstName} here — use "Find their account".`);
+        }
+        const { personId } = await pandoraCreatePerson({
+          firstName: g.firstName,
+          lastName: g.lastName ?? "",
+          email: gEmailTrim,
+          phone: gPhoneTrim,
+          birthdate: g.dobIso,
+          location: brandLocation,
+        });
+        patchPerson(g.id, { pandoraPersonId: personId });
+        sid = personId;
+      }
+      const status = await pandoraCheckWaiver(sid, brandLocation);
+      let ownTemplate: PandoraWaiverTemplate | null = null;
+      if (!status.valid) {
+        const gAge = g.dobIso
+          ? Math.floor((Date.now() - new Date(g.dobIso).getTime()) / (365.25 * 864e5))
+          : 35; // adult template default when no DOB on file
+        ownTemplate = await pandoraFetchWaiverTemplate(gAge, brandLocation);
+      }
+      if (status.valid !== !!g.waiverValid) patchPerson(g.id, { waiverValid: status.valid });
+      proceedWithGuardian(g, sid, status.valid, ownTemplate, gf);
+    } catch (err) {
+      setGError(
+        err instanceof Error
+          ? err.message
+          : "Couldn't verify that adult. Please try again or see the front desk.",
+      );
+    } finally {
+      setBusyAll(false);
+    }
+  };
+
+  /** "Add a new adult" — create + waiver-check the guardian, then chain. They
+   *  are a signer-only guardian (session.guardians), NOT part of the purchase. */
+  const submitGuardianNew = async () => {
+    const gf = guardianFlow;
+    if (!gf) return;
+    const gAge = ageFromDob(gDob);
+    if (!gFirst.trim() || !gLast.trim()) {
+      setGError("Enter the adult's first and last name.");
+      return;
+    }
+    if (gAge === null) {
+      setGError("Enter the birthday as MM/DD/YYYY.");
+      return;
+    }
+    if (gAge < 18) {
+      setGError("A guardian must be 18 or older.");
+      return;
+    }
+    if (gPhone.replace(/\D/g, "").length < 10) {
+      setGError("Enter a mobile phone number.");
+      return;
+    }
+    setBusyAll(true);
+    setGError(null);
+    try {
+      const result = await pandoraOnboardGuest(
+        {
+          firstName: gFirst.trim(),
+          lastName: gLast.trim(),
+          email: gEmail.trim() || "",
+          phone: gPhone.trim(),
+          birthdate: toIsoDob(gDob),
+        },
+        brandLocation,
+      );
+      const g = newPartyMember({
+        firstName: gFirst.trim(),
+        lastName: gLast.trim(),
+        isNewRacer: true,
+        category: "adult",
+        bmiPersonId: result.personId, // short id — created via Pandora
+        waiverValid: result.waiverValid,
+        phone: gPhone.trim(),
+        email: gEmail.trim() || undefined,
+        dobIso: toIsoDob(gDob),
+      });
+      dispatch({ type: "addGuardian", member: g });
+      resetGuardianForm();
+      proceedWithGuardian(g, result.personId, result.waiverValid, result.template, gf);
+    } catch (err) {
+      setGError(
+        err instanceof Error
+          ? `Couldn't set the guardian up: ${err.message}`
+          : "Couldn't set the guardian up. Please try again or see the front desk.",
+      );
+    } finally {
+      setBusyAll(false);
+    }
+  };
+
+  /** "Find their account" — OTP-verified existing adult becomes the signer.
+   *  Resolve their SHORT id via the upsert (same pattern as submitSetup) and
+   *  get authoritative waiver status; own waiver first if lapsed (owner rule). */
+  const handleGuardianVerified = async (person: PersonData) => {
+    const gf = guardianFlow;
+    if (!gf) return;
+    const [first, ...rest] = person.fullName.trim().split(/\s+/);
+    const bdIso = person.birthDate ? String(person.birthDate).slice(0, 10) : undefined;
+    const bdYears = bdIso
+      ? Math.floor((Date.now() - new Date(bdIso).getTime()) / (365.25 * 864e5))
+      : null;
+    if (bdYears !== null && bdYears < 18) {
+      setGError("That account belongs to a minor — a guardian must be an adult.");
+      return;
+    }
+    // Already on the roster (party adult or a prior guardian chip)? Reuse that
+    // entry instead of adding a duplicate person. Known minors never qualify —
+    // an Office record with no birthdate could slip past the age check above.
+    const existing = [...party, ...guardians].find(
+      (m) =>
+        !m.isMinor && (m.bmiPersonId === person.personId || m.pandoraPersonId === person.personId),
+    );
+    if (existing) {
+      void chooseGuardian(existing);
+      return;
+    }
+    if (party.some((m) => m.isMinor && m.bmiPersonId === person.personId)) {
+      setGError("That account belongs to a minor — a guardian must be an adult.");
+      return;
+    }
+    setBusyAll(true);
+    setGError(null);
+    try {
+      const dedupPhone = person.phone?.trim() ?? "";
+      const dedupEmail = person.email?.trim() ?? "";
+      let sid: string | null = null;
+      let ownValid = person.waiverValid === true;
+      let ownTemplate: PandoraWaiverTemplate | null = null;
+      if (dedupPhone || dedupEmail) {
+        const { personId } = await pandoraCreatePerson({
+          firstName: first || person.fullName,
+          lastName: rest.join(" ") || "",
+          email: dedupEmail,
+          phone: dedupPhone,
+          birthdate: bdIso,
+          location: brandLocation,
+        });
+        sid = personId;
+        const status = await pandoraCheckWaiver(personId, brandLocation);
+        ownValid = status.valid;
+      }
+      if (!ownValid) {
+        ownTemplate = await pandoraFetchWaiverTemplate(bdYears ?? 35, brandLocation);
+      }
+      const g: PartyMember = {
+        ...newPartyMember({
+          firstName: first || person.fullName,
+          lastName: rest.join(" ") || undefined,
+          isNewRacer: false,
+          category: "adult",
+          memberships: person.memberships,
+          bmiPersonId: person.personId,
+          waiverValid: ownValid,
+          phone: person.phone || undefined,
+          email: person.email || undefined,
+          dobIso: bdIso,
+        }),
+        ...(sid ? { pandoraPersonId: sid } : {}),
+      };
+      dispatch({ type: "addGuardian", member: g });
+      // No phone/email to dedup against → last resort: sign with the Office id
+      // (pre-existing Pandora limitation; may 500 — front desk fallback).
+      proceedWithGuardian(g, sid ?? person.personId, ownValid, ownTemplate, gf);
+    } catch (err) {
+      setGError(
+        err instanceof Error
+          ? `Couldn't verify that account: ${err.message}`
+          : "Couldn't verify that account. Please try again or see the front desk.",
+      );
+    } finally {
+      setBusyAll(false);
+    }
+  };
+
+  /** Best-effort BMI-level guardian link: re-run the upsert create for the
+   *  minor with guardianID attached (known person → same id, never a
+   *  duplicate). The waiver's sigPersonID records the guardian regardless, so
+   *  a failure here is non-fatal — fire and forget. Skipped when the minor has
+   *  no phone/email dedup identity (an upsert then risks a duplicate person). */
+  const linkMinorToGuardian = (minorMemberId: string, guardianSid: string) => {
+    const minor = party.find((m) => m.id === minorMemberId);
+    if (!minor) return;
+    const mPhone = minor.phone?.trim() ?? "";
+    const mEmail = minor.email?.trim() ?? "";
+    if (!mPhone && !mEmail) return;
+    void pandoraCreatePerson({
+      firstName: minor.firstName,
+      lastName: minor.lastName ?? "",
+      email: mEmail,
+      phone: mPhone,
+      birthdate: minor.dobIso,
+      guardianID: guardianSid,
+      location: brandLocation,
+    }).catch(() => {});
+  };
+
+  /** "Join the fun" — the signer-only guardian decides to play after all.
+   *  Same object (same id) moves into the party, so minors' guardianMemberId
+   *  refs stay valid and the party removal guard covers them automatically. */
+  const joinGuardian = (g: PartyMember) => {
+    dispatch({ type: "addPartyMember", member: g });
+    dispatch({ type: "removeGuardian", id: g.id });
+    if (!isRace) setIncluded(new Set([...included, g.id]));
+  };
+
+  const removeGuardianEntry = (id: string) => {
+    // Same protection as party members — never orphan a minor's signer.
+    if (party.some((p) => p.guardianMemberId === id)) return;
+    dispatch({ type: "removeGuardian", id });
   };
 
   /** Fetch the verified account's waiver status + LINKED family in ONE call.
@@ -605,7 +925,6 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     // the MM/DD/YYYY the form uses.
     const iso = member.dobIso?.match(/^(\d{4})-(\d{2})-(\d{2})/);
     setDob(iso ? `${iso[2]}/${iso[3]}/${iso[1]}` : "");
-    setGuardianId(member.guardianMemberId ?? "");
     setFormError(null);
   };
 
@@ -637,6 +956,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     form === null &&
     !lookupOpen &&
     !waiverFor &&
+    !guardianFlow &&
     readyState !== true
       ? readyState.reason
       : null;
@@ -669,9 +989,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         {orderedParty.map((m) => {
           const isIn = included.has(m.id);
           const badge = badgeFor(m);
-          const guardian = m.guardianMemberId
-            ? party.find((g) => g.id === m.guardianMemberId)
-            : null;
+          const guardian = m.guardianMemberId ? findPerson(m.guardianMemberId) : null;
           const ready = !needsSetup(m);
           const checking = !ready && checkingIds.has(m.id);
           return (
@@ -740,7 +1058,11 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                       </span>
                     ) : (
                       <span className="font-semibold text-[#f0b341]">
-                        {m.bmiPersonId ? "Waiver needed" : "Account + waiver needed"}
+                        {m.bmiPersonId
+                          ? m.isMinor
+                            ? "Waiver needed — a parent/guardian signs"
+                            : "Waiver needed"
+                          : "Account + waiver needed"}
                       </span>
                     )}
                     {guardian && (
@@ -790,6 +1112,65 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           );
         })}
       </div>
+
+      {/* Signer-only guardians — signed for a minor, NOT in the purchase.
+          "Join the fun" moves them onto the roster (same id, so minors'
+          guardianMemberId refs stay valid). */}
+      {guardians.length > 0 && (
+        <div>
+          <div className="k-eyebrow mb-[12px] text-white/40">Guardians — signed, not playing</div>
+          <div className="flex flex-wrap gap-[12px]">
+            {guardians.map((g) => {
+              const wards = party
+                .filter((m) => m.guardianMemberId === g.id)
+                .map((m) => m.firstName);
+              return (
+                <div
+                  key={g.id}
+                  className="rounded-2xl border-2 border-dashed border-white/20 bg-white/[0.03] px-[24px] py-[16px]"
+                >
+                  <div className="text-[26px] font-bold text-white/85">
+                    {g.firstName} {g.lastName ?? ""}
+                  </div>
+                  <div className="text-[20px] text-white/45">
+                    {wards.length > 0
+                      ? `Signed for ${wards.join(", ")}`
+                      : g.waiverValid
+                        ? "Waiver on file"
+                        : "Needs own waiver"}
+                  </div>
+                  <div className="mt-[10px] flex items-center gap-[24px]">
+                    <button
+                      type="button"
+                      onClick={() => joinGuardian(g)}
+                      className="text-[22px] font-bold text-[#00e2e5]"
+                    >
+                      Join the fun
+                    </button>
+                    {isGuardianForSomeone(g) ? (
+                      <span
+                        className="text-[20px] font-semibold text-white/30"
+                        title="Signed for a minor in your group — remove the minor first"
+                      >
+                        Guardian
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => removeGuardianEntry(g.id)}
+                        aria-label={`Remove ${g.firstName}`}
+                        className="text-[20px] text-white/40"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* add / sign-in entry points */}
       {form === null && !lookupOpen && (
@@ -916,37 +1297,12 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
               />
             </>
           )}
-          {/* Guardian picker appears once we know they're a minor */}
+          {/* Minor heads-up — the guardian is resolved AFTER onboarding, and
+              only if the waiver actually needs signing. */}
           {ageFromDob(dob) !== null && (ageFromDob(dob) as number) < 18 && (
-            <div>
-              <div className="mb-[10px] text-[22px] text-white/55">
-                Responsible guardian (a registered adult):
-              </div>
-              {adults.filter((a) => form.mode !== "setup" || a.id !== form.member.id).length ===
-              0 ? (
-                <div className="rounded-2xl border border-[#f0b341]/40 bg-[#f0b341]/10 px-[20px] py-[16px] text-[22px] text-[#f0b341]">
-                  Add an adult to the group first — a minor needs a guardian.
-                </div>
-              ) : (
-                <div className="flex flex-wrap gap-[12px]">
-                  {adults
-                    .filter((a) => form.mode !== "setup" || a.id !== form.member.id)
-                    .map((a) => (
-                      <button
-                        key={a.id}
-                        type="button"
-                        onClick={() => setGuardianId(a.id)}
-                        className={`rounded-2xl border-2 px-[24px] py-[14px] text-[24px] font-bold ${
-                          guardianId === a.id
-                            ? "border-[#00e2e5] bg-[#00e2e5]/10 text-white"
-                            : "border-white/15 text-white/60"
-                        }`}
-                      >
-                        {a.firstName}
-                      </button>
-                    ))}
-                </div>
-              )}
+            <div className="rounded-2xl border border-white/12 bg-white/5 px-[20px] py-[16px] text-[22px] text-white/55">
+              Under 18 — if their waiver needs signing, a parent or guardian signs it next. The
+              adult doesn&apos;t have to play.
             </div>
           )}
           {formError && <p className="text-[24px] text-red-300">{formError}</p>}
@@ -996,13 +1352,232 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         </div>
       )}
 
+      {/* Guardian resolution overlay — a minor's waiver needs signing and an
+          adult must do it. Hidden while a waiver overlay is up (the two chain:
+          own waiver → minor waiver); cancelling a waiver mid-chain lands back
+          here with the flow intact, so resuming is one tap. */}
+      {guardianFlow &&
+        !waiverFor &&
+        (() => {
+          const minor = party.find((m) => m.id === guardianFlow.minorMemberId);
+          // Prior guardians first (most likely signer for a second minor), then
+          // party adults. The minor themselves can never appear (adults only).
+          const candidates = [...guardians, ...adults];
+          return (
+            <div className="fixed inset-0 z-[76] overflow-y-auto bg-[#000418] p-[48px]">
+              <div className="mx-auto max-w-[900px] space-y-[28px]">
+                <div>
+                  <div className="k-eyebrow text-[#00e2e5]">Parent / guardian needed</div>
+                  <h2 className="k-display mt-[8px] text-[44px]">
+                    A parent or guardian signs for {minor?.firstName ?? "this minor"}
+                  </h2>
+                  <p className="mt-[10px] text-[24px] text-white/55">
+                    {minor?.firstName ?? "They"} is under 18, so an adult signs the waiver. The
+                    adult doesn&apos;t have to play — they won&apos;t be added to the purchase.
+                  </p>
+                </div>
+
+                {guardianFlow.stage === "choose" && (
+                  <>
+                    {candidates.length > 0 && (
+                      <div>
+                        <div className="k-eyebrow mb-[12px] text-white/40">
+                          Adults here now — tap to sign
+                        </div>
+                        <div className="flex flex-wrap gap-[12px]">
+                          {candidates.map((a) => {
+                            const reachable =
+                              !!shortPandoraId(a) || !!a.phone?.trim() || !!a.email?.trim();
+                            return (
+                              <button
+                                key={a.id}
+                                type="button"
+                                disabled={!reachable || busy}
+                                onClick={() => void chooseGuardian(a)}
+                                className={`k-tap rounded-2xl border-2 px-[24px] py-[16px] text-left ${
+                                  reachable
+                                    ? "border-[#00e2e5]/45 bg-[#00e2e5]/5"
+                                    : "border-white/10 bg-white/[0.03] opacity-50"
+                                }`}
+                              >
+                                <div className="text-[26px] font-bold text-white">
+                                  {a.firstName} {a.lastName ?? ""}
+                                </div>
+                                <div className="text-[20px] text-white/50">
+                                  {!reachable
+                                    ? "Can't verify here — use Find their account"
+                                    : a.waiverValid
+                                      ? "Waiver on file"
+                                      : "Signs their own waiver first"}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-[16px]">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          setGError(null);
+                          setGuardianFlow({ ...guardianFlow, stage: "new-form" });
+                        }}
+                        className="k-tap rounded-[28px] border-2 border-dashed border-[#00e2e5]/45 px-[24px] py-[28px] text-[28px] font-bold text-[#00e2e5]"
+                      >
+                        + Add a new adult
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => {
+                          setGError(null);
+                          setGuardianFlow({ ...guardianFlow, stage: "lookup" });
+                        }}
+                        className="k-tap rounded-[28px] border-2 border-[#00e2e5]/45 bg-[#00e2e5]/10 px-[24px] py-[28px] text-[28px] font-bold text-white"
+                      >
+                        Find their account
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {guardianFlow.stage === "new-form" && (
+                  <div className="k-glass space-y-[20px] p-[28px]">
+                    <div className="k-display text-[32px]">New adult — guardian</div>
+                    <div className="grid grid-cols-2 gap-[16px]">
+                      <input
+                        type="text"
+                        value={gFirst}
+                        onChange={(e) => setGFirst(e.target.value)}
+                        placeholder="First name"
+                        className="rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
+                      />
+                      <input
+                        type="text"
+                        value={gLast}
+                        onChange={(e) => setGLast(e.target.value)}
+                        placeholder="Last name"
+                        className="rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      data-osk-layout="numeric"
+                      value={gDob}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
+                        const parts = [
+                          digits.slice(0, 2),
+                          digits.slice(2, 4),
+                          digits.slice(4, 8),
+                        ].filter(Boolean);
+                        setGDob(parts.join("/"));
+                      }}
+                      placeholder="Birthday MM/DD/YYYY"
+                      className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
+                    />
+                    <input
+                      type="tel"
+                      inputMode="tel"
+                      data-osk-layout="phone"
+                      value={gPhone}
+                      onChange={(e) => setGPhone(e.target.value)}
+                      placeholder="Mobile phone"
+                      className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
+                    />
+                    <input
+                      type="email"
+                      inputMode="email"
+                      data-osk-layout="email"
+                      value={gEmail}
+                      onChange={(e) => setGEmail(e.target.value)}
+                      placeholder="Email (optional)"
+                      className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
+                    />
+                    {gError && <p className="text-[24px] text-red-300">{gError}</p>}
+                    <div className="flex gap-[16px]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGError(null);
+                          setGuardianFlow({ ...guardianFlow, stage: "choose" });
+                        }}
+                        className="rounded-2xl border border-white/15 px-[28px] py-[18px] text-[24px] font-semibold text-white/60"
+                      >
+                        Back
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void submitGuardianNew()}
+                        className="k-btn-primary k-tap h-[80px] flex-1 text-[28px]"
+                      >
+                        {busy ? "Setting up…" : "Continue to waiver"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {guardianFlow.stage === "lookup" && (
+                  <div className="k-glass p-[28px]">
+                    <div className="mb-[16px] flex items-center justify-between">
+                      <div className="k-display text-[32px]">Find the guardian</div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGError(null);
+                          setGuardianFlow({ ...guardianFlow, stage: "choose" });
+                        }}
+                        className="text-[24px] font-semibold text-white/50"
+                      >
+                        Back
+                      </button>
+                    </div>
+                    <ReturningRacerLookup
+                      onVerified={(p) => void handleGuardianVerified(p)}
+                      onSwitchToNew={() => {
+                        setGError(null);
+                        setGuardianFlow({ ...guardianFlow, stage: "new-form" });
+                      }}
+                    />
+                    {gError && <p className="mt-[16px] text-[24px] text-red-300">{gError}</p>}
+                  </div>
+                )}
+
+                {guardianFlow.stage === "choose" && gError && (
+                  <p className="text-[24px] text-red-300">{gError}</p>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGuardianFlow(null);
+                    setGError(null);
+                    resetGuardianForm();
+                  }}
+                  className="w-full rounded-2xl border border-white/15 px-[28px] py-[18px] text-[24px] font-semibold text-white/60"
+                >
+                  Cancel — sign later
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+
       {/* the REAL waiver: photo first (required adults / optional minors), then
           Pandora template + touch signature → signWaiverDigital. One overlay =
           "the same page" (owner 2026-07-18); no camera configured → straight to
           the signature (front desk photographs at check-in). */}
       {waiverFor &&
         (() => {
-          const signer = party.find((p) => p.id === waiverFor.memberId);
+          // The person whose waiver this IS (party member or signer-only
+          // guardian) — drives the photo capture + minor/adult semantics. When
+          // a guardian signs a MINOR's waiver, this is the minor; the guardian
+          // rides along as signerPersonId/signerName.
+          const signer = findPerson(waiverFor.memberId);
           const needPhoto = kioskHasCamera(kioskCfg) && photoDoneFor !== waiverFor.memberId;
           return (
             <div className="fixed inset-0 z-[76] overflow-y-auto bg-[#000418] p-[48px]">
@@ -1032,14 +1607,53 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                     personId={waiverFor.personId}
                     template={waiverFor.template}
                     location={brandLocation}
+                    signerPersonId={waiverFor.signerPersonId}
                     heading={isRace ? "Racing Waiver" : "Activity Waiver"}
-                    subheading="Read and sign below — it stays on file for your whole visit."
+                    subheading={
+                      waiverFor.signerName
+                        ? `${waiverFor.signerName} — sign below for ${signer?.firstName ?? "the minor"}. It stays on file for the whole visit.`
+                        : "Read and sign below — it stays on file for your whole visit."
+                    }
                     onComplete={() => {
+                      const gf = guardianFlow;
+                      // Guardian just signed their OWN waiver → mark it and
+                      // chain straight to the minor's waiver (guardian signs).
+                      if (gf && gf.guardianId && waiverFor.memberId === gf.guardianId) {
+                        patchPerson(gf.guardianId, { waiverValid: true });
+                        setWaiverFor({
+                          memberId: gf.minorMemberId,
+                          personId: gf.minorPersonId,
+                          template: gf.minorTemplate,
+                          // Their own waiver was signed against their short id.
+                          signerPersonId: waiverFor.personId,
+                          signerName: findPerson(gf.guardianId)?.firstName ?? "Guardian",
+                        });
+                        return;
+                      }
+                      const minorSigned = gf && waiverFor.memberId === gf.minorMemberId;
                       dispatch({
                         type: "updatePartyMember",
                         id: waiverFor.memberId,
-                        patch: { waiverValid: true },
+                        patch: {
+                          waiverValid: true,
+                          ...(minorSigned && gf.guardianId
+                            ? { guardianMemberId: gf.guardianId }
+                            : {}),
+                        },
                       });
+                      if (minorSigned) {
+                        // Best-effort BMI guardian link on the minor's person.
+                        if (waiverFor.signerPersonId) {
+                          linkMinorToGuardian(gf.minorMemberId, waiverFor.signerPersonId);
+                        }
+                        // Receipt goes to the guardian when the Main person is
+                        // a minor (owner 2026-07-18) — contact is separate from
+                        // the party, so this never adds them to the purchase.
+                        const mainMember = party.find((m) => m.isBillingCustomer);
+                        const g = gf.guardianId ? findPerson(gf.guardianId) : undefined;
+                        if (mainMember?.isMinor && g) setContactFrom(g);
+                        setGuardianFlow(null);
+                      }
                       setWaiverFor(null);
                     }}
                   />
@@ -1059,8 +1673,12 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   );
 };
 
-/** canAdvance shared logic: at least one participant, everyone set up + waivered,
- *  every minor has a guardian. `ids` = the participating member ids. */
+/** canAdvance shared logic: at least one participant, everyone set up +
+ *  waivered. `ids` = the participating member ids. A minor with a VALID waiver
+ *  needs no guardian at all (owner 2026-07-18); one who needed signing was
+ *  structurally signed BY a guardian (the guardian flow is the only path to a
+ *  minor signature), so no separate guardian gate is needed here. Signer-only
+ *  guardians live in session.guardians — never in `party`, never counted. */
 function peopleReady(party: PartyMember[], ids: string[]): true | { reason: string } {
   if (ids.length === 0 || party.length === 0) {
     return { reason: "Add at least one player — everyone needs an account and waiver." };
@@ -1069,12 +1687,8 @@ function peopleReady(party: PartyMember[], ids: string[]): true | { reason: stri
   const missing = participating.find((m) => needsSetup(m));
   if (missing) {
     return {
-      reason: `${missing.firstName} still needs ${missing.bmiPersonId ? "a signed waiver" : "an account + waiver"} — tap Set up.`,
+      reason: `${missing.firstName} still needs ${missing.bmiPersonId ? "a signed waiver" : "an account + waiver"} — tap ${missing.bmiPersonId ? "Sign waiver" : "Set up"}.`,
     };
-  }
-  const minorNoGuardian = participating.find((m) => m.isMinor && !m.guardianMemberId);
-  if (minorNoGuardian) {
-    return { reason: `Pick a guardian for ${minorNoGuardian.firstName}.` };
   }
   return true;
 }

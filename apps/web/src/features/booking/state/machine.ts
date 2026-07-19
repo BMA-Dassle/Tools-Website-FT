@@ -58,6 +58,14 @@ export type Action =
    */
   | { type: "removePartyMember"; id: string }
 
+  /* ── signer-only guardians (kiosk) ──────────────────────────── */
+  /** Append a guardian (adult who signs a minor's waiver, not purchasing). */
+  | { type: "addGuardian"; member: PartyMember }
+  /** Patch an existing guardian entry. */
+  | { type: "updateGuardian"; id: string; patch: Partial<PartyMember> }
+  /** Remove a guardian entry. No cascades — guardians are never assigned to items. */
+  | { type: "removeGuardian"; id: string }
+
   /* ── race heat assignments ──────────────────────────────────── */
   /** Append a heat to a RaceItem's heats[]. */
   | { type: "addHeat"; itemId: string; heat: RaceHeatAssignment }
@@ -229,6 +237,24 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
         items: nextItems,
       };
     }
+
+    /* ──────── signer-only guardians (kiosk) ──────── */
+    case "addGuardian":
+      return { ...state, guardians: [...(state.guardians ?? []), action.member] };
+
+    case "updateGuardian":
+      return {
+        ...state,
+        guardians: (state.guardians ?? []).map((m) =>
+          m.id === action.id ? { ...m, ...action.patch } : m,
+        ),
+      };
+
+    case "removeGuardian":
+      return {
+        ...state,
+        guardians: (state.guardians ?? []).filter((m) => m.id !== action.id),
+      };
 
     /* ──────── race heat assignments ──────── */
     case "addHeat":

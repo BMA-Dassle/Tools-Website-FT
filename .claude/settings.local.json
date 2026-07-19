@@ -271,7 +271,8 @@
       "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:3000/kiosk/admin\" -UseBasicParsing -TimeoutSec 30; \"admin: $\\($r.StatusCode\\)\" } catch { \"dev server not running \\($\\($_.Exception.Message\\)\\) — that's fine, restart with: npm run dev -w fasttrax-web\" })",
       "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:3000/kiosk/admin\" -UseBasicParsing -TimeoutSec 30; \"admin: $\\($r.StatusCode\\)\" } catch { \"dev server stopped — restart with: npm run dev -w fasttrax-web\" })",
       "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:3000/kiosk/admin\" -UseBasicParsing -TimeoutSec 30; \"admin: $\\($r.StatusCode\\)\" } catch { \"dev server stopped — restart: npm run dev -w fasttrax-web\" })",
-      "Bash(node -e \"const s=require\\('./package.json'\\).scripts; console.log\\(JSON.stringify\\(s,null,1\\)\\)\")"
+      "Bash(node -e \"const s=require\\('./package.json'\\).scripts; console.log\\(JSON.stringify\\(s,null,1\\)\\)\")",
+      "Bash(npx tsc *)"
     ],
     "additionalDirectories": [
       "\\tmp"

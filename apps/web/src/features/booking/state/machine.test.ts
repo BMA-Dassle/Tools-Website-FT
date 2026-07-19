@@ -169,6 +169,47 @@ describe("reducer — party roster", () => {
   });
 });
 
+describe("reducer — signer-only guardians (kiosk)", () => {
+  it("addGuardian appends to guardians without touching party", () => {
+    const g = makeMember({ firstName: "Dana", isNewRacer: false });
+    const s = reducer(seedSession(), { type: "addGuardian", member: g });
+    expect(s.guardians).toEqual([g]);
+    expect(s.party).toEqual([]);
+  });
+
+  it("updateGuardian shallow-merges by id", () => {
+    const g = makeMember({ firstName: "Dana" });
+    const s0 = reducer(seedSession(), { type: "addGuardian", member: g });
+    const s1 = reducer(s0, {
+      type: "updateGuardian",
+      id: g.id,
+      patch: { waiverValid: true, pandoraPersonId: "12345" },
+    });
+    expect(s1.guardians?.[0]).toMatchObject({
+      firstName: "Dana",
+      waiverValid: true,
+      pandoraPersonId: "12345",
+    });
+  });
+
+  it("removeGuardian drops the entry", () => {
+    const g = makeMember({ firstName: "Dana" });
+    const s0 = reducer(seedSession(), { type: "addGuardian", member: g });
+    const s1 = reducer(s0, { type: "removeGuardian", id: g.id });
+    expect(s1.guardians).toEqual([]);
+  });
+
+  it("join-the-party move (addPartyMember + removeGuardian) keeps the id a minor references", () => {
+    const g = makeMember({ firstName: "Dana", isNewRacer: false });
+    const minor = { ...makeMember({ firstName: "Kid" }), isMinor: true, guardianMemberId: g.id };
+    const s0: BookingSession = { ...seedSession(), party: [minor], guardians: [g] };
+    const s1 = reducer(s0, { type: "addPartyMember", member: g });
+    const s2 = reducer(s1, { type: "removeGuardian", id: g.id });
+    expect(s2.guardians).toEqual([]);
+    expect(s2.party.map((m) => m.id)).toContain(minor.guardianMemberId);
+  });
+});
+
 describe("reducer — race heat assignments", () => {
   it("addHeat appends to a RaceItem's heats[]", () => {
     const race = newItem("race");
