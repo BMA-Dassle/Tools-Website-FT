@@ -166,6 +166,15 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     schemaVersion: KIOSK_SCHEMA_VERSION,
   });
 
+  // `?bowlingV3=1` preview opt-in must also reach a PERSISTED kiosk session —
+  // context is only seeded at creation (same fix as BookingFlow).
+  useEffect(() => {
+    if (!hydrated) return;
+    if (bowlingV3 && !session.context?.bowlingV3) {
+      dispatch({ type: "enableBowlingV3" });
+    }
+  }, [hydrated, bowlingV3, session.context?.bowlingV3, dispatch]);
+
   const [cartActive, setCartActive] = useState(false);
   const [checkoutActive, setCheckoutActive] = useState(false);
   const [gzOpen, setGzOpen] = useState(false);

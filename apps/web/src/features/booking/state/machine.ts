@@ -109,6 +109,15 @@ export type Action =
   | { type: "setGameCardPurchase"; purchase: GameCardCartPurchase | null }
 
   /* ── bowling holds ─────────────────────────────────────────────── */
+  /**
+   * Adopt the v3 single-time-pick bowling flow preview opt-in into an
+   * EXISTING session. Context is normally seeded only at session creation, so
+   * `?bowlingV3=1` on a browser with a persisted session would be silently
+   * ignored (owner hit this on the first preview). Resets bowling/kbf item
+   * cursors to 0 — the visible step list changes shape, so a stale cursor
+   * would land mid-wizard on the wrong step.
+   */
+  | { type: "enableBowlingV3" }
   /** Store QAMF temporary reservation info on a bowling/kbf item. */
   | { type: "setBowlingHold"; itemId: string; qamfReservationId: string; qamfCenterId: number }
   /** Clear QAMF hold (expired or released). */
@@ -360,6 +369,14 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
     }
 
     /* ──────── bowling holds ──────── */
+    case "enableBowlingV3": {
+      if (state.context?.bowlingV3) return state;
+      const cursors = { ...state.cursors };
+      for (const it of state.items) {
+        if (it.kind === "bowling" || it.kind === "kbf") cursors[it.id] = 0;
+      }
+      return { ...state, context: { ...state.context, bowlingV3: true }, cursors };
+    }
     case "setBowlingHold":
       return {
         ...state,

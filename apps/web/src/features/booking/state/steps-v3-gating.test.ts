@@ -108,3 +108,21 @@ describe("bowling v3 registry gating", () => {
     expect(classicIds).not.toContain("bowling-time");
   });
 });
+
+describe("enableBowlingV3 action (persisted-session adoption)", () => {
+  it("stamps context and resets bowling/kbf cursors only", async () => {
+    const { reducer } = await import("./machine");
+    let s = emptySession({ entryBrand: "headpinz", context: {} });
+    const bowling = newItem("bowling");
+    const race = newItem("race");
+    s = reducer(s, { type: "addItem", item: race });
+    s = reducer(s, { type: "addItem", item: bowling });
+    s = { ...s, cursors: { [race.id]: 3, [bowling.id]: 4 } };
+    const out = reducer(s, { type: "enableBowlingV3" });
+    expect(out.context.bowlingV3).toBe(true);
+    expect(out.cursors[bowling.id]).toBe(0);
+    expect(out.cursors[race.id]).toBe(3);
+    // idempotent
+    expect(reducer(out, { type: "enableBowlingV3" })).toBe(out);
+  });
+});
