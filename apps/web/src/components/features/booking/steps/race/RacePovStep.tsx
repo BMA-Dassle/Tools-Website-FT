@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { RaceItem, StepDef } from "~/features/booking";
+import { raceItemFullyPackaged } from "~/features/booking";
 
 /**
  * Race step — POV camera upsell + Rookie Pack chooser.
@@ -301,8 +302,10 @@ export const RacePovStep: StepDef<RaceItem> = {
   Component: RacePovStepComponent,
   isVisible: (item, session) => {
     if (session.party.length === 0) return false;
-    // Packages bundle license + POV + appetizer — skip this step entirely
-    if (item.packageId) return false;
+    // Packages bundle license + POV + appetizer — skip this step only when
+    // EVERY category in the party is packaged; a mixed package+single cart
+    // still needs the POV upsell for the single-race side.
+    if (raceItemFullyPackaged(item, session.party)) return false;
     return true;
   },
   canAdvance: () => true,

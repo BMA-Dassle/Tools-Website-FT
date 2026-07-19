@@ -219,15 +219,21 @@ export interface RaceItem extends BookingItemBase {
    */
   heats: RaceHeatAssignment[];
   /**
-   * Premium Package selection (id from `lib/packages.ts` registry, e.g.
-   * "rookie-pack-weekday", "ultimate-qualifier-mega"). null when the
-   * customer picked individual races instead of a package. Persisted on
-   * the item so back-nav doesn't lose the selection AND so saveBookingDetails
-   * can write it to /api/booking-record; v1's confirmation page forwards
-   * it to /api/notifications/booking-confirmation which writes it to
-   * `sales_log.package_id` for the sales dashboard's package breakdowns.
+   * Premium Package selection PER CATEGORY (ids from `lib/packages.ts`
+   * registry, e.g. "rookie-pack-weekday", "ultimate-qualifier-weekday-junior").
+   * null when that category picked individual races (or isn't in the party).
+   * Two fields — NOT one — because package variants are category-specific
+   * (adult/junior carry different BMI SKUs AND different prices): a single
+   * field let a mixed party's junior selection overwrite the adult variant,
+   * and checkout then priced EVERY racer at the junior per-racer price
+   * (live undercharge, found 2026-07-19). Mirrors productIdAdult/Junior.
+   * Persisted on the item so back-nav doesn't lose the selection AND so
+   * saveBookingDetails can write it to /api/booking-record; v1's confirmation
+   * page forwards it to /api/notifications/booking-confirmation which writes
+   * it to `sales_log.package_id` for the sales dashboard's package breakdowns.
    */
-  packageId: string | null;
+  packageIdAdult: string | null;
+  packageIdJunior: string | null;
   /**
    * Number of POV cameras to pre-pay ($5/each online vs $7 at check-in).
    * BMI sells POV as a flat qty SKU (productId 43746981), no per-racer
@@ -267,6 +273,39 @@ export interface RaceItem extends BookingItemBase {
    * not applicable. Drives the appetizer card on the confirmation page.
    */
   rookiePack: boolean | null;
+}
+
+/** The per-category package fields of a RaceItem (see packageIdAdult docs). */
+export type RacePackageFields = Pick<RaceItem, "packageIdAdult" | "packageIdJunior">;
+
+/** The category's selected package id — the ONLY sanctioned way to read the
+ *  package fields, so a future category never silently falls through. */
+export function packageIdForCategory(
+  item: RacePackageFields,
+  category: RaceCategory,
+): string | null {
+  return category === "junior" ? item.packageIdJunior : item.packageIdAdult;
+}
+
+/** Distinct non-null package ids on the item, adult-first (the adult variant
+ *  is the "primary" recorded on the booking record / sales_log). */
+export function racePackageIds(item: RacePackageFields): string[] {
+  const ids = [item.packageIdAdult, item.packageIdJunior].filter((id): id is string => !!id);
+  return [...new Set(ids)];
+}
+
+/** True when EVERY category present in the party has a package selected on the
+ *  item. Single seam for "the package covers the whole party" decisions — the
+ *  POV upsell step hides on it, and buildRaceChargeLines suppresses the
+ *  standalone POV quantity on it — so display and charge can't disagree. */
+export function raceItemFullyPackaged(
+  item: RacePackageFields,
+  party: Array<{ category?: "adult" | "junior" }>,
+): boolean {
+  const cats = (["adult", "junior"] as const).filter((c) =>
+    party.some((m) => (m.category ?? "adult") === c),
+  );
+  return cats.length > 0 && cats.every((c) => !!packageIdForCategory(item, c));
 }
 
 export interface AttractionItem extends BookingItemBase {
@@ -639,7 +678,8 @@ export function newItem(activity: Activity): SessionItem {
         productTrackAdult: null,
         productTrackJunior: null,
         heats: [],
-        packageId: null,
+        packageIdAdult: null,
+        packageIdJunior: null,
         povQuantity: 0,
         rookiePack: null,
         addons: [],

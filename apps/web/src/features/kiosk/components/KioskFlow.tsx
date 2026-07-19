@@ -22,6 +22,7 @@ import {
   emptySession,
   getActiveItem,
   newItem,
+  packageIdForCategory,
   type ActivityOffering,
   type AttractionItem,
   type BowlingItem,
@@ -46,7 +47,7 @@ import {
   releaseHeatBmiLines,
 } from "~/features/booking/service/checkout";
 import { comboBowlingComponent, getComboSpecial, type ComboSpecial } from "~/features/combos";
-import { eligiblePackages, scheduleForDate } from "@/lib/packages";
+import { resolvePreselectPatch } from "../service/package-preselect";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
 import {
@@ -308,36 +309,30 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   }, [currentCursor]);
 
   // Preselect the tapped Experiences package once the party is known, so the
-  // product step can skip. MUST stay above the early return below (hook order).
-  // SAFE by construction: resolves via the SAME eligiblePackages() the product
-  // step uses (never a package the step wouldn't offer), and ONLY when the party
-  // is uniform + all-new with exactly one eligible variant. Any other case
-  // (returning racer, mixed adult+junior, no/multiple variants) leaves packageId
-  // unset → the product step shows normally.
+  // product step(s) can skip. MUST stay above the early return below (hook
+  // order). Per-category (packageIdAdult/Junior): a mixed adult+junior party
+  // gets BOTH variants stamped and skips both product steps (owner 2026-07-19);
+  // any category that doesn't resolve to exactly one all-new eligible variant
+  // stays unstamped → its product step shows normally (see package-preselect.ts).
   useEffect(() => {
     const preferred = session.preferredPackageId;
     if (!preferred) return;
     const race = session.items.find((i) => i.kind === "race") as
-      | (SessionItem & { packageId?: string; date?: string })
+      | (SessionItem & {
+          packageIdAdult?: string | null;
+          packageIdJunior?: string | null;
+          date?: string;
+        })
       | undefined;
-    if (!race || race.packageId || !race.date) return;
-    const party = session.party;
-    if (party.length === 0) return; // wait for the party step
-    if (party.some((m) => !m.isNewRacer)) return; // packages are new-racer-only
-    const cats = new Set(party.map((m) => m.category ?? "adult"));
-    if (cats.size !== 1) return; // mixed adult+junior → let the product step handle it
-    const category = [...cats][0] as "adult" | "junior";
-    const variants = eligiblePackages({
-      racerType: "new",
-      schedule: scheduleForDate(race.date),
-      category,
-    }).filter((p) => p.id.startsWith(preferred));
-    if (variants.length === 1) {
-      dispatch({
-        type: "updateItem",
-        id: race.id,
-        patch: { packageId: variants[0].id } as Partial<SessionItem>,
-      });
+    if (!race || !race.date) return;
+    const patch = resolvePreselectPatch({
+      party: session.party,
+      date: race.date,
+      preferredFamily: preferred,
+      current: race,
+    });
+    if (patch) {
+      dispatch({ type: "updateItem", id: race.id, patch: patch as Partial<SessionItem> });
     }
   }, [session.preferredPackageId, session.party, session.items, dispatch]);
 
@@ -1224,9 +1219,10 @@ export function KioskFlow({ goto }: { goto: string | null }) {
       // and the flow used to advance with them silently dropped. Never advance
       // past a guest with no race — offer the add-another-race loop (the path
       // back the guest "couldn't find") or an explicit not-racing opt-out.
-      // Packages own their race selections, so they're exempt.
-      if (!raceItem.packageId) {
-        const category = currentStep.id === "race-heat-adult" ? "adult" : "junior";
+      // Packages own their race selections, so they're exempt (per category —
+      // the OTHER category's package must not exempt this one's single races).
+      const category = currentStep.id === "race-heat-adult" ? "adult" : "junior";
+      if (!packageIdForCategory(raceItem, category)) {
         const assigned = new Set(
           raceItem.heats.filter((h) => h.heatId && h.assignedTo).map((h) => h.assignedTo),
         );

@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import type { PartyMember, RaceHeatAssignment, RaceItem, StepDef } from "~/features/booking";
-import { bookingKeys } from "~/features/booking";
+import { bookingKeys, packageIdForCategory } from "~/features/booking";
 import {
   bmiAdapter,
   type BmiAvailabilityResponse,
@@ -190,10 +190,8 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     // Once the customer confirms picks, heats are written to item.heats
     // and the outer Next button (BookingFlow) handles BMI booking via
     // bookHeatsOnAdvance — same as the regular heat picker path.
-    const pkg = useMemo(
-      () => (productId ? null : getPackage(item.packageId)),
-      [productId, item.packageId],
-    );
+    const pkgId = productId ? null : packageIdForCategory(item, category);
+    const pkg = useMemo(() => getPackage(pkgId), [pkgId]);
 
     // Express-lane eligibility — computed ABOVE the package early-return so
     // the package grid gets the same opening-heats signal as the single-race
@@ -203,10 +201,13 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     const allReturningHaveWaivers =
       !anyNewInCategory &&
       session.party.filter((m) => !m.isNewRacer).every((m) => m.waiverValid === true);
+    // Scoped to THIS category's heats — on a mixed party the adult package's
+    // (possibly still-unbooked) picks must not flip the junior step into the
+    // "Heats Selected" summary before the junior has picked anything.
     const packageHeatsAlreadyPicked = !!(
       pkg &&
       pkg.races.length > 0 &&
-      item.heats.some((h) => h.heatId && !h.bmiLineId)
+      item.heats.some((h) => h.heatId && !h.bmiLineId && (h.category ?? "adult") === category)
     );
     if (pkg && pkg.races.length > 0 && item.date && !packageHeatsAlreadyPicked) {
       return (
@@ -239,8 +240,9 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       );
     }
     if (pkg && packageHeatsAlreadyPicked) {
+      const categoryHeats = item.heats.filter((h) => (h.category ?? "adult") === category);
       const pickSummary = pkg.races.map((comp) => {
-        const heat = item.heats.find(
+        const heat = categoryHeats.find(
           (h) => h.heatId && comp.tracks.some((t) => t.productId === h.productId),
         );
         return { label: comp.label, time: heat ? formatTime(heat.heatId!) : "—" };
@@ -266,7 +268,15 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
           </div>
           <button
             type="button"
-            onClick={() => onChange({ heats: item.heats.filter((h) => !!h.bmiLineId) })}
+            // Drop only THIS category's unbooked picks — the other category's
+            // pending package heats (mixed party) must survive a re-pick here.
+            onClick={() =>
+              onChange({
+                heats: item.heats.filter(
+                  (h) => !!h.bmiLineId || (h.category ?? "adult") !== category,
+                ),
+              })
+            }
             className="mx-auto block text-sm text-white/40 underline hover:text-white/60"
           >
             Re-pick heats
@@ -1040,11 +1050,19 @@ function canAdvanceFor(
   const productId = productIdForCategory(item, category);
 
   // Package flow: PackageHeatPicker auto-advances via dispatch("next")
-  // after writing heats, so canAdvance just needs to confirm heats exist.
-  if (!productId && item.packageId) {
-    const pkg = getPackage(item.packageId);
+  // after writing heats, so canAdvance just needs to confirm heats exist —
+  // scoped to THIS category's racers (a mixed party's adult heats must not
+  // let the junior step advance with zero junior heats).
+  const packageId = packageIdForCategory(item, category);
+  if (!productId && packageId) {
+    const pkg = getPackage(packageId);
     if (pkg && pkg.races.length > 0) {
-      const hasHeats = item.heats.some((h) => h.heatId);
+      const categoryIds = new Set(
+        session.party.filter((m) => (m.category ?? "adult") === category).map((m) => m.id),
+      );
+      const hasHeats = item.heats.some(
+        (h) => h.heatId && h.assignedTo && categoryIds.has(h.assignedTo),
+      );
       return hasHeats ? true : { reason: "Pick your package heats." };
     }
   }
