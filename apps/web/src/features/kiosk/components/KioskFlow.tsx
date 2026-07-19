@@ -940,13 +940,45 @@ export function KioskFlow({ goto }: { goto: string | null }) {
             // Adopt the pack buyers into the session party (skip anyone already
             // there by person id) so racing never re-prompts a sign-in, then
             // open the race flow exactly like the attract "Race now" chip.
+            // The FIRST buyer becomes the MAIN contact (owner 2026-07-19) when
+            // the session doesn't have one yet — their name/phone/email seed
+            // the booking contact so the contact step never re-asks what we
+            // already know (email may still be missing; that step fills it).
             const known = new Set(
               session.party.map((m) => m.bmiPersonId).filter((id): id is string => !!id),
             );
-            for (const m of members) {
-              if (m.bmiPersonId && known.has(m.bmiPersonId)) continue;
-              dispatch({ type: "addPartyMember", member: m });
-            }
+            const hasMain = session.party.some((m) => m.isBillingCustomer);
+            members.forEach((m, i) => {
+              const makeMain = i === 0 && !hasMain;
+              if (m.bmiPersonId && known.has(m.bmiPersonId)) {
+                if (makeMain) {
+                  const existing = session.party.find((p) => p.bmiPersonId === m.bmiPersonId);
+                  if (existing) {
+                    dispatch({
+                      type: "updatePartyMember",
+                      id: existing.id,
+                      patch: { isBillingCustomer: true },
+                    });
+                  }
+                }
+              } else {
+                dispatch({
+                  type: "addPartyMember",
+                  member: makeMain ? { ...m, isBillingCustomer: true } : m,
+                });
+              }
+              if (makeMain) {
+                dispatch({
+                  type: "setContact",
+                  patch: {
+                    firstName: m.firstName,
+                    lastName: m.lastName ?? "",
+                    ...(m.phone ? { phone: m.phone } : {}),
+                    ...(m.email ? { email: m.email } : {}),
+                  },
+                });
+              }
+            });
             setPacksOpen(false);
             const existingRace = session.items.find((i) => i.kind === "race");
             if (existingRace) {

@@ -29,8 +29,22 @@ export function kioskRacePacksEnabled(): boolean {
   return process.env.NEXT_PUBLIC_KIOSK_RACE_PACKS_ENABLED !== "false";
 }
 
-/** The kiosk sells 3-race packs only (owner: "remove 5 and 10"). */
-const KIOSK_PACK_SLUGS = ["3-race-weekday", "3-race-anytime"] as const;
+/** Where a pack is being sold — the two surfaces carry different catalogs
+ *  (owner 2026-07-19): the in-race teaser stays 3-packs only (fast decision
+ *  mid-booking), the standalone attract flow sells all six (3/5/10). */
+export type PackSurface = "booking" | "standalone";
+
+const KIOSK_PACK_SLUGS: Record<PackSurface, readonly string[]> = {
+  booking: ["3-race-weekday", "3-race-anytime"],
+  standalone: [
+    "3-race-weekday",
+    "3-race-anytime",
+    "5-race-weekday",
+    "5-race-anytime",
+    "10-race-weekday",
+    "10-race-anytime",
+  ],
+};
 
 /** Is the center's local day a weekend day for pack purposes? Owner rule:
  *  Fri/Sat/Sun — the Mon–Thu pack is HIDDEN (not warned) on those days.
@@ -43,13 +57,18 @@ export function isWeekendForPacks(now: Date = new Date()): boolean {
   return day === "Fri" || day === "Sat" || day === "Sun";
 }
 
-/** The packs the kiosk offers RIGHT NOW (day-filtered, cheapest first). */
-export function kioskPackSkus(now: Date = new Date()): RacePack[] {
+/** The packs the kiosk offers RIGHT NOW on a surface (day-filtered; smallest
+ *  pack first, weekday before any-day within a size). */
+export function kioskPackSkus(
+  now: Date = new Date(),
+  surface: PackSurface = "booking",
+): RacePack[] {
   const weekend = isWeekendForPacks(now);
-  return KIOSK_PACK_SLUGS.map((slug) => RACE_PACKS.find((p) => p.slug === slug))
+  return KIOSK_PACK_SLUGS[surface]
+    .map((slug) => RACE_PACKS.find((p) => p.slug === slug))
     .filter((p): p is RacePack => !!p)
     .filter((p) => !(weekend && p.dayType === "weekday"))
-    .sort((a, b) => a.price - b.price);
+    .sort((a, b) => a.raceCount - b.raceCount || a.price - b.price);
 }
 
 /** A pack purchase pointer as carried by the session/UI — slug + assignee only;
@@ -81,9 +100,10 @@ export function resolveKioskPacks(
   selections: KioskPackSelection[],
   party: Array<{ id: string; firstName: string; lastName?: string; bmiPersonId?: string | null }>,
   now: Date = new Date(),
+  surface: PackSurface = "booking",
 ): ResolvedKioskPack[] {
   if (selections.length === 0) return [];
-  const offered = new Set(kioskPackSkus(now).map((p) => p.slug));
+  const offered = new Set(kioskPackSkus(now, surface).map((p) => p.slug));
   const seen = new Set<string>();
   return selections.map((sel) => {
     const pack = getRacePack(sel.slug);

@@ -55,7 +55,9 @@ export function KioskRacePackFlow({
   const [outcomes, setOutcomes] = useState<PackOutcome[]>([]);
   const purchaseKeyRef = useRef<string | null>(null);
 
-  const skus = kioskPackSkus();
+  // Standalone surface sells ALL six SKUs — 3/5/10 × Mon–Thu/Any-Day (owner
+  // 2026-07-19); weekday SKUs still hide Fri–Sun.
+  const skus = kioskPackSkus(new Date(), "standalone");
   const readerReady = kioskTerminalEnabled() && !!config?.readerId;
 
   const assigned = party.filter((m) => picks[m.id] && m.bmiPersonId);
@@ -290,7 +292,7 @@ export function KioskRacePackFlow({
                   </span>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-[14px]">
+              <div className={`grid gap-[14px] ${skus.length > 2 ? "grid-cols-3" : "grid-cols-2"}`}>
                 {skus.map((p) => {
                   const on = picks[m.id] === p.slug;
                   return (
@@ -300,16 +302,17 @@ export function KioskRacePackFlow({
                       disabled={!m.bmiPersonId}
                       onClick={() => togglePick(m.id, p.slug)}
                       aria-pressed={on}
-                      className={`rounded-2xl border-2 px-[18px] py-[16px] text-center ${
+                      className={`rounded-2xl border-2 px-[14px] py-[16px] text-center ${
                         on
                           ? "border-[#00e2e5] bg-[#00e2e5]/10 text-white"
                           : "border-white/10 bg-white/[0.02] text-white/70"
                       } ${m.bmiPersonId ? "" : "opacity-40"}`}
                     >
                       <div className="k-display text-[30px] leading-none">
-                        3<span className="text-[18px]"> races</span>
+                        {p.raceCount}
+                        <span className="text-[18px]"> races</span>
                       </div>
-                      <div className="mt-[6px] text-[17px] uppercase tracking-widest text-white/45">
+                      <div className="mt-[6px] text-[16px] uppercase tracking-widest text-white/45">
                         {p.dayType === "weekday" ? "Mon–Thu" : "Any day"}
                       </div>
                       <div className="mt-[6px] text-[24px] font-bold tabular-nums">
