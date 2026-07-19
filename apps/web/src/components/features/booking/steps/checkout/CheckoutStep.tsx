@@ -1103,17 +1103,25 @@ export function CheckoutStep({
         <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-4">
           {overview.lines.map((line, i) => (
             <div key={i} className="flex justify-between gap-3 text-sm">
-              <span className="min-w-0 flex-1 text-white/60">
+              <span
+                className={`min-w-0 flex-1 ${line.amount < 0 ? "text-green-400" : "text-white/60"}`}
+              >
                 {line.name}
                 {line.quantity > 1 && <span> x {line.quantity}</span>}
               </span>
-              <span className="shrink-0 text-white">
+              <span className={`shrink-0 ${line.amount < 0 ? "text-green-400" : "text-white"}`}>
                 {line.originalAmount != null && line.originalAmount > line.amount && (
                   <span className="mr-1.5 text-white/40 line-through">
                     ${line.originalAmount.toFixed(2)}
                   </span>
                 )}
-                {line.amount > 0 ? `$${line.amount.toFixed(2)}` : "Credit"}
+                {/* amount < 0 = a deduction line (pack coverage) — show the signed
+                    dollars; exactly $0 = a credit-redeemed heat, labeled "Credit". */}
+                {line.amount > 0
+                  ? `$${line.amount.toFixed(2)}`
+                  : line.amount < 0
+                    ? `-$${Math.abs(line.amount).toFixed(2)}`
+                    : "Credit"}
               </span>
             </div>
           ))}
