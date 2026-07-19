@@ -81,6 +81,40 @@
   animation: kiosk-pulse 2.4s ease-in-out infinite;
 }
 
+/* Card-slot guide (game-card reload / balance check, CardSlotGuide.tsx):
+   the card slides into the correct slot on a loop while the slot's green
+   frame breathes. Wrong slots wear static no-entry marks. */
+@keyframes k-slot-card {
+  0%,
+  14% {
+    transform: translateY(0);
+  }
+  40%,
+  64% {
+    transform: translateY(-92px);
+  }
+  90%,
+  100% {
+    transform: translateY(0);
+  }
+}
+.k-slot-card {
+  animation: k-slot-card 4.2s ease-in-out infinite;
+}
+
+@keyframes k-slot-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 5px rgba(70, 214, 140, 0.35));
+  }
+  50% {
+    filter: drop-shadow(0 0 16px rgba(70, 214, 140, 0.85));
+  }
+}
+.k-slot-glow {
+  animation: k-slot-glow 2.4s ease-in-out infinite;
+}
+
 /* Touch scrolling: momentum, hidden scrollbar (bottom fades hint instead). */
 .kiosk-scroll {
   overflow-y: auto;
@@ -116,7 +150,9 @@
   .kiosk-breathe,
   .kiosk-kenburns,
   .kiosk-sweep,
-  .kiosk-pulse {
+  .kiosk-pulse,
+  .k-slot-card,
+  .k-slot-glow {
     animation: none;
   }
 }

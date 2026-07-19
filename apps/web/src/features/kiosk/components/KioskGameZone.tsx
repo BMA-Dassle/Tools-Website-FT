@@ -35,6 +35,7 @@ import { useGameCardDispenser, type FaultBehavior } from "../card-reader";
 import type { GameCardCartPurchase } from "~/features/booking/state/types";
 import { useKioskConfig } from "../KioskConfigContext";
 import { BrandedLoader } from "./BrandedLoader";
+import { CardSlotGuide } from "./CardSlotGuide";
 import { KioskDispenserHold } from "./KioskDispenserHold";
 
 /** A recoverable dispenser fault the flow holds on until staff resume. */
@@ -914,15 +915,14 @@ export function KioskGameZone({
 
         {balCard?.status === "reading" || balCard?.status === "checking" ? (
           <div className="flex justify-center py-12">
-            <BrandedLoader
-              brand={brand}
-              label={balCard.status === "reading" ? "Insert your card" : "Checking balance…"}
-              sublabel={
-                balCard.status === "reading"
-                  ? "It reads in a second and comes right back out"
-                  : undefined
-              }
-            />
+            {balCard.status === "reading" ? (
+              <CardSlotGuide
+                label="Insert your card"
+                sublabel="Use the glowing green slot — it reads in a second and comes right back out"
+              />
+            ) : (
+              <BrandedLoader brand={brand} label="Checking balance…" />
+            )}
           </div>
         ) : balCard?.status === "ok" && bal ? (
           <div className="rounded-2xl border border-[#46d68c]/40 bg-white/[0.04] p-6">
@@ -1470,15 +1470,18 @@ export function KioskGameZone({
           times out on its own in ~30s. */}
       {dispenser.busy && (
         <div className="absolute inset-0 z-40 flex flex-col items-center justify-center rounded-2xl bg-[#000418]/88 backdrop-blur-sm">
-          <BrandedLoader
-            brand={brand}
-            label={dispenser.busy === "presenting card" ? "Take your card" : "Insert your card"}
-            sublabel={
-              dispenser.busy === "presenting card"
-                ? "It's coming back out now"
-                : "Reading it takes a second — it comes right back"
-            }
-          />
+          {dispenser.busy === "presenting card" ? (
+            <BrandedLoader
+              brand={brand}
+              label="Take your card"
+              sublabel="It's coming back out now"
+            />
+          ) : (
+            <CardSlotGuide
+              label="Insert your card"
+              sublabel="Use the glowing green slot — it reads in a second and comes right back"
+            />
+          )}
         </div>
       )}
       <div className="mb-5 flex items-center justify-between">
