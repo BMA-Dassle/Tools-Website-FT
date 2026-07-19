@@ -54,6 +54,12 @@ const MAX_BAD_BLANKS = 3;
  *  reload only ever reads an inserted card and presents it back. */
 const MAX_AUTO_READ_FAILS = 3;
 
+/** The final "cards ready / tokens loaded" screen auto-closes after this many
+ *  seconds (owner 2026-07-19). We only reach it once the dispenser sensor has
+ *  confirmed every card was taken (waitTaken), so this is a hands-off "you're
+ *  done" timeout — no one has to tap Done. */
+const DONE_AUTO_CLOSE_SECONDS = 30;
+
 /** Hold shown when too many blanks in a row can't be read — almost always the
  *  stock loaded facing the wrong way. No sensor can confirm orientation, so
  *  Resume is enabled immediately (staff judgment) and re-inits on resume. */
@@ -205,6 +211,8 @@ export function KioskGameZone({
   // Balance check (mode "balance") — ONE card at a time (owner rule).
   const [balCard, setBalCard] = useState<BalanceCard | null>(null);
   const [balTyped, setBalTyped] = useState("");
+  // Seconds left before the final screen auto-closes (null = not counting).
+  const [doneAutoCloseIn, setDoneAutoCloseIn] = useState<number | null>(null);
   const locationCode = centerCodeFor(center, brand);
 
   // The CRT-591 dispenser owns ONE connection for the whole Game Zone session
@@ -267,6 +275,28 @@ export function KioskGameZone({
   useEffect(() => {
     onBusyChange?.(phase === "loading" || phase === "paying" || holdFault != null);
   }, [phase, holdFault, onBusyChange]);
+
+  // Final screen auto-closes hands-free: we only land on "done" once the cards
+  // are dispensed + taken (sensor-confirmed via waitTaken), so no one has to tap
+  // Done — count down and exit. Tapping Done still closes immediately.
+  useEffect(() => {
+    if (phase !== "done") {
+      setDoneAutoCloseIn(null);
+      return;
+    }
+    const deadline = Date.now() + DONE_AUTO_CLOSE_SECONDS * 1000;
+    setDoneAutoCloseIn(DONE_AUTO_CLOSE_SECONDS);
+    const t = setInterval(() => {
+      const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+      setDoneAutoCloseIn(left);
+      if (left <= 0) {
+        clearInterval(t);
+        onExit();
+      }
+    }, 500);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
 
   const totalCents = cards.reduce((sum, c) => {
     const pkg = TOKEN_PACKAGES.find((p) => p.id === c.packageId);
@@ -1169,6 +1199,11 @@ export function KioskGameZone({
           >
             Done
           </button>
+          {doneAutoCloseIn != null && (
+            <p className="mt-3 text-sm text-white/40">
+              Closing automatically in {doneAutoCloseIn}s
+            </p>
+          )}
         </div>
       );
     }
@@ -1196,6 +1231,9 @@ export function KioskGameZone({
         >
           Done
         </button>
+        {doneAutoCloseIn != null && (
+          <p className="mt-3 text-sm text-white/40">Closing automatically in {doneAutoCloseIn}s</p>
+        )}
       </div>
     );
   }
