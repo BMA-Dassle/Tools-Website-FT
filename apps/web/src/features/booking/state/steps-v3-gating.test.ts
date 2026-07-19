@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { STEP_REGISTRY } from "./steps";
+import { KIOSK_STEP_REGISTRY } from "~/features/kiosk/state/registry";
 import { emptySession, newItem } from "./types";
 
 // The v3 single-time-pick bowling flow coexists with the classic flow in one
@@ -60,5 +61,50 @@ describe("bowling v3 registry gating", () => {
     expect(ids).not.toContain("bowling-date");
     expect(ids).toContain("bowling-experience");
     expect(ids).toContain("bowling-time");
+  });
+
+  it("kiosk registry: classic session sees the kiosk time/tier steps, never v3", () => {
+    const session = emptySession({ entryBrand: "headpinz", context: { kiosk: true } });
+    const item = newItem("bowling");
+    const ids = KIOSK_STEP_REGISTRY.bowling
+      .filter((s) => s.isVisible(item, session))
+      .map((s) => s.id);
+    expect(ids).toContain("bowling-slots"); // KioskBowlingTimeStep keeps the web id
+    expect(ids).toContain("bowling-tier");
+    expect(ids).toContain("bowling-offer");
+    for (const id of V3_IDS) expect(ids).not.toContain(id);
+  });
+
+  it("kiosk registry: v3 session sees Experience+Time only — no date, no classic", () => {
+    const session = emptySession({
+      entryBrand: "headpinz",
+      context: { kiosk: true, bowlingV3: true },
+    });
+    const item = newItem("bowling");
+    const ids = KIOSK_STEP_REGISTRY.bowling
+      .filter((s) => s.isVisible(item, session))
+      .map((s) => s.id);
+    expect(ids).toEqual(
+      expect.arrayContaining(["kiosk-bowling-people", "bowling-experience", "bowling-time"]),
+    );
+    for (const id of [...CLASSIC_IDS, "bowling-date"]) expect(ids).not.toContain(id);
+    // roster details + shoes still present
+    expect(ids).toContain("bowling-shoes");
+    expect(ids).toContain("kiosk-bowling-details");
+  });
+
+  it("kiosk KBF registry gates the same way", () => {
+    const v3 = emptySession({ entryBrand: "headpinz", context: { kiosk: true, bowlingV3: true } });
+    const classic = emptySession({ entryBrand: "headpinz", context: { kiosk: true } });
+    const item = newItem("kbf");
+    const v3Ids = KIOSK_STEP_REGISTRY.kbf.filter((s) => s.isVisible(item, v3)).map((s) => s.id);
+    const classicIds = KIOSK_STEP_REGISTRY.kbf
+      .filter((s) => s.isVisible(item, classic))
+      .map((s) => s.id);
+    expect(v3Ids).toContain("bowling-experience");
+    expect(v3Ids).toContain("bowling-time");
+    expect(v3Ids).not.toContain("bowling-slots");
+    expect(classicIds).toContain("bowling-slots");
+    expect(classicIds).not.toContain("bowling-time");
   });
 });
