@@ -22,6 +22,7 @@
  * just takes a BMI productId and trusts it.
  */
 import { stringifyWithRawIds } from "@ft/db";
+import { apiBase } from "@/lib/api-base";
 import { isMockMode } from "./mock-mode";
 import {
   fixtureAvailability,
@@ -217,7 +218,7 @@ async function callBmi(
     ...(extraParams ?? {}),
     ...(clientKey ? { clientKey } : {}),
   });
-  return fetch(`${BMI_ENDPOINT}?${qs.toString()}`, {
+  return fetch(`${apiBase()}${BMI_ENDPOINT}?${qs.toString()}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body,

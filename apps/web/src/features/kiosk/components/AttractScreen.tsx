@@ -25,7 +25,7 @@ import { useKioskConfig } from "../KioskConfigContext";
 import { KIOSK_AD_SLIDES, KIOSK_LOGOS, KIOSK_PHOTOS } from "../assets";
 import { BrandedLoader } from "./BrandedLoader";
 import { useKioskClock, syncGlowPhase } from "../hooks/useKioskClock";
-import { useComboAvailability } from "../hooks/useComboAvailability";
+import { useKioskAvailability } from "../hooks/useKioskAvailability";
 
 const AD_ROTATE_MS = 8000;
 
@@ -41,8 +41,9 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   // return) so hook order is stable when config transitions null→set.
   const cornerTaps = useRef<number[]>([]);
   const rootRef = useRef<HTMLDivElement>(null);
-  // Lock the VIP quick-chip when the combo can't actually be booked today.
-  const vipAvailable = useComboAvailability("race-bowl", config?.center ?? null);
+  // Lock the VIP quick-chip when the combo can't actually be booked today
+  // (cached server-side; see useKioskAvailability).
+  const vipAvailable = useKioskAvailability(config?.center ?? null)("race-bowl");
 
   // Boot: merge provisioning URL params over stored config; if the device has
   // no local config yet but the URL names a venue, pull the saved setup from

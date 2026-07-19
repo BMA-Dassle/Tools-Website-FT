@@ -36,8 +36,11 @@ export interface KioskCategoriesProps {
   center: CenterCode;
   session: BookingSession;
   /** False locks the VIP combo tile — no full race → VIP-lane → race itinerary
-   *  fits today (polled every 5 min). Defaults available. */
+   *  fits today. Defaults available. */
   vipComboAvailable?: boolean;
+  /** False locks the Ultimate Qualifier tile — no Starter+Intermediate pair fits
+   *  today. Defaults available. */
+  uqAvailable?: boolean;
   onPickOffering: (offering: ActivityOffering) => void;
   onPickCombo: (combo: ComboSpecial) => void;
   /** Launch racing with a package FAMILY preselected (Experiences package tile). */
@@ -51,6 +54,7 @@ export function KioskCategories({
   center,
   session,
   vipComboAvailable = true,
+  uqAvailable = true,
   onPickOffering,
   onPickCombo,
   onPickPackageExperience,
@@ -168,6 +172,8 @@ export function KioskCategories({
                   blurb={`Qualify on a Starter, then level up — POV video, free appetizer & license included.${
                     qualifierFrom != null ? ` · From $${qualifierFrom.toFixed(0)}/person` : ""
                   }`}
+                  disabled={!uqAvailable}
+                  disabledNote="Not enough time left today to fit both races — please check back or ask an attendant."
                   onClick={() => onPickPackageExperience("ultimate-qualifier")}
                 />
               )}
