@@ -314,8 +314,17 @@ export class CrtReaderClient {
     return this.run(moveCommand("outOfGate"), () => undefined);
   }
 
+  /**
+   * Retract the held card to the error bin. The M001 doc says that's MOVE 33h
+   * ("retract to error card bin"), but on this HB-HDN unit 33h does NOT move the
+   * card — it sits at the read station (the "it kept the same card while it
+   * retried" bug). MOVE 39h (the doc's "out of gate") is what actually routes a
+   * card to the error bin on this unit — the same deviation the present path
+   * found (39h binned instead of presenting, so present uses 30h). So we bin
+   * with 39h here.
+   */
   captureCard(): Promise<CrtResult> {
-    return this.run(moveCommand("errorBin"), () => undefined);
+    return this.run(moveCommand("outOfGate"), () => undefined);
   }
 
   setEntry(enabled: boolean): Promise<CrtResult> {
@@ -460,12 +469,25 @@ export class CrtReaderClient {
    */
   async issueAndReadCard(): Promise<MagTracks> {
     // MOVE 34h dispenses a blank straight from the stacker to the read station
-    // (st0=2) — confirmed against the vendor tool's buy sequence. Fallback to
-    // the documented 31h dispense only if that ever reads nothing.
+    // (st0=2) — confirmed against the vendor tool's buy sequence.
+    await this.moveToMagPosition();
     try {
-      await this.moveToMagPosition();
       return await this.readMagAfterSettle();
-    } catch {
+    } catch (err) {
+      // The read failed. Tell the two causes apart with the card sensor:
+      //  • A card IS at the read station but couldn't be read (e.g. loaded facing
+      //    the wrong way). Do NOT run the 31h fallback — that pokes the card out
+      //    to the gate and drags it back (the "why did it go to the gate" bug).
+      //    Rethrow so the caller bins it STRAIGHT to the error bin.
+      //  • NO card reached the station (34h pulled nothing) — only then fall back
+      //    to the documented stacker dispense (31h → gate) and reposition (34h).
+      let cardPresent = true; // safe default: never poke an unread card to the gate
+      try {
+        cardPresent = (await this.getStatus()).status.card !== "none";
+      } catch {
+        /* status unavailable — keep the safe no-gate path (rethrow) */
+      }
+      if (cardPresent) throw err;
       await this.moveCard("icPosition"); // 31h: documented stacker dispense (→ gate)
       await this.moveToMagPosition(); // 34h: retract to the read station
       return this.readMagAfterSettle();

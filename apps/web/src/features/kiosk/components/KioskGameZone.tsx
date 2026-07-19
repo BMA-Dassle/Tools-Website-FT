@@ -752,6 +752,22 @@ export function KioskGameZone({
     );
   }
 
+  // ── Connecting to the dispenser: cover the whole screen with the loader ──
+  // While the reader is (re)connecting we can't dispense yet, so don't show a
+  // half-usable screen — the branded loader takes the whole page until it's
+  // ready. Skipped during payment / done / error so those views aren't hidden.
+  if (dispenser.reconnecting && phase !== "paying" && phase !== "done" && phase !== "error") {
+    return (
+      <div className="flex h-full items-center justify-center py-16">
+        <BrandedLoader
+          brand={brand}
+          label="Connecting to the card dispenser…"
+          sublabel="One moment"
+        />
+      </div>
+    );
+  }
+
   // ── Mode chooser: New card vs Reload ──
   if (mode === "choose") {
     return (
