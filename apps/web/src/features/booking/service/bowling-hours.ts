@@ -190,6 +190,74 @@ export function parseHoursRange(hoursStr: string): { open: number; close: number
   };
 }
 
+/** Vendor wall-clock ISO → ET minutes-since-midnight in 0-26h notation.
+ *  Race/attraction ISOs are wall-clock-in-Z; QAMF bookedAt carries an ET
+ *  offset — stripping either suffix and parsing naively yields the intended
+ *  ET wall time on ANY browser TZ. */
+export function wallMinutes(iso: string): number | null {
+  const naive = iso.replace(/Z$/, "").replace(/[+-]\d{2}:\d{2}$/, "");
+  const d = new Date(naive);
+  if (Number.isNaN(d.getTime())) return null;
+  const m = d.getHours() * 60 + d.getMinutes();
+  return m < 6 * 60 ? m + 24 * 60 : m;
+}
+
+/** Flat per-activity window the combo engine schedules with. */
+const ASSUMED_ACTIVITY_MINUTES = 30;
+const MIN_BOWLING_MINUTES = 60;
+
+/**
+ * Duration-aware cart-conflict predicate for a bowling time pick (generalized
+ * from KioskBowlingTimeStep's busy/conflictOf, 2026-07-19): returns a
+ * function mapping a candidate bookedAt ISO to a human label of the cart item
+ * it overlaps, or null when clear. Only same-date items count. The candidate
+ * occupies [start, start + durationMinutes); race heats/attraction slots
+ * occupy ~30 min; other bowling items use their real duration when known.
+ */
+export function bowlingCartConflicts(
+  session: BookingSession,
+  currentId: string,
+  date: string | null,
+  durationMinutes: number | null,
+): (bookedAtIso: string) => string | null {
+  const busy: Array<{ startMin: number; endMin: number; label: string }> = [];
+  for (const other of session.items) {
+    if (other.id === currentId) continue;
+    if (other.kind === "race") {
+      const seen = new Set<string>();
+      for (const h of other.heats) {
+        if (!h.heatId || seen.has(h.heatId)) continue;
+        seen.add(h.heatId);
+        if (date && !h.heatId.replace(/Z$/, "").startsWith(date)) continue;
+        const m = wallMinutes(h.heatId);
+        if (m != null)
+          busy.push({ startMin: m, endMin: m + ASSUMED_ACTIVITY_MINUTES, label: "You're racing" });
+      }
+    } else if (other.kind === "attraction" && other.slot) {
+      if (date && other.date !== date) continue;
+      const m = wallMinutes(other.slot);
+      if (m != null)
+        busy.push({ startMin: m, endMin: m + ASSUMED_ACTIVITY_MINUTES, label: "You're booked" });
+    } else if ((other.kind === "bowling" || other.kind === "kbf") && other.hour != null) {
+      if (date && other.date !== date) continue;
+      const start = other.hour * 60 + (other.minute ?? 0);
+      busy.push({
+        startMin: start,
+        endMin: start + (other.durationMinutes ?? MIN_BOWLING_MINUTES),
+        label: "You're bowling",
+      });
+    }
+  }
+  const dur = durationMinutes ?? MIN_BOWLING_MINUTES;
+  return (bookedAtIso: string) => {
+    const start = wallMinutes(bookedAtIso);
+    if (start == null) return null;
+    const end = start + dur;
+    const hit = busy.find((b) => start < b.endMin && end > b.startMin);
+    return hit ? hit.label : null;
+  };
+}
+
 /**
  * Bookable hours (0-26 notation) for a date — STATIC, no QAMF probe. Center
  * open→close (weekday vs weekend), minus hours already past when the date is

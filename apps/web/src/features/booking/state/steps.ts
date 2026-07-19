@@ -15,6 +15,7 @@
 import type { ComponentType, Dispatch } from "react";
 import type { Action } from "./machine";
 import type { BookingItem, BookingSession, SessionItem } from "./types";
+import { bowlingV3Active } from "../flags";
 
 /**
  * Props a step component receives:
@@ -79,6 +80,9 @@ import BowlingPlayersStep from "~/components/features/booking/steps/bowling/Bowl
 import BowlingSlotsStep from "~/components/features/booking/steps/bowling/BowlingSlotsStep";
 import BowlingTierStep from "~/components/features/booking/steps/bowling/BowlingTierStep";
 import BowlingOfferStep from "~/components/features/booking/steps/bowling/BowlingOfferStep";
+import BowlingDateStep from "~/components/features/booking/steps/bowling/BowlingDateStep";
+import BowlingExperienceStep from "~/components/features/booking/steps/bowling/BowlingExperienceStep";
+import BowlingTimeStep from "~/components/features/booking/steps/bowling/BowlingTimeStep";
 import BowlingShoesStep from "~/components/features/booking/steps/bowling/BowlingShoesStep";
 import BowlingFoodStep from "~/components/features/booking/steps/bowling/BowlingFoodStep";
 import WorldCupMatchStep from "~/components/features/booking/steps/bowling/WorldCupMatchStep";
@@ -118,6 +122,28 @@ function hiddenForWorldCup(step: StepDef): StepDef {
     isVisible: (item, session) =>
       !(item.kind === "bowling" && (item as { isWorldCup?: boolean }).isWorldCup) &&
       step.isVisible(item, session),
+  };
+}
+
+/**
+ * Single-time-pick bowling flow (v3) coexistence wrappers (2026-07-19).
+ * The classic Slots→Tier→Offer steps and the v3 Date→Experience→Time steps
+ * BOTH live in the registry; exactly one set is visible per session, keyed
+ * off the dark flag / `?bowlingV3=1` preview param. Because context is
+ * seeded at session creation, a session never switches flows mid-flight —
+ * cursors stay consistent within the visible-filtered list. Exported for
+ * the kiosk registry, whose step replacements must gate identically.
+ */
+export function v3Only(step: StepDef): StepDef {
+  return {
+    ...step,
+    isVisible: (item, session) => bowlingV3Active(session) && step.isVisible(item, session),
+  };
+}
+export function classicOnly(step: StepDef): StepDef {
+  return {
+    ...step,
+    isVisible: (item, session) => !bowlingV3Active(session) && step.isVisible(item, session),
   };
 }
 
@@ -175,9 +201,14 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     // the lane at the fixture kickoff itself); its own isVisible gates on
     // item.isWorldCup so plain bowling items never see it.
     hiddenInCombo(WorldCupMatchStep as StepDef),
-    hiddenInCombo(hiddenForWorldCup(BowlingSlotsStep as StepDef)),
-    hiddenInCombo(hiddenForWorldCup(BowlingTierStep as StepDef)),
-    hiddenInCombo(hiddenForWorldCup(BowlingOfferStep as StepDef)),
+    // Classic flow (flag OFF): date+hour → tier → package+time-confirm.
+    hiddenInCombo(hiddenForWorldCup(classicOnly(BowlingSlotsStep as StepDef))),
+    hiddenInCombo(hiddenForWorldCup(classicOnly(BowlingTierStep as StepDef))),
+    hiddenInCombo(hiddenForWorldCup(classicOnly(BowlingOfferStep as StepDef))),
+    // v3 single-time-pick flow (flag ON): date → experience → time+hold.
+    hiddenInCombo(hiddenForWorldCup(v3Only(BowlingDateStep as StepDef))),
+    hiddenInCombo(hiddenForWorldCup(v3Only(BowlingExperienceStep as StepDef))),
+    hiddenInCombo(hiddenForWorldCup(v3Only(BowlingTimeStep as StepDef))),
     hiddenInCombo(BowlingShoesStep as StepDef),
     // Attractions step removed — user returns to activity picker and
     // adds attractions as separate cart items.
@@ -186,9 +217,12 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   kbf: [
     KbfIdentityStep as StepDef,
     KbfBowlersStep as StepDef,
-    BowlingSlotsStep as StepDef,
-    BowlingTierStep as StepDef,
-    BowlingOfferStep as StepDef,
+    classicOnly(BowlingSlotsStep as StepDef),
+    classicOnly(BowlingTierStep as StepDef),
+    classicOnly(BowlingOfferStep as StepDef),
+    v3Only(BowlingDateStep as StepDef),
+    v3Only(BowlingExperienceStep as StepDef),
+    v3Only(BowlingTimeStep as StepDef),
     BowlingShoesStep as StepDef,
   ],
 };

@@ -119,20 +119,20 @@ export class HoldRejectedError extends Error {
   }
 }
 
+/** Best-effort release of a QAMF Temporary hold. An expired/gone hold is
+ *  fine — QAMF 404s are swallowed by the route; failures TTL out in 10 min. */
+export async function releaseBowlingHold(centerId: number, qamfId: string): Promise<void> {
+  await fetch(`${apiBase()}/api/bowling/v2/reserve/hold/${encodeURIComponent(qamfId)}`, {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ centerId }),
+  }).catch(() => {});
+}
+
 /** Create a QAMF Temporary hold, releasing any superseded hold first. */
 export async function holdBowlingSlot(input: HoldBowlingSlotInput): Promise<HoldBowlingSlotResult> {
   if (input.previousHoldId) {
-    await fetch(
-      `${apiBase()}/api/bowling/v2/reserve/hold/${encodeURIComponent(input.previousHoldId)}`,
-      {
-        method: "DELETE",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ centerId: input.previousCenterId ?? input.centerId }),
-      },
-    ).catch(() => {
-      // Best-effort — an expired/gone hold is fine; QAMF 404s are swallowed
-      // by the route anyway.
-    });
+    await releaseBowlingHold(input.previousCenterId ?? input.centerId, input.previousHoldId);
   }
 
   const res = await fetch(`${apiBase()}/api/bowling/v2/reserve/hold`, {

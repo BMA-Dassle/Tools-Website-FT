@@ -69,6 +69,10 @@ export function parseEntryContextFromSearchParams(sp: RawSearchParams): EntryCon
   // ?experience= value is ignored (marketing links must never 500 a wizard).
   if (first(sp.experience) === "world-cup") out.worldCup = true;
 
+  // Single-time-pick bowling flow preview opt-in (dark-flag testing on
+  // Vercel previews). Only the exact value counts.
+  if (first(sp.bowlingV3) === "1") out.bowlingV3 = true;
+
   const firstName = first(sp.firstName);
   const lastName = first(sp.lastName);
   const email = first(sp.email);
