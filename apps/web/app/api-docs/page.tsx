@@ -64,12 +64,11 @@ export default function ApiDocsPage() {
     <div className="min-h-screen bg-white">
       <SwaggerUI
         url="/api/booking-record/openapi.json"
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         requestInterceptor={
-          ((req: any) => {
+          ((req: { headers: Record<string, string> }) => {
             req.headers["x-api-key"] = apiKey;
             return req;
-          }) as any
+          }) as unknown as never
         }
         tryItOutEnabled
       />

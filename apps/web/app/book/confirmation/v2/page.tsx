@@ -2438,10 +2438,10 @@ export default function ConfirmationPage() {
                                 ];
                           return cards.map((c, ci) => {
                             const qr = racerQrCodes[c.billId] || qrDataUrl;
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             const ov =
                               storedOverviews.find(
-                                (o: any) => o._billId === c.billId || o.id === c.billId,
+                                (o: { _billId?: string; id?: string }) =>
+                                  o._billId === c.billId || o.id === c.billId,
                               ) || (ci === 0 ? order : null);
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             const lines = (ov?.lines || []) as any[];

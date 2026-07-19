@@ -32,6 +32,21 @@ const eslintConfig = defineConfig([
           return [rule, config === "off" ? "off" : "warn"];
         }),
       ),
+      // React Compiler diagnostics (react-hooks/*), enabled at ERROR by the
+      // Next flat config, are advisory hints about compiler-unfriendly
+      // patterns — set-state-in-effect, manual-memoization, purity, refs,
+      // etc. — not real bugs. Same philosophy as the a11y block above: keep
+      // the full set as WARNINGS so they surface in `npm run lint` for
+      // opportunistic cleanup, and tighten back to errors once the count
+      // hits zero. `rules-of-hooks` stays an ERROR — it catches genuine
+      // conditional-hook / hooks-after-return violations.
+      "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/preserve-manual-memoization": "warn",
+      "react-hooks/immutability": "warn",
+      "react-hooks/purity": "warn",
+      "react-hooks/refs": "warn",
+      "react-hooks/use-memo": "warn",
+      "react-hooks/static-components": "warn",
     },
   },
   globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts"]),
