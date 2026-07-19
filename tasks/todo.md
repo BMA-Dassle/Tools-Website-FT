@@ -38,6 +38,28 @@ A2 = Pandora person GET accepts 17-digit Office ids (live-verified).
       `@/lib/display-name`; consider a retry sweep for `kiosk_waiver_joins` rows with
       `bmi_attach_status='failed'` (`listFailedJoins()` exists).
 
+## Kiosk — expired returning-racer license (deferred, needs a data source) (2026-07-19)
+
+Shipped `d63fc584`: a MIXED race party (returning + new racer) auto-enrolls the new
+racer(s) in the full Rookie Pack and skips the license/POV step. Owner asked to also show
+the license page when a **returning** racer's license is EXPIRED — deferred because the
+data + charge path don't exist:
+
+- **No license-expiry signal anywhere.** The racer lookup (`PersonData` in
+  `ReturningRacerLookup.tsx`) returns `memberships` (tier-name strings, no dates),
+  `races` (a count), `birthDate`, `creditBalances`, `waiverValid` — **no license field**.
+  `PartyMember` has none either. Only the **waiver** has an expiry (`waiverValid` /
+  `waiverExpiry`); the racing license does not.
+- **Charge also keys off `isNewRacer`.** `checkout.ts` charges the license per
+  `m.isNewRacer && !packageRacerIds` — so even if the page were forced to show for a mixed
+  party, a returning racer (`isNewRacer=false`) with an expired license would NOT be
+  charged. Structurally, "needs a license" == `isNewRacer` today.
+- **To implement:** source a license-expiry date (confirm whether BMI Office's person
+  response carries one, or whether "Racing License" appears in the memberships array as
+  active-only), then flag an expired returning racer as needs-license (set `isNewRacer=true`
+  or add a `needsLicense` field) so the page shows AND the license charges. Until then a
+  returning racer is assumed licensed — matching the web flow.
+
 ## Kiosk minors-first + guardian-signs waiver — BUILT (2026-07-18), not yet live-verified
 
 Minors can register FIRST on the kiosk; a guardian is only involved when the minor's waiver
