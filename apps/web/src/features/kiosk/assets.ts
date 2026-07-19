@@ -20,6 +20,9 @@ export const KIOSK_PHOTOS = {
   duck: `${BLOB}/images/attractions/duckpin-bowling-R8vkBZc68YfiqmN7yP2SP2hElvWOCX.webp`,
   shuf: `${BLOB}/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg`,
   vip: `${BLOB}/images/subpages/pricing-combos.webp`,
+  /** VIP bowling SUITES (HyperBowling glow) — the bowling-tier card. `vip`
+   *  above is the combo hero (racing) and looked wrong on a lanes card. */
+  vipLanes: `${BLOB}/images/headpinz/hyperbowling.jpg`,
   flag: `${BLOB}/images/subpages/checkered-flag.webp`,
   arcade: `${BLOB}/images/headpinz/gallery-arcade.webp`,
 } as const;

@@ -66,6 +66,11 @@ const KioskBowlingTierStepComponent: StepDef<BowlingItem>["Component"] = ({ item
   const regularPrice = primaryPriceCents(exps, false);
   const vipPrice = primaryPriceCents(exps, true);
 
+  // FLOW layout, not absolute scatter (owner 2026-07-18 "this looks like
+  // shit"): the card is a flex column anchored to the bottom — eyebrow ABOVE
+  // the title in document order, text bounded by padding (no more running off
+  // the card edge), and the accent bar is a real flex footer so it's always the
+  // true bottom. Only the selected ✓ stays absolutely positioned (top-right).
   const card = (
     vip: boolean,
     photo: string,
@@ -80,7 +85,7 @@ const KioskBowlingTierStepComponent: StepDef<BowlingItem>["Component"] = ({ item
         type="button"
         onClick={() => onChange({ tier: vip ? "vip" : "regular" })}
         aria-label={title}
-        className="k-ph k-tap relative h-[440px] overflow-hidden rounded-[28px] border-2 text-left"
+        className="k-ph k-tap relative flex h-[440px] flex-col justify-end overflow-hidden rounded-[28px] border-2 text-left"
         style={
           {
             ["--k-img"]: `url(${photo})`,
@@ -89,19 +94,19 @@ const KioskBowlingTierStepComponent: StepDef<BowlingItem>["Component"] = ({ item
           } as React.CSSProperties
         }
       >
-        {vip && (
-          <div className="k-eyebrow absolute left-[32px] top-[32px]" style={{ color: accent }}>
-            Upgrade
-          </div>
-        )}
         {selected && (
-          <div className="absolute right-[28px] top-[28px] grid h-[56px] w-[56px] place-items-center rounded-full bg-[#00e2e5] text-[32px] font-bold text-[#04252b]">
+          <div className="absolute right-[24px] top-[24px] z-[2] grid h-[56px] w-[56px] place-items-center rounded-full bg-[#00e2e5] text-[32px] font-bold text-[#04252b]">
             ✓
           </div>
         )}
-        <div className="absolute inset-x-[32px] bottom-[32px]">
-          <div className="k-display text-[52px] leading-none">{title}</div>
-          <div className="mt-[10px] text-[26px] text-white/65">{sub}</div>
+        <div className="relative z-[1] min-w-0 p-[32px]">
+          {vip && (
+            <div className="k-eyebrow mb-[8px]" style={{ color: accent }}>
+              Upgrade
+            </div>
+          )}
+          <div className="k-display break-words text-[52px] leading-none">{title}</div>
+          <div className="mt-[10px] break-words text-[26px] leading-snug text-white/65">{sub}</div>
           {priceCents != null && (
             <div className="mt-[14px] text-[30px] font-extrabold tabular-nums">
               ${(priceCents / 100).toFixed(2)}
@@ -109,7 +114,7 @@ const KioskBowlingTierStepComponent: StepDef<BowlingItem>["Component"] = ({ item
             </div>
           )}
         </div>
-        <div className="absolute inset-x-0 bottom-0 h-[8px]" style={{ background: accent }} />
+        <div className="relative z-[1] h-[8px] w-full shrink-0" style={{ background: accent }} />
       </button>
     );
   };
@@ -131,7 +136,9 @@ const KioskBowlingTierStepComponent: StepDef<BowlingItem>["Component"] = ({ item
         {hasVip &&
           card(
             true,
-            KIOSK_PHOTOS.vip,
+            // HyperBowling glow — the VIP-suite look. KIOSK_PHOTOS.vip is the
+            // combo hero (racing) and looked wrong on a lanes card.
+            KIOSK_PHOTOS.vipLanes,
             "VIP Suites",
             "Private suite seating, lounge service to your lane",
             vipPrice,
