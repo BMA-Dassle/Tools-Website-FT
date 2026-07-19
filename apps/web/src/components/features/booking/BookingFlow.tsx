@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
+  bookingKeys,
   emptySession,
   getActiveItem,
   newItem,
@@ -95,6 +97,7 @@ export function BookingFlow({
     [entryBrand, initialContext, initialPromo],
   );
   const [session, dispatch, hydrated] = usePersistedReducer(initial);
+  const queryClient = useQueryClient();
   // Seed from ?checkout=1 — opens checkout directly when arriving from the
   // landing cart bar (only meaningful on the cart view, i.e. no active item).
   const [checkoutActive, setCheckoutActive] = useState(initialCheckout);
@@ -571,6 +574,10 @@ export function BookingFlow({
       }
       try {
         await bookHeatsOnAdvance(session, raceItem, dispatch, setBookingHeatsProgress);
+        // Booking consumed capacity the 60s-stale availability cache doesn't
+        // know about — refresh so the next grid (e.g. the junior leg) reads
+        // post-booking occupancy.
+        queryClient.invalidateQueries({ queryKey: bookingKeys.bmi.availabilityAll });
         advanceToNextStep();
       } catch (err) {
         alert(
@@ -594,6 +601,7 @@ export function BookingFlow({
       setBookingHeats(true);
       try {
         await bookHeatsOnAdvance(session, raceItem, dispatch, setBookingHeatsProgress);
+        queryClient.invalidateQueries({ queryKey: bookingKeys.bmi.availabilityAll });
         const bowlingItem = session.items.find((i) => i.kind === "bowling") as
           | import("~/features/booking").BowlingItem
           | undefined;

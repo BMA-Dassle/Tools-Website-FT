@@ -5,6 +5,7 @@ import {
   ReserveInProgressError,
   BillExpiredError,
   ExistingBookingConflictError,
+  CrossCategoryHeatCollisionError,
 } from "~/features/booking/service/unified-reserve";
 import {
   DepositPaymentError,
@@ -97,6 +98,11 @@ export async function POST(req: NextRequest) {
     if (err instanceof ExistingBookingConflictError) {
       // 409 — a cart heat is too close to one the same racer already booked in
       // another reservation. Raised before any Square write; nothing charged.
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+    }
+    if (err instanceof CrossCategoryHeatCollisionError) {
+      // 409 — an adult and a junior heat in this cart share one (track, start)
+      // physical session. Raised before any Square write; nothing charged.
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
     if (err instanceof WorldCupReservationError) {

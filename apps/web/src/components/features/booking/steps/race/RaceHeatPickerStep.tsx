@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PartyMember, RaceHeatAssignment, RaceItem, StepDef } from "~/features/booking";
 import { bookingKeys, packageIdForCategory } from "~/features/booking";
 import {
@@ -16,6 +16,8 @@ import {
   type RaceTier,
 } from "~/features/booking/service/race-products";
 import {
+  collidesWithOtherCategory,
+  crossCategoryCollisionMessage,
   EXISTING_RESERVATION_CONFLICT_TOOLTIP,
   findHeatConflict,
   HEAT_CONFLICT_TOOLTIP,
@@ -155,6 +157,21 @@ function heatsForCategory(item: RaceItem, productIds: Set<string>): RaceHeatAssi
   return item.heats.filter((h) => h.productId && productIds.has(h.productId));
 }
 
+/** The OTHER category's held (track, start) slots across every race item in
+ *  the session — the cross-category collision signal (owner 2026-07-19:
+ *  adults and juniors can't share one physical session). Includes booked
+ *  (bmiLineId) heats — the kiosk books each leg eagerly on advance. */
+function otherCategoryHeats(
+  items: Array<{ kind: string; heats?: RaceHeatAssignment[] }>,
+  category: Category,
+): Array<{ heatId: string | null; track: TrackOrNull }> {
+  return items
+    .filter((i) => i.kind === "race" && Array.isArray(i.heats))
+    .flatMap((i) => i.heats!)
+    .filter((h) => h.heatId && (h.category ?? "adult") !== category)
+    .map((h) => ({ heatId: h.heatId, track: h.track }));
+}
+
 function entriesForPick(
   block: BmiBlock,
   productId: string,
@@ -232,6 +249,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                   60_000
               : 0
           }
+          crossCategoryHeats={otherCategoryHeats(session.items, category)}
           onConfirm={(picks: PackagePick[]) => {
             const newHeats: RaceHeatAssignment[] = picks.flatMap((pick) =>
               racers.map((r) => ({
@@ -322,6 +340,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     dispatch,
     setBusy,
   }) => {
+    const queryClient = useQueryClient();
     const racers = racersOfCategory(session.party, category);
     const partySize = racers.length;
     const productId = productIdForCategory(item, category);
@@ -500,6 +519,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     const cartConflictBlocks = item.heats
       .filter((h) => h.heatId && h.assignedTo && categoryRacerIds.has(h.assignedTo))
       .map((h) => ({ heatId: h.heatId as string, track: h.track as TrackOrNull }));
+    // Cross-category same-slot: the OTHER category's held sessions anywhere in
+    // the cart (adults on the junior grid and vice versa) — exact (track,
+    // start) match only, NOT the spacing rules (different racers still never
+    // "conflict"; they just can't share one physical session).
+    const crossCategoryBlocks = otherCategoryHeats(session.items, category);
     const existingConflictBlocks = (bookedHeatsQuery.data?.heats ?? []).map((h) => ({
       heatId: h.heatId,
       track: (h.track as TrackOrNull) ?? null,
@@ -619,6 +643,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
           }
           onChange({ heats: item.heats }); // revert to pre-pick
           setHoldError(`Couldn't hold that heat — ${res.error}. Please pick another time.`);
+        } else {
+          // The hold just consumed capacity the 60s-stale availability cache
+          // doesn't know about — refresh so the NEXT grid (e.g. the junior
+          // leg after an adult pick) reads post-hold occupancy.
+          queryClient.invalidateQueries({ queryKey: bookingKeys.bmi.availabilityAll });
         }
       } catch (err) {
         onChange({ heats: item.heats });
@@ -877,6 +906,12 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                   heatsConflict(parseLocal(p.heatId).getTime(), p.track, blockStartMs, tp.track),
                 );
               const isConflict = conflictsWithCart || conflictsWithExisting;
+              // The OTHER category holds this exact (track, start) session —
+              // adults and juniors can't share one physical heat.
+              const isCrossCategory =
+                !isSelected &&
+                crossCategoryBlocks.length > 0 &&
+                collidesWithOtherCategory(tp.track, block.start, crossCategoryBlocks);
               const isEventReserved =
                 !isSelected &&
                 blockWindows.some((w) => {
@@ -901,6 +936,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
               const isFull =
                 isLowCap ||
                 isConflict ||
+                isCrossCategory ||
                 isCapped ||
                 isEventReserved ||
                 isBeforeReopen ||
@@ -909,17 +945,21 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                 ? (tp.restriction!.cardLabel ?? "Not available")
                 : isEventReserved || isBeforeReopen
                   ? "Reserved for event"
-                  : isConflict
-                    ? conflictsWithExisting
-                      ? "Too close to existing reservation"
-                      : "Too close to picked heat"
-                    : isLowCap
-                      ? `Need ${partySize}, only ${block.freeSpots} left`
-                      : isCapped
-                        ? "Unselect a picked heat to change"
-                        : spotsLabel(block.freeSpots, block.capacity).label;
+                  : isCrossCategory
+                    ? category === "junior"
+                      ? "Adults race at this time — pick another"
+                      : "Juniors race at this time — pick another"
+                    : isConflict
+                      ? conflictsWithExisting
+                        ? "Too close to existing reservation"
+                        : "Too close to picked heat"
+                      : isLowCap
+                        ? `Need ${partySize}, only ${block.freeSpots} left`
+                        : isCapped
+                          ? "Unselect a picked heat to change"
+                          : spotsLabel(block.freeSpots, block.capacity).label;
               const statusClass =
-                isRestricted || isEventReserved || isBeforeReopen || isConflict
+                isRestricted || isEventReserved || isBeforeReopen || isConflict || isCrossCategory
                   ? "text-amber-400"
                   : isLowCap
                     ? "text-red-400"
@@ -954,11 +994,13 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                   title={
                     isRestricted
                       ? tp.restriction!.reason
-                      : conflictsWithExisting
-                        ? EXISTING_RESERVATION_CONFLICT_TOOLTIP
-                        : isConflict
-                          ? HEAT_CONFLICT_TOOLTIP
-                          : undefined
+                      : isCrossCategory
+                        ? crossCategoryCollisionMessage(block.start, tp.track)
+                        : conflictsWithExisting
+                          ? EXISTING_RESERVATION_CONFLICT_TOOLTIP
+                          : isConflict
+                            ? HEAT_CONFLICT_TOOLTIP
+                            : undefined
                   }
                   className={`relative rounded-xl border p-3 text-left transition-all duration-150 ${cardClass}`}
                 >
@@ -988,7 +1030,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                       className={`h-full rounded-full ${
                         isLowCap
                           ? "bg-red-500"
-                          : isConflict || isEventReserved
+                          : isConflict || isEventReserved || isCrossCategory
                             ? "bg-amber-400/50"
                             : block.freeSpots / block.capacity <= 0.3
                               ? "bg-amber-400"
@@ -996,7 +1038,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                       }`}
                       style={{
                         width:
-                          isConflict || isEventReserved
+                          isConflict || isEventReserved || isCrossCategory
                             ? "100%"
                             : `${(block.freeSpots / block.capacity) * 100}%`,
                       }}

@@ -18,7 +18,9 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import {
+  bookingKeys,
   emptySession,
   getActiveItem,
   newItem,
@@ -166,6 +168,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     storageKey: KIOSK_SESSION_STORAGE_KEY,
     schemaVersion: KIOSK_SCHEMA_VERSION,
   });
+  const queryClient = useQueryClient();
 
   // `?bowlingV3=1` preview opt-in must also reach a PERSISTED kiosk session —
   // context is only seeded at creation (same fix as BookingFlow).
@@ -1202,6 +1205,10 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     }
     try {
       await bookHeatsOnAdvance(session, raceItem, dispatch, setBookingHeatsProgress);
+      // Booking consumed capacity the 60s-stale availability cache doesn't
+      // know about — refresh so the next grid (the junior leg after the adult
+      // leg books on advance) reads post-booking occupancy.
+      queryClient.invalidateQueries({ queryKey: bookingKeys.bmi.availabilityAll });
       advanceToNextStep();
     } catch (err) {
       setKioskError(

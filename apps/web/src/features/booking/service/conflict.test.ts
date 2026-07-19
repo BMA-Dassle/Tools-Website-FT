@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   CROSS_TRACK_MIN_GAP_MIN,
   TRACK_ADJACENT_GAP_MIN,
+  collidesWithOtherCategory,
+  crossCategoryCollisionMessage,
   findCrossBookingConflict,
+  findCrossCategorySameStart,
   findHeatConflict,
   heatClockLabel,
   heatsConflict,
@@ -242,5 +245,96 @@ describe("heatClockLabel", () => {
     expect(heatClockLabel("2026-07-02T00:12:00")).toBe("12:12 AM");
     expect(heatClockLabel("2026-07-02T12:00:00")).toBe("12:00 PM");
     expect(heatClockLabel("2026-07-02T09:05:00")).toBe("9:05 AM");
+  });
+});
+
+describe("findCrossCategorySameStart / collidesWithOtherCategory — adults vs juniors", () => {
+  const ch = (
+    heatId: string | null,
+    track: string | null,
+    category?: "adult" | "junior" | null,
+  ) => ({ heatId, track, category });
+
+  it("flags an adult and a junior sharing the same track + start", () => {
+    const hit = findCrossCategorySameStart([
+      ch("2026-07-19T15:00:00", "Blue", "adult"),
+      ch("2026-07-19T15:00:00", "Blue", "junior"),
+    ]);
+    expect(hit).not.toBeNull();
+    expect(hit!.start).toBe("2026-07-19T15:00:00");
+    expect(hit!.track).toBe("Blue");
+  });
+
+  it("allows the same start on DIFFERENT tracks (owner rule — only the shared session is a double-book)", () => {
+    expect(
+      findCrossCategorySameStart([
+        ch("2026-07-19T15:00:00", "Red", "adult"),
+        ch("2026-07-19T15:00:00", "Blue", "junior"),
+      ]),
+    ).toBeNull();
+  });
+
+  it("allows the same category sharing one block (two adults in one heat)", () => {
+    expect(
+      findCrossCategorySameStart([
+        ch("2026-07-19T15:00:00", "Blue", "adult"),
+        ch("2026-07-19T15:00:00", "Blue", "adult"),
+      ]),
+    ).toBeNull();
+  });
+
+  it("allows adjacent (non-identical) starts across categories — spacing is not this rule's job", () => {
+    expect(
+      findCrossCategorySameStart([
+        ch("2026-07-19T15:00:00", "Blue", "adult"),
+        ch("2026-07-19T15:12:00", "Blue", "junior"),
+      ]),
+    ).toBeNull();
+  });
+
+  it("normalizes track naming and ISO variants ('Blue Track' ≡ 'blue', Z/millis stripped)", () => {
+    expect(
+      findCrossCategorySameStart([
+        ch("2026-07-19T15:00:00Z", "Blue Track", "adult"),
+        ch("2026-07-19T15:00:00.000", "blue", "junior"),
+      ]),
+    ).not.toBeNull();
+  });
+
+  it("defaults a missing category to adult (a legacy heat vs a junior heat still collides)", () => {
+    expect(
+      findCrossCategorySameStart([
+        ch("2026-07-19T15:00:00", "Blue", null),
+        ch("2026-07-19T15:00:00", "Blue", "junior"),
+      ]),
+    ).not.toBeNull();
+  });
+
+  it("is symmetric — order of the categories doesn't matter, and booked heats count", () => {
+    expect(
+      findCrossCategorySameStart([
+        ch("2026-07-19T15:00:00", "Blue", "junior"),
+        ch("2026-07-19T15:00:00", "Blue", "adult"),
+      ]),
+    ).not.toBeNull();
+  });
+
+  it("skips heats without a start", () => {
+    expect(
+      findCrossCategorySameStart([ch(null, "Blue", "adult"), ch(null, "Blue", "junior")]),
+    ).toBeNull();
+  });
+
+  it("collidesWithOtherCategory greys exactly the shared (track, start) card", () => {
+    const adultHeld = [{ heatId: "2026-07-19T15:00:00", track: "Blue" }];
+    expect(collidesWithOtherCategory("Blue", "2026-07-19T15:00:00", adultHeld)).toBe(true);
+    expect(collidesWithOtherCategory("Red", "2026-07-19T15:00:00", adultHeld)).toBe(false);
+    expect(collidesWithOtherCategory("Blue", "2026-07-19T15:12:00", adultHeld)).toBe(false);
+  });
+
+  it("crossCategoryCollisionMessage names the time and track", () => {
+    const msg = crossCategoryCollisionMessage("2026-07-19T15:00:00", "Blue");
+    expect(msg).toContain("3:00 PM");
+    expect(msg).toContain("Blue Track");
   });
 });
