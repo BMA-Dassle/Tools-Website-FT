@@ -26,6 +26,11 @@ export const bookingKeys = {
   /** BMI reads (per-activity availability, person lookup, bill overview). */
   bmi: {
     all: ["booking", "bmi"] as const,
+    /** Prefix-match for EVERY availability query (any product/date) — invalidate
+     *  after a successful heat booking so the next grid (e.g. the junior leg
+     *  after the adult leg books) reads post-hold occupancy, not the 60s-stale
+     *  cache shared with the cross-tier fan-out. */
+    availabilityAll: ["booking", "bmi", "availability"] as const,
     availability: (params: { center: string; date: string; productId: string }) =>
       ["booking", "bmi", "availability", params] as const,
     overview: (billId: string) => ["booking", "bmi", "overview", billId] as const,

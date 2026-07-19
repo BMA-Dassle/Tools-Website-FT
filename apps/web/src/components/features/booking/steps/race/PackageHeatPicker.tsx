@@ -19,6 +19,8 @@ import {
 import {
   heatsConflict,
   violatesMinGapAfter,
+  collidesWithOtherCategory,
+  crossCategoryCollisionMessage,
   HEAT_CONFLICT_TOOLTIP,
   packageGapTooltip,
 } from "~/features/booking/service/conflict";
@@ -46,6 +48,11 @@ interface Props {
   /** Rendering on the in-center kiosk — presentation-only (rules with a
    *  kioskPresentation hide instead of grey, e.g. the VIP anchor holds). */
   kiosk?: boolean;
+  /** The OTHER category's held slots across the whole session (adult heats on
+   *  the junior step and vice versa) — a candidate sharing one of these
+   *  (track, start) slots is greyed: adults and juniors can't share a physical
+   *  session (owner 2026-07-19). The picker's own picks Map can't see them. */
+  crossCategoryHeats?: Array<{ heatId: string | null; track: string | null }>;
   onConfirm: (picks: PackagePick[]) => void;
   onCancel: () => void;
 }
@@ -170,6 +177,7 @@ export function PackageHeatPicker({
   category,
   expressEligible,
   kiosk,
+  crossCategoryHeats,
   onConfirm,
   onCancel,
 }: Props) {
@@ -534,13 +542,27 @@ export function PackageHeatPicker({
                   ),
               );
 
+              // Cross-category slot collision — the OTHER category (adults on
+              // the junior step / juniors on the adult step) already holds this
+              // exact (track, start) session somewhere in the cart.
+              const isCrossCategory =
+                !isPicked &&
+                !!crossCategoryHeats?.length &&
+                collidesWithOtherCategory(tp.track, tp.block.start, crossCategoryHeats);
+
               const isLowCap = tp.block.freeSpots < racerCount;
               // Restriction rule that disables (not hides) this slot — e.g.
               // the VIP anchor reserve (race-restriction-rules.ts).
               const isRestricted = !isPicked && !!tp.restriction;
               const isFull = isPicked
                 ? true
-                : isRestricted || isOtherStep || isLowCap || isConflict || isGapViolation || false;
+                : isRestricted ||
+                  isOtherStep ||
+                  isLowCap ||
+                  isConflict ||
+                  isGapViolation ||
+                  isCrossCategory ||
+                  false;
 
               const statusLabel = isPicked
                 ? "Selected"
@@ -548,17 +570,21 @@ export function PackageHeatPicker({
                   ? (tp.restriction!.cardLabel ?? "Not available")
                   : isOtherStep
                     ? "Locked — finish the current step"
-                    : isGapViolation && gapAnchor
-                      ? `Available ${gapAnchor.minutes} min after ${gapAnchor.refLabel} ends`
-                      : isConflict
-                        ? "Too close to picked heat"
-                        : isLowCap
-                          ? `Need ${racerCount}, only ${tp.block.freeSpots} left`
-                          : spotsLabel(tp.block.freeSpots, tp.block.capacity).label;
+                    : isCrossCategory
+                      ? category === "junior"
+                        ? "Adults race at this time — pick another"
+                        : "Juniors race at this time — pick another"
+                      : isGapViolation && gapAnchor
+                        ? `Available ${gapAnchor.minutes} min after ${gapAnchor.refLabel} ends`
+                        : isConflict
+                          ? "Too close to picked heat"
+                          : isLowCap
+                            ? `Need ${racerCount}, only ${tp.block.freeSpots} left`
+                            : spotsLabel(tp.block.freeSpots, tp.block.capacity).label;
 
               const statusClass = isPicked
                 ? "text-emerald-300"
-                : isRestricted || isOtherStep || isGapViolation || isConflict
+                : isRestricted || isOtherStep || isGapViolation || isConflict || isCrossCategory
                   ? "text-amber-400"
                   : isLowCap
                     ? "text-red-400"
@@ -568,11 +594,13 @@ export function PackageHeatPicker({
                 ? tp.restriction!.reason
                 : isOtherStep
                   ? "Locked — clear a heat above (×) to change it"
-                  : isGapViolation && gapAnchor
-                    ? packageGapTooltip(gapAnchor.minutes, gapAnchor.refLabel)
-                    : isConflict
-                      ? HEAT_CONFLICT_TOOLTIP
-                      : undefined;
+                  : isCrossCategory
+                    ? crossCategoryCollisionMessage(tp.block.start, tp.track)
+                    : isGapViolation && gapAnchor
+                      ? packageGapTooltip(gapAnchor.minutes, gapAnchor.refLabel)
+                      : isConflict
+                        ? HEAT_CONFLICT_TOOLTIP
+                        : undefined;
 
               const trackTheme = TRACK_CARD[tp.track] ?? TRACK_CARD.Mega;
               const cardClass = isPicked
@@ -616,7 +644,11 @@ export function PackageHeatPicker({
                       className={`h-full rounded-full ${
                         isLowCap
                           ? "bg-red-500"
-                          : isRestricted || isConflict || isGapViolation || isOtherStep
+                          : isRestricted ||
+                              isConflict ||
+                              isGapViolation ||
+                              isOtherStep ||
+                              isCrossCategory
                             ? "bg-amber-400/50"
                             : tp.block.freeSpots / tp.block.capacity <= 0.3
                               ? "bg-amber-400"

@@ -4,6 +4,7 @@ import {
   ReserveInProgressError,
   BillExpiredError,
   ExistingBookingConflictError,
+  CrossCategoryHeatCollisionError,
 } from "~/features/booking/service/unified-reserve";
 import { CreditRedemptionError } from "~/features/booking/service/race-credit-redeem";
 import { WorldCupReservationError } from "~/features/world-cup";
@@ -51,6 +52,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
     if (err instanceof ExistingBookingConflictError) {
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+    }
+    if (err instanceof CrossCategoryHeatCollisionError) {
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
     if (err instanceof WorldCupReservationError) {

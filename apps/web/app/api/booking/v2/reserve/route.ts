@@ -21,7 +21,9 @@ import {
   type ReservationProductKind,
 } from "@/lib/bowling-db";
 import {
+  crossCategoryCollisionMessage,
   findCrossBookingConflict,
+  findCrossCategorySameStart,
   type BookedPersonHeat,
 } from "~/features/booking/service/conflict";
 import { existingBookingConflictMessage } from "~/features/booking/service/unified-reserve";
@@ -361,6 +363,35 @@ export async function POST(req: NextRequest) {
         } catch (e) {
           console.error("[v2/reserve] cross-reservation check errored (failing open):", e);
         }
+      }
+
+      // ── Step 0c: Guard — cross-category same-slot (adults vs juniors) ──
+      // An adult heat and a junior heat in this cart must not share one
+      // (track, start) physical session (owner 2026-07-19). Pure cart data —
+      // NOT fail-open (no external query involved). bookingMetadata.heats
+      // carries heatId/track/category (checkout.ts raceHeatsMetadata).
+      const collision = findCrossCategorySameStart(
+        Array.isArray(rawHeats)
+          ? rawHeats
+              .map((h) => h as Record<string, unknown>)
+              .map((h) => ({
+                heatId: typeof h.heatId === "string" ? h.heatId : null,
+                track: typeof h.track === "string" ? h.track : null,
+                category: h.category === "adult" || h.category === "junior" ? h.category : null,
+              }))
+          : [],
+      );
+      if (collision) {
+        console.error(
+          `[v2/reserve] CROSS_CATEGORY_HEAT_COLLISION — ${collision.track ?? "?"} ${collision.start}`,
+        );
+        return NextResponse.json(
+          {
+            error: crossCategoryCollisionMessage(collision.start, collision.track),
+            code: "CROSS_CATEGORY_HEAT_COLLISION",
+          },
+          { status: 409 },
+        );
       }
     }
 

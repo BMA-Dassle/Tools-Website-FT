@@ -16,6 +16,7 @@ import type { Dispatch } from "react";
 import type { Action } from "../state/machine";
 import type { BookingSession, PartyMember, RaceItem, RaceHeatAssignment } from "../state/types";
 import { packageIdForCategory, racePackageIds, raceItemFullyPackaged } from "../state/types";
+import { crossCategoryCollisionMessage, findCrossCategorySameStart } from "./conflict";
 import {
   bmiAdapter,
   type BmiProposal,
@@ -87,6 +88,26 @@ function licenseHeatIndices(session: BookingSession, item: RaceItem): Set<number
   return indices;
 }
 
+/**
+ * Cart-level cross-category guard (owner 2026-07-19): within one session an
+ * adult heat and a junior heat may not share the same (track, start). Adult
+ * and junior races are DIFFERENT BMI products sold into ONE physical session,
+ * so neither BMI's capacity gate nor the per-racer spacing rules stop the
+ * double-book. The grids grey these slots, but a stale availability cache (60s
+ * staleTime, keys shared with the cross-tier fan-out) can let a pick through —
+ * this runs before ANY BMI write and throws a guest-readable message (it
+ * surfaces verbatim in the kiosk toast / hold-error card).
+ */
+function assertNoCrossCategoryCollision(session: BookingSession, item: RaceItem): void {
+  const heats = session.items
+    .filter((i): i is RaceItem => i.kind === "race")
+    // The passed `item` carries the freshest heats — React state in
+    // session.items can lag one dispatch behind it.
+    .flatMap((i) => (i.id === item.id ? item : i).heats);
+  const hit = findCrossCategorySameStart(heats);
+  if (hit) throw new Error(crossCategoryCollisionMessage(hit.start, hit.track));
+}
+
 // ── bookHeatsOnAdvance: book unbooked heats when leaving heat picker ────
 
 export async function bookHeatsOnAdvance(
@@ -95,6 +116,7 @@ export async function bookHeatsOnAdvance(
   dispatch: Dispatch<Action>,
   onProgress?: (msg: string) => void,
 ): Promise<void> {
+  assertNoCrossCategoryCollision(session, item);
   let billId = session.bmiBillId;
 
   // Pre-count remaining heats so progress reads "Reserving heat 1 of N"
@@ -303,6 +325,18 @@ export async function holdPickedHeats(
   item: RaceItem,
   dispatch: Dispatch<Action>,
 ): Promise<HoldHeatsResult> {
+  // Cross-category double-book is a pick error, not a transient hold failure —
+  // report it through the result shape the picker already renders.
+  try {
+    assertNoCrossCategoryCollision(session, item);
+  } catch (err) {
+    return {
+      ok: false,
+      booked: [],
+      billId: session.bmiBillId,
+      error: err instanceof Error ? err.message : "Adults and juniors can't share a heat.",
+    };
+  }
   let billId = session.bmiBillId;
   const licenseHeats = licenseHeatIndices(session, item);
   const booked: Array<{ heatIndex: number; bmiLineId: string | null }> = [];
@@ -392,6 +426,7 @@ export async function holdRaceItem(
   item: RaceItem,
   dispatch: Dispatch<Action>,
 ): Promise<RaceHoldResult> {
+  assertNoCrossCategoryCollision(session, item);
   let billId = session.bmiBillId;
   const licenseHeats = licenseHeatIndices(session, item);
 
