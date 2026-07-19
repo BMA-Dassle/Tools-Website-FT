@@ -211,20 +211,33 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
               hide, might come back later") — restore by uncommenting:
           <QuickChip label="Race now" onClick={() => start("race")} />
           <QuickChip label="Bowl now" onClick={() => start("bowl")} /> */}
-          <QuickChip
-            label="VIP Experience"
-            gold
-            disabled={!vipAvailable}
-            onClick={() => start("vip")}
-          />
-          <QuickChip label="See everything" onClick={() => start()} />
-          {/* Standalone race packs (owner 2026-07-18) — FastTrax kiosks, a
-              LOCKED pack-only purchase flow (KioskRacePackFlow). Full-width so
-              the 2×2 grid never orphans a chip. Kill switch aware. */}
-          {kioskRacePacksEnabled() && config.brand === "fasttrax" && (
-            <span className="col-span-2">
+          {/* VIP + Race packs side by side (owner 2026-07-19); "See everything"
+              goes full-width below. When packs are hidden (kill switch /
+              HeadPinz kiosk), VIP pairs with "See everything" so the grid
+              never orphans a chip. */}
+          {kioskRacePacksEnabled() && config.brand === "fasttrax" ? (
+            <>
+              <QuickChip
+                label="VIP Experience"
+                gold
+                disabled={!vipAvailable}
+                onClick={() => start("vip")}
+              />
               <QuickChip label="Race packs — from $49.99" gold onClick={() => start("packs")} />
-            </span>
+              <span className="col-span-2">
+                <QuickChip label="See everything" onClick={() => start()} />
+              </span>
+            </>
+          ) : (
+            <>
+              <QuickChip
+                label="VIP Experience"
+                gold
+                disabled={!vipAvailable}
+                onClick={() => start("vip")}
+              />
+              <QuickChip label="See everything" onClick={() => start()} />
+            </>
           )}
         </span>
       </button>
