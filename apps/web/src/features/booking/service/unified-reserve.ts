@@ -51,7 +51,7 @@ import {
 import { getRaceProductById } from "./race-products";
 import { patchHeatSetups } from "./session-setup";
 import { raceUsesZeroBmiModel } from "./race";
-import { buildRaceChargeLines, raceHeatsMetadata } from "./checkout";
+import { buildRaceChargeLines, raceHeatsMetadata, racerNamesFromHeats } from "./checkout";
 import { bowlingBookedPricingStamp } from "./bowling-booked-pricing";
 import { promoFactor } from "./promo-pricing";
 import { recordRedemption, getDiscountCodeByCode } from "~/features/discount-codes";
@@ -1793,7 +1793,7 @@ async function unifiedReserveInner(
     const bookingMetadata: Record<string, unknown> = {};
     if (raceItems.length > 0) {
       bookingMetadata.heats = raceHeatsMetadata(raceItems[0].heats, session.party);
-      bookingMetadata.racerNames = session.party.map((m) => m.firstName);
+      bookingMetadata.racerNames = racerNamesFromHeats(raceItems[0].heats, session.party);
     }
     // Persist attraction slot START times so the day-of settle cron can tell when
     // the activity has actually happened (the anchor row's booked_at is the

@@ -14,6 +14,34 @@
  * through JSON.stringify; they're spliced in as raw text).
  */
 import type { ContactInfo } from "../types";
+import type { SessionItem } from "../state/types";
+
+/**
+ * PartyMember ids actually booked into a BMI-billed activity: race heats carry
+ * a per-racer `assignedTo`; attractions carry the kiosk `participants` toggle
+ * (undefined = the whole party — the KioskPeopleStep default when nobody was
+ * toggled off) plus the universal `assignedTo` roster when populated.
+ * Bowling/KBF are Conqueror-vendored — never on the BMI bill.
+ *
+ * The kiosk people roster is SESSION-scoped, so someone can be signed in
+ * (account + waiver) without being put on any race or attraction — they must
+ * NOT land on the reservation as a projectPerson (owner rule 2026-07-19: only
+ * people booked into an activity go on the BMI reservation).
+ */
+export function bmiBookedMemberIds(items: SessionItem[], partyIds: string[]): Set<string> {
+  const ids = new Set<string>();
+  for (const item of items) {
+    if (item.kind === "race") {
+      for (const h of item.heats) {
+        if (h.heatId && h.assignedTo) ids.add(h.assignedTo);
+      }
+    } else if (item.kind === "attraction") {
+      for (const id of item.participants ?? partyIds) ids.add(id);
+      for (const id of item.assignedTo) ids.add(id);
+    }
+  }
+  return ids;
+}
 
 /**
  * Register the billing contact (customer) on a bill. Always attaches
@@ -55,12 +83,22 @@ export async function registerContact(
  * as a project person on the bill. New racers have no personId and are skipped —
  * matching v1 (OrderSummary's registerProjectPerson gates on personId); their
  * name surfaces via the contact registration above. Non-fatal.
+ *
+ * Only party members actually booked into a BMI activity (`items` — see
+ * bmiBookedMemberIds) are registered: a kiosk sign-in who was never put on a
+ * race or attraction stays off the reservation roster.
  */
 export async function registerProjectPersons(
   billId: string,
-  party: { bmiPersonId?: string; firstName: string; lastName?: string }[],
+  party: { id: string; bmiPersonId?: string; firstName: string; lastName?: string }[],
+  items: SessionItem[],
 ): Promise<void> {
+  const booked = bmiBookedMemberIds(
+    items,
+    party.map((m) => m.id),
+  );
   for (const member of party) {
+    if (!booked.has(member.id)) continue;
     if (!member.bmiPersonId) continue;
     try {
       const regBody = JSON.stringify({
