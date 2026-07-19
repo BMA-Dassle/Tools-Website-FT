@@ -514,7 +514,15 @@ export function PackageHeatPicker({
     const ref = tp.component.ref;
     const existing = picks.get(ref);
 
-    if (existing && existing.block.start === tp.block.start) {
+    // Same product + same start = the picked card → toggle OFF. Start alone
+    // isn't identity: Red and Blue run the same cadence, so the OTHER track's
+    // same-time card must SWITCH the pick, not deselect it (live find
+    // 2026-07-19 — both 7:48 cards rendered "Selected").
+    if (
+      existing &&
+      existing.productId === tp.productId &&
+      existing.block.start === tp.block.start
+    ) {
       const newPicks = new Map(picks);
       newPicks.delete(ref);
       for (const comp of sortedComponents) {
@@ -683,7 +691,14 @@ export function PackageHeatPicker({
               };
               const showTrackBadge = component.tracks.length > 1;
 
-              const isPicked = picks.get(component.ref)?.block.start === tp.block.start;
+              // Pick identity = product + start (NOT start alone) — Red and
+              // Blue share the 12-min cadence, so a start-only compare marked
+              // BOTH tracks' same-time cards "Selected" (live find 2026-07-19).
+              const pickedForComponent = picks.get(component.ref);
+              const isPicked =
+                !!pickedForComponent &&
+                pickedForComponent.productId === tp.productId &&
+                pickedForComponent.block.start === tp.block.start;
               const isOtherStep = !!(currentComponent && currentComponent.ref !== component.ref);
               const blockStart = parseLocal(tp.block.start).getTime();
 
