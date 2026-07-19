@@ -29,6 +29,26 @@ A2 = Pandora person GET accepts 17-digit Office ids (live-verified). Plan file:
 - [ ] Follow-up: migrate `app/event/[slug]/page.tsx` local `makeDisplayName` to
       `@/lib/display-name`; consider a retry sweep for `kiosk_waiver_joins` rows with
       `bmi_attach_status='failed'` (`listFailedJoins()` exists).
+## Kiosk minors-first + guardian-signs waiver — BUILT (2026-07-18), not yet live-verified
+
+Minors can register FIRST on the kiosk; a guardian is only involved when the minor's waiver
+actually needs signing (first-timer or expired — a returning minor with a valid waiver needs no
+guardian at all). Guardian resolution overlay in `KioskPeopleStep`: pick an adult already here
+(party adult or prior guardian chip) · add a NEW adult · find an existing account (OTP lookup).
+Guardian must have a valid OWN waiver first (signs it in-chain), then signs the minor's waiver
+as Pandora `sigPersonID` (plumbed through `/api/pandora/waiver` POST → `pandoraSignWaiver` →
+`WaiverSigning.signerPersonId`; self-sign default unchanged). Signer-only guardians live in
+`session.guardians` (NEW — machine actions add/update/removeGuardian, schema v10) so they are
+excluded from products/heats/charges/BMI bill registration BY CONSTRUCTION; roster shows a
+dashed "Guardians — signed, not playing" chip with **Join the fun** (same id moves into party,
+minors' `guardianMemberId` refs stay valid). Receipt contact switches to the guardian when the
+Main person is a minor. BMI-level `guardianID` link is best-effort via re-upsert.
+
+- [ ] **Live-verify on the kiosk dev flow** (see plan verification list): minor-first paths
+      (valid-waiver / new-adult / lookup / expired-adult chain), guardian absent from charges +
+      `registerProjectPerson`, log line `signer=<short id>`, two-minors-one-guardian, join-the-fun.
+- [ ] Confirm with one live call whether the Pandora upsert actually persists `guardianID` on an
+      existing person; if not, drop the best-effort re-upsert in `linkMinorToGuardian`.
 
 ## Kiosk CRT-591 card reader/dispenser — DRIVER + TEST PANEL + GAME ZONE WIRED (branch `kiosk`)
 

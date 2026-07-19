@@ -179,20 +179,6 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     const racers = racersOfCategory(allRacers, category);
     const partySize = racers.length;
     const productId = productIdForCategory(item, category);
-    const product = useMemo(() => getRaceProductById(productId), [productId]);
-
-    // Eager hold: heats are reserved with BMI the moment they're picked (single
-    // racer) or confirmed (multi), not when the customer leaves the grid — so a
-    // busy-day spot isn't lost while they linger. `holdingRef` serializes holds
-    // (a hold lazily creates the bill; two concurrent holds would create two
-    // bills) and the grid is disabled while a hold is in flight. `holdingKey`
-    // marks WHICH card is being held so the "Holding…" spinner shows ON that
-    // card (always in view — the customer just clicked it), not in a top banner
-    // they'd miss when scrolled down a long heat list.
-    const [holding, setHolding] = useState(false);
-    const [holdingKey, setHoldingKey] = useState<string | null>(null);
-    const [holdError, setHoldError] = useState<string | null>(null);
-    const holdingRef = useRef(false);
 
     // Package flow: when a package is selected instead of an individual
     // product, delegate to PackageHeatPicker (v1 parity: page.tsx:2223).
@@ -282,6 +268,56 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         </div>
       );
     }
+
+    return (
+      <SingleRaceHeatPicker
+        item={item}
+        session={session}
+        onChange={onChange}
+        dispatch={dispatch}
+        setBusy={setBusy}
+      />
+    );
+  };
+
+  // Single-race (non-package) grid. Lives in its own component so ALL of its
+  // hooks run unconditionally — the package branches in the guard above return
+  // before any of them, which was a hooks-after-conditional-return violation.
+  // Behavior is identical: this renders only when the guard falls through to
+  // the single-race path.
+  const SingleRaceHeatPicker: StepDef<RaceItem>["Component"] = ({
+    item,
+    session,
+    onChange,
+    dispatch,
+    setBusy,
+  }) => {
+    const racers = racersOfCategory(session.party, category);
+    const partySize = racers.length;
+    const productId = productIdForCategory(item, category);
+    const product = useMemo(() => getRaceProductById(productId), [productId]);
+
+    // Eager hold: heats are reserved with BMI the moment they're picked (single
+    // racer) or confirmed (multi), not when the customer leaves the grid — so a
+    // busy-day spot isn't lost while they linger. `holdingRef` serializes holds
+    // (a hold lazily creates the bill; two concurrent holds would create two
+    // bills) and the grid is disabled while a hold is in flight. `holdingKey`
+    // marks WHICH card is being held so the "Holding…" spinner shows ON that
+    // card (always in view — the customer just clicked it), not in a top banner
+    // they'd miss when scrolled down a long heat list.
+    const [holding, setHolding] = useState(false);
+    const [holdingKey, setHoldingKey] = useState<string | null>(null);
+    const [holdError, setHoldError] = useState<string | null>(null);
+    const holdingRef = useRef(false);
+
+    // Express-lane signal — mirrors the guard's computation (the package grid
+    // there shares it) so the single-race grid applies the same new-racer lead
+    // cutoff + evaluateRaceRestrictions expressEligible.
+    const anyNewInCategory = racers.some((r) => r.isNewRacer);
+    const allReturningHaveWaivers =
+      !anyNewInCategory &&
+      session.party.filter((m) => !m.isNewRacer).every((m) => m.waiverValid === true);
+
     // Combo packs require exactly raceCount heats. Single races (no raceCount)
     // are UNCAPPED — the conflict logic below (back-to-back / too-close picks)
     // is the only limit.

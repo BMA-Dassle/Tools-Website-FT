@@ -133,8 +133,11 @@ export function OnScreenKeyboardHost() {
   if (!target) return clickShield;
 
   const rows = OSK_LAYOUTS[layout];
+  // Smart-caps is for NAMES (qwerty) only. The email layout never capitalizes —
+  // auto-capping the first letter was landing "John@…" in bookings, and emails
+  // are normalized lowercase at capture anyway (owner 2026-07-19).
   const letterCase =
-    layout === "qwerty" || layout === "email"
+    layout === "qwerty"
       ? shouldCapitalize(target.value, target.selectionStart ?? target.value.length, shift)
       : false;
 

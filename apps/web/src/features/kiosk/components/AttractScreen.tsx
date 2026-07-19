@@ -28,6 +28,7 @@ import { useKioskConfig } from "../KioskConfigContext";
 import { KIOSK_AD_SLIDES, KIOSK_LOGOS, KIOSK_PHOTOS } from "../assets";
 import { BrandedLoader } from "./BrandedLoader";
 import { useKioskClock, syncGlowPhase } from "../hooks/useKioskClock";
+import { useKioskAvailability } from "../hooks/useKioskAvailability";
 
 const AD_ROTATE_MS = 8000;
 
@@ -43,6 +44,9 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   // return) so hook order is stable when config transitions null→set.
   const cornerTaps = useRef<number[]>([]);
   const rootRef = useRef<HTMLDivElement>(null);
+  // Lock the VIP quick-chip when the combo can't actually be booked today
+  // (cached server-side; see useKioskAvailability).
+  const vipAvailable = useKioskAvailability(config?.center ?? null)("race-bowl");
 
   // Boot: merge provisioning URL params over stored config; if the device has
   // no local config yet but the URL names a venue, pull the saved setup from
@@ -207,7 +211,12 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
               hide, might come back later") — restore by uncommenting:
           <QuickChip label="Race now" onClick={() => start("race")} />
           <QuickChip label="Bowl now" onClick={() => start("bowl")} /> */}
-          <QuickChip label="VIP Experience" gold onClick={() => start("vip")} />
+          <QuickChip
+            label="VIP Experience"
+            gold
+            disabled={!vipAvailable}
+            onClick={() => start("vip")}
+          />
           <QuickChip label="See everything" onClick={() => start()} />
           {/* Standalone race packs (owner 2026-07-18) — FastTrax kiosks, a
               LOCKED pack-only purchase flow (KioskRacePackFlow). Full-width so
@@ -264,25 +273,32 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
 function QuickChip({
   label,
   gold,
+  disabled,
   onClick,
 }: {
   label: string;
   gold?: boolean;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
     <span
       role="button"
-      tabIndex={0}
+      aria-disabled={disabled}
+      tabIndex={disabled ? -1 : 0}
       onClick={(e) => {
         e.stopPropagation();
-        onClick();
+        if (!disabled) onClick();
       }}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") onClick();
+        if (!disabled && (e.key === "Enter" || e.key === " ")) onClick();
       }}
       className={`k-display flex h-[92px] w-full items-center justify-center rounded-2xl border-2 px-[32px] text-[30px] ${
-        gold ? "border-[#e8b14c]/60 text-[#e8b14c]" : "border-white/15 text-white/60"
+        disabled
+          ? "border-white/10 text-white/25"
+          : gold
+            ? "border-[#e8b14c]/60 text-[#e8b14c]"
+            : "border-white/15 text-white/60"
       }`}
     >
       {label}

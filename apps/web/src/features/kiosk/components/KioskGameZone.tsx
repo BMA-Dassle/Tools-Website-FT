@@ -47,6 +47,13 @@ const SEE_ATTENDANT_SAFE = "Your payment is safe — please see an attendant.";
  *  fed through the reader one card at a time until the whole stacker is gone. */
 const MAX_BAD_BLANKS = 3;
 
+/** Consecutive failed AUTO reads (reload / balance) before we stop re-arming the
+ *  gate and wait for an explicit tap. Without this, an unreadable or stuck card
+ *  loops forever — the reader keeps re-ingesting and re-presenting it ("it keeps
+ *  asking / keeps the card"). The guest's card is never captured or swapped;
+ *  reload only ever reads an inserted card and presents it back. */
+const MAX_AUTO_READ_FAILS = 3;
+
 /** Hold shown when too many blanks in a row can't be read — almost always the
  *  stock loaded facing the wrong way. No sensor can confirm orientation, so
  *  Resume is enabled immediately (staff judgment) and re-inits on resume. */
@@ -190,6 +197,11 @@ export function KioskGameZone({
   const [newEditIdx, setNewEditIdx] = useState<number | null>(0);
   const [reloadEditIdx, setReloadEditIdx] = useState<number | null>(0);
   const [dispenseMsg, setDispenseMsg] = useState<string | null>(null);
+  // Auto-read backoff (reload + balance): consecutive failed auto-reads, and a
+  // flag that pauses the auto-arm once they pile up so a bad/stuck card can't
+  // loop the gate forever. Reset on a clean read or an explicit retry tap.
+  const autoReadFailsRef = useRef(0);
+  const [autoReadBlocked, setAutoReadBlocked] = useState(false);
   // Balance check (mode "balance") — ONE card at a time (owner rule).
   const [balCard, setBalCard] = useState<BalanceCard | null>(null);
   const [balTyped, setBalTyped] = useState("");
@@ -326,8 +338,15 @@ export function KioskGameZone({
   // auto-swallow the returned card (the "it takes it" bug).
   const readReloadCard = async (i: number) => {
     const r = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
-    await dispenser.present(); // ALWAYS hand the card back, whatever happened
-    if (!r.ok) return; // read/card fault — the dispenser.error banner explains; guest retries
+    await dispenser.present(); // ALWAYS hand the card back — reload NEVER keeps a card
+    if (!r.ok) {
+      // Read/absent-card fault. Bound the auto-arm: after a few misses stop
+      // re-arming so an unreadable or stuck card can't loop the gate forever.
+      if (++autoReadFailsRef.current >= MAX_AUTO_READ_FAILS) setAutoReadBlocked(true);
+      return; // the dispenser.error banner explains; guest taps to retry
+    }
+    autoReadFailsRef.current = 0;
+    setAutoReadBlocked(false);
     setCard(i, { accountNumber: r.value, status: "unverified" });
     await verify(i, r.value);
   };
@@ -366,11 +385,14 @@ export function KioskGameZone({
   const readBalanceCard = async () => {
     setBalCard({ accountNumber: "", status: "reading" });
     const r = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
-    await dispenser.present(); // give it straight back — we only need the number
+    await dispenser.present(); // give it straight back — never keep the card
     if (!r.ok) {
+      if (++autoReadFailsRef.current >= MAX_AUTO_READ_FAILS) setAutoReadBlocked(true);
       setBalCard(null); // dispenser.error banner explains what happened
       return;
     }
+    autoReadFailsRef.current = 0;
+    setAutoReadBlocked(false);
     await fetchBalance(r.value);
   };
 
@@ -383,7 +405,7 @@ export function KioskGameZone({
   // Placed AFTER the read handlers so the closure never references them
   // before declaration; still above every early return (hooks order safe).
   useEffect(() => {
-    if (!readerReady || dispenser.busy || phase !== "cart") return;
+    if (!readerReady || dispenser.busy || phase !== "cart" || autoReadBlocked) return;
     const armBalance = mode === "balance" && !balCard;
     const reloadRow = mode === "reload" && reloadEditIdx != null ? cards[reloadEditIdx] : undefined;
     const armReload =
@@ -395,7 +417,14 @@ export function KioskGameZone({
     }, 400);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readerReady, dispenser.busy, phase, mode, balCard, reloadEditIdx, cards]);
+  }, [readerReady, dispenser.busy, phase, mode, balCard, reloadEditIdx, cards, autoReadBlocked]);
+
+  // A fresh card slot / mode change gets a clean auto-read budget (so a block on
+  // one card doesn't strand a different one).
+  useEffect(() => {
+    autoReadFailsRef.current = 0;
+    setAutoReadBlocked(false);
+  }, [reloadEditIdx, mode]);
 
   // BUY: one upfront charge for the basket, THEN dispense + load + present each
   // card one at a time (load must clear before a card is handed over).
@@ -990,10 +1019,16 @@ export function KioskGameZone({
               <button
                 type="button"
                 disabled={!!dispenser.busy}
-                onClick={() => void readBalanceCard()}
+                onClick={() => {
+                  autoReadFailsRef.current = 0;
+                  setAutoReadBlocked(false);
+                  void readBalanceCard();
+                }}
                 className="w-full rounded-2xl bg-[#00e2e5] px-6 py-6 text-xl font-extrabold text-[#04252b] disabled:opacity-40"
               >
-                Insert your card to check it
+                {autoReadBlocked
+                  ? "Couldn’t read — flip the card & tap to try again"
+                  : "Insert your card to check it"}
               </button>
             ) : (
               // Readerless kiosk fallback only — with a reader, insert is the ONE way.
@@ -1474,14 +1509,20 @@ export function KioskGameZone({
                     <button
                       type="button"
                       disabled={!!dispenser.busy}
-                      onClick={() => void readReloadCard(i)}
+                      onClick={() => {
+                        autoReadFailsRef.current = 0;
+                        setAutoReadBlocked(false);
+                        void readReloadCard(i);
+                      }}
                       className="mt-3 w-full rounded-xl bg-[#00e2e5] px-5 py-3.5 text-base font-bold text-[#04252b] disabled:opacity-40"
                     >
                       {dispenser.busy && c.status !== "ok"
                         ? "Insert your card…"
-                        : c.accountNumber.trim()
-                          ? "Insert a different card"
-                          : "Insert card to read"}
+                        : autoReadBlocked
+                          ? "Couldn’t read — flip the card & tap to try again"
+                          : c.accountNumber.trim()
+                            ? "Insert a different card"
+                            : "Insert card to read"}
                     </button>
                   )}
                   {/* Typed entry ONLY on a readerless kiosk — with a reader, insert

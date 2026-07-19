@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ComponentProps } from "react";
 import { IconDiscount2 } from "@tabler/icons-react";
 import type { RaceItem, StepDef } from "~/features/booking";
 import { membershipDiscountsForNames } from "~/features/booking/service/membership-discounts";
@@ -132,11 +132,6 @@ function groupByTier(products: RaceProduct[]): [RaceTier, RaceProduct[]][] {
 
 function makeProductStepComponent(category: Category): StepDef<RaceItem>["Component"] {
   const Component: StepDef<RaceItem>["Component"] = ({ item, session, onChange }) => {
-    // KIOSK ONLY: packs render as compact teaser accordions (owner 2026-07-18 —
-    // the rich cards pushed single races two screens down the portrait kiosk).
-    // One pack's details open at a time. Web renders the rich cards unchanged.
-    const kioskCompactPacks = !!session.context?.kiosk;
-    const [openPackDetails, setOpenPackDetails] = useState<string | null>(null);
     if (!item.date) {
       return (
         <div className="text-center text-sm text-white/50">
@@ -152,6 +147,29 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
         <div className="text-center text-sm text-white/50">No {category} racers in this party.</div>
       );
     }
+
+    return <RaceProductGrid item={item} session={session} onChange={onChange} />;
+  };
+
+  // Single-race product grid. Its own component so the useMemo hooks below run
+  // unconditionally — the no-date / no-racers branches in the guard above return
+  // before them, which was a hooks-after-conditional-return violation. Renders
+  // only when the guard falls through, so behavior is unchanged.
+  // Grid uses only item/session/onChange (never dispatch/setBusy), so its props
+  // are a narrowed slice of the step Component props rather than the full shape.
+  const RaceProductGrid = ({
+    item,
+    session,
+    onChange,
+  }: Pick<ComponentProps<StepDef<RaceItem>["Component"]>, "item" | "session" | "onChange">) => {
+    const racersInCategory = racersOfCategory(session.party, category);
+    const racerCount = racersInCategory.length;
+
+    // KIOSK ONLY: packs render as compact teaser accordions (owner 2026-07-18 —
+    // the rich cards pushed single races two screens down the portrait kiosk).
+    // One pack's details open at a time. Web renders the rich cards unchanged.
+    const kioskCompactPacks = !!session.context?.kiosk;
+    const [openPackDetails, setOpenPackDetails] = useState<string | null>(null);
 
     // racerType drives the product SET + tier gating. Use the NEW-racer flow
     // (Starter only + license bundle) ONLY when EVERY racer is new. A MIXED party

@@ -19,6 +19,9 @@ export interface WaiverSigningProps {
   personId: string;
   template: PandoraWaiverTemplate;
   location?: string;
+  /** SHORT Pandora id of the person SIGNING when not personId themselves —
+   *  a guardian signing a minor's waiver. Omitted = self-sign. */
+  signerPersonId?: string;
   /** Called after waiver is successfully signed. */
   onComplete: (waiverID: string | undefined) => void;
   /** Optional heading override (default: "Sign Your Waiver"). */
@@ -31,6 +34,7 @@ export default function WaiverSigning({
   personId,
   template,
   location,
+  signerPersonId,
   onComplete,
   heading = "Sign Your Waiver",
   subheading = "Required before participating in any activity.",
@@ -55,6 +59,7 @@ export default function WaiverSigning({
         signature: signatureDataUrl,
         location,
         invalidationDate,
+        ...(signerPersonId ? { sigPersonID: signerPersonId } : {}),
       });
 
       onComplete(result.waiverID);
@@ -64,7 +69,7 @@ export default function WaiverSigning({
     } finally {
       setLoading(false);
     }
-  }, [personId, template, location, onComplete]);
+  }, [personId, template, location, signerPersonId, onComplete]);
 
   return (
     <div className="space-y-6">

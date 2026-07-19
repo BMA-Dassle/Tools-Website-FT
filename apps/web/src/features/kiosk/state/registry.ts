@@ -14,7 +14,7 @@ import { KioskBowlingTierStep } from "../steps/KioskBowlingTierStep";
 import { KioskBowlingPeopleStep } from "../steps/KioskBowlingPeopleStep";
 import { KioskRacePeopleStep, KioskAttractionPeopleStep } from "../steps/KioskPeopleStep";
 
-export const KIOSK_SCHEMA_VERSION = 9; // v9: race-pack step (flag-gated, off by default)
+export const KIOSK_SCHEMA_VERSION = 10; // v10: signer-only guardians (session.guardians)
 export const KIOSK_SESSION_STORAGE_KEY = "kiosk_booking_session";
 
 /** Match the web registry's World Cup gating for bowling time steps. */

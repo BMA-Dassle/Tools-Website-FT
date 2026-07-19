@@ -23,6 +23,7 @@ import {
   type CenterCode,
 } from "~/features/booking";
 import { enabledCombos, type ComboSpecial } from "~/features/combos";
+import { packageFamilyFromPrice } from "~/features/booking/service/packages";
 import { KIOSK_PHOTOS } from "../assets";
 import { AdminTapZone } from "./AdminTapZone";
 import { useKioskConfig } from "../KioskConfigContext";
@@ -34,6 +35,12 @@ export interface KioskCategoriesProps {
   brand: Brand;
   center: CenterCode;
   session: BookingSession;
+  /** False locks the VIP combo tile — no full race → VIP-lane → race itinerary
+   *  fits today. Defaults available. */
+  vipComboAvailable?: boolean;
+  /** False locks the Ultimate Qualifier tile — no Starter+Intermediate pair fits
+   *  today. Defaults available. */
+  uqAvailable?: boolean;
   onPickOffering: (offering: ActivityOffering) => void;
   onPickCombo: (combo: ComboSpecial) => void;
   /** Launch racing with a package FAMILY preselected (Experiences package tile). */
@@ -46,6 +53,8 @@ export function KioskCategories({
   brand,
   center,
   session,
+  vipComboAvailable = true,
+  uqAvailable = true,
   onPickOffering,
   onPickCombo,
   onPickPackageExperience,
@@ -59,6 +68,9 @@ export function KioskCategories({
   // The Ultimate Qualifier is a premium FastTrax racing PACKAGE (not a combo);
   // surface it in Experiences wherever racing is offered.
   const showQualifier = offerings.some((o) => o.kind === "race");
+  // "From $X/person" teaser = lowest enabled Ultimate Qualifier variant (junior
+  // weekday today). Same computed price the picker/checkout use — display only.
+  const qualifierFrom = packageFamilyFromPrice("ultimate-qualifier");
   const hasCart = session.items.length > 0;
   // (The old "Your visit so far" strip is gone — KioskFlow's chrome now shows
   // the persistent signed-in + cart session banner on every screen instead.)
@@ -129,28 +141,39 @@ export function KioskCategories({
         <div className="kiosk-scroll h-full pb-[24px]">
           {cat === "exp" && (
             <div className="flex flex-col gap-[24px]">
-              {combos.map((combo) => (
-                <ShelfBanner
-                  key={combo.id}
-                  photo={combo.heroImage || KIOSK_PHOTOS.vip}
-                  eyebrow="Most popular"
-                  accent="#e8b14c"
-                  title={combo.name}
-                  // Tile = concise teaser (the full description lives on the
-                  // overview screen this opens). The prose shortDescription was
-                  // too long for the tile and overran it (owner 2026-07-18) — use
-                  // the "what you get" list, which is short + scannable.
-                  blurb={`${combo.includes.slice(0, 3).join(" · ")} · From $${(combo.price.weekday / 100).toFixed(0)}/person`}
-                  onClick={() => onPickCombo(combo)}
-                />
-              ))}
+              {combos.map((combo) => {
+                // The VIP combo locks out when today has no feasible race →
+                // VIP-lane → race itinerary (polled every 5 min).
+                const locked = combo.id === "race-bowl" && !vipComboAvailable;
+                return (
+                  <ShelfBanner
+                    key={combo.id}
+                    photo={combo.heroImage || KIOSK_PHOTOS.vip}
+                    eyebrow="Most popular"
+                    accent="#e8b14c"
+                    title={combo.name}
+                    // Tile = concise teaser (the full description lives on the
+                    // overview screen this opens). The prose shortDescription was
+                    // too long for the tile and overran it (owner 2026-07-18) — use
+                    // the "what you get" list, which is short + scannable.
+                    blurb={`${combo.includes.slice(0, 3).join(" · ")} · From $${(combo.price.weekday / 100).toFixed(0)}/person`}
+                    disabled={locked}
+                    disabledNote="Not available right now — please check back or ask an attendant."
+                    onClick={() => onPickCombo(combo)}
+                  />
+                );
+              })}
               {showQualifier && (
                 <ShelfBanner
                   photo={KIOSK_PHOTOS.race}
                   eyebrow="Premium racing"
                   accent="#e53935"
                   title="Ultimate Qualifier"
-                  blurb="Qualify on a Starter, then level up to an Intermediate — POV video, free appetizer & license included."
+                  blurb={`Qualify on a Starter, then level up — POV video, free appetizer & license included.${
+                    qualifierFrom != null ? ` · From $${qualifierFrom.toFixed(0)}/person` : ""
+                  }`}
+                  disabled={!uqAvailable}
+                  disabledNote="Not enough time left today to fit both races — please check back or ask an attendant."
                   onClick={() => onPickPackageExperience("ultimate-qualifier")}
                 />
               )}
@@ -260,6 +283,8 @@ function ShelfBanner({
   accent,
   title,
   blurb,
+  disabled,
+  disabledNote,
   onClick,
 }: {
   photo: string;
@@ -267,32 +292,42 @@ function ShelfBanner({
   accent: string;
   title: string;
   blurb: string;
+  disabled?: boolean;
+  disabledNote?: string;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       aria-label={title}
-      className="k-ph k-tap relative h-[340px] overflow-hidden rounded-[28px] border border-white/10 text-left"
+      className={`k-ph k-tap relative h-[340px] overflow-hidden rounded-[28px] border border-white/10 text-left ${
+        disabled ? "opacity-50" : ""
+      }`}
       style={{ ["--k-img"]: `url(${photo})` } as React.CSSProperties}
     >
       <div className="absolute inset-y-0 left-[48px] right-[128px] flex flex-col justify-center">
-        <div className="k-eyebrow" style={{ color: accent }}>
-          {eyebrow}
+        <div className="k-eyebrow" style={{ color: disabled ? "#9aa4b2" : accent }}>
+          {disabled ? "Unavailable" : eyebrow}
         </div>
         <div className="k-display mt-[8px] text-[56px] leading-[1.05] text-balance">{title}</div>
         <div className="mt-[12px] line-clamp-3 text-[28px] leading-snug text-pretty break-words text-white/70">
-          {blurb}
+          {disabled && disabledNote ? disabledNote : blurb}
         </div>
       </div>
-      <span
-        className="k-display absolute right-[48px] top-1/2 -translate-y-1/2 text-[52px]"
-        style={{ color: accent }}
-      >
-        ›
-      </span>
-      <div className="absolute inset-x-0 bottom-0 h-[8px]" style={{ background: accent }} />
+      {!disabled && (
+        <span
+          className="k-display absolute right-[48px] top-1/2 -translate-y-1/2 text-[52px]"
+          style={{ color: accent }}
+        >
+          ›
+        </span>
+      )}
+      <div
+        className="absolute inset-x-0 bottom-0 h-[8px]"
+        style={{ background: disabled ? "#555" : accent }}
+      />
     </button>
   );
 }

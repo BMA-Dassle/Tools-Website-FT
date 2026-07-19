@@ -49,10 +49,13 @@ function legVenue(leg: ComboLeg): { logo: string; name: string } {
 
 export function KioskVipOverview({
   combo,
+  available = true,
   onStart,
   onBack,
 }: {
   combo: ComboSpecial;
+  /** False locks the CTA — no feasible race → VIP-lane → race itinerary today. */
+  available?: boolean;
   onStart: () => void;
   onBack: () => void;
 }) {
@@ -156,9 +159,20 @@ export function KioskVipOverview({
         <button type="button" onClick={onBack} className="k-btn-ghost k-tap">
           Back
         </button>
-        <button type="button" onClick={onStart} className="k-btn-primary k-tap">
-          <span className="k-num">${(perPerson / 100).toFixed(0)}</span>/person · Let&rsquo;s set it
-          up
+        <button
+          type="button"
+          onClick={available ? onStart : undefined}
+          disabled={!available}
+          className="k-btn-primary k-tap disabled:opacity-40"
+        >
+          {available ? (
+            <>
+              <span className="k-num">${(perPerson / 100).toFixed(0)}</span>/person · Let&rsquo;s
+              set it up
+            </>
+          ) : (
+            "Not available right now"
+          )}
         </button>
       </div>
     </>

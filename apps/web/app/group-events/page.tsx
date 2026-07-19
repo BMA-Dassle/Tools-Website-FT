@@ -3,6 +3,7 @@
 import { useState } from "react";
 import SubpageHero from "@/components/SubpageHero";
 import Image from "next/image";
+import Link from "next/link";
 import { trackGroupRequestClick } from "@/lib/analytics";
 import { SalesLeadForm } from "@/components/SalesLeadForm";
 import { FAQJsonLd, BreadcrumbJsonLd } from "@/components/seo/JsonLd";
@@ -1309,13 +1310,13 @@ export default function GroupEventsPage() {
                 </p>
                 <p>
                   If you choose to book on your own, you may do so at{" "}
-                  <a
+                  <Link
                     href="/book"
                     className="underline hover:text-white"
                     style={{ color: "#00E2E5" }}
                   >
                     fasttraxent.com/book
-                  </a>
+                  </Link>
                   . When booking, use caution when selecting who will race in Junior karts versus
                   Adult karts, as incorrect selections may lead to delays, rebooking, or separation
                   of your group.
@@ -1345,13 +1346,13 @@ export default function GroupEventsPage() {
               </div>
 
               <div className="mt-6 flex flex-col sm:flex-row flex-wrap gap-2">
-                <a
+                <Link
                   href="/book"
                   className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02] no-underline text-center leading-tight"
                   style={{ backgroundColor: "#00E2E5", color: "#000418" }}
                 >
                   Book on your own
-                </a>
+                </Link>
                 <a
                   href="https://headpinz.com/fort-myers/birthdays"
                   className="flex-1 inline-flex items-center justify-center font-body font-bold text-sm uppercase tracking-wider px-5 py-3 rounded-full transition-transform hover:scale-[1.02] no-underline text-center leading-tight"

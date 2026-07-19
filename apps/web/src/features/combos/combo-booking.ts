@@ -22,6 +22,7 @@ import {
   type BmiAvailabilityResponse,
   type BmiBlock,
 } from "~/features/booking/data/bmi";
+import { apiBase } from "@/lib/api-base";
 import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import {
   productsForSchedule,
@@ -568,7 +569,7 @@ export async function fetchBowlingLegCandidates(args: {
   const centerCode = QAMF_CENTER_CODES[centerId];
   if (!centerCode) return [];
 
-  const expRes = await fetch(`/api/bowling/v2/experiences?centerCode=${centerCode}`);
+  const expRes = await fetch(`${apiBase()}/api/bowling/v2/experiences?centerCode=${centerCode}`);
   const expData = await expRes.json().catch(() => []);
   const all: BowlingExperienceWithDetails[] = Array.isArray(expData) ? expData : [];
   const dow = new Date(`${dateYmd}T12:00:00`).getDay();

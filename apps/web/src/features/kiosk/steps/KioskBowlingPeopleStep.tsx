@@ -13,6 +13,7 @@
  * KioskBowlingDetailsStep (it pre-seeds from these names).
  */
 import type { BowlingItem, StepDef } from "~/features/booking";
+import { formatPersonName, normalizeEmail } from "../name-format";
 
 type BowlItem = BowlingItem;
 type Player = { name: string; shoeSize: string | null; bumpers: boolean | null };
@@ -51,8 +52,11 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
   // it), but the UI edits it as separate First / Last fields (owner 2026-07-19 —
   // last name was silently required). Compose "First Last" from the two fields.
   const setName = (i: number, name: string) => {
-    writeRows(players.map((p, idx) => (idx === i ? { ...p, name } : p)));
-    if (i === mainIdx) dispatch({ type: "setContact", patch: splitName(name) });
+    // Normalize case as typed (owner 2026-07-19: no all-caps names) — the
+    // formatted value is what the reserve/QAMF roster and contact receive.
+    const clean = formatPersonName(name);
+    writeRows(players.map((p, idx) => (idx === i ? { ...p, name: clean } : p)));
+    if (i === mainIdx) dispatch({ type: "setContact", patch: splitName(clean) });
   };
   const setFirst = (i: number, first: string) => {
     const { lastName } = splitName(players[i].name);
@@ -70,7 +74,11 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
   const setMain = (i: number) =>
     dispatch({ type: "setContact", patch: splitName(players[i].name) });
   const setContactField = (patch: { email?: string; phone?: string }) =>
-    dispatch({ type: "setContact", patch });
+    dispatch({
+      type: "setContact",
+      // Emails are stored lowercase (owner 2026-07-19).
+      patch: patch.email !== undefined ? { ...patch, email: normalizeEmail(patch.email) } : patch,
+    });
 
   return (
     <div className="space-y-[24px]">

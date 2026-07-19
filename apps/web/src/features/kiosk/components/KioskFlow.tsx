@@ -55,6 +55,7 @@ import {
   KIOSK_STEP_REGISTRY,
 } from "../state/registry";
 import { KioskCategories } from "./KioskCategories";
+import { useKioskAvailability } from "../hooks/useKioskAvailability";
 import { KioskHoldBar } from "./KioskHoldBar";
 import { KioskVipOverview } from "./KioskVipOverview";
 import { KioskGameZone } from "./KioskGameZone";
@@ -130,6 +131,12 @@ function seedForGoto(goto: string): { kind: SessionItem["kind"]; slug?: string }
 export function KioskFlow({ goto }: { goto: string | null }) {
   const router = useRouter();
   const { config } = useKioskConfig();
+  // Bookable-today availability for the Experiences (VIP combo + Ultimate
+  // Qualifier), from the cached server endpoint — locks their entry points when
+  // nothing fits today.
+  const availableFor = useKioskAvailability(config?.center ?? null);
+  const vipAvailable = availableFor("race-bowl");
+  const uqAvailable = availableFor("ultimate-qualifier");
 
   const initial = useMemo(
     () =>
@@ -983,6 +990,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     return chrome(
       <KioskVipOverview
         combo={vipCombo}
+        available={vipAvailable}
         onStart={() => startCombo(vipCombo)}
         onBack={() => setVipCombo(null)}
       />,
@@ -997,6 +1005,8 @@ export function KioskFlow({ goto }: { goto: string | null }) {
         brand={config.brand}
         center={config.center}
         session={session}
+        vipComboAvailable={vipAvailable}
+        uqAvailable={uqAvailable}
         onPickOffering={pickOffering}
         onPickCombo={pickCombo}
         onPickPackageExperience={pickPackageExperience}

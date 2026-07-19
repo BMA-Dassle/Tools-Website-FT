@@ -1057,7 +1057,7 @@ export async function POST(req: NextRequest) {
    *  CreateCard key (`cof-${depositBaseKey}`). Set when a deposit is charged. */
   let depositBaseKey: string | undefined;
   let loyaltyRewardId: string | undefined;
-  let rewardDiscountCents = body.rewardDiscountCents ?? 0;
+  const rewardDiscountCents = body.rewardDiscountCents ?? 0;
   let depositCents = 0; // actual charged amount (tax-inclusive)
   let totalCents = 0; // tax-inclusive day-of order total
   /** KIOSK: charged Game Zone card rows for the confirmation screen to fulfill. */

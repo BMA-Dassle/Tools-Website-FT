@@ -13,6 +13,8 @@
  * window around the chosen hour and only widens when that hour is empty.
  */
 
+import { apiBase } from "@/lib/api-base";
+
 export interface RawAvailability {
   Availabilities?: Array<{
     BookedAt: string;
@@ -44,7 +46,10 @@ export async function probeAvailability(url: string): Promise<RawAvailability> {
   const backoffs = [600, 1500, 2500];
   let lastStatus = 0;
   for (let attempt = 0; attempt <= backoffs.length; attempt++) {
-    const res = await fetch(url);
+    // apiBase() is "" in the browser (relative) and an absolute origin on the
+    // server, so this same client works when the cached availability endpoint
+    // calls it server-side.
+    const res = await fetch(`${apiBase()}${url}`);
     if (res.ok) return (await res.json()) as RawAvailability;
     lastStatus = res.status;
     const retryable = res.status === 502 || res.status === 503 || res.status === 504;

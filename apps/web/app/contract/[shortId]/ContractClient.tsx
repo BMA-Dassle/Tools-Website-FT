@@ -149,6 +149,14 @@ export default function ContractClient({ quote }: { quote: QuoteProps }) {
     );
   }
 
+  // Cancelled/denied render above has NO hooks; everything below (~40 hooks)
+  // must run unconditionally, so the active flow lives in its own component
+  // reached only when the guard falls through. Keeps rules-of-hooks happy
+  // without changing behavior for any status.
+  return <ContractClientActive quote={quote} />;
+}
+
+function ContractClientActive({ quote }: { quote: QuoteProps }) {
   const isResign = quote.status === "resign_required" && Boolean(quote.depositPaidAt);
   // Re-sign money facts come from collected_cents — the same source resign-settle charges
   // (delta = total - collected) — so the displayed amount always matches the actual charge,

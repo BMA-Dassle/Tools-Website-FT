@@ -19,6 +19,7 @@ export {
   packageBundleTotal,
   packageRetailTotal,
   packageSavings,
+  packageFamilyFromPrice,
   packageHeatGapMinutes,
   primaryTrack,
   LICENSE_PRICE,

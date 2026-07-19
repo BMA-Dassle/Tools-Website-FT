@@ -10,18 +10,27 @@
  *   pick   → today's waiver-relevant reservations starting within 2 hours
  *            (event name, else main contact as "First L."), sorted by time.
  *   roster → "First L." of everyone already registered with a VALID waiver,
- *            plus the exact race-flow identity screens (KioskPartyManager:
- *            new-player form / returning lookup / photo + signature waiver)
- *            to add more people.
+ *            plus the EXACT race-flow people screens to add more people.
  *
- * The attach pipeline watches the local party: the moment a member has a
- * person id AND a valid waiver, it POSTs /api/kiosk/waiver/join (Neon
- * persist-first; BMI registerProjectPerson behind the probe-gated flag) and
- * refetches the roster — so back-to-back signers on one kiosk each appear as
- * they finish. The party persists across adds so a signed parent remains
- * pickable as a minor's guardian.
+ * People screens: this mounts KioskAttractionPeopleStep.Component — the live
+ * kiosk people monolith (new-player form, returning lookup, guardian signer
+ * flow, photo + signature waiver) — over a LOCAL, non-persisted instance of
+ * the real booking reducer. Deliberately NOT an extraction: that file is
+ * multi-writer-hot (Alex ships to it directly), so the waiver flow reuses it
+ * through its public StepDef surface and inherits every change for free. The
+ * synthetic item is a slug-less attraction: no racing age floor, "Activity
+ * Waiver" heading, signer-only guardians stay out of the party.
+ *
+ * The attach pipeline watches session.party: the moment a member has a person
+ * id AND a valid waiver, it POSTs /api/kiosk/waiver/join (Neon persist-first;
+ * BMI registerProjectPerson behind the probe-gated flag) and refetches the
+ * roster — back-to-back signers on one kiosk each appear as they finish. The
+ * party persists across adds so a signed parent remains available as a
+ * later minor's guardian. Signer-only guardians (session.guardians) are NOT
+ * joined to the reservation — they're not attending; "Join the fun" moves
+ * them into the party, which is.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
   IconChevronLeft,
@@ -30,8 +39,8 @@ import {
   IconUserCheck,
   IconUsersGroup,
 } from "@tabler/icons-react";
-import type { PartyMember } from "~/features/booking";
-import { KioskPartyManager } from "../components/KioskPartyManager";
+import { emptySession, reducer, type AttractionItem } from "~/features/booking";
+import { KioskAttractionPeopleStep } from "../steps/KioskPeopleStep";
 import { IdleWatcher } from "../components/IdleWatcher";
 import { useKioskConfig } from "../KioskConfigContext";
 import { kioskId } from "../config";
@@ -41,27 +50,71 @@ import type { KioskWaiverReservationItem, KioskWaiverRosterPayload } from "./typ
 
 const IDLE_MS = 120_000;
 
+const PeopleScreens = KioskAttractionPeopleStep.Component;
+
+/** Slug-less synthetic attraction item — carries the participants toggle the
+ *  people step expects; never priced, never booked. */
+function newWaiverItem(): AttractionItem {
+  return {
+    id: "waiver",
+    kind: "attraction",
+    slug: null,
+    date: null,
+    slot: null,
+    qty: 1,
+    productId: null,
+    pageId: null,
+    price: 0,
+    // Synthetic item — never booked, so the booking-side fields stay empty.
+    bmiLineId: null,
+    slotProposal: null,
+    assignedTo: [],
+  };
+}
+
+/** True after hydration — server snapshot false, client snapshot true; no
+ *  setState-in-effect, no hydration mismatch. */
+function useHydrated(): boolean {
+  return useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
+}
+
 export function KioskWaiverFlow() {
   const router = useRouter();
   const { config } = useKioskConfig();
+  const hydrated = useHydrated();
+
+  // The people screens run on the REAL booking reducer, locally scoped to this
+  // page (not persisted — a waiver session is one group at the kiosk, and the
+  // IdleWatcher reset is the cleanup). center is baked in at init: config
+  // hydrates synchronously from localStorage, so it's present on the first
+  // client render; the unprovisioned case redirects below.
+  const [session, dispatch] = useReducer(reducer, undefined, () => ({
+    ...emptySession({
+      entryBrand: config?.brand ?? "fasttrax",
+      context: { kiosk: true, ...(config ? { center: config.center } : {}) },
+    }),
+    center: config?.center ?? null,
+  }));
+  const [item, setItem] = useState<AttractionItem>(newWaiverItem);
 
   const [selected, setSelected] = useState<KioskWaiverReservationItem | null>(null);
   const [reservations, setReservations] = useState<KioskWaiverReservationItem[] | null>(null);
   const [resError, setResError] = useState(false);
   const [roster, setRoster] = useState<KioskWaiverRosterPayload | null>(null);
-  const [party, setParty] = useState<PartyMember[]>([]);
-  const [managerBusy, setManagerBusy] = useState(false);
+  const [peopleBusy, setPeopleBusy] = useState(false);
   const [joinsInFlight, setJoinsInFlight] = useState(0);
   const [refreshTick, setRefreshTick] = useState(0);
   // person ids already POSTed to /join — the attach effect must never double-post.
   const postedRef = useRef<Set<string>>(new Set());
 
   // No device config → this URL was opened outside a provisioned kiosk.
-  // (config hydrates synchronously from localStorage via useSyncExternalStore,
-  // so by the time effects run, null genuinely means unprovisioned.)
   useEffect(() => {
-    if (config === null) router.replace("/kiosk");
-  }, [config, router]);
+    if (hydrated && config === null) router.replace("/kiosk");
+  }, [hydrated, config, router]);
 
   // Picker fetch — one inline effect; the Refresh button bumps refreshTick to
   // re-run it. "Loading" is reservations === null; a manual refresh keeps the
@@ -92,35 +145,35 @@ export function KioskWaiverFlow() {
   }, [config, refreshTick]);
 
   const fetchRoster = useCallback(
-    async (item: KioskWaiverReservationItem) => {
+    async (target: KioskWaiverReservationItem) => {
       if (!config) return;
       try {
         const res = await fetch(
-          `/api/kiosk/waiver/roster?center=${config.center}&locationId=${item.locationId}&projectId=${item.projectId}`,
+          `/api/kiosk/waiver/roster?center=${config.center}&locationId=${target.locationId}&projectId=${target.projectId}`,
           { cache: "no-store" },
         );
         const data = (await res.json()) as KioskWaiverRosterPayload;
         if (res.ok && data.success) setRoster(data);
       } catch {
-        /* roster is best-effort display — the manager still works without it */
+        /* roster is best-effort display — the people screens work without it */
       }
     },
     [config],
   );
 
-  const openReservation = (item: KioskWaiverReservationItem) => {
-    setSelected(item);
+  const openReservation = (target: KioskWaiverReservationItem) => {
+    setSelected(target);
     setRoster(null);
-    void fetchRoster(item);
+    void fetchRoster(target);
   };
 
-  // Attach pipeline: any party member with a person id + valid waiver joins the
-  // reservation. Catches every ready path — fresh signature (WaiverSigning
-  // onComplete patch), onboard-returns-already-valid, returning lookup with a
-  // current waiver, and the importLinked authoritative patch.
+  // Attach pipeline: any PARTY member with a person id + valid waiver joins the
+  // reservation (signer-only guardians are not attending — never joined).
+  // Catches every ready path — fresh signature, onboard-returns-already-valid,
+  // returning lookup with a current waiver, the authoritative re-check patch.
   useEffect(() => {
     if (!selected || !config) return;
-    for (const m of party) {
+    for (const m of session.party) {
       const pid = m.pandoraPersonId ?? m.bmiPersonId;
       if (!pid || !m.waiverValid || postedRef.current.has(pid)) continue;
       postedRef.current.add(pid);
@@ -147,13 +200,13 @@ export function KioskWaiverFlow() {
           if (selected) void fetchRoster(selected);
         });
     }
-  }, [party, selected, config, fetchRoster]);
+  }, [session.party, selected, config, fetchRoster]);
 
   const goHome = useCallback(() => {
     void resetToKiosk(() => router.replace("/kiosk"));
   }, [router]);
 
-  if (!config) {
+  if (!hydrated || !config) {
     return (
       <div className="absolute inset-0 flex items-center justify-center bg-[#000418]">
         <BrandedLoader brand="fasttrax" label="Loading…" />
@@ -163,7 +216,7 @@ export function KioskWaiverFlow() {
 
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-[#000418]">
-      <IdleWatcher timeoutMs={IDLE_MS} paused={managerBusy || joinsInFlight > 0} onReset={goHome} />
+      <IdleWatcher timeoutMs={IDLE_MS} paused={peopleBusy || joinsInFlight > 0} onReset={goHome} />
 
       {/* Header */}
       <div className="flex shrink-0 items-center gap-[24px] border-b border-white/10 px-[48px] py-[32px]">
@@ -295,22 +348,16 @@ export function KioskWaiverFlow() {
               )}
             </div>
 
-            {/* Add people — the exact race-flow identity screens */}
+            {/* Add people — the exact race-flow people screens, on a local
+                booking-reducer session scoped to this waiver visit */}
             <div>
               <div className="k-eyebrow mb-[14px] text-white/40">Add yourself or your group</div>
-              <KioskPartyManager
-                mode="waiver"
-                party={party}
-                brandLocation={config.brand === "headpinz" ? "headpinz" : "fasttrax"}
-                center={config.center}
-                includedIds={new Set(party.map((m) => m.id))}
-                onIncludedChange={() => {}}
-                onAddMember={(member) => setParty((prev) => [...prev, member])}
-                onUpdateMember={(id, patch) =>
-                  setParty((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)))
-                }
-                onRemoveMember={(id) => setParty((prev) => prev.filter((m) => m.id !== id))}
-                setBusy={setManagerBusy}
+              <PeopleScreens
+                item={item}
+                session={session}
+                onChange={(patch) => setItem((prev) => ({ ...prev, ...patch }))}
+                dispatch={dispatch}
+                setBusy={setPeopleBusy}
               />
             </div>
 

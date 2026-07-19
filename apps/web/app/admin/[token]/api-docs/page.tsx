@@ -97,9 +97,8 @@ export default function AdminApiDocsPage() {
         >
           <SwaggerUI
             url="/api/admin/sales/openapi.json"
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             requestInterceptor={
-              ((req: any) => {
+              ((req: { headers: Record<string, string> }) => {
                 if (apiKey.trim()) {
                   req.headers["x-api-key"] = apiKey.trim();
                 }
