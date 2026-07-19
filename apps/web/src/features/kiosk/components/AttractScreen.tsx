@@ -231,8 +231,8 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
 
       {/* Online & group waiver entry — full-width bar above the footer band
           ("bottom of this screen", owner 2026-07-18). A "not booking"
-          affordance, so it sits OUTSIDE the welcome-zone start button. Ships
-          dark behind the opt-in flag until the owner live smoke. */}
+          affordance, so it sits OUTSIDE the welcome-zone start button. Flag is
+          a kill switch, default ON (owner 2026-07-19). */}
       {kioskGroupWaiverEnabled() && (
         <button
           type="button"
