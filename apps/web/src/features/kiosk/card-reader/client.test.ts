@@ -347,6 +347,31 @@ describe("CrtReaderClient — composed and typed operations", () => {
     await client.close();
   });
 
+  it("issueAndReadCard does NOT poke an unreadable card to the gate — leaves it for the caller to bin", async () => {
+    const dev = new ScriptedDevice((cmd, device) => {
+      if (cmd.cm === CM.MOVE && cmd.pm === 0x34) return ok(cmd, [], [0x32, 0x32, 0x30]);
+      // A card IS parked at the read station (st0=2) the whole time.
+      if (cmd.cm === CM.STATUS) return ok(cmd, [], [0x32, 0x32, 0x30]);
+      if (cmd.cm === 0x36) {
+        // Unreadable card (wrong-way) — never a clean 16-digit account.
+        const junk = "P6283=2124~";
+        return [[ACK], buildNegativeResponse({ cm: 0x36, pm: 0x37, code: "02", data: A(junk) })];
+      }
+      return healthyScript(cmd, device);
+    });
+    const client = await CrtReaderClient.connect(factoryFor({ 115200: dev }, []));
+    const settled = client.issueAndReadCard().then(
+      () => null,
+      (e) => e,
+    );
+    await vi.runAllTimersAsync();
+    expect(await settled).toBeInstanceOf(CrtReadError);
+    // Fed to the read station once (34h). Card present but unreadable → NO 31h
+    // gate poke / reposition; the caller captures it straight to the error bin.
+    expect(dev.commands.filter((c) => c.cm === CM.MOVE).map((c) => c.pm)).toEqual([0x34]);
+    await client.close();
+  });
+
   it("magRead throws a CARD read fault when the reply has no clean account", async () => {
     const dev = new ScriptedDevice((cmd, device) => {
       if (cmd.cm === 0x36) {
