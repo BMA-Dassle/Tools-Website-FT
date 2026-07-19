@@ -14,6 +14,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  gestureIsActive,
   hexDump,
   parseWedgeBurst,
   serialBlockedMessage,
@@ -159,6 +160,7 @@ function ConnectionCard({
       return;
     }
     setPermMsg(null);
+    const gestureActive = gestureIsActive();
     let port: SerialPort;
     try {
       // FIRST await after the tap — anything earlier spends the gesture's
@@ -168,7 +170,7 @@ function ConnectionCard({
       const name = err instanceof DOMException ? err.name : "";
       setPermMsg(
         name === "SecurityError"
-          ? serialBlockedMessage()
+          ? serialBlockedMessage(err, { gestureActive })
           : name === "NotFoundError"
             ? "The chooser opened but no port was picked — or none exist. Check the reader's USB lead and that a COM port shows in Device Manager → Ports (COM & LPT)."
             : `Permission request failed${err instanceof Error && err.message ? ` — ${err.message}` : ""}`,

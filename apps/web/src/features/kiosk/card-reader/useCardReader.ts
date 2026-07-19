@@ -86,30 +86,61 @@ function toErrorInfo(err: unknown): CrtErrorInfo {
 }
 
 /**
- * A SecurityError from requestPort() means the chooser never opened. Work out
- * WHICH layer said no — our own Permissions-Policy header (the camera's exact
- * failure mode on 2026-07-18, fixed with camera=(self)) vs. the browser's
- * site permission / device-management policy — and spell out where staff
- * unblock it, like the camera admin's "Prompt for permissions" button does.
+ * A SecurityError from requestPort() means the chooser never opened, and
+ * Chromium throws it for exactly TWO reasons: permissions policy, or a
+ * missing/spent user gesture (site-permission Block surfaces as NotFoundError
+ * instead). Branch on the browser's own error text plus live probes
+ * (featurePolicy, userActivation, UA brands — WebView2/kiosk shells announce
+ * themselves there) and spell out the fix. The raw text and probe results are
+ * appended so a photo of the kiosk screen finishes the diagnosis remotely.
  */
-export function serialBlockedMessage(): string {
+export function serialBlockedMessage(
+  err?: unknown,
+  opts?: { gestureActive?: boolean | null },
+): string {
   const fp = (
     document as Document & { featurePolicy?: { allowsFeature?: (feature: string) => boolean } }
   ).featurePolicy;
-  if (fp?.allowsFeature && !fp.allowsFeature("serial")) {
-    return (
-      "Serial is blocked by the site's OWN Permissions-Policy header — the deploy must send " +
-      "serial=(self), same fix as the camera on 2026-07-18 (next.config.ts). Redeploy, then tap again."
-    );
+  const policyAllowed = fp?.allowsFeature ? fp.allowsFeature("serial") : null;
+  const raw = err instanceof Error ? err.message : "";
+  const brands =
+    (
+      navigator as Navigator & { userAgentData?: { brands?: Array<{ brand: string }> } }
+    ).userAgentData?.brands
+      ?.map((b) => b.brand)
+      .filter((b) => !/not.*brand/i.test(b))
+      .join(", ") ?? "";
+  const diag = [
+    raw ? `browser said “${raw}”` : null,
+    `policy allows serial: ${policyAllowed == null ? "unknown" : policyAllowed ? "yes" : "NO"}`,
+    opts?.gestureActive != null ? `tap gesture active: ${opts.gestureActive ? "yes" : "NO"}` : null,
+    brands ? `browser: ${brands}` : null,
+    window.isSecureContext ? null : "secure context: NO",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  let advice: string;
+  if (policyAllowed === false || /permissions? policy/i.test(raw)) {
+    advice =
+      "Serial is blocked by the page's Permissions-Policy — production must send serial=(self) " +
+      "(next.config.ts, deployed 2026-07-19). If this page is embedded in another app's frame, " +
+      "the embedder must allow it.";
+  } else if (/user gesture|user activation/i.test(raw) || opts?.gestureActive === false) {
+    advice =
+      "The tap's user gesture never reached the chooser — something consumed or synthesized it. " +
+      "Tap the button once, directly. If it repeats, this window is likely a kiosk shell or " +
+      "remote-control tool replaying clicks — open a NORMAL Edge window with the same profile " +
+      "and grant there once; the kiosk window then reconnects silently.";
+  } else {
+    advice =
+      "The browser refused the chooser. Check: (1) padlock icon → Permissions for this site → " +
+      '"Serial ports", or edge://settings/content/serialPorts; (2) edge://policy — ' +
+      "DefaultSerialGuardSetting / SerialBlockedForUrls on managed browsers; (3) Edge kiosk mode " +
+      "(--kiosk) can't show the chooser — open a NORMAL Edge window with the same profile, grant " +
+      "there once, and the kiosk window reconnects silently.";
   }
-  return (
-    "The browser blocked serial without showing the chooser. Unblock, then tap again: " +
-    '(1) padlock icon in the address bar → Permissions for this site → allow "Serial ports" ' +
-    "(or edge://settings/content/serialPorts — make sure this site isn't under Block); " +
-    "(2) on a company-managed browser, edge://policy must not set DefaultSerialGuardSetting / " +
-    "SerialBlockedForUrls against this site; (3) if it still fails, reload this page — on stale " +
-    "kiosk builds the tap's gesture is spent entering fullscreen before the chooser can open."
-  );
+  return `${advice} [${diag}]`;
 }
 
 function openErrorMessage(err: unknown): string {
@@ -118,9 +149,16 @@ function openErrorMessage(err: unknown): string {
     return "Reader port is in use by another tab or program — close it and retry.";
   }
   if (name === "SecurityError") {
-    return serialBlockedMessage();
+    return serialBlockedMessage(err);
   }
   return err instanceof Error ? err.message : String(err);
+}
+
+/** Transient-activation probe — read BEFORE the first await spends/loses it. */
+export function gestureIsActive(): boolean | null {
+  if (typeof navigator === "undefined") return null;
+  const ua = (navigator as Navigator & { userActivation?: { isActive?: boolean } }).userActivation;
+  return typeof ua?.isActive === "boolean" ? ua.isActive : null;
 }
 
 export function useCardReader(opts: UseCardReaderOptions = {}) {
@@ -297,6 +335,7 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
     // to show the chooser (it just exits fullscreen and does nothing). So we
     // do NOT await getPorts() first here, and we pass NO filter — a native
     // COM device has no USB ids to filter on, and staff must see all ports.
+    const gestureActive = gestureIsActive();
     let port: SerialPort;
     try {
       port = await navigator.serial.requestPort();
@@ -316,7 +355,11 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
         });
         return;
       }
-      setConnection({ state: "error", message: openErrorMessage(err), canRetry: true });
+      const message =
+        err instanceof DOMException && err.name === "SecurityError"
+          ? serialBlockedMessage(err, { gestureActive })
+          : openErrorMessage(err);
+      setConnection({ state: "error", message, canRetry: true });
       return;
     }
     await beginConnect(port);
