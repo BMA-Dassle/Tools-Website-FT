@@ -66,9 +66,17 @@ import { BrandedLoader, BrandedLoaderOverlay } from "./BrandedLoader";
 import { todayYmd } from "../service/first-available";
 import { KIOSK_PHOTOS, KIOSK_LOGOS } from "../assets";
 
-/** Walk-up device: every dated item starts on today (kiosk drops date steps). */
+/** Walk-up device: every dated item starts on today's OPERATING day (todayYmd
+ *  rolls at 2 AM ET, so a post-midnight session stays on its date). Bowling/KBF
+ *  are stamped too so they resolve the same operating day as racing/attractions
+ *  instead of the calendar date. */
 function stampToday(item: SessionItem): SessionItem {
-  if (item.kind === "race" || item.kind === "attraction") {
+  if (
+    item.kind === "race" ||
+    item.kind === "attraction" ||
+    item.kind === "bowling" ||
+    item.kind === "kbf"
+  ) {
     return { ...item, date: todayYmd() };
   }
   return item;

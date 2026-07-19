@@ -66,7 +66,14 @@ const KioskBowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   const openHours =
     item.date === today ? operatingHours(center.hpSlug, today, item.kind === "kbf") : [];
   const now = new Date();
-  const nextQuarter = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 15) * 15;
+  // operatingHours returns 0–26h notation (post-midnight = +24h, same as
+  // wallMinutes) so a 1 AM slot sorts AFTER the evening, not before the morning.
+  // Match "now" to it — otherwise, past midnight (still the current operating
+  // day), the raw 0–23 clock reads as morning and every one of the day's hours
+  // slips past the "not-yet-passed" filter.
+  const rawNowMin = now.getHours() * 60 + now.getMinutes();
+  const nowMin = now.getHours() < 6 ? rawNowMin + 24 * 60 : rawNowMin;
+  const nextQuarter = Math.ceil(nowMin / 15) * 15;
   type Slot = { hour: number; minute: number };
   const slots: Slot[] = openHours
     .flatMap((h) => [0, 15, 30, 45].map((minute) => ({ hour: h, minute })))
