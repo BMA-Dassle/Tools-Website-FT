@@ -57,7 +57,7 @@ import {
   type InitMode,
   type MoveTarget,
 } from "./protocol/constants";
-import { CrtError, CrtLinkError } from "./protocol/errors";
+import { CrtError, CrtLinkError, CrtReadError } from "./protocol/errors";
 import type { ParsedFrame } from "./protocol/frame";
 import { parseSensors, parseStatus, type CrtStatus, type SensorStatus } from "./protocol/status";
 import {
@@ -409,14 +409,13 @@ export class CrtReaderClient {
         ? parseMagRead({ kind: "positive", data: frame.data })
         : parseMagRead({ kind: "negative", data: frame.data, e1: frame.e1, e0: frame.e0 });
     if (frame.kind === "positive") this.pushStatus(parseStatus(frame.st));
-    // A successful mag reply carries track data even though its head is 'N'.
-    // No tracks means the device rejected the read — almost always because the
-    // card isn't at the read station (device answers "undefined command").
-    if (mag.candidates.length === 0 && frame.kind === "negative") {
-      throw new Error(
-        `Magnetic read returned no track data (device code ${frame.code}). ` +
-          `Position a card at the mag read station first (Move to mag position), then read.`,
-      );
+    // A clean read yields the 16-digit track-2 account. No valid number means the
+    // read didn't land — device rejected it (card not at the read station), or a
+    // partial/settling/stale-buffer read (garbage or only track 1). Throw a CARD
+    // fault so the caller retries / re-dispenses instead of crediting garbage.
+    if (!mag.cardNumber) {
+      const code = frame.kind === "negative" ? frame.code : "P" + frame.pm.toString(16);
+      throw new CrtReadError(code, mag.ascii);
     }
     return mag;
   }

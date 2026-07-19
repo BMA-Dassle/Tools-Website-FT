@@ -6,7 +6,7 @@
  *
  * Reused UNCHANGED: the booking session model + reducer, every service
  * (eager BMI heat holds, attraction slot booking, combo itinerary + QAMF
- * lane hold, checkout/reserve), ReservationTimer/ExpiredModal, CartView,
+ * lane hold, checkout/reserve), useReservationHold/ExpiredModal, CartView,
  * CheckoutStep, and (for now) the web step components via
  * KIOSK_STEP_REGISTRY — later kiosk stages swap individual steps there.
  *
@@ -35,10 +35,7 @@ import { resetToKiosk } from "../version";
 import { CartView } from "~/components/features/booking/CartView";
 import { CheckoutStep } from "~/components/features/booking/steps/checkout/CheckoutStep";
 import { HeightAgeConfirmModal } from "~/components/features/booking/steps/race/HeightAgeConfirmModal";
-import {
-  ReservationTimer,
-  type ReservationTimerHandle,
-} from "~/components/features/booking/ReservationTimer";
+import { type ReservationTimerHandle } from "~/components/features/booking/ReservationTimer";
 import { ReservationExpiredModal } from "~/components/features/booking/ReservationExpiredModal";
 import { contactIsComplete } from "~/components/features/booking/steps/ContactStep";
 import { bookHeatsOnAdvance } from "~/features/booking/service/race";
@@ -58,6 +55,7 @@ import {
   KIOSK_STEP_REGISTRY,
 } from "../state/registry";
 import { KioskCategories } from "./KioskCategories";
+import { KioskHoldBar } from "./KioskHoldBar";
 import { KioskVipOverview } from "./KioskVipOverview";
 import { KioskGameZone } from "./KioskGameZone";
 import { IdleWatcher } from "./IdleWatcher";
@@ -129,6 +127,9 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   const [cartActive, setCartActive] = useState(false);
   const [checkoutActive, setCheckoutActive] = useState(false);
   const [gzOpen, setGzOpen] = useState(false);
+  // True while the Game Zone dispenser is mid-operation/holding — pauses the
+  // idle watchdog so a guest isn't reset mid-dispense or during a fault hold.
+  const [gzBusy, setGzBusy] = useState(false);
   const [vipCombo, setVipCombo] = useState<ComboSpecial | null>(null);
   const [stepBusy, setStepBusy] = useState(false);
   const [bookingHeats, setBookingHeats] = useState(false);
@@ -233,6 +234,10 @@ export function KioskFlow({ goto }: { goto: string | null }) {
       ? bowlingHoldItem.qamfCenterId
       : null;
   const hasActiveHold = !!(session.bmiBillId || qamfHoldId);
+  // Bar only while something is actually held: releaseItemBmiLines never clears
+  // session.bmiBillId, so an emptied cart still has a (now line-less) bill id —
+  // without the items gate the countdown would show over the category chooser.
+  const showHoldBar = hasActiveHold && session.items.length > 0;
 
   // Scroll to top on step change; clear stale busy flags.
   const currentCursor = activeItem ? (session.cursors[activeItem.id] ?? 0) : null;
@@ -558,13 +563,22 @@ export function KioskFlow({ goto }: { goto: string | null }) {
         />
       ) : null}
       <div className="relative z-[2] flex min-h-0 flex-1 flex-col">
+        {showHoldBar && (
+          <KioskHoldBar
+            ref={timerRef}
+            bmiBillId={session.bmiBillId}
+            qamfHoldId={qamfHoldId}
+            qamfCenterId={qamfCenterId}
+            onExpired={handleReservationExpired}
+          />
+        )}
         {sessionBanner}
         {children}
       </div>
       {utilityStrip}
       <IdleWatcher
         timeoutMs={checkoutActive ? IDLE_CHECKOUT_MS : IDLE_FLOW_MS}
-        paused={bookingHeats || stepBusy || resetting || assistActive}
+        paused={bookingHeats || stepBusy || resetting || assistActive || gzBusy}
         onReset={() => void handleStartOver()}
       />
       {assistActive && (
@@ -674,14 +688,6 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           brand={config.brand}
           capability={gameZoneCapability(config) === "reload" ? "reload" : "full"}
           onExit={() => setGzOpen(false)}
-          // With activities in the cart, cards JOIN the booking (owner
-          // 2026-07-18) — one payment at the shared checkout, fulfillment on
-          // the confirmation screen.
-          cartHasItems={session.items.length > 0}
-          onAddToVisit={(purchase) => {
-            dispatch({ type: "setGameCardPurchase", purchase });
-            setGzOpen(false);
-          }}
         />
       </div>,
       KIOSK_PHOTOS.arcade,
@@ -927,13 +933,6 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           <img src={logo} alt="" className="h-[60px] w-auto" />
           <div className="flex items-center gap-5">
             <span className="k-fh-activity">{activityLabel}</span>
-            <ReservationTimer
-              ref={timerRef}
-              bmiBillId={session.bmiBillId}
-              qamfHoldId={qamfHoldId}
-              qamfCenterId={qamfCenterId}
-              onExpired={handleReservationExpired}
-            />
           </div>
         </div>
         <div className="k-prog">

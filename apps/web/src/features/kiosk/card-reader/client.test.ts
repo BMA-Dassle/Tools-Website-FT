@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeTransport } from "./engine/fake-transport";
 import { CrtReaderClient, type TransportFactory } from "./client";
 import { CM, EOT, STX } from "./protocol/constants";
-import { CrtError, CrtLinkError } from "./protocol/errors";
+import { CrtError, CrtLinkError, CrtReadError } from "./protocol/errors";
 import { buildNegativeResponse, buildPositiveResponse } from "./protocol/testing";
 
 const ACK = 0x06;
@@ -301,7 +301,11 @@ describe("CrtReaderClient — composed and typed operations", () => {
       return healthyScript(cmd, device);
     });
     const client = await CrtReaderClient.connect(factoryFor({ 115200: dev }, []));
-    const mag = await client.issueAndReadCard();
+    // issueAndReadCard settles with real delay() calls before reading — advance
+    // the fake timers so those resolve.
+    const p = client.issueAndReadCard();
+    await vi.runAllTimersAsync();
+    const mag = await p;
     expect(mag.cardNumber).toBe("0000000001037356");
     // Clean path: a single feed to the read station (34h) — no front poke (31h).
     expect(dev.commands.filter((c) => c.cm === CM.MOVE).map((c) => c.pm)).toEqual([0x34]);
@@ -319,36 +323,62 @@ describe("CrtReaderClient — composed and typed operations", () => {
         return ok(cmd, [], [0x32, 0x32, 0x30]);
       if (cmd.cm === 0x36) {
         magCalls++;
-        // First read (after direct 34h): no card came → empty. Second (after
-        // the 31h→34h fallback): tracks.
-        const data = magCalls === 1 ? [] : [...trackAscii].map((c) => c.charCodeAt(0));
+        // The first feed's read + its built-in settle-retry BOTH come back empty
+        // (reads 1 & 2), so issueAndReadCard falls back to the 31h dispense; the
+        // read after that (3rd) returns tracks.
+        const empty = magCalls <= 2;
+        const data = empty ? [] : [...trackAscii].map((c) => c.charCodeAt(0));
         return [
           [ACK],
-          buildNegativeResponse({ cm: 0x36, pm: 0x37, code: magCalls === 1 ? "00" : "02", data }),
+          buildNegativeResponse({ cm: 0x36, pm: 0x37, code: empty ? "00" : "02", data }),
         ];
       }
       return healthyScript(cmd, device);
     });
     const client = await CrtReaderClient.connect(factoryFor({ 115200: dev }, []));
-    const mag = await client.issueAndReadCard();
+    const p = client.issueAndReadCard();
+    await vi.runAllTimersAsync();
+    const mag = await p;
     expect(mag.cardNumber).toBe("0000000001037356");
-    // 34h (direct, read empty) → 31h (dispense) → 34h (reposition) → read ok.
+    // 34h (direct, reads empty) → 31h (dispense) → 34h (reposition) → read ok.
     expect(dev.commands.filter((c) => c.cm === CM.MOVE).map((c) => c.pm)).toEqual([
       0x34, 0x31, 0x34,
     ]);
     await client.close();
   });
 
-  it("magRead throws a positioning hint when the device rejects it (no tracks)", async () => {
+  it("magRead throws a CARD read fault when the reply has no clean account", async () => {
     const dev = new ScriptedDevice((cmd, device) => {
       if (cmd.cm === 0x36) {
-        // e=00 "undefined command" with no track payload — wrong position.
+        // e=00 with no track payload — wrong position / partial read.
         return [[ACK], buildNegativeResponse({ cm: 0x36, pm: 0x37, code: "00" })];
       }
       return healthyScript(cmd, device);
     });
     const client = await CrtReaderClient.connect(factoryFor({ 115200: dev }, []));
-    await expect(client.magRead()).rejects.toThrow(/no track data.*read station/i);
+    await expect(client.magRead()).rejects.toBeInstanceOf(CrtReadError);
+    await client.close();
+  });
+
+  it("magRead rejects a garbage/partial read (no 16-digit account) as a CARD fault", async () => {
+    const dev = new ScriptedDevice((cmd, device) => {
+      if (cmd.cm === 0x36) {
+        // Only a short digit run ("2124") — the stale/partial-read bug.
+        const junk = "P6283=2124~";
+        return [
+          [ACK],
+          buildNegativeResponse({
+            cm: 0x36,
+            pm: 0x37,
+            code: "02",
+            data: [...junk].map((c) => c.charCodeAt(0)),
+          }),
+        ];
+      }
+      return healthyScript(cmd, device);
+    });
+    const client = await CrtReaderClient.connect(factoryFor({ 115200: dev }, []));
+    await expect(client.magRead()).rejects.toBeInstanceOf(CrtReadError);
     await client.close();
   });
 

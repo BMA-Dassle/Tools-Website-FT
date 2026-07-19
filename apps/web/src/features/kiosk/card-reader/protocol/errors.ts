@@ -197,6 +197,23 @@ export class CrtCancelledError extends Error {
 }
 
 /**
+ * A magnetic read completed but didn't yield a clean card number — a partial /
+ * settling / stale-buffer read (garbage or only track 1). Categorized as a CARD
+ * fault so callers retry the read / re-dispense a fresh blank rather than credit
+ * a mis-read account. NEVER surfaced as a valid card number.
+ */
+export class CrtReadError extends Error {
+  readonly deviceCode: string;
+  readonly ascii: string;
+  constructor(deviceCode: string, ascii: string) {
+    super(`Magnetic read didn't return a valid card number (device ${deviceCode})`);
+    this.name = "CrtReadError";
+    this.deviceCode = deviceCode;
+    this.ascii = ascii;
+  }
+}
+
+/**
  * The device answered POSITIVELY but the embedded card operation failed —
  * Mifare/I2C pseudo-APDU responses end in SW1SW2 (spec 3.6.4): 9000 success,
  * 6F00 fail, 6B00 address overflow, 6700 length overflow.

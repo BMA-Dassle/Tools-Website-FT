@@ -236,6 +236,34 @@ describe("magnetic stripe", () => {
     expect(mag.cardNumber).toBeNull();
     expect(mag.candidates).toEqual([]);
   });
+
+  it("accepts a clean 16-digit track-2 account even when track 1 is missing", () => {
+    const mag = parseMagRead({
+      kind: "negative",
+      data: A("P6283=0000000001038091~"),
+      e1: 0x30,
+      e0: 0x32,
+    });
+    expect(mag.cardNumber).toBe("0000000001038091");
+  });
+
+  it("REJECTS a track-1-only read (long 19-digit field, no 16-digit account) → null", () => {
+    // Track 2 didn't read — only the longer track-1 number came back. The old
+    // logic wrongly served this as the card number; now it must be null.
+    const mag = parseMagRead({
+      kind: "negative",
+      data: A("1P6283=7496003776810700729~"),
+      e1: 0x30,
+      e0: 0x32,
+    });
+    expect(mag.cardNumber).toBeNull();
+    expect(mag.candidates).toEqual(["7496003776810700729"]);
+  });
+
+  it("REJECTS short garbage (a partial/stale '2124' read) → null", () => {
+    const mag = parseMagRead({ kind: "negative", data: A("P6283=2124~"), e1: 0x30, e0: 0x32 });
+    expect(mag.cardNumber).toBeNull();
+  });
 });
 
 describe("identity parsing", () => {

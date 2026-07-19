@@ -456,19 +456,18 @@ export function parseMagRead(frame: {
     .map((t) => t.replace(/[^\x20-\x7e]/g, "").trim())
     .filter((t) => t.length > 0);
 
-  // Per-track account field = the digits after '=' (Intercard: "P6283=<account>").
-  const candidates: string[] = [];
-  for (const t of tracks) {
-    const eq = t.lastIndexOf("=");
-    const tail = eq >= 0 ? t.slice(eq + 1) : t;
-    const digits = tail.replace(/\D/g, "");
-    if (digits.length >= 4) candidates.push(digits);
-  }
-  // The Intercard account number lives on TRACK 2 (confirmed against a printed
-  // card 2026-07-17 — the 16-digit field, not the longer track-1 field). Fall
-  // back to track 1, then to any candidate, so a partial read still yields
-  // something rather than null.
-  const cardNumber = candidates[1] ?? candidates[0] ?? null;
+  // Every "=<digits>" field, for the debug view.
+  const candidates = [...ascii.matchAll(/=(\d+)/g)].map((m) => m[1]);
+
+  // The Intercard account is the 16-digit padded field on TRACK 2 (confirmed
+  // 2026-07-17). Track 1 carries a longer (~19-digit) DIFFERENT number, and a
+  // partial/settling read yields short garbage (e.g. "2124") or only track 1 —
+  // both of which the old "candidates[1] ?? candidates[0]" logic wrongly served
+  // as the card number, so a buy credited the WRONG account. Accept ONLY a clean
+  // 16-digit field; anything else = the read didn't land → cardNumber is null so
+  // the caller retries and never credits a mis-read account.
+  const account16 = ascii.match(/=(\d{16})(?!\d)/);
+  const cardNumber = account16 ? account16[1] : null;
 
   return { tracks, cardNumber, candidates, ascii, raw };
 }
