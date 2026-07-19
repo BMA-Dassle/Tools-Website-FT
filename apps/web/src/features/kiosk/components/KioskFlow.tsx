@@ -79,6 +79,24 @@ function itemLabel(kind: string): string {
   return "Attraction";
 }
 
+/** Guest-facing activity name for an item — wizard header + exit-confirm copy. */
+function activityLabelFor(item: SessionItem): string {
+  if (item.kind === "race") return "Racing";
+  if (item.kind === "bowling") return "Bowling";
+  if (item.kind === "kbf") return "Kids Bowl Free";
+  const slug = (item as AttractionItem).slug ?? "";
+  return (
+    (
+      {
+        "gel-blaster": "Gel Blaster",
+        "laser-tag": "Laser Tag",
+        "duck-pin": "Duckpin",
+        shuffly: "Shuffleboard",
+      } as Record<string, string>
+    )[slug] ?? "Attraction"
+  );
+}
+
 const IDLE_FLOW_MS = 120_000;
 const IDLE_CHECKOUT_MS = 180_000;
 
@@ -147,6 +165,10 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   } | null>(null);
   const [reservationExpired, setReservationExpired] = useState(false);
   const [resetting, setResetting] = useState(false);
+  // Guarded exits (owner 2026-07-18): Start over wipes the whole session; Main
+  // menu abandons the item mid-configuration — both destructive enough for an
+  // explicit confirm sheet before anything is lost.
+  const [confirmExit, setConfirmExit] = useState<null | "startOver" | "mainMenu">(null);
   // Guest assistance (owner 2026-07-18): flashes the whole screen red as a
   // staff beacon and HOLDS the kiosk exactly where it is (idle reset paused)
   // until Clear is tapped.
@@ -200,7 +222,13 @@ export function KioskFlow({ goto }: { goto: string | null }) {
    *  survives — a hard reload drops fullscreen and the browser won't re-enter
    *  without a fresh tap (the "Start Over loses fullscreen" bug). State is
    *  still clean between guests: KioskFlow unmounts on the route change and the
-   *  reducer re-inits from the sessionStorage we just cleared. */
+   *  reducer re-inits from the sessionStorage we just cleared.
+   *
+   *  Confirmation lives in requestStartOver (the util-strip path). Direct
+   *  callers stay unconfirmed ON PURPOSE — each already has its own warning
+   *  context: IdleWatcher (the "Still there?" countdown), the expired-
+   *  reservation modal, CheckoutStep's "Cancel & clear cart" two-step, and
+   *  CartView's leave modal (web-only; the kiosk passes onAllActivities). */
   const handleStartOver = useCallback(async () => {
     setResetting(true);
     try {
@@ -498,10 +526,63 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     dispatch({ type: "setActiveItem", id: null });
   };
 
-  // Podium utility strip — pinned bottom zone (Start over · help · cart pill).
+  // ── Guarded exits (owner 2026-07-18: confirm before anything is lost) ──
+  // Which surface is showing follows the render precedence below: checkout →
+  // cart → game zone → VIP overview → categories → wizard.
+  const inWizard = !!activeItem && !cartActive && !checkoutActive && !gzOpen;
+  const onCategories = !activeItem && !cartActive && !checkoutActive && !gzOpen && !vipCombo;
+
+  /** Close every screen, back to the category chooser. Cart contents are kept. */
+  const goHome = () => {
+    setCartActive(false);
+    setCheckoutActive(false);
+    setGzOpen(false);
+    setVipCombo(null);
+    setKioskError(null);
+    setConfirmExit(null);
+    dispatch({ type: "setActiveItem", id: null });
+  };
+
+  const requestStartOver = () => {
+    // Nothing guest-visible to lose (no names, empty cart) — skip the ceremony.
+    if (session.party.length === 0 && cartCount === 0) {
+      void handleStartOver();
+      return;
+    }
+    setConfirmExit("startOver");
+  };
+
+  const requestMainMenu = () => {
+    if (inWizard) {
+      setConfirmExit("mainMenu");
+      return;
+    }
+    goHome(); // cart / Game Zone / VIP overview: nothing is destroyed, no dialog
+  };
+
+  /** Main-menu confirm: drop the unfinished draft (combo-aware — a combo leg
+   *  takes the whole bundle; vendor releases run in the background, the reducer
+   *  dispatches land first), clear the package stamp so it can't re-seed the
+   *  next race draft (see the variant-resolve effect above), then home. */
+  const abandonActiveAndGoHome = () => {
+    if (activeItem) {
+      void handleRemoveItem(activeItem.id);
+      if (activeItem.kind === "race" && session.preferredPackageId) {
+        dispatch({ type: "setPreferredPackage", id: null });
+      }
+    }
+    goHome();
+  };
+
+  // Podium utility strip — pinned bottom zone (Start over · Main menu · help · cart pill).
   const utilityStrip = (
     <div className="k-z-util">
-      <button type="button" onClick={() => void handleStartOver()} className="k-util-btn k-tap">
+      <button
+        type="button"
+        onClick={requestStartOver}
+        disabled={gzBusy}
+        className="k-util-btn k-tap disabled:opacity-40"
+      >
         <svg
           className="h-[26px] w-[26px]"
           viewBox="0 0 24 24"
@@ -517,6 +598,33 @@ export function KioskFlow({ goto }: { goto: string | null }) {
         </svg>
         Start over
       </button>
+      {/* Back to the category chooser (the kiosk "main page") — session and
+          finished cart items are kept; an unfinished flow confirms first. Hidden
+          when already there, and on checkout (navigating away mid-payment is
+          risky — same rule as the session banner; checkout has its own exits). */}
+      {!onCategories && !checkoutActive && (
+        <button
+          type="button"
+          onClick={requestMainMenu}
+          disabled={gzBusy}
+          className="k-util-btn k-tap disabled:opacity-40"
+        >
+          <svg
+            className="h-[26px] w-[26px]"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="m3 10 9-7 9 7" />
+            <path d="M5 9v11h5v-6h4v6h5V9" />
+          </svg>
+          Main menu
+        </button>
+      )}
       <button
         type="button"
         onClick={() => setAssistActive(true)}
@@ -594,6 +702,78 @@ export function KioskFlow({ goto }: { goto: string | null }) {
       </button>
     ) : null;
 
+  // Exit-confirm sheet (owner 2026-07-18: "are you sure" before Start over /
+  // before Main menu drops an unfinished flow). Same canvas-native pattern as
+  // the unracered sheet below; the SAFE choice is the big primary, the
+  // destructive one is the ghost. No tap-outside dismiss (kiosk convention).
+  const confirmSheet = (() => {
+    if (!confirmExit) return null;
+    const isReset = confirmExit === "startOver";
+    // A combo leg never leaves alone — handleRemoveItem drops the whole bundle,
+    // so the copy names the bundle, not the leg.
+    const comboName =
+      session.comboSpecialId &&
+      activeItem &&
+      (activeItem.kind === "race" || activeItem.kind === "bowling")
+        ? (getComboSpecial(session.comboSpecialId)?.name ?? null)
+        : null;
+    const draftLabel = comboName ?? (activeItem ? activityLabelFor(activeItem) : "activity");
+    // Removing the LAST cart item also drops Game Zone cards riding it (cards
+    // can't pay without a booking deposit — see handleRemoveItem) — say so.
+    const dropsCards =
+      !isReset &&
+      !!session.gameCardPurchase?.cards.length &&
+      !session.comboSpecialId &&
+      session.items.length <= 1;
+    return (
+      <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
+        <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
+          <div className="k-eyebrow text-[#f0b341]">
+            {isReset ? "Start over?" : "Back to the main page?"}
+          </div>
+          <div className="k-display text-[46px] leading-[1.05]">
+            {isReset ? "This clears your whole visit" : `Your ${draftLabel} isn't finished`}
+          </div>
+          <p className="text-[26px] leading-snug text-white/60">
+            {isReset
+              ? "We'll clear everyone's names, empty your cart, release any held times, and sign you out of this kiosk."
+              : `We'll remove the unfinished ${draftLabel} from your cart${dropsCards ? " (and the Game Zone cards riding with it)" : ""}. Everything else in your cart stays, and your group stays signed in.`}
+          </p>
+          <div className="flex flex-col gap-[16px] pt-[4px]">
+            {/* Inline flex per the .kiosk-canvas cascade gotcha (see the
+                unracered sheet): k-btn-primary's flex:1 squashes its height in
+                a column layout. */}
+            <button
+              type="button"
+              onClick={() => setConfirmExit(null)}
+              className="k-btn-primary k-tap"
+              style={{ flex: "0 0 auto" }}
+            >
+              {isReset ? "Keep my visit" : "Keep working on it"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (isReset) {
+                  // Close first so the sheet doesn't sit over the z-40
+                  // "Clearing this session…" loader.
+                  setConfirmExit(null);
+                  void handleStartOver();
+                } else {
+                  abandonActiveAndGoHome();
+                }
+              }}
+              className="k-btn-ghost k-tap"
+              style={{ flex: "0 0 auto" }}
+            >
+              {isReset ? "Yes — start over" : "Remove it & go to main page"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  })();
+
   // Podium chrome — the fixed canvas as a flex column: optional full-bleed photo
   // backdrop (z0) · content region (z2) · pinned util strip · overlays.
   const chrome = (children: React.ReactNode, bg?: string | null) => (
@@ -622,6 +802,9 @@ export function KioskFlow({ goto }: { goto: string | null }) {
         {children}
       </div>
       {utilityStrip}
+      {/* Before <IdleWatcher/>: the idle "Still there?" sheet is the same
+          z-[80] — as the later sibling it must paint ON TOP of this confirm. */}
+      {confirmSheet}
       <IdleWatcher
         timeoutMs={checkoutActive ? IDLE_CHECKOUT_MS : IDLE_FLOW_MS}
         paused={bookingHeats || stepBusy || resetting || assistActive || gzBusy}
@@ -959,22 +1142,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     return KIOSK_PHOTOS.race;
   })();
 
-  const activityLabel = (() => {
-    if (activeItem.kind === "race") return "Racing";
-    if (activeItem.kind === "bowling") return "Bowling";
-    if (activeItem.kind === "kbf") return "Kids Bowl Free";
-    const slug = (activeItem as AttractionItem).slug ?? "";
-    return (
-      (
-        {
-          "gel-blaster": "Gel Blaster",
-          "laser-tag": "Laser Tag",
-          "duck-pin": "Duckpin",
-          shuffly: "Shuffleboard",
-        } as Record<string, string>
-      )[slug] ?? "Attraction"
-    );
-  })();
+  const activityLabel = activityLabelFor(activeItem);
 
   const logo = KIOSK_LOGOS[config.brand === "headpinz" ? "headpinz" : "fasttrax"];
   const ctaLabel = isLastStep ? "Add to my visit" : "Continue";
@@ -1041,7 +1209,8 @@ export function KioskFlow({ goto }: { goto: string | null }) {
             if (stepIndex === 0) {
               // First step → back to the category chooser ("all activities"),
               // NOT a full Start Over (owner: couldn't get back to activities).
-              // The draft item stays in the cart; Start Over (util strip) resets.
+              // The draft item stays in the cart; Main menu (util strip) offers
+              // removing it, Start over resets — both confirm first.
               dispatch({ type: "setActiveItem", id: null });
             } else {
               dispatch({ type: "back" });
