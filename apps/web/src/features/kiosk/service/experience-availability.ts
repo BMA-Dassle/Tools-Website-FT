@@ -20,6 +20,7 @@ import { candidatesForOrdering, fetchComboLegCandidates } from "~/features/combo
 import { bmiAdapter } from "~/features/booking/data/bmi";
 import { newPartyMember, qamfCenterIdForCode, type CenterCode } from "~/features/booking";
 import { violatesMinGapAfter } from "~/features/booking/service/conflict";
+import { businessDayYmdET } from "@/lib/race-business-day";
 import {
   eligiblePackages,
   primaryTrack,
@@ -34,12 +35,6 @@ const MIN_PACKAGE_GAP_MINUTES = 30;
 export interface ExperienceAvailability {
   "race-bowl": boolean;
   "ultimate-qualifier": boolean;
-}
-
-/** Today's date (YYYY-MM-DD) in ET — the venue wall clock. Server runs in UTC,
- *  so we can't use the kiosk's local-parts todayYmd() here. */
-function todayEtYmd(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
 }
 
 async function isComboBookableToday(center: CenterCode, dateYmd: string): Promise<boolean> {
@@ -116,7 +111,9 @@ async function isUltimateQualifierBookableToday(dateYmd: string): Promise<boolea
 export async function computeExperienceAvailability(
   center: CenterCode,
 ): Promise<ExperienceAvailability> {
-  const dateYmd = todayEtYmd();
+  // Same 2 AM-ET business-day rollover the kiosk (and the rest of the app) use,
+  // so a post-midnight session still resolves to today's operating date.
+  const dateYmd = businessDayYmdET();
   const [combo, uq] = await Promise.all([
     isComboBookableToday(center, dateYmd).catch(() => true),
     isUltimateQualifierBookableToday(dateYmd).catch(() => true),
