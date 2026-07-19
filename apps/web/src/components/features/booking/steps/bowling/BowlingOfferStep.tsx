@@ -33,13 +33,16 @@ const BLUE = "#00E2E5";
 const GOLD = "#FFD700";
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 
-// VIP suite perks for the upgrade modal. Core amenities apply to every VIP
-// lane; some experiences add their own inclusions (shoes, pizza) on top.
+// VIP suite perks for the upgrade modal (owner 2026-07-19 wording). Core
+// amenities apply to every VIP lane; some experiences add their own
+// inclusions (shoes, pizza) on top.
 const VIP_CORE_PERKS = [
-  "Semi-private 8-lane VIP area",
+  "Semi-private 8-lane VIP suite",
+  "Private bar",
+  "Pool table",
   "NeoVerse video wall",
-  "Complimentary chips & salsa",
   "HyperBowling + premium glow lighting",
+  "Complimentary chips & salsa",
 ];
 const VIP_EXTRA_PERKS: Record<string, string[]> = {
   "fun-4-all-vip": ["Bowling shoes included"],

@@ -28,7 +28,9 @@ import {
   useBowlingExperiences,
   useDayAvailability,
 } from "~/features/booking/hooks/useBowlingAvailability";
+import { IconCheck } from "@tabler/icons-react";
 import { ExperienceCard, type DurationChip } from "../../bowling/ExperienceCard";
+import { VIP_CORE_PERKS } from "../../bowling/VipUpgradeModal";
 import type { AvailabilitySlot } from "./availability-client";
 
 // Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
@@ -182,9 +184,6 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   function renderCard(exp: BowlingExperienceWithDetails) {
     const isVip = exp.isVip;
     const accent = isVip ? GOLD : BLUE;
-    const videoUrl = isVip
-      ? `${BLOB}/videos/headpinz-neoverse-v2.mp4`
-      : `${BLOB}/videos/headpinz-bowling.mp4`;
     const primaryItem = exp.items.find((i) => i.sortOrder === 0);
     const priceCents = primaryItem?.priceCents ?? 0;
     const perLane = isPerLaneExperience(exp);
@@ -241,21 +240,67 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         durations={durations}
         hint={hint}
         hintLoading={dayAvail.isLoading}
-        videoUrl={videoUrl}
         onSelect={(durationOpt) => selectExperience(exp, durationOpt)}
       />
     );
   }
 
-  const sectionTitle = (label: string, meta: string, accent: string) => (
-    <div className="flex items-baseline justify-between border-b border-white/10 pb-2">
-      <h3
-        className={`font-display uppercase tracking-widest ${kiosk ? "text-[32px]" : "text-lg"}`}
-        style={{ color: accent }}
+  // One video banner per SECTION (owner 2026-07-19: the cards don't all need
+  // video — put it under the section instead), with the section title overlaid.
+  const sectionBanner = (label: string, meta: string, accent: string, videoUrl: string) => (
+    <div
+      className={`relative overflow-hidden rounded-2xl border border-white/10 ${
+        kiosk ? "h-[160px]" : "h-24 sm:h-28"
+      }`}
+    >
+      <video
+        src={videoUrl}
+        autoPlay
+        loop
+        muted
+        playsInline
+        className="h-full w-full object-cover opacity-60"
+      />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/85 to-transparent" />
+      <div
+        className={`absolute inset-x-0 bottom-0 flex items-baseline justify-between gap-3 ${
+          kiosk ? "p-[24px]" : "p-4"
+        }`}
       >
-        {label}
-      </h3>
-      <span className={`text-white/40 ${kiosk ? "text-[22px]" : "text-xs"}`}>{meta}</span>
+        <h3
+          className={`font-display uppercase tracking-widest ${kiosk ? "text-[32px]" : "text-lg"}`}
+          style={{ color: accent }}
+        >
+          {label}
+        </h3>
+        <span className={`text-white/50 ${kiosk ? "text-[22px]" : "text-xs"}`}>{meta}</span>
+      </div>
+    </div>
+  );
+
+  // VIP explanation (owner 2026-07-19: "VIP needs some explanation") — the
+  // suite's amenities, shared with the upsell modal so the story stays one.
+  const vipPerks = (
+    <div
+      className={`flex flex-wrap ${kiosk ? "gap-x-[28px] gap-y-[14px]" : "gap-x-5 gap-y-2"}`}
+      aria-label="VIP suite amenities"
+    >
+      {VIP_CORE_PERKS.map((perk) => (
+        <span
+          key={perk}
+          className={`flex items-center gap-1.5 text-white/70 ${kiosk ? "text-[24px]" : "text-xs"}`}
+        >
+          <span
+            className={`flex shrink-0 items-center justify-center rounded-full ${
+              kiosk ? "h-[26px] w-[26px]" : "h-4 w-4"
+            }`}
+            style={{ backgroundColor: `${GOLD}25`, color: GOLD }}
+          >
+            <IconCheck size={kiosk ? 18 : 11} stroke={3} aria-hidden />
+          </span>
+          {perk}
+        </span>
+      ))}
     </div>
   );
 
@@ -282,13 +327,24 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         <>
           {regular.length > 0 && (
             <section className="space-y-4">
-              {sectionTitle("Classic Lanes", "Classic HeadPinz bowling", BLUE)}
+              {sectionBanner(
+                "Classic Lanes",
+                "Classic HeadPinz bowling",
+                BLUE,
+                `${BLOB}/videos/headpinz-bowling.mp4`,
+              )}
               <div className="space-y-4">{regular.map(renderCard)}</div>
             </section>
           )}
           {vip.length > 0 && (
             <section className="space-y-4">
-              {sectionTitle("VIP Suites", "NeoVerse wall · semi-private 8-lane suite", GOLD)}
+              {sectionBanner(
+                "VIP Suites",
+                "The upgraded way to bowl",
+                GOLD,
+                `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
+              )}
+              {vipPerks}
               <div className="space-y-4">{vip.map(renderCard)}</div>
             </section>
           )}

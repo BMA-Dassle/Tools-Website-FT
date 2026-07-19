@@ -14,13 +14,17 @@ import type { BowlingExperienceWithDetails } from "@/lib/bowling-db";
 const GOLD = "#FFD700";
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 
-// VIP suite perks. Core amenities apply to every VIP lane; some experiences
-// add their own inclusions (shoes, pizza) on top.
+// VIP suite perks (owner 2026-07-19: "VIP needs some explanation — semi-
+// private 8 lane suite, bar, pool table, NeoVerse etc"). Core amenities apply
+// to every VIP lane; some experiences add their own inclusions (shoes, pizza)
+// on top. Shared by the upsell modal AND the Experience step's VIP section.
 export const VIP_CORE_PERKS = [
-  "Semi-private 8-lane VIP area",
+  "Semi-private 8-lane VIP suite",
+  "Private bar",
+  "Pool table",
   "NeoVerse video wall",
-  "Complimentary chips & salsa",
   "HyperBowling + premium glow lighting",
+  "Complimentary chips & salsa",
 ];
 export const VIP_EXTRA_PERKS: Record<string, string[]> = {
   "fun-4-all-vip": ["Bowling shoes included"],

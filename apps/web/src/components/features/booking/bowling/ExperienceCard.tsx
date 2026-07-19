@@ -34,8 +34,11 @@ export interface ExperienceCardProps {
   /** "Next lane 6:30 PM" | "Sold out today" | null while loading. */
   hint: string | null;
   hintLoading: boolean;
-  /** Video URL for the header (web). Kiosk uses a still + gradient. */
-  videoUrl: string;
+  /**
+   * Optional video header. Omit for the plain header — owner 2026-07-19:
+   * cards don't all need video; the SECTION carries one video banner instead.
+   */
+  videoUrl?: string;
   onSelect: (durationOpt: BowlingExperienceDurationOption | null) => void;
 }
 
@@ -71,24 +74,40 @@ export function ExperienceCard(props: ExperienceCardProps) {
             }
       }
     >
-      {/* Media header — the whole header is the select tap target */}
+      {/* Header — the whole header is the select tap target. Video only when
+          the caller asks for it; the plain variant keeps the card light (the
+          section banner carries the motion). */}
       <button
         type="button"
         disabled={soldOut}
         onClick={() => onSelect(defaultDuration)}
         aria-label={`Select ${exp.label}`}
-        className={`relative block w-full overflow-hidden text-left ${kiosk ? "h-[180px]" : "h-32"}`}
+        className={`relative block w-full overflow-hidden text-left ${
+          videoUrl ? (kiosk ? "h-[180px]" : "h-32") : ""
+        }`}
       >
-        <video
-          src={videoUrl}
-          autoPlay
-          loop
-          muted
-          playsInline
-          className="h-full w-full object-cover opacity-50"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
-        <div className={`absolute inset-x-0 bottom-0 ${kiosk ? "p-[24px]" : "p-4"}`}>
+        {videoUrl && (
+          <>
+            <video
+              src={videoUrl}
+              autoPlay
+              loop
+              muted
+              playsInline
+              className="h-full w-full object-cover opacity-50"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent" />
+          </>
+        )}
+        <div
+          className={
+            videoUrl
+              ? `absolute inset-x-0 bottom-0 ${kiosk ? "p-[24px]" : "p-4"}`
+              : kiosk
+                ? "px-[24px] pt-[24px]"
+                : "px-4 pt-4"
+          }
+        >
           <h3
             className={`font-display uppercase tracking-widest ${kiosk ? "text-[34px]" : "text-lg"}`}
             style={{ color: accent }}
