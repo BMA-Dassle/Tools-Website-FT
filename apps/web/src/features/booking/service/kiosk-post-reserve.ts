@@ -308,23 +308,37 @@ export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<v
   }
 
   // ── 2. Pandora race-SESSION assignment ─────────────────────────────
-  // Assign the RETURNING racers (those carrying a bmiPersonId) to the confirmed
-  // reservation's session. New racers have no personId to key on and are
-  // assigned when their Pandora person materializes. Runs LAST + after a sync
-  // delay because it's the only action that depends on Pandora having ingested
-  // the reservation from BMI (see PANDORA_SYNC_DELAY_MS).
+  // Assign the racers carrying a personId to the confirmed reservation's
+  // session. Runs LAST + after a sync delay because it's the only action that
+  // depends on Pandora having ingested the reservation from BMI (see
+  // PANDORA_SYNC_DELAY_MS).
+  //
+  // W52504 lesson (2026-07-19): the vendor endpoint SKIPS (warn, not fail) any
+  // racer whose project-person row hasn't cloud→local synced to the center's
+  // BMI server yet, and used to report only a bare `inserted` count — a
+  // 2-racer booking came back "success, inserted 1" and the second racer was
+  // silently never checked into the session. So: track exactly who got linked
+  // (per-racer `results`, Pandora_API ≥2.4.57), re-POST ONLY the still-missing
+  // racers (the endpoint is idempotent per racer on those versions), and if
+  // anyone is STILL unlinked, escalate into the reservation's memo — the
+  // surface staff already work from.
   try {
-    const returningRacers = racers.filter((r) => r.personId);
-    if (returningRacers.length === 0) {
-      console.log(
-        `[kiosk-post] no returning racers with personId — skipping session assignment for ${bmiReservationNumber}`,
-      );
-    } else {
+    const assignable = racers.filter((r) => r.personId && r.heatStart);
+    // No person id at all (brand-new racer whose Pandora person never
+    // materialized) — can never auto-link; goes straight on the memo.
+    const unlinked: KioskRacer[] = racers.filter((r) => !r.personId || !r.heatStart);
+    // Pre-`results` API responses carry only a count — shortfall size is known
+    // but not WHO, so no targeted re-POST and the memo names a count instead.
+    let countOnlyShortfall = 0;
+
+    if (assignable.length > 0) {
       await new Promise((resolve) => setTimeout(resolve, PANDORA_SYNC_DELAY_MS));
       const pandoraKey = process.env.SWAGGER_ADMIN_KEY || "";
+      const rKey = (r: { personId?: string | null; heatStart?: string | null }) =>
+        `${r.personId}|${r.heatStart}`;
       // A non-OK response THROWS inside withRetry so a transient Pandora 503
       // (live 2026-07-18, W52076) gets retried instead of logged-and-lost.
-      const inserted = await withRetry("session assignment", async () => {
+      const postSchedule = async (batch: KioskRacer[]) => {
         const res = await fetch(
           `${PANDORA_BASE}/bmi/schedule/${FASTTRAX_RACING_LOCATION_ID}/${bmiReservationNumber}`,
           {
@@ -333,24 +347,106 @@ export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<v
               Authorization: `Bearer ${pandoraKey}`,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ racers: returningRacers }),
+            body: JSON.stringify({ racers: batch }),
             signal: AbortSignal.timeout(15_000),
           },
         );
         const data = (await res.json().catch(() => null)) as {
           success?: boolean;
-          data?: { inserted?: number };
+          data?: {
+            inserted?: number;
+            results?: Array<{ personId?: string; heatStart?: string; status?: string }>;
+          };
         } | null;
         if (!res.ok || !data?.success) {
           throw new Error(
             `schedule POST ${res.status}${data?.success === false ? " (success=false)" : ""}`,
           );
         }
-        return data?.data?.inserted ?? 0;
-      });
+        return data.data ?? {};
+      };
+      const linked = new Set<string>();
+      /** Fold a response into `linked`; true when per-racer detail came back. */
+      const applyResults = (
+        batch: KioskRacer[],
+        d: { inserted?: number; results?: Array<{ status?: string } & Record<string, unknown>> },
+      ) => {
+        if (Array.isArray(d.results)) {
+          for (const row of d.results) {
+            if (row.status === "inserted" || row.status === "already_linked") {
+              linked.add(rKey(row as { personId?: string; heatStart?: string }));
+            }
+          }
+          return true;
+        }
+        if ((d.inserted ?? 0) >= batch.length) for (const r of batch) linked.add(rKey(r));
+        return false;
+      };
+
+      let hasDetail = false;
+      let firstInserted: number | null = null;
+      let missing = assignable;
+      try {
+        const first = await withRetry("session assignment", () => postSchedule(assignable));
+        firstInserted = first.inserted ?? 0;
+        hasDetail = applyResults(assignable, first);
+        missing = assignable.filter((r) => !linked.has(rKey(r)));
+      } catch (err) {
+        console.error("[kiosk-post] session assignment failed:", err);
+      }
+
+      // Targeted re-POSTs for stragglers — their project-person row usually just
+      // needs more sync time. Only when the API named them: re-POSTing blind on
+      // a count-only response could double-link the racers that DID make it.
+      if (missing.length > 0 && hasDetail) {
+        for (const backoffMs of [10_000, 20_000]) {
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
+          try {
+            applyResults(missing, await postSchedule(missing));
+          } catch (err) {
+            console.error(
+              "[kiosk-post] session assignment re-POST failed:",
+              err instanceof Error ? err.message : err,
+            );
+          }
+          missing = assignable.filter((r) => !linked.has(rKey(r)));
+          if (missing.length === 0) break;
+        }
+      }
+
+      if (hasDetail) unlinked.push(...missing);
+      else if (firstInserted != null) {
+        countOnlyShortfall = Math.max(0, assignable.length - firstInserted);
+      } else countOnlyShortfall = assignable.length;
       console.log(
-        `[kiosk-post] session assignment ${bmiReservationNumber}: OK (${inserted} racers)`,
+        `[kiosk-post] session assignment ${bmiReservationNumber}: ${assignable.length - missing.length}/${assignable.length} racers linked`,
       );
+    } else {
+      console.log(
+        `[kiosk-post] no assignable racers with personId — skipping session assignment for ${bmiReservationNumber}`,
+      );
+    }
+
+    if (unlinked.length > 0 || countOnlyShortfall > 0) {
+      const who =
+        unlinked.length > 0
+          ? [...new Set(unlinked.map((r) => r.racerName))].join(", ")
+          : `${countOnlyShortfall} racer(s)`;
+      console.error(
+        `[kiosk-post] session assignment INCOMPLETE for ${bmiReservationNumber} — not checked into session: ${who}`,
+      );
+      try {
+        await withRetry("assignment-incomplete memo", () =>
+          appendProjectPrivateNote({
+            centerCode,
+            projectId: officeProjectId,
+            note: `AUTO CHECK-IN INCOMPLETE — please check into session: ${who}`,
+            billId: bmiBillId,
+          }),
+        );
+      } catch (err) {
+        console.error("[kiosk-post] assignment-incomplete memo failed (non-fatal):", err);
+      }
     }
   } catch (err) {
     console.error("[kiosk-post] session assignment failed (non-fatal):", err);

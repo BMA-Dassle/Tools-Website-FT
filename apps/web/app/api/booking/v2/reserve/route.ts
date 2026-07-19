@@ -51,6 +51,12 @@ import { getDiscountCodeByCode, recordRedemption } from "~/features/discount-cod
  * Credit orders ($0 BMI): skip deposit, confirm BMI with depositKind 2.
  */
 
+// The kiosk post-reserve rail runs in after() past the response (8s Pandora
+// sync delay + schedule POST + up to 30s of targeted re-POST backoff for
+// racers whose project-person row hasn't cloud→local synced — W52504). The
+// invocation must outlive that tail.
+export const maxDuration = 120;
+
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
 const SQUARE_VERSION = "2024-12-18";

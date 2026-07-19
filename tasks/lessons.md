@@ -1,5 +1,34 @@
 # Lessons Learned
 
+## A vendor "success" with an aggregate count can hide a skipped item — demand per-item results (2026-07-19)
+
+**What happened:** Kiosk booking W52504 (2 racers, same 5:36 Blue heat) confirmed cleanly, but only
+1 of 2 racers was checked into the race session — staff caught it by eye. The Pandora
+`POST /bmi/schedule` insert loops racers and `continue`s (log-warning, NOT error) any racer whose
+project-person row hasn't cloud→local synced to the center's Firebird server yet, then returns
+`success: true, inserted: 1`. Our kiosk post-reserve rail logged that as
+`session assignment W52504: OK (1 racers)` — success. The racer that got skipped (Jace) had been
+registered as a project person via the BMI cloud API only ~60s before the schedule POST; the other
+(Derek) was attached at bill creation ~2 min earlier and had synced. Registration→local-sync lag is
+variable (the reservation-sync flavor of this takes ~6 min); an 8s delay + "success" check was never
+enough.
+
+**The rules:**
+
+1. **Never treat an aggregate-count vendor response as complete.** If you send N items and get back
+   `inserted: M`, compare — and when the API can't tell you WHICH items failed, fix the API first
+   (Pandora_API ≥2.4.57 returns per-racer `results` and is idempotent per racer).
+2. **Only re-POST what the vendor names as missing.** Blind batch retries against a non-idempotent
+   insert duplicate the items that DID land (`T_PRJ_PERSON_2_PRJ_SCHEDULE` had no existence check
+   before 2.4.57).
+3. **Every silent auto-action needs a staff-visible failure surface.** The rail now appends
+   `AUTO CHECK-IN INCOMPLETE — please check into session: <names>` to the reservation memo when
+   anyone stays unlinked after retries — the memo is the surface staff already work from, and it's
+   what saved W52504 (manually).
+4. **BMI cloud→local sync lag applies to PROJECT PERSONS too**, not just reservations and persons
+   (the "Pandora Sync Before Booking" lesson). Anything that writes via the cloud API and then reads
+   via the local Firebird server must tolerate minutes of lag.
+
 ## Square refuses partial refunds of gift-card-funded payments (2026-07-11)
 
 **What happened:** Live testing of reservation-edit decreases surfaced a hard Square rule the

@@ -24,6 +24,12 @@ import type { ContactInfo } from "~/features/booking/types";
  * Thin shell — delegates to unifiedReserve() in the service layer.
  * ONE Square Order, one deposit charge, fans out QAMF + BMI confirmations.
  */
+// The kiosk post-reserve rail runs in after() past the response (8s Pandora
+// sync delay + schedule POST + up to 30s of targeted re-POST backoff for
+// racers whose project-person row hasn't cloud→local synced — W52504). The
+// invocation must outlive that tail.
+export const maxDuration = 120;
+
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json()) as {
