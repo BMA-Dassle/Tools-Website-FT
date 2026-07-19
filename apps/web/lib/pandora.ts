@@ -179,10 +179,13 @@ export async function pandoraSignWaiver(
   const data = await res.json();
   // A missing waiverID means BMI did not record the waiver — fail loudly so the
   // UI keeps the guest on the sign step instead of advancing on a phantom success.
-  if (!res.ok || !data.waiverID) {
+  // Exception: `alreadyValid` — the API verified the person's waiver is valid
+  // right now (a Pandora write-then-500 salvaged server-side), which is the
+  // outcome we actually need even without a fresh waiverID.
+  if (!res.ok || (!data.waiverID && !data.alreadyValid)) {
     throw new Error(data.error || "Waiver signing failed");
   }
-  return { ok: true, waiverID: data.waiverID };
+  return { ok: true, waiverID: data.waiverID ?? undefined };
 }
 
 // ── Utility ──────────────────────────────────────────────────────────────────
