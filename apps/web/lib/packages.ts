@@ -813,11 +813,20 @@ export function packageSavings(pkg: PackageDefinition, racerCount: number): numb
 
 /** Lowest per-racer price (dollars) across ENABLED variants of a package family
  *  (id prefix, e.g. "ultimate-qualifier"). Powers the kiosk/marketing
- *  "From $X/person" teaser. null when the family has no enabled variant. */
-export function packageFamilyFromPrice(familyPrefix: string): number | null {
-  const prices = PACKAGES.filter((p) => p.enabled && p.id.startsWith(familyPrefix)).map(
-    packagePerRacerPrice,
-  );
+ *  "From $X/person" teaser. Pass `schedules` to scope the floor to a day
+ *  tier — e.g. ["weekday", "mega"] = Mon–Thu (Mega Tuesday counts as
+ *  weekday), ["weekend"] = Fri–Sun; a variant matches when it runs on ANY
+ *  of the given schedules. null when no enabled variant matches. */
+export function packageFamilyFromPrice(
+  familyPrefix: string,
+  schedules?: Schedule[],
+): number | null {
+  const prices = PACKAGES.filter(
+    (p) =>
+      p.enabled &&
+      p.id.startsWith(familyPrefix) &&
+      (!schedules || p.schedules.some((s) => schedules.includes(s))),
+  ).map(packagePerRacerPrice);
   return prices.length ? Math.min(...prices) : null;
 }
 

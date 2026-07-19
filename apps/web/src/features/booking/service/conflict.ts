@@ -44,8 +44,27 @@ const FALLBACK_SAME_TRACK_MIN = 20;
 export const CROSS_TRACK_MIN_GAP_MIN = 30;
 
 /**
+ * Canonical track identity for comparison. Different rails label the SAME
+ * physical track differently: the picker stores "Red"/"Blue"/"Mega"
+ * (race-products.ts) while BMI-derived rows carry the dayplanner resource
+ * name "Red Track"/"Blue Track"/"Mega Track". An exact string compare read
+ * those as DIFFERENT tracks and applied the 30-min cross-track walk buffer —
+ * wrongly blocking the every-other-heat (24-min) same-track pattern the
+ * rules exist to allow (kiosk live find 2026-07-19). Lowercases and strips a
+ * trailing "track" word so both formats compare equal; empty/unknown stays
+ * "" (still treated as cross-track — unchanged).
+ */
+function normalizeTrack(track: string | null | undefined): string {
+  return (track ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]*track$/, "");
+}
+
+/**
  * True if a candidate heat conflicts with a picked heat for the same
- * racer. Tracks are compared case-insensitively.
+ * racer. Tracks are compared case-insensitively with a trailing "Track"
+ * word stripped ("Red Track" ≡ "Red" — see normalizeTrack).
  *
  * @param pickedStart  epoch ms or Date of the already-picked heat
  * @param pickedTrack  "Red" | "Blue" | "Mega" | null
@@ -62,8 +81,8 @@ export function heatsConflict(
   const candMs = candStart instanceof Date ? candStart.getTime() : candStart;
   const diffMin = Math.abs(candMs - pickedMs) / 60_000;
 
-  const p = (pickedTrack ?? "").toLowerCase();
-  const c = (candTrack ?? "").toLowerCase();
+  const p = normalizeTrack(pickedTrack);
+  const c = normalizeTrack(candTrack);
   const sameTrack = p !== "" && p === c;
 
   if (sameTrack) {

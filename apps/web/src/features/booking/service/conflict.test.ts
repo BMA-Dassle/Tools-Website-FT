@@ -61,6 +61,23 @@ describe("heatsConflict", () => {
     });
   });
 
+  describe("track label formats (BMI 'Red Track' vs picker 'Red')", () => {
+    it("reads 'Red Track' and 'Red' as the SAME track — every-other heat (24 min) allowed", () => {
+      expect(heatsConflict(T(15, 24), "Red Track", T(15, 48), "Red")).toBe(false);
+      expect(heatsConflict(T(15, 24), "red-track", T(15, 48), "RED")).toBe(false);
+    });
+
+    it("still blocks the adjacent heat (12 min) across label formats", () => {
+      expect(heatsConflict(T(15, 24), "Red Track", T(15, 36), "Red")).toBe(true);
+      expect(heatsConflict(T(15, 24), "Blue Track", T(15, 12), "Blue")).toBe(true);
+    });
+
+    it("keeps the 30-min walk buffer for genuinely different tracks across formats", () => {
+      expect(heatsConflict(T(15, 24), "Red Track", T(15, 48), "Blue")).toBe(true); // 24 min cross-track
+      expect(heatsConflict(T(15, 0), "Mega Track", T(15, 30), "Red")).toBe(false); // 30 min — allowed
+    });
+  });
+
   describe("unknown / null tracks", () => {
     it("treats null vs null as cross-track (since `same` requires non-empty)", () => {
       // Both empty → falls through to cross-track 30-min rule
@@ -189,6 +206,24 @@ describe("findCrossBookingConflict (cross-reservation spacing)", () => {
         [h("2026-07-02T15:24:00", "Red", "409523")], // 24 min same-track — fine
       ),
     ).toBeNull();
+  });
+
+  it("reads a BMI-format 'Blue Track' existing row as the same track as a 'Blue' cart pick", () => {
+    // Every-other-heat (24 min) on the same physical track must stay bookable
+    // even when the prior reservation stamped the BMI resource name.
+    expect(
+      findCrossBookingConflict(
+        [h("2026-07-02T15:48:00", "Blue", "409523")],
+        [h("2026-07-02T15:24:00", "Blue Track", "409523")],
+      ),
+    ).toBeNull();
+    // …while the adjacent heat (12 min) still conflicts across formats.
+    expect(
+      findCrossBookingConflict(
+        [h("2026-07-02T15:36:00", "Blue", "409523")],
+        [h("2026-07-02T15:24:00", "Blue Track", "409523")],
+      ),
+    ).not.toBeNull();
   });
 
   it("skips heats without a bmiPersonId (unidentified racers)", () => {

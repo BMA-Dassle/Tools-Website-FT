@@ -121,8 +121,16 @@ const nextConfig: NextConfig = {
         // (camera=() denied it site-wide — cameras "worked on every other
         // website" but never here, failing instantly with no prompt, owner
         // 2026-07-18). self-only keeps third-party iframes blocked, and the
-        // browser permission prompt still gates actual use.
-        { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=()" },
+        // browser permission prompt still gates actual use. serial=(self):
+        // the kiosk admin pairs the CRT-591 card reader over Web Serial —
+        // self is the spec default, but explicit so a future tightening pass
+        // can't repeat the camera incident, and so the admin panel's
+        // permission diagnostics (document.featurePolicy) can name this
+        // header when it IS the blocker.
+        {
+          key: "Permissions-Policy",
+          value: "camera=(self), microphone=(), geolocation=(), serial=(self)",
+        },
         // Content Security Policy
         {
           key: "Content-Security-Policy",

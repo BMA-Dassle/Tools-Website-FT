@@ -105,6 +105,13 @@ export interface RaceRestrictionRule {
   /** How a blocked slot is presented in the picker. */
   presentation: RestrictionPresentation;
   /**
+   * Optional kiosk-surface override for `presentation` (ctx.kiosk = true).
+   * Blocking is identical on every surface — only how the picker shows the
+   * blocked slot differs (e.g. the VIP anchor reserve is a greyed marketing
+   * card on the web but simply hidden on the walk-up kiosk, owner 2026-07-19).
+   */
+  kioskPresentation?: RestrictionPresentation;
+  /**
    * Constraint: no adjacent OCCUPIED slot. Block the pick when another slot
    * within `gapMinutes` is occupied (freeSpots < capacity). `gapMinutes` =
    * track cadence + 1 (Mega = 12 + 1). `scope` picks the occupancy signal:
@@ -282,6 +289,15 @@ export const RACE_RESTRICTION_RULES: RaceRestrictionRule[] = [
       tooltip:
         "This start time is held for Ultimate VIP Experience groups — it opens up one hour before the race if unclaimed.",
     },
+    // Kiosk: anchor holds are HIDDEN outright (owner 2026-07-19) — the greyed
+    // "VIP Reserved" card is web marketing; on the walk-up kiosk it read as a
+    // blocked session. The 60-min last-minute lift still applies, so unclaimed
+    // anchors reappear (fully bookable) inside the final hour.
+    kioskPresentation: {
+      action: "hide",
+      tooltip:
+        "This start time is held for Ultimate VIP Experience groups — it opens up one hour before the race if unclaimed.",
+    },
     reservedComboAnchorTimes: { startMinutes: VIP_COMBO_ANCHOR_MINUTES },
     lastMinuteOverrideMinutes: 60,
     exemptComboBookings: true,
@@ -441,6 +457,13 @@ export interface RestrictionContext {
    * `exemptComboBookings` — a combo booking still hits every other rule.
    */
   isComboBooking?: boolean;
+  /**
+   * True when the evaluation renders on the in-center kiosk
+   * (session.context.kiosk). Presentation-only: rules with a
+   * `kioskPresentation` return it instead of `presentation`; what gets
+   * blocked never differs by surface.
+   */
+  kiosk?: boolean;
 }
 
 export interface RestrictionResult {
@@ -468,13 +491,14 @@ function matchesScope(rule: RaceRestrictionRule, ctx: RestrictionContext): boole
   return rule.appliesTo.tracks.some((t) => t.toLowerCase() === track);
 }
 
-function block(rule: RaceRestrictionRule): RestrictionResult {
+function block(rule: RaceRestrictionRule, ctx: RestrictionContext): RestrictionResult {
+  const presentation = (ctx.kiosk && rule.kioskPresentation) || rule.presentation;
   return {
     blocked: true,
     ruleId: rule.id,
-    action: rule.presentation.action,
-    cardLabel: rule.presentation.cardLabel,
-    reason: rule.presentation.tooltip,
+    action: presentation.action,
+    cardLabel: presentation.cardLabel,
+    reason: presentation.tooltip,
   };
 }
 
@@ -546,7 +570,7 @@ export function evaluateRaceRestrictions(ctx: RestrictionContext): RestrictionRe
       const parts = localClockParts(ctx.candidateStartLocal);
       if (parts && rule.reservedComboAnchorTimes.startMinutes.includes(parts.minutes)) {
         const joiningOccupied = joiningOccupiedAt(ctx.productBlocks, ctx.candidateStartMs);
-        if (!joiningOccupied && !lastMinuteLift(rule, ctx)) return block(rule);
+        if (!joiningOccupied && !lastMinuteLift(rule, ctx)) return block(rule, ctx);
       }
     }
 
@@ -565,7 +589,7 @@ export function evaluateRaceRestrictions(ctx: RestrictionContext): RestrictionRe
           ? ctx.categoryTrackBlocks
           : ctx.productBlocks;
       if (hasOccupiedNeighbor(blocks, ctx.candidateStartMs, rule.noAdjacentOccupied.gapMinutes)) {
-        if (!lastMinuteLift(rule, ctx)) return block(rule);
+        if (!lastMinuteLift(rule, ctx)) return block(rule, ctx);
       }
     }
 
@@ -596,7 +620,7 @@ export function evaluateRaceRestrictions(ctx: RestrictionContext): RestrictionRe
         }
         const room = starts.size - consumed.size;
         if (room < rule.reserveStarterRoomPerClockHour.minRoom) {
-          if (!lastMinuteLift(rule, ctx)) return block(rule);
+          if (!lastMinuteLift(rule, ctx)) return block(rule, ctx);
         }
       }
     }
@@ -617,7 +641,7 @@ export function evaluateRaceRestrictions(ctx: RestrictionContext): RestrictionRe
           if (b.freeSpots >= b.capacity) continue; // empty — doesn't count
           if (b.startMs >= hourStartMs && b.startMs < hourEndMs) occupiedStarts.add(b.startMs);
         }
-        if (occupiedStarts.size >= rule.maxOccupiedPerClockHour.limit) return block(rule);
+        if (occupiedStarts.size >= rule.maxOccupiedPerClockHour.limit) return block(rule, ctx);
       }
     }
 
@@ -627,7 +651,7 @@ export function evaluateRaceRestrictions(ctx: RestrictionContext): RestrictionRe
       if (parts) {
         const win = rule.openingWindowExpressOnly.windows[parts.weekday];
         if (win && parts.minutes >= win.openMinutes && parts.minutes < win.untilMinutes) {
-          return block(rule);
+          return block(rule, ctx);
         }
       }
     }

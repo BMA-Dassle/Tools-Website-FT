@@ -128,9 +128,11 @@ export async function runCheckout(
   onProgress("Registering contact…");
   await registerContact(billId, contact, sessionWithContact.party);
 
-  // 3. Register verified racers as project persons
+  // 3. Register verified racers as project persons — only party members
+  // actually booked into a BMI activity (a kiosk sign-in with no race or
+  // attraction never joins the reservation roster).
   onProgress("Registering racers…");
-  await registerProjectPersons(billId, session.party);
+  await registerProjectPersons(billId, session.party, sessionWithContact.items);
 
   // 4. Fetch bill overview for pricing
   onProgress("Loading totals…");
@@ -651,6 +653,17 @@ export function raceHeatsMetadata(
   });
 }
 
+/**
+ * First names of the party members actually RACING (distinct heats[].assignedTo),
+ * in party order. The kiosk roster is session-scoped, so someone signed in but
+ * never put on a heat is not a racer — they must not appear in racerNames
+ * metadata (staff views read it as the racer roster).
+ */
+export function racerNamesFromHeats(heats: RaceHeatAssignment[], party: PartyMember[]): string[] {
+  const racing = new Set(heats.map((h) => h.assignedTo).filter(Boolean));
+  return party.filter((m) => racing.has(m.id)).map((m) => m.firstName);
+}
+
 export async function reserveBooking(params: ReserveParams): Promise<ReserveResult> {
   const { session, bmiBillId, overview, contact } = params;
 
@@ -678,7 +691,7 @@ export async function reserveBooking(params: ReserveParams): Promise<ReserveResu
   const bookingMetadata: Record<string, unknown> = {};
   if (raceItem) {
     bookingMetadata.heats = raceHeatsMetadata(raceItem.heats, session.party);
-    bookingMetadata.racerNames = session.party.map((m) => m.firstName);
+    bookingMetadata.racerNames = racerNamesFromHeats(raceItem.heats, session.party);
   }
 
   const cardSourceId = params.savedCardId ?? params.cardSourceId;
@@ -1332,7 +1345,7 @@ export async function rebuildRaceBillIfExpired(
   // holdRaceItem only books heats; re-attach the contact + verified racers to the
   // fresh bill (runCheckout does this on the normal path).
   await registerContact(newBillId, contact, session.party);
-  await registerProjectPersons(newBillId, session.party);
+  await registerProjectPersons(newBillId, session.party, cleared.items);
 
   // Track this payment-path rebuild in the BMI evidence log (fire-and-forget) —
   // the same bmi_cancel_events record the cron writes, so "rebuilt on a payment

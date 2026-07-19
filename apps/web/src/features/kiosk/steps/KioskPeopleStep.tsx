@@ -185,11 +185,6 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     (a, b) => Number(!!b.isBillingCustomer) - Number(!!a.isBillingCustomer),
   );
 
-  // A person chosen as someone's guardian can't be removed — that would orphan
-  // the minor's booking (owner 2026-07-18). Their Remove is hidden until the
-  // minor they cover is removed first.
-  const isGuardianForSomeone = (m: PartyMember) => party.some((p) => p.guardianMemberId === m.id);
-
   // Block the wizard's "Continue" whenever a sign-in lookup, add-player form, or
   // onboarding is in progress — otherwise tapping Continue (or OSK "Done" then
   // Continue) advances PAST the OTP step without verifying (owner: entering the
@@ -240,10 +235,10 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   };
 
   const removeMember = (id: string) => {
-    // Never remove a selected guardian — the minor they cover would be orphaned
-    // (owner 2026-07-18). The UI hides Remove for guardians; this is the guard.
-    if (party.some((p) => p.guardianMemberId === id)) return;
-    // Also drop this person as anyone's guardian, and from the attraction set.
+    // Guardians ARE removable (owner 2026-07-19, reversing 2026-07-18): a minor
+    // whose waiver is already signed keeps it (Pandora holds the sigPersonID);
+    // an unsigned minor simply re-enters guardian resolution at sign time. Just
+    // un-link any minors pointing at them (and drop them from the attraction set).
     party.forEach((m) => {
       if (m.guardianMemberId === id) {
         dispatch({ type: "updatePartyMember", id: m.id, patch: { guardianMemberId: undefined } });
@@ -763,8 +758,13 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   };
 
   const removeGuardianEntry = (id: string) => {
-    // Same protection as party members — never orphan a minor's signer.
-    if (party.some((p) => p.guardianMemberId === id)) return;
+    // Removable like party members (owner 2026-07-19) — un-link their minors
+    // first; a signed waiver survives (sigPersonID is on the Pandora record).
+    party.forEach((m) => {
+      if (m.guardianMemberId === id) {
+        dispatch({ type: "updatePartyMember", id: m.id, patch: { guardianMemberId: undefined } });
+      }
+    });
     dispatch({ type: "removeGuardian", id });
   };
 
@@ -1109,23 +1109,14 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                       {m.bmiPersonId ? "Sign waiver" : "Set up"}
                     </button>
                   )}
-                  {isGuardianForSomeone(m) ? (
-                    <span
-                      className="text-[20px] font-semibold text-white/30"
-                      title="Guardian for a minor in your group — remove the minor first"
-                    >
-                      Guardian
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => removeMember(m.id)}
-                      aria-label={`Remove ${m.firstName}`}
-                      className="text-[22px] text-white/40"
-                    >
-                      Remove
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeMember(m.id)}
+                    aria-label={`Remove ${m.firstName}`}
+                    className="text-[22px] text-white/40"
+                  >
+                    Remove
+                  </button>
                 </div>
               </div>
             </div>
@@ -1167,23 +1158,14 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                     >
                       Join the fun
                     </button>
-                    {isGuardianForSomeone(g) ? (
-                      <span
-                        className="text-[20px] font-semibold text-white/30"
-                        title="Signed for a minor in your group — remove the minor first"
-                      >
-                        Guardian
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => removeGuardianEntry(g.id)}
-                        aria-label={`Remove ${g.firstName}`}
-                        className="text-[20px] text-white/40"
-                      >
-                        Remove
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeGuardianEntry(g.id)}
+                      aria-label={`Remove ${g.firstName}`}
+                      className="text-[20px] text-white/40"
+                    >
+                      Remove
+                    </button>
                   </div>
                 </div>
               );
@@ -1395,7 +1377,11 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                 <div>
                   <div className="k-eyebrow text-[#00e2e5]">Parent / guardian needed</div>
                   <h2 className="k-display mt-[8px] text-[44px]">
-                    A parent or guardian signs for {minor?.firstName ?? "this minor"}
+                    {guardianFlow.stage !== "choose"
+                      ? `A parent or guardian signs for ${minor?.firstName ?? "this minor"}`
+                      : candidates.length > 0
+                        ? `Select a guardian for ${minor?.firstName ?? "this minor"} — or add one below`
+                        : `Add a guardian for ${minor?.firstName ?? "this minor"}`}
                   </h2>
                   <p className="mt-[10px] text-[24px] text-white/55">
                     {minor?.firstName ?? "They"} is under 18, so an adult signs the waiver. The
@@ -1407,8 +1393,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                   <>
                     {candidates.length > 0 && (
                       <div>
-                        <div className="k-eyebrow mb-[12px] text-white/40">
-                          Adults here now — tap to sign
+                        <div className="k-eyebrow mb-[12px] text-[#00e2e5]">
+                          Tap a name to select
                         </div>
                         <div className="flex flex-wrap gap-[12px]">
                           {candidates.map((a) => {
@@ -1452,7 +1438,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                         }}
                         className="k-tap rounded-[28px] border-2 border-dashed border-[#00e2e5]/45 px-[24px] py-[28px] text-[28px] font-bold text-[#00e2e5]"
                       >
-                        + Add a new adult
+                        + Add a new guardian
                       </button>
                       <button
                         type="button"

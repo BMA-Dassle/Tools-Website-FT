@@ -31,27 +31,31 @@ export function kioskTerminalEnabled(): boolean {
 }
 
 /**
- * Group & online waiver flow on the kiosk — OPT-IN (defaults OFF). Gates the
- * attract-screen entry button. The /kiosk/waiver page itself stays reachable
- * by typed URL for the staff smoke; this flag is the public exposure switch,
- * flipped to "true" in Vercel + redeploy after the owner live smoke.
+ * Group & online waiver flow on the kiosk — OPT-IN, defaults OFF (owner
+ * 2026-07-19: "turn the event thing off by default for now", reversing the
+ * earlier default-on ask after the first live look). Gates the attract-screen
+ * entry button; the /kiosk/waiver page itself stays reachable by typed URL
+ * for staff testing. Set the literal "true" in Vercel + redeploy to show the
+ * button (NEXT_PUBLIC_* values are build-baked).
  */
 export function kioskGroupWaiverEnabled(): boolean {
   return process.env.NEXT_PUBLIC_KIOSK_GROUP_WAIVER_ENABLED === "true";
 }
 
 /**
- * BMI registerProjectPerson attach for kiosk waiver joins — OPT-IN (defaults
- * OFF), server-side only (the join route is the sole consumer, so no
- * NEXT_PUBLIC prefix). registerProjectPerson is proven on fresh booking
- * bills; against an existing confirmed project it must pass the
- * scripts/kiosk-waiver-attach-probe.mts dry-run first (public-booking orderId
- * and Office projectId can differ — see /api/bmi verifyPostConfirm). Until
- * this is "1", joins persist to Neon with status 'skipped' and the kiosk
- * roster unions them in — the guest experience is whole either way.
+ * BMI registerProjectPerson attach for kiosk waiver joins — kill switch,
+ * defaults ON (owner 2026-07-19), server-side only (the join route is the
+ * sole consumer, so no NEXT_PUBLIC prefix). registerProjectPerson is proven
+ * on fresh booking bills; against an existing confirmed project the
+ * scripts/kiosk-waiver-attach-probe.mts APPLY run is still the recommended
+ * verification (public-booking orderId and Office projectId can differ — see
+ * /api/bmi verifyPostConfirm). The failure mode is contained either way: a
+ * rejected attach is recorded on the Neon row as 'failed' (never surfaced to
+ * the guest) and the kiosk roster unions the Neon join in. Set
+ * KIOSK_WAIVER_BMI_ATTACH=0 in Vercel to stop the BMI writes.
  */
 export function kioskWaiverBmiAttachEnabled(): boolean {
-  return process.env.KIOSK_WAIVER_BMI_ATTACH === "1";
+  return process.env.KIOSK_WAIVER_BMI_ATTACH !== "0";
 }
 
 /**

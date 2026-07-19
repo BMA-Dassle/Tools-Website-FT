@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Dispatch } from "react";
 import { clarityEvent, clarityTag } from "~/lib/clarity";
 import type { Action } from "~/features/booking/state/machine";
@@ -21,6 +21,7 @@ import {
 import {
   memberEligibleCreditTotal,
   memberEligibleBreakdown,
+  creditBalancesFromDeposits,
 } from "~/features/booking/data/race-credits";
 import {
   bowlingReserve,
@@ -261,6 +262,45 @@ export function CheckoutStep({
       return next;
     });
   }
+
+  // Live credit-balance refresh at checkout (owner 2026-07-19: kiosk checkout
+  // offered no credits option): members can arrive with MISSING or STALE
+  // creditBalances — the kiosk's linked-family add never fetches them, and
+  // credits granted earlier the same visit (a race pack) postdate the sign-in
+  // snapshot. The charge path validates LIVE balances, so the display reads
+  // them too. One sweep per mount; every failure is soft (the capture-time
+  // snapshot stands — same as today).
+  const creditRefreshDone = useRef(false);
+  // personIds whose redeem opt-in was already defaulted ON (mount initializer
+  // or this sweep) — an untick must stick, so each pid is seeded at most once.
+  const creditSeeded = useRef<Set<string> | null>(null);
+  if (creditSeeded.current === null) creditSeeded.current = new Set(Object.keys(creditChoices));
+  useEffect(() => {
+    if (creditRefreshDone.current || !raceItem || comboActive) return;
+    creditRefreshDone.current = true;
+    const seeded = creditSeeded.current;
+    const members = session.party.flatMap((m) =>
+      m.bmiPersonId && !m.isNewRacer && heatCountForMember(m.id) > 0
+        ? [{ id: m.id, pid: m.bmiPersonId }]
+        : [],
+    );
+    void Promise.allSettled(
+      members.map(async ({ id, pid }) => {
+        const res = await fetch(
+          `/api/bmi-office?action=deposits&personId=${encodeURIComponent(pid)}`,
+        );
+        if (!res.ok) return;
+        const fresh = creditBalancesFromDeposits(await res.json());
+        dispatch({ type: "updatePartyMember", id, patch: { creditBalances: fresh } });
+        // Newly eligible → default their opt-in ON (the creditChoices mount
+        // initializer ran before this fetch landed).
+        if (seeded && !seeded.has(pid) && memberEligibleCreditTotal(fresh, raceDate) > 0) {
+          seeded.add(pid);
+          setCreditChoices((prev) => ({ ...prev, [pid]: true }));
+        }
+      }),
+    );
+  });
 
   const isValidContact =
     firstName.trim().length > 0 &&
@@ -1103,17 +1143,25 @@ export function CheckoutStep({
         <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-4">
           {overview.lines.map((line, i) => (
             <div key={i} className="flex justify-between gap-3 text-sm">
-              <span className="min-w-0 flex-1 text-white/60">
+              <span
+                className={`min-w-0 flex-1 ${line.amount < 0 ? "text-green-400" : "text-white/60"}`}
+              >
                 {line.name}
                 {line.quantity > 1 && <span> x {line.quantity}</span>}
               </span>
-              <span className="shrink-0 text-white">
+              <span className={`shrink-0 ${line.amount < 0 ? "text-green-400" : "text-white"}`}>
                 {line.originalAmount != null && line.originalAmount > line.amount && (
                   <span className="mr-1.5 text-white/40 line-through">
                     ${line.originalAmount.toFixed(2)}
                   </span>
                 )}
-                {line.amount > 0 ? `$${line.amount.toFixed(2)}` : "Credit"}
+                {/* amount < 0 = a deduction line (pack coverage) — show the signed
+                    dollars; exactly $0 = a credit-redeemed heat, labeled "Credit". */}
+                {line.amount > 0
+                  ? `$${line.amount.toFixed(2)}`
+                  : line.amount < 0
+                    ? `-$${Math.abs(line.amount).toFixed(2)}`
+                    : "Credit"}
               </span>
             </div>
           ))}

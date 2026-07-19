@@ -5,8 +5,8 @@
  *
  * Authored to the fixed 1080×1920 kiosk canvas (px, not vh). Portrait zones:
  * top 480px is the advertising rotation (display-only), the rest is the
- * interactive welcome (reach + ADA band). Any tap starts a session. Quick
- * chips deep-link into flows; "See everything" lands on the category chooser.
+ * interactive welcome (reach + ADA band). Any tap starts a session (landing
+ * on the category chooser); quick chips deep-link into specific flows.
  *
  * Device provisioning: on mount, URL params (parsed server-side) merge over
  * the stored device config and persist. A kiosk with no config shows the
@@ -86,23 +86,30 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   }, [urlConfig]);
 
   // Ad index derived from the SHARED clock (not a local counter) so every kiosk
-  // is on the same slide. Tick fast enough that the flip lands within a fraction
-  // of a second of the shared 8s boundary — imperceptible, and never drifts.
+  // is on the same slide. Each tick schedules the next just past the shared 8s
+  // boundary, so the flip lands within ~a frame of the same instant everywhere
+  // (the old fixed 500ms poll let flips straggle up to half a second apart
+  // between kiosks — owner 2026-07-19: "ads are really close but not perfect").
   useEffect(() => {
+    let timer: number | undefined;
     const tick = () => {
-      setAdIndex(Math.floor((Date.now() + offset) / AD_ROTATE_MS) % KIOSK_AD_SLIDES.length);
+      const now = Date.now() + offset;
+      setAdIndex(Math.floor(now / AD_ROTATE_MS) % KIOSK_AD_SLIDES.length);
+      // +25ms lands safely past the boundary despite setTimeout clamp/rounding.
+      timer = window.setTimeout(tick, AD_ROTATE_MS - (now % AD_ROTATE_MS) + 25);
     };
     tick();
-    const iv = setInterval(tick, 500);
-    return () => clearInterval(iv);
+    return () => window.clearTimeout(timer);
   }, [offset]);
 
-  // Phase-align the glow / ken-burns / sweep / pulse animations to the shared
-  // clock via negative animation-delay, re-applied whenever the clock (re)syncs
-  // or the attract screen mounts (config null→set). All kiosks breathe together.
+  // Seek the glow / ken-burns / sweep / pulse animations to the shared clock's
+  // phase so all kiosks breathe together. Re-runs whenever the clock (re)syncs
+  // AND whenever the attract root can (re)mount — config null→set and
+  // booting→false both change which tree is rendered, and a freshly mounted
+  // root starts its animations at a random phase until seeked.
   useEffect(() => {
     syncGlowPhase(rootRef.current, offset);
-  }, [offset, config]);
+  }, [offset, config, booting]);
 
   // While the cloud fallback resolves, hold the loader instead of flashing
   // the staff setup card at a guest.
@@ -203,21 +210,24 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
         <span className="kiosk-pulse k-display grid h-[150px] w-full max-w-[80%] place-items-center rounded-full bg-[#00e2e5] text-[44px] tracking-wide text-[#04252b]">
           Touch to get started
         </span>
-        {/* Balanced 2×2 grid — a flex-wrap left "See everything" orphaned on its
-            own row (uneven 3+1). Each chip stretches to fill its cell so the pairs
-            line up. */}
+        {/* 2-col grid kept for the hidden "Race now" / "Bowl now" pair; the
+            remaining chips span both columns so nothing sits orphaned at
+            half-width. */}
         <span className="grid w-full max-w-[720px] grid-cols-2 gap-[16px]">
           {/* "Race now" / "Bowl now" HIDDEN for now (owner 2026-07-18: "just
               hide, might come back later") — restore by uncommenting:
           <QuickChip label="Race now" onClick={() => start("race")} />
           <QuickChip label="Bowl now" onClick={() => start("bowl")} /> */}
-          <QuickChip
-            label="VIP Experience"
-            gold
-            disabled={!vipAvailable}
-            onClick={() => start("vip")}
-          />
-          <QuickChip label="See everything" onClick={() => start()} />
+          {/* "See everything" REMOVED (owner 2026-07-19) — the category chooser
+              is still reachable via "Touch to get started" / any tap. */}
+          <span className="col-span-2">
+            <QuickChip
+              label="VIP Experience"
+              gold
+              disabled={!vipAvailable}
+              onClick={() => start("vip")}
+            />
+          </span>
           {/* Standalone race packs (owner 2026-07-18) — FastTrax kiosks, a
               LOCKED pack-only purchase flow (KioskRacePackFlow). Full-width so
               the 2×2 grid never orphans a chip. Kill switch aware. */}
@@ -231,8 +241,9 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
 
       {/* Online & group waiver entry — full-width bar above the footer band
           ("bottom of this screen", owner 2026-07-18). A "not booking"
-          affordance, so it sits OUTSIDE the welcome-zone start button. Ships
-          dark behind the opt-in flag until the owner live smoke. */}
+          affordance, so it sits OUTSIDE the welcome-zone start button. OPT-IN
+          flag, default OFF (owner 2026-07-19) — set
+          NEXT_PUBLIC_KIOSK_GROUP_WAIVER_ENABLED=true in Vercel to show. */}
       {kioskGroupWaiverEnabled() && (
         <button
           type="button"

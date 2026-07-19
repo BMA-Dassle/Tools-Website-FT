@@ -370,9 +370,13 @@ export async function POST(req: NextRequest) {
     if (kioskMode) {
       const when =
         (typeof reservationTime === "string" && reservationTime) ||
+        // Kiosk heat starts are NAIVE center-local wall-clock ISO strings
+        // ("2026-07-19T16:00:00" = 4 PM ET). Parse as UTC and format as UTC so
+        // the wall-clock renders as written — formatting in America/New_York
+        // shifted every time 4h early (a 4:00 PM race emailed as "12:00 PM").
         (scheduled[0]?.start
           ? new Date(`${String(scheduled[0].start).replace(/Z?$/, "")}Z`).toLocaleString("en-US", {
-              timeZone: "America/New_York",
+              timeZone: "UTC",
               weekday: "short",
               month: "short",
               day: "numeric",

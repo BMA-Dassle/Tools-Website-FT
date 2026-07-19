@@ -1,34 +1,43 @@
 # Open Tasks
 
-## Kiosk Online & Group Waiver — BUILT, DARK (2026-07-18/19, on main)
+## Kiosk Online & Group Waiver — ON MAIN, BUTTON OFF BY DEFAULT (2026-07-18/19)
 
-Attract-screen entry (flag-gated) → `/kiosk/waiver`: guest picks today's reservation
-(next 2h, waiver events, event name or "First L." labels — daily-events group/online split),
-sees "First L." of everyone registered with a currently-valid waiver, adds people via the
-extracted `KioskPartyManager` (the exact race-flow new-player/returning-lookup/photo+sign
-screens). Joins persist to Neon `kiosk_waiver_joins` FIRST; BMI `registerProjectPerson`
-attach is gated behind `KIOSK_WAIVER_BMI_ATTACH` pending the probe. Race now / Bowl now
-attract chips hidden same day (owner: "might come back later" — commented in AttractScreen).
+Attract-screen entry → `/kiosk/waiver`: guest picks today's reservation (next 2h, waiver
+events, event name or "First L." labels — daily-events group/online split), sees "First L."
+of everyone registered with a currently-valid waiver, and adds people via the LIVE kiosk
+people step (`KioskAttractionPeopleStep.Component` mounted over a local, non-persisted
+instance of the real booking reducer — deliberately NOT an extraction, that file is
+multi-writer-hot; the waiver page inherits the guardian-signer flow, Title Case etc. for
+free). Joins persist to Neon `kiosk_waiver_joins` FIRST; BMI `registerProjectPerson`
+attach runs after. Race now / Bowl now attract chips hidden same day (owner: "might come
+back later" — commented in AttractScreen).
+
+Flags (owner 2026-07-19, revised after first live look — "turn the event thing off by
+default for now"): attract button is OPT-IN, default OFF —
+`NEXT_PUBLIC_KIOSK_GROUP_WAIVER_ENABLED=true` in Vercel + redeploy shows it; the
+/kiosk/waiver page stays typed-URL reachable for staff testing. BMI attach stays
+default-ON (`KIOSK_WAIVER_BMI_ATTACH=0` kills it) — moot while the flow is unused.
+NOTE from the 1 AM live test: a just-created reservation takes up to ~6 min to reach the
+picker (5-min daily-events cache warm + 60s shaped cache) — expected, but remember it
+when testing.
 
 Probe `apps/web/scripts/kiosk-waiver-attach-probe.mts` dry-run DONE (2026-07-19):
 A1 = personsByIds has NO waiver fields (Pandora fan-out in roster route is required);
-A2 = Pandora person GET accepts 17-digit Office ids (live-verified). Plan file:
-`~/.claude/plans/virtual-pondering-willow.md`.
+A2 = Pandora person GET accepts 17-digit Office ids (live-verified).
 
-- [ ] **A3 probe (gates BMI attach):** staff-create a THROWAWAY test reservation + test
-      person, run `PROJECT_ID=… PERSON_ID=… APPLY=1 npx tsx scripts/kiosk-waiver-attach-probe.mts`
-      → require projectPersons +1, state/products unchanged, idempotency understood →
-      set `KIOSK_WAIVER_BMI_ATTACH=1` in Vercel. (Until then joins are Neon-only —
-      staff board waiver % will NOT count kiosk signers.)
-- [ ] **Owner live smoke** on a real kiosk via typed URL `/kiosk/waiver` (picker window +
-      labels, new person photo+sign, returning OTP person, minor+guardian, sequential
-      second signer, idle reset) → then set `NEXT_PUBLIC_KIOSK_GROUP_WAIVER_ENABLED=true`
-      + redeploy to show the attract button.
-- [ ] Extraction regression eyeball: kiosk race + gel-blaster people screens (now render
-      through `KioskPartyManager`) — behavior must be identical to pre-extraction.
+- [ ] **A3 probe (recommended even though attach defaults ON):** staff-create a THROWAWAY
+      test reservation + test person, run
+      `PROJECT_ID=… PERSON_ID=… APPLY=1 npx tsx scripts/kiosk-waiver-attach-probe.mts`
+      → confirm projectPersons +1, state/products unchanged, idempotency. A rejected attach
+      is contained (Neon row 'failed', guest unaffected) but watch `listFailedJoins()`
+      after the first real event; kill with `KIOSK_WAIVER_BMI_ATTACH=0` if BMI misbehaves.
+- [ ] **Owner live smoke** on a real kiosk (picker window + labels, new person photo+sign,
+      returning OTP person, minor + guardian-signer flow, sequential second signer, idle
+      reset).
 - [ ] Follow-up: migrate `app/event/[slug]/page.tsx` local `makeDisplayName` to
       `@/lib/display-name`; consider a retry sweep for `kiosk_waiver_joins` rows with
       `bmi_attach_status='failed'` (`listFailedJoins()` exists).
+
 ## Kiosk minors-first + guardian-signs waiver — BUILT (2026-07-18), not yet live-verified
 
 Minors can register FIRST on the kiosk; a guardian is only involved when the minor's waiver

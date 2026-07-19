@@ -11,7 +11,8 @@ const RESYNC_MS = 5 * 60 * 1000; // correct clock drift every 5 min
  * Returns `{ offset, synced }` where the corrected clock is `Date.now() + offset`.
  * Consumers derive anything that must be identical across devices from it:
  *   - ad-rotation index:  `Math.floor((Date.now() + offset) / slideMs) % n`
- *   - CSS glow phase:     `animation-delay: -((Date.now() + offset) % periodMs)ms`
+ *   - CSS glow phase:     seek each animation to `(Date.now() + offset) % periodMs`
+ *     (see syncGlowPhase below)
  * so all kiosks stay in lockstep with no per-frame polling.
  *
  * Boot: seed from the last measured offset in localStorage for instant
@@ -19,22 +20,24 @@ const RESYNC_MS = 5 * 60 * 1000; // correct clock drift every 5 min
  * and re-sync on an interval. Offline / fetch failure keeps the cached offset.
  */
 export function useKioskClock(): { offset: number; synced: boolean } {
-  const [offset, setOffset] = useState(0);
+  // Instant approximate sync: seed from the last measured offset in the state
+  // INITIALIZER (not an effect) — the very first glow seek / ad index already
+  // uses it. SSR renders with 0; offset never affects markup, so no mismatch.
+  const [offset, setOffset] = useState(() => {
+    if (typeof window === "undefined") return 0;
+    try {
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached == null) return 0;
+      const n = Number(cached);
+      return Number.isFinite(n) ? n : 0;
+    } catch {
+      return 0; /* private mode — no cache, refine below */
+    }
+  });
   const [synced, setSynced] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-
-    // Instant approximate sync from the last measured offset.
-    try {
-      const cached = localStorage.getItem(CACHE_KEY);
-      if (cached != null) {
-        const n = Number(cached);
-        if (Number.isFinite(n)) setOffset(n);
-      }
-    } catch {
-      /* private mode — no cache, refine below */
-    }
 
     const measure = async () => {
       const t0 = Date.now();
@@ -71,24 +74,41 @@ export function useKioskClock(): { offset: number; synced: boolean } {
 }
 
 /**
- * CSS animation full-cycle lengths (ms) for the attract glow effects. `alternate`
- * animations run forward then reverse, so their seek-able timeline is 2× the
- * declared duration — see app/kiosk/kiosk.css. Used to phase-align each element
- * via a negative animation-delay so every kiosk is at the same point in the glow.
+ * CSS animation full-cycle lengths (ms) for the attract glow effects. MUST match
+ * the declared durations in app/kiosk/kiosk.css — a stale entry silently
+ * de-syncs that effect across kiosks (the 2026-07-19 "glow not timing between
+ * kiosks" bug: CSS was retuned to 30s/7.5s while this table still said
+ * 26s/7s). `alternate` animations run forward then reverse, so their seek-able
+ * cycle is 2× the declared duration.
  */
 export const KIOSK_GLOW_PERIODS_MS: Record<string, number> = {
-  "kiosk-kenburns": 52000, // 26s ease-in-out alternate → 52s full cycle
-  "kiosk-sweep": 7000,
+  "kiosk-kenburns": 60000, // 30s ease-in-out alternate → 60s there-and-back cycle
+  "kiosk-sweep": 7500,
   "kiosk-pulse": 2400,
 };
 
-/** Apply the shared clock's phase to every glow element under `root`. */
+/**
+ * Seek every glow element under `root` to the shared clock's phase, so all
+ * kiosks are at the same point in the glow at the same instant.
+ *
+ * Seeks the running CSSAnimation's currentTime directly rather than setting a
+ * negative animation-delay: a delay only phase-aligns if applied at the exact
+ * moment the animation's timeline starts (retiming a RUNNING animation keeps
+ * its original start time, so the same delay lands at a different phase), while
+ * a currentTime seek is exact whenever it runs — mount, clock resync, or
+ * remount. No-op under prefers-reduced-motion (no animations to seek).
+ */
 export function syncGlowPhase(root: HTMLElement | null, offset: number): void {
   if (!root) return;
   const now = Date.now() + offset;
-  for (const [cls, period] of Object.entries(KIOSK_GLOW_PERIODS_MS)) {
-    root.querySelectorAll<HTMLElement>(`.${cls}`).forEach((el) => {
-      el.style.animationDelay = `${-(now % period)}ms`;
+  for (const [name, period] of Object.entries(KIOSK_GLOW_PERIODS_MS)) {
+    // Class name and @keyframes name match for every glow effect in kiosk.css.
+    root.querySelectorAll<HTMLElement>(`.${name}`).forEach((el) => {
+      for (const anim of el.getAnimations()) {
+        if (anim instanceof CSSAnimation && anim.animationName === name) {
+          anim.currentTime = now % period;
+        }
+      }
     });
   }
 }

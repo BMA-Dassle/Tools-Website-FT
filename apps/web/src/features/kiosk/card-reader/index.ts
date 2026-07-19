@@ -3,6 +3,8 @@
  * See docs/crt-591/README.md for the integration guide.
  */
 export {
+  gestureIsActive,
+  serialBlockedMessage,
   useCardReader,
   type CardReaderConnection,
   type UseCardReaderOptions,
