@@ -188,7 +188,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   // Guarded exits (owner 2026-07-18): Start over wipes the whole session; Main
   // menu abandons the item mid-configuration — both destructive enough for an
   // explicit confirm sheet before anything is lost.
-  const [confirmExit, setConfirmExit] = useState<null | "startOver" | "mainMenu">(null);
+  const [confirmExit, setConfirmExit] = useState<null | "startOver" | "mainMenu" | "cart">(null);
   // Guest assistance (owner 2026-07-18): flashes the whole screen red as a
   // staff beacon and HOLDS the kiosk exactly where it is (idle reset paused)
   // until Clear is tapped.
@@ -588,18 +588,54 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     goHome(); // cart / Game Zone / VIP overview: nothing is destroyed, no dialog
   };
 
-  /** Main-menu confirm: drop the unfinished draft (combo-aware — a combo leg
-   *  takes the whole bundle; vendor releases run in the background, the reducer
-   *  dispatches land first), clear the package stamp so it can't re-seed the
-   *  next race draft (see the variant-resolve effect above), then home. */
-  const abandonActiveAndGoHome = () => {
-    if (activeItem) {
-      void handleRemoveItem(activeItem.id);
-      if (activeItem.kind === "race" && session.preferredPackageId) {
-        dispatch({ type: "setPreferredPackage", id: null });
-      }
+  /** Cart pill / session banner: same guard as Main menu (owner 2026-07-19) —
+   *  openCart mid-wizard silently orphaned the unfinished draft in the cart. */
+  const requestOpenCart = () => {
+    if (inWizard) {
+      setConfirmExit("cart");
+      return;
     }
+    openCart();
+  };
+
+  /** Drop the unfinished draft (combo-aware — a combo leg takes the whole
+   *  bundle; vendor releases run in the background, the reducer dispatches
+   *  land first), and clear the package stamp so it can't re-seed the next
+   *  race draft (see the variant-resolve effect above). */
+  const abandonActiveDraft = () => {
+    if (!activeItem) return;
+    void handleRemoveItem(activeItem.id);
+    if (activeItem.kind === "race" && session.preferredPackageId) {
+      dispatch({ type: "setPreferredPackage", id: null });
+    }
+  };
+
+  const abandonActiveAndGoHome = () => {
+    abandonActiveDraft();
     goHome();
+  };
+
+  /** Cart-pill confirm: drop the draft, then land on the cart — or the
+   *  category chooser when nothing else would be left in it (an empty cart is
+   *  a dead end on the kiosk). Destination is computed BEFORE the async
+   *  removal so it can't race handleRemoveItem's own wasLast cart-close. */
+  const abandonActiveAndShowCart = () => {
+    setConfirmExit(null);
+    const comboLeg =
+      !!session.comboSpecialId &&
+      !!activeItem &&
+      (activeItem.kind === "race" || activeItem.kind === "bowling");
+    const anythingLeft = session.items.some(
+      (i) =>
+        !!activeItem &&
+        i.id !== activeItem.id &&
+        !(comboLeg && (i.kind === "race" || i.kind === "bowling")),
+    );
+    abandonActiveDraft();
+    // Game Zone cards don't count: they ride the booking deposit, so
+    // handleRemoveItem clears them with the last item anyway.
+    if (anythingLeft) openCart();
+    else goHome();
   };
 
   // Podium utility strip — pinned bottom zone (Start over · Main menu · help · cart pill).
@@ -663,7 +699,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
       </button>
       <div className="k-util-help">A team member can help — tap Guest assistance</div>
       {cartCount > 0 && (
-        <button type="button" onClick={openCart} className="k-cart-pill k-tap">
+        <button type="button" onClick={requestOpenCart} className="k-cart-pill k-tap">
           <svg
             className="h-[28px] w-[28px]"
             viewBox="0 0 24 24"
@@ -698,7 +734,7 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     !checkoutActive ? (
       <button
         type="button"
-        onClick={openCart}
+        onClick={requestOpenCart}
         disabled={cartCount === 0}
         className="k-glass k-tap mx-[48px] mt-[20px] flex shrink-0 items-center justify-between gap-[20px] px-[28px] py-[16px] text-left"
       >
@@ -757,7 +793,11 @@ export function KioskFlow({ goto }: { goto: string | null }) {
       <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
         <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
           <div className="k-eyebrow text-[#f0b341]">
-            {isReset ? "Start over?" : "Back to the main page?"}
+            {isReset
+              ? "Start over?"
+              : confirmExit === "cart"
+                ? "Go to your cart?"
+                : "Back to the main page?"}
           </div>
           <div className="k-display text-[46px] leading-[1.05]">
             {isReset ? "This clears your whole visit" : `Your ${draftLabel} isn't finished`}
@@ -787,6 +827,8 @@ export function KioskFlow({ goto }: { goto: string | null }) {
                   // "Clearing this session…" loader.
                   setConfirmExit(null);
                   void handleStartOver();
+                } else if (confirmExit === "cart") {
+                  abandonActiveAndShowCart();
                 } else {
                   abandonActiveAndGoHome();
                 }
@@ -794,7 +836,11 @@ export function KioskFlow({ goto }: { goto: string | null }) {
               className="k-btn-ghost k-tap"
               style={{ flex: "0 0 auto" }}
             >
-              {isReset ? "Yes — start over" : "Remove it & go to main page"}
+              {isReset
+                ? "Yes — start over"
+                : confirmExit === "cart"
+                  ? "Remove it & view cart"
+                  : "Remove it & go to main page"}
             </button>
           </div>
         </div>
