@@ -16,6 +16,7 @@
  */
 import { useState } from "react";
 import {
+  effectiveBrand,
   landingOfferingsFor,
   type ActivityOffering,
   type BookingSession,
@@ -24,7 +25,7 @@ import {
 } from "~/features/booking";
 import { enabledCombos, type ComboSpecial } from "~/features/combos";
 import { packageFamilyFromPrice } from "~/features/booking/service/packages";
-import { KIOSK_PHOTOS } from "../assets";
+import { KIOSK_LOGOS, KIOSK_PHOTOS } from "../assets";
 import { AdminTapZone } from "./AdminTapZone";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
@@ -205,6 +206,7 @@ export function KioskCategories({
                 <OfferingTile
                   key={o.slug}
                   offering={o}
+                  brand={brand}
                   wide={brand === "fasttrax" && o.slug === "race"}
                   onClick={() => onPickOffering(o)}
                 />
@@ -361,14 +363,21 @@ function ShelfBanner({
 
 function OfferingTile({
   offering,
+  brand,
   wide,
   onClick,
 }: {
   offering: ActivityOffering;
+  /** Kiosk's own brand — resolves shuffly's "auto" venue (both buildings have
+   *  a Shuffly; this kiosk books its own side). */
+  brand: Brand;
   wide?: boolean;
   onClick: () => void;
 }) {
   const accent = offering.accentColor ?? "#00e2e5";
+  // Which building the guest walks to — same venue badge the web landing puts
+  // on every attraction card (owner 2026-07-19).
+  const venue = effectiveBrand(offering, brand);
   return (
     <button
       type="button"
@@ -381,6 +390,15 @@ function OfferingTile({
           : undefined
       }
     >
+      {/* Venue chip — which building this attraction lives in. */}
+      <div className="k-glass absolute right-[20px] top-[20px] flex items-center px-[20px] py-[12px]">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={KIOSK_LOGOS[venue]}
+          alt={venue === "fasttrax" ? "At FastTrax" : "At HeadPinz"}
+          className="h-[30px] w-auto"
+        />
+      </div>
       {/* FIXED text geometry (owner 2026-07-18: wrap broke + lines didn't align
           across boxes): the title zone is always 2 lines tall (1-line titles sit
           at its bottom) and the blurb zone always 2 lines, so every card's text
