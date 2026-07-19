@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { searchAvailability } from "@/lib/qamf-bowling";
 import { getBowlingExperiences, type BowlingExperienceKind } from "@/lib/bowling-db";
 import { HP_LOCATIONS } from "@/lib/headpinz-locations";
+import {
+  earliestProbeMin,
+  etNowDateAndMinutes,
+} from "~/features/booking/service/availability-window";
 
 // Cold-start + 4-7 batches of 8 probes can exceed the default 10s budget
 // when QAMF auth is also cold. Other QAMF-touching routes use 30s; match
@@ -118,6 +122,7 @@ function buildFullDayProbeTimes(
   openHour: number,
   closeHour: number,
   stepMinutes = 15,
+  earliestMin = 0,
 ): string[] {
   const times: string[] = [];
   const [y, mo, d] = date.split("-").map(Number);
@@ -128,8 +133,16 @@ function buildFullDayProbeTimes(
   // (one probe per slot), so a finer step = more probes = slower. Callers that
   // need the WHOLE day (the bowling time picker) pass a coarser step (e.g. 60)
   // to stay under the function timeout; KBF reschedule keeps the 15-min default.
+  //
+  // `earliestMin` floors the scan for today (now + leadMinutes) — QAMF happily
+  // reports availability at times already past, which is how "12:00 PM" was
+  // still offered at 12:17 PM in every full-day consumer (tier badges, the
+  // offer step's widen scan, combos, KBF admin). The grid stays anchored at
+  // openHour so slot alignment (on-the-hour chips) is unchanged; past steps
+  // are skipped rather than shifting the grid.
   const step = Math.max(15, stepMinutes);
   for (let t = openHour * 60; t <= closeHour * 60; t += step) {
+    if (t < earliestMin) continue;
     const h = Math.floor(t / 60);
     const m = t % 60;
     const calHour = h % 24;
@@ -257,52 +270,32 @@ export async function GET(req: NextRequest) {
   // ── Build probe times ────────────────────────────────────────────
   const hasSelectedTime = hourStr !== null && minuteStr !== null;
   const { open: openHour, close: closeHour } = centerHoursForDate(centerId, startDate);
+
+  // Earliest allowed probe (minutes from midnight, 0-26h notation): opening
+  // time for future dates, now + leadMinutes for today (incl. the weekend
+  // post-midnight tail). Applied to BOTH modes — full-day previously had no
+  // floor, which is how past slots (12:00 PM at 12:17 PM) reached the tier
+  // badges, the widen scan, combos and the KBF admin.
+  const { nowDateEt, nowMinutesEt } = etNowDateAndMinutes();
+  const earliestMin = earliestProbeMin({
+    startDate,
+    nowDateEt,
+    nowMinutesEt,
+    openHour,
+    closeHour,
+    leadMinutes,
+  });
+
   let probeTimes: string[];
 
   if (hasSelectedTime) {
-    // Targeted mode: probe ±5 hours around the selected time so the tier
-    // step can show "Next available at …" when the exact time is sold out.
-    // Never probe before the current time if startDate is today.
+    // Targeted mode: probe ±windowMinutes around the selected time so the
+    // tier step can show "Next available at …" when the exact time is sold
+    // out. Default 300 (±5h); the coarse→fine bowling picker passes a small
+    // value (e.g. 45) to probe just the chosen hour at 15-min granularity.
     const hour = parseInt(hourStr!, 10);
     const minute = parseInt(minuteStr!, 10);
 
-    // Determine earliest allowed probe (in total minutes from midnight).
-    // For today: current ET time + 15 min lead. For future dates: open hour.
-    const todayET = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-    let earliestMin = openHour * 60;
-    if (startDate === todayET) {
-      const parts = new Intl.DateTimeFormat("en-US", {
-        hour: "numeric",
-        minute: "numeric",
-        hourCycle: "h23",
-        timeZone: "America/New_York",
-      }).formatToParts(new Date());
-      const nowH = parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10);
-      const nowM = parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10);
-      let nowTotalMin = nowH * 60 + nowM;
-      // Post-midnight (0–2 AM) → convert to 24+ notation so late-night
-      // Fri/Sat slots (hour 24–26) are correctly gated. BUT only apply
-      // this when the center actually HAS post-midnight hours (closeHour > 24,
-      // i.e. Fri/Sat). On other days, pre-opening browsing (e.g. 3 AM on
-      // Monday) should just use openHour as the floor — the +24*60 shift
-      // would push earliestMin past closeHour, generating zero probes.
-      if (nowH < 6 && closeHour > 24) {
-        nowTotalMin += 24 * 60;
-      }
-      // Only apply the "don't probe past times" filter when we're within
-      // operating hours. Before opening, openHour already floors the window.
-      if (nowTotalMin >= openHour * 60) {
-        earliestMin = Math.max(earliestMin, nowTotalMin + leadMinutes);
-      }
-    }
-    // Snap earliestMin UP to next multiple of 15 so QAMF gets clean
-    // quarter-hour probe times (QAMF rejects minutes not divisible by 5).
-    earliestMin = Math.ceil(earliestMin / 15) * 15;
-
-    // windowMinutes controls how far the probe fans out around the selected
-    // time. Default 300 (±5h — the "next available near X" behavior). The
-    // coarse→fine bowling picker passes a small value (e.g. 45) to probe just
-    // the chosen hour at 15-min granularity (~5 probes) instead of ±5h.
     const windowStart = Math.max(hour * 60 + minute - windowMinutes, earliestMin);
     const windowEnd = Math.min(hour * 60 + minute + windowMinutes, closeHour * 60);
 
@@ -313,8 +306,16 @@ export async function GET(req: NextRequest) {
       probeTimes.push(buildProbeTime(startDate, probeH, probeM, tzOffset));
     }
   } else {
-    // Full-day mode: probe open→close at the requested granularity (stepMinutes).
-    probeTimes = buildFullDayProbeTimes(startDate, tzOffset, openHour, closeHour, stepMinutes);
+    // Full-day mode: probe open→close at the requested granularity, floored
+    // to earliestMin for today.
+    probeTimes = buildFullDayProbeTimes(
+      startDate,
+      tzOffset,
+      openHour,
+      closeHour,
+      stepMinutes,
+      earliestMin,
+    );
   }
 
   // ── Probe QAMF ──────────────────────────────────────────────────
