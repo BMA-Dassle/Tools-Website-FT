@@ -14,6 +14,7 @@
  * restriction rules — that lands with the kiosk race step (the engine here
  * exposes the seam via the `blocked` predicate).
  */
+import { businessDayYmdET } from "@/lib/race-business-day";
 
 export interface CandidateSlot {
   /** BMI block start — ISO local wall-clock (as the adapters return it). */
@@ -68,10 +69,15 @@ export function slotLabel(start: string): string {
   });
 }
 
-/** Today's date (YYYY-MM-DD) in the venue's wall clock (kiosk PC = venue TZ). */
+/**
+ * The kiosk's OPERATING day (YYYY-MM-DD). Uses the venue "business day" that
+ * rolls over at 2 AM ET (lib/race-business-day) — the SAME convention the rest
+ * of the app uses for a night that runs past midnight — NOT the calendar
+ * midnight. Before 2 AM this is the PREVIOUS calendar date, so a post-midnight
+ * guest still sees (and books) the session that's still on the floor instead of
+ * an empty next-day search, and BMI's business-day dayplanner keeps those
+ * late-night heats under that date.
+ */
 export function todayYmd(now: Date = new Date()): string {
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  return businessDayYmdET(now);
 }

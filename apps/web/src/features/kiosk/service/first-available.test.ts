@@ -44,7 +44,12 @@ describe("labels", () => {
   it("formats slot labels", () => {
     expect(slotLabel("2026-07-17T16:15:00")).toBe("4:15 PM");
   });
-  it("formats today's ymd", () => {
-    expect(todayYmd(new Date(2026, 6, 17, 9, 0, 0))).toBe("2026-07-17");
+  it("resolves the operating day (2 AM-ET business-day rollover, TZ-safe)", () => {
+    // Daytime ET → that calendar date.
+    expect(todayYmd(new Date("2026-07-17T13:00:00Z"))).toBe("2026-07-17"); // 9 AM ET Jul 17
+    // Post-midnight but before 2 AM ET → still the PRIOR session's date.
+    expect(todayYmd(new Date("2026-07-18T05:00:00Z"))).toBe("2026-07-17"); // 1 AM ET Jul 18
+    // After 2 AM ET → the new day.
+    expect(todayYmd(new Date("2026-07-18T07:00:00Z"))).toBe("2026-07-18"); // 3 AM ET Jul 18
   });
 });
