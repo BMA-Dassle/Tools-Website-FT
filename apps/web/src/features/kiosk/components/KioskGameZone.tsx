@@ -918,7 +918,7 @@ export function KioskGameZone({
             {balCard.status === "reading" ? (
               <CardSlotGuide
                 label="Insert your card"
-                sublabel="Use the glowing green slot — it reads in a second and comes right back out"
+                sublabel="Use the card slot on the left — it reads in a second and comes right back out"
               />
             ) : (
               <BrandedLoader brand={brand} label="Checking balance…" />
@@ -1479,7 +1479,7 @@ export function KioskGameZone({
           ) : (
             <CardSlotGuide
               label="Insert your card"
-              sublabel="Use the glowing green slot — it reads in a second and comes right back"
+              sublabel="Use the card slot on the left — it reads in a second and comes right back"
             />
           )}
         </div>
