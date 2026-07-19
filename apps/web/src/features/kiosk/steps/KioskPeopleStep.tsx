@@ -1377,7 +1377,11 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                 <div>
                   <div className="k-eyebrow text-[#00e2e5]">Parent / guardian needed</div>
                   <h2 className="k-display mt-[8px] text-[44px]">
-                    A parent or guardian signs for {minor?.firstName ?? "this minor"}
+                    {guardianFlow.stage !== "choose"
+                      ? `A parent or guardian signs for ${minor?.firstName ?? "this minor"}`
+                      : candidates.length > 0
+                        ? `Select a guardian for ${minor?.firstName ?? "this minor"} — or add one below`
+                        : `Add a guardian for ${minor?.firstName ?? "this minor"}`}
                   </h2>
                   <p className="mt-[10px] text-[24px] text-white/55">
                     {minor?.firstName ?? "They"} is under 18, so an adult signs the waiver. The
@@ -1389,8 +1393,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                   <>
                     {candidates.length > 0 && (
                       <div>
-                        <div className="k-eyebrow mb-[12px] text-white/40">
-                          Adults here now — tap to sign
+                        <div className="k-eyebrow mb-[12px] text-[#00e2e5]">
+                          Tap a name to select
                         </div>
                         <div className="flex flex-wrap gap-[12px]">
                           {candidates.map((a) => {
@@ -1434,7 +1438,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                         }}
                         className="k-tap rounded-[28px] border-2 border-dashed border-[#00e2e5]/45 px-[24px] py-[28px] text-[28px] font-bold text-[#00e2e5]"
                       >
-                        + Add a new adult
+                        + Add a new guardian
                       </button>
                       <button
                         type="button"
