@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { IconFlag3 } from "@tabler/icons-react";
-import { bookingKeys, type PartyMember } from "~/features/booking";
+import { bookingKeys, RACE_AVAILABILITY_POLL_MS, type PartyMember } from "~/features/booking";
 import type { Action, BookingSession, RaceHeatAssignment, RaceItem } from "~/features/booking";
 import {
   derivePackagePicks,
@@ -417,6 +417,10 @@ export function PackageHeatPicker({
           quantity: racerCount,
         }),
       staleTime: 60_000,
+      // Semi-live grid: other guests' bookings surface without navigating
+      // (spot counts drop, filled heats grey) — owner 2026-07-19.
+      refetchInterval: RACE_AVAILABILITY_POLL_MS,
+      refetchIntervalInBackground: false,
     })),
   });
 

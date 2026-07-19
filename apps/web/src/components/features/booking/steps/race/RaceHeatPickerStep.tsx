@@ -3,7 +3,12 @@
 import { useMemo, useRef, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PartyMember, RaceHeatAssignment, RaceItem, StepDef } from "~/features/booking";
-import { bookingKeys, packageIdForCategory } from "~/features/booking";
+import {
+  bookingKeys,
+  packageIdForCategory,
+  BOOKED_HEATS_POLL_MS,
+  RACE_AVAILABILITY_POLL_MS,
+} from "~/features/booking";
 import {
   bmiAdapter,
   type BmiAvailabilityResponse,
@@ -356,6 +361,10 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
           }),
         enabled: !!item.date && fetchPlan.length > 0 && partySize > 0,
         staleTime: 60_000,
+        // Semi-live grid: other guests' bookings surface without navigating
+        // (spot counts drop, filled heats grey) — owner 2026-07-19.
+        refetchInterval: RACE_AVAILABILITY_POLL_MS,
+        refetchIntervalInBackground: false,
       })),
     });
 
@@ -440,6 +449,10 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       },
       enabled: !!item.date && racerPersonIds.length > 0,
       staleTime: 60_000,
+      // Semi-live: a heat the party books in ANOTHER reservation greys here
+      // without a remount (cheap Neon read — gentler cadence than the grid).
+      refetchInterval: BOOKED_HEATS_POLL_MS,
+      refetchIntervalInBackground: false,
     });
 
     // Gap enforcement spans ALL of this category's heats — every product/track the
