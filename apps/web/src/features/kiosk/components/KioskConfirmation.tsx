@@ -18,6 +18,11 @@ import { resetToKiosk } from "../version";
 import { KIOSK_LOGOS } from "../assets";
 import { readGzFulfillment, type GzFulfillmentPayload } from "../service/gz-fulfillment";
 import { KioskGzFulfillment } from "./KioskGzFulfillment";
+import {
+  readRacePackConfirmation,
+  clearRacePackConfirmation,
+  type RacePackConfirmLine,
+} from "../service/race-pack-confirmation";
 
 const AUTO_RESET_SECONDS = 60;
 
@@ -42,6 +47,10 @@ export function KioskConfirmation({ src }: { src: string | null }) {
   // Read client-side after mount (sessionStorage) to keep hydration clean.
   const [gzPayload, setGzPayload] = useState<GzFulfillmentPayload | null>(null);
   const [gzBusy, setGzBusy] = useState(false);
+  // Race packs bought with the booking — display-only outcome lines
+  // ("1 race today · 2 banked to Eric's account"); credits already granted
+  // server-side, so the stash is read-once + cleared.
+  const [racePacks, setRacePacks] = useState<RacePackConfirmLine[] | null>(null);
   useEffect(() => {
     let alive = true;
     void (async () => {
@@ -51,6 +60,11 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       if (p) {
         setGzPayload(p);
         setGzBusy(true);
+      }
+      const packs = readRacePackConfirmation();
+      if (packs) {
+        setRacePacks(packs);
+        clearRacePackConfirmation();
       }
     })();
     return () => {
@@ -104,7 +118,9 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       // With a card-fulfillment panel the column can exceed the canvas — scroll
       // from the top instead of center-clipping.
       className={`absolute inset-0 flex flex-col items-center gap-[36px] bg-[#000418] px-[64px] text-center ${
-        gzPayload ? "justify-start overflow-y-auto py-[56px]" : "justify-center overflow-hidden"
+        gzPayload || racePacks
+          ? "justify-start overflow-y-auto py-[56px]"
+          : "justify-center overflow-hidden"
       }`}
     >
       <div
@@ -133,6 +149,43 @@ export function KioskConfirmation({ src }: { src: string | null }) {
         Your confirmation and check-in links were just texted and emailed to you — that&rsquo;s your
         ticket, nothing to print.
       </p>
+      {racePacks && (
+        <div className="relative w-full max-w-[860px] rounded-[24px] border border-[#f0b341]/40 bg-white/[0.04] p-[32px] text-left">
+          <div className="k-eyebrow text-[#f0b341]">Race packs</div>
+          <div className="mt-[12px] space-y-[10px]">
+            {racePacks.map((p, i) => (
+              <div
+                key={`${p.memberName}-${i}`}
+                className="flex items-center justify-between gap-[16px] rounded-2xl border border-white/12 bg-white/[0.03] px-[24px] py-[16px]"
+              >
+                <div className="min-w-0">
+                  <div className="text-[26px] font-bold">{p.memberName}</div>
+                  <div className="text-[20px] text-white/50">{p.label}</div>
+                </div>
+                <div className="text-right text-[22px] leading-snug">
+                  {p.granted ? (
+                    p.usedToday > 0 ? (
+                      <span className="text-[#46d68c]">
+                        {p.usedToday} race{p.usedToday === 1 ? "" : "s"} today ·{" "}
+                        <span className="font-extrabold">{p.banked} banked</span>
+                      </span>
+                    ) : (
+                      <span className="text-[#46d68c]">
+                        <span className="font-extrabold">{p.raceCount} races banked</span> — ready
+                        any visit
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-amber-300/90">
+                      Credits are loading onto their account — ready in a few minutes
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {gzPayload && (
         <KioskGzFulfillment payload={gzPayload} onBusyChange={(busy) => setGzBusy(busy)} />
       )}

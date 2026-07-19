@@ -23,6 +23,7 @@ import {
   type KioskConfig,
 } from "../config";
 import { kioskGroupWaiverEnabled } from "../flags";
+import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { useKioskConfig } from "../KioskConfigContext";
 import { KIOSK_AD_SLIDES, KIOSK_LOGOS, KIOSK_PHOTOS } from "../assets";
 import { BrandedLoader } from "./BrandedLoader";
@@ -208,6 +209,14 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           <QuickChip label="Bowl now" onClick={() => start("bowl")} /> */}
           <QuickChip label="VIP Experience" gold onClick={() => start("vip")} />
           <QuickChip label="See everything" onClick={() => start()} />
+          {/* Standalone race packs (owner 2026-07-18) — FastTrax kiosks, a
+              LOCKED pack-only purchase flow (KioskRacePackFlow). Full-width so
+              the 2×2 grid never orphans a chip. Kill switch aware. */}
+          {kioskRacePacksEnabled() && config.brand === "fasttrax" && (
+            <span className="col-span-2">
+              <QuickChip label="Race packs — from $49.99" gold onClick={() => start("packs")} />
+            </span>
+          )}
         </span>
       </button>
 

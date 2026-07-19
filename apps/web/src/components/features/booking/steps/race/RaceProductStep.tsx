@@ -16,6 +16,8 @@ import { scheduleForDate, LICENSE_PRICE } from "~/features/booking/service/race-
 import { eligiblePackages } from "~/features/booking/service/packages";
 import { ComboUpsellCard } from "../combo/ComboUpsellCard";
 import { PackageCard } from "./PackageCard";
+import { RacePackTeaser } from "./RacePackTeaser";
+import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 
 /**
  * Race step — pick the product for ONE category (adult or junior).
@@ -389,6 +391,11 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
                 }}
               />
             ))}
+            {/* KIOSK race packs (credit packs) — teaser under Rookie Pack, per the
+                owner-approved mockup. Renders nothing off-kiosk / flag off. */}
+            {(category === "adult" || !hasAdults) && (
+              <RacePackTeaser item={item} session={session} onChange={onChange} />
+            )}
             {/* Kiosk: brighter divider — at arm's length the /30 version read as
                 nearly invisible, so guests never realized singles were below. */}
             <div className="flex items-center gap-3 py-2">
@@ -405,6 +412,12 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
           </div>
         )}
 
+        {/* Returning racers see no premium-packages block — the pack teaser
+            still shows (with its own divider) so packs sell on every screen. */}
+        {packages.length === 0 && (category === "adult" || !hasAdults) && (
+          <RacePackTeaser item={item} session={session} onChange={onChange} withDivider />
+        )}
+
         <div className="space-y-6">
           {groupByTier(sorted).map(([tier, tierProducts]) => {
             // A tier carries at most one single race (Red+Blue collapsed by
@@ -412,9 +425,18 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
             // one 3-pack. They render as ONE card — the pack is a pricing
             // option, not a competing product. `extras` is defensive: any
             // unexpected additional product still gets its own simple card.
+            // KIOSK + credit packs ON: hide the BOOKED Single|3-Pack columns so
+            // "pack" means exactly one thing on this machine (the credit-pack
+            // teaser above) — owner ask; web/staff keep selling booked packs.
+            const hideBookedPacks = kioskCompactPacks && kioskRacePacksEnabled();
             const single = tierProducts.find((p) => p.packType !== "combo");
-            const pack = tierProducts.find((p) => p.packType === "combo");
-            const extras = tierProducts.filter((p) => p !== single && p !== pack);
+            const pack = hideBookedPacks
+              ? undefined
+              : tierProducts.find((p) => p.packType === "combo");
+            const extras = tierProducts.filter(
+              (p) => p !== single && p !== pack && !(hideBookedPacks && p.packType === "combo"),
+            );
+            if (!single && !pack) return null;
             return (
               <div key={tier}>
                 <div className="mb-2 flex items-center gap-2.5">

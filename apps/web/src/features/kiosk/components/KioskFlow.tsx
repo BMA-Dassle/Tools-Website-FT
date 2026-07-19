@@ -58,6 +58,8 @@ import { KioskCategories } from "./KioskCategories";
 import { KioskHoldBar } from "./KioskHoldBar";
 import { KioskVipOverview } from "./KioskVipOverview";
 import { KioskGameZone } from "./KioskGameZone";
+import { KioskRacePackFlow } from "./KioskRacePackFlow";
+import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { IdleWatcher } from "./IdleWatcher";
 import { BrandedLoader, BrandedLoaderOverlay } from "./BrandedLoader";
 import { todayYmd } from "../service/first-available";
@@ -145,6 +147,9 @@ export function KioskFlow({ goto }: { goto: string | null }) {
   const [cartActive, setCartActive] = useState(false);
   const [checkoutActive, setCheckoutActive] = useState(false);
   const [gzOpen, setGzOpen] = useState(false);
+  // Standalone race-pack purchase (attract "Race Packs" chip) — a LOCKED
+  // pack-only flow; its party is local until "Race today" adopts it here.
+  const [packsOpen, setPacksOpen] = useState(false);
   // True while the Game Zone dispenser is mid-operation/holding — pauses the
   // idle watchdog so a guest isn't reset mid-dispense or during a fault hold.
   const [gzBusy, setGzBusy] = useState(false);
@@ -188,6 +193,14 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     if (!session.center) dispatch({ type: "setCenter", center: config.center });
     if (goto && !seededGotoRef.current) {
       seededGotoRef.current = true;
+      if (goto === "packs") {
+        // Standalone race packs (FastTrax kiosks; kill-switch aware). Deferred
+        // a microtask so the effect body stays setState-free (hooks-lint).
+        if (kioskRacePacksEnabled() && config.brand === "fasttrax") {
+          void Promise.resolve().then(() => setPacksOpen(true));
+        }
+        return;
+      }
       const seed = seedForGoto(goto);
       if (seed === "vip") {
         const combo = getComboSpecial("race-bowl");
@@ -905,6 +918,39 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           }
         />
       </div>,
+    );
+  }
+
+  // ── Standalone race packs (attract chip — LOCKED pack-only flow) ──
+  if (packsOpen) {
+    return chrome(
+      <div ref={contentRef} className="k-flow-body">
+        <KioskRacePackFlow
+          brand={config.brand}
+          center={config.center}
+          onExit={() => setPacksOpen(false)}
+          onRaceToday={(members) => {
+            // Adopt the pack buyers into the session party (skip anyone already
+            // there by person id) so racing never re-prompts a sign-in, then
+            // open the race flow exactly like the attract "Race now" chip.
+            const known = new Set(
+              session.party.map((m) => m.bmiPersonId).filter((id): id is string => !!id),
+            );
+            for (const m of members) {
+              if (m.bmiPersonId && known.has(m.bmiPersonId)) continue;
+              dispatch({ type: "addPartyMember", member: m });
+            }
+            setPacksOpen(false);
+            const existingRace = session.items.find((i) => i.kind === "race");
+            if (existingRace) {
+              dispatch({ type: "setActiveItem", id: existingRace.id });
+            } else {
+              dispatch({ type: "addItem", item: stampToday(newItem("race")) });
+            }
+          }}
+        />
+      </div>,
+      KIOSK_PHOTOS.race,
     );
   }
 

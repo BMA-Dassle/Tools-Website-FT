@@ -47,6 +47,15 @@ import { kioskTerminalEnabled, kioskGzCartEnabled } from "~/features/kiosk/flags
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { centerCodeFor } from "~/config/intercard-centers";
 import { stashGzFulfillment as stashKioskGameCards } from "~/features/kiosk/service/gz-fulfillment";
+import { stashRacePackConfirmation } from "~/features/kiosk/service/race-pack-confirmation";
+import {
+  kioskRacePacksEnabled,
+  resolveKioskPacks,
+  computePackCoverage,
+} from "~/features/booking/service/race-pack-kiosk";
+import { buildRaceChargeLines } from "~/features/booking/service/checkout";
+import { redeemedHeatSet } from "~/features/booking/data/race-credits";
+import type { RaceHeatAssignment } from "~/features/booking";
 import dynamic from "next/dynamic";
 
 // Kiosk-only card-present capture. Dynamically imported so the kiosk feature
@@ -360,6 +369,50 @@ export function CheckoutStep({
       if (bmiOverview) {
         for (const line of bmiOverview.lines) {
           reviewLines.push(line);
+        }
+      }
+
+      // KIOSK race packs riding this cart (owner final design 2026-07-18): the
+      // pack is a DAY-OF revenue line (taxed like everything else on that
+      // order), so it joins the review BEFORE the subtotal/tax math — unlike
+      // the Game Zone cards, which ride the untaxed deposit order below. The
+      // assignee's covered today-heats show as ONE negative line whose amount
+      // is DIFFERENCED from the same buildRaceChargeLines call the reserve's
+      // charge uses, so display and charge cannot drift.
+      if (session.context?.kiosk && kioskRacePacksEnabled() && !activeComboSpecial(session)) {
+        const packSelections = session.items.flatMap((i) =>
+          i.kind === "race" ? (i.creditPacks ?? []) : [],
+        );
+        if (packSelections.length > 0) {
+          try {
+            const packs = resolveKioskPacks(packSelections, session.party);
+            for (const p of packs) {
+              reviewLines.push({
+                name: `Race Pack — ${p.label} · ${p.memberName}`,
+                quantity: 1,
+                amount: p.priceCents / 100,
+              });
+            }
+            const redeemed = redeemedHeatSet(session);
+            const coverage = computePackCoverage(session, packs, redeemed);
+            if (coverage.heats.size > 0) {
+              const sumLines = (ex: Set<RaceHeatAssignment>) =>
+                buildRaceChargeLines(session, ex).reduce((s, l) => s + l.amount, 0);
+              const covered =
+                Math.round(
+                  (sumLines(redeemed) - sumLines(new Set([...redeemed, ...coverage.heats]))) * 100,
+                ) / 100;
+              if (covered > 0) {
+                reviewLines.push({
+                  name: "Today's races — covered by race pack",
+                  quantity: 1,
+                  amount: -covered,
+                });
+              }
+            }
+          } catch {
+            /* bad pointers → the reserve rejects the charge; review shows without packs */
+          }
         }
       }
 
@@ -1349,6 +1402,7 @@ export function CheckoutStep({
           });
 
           stashKioskGameCards((result as { gameCards?: unknown }).gameCards);
+          stashRacePackConfirmation((result as { racePacks?: unknown }).racePacks);
           await saveBookingDetails(sessionForReserve, effectiveBillId, overview, contact);
           clearBookingSession(storageKey);
 

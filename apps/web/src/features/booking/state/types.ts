@@ -116,10 +116,6 @@ export interface PartyMember {
    *  phone/email become session.contact so there's no separate contact step. */
   phone?: string;
   email?: string;
-  /** Kiosk race packs: slugs of RACE_PACKS assigned to THIS person (owner
-   *  2026-07-18 — assign packs per person). Each grants that person's credits at
-   *  checkout. Flag-gated (kioskPacksEnabled) money path — see tasks/kiosk-race-packs.md. */
-  pendingPacks?: string[];
   /** Kiosk: this person's date of birth as an ISO "YYYY-MM-DD" string, captured
    *  from a returning-racer lookup so the setup form never re-asks a birthday we
    *  already have on file (owner 2026-07-19). Ignored by the web flow. */
@@ -170,6 +166,15 @@ export interface RaceItem extends BookingItemBase {
    * vs the new-racer quantity counters ("new"). null until chosen.
    */
   entryMode?: "new" | "existing" | null;
+  /**
+   * KIOSK race packs (CREDIT packs — owner final design 2026-07-18): selection
+   * POINTERS only ({RACE_PACKS slug, party memberId}); every price/kind/label
+   * re-derives server-side (race-pack-kiosk.ts). One pack per member (replace
+   * semantics). The pack line rides the DAY-OF Square order; the assignee's
+   * today heats are credit-covered post-grant. Absent on web sessions —
+   * additive, no schema bump.
+   */
+  creditPacks?: Array<{ slug: string; memberId: string }>;
   /**
    * YYYY-MM-DD — the race day. All heats[] fall on this date. The wizard's
    * Date step writes this; subsequent steps (Product, HeatPicker) filter
@@ -729,7 +734,6 @@ export function newPartyMember(args: {
   isMinor?: boolean;
   phone?: string;
   email?: string;
-  pendingPacks?: string[];
   dobIso?: string;
 }): PartyMember {
   return {
@@ -747,7 +751,6 @@ export function newPartyMember(args: {
     isMinor: args.isMinor,
     phone: args.phone,
     email: args.email,
-    pendingPacks: args.pendingPacks,
     dobIso: args.dobIso,
   };
 }

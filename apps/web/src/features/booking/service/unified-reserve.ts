@@ -18,6 +18,16 @@ import {
 import { kioskTerminalEnabled, kioskGzCartEnabled } from "~/features/kiosk/flags";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { startTxn, markCharged, markLoadState } from "~/features/game-cards/data/transactions-log";
+import {
+  kioskRacePacksEnabled,
+  resolveKioskPacks,
+  computePackCoverage,
+  type ResolvedKioskPack,
+  type PackCoverage,
+} from "./race-pack-kiosk";
+import { grantKioskRacePacks } from "./race-pack-grant.server";
+import { upsertPackPurchases, markPackCharged } from "../data/race-pack-purchases-db";
+import { SQUARE_RACE_PACK_CATALOG_ID } from "../data/packs";
 import { centerCodeFor } from "~/config/intercard-centers";
 import { after } from "next/server";
 import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
@@ -169,6 +179,17 @@ export interface UnifiedReserveResult {
   totalCents: number;
   /** Present only when Game Zone cards rode this booking (kiosk). */
   gameCards?: GameCardFulfillment;
+  /** Present only when kiosk race packs rode this booking — per pack:
+   *  "{usedToday} used today, {banked} banked"; granted=false means the retry
+   *  sweep owns the grant (confirmation copy degrades honestly). */
+  racePacks?: Array<{
+    memberName: string;
+    label: string;
+    raceCount: number;
+    usedToday: number;
+    banked: number;
+    granted: boolean;
+  }>;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -240,6 +261,8 @@ function buildCombinedLineItems(session: BookingSession): {
   sqLineItems: SquareLineItem[];
   depositPct: number;
   promoSavingsCents: number;
+  kioskPacks: ResolvedKioskPack[];
+  packCoverage: PackCoverage;
 } {
   const sqLineItems: SquareLineItem[] = [];
   let totalPriceCents = 0;
@@ -327,7 +350,28 @@ function buildCombinedLineItems(session: BookingSession): {
   // combined eligible balance, so a racer with fewer credits than heats still pays
   // cash for the uncovered heats instead of zeroing the whole order.
   const redeemedHeats = redeemedHeatSet(session);
-  for (const bl of buildRaceChargeLines(session, redeemedHeats)) {
+
+  // KIOSK race packs (CREDIT packs, owner final design 2026-07-18): the pack
+  // line rides THIS day-of order (owner: "race packs sold via race flow go on
+  // the day-of order") at 100% deposit, and the assignee's today heats are
+  // pack-covered — excluded here exactly like credit-redeemed heats ($0 on
+  // Square; one credit deducted post-grant). Net = the owner's sentence:
+  // "one payment, one race today, two added to the account." resolveKioskPacks
+  // throws on any bad pointer (fail-closed — never charge on a broken pack).
+  const kioskPacks: ResolvedKioskPack[] =
+    session.context?.kiosk && kioskRacePacksEnabled()
+      ? resolveKioskPacks(
+          session.items.flatMap((i) => (i.kind === "race" ? (i.creditPacks ?? []) : [])),
+          session.party,
+        )
+      : [];
+  const packCoverage: PackCoverage = computePackCoverage(session, kioskPacks, redeemedHeats);
+  const excludedHeats =
+    packCoverage.heats.size > 0
+      ? new Set([...redeemedHeats, ...packCoverage.heats])
+      : redeemedHeats;
+
+  for (const bl of buildRaceChargeLines(session, excludedHeats)) {
     const totalCents = Math.round(bl.amount * 100);
     const unitCents = bl.quantity > 0 ? Math.round(totalCents / bl.quantity) : totalCents;
     const catalogId =
@@ -375,10 +419,24 @@ function buildCombinedLineItems(session: BookingSession): {
     });
   }
 
+  // Pack lines LAST (after every booked-thing line) — one revenue line per
+  // pack on the day-of order, web race-pack Square SKU, collected in FULL
+  // (credits grant right after payment, so the deposit must cover them).
+  for (const p of kioskPacks) {
+    totalPriceCents += p.priceCents;
+    totalDepositCents += p.priceCents;
+    sqLineItems.push({
+      name: `Race Pack — ${p.label} · ${p.memberName}`,
+      quantity: "1",
+      catalogObjectId: SQUARE_RACE_PACK_CATALOG_ID,
+      basePriceMoney: { amount: p.priceCents, currency: "USD" },
+    });
+  }
+
   const depositPct =
     totalPriceCents > 0 ? Math.round((totalDepositCents / totalPriceCents) * 100) : 100;
 
-  return { sqLineItems, depositPct, promoSavingsCents };
+  return { sqLineItems, depositPct, promoSavingsCents, kioskPacks, packCoverage };
 }
 
 // ── Kiosk direct-Terminal persist-first anchor ────────────────────────
@@ -733,10 +791,19 @@ async function unifiedReserveInner(
   }
 
   // ── 2. Build combined Square line items ────────────────────────────
-  const { sqLineItems, depositPct, promoSavingsCents } = buildCombinedLineItems(session);
+  const { sqLineItems, depositPct, promoSavingsCents, kioskPacks, packCoverage } =
+    buildCombinedLineItems(session);
 
   if (sqLineItems.length === 0) {
     throw new Error("No line items to charge");
+  }
+
+  // ── 2a-packs. Persist race-pack grant obligations BEFORE any money moves
+  // (persist-first: throws if the DB is down — never charge on an unpersisted
+  // obligation). Idempotent on baseKey, so prepare + finalize re-write the
+  // same rows.
+  if (kioskPacks.length > 0) {
+    await upsertPackPurchases({ purchaseKey: baseKey, surface: "booking", packs: kioskPacks });
   }
 
   // ── 2b. Validate credit redemptions (charge-time re-eval) ─────────
@@ -968,6 +1035,8 @@ async function unifiedReserveInner(
   } = { depositOrderId: null, depositPaymentId: null, giftCardId: null, giftCardGan: null };
   /** KIOSK: charged Game Zone card rows for the confirmation screen to fulfill. */
   let gameCardFulfillment: GameCardFulfillment | undefined;
+  /** KIOSK: race-pack outcomes for the confirmation screen ("1 used, 2 banked"). */
+  let racePacksResult: UnifiedReserveResult["racePacks"];
 
   const useTerminal = kioskTerminalEnabled() && !!input.externalPayment;
 
@@ -1195,6 +1264,15 @@ async function unifiedReserveInner(
       depositCents: 0,
       locationId,
     };
+  }
+
+  // Race packs: the deposit (which includes the full pack price) is captured —
+  // stamp the ledger rows charged with the order/payment ids (audit + recovery).
+  if (kioskPacks.length > 0) {
+    await markPackCharged(baseKey, {
+      squareOrderId: squareDayofOrderId,
+      squarePaymentId: depositResult.depositPaymentId,
+    }).catch((err) => console.error("[race-pack] markPackCharged failed (non-fatal):", err));
   }
 
   // ── Record the USA250 redemption (idempotent, soft-fail) ──────────
@@ -1930,6 +2008,29 @@ async function unifiedReserveInner(
         await deductCreditRedemptions(creditRedemptions, { billId: bmiBillId });
       }
 
+      // KIOSK race packs: money verified + booking confirmed → grant each pack's
+      // credits (NX-idempotent, sweep-recovered), THEN cover today's heats by
+      // deducting against the just-granted balance via the same redeem rail.
+      // Order matters: grant before deduct. Neither throws — the guest's booking
+      // already succeeded; failures recover forward.
+      if (kioskPacks.length > 0) {
+        const outcomes = await grantKioskRacePacks({ purchaseKey: baseKey, packs: kioskPacks });
+        if (packCoverage.redemptions.length > 0) {
+          await deductCreditRedemptions(packCoverage.redemptions, { billId: bmiBillId });
+        }
+        racePacksResult = kioskPacks.map((p) => {
+          const usedToday = packCoverage.usedByMember.get(p.memberId) ?? 0;
+          return {
+            memberName: p.memberName,
+            label: p.label,
+            raceCount: p.pack.raceCount,
+            usedToday,
+            banked: p.pack.raceCount - usedToday,
+            granted: outcomes.find((o) => o.memberId === p.memberId)?.granted ?? false,
+          };
+        });
+      }
+
       // Promote the anchor → confirmed. Non-fatal: race-confirm-reconcile
       // promotes it if this fails (re-confirm is a cached no-op via bmi:confirmed).
       if (bmiNeonId != null) {
@@ -2067,6 +2168,7 @@ async function unifiedReserveInner(
     depositCents,
     totalCents: dayofTotalCents,
     ...(gameCardFulfillment ? { gameCards: gameCardFulfillment } : {}),
+    ...(racePacksResult ? { racePacks: racePacksResult } : {}),
   };
 }
 

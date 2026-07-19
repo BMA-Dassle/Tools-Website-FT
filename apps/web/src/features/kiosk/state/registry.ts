@@ -13,7 +13,6 @@ import { KioskBowlingTimeStep } from "../steps/KioskBowlingTimeStep";
 import { KioskBowlingTierStep } from "../steps/KioskBowlingTierStep";
 import { KioskBowlingPeopleStep } from "../steps/KioskBowlingPeopleStep";
 import { KioskRacePeopleStep, KioskAttractionPeopleStep } from "../steps/KioskPeopleStep";
-import { KioskRacePackStep } from "../steps/KioskRacePackStep";
 
 export const KIOSK_SCHEMA_VERSION = 9; // v9: race-pack step (flag-gated, off by default)
 export const KIOSK_SESSION_STORAGE_KEY = "kiosk_booking_session";
@@ -87,39 +86,35 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   // new/returning fork (race-experience) is dropped — the product/heat steps
   // read session.party (isNewRacer/memberships/category) directly and already
   // span tiers for a mixed party, Starter-gating the new racers at heats.
-  race: insertAfter(
-    replaceStep(
-      // Drop the web combo OVERVIEW step (combo-intro) — the kiosk shows its own
-      // readable KioskVipOverview BEFORE the flow, so the in-flow one was a
-      // duplicate (owner: "not sure why we have two steps"). Also drop the combo
-      // "Your Schedule" REVIEW step (combo-itinerary): the schedule-confirm modal
-      // already showed + booked the whole itinerary, so on the kiosk it was a
-      // dead extra tap (owner 2026-07-18: "shouldn't exist — just return to main
-      // menu"); KioskFlow treats the cursor landing past combo-start as
-      // combo-complete and returns to the category chooser.
-      STEP_REGISTRY.race
-        .filter(
-          (s) =>
-            s.id !== "race-date" &&
-            s.id !== "race-experience" &&
-            s.id !== "combo-intro" &&
-            s.id !== "combo-itinerary",
-        )
-        // Preselected-package launch (Experiences → Ultimate Qualifier tile) skips
-        // the product step so the guest doesn't reselect what they just tapped.
-        .map((s) =>
-          s.id === "race-product-adult" || s.id === "race-product-junior"
-            ? skipWhenPreselected(s)
-            : s,
-        ),
-      "race-party",
-      KioskRacePeopleStep as StepDef,
-    ),
-    // Optional per-person race packs right after the people list (everyone has a
-    // bmiPersonId by now). Self-hides via kioskPacksEnabled() (OFF until the
-    // pack money path ships + is smoked).
+  // Race packs (credit packs) live INSIDE the product step as a teaser card +
+  // the standalone attract-screen flow — no dedicated wizard step (owner final
+  // design 2026-07-18; the old flag-dark KioskRacePackStep was retired).
+  race: replaceStep(
+    // Drop the web combo OVERVIEW step (combo-intro) — the kiosk shows its own
+    // readable KioskVipOverview BEFORE the flow, so the in-flow one was a
+    // duplicate (owner: "not sure why we have two steps"). Also drop the combo
+    // "Your Schedule" REVIEW step (combo-itinerary): the schedule-confirm modal
+    // already showed + booked the whole itinerary, so on the kiosk it was a
+    // dead extra tap (owner 2026-07-18: "shouldn't exist — just return to main
+    // menu"); KioskFlow treats the cursor landing past combo-start as
+    // combo-complete and returns to the category chooser.
+    STEP_REGISTRY.race
+      .filter(
+        (s) =>
+          s.id !== "race-date" &&
+          s.id !== "race-experience" &&
+          s.id !== "combo-intro" &&
+          s.id !== "combo-itinerary",
+      )
+      // Preselected-package launch (Experiences → Ultimate Qualifier tile) skips
+      // the product step so the guest doesn't reselect what they just tapped.
+      .map((s) =>
+        s.id === "race-product-adult" || s.id === "race-product-junior"
+          ? skipWhenPreselected(s)
+          : s,
+      ),
     "race-party",
-    KioskRacePackStep as StepDef,
+    KioskRacePeopleStep as StepDef,
   ),
   // Kiosk = walk-up: no date step (always today). LEAD with the same people
   // list (owner: "add people new or returning", not a bare YOUR INFO form) —
