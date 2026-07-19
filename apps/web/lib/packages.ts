@@ -811,6 +811,16 @@ export function packageSavings(pkg: PackageDefinition, racerCount: number): numb
   return Math.max(0, retail - total);
 }
 
+/** Lowest per-racer price (dollars) across ENABLED variants of a package family
+ *  (id prefix, e.g. "ultimate-qualifier"). Powers the kiosk/marketing
+ *  "From $X/person" teaser. null when the family has no enabled variant. */
+export function packageFamilyFromPrice(familyPrefix: string): number | null {
+  const prices = PACKAGES.filter((p) => p.enabled && p.id.startsWith(familyPrefix)).map(
+    packagePerRacerPrice,
+  );
+  return prices.length ? Math.min(...prices) : null;
+}
+
 /** Pull the gap rule for a component, if any. */
 export function packageHeatGapMinutes(
   component: PackageRaceComponent,
