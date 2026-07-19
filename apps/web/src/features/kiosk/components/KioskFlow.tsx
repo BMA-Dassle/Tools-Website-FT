@@ -300,6 +300,30 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     return hasOtherItem || hasVerifiedRacer;
   };
 
+  /** True when anything in the cart holds real vendor state — a booked BMI
+   *  line (race heat / attraction slot) or a QAMF lane hold. Everything else
+   *  is a local draft the guest merely started and backed out of. */
+  const cartHasVendorHolds = (): boolean =>
+    session.items.some((i) => {
+      if (i.kind === "race") return i.heats.some((h) => !!h.bmiLineId);
+      if (i.kind === "attraction") return !!(i as AttractionItem).bmiLineId;
+      if (i.kind === "bowling") return !!(i as BowlingItem).qamfReservationId;
+      return false; // kbf holds nothing until checkout
+    });
+
+  /** Drop every DRAFT item so a new pick starts clean — owner 2026-07-18:
+   *  "shouldn't we just remove any unfinished flows from cart?" (a guest who
+   *  backed out of a half-built VIP was locked out of plain racing by its
+   *  leftovers). Only called when cartHasVendorHolds() is false, so this is
+   *  pure state surgery — nothing anywhere to release. */
+  const clearUnfinishedCart = () => {
+    for (const i of session.items) dispatch({ type: "removeItem", id: i.id });
+    if (session.comboSpecialId) dispatch({ type: "setComboSpecial", id: null });
+    // A stale preferred package would silently re-seed itself onto the next
+    // race item (the variant-resolve effect above keys off it).
+    if (session.preferredPackageId) dispatch({ type: "setPreferredPackage", id: null });
+  };
+
   const pickOffering = (offering: ActivityOffering) => {
     // A bundle owns its race + bowling legs: the individual tiles used to
     // RE-OPEN those seeded items (racing re-entered the combo wizard, bowling
@@ -309,13 +333,25 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     // lane can live in the same cart (needs the combo pricing collapse to
     // ignore it — separate verified change), steer to a follow-on booking.
     // Independent attractions (gel/laser/duckpin/shuffleboard) stay available.
+    // An UNFINISHED bundle (nothing actually held with a vendor) doesn't block
+    // anything: drop the leftovers and start the tapped activity clean.
     if (session.comboSpecialId && offering.kind === "race") {
+      if (!cartHasVendorHolds()) {
+        clearUnfinishedCart();
+        dispatch({ type: "addItem", item: stampToday(newItem("race")) });
+        return;
+      }
       setKioskError(
         "Your Ultimate VIP experience already includes racing — it's all in one price.",
       );
       return;
     }
     if (session.comboSpecialId && (offering.kind === "bowling" || offering.kind === "kbf")) {
+      if (!cartHasVendorHolds()) {
+        clearUnfinishedCart();
+        dispatch({ type: "addItem", item: stampToday(newItem(offering.kind)) });
+        return;
+      }
       setKioskError(
         "Your Ultimate VIP includes a VIP lane. To add a separate lane for extra guests, finish this checkout first, then book bowling as its own order — takes under a minute.",
       );
@@ -352,10 +388,14 @@ export function KioskFlow({ goto }: { goto: string | null }) {
       return;
     }
     if (session.items.length > 0) {
-      setKioskError(
-        "Finish or remove your current activities before starting a premium racing experience.",
-      );
-      return;
+      if (cartHasVendorHolds()) {
+        setKioskError(
+          "Finish or remove your current activities before starting a premium racing experience.",
+        );
+        return;
+      }
+      // Drafts only — clear the leftovers and proceed (owner 2026-07-18).
+      clearUnfinishedCart();
     }
     dispatch({ type: "setPreferredPackage", id: family });
     const item = stampToday(newItem("race"));
@@ -375,8 +415,14 @@ export function KioskFlow({ goto }: { goto: string | null }) {
       }
     }
     if (session.items.length > 0) {
-      setKioskError("Finish or remove your current activities before adding a bundled experience.");
-      return;
+      if (cartHasVendorHolds()) {
+        setKioskError(
+          "Finish or remove your current activities before adding a bundled experience.",
+        );
+        return;
+      }
+      // Drafts only — clear the leftovers and proceed (owner 2026-07-18).
+      clearUnfinishedCart();
     }
     setVipCombo(combo);
   };
@@ -1084,6 +1130,23 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           sublabel="Reserving your races and holding your lane…"
         />
       )}
+
+      {/* Booking the picked heats/slot takes real vendor seconds — and for race
+          PACKAGES the picker re-mounts its GRID beneath (once every heat carries
+          a bmiLineId, the "already picked" gate flips back to the grid), which
+          read as "it sent me back to the race screen for ~10 seconds" (owner
+          2026-07-18, Ultimate Qualifier). Cover the step until the advance
+          lands — bookingHeats stays true through advanceToNextStep. */}
+      {bookingHeats &&
+        (currentStep.id === "race-heat-adult" ||
+          currentStep.id === "race-heat-junior" ||
+          currentStep.id === "attraction-slot") && (
+          <BrandedLoaderOverlay
+            brand={config.brand}
+            label={activeItem.kind === "race" ? "Locking in your races" : "Reserving your time"}
+            sublabel={bookingHeatsProgress || "One moment…"}
+          />
+        )}
     </>,
     backdropPhoto,
   );

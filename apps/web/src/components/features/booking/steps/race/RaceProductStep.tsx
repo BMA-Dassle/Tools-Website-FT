@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { IconDiscount2 } from "@tabler/icons-react";
 import type { RaceItem, StepDef } from "~/features/booking";
 import { membershipDiscountsForNames } from "~/features/booking/service/membership-discounts";
@@ -130,6 +130,11 @@ function groupByTier(products: RaceProduct[]): [RaceTier, RaceProduct[]][] {
 
 function makeProductStepComponent(category: Category): StepDef<RaceItem>["Component"] {
   const Component: StepDef<RaceItem>["Component"] = ({ item, session, onChange }) => {
+    // KIOSK ONLY: packs render as compact teaser accordions (owner 2026-07-18 —
+    // the rich cards pushed single races two screens down the portrait kiosk).
+    // One pack's details open at a time. Web renders the rich cards unchanged.
+    const kioskCompactPacks = !!session.context?.kiosk;
+    const [openPackDetails, setOpenPackDetails] = useState<string | null>(null);
     if (!item.date) {
       return (
         <div className="text-center text-sm text-white/50">
@@ -357,6 +362,11 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
                 racerCount={racerCount}
                 date={item.date}
                 isSelected={selectedPackageId === pkg.id}
+                compact={kioskCompactPacks}
+                detailsOpen={openPackDetails === pkg.id}
+                onToggleDetails={() =>
+                  setOpenPackDetails((cur) => (cur === pkg.id ? null : pkg.id))
+                }
                 onSelect={() => {
                   // Persist the package pick on item state so back-nav
                   // doesn't lose it + so saveBookingDetails forwards it
@@ -379,12 +389,18 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
                 }}
               />
             ))}
+            {/* Kiosk: brighter divider — at arm's length the /30 version read as
+                nearly invisible, so guests never realized singles were below. */}
             <div className="flex items-center gap-3 py-2">
-              <div className="h-px flex-1 bg-white/10" />
-              <span className="text-xs uppercase tracking-wider text-white/30">
+              <div className={`h-px flex-1 ${kioskCompactPacks ? "bg-white/25" : "bg-white/10"}`} />
+              <span
+                className={`text-xs uppercase tracking-wider ${
+                  kioskCompactPacks ? "font-bold text-white/60" : "text-white/30"
+                }`}
+              >
                 or pick a single race
               </span>
-              <div className="h-px flex-1 bg-white/10" />
+              <div className={`h-px flex-1 ${kioskCompactPacks ? "bg-white/25" : "bg-white/10"}`} />
             </div>
           </div>
         )}

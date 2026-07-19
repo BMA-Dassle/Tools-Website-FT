@@ -182,6 +182,11 @@ export function PackageHeatPicker({
   const currentComponent = sortedComponents[currentComponentIdx] ?? null;
   const pickedCount = sortedComponents.filter((c) => picks.has(c.ref)).length;
   const allPicked = pickedCount === totalComponents;
+  // Highest-sequence pick so far — headlines the step banner ("✓ Starter locked
+  // in") so the hand-off to the NEXT race is unmissable (owner 2026-07-18:
+  // guests picked race 1 and never realized the grid had moved on to race 2).
+  const lastPicked = [...sortedComponents].reverse().find((c) => picks.has(c.ref)) ?? null;
+  const stepBannerRef = useRef<HTMLDivElement>(null);
 
   // Fetch availability for ALL components + tracks in parallel
   const fetchItems = useMemo(
@@ -334,6 +339,15 @@ export function PackageHeatPicker({
     }
   }, [picks, sortedComponents, currentComponentIdx]);
 
+  // When a pick hands the flow to the next race, pull the step banner back into
+  // view — mid-grid the guest can't see that the header now says "pick your
+  // Intermediate race" and reads the untouched grid as "nothing happened".
+  useEffect(() => {
+    if (pickedCount > 0 && !allPicked) {
+      stepBannerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [currentComponentIdx, pickedCount, allPicked]);
+
   function handleClickHeat(tp: TrackedProposal) {
     if (tp.component.ref !== currentComponent?.ref) return;
 
@@ -420,12 +434,26 @@ export function PackageHeatPicker({
 
       <ProgressDots current={pickedCount} total={totalComponents} />
 
-      {/* Current-step banner */}
+      {/* Current-step banner — after the first pick it flips to a loud
+          "race 1 locked → now pick race 2" hand-off (owner 2026-07-18). */}
       {currentComponent && !allPicked ? (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.06] px-4 py-2 text-center">
+        <div
+          ref={stepBannerRef}
+          className={`scroll-mt-4 rounded-lg border px-4 py-2 text-center ${
+            lastPicked
+              ? "border-emerald-500/40 bg-emerald-500/[0.08]"
+              : "border-amber-500/30 bg-amber-500/[0.06]"
+          }`}
+        >
+          {lastPicked && picks.get(lastPicked.ref) && (
+            <p className="mb-1 text-xs font-semibold text-emerald-300">
+              ✓ {lastPicked.label} locked in · {formatTime(picks.get(lastPicked.ref)!.block.start)}
+            </p>
+          )}
           <p className="text-xs font-bold uppercase tracking-widest text-amber-300">
-            Step {currentComponent.sequence} of {totalComponents} · Pick your{" "}
-            {currentComponent.label}
+            {lastPicked
+              ? `Now pick your ${currentComponent.label}`
+              : `Step ${currentComponent.sequence} of ${totalComponents} · Pick your ${currentComponent.label}`}
           </p>
           {packageHeatGapMinutes(currentComponent) && (
             <p className="mt-1 text-xs text-white/40">
