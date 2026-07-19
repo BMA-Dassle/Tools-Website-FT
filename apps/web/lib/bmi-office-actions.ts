@@ -798,7 +798,7 @@ const BMI_USERNAME = process.env.BMI_USERNAME || "";
 const BMI_PASSWORD = process.env.BMI_PASSWORD || "";
 const publicTokenCache: Record<string, { token: string; expiry: number }> = {};
 
-async function getPublicBookingToken(clientKey: string): Promise<string> {
+export async function getPublicBookingToken(clientKey: string): Promise<string> {
   const cached = publicTokenCache[clientKey];
   if (cached && Date.now() < cached.expiry - 60_000) return cached.token;
   const res = await fetch(`${BMI_PUBLIC_API_URL}/auth/${clientKey}/publicbooking`, {

@@ -42,6 +42,30 @@ export function kioskTerminalEnabled(): boolean {
 }
 
 /**
+ * Group & online waiver flow on the kiosk — OPT-IN (defaults OFF). Gates the
+ * attract-screen entry button. The /kiosk/waiver page itself stays reachable
+ * by typed URL for the staff smoke; this flag is the public exposure switch,
+ * flipped to "true" in Vercel + redeploy after the owner live smoke.
+ */
+export function kioskGroupWaiverEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_GROUP_WAIVER_ENABLED === "true";
+}
+
+/**
+ * BMI registerProjectPerson attach for kiosk waiver joins — OPT-IN (defaults
+ * OFF), server-side only (the join route is the sole consumer, so no
+ * NEXT_PUBLIC prefix). registerProjectPerson is proven on fresh booking
+ * bills; against an existing confirmed project it must pass the
+ * scripts/kiosk-waiver-attach-probe.mts dry-run first (public-booking orderId
+ * and Office projectId can differ — see /api/bmi verifyPostConfirm). Until
+ * this is "1", joins persist to Neon with status 'skipped' and the kiosk
+ * roster unions them in — the guest experience is whole either way.
+ */
+export function kioskWaiverBmiAttachEnabled(): boolean {
+  return process.env.KIOSK_WAIVER_BMI_ATTACH === "1";
+}
+
+/**
  * Game Zone cards riding the booking cart (owner 2026-07-18: with items in the
  * cart, cards "should just be in the cart" — one payment at the shared
  * checkout, card lines on the DEPOSIT order, fulfillment on the confirmation
