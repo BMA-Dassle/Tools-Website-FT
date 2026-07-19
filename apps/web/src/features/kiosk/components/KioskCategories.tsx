@@ -68,9 +68,11 @@ export function KioskCategories({
   // The Ultimate Qualifier is a premium FastTrax racing PACKAGE (not a combo);
   // surface it in Experiences wherever racing is offered.
   const showQualifier = offerings.some((o) => o.kind === "race");
-  // "From $X/person" teaser = lowest enabled Ultimate Qualifier variant (junior
-  // weekday today). Same computed price the picker/checkout use — display only.
-  const qualifierFrom = packageFamilyFromPrice("ultimate-qualifier");
+  // Per-day-tier "From $X/person" teasers = lowest enabled Ultimate Qualifier
+  // variant for each tier (junior variants price the floor). Mega Tuesday is a
+  // Mon–Thu day. Same computed prices the picker/checkout use — display only.
+  const qualifierFromWeekday = packageFamilyFromPrice("ultimate-qualifier", ["weekday", "mega"]);
+  const qualifierFromWeekend = packageFamilyFromPrice("ultimate-qualifier", ["weekend"]);
   const hasCart = session.items.length > 0;
   // (The old "Your visit so far" strip is gone — KioskFlow's chrome now shows
   // the persistent signed-in + cart session banner on every screen instead.)
@@ -156,7 +158,10 @@ export function KioskCategories({
                     // overview screen this opens). The prose shortDescription was
                     // too long for the tile and overran it (owner 2026-07-18) — use
                     // the "what you get" list, which is short + scannable.
-                    blurb={`${combo.includes.slice(0, 3).join(" · ")} · From $${(combo.price.weekday / 100).toFixed(0)}/person`}
+                    blurb={combo.includes.slice(0, 3).join(" · ")}
+                    // Both day-tier prices, matching the overview screen's format
+                    // (owner 2026-07-19: show Mon–Thu AND Fri–Sun, not "From $X").
+                    priceLine={`$${(combo.price.weekday / 100).toFixed(0)}/person Mon–Thu · $${(combo.price.weekend / 100).toFixed(0)}/person Fri–Sun`}
                     disabled={locked}
                     disabledNote="Not available right now — please check back or ask an attendant."
                     onClick={() => onPickCombo(combo)}
@@ -169,9 +174,21 @@ export function KioskCategories({
                   eyebrow="Premium racing"
                   accent="#e53935"
                   title="Ultimate Qualifier"
-                  blurb={`Qualify on a Starter, then level up — POV video, free appetizer & license included.${
-                    qualifierFrom != null ? ` · From $${qualifierFrom.toFixed(0)}/person` : ""
-                  }`}
+                  blurb="Qualify on a Starter, then level up — POV video, free appetizer & license included."
+                  // "From" stays here (unlike the flat-priced combo) because the
+                  // junior variant sets the floor and adults pay more.
+                  priceLine={
+                    [
+                      qualifierFromWeekday != null
+                        ? `From $${qualifierFromWeekday.toFixed(0)}/person Mon–Thu`
+                        : null,
+                      qualifierFromWeekend != null
+                        ? `From $${qualifierFromWeekend.toFixed(0)}/person Fri–Sun`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || undefined
+                  }
                   disabled={!uqAvailable}
                   disabledNote="Not enough time left today to fit both races — please check back or ask an attendant."
                   onClick={() => onPickPackageExperience("ultimate-qualifier")}
@@ -283,6 +300,7 @@ function ShelfBanner({
   accent,
   title,
   blurb,
+  priceLine,
   disabled,
   disabledNote,
   onClick,
@@ -292,6 +310,10 @@ function ShelfBanner({
   accent: string;
   title: string;
   blurb: string;
+  /** Own row under the blurb for pricing (e.g. "$65/person Mon–Thu · $75/person
+   *  Fri–Sun") so day-tier prices stay scannable instead of wrapping mid-blurb.
+   *  Hidden while disabled — the disabledNote replaces the sell copy. */
+  priceLine?: string;
   disabled?: boolean;
   disabledNote?: string;
   onClick: () => void;
@@ -315,6 +337,11 @@ function ShelfBanner({
         <div className="mt-[12px] line-clamp-3 text-[28px] leading-snug text-pretty break-words text-white/70">
           {disabled && disabledNote ? disabledNote : blurb}
         </div>
+        {priceLine && !disabled && (
+          <div className="mt-[12px] text-[26px] font-semibold tabular-nums text-white/85">
+            {priceLine}
+          </div>
+        )}
       </div>
       {!disabled && (
         <span
