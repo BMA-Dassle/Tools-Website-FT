@@ -538,13 +538,41 @@ export async function releaseItemBmiLines(
  *     contact in one call (whole-bill cancel, not per-line), and
  *   - any QAMF bowling/KBF temporary hold (a separate vendor, not on the BMI bill).
  *
- * Best-effort + non-fatal per vendor: a failed release will TTL out server-side,
- * and the caller still clears the local session. Pair with `clearBookingSession()`
- * on the client. Do NOT call this on a CONFIRMED booking — it cancels the bill.
+ * Non-fatal per vendor (the caller still clears the local session), but NOT
+ * fire-and-forget: the BMI cancel is response-checked, retried, and verified
+ * via the bill overview — a silently-failed cancel leaves a contact-bearing
+ * reservation blocking its heats for ~20 min (the 7/19 kiosk incident: stacked
+ * `(0/1)` holds on the same heats from repeated start-overs). Pair with
+ * `clearBookingSession()` on the client. Do NOT call this on a CONFIRMED
+ * booking — it cancels the bill.
+ *
+ * Returns true when every vendor hold was confirmed released.
  */
-export async function abandonBooking(session: BookingSession): Promise<void> {
+export async function abandonBooking(session: BookingSession): Promise<boolean> {
+  let released = true;
   if (session.bmiBillId) {
-    await cancelRaceOrder(session.bmiBillId);
+    // Same center→tenant mapping as removeBmiBillLines: the cancel must hit the
+    // tenant that owns the bill, or BMI 404s and the hold survives.
+    const clientKey = session.center === "naples" ? "headpinznaples" : "headpinzftmyers";
+    let cancelled = await cancelRaceOrder(session.bmiBillId, clientKey);
+    if (cancelled) {
+      // Verify with the same liveness signal rebuildRaceBillIfExpired uses: a
+      // cancelled bill has zero lines. If lines survive, the cancel didn't
+      // actually take — try once more.
+      try {
+        const ov = await fetchBillOverview(session.bmiBillId);
+        if (ov.lines.length > 0) {
+          console.warn(
+            "[abandon] bill still has lines after cancel — retrying:",
+            session.bmiBillId,
+          );
+          cancelled = await cancelRaceOrder(session.bmiBillId, clientKey);
+        }
+      } catch {
+        /* overview unreachable — trust the confirmed cancel */
+      }
+    }
+    released = cancelled;
   }
   for (const item of session.items) {
     if (
@@ -553,16 +581,19 @@ export async function abandonBooking(session: BookingSession): Promise<void> {
       item.qamfCenterId
     ) {
       try {
+        // keepalive: a kiosk self-update hard reload must not kill the release.
         await fetch(`/api/bowling/v2/reserve/hold/${item.qamfReservationId}`, {
           method: "DELETE",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ centerId: item.qamfCenterId }),
+          keepalive: true,
         });
       } catch {
         /* QAMF hold TTLs out on its own — non-fatal */
       }
     }
   }
+  return released;
 }
 
 // ── Square customer lookup ──────────────────────────────────────────────

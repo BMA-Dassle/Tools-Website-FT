@@ -302,11 +302,11 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
    *  CartView's leave modal (web-only; the kiosk passes onAllActivities). */
   const handleStartOver = useCallback(async () => {
     setResetting(true);
-    try {
-      await abandonBooking(session);
-    } catch {
-      /* best-effort — BMI bills self-expire in ~20 min as the backstop */
-    }
+    // abandonBooking retries + verifies the BMI cancel (7/19 incident: silent
+    // cancel failures stacked abandoned holds onto live heats). false = BMI's
+    // ~20-min self-expire is the last resort; the /api/bmi log line has detail.
+    const released = await abandonBooking(session).catch(() => false);
+    if (!released) console.error("[kiosk] start-over could not confirm hold release");
     clearBookingSession(KIOSK_SESSION_STORAGE_KEY);
     // Self-update between guests: if a newer deploy is live, hard-reload to load
     // it (fullscreen re-engages on the first attract tap); otherwise soft-nav so
@@ -633,6 +633,10 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   };
 
   const requestStartOver = () => {
+    // Never reset while a booking call is in flight (same set that pauses the
+    // IdleWatcher): the whole-bill cancel would race the in-flight book and the
+    // fresh line would land on a bill nobody owns anymore.
+    if (bookingHeats || stepBusy) return;
     // Nothing guest-visible to lose (no names, empty cart) — skip the ceremony.
     if (session.party.length === 0 && cartCount === 0) {
       void handleStartOver();
@@ -884,6 +888,9 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
               type="button"
               onClick={() => {
                 if (isReset) {
+                  // Same in-flight guard as requestStartOver — a booking call
+                  // could have started while the sheet was up.
+                  if (bookingHeats || stepBusy) return;
                   // Close first so the sheet doesn't sit over the z-40
                   // "Clearing this session…" loader.
                   setConfirmExit(null);

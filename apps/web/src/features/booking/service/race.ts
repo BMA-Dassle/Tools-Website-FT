@@ -552,12 +552,33 @@ export async function confirmRaceOrder(billId: string): Promise<string | null> {
 
 // ── cancel: cancel the BMI bill ─────────────────────────────────────────
 
-export async function cancelRaceOrder(billId: string): Promise<void> {
-  try {
-    await fetch(`/api/bmi?endpoint=bill/${billId}/cancel`, { method: "DELETE" });
-  } catch {
-    console.warn("[race.cancel] bill cancel failed (non-fatal):", billId);
+/**
+ * Cancel the whole BMI bill (releases every held heat/slot + the attached
+ * contact). Returns true only when BMI confirmed the cancel — the abandon
+ * paths (kiosk start-over/idle-timeout, web start-new-booking) depend on this
+ * landing, or the reservation keeps blocking its heat until BMI's ~20-min
+ * auto-expire. So: verify the response (`{success:true}`), retry transient
+ * failures, target the bill's own tenant via `clientKey`, and send with
+ * `keepalive` so a navigation (kiosk self-update hard reload) can't kill an
+ * in-flight attempt. Never throws.
+ */
+export async function cancelRaceOrder(billId: string, clientKey?: string): Promise<boolean> {
+  const params = new URLSearchParams({ endpoint: `bill/${billId}/cancel` });
+  if (clientKey) params.set("clientKey", clientKey);
+  const attempts = 3;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      const res = await fetch(`/api/bmi?${params}`, { method: "DELETE", keepalive: true });
+      const body = (await res.json().catch(() => null)) as { success?: boolean } | null;
+      if (res.ok && body?.success === true) return true;
+      console.warn(`[race.cancel] attempt ${i}/${attempts} not confirmed:`, billId, res.status);
+    } catch (err) {
+      console.warn(`[race.cancel] attempt ${i}/${attempts} failed:`, billId, err);
+    }
+    if (i < attempts) await new Promise((r) => setTimeout(r, 1000 * i));
   }
+  console.error("[race.cancel] bill cancel NOT confirmed after retries:", billId);
+  return false;
 }
 
 // ── internal: license sell via BMI proxy ─────────────────────────────────

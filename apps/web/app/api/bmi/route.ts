@@ -545,12 +545,19 @@ export async function DELETE(req: NextRequest) {
     // A bill cancel frees every heat it held — purge the availability cache so
     // the polling grids see the freed capacity within one poll.
     if (upstream.ok) await purgeAvailabilityCache(clientKey);
+    // Bill cancels release abandoned holds (kiosk start-over / idle timeout) —
+    // an unlogged failure here leaves a reservation blocking its heats, so every
+    // outcome must be traceable in the runtime logs (7/19 incident).
+    const logLine = `[bmi.delete] ${clientKey} ${endpoint} → ${upstream.status} ${text.slice(0, 120)}`;
+    if (upstream.ok && text === "true") console.log(logLine);
+    else console.error(logLine);
     try {
       return NextResponse.json(JSON.parse(text), { status: upstream.status });
     } catch {
       return NextResponse.json({ success: text === "true" }, { status: upstream.status });
     }
   } catch (err) {
+    console.error(`[bmi.delete] ${endpoint} threw:`, err instanceof Error ? err.message : err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "BMI API error" },
       { status: 500 },
