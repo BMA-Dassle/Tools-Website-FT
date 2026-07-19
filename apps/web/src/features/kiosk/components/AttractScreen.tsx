@@ -14,6 +14,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { IconSignature } from "@tabler/icons-react";
 import {
   mergeKioskConfig,
   loadKioskConfig,
@@ -21,6 +22,7 @@ import {
   kioskId,
   type KioskConfig,
 } from "../config";
+import { kioskGroupWaiverEnabled } from "../flags";
 import { useKioskConfig } from "../KioskConfigContext";
 import { KIOSK_AD_SLIDES, KIOSK_LOGOS, KIOSK_PHOTOS } from "../assets";
 import { BrandedLoader } from "./BrandedLoader";
@@ -200,12 +202,29 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
             own row (uneven 3+1). Each chip stretches to fill its cell so the pairs
             line up. */}
         <span className="grid w-full max-w-[720px] grid-cols-2 gap-[16px]">
+          {/* "Race now" / "Bowl now" HIDDEN for now (owner 2026-07-18: "just
+              hide, might come back later") — restore by uncommenting:
           <QuickChip label="Race now" onClick={() => start("race")} />
-          <QuickChip label="Bowl now" onClick={() => start("bowl")} />
+          <QuickChip label="Bowl now" onClick={() => start("bowl")} /> */}
           <QuickChip label="VIP Experience" gold onClick={() => start("vip")} />
           <QuickChip label="See everything" onClick={() => start()} />
         </span>
       </button>
+
+      {/* Online & group waiver entry — full-width bar above the footer band
+          ("bottom of this screen", owner 2026-07-18). A "not booking"
+          affordance, so it sits OUTSIDE the welcome-zone start button. Ships
+          dark behind the opt-in flag until the owner live smoke. */}
+      {kioskGroupWaiverEnabled() && (
+        <button
+          type="button"
+          onClick={() => router.push("/kiosk/waiver")}
+          className="k-display k-tap relative z-10 mx-[64px] mb-[8px] flex h-[92px] shrink-0 items-center justify-center gap-[16px] rounded-2xl border-2 border-white/15 text-[30px] text-white/60"
+        >
+          <IconSignature size={34} aria-hidden="true" />
+          Online &amp; Group Waiver
+        </button>
+      )}
 
       <div className="relative z-10 flex h-[130px] shrink-0 items-center justify-center gap-[32px] pb-[16px]">
         {/* eslint-disable-next-line @next/next/no-img-element */}
