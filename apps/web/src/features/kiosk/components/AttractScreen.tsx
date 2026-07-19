@@ -5,8 +5,8 @@
  *
  * Authored to the fixed 1080×1920 kiosk canvas (px, not vh). Portrait zones:
  * top 480px is the advertising rotation (display-only), the rest is the
- * interactive welcome (reach + ADA band). Any tap starts a session. Quick
- * chips deep-link into flows; "See everything" lands on the category chooser.
+ * interactive welcome (reach + ADA band). Any tap starts a session (landing
+ * on the category chooser); quick chips deep-link into specific flows.
  *
  * Device provisioning: on mount, URL params (parsed server-side) merge over
  * the stored device config and persist. A kiosk with no config shows the
@@ -203,21 +203,24 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
         <span className="kiosk-pulse k-display grid h-[150px] w-full max-w-[80%] place-items-center rounded-full bg-[#00e2e5] text-[44px] tracking-wide text-[#04252b]">
           Touch to get started
         </span>
-        {/* Balanced 2×2 grid — a flex-wrap left "See everything" orphaned on its
-            own row (uneven 3+1). Each chip stretches to fill its cell so the pairs
-            line up. */}
+        {/* 2-col grid kept for the hidden "Race now" / "Bowl now" pair; the
+            remaining chips span both columns so nothing sits orphaned at
+            half-width. */}
         <span className="grid w-full max-w-[720px] grid-cols-2 gap-[16px]">
           {/* "Race now" / "Bowl now" HIDDEN for now (owner 2026-07-18: "just
               hide, might come back later") — restore by uncommenting:
           <QuickChip label="Race now" onClick={() => start("race")} />
           <QuickChip label="Bowl now" onClick={() => start("bowl")} /> */}
-          <QuickChip
-            label="VIP Experience"
-            gold
-            disabled={!vipAvailable}
-            onClick={() => start("vip")}
-          />
-          <QuickChip label="See everything" onClick={() => start()} />
+          {/* "See everything" REMOVED (owner 2026-07-19) — the category chooser
+              is still reachable via "Touch to get started" / any tap. */}
+          <span className="col-span-2">
+            <QuickChip
+              label="VIP Experience"
+              gold
+              disabled={!vipAvailable}
+              onClick={() => start("vip")}
+            />
+          </span>
           {/* Standalone race packs (owner 2026-07-18) — FastTrax kiosks, a
               LOCKED pack-only purchase flow (KioskRacePackFlow). Full-width so
               the 2×2 grid never orphans a chip. Kill switch aware. */}
