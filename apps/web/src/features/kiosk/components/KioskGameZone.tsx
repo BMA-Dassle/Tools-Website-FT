@@ -141,6 +141,8 @@ export function KioskGameZone({
   capability = "full",
   onExit,
   onBusyChange,
+  cartHasItems = false,
+  onAddToVisit,
 }: {
   center: CenterCode;
   brand: Brand;
@@ -151,6 +153,11 @@ export function KioskGameZone({
   /** Fires true while the dispenser is mid-operation/holding so the flow can
    *  pause the idle watchdog (don't reset a guest mid-dispense). */
   onBusyChange?: (busy: boolean) => void;
+  /** KIOSK cart mode (owner 2026-07-18): with activities already in the cart,
+   *  cards join the BOOKING instead of checking out here — one payment at the
+   *  shared checkout, fulfillment on the confirmation screen. */
+  cartHasItems?: boolean;
+  onAddToVisit?: (purchase: GameCardCartPurchase) => void;
 }) {
   // Reload-only kiosks skip the buy/reload chooser and land straight on reload.
   const [mode, setMode] = useState<Mode>(capability === "reload" ? "reload" : "choose");
@@ -178,6 +185,20 @@ export function KioskGameZone({
   const { config } = useKioskConfig();
   const dispenser = useGameCardDispenser({ config });
   const readerReady = dispenser.ready;
+
+  // KIOSK cart mode: with activities already in the cart, "Add to my visit"
+  // hands the cards to the booking so they ride the ONE shared checkout the
+  // Square reader charges (fulfillment on the confirmation screen). Requires
+  // the reader rail (cards join the deposit order the reader charges); the
+  // standalone empty-cart flow is untouched. Null = pay & dispense here.
+  const addToVisit =
+    cartHasItems &&
+    onAddToVisit &&
+    kioskGzCartEnabled() &&
+    kioskTerminalEnabled() &&
+    config?.readerId
+      ? onAddToVisit
+      : null;
 
   // Recoverable-fault hold: the flow pauses on a full-screen hold overlay until
   // staff resume. `holdRef` carries the promise resolver the dispense loop

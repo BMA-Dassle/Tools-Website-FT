@@ -688,6 +688,15 @@ export function KioskFlow({ goto }: { goto: string | null }) {
           brand={config.brand}
           capability={gameZoneCapability(config) === "reload" ? "reload" : "full"}
           onExit={() => setGzOpen(false)}
+          onBusyChange={setGzBusy}
+          // With activities in the cart, cards JOIN the booking (owner
+          // 2026-07-18) — one payment at the shared checkout, fulfillment on
+          // the confirmation screen.
+          cartHasItems={session.items.length > 0}
+          onAddToVisit={(purchase) => {
+            dispatch({ type: "setGameCardPurchase", purchase });
+            setGzOpen(false);
+          }}
         />
       </div>,
       KIOSK_PHOTOS.arcade,
