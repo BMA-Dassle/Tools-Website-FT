@@ -1,13 +1,13 @@
 /* Kiosk-only animation + chrome primitives. Scoped by .kiosk- prefixes so
    nothing leaks into the marketing/booking site. Loaded by app/kiosk/layout.
 
-   TIMING RULE: every animation period in this file must divide 60s evenly.
-   KioskShell restarts ALL kiosk animations at each wall-clock minute (see the
-   data-kiosk-anim-resync effect) so side-by-side lobby kiosks glow in the same
-   phase (owner 2026-07-18: "glow effects are not matching between kiosks").
-   With divide-60 periods the restart lands exactly on a cycle boundary —
-   invisible for anything already in phase; a late-mounted element snaps into
-   the shared phase at its first boundary and stays there. */
+   TIMING RULE: the attract-screen glow effects (kenburns / sweep / pulse) are
+   phase-locked across kiosks by seeking each animation to a server-shared
+   clock (owner 2026-07-18/19: "glow effects are not matching between kiosks").
+   If you change one of their durations here, update the matching full-cycle
+   entry in KIOSK_GLOW_PERIODS_MS (src/features/kiosk/hooks/useKioskClock.ts)
+   in the SAME commit — remember `alternate` doubles the cycle — or that
+   effect silently drifts out of sync between kiosks again. */
 
 @keyframes kiosk-orbit {
   to {
@@ -42,7 +42,7 @@
   }
 }
 .kiosk-kenburns {
-  /* alternate → the full there-and-back visual cycle is 60s (divides 60 ✓) */
+  /* alternate → full there-and-back cycle is 60s (KIOSK_GLOW_PERIODS_MS: 60000) */
   animation: kiosk-kenburns 30s ease-in-out infinite alternate;
 }
 
@@ -63,6 +63,7 @@
     transparent 60%
   );
   background-size: 280% 100%;
+  /* KIOSK_GLOW_PERIODS_MS: 7500 */
   animation: kiosk-sweep 7.5s ease-in-out infinite;
 }
 
@@ -76,17 +77,8 @@
   }
 }
 .kiosk-pulse {
+  /* KIOSK_GLOW_PERIODS_MS: 2400 */
   animation: kiosk-pulse 2.4s ease-in-out infinite;
-}
-
-/* Minute-boundary resync (see the timing rule in the header comment): while
-   this root attribute is set, every kiosk animation is suspended; KioskShell
-   sets it, forces one style flush, and removes it in the same task — zero
-   painted frames — so removal restarts all animations from t=0 together. */
-[data-kiosk-anim-resync] *,
-[data-kiosk-anim-resync] *::before,
-[data-kiosk-anim-resync] *::after {
-  animation-name: none !important;
 }
 
 /* Touch scrolling: momentum, hidden scrollbar (bottom fades hint instead). */

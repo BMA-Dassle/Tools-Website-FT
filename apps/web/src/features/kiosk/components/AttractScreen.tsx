@@ -86,23 +86,30 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   }, [urlConfig]);
 
   // Ad index derived from the SHARED clock (not a local counter) so every kiosk
-  // is on the same slide. Tick fast enough that the flip lands within a fraction
-  // of a second of the shared 8s boundary — imperceptible, and never drifts.
+  // is on the same slide. Each tick schedules the next just past the shared 8s
+  // boundary, so the flip lands within ~a frame of the same instant everywhere
+  // (the old fixed 500ms poll let flips straggle up to half a second apart
+  // between kiosks — owner 2026-07-19: "ads are really close but not perfect").
   useEffect(() => {
+    let timer: number | undefined;
     const tick = () => {
-      setAdIndex(Math.floor((Date.now() + offset) / AD_ROTATE_MS) % KIOSK_AD_SLIDES.length);
+      const now = Date.now() + offset;
+      setAdIndex(Math.floor(now / AD_ROTATE_MS) % KIOSK_AD_SLIDES.length);
+      // +25ms lands safely past the boundary despite setTimeout clamp/rounding.
+      timer = window.setTimeout(tick, AD_ROTATE_MS - (now % AD_ROTATE_MS) + 25);
     };
     tick();
-    const iv = setInterval(tick, 500);
-    return () => clearInterval(iv);
+    return () => window.clearTimeout(timer);
   }, [offset]);
 
-  // Phase-align the glow / ken-burns / sweep / pulse animations to the shared
-  // clock via negative animation-delay, re-applied whenever the clock (re)syncs
-  // or the attract screen mounts (config null→set). All kiosks breathe together.
+  // Seek the glow / ken-burns / sweep / pulse animations to the shared clock's
+  // phase so all kiosks breathe together. Re-runs whenever the clock (re)syncs
+  // AND whenever the attract root can (re)mount — config null→set and
+  // booting→false both change which tree is rendered, and a freshly mounted
+  // root starts its animations at a random phase until seeked.
   useEffect(() => {
     syncGlowPhase(rootRef.current, offset);
-  }, [offset, config]);
+  }, [offset, config, booting]);
 
   // While the cloud fallback resolves, hold the loader instead of flashing
   // the staff setup card at a guest.

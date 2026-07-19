@@ -37,34 +37,6 @@ function KioskChrome({ children }: { children: React.ReactNode }) {
     void captureKioskBootVersion();
   }, []);
 
-  // Cross-kiosk glow sync (owner 2026-07-18: "glow effects are not matching
-  // between kiosks"): CSS animations phase from each element's MOUNT time, so
-  // two lobby kiosks breathe/pulse out of step. Once per wall-clock minute
-  // (Windows clocks are NTP-synced) suspend + restart every kiosk animation in
-  // a single style flush — set the root attribute, force one recalc so the
-  // cancel commits, remove it. Every period in kiosk.css divides 60s, so for
-  // an element already in the shared phase the restart lands exactly on a
-  // cycle boundary (invisible); late-mounted elements snap into phase at their
-  // first boundary and stay there. Self-correcting timeout chain (never
-  // setInterval — it drifts off the minute boundary).
-  useEffect(() => {
-    let timer: number | undefined;
-    const arm = () => {
-      timer = window.setTimeout(
-        () => {
-          const root = document.documentElement;
-          root.setAttribute("data-kiosk-anim-resync", "");
-          void document.body.offsetWidth; // commit the cancel before restoring
-          root.removeAttribute("data-kiosk-anim-resync");
-          arm();
-        },
-        60_000 - (Date.now() % 60_000),
-      );
-    };
-    arm();
-    return () => window.clearTimeout(timer);
-  }, []);
-
   useEffect(() => {
     const isLocal =
       typeof window !== "undefined" &&
