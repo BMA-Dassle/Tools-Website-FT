@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
-import { bookingKeys } from "~/features/booking";
+import { IconFlag3 } from "@tabler/icons-react";
+import { bookingKeys, type PartyMember } from "~/features/booking";
 import {
   bmiAdapter,
   type BmiAvailabilityResponse,
@@ -12,9 +13,8 @@ import {
 import {
   type PackageDefinition,
   type PackageRaceComponent,
-  type PackageTrackOption,
-  primaryTrack,
   packageHeatGapMinutes,
+  packagePerRacerPrice,
 } from "~/features/booking/service/packages";
 import {
   heatsConflict,
@@ -40,7 +40,14 @@ export interface PackagePick {
 interface Props {
   pkg: PackageDefinition;
   date: string;
-  racerCount: number;
+  /** This category's roster ("who's racing" of the step's category). The
+   *  picker renders them as a checklist (all pre-checked) — deselected members
+   *  aren't booked for the package, and the confirm hands back the selection. */
+  racers: PartyMember[];
+  /** True when the party spans adults AND juniors — drives the loud
+   *  "Booking: Adults / Juniors" banner (the live mixed-party confusion:
+   *  "couldn't tell who I was booking", owner 2026-07-19). */
+  mixedParty: boolean;
   /** The booking step's category (junior packages evaluate the junior rules). */
   category: "adult" | "junior";
   /** allReturningHaveWaivers from the step — the opening-heats signal. */
@@ -53,7 +60,7 @@ interface Props {
    *  (track, start) slots is greyed: adults and juniors can't share a physical
    *  session (owner 2026-07-19). The picker's own picks Map can't see them. */
   crossCategoryHeats?: Array<{ heatId: string | null; track: string | null }>;
-  onConfirm: (picks: PackagePick[]) => void;
+  onConfirm: (picks: PackagePick[], selectedRacers: PartyMember[]) => void;
   onCancel: () => void;
 }
 
@@ -145,8 +152,9 @@ function SelectedHeats({
               key={c.ref}
               className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200"
             >
-              <span>
-                🏎️ {c.label}
+              <span className="inline-flex items-center gap-1">
+                <IconFlag3 size={14} aria-hidden />
+                {c.label}
                 {trackSuffix} · {formatTime(p.block.start)}
               </span>
               <button
@@ -168,12 +176,135 @@ function SelectedHeats({
   );
 }
 
+/**
+ * "Who's in this package" roster — the loud category banner (mixed parties)
+ * plus a per-member checklist. A racer does the WHOLE 2-heat package or none
+ * of it (per-heat cherry-picking would break the Starter→Intermediate
+ * progression), so selection lives here at package level, all pre-checked.
+ * The live price line uses the SAME packagePerRacerPrice the charge builder
+ * uses (checkout.ts raceItemChargeLines) — displayed == charged.
+ */
+export function PackageCategoryBanner({
+  category,
+  detail,
+}: {
+  category: "adult" | "junior";
+  detail?: string;
+}) {
+  const adult = category === "adult";
+  return (
+    <div
+      className={`rounded-xl border-2 p-3 text-center ${
+        adult ? "border-[#00E2E5]/50 bg-[#00E2E5]/10" : "border-amber-400/50 bg-amber-400/10"
+      }`}
+    >
+      <p
+        className={`font-display text-xl uppercase tracking-widest ${
+          adult ? "text-[#00E2E5]" : "text-amber-400"
+        }`}
+      >
+        Booking: {adult ? "Adults" : "Juniors"}
+      </p>
+      {detail && <p className="mt-0.5 text-xs text-white/60">{detail}</p>}
+    </div>
+  );
+}
+
+function PackageRacerRoster({
+  pkg,
+  racers,
+  selectedIds,
+  onToggle,
+}: {
+  pkg: PackageDefinition;
+  racers: PartyMember[];
+  selectedIds: Set<string>;
+  onToggle: (id: string) => void;
+}) {
+  const perRacer = packagePerRacerPrice(pkg);
+  const selectedCount = racers.filter((r) => selectedIds.has(r.id)).length;
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+      {racers.length === 1 ? (
+        <p className="text-base font-semibold text-white">
+          Booking for: <span className="text-[#00E2E5]">{racers[0].firstName}</span>
+        </p>
+      ) : (
+        <>
+          <p className="mb-2 text-xs font-bold uppercase tracking-wider text-white/50">
+            Racers in this package — tap to remove someone
+          </p>
+          <div className="space-y-1.5">
+            {racers.map((r) => {
+              const checked = selectedIds.has(r.id);
+              return (
+                <button
+                  key={r.id}
+                  type="button"
+                  aria-pressed={checked}
+                  aria-label={
+                    checked
+                      ? `Remove ${r.firstName} from this package`
+                      : `Add ${r.firstName} to this package`
+                  }
+                  onClick={() => onToggle(r.id)}
+                  className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-colors ${
+                    checked
+                      ? "border-[#00E2E5]/40 bg-[#00E2E5]/5"
+                      : "border-white/10 bg-white/5 hover:border-white/20"
+                  }`}
+                >
+                  <div
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors ${
+                      checked ? "border-[#00E2E5] bg-[#00E2E5]" : "border-white/30"
+                    }`}
+                  >
+                    {checked && (
+                      <svg
+                        className="h-3 w-3 text-[#000418]"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </div>
+                  <span
+                    className={`truncate text-base font-semibold ${
+                      checked ? "text-white" : "text-white/50 line-through"
+                    }`}
+                  >
+                    {r.firstName}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+      {selectedCount === 0 ? (
+        <p className="mt-2 text-sm font-semibold text-amber-400">
+          Select at least one racer to book this package
+        </p>
+      ) : (
+        <p className="mt-2 text-sm text-white/70">
+          ${perRacer.toFixed(2)} per racer × {selectedCount} ={" "}
+          <span className="font-bold text-white">${(perRacer * selectedCount).toFixed(2)}</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ──────────────────────────────────────────────────────────
 
 export function PackageHeatPicker({
   pkg,
   date,
-  racerCount,
+  racers,
+  mixedParty,
   category,
   expressEligible,
   kiosk,
@@ -181,6 +312,22 @@ export function PackageHeatPicker({
   onConfirm,
   onCancel,
 }: Props) {
+  // Availability is still fetched at FULL roster size (the query key omits
+  // quantity, so a selection-sized fetch wouldn't refetch anyway); the
+  // "enough spots" check below uses the live selected count.
+  const racerCount = Math.max(1, racers.length);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(
+    () => new Set(racers.map((r) => r.id)),
+  );
+  const selectedRacers = racers.filter((r) => selectedIds.has(r.id));
+  const selectedCount = selectedRacers.length;
+  const toggleRacer = (id: string) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const sortedComponents = useMemo(
     () => [...pkg.races].sort((a, b) => a.sequence - b.sequence),
     [pkg],
@@ -411,6 +558,7 @@ export function PackageHeatPicker({
   );
 
   function handleConfirm() {
+    if (selectedCount === 0) return; // CTA is disabled; belt-and-braces
     const result: PackagePick[] = sortedComponents.map((comp) => {
       const pick = picks.get(comp.ref)!;
       return {
@@ -421,7 +569,7 @@ export function PackageHeatPicker({
         block: pick.block,
       };
     });
-    onConfirm(result);
+    onConfirm(result, selectedRacers);
   }
 
   const displayDate = parseLocal(date + "T12:00:00").toLocaleDateString("en-US", {
@@ -441,9 +589,31 @@ export function PackageHeatPicker({
           Pick Your Heats
         </h2>
         <p className="text-sm text-white/50">
-          {displayDate} · Pick {totalComponents} heat{totalComponents === 1 ? "" : "s"}
+          {displayDate} · {selectedCount} racer{selectedCount === 1 ? "" : "s"} · Pick{" "}
+          {totalComponents} heat{totalComponents === 1 ? "" : "s"}
         </p>
       </div>
+
+      {/* WHO is being booked — the mixed-party banner + the member checklist.
+          This step books ONE category's package; without the banner the only
+          adult/junior signal was the tiny step title (owner 2026-07-19:
+          "couldn't tell who I was booking"). */}
+      {mixedParty && (
+        <PackageCategoryBanner
+          category={category}
+          detail={
+            category === "adult"
+              ? "Juniors get their own races on the next step."
+              : "Adult races were picked on the previous step."
+          }
+        />
+      )}
+      <PackageRacerRoster
+        pkg={pkg}
+        racers={racers}
+        selectedIds={selectedIds}
+        onToggle={toggleRacer}
+      />
 
       <ProgressDots current={pickedCount} total={totalComponents} />
 
@@ -550,7 +720,7 @@ export function PackageHeatPicker({
                 !!crossCategoryHeats?.length &&
                 collidesWithOtherCategory(tp.track, tp.block.start, crossCategoryHeats);
 
-              const isLowCap = tp.block.freeSpots < racerCount;
+              const isLowCap = tp.block.freeSpots < Math.max(1, selectedCount);
               // Restriction rule that disables (not hides) this slot — e.g.
               // the VIP anchor reserve (race-restriction-rules.ts).
               const isRestricted = !isPicked && !!tp.restriction;
@@ -579,7 +749,7 @@ export function PackageHeatPicker({
                         : isConflict
                           ? "Too close to picked heat"
                           : isLowCap
-                            ? `Need ${racerCount}, only ${tp.block.freeSpots} left`
+                            ? `Need ${Math.max(1, selectedCount)}, only ${tp.block.freeSpots} left`
                             : spotsLabel(tp.block.freeSpots, tp.block.capacity).label;
 
               const statusClass = isPicked
@@ -691,7 +861,8 @@ export function PackageHeatPicker({
                 <button
                   type="button"
                   onClick={handleConfirm}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-amber-400 px-6 py-3 text-sm font-bold text-[#000418] shadow-lg shadow-amber-500/25 transition-colors hover:bg-amber-300"
+                  disabled={selectedCount === 0}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-amber-400 px-6 py-3 text-sm font-bold text-[#000418] shadow-lg shadow-amber-500/25 transition-colors hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-30"
                 >
                   Confirm &amp; Continue →
                 </button>

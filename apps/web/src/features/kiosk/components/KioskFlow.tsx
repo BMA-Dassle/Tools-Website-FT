@@ -29,6 +29,7 @@ import {
   type AttractionItem,
   type BowlingItem,
   type PartyMember,
+  type RaceHeatAssignment,
   type RaceItem,
   type SessionItem,
   type StepDef,
@@ -49,6 +50,7 @@ import {
   releaseHeatBmiLines,
 } from "~/features/booking/service/checkout";
 import { comboBowlingComponent, getComboSpecial, type ComboSpecial } from "~/features/combos";
+import { getPackage } from "@/lib/packages";
 import { resolvePreselectPatch } from "../service/package-preselect";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
@@ -1195,6 +1197,45 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     setUnraceredPrompt(null);
   };
 
+  /** Unracered sheet, PACKAGE flow → append the skipped member(s) onto the
+   *  already-picked package heats and book: a racer does the WHOLE package or
+   *  none of it, so mirror every distinct picked (product, heat) of this
+   *  category. The product-clearing path above would dead-end here — on a
+   *  preselected-package launch the product step is hidden. Capacity is
+   *  enforced at book time: a full heat surfaces the kiosk error and nothing
+   *  partial books. */
+  const addToPackageForUnracered = async () => {
+    if (!unraceredPrompt || !activeItem || activeItem.kind !== "race") return;
+    const raceItem = activeItem as RaceItem;
+    const catHeats = raceItem.heats.filter(
+      (h) => h.heatId && (h.category ?? "adult") === unraceredPrompt.category,
+    );
+    const distinct = new Map<string, RaceHeatAssignment>();
+    for (const h of catHeats) distinct.set(`${h.productId}|${h.heatId}`, h);
+    const additions: RaceHeatAssignment[] = unraceredPrompt.members.flatMap((m) =>
+      [...distinct.values()].map((h) => ({
+        productId: h.productId,
+        track: h.track,
+        tier: h.tier,
+        category: h.category,
+        heatId: h.heatId,
+        bmiLineId: null,
+        assignedTo: m.id,
+      })),
+    );
+    setUnraceredPrompt(null);
+    if (additions.length === 0) return;
+    const updatedItem: RaceItem = { ...raceItem, heats: [...raceItem.heats, ...additions] };
+    // Store first, then book against the local copy (the dispatch hasn't
+    // re-rendered yet) — the ComboSteps confirm uses the same pattern.
+    dispatch({
+      type: "updateItem",
+      id: raceItem.id,
+      patch: { heats: updatedItem.heats } as Partial<SessionItem>,
+    });
+    await bookHeatsAndAdvance(updatedItem);
+  };
+
   /** Unracered sheet → explicit "they're not racing" opt-out (spectators are
    *  legitimate) — book what's picked and move on. */
   const continueWithoutUnracered = async () => {
@@ -1202,6 +1243,13 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     setUnraceredPrompt(null);
     await bookHeatsAndAdvance(activeItem as RaceItem);
   };
+
+  // The active category's package while the unracered sheet is up — drives the
+  // sheet's package-flavored copy + the append-to-package primary action.
+  const unraceredPkg =
+    unraceredPrompt && activeItem?.kind === "race"
+      ? getPackage(packageIdForCategory(activeItem as RaceItem, unraceredPrompt.category))
+      : null;
 
   const handleNext = async () => {
     if (stepBusy) return;
@@ -1224,22 +1272,22 @@ export function KioskFlow({ goto }: { goto: string | null }) {
       // Mixed-tier guard (owner 2026-07-18): the product step offers the tier the
       // HIGHEST racer earned, so a lower-tier guest gets crossed out of the heat
       // and the flow used to advance with them silently dropped. Never advance
-      // past a guest with no race — offer the add-another-race loop (the path
-      // back the guest "couldn't find") or an explicit not-racing opt-out.
-      // Packages own their race selections, so they're exempt (per category —
-      // the OTHER category's package must not exempt this one's single races).
+      // past a guest with no race — offer a way to add them (the path back the
+      // guest "couldn't find") or an explicit not-racing opt-out. Packages are
+      // covered too since the picker's roster checklist can deselect members
+      // (the old "packages own their race selections" exemption predates real
+      // selection); their sheet's primary action appends onto the picked
+      // package heats instead of the product-clearing back-nav.
       const category = currentStep.id === "race-heat-adult" ? "adult" : "junior";
-      if (!packageIdForCategory(raceItem, category)) {
-        const assigned = new Set(
-          raceItem.heats.filter((h) => h.heatId && h.assignedTo).map((h) => h.assignedTo),
-        );
-        const unracered = session.party.filter(
-          (m) => (m.category ?? "adult") === category && !assigned.has(m.id),
-        );
-        if (unracered.length > 0 && raceItem.heats.some((h) => h.heatId)) {
-          setUnraceredPrompt({ category, members: unracered });
-          return;
-        }
+      const assigned = new Set(
+        raceItem.heats.filter((h) => h.heatId && h.assignedTo).map((h) => h.assignedTo),
+      );
+      const unracered = session.party.filter(
+        (m) => (m.category ?? "adult") === category && !assigned.has(m.id),
+      );
+      if (unracered.length > 0 && raceItem.heats.some((h) => h.heatId)) {
+        setUnraceredPrompt({ category, members: unracered });
+        return;
       }
       await bookHeatsAndAdvance(raceItem);
       return;
@@ -1393,7 +1441,9 @@ export function KioskFlow({ goto }: { goto: string | null }) {
       )}
 
       {/* Mixed-tier guard: someone in this category has no race yet — make the
-          add-another-race path obvious instead of silently dropping them. */}
+          add-them path obvious instead of silently dropping them. Package
+          flows get an append-to-package primary action (the product-clearing
+          back-nav would dead-end on a preselected-package launch). */}
       {unraceredPrompt && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
           <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
@@ -1403,8 +1453,9 @@ export function KioskFlow({ goto }: { goto: string | null }) {
               {unraceredPrompt.members.length === 1 ? "isn't" : "aren't"} in a race yet
             </div>
             <p className="text-[26px] leading-snug text-white/60">
-              This race is above their level or they weren&rsquo;t added to a heat. Add a race that
-              fits them — your picked heats are saved — or continue without racing them.
+              {unraceredPkg
+                ? `They weren't included in the ${unraceredPkg.name}. Add them to the same heats, or continue without racing them.`
+                : "This race is above their level or they weren't added to a heat. Add a race that fits them — your picked heats are saved — or continue without racing them."}
             </p>
             <div className="flex flex-col gap-[16px] pt-[4px]">
               {/* k-btn-primary's flex:1 squashes its height in this column
@@ -1414,11 +1465,15 @@ export function KioskFlow({ goto }: { goto: string | null }) {
                   utilities. */}
               <button
                 type="button"
-                onClick={addRaceForUnracered}
+                onClick={() =>
+                  unraceredPkg ? void addToPackageForUnracered() : addRaceForUnracered()
+                }
                 className="k-btn-primary k-tap"
                 style={{ flex: "0 0 auto" }}
               >
-                Add a race for {unraceredPrompt.members.map((m) => m.firstName).join(" & ")}
+                {unraceredPkg
+                  ? `Add ${unraceredPrompt.members.map((m) => m.firstName).join(" & ")} to the ${unraceredPkg.name}`
+                  : `Add a race for ${unraceredPrompt.members.map((m) => m.firstName).join(" & ")}`}
               </button>
               <button
                 type="button"

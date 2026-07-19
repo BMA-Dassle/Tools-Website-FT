@@ -489,10 +489,15 @@ function RaceCartCard({
   // racers) + standalone POV + add-ons on top.
   const newRacerCount = session.party.filter((m) => m.isNewRacer).length;
   // License rides the package bundle only for CATEGORIES that hold a package —
-  // a junior single-race new racer alongside an adult package still pays it
-  // (mirrors buildRaceChargeLines' per-category suppression, cart == charge).
+  // a junior single-race new racer alongside an adult package still pays it —
+  // and only racers with an actual heat pay at all (roster deselect / opt-out).
+  // Mirrors buildRaceChargeLines exactly, so cart == charge.
+  const racingIds = new Set(
+    item.heats.filter((h) => h.heatId && h.assignedTo).map((h) => h.assignedTo!),
+  );
   const nonPackageNewRacers = session.party.filter(
-    (m) => m.isNewRacer && !packageIdForCategory(item, m.category ?? "adult"),
+    (m) =>
+      m.isNewRacer && racingIds.has(m.id) && !packageIdForCategory(item, m.category ?? "adult"),
   ).length;
   // USA250: license + POV are racing add-ons too — discount them like the heats
   // (gated on this race item's date) so the cart estimate matches checkout.

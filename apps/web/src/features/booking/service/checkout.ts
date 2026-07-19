@@ -1005,8 +1005,18 @@ export function buildRaceChargeLines(
     }
   }
 
+  // Only racers with an actual heat pay the license — a new racer who ends up
+  // not racing (the package roster deselect / the kiosk "not racing today"
+  // opt-out) must not be charged $4.99 for nothing.
+  const racingMemberIds = new Set(
+    session.items.flatMap((i) =>
+      i.kind === "race"
+        ? i.heats.filter((h) => h.heatId && h.assignedTo).map((h) => h.assignedTo!)
+        : [],
+    ),
+  );
   const newRacerCount = session.party.filter(
-    (m) => m.isNewRacer && !packageRacerIds.has(m.id),
+    (m) => m.isNewRacer && racingMemberIds.has(m.id) && !packageRacerIds.has(m.id),
   ).length;
   if (newRacerCount > 0 && !activeCombo?.combo.includesLicense) {
     lines.push({

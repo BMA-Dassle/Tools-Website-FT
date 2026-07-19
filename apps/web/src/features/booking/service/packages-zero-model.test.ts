@@ -462,6 +462,49 @@ describe("buildRaceChargeLines — per-category license/POV suppression", () => 
     expect(pov!.quantity).toBe(1);
   });
 
+  it("a new racer with NO heats pays no license (roster deselect / not-racing opt-out)", () => {
+    const session = sessionWith(
+      [
+        raceItem({
+          productIdAdult: SINGLE_STARTER_RED,
+          heats: [heat({ tier: "starter", assignedTo: "r1" })],
+        }),
+      ],
+      [member("r1", { isNewRacer: true }), member("spectator", { isNewRacer: true })],
+    );
+    const license = buildRaceChargeLines(session).filter((l) => l.name === "FastTrax License");
+    expect(license).toHaveLength(1);
+    expect(license[0].quantity).toBe(1); // r1 only — the heatless spectator pays nothing
+  });
+
+  it("partial package selection: bundle quantity = SELECTED racers, not the whole category", () => {
+    // 3 adults in the party, but only 2 were checked in the picker's roster —
+    // heats carry assignedTo for exactly those 2.
+    const session = sessionWith(
+      [
+        raceItem({
+          packageIdAdult: UQ_ADULT,
+          heats: ["r1", "r2"].flatMap((rid) => [
+            heat({ productId: "s-a", track: "Blue", tier: "starter", assignedTo: rid }),
+            heat({ productId: "i-a", track: "Blue", tier: "intermediate", assignedTo: rid }),
+          ]),
+        }),
+      ],
+      [
+        member("r1", { isNewRacer: true }),
+        member("r2", { isNewRacer: true }),
+        member("r3", { isNewRacer: true }), // deselected — no heats
+      ],
+    );
+    const lines = buildRaceChargeLines(session);
+    const bundle = lines.find((l) => l.name === getPackage(UQ_ADULT)!.name);
+    expect(bundle).toBeDefined();
+    expect(bundle!.quantity).toBe(2);
+    expect(bundle!.amount).toBeCloseTo(packagePerRacerPrice(getPackage(UQ_ADULT)!) * 2, 2);
+    // The deselected heatless racer gets NO license line either.
+    expect(lines.some((l) => l.name === "FastTrax License")).toBe(false);
+  });
+
   it("fully-packaged mixed party: no license line, no standalone POV", () => {
     const session = sessionWith(
       [
