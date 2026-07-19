@@ -49,23 +49,58 @@ live-smoked, and needs the owner's product decisions first.
 - LIVE payment smoke (real card, real grant, verify credits + heats) BEFORE the
   flag goes on — no untested money path (H3074).
 
-## Implementation plan (build flag-gated: NEW `NEXT_PUBLIC_KIOSK_PACKS_ENABLED`, default off)
-1. `SessionItem`: add `CreditPackItem { kind:"credit-pack"; packSlug; assignedTo: PartyMember.id }`
-   (the future taxonomy already reserves this — state/types.ts:15,400-406). Widen the reducer.
-2. New kiosk step `KioskRacePackStep` inserted AFTER `race-party` (`insertAfter(steps,"race-party",…)`);
-   every PartyMember has a `bmiPersonId` by then. Per member: optional pack pick →
-   emit one `CreditPackItem` per assignment. Persist the selection to Neon at capture
-   (hard persist-first rule), not gated on the charge. Bump `KIOSK_SCHEMA_VERSION`.
-3. Checkout: a `credit-pack` "service" whose `hold` is a no-op (books nothing), so
-   `runCheckout`/`getService` stay uniform. Add one Square line per pack
-   (`SQUARE_RACE_PACK_CATALOG_ID` + `racePackLabel`, amount `pack.price` + FL tax).
-   Keep displayed == charged (static `pack.price`).
-4. `/api/square/pay`: extend `postPaymentAction` addDeposit to accept an ARRAY of
-   grants (one per `{personId: member.bmiPersonId, depositKindId, amount: raceCount}`),
-   keeping the retry-enqueue + `racing-pack` sale log per grant. Idempotency keyed on
-   billId+personId+packSlug (mirror race-credit-redeem's Redis NX guard). MUST be
-   additive (single-grant form still works) so nothing else regresses.
-5. Cart/receipt: render the non-booking credit-pack line.
+## Implementation plan — REVISED 2026-07-18 (owner: "they would need to go on the
+## deposit order like gift cards do") — mirror the PROVEN GZ-in-cart architecture
+
+The Game Zone cards-in-cart rail (shipped + live 7/18) is the template; packs are
+a second rider on the same seams. Flag `NEXT_PUBLIC_KIOSK_PACKS_ENABLED`, default OFF.
+
+**Stage 1 — packs ride the deposit order, credits BANKED (first smoke gate)**
+1. Session state (pointers only, server re-derives all pricing — GZ pattern):
+   `BookingSession.racePackPurchase?: { packs: Array<{ packSlug; memberId }> }`
+   + `setRacePackPurchase` reducer action. Additive — web schema untouched.
+2. Server resolver `features/race-packs/cart-purchase.ts` →
+   `resolveRacePackCartPurchase(purchase, party)`: validates each slug against
+   `RACE_PACKS`, each memberId → a party member holding `bmiPersonId`, returns
+   `{ packs, totalCents, orderLines }` (one line per pack:
+   `SQUARE_RACE_PACK_CATALOG_ID` + `racePackLabel` name override). Throws on
+   unknown slug / accountless member (fail-closed).
+3. Deposit rail: reuse the EXACT extraLines/extraCents seams
+   (`createDepositOrder(extraLines)`, `finalizeDepositFromExternalPayment(extraCents)`)
+   in BOTH reserve paths (unified + bowling mirror). gz + packs merge into ONE
+   extraLines array / one extraCents sum; payment verify = booking + cards + packs.
+   Same gating as cards: kiosk + terminal + flag; fail-closed for non-reader payments.
+4. Persist-first: Neon `race_pack_purchases` rows at PREPARE
+   (status pending → charged → granted; pointers ride the Redis terminal anchor).
+   Finalize (payment verified) grants per pack via the proven `addDeposit`
+   (personId = member's bmiPersonId re-read at finalize, depositKindId, raceCount)
+   with retry; a failed grant leaves a CHARGED row the reconcile cron retries —
+   money never outruns grants, grants never lost (GZ recovery model). Idempotency
+   key `anchor+personId+packSlug` (Redis NX, mirrors race-credit-redeem).
+5. UI: `KioskRacePackStep` after `race-party` (every member has a personId by
+   then) — per-member optional pack pick; CheckoutStep review lines + total
+   (after booking subtotal/tax, byte-identical booking math — GZ pattern);
+   CartView block w/ remove; cart pill counts the entry; confirmation shows
+   "N races banked to {name} — good any visit" per pack.
+   LIVE SMOKE (real reader charge + verify credits on the person) → flag on.
+
+**Stage 2 — same-day funding (owner decision #1, second smoke gate)**
+6. When an assignee also has TODAY heats in this cart and the pack's dayType
+   allows today: cash total = booking − coveredHeatCents + packCents (server
+   re-derived; capped at raceCount heats; weekday packs can't cover weekend
+   heats). Checkout shows an explicit "Today's race — covered by {name}'s pack
+   −$X" line (displayed == charged tripwire extends to the adjustment).
+7. Finalize sequencing (NO validator mutation): verify payment → grant FULL
+   raceCount → run the existing redeemCredits rail for the covered heats against
+   the now-live balance (validates cleanly because the grant landed first) →
+   BMI bill lines for covered heats get the standard credit-payment treatment.
+   Partial failures: rows track granted/redeemed separately; cron recovers.
+   LIVE SMOKE (pack + covered heat in one reader payment; verify BMI bill,
+   remaining balance = raceCount − covered) → stage-2 flag on.
+
+**Deferred (explicitly out of v1):** packs with an EMPTY cart (nothing to ride —
+web /book/race-pack/v2 already covers standalone; add a kiosk hand-off tile
+later); refund/partial-use policy (owner call, sell path unaffected).
 
 ## Risks
 - `postPaymentAction` is single-grant today → multi-person packs need the array or
