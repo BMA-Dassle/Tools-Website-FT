@@ -10,6 +10,12 @@ import type {
   BowlingExperienceDurationOption,
 } from "@/lib/bowling-db";
 import { KBF_VIP_LANE_UPCHARGE_PER_PERSON_CENTS } from "~/features/booking/service/kbf-pricing";
+import {
+  bowlingLaneCount,
+  buildBowlingLineItems,
+  effectiveBowlingOptionId,
+  holdBowlingSlot,
+} from "~/features/booking/service/bowling-offer";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
 import {
   type AvailabilitySlot,
@@ -21,17 +27,22 @@ import {
 } from "./availability-client";
 import { getPublicReopenMinutes } from "@/lib/group-events";
 
-const CORAL = "#fd5b56";
+// Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
+// seems negative"); FastTrax red stays on racing only. VIP keeps gold.
+const BLUE = "#00E2E5";
 const GOLD = "#FFD700";
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 
-// VIP suite perks for the upgrade modal. Core amenities apply to every VIP
-// lane; some experiences add their own inclusions (shoes, pizza) on top.
+// VIP suite perks for the upgrade modal (owner 2026-07-19 wording). Core
+// amenities apply to every VIP lane; some experiences add their own
+// inclusions (shoes, pizza) on top.
 const VIP_CORE_PERKS = [
-  "Semi-private 8-lane VIP area",
+  "Semi-private 8-lane VIP suite",
+  "Private bar",
+  "Pool table",
   "NeoVerse video wall",
-  "Complimentary chips & salsa",
   "HyperBowling + premium glow lighting",
+  "Complimentary chips & salsa",
 ];
 const VIP_EXTRA_PERKS: Record<string, string[]> = {
   "fun-4-all-vip": ["Bowling shoes included"],
@@ -81,7 +92,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     item.kind === "bowling"
       ? (item as BowlingItem).playerCount
       : (item as KbfItem).bowlers.length + (item as KbfItem).paidAdults;
-  const laneCount = Math.max(1, Math.ceil(playerCount / 6));
+  const laneCount = bowlingLaneCount(playerCount);
 
   const [experiences, setExperiences] = useState<BowlingExperienceWithDetails[]>([]);
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
@@ -161,10 +172,14 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       reopenMins == null ? arr : arr.filter((s) => etMinutesOfDay(s.bookedAt) >= reopenMins);
     void (async () => {
       try {
+        // optionCheck=accurate (2026-07-19): the server duration-window-
+        // filters each slot's Time options, so a 2-hour duration only shows
+        // when the lane is actually free for 2 hours — the offer-accuracy
+        // owner bug. optionsVerified on the parsed slots reflects it.
         const fine = dropBeforeReopen(
           parseAvailabilities(
             await probeAvailability(
-              `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${availKind}&hour=${selectedHour}&minute=${item.minute ?? 0}&windowMinutes=45`,
+              `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${availKind}&hour=${selectedHour}&minute=${item.minute ?? 0}&windowMinutes=45&optionCheck=accurate`,
             ),
           ),
         );
@@ -180,7 +195,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
             const wide = dropBeforeReopen(
               parseAvailabilities(
                 await probeAvailability(
-                  `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${availKind}&stepMinutes=30`,
+                  `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${availKind}&stepMinutes=30&optionCheck=accurate`,
                 ),
               ),
             );
@@ -231,37 +246,6 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     }
   }, [loading, slots, experiences, tierExperiences, item.date, item.tier, selectedHour]);
 
-  function buildLineItems(
-    exp: BowlingExperienceWithDetails,
-    durationOpt: BowlingExperienceDurationOption | null,
-  ) {
-    const isPerLane = exp.kind === "hourly" || exp.slug.startsWith("pizza-bowl");
-    const qtyMultiplier = isPerLane ? laneCount : playerCount;
-    const durationMultiplier = durationOpt?.squareMultiplier ?? 1;
-
-    return (exp.items ?? []).map((ei) => {
-      const isPrimary = ei.sortOrder === 0;
-      const useOverride = isPrimary && durationOpt?.overrideSquareProductId;
-
-      return {
-        squareProductId: useOverride ? durationOpt!.overrideSquareProductId! : ei.squareProductId,
-        quantity: isPrimary
-          ? ei.quantity * qtyMultiplier * durationMultiplier
-          : ei.quantity * laneCount,
-        label: ei.label,
-        priceCents: useOverride
-          ? (durationOpt!.overridePriceCents ?? ei.priceCents)
-          : ei.priceCents,
-        depositPct: useOverride
-          ? (durationOpt!.overrideDepositPct ?? ei.depositPct)
-          : ei.depositPct,
-        squareCatalogObjectId: useOverride
-          ? (durationOpt!.overrideCatalogObjectId ?? ei.squareCatalogObjectId)
-          : ei.squareCatalogObjectId,
-      };
-    });
-  }
-
   async function selectSlot(
     exp: BowlingExperienceWithDetails,
     slot: AvailabilitySlot,
@@ -274,45 +258,41 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       return;
     }
 
+    // Re-tap of the already-held selection is a no-op (a second hold for the
+    // same slot can 409 against our own hold when it consumed the last lane).
+    if (
+      item.qamfReservationId &&
+      item.bookedAt === slot.bookedAt &&
+      item.experienceId === exp.id &&
+      (item.durationOptionId ?? null) === (durationOpt?.id ?? null)
+    ) {
+      return;
+    }
+
     setHoldBusy(true);
     setReservingAt(slot.bookedAt);
     setError(null);
 
     try {
-      // Option precedence:
-      //  1. durationOpt    — the duration the customer explicitly picked (hourly).
-      //  2. exp.qamfOptionId — the experience's seeded offer option. Open packages
-      //     (Pizza Bowl 2hr, Fun 4 All 1.5hr) have no duration buttons but DO carry
-      //     the correct Time option here.
-      //  3. slot.optionId  — QAMF-derived, last resort ONLY.
-      // We must NOT trust slot.optionId for fixed-duration packages: QAMF returns a
-      // 60/90/120-min option triple with Minutes often undefined and lists the 60-min
-      // option first, so parseAvailabilities' "longest" degrades to 1 hour — the
-      // Pizza Bowl / Fun 4 All short-booking bug.
-      const effectiveOptionId = durationOpt?.qamfOptionId ?? exp.qamfOptionId ?? slot.optionId;
+      // Option precedence guard (Pizza Bowl / Fun 4 All short-booking bug) —
+      // see effectiveBowlingOptionId in service/bowling-offer.ts.
+      const effectiveOptionId = effectiveBowlingOptionId(durationOpt, exp, slot.optionId);
 
-      const holdRes = await fetch("/api/bowling/v2/reserve/hold", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          centerId,
-          webOfferId: slot.webOfferId,
-          optionId: effectiveOptionId,
-          optionType: slot.optionType,
-          bookedAt: slot.bookedAt,
-          players: playerCount,
-          service: "BookForLater",
-        }),
+      // holdBowlingSlot releases the superseded hold first (re-pick after an
+      // earlier selection used to leak the old hold for its full 10-min TTL).
+      const { qamfReservationId } = await holdBowlingSlot({
+        centerId,
+        webOfferId: slot.webOfferId,
+        optionId: effectiveOptionId,
+        optionType: slot.optionType,
+        bookedAt: slot.bookedAt,
+        players: playerCount,
+        service: "BookForLater",
+        previousHoldId: item.qamfReservationId,
+        previousCenterId: item.qamfCenterId,
       });
-      const holdData = await holdRes.json();
 
-      if (!holdRes.ok) {
-        setError(holdData.error ?? "Couldn't reserve this slot. Try another time.");
-        return;
-      }
-
-      const qamfReservationId = holdData.qamfReservationId as string;
-      const lineItems = buildLineItems(exp, durationOpt);
+      const lineItems = buildBowlingLineItems(exp, durationOpt, playerCount, laneCount);
 
       dispatch({
         type: "setBowlingHold",
@@ -386,11 +366,15 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     return inHour.length ? [inHour[0]] : [];
   }
 
-  // Filter out hourly experience cards when no duration options are valid at this time
+  // Filter out hourly experience cards when no duration options are valid at
+  // this time. availableTimeOptionIds is only trusted when the server ran the
+  // accurate filter (optionsVerified) — the optimistic response echoes every
+  // configured option and must not gate anything.
   const visibleExperiences = tierExperiences.filter((exp) => {
     if (!exp.durationOptions?.length) return true;
     const expSlots = slotsForOffer(exp.qamfWebOfferId);
     if (expSlots.length === 0) return true;
+    if (!expSlots[0].optionsVerified) return true;
     const ids = expSlots[0].availableTimeOptionIds;
     if (!ids?.length) return true;
     return (exp.durationOptions ?? []).some((d) => ids.includes(d.qamfOptionId));
@@ -432,7 +416,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         <div className="flex items-center justify-center py-16">
           <div
             className="h-8 w-8 animate-spin rounded-full border-2 border-white/15"
-            style={{ borderTopColor: CORAL }}
+            style={{ borderTopColor: BLUE }}
           />
         </div>
       ) : visibleExperiences.length === 0 ? (
@@ -445,7 +429,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
             {visibleExperiences.map((exp) => {
               const expSlots = slotsForOffer(exp.qamfWebOfferId);
               const isVip = exp.isVip;
-              const accent = isVip ? GOLD : CORAL;
+              const accent = isVip ? GOLD : BLUE;
               const videoUrl = isVip
                 ? `${BLOB}/videos/headpinz-neoverse-v2.mp4`
                 : `${BLOB}/videos/headpinz-bowling.mp4`;
@@ -455,10 +439,15 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
               const isPerLane = exp.kind === "hourly" || exp.slug.startsWith("pizza-bowl");
               const hasDurationOptions = (exp.durationOptions?.length ?? 0) > 0;
 
-              // Filter duration buttons to only show options QAMF confirms are available
+              // Filter duration buttons to only show options that actually
+              // fit. Gated on optionsVerified: only the accurate server
+              // response filters options by real lane occupancy — trusting
+              // the optimistic echo is exactly the "2h shown when only 1.5h
+              // fits" bug.
               const validDurationOptions = hasDurationOptions
                 ? (exp.durationOptions ?? []).filter((opt) => {
                     if (!expSlots.length) return true;
+                    if (!expSlots[0].optionsVerified) return true;
                     const ids = expSlots[0].availableTimeOptionIds;
                     return !ids?.length || ids.includes(opt.qamfOptionId);
                   })

@@ -131,7 +131,7 @@ const KioskBowlingTierStepComponent: StepDef<BowlingItem>["Component"] = ({ item
           "Classic Lanes",
           "The house favorite — up to 8 per lane",
           regularPrice,
-          "#fd5b56",
+          "#00E2E5",
         )}
         {hasVip &&
           card(

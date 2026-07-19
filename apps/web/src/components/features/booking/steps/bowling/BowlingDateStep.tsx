@@ -1,39 +1,39 @@
 "use client";
 
+/**
+ * v3 bowling DATE step — calendar only (single-time-pick flow, 2026-07-19).
+ *
+ * The classic BowlingSlotsStep asked for date + an HOUR here, forcing a
+ * second time pick after the availability search. In the v3 flow the time is
+ * chosen exactly once, on the Time step, from genuinely bookable slots — so
+ * this step is just the calendar (+ the "also booked this day" panel and the
+ * cart-date inherit). Hidden on kiosks (walk-up = today, stamped at item
+ * creation).
+ */
+
 import { useEffect, useMemo, useState } from "react";
 import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
 import {
   addDays,
-  bowlingTimeLabel,
-  CENTERS,
   effectiveToday,
-  operatingHours,
   otherActivitiesOnDate,
   todayYmd,
-  type OtherActivity,
+  CENTERS,
 } from "~/features/booking/service/bowling-hours";
-import { formatHourLabel } from "./availability-client";
+import { releaseBowlingHold } from "~/features/booking/service/bowling-offer";
 
 // Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
 // seems negative"); FastTrax red stays on racing only. VIP keeps gold.
 const BLUE = "#00E2E5";
 const CYAN = "#00E2E5";
-// Conflict markers were cyan-on-coral; with the blue accent they need a
-// distinct hue to stay visible.
-const AMBER = "#f59e0b";
-
-// Static hours/date helpers moved verbatim to
-// ~/features/booking/service/bowling-hours (2026-07-19) so kiosk + v3 steps
-// share them without importing this component. Re-exported for existing
-// importers (KioskBowlingTimeStep et al.).
-export { bowlingTimeLabel, CENTERS, operatingHours };
 
 type BowlingLikeItem = BowlingItem | KbfItem;
 
-const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
+const BowlingDateStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   item,
   session,
   onChange,
+  dispatch,
 }) => {
   const centerId = item.qamfCenterId ?? 9172;
   const center = CENTERS[centerId] ?? CENTERS[9172];
@@ -53,28 +53,10 @@ const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
 
   const selectedDate = item.date ?? "";
 
-  // Static operating hours for the chosen date — NO QAMF probe, so the chips
-  // load instantly. Real availability is resolved on the package step (which
-  // probes the chosen hour and widens to next-available if it's full).
-  const availableHours = useMemo(
-    () => (selectedDate ? operatingHours(center.hpSlug, selectedDate, item.kind === "kbf") : []),
-    [center.hpSlug, selectedDate, item.kind],
-  );
-
-  // Other cart activities on this date — listed + marked on the chips so the
-  // customer can pick a bowling time around them.
   const otherActivities = useMemo(
     () => (selectedDate ? otherActivitiesOnDate(session, item.id, selectedDate) : []),
     [session, item.id, selectedDate],
   );
-  const conflictByHour = useMemo(() => {
-    const m = new Map<number, OtherActivity[]>();
-    for (const a of otherActivities) {
-      if (a.hour == null) continue;
-      m.set(a.hour, [...(m.get(a.hour) ?? []), a]);
-    }
-    return m;
-  }, [otherActivities]);
 
   // Auto-select date from other cart items if this is a new item with no date
   useEffect(() => {
@@ -82,15 +64,8 @@ const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     if (cartDate) {
       onChange({ date: cartDate } as Partial<BowlingLikeItem>);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Default the time to the first operating hour (or re-default when the prior
-  // pick is no longer valid for this date). An explicit, still-valid pick stays.
-  useEffect(() => {
-    if (!availableHours.length) return;
-    if (item.hour != null && availableHours.includes(item.hour)) return;
-    onChange({ hour: availableHours[0], minute: 0 } as Partial<BowlingLikeItem>);
-  }, [availableHours, item.hour]);
 
   const [calMonth, setCalMonth] = useState(() => {
     const seed = item.date ?? cartDate;
@@ -115,12 +90,19 @@ const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   }
 
   function selectDate(dateStr: string) {
-    // Reset hour → the date-change effect re-seeds the start time for the new date.
+    if (dateStr === item.date) return;
+    // A date change invalidates any live hold + picked time — release the
+    // hold now rather than leaking it for its 10-min TTL.
+    if (item.qamfReservationId) {
+      void releaseBowlingHold(item.qamfCenterId ?? centerId, item.qamfReservationId);
+      dispatch({ type: "clearBowlingHold", itemId: item.id });
+    }
     onChange({
       date: dateStr,
       hour: null,
       minute: null,
       bookedAt: null,
+      lineItems: [],
     } as Partial<BowlingLikeItem>);
   }
 
@@ -243,7 +225,7 @@ const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         </div>
       )}
 
-      {/* Already-booked activities this day — so they can plan bowling around them */}
+      {/* Already-booked activities this day — plan bowling around them */}
       {selectedDate && otherActivities.length > 0 && (
         <div
           className="rounded-2xl border p-4"
@@ -258,90 +240,31 @@ const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
           <ul className="space-y-1.5">
             {otherActivities.map((a) => (
               <li key={a.key} className="flex items-center justify-between text-sm">
-                <span className="flex items-center gap-2 text-white/85">
-                  <span>{a.icon}</span>
-                  {a.label}
-                </span>
+                <span className="text-white/85">{a.label}</span>
                 <span className="font-semibold text-white">{a.timeLabel}</span>
               </li>
             ))}
           </ul>
           <p className="mt-2 text-center text-[11px] text-white/40">
-            Pick a bowling time that works around these — marked below.
+            We&apos;ll flag bowling times that overlap these.
           </p>
         </div>
       )}
 
-      {/* Time — static operating hours under the calendar (no probe; the package
-          step checks real availability for the chosen hour) */}
-      {selectedDate && (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-          <div className="mb-3 text-center text-xs uppercase tracking-[3px] text-white/35">
-            Time
-          </div>
-          {availableHours.length === 0 ? (
-            <p className="py-4 text-center text-sm text-white/40">
-              No bowling hours this day. Try another date.
-            </p>
-          ) : (
-            <>
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                {availableHours.map((h) => {
-                  const isSel = item.hour === h;
-                  const conflicts = conflictByHour.get(h) ?? [];
-                  return (
-                    <button
-                      key={h}
-                      type="button"
-                      onClick={() =>
-                        onChange({
-                          hour: h,
-                          minute: 0,
-                          bookedAt: null,
-                        } as Partial<BowlingLikeItem>)
-                      }
-                      title={
-                        conflicts.length
-                          ? `You're also booked: ${conflicts.map((c) => `${c.label} ${c.timeLabel}`).join(", ")}`
-                          : undefined
-                      }
-                      className="flex flex-col items-center gap-0.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all"
-                      style={{
-                        backgroundColor: isSel ? BLUE : "rgba(0,226,229,0.10)",
-                        color: isSel ? "#0a1628" : BLUE,
-                        fontWeight: isSel ? 800 : 600,
-                        boxShadow: isSel ? `0 0 14px ${BLUE}60` : undefined,
-                        border: conflicts.length ? `1px solid ${AMBER}99` : "1px solid transparent",
-                      }}
-                    >
-                      <span>{formatHourLabel(h)}</span>
-                      {conflicts.length > 0 && (
-                        <span className="text-[10px] leading-none" aria-hidden>
-                          {conflicts.map((c) => c.icon).join("")}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="mt-3 text-center text-[11px] text-white/35">
-                We&apos;ll show exact start times &amp; packages next.
-              </p>
-            </>
-          )}
-        </div>
-      )}
+      <p className="text-center text-[11px] text-white/35">
+        Pick your package next — then choose from real open lane times.
+      </p>
     </div>
   );
 };
 
-const BowlingSlotsStep: StepDef<BowlingItem> = {
-  id: "bowling-slots",
+const BowlingDateStep: StepDef<BowlingItem> = {
+  id: "bowling-date",
   title: "Date",
-  Component: BowlingSlotsStepComponent as StepDef<BowlingItem>["Component"],
-  isVisible: () => true,
-  canAdvance: (item) =>
-    !item.date ? { reason: "Pick a date" } : item.hour == null ? { reason: "Pick a time" } : true,
+  Component: BowlingDateStepComponent as StepDef<BowlingItem>["Component"],
+  // Kiosk is walk-up/today-only — the date is stamped at item creation.
+  isVisible: (_item, session) => !session.context?.kiosk,
+  canAdvance: (item) => (!item.date ? { reason: "Pick a date" } : true),
 };
 
-export default BowlingSlotsStep;
+export default BowlingDateStep;

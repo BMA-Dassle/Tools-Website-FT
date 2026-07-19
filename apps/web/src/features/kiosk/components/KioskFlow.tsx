@@ -120,6 +120,9 @@ const NATIVE_STEP_IDS = new Set([
   "attraction-slot",
   "bowling-slots",
   "bowling-tier",
+  // v3 single-time-pick steps render their own kiosk variant at canvas px.
+  "bowling-experience",
+  "bowling-time",
   "kiosk-bowling-details",
   "kiosk-bowling-people",
 ]);
@@ -136,7 +139,7 @@ function seedForGoto(goto: string): { kind: SessionItem["kind"]; slug?: string }
   return null;
 }
 
-export function KioskFlow({ goto }: { goto: string | null }) {
+export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?: boolean }) {
   const router = useRouter();
   const { config } = useKioskConfig();
   // Bookable-today availability for the Experiences (VIP combo + Ultimate
@@ -150,14 +153,27 @@ export function KioskFlow({ goto }: { goto: string | null }) {
     () =>
       emptySession({
         entryBrand: config?.brand ?? "fasttrax",
-        context: config ? { center: config.center, kiosk: true } : { kiosk: true },
+        context: {
+          ...(config ? { center: config.center } : {}),
+          kiosk: true,
+          ...(bowlingV3 ? { bowlingV3: true } : {}),
+        },
       }),
-    [config],
+    [config, bowlingV3],
   );
   const [session, dispatch, hydrated] = usePersistedReducer(initial, {
     storageKey: KIOSK_SESSION_STORAGE_KEY,
     schemaVersion: KIOSK_SCHEMA_VERSION,
   });
+
+  // `?bowlingV3=1` preview opt-in must also reach a PERSISTED kiosk session —
+  // context is only seeded at creation (same fix as BookingFlow).
+  useEffect(() => {
+    if (!hydrated) return;
+    if (bowlingV3 && !session.context?.bowlingV3) {
+      dispatch({ type: "enableBowlingV3" });
+    }
+  }, [hydrated, bowlingV3, session.context?.bowlingV3, dispatch]);
 
   const [cartActive, setCartActive] = useState(false);
   const [checkoutActive, setCheckoutActive] = useState(false);

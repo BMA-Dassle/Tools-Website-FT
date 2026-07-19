@@ -11,7 +11,9 @@ import {
 } from "./availability-client";
 import { getPublicReopenMinutes } from "@/lib/group-events";
 
-const CORAL = "#fd5b56";
+// Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
+// seems negative"); FastTrax red stays on racing only. VIP keeps gold.
+const BLUE = "#00E2E5";
 const GOLD = "#FFD700";
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 
@@ -197,7 +199,7 @@ const BowlingTierStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       <div className="flex items-center justify-center py-16">
         <div
           className="h-8 w-8 animate-spin rounded-full border-2 border-white/15"
-          style={{ borderTopColor: CORAL }}
+          style={{ borderTopColor: BLUE }}
         />
       </div>
     );
@@ -209,7 +211,7 @@ const BowlingTierStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       <div className="mx-auto max-w-md py-8 text-center">
         <div
           className="h-8 w-8 animate-spin rounded-full border-2 border-white/15 mx-auto"
-          style={{ borderTopColor: CORAL }}
+          style={{ borderTopColor: BLUE }}
         />
         <p className="mt-3 text-sm text-white/40">Loading packages...</p>
       </div>
@@ -266,8 +268,8 @@ const BowlingTierStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
             onClick={() => selectTier("regular")}
             className="group relative overflow-hidden rounded-2xl border transition-all"
             style={{
-              borderColor: item.tier === "regular" ? CORAL : "rgba(255,255,255,0.1)",
-              boxShadow: item.tier === "regular" ? `0 0 20px ${CORAL}40` : undefined,
+              borderColor: item.tier === "regular" ? BLUE : "rgba(255,255,255,0.1)",
+              boxShadow: item.tier === "regular" ? `0 0 20px ${BLUE}40` : undefined,
             }}
           >
             <video
@@ -282,7 +284,7 @@ const BowlingTierStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
             <div className="absolute inset-x-0 bottom-0 p-4">
               <h3
                 className="font-display text-xl uppercase tracking-widest"
-                style={{ color: CORAL }}
+                style={{ color: BLUE }}
               >
                 Regular
               </h3>

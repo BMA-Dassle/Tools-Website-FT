@@ -159,10 +159,13 @@ const WorldCupMatchStepComponent: StepDef<BowlingItem>["Component"] = ({
         return;
       }
 
-      // Targeted probe at the exact kickoff (QAMF availability is point-in-time).
+      // Targeted probe at the exact kickoff (QAMF availability is point-in-
+      // time). optionCheck=accurate: the 150-min option is stripped when the
+      // lane isn't free for the full match window, so optionOk below actually
+      // means "fits", not "configured".
       const raw = await probeAvailability(
         `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}` +
-          `&startDate=${f.dateEt}&kind=hourly&hour=${f.kickoffHourEt}&minute=0&windowMinutes=15`,
+          `&startDate=${f.dateEt}&kind=hourly&hour=${f.kickoffHourEt}&minute=0&windowMinutes=15&optionCheck=accurate`,
       );
       const slots = parseAvailabilities(raw);
       const slot = slots.find(

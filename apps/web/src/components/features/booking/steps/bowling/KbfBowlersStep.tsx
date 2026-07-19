@@ -3,7 +3,9 @@
 import { useState } from "react";
 import type { KbfItem, StepDef } from "~/features/booking";
 
-const CORAL = "#fd5b56";
+// Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
+// seems negative"); FastTrax red stays on racing only. VIP keeps gold.
+const BLUE = "#00E2E5";
 
 const KbfBowlersStepComponent: StepDef<KbfItem>["Component"] = ({ item, session, onChange }) => {
   const [guestAdults, setGuestAdults] = useState(0);
@@ -81,17 +83,17 @@ const KbfBowlersStepComponent: StepDef<KbfItem>["Component"] = ({ item, session,
               onClick={() => toggleMember(m.id)}
               className="flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all"
               style={{
-                borderColor: selected.has(m.id) ? CORAL : "rgba(255,255,255,0.1)",
+                borderColor: selected.has(m.id) ? BLUE : "rgba(255,255,255,0.1)",
                 backgroundColor: selected.has(m.id)
-                  ? "rgba(253,91,86,0.08)"
+                  ? "rgba(0,226,229,0.08)"
                   : "rgba(255,255,255,0.02)",
               }}
             >
               <div
                 className="flex h-6 w-6 items-center justify-center rounded-full border-2 text-xs font-bold"
                 style={{
-                  borderColor: selected.has(m.id) ? CORAL : "rgba(255,255,255,0.2)",
-                  backgroundColor: selected.has(m.id) ? CORAL : "transparent",
+                  borderColor: selected.has(m.id) ? BLUE : "rgba(255,255,255,0.2)",
+                  backgroundColor: selected.has(m.id) ? BLUE : "transparent",
                   color: selected.has(m.id) ? "#0a1628" : "transparent",
                 }}
               >
@@ -118,17 +120,17 @@ const KbfBowlersStepComponent: StepDef<KbfItem>["Component"] = ({ item, session,
               onClick={() => toggleMember(m.id)}
               className="flex w-full items-center gap-3 rounded-xl border px-4 py-3 text-left transition-all"
               style={{
-                borderColor: selected.has(m.id) ? CORAL : "rgba(255,255,255,0.1)",
+                borderColor: selected.has(m.id) ? BLUE : "rgba(255,255,255,0.1)",
                 backgroundColor: selected.has(m.id)
-                  ? "rgba(253,91,86,0.08)"
+                  ? "rgba(0,226,229,0.08)"
                   : "rgba(255,255,255,0.02)",
               }}
             >
               <div
                 className="flex h-6 w-6 items-center justify-center rounded-full border-2 text-xs font-bold"
                 style={{
-                  borderColor: selected.has(m.id) ? CORAL : "rgba(255,255,255,0.2)",
-                  backgroundColor: selected.has(m.id) ? CORAL : "transparent",
+                  borderColor: selected.has(m.id) ? BLUE : "rgba(255,255,255,0.2)",
+                  backgroundColor: selected.has(m.id) ? BLUE : "transparent",
                   color: selected.has(m.id) ? "#0a1628" : "transparent",
                 }}
               >

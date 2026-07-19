@@ -91,3 +91,11 @@ describe("parseEntryContextFromSearchParams", () => {
     });
   });
 });
+
+describe("bowlingV3 preview param", () => {
+  it("only the exact value '1' opts in", () => {
+    expect(parseEntryContextFromSearchParams({ bowlingV3: "1" })).toEqual({ bowlingV3: true });
+    expect(parseEntryContextFromSearchParams({ bowlingV3: "true" })).toBe(EMPTY_ENTRY_CONTEXT);
+    expect(parseEntryContextFromSearchParams({ bowlingV3: "" })).toBe(EMPTY_ENTRY_CONTEXT);
+  });
+});

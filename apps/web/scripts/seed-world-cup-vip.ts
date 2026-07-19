@@ -231,13 +231,14 @@ async function upsertOffer(o: {
 }): Promise<void> {
   await sql`
     INSERT INTO bowling_experience_offers
-      (experience_id, center_code, qamf_web_offer_id, qamf_option_type, qamf_option_id, is_active)
+      (experience_id, center_code, qamf_web_offer_id, qamf_option_type, qamf_option_id, duration_minutes, is_active)
     VALUES
-      (${o.experienceId}, ${o.centerCode}, ${o.qamfWebOfferId}, 'Time', ${o.qamfOptionId}, TRUE)
+      (${o.experienceId}, ${o.centerCode}, ${o.qamfWebOfferId}, 'Time', ${o.qamfOptionId}, 150, TRUE)
     ON CONFLICT (experience_id, center_code) DO UPDATE SET
       qamf_web_offer_id = EXCLUDED.qamf_web_offer_id,
       qamf_option_type  = EXCLUDED.qamf_option_type,
       qamf_option_id    = EXCLUDED.qamf_option_id,
+      duration_minutes  = EXCLUDED.duration_minutes,
       is_active         = EXCLUDED.is_active
   `;
   console.log(

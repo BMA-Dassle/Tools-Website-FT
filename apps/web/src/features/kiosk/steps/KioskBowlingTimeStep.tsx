@@ -17,7 +17,7 @@ import {
   bowlingTimeLabel,
   CENTERS,
   operatingHours,
-} from "~/components/features/booking/steps/bowling/BowlingSlotsStep";
+} from "~/features/booking/service/bowling-hours";
 import { todayYmd } from "../service/first-available";
 
 type BowlingLikeItem = BowlingItem | KbfItem;
@@ -134,9 +134,9 @@ const KioskBowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
           type="button"
           onClick={() => pick(first)}
           className="k-glass k-tap w-full p-[40px] text-left"
-          style={{ borderLeft: `8px solid ${heroSelected ? "#fd5b56" : "rgba(255,255,255,0.15)"}` }}
+          style={{ borderLeft: `8px solid ${heroSelected ? "#00E2E5" : "rgba(255,255,255,0.15)"}` }}
         >
-          <div className="k-eyebrow" style={{ color: "#fd5b56" }}>
+          <div className="k-eyebrow" style={{ color: "#00E2E5" }}>
             Next open lanes · today at {center.name}
           </div>
           <div className="k-display mt-[10px] text-[150px] leading-none tabular-nums">

@@ -12,5 +12,8 @@ export default async function KioskFlowPage({
 }) {
   const sp = await searchParams;
   const goto = typeof sp.goto === "string" ? sp.goto : null;
-  return <KioskFlow goto={goto} />;
+  // Single-time-pick bowling flow preview opt-in (dark-flag testing on the
+  // kiosk without env changes) — /kiosk/flow?bowlingV3=1.
+  const bowlingV3 = sp.bowlingV3 === "1";
+  return <KioskFlow goto={goto} bowlingV3={bowlingV3} />;
 }

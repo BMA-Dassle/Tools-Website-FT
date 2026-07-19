@@ -6,6 +6,7 @@
  * web registry — zero risk to the live booking flow.
  */
 import { STEP_REGISTRY, type SessionItem, type StepDef } from "~/features/booking";
+import { classicOnly } from "~/features/booking/state/steps";
 import { getPackage } from "@/lib/packages";
 import { KioskSlotStep } from "../steps/KioskSlotStep";
 import { KioskBowlingDetailsStep } from "../steps/KioskBowlingDetailsStep";
@@ -138,23 +139,34 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     let steps = [...STEP_REGISTRY.bowling].filter(
       (s) => s.id !== "contact" && s.id !== "bowling-players",
     );
+    // The kiosk replacements swap the CLASSIC web steps, so they must carry
+    // the same classicOnly gate the web entries have — replaceStep swaps the
+    // whole (wrapped) StepDef, and without re-wrapping, a v3 session would
+    // see both flows. The v3 Date/Experience/Time entries flow through from
+    // STEP_REGISTRY untouched (BowlingDateStep self-hides on kiosks; the
+    // shared Experience/Time steps render their kiosk variant via
+    // session.context.kiosk).
     steps = replaceStep(
       steps,
       "bowling-slots",
-      hiddenInCombo(hiddenForWorldCup(KioskBowlingTimeStep as StepDef)),
+      hiddenInCombo(hiddenForWorldCup(classicOnly(KioskBowlingTimeStep as StepDef))),
     );
     // Classic vs VIP Suites — kiosk-native Podium reskin (writes only item.tier;
     // the offer step still does duration + slot + hold).
     steps = replaceStep(
       steps,
       "bowling-tier",
-      hiddenInCombo(hiddenForWorldCup(KioskBowlingTierStep as StepDef)),
+      hiddenInCombo(hiddenForWorldCup(classicOnly(KioskBowlingTierStep as StepDef))),
     );
     steps = insertAfter(steps, "bowling-shoes", hiddenInCombo(KioskBowlingDetailsStep as StepDef));
     return [hiddenInCombo(KioskBowlingPeopleStep as StepDef), ...steps];
   })(),
   kbf: insertAfter(
-    replaceStep([...STEP_REGISTRY.kbf], "bowling-slots", KioskBowlingTimeStep as StepDef),
+    replaceStep(
+      [...STEP_REGISTRY.kbf],
+      "bowling-slots",
+      classicOnly(KioskBowlingTimeStep as StepDef),
+    ),
     "bowling-shoes",
     KioskBowlingDetailsStep as StepDef,
   ),

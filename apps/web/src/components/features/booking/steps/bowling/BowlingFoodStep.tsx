@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import type { BowlingItem, StepDef } from "~/features/booking";
 
-const CORAL = "#fd5b56";
+// Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
+// seems negative"); FastTrax red stays on racing only. VIP keeps gold.
+const BLUE = "#00E2E5";
 
 const PIZZA_BOWL_PIZZA_CATALOG_ID = "2IKZB4O2HQBXWMTSUQ2SEKJY";
 const PIZZA_BOWL_SODA_CATALOG_ID = "SJUBJLB4QGHIHCW5AKTTMLH7";
@@ -118,7 +120,7 @@ const BowlingFoodStepComponent: StepDef<BowlingItem>["Component"] = ({ item, onC
       <div className="flex items-center justify-center py-16">
         <div
           className="h-8 w-8 animate-spin rounded-full border-2 border-white/15"
-          style={{ borderTopColor: CORAL }}
+          style={{ borderTopColor: BLUE }}
         />
       </div>
     );
@@ -171,7 +173,7 @@ const BowlingFoodStepComponent: StepDef<BowlingItem>["Component"] = ({ item, onC
                   {isSoda && (
                     <span
                       className="ml-1"
-                      style={{ color: selected.length > 0 ? "rgba(255,255,255,0.3)" : CORAL }}
+                      style={{ color: selected.length > 0 ? "rgba(255,255,255,0.3)" : BLUE }}
                     >
                       (required)
                     </span>
@@ -189,8 +191,8 @@ const BowlingFoodStepComponent: StepDef<BowlingItem>["Component"] = ({ item, onC
                         }
                         className="rounded-lg px-3 py-1.5 text-xs font-medium transition-all"
                         style={{
-                          backgroundColor: isSelected ? CORAL : "rgba(253,91,86,0.10)",
-                          color: isSelected ? "#0a1628" : CORAL,
+                          backgroundColor: isSelected ? BLUE : "rgba(0,226,229,0.10)",
+                          color: isSelected ? "#0a1628" : BLUE,
                           fontWeight: isSelected ? 700 : 500,
                         }}
                       >
