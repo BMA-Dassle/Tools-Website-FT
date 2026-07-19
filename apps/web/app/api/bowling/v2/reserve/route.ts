@@ -55,6 +55,7 @@ import {
 } from "~/features/booking/service/deposit";
 import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
 import { bowlingPricingMode } from "~/features/booking/service/bowling-booked-pricing";
+import { assertBookable, DurationGuardError } from "~/features/booking/service/duration-guard";
 import {
   KBF_GAMES_PER_SESSION,
   KBF_VIP_PER_GAME_CENTS,
@@ -839,6 +840,30 @@ export async function POST(req: NextRequest) {
     if (optionType === "Time") qamfOptions.Time = [{ Id: optionId }];
     else if (optionType === "Unlimited") qamfOptions.Unlimited = [{ Id: optionId }];
     else qamfOptions.Game = [{ Id: optionId }];
+  }
+
+  // Duration/option guard (pre-charge, so a 409 is safe): hold-first path
+  // gets config-only validation (the hold already probed at creation; the
+  // body's optionId is client-controlled and must still belong to the offer);
+  // the fresh path gets the full occupancy-window check. Fail-open on guard
+  // infrastructure errors.
+  try {
+    await assertBookable({
+      centerId,
+      webOfferId,
+      optionId,
+      optionType,
+      bookedAt,
+      players: players.length,
+      mode: body.qamfReservationId ? "config-only" : "full",
+      logTag: "[bowling/v2/reserve]",
+    });
+  } catch (err) {
+    if (err instanceof DurationGuardError) {
+      console.log(`[bowling/v2/reserve] guard rejected (${err.code}): ${err.message}`);
+      return NextResponse.json({ error: err.message, code: err.code }, { status: err.status });
+    }
+    console.warn("[bowling/v2/reserve] duration guard errored (fail-open):", err);
   }
 
   // ── QAMF reservation — hold-first or fresh ──────────────────────

@@ -137,6 +137,27 @@ export async function ensureBowlingSchema(): Promise<void> {
   await q`CREATE INDEX IF NOT EXISTS beo_center ON bowling_experience_offers(center_code, qamf_web_offer_id)`;
   await q`CREATE INDEX IF NOT EXISTS beo_exp    ON bowling_experience_offers(experience_id)`;
 
+  // duration_minutes (2026-07-19): the fixed duration of the offer-level
+  // qamf_option_id for packages without duration buttons (Pizza Bowl 120,
+  // Fun 4 All 90, World Cup 150). NULL for Game/Unlimited (KBF, midnight
+  // madness) and for hourly offers (durations live in
+  // bowling_experience_duration_options). Needed so the server can duration-
+  // window-check fixed-duration packages at hold/reserve time — QAMF's own
+  // Minutes field is unreliable and never read for logic.
+  await q`ALTER TABLE bowling_experience_offers ADD COLUMN IF NOT EXISTS duration_minutes INTEGER`;
+  await q`
+    UPDATE bowling_experience_offers eo
+    SET duration_minutes = CASE
+          WHEN e.slug LIKE 'fun-4-all%'  THEN 90
+          WHEN e.slug LIKE 'pizza-bowl%' THEN 120
+          WHEN e.slug LIKE 'world-cup%'  THEN 150
+        END
+    FROM bowling_experiences e
+    WHERE e.id = eo.experience_id
+      AND eo.duration_minutes IS NULL
+      AND (e.slug LIKE 'fun-4-all%' OR e.slug LIKE 'pizza-bowl%' OR e.slug LIKE 'world-cup%')
+  `;
+
   // One-time migration: Fun 4 All switched from Unlimited to shared Time offers.
   // Old: FM=156/Naples=120, VIP FM=157/Naples=121
   // New: FM=154/Naples=118, VIP FM=155/Naples=119 (shared with hourly lane rental)
@@ -501,6 +522,11 @@ export interface BowlingExperienceWithDetails extends BowlingExperience {
   qamfWebOfferId: number;
   qamfOptionType: string | null;
   qamfOptionId: number | null;
+  /** Fixed duration (minutes) of the offer-level option — Pizza Bowl 120,
+   *  Fun 4 All 90, World Cup 150. Null for Game/Unlimited and hourly offers
+   *  (hourly durations live in durationOptions). Duration source of truth:
+   *  our DB, never QAMF's Minutes field. */
+  qamfOfferDurationMinutes: number | null;
   items: BowlingExperienceItem[];
   /** Present for Time-based offers (kind='hourly'). Empty for Game/Unlimited. */
   durationOptions: BowlingExperienceDurationOption[];
@@ -2758,6 +2784,8 @@ function rowToExperienceWithDetails(row: Record<string, unknown>): BowlingExperi
     qamfWebOfferId: row.qamf_web_offer_id as number,
     qamfOptionType: (row.qamf_option_type as string) ?? null,
     qamfOptionId: row.qamf_option_id != null ? (row.qamf_option_id as number) : null,
+    qamfOfferDurationMinutes:
+      row.duration_minutes != null ? (row.duration_minutes as number) : null,
     items: (row.items as BowlingExperienceItem[]) ?? [],
     durationOptions: [],
   };
@@ -2890,7 +2918,7 @@ export async function getBowlingExperiences(
   // 1. Fetch experience rows joined to the center's offer
   const offerRows = kind
     ? await q`
-        SELECT e.*, eo.qamf_web_offer_id, eo.qamf_option_type, eo.qamf_option_id
+        SELECT e.*, eo.qamf_web_offer_id, eo.qamf_option_type, eo.qamf_option_id, eo.duration_minutes
         FROM bowling_experiences e
         JOIN bowling_experience_offers eo
           ON eo.experience_id = e.id
@@ -2900,7 +2928,7 @@ export async function getBowlingExperiences(
         ORDER BY e.sort_order, e.id
       `
     : await q`
-        SELECT e.*, eo.qamf_web_offer_id, eo.qamf_option_type, eo.qamf_option_id
+        SELECT e.*, eo.qamf_web_offer_id, eo.qamf_option_type, eo.qamf_option_id, eo.duration_minutes
         FROM bowling_experiences e
         JOIN bowling_experience_offers eo
           ON eo.experience_id = e.id
@@ -2927,6 +2955,8 @@ export async function getBowlingExperiences(
       qamfWebOfferId: row.qamf_web_offer_id as number,
       qamfOptionType: (row.qamf_option_type as string) ?? null,
       qamfOptionId: row.qamf_option_id != null ? (row.qamf_option_id as number) : null,
+      qamfOfferDurationMinutes:
+        row.duration_minutes != null ? (row.duration_minutes as number) : null,
       items: itemMap.get(eid) ?? [],
       durationOptions: durationMap.get(eid) ?? [],
     };
@@ -2949,7 +2979,7 @@ export async function getBowlingExperienceByOffer(
 
   const offerRows = kind
     ? await q`
-        SELECT e.*, eo.qamf_web_offer_id, eo.qamf_option_type, eo.qamf_option_id
+        SELECT e.*, eo.qamf_web_offer_id, eo.qamf_option_type, eo.qamf_option_id, eo.duration_minutes
         FROM bowling_experiences e
         JOIN bowling_experience_offers eo
           ON eo.experience_id    = e.id
@@ -2960,7 +2990,7 @@ export async function getBowlingExperienceByOffer(
         LIMIT 1
       `
     : await q`
-        SELECT e.*, eo.qamf_web_offer_id, eo.qamf_option_type, eo.qamf_option_id
+        SELECT e.*, eo.qamf_web_offer_id, eo.qamf_option_type, eo.qamf_option_id, eo.duration_minutes
         FROM bowling_experiences e
         JOIN bowling_experience_offers eo
           ON eo.experience_id    = e.id
@@ -2984,6 +3014,8 @@ export async function getBowlingExperienceByOffer(
     qamfWebOfferId: row.qamf_web_offer_id as number,
     qamfOptionType: (row.qamf_option_type as string) ?? null,
     qamfOptionId: row.qamf_option_id != null ? (row.qamf_option_id as number) : null,
+    qamfOfferDurationMinutes:
+      row.duration_minutes != null ? (row.duration_minutes as number) : null,
     items: itemMap.get(eid) ?? [],
     durationOptions: durationMap.get(eid) ?? [],
   };

@@ -140,17 +140,23 @@ async function upsertOffer(o: {
   qamfWebOfferId: number;
   qamfOptionType?: string;
   qamfOptionId?: number;
+  /** Fixed duration (minutes) of the offer-level option — set for packages
+   *  without duration buttons (Fun 4 All 90, Pizza Bowl 120). Omit for
+   *  hourly offers (durations live in duration options) and Game/Unlimited.
+   *  Duration source of truth is OUR DB, never QAMF's Minutes field. */
+  durationMinutes?: number;
 }): Promise<void> {
   await sql`
     INSERT INTO bowling_experience_offers
-      (experience_id, center_code, qamf_web_offer_id, qamf_option_type, qamf_option_id, is_active)
+      (experience_id, center_code, qamf_web_offer_id, qamf_option_type, qamf_option_id, duration_minutes, is_active)
     VALUES
       (${o.experienceId}, ${o.centerCode}, ${o.qamfWebOfferId},
-       ${o.qamfOptionType ?? null}, ${o.qamfOptionId ?? null}, TRUE)
+       ${o.qamfOptionType ?? null}, ${o.qamfOptionId ?? null}, ${o.durationMinutes ?? null}, TRUE)
     ON CONFLICT (center_code, qamf_web_offer_id) DO UPDATE SET
       experience_id    = EXCLUDED.experience_id,
       qamf_option_type = EXCLUDED.qamf_option_type,
       qamf_option_id   = EXCLUDED.qamf_option_id,
+      duration_minutes = EXCLUDED.duration_minutes,
       is_active        = EXCLUDED.is_active
   `;
   const center = o.centerCode === FM ? "FM    " : "Naples";
@@ -469,6 +475,7 @@ async function main() {
     qamfWebOfferId: 154, // same as regular-mon-thur
     qamfOptionType: "Time",
     qamfOptionId: 1227, // 1.5hr option
+    durationMinutes: 90,
   });
   await upsertOffer({
     experienceId: f4aRegId,
@@ -476,6 +483,7 @@ async function main() {
     qamfWebOfferId: 118, // same as regular-mon-thur
     qamfOptionType: "Time",
     qamfOptionId: 939, // 1.5hr option
+    durationMinutes: 90,
   });
   await setItems(f4aRegId, [{ catalogObjectId: CAT.FUN_4_ALL, quantity: 1 }]);
 
@@ -502,6 +510,7 @@ async function main() {
     qamfWebOfferId: 155, // same as vip-mon-thur
     qamfOptionType: "Time",
     qamfOptionId: 1235, // 1.5hr option
+    durationMinutes: 90,
   });
   await upsertOffer({
     experienceId: f4aVipId,
@@ -509,6 +518,7 @@ async function main() {
     qamfWebOfferId: 119, // same as vip-mon-thur
     qamfOptionType: "Time",
     qamfOptionId: 947, // 1.5hr option
+    durationMinutes: 90,
   });
   await setItems(f4aVipId, [
     { catalogObjectId: CAT.FUN_4_ALL_VIP, quantity: 1 },
@@ -537,6 +547,7 @@ async function main() {
     qamfWebOfferId: 161,
     qamfOptionType: "Time",
     qamfOptionId: 1284,
+    durationMinutes: 120,
   });
   await upsertOffer({
     experienceId: pizzaRegId,
@@ -544,6 +555,7 @@ async function main() {
     qamfWebOfferId: 127,
     qamfOptionType: "Time",
     qamfOptionId: 1012,
+    durationMinutes: 120,
   });
   await setItems(pizzaRegId, [{ catalogObjectId: CAT.PIZZA_BOWL, quantity: 1 }]);
 
@@ -566,6 +578,7 @@ async function main() {
     qamfWebOfferId: 162,
     qamfOptionType: "Time",
     qamfOptionId: 1292,
+    durationMinutes: 120,
   });
   await upsertOffer({
     experienceId: pizzaVipId,
@@ -573,6 +586,7 @@ async function main() {
     qamfWebOfferId: 126,
     qamfOptionType: "Time",
     qamfOptionId: 1004,
+    durationMinutes: 120,
   });
   await setItems(pizzaVipId, [
     { catalogObjectId: CAT.PIZZA_BOWL_VIP, quantity: 1 },

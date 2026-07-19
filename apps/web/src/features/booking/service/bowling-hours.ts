@@ -105,6 +105,31 @@ export const CENTERS: Record<number, { hpSlug: string; name: string }> = {
   3148: { hpSlug: "naples", name: "HeadPinz Naples" },
 };
 
+/** QAMF center ID → Square center code. Single source of truth — was
+ *  duplicated in the availability route, fix-open-duration, and the offer
+ *  step before 2026-07-19. */
+export const QAMF_TO_CENTER_CODE: Record<number, string> = {
+  9172: "TXBSQN0FEKQ11",
+  3148: "PPTR5G2N0QXF7",
+};
+
+/**
+ * { open, close } hours (0-26 notation) for a QAMF center on a date.
+ * Sun-Thu → hours, Fri-Sat → hoursWeekend. Fallback mirrors the
+ * availability route's historical default (open 9, close 26).
+ */
+export function centerHoursForDate(
+  centerId: number,
+  dateStr: string,
+): { open: number; close: number } {
+  const slug = CENTERS[centerId]?.hpSlug;
+  const loc = slug ? HP_LOCATIONS[slug] : undefined;
+  if (!loc) return { open: 9, close: 26 };
+  const dow = new Date(`${dateStr}T12:00:00`).getDay();
+  const isWeekend = dow === 5 || dow === 6;
+  return parseHoursRange(isWeekend ? loc.hoursWeekend : loc.hours);
+}
+
 function ymdFromDate(dt: Date): string {
   return dt.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 }

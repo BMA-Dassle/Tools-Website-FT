@@ -29,6 +29,7 @@ import {
   rescheduleQamfReservation,
   type QamfRescheduleOutcome,
 } from "~/features/booking/service/qamf-reschedule";
+import { assertBookable, DurationGuardError } from "~/features/booking/service/duration-guard";
 
 import { EditGuardError } from "./types";
 
@@ -220,6 +221,28 @@ export const rebookQamfForLaneChange = async (params: {
       "qamf_availability",
       `availability check failed: ${e instanceof Error ? e.message : String(e)}`,
     );
+  }
+
+  // Duration-window guard (2026-07-19): the point-in-time check above only
+  // proves the START instant is open — a grown party could still rebook into
+  // a slot whose 90/120-min tail is blocked (the offer-accuracy bug). Same
+  // fail-open-on-error / fail-closed-on-signal policy as hold/reserve.
+  try {
+    await assertBookable({
+      centerId: params.qamfCenterId,
+      webOfferId: params.webOfferId,
+      optionId: params.optionId,
+      optionType: params.optionType,
+      bookedAt: params.bookedAt,
+      players: params.newPlayerCount,
+      mode: "full",
+      logTag: "[reservation-edit/qamf]",
+    });
+  } catch (e) {
+    if (e instanceof DurationGuardError) {
+      throw new EditGuardError("qamf_availability", e.message);
+    }
+    console.warn("[reservation-edit/qamf] duration guard errored (fail-open):", e);
   }
 
   const outcome: QamfRescheduleOutcome = await rescheduleQamfReservation({

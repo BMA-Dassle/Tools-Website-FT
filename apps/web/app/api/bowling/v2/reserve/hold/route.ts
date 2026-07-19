@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createReservation } from "@/lib/qamf-bowling";
+import {
+  assertBookable,
+  DurationGuardError,
+  qamfSlotTakenMessage,
+} from "~/features/booking/service/duration-guard";
 
 /**
  * POST /api/bowling/v2/reserve/hold
@@ -67,6 +72,30 @@ export async function POST(req: NextRequest) {
     else qamfOptions.Game = [{ Id: optionId }];
   }
 
+  // Duration/option guard: reject options that don't belong to the offer,
+  // durations past close, and durations whose occupancy window is provably
+  // blocked — BEFORE creating the QAMF hold. Typed codes let the wizard
+  // refresh its slot grid instead of dead-ending. Fail-open on guard
+  // infrastructure errors (QAMF createReservation stays the final authority).
+  try {
+    await assertBookable({
+      centerId,
+      webOfferId,
+      optionId,
+      optionType,
+      bookedAt,
+      players,
+      mode: "full",
+      logTag: "[bowling/v2/reserve/hold]",
+    });
+  } catch (err) {
+    if (err instanceof DurationGuardError) {
+      console.log(`[bowling/v2/reserve/hold] guard rejected (${err.code}): ${err.message}`);
+      return NextResponse.json({ error: err.message, code: err.code }, { status: err.status });
+    }
+    console.warn("[bowling/v2/reserve/hold] duration guard errored (fail-open):", err);
+  }
+
   try {
     const reservation = await createReservation(centerId, {
       BookedAt: bookedAt,
@@ -87,6 +116,12 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "QAMF hold failed";
     console.error("[bowling/v2/reserve/hold] POST error:", msg);
+    // Lane-fit/availability rejections become a typed 409 the UI can recover
+    // from (refresh slots) instead of an opaque 502.
+    const taken = qamfSlotTakenMessage(err);
+    if (taken) {
+      return NextResponse.json({ error: taken, code: "slot_taken" }, { status: 409 });
+    }
     return NextResponse.json({ error: msg }, { status: 502 });
   }
 }
