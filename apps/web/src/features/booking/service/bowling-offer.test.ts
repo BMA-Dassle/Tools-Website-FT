@@ -43,6 +43,7 @@ function makeExp(over: Partial<BowlingExperienceWithDetails> = {}): BowlingExper
     qamfWebOfferId: 154,
     qamfOptionType: "Time",
     qamfOptionId: 1227,
+    qamfOfferDurationMinutes: null,
     items: [makeItem()],
     durationOptions: [],
     ...over,

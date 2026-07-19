@@ -1,21 +1,32 @@
 # Open Tasks
 
-## Bowling reservation flow redesign (single time pick + offer-accurate availability) — PLANNED 2026-07-19
+## Bowling reservation flow redesign (single time pick + offer-accurate availability) — BUILT 2026-07-19, DARK
 
-Full plan: [tasks/bowling-reservation-flow-plan.md](bowling-reservation-flow-plan.md) (branch
-`claude/bowling-reservation-flow-0rd3nx`). Fixes four owner-reported problems in web booking v2
-AND kiosk bowling: double time selection, offers shown at times not actually bookable for that
-duration (1.5h available ⇒ 2h shown), dated offer screen, past times shown as available
-(12:00 PM at 12:17 PM). Approach: package-before-time flow built off the kiosk "Next Available"
-pattern (`KioskSlotStep`), merged modern Experience screen, one Time step with eager hold;
-availability route gains `optionCheck=accurate` semantics; hold/reserve/reschedule get duration
-guards; past-time now-floor for full-day scans ships first as PR0.
+Full plan: [tasks/bowling-reservation-flow-plan.md](bowling-reservation-flow-plan.md). **Built on
+branch `claude/bowling-reservation-flow-0rd3nx` (plan PR0→PR3 as sequential commits), pushed for
+Vercel preview testing.** Fixes four owner-reported problems in web booking v2 AND kiosk bowling:
+double time selection, offers shown at times not actually bookable for that duration (1.5h
+available ⇒ 2h shown), dated offer screen, past times shown as available (12:00 PM at 12:17 PM).
 
-- [ ] Run QAMF probes P1–P8 from local dev (`scripts/qamf-duration-probe.mts`, plan §7) — the
-      P6 blocked-window experiment picks the availability design branch (A–E)
-- [ ] PR0 past-time quick fix → PR1 extractions → PR1.5 guards+schema → PR2 web dark →
-      PR3 kiosk dark → PR4 polish → PR5 flip (ops sign-off on Vercel preview) → PR6 delete
-- [ ] Every PR: dev walk-through + workspace build + Vercel preview smoke (`?bowlingV3=1`)
+What's live-on-merge even with the flag dark: past-time now-floor on all full-day scans ·
+`optionCheck=accurate` duration filtering for the classic offer step, World Cup, and combo legs ·
+duration guards at hold/reserve/reschedule (typed 409s, pre-charge only, fail-open on infra
+errors) · superseded-hold release. What's flag-gated (`NEXT_PUBLIC_BOWLING_ONE_TIME_FLOW`, or
+per-session `?bowlingV3=1` on web + `/kiosk/flow?bowlingV3=1`): the v3 Date → Experience →
+Time flow (merged tier+package screen, "Next Available" hero + accurate grid, tap = eager hold)
+on web AND kiosk. Accurate mode is implemented as plan branch D (windowed necessary-condition
+filter) — the QAMF probes below can upgrade it to branch A/B/C.
+
+- [ ] **Owner: preview-test both surfaces** — `/book/bowling/v2?bowlingV3=1`,
+      `/book/kbf/v2?bowlingV3=1`, `/kiosk/flow?bowlingV3=1` on the Vercel preview; plus classic
+      flow regression (flag dark): offer step now hides truly-unfittable durations, and no past
+      times anywhere at :17 past the hour
+- [ ] Run QAMF probes P1–P8 from local dev (`scripts/qamf-duration-probe.mts`, plan §7) — P6
+      picks the availability design branch (A–E); D is what's built
+- [ ] Then: PR4 polish leftovers if any → PR5 flip (flag default-on + schema bumps 2→3 / 10→11,
+      ops sign-off on preview per plan §11) → PR6 delete classic steps
+- [ ] Known pre-existing failure unrelated to this train: `lib/guest-survey-db.test.ts` (5, see
+      2026-07-06 note below)
 
 ## Kiosk Online & Group Waiver — ON MAIN, BUTTON OFF BY DEFAULT (2026-07-18/19)
 

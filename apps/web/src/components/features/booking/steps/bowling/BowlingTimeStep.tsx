@@ -143,6 +143,9 @@ const BowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
 
   async function pickSlot(slot: AvailabilitySlot) {
     if (holding) return;
+    // Re-tap of the already-held slot is a no-op (a second hold for the same
+    // slot can 409 against our own hold when it consumed the last lane).
+    if (item.qamfReservationId && item.bookedAt === slot.bookedAt) return;
     if (centerId == null || item.webOfferId == null || !exp) {
       setError("We couldn't tell which package this is for. Go back and re-select.");
       return;

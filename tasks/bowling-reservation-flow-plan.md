@@ -1,7 +1,11 @@
 # Bowling Reservation Flow Redesign — booking v2 + kiosk (PLAN)
 
-**Status:** PLANNED 2026-07-19 — research branch `claude/bowling-reservation-flow-0rd3nx`. No code
-changes yet. QAMF probes (§7) run from the local dev environment before any build decision is final.
+**Status:** BUILT 2026-07-19 (same day, owner asked for the full build on this branch) — plan
+PR0→PR3 landed as sequential commits on `claude/bowling-reservation-flow-0rd3nx`, v3 flow dark
+behind `NEXT_PUBLIC_BOWLING_ONE_TIME_FLOW` / `?bowlingV3=1`. Accurate availability shipped as
+**branch D** (windowed necessary-condition filter — the one design sound regardless of probe
+outcomes); QAMF probes (§7) still run from local dev and can upgrade it to branch A/B/C.
+Owner test checklist lives in tasks/todo.md § Bowling reservation flow redesign.
 **Owner directives:** one time selection, not two · availability must be accurate per experience/
 duration · modernize the bowling offer screen · build off the kiosk "Next Available" pattern ·
 past times must never show as available (12:00 PM offered at 12:17 PM) · every PR is verified in

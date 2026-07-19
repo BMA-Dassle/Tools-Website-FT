@@ -253,6 +253,17 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       return;
     }
 
+    // Re-tap of the already-held selection is a no-op (a second hold for the
+    // same slot can 409 against our own hold when it consumed the last lane).
+    if (
+      item.qamfReservationId &&
+      item.bookedAt === slot.bookedAt &&
+      item.experienceId === exp.id &&
+      (item.durationOptionId ?? null) === (durationOpt?.id ?? null)
+    ) {
+      return;
+    }
+
     setHoldBusy(true);
     setReservingAt(slot.bookedAt);
     setError(null);

@@ -95,9 +95,15 @@ export interface HoldBowlingSlotInput {
   bookedAt: string;
   players: number;
   service?: "BookForLater" | "PlayNow";
-  /** A hold this one supersedes (re-pick, duration change, back-nav). Released
-   *  best-effort BEFORE the new hold so we never carry two live QAMF holds —
-   *  the old flow leaked the superseded hold for its full 10-min TTL. */
+  /**
+   * A hold this one supersedes (re-pick, duration change, VIP upgrade).
+   * Released best-effort AFTER the new hold succeeds — so a failed re-hold
+   * leaves the customer's existing hold standing (the VIP-upsell guarantee),
+   * while a successful one no longer leaks the old hold for its 10-min TTL.
+   * Callers must no-op a re-tap of the already-held slot themselves (creating
+   * a second hold for the identical slot can 409 against our own hold when
+   * it consumed the last lane).
+   */
   previousHoldId?: string | null;
   previousCenterId?: number | null;
 }
@@ -129,12 +135,8 @@ export async function releaseBowlingHold(centerId: number, qamfId: string): Prom
   }).catch(() => {});
 }
 
-/** Create a QAMF Temporary hold, releasing any superseded hold first. */
+/** Create a QAMF Temporary hold, then release any superseded hold. */
 export async function holdBowlingSlot(input: HoldBowlingSlotInput): Promise<HoldBowlingSlotResult> {
-  if (input.previousHoldId) {
-    await releaseBowlingHold(input.previousCenterId ?? input.centerId, input.previousHoldId);
-  }
-
   const res = await fetch(`${apiBase()}/api/bowling/v2/reserve/hold`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -162,6 +164,11 @@ export async function holdBowlingSlot(input: HoldBowlingSlotInput): Promise<Hold
       res.status,
       data.code ?? null,
     );
+  }
+
+  // New hold secured — now the superseded one can go.
+  if (input.previousHoldId && input.previousHoldId !== data.qamfReservationId) {
+    await releaseBowlingHold(input.previousCenterId ?? input.centerId, input.previousHoldId);
   }
 
   return {
