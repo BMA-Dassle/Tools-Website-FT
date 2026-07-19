@@ -46,6 +46,7 @@ import {
 import { useKioskConfig } from "../KioskConfigContext";
 import { kioskHasCamera } from "../config";
 import { KioskWaiverPhoto } from "../components/KioskWaiverPhoto";
+import { formatPersonName, normalizeEmail } from "../name-format";
 
 /** Waiver-gated attraction slugs (duckpin is exempt — uses the party-count step). */
 const WAIVER_SLUGS = new Set(["gel-blaster", "laser-tag", "shuffly"]);
@@ -295,7 +296,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     // turned away at the track (owner 2026-07-18 age-check ask).
     if (isRace && age < 7) {
       setFormError(
-        `${firstName.trim() || "This racer"} is under 7 — too young to race. Kids under 7 are welcome trackside, or check out Duckpin bowling.`,
+        `${formatPersonName(firstName) || "This racer"} is under 7 — too young to race. Kids under 7 are welcome trackside, or check out Duckpin bowling.`,
       );
       return;
     }
@@ -318,19 +319,24 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     setBusyAll(true);
     setFormError(null);
     try {
+      // Normalized person data (owner 2026-07-19: Title Case names, lowercase
+      // email) — what we store locally AND what Pandora/BMI receives.
+      const cleanFirst = formatPersonName(firstName);
+      const cleanLast = formatPersonName(lastName);
+      const cleanEmail = normalizeEmail(email);
       const result = await pandoraOnboardGuest(
         {
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
-          email: email.trim() || session.contact.email || "",
+          firstName: cleanFirst,
+          lastName: cleanLast,
+          email: cleanEmail || session.contact.email || "",
           phone: phone.trim(),
           birthdate: toIsoDob(dob),
         },
         brandLocation,
       );
       const member = newPartyMember({
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
+        firstName: cleanFirst,
+        lastName: cleanLast,
         isNewRacer: true, // new person → Starter-only for racing
         category: age < 13 ? "junior" : "adult",
         isMinor: minor,
@@ -338,7 +344,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         waiverValid: result.waiverValid,
         isBillingCustomer: isMain, // first person is main by default
         phone: phone.trim(),
-        email: email.trim() || undefined,
+        email: cleanEmail || undefined,
         dobIso: toIsoDob(dob),
       });
       dispatch({ type: "addPartyMember", member });
@@ -411,9 +417,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       if (!member.bmiPersonId) {
         const result = await pandoraOnboardGuest(
           {
-            firstName: member.firstName,
-            lastName: member.lastName ?? "",
-            email: session.contact.email ?? "",
+            firstName: formatPersonName(member.firstName),
+            lastName: formatPersonName(member.lastName ?? ""),
+            email: normalizeEmail(session.contact.email ?? ""),
             phone: session.contact.phone ?? "",
             birthdate: toIsoDob(dob),
           },
@@ -448,8 +454,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         if (dedupPhone || dedupEmail) {
           const result = await pandoraOnboardGuest(
             {
-              firstName: member.firstName,
-              lastName: member.lastName ?? "",
+              firstName: formatPersonName(member.firstName),
+              lastName: formatPersonName(member.lastName ?? ""),
               email: dedupEmail,
               phone: dedupPhone,
               birthdate: toIsoDob(dob),
@@ -602,25 +608,28 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     setBusyAll(true);
     setGError(null);
     try {
+      const gCleanFirst = formatPersonName(gFirst);
+      const gCleanLast = formatPersonName(gLast);
+      const gCleanEmail = normalizeEmail(gEmail);
       const result = await pandoraOnboardGuest(
         {
-          firstName: gFirst.trim(),
-          lastName: gLast.trim(),
-          email: gEmail.trim() || "",
+          firstName: gCleanFirst,
+          lastName: gCleanLast,
+          email: gCleanEmail || "",
           phone: gPhone.trim(),
           birthdate: toIsoDob(gDob),
         },
         brandLocation,
       );
       const g = newPartyMember({
-        firstName: gFirst.trim(),
-        lastName: gLast.trim(),
+        firstName: gCleanFirst,
+        lastName: gCleanLast,
         isNewRacer: true,
         category: "adult",
         bmiPersonId: result.personId, // short id — created via Pandora
         waiverValid: result.waiverValid,
         phone: gPhone.trim(),
-        email: gEmail.trim() || undefined,
+        email: gCleanEmail || undefined,
         dobIso: toIsoDob(gDob),
       });
       dispatch({ type: "addGuardian", member: g });
@@ -677,8 +686,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       let ownTemplate: PandoraWaiverTemplate | null = null;
       if (dedupPhone || dedupEmail) {
         const { personId } = await pandoraCreatePerson({
-          firstName: first || person.fullName,
-          lastName: rest.join(" ") || "",
+          firstName: formatPersonName(first || person.fullName),
+          lastName: formatPersonName(rest.join(" ")) || "",
           email: dedupEmail,
           phone: dedupPhone,
           birthdate: bdIso,
@@ -693,15 +702,16 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       }
       const g: PartyMember = {
         ...newPartyMember({
-          firstName: first || person.fullName,
-          lastName: rest.join(" ") || undefined,
+          // CRM records can be stored ALL CAPS — normalize what we keep.
+          firstName: formatPersonName(first || person.fullName),
+          lastName: formatPersonName(rest.join(" ")) || undefined,
           isNewRacer: false,
           category: "adult",
           memberships: person.memberships,
           bmiPersonId: person.personId,
           waiverValid: ownValid,
           phone: person.phone || undefined,
-          email: person.email || undefined,
+          email: normalizeEmail(person.email ?? "") || undefined,
           dobIso: bdIso,
         }),
         ...(sid ? { pandoraPersonId: sid } : {}),
@@ -827,8 +837,10 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
               : null;
             collected.push({
               id: rid,
-              firstName: first,
-              lastName: last,
+              // Linked-family names come from the CRM (often ALL CAPS) — format
+              // at collection so the suggestion chips AND addLinked stay clean.
+              firstName: formatPersonName(first),
+              lastName: formatPersonName(last),
               age: isoAge,
               waiverValid: p.valid === true,
             });
@@ -883,8 +895,10 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       ? Math.floor((Date.now() - new Date(bdIso).getTime()) / (365.25 * 864e5))
       : null;
     const member = newPartyMember({
-      firstName: first || person.fullName,
-      lastName: rest.join(" ") || undefined,
+      // Office/Pandora records are often stored ALL CAPS — normalize what we
+      // keep and display (owner 2026-07-19).
+      firstName: formatPersonName(first || person.fullName),
+      lastName: formatPersonName(rest.join(" ")) || undefined,
       isNewRacer: false,
       category: bdYears !== null && bdYears < 13 ? "junior" : "adult",
       isMinor: bdYears !== null ? bdYears < 18 : undefined,
@@ -895,7 +909,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       creditBalances: person.creditBalances,
       isBillingCustomer: isMain,
       phone: person.phone || undefined,
-      email: person.email || undefined,
+      email: normalizeEmail(person.email ?? "") || undefined,
     });
     dispatch({ type: "addPartyMember", member });
     if (!isRace) setIncluded(new Set([...included, member.id]));
@@ -1024,7 +1038,13 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-[16px] gap-y-[6px]">
-                    <span className="k-display truncate text-[40px]">
+                    <span
+                      className="k-display truncate text-[40px]"
+                      // Names render as entered ("John Smith") — .k-display's
+                      // design uppercase is for headings, not people
+                      // (owner 2026-07-19: "stop the all caps").
+                      style={{ textTransform: "none" }}
+                    >
                       {m.firstName} {m.lastName ?? ""}
                     </span>
                     {m.isBillingCustomer && (
@@ -1238,7 +1258,13 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       {form !== null && (
         <div className="k-glass space-y-[20px] p-[28px]">
           <div className="k-display text-[32px]">
-            {form.mode === "new" ? "New player" : `Set up ${form.member.firstName}`}
+            {form.mode === "new" ? (
+              "New player"
+            ) : (
+              <>
+                Set up <span style={{ textTransform: "none" }}>{form.member.firstName}</span>
+              </>
+            )}
           </div>
           {form.mode === "new" && (
             <div className="grid grid-cols-2 gap-[16px]">
