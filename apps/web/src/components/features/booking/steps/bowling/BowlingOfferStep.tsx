@@ -27,7 +27,9 @@ import {
 } from "./availability-client";
 import { getPublicReopenMinutes } from "@/lib/group-events";
 
-const CORAL = "#fd5b56";
+// Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
+// seems negative"); FastTrax red stays on racing only. VIP keeps gold.
+const BLUE = "#00E2E5";
 const GOLD = "#FFD700";
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 
@@ -411,7 +413,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         <div className="flex items-center justify-center py-16">
           <div
             className="h-8 w-8 animate-spin rounded-full border-2 border-white/15"
-            style={{ borderTopColor: CORAL }}
+            style={{ borderTopColor: BLUE }}
           />
         </div>
       ) : visibleExperiences.length === 0 ? (
@@ -424,7 +426,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
             {visibleExperiences.map((exp) => {
               const expSlots = slotsForOffer(exp.qamfWebOfferId);
               const isVip = exp.isVip;
-              const accent = isVip ? GOLD : CORAL;
+              const accent = isVip ? GOLD : BLUE;
               const videoUrl = isVip
                 ? `${BLOB}/videos/headpinz-neoverse-v2.mp4`
                 : `${BLOB}/videos/headpinz-bowling.mp4`;

@@ -49,7 +49,9 @@ import { NextAvailableCard } from "../../bowling/NextAvailableCard";
 import { TimeSlotGrid, type GridSlot } from "../../bowling/TimeSlotGrid";
 import { VipUpgradeModal } from "../../bowling/VipUpgradeModal";
 
-const CORAL = "#fd5b56";
+// Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
+// seems negative"); FastTrax red stays on racing only. VIP keeps gold.
+const BLUE = "#00E2E5";
 const GOLD = "#FFD700";
 
 type BowlingLikeItem = BowlingItem | KbfItem;
@@ -94,7 +96,7 @@ const BowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   const laneCount = bowlingLaneCount(playerCount);
   const kiosk = !!session.context?.kiosk;
   const variant = kiosk ? ("kiosk" as const) : ("web" as const);
-  const accent = item.tier === "vip" ? GOLD : CORAL;
+  const accent = item.tier === "vip" ? GOLD : BLUE;
 
   const [holding, setHolding] = useState(false);
   const [reservingAt, setReservingAt] = useState<string | null>(null);

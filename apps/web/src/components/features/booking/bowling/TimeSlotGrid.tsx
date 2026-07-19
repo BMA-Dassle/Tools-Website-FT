@@ -94,7 +94,7 @@ export function TimeSlotGrid(props: TimeSlotGridProps) {
                     color: isSelected ? "#0a1628" : accent,
                     fontWeight: isSelected ? 800 : 500,
                     boxShadow: isSelected ? `0 0 12px ${accent}60` : undefined,
-                    border: conflict ? `1px solid #00E2E599` : "1px solid transparent",
+                    border: conflict ? `1px solid #f59e0b99` : "1px solid transparent",
                   }}
                 >
                   {isReserving && (

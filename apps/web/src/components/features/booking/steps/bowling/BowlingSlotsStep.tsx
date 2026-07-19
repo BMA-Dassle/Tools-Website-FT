@@ -14,8 +14,13 @@ import {
 } from "~/features/booking/service/bowling-hours";
 import { formatHourLabel } from "./availability-client";
 
-const CORAL = "#fd5b56";
+// Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
+// seems negative"); FastTrax red stays on racing only. VIP keeps gold.
+const BLUE = "#00E2E5";
 const CYAN = "#00E2E5";
+// Conflict markers were cyan-on-coral; with the blue accent they need a
+// distinct hue to stay visible.
+const AMBER = "#f59e0b";
 
 // Static hours/date helpers moved verbatim to
 // ~/features/booking/service/bowling-hours (2026-07-19) so kiosk + v3 steps
@@ -123,7 +128,7 @@ const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     <div className="mx-auto max-w-md space-y-6">
       {/* Context bar */}
       <div className="flex flex-wrap items-center justify-center gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-2.5 text-xs uppercase tracking-wider text-white/55">
-        <span style={{ color: CORAL }}>{center.name}</span>
+        <span style={{ color: BLUE }}>{center.name}</span>
         {selectedDate && (
           <>
             <span className="text-white/20">&middot;</span>
@@ -140,7 +145,7 @@ const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
 
       {/* Compact date confirmation when inherited from cart */}
       {!showCalendar ? (
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-[#fd5b56]/20 bg-[#fd5b56]/5 p-5 text-center">
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-[#00E2E5]/20 bg-[#00E2E5]/5 p-5 text-center">
           <p className="text-xs uppercase tracking-[3px] text-white/35">Date</p>
           <p className="mt-2 text-sm text-white/50">Same day as your other activities</p>
           <p className="mt-1 text-lg font-bold text-white">
@@ -220,14 +225,14 @@ const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
                   className="aspect-square rounded-lg text-sm font-medium transition-all duration-150"
                   style={{
                     backgroundColor: isSelected
-                      ? CORAL
+                      ? BLUE
                       : bookable
-                        ? "rgba(253,91,86,0.15)"
+                        ? "rgba(0,226,229,0.15)"
                         : "transparent",
-                    color: isSelected ? "#0a1628" : bookable ? CORAL : "rgba(255,255,255,0.18)",
+                    color: isSelected ? "#0a1628" : bookable ? BLUE : "rgba(255,255,255,0.18)",
                     fontWeight: isSelected ? 800 : 500,
                     cursor: bookable ? "pointer" : "not-allowed",
-                    boxShadow: isSelected ? `0 0 14px ${CORAL}60` : undefined,
+                    boxShadow: isSelected ? `0 0 14px ${BLUE}60` : undefined,
                   }}
                 >
                   {day}
@@ -302,11 +307,11 @@ const BowlingSlotsStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
                       }
                       className="flex flex-col items-center gap-0.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition-all"
                       style={{
-                        backgroundColor: isSel ? CORAL : "rgba(253,91,86,0.10)",
-                        color: isSel ? "#0a1628" : CORAL,
+                        backgroundColor: isSel ? BLUE : "rgba(0,226,229,0.10)",
+                        color: isSel ? "#0a1628" : BLUE,
                         fontWeight: isSel ? 800 : 600,
-                        boxShadow: isSel ? `0 0 14px ${CORAL}60` : undefined,
-                        border: conflicts.length ? `1px solid ${CYAN}99` : "1px solid transparent",
+                        boxShadow: isSel ? `0 0 14px ${BLUE}60` : undefined,
+                        border: conflicts.length ? `1px solid ${AMBER}99` : "1px solid transparent",
                       }}
                     >
                       <span>{formatHourLabel(h)}</span>

@@ -31,7 +31,9 @@ import {
 import { ExperienceCard, type DurationChip } from "../../bowling/ExperienceCard";
 import type { AvailabilitySlot } from "./availability-client";
 
-const CORAL = "#fd5b56";
+// Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
+// seems negative"); FastTrax red stays on racing only. VIP keeps gold.
+const BLUE = "#00E2E5";
 const GOLD = "#FFD700";
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 
@@ -171,7 +173,7 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       <div className="flex items-center justify-center py-16">
         <div
           className="h-8 w-8 animate-spin rounded-full border-2 border-white/15"
-          style={{ borderTopColor: CORAL }}
+          style={{ borderTopColor: BLUE }}
         />
       </div>
     );
@@ -179,7 +181,7 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
 
   function renderCard(exp: BowlingExperienceWithDetails) {
     const isVip = exp.isVip;
-    const accent = isVip ? GOLD : CORAL;
+    const accent = isVip ? GOLD : BLUE;
     const videoUrl = isVip
       ? `${BLOB}/videos/headpinz-neoverse-v2.mp4`
       : `${BLOB}/videos/headpinz-bowling.mp4`;
@@ -280,7 +282,7 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         <>
           {regular.length > 0 && (
             <section className="space-y-4">
-              {sectionTitle("Classic Lanes", "Classic HeadPinz bowling", CORAL)}
+              {sectionTitle("Classic Lanes", "Classic HeadPinz bowling", BLUE)}
               <div className="space-y-4">{regular.map(renderCard)}</div>
             </section>
           )}
