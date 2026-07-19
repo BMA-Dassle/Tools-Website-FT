@@ -24,6 +24,14 @@ export interface RawAvailability {
       Options?: Record<string, Array<{ Id: number; Minutes?: number }>>;
     };
   }>;
+  /** Present since 2026-07-19. optionAccuracy !== "optimistic" means the
+   *  server duration-window-filtered the Time options (optionCheck=accurate)
+   *  and availableTimeOptionIds can be TRUSTED to gate duration buttons. */
+  meta?: {
+    optionAccuracy?: "qamf" | "filtered" | "windowed" | "optimistic";
+    probeCount?: number;
+    probeErrors?: number;
+  };
 }
 
 export interface AvailabilitySlot {
@@ -33,6 +41,13 @@ export interface AvailabilitySlot {
   optionId?: number;
   optionType?: "Game" | "Time" | "Unlimited";
   availableTimeOptionIds?: number[];
+  /**
+   * True when the server ran the duration-accurate filter for this response.
+   * RULE: availableTimeOptionIds may only gate duration buttons when this is
+   * true — the optimistic response echoes every configured option (the
+   * "2-hour shown when only 1.5h fits" bug).
+   */
+  optionsVerified: boolean;
 }
 
 /**
@@ -66,6 +81,8 @@ export async function probeAvailability(url: string): Promise<RawAvailability> {
 
 /** Map a QAMF availability response to our slot shape. */
 export function parseAvailabilities(data: RawAvailability): AvailabilitySlot[] {
+  const optionsVerified =
+    data.meta?.optionAccuracy != null && data.meta.optionAccuracy !== "optimistic";
   return (data.Availabilities ?? []).map((a) => {
     const twoGame = a.WebOffer.Options?.Game?.find((g) => g.Id);
     const timeOpts = a.WebOffer.Options?.Time ?? [];
@@ -95,6 +112,7 @@ export function parseAvailabilities(data: RawAvailability): AvailabilitySlot[] {
       optionId,
       optionType,
       availableTimeOptionIds: timeOpts.map((t) => t.Id),
+      optionsVerified,
     };
   });
 }

@@ -167,10 +167,14 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       reopenMins == null ? arr : arr.filter((s) => etMinutesOfDay(s.bookedAt) >= reopenMins);
     void (async () => {
       try {
+        // optionCheck=accurate (2026-07-19): the server duration-window-
+        // filters each slot's Time options, so a 2-hour duration only shows
+        // when the lane is actually free for 2 hours — the offer-accuracy
+        // owner bug. optionsVerified on the parsed slots reflects it.
         const fine = dropBeforeReopen(
           parseAvailabilities(
             await probeAvailability(
-              `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${availKind}&hour=${selectedHour}&minute=${item.minute ?? 0}&windowMinutes=45`,
+              `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${availKind}&hour=${selectedHour}&minute=${item.minute ?? 0}&windowMinutes=45&optionCheck=accurate`,
             ),
           ),
         );
@@ -186,7 +190,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
             const wide = dropBeforeReopen(
               parseAvailabilities(
                 await probeAvailability(
-                  `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${availKind}&stepMinutes=30`,
+                  `/api/bowling/v2/availability?centerId=${centerId}&players=${playerCount}&startDate=${item.date}&kind=${availKind}&stepMinutes=30&optionCheck=accurate`,
                 ),
               ),
             );
@@ -346,11 +350,15 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     return inHour.length ? [inHour[0]] : [];
   }
 
-  // Filter out hourly experience cards when no duration options are valid at this time
+  // Filter out hourly experience cards when no duration options are valid at
+  // this time. availableTimeOptionIds is only trusted when the server ran the
+  // accurate filter (optionsVerified) — the optimistic response echoes every
+  // configured option and must not gate anything.
   const visibleExperiences = tierExperiences.filter((exp) => {
     if (!exp.durationOptions?.length) return true;
     const expSlots = slotsForOffer(exp.qamfWebOfferId);
     if (expSlots.length === 0) return true;
+    if (!expSlots[0].optionsVerified) return true;
     const ids = expSlots[0].availableTimeOptionIds;
     if (!ids?.length) return true;
     return (exp.durationOptions ?? []).some((d) => ids.includes(d.qamfOptionId));
@@ -415,10 +423,15 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
               const isPerLane = exp.kind === "hourly" || exp.slug.startsWith("pizza-bowl");
               const hasDurationOptions = (exp.durationOptions?.length ?? 0) > 0;
 
-              // Filter duration buttons to only show options QAMF confirms are available
+              // Filter duration buttons to only show options that actually
+              // fit. Gated on optionsVerified: only the accurate server
+              // response filters options by real lane occupancy — trusting
+              // the optimistic echo is exactly the "2h shown when only 1.5h
+              // fits" bug.
               const validDurationOptions = hasDurationOptions
                 ? (exp.durationOptions ?? []).filter((opt) => {
                     if (!expSlots.length) return true;
+                    if (!expSlots[0].optionsVerified) return true;
                     const ids = expSlots[0].availableTimeOptionIds;
                     return !ids?.length || ids.includes(opt.qamfOptionId);
                   })
