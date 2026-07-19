@@ -229,6 +229,16 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       setFormError("Enter the birthday as MM/DD/YYYY.");
       return;
     }
+    // HARD racing age floor (venue rule: juniors are ages 7–13). The safety
+    // modal only ATTESTS this — but the kiosk collects a real DOB, so enforce
+    // it at capture instead of letting a family book a 5-year-old and get
+    // turned away at the track (owner 2026-07-18 age-check ask).
+    if (isRace && age < 7) {
+      setFormError(
+        `${firstName.trim() || "This racer"} is under 7 — too young to race. Kids under 7 are welcome trackside, or check out Duckpin bowling.`,
+      );
+      return;
+    }
     // Every new player gives a mobile number (owner rule); the main person also
     // gives an email so their contact is complete and no YOUR INFO step is needed.
     const digits = phone.replace(/\D/g, "");
@@ -302,6 +312,14 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     const age = ageFromDob(dob);
     if (age === null) {
       setFormError("Enter the birthday as MM/DD/YYYY.");
+      return;
+    }
+    // Same hard racing floor as submitNew — a "Set up" on an existing roster
+    // member is still the moment we learn their real DOB.
+    if (isRace && age < 7) {
+      setFormError(
+        `${member.firstName} is under 7 — too young to race. Kids under 7 are welcome trackside, or check out Duckpin bowling.`,
+      );
       return;
     }
     const minor = age < 18;
@@ -518,6 +536,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
 
   /** Add a linked-family suggestion to the party (opt-in tap). */
   const addLinked = (lp: LinkedSuggestion) => {
+    // Belt-and-braces for the disabled card: racing hard floor is 7+.
+    if (isRace && lp.age !== null && lp.age < 7) return;
     const member = newPartyMember({
       firstName: lp.firstName,
       lastName: lp.lastName || undefined,
@@ -799,22 +819,36 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         <div>
           <div className="k-eyebrow mb-[12px] text-white/40">On this account — tap to add</div>
           <div className="flex flex-wrap gap-[12px]">
-            {linked.map((lp) => (
-              <button
-                key={lp.id}
-                type="button"
-                onClick={() => addLinked(lp)}
-                className="k-tap rounded-2xl border-2 border-[#46d68c]/40 bg-[#46d68c]/5 px-[24px] py-[16px] text-left"
-              >
-                <div className="text-[26px] font-bold text-white">
-                  + {lp.firstName} {lp.lastName}
-                </div>
-                <div className="text-[20px] text-white/50">
-                  {lp.age !== null ? `Age ${lp.age}` : "Family"}
-                  {lp.waiverValid ? " · waiver on file" : " · needs waiver"}
-                </div>
-              </button>
-            ))}
+            {linked.map((lp) => {
+              // Racing hard floor (7+): a linked kid under 7 can't be added to
+              // a race party — show why instead of a dead tap.
+              const tooYoung = isRace && lp.age !== null && lp.age < 7;
+              return (
+                <button
+                  key={lp.id}
+                  type="button"
+                  onClick={tooYoung ? undefined : () => addLinked(lp)}
+                  disabled={tooYoung}
+                  className={`k-tap rounded-2xl border-2 px-[24px] py-[16px] text-left ${
+                    tooYoung
+                      ? "border-white/10 bg-white/[0.03] opacity-50"
+                      : "border-[#46d68c]/40 bg-[#46d68c]/5"
+                  }`}
+                >
+                  <div className="text-[26px] font-bold text-white">
+                    + {lp.firstName} {lp.lastName}
+                  </div>
+                  <div className="text-[20px] text-white/50">
+                    {lp.age !== null ? `Age ${lp.age}` : "Family"}
+                    {tooYoung
+                      ? " · under 7 — too young to race"
+                      : lp.waiverValid
+                        ? " · waiver on file"
+                        : " · needs waiver"}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
