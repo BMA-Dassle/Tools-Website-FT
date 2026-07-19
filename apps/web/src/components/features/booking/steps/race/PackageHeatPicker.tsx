@@ -182,6 +182,10 @@ export function PackageHeatPicker({
 
   const [currentComponentIdx, setCurrentComponentIdx] = useState(0);
   const [picks, setPicks] = useState<Map<string, TrackedProposal>>(new Map());
+  // Track filter driven by tapping a TrackInfoBanner card — scoped to the
+  // CURRENT multi-track step (other steps' locked cards stay visible so the
+  // guest keeps seeing the whole package). Reset on step change below.
+  const [trackFilter, setTrackFilter] = useState<"Red" | "Blue" | "Mega" | null>(null);
 
   const currentComponent = sortedComponents[currentComponentIdx] ?? null;
   const pickedCount = sortedComponents.filter((c) => picks.has(c.ref)).length;
@@ -305,6 +309,18 @@ export function PackageHeatPicker({
     return list;
   }, [queries, fetchItems, category, expressEligible, kiosk, crossTierBlocks]);
 
+  // Display-only track filter for the CURRENT step's cards. Other components'
+  // (locked / already-picked) cards always stay visible, and picks/gap/conflict
+  // logic runs on the full list — hiding a track never clears a pick.
+  const visibleProposals = useMemo(() => {
+    if (!trackFilter || !currentComponent || currentComponent.tracks.length < 2) {
+      return allProposals;
+    }
+    return allProposals.filter(
+      (tp) => tp.component.ref !== currentComponent.ref || tp.track === trackFilter,
+    );
+  }, [allProposals, trackFilter, currentComponent]);
+
   // Effective min-gap per component. Defaults to the configured value (e.g. the
   // Ultimate Qualifier's 60 min after the Starter), but when NO heat for this
   // component can satisfy that gap after the referenced pick, fall back to 30 min
@@ -384,6 +400,9 @@ export function PackageHeatPicker({
     if (nextIdx >= 0) {
       setCurrentComponentIdx(nextIdx);
     }
+    // The filter belongs to the step it was set on — the pick hands the flow
+    // to the next race, which may be single-track or want the full grid.
+    setTrackFilter(null);
   }
 
   const clearPickAndLater = useCallback(
@@ -398,6 +417,7 @@ export function PackageHeatPicker({
         return next;
       });
       setCurrentComponentIdx(sortedComponents.indexOf(target));
+      setTrackFilter(null); // jumping back to an earlier step — clear its filter
     },
     [sortedComponents],
   );
@@ -475,10 +495,13 @@ export function PackageHeatPicker({
         </div>
       ) : null}
 
-      {/* Track info for multi-track steps */}
+      {/* Track info for multi-track steps — tapping a card filters the current
+          step's heats to that track; tapping again shows all. */}
       {currentComponent && currentComponent.tracks.length > 1 && (
         <TrackInfoBanner
           tracks={currentComponent.tracks.map((t) => t.track) as Array<"Red" | "Blue" | "Mega">}
+          activeTrack={trackFilter}
+          onTrackClick={(t) => setTrackFilter((cur) => (cur === t ? null : t))}
         />
       )}
 
@@ -495,145 +518,156 @@ export function PackageHeatPicker({
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-            {allProposals.map((tp, idx) => {
-              const component = tp.component;
-              const tierBadge = TIER_BADGE[component.tier] ?? TIER_BADGE.starter;
-              const trackBadge = TRACK_BADGE[tp.track] ?? {
-                bg: "bg-white/10",
-                text: "text-white/70",
-              };
-              const showTrackBadge = component.tracks.length > 1;
+          {visibleProposals.length === 0 ? (
+            <div className="bg-white/3 rounded-xl border border-white/10 p-4 text-center text-sm text-white/50">
+              No {trackFilter} Track heats for this race — tap the track above to show all.
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+              {visibleProposals.map((tp, idx) => {
+                const component = tp.component;
+                const tierBadge = TIER_BADGE[component.tier] ?? TIER_BADGE.starter;
+                const trackBadge = TRACK_BADGE[tp.track] ?? {
+                  bg: "bg-white/10",
+                  text: "text-white/70",
+                };
+                const showTrackBadge = component.tracks.length > 1;
 
-              const isPicked = picks.get(component.ref)?.block.start === tp.block.start;
-              const isOtherStep = !!(currentComponent && currentComponent.ref !== component.ref);
-              const blockStart = parseLocal(tp.block.start).getTime();
+                const isPicked = picks.get(component.ref)?.block.start === tp.block.start;
+                const isOtherStep = !!(currentComponent && currentComponent.ref !== component.ref);
+                const blockStart = parseLocal(tp.block.start).getTime();
 
-              // Gap rule (with the late-night 60→30 fallback from effectiveGapByRef)
-              const gap = packageHeatGapMinutes(component);
-              const gapMinutes = gap ? (effectiveGapByRef.get(component.ref) ?? gap.minutes) : 0;
-              const prevPick = gap ? picks.get(gap.ref) : null;
-              const isGapViolation =
-                prevPick && gap
-                  ? violatesMinGapAfter(prevPick.block.stop, tp.block.start, gapMinutes)
-                  : false;
-              const gapAnchor =
-                prevPick && gap
-                  ? { stop: prevPick.block.stop, minutes: gapMinutes, refLabel: gap.ref }
-                  : null;
+                // Gap rule (with the late-night 60→30 fallback from effectiveGapByRef)
+                const gap = packageHeatGapMinutes(component);
+                const gapMinutes = gap ? (effectiveGapByRef.get(component.ref) ?? gap.minutes) : 0;
+                const prevPick = gap ? picks.get(gap.ref) : null;
+                const isGapViolation =
+                  prevPick && gap
+                    ? violatesMinGapAfter(prevPick.block.stop, tp.block.start, gapMinutes)
+                    : false;
+                const gapAnchor =
+                  prevPick && gap
+                    ? { stop: prevPick.block.stop, minutes: gapMinutes, refLabel: gap.ref }
+                    : null;
 
-              // Standard heat conflict with all existing picks
-              const isConflict = Array.from(picks.values()).some(
-                (existing) =>
-                  existing.component.ref !== component.ref &&
-                  heatsConflict(
-                    parseLocal(existing.block.start).getTime(),
-                    existing.track,
-                    blockStart,
-                    tp.track,
-                  ),
-              );
+                // Standard heat conflict with all existing picks
+                const isConflict = Array.from(picks.values()).some(
+                  (existing) =>
+                    existing.component.ref !== component.ref &&
+                    heatsConflict(
+                      parseLocal(existing.block.start).getTime(),
+                      existing.track,
+                      blockStart,
+                      tp.track,
+                    ),
+                );
 
-              const isLowCap = tp.block.freeSpots < racerCount;
-              // Restriction rule that disables (not hides) this slot — e.g.
-              // the VIP anchor reserve (race-restriction-rules.ts).
-              const isRestricted = !isPicked && !!tp.restriction;
-              const isFull = isPicked
-                ? true
-                : isRestricted || isOtherStep || isLowCap || isConflict || isGapViolation || false;
+                const isLowCap = tp.block.freeSpots < racerCount;
+                // Restriction rule that disables (not hides) this slot — e.g.
+                // the VIP anchor reserve (race-restriction-rules.ts).
+                const isRestricted = !isPicked && !!tp.restriction;
+                const isFull = isPicked
+                  ? true
+                  : isRestricted ||
+                    isOtherStep ||
+                    isLowCap ||
+                    isConflict ||
+                    isGapViolation ||
+                    false;
 
-              const statusLabel = isPicked
-                ? "Selected"
-                : isRestricted
-                  ? (tp.restriction!.cardLabel ?? "Not available")
+                const statusLabel = isPicked
+                  ? "Selected"
+                  : isRestricted
+                    ? (tp.restriction!.cardLabel ?? "Not available")
+                    : isOtherStep
+                      ? "Locked — finish the current step"
+                      : isGapViolation && gapAnchor
+                        ? `Available ${gapAnchor.minutes} min after ${gapAnchor.refLabel} ends`
+                        : isConflict
+                          ? "Too close to picked heat"
+                          : isLowCap
+                            ? `Need ${racerCount}, only ${tp.block.freeSpots} left`
+                            : spotsLabel(tp.block.freeSpots, tp.block.capacity).label;
+
+                const statusClass = isPicked
+                  ? "text-emerald-300"
+                  : isRestricted || isOtherStep || isGapViolation || isConflict
+                    ? "text-amber-400"
+                    : isLowCap
+                      ? "text-red-400"
+                      : spotsLabel(tp.block.freeSpots, tp.block.capacity).text;
+
+                const cardTooltip = isRestricted
+                  ? tp.restriction!.reason
                   : isOtherStep
-                    ? "Locked — finish the current step"
+                    ? "Locked — clear a heat above (×) to change it"
                     : isGapViolation && gapAnchor
-                      ? `Available ${gapAnchor.minutes} min after ${gapAnchor.refLabel} ends`
+                      ? packageGapTooltip(gapAnchor.minutes, gapAnchor.refLabel)
                       : isConflict
-                        ? "Too close to picked heat"
-                        : isLowCap
-                          ? `Need ${racerCount}, only ${tp.block.freeSpots} left`
-                          : spotsLabel(tp.block.freeSpots, tp.block.capacity).label;
+                        ? HEAT_CONFLICT_TOOLTIP
+                        : undefined;
 
-              const statusClass = isPicked
-                ? "text-emerald-300"
-                : isRestricted || isOtherStep || isGapViolation || isConflict
-                  ? "text-amber-400"
-                  : isLowCap
-                    ? "text-red-400"
-                    : spotsLabel(tp.block.freeSpots, tp.block.capacity).text;
+                const trackTheme = TRACK_CARD[tp.track] ?? TRACK_CARD.Mega;
+                const cardClass = isPicked
+                  ? trackTheme.selected
+                  : isFull
+                    ? DISABLED_CARD
+                    : `${trackTheme.base} ${trackTheme.baseHover} cursor-pointer`;
 
-              const cardTooltip = isRestricted
-                ? tp.restriction!.reason
-                : isOtherStep
-                  ? "Locked — clear a heat above (×) to change it"
-                  : isGapViolation && gapAnchor
-                    ? packageGapTooltip(gapAnchor.minutes, gapAnchor.refLabel)
-                    : isConflict
-                      ? HEAT_CONFLICT_TOOLTIP
-                      : undefined;
-
-              const trackTheme = TRACK_CARD[tp.track] ?? TRACK_CARD.Mega;
-              const cardClass = isPicked
-                ? trackTheme.selected
-                : isFull
-                  ? DISABLED_CARD
-                  : `${trackTheme.base} ${trackTheme.baseHover} cursor-pointer`;
-
-              return (
-                <button
-                  key={`${tp.block.start}-${tp.productId}-${idx}`}
-                  type="button"
-                  onClick={() => !isFull && handleClickHeat(tp)}
-                  disabled={isFull}
-                  title={cardTooltip}
-                  className={`rounded-xl border p-3 text-left transition-all duration-150 ${cardClass}`}
-                >
-                  {/* Tier + track badges */}
-                  <div className="mb-1.5 flex flex-wrap items-center gap-1">
-                    <span
-                      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${tierBadge.bg} ${tierBadge.text}`}
-                    >
-                      {component.tier}
-                    </span>
-                    {showTrackBadge && (
+                return (
+                  <button
+                    key={`${tp.block.start}-${tp.productId}-${idx}`}
+                    type="button"
+                    onClick={() => !isFull && handleClickHeat(tp)}
+                    disabled={isFull}
+                    title={cardTooltip}
+                    className={`rounded-xl border p-3 text-left transition-all duration-150 ${cardClass}`}
+                  >
+                    {/* Tier + track badges */}
+                    <div className="mb-1.5 flex flex-wrap items-center gap-1">
                       <span
-                        className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${trackBadge.bg} ${trackBadge.text}`}
+                        className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${tierBadge.bg} ${tierBadge.text}`}
                       >
-                        {tp.track}
+                        {component.tier}
                       </span>
-                    )}
-                  </div>
-                  <div className="mb-2 text-base font-bold text-white">
-                    {formatTime(tp.block.start)}
-                  </div>
-                  <div className="mb-1 text-xs font-medium text-white/60">{tp.block.name}</div>
-                  <div className={`text-[13px] font-medium ${statusClass}`}>{statusLabel}</div>
-                  {/* Capacity bar */}
-                  <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
-                    <div
-                      className={`h-full rounded-full ${
-                        isLowCap
-                          ? "bg-red-500"
-                          : isRestricted || isConflict || isGapViolation || isOtherStep
-                            ? "bg-amber-400/50"
-                            : tp.block.freeSpots / tp.block.capacity <= 0.3
-                              ? "bg-amber-400"
-                              : "bg-emerald-400"
-                      }`}
-                      style={{
-                        width:
-                          isRestricted || isConflict || isGapViolation || isOtherStep
-                            ? "100%"
-                            : `${(tp.block.freeSpots / tp.block.capacity) * 100}%`,
-                      }}
-                    />
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+                      {showTrackBadge && (
+                        <span
+                          className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${trackBadge.bg} ${trackBadge.text}`}
+                        >
+                          {tp.track}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mb-2 text-base font-bold text-white">
+                      {formatTime(tp.block.start)}
+                    </div>
+                    <div className="mb-1 text-xs font-medium text-white/60">{tp.block.name}</div>
+                    <div className={`text-[13px] font-medium ${statusClass}`}>{statusLabel}</div>
+                    {/* Capacity bar */}
+                    <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className={`h-full rounded-full ${
+                          isLowCap
+                            ? "bg-red-500"
+                            : isRestricted || isConflict || isGapViolation || isOtherStep
+                              ? "bg-amber-400/50"
+                              : tp.block.freeSpots / tp.block.capacity <= 0.3
+                                ? "bg-amber-400"
+                                : "bg-emerald-400"
+                        }`}
+                        style={{
+                          width:
+                            isRestricted || isConflict || isGapViolation || isOtherStep
+                              ? "100%"
+                              : `${(tp.block.freeSpots / tp.block.capacity) * 100}%`,
+                        }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {/* CTA area */}
           <div

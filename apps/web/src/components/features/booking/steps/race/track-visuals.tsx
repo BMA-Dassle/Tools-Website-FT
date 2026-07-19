@@ -35,11 +35,31 @@ export const DISABLED_CARD =
   "border-white/[0.04] bg-white/[0.015] opacity-30 cursor-not-allowed grayscale";
 
 /** Track-info cards shown at the TOP of a multi-track heat grid (length + style
- *  of each track). Blue is listed first to match the /racing marketing copy. */
-export function TrackInfoBanner({ tracks }: { tracks: Array<"Red" | "Blue" | "Mega"> }) {
+ *  of each track). Blue is listed first to match the /racing marketing copy.
+ *  When `onTrackClick` is provided the cards double as filter toggles: tap a
+ *  track to show only its heats, tap it again to show all. */
+export function TrackInfoBanner({
+  tracks,
+  activeTrack,
+  onTrackClick,
+}: {
+  tracks: Array<"Red" | "Blue" | "Mega">;
+  /** Currently applied track filter (null/undefined = showing all tracks). */
+  activeTrack?: "Red" | "Blue" | "Mega" | null;
+  /** Makes the cards clickable filter toggles. */
+  onTrackClick?: (track: "Red" | "Blue" | "Mega") => void;
+}) {
   const TRACK_DETAILS: Record<
     string,
-    { title: string; stat: string; tagline: string; border: string; bg: string; titleClass: string }
+    {
+      title: string;
+      stat: string;
+      tagline: string;
+      border: string;
+      bg: string;
+      titleClass: string;
+      activeRing: string;
+    }
   > = {
     Red: {
       title: "Red Track",
@@ -48,6 +68,7 @@ export function TrackInfoBanner({ tracks }: { tracks: Array<"Red" | "Blue" | "Me
       border: "border-red-500/40",
       bg: "bg-red-500/[0.08]",
       titleClass: "text-red-300",
+      activeRing: "border-red-400 ring-2 ring-red-400/60",
     },
     Blue: {
       title: "Blue Track",
@@ -56,6 +77,7 @@ export function TrackInfoBanner({ tracks }: { tracks: Array<"Red" | "Blue" | "Me
       border: "border-blue-500/40",
       bg: "bg-blue-500/[0.08]",
       titleClass: "text-blue-300",
+      activeRing: "border-blue-400 ring-2 ring-blue-400/60",
     },
     Mega: {
       title: "Mega Track",
@@ -64,6 +86,7 @@ export function TrackInfoBanner({ tracks }: { tracks: Array<"Red" | "Blue" | "Me
       border: "border-purple-500/40",
       bg: "bg-purple-500/[0.08]",
       titleClass: "text-purple-300",
+      activeRing: "border-purple-400 ring-2 ring-purple-400/60",
     },
   };
 
@@ -74,24 +97,58 @@ export function TrackInfoBanner({ tracks }: { tracks: Array<"Red" | "Blue" | "Me
   });
 
   return (
-    <div
-      className={`grid gap-2 ${ordered.length > 1 ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}
-    >
-      {ordered.map((track) => {
-        const info = TRACK_DETAILS[track];
-        if (!info) return null;
-        return (
-          <div key={track} className={`rounded-lg border ${info.border} ${info.bg} px-4 py-2.5`}>
-            <div className="mb-0.5 flex items-baseline justify-between gap-2">
-              <h4 className={`font-display text-sm uppercase tracking-wider ${info.titleClass}`}>
-                {info.title}
-              </h4>
-              <span className="font-mono text-[11px] text-white/50">{info.stat}</span>
-            </div>
-            <p className="text-xs leading-snug text-white/65">{info.tagline}</p>
-          </div>
-        );
-      })}
+    <div>
+      <div
+        className={`grid gap-2 ${ordered.length > 1 ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}
+      >
+        {ordered.map((track) => {
+          const info = TRACK_DETAILS[track];
+          if (!info) return null;
+          const body = (
+            <>
+              <div className="mb-0.5 flex items-baseline justify-between gap-2">
+                <h4 className={`font-display text-sm uppercase tracking-wider ${info.titleClass}`}>
+                  {info.title}
+                </h4>
+                <span className="font-mono text-[11px] text-white/50">{info.stat}</span>
+              </div>
+              <p className="text-xs leading-snug text-white/65">{info.tagline}</p>
+            </>
+          );
+          if (!onTrackClick) {
+            return (
+              <div
+                key={track}
+                className={`rounded-lg border ${info.border} ${info.bg} px-4 py-2.5`}
+              >
+                {body}
+              </div>
+            );
+          }
+          const isActive = activeTrack === track;
+          const isDimmed = !!activeTrack && !isActive;
+          return (
+            <button
+              key={track}
+              type="button"
+              aria-pressed={isActive}
+              onClick={() => onTrackClick(track)}
+              className={`cursor-pointer rounded-lg border px-4 py-2.5 text-left transition-all duration-150 ${info.bg} ${
+                isActive ? info.activeRing : info.border
+              } ${isDimmed ? "opacity-40" : ""}`}
+            >
+              {body}
+            </button>
+          );
+        })}
+      </div>
+      {onTrackClick && (
+        <p className="mt-1.5 text-center text-[11px] text-white/35">
+          {activeTrack
+            ? `Showing ${activeTrack} Track heats only — tap again to show all.`
+            : "Tap a track to see only its heats."}
+        </p>
+      )}
     </div>
   );
 }

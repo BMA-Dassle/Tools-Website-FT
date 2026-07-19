@@ -358,6 +358,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
         ),
       [fetchPlan],
     );
+    // Track filter driven by tapping a TrackInfoBanner card. Only honored while
+    // that track is actually on the grid — "Add another race" can swap the
+    // product under us, and a stale filter must not blank the new grid.
+    const [trackFilter, setTrackFilter] = useState<Track | null>(null);
+    const activeTrackFilter = trackFilter && gridTracks.includes(trackFilter) ? trackFilter : null;
 
     const queries = useQueries({
       queries: fetchPlan.map(({ productId: pid, pageId }) => ({
@@ -558,6 +563,12 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       crossTierBlocks,
       session.context?.kiosk,
     ]);
+
+    // Display-only track filter (picked heats, conflicts, and caps still span
+    // the full grid — hiding a track never releases or unpicks anything).
+    const visibleProposals = activeTrackFilter
+      ? allProposals.filter((tp) => tp.track === activeTrackFilter)
+      : allProposals;
 
     // Hold a just-picked block all-or-nothing. Reserves the new heats with BMI
     // immediately; on failure releases anything that succeeded and reverts the
@@ -777,8 +788,15 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
 
         {/* Track-info banner — shown when the grid spans both tracks (combined
             single race), so the customer knows each track's character before
-            picking. Same banner the Ultimate combo grid uses. */}
-        {showTrackBadge && gridTracks.length > 1 && <TrackInfoBanner tracks={gridTracks} />}
+            picking. Same banner the Ultimate combo grid uses. Tapping a card
+            filters the grid to that track; tapping again shows all. */}
+        {showTrackBadge && gridTracks.length > 1 && (
+          <TrackInfoBanner
+            tracks={gridTracks}
+            activeTrack={activeTrackFilter}
+            onTrackClick={(t) => setTrackFilter((cur) => (cur === t ? null : t))}
+          />
+        )}
 
         {/* Eager-hold error (the in-progress "Holding…" state shows ON the card). */}
         {holdError && !holding && (
@@ -806,10 +824,14 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
           <div className="bg-white/3 rounded-xl border border-white/10 p-4 text-center text-sm text-white/50">
             No heats available for this date.
           </div>
+        ) : visibleProposals.length === 0 ? (
+          <div className="bg-white/3 rounded-xl border border-white/10 p-4 text-center text-sm text-white/50">
+            No {activeTrackFilter} Track heats for this date — tap the track above to show all.
+          </div>
         ) : (
           // Heat grid — v1 HeatPicker:280-412
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-            {allProposals.map((tp, idx) => {
+            {visibleProposals.map((tp, idx) => {
               const block = tp.block;
               const isSelected = pickedSet.has(heatKey(tp.productId, block.start));
               const blockStartMs = parseLocal(block.start).getTime();
