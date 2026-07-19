@@ -53,6 +53,26 @@ describe("decodeError", () => {
     expect(info.hint).toMatch(/variant/i);
   });
 
+  // This variant returns some codes with e1/e0 swapped — notably the empty
+  // stacker as "0A" (reversed "A0"), which must still resolve to the resumable
+  // A0/attention hold, not fatal/unknown.
+  it.each([
+    ["0A", "A0", "attention"],
+    ["1A", "A1", "attention"],
+    ["0B", "B0", "needsInit"],
+  ])("decodes reversed %s as canonical %s (%s)", (received, canonical, category) => {
+    const info = decodeError(...code(received));
+    expect(info.code).toBe(canonical);
+    expect(info.category).toBe(category);
+    expect(info.message).not.toMatch(/unknown/i);
+  });
+
+  it("never reinterprets a valid direct code as its reverse (01 stays fatal, not jam)", () => {
+    const info = decodeError(...code("01"));
+    expect(info.code).toBe("01");
+    expect(info.category).toBe("fatal");
+  });
+
   it("attention errors carry staff hints", () => {
     for (const c of ["10", "A0", "A1", "B0"]) {
       expect(decodeError(...code(c)).hint, c).toBeTruthy();
