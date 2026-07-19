@@ -171,6 +171,19 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     schemaVersion: KIOSK_SCHEMA_VERSION,
   });
   const queryClient = useQueryClient();
+  // Always-latest handleNext for steps' requestAdvance — the picker calls it
+  // after an await, from a closure created renders ago; the ref guarantees the
+  // CURRENT session/item advance (and the unracered sheet still intercepts).
+  // setTimeout(0) lets React flush the hold's final state first. Declared up
+  // here with the other hooks (the config early-return sits below); the effect
+  // body runs post-render, when handleNext (declared later) is initialized.
+  const handleNextRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  useEffect(() => {
+    handleNextRef.current = handleNext;
+  });
+  const requestAdvance = useCallback(() => {
+    setTimeout(() => void handleNextRef.current(), 0);
+  }, []);
 
   // `?bowlingV3=1` preview opt-in must also reach a PERSISTED kiosk session —
   // context is only seeded at creation (same fix as BookingFlow).
@@ -191,7 +204,15 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   // idle watchdog so a guest isn't reset mid-dispense or during a fault hold.
   const [gzBusy, setGzBusy] = useState(false);
   const [vipCombo, setVipCombo] = useState<ComboSpecial | null>(null);
-  const [stepBusy, setStepBusy] = useState(false);
+  // The ref twin is the SYNCHRONOUS truth for handleNext's guard: a step's
+  // requestAdvance fires right after its hold clears busy, before React has
+  // flushed the state update.
+  const [stepBusy, setStepBusyState] = useState(false);
+  const stepBusyRef = useRef(false);
+  const setStepBusy = useCallback((busy: boolean) => {
+    stepBusyRef.current = busy;
+    setStepBusyState(busy);
+  }, []);
   const [bookingHeats, setBookingHeats] = useState(false);
   const [bookingHeatsProgress, setBookingHeatsProgress] = useState("Holding your spot…");
   const [kioskError, setKioskError] = useState<string | null>(null);
@@ -1292,7 +1313,8 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       : null;
 
   const handleNext = async () => {
-    if (stepBusy) return;
+    // Ref, not state: requestAdvance can fire before the state flush.
+    if (stepBusyRef.current) return;
     setKioskError(null);
 
     if (
@@ -1413,6 +1435,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
             onChange={(patch) => dispatch({ type: "updateItem", id: activeItem.id, patch })}
             dispatch={dispatch}
             setBusy={setStepBusy}
+            requestAdvance={requestAdvance}
           />
         </div>
 

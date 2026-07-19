@@ -44,6 +44,15 @@ export interface StepDef<I extends BookingItem = BookingItem> {
      * is still resolving. Optional: steps that never go busy ignore it.
      */
     setBusy?: (busy: boolean) => void;
+    /**
+     * Ask the wizard to advance as if the guest pressed the footer Next —
+     * routed through the host's FULL handleNext (canAdvance gate, kiosk
+     * unracered sheet, advance-time booking/POV/memo), never a raw
+     * dispatch("next"). Used by the package heat picker to auto-advance the
+     * moment the final component's hold lands (owner 2026-07-19 — pick, pick,
+     * done; no Confirm tap). Optional: hosts that don't support it omit it.
+     */
+    requestAdvance?: () => void;
   }>;
   /** Hide the step entirely when this returns false. */
   isVisible: (item: I, session: BookingSession) => boolean;

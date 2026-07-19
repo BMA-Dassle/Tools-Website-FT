@@ -98,6 +98,19 @@ export function BookingFlow({
   );
   const [session, dispatch, hydrated] = usePersistedReducer(initial);
   const queryClient = useQueryClient();
+  // Always-latest handleNext for steps' requestAdvance — the picker calls it
+  // after an await, from a closure created renders ago; the ref guarantees the
+  // CURRENT session/item advance. setTimeout(0) lets React flush the hold's
+  // final state (busy=false, fresh heats) first. Declared up here with the
+  // other hooks (the loading early-return sits below); the effect body runs
+  // post-render, when handleNext (declared later) is initialized.
+  const handleNextRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  useEffect(() => {
+    handleNextRef.current = handleNext;
+  });
+  const requestAdvance = useCallback(() => {
+    setTimeout(() => void handleNextRef.current(), 0);
+  }, []);
   // Seed from ?checkout=1 — opens checkout directly when arriving from the
   // landing cart bar (only meaningful on the cart view, i.e. no active item).
   const [checkoutActive, setCheckoutActive] = useState(initialCheckout);
@@ -106,8 +119,15 @@ export function BookingFlow({
   const [bookingHeatsProgress, setBookingHeatsProgress] = useState<string>("Reserving your heats…");
   // True while a step is mid-async (e.g. an eager BMI hold). Disables Next so the
   // customer can't advance — and the advance-time booker can't double-book —
-  // while a hold is still resolving.
-  const [stepBusy, setStepBusy] = useState(false);
+  // while a hold is still resolving. The ref twin is the SYNCHRONOUS truth for
+  // handleNext's guard: a step's requestAdvance fires right after its hold
+  // clears busy, before React has flushed the state update.
+  const [stepBusy, setStepBusyState] = useState(false);
+  const stepBusyRef = useRef(false);
+  const setStepBusy = useCallback((busy: boolean) => {
+    stepBusyRef.current = busy;
+    setStepBusyState(busy);
+  }, []);
   const [leaveConfirm, setLeaveConfirm] = useState(false);
   const [reservationExpired, setReservationExpired] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -540,7 +560,8 @@ export function BookingFlow({
   const handleNext = async () => {
     // Never advance while a step is mid-hold (the Next button is also disabled,
     // but guard here too so the advance-time booker can't race the eager hold).
-    if (stepBusy) return;
+    // Ref, not state: requestAdvance can fire before the state flush.
+    if (stepBusyRef.current) return;
 
     // HeightAgeConfirmModal: intercept party→date transition for race items
     // when the party has any new racers (v1 parity: page.tsx:789-792).
@@ -757,6 +778,7 @@ export function BookingFlow({
           onChange={(patch) => dispatch({ type: "updateItem", id: activeItem.id, patch })}
           dispatch={dispatch}
           setBusy={setStepBusy}
+          requestAdvance={requestAdvance}
         />
 
         {bookingHeats && (

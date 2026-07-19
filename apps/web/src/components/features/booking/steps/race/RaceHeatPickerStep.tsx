@@ -34,7 +34,9 @@ import {
   getPublicReopenMinutes,
 } from "@/lib/group-events";
 import { getPackage } from "~/features/booking/service/packages";
-import { PackageCategoryBanner, PackageHeatPicker, type PackagePick } from "./PackageHeatPicker";
+import { packageComponentsCovered } from "~/features/booking/service/package-picks";
+import { PackageHeatPicker } from "./PackageHeatPicker";
+import { useEagerHeatHold } from "./useEagerHeatHold";
 import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track-visuals";
 
 /**
@@ -200,16 +202,18 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     onChange,
     dispatch,
     setBusy,
+    requestAdvance,
   }) => {
     const allRacers = session.party;
     const racers = racersOfCategory(allRacers, category);
     const productId = productIdForCategory(item, category);
 
     // Package flow: when a package is selected instead of an individual
-    // product, delegate to PackageHeatPicker (v1 parity: page.tsx:2223).
-    // Once the customer confirms picks, heats are written to item.heats
-    // and the outer Next button (BookingFlow) handles BMI booking via
-    // bookHeatsOnAdvance — same as the regular heat picker path.
+    // product, delegate to PackageHeatPicker. The picker owns its own heat
+    // writes + eager BMI holds (tap = held, single-race parity — owner
+    // 2026-07-19) and derives its picks from item.heats, so it ALWAYS renders
+    // live: no Confirm hand-off, no "Heats Selected" interstitial, and
+    // back-nav lands on the grid with picks intact.
     const pkgId = productId ? null : packageIdForCategory(item, category);
     const pkg = useMemo(() => getPackage(pkgId), [pkgId]);
 
@@ -221,15 +225,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     const allReturningHaveWaivers =
       !anyNewInCategory &&
       session.party.filter((m) => !m.isNewRacer).every((m) => m.waiverValid === true);
-    // Scoped to THIS category's heats — on a mixed party the adult package's
-    // (possibly still-unbooked) picks must not flip the junior step into the
-    // "Heats Selected" summary before the junior has picked anything.
-    const packageHeatsAlreadyPicked = !!(
-      pkg &&
-      pkg.races.length > 0 &&
-      item.heats.some((h) => h.heatId && !h.bmiLineId && (h.category ?? "adult") === category)
-    );
-    if (pkg && pkg.races.length > 0 && item.date && !packageHeatsAlreadyPicked) {
+    if (pkg && pkg.races.length > 0 && item.date) {
       return (
         <PackageHeatPicker
           pkg={pkg}
@@ -250,93 +246,13 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
               : 0
           }
           crossCategoryHeats={otherCategoryHeats(session.items, category)}
-          onConfirm={(picks: PackagePick[], selectedRacers) => {
-            // Heats go to the SELECTED racers only (the picker's roster
-            // checklist) — a deselected member isn't booked for the package;
-            // the kiosk unracered guard catches them at advance.
-            const newHeats: RaceHeatAssignment[] = picks.flatMap((pick) =>
-              selectedRacers.map((r) => ({
-                productId: pick.productId,
-                track: pick.track as RaceHeatAssignment["track"],
-                // $0 build-key parts: package component SKUs aren't in
-                // RACE_PRODUCTS, so booking + charge resolve the $0 pair from
-                // (category:tier:track) instead of the productId.
-                tier: pick.component.tier,
-                category,
-                heatId: pick.block.start,
-                bmiLineId: null,
-                assignedTo: r.id,
-              })),
-            );
-            onChange({ heats: [...item.heats, ...newHeats] });
-          }}
-          onCancel={() => dispatch({ type: "back" })}
+          item={item}
+          session={session}
+          onChange={onChange}
+          dispatch={dispatch}
+          setBusy={setBusy}
+          requestAdvance={requestAdvance}
         />
-      );
-    }
-    if (pkg && packageHeatsAlreadyPicked) {
-      const categoryHeats = item.heats.filter((h) => (h.category ?? "adult") === category);
-      const pickSummary = pkg.races.map((comp) => {
-        const heat = categoryHeats.find(
-          (h) => h.heatId && comp.tracks.some((t) => t.productId === h.productId),
-        );
-        return { label: comp.label, time: heat ? formatTime(heat.heatId!) : "—" };
-      });
-      // WHO the picked package covers — assignedIds spans all categories'
-      // heats; intersecting with THIS category's roster keeps both steps of a
-      // mixed party correct.
-      const assignedIds = new Set(
-        item.heats.filter((h) => h.heatId && h.assignedTo).map((h) => h.assignedTo),
-      );
-      const included = racers.filter((r) => assignedIds.has(r.id));
-      const excluded = racers.filter((r) => !assignedIds.has(r.id));
-      const isMixedParty = hasCategory(session, "adult") && hasCategory(session, "junior");
-      return (
-        <div className="space-y-6">
-          {isMixedParty && <PackageCategoryBanner category={category} />}
-          <div className="text-center">
-            <h2 className="font-display text-2xl uppercase tracking-widest text-white">
-              Heats Selected
-            </h2>
-            <p className="mt-1 text-sm text-white/50">{pkg.name} — ready to reserve</p>
-            {included.length > 0 && (
-              <p className="mt-1 text-sm text-white/80">
-                For: {included.map((r) => r.firstName).join(", ")}
-              </p>
-            )}
-            {excluded.length > 0 && (
-              <p className="mt-1 text-sm text-amber-400">
-                Not racing this package: {excluded.map((r) => r.firstName).join(", ")}
-              </p>
-            )}
-          </div>
-          <div className="mx-auto max-w-md space-y-2">
-            {pickSummary.map((s) => (
-              <div
-                key={s.label}
-                className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3"
-              >
-                <span className="text-sm font-semibold text-white">{s.label}</span>
-                <span className="text-sm text-[#00E2E5]">{s.time}</span>
-              </div>
-            ))}
-          </div>
-          <button
-            type="button"
-            // Drop only THIS category's unbooked picks — the other category's
-            // pending package heats (mixed party) must survive a re-pick here.
-            onClick={() =>
-              onChange({
-                heats: item.heats.filter(
-                  (h) => !!h.bmiLineId || (h.category ?? "adult") !== category,
-                ),
-              })
-            }
-            className="mx-auto block text-sm text-white/40 underline hover:text-white/60"
-          >
-            Re-pick heats
-          </button>
-        </div>
       );
     }
 
@@ -363,7 +279,6 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     dispatch,
     setBusy,
   }) => {
-    const queryClient = useQueryClient();
     const racers = racersOfCategory(session.party, category);
     const partySize = racers.length;
     const productId = productIdForCategory(item, category);
@@ -371,16 +286,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
 
     // Eager hold: heats are reserved with BMI the moment they're picked (single
     // racer) or confirmed (multi), not when the customer leaves the grid — so a
-    // busy-day spot isn't lost while they linger. `holdingRef` serializes holds
-    // (a hold lazily creates the bill; two concurrent holds would create two
-    // bills) and the grid is disabled while a hold is in flight. `holdingKey`
-    // marks WHICH card is being held so the "Holding…" spinner shows ON that
-    // card (always in view — the customer just clicked it), not in a top banner
-    // they'd miss when scrolled down a long heat list.
-    const [holding, setHolding] = useState(false);
-    const [holdingKey, setHoldingKey] = useState<string | null>(null);
-    const [holdError, setHoldError] = useState<string | null>(null);
-    const holdingRef = useRef(false);
+    // busy-day spot isn't lost while they linger. Machinery shared with the
+    // package grid via useEagerHeatHold (serialization, optimistic write +
+    // revert-on-failure, per-card "Holding…" key, wizard-Next busy wiring).
+    const { holding, holdingKey, holdError, setHoldError, holdingRef, holdHeats } =
+      useEagerHeatHold({ item, session, onChange, dispatch, setBusy });
 
     // Express-lane signal — mirrors the guard's computation (the package grid
     // there shares it) so the single-race grid applies the same new-racer lead
@@ -643,49 +553,6 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     const visibleProposals = activeTrackFilter
       ? allProposals.filter((tp) => tp.track === activeTrackFilter)
       : allProposals;
-
-    // Hold a just-picked block all-or-nothing. Reserves the new heats with BMI
-    // immediately; on failure releases anything that succeeded and reverts the
-    // pick so the cart never shows a heat that isn't actually held.
-    const holdHeats = async (nextHeats: RaceHeatAssignment[], holdKey: string | null) => {
-      if (holdingRef.current) return;
-      holdingRef.current = true;
-      setHolding(true);
-      setHoldingKey(holdKey);
-      setHoldError(null);
-      setBusy?.(true); // disable the wizard Next while this hold is in flight
-      onChange({ heats: nextHeats });
-      try {
-        const res = await holdPickedHeats(session, { ...item, heats: nextHeats }, dispatch);
-        if (!res.ok) {
-          if (res.booked.length > 0) {
-            await releaseHeatBmiLines(
-              { ...session, bmiBillId: res.billId },
-              res.booked.map((b) => ({ bmiLineId: b.bmiLineId })),
-            );
-          }
-          onChange({ heats: item.heats }); // revert to pre-pick
-          setHoldError(`Couldn't hold that heat — ${res.error}. Please pick another time.`);
-        } else {
-          // The hold just consumed capacity the 60s-stale availability cache
-          // doesn't know about — refresh so the NEXT grid (e.g. the junior
-          // leg after an adult pick) reads post-hold occupancy.
-          queryClient.invalidateQueries({ queryKey: bookingKeys.bmi.availabilityAll });
-        }
-      } catch (err) {
-        onChange({ heats: item.heats });
-        setHoldError(
-          err instanceof Error
-            ? `Couldn't hold that heat: ${err.message}`
-            : "Couldn't hold that heat. Please try again.",
-        );
-      } finally {
-        holdingRef.current = false;
-        setHolding(false);
-        setHoldingKey(null);
-        setBusy?.(false);
-      }
-    };
 
     const handleClickBlock = async (tp: TrackedProposal) => {
       if (holdingRef.current) return;
@@ -1153,10 +1020,10 @@ function canAdvanceFor(
   if (!hasCategory(session, category)) return true;
   const productId = productIdForCategory(item, category);
 
-  // Package flow: PackageHeatPicker auto-advances via dispatch("next")
-  // after writing heats, so canAdvance just needs to confirm heats exist —
-  // scoped to THIS category's racers (a mixed party's adult heats must not
-  // let the junior step advance with zero junior heats).
+  // Package flow: picks hold incrementally (tap = held), so the gate must
+  // require EVERY component covered — an any-heat check would let Continue
+  // pass with only the Starter picked. Scoped to THIS category's racers (a
+  // mixed party's adult heats must not advance the junior step).
   const packageId = packageIdForCategory(item, category);
   if (!productId && packageId) {
     const pkg = getPackage(packageId);
@@ -1164,10 +1031,10 @@ function canAdvanceFor(
       const categoryIds = new Set(
         session.party.filter((m) => (m.category ?? "adult") === category).map((m) => m.id),
       );
-      const hasHeats = item.heats.some(
-        (h) => h.heatId && h.assignedTo && categoryIds.has(h.assignedTo),
-      );
-      return hasHeats ? true : { reason: "Pick your package heats." };
+      const coverage = packageComponentsCovered(pkg, item.heats, categoryIds);
+      return coverage.covered
+        ? true
+        : { reason: `Pick your ${coverage.missing[0]?.label ?? "package"} heat.` };
     }
   }
 
