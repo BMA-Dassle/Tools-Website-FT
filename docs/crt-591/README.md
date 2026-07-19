@@ -132,13 +132,28 @@ Neon `kiosk_devices`. **Any new field must be added to `resolveKioskConfig`'s li
 
 1. Plug the unit's COM (USB-serial) and USB leads into the kiosk PC.
 2. `/kiosk/admin` → PIN → **Card reader** tab.
-3. Tap **Grant port access…** → pick the USB-serial adapter (one-time per profile+origin).
+3. Tap **Prompt for permissions** → pick the USB-serial adapter in the chooser (one-time per
+   profile+origin). Choosing a port IS the grant — Web Serial has no separate Allow popup.
 4. Wait for CONNECTED — firmware/serial/baud appear and save to config automatically.
 5. Verify: Refresh status (stacker/bin chips sane) → Dispense → Eject → insert-watch a card.
 6. Device tab: confirm the "CRT-591 card reader (COM)" toggle is ON.
 
 Chrome serial grants are per **origin + profile**: a re-imaged kiosk, a new Chrome profile,
 or a different URL (e.g. a dev laptop's IP) needs step 3 again.
+
+If the chooser never opens ("browser blocked serial access" / SecurityError), the **Prompt
+for permissions** button's message names the blocking layer — mirrors the camera admin's
+button (2026-07-18 incident):
+
+- **Our own header** — production must send `Permissions-Policy: … serial=(self)`
+  (`next.config.ts`); the button checks `document.featurePolicy` and says so explicitly.
+- **Edge site permission** — address-bar padlock → Permissions → "Serial ports", or
+  `edge://settings/content/serialPorts` (site must not be under Block).
+- **Management policy** — `edge://policy`: `DefaultSerialGuardSetting` /
+  `SerialBlockedForUrls` on company-managed browsers.
+- **Spent gesture** — stale kiosk builds entered fullscreen on the same tap, consuming the
+  transient activation serial needs; `/kiosk/admin` skips fullscreen since 2026-07-18, so
+  reload the page to pick up a current build.
 
 ## Dev loop (laptop dev server + kiosk hardware)
 
@@ -164,17 +179,18 @@ shows its "unsupported" guidance.
 
 ## Troubleshooting (decoded from e1/e0 — full table in protocol.md § 2.2)
 
-| Symptom / code                  | Meaning                                       | Do                                                       |
-| ------------------------------- | --------------------------------------------- | -------------------------------------------------------- |
-| No response at any baud         | Wrong COM cable/port, no power, ADDR DIP ≠ 00 | Check wiring/power/DIP, power-cycle, reconnect           |
-| `B0`                            | Power-cycled, not initialized                 | Panel auto-reinits reads; tap Re-init otherwise          |
-| `10`                            | Card jam                                      | Clear the transport, then Init                           |
-| `A0`                            | Stacker empty                                 | Refill blanks (watch the "few" amber chip pre-emptively) |
-| `A1` / bin FULL chip            | Error bin full                                | Empty bin, Reset counter                                 |
-| `45`                            | Card moved manually                           | Init so the device re-finds the card                     |
-| `00` / `03`                     | Command unknown/unsupported                   | Likely model mismatch — see banner + this README         |
-| "in use by another tab"         | Second tab/program owns the port              | Close the other consumer                                 |
-| Repeated `badFrame(bcc)` in log | Line noise or framing mismatch                | Check cable; capture log; compare protocol.md            |
+| Symptom / code                  | Meaning                                       | Do                                                                    |
+| ------------------------------- | --------------------------------------------- | --------------------------------------------------------------------- |
+| No response at any baud         | Wrong COM cable/port, no power, ADDR DIP ≠ 00 | Check wiring/power/DIP, power-cycle, reconnect                        |
+| `B0`                            | Power-cycled, not initialized                 | Panel auto-reinits reads; tap Re-init otherwise                       |
+| `10`                            | Card jam                                      | Clear the transport, then Init                                        |
+| `A0`                            | Stacker empty                                 | Refill blanks (watch the "few" amber chip pre-emptively)              |
+| `A1` / bin FULL chip            | Error bin full                                | Empty bin, Reset counter                                              |
+| `45`                            | Card moved manually                           | Init so the device re-finds the card                                  |
+| `00` / `03`                     | Command unknown/unsupported                   | Likely model mismatch — see banner + this README                      |
+| "in use by another tab"         | Second tab/program owns the port              | Close the other consumer                                              |
+| "browser blocked serial access" | Chooser refused: header/site/policy/gesture   | Tap **Prompt for permissions** — it names the layer; see Provisioning |
+| Repeated `badFrame(bcc)` in log | Line noise or framing mismatch                | Check cable; capture log; compare protocol.md                         |
 
 ## PCI note
 

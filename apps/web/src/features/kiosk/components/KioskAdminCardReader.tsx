@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   hexDump,
   parseWedgeBurst,
+  serialBlockedMessage,
   useCardReader,
   type CrtErrorInfo,
   type InitMode,
@@ -138,7 +139,63 @@ function ConnectionCard({
   reader: ReturnType<typeof useCardReader>;
   draft: Partial<KioskConfig>;
 }) {
-  const { connection, connect, disconnect } = reader;
+  const { connection, connect, connectPort, disconnect } = reader;
+  const [permMsg, setPermMsg] = useState<string | null>(null);
+
+  /**
+   * Camera-admin parity (owner 2026-07-19, after "browser blocked serial
+   * access" on the podium): a button whose only job is to make the browser
+   * ASK. For Web Serial the Allow popup is the port chooser, and the
+   * proof-of-grant (the camera's 5-second preview) is connecting — the
+   * firmware/serial/baud rows above light up. When the chooser never opens
+   * (SecurityError), the message pinpoints the blocking layer: our own
+   * Permissions-Policy header vs Edge's site permission / management policy.
+   */
+  const promptPermissions = async () => {
+    if (typeof navigator === "undefined" || !("serial" in navigator)) {
+      setPermMsg(
+        "Web Serial isn't available here — it needs desktop Chrome/Edge on an HTTPS page.",
+      );
+      return;
+    }
+    setPermMsg(null);
+    let port: SerialPort;
+    try {
+      // FIRST await after the tap — anything earlier spends the gesture's
+      // transient activation and the chooser silently never opens.
+      port = await navigator.serial.requestPort();
+    } catch (err) {
+      const name = err instanceof DOMException ? err.name : "";
+      setPermMsg(
+        name === "SecurityError"
+          ? serialBlockedMessage()
+          : name === "NotFoundError"
+            ? "The chooser opened but no port was picked — or none exist. Check the reader's USB lead and that a COM port shows in Device Manager → Ports (COM & LPT)."
+            : `Permission request failed${err instanceof Error && err.message ? ` — ${err.message}` : ""}`,
+      );
+      return;
+    }
+    const granted = await navigator.serial.getPorts().catch(() => [] as SerialPort[]);
+    const info = port.getInfo();
+    const portLabel =
+      info.usbVendorId != null
+        ? `USB ${info.usbVendorId.toString(16).padStart(4, "0")}:${(info.usbProductId ?? 0)
+            .toString(16)
+            .padStart(4, "0")}`
+        : "native COM port";
+    setPermMsg(
+      `Serial permission GRANTED — ${portLabel} paired (${granted.length} port grant${
+        granted.length === 1 ? "" : "s"
+      } on this device). Connecting to prove it…`,
+    );
+    const ok = await connectPort(port);
+    setPermMsg(
+      ok
+        ? null // the CONNECTED card above (firmware/serial/baud) is the proof
+        : `Serial permission is GRANTED (${portLabel}) — the connect error above is a device/port problem, not permissions.`,
+    );
+  };
+
   const savedPort = draft.cardReaderPortInfo;
   const savedLine = draft.cardReaderEnabled
     ? `baud ${draft.cardReaderBaud ?? "auto"} · ${
@@ -205,18 +262,28 @@ function ConnectionCard({
 
       <div className="flex flex-wrap gap-2">
         {connection.state !== "connected" && connection.state !== "connecting" && (
-          <button
-            type="button"
-            className={btnPrimary}
-            // Stop the event reaching KioskShell's document-level pointerdown
-            // handler, which requests fullscreen and would consume this gesture's
-            // transient activation — starving Web Serial's requestPort() and
-            // throwing the "browser blocked serial access" permissions error.
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => void connect()}
-          >
-            Choose COM port &amp; connect…
-          </button>
+          <>
+            <button
+              type="button"
+              className={btnPrimary}
+              // Stop the event reaching KioskShell's document-level pointerdown
+              // handler, which requests fullscreen and would consume this gesture's
+              // transient activation — starving Web Serial's requestPort() and
+              // throwing the "browser blocked serial access" permissions error.
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => void promptPermissions()}
+            >
+              Prompt for permissions
+            </button>
+            <button
+              type="button"
+              className={btnGhost}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => void connect()}
+            >
+              Choose COM port &amp; connect…
+            </button>
+          </>
         )}
         {connection.state === "connected" && (
           <button type="button" className={btnGhost} onClick={() => void disconnect()}>
@@ -224,10 +291,12 @@ function ConnectionCard({
           </button>
         )}
       </div>
+      {permMsg && <p className="text-sm text-white/60">{permMsg}</p>}
       {connection.state !== "connected" && connection.state !== "connecting" && (
         <p className="text-xs text-white/40">
-          Tapping this opens the browser’s COM-port chooser. If nothing appears, this browser is
-          blocking serial access (device-management policy) or isn’t Chrome/Edge on HTTPS.
+          Both buttons open the browser’s COM-port chooser (choosing a port IS the permission
+          grant). “Prompt for permissions” also reports the grant, and when the chooser is blocked
+          it names the blocking layer and where to unblock it — like the camera admin’s button.
         </p>
       )}
     </div>

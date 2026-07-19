@@ -85,13 +85,40 @@ function toErrorInfo(err: unknown): CrtErrorInfo {
   };
 }
 
+/**
+ * A SecurityError from requestPort() means the chooser never opened. Work out
+ * WHICH layer said no — our own Permissions-Policy header (the camera's exact
+ * failure mode on 2026-07-18, fixed with camera=(self)) vs. the browser's
+ * site permission / device-management policy — and spell out where staff
+ * unblock it, like the camera admin's "Prompt for permissions" button does.
+ */
+export function serialBlockedMessage(): string {
+  const fp = (
+    document as Document & { featurePolicy?: { allowsFeature?: (feature: string) => boolean } }
+  ).featurePolicy;
+  if (fp?.allowsFeature && !fp.allowsFeature("serial")) {
+    return (
+      "Serial is blocked by the site's OWN Permissions-Policy header — the deploy must send " +
+      "serial=(self), same fix as the camera on 2026-07-18 (next.config.ts). Redeploy, then tap again."
+    );
+  }
+  return (
+    "The browser blocked serial without showing the chooser. Unblock, then tap again: " +
+    '(1) padlock icon in the address bar → Permissions for this site → allow "Serial ports" ' +
+    "(or edge://settings/content/serialPorts — make sure this site isn't under Block); " +
+    "(2) on a company-managed browser, edge://policy must not set DefaultSerialGuardSetting / " +
+    "SerialBlockedForUrls against this site; (3) if it still fails, reload this page — on stale " +
+    "kiosk builds the tap's gesture is spent entering fullscreen before the chooser can open."
+  );
+}
+
 function openErrorMessage(err: unknown): string {
   const name = err instanceof DOMException ? err.name : "";
   if (name === "InvalidStateError" || name === "NetworkError") {
     return "Reader port is in use by another tab or program — close it and retry.";
   }
   if (name === "SecurityError") {
-    return "The browser blocked serial access — check the page's permissions.";
+    return serialBlockedMessage();
   }
   return err instanceof Error ? err.message : String(err);
 }
@@ -295,6 +322,24 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
     await beginConnect(port);
   }, [beginConnect]);
 
+  /**
+   * Connect to a port the caller already holds — the admin panel's "Prompt for
+   * permissions" flow calls requestPort() itself (so it can report the grant)
+   * and hands the chosen port here. Returns true once connected. Mirrors
+   * connect()'s manual-action resets.
+   */
+  const connectPort = useCallback(
+    async (port: SerialPort): Promise<boolean> => {
+      if (clientRef.current) return true;
+      stopReconnectRef.current = true; // a manual connect supersedes the auto loop
+      setUnavailable(false);
+      setLastError(null);
+      await beginConnect(port);
+      return clientRef.current != null;
+    },
+    [beginConnect],
+  );
+
   // Reopen a remembered port with NO picker (open() needs no user gesture).
   // Matches the saved USB ids, or a lone grant — never guesses among many.
   // Returns true once connected.
@@ -453,6 +498,7 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
     polling,
     setPolling,
     connect,
+    connectPort,
     disconnect,
     run,
     runResult,
