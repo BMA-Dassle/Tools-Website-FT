@@ -31,13 +31,15 @@ export function kioskTerminalEnabled(): boolean {
 }
 
 /**
- * Group & online waiver flow on the kiosk — kill switch, defaults ON (owner
- * 2026-07-19: "default both to on"). Gates the attract-screen entry button;
- * the /kiosk/waiver page itself is always reachable by URL. Set the literal
- * "false" in Vercel + redeploy to hide the button.
+ * Group & online waiver flow on the kiosk — OPT-IN, defaults OFF (owner
+ * 2026-07-19: "turn the event thing off by default for now", reversing the
+ * earlier default-on ask after the first live look). Gates the attract-screen
+ * entry button; the /kiosk/waiver page itself stays reachable by typed URL
+ * for staff testing. Set the literal "true" in Vercel + redeploy to show the
+ * button (NEXT_PUBLIC_* values are build-baked).
  */
 export function kioskGroupWaiverEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_KIOSK_GROUP_WAIVER_ENABLED !== "false";
+  return process.env.NEXT_PUBLIC_KIOSK_GROUP_WAIVER_ENABLED === "true";
 }
 
 /**

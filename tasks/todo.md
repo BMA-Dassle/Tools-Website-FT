@@ -1,6 +1,6 @@
 # Open Tasks
 
-## Kiosk Online & Group Waiver — LIVE ON DEPLOY (2026-07-18/19, both flags default ON)
+## Kiosk Online & Group Waiver — ON MAIN, BUTTON OFF BY DEFAULT (2026-07-18/19)
 
 Attract-screen entry → `/kiosk/waiver`: guest picks today's reservation (next 2h, waiver
 events, event name or "First L." labels — daily-events group/online split), sees "First L."
@@ -12,9 +12,14 @@ free). Joins persist to Neon `kiosk_waiver_joins` FIRST; BMI `registerProjectPer
 attach runs after. Race now / Bowl now attract chips hidden same day (owner: "might come
 back later" — commented in AttractScreen).
 
-Kill switches (owner 2026-07-19 "default both to on"):
-`NEXT_PUBLIC_KIOSK_GROUP_WAIVER_ENABLED=false` hides the attract button;
-`KIOSK_WAIVER_BMI_ATTACH=0` stops the BMI attach (joins go Neon-only, roster still whole).
+Flags (owner 2026-07-19, revised after first live look — "turn the event thing off by
+default for now"): attract button is OPT-IN, default OFF —
+`NEXT_PUBLIC_KIOSK_GROUP_WAIVER_ENABLED=true` in Vercel + redeploy shows it; the
+/kiosk/waiver page stays typed-URL reachable for staff testing. BMI attach stays
+default-ON (`KIOSK_WAIVER_BMI_ATTACH=0` kills it) — moot while the flow is unused.
+NOTE from the 1 AM live test: a just-created reservation takes up to ~6 min to reach the
+picker (5-min daily-events cache warm + 60s shaped cache) — expected, but remember it
+when testing.
 
 Probe `apps/web/scripts/kiosk-waiver-attach-probe.mts` dry-run DONE (2026-07-19):
 A1 = personsByIds has NO waiver fields (Pandora fan-out in roster route is required);
