@@ -13,9 +13,29 @@
  * Lazy CREATE TABLE IF NOT EXISTS (no migrations framework). `startTxn` THROWS
  * if the DB is unconfigured — we must not move money without an audit row.
  * Updates swallow (money already moved; a log error must not surface).
+ *
+ * BRIDGE QUEUE (`queue_state`, web reloads via the on-prem EIS server):
+ *
+ *   NULL      row belongs to the cloud-SOAP path (dedups on tpi_transaction_id)
+ *   queued    charged, waiting for a center bridge to claim (markChargedQueued)
+ *   claimed   ONE bridge owns it (FOR UPDATE SKIP LOCKED) and may EIS-credit
+ *   done      credit confirmed (bridge ack `ok`, or verify resolved it)
+ *   soap_fallback  EIS definitively did NOT credit (declined/no_attempt ack,
+ *             or nothing claimed within 60s) → row rejoins the SOAP replay set
+ *   verify    EIS outcome UNKNOWN (request written, no reply / lease expired) —
+ *             resolved by cloud-history match or flagged manual. NEVER replayed
+ *             on either path: the EIS credit has NO idempotency id, so a blind
+ *             retry after an unknown outcome is a double credit.
+ *   manual    verify never matched — staff must check Intercard reports
+ *
+ * SOAP-eligible: load_state='pending' AND state='charged' AND
+ *   (queue_state IS NULL OR queue_state='soap_fallback').
+ * EIS-eligible: queue_state='claimed', only by the claiming bridge.
+ * The sets are disjoint; every transition is ONE guarded UPDATE (the Neon HTTP
+ * driver runs each statement as its own atomic transaction).
  */
 import { sql, isDbConfigured } from "@ft/db";
-import type { LoadState, TxnKind, TxnState } from "../types";
+import type { LoadState, QueueState, TxnKind, TxnState } from "../types";
 
 export interface TxnStart {
   txnId: string;
@@ -52,7 +72,24 @@ export interface TxnRow {
   error: string | null;
   createdAt: string;
   completedAt: string | null;
+  queueState: QueueState | null;
+  queuedAt: string | null;
+  claimedBy: string | null;
+  claimedAt: string | null;
+  ackedAt: string | null;
+  eisCode: string | null;
+  eisDescription: string | null;
 }
+
+/** One claimed credit job, as handed to the on-prem bridge. */
+export interface BridgeJob {
+  txnId: string;
+  accountNumber: string;
+  tokens: number;
+  bonusTokens: number;
+}
+
+export type BridgeAckOutcome = "ok" | "declined" | "no_attempt" | "unknown";
 
 let schemaReady = false;
 async function ensureSchema(): Promise<void> {
@@ -84,6 +121,14 @@ async function ensureSchema(): Promise<void> {
   `;
   // Additive migration — table may already exist from round 1 (multi-card round 2).
   await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS group_id TEXT`;
+  // Bridge-queue columns (round 3: web reloads via the on-prem EIS bridge).
+  await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS queue_state TEXT`;
+  await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS queued_at TIMESTAMPTZ`;
+  await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS claimed_by TEXT`;
+  await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ`;
+  await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS acked_at TIMESTAMPTZ`;
+  await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS eis_code TEXT`;
+  await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS eis_description TEXT`;
   await q`CREATE INDEX IF NOT EXISTS ict_acct ON intercard_transactions (account_number)`;
   await q`CREATE INDEX IF NOT EXISTS ict_group ON intercard_transactions (group_id)`;
   // Partial index the reconcile cron scans: charged-but-not-loaded rows.
@@ -91,6 +136,12 @@ async function ensureSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS ict_pending
     ON intercard_transactions (created_at)
     WHERE load_state = 'pending' AND state = 'charged'
+  `;
+  // Partial index the bridges' claim query scans: queued jobs per center.
+  await q`
+    CREATE INDEX IF NOT EXISTS ict_queued
+    ON intercard_transactions (location_code, queued_at)
+    WHERE queue_state = 'queued'
   `;
   schemaReady = true;
 }
@@ -130,6 +181,264 @@ export async function markCharged(
       WHERE txn_id = ${txnId}
     `;
   });
+}
+
+/**
+ * `markCharged` + enqueue for the on-prem bridge, fused into ONE statement.
+ * The fuse matters: a separate "set queued" update after markCharged would
+ * leave a window where the row is (charged, pending, queue_state NULL) —
+ * exactly what the reconcile cron SOAP-replays. EIS and SOAP share no dedup,
+ * so a bridge claiming after that replay would double-credit. One statement
+ * = one atomic transition, no window.
+ */
+export async function markChargedQueued(
+  txnId: string,
+  squareOrderId: string | null,
+  squarePaymentIds: unknown,
+): Promise<void> {
+  await safeUpdate(async (q) => {
+    await q`
+      UPDATE intercard_transactions
+      SET state = 'charged', square_order_id = ${squareOrderId},
+          square_payment_ids = ${squarePaymentIds ? JSON.stringify(squarePaymentIds) : null},
+          queue_state = 'queued', queued_at = NOW()
+      WHERE txn_id = ${txnId}
+    `;
+  });
+}
+
+/**
+ * Atomically claim up to `max` queued jobs for one center. Single statement:
+ * the sub-select's FOR UPDATE SKIP LOCKED gives concurrent bridges (multiple
+ * kiosk PCs per center) disjoint rows — each job is claimed exactly once.
+ * The state/load_state guards keep claims off anything the SOAP path owns.
+ * Returns [] on any error (the bridge just polls again).
+ */
+export async function claimQueuedJobs(
+  locationCode: number,
+  workerId: string,
+  max: number,
+): Promise<BridgeJob[]> {
+  if (!isDbConfigured()) return [];
+  try {
+    await ensureSchema();
+    const q = sql();
+    const rows = await q`
+      UPDATE intercard_transactions
+      SET queue_state = 'claimed', claimed_by = ${workerId}, claimed_at = NOW()
+      WHERE txn_id IN (
+        SELECT txn_id FROM intercard_transactions
+        WHERE queue_state = 'queued' AND location_code = ${locationCode}
+          AND state = 'charged' AND load_state = 'pending'
+        ORDER BY queued_at ASC
+        LIMIT ${max}
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING txn_id, account_number, tokens, bonus_tokens
+    `;
+    return rows.map((r) => ({
+      txnId: r.txn_id as string,
+      accountNumber: r.account_number as string,
+      tokens: r.tokens as number,
+      bonusTokens: r.bonus_tokens as number,
+    }));
+  } catch (err) {
+    console.error("[game-cards-log] claim failed:", err instanceof Error ? err.message : err);
+    return [];
+  }
+}
+
+/**
+ * Apply a bridge's ack — one guarded UPDATE per outcome (state table in the
+ * module header). Acks are accepted from 'verify' too: a bridge that outlived
+ * its lease is still the authority on what the EIS actually did. The
+ * load_state guard on declined/no_attempt means a verify row already resolved
+ * `loaded` can never re-enter the SOAP replay set. `applied:false` = the row
+ * already transitioned (idempotent; the bridge stops retrying on any 2xx).
+ */
+export async function ackQueuedJob(p: {
+  txnId: string;
+  workerId: string;
+  outcome: BridgeAckOutcome;
+  code?: string;
+  description?: string;
+}): Promise<{ applied: boolean }> {
+  if (!isDbConfigured()) return { applied: false };
+  try {
+    await ensureSchema();
+    const q = sql();
+    const code = p.code ?? null;
+    const desc = p.description ?? null;
+    let rows: Record<string, unknown>[];
+    if (p.outcome === "ok") {
+      // Fuses markLoadState('loaded') semantics with the queue fields.
+      rows = await q`
+        UPDATE intercard_transactions
+        SET load_state = 'loaded', state = 'completed', completed_at = NOW(), error = NULL,
+            queue_state = 'done', acked_at = NOW(),
+            eis_code = ${code}, eis_description = ${desc}
+        WHERE txn_id = ${p.txnId} AND claimed_by = ${p.workerId}
+          AND queue_state IN ('claimed', 'verify')
+        RETURNING txn_id
+      `;
+    } else if (p.outcome === "unknown") {
+      rows = await q`
+        UPDATE intercard_transactions
+        SET queue_state = 'verify', acked_at = NOW(),
+            eis_code = ${code}, eis_description = ${desc}
+        WHERE txn_id = ${p.txnId} AND claimed_by = ${p.workerId}
+          AND queue_state = 'claimed'
+        RETURNING txn_id
+      `;
+    } else {
+      // declined | no_attempt: the EIS definitively did NOT credit.
+      rows = await q`
+        UPDATE intercard_transactions
+        SET queue_state = 'soap_fallback', acked_at = NOW(),
+            eis_code = ${code}, eis_description = ${desc}
+        WHERE txn_id = ${p.txnId} AND claimed_by = ${p.workerId}
+          AND queue_state IN ('claimed', 'verify') AND load_state = 'pending'
+        RETURNING txn_id
+      `;
+    }
+    return { applied: rows.length > 0 };
+  } catch (err) {
+    console.error("[game-cards-log] ack failed:", err instanceof Error ? err.message : err);
+    return { applied: false };
+  }
+}
+
+/** One-statement view of a purchase group's progress (purchase wait-loop poll). */
+export async function getGroupQueueStates(
+  groupId: string,
+): Promise<{ txnId: string; loadState: LoadState; queueState: QueueState | null }[]> {
+  if (!isDbConfigured()) return [];
+  try {
+    await ensureSchema();
+    const q = sql();
+    const rows = await q`
+      SELECT txn_id, load_state, queue_state FROM intercard_transactions
+      WHERE group_id = ${groupId}
+    `;
+    return rows.map((r) => ({
+      txnId: r.txn_id as string,
+      loadState: r.load_state as LoadState,
+      queueState: (r.queue_state ?? null) as QueueState | null,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/** Queued rows no bridge claimed within 60s (bridge down) → SOAP path. */
+export async function sweepStaleQueued(): Promise<string[]> {
+  if (!isDbConfigured()) return [];
+  try {
+    await ensureSchema();
+    const q = sql();
+    const rows = await q`
+      UPDATE intercard_transactions
+      SET queue_state = 'soap_fallback'
+      WHERE queue_state = 'queued' AND queued_at < NOW() - INTERVAL '60 seconds'
+      RETURNING txn_id
+    `;
+    return rows.map((r) => r.txn_id as string);
+  } catch (err) {
+    console.error(
+      "[game-cards-log] queued sweep failed:",
+      err instanceof Error ? err.message : err,
+    );
+    return [];
+  }
+}
+
+/**
+ * Claimed rows whose bridge never acked within the lease (died mid-flight —
+ * the EIS credit may or may not have landed) → 'verify'. Never back to the
+ * queue and never to SOAP: unknown outcome must not be blindly retried.
+ */
+export async function sweepStaleClaimed(): Promise<string[]> {
+  if (!isDbConfigured()) return [];
+  try {
+    await ensureSchema();
+    const q = sql();
+    const rows = await q`
+      UPDATE intercard_transactions
+      SET queue_state = 'verify'
+      WHERE queue_state = 'claimed' AND claimed_at < NOW() - INTERVAL '3 minutes'
+        AND load_state = 'pending'
+      RETURNING txn_id
+    `;
+    return rows.map((r) => r.txn_id as string);
+  } catch (err) {
+    console.error(
+      "[game-cards-log] claimed sweep failed:",
+      err instanceof Error ? err.message : err,
+    );
+    return [];
+  }
+}
+
+/** Unknown-outcome rows awaiting history verification, oldest first. */
+export async function listVerifyRows(limit = 50): Promise<TxnRow[]> {
+  if (!isDbConfigured()) return [];
+  try {
+    await ensureSchema();
+    const q = sql();
+    const rows = await q`
+      SELECT * FROM intercard_transactions
+      WHERE queue_state = 'verify' AND load_state = 'pending'
+      ORDER BY queued_at ASC LIMIT ${limit}
+    `;
+    return rows.map(rowToTxn);
+  } catch {
+    return [];
+  }
+}
+
+/** Cloud history showed the EIS credit landed → resolve the verify row loaded. */
+export async function markVerifiedLoaded(txnId: string): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  try {
+    await ensureSchema();
+    const q = sql();
+    const rows = await q`
+      UPDATE intercard_transactions
+      SET load_state = 'loaded', state = 'completed', completed_at = NOW(), error = NULL,
+          queue_state = 'done'
+      WHERE txn_id = ${txnId} AND queue_state = 'verify' AND load_state = 'pending'
+      RETURNING txn_id
+    `;
+    return rows.length > 0;
+  } catch (err) {
+    console.error(
+      "[game-cards-log] verify-loaded failed:",
+      err instanceof Error ? err.message : err,
+    );
+    return false;
+  }
+}
+
+/** Verify row never matched history — flag for staff (check Intercard reports). */
+export async function markVerifyManual(txnId: string, error: string): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  try {
+    await ensureSchema();
+    const q = sql();
+    const rows = await q`
+      UPDATE intercard_transactions
+      SET load_state = 'load_failed', error = ${error}, queue_state = 'manual'
+      WHERE txn_id = ${txnId} AND queue_state = 'verify' AND load_state = 'pending'
+      RETURNING txn_id
+    `;
+    return rows.length > 0;
+  } catch (err) {
+    console.error(
+      "[game-cards-log] verify-manual failed:",
+      err instanceof Error ? err.message : err,
+    );
+    return false;
+  }
 }
 
 export async function markChargeFailed(txnId: string, error: string): Promise<void> {
@@ -193,7 +502,14 @@ export async function incrementAttempt(txnId: string): Promise<number> {
   }
 }
 
-/** Charged-but-unloaded rows for the reconcile cron, oldest first. */
+/**
+ * Charged-but-unloaded rows the SOAP replay may touch, oldest first. The
+ * queue_state exclusion is load-bearing: rows a bridge may EIS-credit
+ * ('queued'/'claimed'/'verify'/'manual') must NEVER be SOAP-replayed — the
+ * two credit paths share no dedup, so replaying one of those rows is a
+ * double credit. Only never-queued (NULL) and 'soap_fallback' (EIS
+ * definitively did not credit) rows are eligible.
+ */
 export async function listPendingLoads(limit = 50): Promise<TxnRow[]> {
   if (!isDbConfigured()) return [];
   try {
@@ -202,6 +518,7 @@ export async function listPendingLoads(limit = 50): Promise<TxnRow[]> {
     const rows = await q`
       SELECT * FROM intercard_transactions
       WHERE load_state = 'pending' AND state = 'charged'
+        AND (queue_state IS NULL OR queue_state = 'soap_fallback')
       ORDER BY created_at ASC LIMIT ${limit}
     `;
     return rows.map(rowToTxn);
@@ -254,6 +571,13 @@ function rowToTxn(r: any): TxnRow {
     error: r.error,
     createdAt: r.created_at,
     completedAt: r.completed_at,
+    queueState: r.queue_state ?? null,
+    queuedAt: r.queued_at ?? null,
+    claimedBy: r.claimed_by ?? null,
+    claimedAt: r.claimed_at ?? null,
+    ackedAt: r.acked_at ?? null,
+    eisCode: r.eis_code ?? null,
+    eisDescription: r.eis_description ?? null,
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

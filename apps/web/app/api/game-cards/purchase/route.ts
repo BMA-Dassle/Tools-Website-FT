@@ -6,6 +6,9 @@ import { GameCardHttpError, jsonOk, toErrorResponse } from "~/features/game-card
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Worst case is long even before the bridge-queue wait (~12s): a 10-card cart
+// can chain verify + Square + per-card SOAP calls, each with a 20s timeout.
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   try {

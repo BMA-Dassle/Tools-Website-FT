@@ -144,7 +144,10 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
   const purchase = usePurchase();
 
   // Reload one or more saved game cards from the account panel: seed a queue,
-  // pick a location once, then assign a package to each into the cart.
+  // confirm the location, then assign a package to each into the cart. The
+  // saved cards' home center pre-selects in the picker, but the guest ALWAYS
+  // confirms — tokens load onto the chosen center's system right away, so
+  // "where are you NOW" beats "where was this card used before".
   const reloadSavedCards = (accountNumbers: string[], locationCode: number | null) => {
     if (accountNumbers.length === 0) return;
     setCart([]);
@@ -152,7 +155,7 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
     const c =
       locationCode != null ? (CENTER_LIST.find((x) => x.code === locationCode) ?? null) : null;
     setCenter(c);
-    setPhase(c ? "package" : "location");
+    setPhase("location");
   };
   const accountPanel = <AccountPanel account={account} onReloadCards={reloadSavedCards} />;
 
@@ -252,7 +255,7 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
           {verifiedCard.balance && <BalanceRow balance={verifiedCard.balance} />}
           <p className="text-[11px] leading-snug text-white/40">{SYNC_NOTE}</p>
           {verifiedCard.transactions && <RecentActivity transactions={verifiedCard.transactions} />}
-          <Button onClick={() => setPhase(center ? "package" : "location")}>Reload Card</Button>
+          <Button onClick={() => setPhase("location")}>Reload Card</Button>
           <button
             className="w-full text-center text-xs text-white/40 underline"
             onClick={() => {
@@ -297,17 +300,19 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
     );
   }
 
-  // ── Location (framed as part of reloading) ───────────────────────────────
+  // ── Location (always confirmed — tokens load onto that center's system) ──
   if (phase === "location") {
     return shell(
       <Card className="space-y-3 p-6 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
-        <h2 className="text-lg font-semibold text-white">Where are you reloading?</h2>
-        <p className="text-sm text-white/60">Pick your location.</p>
+        <h2 className="text-lg font-semibold text-white">Which center are you at?</h2>
+        <p className="text-sm text-white/60">
+          Tokens load onto that center&apos;s system right away — confirm where you are.
+        </p>
         <div className="grid gap-2">
           {CENTER_LIST.map((c) => (
             <Button
               key={c.code}
-              variant="secondary"
+              variant={center?.code === c.code ? "primary" : "secondary"}
               onClick={() => {
                 setCenter(c);
                 setPhase("package");

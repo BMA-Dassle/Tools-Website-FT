@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Kiosk-PC bridge that loads Intercard tokens via the on-prem EIS server (raw TCP :3044). No dependencies.",
   "scripts": {
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=18"

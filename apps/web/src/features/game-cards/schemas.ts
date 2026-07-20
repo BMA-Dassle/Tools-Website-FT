@@ -122,6 +122,36 @@ export const TerminalFinalizeSchema = z.object({
 });
 export type TerminalFinalizeInput = z.infer<typeof TerminalFinalizeSchema>;
 
+/**
+ * On-prem bridge queue (web reloads → local EIS credit). The bridge on each
+ * center's kiosk PC polls POST /api/game-card-bridge/claim outbound, runs the
+ * EIS credit locally, then reports via /ack. Auth is a shared-secret header
+ * checked in the routes — these schemas are the payloads only.
+ */
+export const BridgeClaimSchema = z.object({
+  locationCode: z.number().int(),
+  /** Stable per-process id (hostname-pid) — pins acks to the claiming bridge. */
+  workerId: z.string().trim().min(1).max(80),
+  max: z.number().int().min(1).max(5).default(3),
+});
+export type BridgeClaimInput = z.infer<typeof BridgeClaimSchema>;
+
+export const BridgeAckSchema = z.object({
+  txnId: z.string().uuid(),
+  workerId: z.string().trim().min(1).max(80),
+  /**
+   * ok       EIS ResponseCode 0 — credited
+   * declined EIS replied non-0 — definitively NOT credited
+   * no_attempt the request never reached the EIS (connect failed / stale claim)
+   * unknown  request written but no/partial reply — outcome ambiguous; the row
+   *          goes to 'verify' and is NEVER blindly retried (no EIS dedup)
+   */
+  outcome: z.enum(["ok", "declined", "no_attempt", "unknown"]),
+  code: z.string().max(16).optional(),
+  description: z.string().max(300).optional(),
+});
+export type BridgeAckInput = z.infer<typeof BridgeAckSchema>;
+
 /** Attach + load tokens onto ONE just-dispensed new card (post-charge). */
 export const LoadCardSchema = z.object({
   groupId: z.string().uuid(),

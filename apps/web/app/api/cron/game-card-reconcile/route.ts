@@ -5,9 +5,11 @@ import { reconcilePendingLoads } from "~/features/game-cards/service/reconcile";
 /**
  * GET /api/cron/game-card-reconcile
  *
- * Forward-recovery for game-card reloads: replays the Intercard load for every
- * charged-but-unloaded row using its stored (dedup-safe) tpi_transaction_id.
- * `?dryRun=1` reports what would run without calling Intercard.
+ * Forward-recovery for game-card reloads: sweeps the bridge queue (stale
+ * queued → SOAP fallback; expired claims → verify; verify rows resolved from
+ * cloud history or flagged manual), then replays the cloud SOAP load for
+ * every SOAP-eligible charged-but-unloaded row using its stored (dedup-safe)
+ * tpi_transaction_id. `?dryRun=1` reports what would run without mutating.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

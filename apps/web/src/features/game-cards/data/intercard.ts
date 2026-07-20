@@ -108,6 +108,53 @@ function sqlDateTime(dt: Date, timeZone: string): string {
 
 const CENTER_TZ = "America/New_York"; // all corp-6283 sites are Eastern
 
+/**
+ * Parse a history <TimeStamp> string to epoch ms. The AccountHistory feed
+ * renders location-local Eastern wall time (we request LT_Diff -4); the exact
+ * text format varies by server version, so accept both ISO-ish
+ * ("2026-07-20T14:33:05" / "2026-07-20 14:33:05") and US
+ * ("7/20/2026 2:33:05 PM") shapes. Returns null when unparseable — callers
+ * MUST treat null as "no match" (the reconcile verify path fails toward
+ * manual review, never toward a double credit).
+ */
+export function parseIntercardTimestamp(ts: string): number | null {
+  const s = (ts || "").trim();
+  if (!s) return null;
+  let y: number, mo: number, d: number, h: number, mi: number, sec: number;
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (m) {
+    y = +m[1];
+    mo = +m[2];
+    d = +m[3];
+    h = +m[4];
+    mi = +m[5];
+    sec = +(m[6] ?? 0);
+  } else {
+    m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})[,\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?/i);
+    if (!m) return null;
+    mo = +m[1];
+    d = +m[2];
+    y = +m[3];
+    h = +m[4];
+    mi = +m[5];
+    sec = +(m[6] ?? 0);
+    const ap = (m[7] || "").toUpperCase();
+    if (ap === "PM" && h < 12) h += 12;
+    if (ap === "AM" && h === 12) h = 0;
+  }
+  // The wall time is Eastern: find the UTC instant whose ET rendering matches
+  // (try both possible offsets so DST needs no tz library; the once-a-year
+  // fall-back ambiguity resolves to EDT, well inside the matcher's skew).
+  for (const offH of [4, 5]) {
+    const t = Date.UTC(y, mo - 1, d, h + offH, mi, sec);
+    const p = zonedParts(new Date(t), CENTER_TZ);
+    if (p.year === y && p.month === mo && p.day === d && p.hour === h && p.minute === mi) {
+      return t;
+    }
+  }
+  return null;
+}
+
 // ── SOAP transport ───────────────────────────────────────────────────────────
 
 async function soapCall(

@@ -79,3 +79,12 @@ export interface PurchaseResult {
 
 export type LoadState = "pending" | "loaded" | "load_failed";
 export type TxnState = "started" | "charged" | "charge_failed" | "completed" | "failed";
+
+/**
+ * Bridge-queue lifecycle for web reloads credited on the on-prem EIS server
+ * (NULL/absent = the row never queued and belongs to the cloud-SOAP path).
+ * The EIS credit carries no idempotency id while the SOAP path dedups on
+ * tpi_transaction_id, so a row must be eligible for exactly one path at a
+ * time — see the state table in data/transactions-log.ts.
+ */
+export type QueueState = "queued" | "claimed" | "done" | "soap_fallback" | "verify" | "manual";

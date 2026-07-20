@@ -19,9 +19,17 @@ import type { PurchaseInput } from "../schemas";
 import type { CardLoadResult, PurchaseResult } from "../types";
 import { creditTokens, verifyAccount, IntercardError } from "../data/intercard";
 import { createReloadOrder } from "../data/square-order";
-import { startTxn, markCharged, markChargeFailed, markLoadState } from "../data/transactions-log";
+import {
+  startTxn,
+  markCharged,
+  markChargedQueued,
+  markChargeFailed,
+  markLoadState,
+  getGroupQueueStates,
+} from "../data/transactions-log";
 import { linkCard } from "../data/customer-cards";
 import { saveCardOnFile } from "~/features/account/data/cards";
+import { isEisQueueCenter } from "./bridge-queue";
 
 /**
  * Optional signed-in context. `verifiedCustomerId` is resolved by the route
@@ -312,7 +320,15 @@ export async function purchase(
     throw err;
   }
 
-  for (const row of rows) await markCharged(row.txnId, orderId, paymentIds);
+  // Bridge-queue mode (flag-gated per center): mark charged AND enqueue in ONE
+  // statement — a separate enqueue update would leave a (charged, pending,
+  // queue_state NULL) window the reconcile cron could SOAP-credit before the
+  // bridge claims, and the two credit paths share no dedup.
+  const useQueue = input.kind === "reload" && isEisQueueCenter(input.locationCode);
+  for (const row of rows) {
+    if (useQueue) await markChargedQueued(row.txnId, orderId, paymentIds);
+    else await markCharged(row.txnId, orderId, paymentIds);
+  }
 
   // ── 3b. Signed-in perks (best-effort; never block/undo a settled charge) ──
   const customerId = opts.verifiedCustomerId;
@@ -348,12 +364,27 @@ export async function purchase(
   }
 
   // ── 4. Load each card independently (recover forward per card) ────────────
+  const results: CardLoadResult[] = useQueue
+    ? await awaitQueueOutcome(rows, groupId)
+    : await loadCardsInline(rows, input.locationCode);
+
+  return {
+    ok: true,
+    charged: true,
+    results,
+    anyPending: results.some((r) => r.creditPending),
+    receiptUrl: null,
+  };
+}
+
+/** Inline cloud-SOAP load — the v1 path, unchanged (non-queue centers). */
+async function loadCardsInline(rows: CartRow[], locationCode: number): Promise<CardLoadResult[]> {
   const results: CardLoadResult[] = [];
   for (const row of rows) {
     let loaded = false;
     try {
       const { code } = await creditTokens({
-        locationCode: input.locationCode,
+        locationCode,
         accountNumber: row.accountNumber,
         tokens: row.pkg.tokens,
         bonusTokens: row.pkg.bonusTokens,
@@ -380,7 +411,7 @@ export async function purchase(
     let transactions;
     if (loaded) {
       try {
-        const v = await verifyAccount(row.accountNumber, input.locationCode);
+        const v = await verifyAccount(row.accountNumber, locationCode);
         balance = v.balance;
         transactions = v.transactions;
       } catch {
@@ -397,12 +428,39 @@ export async function purchase(
       transactions,
     });
   }
+  return results;
+}
 
-  return {
-    ok: true,
-    charged: true,
-    results,
-    anyPending: results.some((r) => r.creditPending),
-    receiptUrl: null,
-  };
+/** Wait-loop bounds for the bridge-queue path (bridge polls every ~2.5s). */
+const QUEUE_WAIT_MS = 12_000;
+const QUEUE_POLL_MS = 1_500;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * OBSERVE the bridge queue for this group — deliberately no SOAP here (owner
+ * decision 2026-07-20): if no bridge claims the job the guest sees "Credit
+ * pending" and the reconcile cron flips the stale row to the SOAP path. This
+ * request never credits in queue mode, so the EIS/SOAP double-credit window
+ * doesn't exist here. Rows the bridge loads inside the window report as
+ * loaded; no balance re-read — the cloud history endpoint won't reflect a
+ * local EIS credit yet, and a stale balance on the success screen reads as a
+ * failure.
+ */
+async function awaitQueueOutcome(rows: CartRow[], groupId: string): Promise<CardLoadResult[]> {
+  const deadline = Date.now() + QUEUE_WAIT_MS;
+  const loaded = new Set<string>();
+  for (;;) {
+    const states = await getGroupQueueStates(groupId);
+    for (const s of states) if (s.loadState === "loaded") loaded.add(s.txnId);
+    if (loaded.size === rows.length || Date.now() >= deadline) break;
+    await sleep(Math.min(QUEUE_POLL_MS, Math.max(50, deadline - Date.now())));
+  }
+  return rows.map((row) => ({
+    accountNumber: row.accountNumber,
+    tokens: row.pkg.tokens,
+    bonusTokens: row.pkg.bonusTokens,
+    loaded: loaded.has(row.txnId),
+    creditPending: !loaded.has(row.txnId),
+  }));
 }
