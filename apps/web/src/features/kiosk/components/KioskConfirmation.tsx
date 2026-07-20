@@ -10,7 +10,7 @@
  * (e.g. /hp/book/bowling/confirmation?code=XXXX) — we surface its code and
  * keep a stable seam for the bowl-now live-lane display to hook into.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { useKioskConfig } from "../KioskConfigContext";
@@ -35,6 +35,29 @@ function codeFromSrc(src: string | null): string | null {
     return null;
   }
 }
+
+// Bowling bookings carry the Neon reservation id in the web confirmation URL —
+// the handle for the same GET/POST /checkin API the web confirmation uses for
+// self-service lane open. Null for non-bowling bookings (race, attractions).
+function bowlingNeonIdFromSrc(src: string | null): number | null {
+  if (!src) return null;
+  try {
+    const url = new URL(src, "https://kiosk.local");
+    const isBowling =
+      url.pathname.includes("/book/bowling/confirmation") ||
+      url.pathname.includes("/book/kids-bowl-free/confirmation");
+    if (!isBowling) return null;
+    const neonId = parseInt(url.searchParams.get("neonId") ?? "", 10);
+    return Number.isFinite(neonId) && neonId > 0 ? neonId : null;
+  } catch {
+    return null;
+  }
+}
+
+// Lane-open prompt lifecycle. "idle" keeps polling (lane not ready yet);
+// "ready" asks the guest; "open" covers both self-opened and already-Running
+// (staff opened it first); "declined"/"failed" are terminal for this screen.
+type LanePhase = "idle" | "ready" | "opening" | "open" | "declined" | "failed";
 
 export function KioskConfirmation({ src }: { src: string | null }) {
   const router = useRouter();
@@ -73,6 +96,89 @@ export function KioskConfirmation({ src }: { src: string | null }) {
   }, []);
   const code = codeFromSrc(src);
 
+  // ── Bowling lane-open prompt ────────────────────────────────────────
+  // Kiosk bookings are usually for right now, so the checkin GET's
+  // self-service gate (within 30 min of booked time + physical lane Closed)
+  // often says "ready" immediately. When it does, ask the guest if they'd
+  // like the lane opened on the spot — same Arrived → Ready → Running POST
+  // the web confirmation's check-in uses.
+  const laneNeonId = useMemo(() => bowlingNeonIdFromSrc(src), [src]);
+  const [lanePhase, setLanePhase] = useState<LanePhase>("idle");
+  const [laneLabel, setLaneLabel] = useState("");
+
+  useEffect(() => {
+    if (!laneNeonId || lanePhase !== "idle") return;
+    let alive = true;
+    async function poll() {
+      try {
+        const res = await fetch(`/api/bowling/v2/reservations/${laneNeonId}/checkin`, {
+          cache: "no-store",
+        });
+        if (!res.ok || !alive) return;
+        const data = (await res.json()) as { phase?: string; laneLabel?: string };
+        if (!alive) return;
+        if (data.phase === "ready") {
+          setLaneLabel(data.laneLabel ?? "");
+          setLanePhase("ready");
+        } else if (data.phase === "running" || data.phase === "completed") {
+          setLaneLabel(data.laneLabel ?? "");
+          setLanePhase("open");
+        }
+        // not_ready / cancelled → stay idle and keep polling until reset
+      } catch {
+        // Non-fatal — skip this tick
+      }
+    }
+    void poll();
+    const iv = setInterval(() => void poll(), 10_000);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, [laneNeonId, lanePhase]);
+
+  const lanePanelVisible = lanePhase !== "idle" && lanePhase !== "declined";
+
+  async function handleOpenLane() {
+    if (!laneNeonId) return;
+    setLanePhase("opening");
+    try {
+      const res = await fetch(`/api/bowling/v2/reservations/${laneNeonId}/checkin`, {
+        method: "POST",
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        lanesOpened?: number;
+        laneLabel?: string;
+      };
+      if (res.ok && data.ok && (data.lanesOpened ?? 0) > 0) {
+        if (data.laneLabel) setLaneLabel(data.laneLabel);
+        setLanePhase("open");
+        return;
+      }
+    } catch {
+      // fall through to the verify GET
+    }
+    // Like the web check-in page: the lane may have opened anyway (staff /
+    // partial success) — verify before telling the guest to see the desk.
+    try {
+      const res = await fetch(`/api/bowling/v2/reservations/${laneNeonId}/checkin`, {
+        cache: "no-store",
+      });
+      if (res.ok) {
+        const data = (await res.json()) as { phase?: string; laneLabel?: string };
+        if (data.phase === "running" || data.phase === "completed") {
+          if (data.laneLabel) setLaneLabel(data.laneLabel);
+          setLanePhase("open");
+          return;
+        }
+      }
+    } catch {
+      // fall through to failed
+    }
+    setLanePhase("failed");
+  }
+
   // Encode the booking code as a QR so staff can scan it at check-in (the SMS +
   // email carry the full link; this is the on-screen fallback).
   useEffect(() => {
@@ -91,8 +197,10 @@ export function KioskConfirmation({ src }: { src: string | null }) {
   useEffect(() => {
     // NEVER auto-reset while cards are still dispensing/loading — the reset
     // unmounts the fulfillment mid-hardware-cycle. Countdown restarts fresh
-    // when fulfillment reports done.
-    if (gzBusy) return;
+    // when fulfillment reports done. Same for a lane-open POST in flight.
+    // lanePhase in the deps also restarts the 60s countdown when the
+    // lane-open prompt appears, so the guest gets the full window to answer.
+    if (gzBusy || lanePhase === "opening") return;
     setSecondsLeft(AUTO_RESET_SECONDS);
     const iv = setInterval(() => {
       setSecondsLeft((s) => {
@@ -111,14 +219,14 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       clearInterval(iv);
       document.removeEventListener("pointerdown", onTouch);
     };
-  }, [router, gzBusy]);
+  }, [router, gzBusy, lanePhase]);
 
   return (
     <div
       // With a card-fulfillment panel the column can exceed the canvas — scroll
       // from the top instead of center-clipping.
       className={`absolute inset-0 flex flex-col items-center gap-[36px] bg-[#000418] px-[64px] text-center ${
-        gzPayload || racePacks
+        gzPayload || racePacks || lanePanelVisible
           ? "justify-start overflow-y-auto py-[56px]"
           : "justify-center overflow-hidden"
       }`}
@@ -149,6 +257,64 @@ export function KioskConfirmation({ src }: { src: string | null }) {
         Your confirmation and check-in links were just texted and emailed to you — that&rsquo;s your
         ticket, nothing to print.
       </p>
+      {lanePanelVisible && (
+        <div
+          className={`relative w-full max-w-[860px] rounded-[24px] border bg-white/[0.04] p-[32px] text-left ${
+            lanePhase === "open"
+              ? "border-[#46d68c]/40"
+              : lanePhase === "failed"
+                ? "border-[#f0b341]/40"
+                : "border-[#00e2e5]/40"
+          }`}
+        >
+          {(lanePhase === "ready" || lanePhase === "opening") && (
+            <>
+              <div className="k-eyebrow text-[#00e2e5]">
+                {laneLabel ? `${laneLabel} is ready` : "Your lane is ready"}
+              </div>
+              <p className="mt-[12px] text-[32px] leading-snug">
+                Would you like us to open your lane now so you can start bowling?
+              </p>
+              <div className="mt-[28px] flex items-center gap-[20px]">
+                <button
+                  type="button"
+                  disabled={lanePhase === "opening"}
+                  onClick={() => void handleOpenLane()}
+                  className="k-btn-primary k-tap text-[34px]"
+                >
+                  {lanePhase === "opening" ? "Opening your lane…" : "Yes — open my lane"}
+                </button>
+                <button
+                  type="button"
+                  disabled={lanePhase === "opening"}
+                  onClick={() => setLanePhase("declined")}
+                  className="k-btn-ghost k-tap"
+                >
+                  I&rsquo;ll check in later
+                </button>
+              </div>
+            </>
+          )}
+          {lanePhase === "open" && (
+            <>
+              <div className="k-eyebrow text-[#46d68c]">
+                {laneLabel ? `${laneLabel} is open` : "Your lane is open"}
+              </div>
+              <p className="mt-[12px] text-[32px] leading-snug">
+                Head on over — your shoes will be delivered right to your lane.
+              </p>
+            </>
+          )}
+          {lanePhase === "failed" && (
+            <>
+              <div className="k-eyebrow text-[#f0b341]">We couldn&rsquo;t open your lane</div>
+              <p className="mt-[12px] text-[32px] leading-snug">
+                Please see the front desk and they&rsquo;ll get you bowling right away.
+              </p>
+            </>
+          )}
+        </div>
+      )}
       {racePacks && (
         <div className="relative w-full max-w-[860px] rounded-[24px] border border-[#f0b341]/40 bg-white/[0.04] p-[32px] text-left">
           <div className="k-eyebrow text-[#f0b341]">Race packs</div>

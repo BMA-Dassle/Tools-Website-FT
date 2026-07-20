@@ -1463,7 +1463,13 @@ export function CheckoutStep({
               bowlingItem?.kind === "kbf"
                 ? "/hp/book/kids-bowl-free/confirmation"
                 : "/hp/book/bowling/confirmation";
-            go(`${confirmBase}?code=${result.shortCodes[0]}`);
+            // neonId rides along so the kiosk confirmation can drive the
+            // self-service lane-open prompt (same param the pure-bowling path carries).
+            go(
+              result.neonIds[0]
+                ? `${confirmBase}?code=${result.shortCodes[0]}&neonId=${result.neonIds[0]}`
+                : `${confirmBase}?code=${result.shortCodes[0]}`,
+            );
           } else {
             // Fallback: bowling confirmation with neonId
             const bowlingItem = session.items.find((i) => i.kind === "bowling" || i.kind === "kbf");
