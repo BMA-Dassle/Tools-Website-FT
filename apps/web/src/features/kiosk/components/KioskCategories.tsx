@@ -133,13 +133,13 @@ export function KioskCategories({
             <CategoryCard
               photo={KIOSK_PHOTOS.arcade}
               eyebrow={
-                gameZone === "reload" ? "Reload arcade tokens" : "Reload · buy · 1 to 10 cards"
+                gameZone === "reload" ? "Reload · check balance" : "Reload · buy · 1 to 10 cards"
               }
               accent="#f800c6"
               title="Game Zone"
               blurb={
                 gameZone === "reload"
-                  ? "Reload your arcade card — no waiting"
+                  ? "Reload your arcade card or check its balance — no waiting"
                   : "Buy or reload arcade tokens — no waiting"
               }
               onClick={onOpenGameZone}

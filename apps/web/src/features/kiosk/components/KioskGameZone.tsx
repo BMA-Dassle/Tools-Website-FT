@@ -193,8 +193,9 @@ export function KioskGameZone({
 }: {
   center: CenterCode;
   brand: Brand;
-  /** "full" = dispenser (buy + reload); "reload" = MSR reader only (reload, no
-   *  new-card dispense). Owner 2026-07-19. */
+  /** "full" = dispenser (buy + reload + balance); "reload" = MSR reader only —
+   *  reload + balance check, NO new-card sales (that tile greys out and points
+   *  to the front kiosk / Guest Services — owner 2026-07-20). */
   capability?: "full" | "reload";
   onExit: () => void;
   /** Fires true while the dispenser is mid-operation/holding so the flow can
@@ -206,8 +207,10 @@ export function KioskGameZone({
   cartHasItems?: boolean;
   onAddToVisit?: (purchase: GameCardCartPurchase) => void;
 }) {
-  // Reload-only kiosks skip the buy/reload chooser and land straight on reload.
-  const [mode, setMode] = useState<Mode>(capability === "reload" ? "reload" : "choose");
+  // Every kiosk lands on the chooser — MSR-only kiosks offer reload + balance
+  // check there, with new-card sales greyed out (owner 2026-07-20; the first
+  // MSR release wrongly jumped straight to reload, hiding balance check).
+  const [mode, setMode] = useState<Mode>("choose");
   const [cards, setCards] = useState<CartCard[]>([
     { accountNumber: "", packageId: TOKEN_PACKAGES[1].id, status: "unverified" },
   ]);
@@ -922,8 +925,12 @@ export function KioskGameZone({
     );
   }
 
-  // ── Mode chooser: New card vs Reload ──
+  // ── Mode chooser: New card vs Reload vs Balance ──
   if (mode === "choose") {
+    // MSR-only kiosks read cards but can't dispense — new cards are sold at
+    // the front kiosk / Guest Services (owner 2026-07-20). The tile stays
+    // visible so guests learn where to go, but greyed out.
+    const canSellNewCards = capability !== "reload";
     return (
       <div className="w-full">
         <div className="mb-[32px] flex items-center justify-between">
@@ -939,18 +946,20 @@ export function KioskGameZone({
         <div className="grid gap-[24px]">
           <button
             type="button"
-            disabled={!readerReady}
+            disabled={!canSellNewCards || !readerReady}
             onClick={() => setMode("newcard")}
             className="k-glass k-tap p-[40px] text-left disabled:opacity-40"
             style={{ borderLeft: "8px solid #f800c6" }}
           >
             <div className="k-display text-[48px]">New Game Zone cards</div>
             <div className="mt-[10px] text-[28px] text-white/55">
-              {readerReady
-                ? "Set up 1–10 fresh cards — pick a token package for each"
-                : dispenser.reconnecting
-                  ? "Connecting to the card dispenser…"
-                  : "Card dispenser unavailable — see an attendant"}
+              {!canSellNewCards
+                ? "Not available at this kiosk — new Game Zone cards can be purchased at the front kiosk or at Guest Services"
+                : readerReady
+                  ? "Set up 1–10 fresh cards — pick a token package for each"
+                  : dispenser.reconnecting
+                    ? "Connecting to the card dispenser…"
+                    : "Card dispenser unavailable — see an attendant"}
             </div>
           </button>
           <button
@@ -976,7 +985,10 @@ export function KioskGameZone({
           >
             <div className="k-display text-[48px]">Check card balance</div>
             <div className="mt-[10px] text-[28px] text-white/55">
-              Insert a card to see its tokens, bonus tokens &amp; eTickets
+              {/* MSR kiosks swipe; dispenser kiosks insert. */}
+              {capability === "reload"
+                ? "Swipe a card to see its tokens, bonus tokens & eTickets"
+                : "Insert a card to see its tokens, bonus tokens & eTickets"}
             </div>
           </button>
         </div>
@@ -993,7 +1005,7 @@ export function KioskGameZone({
           <h1 className="font-heading text-4xl font-extrabold italic">Card balance</h1>
           <button
             type="button"
-            onClick={() => (capability === "reload" ? onExit() : setMode("choose"))}
+            onClick={() => setMode("choose")}
             className="rounded-full border border-white/15 px-5 py-2 text-sm text-white/60"
           >
             Back
@@ -1594,10 +1606,10 @@ export function KioskGameZone({
         <h1 className="font-heading text-4xl font-extrabold italic">Reload game cards</h1>
         <button
           type="button"
-          onClick={onExit}
+          onClick={() => setMode("choose")}
           className="rounded-full border border-white/15 px-5 py-2 text-sm text-white/60"
         >
-          Cancel
+          Back
         </button>
       </div>
       <p className="mb-5 text-white/55">

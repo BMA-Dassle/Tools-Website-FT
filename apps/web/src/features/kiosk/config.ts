@@ -40,8 +40,10 @@ export interface KioskConfig {
   dispenserId?: string | null;
   /**
    * Whether a Game Zone card MSR (magnetic-stripe reader) is attached. An MSR
-   * reads an EXISTING card but can't dispense a new one, so it enables
-   * RELOAD ONLY (owner 2026-07-19). Ignored when a dispenser is present.
+   * reads an EXISTING card but can't dispense a new one, so it enables RELOAD
+   * + BALANCE CHECK but not new-card sales (owner 2026-07-20 — new cards are
+   * sold at the front kiosk / Guest Services). Ignored when a dispenser is
+   * present.
    *
    * The MSR is a raw serial SWIPE reader on its own COM port (NOT the CRT-591
    * protocol): each swipe streams one ISO track-2 burst `;6283=<account>?`
@@ -211,8 +213,9 @@ export function kioskHasCamera(cfg: KioskConfig | null): boolean {
 
 /**
  * What Game Zone card actions this kiosk's hardware supports (owner 2026-07-19):
- *  - "full"   — a card DISPENSER is connected (reads + writes): buy new + reload.
- *  - "reload" — only an MSR reader is attached (reads/writes an existing card): reload only.
+ *  - "full"   — a card DISPENSER is connected (reads + writes): buy new + reload + balance.
+ *  - "reload" — only an MSR reader is attached (reads an existing card): reload +
+ *               balance check; new cards are sold at the front kiosk / Guest Services.
  *  - "none"   — no card hardware: Game Zone cards unavailable on this kiosk.
  */
 export function gameZoneCapability(cfg: KioskConfig | null): "full" | "reload" | "none" {
