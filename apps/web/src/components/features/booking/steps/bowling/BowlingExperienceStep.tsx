@@ -121,10 +121,23 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   // once the accurate scan has settled — while loading or on scan failure
   // every card stays (fail-open, hint copy handles the rest).
   const scanSettled = !dayAvail.isLoading && dayAvail.data != null;
+  // 1-hour options are a KIOSK-ONLY FALLBACK (owner 2026-07-19: "if 1.5 hours
+  // isn't available offer the 1 hour"): the web never shows them, and the
+  // kiosk surfaces one only when NO longer duration still has a slot today —
+  // late-night walk-ups keep a bookable lane instead of a dead end.
+  const visibleDurations = (exp: BowlingExperienceWithDetails) => {
+    const all = exp.durationOptions ?? [];
+    return all.filter((o) => {
+      if (o.durationMinutes !== 60) return true;
+      if (!kiosk || !scanSettled) return false;
+      return !all.some((l) => l.durationMinutes > 60 && firstSlotFor(exp, l.qamfOptionId) != null);
+    });
+  };
   const expHasAnySlot = (exp: BowlingExperienceWithDetails): boolean => {
-    const opts = exp.durationOptions ?? [];
-    if (opts.length === 0) return firstSlotFor(exp, exp.qamfOptionId ?? null) != null;
-    return opts.some((o) => firstSlotFor(exp, o.qamfOptionId) != null);
+    if ((exp.durationOptions ?? []).length === 0) {
+      return firstSlotFor(exp, exp.qamfOptionId ?? null) != null;
+    }
+    return visibleDurations(exp).some((o) => firstSlotFor(exp, o.qamfOptionId) != null);
   };
   const bookable = scanSettled ? experiences.filter(expHasAnySlot) : experiences;
   const allSoldOut = scanSettled && experiences.length > 0 && bookable.length === 0;
@@ -224,7 +237,8 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     // Per-duration total = unit price × the duration's multiplier (classic
     // parity — without it 1.5h and 2h render the same price). A chip is
     // unavailable when the ACCURATE day scan proves no slot fits it today.
-    const durations: DurationChip[] = (exp.durationOptions ?? []).map((opt) => {
+    // visibleDurations applies the kiosk-only 1-hour fallback rule.
+    const durations: DurationChip[] = visibleDurations(exp).map((opt) => {
       const optPrice = Math.round((opt.overridePriceCents ?? priceCents) * opt.squareMultiplier);
       const anySlot = firstSlotFor(exp, opt.qamfOptionId);
       return {
@@ -235,7 +249,14 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       };
     });
 
-    const defaultOptionId = exp.durationOptions?.[0]?.qamfOptionId ?? exp.qamfOptionId ?? null;
+    // Hint anchors on the first AVAILABLE visible duration (not blindly the
+    // first row) so a kiosk showing only the 1-hour fallback reads "Next lane
+    // 11:00 PM", not "Sold out this day".
+    const defaultOptionId =
+      durations.find((d) => !d.unavailable)?.opt.qamfOptionId ??
+      durations[0]?.opt.qamfOptionId ??
+      exp.qamfOptionId ??
+      null;
     const first = firstSlotFor(exp, defaultOptionId);
     const hint = dayAvail.isLoading
       ? null

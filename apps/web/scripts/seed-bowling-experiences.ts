@@ -629,6 +629,16 @@ async function main() {
       squareMultiplier: 2,
       overrideCatalogObjectId: CAT.HOURLY_1_FRI,
     },
+    // 1 Hour = KIOSK-ONLY FALLBACK (owner 2026-07-19): BowlingExperienceStep
+    // hides 60-min options on the web and shows them on the kiosk only when no
+    // longer duration still fits today. QAMF option ids verified live 7/19.
+    {
+      qamfOptionId: 1258,
+      durationMinutes: 60,
+      label: "1 Hour",
+      squareMultiplier: 1,
+      overrideCatalogObjectId: CAT.HOURLY_1_FRI,
+    },
   ]);
   await setDurationOptions(regFriId, NAPLES, [
     { qamfOptionId: 987, durationMinutes: 90, label: "1.5 Hours", squareMultiplier: 1 },
@@ -637,6 +647,13 @@ async function main() {
       durationMinutes: 120,
       label: "2 Hours",
       squareMultiplier: 2,
+      overrideCatalogObjectId: CAT.HOURLY_1_FRI,
+    },
+    {
+      qamfOptionId: 986,
+      durationMinutes: 60,
+      label: "1 Hour",
+      squareMultiplier: 1,
       overrideCatalogObjectId: CAT.HOURLY_1_FRI,
     },
   ]);
@@ -679,6 +696,14 @@ async function main() {
       squareMultiplier: 2,
       overrideCatalogObjectId: CAT.HOURLY_1_FRI_VIP,
     },
+    // 1 Hour = kiosk-only fallback (see Regular Fri-Sun above).
+    {
+      qamfOptionId: 1266,
+      durationMinutes: 60,
+      label: "1 Hour",
+      squareMultiplier: 1,
+      overrideCatalogObjectId: CAT.HOURLY_1_FRI_VIP,
+    },
   ]);
   await setDurationOptions(vipFriId, NAPLES, [
     { qamfOptionId: 995, durationMinutes: 90, label: "1.5 Hours", squareMultiplier: 1 },
@@ -687,6 +712,13 @@ async function main() {
       durationMinutes: 120,
       label: "2 Hours",
       squareMultiplier: 2,
+      overrideCatalogObjectId: CAT.HOURLY_1_FRI_VIP,
+    },
+    {
+      qamfOptionId: 994,
+      durationMinutes: 60,
+      label: "1 Hour",
+      squareMultiplier: 1,
       overrideCatalogObjectId: CAT.HOURLY_1_FRI_VIP,
     },
   ]);

@@ -42,6 +42,9 @@ export interface KioskCategoriesProps {
   /** False locks the Ultimate Qualifier tile — no Starter+Intermediate pair fits
    *  today. Defaults available. */
   uqAvailable?: boolean;
+  /** False locks the bowling tile — no open/hourly web offer has a bookable
+   *  slot left today (centralized check, /api/kiosk/availability). */
+  bowlingAvailable?: boolean;
   onPickOffering: (offering: ActivityOffering) => void;
   onPickCombo: (combo: ComboSpecial) => void;
   /** Launch racing with a package FAMILY preselected (Experiences package tile). */
@@ -56,6 +59,7 @@ export function KioskCategories({
   session,
   vipComboAvailable = true,
   uqAvailable = true,
+  bowlingAvailable = true,
   onPickOffering,
   onPickCombo,
   onPickPackageExperience,
@@ -219,6 +223,10 @@ export function KioskCategories({
                     (brand === "fasttrax" && o.slug === "race") ||
                     (brand === "headpinz" && o.slug === "bowling")
                   }
+                  // No open/hourly lane left today → the tile locks instead of
+                  // dead-ending the guest inside the wizard (owner 2026-07-19).
+                  disabled={o.slug === "bowling" && !bowlingAvailable}
+                  disabledNote="No lanes left to book today — the front desk can help with walk-ins."
                   onClick={() => onPickOffering(o)}
                 />
               ))}
@@ -392,6 +400,8 @@ function OfferingTile({
   offering,
   brand,
   wide,
+  disabled,
+  disabledNote,
   onClick,
 }: {
   offering: ActivityOffering;
@@ -399,6 +409,10 @@ function OfferingTile({
    *  a Shuffly; this kiosk books its own side). */
   brand: Brand;
   wide?: boolean;
+  /** Locks the tile with the ShelfBanner treatment; disabledNote replaces the
+   *  blurb (e.g. bowling with no lanes left today). */
+  disabled?: boolean;
+  disabledNote?: string;
   onClick: () => void;
 }) {
   const accent = offering.accentColor ?? "#00e2e5";
@@ -408,9 +422,10 @@ function OfferingTile({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       aria-label={offering.displayName}
-      className={`k-ph k-tap relative overflow-hidden rounded-[28px] border border-white/10 text-left ${wide ? "col-span-2 h-[300px]" : "h-[340px]"}`}
+      className={`k-ph k-tap relative overflow-hidden rounded-[28px] border border-white/10 text-left ${wide ? "col-span-2 h-[300px]" : "h-[340px]"} ${disabled ? "opacity-50" : ""}`}
       style={
         offering.heroImage
           ? ({ ["--k-img"]: `url(${offering.heroImage})` } as React.CSSProperties)
@@ -441,10 +456,13 @@ function OfferingTile({
           </span>
         </div>
         <div className="mt-[8px] line-clamp-2 h-[64px] break-words text-[24px] leading-[1.3] text-white/65">
-          {offering.blurb}
+          {disabled && disabledNote ? disabledNote : offering.blurb}
         </div>
       </div>
-      <div className="absolute inset-x-0 bottom-0 h-[8px]" style={{ background: accent }} />
+      <div
+        className="absolute inset-x-0 bottom-0 h-[8px]"
+        style={{ background: disabled ? "#555" : accent }}
+      />
     </button>
   );
 }

@@ -20,6 +20,7 @@ import { candidatesForOrdering, fetchComboLegCandidates } from "~/features/combo
 import { bmiAdapter } from "~/features/booking/data/bmi";
 import { newPartyMember, qamfCenterIdForCode, type CenterCode } from "~/features/booking";
 import { violatesMinGapAfter } from "~/features/booking/service/conflict";
+import { apiBase } from "@/lib/api-base";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import {
   eligiblePackages,
@@ -35,6 +36,9 @@ const MIN_PACKAGE_GAP_MINUTES = 30;
 export interface ExperienceAvailability {
   "race-bowl": boolean;
   "ultimate-qualifier": boolean;
+  /** Any open/hourly bowling web offer has a bookable slot left today —
+   *  false locks the kiosk's bowling tile (owner 2026-07-19). */
+  bowling: boolean;
 }
 
 async function isComboBookableToday(center: CenterCode, dateYmd: string): Promise<boolean> {
@@ -96,6 +100,22 @@ async function isPackageBookableToday(pkg: PackageDefinition, dateYmd: string): 
   );
 }
 
+/** Any open/hourly bowling slot left today? One cheap 30-min-grid scan of OUR
+ *  availability route (which already applies day-of-week offers, the close
+ *  filter, and the now-floor). players=2 = the smallest lane party. */
+async function isBowlingBookableToday(center: CenterCode, dateYmd: string): Promise<boolean> {
+  const centerId = qamfCenterIdForCode(center);
+  if (centerId == null) return false;
+  const res = await fetch(
+    `${apiBase()}/api/bowling/v2/availability?centerId=${centerId}&players=2` +
+      `&startDate=${dateYmd}&kind=open,hourly&stepMinutes=30&leadMinutes=0`,
+    { cache: "no-store" },
+  );
+  if (!res.ok) throw new Error(`bowling availability ${res.status}`);
+  const data = (await res.json()) as { Availabilities?: unknown[] };
+  return (data.Availabilities ?? []).length > 0;
+}
+
 async function isUltimateQualifierBookableToday(dateYmd: string): Promise<boolean> {
   const variants = eligiblePackages({
     racerType: "new",
@@ -114,9 +134,10 @@ export async function computeExperienceAvailability(
   // Same 2 AM-ET business-day rollover the kiosk (and the rest of the app) use,
   // so a post-midnight session still resolves to today's operating date.
   const dateYmd = businessDayYmdET();
-  const [combo, uq] = await Promise.all([
+  const [combo, uq, bowling] = await Promise.all([
     isComboBookableToday(center, dateYmd).catch(() => true),
     isUltimateQualifierBookableToday(dateYmd).catch(() => true),
+    isBowlingBookableToday(center, dateYmd).catch(() => true),
   ]);
-  return { "race-bowl": combo, "ultimate-qualifier": uq };
+  return { "race-bowl": combo, "ultimate-qualifier": uq, bowling };
 }
