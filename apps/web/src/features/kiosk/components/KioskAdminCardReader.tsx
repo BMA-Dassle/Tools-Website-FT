@@ -342,16 +342,6 @@ function StatusCard({
   const { status, sensors, polling, setPolling, busy } = reader;
   const [binCount, setBinCount] = useState<number | null>(null);
 
-  // Read the sensor block once on open so the bin state shows immediately —
-  // the "Error bin" chip is sensor-derived (st2 is unreliable on this unit and
-  // reads "unknown"). Ref-guarded so it fires exactly once regardless of `act`.
-  const didReadSensorsRef = useRef(false);
-  useEffect(() => {
-    if (didReadSensorsRef.current) return;
-    didReadSensorsRef.current = true;
-    act("read sensors", (c) => c.getSensors());
-  }, [act]);
-
   const chip = (label: string, value: string, tone: "ok" | "warn" | "bad" | "dim") => {
     const cls = {
       ok: "border-[#46d68c]/40 bg-[#46d68c]/10 text-[#46d68c]",
@@ -378,10 +368,9 @@ function StatusCard({
         : status?.stacker === "empty"
           ? "bad"
           : "dim";
-  // Bin state reads from the SENSOR block (reliable), NOT status.errorBin (st2),
-  // which the HB-HDN unit leaves at "unknown". Populated by the mount read
-  // above, plus Refresh / polling.
-  const binState = sensors?.binState ?? "unknown";
+  // Bin state = status.errorBin (st2). BIN_BY_BYTE now decodes this unit's full
+  // code (0x32) as "full", so ok = empty, full = full.
+  const binState = status?.errorBin ?? "unknown";
   const binTone = binState === "full" ? "bad" : binState === "ok" ? "ok" : "dim";
 
   const cardText = {
@@ -850,13 +839,11 @@ function MotionCard({
           disabled={!!busy}
           onClick={() =>
             act("capture card", async (c) => {
-              // HARD rule: never move a card into a FULL bin — check the sensor
-              // block first (st2 is unreliable here), refuse unless confirmed ok.
-              const bin = await c.readBinState();
-              if (bin.value !== "ok") {
-                throw new Error(
-                  `Reject bin reads "${bin.value}" — empty it and reset the counter before capturing.`,
-                );
+              // HARD rule: never move a card into a FULL bin — check st2 first,
+              // refuse unless the bin reads empty.
+              const bin = (await c.getStatus()).status.errorBin;
+              if (bin !== "ok") {
+                throw new Error(`Reject bin reads "${bin}" — empty it before capturing.`);
               }
               return c.captureCard();
             })

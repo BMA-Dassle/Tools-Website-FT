@@ -79,26 +79,23 @@ export function useGameCardDispenser({ config, onConnected }: UseGameCardDispens
   );
 
   /**
-   * Reject-bin state from the SENSOR block — the reliable bin signal on this
-   * unit (the st2 `errorBin` byte reads "unknown"). "unknown" on a read miss,
-   * which callers treat as unsafe-to-bin (fail toward NEVER binning into a full
-   * bin). Retries a transient read fault via `attempt`.
+   * Reject-bin state from the status block's st2 byte (0x30 empty → "ok",
+   * 0x32 full → "full" on this HB-HDN unit; see BIN_BY_BYTE). "unknown" on a
+   * read miss, which callers treat as unsafe-to-bin (fail toward NEVER binning
+   * into a full bin). Retries a transient read fault via `attempt`.
    */
   const getBinState = useCallback(async (): Promise<ErrorBinLevel> => {
-    const r = await attempt("bin state", (c) => c.readBinState());
-    return r.ok ? r.value.value : "unknown";
+    const r = await attempt("bin state", (c) => c.getStatus());
+    return r.ok ? r.value.status.errorBin : "unknown";
   }, [attempt]);
 
-  /** One-shot current status (for the hold screen to gate its Resume button). */
+  /** One-shot current status (for the hold screen to gate its Resume button).
+   *  errorBin comes straight from st2 (BIN_BY_BYTE now decodes the unit's full
+   *  code 0x32), so the bin-full hold's resumeReady gate sees the true state. */
   const getStatusNow = useCallback(async (): Promise<CrtStatus | null> => {
     const r = await runResult("status", (c) => c.getStatus());
-    if (!r.ok) return null;
-    // st2 `errorBin` is unreliable on the HB-HDN unit ("unknown"); override it
-    // with the sensor-block read so the bin-full hold's resumeReady gate — and
-    // any other consumer — sees the true bin state.
-    const errorBin = await getBinState();
-    return { ...r.value.status, errorBin };
-  }, [runResult, getBinState]);
+    return r.ok ? r.value.status : null;
+  }, [runResult]);
 
   /**
    * BUY: dispense a blank from the stacker to the read station and read its
