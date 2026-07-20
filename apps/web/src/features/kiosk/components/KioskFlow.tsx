@@ -246,6 +246,27 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     if (config === null && hydrated) router.replace("/kiosk");
   }, [config, hydrated, router]);
 
+  // Guest assistance → staff radios (owner 2026-07-20): while the beacon is
+  // up, speak an alert on the venue's FOH Zello radios immediately and then
+  // every 30s until Clear is tapped. Fire-and-forget — radio trouble must
+  // never affect the on-screen beacon.
+  useEffect(() => {
+    if (!assistActive || !config) return;
+    const send = () =>
+      void fetch("/api/kiosk/assist", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          center: config.center,
+          brand: config.brand,
+          kioskNumber: config.kioskNumber ?? 1,
+        }),
+      }).catch(() => {});
+    send();
+    const timer = setInterval(send, 30_000);
+    return () => clearInterval(timer);
+  }, [assistActive, config]);
+
   // Post-hydration seeding: center from device config; ?goto= deep link.
   useEffect(() => {
     if (!hydrated || !config) return;
