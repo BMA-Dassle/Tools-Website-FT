@@ -64,18 +64,16 @@ export function parseSensors(data: Uint8Array): SensorStatus {
 
 /**
  * Reject-bin state from the SENSOR block (STATUS pm=31h) — the RELIABLE signal
- * on the HB-HDN unit. The card-status `st2` byte (parseStatus) reads neither
- * 0x30 nor 0x31 here, so `errorBin` from THAT always decodes to "unknown"; the
- * bin actually reports in the sensor block. Live capture 2026-07-19 (bin full
- * vs empty, nothing else touched): sensor byte 3 (`data[2]`) flips '0'→'2' AND
- * the last sensor byte (`data[16]`) flips '0'→'1'; both read '0' when clear.
- * Conservative: "full" if EITHER leaves '0' (fail toward NEVER binning into a
- * full bin), "ok" only when both are '0', "unknown" if the block is too short
- * to tell — and an "unknown" is treated as unsafe-to-bin by callers.
+ * on the HB-HDN unit (the card-status `st2` byte reads "unknown"). The LAST
+ * sensor byte — `data[16]`, the one right before the ETX — is the bin-full flag:
+ * 0x31 ('1') = full, 0x30 ('0') = empty. Live-confirmed 2026-07-19; emptying the
+ * bin flips it 1→0 once. Only this byte is used — an earlier draft also required
+ * data[2]='0', but that byte doesn't reliably return to '0' on empty, so "ok"
+ * never fired and Resume never unlocked. Any other value → "unknown".
  */
 export function binStateFromSensors(data: Uint8Array): ErrorBinLevel {
   if (data.length <= 16) return "unknown";
-  if (data[16] === 0x31 || data[2] === 0x32) return "full";
-  if (data[16] === 0x30 && data[2] === 0x30) return "ok";
+  if (data[16] === 0x31) return "full";
+  if (data[16] === 0x30) return "ok";
   return "unknown";
 }

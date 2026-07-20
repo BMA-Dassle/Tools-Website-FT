@@ -26,16 +26,12 @@ describe("binStateFromSensors", () => {
     expect(binStateFromSensors(FULL)).toBe("full");
   });
 
-  it('reads "full" when only the boolean flag byte (data[16]) is set', () => {
-    const d = NOT_FULL.slice();
-    d[16] = 0x31;
-    expect(binStateFromSensors(d)).toBe("full");
-  });
-
-  it('reads "full" when only the level byte (data[2]) is set', () => {
+  it("decides on data[16] alone — data[2] is IGNORED (it doesn't reset on empty)", () => {
+    // data[16]=empty but data[2] still non-zero → must read "ok", not stuck full.
     const d = NOT_FULL.slice();
     d[2] = 0x32;
-    expect(binStateFromSensors(d)).toBe("full");
+    expect(d[16]).toBe(0x30);
+    expect(binStateFromSensors(d)).toBe("ok");
   });
 
   it('reads "unknown" when the block is too short to tell', () => {
