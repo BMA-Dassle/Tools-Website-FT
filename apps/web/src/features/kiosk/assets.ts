@@ -54,4 +54,16 @@ export const KIOSK_AD_SLIDES: KioskAdSlide[] = [
     accent: "#00e2e5",
     photo: KIOSK_PHOTOS.flag,
   },
+  {
+    title: "SKIP THE LINE",
+    sub: "Racing starts here — book your heat at this kiosk",
+    accent: "#e53935",
+    photo: KIOSK_PHOTOS.race,
+  },
+  {
+    title: "SKIP THE LINE",
+    sub: "Bowling starts here — book your lane at this kiosk",
+    accent: "#00e2e5",
+    photo: KIOSK_PHOTOS.bowl,
+  },
 ];

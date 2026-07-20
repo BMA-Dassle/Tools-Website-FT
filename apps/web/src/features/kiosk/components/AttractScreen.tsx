@@ -178,9 +178,10 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           <div className="mt-[8px] text-[28px] text-white/60">{ad.sub}</div>
         </div>
         <div className="absolute bottom-[44px] right-[64px] flex gap-[10px]">
+          {/* Index key: slide titles repeat (two "SKIP THE LINE" ads) */}
           {KIOSK_AD_SLIDES.map((s, i) => (
             <span
-              key={s.title}
+              key={i}
               className={`h-[10px] w-[56px] rounded-full ${i === adIndex ? "bg-[#00e2e5]" : "bg-white/20"}`}
             />
           ))}
