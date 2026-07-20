@@ -31,7 +31,7 @@ import {
 } from "~/features/game-cards/constants";
 import { centerCodeFor } from "~/config/intercard-centers";
 import type { Brand, CenterCode } from "~/features/booking";
-import { useGameCardDispenser, type FaultBehavior } from "../card-reader";
+import { useGameCardDispenser, useSerialMsr, type FaultBehavior } from "../card-reader";
 import type { GameCardCartPurchase } from "~/features/booking/state/types";
 import { useKioskConfig } from "../KioskConfigContext";
 import { BrandedLoader } from "./BrandedLoader";
@@ -443,6 +443,34 @@ export function KioskGameZone({
     setAutoReadBlocked(false);
     await fetchBalance(r.value);
   };
+
+  // Serial-swipe MSR (reload-only kiosks, capability "reload"): a raw COM
+  // swipe reader instead of the CRT-591 — each swipe streams `;6283=<acct>?`
+  // (see useSerialMsr.ts). A valid swipe lands wherever the screen is waiting
+  // for a card — the expanded reload row, or the balance check — and verifies
+  // / looks up immediately, exactly like a typed entry. A kiosk has a
+  // dispenser OR an MSR, never both (dispenser wins in gameZoneCapability).
+  const msrActive = capability === "reload" && !!config?.msrEnabled;
+  const [msrBadSwipe, setMsrBadSwipe] = useState(false);
+  const onMsrSwipe = (acct: string) => {
+    if (phase !== "cart") return; // never mid-payment/loading
+    setMsrBadSwipe(false);
+    if (mode === "balance") {
+      setBalTyped(acct);
+      void fetchBalance(acct);
+    } else if (mode === "reload" && reloadEditIdx != null) {
+      setCard(reloadEditIdx, { accountNumber: acct, status: "unverified" });
+      void verify(reloadEditIdx, acct);
+    }
+  };
+  const msr = useSerialMsr({
+    enabled: msrActive,
+    portInfo: config?.msrPortInfo ?? null,
+    baud: config?.msrBaud ?? null,
+    onSwipe: onMsrSwipe,
+    onBadSwipe: () => setMsrBadSwipe(true),
+  });
+  const msrListening = msrActive && msr.connection.state === "listening";
 
   // AUTO-ARM the card slot (owner 2026-07-18: "guest should never have to push
   // a button to insert a card"): whenever a screen is WAITING on a card — the
@@ -1128,22 +1156,34 @@ export function KioskGameZone({
               </button>
             ) : (
               // Readerless kiosk fallback only — with a reader, insert is the ONE way.
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={balTyped}
-                  onChange={(e) => setBalTyped(e.target.value)}
-                  placeholder="Card number"
-                  className="flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-lg text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => balTyped.trim() && void fetchBalance(balTyped.trim())}
-                  className="rounded-xl bg-[#00e2e5] px-5 py-2.5 text-sm font-bold text-[#04252b]"
-                >
-                  Check
-                </button>
+              <div className="space-y-2">
+                {msrListening && (
+                  <p className="text-sm text-white/70">
+                    Swipe your card on the reader — or type the number below.
+                  </p>
+                )}
+                {msrActive && msrBadSwipe && (
+                  <p className="text-sm text-amber-300">
+                    Couldn’t read that swipe — flip the card and swipe again, slow and steady.
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={balTyped}
+                    onChange={(e) => setBalTyped(e.target.value)}
+                    placeholder="Card number"
+                    className="flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-lg text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => balTyped.trim() && void fetchBalance(balTyped.trim())}
+                    className="rounded-xl bg-[#00e2e5] px-5 py-2.5 text-sm font-bold text-[#04252b]"
+                  >
+                    Check
+                  </button>
+                </div>
               </div>
             )}
           </>
@@ -1635,6 +1675,16 @@ export function KioskGameZone({
                   {/* Typed entry ONLY on a readerless kiosk — with a reader, insert
                       is the one way in (owner 2026-07-18: "should not have an
                       option to type in card"). */}
+                  {!readerReady && expanded && msrListening && (
+                    <p className="mt-3 text-sm text-white/70">
+                      Swipe your card on the reader — or type the number below.
+                    </p>
+                  )}
+                  {!readerReady && expanded && msrActive && msrBadSwipe && (
+                    <p className="mt-2 text-sm text-amber-300">
+                      Couldn’t read that swipe — flip the card and swipe again, slow and steady.
+                    </p>
+                  )}
                   {!readerReady && (
                     <div className="mt-3 flex gap-2">
                       <input

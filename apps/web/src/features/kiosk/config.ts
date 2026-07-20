@@ -40,10 +40,19 @@ export interface KioskConfig {
   dispenserId?: string | null;
   /**
    * Whether a Game Zone card MSR (magnetic-stripe reader) is attached. An MSR
-   * reads/writes an EXISTING card but can't dispense a new one, so it enables
+   * reads an EXISTING card but can't dispense a new one, so it enables
    * RELOAD ONLY (owner 2026-07-19). Ignored when a dispenser is present.
+   *
+   * The MSR is a raw serial SWIPE reader on its own COM port (NOT the CRT-591
+   * protocol): each swipe streams one ISO track-2 burst `;6283=<account>?`
+   * (6283 = Intercard corp prefix). Set up on the admin Device tab; driven by
+   * card-reader/useSerialMsr.ts.
    */
   msrEnabled?: boolean;
+  /** USB vendor/product of the MSR's granted serial adapter — silent reconnect matching. */
+  msrPortInfo?: { usbVendorId?: number; usbProductId?: number } | null;
+  /** MSR line speed (default 9600 8N1 — typical for serial swipe readers). */
+  msrBaud?: number | null;
   /** Whether a keyboard-wedge QR/barcode scanner is attached (login codes + vouchers). */
   scannerEnabled?: boolean;
   /**
@@ -181,6 +190,8 @@ export function resolveKioskConfig(partial: Partial<KioskConfig>): KioskConfig |
     kioskNumber: partial.kioskNumber ?? 1,
     dispenserId: partial.dispenserId ?? null,
     msrEnabled: partial.msrEnabled ?? false,
+    msrPortInfo: partial.msrPortInfo ?? null,
+    msrBaud: partial.msrBaud ?? null,
     scannerEnabled: partial.scannerEnabled ?? false,
     cardInputMethod: partial.cardInputMethod ?? (partial.readerId ? "reader" : "manual"),
     swipeEnabled: partial.swipeEnabled ?? false,

@@ -12,7 +12,9 @@
  *
  * The Square card iframe is cross-origin: focusing it fires window `blur`
  * (never `focusin`), which HIDES this keyboard — the Windows touch keyboard
- * owns that one step, and the two never stack.
+ * owns that one step, and the two never stack. Everywhere else the OS
+ * keyboard is actively suppressed: eligible fields are stamped
+ * inputmode="none" (see stampSubtree) so only this keyboard appears.
  *
  * Keys use onPointerDown + preventDefault so the field never loses focus
  * while typing.
@@ -42,6 +44,42 @@ function eligible(el: EventTarget | null): EditableEl | null {
     return el;
   }
   return null;
+}
+
+/**
+ * Windows touch-keyboard suppression. Every field this OSK serves gets
+ * inputmode="none" — Chromium's signal to NOT pop the OS virtual keyboard on
+ * focus (the two were stacking on touch kiosks). A field's original inputmode
+ * intent (numeric/tel/email) is preserved as data-osk-layout first so the
+ * matching OSK layout still comes up. Untouched on purpose:
+ *  - [data-osk="off"] fields (admin) — staff keep the Windows keyboard there;
+ *  - the Square card iframe — cross-origin, and it deliberately relies on the
+ *    Windows keyboard (see the header comment).
+ */
+const LAYOUT_FROM_INPUTMODE: Partial<Record<string, OskLayoutId>> = {
+  numeric: "numeric",
+  decimal: "numeric",
+  tel: "phone",
+  email: "email",
+};
+
+function suppressOsKeyboard(el: EditableEl) {
+  const mode = (el.getAttribute("inputmode") ?? "").toLowerCase();
+  if (mode === "none") return;
+  const mapped = LAYOUT_FROM_INPUTMODE[mode];
+  if (!el.dataset.oskLayout && mapped) el.dataset.oskLayout = mapped;
+  el.setAttribute("inputmode", "none");
+}
+
+function stampSubtree(root: Document | HTMLElement) {
+  if (root instanceof HTMLElement) {
+    const self = eligible(root);
+    if (self) suppressOsKeyboard(self);
+  }
+  root.querySelectorAll("input, textarea").forEach((el) => {
+    const field = eligible(el);
+    if (field) suppressOsKeyboard(field);
+  });
 }
 
 /** Write through the native setter so React's onChange sees the edit. */
@@ -113,6 +151,23 @@ export function OnScreenKeyboardHost() {
 
   // Route change = new screen = no stale keyboard.
   useEffect(() => hide(), [pathname, hide]);
+
+  // Stamp inputmode="none" on every OSK-served field — existing DOM at mount,
+  // then every field React adds later — so the Windows touch keyboard never
+  // pops over this one. (React won't fight the stamp: it only rewrites an
+  // attribute when the JSX prop itself changes between renders.)
+  useEffect(() => {
+    stampSubtree(document);
+    const mo = new MutationObserver((muts) => {
+      for (const m of muts) {
+        m.addedNodes.forEach((n) => {
+          if (n instanceof HTMLElement) stampSubtree(n);
+        });
+      }
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
+    return () => mo.disconnect();
+  }, []);
 
   // Swallow the post-"Done" fall-through tap (see press()). Rendered even after
   // the keyboard itself has closed (target null), for the brief shield window.

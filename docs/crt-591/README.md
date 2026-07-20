@@ -192,6 +192,20 @@ shows its "unsupported" guidance.
 | "browser blocked serial access" | Chooser refused: header/site/policy/gesture   | Tap **Prompt for permissions** — it names the layer; see Provisioning |
 | Repeated `badFrame(bcc)` in log | Line noise or framing mismatch                | Check cable; capture log; compare protocol.md                         |
 
+## Serial MSR (reload-only kiosks) — a DIFFERENT device
+
+Kiosks without a dispenser can carry a standalone **serial swipe MSR** for Game Zone
+reloads (`KioskConfig.msrEnabled`, capability "reload"). It is NOT a CRT-591 and speaks no
+protocol: each swipe streams one ISO track-2 burst — **`;6283=<account>?`** (6283 =
+Intercard corp prefix) — over its own COM port. Driven by
+`card-reader/useSerialMsr.ts` (open + listen + `parseIntercardSwipe`), default 9600 8N1.
+Bursts without the `;6283=` prefix (bank cards, noise) are discarded unparsed (PCI rule).
+
+Provisioning: **/kiosk/admin → Device tab → MSR toggle → "Grant COM port & listen…"** —
+the chooser grant saves `msrPortInfo`/`msrBaud` and the kiosk reconnects silently on boot.
+Swipe a Game Zone card right there to test (the parsed account shows live). The Web Serial
+gotchas above (permissions policy, spent gesture, kiosk-mode chooser) apply identically.
+
 ## PCI note
 
 Wedge parsing is for **Intercard game cards only**. Raw payment-card track data must never

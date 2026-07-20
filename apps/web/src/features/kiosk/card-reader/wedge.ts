@@ -47,6 +47,26 @@ export function parseWedgeBurst(raw: string): WedgeCapture {
   return { raw: text, tracks, cardNumber: bestCardNumber(text, tracks) };
 }
 
+/**
+ * Intercard corp prefix: a Game Zone card's track 2 is `;6283=<account>?`,
+ * and that is what a serial-COM swipe MSR streams (one burst per swipe).
+ */
+export const INTERCARD_TRACK2_PREFIX = ";6283=";
+
+/**
+ * Parse one serial-MSR swipe burst into an Intercard account number.
+ * STRICT on the `;6283=` corp prefix: any burst without it — a bank card, a
+ * gift card, line noise — returns null and the raw data is for discarding
+ * (PCI house rule: payment tracks are never parsed or retained). The account
+ * keeps its leading zeros to match the CRT-591 mag-read path (track 2's
+ * 16-digit field is the account, confirmed on hardware 2026-07-17).
+ */
+export function parseIntercardSwipe(raw: string): string | null {
+  const text = raw.replace(/[\r\n]+/g, "").trim();
+  const m = /;6283=(\d{4,});?\??/.exec(text);
+  return m ? m[1] : null;
+}
+
 function bestCardNumber(text: string, tracks: WedgeTracks): string | null {
   // Track 2's PAN (before "=") is the canonical machine-readable number.
   if (tracks.track2) {

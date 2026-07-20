@@ -48,4 +48,16 @@ export {
   type MoveTarget,
 } from "./protocol/constants";
 export { hexDump, type LogEntry } from "./log";
-export { parseWedgeBurst, type WedgeCapture } from "./wedge";
+export {
+  parseWedgeBurst,
+  parseIntercardSwipe,
+  INTERCARD_TRACK2_PREFIX,
+  type WedgeCapture,
+} from "./wedge";
+export {
+  useSerialMsr,
+  MSR_DEFAULT_BAUD,
+  type SerialMsr,
+  type SerialMsrConnection,
+  type UseSerialMsrOptions,
+} from "./useSerialMsr";

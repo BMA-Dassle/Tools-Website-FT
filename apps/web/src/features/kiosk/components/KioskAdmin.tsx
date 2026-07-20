@@ -24,6 +24,8 @@ import { useEffect, useRef, useState } from "react";
 import { useKioskConfig } from "../KioskConfigContext";
 import { kioskId, resolveKioskConfig, type KioskConfig, type KioskVariant } from "../config";
 import { KioskAdminCardReader } from "./KioskAdminCardReader";
+import { KioskAdminMsr } from "./KioskAdminMsr";
+import { KIOSK_VERSION } from "../version";
 
 type Tab = "device" | "readers" | "cardreader" | "diag" | "comps";
 
@@ -163,7 +165,10 @@ export function KioskAdmin() {
     <div className="absolute inset-0 overflow-y-auto bg-[#000418] px-6 py-8 text-white">
       <div className="mx-auto max-w-2xl space-y-6 pb-16">
         <div className="flex items-center justify-between">
-          <div className="font-heading text-3xl font-extrabold italic">Kiosk admin</div>
+          <div className="flex items-baseline gap-3">
+            <div className="font-heading text-3xl font-extrabold italic">Kiosk admin</div>
+            <span className="text-xs font-semibold text-white/40">v{KIOSK_VERSION}</span>
+          </div>
           <a
             href="/kiosk"
             className="rounded-full border border-white/15 px-5 py-2 text-sm text-white/60"
@@ -209,7 +214,7 @@ export function KioskAdmin() {
         )}
 
         {tab === "device" && (
-          <DeviceTab draft={draft} patch={patch} onSave={() => void persist()} />
+          <DeviceTab draft={draft} patch={patch} persist={persist} onSave={() => void persist()} />
         )}
 
         {tab === "readers" && (
@@ -261,10 +266,12 @@ const selectClass =
 function DeviceTab({
   draft,
   patch,
+  persist,
   onSave,
 }: {
   draft: Partial<KioskConfig>;
   patch: (p: Partial<KioskConfig>) => void;
+  persist: (extra?: Partial<KioskConfig>) => void | Promise<void>;
   onSave: () => void;
 }) {
   const venueValue = VENUES.findIndex((v) => v.center === draft.center && v.brand === draft.brand);
@@ -365,6 +372,7 @@ function DeviceTab({
         on={!!draft.msrEnabled}
         onToggle={(v) => patch({ msrEnabled: v })}
       />
+      {draft.msrEnabled && <KioskAdminMsr draft={draft} persist={persist} />}
       <CameraPickers draft={draft} patch={patch} />
       <p className="-mt-2 text-xs text-white/40">
         {draft.dispenserId

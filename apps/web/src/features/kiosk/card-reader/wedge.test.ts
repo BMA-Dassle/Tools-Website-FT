@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseWedgeBurst } from "./wedge";
+import { parseIntercardSwipe, parseWedgeBurst } from "./wedge";
 
 describe("parseWedgeBurst", () => {
   it("parses a full two-track burst", () => {
@@ -40,5 +40,28 @@ describe("parseWedgeBurst", () => {
     expect(c.tracks.track1).toBeNull();
     expect(c.tracks.track2).toBeNull();
     expect(c.cardNumber).toBeNull();
+  });
+});
+
+describe("parseIntercardSwipe", () => {
+  it("parses the canonical serial swipe burst, keeping leading zeros", () => {
+    expect(parseIntercardSwipe(";6283=0000000001037356?\r\n")).toBe("0000000001037356");
+  });
+
+  it("finds the 6283 track even when track 1 precedes it", () => {
+    expect(parseIntercardSwipe("%P6283=7496003776810700729?;6283=0000000001037356?")).toBe(
+      "0000000001037356",
+    );
+  });
+
+  it("tolerates a stripped end sentinel", () => {
+    expect(parseIntercardSwipe(";6283=0000000001037356")).toBe("0000000001037356");
+  });
+
+  it("rejects non-Intercard tracks (bank/gift cards, noise)", () => {
+    expect(parseIntercardSwipe(";4111111111111111=29051010000000000000?")).toBeNull();
+    expect(parseIntercardSwipe(";6039001122334455=0000?")).toBeNull();
+    expect(parseIntercardSwipe("6283 no sentinel")).toBeNull();
+    expect(parseIntercardSwipe("")).toBeNull();
   });
 });

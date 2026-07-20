@@ -10,6 +10,15 @@
  * version against the new deploy, so it never reload-loops.
  */
 
+/**
+ * Human-facing kiosk software version — shown in the admin header so staff can
+ * confirm at a glance what a kiosk is running. Bump on every kiosk feature
+ * release (the deploy-SHA self-update below is what actually drives reloads).
+ * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
+ *         touch-keyboard suppression on OSK fields.
+ */
+export const KIOSK_VERSION = "1.1.0";
+
 let bootVersion: string | null = null;
 let captured = false;
 
