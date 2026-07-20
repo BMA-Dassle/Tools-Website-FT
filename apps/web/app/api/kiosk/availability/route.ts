@@ -16,6 +16,9 @@ import type { CenterCode } from "~/features/booking";
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// A cache-miss compute fans out across BMI (racing + 4 attractions) and QAMF
+// (bowling + KBF + the combo chain) — cold vendors can blow the default 10s.
+export const maxDuration = 60;
 
 const VALID_CENTERS: CenterCode[] = ["fort-myers", "naples"];
 const TTL_SECONDS = 300; // recompute at most once per 5 min per center
@@ -25,6 +28,13 @@ const DEFAULT_AVAILABLE: ExperienceAvailability = {
   "race-bowl": true,
   "ultimate-qualifier": true,
   bowling: true,
+  kbf: true,
+  race: true,
+  "duck-pin": true,
+  "gel-blaster": true,
+  "laser-tag": true,
+  "shuffly-fasttrax": true,
+  "shuffly-headpinz": true,
 };
 
 // Per-instance single-flight so concurrent cache misses don't stampede vendors.
