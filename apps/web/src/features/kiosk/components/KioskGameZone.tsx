@@ -186,16 +186,17 @@ function pkgLabel(packageId: string): string {
  *  Renders nothing until the first health check answers. */
 function BridgeChip({ up }: { up: boolean | null }) {
   if (up === null) return null;
+  // Deliberately tiny — a staff glance-check, not a guest-facing element.
   return (
     <span
-      className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${
-        up
-          ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
-          : "border-amber-400/30 bg-amber-400/10 text-amber-300"
+      className={`inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-[2px] text-[9px] font-medium uppercase leading-none tracking-wide ${
+        up ? "bg-emerald-400/10 text-emerald-300/70" : "bg-amber-400/10 text-amber-300/70"
       }`}
     >
-      <span className={`h-2 w-2 rounded-full ${up ? "bg-emerald-300" : "bg-amber-300"}`} />
-      {up ? "Local card system" : "Cloud card system"}
+      <span
+        className={`h-[5px] w-[5px] rounded-full ${up ? "bg-emerald-300/80" : "bg-amber-300/80"}`}
+      />
+      {up ? "Local" : "Cloud"}
     </span>
   );
 }
