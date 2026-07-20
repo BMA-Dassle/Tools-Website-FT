@@ -75,6 +75,12 @@ export function KioskCategories({
   const qualifierFromWeekday = packageFamilyFromPrice("ultimate-qualifier", ["weekday", "mega"]);
   const qualifierFromWeekend = packageFamilyFromPrice("ultimate-qualifier", ["weekend"]);
   const hasCart = session.items.length > 0;
+  // Whether ANYTHING on the Experiences shelf is bookable right now. If every
+  // tile inside is locked (VIP combo + Ultimate Qualifier both out of runway)
+  // or the shelf is empty, the landing card itself locks — no tapping into a
+  // screen of all-unavailable tiles (owner 2026-07-19).
+  const anyExperienceAvailable =
+    combos.some((c) => c.id !== "race-bowl" || vipComboAvailable) || (showQualifier && uqAvailable);
   // (The old "Your visit so far" strip is gone — KioskFlow's chrome now shows
   // the persistent signed-in + cart session banner on every screen instead.)
 
@@ -93,6 +99,8 @@ export function KioskCategories({
             accent="#e8b14c"
             title="Experiences"
             blurb="Multiple attractions combined into one easy price"
+            disabled={!anyExperienceAvailable}
+            disabledNote="Not available right now — please check back or ask an attendant."
             onClick={() => setCat("exp")}
           />
           <CategoryCard
@@ -264,6 +272,8 @@ function CategoryCard({
   accent,
   title,
   blurb,
+  disabled,
+  disabledNote,
   onClick,
 }: {
   photo: string;
@@ -271,30 +281,44 @@ function CategoryCard({
   accent: string;
   title: string;
   blurb: string;
+  /** Locks the card (same treatment as ShelfBanner): grayed, "Unavailable"
+   *  eyebrow, note replaces the blurb, no chevron, tap does nothing. */
+  disabled?: boolean;
+  disabledNote?: string;
   onClick: () => void;
 }) {
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
       aria-label={title}
-      className="k-ph k-tap relative min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/10 text-left"
+      className={`k-ph k-tap relative min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/10 text-left ${
+        disabled ? "opacity-50" : ""
+      }`}
       style={{ ["--k-img"]: `url(${photo})` } as React.CSSProperties}
     >
       <div className="absolute bottom-[40px] left-[48px] right-[120px]">
-        <div className="k-eyebrow" style={{ color: accent }}>
-          {eyebrow}
+        <div className="k-eyebrow" style={{ color: disabled ? "#9aa4b2" : accent }}>
+          {disabled ? "Unavailable" : eyebrow}
         </div>
         <div className="k-display mt-[8px] text-[74px]">{title}</div>
-        <div className="mt-[10px] text-[28px] text-white/65">{blurb}</div>
+        <div className="mt-[10px] text-[28px] text-white/65">
+          {disabled && disabledNote ? disabledNote : blurb}
+        </div>
       </div>
-      <span
-        className="k-display absolute bottom-[44px] right-[48px] text-[56px]"
-        style={{ color: accent }}
-      >
-        ›
-      </span>
-      <div className="absolute inset-x-0 bottom-0 h-[8px]" style={{ background: accent }} />
+      {!disabled && (
+        <span
+          className="k-display absolute bottom-[44px] right-[48px] text-[56px]"
+          style={{ color: accent }}
+        >
+          ›
+        </span>
+      )}
+      <div
+        className="absolute inset-x-0 bottom-0 h-[8px]"
+        style={{ background: disabled ? "#555" : accent }}
+      />
     </button>
   );
 }
