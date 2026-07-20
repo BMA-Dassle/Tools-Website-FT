@@ -25,6 +25,7 @@ import {
   getActiveItem,
   newItem,
   packageIdForCategory,
+  racePackageIds,
   type ActivityOffering,
   type AttractionItem,
   type BowlingItem,
@@ -387,10 +388,10 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   // the appetizer needs rookiePack. Gated on the Rookie flow flag.
   useEffect(() => {
     if (process.env.NEXT_PUBLIC_ROOKIE_PACK_ENABLED !== "1") return;
-    const race = session.items.find((i) => i.kind === "race") as
-      | (SessionItem & { packageId?: string; rookiePack?: boolean | null; povQuantity?: number })
-      | undefined;
-    if (!race || race.packageId) return;
+    const race = session.items.find((i): i is RaceItem => i.kind === "race");
+    // ANY selected package variant (adult or junior) means a package flow —
+    // the bundle carries license/POV/appetizer itself, so never auto-enroll.
+    if (!race || racePackageIds(race).length > 0) return;
     const newRacerCount = session.party.filter((m) => m.isNewRacer).length;
     const hasReturning = session.party.some((m) => !m.isNewRacer);
     if (newRacerCount === 0 || !hasReturning) return; // only the mixed case

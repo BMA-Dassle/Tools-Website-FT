@@ -1070,8 +1070,13 @@ export function buildRaceChargeLines(
   // categorize under the Rookie Pack catalog item). Both setters pin the item's
   // povQuantity to the new-racer count; the pack consumes those cameras and any
   // extras still book as "POV Race Video" below.
+  // Not gated on "no package at all": a partially-packaged mixed item (e.g.
+  // junior package + un-packaged adult new racer) still owes the pack for the
+  // un-covered new racers — newRacerCount above already excludes the
+  // package-covered ones. Fully-packaged items never set the flag (the POV
+  // step hides on the same raceItemFullyPackaged seam).
   const rookieFlag = session.items.some(
-    (i) => i.kind === "race" && !i.packageId && i.rookiePack === true,
+    (i) => i.kind === "race" && i.rookiePack === true && !raceItemFullyPackaged(i, session.party),
   );
   if (newRacerCount > 0 && rookieFlag && !activeCombo) {
     lines.push({
