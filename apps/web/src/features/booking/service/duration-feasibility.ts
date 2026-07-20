@@ -101,6 +101,25 @@ export function optionBelongsToOffer(
 }
 
 /**
+ * Shortest duration (minutes) configured for a web offer across its sharing
+ * experiences. QAMF only lists an offer at instants where a NEW booking could
+ * still start, so its last listed instant is close − this value — later
+ * instants are absent for EVERY offer even when all lanes sit empty. Null
+ * when nothing is configured (Game/Unlimited offers carry no duration).
+ */
+export function minConfiguredMinutes(exps: OfferConfig[]): number | null {
+  let min: number | null = null;
+  for (const exp of exps) {
+    const candidates = (exp.durationOptions ?? []).map((d) => d.durationMinutes);
+    if (exp.qamfOfferDurationMinutes != null) candidates.push(exp.qamfOfferDurationMinutes);
+    for (const c of candidates) {
+      if (c > 0 && (min == null || c < min)) min = c;
+    }
+  }
+  return min;
+}
+
+/**
  * Point-in-time probe results keyed by ET minutes-of-day (0-26h notation,
  * 15-min grid): key present = that instant was probed; the Set holds the
  * web offer ids QAMF reported available there. Key ABSENT = not probed /
@@ -117,14 +136,24 @@ export type ProbeMap = Map<number, Set<number>>;
  * display; the hold attempt remains the final authority). The converse false
  * positive — different lanes free at different instants, none spanning — is
  * accepted residual, caught by QAMF at hold time.
+ *
+ * `lastStartMin` (close − the offer's shortest option, from
+ * minConfiguredMinutes): instants PAST it are skipped, because QAMF never
+ * lists the offer there regardless of lane occupancy — absence proves
+ * nothing. Without the clamp, every last-of-night slot was rejected (the
+ * 2026-07-19 "No Regular Fri–Sun lanes left today" kiosk bug: the bookable
+ * 10:30 PM 90-min slot needed the offer listed at 11:15 PM, past the
+ * 11:00 PM last start for a midnight close).
  */
 export function evaluateWindow(
   probeMap: ProbeMap,
   webOfferId: number,
   startMin: number,
   durationMin: number,
+  lastStartMin?: number | null,
 ): boolean {
   for (let g = startMin; g < startMin + durationMin; g += 15) {
+    if (lastStartMin != null && g > lastStartMin) break;
     const probed = probeMap.get(g);
     if (probed && !probed.has(webOfferId)) return false;
   }
@@ -135,10 +164,19 @@ export function evaluateWindow(
  *  probe for a booking at `startMin`: every grid point strictly inside
  *  (startMin, startMin + durationMin). The start instant itself is validated
  *  by QAMF's createReservation. Empty when the start isn't 15-min aligned
- *  (defensive — admin tools can produce odd minutes; skip rather than guess). */
-export function windowCheckMinutes(startMin: number, durationMin: number): number[] {
+ *  (defensive — admin tools can produce odd minutes; skip rather than guess).
+ *  `lastStartMin` caps the list the same way evaluateWindow clamps: probing
+ *  past the offer's last bookable start only yields meaningless absences. */
+export function windowCheckMinutes(
+  startMin: number,
+  durationMin: number,
+  lastStartMin?: number | null,
+): number[] {
   if (startMin % 15 !== 0) return [];
   const out: number[] = [];
-  for (let g = startMin + 15; g < startMin + durationMin; g += 15) out.push(g);
+  for (let g = startMin + 15; g < startMin + durationMin; g += 15) {
+    if (lastStartMin != null && g > lastStartMin) break;
+    out.push(g);
+  }
   return out;
 }

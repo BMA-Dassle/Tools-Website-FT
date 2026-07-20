@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   evaluateWindow,
+  minConfiguredMinutes,
   optionBelongsToOffer,
   resolveOptionMinutes,
   slotExceedsClose,
@@ -155,5 +156,56 @@ describe("windowCheckMinutes", () => {
 
   it("non-15-aligned starts return no checks (defensive skip)", () => {
     expect(windowCheckMinutes(14 * 60 + 5, 90)).toEqual([]);
+  });
+
+  it("clamps to the offer's last bookable start", () => {
+    // 10:30 PM + 90min, last start 11:00 PM (midnight close, 60-min shortest
+    // option): only 10:45 and 11:00 are meaningful probe instants.
+    expect(windowCheckMinutes(22 * 60 + 30, 90, 23 * 60)).toEqual([1365, 1380]);
+    // no clamp → unchanged behavior
+    expect(windowCheckMinutes(22 * 60 + 30, 90, null)).toEqual([1365, 1380, 1395, 1410, 1425]);
+  });
+});
+
+describe("minConfiguredMinutes", () => {
+  it("shortest across duration options and offer-level minutes", () => {
+    expect(minConfiguredMinutes([hourly])).toBe(90);
+    expect(minConfiguredMinutes([hourly, funForAll])).toBe(90);
+    expect(minConfiguredMinutes([funForAll])).toBe(90);
+  });
+
+  it("null when nothing carries a duration (Game/Unlimited)", () => {
+    expect(minConfiguredMinutes([kbf])).toBeNull();
+    expect(minConfiguredMinutes([])).toBeNull();
+  });
+});
+
+describe("evaluateWindow last-start clamp (2026-07-19 kiosk bug)", () => {
+  // Sunday night at FM: close midnight (1440), Regular Fri–Sun (offer 158)
+  // has 60- and 90-min options → QAMF's last listed start is 11:00 PM (1380).
+  // QAMF listed 158 at 10:30/10:45/11:00 PM and NOTHING at 11:15 PM onward —
+  // an artifact of the last-start rule, not lane occupancy. The 10:30 PM
+  // 90-min slot is genuinely bookable and must survive.
+  const close = 24 * 60;
+  const lastStart = close - 60; // 1380
+  const probeMap: ProbeMap = new Map([
+    [1350, new Set([158, 159])], // 10:30 PM
+    [1365, new Set([158, 159])], // 10:45 PM
+    [1380, new Set([158, 159])], // 11:00 PM
+    [1395, new Set<number>()], //   11:15 PM — nothing listed (past last start)
+    [1410, new Set<number>()],
+    [1425, new Set<number>()],
+  ]);
+
+  it("keeps the last-of-night slot when only past-last-start instants are absent", () => {
+    expect(evaluateWindow(probeMap, 158, 1350, 90, lastStart)).toBe(true);
+    // without the clamp the same window is (wrongly) rejected — the bug
+    expect(evaluateWindow(probeMap, 158, 1350, 90)).toBe(false);
+  });
+
+  it("still rejects a genuine mid-window absence at or before last start", () => {
+    const blocked: ProbeMap = new Map(probeMap);
+    blocked.set(1365, new Set([159])); // 10:45 PM: 158 gone while starts still allowed
+    expect(evaluateWindow(blocked, 158, 1350, 90, lastStart)).toBe(false);
   });
 });

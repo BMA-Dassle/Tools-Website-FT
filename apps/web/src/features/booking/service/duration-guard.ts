@@ -19,6 +19,7 @@ import { searchAvailability } from "@/lib/qamf-bowling";
 import { etMinutesOfDay } from "~/components/features/booking/steps/bowling/availability-client";
 import { QAMF_TO_CENTER_CODE, centerHoursForDate } from "./bowling-hours";
 import {
+  minConfiguredMinutes,
   optionBelongsToOffer,
   resolveOptionMinutes,
   slotExceedsClose,
@@ -138,8 +139,13 @@ export async function assertBookable(input: AssertBookableInput): Promise<void> 
   // Occupancy-window necessary-condition check (branch D): the offer must
   // show availability at every 15-min instant INSIDE the window, else no
   // lane can span it. Start instant is left to QAMF's createReservation.
+  // Instants past the offer's last bookable start (close − shortest option)
+  // are excluded — QAMF never lists the offer there even with empty lanes,
+  // so probing them would 409 every legitimate last-of-night booking.
   const startMin = etMinutesOfDay(input.bookedAt);
-  const checkMinutes = windowCheckMinutes(startMin, minutes);
+  const minCfg = minConfiguredMinutes(sharing);
+  const lastStartMin = minCfg != null ? closeHour * 60 - minCfg : null;
+  const checkMinutes = windowCheckMinutes(startMin, minutes, lastStartMin);
   if (checkMinutes.length === 0) return;
 
   const offsetMatch = input.bookedAt.match(/([+-]\d{2}:\d{2})$/);

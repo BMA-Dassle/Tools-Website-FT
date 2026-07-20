@@ -8,6 +8,7 @@ import {
 } from "~/features/booking/service/availability-window";
 import {
   evaluateWindow,
+  minConfiguredMinutes,
   resolveOptionMinutes,
   type ProbeMap,
 } from "~/features/booking/service/duration-feasibility";
@@ -517,8 +518,15 @@ export async function GET(req: NextRequest) {
         .map((a) => {
           const cfgs = offerConfigs.get(a.WebOffer.Id) ?? [];
           const startMin = etMinutesOfDay(a.BookedAt);
+          // QAMF stops listing an offer past its last bookable start
+          // (close − shortest configured option) even with every lane empty —
+          // window checks must not read those absences as occupancy.
+          const minCfg = minConfiguredMinutes(cfgs);
+          const lastStartMin = minCfg != null ? closeHour * 60 - minCfg : null;
           if (durationMinOver) {
-            return evaluateWindow(probeMap, a.WebOffer.Id, startMin, durationMinOver) ? a : null;
+            return evaluateWindow(probeMap, a.WebOffer.Id, startMin, durationMinOver, lastStartMin)
+              ? a
+              : null;
           }
           const timeOpts = (
             a.WebOffer?.Options as { Time?: Array<{ Id: string | number; Minutes?: number }> }
@@ -526,7 +534,10 @@ export async function GET(req: NextRequest) {
           if (!timeOpts?.length) return a; // Game/Unlimited — no duration semantics
           const fitting = timeOpts.filter((t) => {
             const minutes = resolveOptionMinutes(cfgs, Number(t.Id));
-            return minutes == null || evaluateWindow(probeMap, a.WebOffer.Id, startMin, minutes);
+            return (
+              minutes == null ||
+              evaluateWindow(probeMap, a.WebOffer.Id, startMin, minutes, lastStartMin)
+            );
           });
           if (fitting.length === 0) return null;
           if (fitting.length === timeOpts.length) return a;
