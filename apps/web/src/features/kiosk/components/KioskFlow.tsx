@@ -154,7 +154,6 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   const availableFor = useKioskAvailability(config?.center ?? null);
   const vipAvailable = availableFor("race-bowl");
   const uqAvailable = availableFor("ultimate-qualifier");
-  const bowlingAvailable = availableFor("bowling");
 
   const initial = useMemo(
     () =>
@@ -1163,7 +1162,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
         session={session}
         vipComboAvailable={vipAvailable}
         uqAvailable={uqAvailable}
-        bowlingAvailable={bowlingAvailable}
+        offeringAvailable={availableFor}
         onPickOffering={pickOffering}
         onPickCombo={pickCombo}
         onPickPackageExperience={pickPackageExperience}

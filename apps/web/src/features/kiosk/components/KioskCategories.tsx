@@ -42,9 +42,12 @@ export interface KioskCategoriesProps {
   /** False locks the Ultimate Qualifier tile — no Starter+Intermediate pair fits
    *  today. Defaults available. */
   uqAvailable?: boolean;
-  /** False locks the bowling tile — no open/hourly web offer has a bookable
-   *  slot left today (centralized check, /api/kiosk/availability). */
-  bowlingAvailable?: boolean;
+  /** Per-tile bookable-today predicate from the centralized check
+   *  (/api/kiosk/availability): every attraction tile locks individually as
+   *  its last slot of the day passes (owner 2026-07-19). Keys are offering
+   *  slugs, except shuffly which keys per building (shuffly-fasttrax /
+   *  shuffly-headpinz). Defaults available. */
+  offeringAvailable?: (id: string) => boolean;
   onPickOffering: (offering: ActivityOffering) => void;
   onPickCombo: (combo: ComboSpecial) => void;
   /** Launch racing with a package FAMILY preselected (Experiences package tile). */
@@ -59,7 +62,7 @@ export function KioskCategories({
   session,
   vipComboAvailable = true,
   uqAvailable = true,
-  bowlingAvailable = true,
+  offeringAvailable = () => true,
   onPickOffering,
   onPickCombo,
   onPickPackageExperience,
@@ -85,6 +88,13 @@ export function KioskCategories({
   // screen of all-unavailable tiles (owner 2026-07-19).
   const anyExperienceAvailable =
     combos.some((c) => c.id !== "race-bowl" || vipComboAvailable) || (showQualifier && uqAvailable);
+  // The availability key for a tile: shuffly is per BUILDING (FT vs HP side,
+  // separate BMI products), so it keys by the side this kiosk's brand books.
+  const offeringKey = (o: ActivityOffering) =>
+    o.slug === "shuffly" ? `shuffly-${effectiveBrand(o, brand)}` : o.slug;
+  // Same all-locked rule the Experiences card follows: when every attraction
+  // tile inside is out of runway for the day, lock the landing card itself.
+  const anyAttractionAvailable = offerings.some((o) => offeringAvailable(offeringKey(o)));
   // (The old "Your visit so far" strip is gone — KioskFlow's chrome now shows
   // the persistent signed-in + cart session banner on every screen instead.)
 
@@ -113,6 +123,8 @@ export function KioskCategories({
             accent="#00e2e5"
             title="Attractions"
             blurb="Racing, bowling, blasters & more — pick a time and go"
+            disabled={!anyAttractionAvailable}
+            disabledNote="Nothing left to book today — the front desk can help with walk-ins."
             onClick={() => setCat("attr")}
           />
           {gameZone === "none" ? (
@@ -223,10 +235,11 @@ export function KioskCategories({
                     (brand === "fasttrax" && o.slug === "race") ||
                     (brand === "headpinz" && o.slug === "bowling")
                   }
-                  // No open/hourly lane left today → the tile locks instead of
-                  // dead-ending the guest inside the wizard (owner 2026-07-19).
-                  disabled={o.slug === "bowling" && !bowlingAvailable}
-                  disabledNote="No lanes left to book today — the front desk can help with walk-ins."
+                  // Last slot of the day gone → the tile locks individually
+                  // instead of dead-ending the guest inside a flow with
+                  // nothing to book (owner 2026-07-19).
+                  disabled={!offeringAvailable(offeringKey(o))}
+                  disabledNote="Nothing left to book today — the front desk can help with walk-ins."
                   onClick={() => onPickOffering(o)}
                 />
               ))}
