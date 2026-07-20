@@ -46,6 +46,11 @@ interface Props {
   /** Rendering on the in-center kiosk — presentation-only (rules with a
    *  kioskPresentation hide instead of grey, e.g. the VIP anchor holds). */
   kiosk?: boolean;
+  /** Epoch ms — heats starting before this are hidden (kiosk lead time:
+   *  15 min with a starter in the party, 10 min otherwise; see the
+   *  KIOSK_*_LEAD_MINUTES constants in RaceHeatPickerStep). 0 = no cutoff
+   *  (web keeps its existing package behavior). */
+  leadCutoffMs?: number;
   onConfirm: (picks: PackagePick[]) => void;
   onCancel: () => void;
 }
@@ -170,6 +175,7 @@ export function PackageHeatPicker({
   category,
   expressEligible,
   kiosk,
+  leadCutoffMs = 0,
   onConfirm,
   onCancel,
 }: Props) {
@@ -273,6 +279,7 @@ export function PackageHeatPicker({
       for (const p of q.data.proposals) {
         const block = p.blocks?.[0]?.block;
         if (!block) continue;
+        if (leadCutoffMs > 0 && parseLocal(block.start).getTime() < leadCutoffMs) continue;
         const verdict = evaluateRaceRestrictions({
           tier: fi.comp.tier,
           category,
@@ -307,7 +314,7 @@ export function PackageHeatPicker({
     });
     list.sort((a, b) => parseLocal(a.block.start).getTime() - parseLocal(b.block.start).getTime());
     return list;
-  }, [queries, fetchItems, category, expressEligible, kiosk, crossTierBlocks]);
+  }, [queries, fetchItems, category, expressEligible, kiosk, leadCutoffMs, crossTierBlocks]);
 
   // Display-only track filter for the CURRENT step's cards. Other components'
   // (locked / already-picked) cards always stay visible, and picks/gap/conflict

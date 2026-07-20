@@ -56,20 +56,24 @@ import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track
  *     so BMI bookHeat (commit 10) lands one bill line per racer with the
  *     right `bmiPersonId`.
  *
- * Lead time: when any racer in the category is new, heats starting within
- * NEW_RACER_LEAD_MINUTES of "now" are filtered out so the racer has time to
- * check in before their heat (v1 HeatPicker:159-166 + page.tsx:2280-2288).
+ * Lead time: heats starting too close to "now" are filtered out so the racer
+ * has time to check in before their heat (v1 HeatPicker:159-166 +
+ * page.tsx:2280-2288). Web: new racers only (NEW_RACER_LEAD_MINUTES). Kiosk:
+ * every party — see the KIOSK_*_LEAD_MINUTES constants below.
  * Private event guard: full-screen "Private Event" block when the date is a
  * buyout (v1 HeatPicker:211-237).
  */
 
-// Minimum minutes between "now" and a new racer's heat start (check-in buffer).
-// Web = 40: the racer still has to get to the building and check in. Kiosk = 20
-// (owner 2026-07-19: "only require 20 minutes here") — the new racer is already
-// IN the building finishing their account/waiver at the device, so the buffer
-// only needs to cover the license + kart briefing.
+// Minimum minutes between "now" and a heat start the grid will show.
+// Web = 40, new racers only: the racer still has to get to the building and
+// check in (returning racers with waivers see everything). Kiosk applies to
+// EVERYONE (owner 2026-07-19: "15 minutes for starters and 10 minutes for all
+// others") — the party is already IN the building at the device, so starters
+// (new racers) only need the license + kart briefing buffer and returning
+// racers just need to reach the grid.
 const NEW_RACER_LEAD_MINUTES = 40;
-const KIOSK_NEW_RACER_LEAD_MINUTES = 20;
+const KIOSK_NEW_RACER_LEAD_MINUTES = 15;
+const KIOSK_RETURNING_LEAD_MINUTES = 10;
 
 // Single-race products have no fixed raceCount and NO per-racer heat cap
 // (owner 2026-07-02: racers may book as many heats as they like) — the
@@ -217,6 +221,16 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
           category={pkg.category !== "any" ? pkg.category : category}
           expressEligible={allReturningHaveWaivers}
           kiosk={!!session.context?.kiosk}
+          // Kiosk lead cutoff (same policy as the single-race grid): hide heats
+          // starting within 15 min when a starter is in the party, 10 min
+          // otherwise. Web packages keep their existing no-cutoff behavior.
+          leadCutoffMs={
+            session.context?.kiosk
+              ? Date.now() +
+                (anyNewInCategory ? KIOSK_NEW_RACER_LEAD_MINUTES : KIOSK_RETURNING_LEAD_MINUTES) *
+                  60_000
+              : 0
+          }
           onConfirm={(picks: PackagePick[]) => {
             const newHeats: RaceHeatAssignment[] = picks.flatMap((pick) =>
               racers.map((r) => ({
@@ -483,12 +497,15 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
 
     // (anyNewInCategory / allReturningHaveWaivers are computed above the
     // package early-return so the package grid shares the signal.)
-    const leadMinutes = allReturningHaveWaivers
-      ? 0
-      : session.context?.kiosk
+    const kiosk = !!session.context?.kiosk;
+    const leadMinutes = kiosk
+      ? anyNewInCategory
         ? KIOSK_NEW_RACER_LEAD_MINUTES
+        : KIOSK_RETURNING_LEAD_MINUTES
+      : allReturningHaveWaivers
+        ? 0
         : NEW_RACER_LEAD_MINUTES;
-    const leadCutoffMs = anyNewInCategory ? Date.now() + leadMinutes * 60_000 : 0;
+    const leadCutoffMs = anyNewInCategory || kiosk ? Date.now() + leadMinutes * 60_000 : 0;
 
     const allProposals = useMemo<TrackedProposal[]>(() => {
       const list: TrackedProposal[] = [];
