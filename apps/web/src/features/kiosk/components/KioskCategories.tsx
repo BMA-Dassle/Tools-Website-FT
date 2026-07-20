@@ -207,7 +207,10 @@ export function KioskCategories({
                   key={o.slug}
                   offering={o}
                   brand={brand}
-                  wide={brand === "fasttrax" && o.slug === "race"}
+                  wide={
+                    (brand === "fasttrax" && o.slug === "race") ||
+                    (brand === "headpinz" && o.slug === "bowling")
+                  }
                   onClick={() => onPickOffering(o)}
                 />
               ))}
