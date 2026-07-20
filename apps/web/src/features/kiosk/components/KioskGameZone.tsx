@@ -1049,7 +1049,15 @@ export function KioskGameZone({
                 sublabel="Use the card slot on the left — it reads in a second and comes right back out"
               />
             ) : (
-              <BrandedLoader brand={brand} label="Checking balance…" />
+              <BrandedLoader
+                brand={brand}
+                label="Checking balance…"
+                sublabel={
+                  balCard.accountNumber
+                    ? `Card #${displayCardNumber(balCard.accountNumber)}`
+                    : undefined
+                }
+              />
             )}
           </div>
         ) : balCard?.status === "ok" && bal ? (
@@ -1170,7 +1178,8 @@ export function KioskGameZone({
           <>
             {balCard?.status === "bad" && (
               <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-red-100">
-                We couldn&rsquo;t find that card — try inserting it again.
+                We couldn&rsquo;t find that card — try {msrActive ? "swiping" : "inserting"} it
+                again.
               </div>
             )}
             {readerReady ? (
@@ -1188,36 +1197,39 @@ export function KioskGameZone({
                   ? "Couldn’t read — flip the card & tap to try again"
                   : "Insert your card to check it"}
               </button>
-            ) : (
-              // Readerless kiosk fallback only — with a reader, insert is the ONE way.
+            ) : msrActive ? (
+              // MSR kiosk: the swipe is the ONE way in — no typed entry, no
+              // Check button (owner 2026-07-20). A good swipe looks up
+              // immediately; the read card number shows on the result.
               <div className="space-y-2">
-                {msrListening && (
-                  <p className="text-sm text-white/70">
-                    Swipe your card on the reader — or type the number below.
-                  </p>
-                )}
-                {msrActive && msrBadSwipe && (
+                <div className="w-full rounded-2xl bg-[#00e2e5] px-6 py-6 text-center text-xl font-extrabold text-[#04252b]">
+                  {msrListening ? "Swipe your card to check it" : "Connecting to the card reader…"}
+                </div>
+                {msrBadSwipe && (
                   <p className="text-sm text-amber-300">
                     Couldn’t read that swipe — flip the card and swipe again, slow and steady.
                   </p>
                 )}
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={balTyped}
-                    onChange={(e) => setBalTyped(e.target.value)}
-                    placeholder="Card number"
-                    className="flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-lg text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => balTyped.trim() && void fetchBalance(balTyped.trim())}
-                    className="rounded-xl bg-[#00e2e5] px-5 py-2.5 text-sm font-bold text-[#04252b]"
-                  >
-                    Check
-                  </button>
-                </div>
+              </div>
+            ) : (
+              // Readerless kiosk fallback only — with a dispenser or MSR, that
+              // device is the one way in.
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={balTyped}
+                  onChange={(e) => setBalTyped(e.target.value)}
+                  placeholder="Card number"
+                  className="flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-lg text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => balTyped.trim() && void fetchBalance(balTyped.trim())}
+                  className="rounded-xl bg-[#00e2e5] px-5 py-2.5 text-sm font-bold text-[#04252b]"
+                >
+                  Check
+                </button>
               </div>
             )}
           </>
@@ -1637,7 +1649,9 @@ export function KioskGameZone({
       <p className="mb-5 text-white/55">
         {readerReady
           ? "Add each card and pick its token package — insert each card to read it. One payment covers them all."
-          : "Add each card and pick its token package — scan the barcode or type the number. One payment covers them all."}
+          : msrActive
+            ? "Add each card and pick its token package — swipe each card on the reader. One payment covers them all."
+            : "Add each card and pick its token package — scan the barcode or type the number. One payment covers them all."}
       </p>
 
       {error && phase === "error" && (
@@ -1706,20 +1720,30 @@ export function KioskGameZone({
                             : "Insert card to read"}
                     </button>
                   )}
-                  {/* Typed entry ONLY on a readerless kiosk — with a reader, insert
-                      is the one way in (owner 2026-07-18: "should not have an
-                      option to type in card"). */}
-                  {!readerReady && expanded && msrListening && (
-                    <p className="mt-3 text-sm text-white/70">
-                      Swipe your card on the reader — or type the number below.
-                    </p>
+                  {/* MSR kiosk: the swipe is the ONE way in — no typed entry, no
+                      Check button (owner 2026-07-20, matching the dispenser rule
+                      of 2026-07-18: "should not have an option to type in card").
+                      The swiped number shows read-only; a new swipe replaces it. */}
+                  {!readerReady && msrActive && (
+                    <>
+                      <div className="mt-3 w-full rounded-xl bg-[#00e2e5] px-5 py-3.5 text-center text-base font-bold text-[#04252b]">
+                        {c.status === "verifying"
+                          ? "Checking your card…"
+                          : c.accountNumber.trim()
+                            ? `Card #${displayCardNumber(c.accountNumber)} — swipe a different card to replace it`
+                            : msrListening
+                              ? "Swipe your card on the reader"
+                              : "Connecting to the card reader…"}
+                      </div>
+                      {msrBadSwipe && (
+                        <p className="mt-2 text-sm text-amber-300">
+                          Couldn’t read that swipe — flip the card and swipe again, slow and steady.
+                        </p>
+                      )}
+                    </>
                   )}
-                  {!readerReady && expanded && msrActive && msrBadSwipe && (
-                    <p className="mt-2 text-sm text-amber-300">
-                      Couldn’t read that swipe — flip the card and swipe again, slow and steady.
-                    </p>
-                  )}
-                  {!readerReady && (
+                  {/* Typed entry ONLY on a kiosk with no card hardware at all. */}
+                  {!readerReady && !msrActive && (
                     <div className="mt-3 flex gap-2">
                       <input
                         type="text"
@@ -1751,7 +1775,9 @@ export function KioskGameZone({
                   )}
                   {c.status === "bad" && (
                     <div className="mt-2 text-sm text-red-300">
-                      Card not found — check the number.
+                      {msrActive
+                        ? "Card not found — try swiping it again."
+                        : "Card not found — check the number."}
                     </div>
                   )}
                   <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">

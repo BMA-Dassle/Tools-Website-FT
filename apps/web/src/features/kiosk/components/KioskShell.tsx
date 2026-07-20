@@ -23,7 +23,7 @@
  */
 import { useEffect, useRef } from "react";
 import { KioskConfigProvider, useKioskConfig } from "../KioskConfigContext";
-import { captureKioskBootVersion } from "../version";
+import { captureKioskBootVersion, KIOSK_VERSION } from "../version";
 import { OnScreenKeyboardHost } from "./OnScreenKeyboard";
 import { KioskStage } from "./KioskStage";
 
@@ -152,6 +152,16 @@ function KioskChrome({ children }: { children: React.ReactNode }) {
       <KioskStage className={brandClass}>
         {children}
         <OnScreenKeyboardHost />
+        {/* Version tag, every screen (owner 2026-07-20): staff confirm what a
+            kiosk runs without opening admin. `fixed` anchors to the 1080×1920
+            canvas (the stage transform is its containing block) — author in
+            canvas px. Non-interactive; sits under nothing important. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed bottom-[6px] right-[12px] z-[300] text-[15px] font-semibold tabular-nums text-white/25"
+        >
+          v{KIOSK_VERSION}
+        </div>
       </KioskStage>
     </div>
   );

@@ -188,10 +188,7 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#000418]/95 via-[#040e2c]/60 to-[#071440]/50" />
         <div className="absolute bottom-[40px] left-[64px]">
-          <div className="k-eyebrow" style={{ color: ad.accent }}>
-            Today at the complex
-          </div>
-          <div className="k-display mt-[8px] text-[64px]">{ad.title}</div>
+          <div className="k-display text-[64px]">{ad.title}</div>
           <div className="mt-[8px] text-[28px] text-white/60">{ad.sub}</div>
         </div>
         <div className="absolute bottom-[44px] right-[64px] flex gap-[10px]">
