@@ -99,9 +99,6 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       );
   }, [expQuery.data, item.date, kind]);
 
-  const regular = experiences.filter((e) => !e.isVip);
-  const vip = experiences.filter((e) => e.isVip);
-
   // First accurate slot for an offer, optionally requiring a specific option
   // id to be verified-available at that slot.
   const slotsByOffer = useMemo(() => {
@@ -114,6 +111,20 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     for (const arr of m.values()) arr.sort((a, b) => a.bookedAt.localeCompare(b.bookedAt));
     return m;
   }, [dayAvail.data]);
+
+  // Hide packages with NOTHING bookable left this day (owner 2026-07-19:
+  // "if the entire offer is not available, we should hide it" — e.g. Pizza
+  // Bowl late at night). Only once the accurate scan has settled — while
+  // loading or on scan failure every card stays (fail-open, hint copy
+  // handles the rest).
+  const scanSettled = !dayAvail.isLoading && dayAvail.data != null;
+  const bookable = scanSettled
+    ? experiences.filter((e) => (slotsByOffer.get(e.qamfWebOfferId) ?? []).length > 0)
+    : experiences;
+  const allSoldOut = scanSettled && experiences.length > 0 && bookable.length === 0;
+
+  const regular = bookable.filter((e) => !e.isVip);
+  const vip = bookable.filter((e) => e.isVip);
 
   function firstSlotFor(exp: BowlingExperienceWithDetails, optionId: number | null): string | null {
     const slots = slotsByOffer.get(exp.qamfWebOfferId) ?? [];
@@ -322,6 +333,12 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       {experiences.length === 0 ? (
         <p className="py-8 text-center text-sm text-white/40">
           No bowling packages on this day. Go back and try another date.
+        </p>
+      ) : allSoldOut ? (
+        <p className={`py-8 text-center text-white/40 ${kiosk ? "text-[26px]" : "text-sm"}`}>
+          {kiosk
+            ? "No lanes left to book tonight — the front desk can help with walk-in availability."
+            : "No lanes left online for this day. Go back and try another date."}
         </p>
       ) : (
         <>
