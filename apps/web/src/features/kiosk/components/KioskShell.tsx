@@ -108,9 +108,15 @@ function KioskChrome({ children }: { children: React.ReactNode }) {
     // device must never surface a previous guest's saved name/phone/email/card
     // suggestions. Applied to all inputs (kiosk-native AND reused web ones) here
     // so shared web components keep their normal autofill off-kiosk.
+    // NOT autocomplete="off": Chrome ignores "off" on fields it classifies as
+    // contact/address/payment data (names, type=tel/email, card numbers) and
+    // keeps offering the profile's saved entries. A concrete token beats
+    // Chrome's heuristics, and desktop Chrome never has one-time-code data to
+    // suggest (nor does it retain what's typed into one), so the dropdown
+    // stays closed on exactly the fields "off" fails on.
     const killAutofill = (el: Element) => {
       if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return;
-      el.setAttribute("autocomplete", "off");
+      el.setAttribute("autocomplete", "one-time-code");
       el.setAttribute("autocorrect", "off");
       el.setAttribute("autocapitalize", "off");
       el.setAttribute("spellcheck", "false");
