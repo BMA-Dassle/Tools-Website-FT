@@ -389,18 +389,23 @@ export async function POST(req: NextRequest) {
       const first = firstName || "Racer";
       const subject = "You're booked at FastTrax!";
       // Web parity: SMS never inlines the codes (single-segment budget) — it
-      // points at the email, which carries the full codes block below.
-      const smsBody = `FastTrax: you're booked!${when ? ` ${when} ·` : ""} ${who}. Your e-ticket with check-in details will text you shortly — nothing to print.${codes.length > 0 ? " Your POV video codes are in your confirmation email." : ""} See you at the track!`;
+      // points at the email, which carries the full codes block below. Only
+      // claim "in your confirmation email" when an email address exists to
+      // receive one (kiosk contacts always have one, but never misdirect).
+      const smsBody = `FastTrax: you're booked!${when ? ` ${when} ·` : ""} ${who}. Your e-ticket with check-in details will text you shortly — nothing to print.${codes.length > 0 && email ? " Your POV video codes are in your confirmation email." : ""} See you at the track!`;
       // POV camera codes — kiosk counterpart of the web template's
       // ^SoldVouchersList()$ block (this branch's email is inline HTML, so the
       // placeholder never runs here). Renders only when codes were claimed.
+      // Codes come from the admin-imported pool ([A-Z0-9]) — strip any HTML
+      // metachars anyway so a bad import can never break the email markup.
+      const cleanCode = (c: string) => c.replace(/[<>&"']/g, "");
       const povHtml =
         codes.length > 0
           ? `<tr><td style="padding:0 32px 8px 32px;">
           <table role="presentation" width="100%" style="background:#1a0f2e;border:1px solid #6B21A8;border-radius:12px;">
             <tr><td style="padding:16px 20px;">
               <p style="margin:0 0 8px;color:#fff;font-size:15px;font-weight:bold;">Your ViewPoint POV Camera Codes:</p>
-              ${codes.map((c, i) => `<p style="font-family:monospace;font-size:18px;font-weight:bold;color:#c084fc;margin:4px 0;">Code ${i + 1}: ${c}</p>`).join("")}
+              ${codes.map((c, i) => `<p style="font-family:monospace;font-size:18px;font-weight:bold;color:#c084fc;margin:4px 0;">Code ${i + 1}: ${cleanCode(c)}</p>`).join("")}
               <p style="color:#f0b341;font-size:12px;line-height:1.6;margin:12px 0 0 0;">
                 After your race, be sure to collect your POV camera slip — without it you can't get your video.
                 Scan the QR code on the slip and enter the codes above to redeem it. Videos take 15-30 minutes to upload.

@@ -2000,13 +2000,26 @@ async function unifiedReserveInner(
       // booking — the rail re-tries, and every delivery surface gates on
       // codes being present. billId stays a raw string (17-digit — never
       // Number()).
-      const kioskPovQty =
-        session.context?.kiosk && raceItems.length > 0 && kioskPovCodesEnabled()
-          ? raceItems.reduce((n, it) => n + computeRaceItemPovQty(it, session.party), 0)
-          : 0;
+      // Qty computed UNCONDITIONALLY on kiosk race bookings — the kill switch
+      // gates only the claim below, so purchases during a kill window still
+      // write the "POV CODES OWED" memo line and stay backfillable per bill.
+      // Derivation is guarded: pure arithmetic over session data should never
+      // throw, but a slip here must not mark a SUCCESSFUL BMI confirm as
+      // confirm_failed (this sits inside the confirm try/catch).
+      let kioskPovQty = 0;
+      if (session.context?.kiosk && raceItems.length > 0) {
+        try {
+          kioskPovQty = raceItems.reduce(
+            (n, it) => n + computeRaceItemPovQty(it, session.party),
+            0,
+          );
+        } catch (err) {
+          console.error("[unified-reserve] POV qty derivation failed (non-fatal):", err);
+        }
+      }
       {
         const povQty = kioskPovQty;
-        if (povQty > 0) {
+        if (povQty > 0 && kioskPovCodesEnabled()) {
           try {
             const base = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
             const claimRes = await fetch(
