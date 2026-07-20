@@ -26,7 +26,7 @@
  *     (owner 2026-07-18: the parent may just be paying for the kids) — with a
  *     "Join the fun" escape hatch onto the roster.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AttractionItem, PartyMember, RaceItem, StepDef } from "~/features/booking";
 import { newPartyMember } from "~/features/booking";
 import { tierFromMemberships } from "~/features/booking/service/race-products";
@@ -112,6 +112,21 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   const [email, setEmail] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusyLocal] = useState(false);
+  // ONE-TIME split-payment heads-up (owner 2026-07-20): kiosk checkout is one
+  // payment for the whole group. The first time a guest grows an ATTRACTION
+  // party past 3, intercept the add with a warning — Continue runs the
+  // intercepted action, Never mind drops it. Once per visit to this step
+  // (ref-gated), racing exempt.
+  const splitWarnedRef = useRef(false);
+  const [splitWarn, setSplitWarn] = useState<(() => void) | null>(null);
+  const guardAdd = (action: () => void) => {
+    if (!isRace && party.length >= 3 && !splitWarnedRef.current) {
+      splitWarnedRef.current = true;
+      setSplitWarn(() => action);
+      return;
+    }
+    action();
+  };
   const [waiverFor, setWaiverFor] = useState<{
     memberId: string;
     personId: string;
@@ -1179,17 +1194,19 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         <div className="grid grid-cols-2 gap-[16px]">
           <button
             type="button"
-            onClick={() => {
-              resetForm();
-              setForm({ mode: "new" });
-            }}
+            onClick={() =>
+              guardAdd(() => {
+                resetForm();
+                setForm({ mode: "new" });
+              })
+            }
             className="k-tap rounded-[28px] border-2 border-dashed border-[#00e2e5]/45 px-[24px] py-[28px] text-[28px] font-bold text-[#00e2e5]"
           >
             + Add a new player
           </button>
           <button
             type="button"
-            onClick={() => setLookupOpen(true)}
+            onClick={() => guardAdd(() => setLookupOpen(true))}
             className="k-tap rounded-[28px] border-2 border-[#00e2e5]/45 bg-[#00e2e5]/10 px-[24px] py-[28px] text-[28px] font-bold text-white"
           >
             Sign in — find my people
@@ -1210,7 +1227,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                 <button
                   key={lp.id}
                   type="button"
-                  onClick={tooYoung ? undefined : () => addLinked(lp)}
+                  onClick={tooYoung ? undefined : () => guardAdd(() => addLinked(lp))}
                   disabled={tooYoung}
                   className={`k-tap rounded-2xl border-2 px-[24px] py-[16px] text-left ${
                     tooYoung
@@ -1681,6 +1698,42 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             </div>
           );
         })()}
+      {splitWarn && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
+          <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
+            <div className="k-eyebrow text-[#f0b341]">Before you add more players</div>
+            <div className="k-display text-[46px] leading-[1.05]">One payment covers everyone</div>
+            <p className="text-[26px] leading-snug text-white/60">
+              Payments can&rsquo;t be split at this kiosk — your whole group checks out together. To
+              split payments, split your party between multiple kiosks.
+            </p>
+            <div className="flex flex-col gap-[16px] pt-[4px]">
+              {/* Inline flex per the .kiosk-canvas cascade gotcha (see the
+                  KioskFlow confirm sheet): k-btn-primary's flex:1 squashes its
+                  height in a column layout. */}
+              <button
+                type="button"
+                onClick={() => {
+                  const go = splitWarn;
+                  setSplitWarn(null);
+                  go();
+                }}
+                className="k-btn-primary k-tap"
+                style={{ flex: "0 0 auto" }}
+              >
+                Continue adding players
+              </button>
+              <button
+                type="button"
+                onClick={() => setSplitWarn(null)}
+                className="k-tap rounded-2xl border border-white/15 px-[28px] py-[18px] text-[24px] font-semibold text-white/60"
+              >
+                Never mind
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
