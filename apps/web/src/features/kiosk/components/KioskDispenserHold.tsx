@@ -27,11 +27,6 @@ export interface DispenserHoldFault {
   hint?: string;
   /** Gates the Resume button — disabled until this returns true. Omitted = enabled now. */
   resumeReady?: (s: CrtStatus) => boolean;
-  /** Gate Resume on observing this many bin full→clear CYCLES (takes precedence
-   *  over resumeReady). Used for the reject bin, where the tray reads "empty"
-   *  whether pulled out or emptied+reinserted — a real service trips the sensor
-   *  twice, a mere pull-out once. */
-  resumeAfterClearCycles?: number;
 }
 
 export function KioskDispenserHold({
@@ -45,42 +40,24 @@ export function KioskDispenserHold({
   onResume: () => void;
   onSeeAttendant: () => void;
 }) {
-  // A fault with neither a predicate nor a cycle requirement has no sensor
-  // signal → let staff resume immediately. (One hold is active at a time and it
-  // unmounts between faults, so this initial value is always right for it.)
-  const cycles = fault.resumeAfterClearCycles ?? 0;
-  const [ready, setReady] = useState<boolean>(!fault.resumeReady && cycles === 0);
+  // No predicate → the fault has no sensor signal; let staff resume immediately.
+  // (One hold is active at a time and it unmounts between faults, so this
+  // initial value is always correct for the current fault.)
+  const [ready, setReady] = useState<boolean>(!fault.resumeReady);
   // Resume asks for a staff PIN first — a guest must not be able to dismiss it.
   const [askingPin, setAskingPin] = useState(false);
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState(false);
 
-  // Poll status while the gate hasn't opened, to unlock Resume. `setReady` is
-  // only called from the async poll callback (never synchronously here).
-  //  • cycle gate (reject bin): count full→clear transitions — the tray reads
-  //    "empty" whether pulled out or emptied+reinserted, so a genuine service
-  //    trips the sensor TWICE (pull = clear #1, reinsert re-trips then clears =
-  //    #2) while a mere pull-out clears once. Seed prev="full" (the hold is
-  //    raised on a full bin) so a clear already in progress still counts.
-  //  • predicate gate: unlock the instant the sensor snapshot clears.
+  // Poll status while the predicate hasn't cleared, to unlock Resume. `setReady`
+  // is only called from the async poll callback (never synchronously here).
   useEffect(() => {
     const pred = fault.resumeReady;
-    if (cycles === 0 && !pred) return; // already enabled from initial state
+    if (!pred) return; // already enabled from initial state
     let alive = true;
-    let prev: CrtStatus["errorBin"] = "full";
-    let clears = 0;
     const tick = async () => {
       const s = await getStatusNow();
-      if (!alive || !s) return;
-      if (cycles > 0) {
-        const cur = s.errorBin;
-        if (cur !== "unknown") {
-          if (prev === "full" && cur === "ok" && ++clears >= cycles) setReady(true);
-          prev = cur;
-        }
-      } else if (pred && pred(s)) {
-        setReady(true);
-      }
+      if (alive && s && pred(s)) setReady(true);
     };
     void tick();
     const timer = setInterval(() => void tick(), 700);
@@ -88,7 +65,7 @@ export function KioskDispenserHold({
       alive = false;
       clearInterval(timer);
     };
-  }, [fault, getStatusNow, cycles]);
+  }, [fault, getStatusNow]);
 
   const submitPin = () => {
     if (pin === STAFF_RESUME_PIN) {
@@ -123,17 +100,11 @@ export function KioskDispenserHold({
               onClick={() => setAskingPin(true)}
               className="font-heading mt-8 h-16 w-full rounded-full bg-[#00e2e5] text-xl font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
             >
-              {ready
-                ? "Resume"
-                : cycles > 0
-                  ? "Waiting for the tray to be emptied & reinserted…"
-                  : "Waiting until it’s cleared…"}
+              {ready ? "Resume" : "Waiting until it’s cleared…"}
             </button>
             {!ready && (
               <p className="mt-2 text-xs text-white/40">
-                {cycles > 0
-                  ? "Resume unlocks once the tray is pulled out, emptied, and slid back in."
-                  : "Resume unlocks automatically once the dispenser reports it’s clear."}
+                Resume unlocks automatically once the dispenser reports it’s clear.
               </p>
             )}
           </>

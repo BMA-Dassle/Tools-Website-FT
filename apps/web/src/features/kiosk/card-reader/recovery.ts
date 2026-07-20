@@ -23,13 +23,6 @@ export type FaultBehavior =
       hint?: string;
       /** Gates the staff Resume button — disabled until this returns true. Omitted = enabled now. */
       resumeReady?: (s: CrtStatus) => boolean;
-      /** Gate Resume on observing this many full→clear CYCLES (instead of a
-       *  snapshot). For the reject bin: the tray reads "empty" whether it's
-       *  pulled out OR emptied+reinserted, so a single clear can't confirm
-       *  service — but a real empty-and-reinsert trips the sensor twice (pull =
-       *  clear #1, reinsert re-trips then clears = #2), while a mere pull-out
-       *  clears once. Takes precedence over resumeReady when set. */
-      resumeAfterClearCycles?: number;
       /** Run INIT when staff resume (the device lost its card position). */
       reinitOnResume: boolean;
     }
@@ -73,12 +66,11 @@ export function classifyFault(info: CrtErrorInfo): FaultBehavior {
           return {
             kind: "hold",
             title: "Card bin full",
-            message: "Empty the reject tray, then slide it back in to resume.",
+            message: "The reject bin needs to be emptied.",
             hint,
-            // The tray reads "empty" whether pulled out or emptied+reinserted, so
-            // require the full→empty cycle TWICE — a real empty-and-reinsert trips
-            // it twice, a mere pull-out only once.
-            resumeAfterClearCycles: 2,
+            // Watch the sensor for full → empty: Resume unlocks once the bin
+            // reads clear (a pull-out to empty it triggers this once).
+            resumeReady: (s) => s.errorBin === "ok",
             reinitOnResume: true,
           };
         case "10": // card jam

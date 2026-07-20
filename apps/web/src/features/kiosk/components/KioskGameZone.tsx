@@ -81,13 +81,11 @@ const BAD_READ_HOLD: HoldFault = {
 const BIN_FULL_HOLD: HoldFault = {
   kind: "hold",
   title: "Card bin full",
-  message: "Empty the reject tray, then slide it back in to resume.",
-  hint: "Pull the tray out, empty it, and reinsert it — Resume unlocks once it's back in.",
-  // The tray reads "empty" whether it's pulled out OR emptied + reinserted, so a
-  // single clear can't confirm it was serviced. Require the full→empty cycle
-  // TWICE: pulling the tray clears it once, reinserting the empty tray re-trips
-  // the sensor and clears it again — a plain pull-out only ever clears once.
-  resumeAfterClearCycles: 2,
+  message: "The reject bin needs to be emptied before more cards can be dispensed.",
+  hint: "Empty the reject bin — Resume unlocks once the sensor reads clear.",
+  // Watch the sensor for full → empty: Resume unlocks the moment the bin reads
+  // clear (a pull-out to empty it triggers this once).
+  resumeReady: (s) => s.errorBin === "ok",
   reinitOnResume: true,
 };
 
