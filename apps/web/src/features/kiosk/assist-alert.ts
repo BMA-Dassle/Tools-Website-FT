@@ -23,6 +23,9 @@ export const assistAlertSchema = z.object({
   center: z.enum(["fort-myers", "naples"]),
   brand: z.enum(["fasttrax", "headpinz"]),
   kioskNumber: z.number().int().positive(),
+  /** "help" = guest tapped the assistance button; "card-error" = the card
+   *  dispenser hold-faulted and the kiosk raised the beacon itself. */
+  reason: z.enum(["help", "card-error"]).default("help"),
 });
 
 export type AssistAlertInput = z.infer<typeof assistAlertSchema>;
@@ -43,7 +46,7 @@ export function radioServerFor(input: Pick<AssistAlertInput, "center" | "brand">
 
 /** Spoken kiosk name. At HPFM the number encodes the zone (owner 2026-07-20):
  *  numbers under 10 are Game Zone kiosks, 10 and up are bowling kiosks. */
-export function kioskLabel(input: AssistAlertInput): string {
+export function kioskLabel(input: Omit<AssistAlertInput, "reason">): string {
   if (radioServerFor(input) === "HPFM") {
     return input.kioskNumber < 10
       ? `Game Zone kiosk ${input.kioskNumber}`
@@ -64,9 +67,13 @@ export function buildAssistAlert(input: AssistAlertInput): {
     server: radioServerFor(input),
     target: "FOH",
     priority: 1,
-    message: `Guest needs assistance at ${kioskLabel(input)}`,
+    message:
+      input.reason === "card-error"
+        ? `Card error at ${kioskLabel(input)}`
+        : `Guest needs assistance at ${kioskLabel(input)}`,
     // Dedup key — the service prefixes it with the server, so per-venue
-    // uniqueness only needs the kiosk number.
+    // uniqueness only needs the kiosk number. Deliberately reason-agnostic:
+    // one kiosk never streams two overlapping alert series.
     name: `KioskAssist${input.kioskNumber}`,
     cooldown: DEDUP_COOLDOWN_SECONDS,
   };

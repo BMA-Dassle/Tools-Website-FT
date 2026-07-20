@@ -190,6 +190,7 @@ export function KioskGameZone({
   onBusyChange,
   cartHasItems = false,
   onAddToVisit,
+  onCardFault,
 }: {
   center: CenterCode;
   brand: Brand;
@@ -206,6 +207,11 @@ export function KioskGameZone({
    *  shared checkout, fulfillment on the confirmation screen. */
   cartHasItems?: boolean;
   onAddToVisit?: (purchase: GameCardCartPurchase) => void;
+  /** Fires ONCE per dispenser hold fault (out of cards / bin full / jam / bad
+   *  stock) so the flow can raise the guest-assistance beacon (owner
+   *  2026-07-20). Never re-fires for the same fault — after staff clear the
+   *  beacon they need the hold screen (Resume / See attendant) usable. */
+  onCardFault?: () => void;
 }) {
   // Every kiosk lands on the chooser — MSR-only kiosks offer reload + balance
   // check there, with new-card sales greyed out (owner 2026-07-20; the first
@@ -296,6 +302,22 @@ export function KioskGameZone({
   useEffect(() => {
     onBusyChange?.(phase === "loading" || phase === "paying" || holdFault != null);
   }, [phase, holdFault, onBusyChange]);
+
+  // Card-error beacon: report each hold fault to the parent exactly once, by
+  // instance — a re-render (or the parent closing the beacon) must not re-raise
+  // it, but a NEW fault after this one resolves must. The ref tracks which
+  // fault object has already been reported; null-fault resets it.
+  const reportedFaultRef = useRef<HoldFault | null>(null);
+  useEffect(() => {
+    if (!holdFault) {
+      reportedFaultRef.current = null;
+      return;
+    }
+    if (reportedFaultRef.current !== holdFault) {
+      reportedFaultRef.current = holdFault;
+      onCardFault?.();
+    }
+  }, [holdFault, onCardFault]);
 
   // Final screen auto-closes hands-free: we only land on "done" once the cards
   // are dispensed + taken (sensor-confirmed via waitTaken), so no one has to tap

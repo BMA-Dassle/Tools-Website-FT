@@ -237,6 +237,10 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   // staff beacon and HOLDS the kiosk exactly where it is (idle reset paused)
   // until Clear is tapped.
   const [assistActive, setAssistActive] = useState(false);
+  // Why the beacon is up — picks the overlay copy + the radio message. A card
+  // error (dispenser hold fault) auto-raises the beacon; Clear reveals the
+  // underlying hold screen for staff (owner 2026-07-20).
+  const [assistReason, setAssistReason] = useState<"help" | "card-error">("help");
   const timerRef = useRef<ReservationTimerHandle>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const seededGotoRef = useRef(false);
@@ -260,12 +264,13 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           center: config.center,
           brand: config.brand,
           kioskNumber: config.kioskNumber ?? 1,
+          reason: assistReason,
         }),
       }).catch(() => {});
     send();
     const timer = setInterval(send, 30_000);
     return () => clearInterval(timer);
-  }, [assistActive, config]);
+  }, [assistActive, assistReason, config]);
 
   // Post-hydration seeding: center from device config; ?goto= deep link.
   useEffect(() => {
@@ -778,7 +783,10 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       )}
       <button
         type="button"
-        onClick={() => setAssistActive(true)}
+        onClick={() => {
+          setAssistReason("help");
+          setAssistActive(true);
+        }}
         className="k-util-btn k-tap"
         style={{ borderColor: "rgba(239,68,68,0.5)", color: "#fca5a5" }}
       >
@@ -976,10 +984,13 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       />
       {assistActive && (
         <div className="k-assist-overlay">
-          <div className="k-display text-[110px] leading-none text-white">Help is on the way</div>
+          <div className="k-display text-[110px] leading-none text-white">
+            {assistReason === "card-error" ? "Card error" : "Help is on the way"}
+          </div>
           <p className="max-w-[26ch] text-[34px] font-semibold text-white/90">
-            Stay right here — a team member is coming to assist you. Your booking is held exactly
-            where you left it.
+            {assistReason === "card-error"
+              ? "There's a problem with the card dispenser — a team member will be right with you. Stay right here."
+              : "Stay right here — a team member is coming to assist you. Your booking is held exactly where you left it."}
           </p>
           <button
             type="button"
@@ -1147,6 +1158,10 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           capability={gameZoneCapability(config) === "reload" ? "reload" : "full"}
           onExit={() => setGzOpen(false)}
           onBusyChange={setGzBusy}
+          onCardFault={() => {
+            setAssistReason("card-error");
+            setAssistActive(true);
+          }}
           // With activities in the cart, cards JOIN the booking (owner
           // 2026-07-18) — one payment at the shared checkout, fulfillment on
           // the confirmation screen.

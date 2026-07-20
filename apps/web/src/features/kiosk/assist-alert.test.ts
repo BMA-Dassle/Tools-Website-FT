@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildAssistAlert, kioskLabel, radioServerFor } from "./assist-alert";
+import { assistAlertSchema, buildAssistAlert, kioskLabel, radioServerFor } from "./assist-alert";
 
 describe("radioServerFor", () => {
   it("routes Naples to HPN", () => {
@@ -40,9 +40,25 @@ describe("kioskLabel", () => {
   });
 });
 
+describe("assistAlertSchema", () => {
+  it("defaults reason to help (pre-reason kiosk clients)", () => {
+    const parsed = assistAlertSchema.parse({
+      center: "fort-myers",
+      brand: "headpinz",
+      kioskNumber: 3,
+    });
+    expect(parsed.reason).toBe("help");
+  });
+});
+
 describe("buildAssistAlert", () => {
   it("builds the full radio payload", () => {
-    const alert = buildAssistAlert({ center: "fort-myers", brand: "headpinz", kioskNumber: 12 });
+    const alert = buildAssistAlert({
+      center: "fort-myers",
+      brand: "headpinz",
+      kioskNumber: 12,
+      reason: "help",
+    });
     expect(alert).toEqual({
       server: "HPFM",
       target: "FOH",
@@ -53,10 +69,26 @@ describe("buildAssistAlert", () => {
     });
   });
 
+  it("speaks a card-error message for dispenser faults, same dedup name", () => {
+    const alert = buildAssistAlert({
+      center: "fort-myers",
+      brand: "headpinz",
+      kioskNumber: 3,
+      reason: "card-error",
+    });
+    expect(alert.message).toBe("Card error at Game Zone kiosk 3");
+    expect(alert.name).toBe("KioskAssist3");
+  });
+
   it("keeps the dedup cooldown under the kiosk's 30s repeat interval", () => {
     // The soteria janitor frees a dedup jobId up to ~10s after `cooldown`
     // expires; the repeat only plays if cooldown + 10 < 30.
-    const alert = buildAssistAlert({ center: "naples", brand: "headpinz", kioskNumber: 1 });
+    const alert = buildAssistAlert({
+      center: "naples",
+      brand: "headpinz",
+      kioskNumber: 1,
+      reason: "help",
+    });
     expect(alert.cooldown + 10).toBeLessThan(30);
   });
 });
