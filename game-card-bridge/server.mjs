@@ -152,8 +152,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function cloudPost(path, payload) {
   const res = await fetch(`${GC_CLOUD_URL}${path}`, {
     method: "POST",
+    // Secret goes in BOTH the header and the body: center firewalls with SSL
+    // inspection have been seen stripping custom request headers; the JSON
+    // body field survives. The cloud accepts either.
     headers: { "content-type": "application/json", "x-gc-bridge-secret": GC_BRIDGE_SECRET },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, secret: GC_BRIDGE_SECRET }),
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`${path} HTTP ${res.status}`);

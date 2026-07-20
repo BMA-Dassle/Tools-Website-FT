@@ -20,11 +20,17 @@ export async function POST(req: NextRequest) {
     console.error("[gc-bridge] GAME_CARD_BRIDGE_SECRET not configured");
     return NextResponse.json({ error: "server not configured" }, { status: 500 });
   }
-  if (req.headers.get("x-gc-bridge-secret") !== SECRET) {
+  // Secret rides the header OR the body (`secret`): center firewalls doing
+  // SSL inspection have been seen stripping custom request headers; a JSON
+  // body field survives their sanitizers. Zod strips the extra key.
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const provided =
+    req.headers.get("x-gc-bridge-secret") ??
+    (typeof body?.secret === "string" ? body.secret : null);
+  if (provided !== SECRET) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   try {
-    const body = await req.json().catch(() => null);
     const parsed = BridgeClaimSchema.safeParse(body);
     if (!parsed.success) {
       throw new GameCardHttpError(400, "INVALID_INPUT", "Bad claim payload.");
