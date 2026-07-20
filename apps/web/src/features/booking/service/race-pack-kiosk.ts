@@ -18,6 +18,7 @@
  * the session/UI carries pointers only (displayed == charged rule).
  */
 import { RACE_PACKS, getRacePack, racePackLabel, type RacePack } from "../data/packs";
+import { memberEligibleCreditTotal } from "../data/race-credits";
 import { getRaceProductById } from "./race-products";
 import type { RaceHeatAssignment } from "../state/types";
 
@@ -217,4 +218,51 @@ export function computePackCoverage(
     }
   }
   return { heats, redemptions, usedByMember };
+}
+
+// ── Product-step coverage PREVIEW ("covered by pack" pricing) ────────────────
+
+export type CoverageSource = "cart-pack" | "account-credits";
+
+export interface CoveredMemberPreview {
+  source: CoverageSource;
+  /** account-credits only: total credits eligible on `raceDate`. */
+  credits?: number;
+}
+
+/**
+ * Which party members' NEXT race today is already paid for — DISPLAY ONLY.
+ * Drives the race product step's covered pricing + "now pick your race"
+ * guidance; charging never reads this (the charge path re-derives coverage
+ * server-side via computePackCoverage / the credit-redeem rail).
+ *
+ * A member is covered when they hold an in-cart credit pack (`item.creditPacks`
+ * pointer — always valid today, the sell surface is day-gated) or when their
+ * account has credits eligible on `raceDate` (same eligibility the checkout's
+ * default-ON redeem opt-in uses: bmiPersonId + !isNewRacer + eligible total).
+ * An in-cart pack wins over account credits so copy names what they just did.
+ */
+export function coveredMembersPreview(
+  item: { creditPacks?: Array<{ slug: string; memberId: string }> | undefined },
+  party: Array<{
+    id: string;
+    bmiPersonId?: string | null;
+    isNewRacer?: boolean;
+    creditBalances?: Array<{ kind: string; balance: number }>;
+  }>,
+  raceDate: string | null,
+): Map<string, CoveredMemberPreview> {
+  const covered = new Map<string, CoveredMemberPreview>();
+  for (const m of party) {
+    if (!m.bmiPersonId || m.isNewRacer) continue;
+    const credits = memberEligibleCreditTotal(m.creditBalances, raceDate);
+    if (credits > 0) covered.set(m.id, { source: "account-credits", credits });
+  }
+  for (const sel of item.creditPacks ?? []) {
+    if (!getRacePack(sel.slug)) continue;
+    const member = party.find((m) => m.id === sel.memberId);
+    if (!member?.bmiPersonId) continue;
+    covered.set(sel.memberId, { source: "cart-pack" });
+  }
+  return covered;
 }

@@ -21,29 +21,31 @@ import { activeComboSpecial } from "~/features/combos/combo-pricing";
 /** Savings baseline = the $26.99 single race (never fold the license in). */
 const SINGLE_RACE_BASELINE = 26.99;
 
+/** The teaser's render gate, exported so the product step can decide whether
+ *  the "pick a single race" divider has anything above it without duplicating
+ *  these rules (they must never drift apart). */
+export function racePackTeaserVisible(session: BookingSession): boolean {
+  if (!session.context?.kiosk || !kioskRacePacksEnabled()) return false;
+  if (activeComboSpecial(session)) return false;
+  if (kioskPackSkus().length === 0) return false;
+  return session.party.some((m) => !!m.bmiPersonId);
+}
+
 export function RacePackTeaser({
   item,
   session,
   onChange,
-  withDivider,
 }: {
   item: RaceItem;
   session: BookingSession;
   onChange: (patch: Partial<RaceItem>) => void;
-  /** Render the "or pick a single race" divider below the teaser — used when
-   *  the premium-packages block (which carries its own divider) is absent. */
-  withDivider?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [pendingSlug, setPendingSlug] = useState<string | null>(null);
 
-  if (!session.context?.kiosk || !kioskRacePacksEnabled()) return null;
-  if (activeComboSpecial(session)) return null;
+  if (!racePackTeaserVisible(session)) return null;
   const skus = kioskPackSkus();
-  if (skus.length === 0) return null;
-
   const eligible = session.party.filter((m) => !!m.bmiPersonId);
-  if (eligible.length === 0) return null;
 
   const picks = item.creditPacks ?? [];
   const packFor = (memberId: string) => picks.find((p) => p.memberId === memberId);
@@ -224,15 +226,6 @@ export function RacePackTeaser({
           </div>
         )}
       </div>
-      {withDivider && (
-        <div className="flex items-center gap-3 py-2 pt-4">
-          <div className="h-px flex-1 bg-white/25" />
-          <span className="text-xs font-bold uppercase tracking-wider text-white/60">
-            or pick a single race
-          </span>
-          <div className="h-px flex-1 bg-white/25" />
-        </div>
-      )}
     </div>
   );
 }

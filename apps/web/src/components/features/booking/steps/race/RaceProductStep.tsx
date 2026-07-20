@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState, type ComponentProps } from "react";
-import { IconDiscount2 } from "@tabler/icons-react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { IconCircleCheck, IconDiscount2 } from "@tabler/icons-react";
 import type { RaceHeatAssignment, RaceItem, StepDef } from "~/features/booking";
 import { packageIdForCategory } from "~/features/booking";
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
@@ -18,8 +18,13 @@ import { scheduleForDate, LICENSE_PRICE } from "~/features/booking/service/race-
 import { eligiblePackages, getPackage } from "~/features/booking/service/packages";
 import { ComboUpsellCard } from "../combo/ComboUpsellCard";
 import { PackageCard } from "./PackageCard";
-import { RacePackTeaser } from "./RacePackTeaser";
-import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
+import { RacePackTeaser, racePackTeaserVisible } from "./RacePackTeaser";
+import {
+  coveredMembersPreview,
+  kioskRacePacksEnabled,
+  type CoverageSource,
+  type CoveredMemberPreview,
+} from "~/features/booking/service/race-pack-kiosk";
 
 /**
  * Race step — pick the product for ONE category (adult or junior).
@@ -133,7 +138,12 @@ function groupByTier(products: RaceProduct[]): [RaceTier, RaceProduct[]][] {
 }
 
 function makeProductStepComponent(category: Category): StepDef<RaceItem>["Component"] {
-  const Component: StepDef<RaceItem>["Component"] = ({ item, session, onChange }) => {
+  const Component: StepDef<RaceItem>["Component"] = ({
+    item,
+    session,
+    onChange,
+    requestAdvance,
+  }) => {
     if (!item.date) {
       return (
         <div className="text-center text-sm text-white/50">
@@ -150,7 +160,14 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
       );
     }
 
-    return <RaceProductGrid item={item} session={session} onChange={onChange} />;
+    return (
+      <RaceProductGrid
+        item={item}
+        session={session}
+        onChange={onChange}
+        requestAdvance={requestAdvance}
+      />
+    );
   };
 
   // Single-race product grid. Its own component so the useMemo hooks below run
@@ -163,7 +180,11 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     item,
     session,
     onChange,
-  }: Pick<ComponentProps<StepDef<RaceItem>["Component"]>, "item" | "session" | "onChange">) => {
+    requestAdvance,
+  }: Pick<
+    ComponentProps<StepDef<RaceItem>["Component"]>,
+    "item" | "session" | "onChange" | "requestAdvance"
+  >) => {
     const racersInCategory = racersOfCategory(session.party, category);
     const racerCount = racersInCategory.length;
 
@@ -172,6 +193,14 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     // One pack's details open at a time. Web renders the rich cards unchanged.
     const kioskCompactPacks = !!session.context?.kiosk;
     const [openPackDetails, setOpenPackDetails] = useState<string | null>(null);
+
+    // A package pick advances straight to the heat step — v1 parity (the old
+    // ProductPicker advanced 300 ms after a package tap) and the same feel as
+    // the kiosk's Ultimate Qualifier tile, which skips this step entirely.
+    // Armed ONLY by a tap (never on mount), so Back-nav lands here calmly with
+    // the pick still highlighted; the effect waits for the pick to COMMIT to
+    // item state so the host's handleNext sees canAdvance === true.
+    const [advancePending, setAdvancePending] = useState(false);
 
     // racerType drives the product SET + tier gating. Use the NEW-racer flow
     // (Starter only + license bundle) ONLY when EVERY racer is new. A MIXED party
@@ -233,6 +262,64 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     const selectedPackageId = packageIdForCategory(item, category);
 
     const selectedProductId = category === "adult" ? item.productIdAdult : item.productIdJunior;
+
+    // Fires once the tapped package is ON item state (post-commit) — 300 ms so
+    // the selection ring paints first. Cleanup covers double-taps + unmount.
+    // Hosts that don't pass requestAdvance just keep today's manual Continue.
+    useEffect(() => {
+      if (!advancePending || !selectedPackageId) return;
+      const t = setTimeout(() => {
+        setAdvancePending(false);
+        requestAdvance?.();
+      }, 300);
+      return () => clearTimeout(t);
+    }, [advancePending, selectedPackageId, requestAdvance]);
+
+    // Coverage PREVIEW (kiosk + packs on): which of THIS category's racers have
+    // today's race already paid — an in-cart credit pack or account credits.
+    // Display only; charging re-derives coverage server-side. Web stays off
+    // (empty map) alongside the teaser it explains.
+    const packsUiOn = kioskCompactPacks && kioskRacePacksEnabled();
+    const coverage: Map<string, CoveredMemberPreview> = packsUiOn
+      ? coveredMembersPreview(item, session.party, item.date)
+      : new Map();
+    const coveredInCategory = session.party.filter(
+      (m) => (m.category ?? "adult") === category && coverage.has(m.id),
+    );
+    const coveredNames = coveredInCategory.map((m) => m.firstName);
+    const coverageSource: CoverageSource = coveredInCategory.some(
+      (m) => coverage.get(m.id)?.source === "cart-pack",
+    )
+      ? "cart-pack"
+      : "account-credits";
+    const tierCovered =
+      coveredInCategory.length > 0
+        ? { names: coveredNames, count: coveredInCategory.length, source: coverageSource }
+        : undefined;
+    // Guidance (banner + "next:" divider) shows while the covered race is still
+    // unpicked; a package pick supersedes it (the bundle owns the race).
+    const showCoverageGuidance = !!tierCovered && !selectedProductId && !selectedPackageId;
+    const bannerCredits =
+      coveredInCategory.length === 1 ? coverage.get(coveredInCategory[0].id)?.credits : undefined;
+    const selectedPkg = getPackage(selectedPackageId);
+
+    // A pack landing on the cart scrolls the singles section into view — the
+    // required "now pick a race" step lives below the portrait fold.
+    const singlesRef = useRef<HTMLDivElement | null>(null);
+    const prevPackCount = useRef(item.creditPacks?.length ?? 0);
+    useEffect(() => {
+      const count = item.creditPacks?.length ?? 0;
+      if (packsUiOn && count > prevPackCount.current) {
+        const reduced =
+          typeof window !== "undefined" &&
+          window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        singlesRef.current?.scrollIntoView({
+          behavior: reduced ? "auto" : "smooth",
+          block: "start",
+        });
+      }
+      prevPackCount.current = count;
+    }, [item.creditPacks, packsUiOn]);
 
     // Package heats hold in BMI the moment they're tapped, so abandoning the
     // outgoing package for a different selection must ALSO drop + release its
@@ -432,8 +519,13 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
                 }
                 onSelect={() => {
                   // Re-selecting the SAME package keeps its held heats —
-                  // looking around via back-nav must stay free.
-                  if (pkg.id === selectedPackageId) return;
+                  // looking around via back-nav must stay free. The re-tap
+                  // still advances ("yes, this one"): without it the second
+                  // tap dead-ends on an already-selected card.
+                  if (pkg.id === selectedPackageId) {
+                    setAdvancePending(true);
+                    return;
+                  }
                   // Persist the package pick on THIS CATEGORY's field so
                   // back-nav doesn't lose it + so saveBookingDetails forwards
                   // it to the booking-record (drives sales_log.package_id).
@@ -460,6 +552,7 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
                   if (removed.some((h) => h.bmiLineId)) {
                     void releaseHeatBmiLines(session, removed);
                   }
+                  setAdvancePending(true);
                 }}
               />
             ))}
@@ -468,29 +561,43 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
             {(category === "adult" || !hasAdults) && (
               <RacePackTeaser item={item} session={session} onChange={onChange} />
             )}
-            {/* Kiosk: brighter divider — at arm's length the /30 version read as
-                nearly invisible, so guests never realized singles were below. */}
-            <div className="flex items-center gap-3 py-2">
-              <div className={`h-px flex-1 ${kioskCompactPacks ? "bg-white/25" : "bg-white/10"}`} />
-              <span
-                className={`text-xs uppercase tracking-wider ${
-                  kioskCompactPacks ? "font-bold text-white/60" : "text-white/30"
-                }`}
-              >
-                or pick a single race
-              </span>
-              <div className={`h-px flex-1 ${kioskCompactPacks ? "bg-white/25" : "bg-white/10"}`} />
-            </div>
+            {showCoverageGuidance && (
+              <CoverageBanner
+                names={coveredNames}
+                source={coverageSource}
+                credits={bannerCredits}
+              />
+            )}
+            <SinglesDivider bright={kioskCompactPacks} nextStep={showCoverageGuidance} />
           </div>
         )}
 
         {/* Returning racers see no premium-packages block — the pack teaser
-            still shows (with its own divider) so packs sell on every screen. */}
-        {packages.length === 0 && (category === "adult" || !hasAdults) && (
-          <RacePackTeaser item={item} session={session} onChange={onChange} withDivider />
-        )}
+            still sells on every screen, and a covered racer (fresh pack via
+            "Race today", or banked credits from any past visit) still gets the
+            guidance + divider so the page reads as one directed step. */}
+        {packages.length === 0 &&
+          (category === "adult" || !hasAdults) &&
+          (racePackTeaserVisible(session) || showCoverageGuidance) && (
+            <div className="space-y-3">
+              <RacePackTeaser item={item} session={session} onChange={onChange} />
+              {showCoverageGuidance && (
+                <CoverageBanner
+                  names={coveredNames}
+                  source={coverageSource}
+                  credits={bannerCredits}
+                />
+              )}
+              <SinglesDivider bright={kioskCompactPacks} nextStep={showCoverageGuidance} />
+            </div>
+          )}
 
-        <div className="space-y-6">
+        <div className="space-y-6" ref={singlesRef}>
+          {selectedPkg && (
+            <p className="text-xs leading-relaxed text-amber-400/75">
+              Your {selectedPkg.name} includes your race — picking a single race below replaces it.
+            </p>
+          )}
           {groupByTier(sorted).map(([tier, tierProducts]) => {
             // A tier carries at most one single race (Red+Blue collapsed by
             // combineTrackVariants, or a lone Mega/junior product) and at most
@@ -500,7 +607,7 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
             // KIOSK + credit packs ON: hide the BOOKED Single|3-Pack columns so
             // "pack" means exactly one thing on this machine (the credit-pack
             // teaser above) — owner ask; web/staff keep selling booked packs.
-            const hideBookedPacks = kioskCompactPacks && kioskRacePacksEnabled();
+            const hideBookedPacks = packsUiOn;
             const single = tierProducts.find((p) => p.packType !== "combo");
             const pack = hideBookedPacks
               ? undefined
@@ -530,6 +637,7 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
                     onSelect={handleCardClick}
                     racerType={racerType}
                     racerCount={racerCount}
+                    covered={tierCovered}
                   />
                   {extras.map((p) => (
                     <TierCard
@@ -539,6 +647,7 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
                       onSelect={handleCardClick}
                       racerType={racerType}
                       racerCount={racerCount}
+                      covered={tierCovered}
                     />
                   ))}
                 </div>
@@ -587,6 +696,62 @@ function TrackLine({ product }: { product: RaceProduct }) {
   );
 }
 
+/** "or pick a single race" — flips to a directed "next:" instruction while a
+ *  covered racer still has no race picked (the required step reads as optional
+ *  otherwise). Bright variant for the kiosk (the /30 lines vanish at arm's
+ *  length). */
+function SinglesDivider({ bright, nextStep }: { bright: boolean; nextStep: boolean }) {
+  const rule = nextStep ? "bg-[#00E2E5]/35" : bright ? "bg-white/25" : "bg-white/10";
+  const label = nextStep
+    ? "font-bold text-[#00E2E5]/80"
+    : bright
+      ? "font-bold text-white/60"
+      : "text-white/30";
+  return (
+    <div className="flex items-center gap-3 py-2">
+      <div className={`h-px flex-1 ${rule}`} />
+      <span className={`text-xs uppercase tracking-wider ${label}`}>
+        {nextStep ? "next: pick your race for today" : "or pick a single race"}
+      </span>
+      <div className={`h-px flex-1 ${rule}`} />
+    </div>
+  );
+}
+
+/** Directed next step once a racer's race is already paid for — an in-cart
+ *  pack ("Pack added…") or account credits ("{name} has N race credits").
+ *  Same cyan banner grammar as the step's "You've added N races" notice. */
+function CoverageBanner({
+  names,
+  source,
+  credits,
+}: {
+  names: string[];
+  source: CoverageSource;
+  credits?: number;
+}) {
+  const joined = names.join(" & ");
+  const heading =
+    source === "cart-pack"
+      ? "Pack added — now pick your race"
+      : credits != null
+        ? `${joined} has ${credits} race credit${credits === 1 ? "" : "s"}`
+        : `${joined} ${names.length === 1 ? "has" : "have"} race credits`;
+  const body =
+    source === "cart-pack"
+      ? `Choose which race to run today — ${joined}'s first race is covered.`
+      : "Today's race is covered — pick your race below.";
+  return (
+    <div className="flex gap-2.5 rounded-xl border border-[#00E2E5]/35 bg-[#00E2E5]/5 p-3">
+      <IconCircleCheck size={19} aria-hidden className="mt-0.5 shrink-0 text-[#00E2E5]" />
+      <div className="text-left">
+        <p className="text-sm font-bold tracking-wide text-[#00E2E5] uppercase">{heading}</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-white/60">{body}</p>
+      </div>
+    </div>
+  );
+}
+
 /**
  * One card per tier. When the tier has a 3-pack, the Single / 3-Pack choice
  * renders as two selectable columns INSIDE the card (Option C mockup) — the
@@ -603,6 +768,7 @@ function TierCard({
   onSelect,
   racerType,
   racerCount,
+  covered,
 }: {
   single?: RaceProduct;
   pack?: RaceProduct;
@@ -610,6 +776,11 @@ function TierCard({
   onSelect: (product: RaceProduct) => void;
   racerType: RacerType;
   racerCount: number;
+  /** Coverage PREVIEW for this category (kiosk + packs on): racers whose next
+   *  race today is already paid — in-cart pack or account credits. Undefined
+   *  everywhere else; combo (booked multi-race) products never show covered
+   *  pricing, matching computePackCoverage's exclusions. */
+  covered?: { names: string[]; count: number; source: CoverageSource };
 }) {
   const primary = (single ?? pack)!;
   const tier = primary.tier;
@@ -638,6 +809,29 @@ function TierCard({
   // ── Simple card (no Single-vs-Pack choice): the whole card is the button.
   if (!single || !pack) {
     const product = primary;
+    // Coverage preview (display only): all-covered swaps the price for a
+    // struck-through original + "Covered by …" chip; a partially covered
+    // group keeps the price and shows honest split math. Never on combo
+    // (booked multi-race) products — coverage excludes them at charge time.
+    const cov = covered && covered.count > 0 && product.packType !== "combo" ? covered : undefined;
+    const covAll = !!cov && cov.count >= racers;
+    const covOthers = cov ? Math.max(0, racers - cov.count) : racers;
+    const covNames = cov ? cov.names.join(" & ") : "";
+    const covChip = cov
+      ? cov.source === "cart-pack"
+        ? "Covered by pack"
+        : "Covered by credits"
+      : "";
+    const covPaidLine = cov
+      ? cov.source === "cart-pack"
+        ? `Paid by ${covNames}'s race pack at checkout.`
+        : `Paid with ${covNames}'s race credits at checkout.`
+      : "";
+    const coveredChip = (
+      <span className="ml-1.5 inline-block rounded-full border border-emerald-500/35 bg-emerald-500/15 px-2 py-0.5 align-middle text-[10px] font-extrabold tracking-[0.1em] text-emerald-300 uppercase">
+        {covChip}
+      </span>
+    );
     return (
       <button
         type="button"
@@ -648,14 +842,28 @@ function TierCard({
         {selectedFlag}
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <span className="text-[15px] font-bold text-white">{product.name}</span>
-          {product.price > 0 && (
-            <span className="text-[15px] font-extrabold whitespace-nowrap text-white tabular-nums">
-              ${(showNewBreakdown ? groupTotal : product.price).toFixed(2)}
-              {!showNewBreakdown && product.packType !== "combo" && (
-                <span className="text-xs font-medium text-white/40"> / racer</span>
-              )}
-            </span>
-          )}
+          {product.price > 0 &&
+            (covAll ? (
+              <span className="text-[15px] font-extrabold whitespace-nowrap tabular-nums">
+                <span className="text-white/35 line-through">
+                  ${(showNewBreakdown ? groupTotal : product.price).toFixed(2)}
+                </span>
+                {showNewBreakdown ? (
+                  <span className="ml-1.5 text-white">
+                    ${(licensePerRacer * racers).toFixed(2)}
+                  </span>
+                ) : (
+                  coveredChip
+                )}
+              </span>
+            ) : (
+              <span className="text-[15px] font-extrabold whitespace-nowrap text-white tabular-nums">
+                ${(showNewBreakdown ? groupTotal : product.price).toFixed(2)}
+                {!showNewBreakdown && product.packType !== "combo" && (
+                  <span className="text-xs font-medium text-white/40"> / racer</span>
+                )}
+              </span>
+            ))}
         </div>
         <p className="mt-1 text-[13px] leading-relaxed text-white/50">{TIER_DESCRIPTIONS[tier]}</p>
         {racerType === "new" && tier === "starter" && (
@@ -670,10 +878,31 @@ function TierCard({
             <div className="flex items-baseline justify-between gap-2 text-white/70">
               <span>
                 <span className="text-emerald-400">✓</span> {single.name}
-                {racers > 1 && <span className="text-white/40"> × {racers}</span>}
+                {(cov ? covOthers > 1 : racers > 1) && (
+                  <span className="text-white/40"> × {cov ? covOthers : racers}</span>
+                )}
               </span>
-              <span className="text-white/60">${(single.price * racers).toFixed(2)}</span>
+              {covAll ? (
+                <span>
+                  <span className="text-white/35 line-through">
+                    ${(single.price * racers).toFixed(2)}
+                  </span>
+                  {coveredChip}
+                </span>
+              ) : (
+                <span className="text-white/60">
+                  ${(single.price * (cov ? covOthers : racers)).toFixed(2)}
+                </span>
+              )}
             </div>
+            {cov && !covAll && (
+              <div className="flex items-baseline justify-between gap-2 text-emerald-300/85">
+                <span>
+                  <span className="text-emerald-400">✓</span> {single.name} — {covNames}
+                </span>
+                {coveredChip}
+              </div>
+            )}
             <div className="flex items-baseline justify-between gap-2 text-white/70">
               <span>
                 <span className="text-emerald-400">✓</span> Racing License
@@ -683,18 +912,39 @@ function TierCard({
             </div>
             <div className="mt-1 flex items-baseline justify-between gap-2 border-t border-white/10 pt-1.5">
               <span className="text-[11px] font-bold tracking-wider text-white/80 uppercase">
-                Total
+                {cov ? "Total today" : "Total"}
               </span>
-              <span className="font-bold text-white">${groupTotal.toFixed(2)}</span>
+              <span className="font-bold text-white">
+                $
+                {(cov ? single.price * covOthers + licensePerRacer * racers : groupTotal).toFixed(
+                  2,
+                )}
+              </span>
             </div>
           </div>
         )}
 
-        {!showNewBreakdown && product.packType !== "combo" && racers > 1 && product.price > 0 && (
-          <div className="mt-2 text-xs text-white/50">
-            ${product.price.toFixed(2)} × {racers} racers = ${(product.price * racers).toFixed(2)}{" "}
-            total
-          </div>
+        {!showNewBreakdown &&
+          product.packType !== "combo" &&
+          product.price > 0 &&
+          (covAll ? (
+            <div className="mt-2 text-xs text-emerald-300/85">{covPaidLine}</div>
+          ) : cov ? (
+            <div className="mt-2 text-xs text-white/50">
+              <span className="text-emerald-300/85">Covered for {covNames}</span> · $
+              {product.price.toFixed(2)} × {covOthers} other{covOthers === 1 ? "" : "s"} = $
+              {(product.price * covOthers).toFixed(2)} total
+            </div>
+          ) : (
+            racers > 1 && (
+              <div className="mt-2 text-xs text-white/50">
+                ${product.price.toFixed(2)} × {racers} racers = $
+                {(product.price * racers).toFixed(2)} total
+              </div>
+            )
+          ))}
+        {showNewBreakdown && covAll && (
+          <div className="mt-2 text-xs text-emerald-300/85">{covPaidLine}</div>
         )}
         {product.packType === "combo" && (
           <div className="mt-2 text-xs text-white/50">
@@ -772,6 +1022,11 @@ export const RaceProductStepAdult: StepDef<RaceItem> = {
       session.party.filter((m) => (m.category ?? "adult") === "adult").map((m) => m.id),
     );
     if (item.heats.some((h) => h.heatId && h.assignedTo && adultIds.has(h.assignedTo))) return true;
+    // A credit pack is in the cart but no race picked yet — connect the hint to
+    // what the guest just did (the generic line read as a non sequitur next to
+    // the pack they just assigned).
+    if ((item.creditPacks?.length ?? 0) > 0)
+      return { reason: "Race pack added — now pick which race to run today." };
     return { reason: "Pick an adult race to continue." };
   },
 };
@@ -791,6 +1046,8 @@ export const RaceProductStepJunior: StepDef<RaceItem> = {
     );
     if (item.heats.some((h) => h.heatId && h.assignedTo && juniorIds.has(h.assignedTo)))
       return true;
+    if ((item.creditPacks?.length ?? 0) > 0)
+      return { reason: "Race pack added — now pick which race to run today." };
     return { reason: "Pick a junior race to continue." };
   },
 };
