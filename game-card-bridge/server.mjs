@@ -60,6 +60,10 @@ function send(res, status, obj) {
     "access-control-allow-origin": ALLOW_ORIGIN,
     "access-control-allow-methods": "POST, GET, OPTIONS",
     "access-control-allow-headers": "content-type",
+    // Chrome/Edge Private-Network-Access: an HTTPS kiosk page may only fetch
+    // 127.0.0.1 if the preflight answers this — without it the browser blocks
+    // the call and the kiosk silently falls back to the cloud path.
+    "access-control-allow-private-network": "true",
     "cache-control": "no-store",
   });
   res.end(payload);
