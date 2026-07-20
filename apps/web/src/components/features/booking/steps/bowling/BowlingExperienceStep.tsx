@@ -114,13 +114,19 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
 
   // Hide packages with NOTHING bookable left this day (owner 2026-07-19:
   // "if the entire offer is not available, we should hide it" — e.g. Pizza
-  // Bowl late at night). Only once the accurate scan has settled — while
-  // loading or on scan failure every card stays (fail-open, hint copy
-  // handles the rest).
+  // Bowl late at night). Judged PER EXPERIENCE, not per QAMF offer — Pizza
+  // Bowl shares offer 158 with Regular Fri–Sun, so the offer having slots
+  // says nothing about Pizza Bowl's fixed 120 minutes still fitting. An
+  // experience stays when ANY of its durations has a verified slot. Only
+  // once the accurate scan has settled — while loading or on scan failure
+  // every card stays (fail-open, hint copy handles the rest).
   const scanSettled = !dayAvail.isLoading && dayAvail.data != null;
-  const bookable = scanSettled
-    ? experiences.filter((e) => (slotsByOffer.get(e.qamfWebOfferId) ?? []).length > 0)
-    : experiences;
+  const expHasAnySlot = (exp: BowlingExperienceWithDetails): boolean => {
+    const opts = exp.durationOptions ?? [];
+    if (opts.length === 0) return firstSlotFor(exp, exp.qamfOptionId ?? null) != null;
+    return opts.some((o) => firstSlotFor(exp, o.qamfOptionId) != null);
+  };
+  const bookable = scanSettled ? experiences.filter(expHasAnySlot) : experiences;
   const allSoldOut = scanSettled && experiences.length > 0 && bookable.length === 0;
 
   const regular = bookable.filter((e) => !e.isVip);

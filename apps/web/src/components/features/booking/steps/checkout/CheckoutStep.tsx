@@ -1481,18 +1481,24 @@ export function CheckoutStep({
           }
         }
       } catch (err) {
-        // Terminal path: the reader already captured the card. Never imply the
-        // guest must pay again — tell them we have the payment and to see staff
-        // (the terminal-orphan reconcile / staff can complete it). Otherwise the
-        // normal message.
-        setPhase({
-          step: "error",
-          message: params.externalPayment
-            ? "We received your payment but couldn't finish the booking — please see the front desk (do not pay again)."
-            : err instanceof Error
-              ? err.message
-              : "Reservation failed",
-        });
+        // Terminal path: the reader already captured the card, and reserve was
+        // already retried with the same payment above. Land on the no-Retry
+        // paid-unconfirmed screen — the generic error screen's Retry re-runs
+        // checkout, REMOUNTS the terminal gate, re-prepares a fresh seed and
+        // re-arms the reader, and a second tap captures the card AGAIN
+        // (2026-07-19: two $72.41 captures for one 10:30 PM lane). Staff / the
+        // terminal-orphan reconcile completes or refunds from the anchor.
+        if (params.externalPayment) {
+          setPhase({
+            step: "paid-unconfirmed",
+            amount: params.externalPayment.amountCents / 100,
+          });
+        } else {
+          setPhase({
+            step: "error",
+            message: err instanceof Error ? err.message : "Reservation failed",
+          });
+        }
       }
     }
 

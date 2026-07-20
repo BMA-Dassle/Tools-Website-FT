@@ -1503,13 +1503,26 @@ export async function POST(req: NextRequest) {
             ? resolveCartPurchase(body.gameCardPurchase)
             : null;
         const gzFinCents = gzFin?.totalCents ?? 0;
+        // The prepare anchor is the source of truth for WHERE the paid order
+        // lives. PREPARE takes the kiosk's own location (the paired reader can
+        // only charge orders at ITS device's location — a FastTrax kiosk selling
+        // HeadPinz bowling preps at LAB52…), while this full-reserve call falls
+        // back to the QAMF centerCode (TXBSQN…). Re-deriving dep-order-${seed}
+        // at the wrong location mints a DIFFERENT order and every finalize dies
+        // with "terminal payment paid a different order" (2026-07-19, X159666:
+        // two captures, zero bookings). Same story for the note — prepare's
+        // order body must be re-sent byte-identical.
+        const anchorRaw = await redis.get(`kiosk:terminal:anchor:${ep.seed}`).catch(() => null);
+        const anchor =
+          typeof anchorRaw === "string"
+            ? (JSON.parse(anchorRaw) as {
+                gameCards?: AnchorGameCards;
+                locationId?: string;
+              })
+            : (anchorRaw as { gameCards?: AnchorGameCards; locationId?: string } | null);
+        const depositLocationId = anchor?.locationId ?? squareLocationId;
         let gzAnchorCards: AnchorGameCards | null = null;
         if (gzFin) {
-          const anchorRaw = await redis.get(`kiosk:terminal:anchor:${ep.seed}`).catch(() => null);
-          const anchor =
-            typeof anchorRaw === "string"
-              ? (JSON.parse(anchorRaw) as { gameCards?: AnchorGameCards })
-              : (anchorRaw as { gameCards?: AnchorGameCards } | null);
           gzAnchorCards = anchor?.gameCards ?? null;
           if (!gzAnchorCards) {
             console.error(
@@ -1536,11 +1549,13 @@ export async function POST(req: NextRequest) {
           depositBaseKey = ep.seed; // finalize recreates dep-order-${seed} = the paid order
           const depositResult = await finalizeDepositFromExternalPayment({
             baseKey: ep.seed,
-            locationId: squareLocationId,
+            locationId: depositLocationId,
             amountCents: chargeCents, // server-authoritative; finalize verifies the reader paid EXACTLY this (+ card lines)
             ganPrefix,
             ganSuffix,
-            note: depositNote,
+            // Byte-match prepare's order body (see anchor read above) — the
+            // reservation-stamped depositNote belongs to the typed-card path.
+            note: `Kiosk deposit ${ep.seed.slice(0, 12)}`,
             externalPaymentId: ep.paymentId,
             extraLines: gzFin?.orderLines,
             extraCents: gzFinCents,
@@ -1585,7 +1600,7 @@ export async function POST(req: NextRequest) {
           await writeBowlingTerminalAnchor(ep.seed, {
             depositOrderId: ep.depositOrderId,
             depositCents: chargeCents,
-            locationId: squareLocationId,
+            locationId: depositLocationId,
             paymentId: ep.paymentId,
           }).catch(() => {});
           if (loyaltyRewardId) {
