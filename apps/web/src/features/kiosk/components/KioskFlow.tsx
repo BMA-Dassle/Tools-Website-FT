@@ -36,6 +36,7 @@ import {
   type StepDef,
 } from "~/features/booking";
 import { clearBookingSession, usePersistedReducer } from "~/features/booking/hooks";
+import { appendGrantedCredits } from "~/features/booking/data/race-credits";
 import { resetToKiosk } from "../version";
 import { CartView } from "~/components/features/booking/CartView";
 import { CheckoutStep } from "~/components/features/booking/steps/checkout/CheckoutStep";
@@ -1091,7 +1092,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           brand={config.brand}
           center={config.center}
           onExit={() => setPacksOpen(false)}
-          onRaceToday={(members) => {
+          onRaceToday={(members, grants) => {
             // Adopt the pack buyers into the session party (skip anyone already
             // there by person id) so racing never re-prompts a sign-in, then
             // open the race flow exactly like the attract "Race now" chip.
@@ -1099,27 +1100,53 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
             // the session doesn't have one yet — their name/phone/email seed
             // the booking contact so the contact step never re-asks what we
             // already know (email may still be missing; that step fills it).
+            // Each buyer's just-granted pack merges into their creditBalances
+            // snapshot (taken at sign-in, BEFORE the purchase) so the product
+            // step's "covered by credits" preview and the checkout's default-ON
+            // redeem opt-in both see the fresh credits without a refetch.
             const known = new Set(
               session.party.map((m) => m.bmiPersonId).filter((id): id is string => !!id),
             );
             const hasMain = session.party.some((m) => m.isBillingCustomer);
+            const grantFor = (personId: string | null | undefined) =>
+              personId ? grants.find((g) => g.bmiPersonId === personId) : undefined;
             members.forEach((m, i) => {
               const makeMain = i === 0 && !hasMain;
+              const grant = grantFor(m.bmiPersonId);
               if (m.bmiPersonId && known.has(m.bmiPersonId)) {
-                if (makeMain) {
-                  const existing = session.party.find((p) => p.bmiPersonId === m.bmiPersonId);
-                  if (existing) {
-                    dispatch({
-                      type: "updatePartyMember",
-                      id: existing.id,
-                      patch: { isBillingCustomer: true },
-                    });
-                  }
+                const existing = session.party.find((p) => p.bmiPersonId === m.bmiPersonId);
+                if (existing && (makeMain || grant)) {
+                  dispatch({
+                    type: "updatePartyMember",
+                    id: existing.id,
+                    patch: {
+                      ...(makeMain ? { isBillingCustomer: true } : {}),
+                      ...(grant
+                        ? {
+                            creditBalances: appendGrantedCredits(
+                              existing.creditBalances,
+                              grant.depositKindId,
+                              grant.raceCount,
+                            ),
+                          }
+                        : {}),
+                    },
+                  });
                 }
               } else {
+                const withCredits = grant
+                  ? {
+                      ...m,
+                      creditBalances: appendGrantedCredits(
+                        m.creditBalances,
+                        grant.depositKindId,
+                        grant.raceCount,
+                      ),
+                    }
+                  : m;
                 dispatch({
                   type: "addPartyMember",
-                  member: makeMain ? { ...m, isBillingCustomer: true } : m,
+                  member: makeMain ? { ...withCredits, isBillingCustomer: true } : withCredits,
                 });
               }
               if (makeMain) {

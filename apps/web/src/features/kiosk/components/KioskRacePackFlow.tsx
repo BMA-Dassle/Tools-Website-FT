@@ -35,6 +35,15 @@ interface PackOutcome {
   granted: boolean;
 }
 
+/** A pack grant handed to the race flow so the session's balance snapshots
+ *  include it (they were taken at sign-in, BEFORE the standalone purchase). */
+export interface RaceTodayGrant {
+  /** Raw BMI person id string — NEVER Number() it. */
+  bmiPersonId: string;
+  depositKindId: string;
+  raceCount: number;
+}
+
 export function KioskRacePackFlow({
   brand,
   center,
@@ -44,8 +53,11 @@ export function KioskRacePackFlow({
   brand: "fasttrax" | "headpinz";
   center: string | null;
   onExit: () => void;
-  /** Adopt the flow's local members into the session party + open racing. */
-  onRaceToday: (members: PartyMember[]) => void;
+  /** Adopt the flow's local members into the session party + open racing.
+   *  `grants` = the packs just purchased, so the adopted members' credit
+   *  balances reflect them (a failed grant still rides — the reconcile cron
+   *  lands it, and the guest DID pay). */
+  onRaceToday: (members: PartyMember[], grants: RaceTodayGrant[]) => void;
 }) {
   const { config } = useKioskConfig();
   const [party, setParty] = useState<PartyMember[]>([]);
@@ -180,7 +192,23 @@ export function KioskRacePackFlow({
         <div className="flex flex-col gap-[14px] pt-[8px]">
           <button
             type="button"
-            onClick={() => onRaceToday(party)}
+            onClick={() =>
+              onRaceToday(
+                party,
+                party.flatMap((m): RaceTodayGrant[] => {
+                  const sku = skus.find((p) => p.slug === picks[m.id]);
+                  return sku && m.bmiPersonId
+                    ? [
+                        {
+                          bmiPersonId: m.bmiPersonId,
+                          depositKindId: sku.depositKindId,
+                          raceCount: sku.raceCount,
+                        },
+                      ]
+                    : [];
+                }),
+              )
+            }
             className="k-btn-primary k-tap"
             style={{ flex: "0 0 auto" }}
           >

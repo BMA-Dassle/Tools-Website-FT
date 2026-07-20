@@ -15,12 +15,15 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.3.0 — race product step reads as one directed step: packages auto-advance
+ *         to scheduling; covered-by-pack pricing + "now pick your race"
+ *         guidance; Race-today hand-off carries fresh pack credits.
  * 1.2.0 — guest-assist radio alerts (+ card-fault auto-beacon); MSR kiosks
  *         are swipe-only (no typed card entry); version tag on every screen.
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.2.0";
+export const KIOSK_VERSION = "1.3.0";
 
 let bootVersion: string | null = null;
 let captured = false;

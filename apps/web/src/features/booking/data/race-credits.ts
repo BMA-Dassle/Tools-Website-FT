@@ -108,6 +108,31 @@ export function creditTypeById(depositKindId: string): RaceCreditType | null {
 }
 
 /**
+ * Merge a just-granted pack into a member's client-side balance SNAPSHOT so
+ * surfaces that read `creditBalances` (the race product step's coverage
+ * preview, the checkout opt-in default) see the credits without waiting on a
+ * refetch — the standalone race-pack "Race today" hand-off grants AFTER the
+ * sign-in snapshot was taken. The appended row's `kind` is the credit type's
+ * label, which round-trips through `creditTypeForDepositName`. Display-side
+ * only: the charge path always validates LIVE balances.
+ */
+export function appendGrantedCredits(
+  creditBalances: Array<{ kind: string; balance: number }> | undefined,
+  depositKindId: string,
+  count: number,
+): Array<{ kind: string; balance: number }> {
+  const rows = [...(creditBalances ?? [])];
+  const type = creditTypeById(depositKindId);
+  if (!type || count <= 0) return rows;
+  const idx = rows.findIndex(
+    (r) => creditTypeForDepositName(r.kind)?.depositKindId === depositKindId,
+  );
+  if (idx >= 0) rows[idx] = { ...rows[idx], balance: rows[idx].balance + count };
+  else rows.push({ kind: type.label, balance: count });
+  return rows;
+}
+
+/**
  * Build a racer's redeemable credit balances from a BMI `deposit/history`
  * response. Single source of truth used by every racer-lookup path so they all
  * capture the same credits.
