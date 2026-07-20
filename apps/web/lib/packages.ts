@@ -690,6 +690,11 @@ const PACKAGES: PackageDefinition[] = [
 /** Lookup a package definition by id. Returns null when the id is
  *  unknown or the feature flag has it disabled — callers should
  *  treat both cases as "package unavailable". */
+/** Read-only view of the full package registry — for tests / debug surfaces only. */
+export function _allPackages(): readonly PackageDefinition[] {
+  return PACKAGES;
+}
+
 export function getPackage(id: string | null | undefined): PackageDefinition | null {
   if (!id) return null;
   const pkg = PACKAGES.find((p) => p.id === id);

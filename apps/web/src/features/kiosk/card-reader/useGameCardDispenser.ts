@@ -18,7 +18,7 @@ import { useCardReader } from "./useCardReader";
 import { classifyFault, type FaultBehavior } from "./recovery";
 import type { CrtReaderClient } from "./client";
 import type { CrtErrorInfo } from "./protocol/errors";
-import type { CrtStatus } from "./protocol/status";
+import type { CrtStatus, ErrorBinLevel } from "./protocol/status";
 import type { CrtDeviceInfo } from "./client";
 import type { KioskConfig } from "../config";
 
@@ -78,11 +78,27 @@ export function useGameCardDispenser({ config, onConnected }: UseGameCardDispens
     [runResult],
   );
 
+  /**
+   * Reject-bin state from the SENSOR block — the reliable bin signal on this
+   * unit (the st2 `errorBin` byte reads "unknown"). "unknown" on a read miss,
+   * which callers treat as unsafe-to-bin (fail toward NEVER binning into a full
+   * bin). Retries a transient read fault via `attempt`.
+   */
+  const getBinState = useCallback(async (): Promise<ErrorBinLevel> => {
+    const r = await attempt("bin state", (c) => c.readBinState());
+    return r.ok ? r.value.value : "unknown";
+  }, [attempt]);
+
   /** One-shot current status (for the hold screen to gate its Resume button). */
   const getStatusNow = useCallback(async (): Promise<CrtStatus | null> => {
     const r = await runResult("status", (c) => c.getStatus());
-    return r.ok ? r.value.status : null;
-  }, [runResult]);
+    if (!r.ok) return null;
+    // st2 `errorBin` is unreliable on the HB-HDN unit ("unknown"); override it
+    // with the sensor-block read so the bin-full hold's resumeReady gate — and
+    // any other consumer — sees the true bin state.
+    const errorBin = await getBinState();
+    return { ...r.value.status, errorBin };
+  }, [runResult, getBinState]);
 
   /**
    * BUY: dispense a blank from the stacker to the read station and read its
@@ -139,12 +155,27 @@ export function useGameCardDispenser({ config, onConnected }: UseGameCardDispens
     [attempt],
   );
 
-  /** Reject the held blank to the error bin — BUY only, when a load failed. */
-  const capture = useCallback(
-    (): Promise<OpResult<void>> =>
-      attempt("capturing card", (c) => c.captureCard().then(() => undefined)),
-    [attempt],
-  );
+  /**
+   * Reject the held blank to the error bin (MOVE 39h) — BUY only, on a bad or
+   * unloaded card. HARD RULE (owner 2026-07-19): NEVER move a card into a FULL
+   * bin. Read the sensor-derived bin state FIRST; anything but a confirmed "ok"
+   * returns the bin-full HOLD (the caller pauses for staff, or recovers forward)
+   * WITHOUT ever issuing the move. On staff resume the bin reads "ok" and the
+   * capture goes through.
+   */
+  const capture = useCallback(async (): Promise<OpResult<void>> => {
+    const bin = await getBinState();
+    if (bin !== "ok") {
+      const info: CrtErrorInfo = {
+        code: "A1",
+        message: "Error card bin is full",
+        category: "attention",
+        hint: "Empty the error bin, then reset the bin counter.",
+      };
+      return { ok: false, fault: classifyFault(info), info };
+    }
+    return attempt("capturing card", (c) => c.captureCard().then(() => undefined));
+  }, [attempt, getBinState]);
 
   /** Stop accepting cards at the gate (after a reload session). Best-effort. */
   const stopAccepting = useCallback(
@@ -207,6 +238,7 @@ export function useGameCardDispenser({ config, onConnected }: UseGameCardDispens
     stopAccepting,
     reinit,
     getStatusNow,
+    getBinState,
     waitUntil,
     waitTaken,
   };

@@ -993,7 +993,28 @@ export function buildRaceChargeLines(
   const newRacerCount = session.party.filter(
     (m) => m.isNewRacer && !packageRacerIds.has(m.id),
   ).length;
-  if (newRacerCount > 0 && !activeCombo?.combo.includesLicense) {
+  // Rookie Pack FLAG flow (the license/POV step opt-in + the kiosk mixed-party
+  // auto-enroll — distinct from the PACKAGE flow, whose bundle line already
+  // carries its cartLineKey): the cart showed ONE "Rookie Pack × N", so charge
+  // ONE bundle line keyed "rookie-pack" — its own Square catalog item — instead
+  // of separate License + POV lines (owner 2026-07-19: day-of orders must
+  // categorize under the Rookie Pack catalog item). Both setters pin the item's
+  // povQuantity to the new-racer count; the pack consumes those cameras and any
+  // extras still book as "POV Race Video" below.
+  const rookieFlag = session.items.some(
+    (i) => i.kind === "race" && !i.packageId && i.rookiePack === true,
+  );
+  if (newRacerCount > 0 && rookieFlag && !activeCombo) {
+    lines.push({
+      name: "Rookie Pack",
+      quantity: newRacerCount,
+      amount: round2((LICENSE_PRICE + POV_PRICE) * newRacerCount),
+      bmiProductId: "rookie-pack",
+      domain: "racing",
+      visitDate: raceVisitDate,
+    });
+    standalonePovQty = Math.max(0, standalonePovQty - newRacerCount);
+  } else if (newRacerCount > 0 && !activeCombo?.combo.includesLicense) {
     lines.push({
       name: "FastTrax License",
       quantity: newRacerCount,

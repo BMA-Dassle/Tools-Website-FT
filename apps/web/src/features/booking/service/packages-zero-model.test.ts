@@ -303,6 +303,66 @@ describe("buildRaceChargeLines — license dedup + standalone POV", () => {
     expect(license[0].quantity).toBe(1);
   });
 
+  it("rookiePack flag folds license + POV into ONE 'Rookie Pack' line keyed rookie-pack", () => {
+    // Kiosk mixed-party auto-enroll shape: 1 returning + 1 new racer,
+    // rookiePack: true, povQuantity = new-racer count (KioskFlow effect).
+    const session = sessionWith(
+      [
+        raceItem({
+          productIdAdult: SINGLE_STARTER_RED,
+          rookiePack: true,
+          povQuantity: 1,
+          heats: [
+            heat({ tier: "starter", assignedTo: "r1" }),
+            heat({ tier: "starter", assignedTo: "r2" }),
+          ],
+        }),
+      ],
+      [member("r1", { isNewRacer: true }), member("r2")],
+    );
+    const lines = buildRaceChargeLines(session);
+    const rookie = lines.find((l) => l.name === "Rookie Pack");
+    expect(rookie).toBeDefined();
+    expect(rookie!.quantity).toBe(1);
+    expect(rookie!.amount).toBe(4.99 + 5); // LICENSE_PRICE + POV_PRICE per new racer
+    expect(rookie!.bmiProductId).toBe("rookie-pack"); // → SQ.ROOKIE_PACK on the day-of order
+    expect(lines.some((l) => l.name === "FastTrax License")).toBe(false);
+    expect(lines.some((l) => l.name === "POV Race Video")).toBe(false); // consumed by the pack
+  });
+
+  it("rookiePack flag: POV cameras beyond the pack's still book as POV Race Video", () => {
+    const session = sessionWith(
+      [
+        raceItem({
+          productIdAdult: SINGLE_STARTER_RED,
+          rookiePack: true,
+          povQuantity: 3, // 1 pack camera + 2 extras
+          heats: [heat({ tier: "starter", assignedTo: "r1" })],
+        }),
+      ],
+      [member("r1", { isNewRacer: true })],
+    );
+    const lines = buildRaceChargeLines(session);
+    expect(lines.find((l) => l.name === "Rookie Pack")!.quantity).toBe(1);
+    expect(lines.find((l) => l.name === "POV Race Video")!.quantity).toBe(2);
+  });
+
+  it("rookiePack opted OUT (false) keeps the plain license line", () => {
+    const session = sessionWith(
+      [
+        raceItem({
+          productIdAdult: SINGLE_STARTER_RED,
+          rookiePack: false,
+          heats: [heat({ tier: "starter", assignedTo: "r1" })],
+        }),
+      ],
+      [member("r1", { isNewRacer: true })],
+    );
+    const lines = buildRaceChargeLines(session);
+    expect(lines.some((l) => l.name === "Rookie Pack")).toBe(false);
+    expect(lines.find((l) => l.name === "FastTrax License")!.quantity).toBe(1);
+  });
+
   it("standalone POV adds a $5 × qty Square line (money lives on Square, not the $0 BMI line)", () => {
     const session = sessionWith(
       [

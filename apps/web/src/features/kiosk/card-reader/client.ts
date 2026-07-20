@@ -59,7 +59,14 @@ import {
 } from "./protocol/constants";
 import { CrtError, CrtLinkError, CrtReadError } from "./protocol/errors";
 import type { ParsedFrame } from "./protocol/frame";
-import { parseSensors, parseStatus, type CrtStatus, type SensorStatus } from "./protocol/status";
+import {
+  binStateFromSensors,
+  parseSensors,
+  parseStatus,
+  type CrtStatus,
+  type ErrorBinLevel,
+  type SensorStatus,
+} from "./protocol/status";
 import {
   CrtProtocolEngine,
   type EngineLogEvent,
@@ -299,6 +306,15 @@ export class CrtReaderClient {
 
   getSensors(): Promise<CrtResult<SensorStatus>> {
     return this.run(sensorsCommand(), (f) => parseSensors(f.data), { idempotent: true });
+  }
+
+  /**
+   * Reject-bin state, read from the SENSOR block (not the unreliable st2
+   * `errorBin` byte). Idempotent — safe to poll while a hold waits for staff to
+   * empty the bin. See binStateFromSensors for the byte mapping on this unit.
+   */
+  readBinState(): Promise<CrtResult<ErrorBinLevel>> {
+    return this.run(sensorsCommand(), (f) => binStateFromSensors(f.data), { idempotent: true });
   }
 
   moveCard(to: MoveTarget): Promise<CrtResult> {

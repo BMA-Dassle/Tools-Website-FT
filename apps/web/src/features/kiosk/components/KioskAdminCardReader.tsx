@@ -838,7 +838,19 @@ function MotionCard({
           type="button"
           className={btnGhost}
           disabled={!!busy}
-          onClick={() => act("capture card", (c) => c.captureCard())}
+          onClick={() =>
+            act("capture card", async (c) => {
+              // HARD rule: never move a card into a FULL bin — check the sensor
+              // block first (st2 is unreliable here), refuse unless confirmed ok.
+              const bin = await c.readBinState();
+              if (bin.value !== "ok") {
+                throw new Error(
+                  `Reject bin reads "${bin.value}" — empty it and reset the counter before capturing.`,
+                );
+              }
+              return c.captureCard();
+            })
+          }
         >
           Capture to bin
         </button>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { lookupCatalogId, lookupCatalogIdByName, SQUARE_CATALOG_IDS } from "./square-catalog-map";
 import { _allRaceProducts, combineTrackVariants } from "../service/race-products";
+import { _allPackages } from "@/lib/packages";
 
 describe("lookupCatalogId", () => {
   it("resolves a plain mapped BMI product id", () => {
@@ -55,6 +56,37 @@ describe("lookupCatalogIdByName", () => {
     // mis-match "Junior Starter Race Blue" to adult Karting. The synthetic id path
     // in lookupCatalogId handles the combined card precisely instead.
     expect(lookupCatalogIdByName("Starter Race")).toBeNull();
+  });
+});
+
+describe("integration: every package cartLineKey resolves to its OWN catalog item", () => {
+  // Day-of order categorization guard (owner 2026-07-19): package bundle lines
+  // carry their cartLineKey as bmiProductId, and each family must book under
+  // its dedicated Square catalog item — NEVER the generic Karting one, and
+  // never ad-hoc (which surfaces as a loose item in the QBO journal sync).
+  // Iterates the REAL registry so a future variant can't silently regress.
+  const keys = [...new Set(_allPackages().map((p) => p.cartLineKey))];
+
+  it.each(keys.map((k) => [k] as const))("%s maps to a non-Karting catalog id", (key) => {
+    const id = lookupCatalogId(key);
+    expect(id).toBeTruthy();
+    expect(id).not.toBe(SQUARE_CATALOG_IDS.KARTING);
+  });
+
+  it("ultimate-qualifier keys map to the Ultimate Qualifier item", () => {
+    for (const key of keys.filter((k) => k.startsWith("ultimate-qualifier"))) {
+      expect(lookupCatalogId(key)).toBe(SQUARE_CATALOG_IDS.ULTIMATE_QUALIFIER);
+    }
+  });
+
+  it("rookie-pack keys (package flow AND the rookiePack-flag charge line) map to the Rookie Pack item", () => {
+    for (const key of keys.filter((k) => k.startsWith("rookie-pack"))) {
+      expect(lookupCatalogId(key)).toBe(SQUARE_CATALOG_IDS.ROOKIE_PACK);
+    }
+    // The flag flow (kiosk mixed-party auto-enroll / license-POV step opt-in)
+    // charges a "Rookie Pack" line keyed "rookie-pack" — same catalog item.
+    expect(lookupCatalogId("rookie-pack")).toBe(SQUARE_CATALOG_IDS.ROOKIE_PACK);
+    expect(lookupCatalogIdByName("Rookie Pack")).toBe(SQUARE_CATALOG_IDS.ROOKIE_PACK);
   });
 });
 

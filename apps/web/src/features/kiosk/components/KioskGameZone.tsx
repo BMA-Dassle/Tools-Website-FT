@@ -491,6 +491,25 @@ export function KioskGameZone({
     }
   };
 
+  // Bin a bad/unloaded blank while honoring the HARD rule that a card is NEVER
+  // moved into a FULL bin: dispenser.capture() reads the bin sensor first and
+  // returns a bin-full HOLD instead of issuing the move, so we pause on the hold
+  // overlay until staff empty the bin, then complete the capture. Returns false
+  // only if staff bail to an attendant — the card is left where it is (held),
+  // never forced into a full bin.
+  const captureSafely = async (): Promise<boolean> => {
+    for (;;) {
+      const r = await dispenser.capture();
+      if (r.ok) return true;
+      if (r.fault.kind === "hold") {
+        const resumed = await holdUntilResolved(r.fault);
+        if (!resumed) return false;
+        continue; // bin emptied → complete the move
+      }
+      return false; // any other fault binning a blank → give up safely
+    }
+  };
+
   // Dispense → read → load → present, ONE card at a time. Faults are handled by
   // category: a recoverable "hold" (out of cards, jam, bin) pauses on the hold
   // overlay and, on staff resume, retries the SAME card; a bad blank is captured
@@ -528,7 +547,7 @@ export function KioskGameZone({
           // error bin. A lone misfeed clears on the next card; too many in a row
           // means the stock is wrong-way, so HOLD for staff instead of feeding
           // the whole stacker through one card at a time.
-          await dispenser.capture();
+          if (!(await captureSafely())) return abort(i, SEE_ATTENDANT_SAFE);
           if (++blanksBad >= MAX_BAD_BLANKS) {
             const resumed = await holdUntilResolved(BAD_READ_HOLD);
             if (!resumed) return abort(i, SEE_ATTENDANT_SAFE);
@@ -548,7 +567,7 @@ export function KioskGameZone({
       // credit an account we already loaded this session. Same bounded-then-hold
       // guard so a run of bad reads can't drain the stacker.
       if (usedAccounts.has(account)) {
-        await dispenser.capture();
+        if (!(await captureSafely())) return abort(i, SEE_ATTENDANT_SAFE);
         if (++blanksBad >= MAX_BAD_BLANKS) {
           const resumed = await holdUntilResolved(BAD_READ_HOLD);
           if (!resumed) {
@@ -602,8 +621,10 @@ export function KioskGameZone({
         await dispenser.waitTaken({ timeoutMs: 30_000 });
       } else {
         // Don't hand over an unloaded blank — bin it; row recovers forward.
+        // captureSafely holds for staff if the bin is full (never binned into a
+        // full bin); either way the guest gets the money-safe attendant message.
         setNewCardAt(i, { account, loaded: false, cardStatus: "failed" });
-        await dispenser.capture();
+        await captureSafely();
         setError(
           "A card couldn't be loaded and was retained. Your payment is safe — please see an attendant.",
         );
