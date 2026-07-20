@@ -68,6 +68,36 @@ export function raceUsesZeroBmiModel(item: RaceItem): boolean {
 }
 
 /**
+ * POV cameras owed for one RaceItem — the SINGLE source for the $0 POV
+ * bill-line qty (sellPov, below) AND the kiosk code-claim qty
+ * (unified-reserve → kiosk-post-reserve), so the two can never drift.
+ *
+ * Package POV is per CATEGORY (adult/junior variants are separate packages):
+ * each variant with `includesPov` covers exactly ITS category's unique racers
+ * (Ultimate Qualifier, Rookie Pack packages). `item.povQuantity` covers the
+ * non-packaged remainder — the individual Viewpoints upsell, the Rookie-Pack
+ * FLAG flow (kiosk pins povQuantity to the new-racer count), and combos
+ * (ComboSteps sets povQuantity = includedPovPerRacer × racers — no separate
+ * combo term here or it double-counts).
+ */
+export function computeRaceItemPovQty(item: RaceItem, party: BookingSession["party"]): number {
+  let povQty = 0;
+  for (const category of ["adult", "junior"] as const) {
+    const pkg = getPackage(packageIdForCategory(item, category));
+    if (!pkg?.includesPov) continue;
+    const catRacers = new Set(
+      item.heats
+        .filter((h) => (h.category ?? "adult") === category)
+        .map((h) => h.assignedTo)
+        .filter(Boolean),
+    ).size;
+    povQty += catRacers || 1;
+  }
+  if (!raceItemFullyPackaged(item, party)) povQty += item.povQuantity;
+  return povQty;
+}
+
+/**
  * Heat indices that should book the `+license` $0 build product: the FIRST heat
  * of each NEW racer. Guarantees a multi-heat new racer gets the license exactly
  * once. Deterministic by heat order, so it's stable across retries and across
@@ -208,23 +238,7 @@ export async function bookHeatsOnAdvance(
   // Square (inside the package bundle, or as a standalone POV line). Packages set
   // includesPov (not povQuantity), so derive the qty from the package + racers.
   if (billId && !item.povSold) {
-    // Package POV is per CATEGORY (adult/junior variants are separate packages):
-    // each variant with includesPov covers exactly ITS category's racers; the
-    // item-level povQuantity still applies to any non-packaged remainder (the
-    // POV step is visible unless every category is packaged — same seam).
-    let povQty = 0;
-    for (const category of ["adult", "junior"] as const) {
-      const pkg = getPackage(packageIdForCategory(item, category));
-      if (!pkg?.includesPov) continue;
-      const catRacers = new Set(
-        item.heats
-          .filter((h) => (h.category ?? "adult") === category)
-          .map((h) => h.assignedTo)
-          .filter(Boolean),
-      ).size;
-      povQty += catRacers || 1;
-    }
-    if (!raceItemFullyPackaged(item, session.party)) povQty += item.povQuantity;
+    const povQty = computeRaceItemPovQty(item, session.party);
     // A failed sellPov must NOT set povSold — that flag is the only retry
     // gate, so marking it on failure meant the $0 POV line never reached the
     // bill (and the confirmation page had no POV line to claim codes from).

@@ -69,3 +69,17 @@ export function kioskWaiverBmiAttachEnabled(): boolean {
 export function kioskGzCartEnabled(): boolean {
   return process.env.NEXT_PUBLIC_KIOSK_GZ_CART_ENABLED !== "false";
 }
+
+/**
+ * Kiosk POV code claiming — kill switch, defaults ON, server-side only
+ * (unified-reserve + kiosk-post-reserve are the sole consumers, so no
+ * NEXT_PUBLIC prefix / no rebuild needed). Set KIOSK_POV_CODES=0 in Vercel to
+ * stop kiosk claims from consuming the Redis pool — every delivery surface
+ * (email block, SMS clause, memo line, confirmation display) gates on
+ * codes.length so it degrades silently to today's behavior, and owed bills
+ * remain backfillable via the admin POV tooling (claim is idempotent per
+ * billId). Read at call time so tests can stub process.env.
+ */
+export function kioskPovCodesEnabled(): boolean {
+  return process.env.KIOSK_POV_CODES !== "0";
+}

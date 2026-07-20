@@ -388,7 +388,27 @@ export async function POST(req: NextRequest) {
       const who = racerCount === 1 ? "1 racer" : `${racerCount} racers`;
       const first = firstName || "Racer";
       const subject = "You're booked at FastTrax!";
-      const smsBody = `FastTrax: you're booked!${when ? ` ${when} ·` : ""} ${who}. Your e-ticket with check-in details will text you shortly — nothing to print. See you at the track!`;
+      // Web parity: SMS never inlines the codes (single-segment budget) — it
+      // points at the email, which carries the full codes block below.
+      const smsBody = `FastTrax: you're booked!${when ? ` ${when} ·` : ""} ${who}. Your e-ticket with check-in details will text you shortly — nothing to print.${codes.length > 0 ? " Your POV video codes are in your confirmation email." : ""} See you at the track!`;
+      // POV camera codes — kiosk counterpart of the web template's
+      // ^SoldVouchersList()$ block (this branch's email is inline HTML, so the
+      // placeholder never runs here). Renders only when codes were claimed.
+      const povHtml =
+        codes.length > 0
+          ? `<tr><td style="padding:0 32px 8px 32px;">
+          <table role="presentation" width="100%" style="background:#1a0f2e;border:1px solid #6B21A8;border-radius:12px;">
+            <tr><td style="padding:16px 20px;">
+              <p style="margin:0 0 8px;color:#fff;font-size:15px;font-weight:bold;">Your ViewPoint POV Camera Codes:</p>
+              ${codes.map((c, i) => `<p style="font-family:monospace;font-size:18px;font-weight:bold;color:#c084fc;margin:4px 0;">Code ${i + 1}: ${c}</p>`).join("")}
+              <p style="color:#f0b341;font-size:12px;line-height:1.6;margin:12px 0 0 0;">
+                After your race, be sure to collect your POV camera slip — without it you can't get your video.
+                Scan the QR code on the slip and enter the codes above to redeem it. Videos take 15-30 minutes to upload.
+              </p>
+            </td></tr>
+          </table>
+        </td></tr>`
+          : "";
       const emailHtml = `<!doctype html><html><body style="margin:0;background:#000418;font-family:Arial,Helvetica,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#000418;padding:32px 0;">
     <tr><td align="center">
@@ -402,7 +422,7 @@ export async function POST(req: NextRequest) {
           <table role="presentation" width="100%" style="background:#0a1430;border-radius:12px;">
             <tr><td style="padding:16px 20px;color:#fff;font-size:16px;font-weight:700;">${when || "Today"} · ${who}</td></tr>
           </table>
-        </td></tr>
+        </td></tr>${povHtml}
         <tr><td style="padding:8px 32px 28px 32px;color:#b7c3da;font-size:15px;line-height:1.6;">
           Your <strong style="color:#fff;">e-ticket</strong> — with your check-in time and everything you need at the track — is on its way by text and email. Nothing to print, nothing to do at the desk. See you soon!
         </td></tr>

@@ -23,6 +23,8 @@ import {
   clearRacePackConfirmation,
   type RacePackConfirmLine,
 } from "../service/race-pack-confirmation";
+import { readPovConfirmation, clearPovConfirmation } from "../service/pov-confirmation";
+import PovVoucherBlock from "@/components/booking/PovVoucherBlock";
 
 const AUTO_RESET_SECONDS = 60;
 
@@ -74,6 +76,9 @@ export function KioskConfirmation({ src }: { src: string | null }) {
   // ("1 race today · 2 banked to Eric's account"); credits already granted
   // server-side, so the stash is read-once + cleared.
   const [racePacks, setRacePacks] = useState<RacePackConfirmLine[] | null>(null);
+  // POV video codes claimed with the booking (unified-reserve → checkout stash)
+  // — display nicety; the durable copies are the guest email + reservation memo.
+  const [povCodes, setPovCodes] = useState<string[] | null>(null);
   useEffect(() => {
     let alive = true;
     void (async () => {
@@ -88,6 +93,11 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       if (packs) {
         setRacePacks(packs);
         clearRacePackConfirmation();
+      }
+      const codes = readPovConfirmation();
+      if (codes) {
+        setPovCodes(codes);
+        clearPovConfirmation();
       }
     })();
     return () => {
@@ -226,7 +236,7 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       // With a card-fulfillment panel the column can exceed the canvas — scroll
       // from the top instead of center-clipping.
       className={`absolute inset-0 flex flex-col items-center gap-[36px] bg-[#000418] px-[64px] text-center ${
-        gzPayload || racePacks || lanePanelVisible
+        gzPayload || racePacks || povCodes || lanePanelVisible
           ? "justify-start overflow-y-auto py-[56px]"
           : "justify-center overflow-hidden"
       }`}
@@ -350,6 +360,21 @@ export function KioskConfirmation({ src }: { src: string | null }) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+      {povCodes && (
+        // Same purple voucher card the web confirmation + e-ticket show, zoomed
+        // to kiosk scale (web-rem-sized component on the 1080px canvas).
+        <div className="kiosk-zoom relative w-full max-w-[860px] text-left">
+          <PovVoucherBlock
+            codes={povCodes}
+            caption={
+              <>
+                These codes were also <strong className="text-white/80">emailed to you</strong> —
+                after your race, use them to redeem your POV video.
+              </>
+            }
+          />
         </div>
       )}
       {gzPayload && (

@@ -205,3 +205,122 @@ describe("runKioskPostReserve session assignment", () => {
     expect(memo).toContain("New Kid");
   });
 });
+
+/** fetch stub for the POV path: records claim GETs + notification POST bodies,
+ *  replays queued claim responses ("ERROR" → HTTP 500). Schedule POSTs succeed. */
+function stubFetchPov(claimResponses: Array<string[] | "ERROR">) {
+  const claimUrls: string[] = [];
+  const notifyBodies: Array<Record<string, unknown>> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: unknown, init?: { body?: string; method?: string }) => {
+      const u = String(url);
+      if (u.includes("/api/pov-codes")) {
+        claimUrls.push(u);
+        const next = claimResponses.shift();
+        if (next === "ERROR") return new Response("boom", { status: 500 });
+        return new Response(JSON.stringify({ codes: next ?? [] }), { status: 200 });
+      }
+      if (u.includes("/api/notifications/booking-confirmation")) {
+        notifyBodies.push(JSON.parse(init?.body ?? "{}"));
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
+      }
+      if (u.includes("/bmi/schedule/")) {
+        return new Response(
+          JSON.stringify({
+            success: true,
+            data: {
+              inserted: 1,
+              results: [
+                { personId: "55700064", heatStart: "2026-07-19T17:36:00", status: "inserted" },
+              ],
+            },
+          }),
+          { status: 201 },
+        );
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }),
+  );
+  return { claimUrls, notifyBodies };
+}
+
+describe("runKioskPostReserve POV codes", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    vi.mocked(appendProjectPrivateNote).mockClear();
+  });
+
+  it("codes claimed inline ride the notification + memo — no re-claim", async () => {
+    const { claimUrls, notifyBodies } = stubFetchPov([]);
+    await run({
+      ...baseArgs([racer("Derek Runion", "55700064")]),
+      povQty: 2,
+      povCodes: ["AB12CD34", "EF56GH78"],
+    });
+    expect(claimUrls).toHaveLength(0); // inline claim already delivered
+    expect(notifyBodies[0].povCodes).toEqual(["AB12CD34", "EF56GH78"]);
+    const memo = memoCalls()[0];
+    expect(memo).toContain("Kiosk Booking, please check into session");
+    // EXACT web format (buildReservationMemo, reservation-memo.ts:66).
+    expect(memo).toContain("POV Codes: AB12CD34, EF56GH78 — emailed & texted to guest.");
+    expect(memo).not.toContain("POV CODES OWED");
+  });
+
+  it("inline claim failed → rail re-claims (idempotent) before notifying", async () => {
+    const { claimUrls, notifyBodies } = stubFetchPov([["AB12CD34"]]);
+    await run({ ...baseArgs([racer("Derek Runion", "55700064")]), povQty: 1, povCodes: [] });
+    expect(claimUrls).toHaveLength(1);
+    expect(claimUrls[0]).toContain("action=claim");
+    expect(claimUrls[0]).toContain("qty=1");
+    // billId rides as the raw string — never parsed to a number.
+    expect(claimUrls[0]).toContain("billId=63000000005177714");
+    expect(notifyBodies[0].povCodes).toEqual(["AB12CD34"]);
+    expect(memoCalls()[0]).toContain("POV Codes: AB12CD34 — emailed & texted to guest.");
+  });
+
+  it("pool short: memo carries the OWED line, no POV-codes line beyond what issued", async () => {
+    stubFetchPov([["AB12CD34"]]);
+    await run({ ...baseArgs([racer("Derek Runion", "55700064")]), povQty: 2, povCodes: [] });
+    const memo = memoCalls()[0];
+    expect(memo).toContain("POV Codes: AB12CD34 — emailed & texted to guest.");
+    expect(memo).toContain(
+      "POV CODES OWED — pool short: issued 1 of 2. Import codes and backfill bill 63000000005177714.",
+    );
+  });
+
+  it("no POV on the booking: no claim, memo unchanged from today", async () => {
+    const { claimUrls, notifyBodies } = stubFetchPov([["ZZ99"]]);
+    await run(baseArgs([racer("Derek Runion", "55700064")]));
+    expect(claimUrls).toHaveLength(0);
+    expect(notifyBodies[0].povCodes).toBeUndefined();
+    expect(memoCalls()[0]).toBe("Kiosk Booking, please check into session");
+  });
+
+  it("kill switch KIOSK_POV_CODES=0: no re-claim; owed line still flags the debt", async () => {
+    vi.stubEnv("KIOSK_POV_CODES", "0");
+    const { claimUrls } = stubFetchPov([["ZZ99"]]);
+    await run({ ...baseArgs([racer("Derek Runion", "55700064")]), povQty: 1, povCodes: [] });
+    expect(claimUrls).toHaveLength(0);
+    expect(memoCalls()[0]).toContain("POV CODES OWED — pool short: issued 0 of 1");
+  });
+
+  it("claim 500s on every attempt: rail still notifies + memos (never throws)", async () => {
+    const { claimUrls, notifyBodies } = stubFetchPov(["ERROR", "ERROR", "ERROR"]);
+    await run({ ...baseArgs([racer("Derek Runion", "55700064")]), povQty: 1, povCodes: [] });
+    expect(claimUrls).toHaveLength(3); // withRetry exhausted
+    expect(notifyBodies).toHaveLength(1); // notification still went out (no codes)
+    expect(notifyBodies[0].povCodes).toBeUndefined();
+    const memo = memoCalls()[0];
+    expect(memo).toContain("Kiosk Booking, please check into session");
+    expect(memo).toContain("POV CODES OWED — pool short: issued 0 of 1");
+  });
+});

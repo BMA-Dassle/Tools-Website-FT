@@ -15,7 +15,11 @@ import {
   finalizeDepositFromExternalPayment,
   type ExternalTerminalPayment,
 } from "./deposit";
-import { kioskTerminalEnabled, kioskGzCartEnabled } from "~/features/kiosk/flags";
+import {
+  kioskTerminalEnabled,
+  kioskGzCartEnabled,
+  kioskPovCodesEnabled,
+} from "~/features/kiosk/flags";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { startTxn, markCharged, markLoadState } from "~/features/game-cards/data/transactions-log";
 import {
@@ -50,7 +54,7 @@ import {
 } from "../data/square-catalog-map";
 import { getRaceProductById } from "./race-products";
 import { patchHeatSetups } from "./session-setup";
-import { raceUsesZeroBmiModel } from "./race";
+import { raceUsesZeroBmiModel, computeRaceItemPovQty } from "./race";
 import { buildRaceChargeLines, raceHeatsMetadata, racerNamesFromHeats } from "./checkout";
 import { bowlingBookedPricingStamp } from "./bowling-booked-pricing";
 import { promoFactor } from "./promo-pricing";
@@ -195,6 +199,12 @@ export interface UnifiedReserveResult {
     banked: number;
     granted: boolean;
   }>;
+  /** Present only on kiosk racing bookings that purchased POV video (Ultimate
+   *  Qualifier / Rookie Pack / individual Viewpoints): the ViewPoint camera
+   *  codes claimed for this bill. Empty/absent when the pool was short or the
+   *  claim failed — the kiosk rail retries the (billId-idempotent) claim and
+   *  every delivery surface gates on codes being present. */
+  povCodes?: string[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -1082,6 +1092,10 @@ async function unifiedReserveInner(
   let gameCardFulfillment: GameCardFulfillment | undefined;
   /** KIOSK: race-pack outcomes for the confirmation screen ("1 used, 2 banked"). */
   let racePacksResult: UnifiedReserveResult["racePacks"];
+  /** KIOSK: POV codes claimed for this bill (Ultimate Qualifier / Rookie Pack /
+   *  individual Viewpoints) — shown on the confirmation screen and threaded
+   *  into the post-reserve rail for the guest email + reservation memo. */
+  let povCodesResult: string[] | undefined;
 
   const useTerminal = kioskTerminalEnabled() && !!input.externalPayment;
 
@@ -1977,6 +1991,45 @@ async function unifiedReserveInner(
         }
       }
 
+      // ── KIOSK: claim POV codes INLINE, before the response ────────────
+      // The web claims on its confirmation page; the kiosk never renders one,
+      // so claim here (kiosk-gated) so the codes ride the reserve result to
+      // the confirmation screen AND the post-reserve rail (email + memo).
+      // Claim is idempotent per billId (a retry returns the SAME set) and
+      // fail-soft: a short/empty pool or a claim error never blocks the
+      // booking — the rail re-tries, and every delivery surface gates on
+      // codes being present. billId stays a raw string (17-digit — never
+      // Number()).
+      const kioskPovQty =
+        session.context?.kiosk && raceItems.length > 0 && kioskPovCodesEnabled()
+          ? raceItems.reduce((n, it) => n + computeRaceItemPovQty(it, session.party), 0)
+          : 0;
+      {
+        const povQty = kioskPovQty;
+        if (povQty > 0) {
+          try {
+            const base = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
+            const claimRes = await fetch(
+              `${base}/api/pov-codes?action=claim&qty=${povQty}&billId=${bmiBillId}&email=${encodeURIComponent(contact.email ?? "")}`,
+              { signal: AbortSignal.timeout(5_000) },
+            );
+            if (claimRes.ok) {
+              const claim = (await claimRes.json()) as { codes?: string[] };
+              povCodesResult = Array.isArray(claim.codes) ? claim.codes : [];
+            } else {
+              console.error(`[unified-reserve] POV claim ${claimRes.status} bill=${bmiBillId}`);
+            }
+          } catch (err) {
+            console.error("[unified-reserve] POV claim failed (non-fatal):", err);
+          }
+          if ((povCodesResult?.length ?? 0) < povQty) {
+            console.error(
+              `[unified-reserve] POV SHORT bill=${bmiBillId} wanted=${povQty} issued=${povCodesResult?.length ?? 0}`,
+            );
+          }
+        }
+      }
+
       // BMI_AUTOCANCEL_WORKAROUND (mirror of /api/booking/v2/reserve). BMI's
       // payment/confirm records the payment but does NOT set the project-level
       // confirm flag; an unconfirmed project auto-cancels ~168 min later. Set the
@@ -2119,6 +2172,8 @@ async function unifiedReserveInner(
               centerCode,
               location: session.center === "naples" ? "naples" : "fort-myers",
               isNewRacer: session.party.some((m) => m.isNewRacer),
+              povQty: kioskPovQty,
+              povCodes: povCodesResult ?? [],
             });
           } catch (e) {
             console.error("[kiosk-post] failed (non-fatal):", e);
@@ -2214,6 +2269,7 @@ async function unifiedReserveInner(
     totalCents: dayofTotalCents,
     ...(gameCardFulfillment ? { gameCards: gameCardFulfillment } : {}),
     ...(racePacksResult ? { racePacks: racePacksResult } : {}),
+    ...(povCodesResult && povCodesResult.length > 0 ? { povCodes: povCodesResult } : {}),
   };
 }
 

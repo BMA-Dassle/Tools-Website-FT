@@ -33,7 +33,9 @@
  *     drift-prone duplication.
  */
 import { getRaceProductById } from "./race-products";
+import { buildReservationMemo } from "./reservation-memo";
 import { appendProjectPrivateNote, setProjectState } from "@/lib/bmi-office-actions";
+import { kioskPovCodesEnabled } from "~/features/kiosk/flags";
 import type { BookingSession, RaceItem } from "../state/types";
 import type { ContactInfo } from "../types";
 
@@ -106,6 +108,14 @@ export interface KioskPostReserveArgs {
   location: string;
   /** Any brand-new racer in the party → drives the notification's isNewRacer. */
   isNewRacer: boolean;
+  /** POV cameras purchased on this bill (computeRaceItemPovQty across race
+   *  items). 0/omitted → no POV on the booking, no claim. The credit path
+   *  (v2/reserve) omits it — credit redemptions carry no POV. */
+  povQty?: number;
+  /** POV codes already claimed inline by unified-reserve. When povQty > 0 and
+   *  this is empty (inline claim failed), the rail retries the claim itself —
+   *  it's idempotent per billId, so no double-issue. */
+  povCodes?: string[];
 }
 
 /**
@@ -209,7 +219,35 @@ export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<v
     centerCode,
     location,
     isNewRacer,
+    povQty = 0,
   } = args;
+
+  // ── 0. POV codes (belt-and-braces re-claim) ────────────────────────
+  // unified-reserve claims inline so the confirmation screen gets the codes;
+  // if that claim failed (network blip), retry here — the claim is idempotent
+  // per billId, so this can only recover the SAME codes, never issue extras.
+  // Runs BEFORE the notification/memo so codes ride both.
+  let povCodes: string[] = args.povCodes ?? [];
+  if (povQty > 0 && povCodes.length === 0 && kioskPovCodesEnabled()) {
+    try {
+      const claim = await withRetry("pov claim", async () => {
+        const r = await fetch(
+          `${NOTIFY_BASE}/api/pov-codes?action=claim&qty=${povQty}&billId=${bmiBillId}&email=${encodeURIComponent(contact.email ?? "")}`,
+          { signal: AbortSignal.timeout(15_000) },
+        );
+        if (!r.ok) throw new Error(`pov claim ${r.status}`);
+        return (await r.json()) as { codes?: string[] };
+      });
+      povCodes = Array.isArray(claim.codes) ? claim.codes : [];
+    } catch (err) {
+      console.error("[kiosk-post] POV claim failed (non-fatal):", err);
+    }
+  }
+  if (povQty > 0 && povCodes.length < povQty) {
+    console.error(
+      `[kiosk-post] POV SHORT bill=${bmiBillId} wanted=${povQty} issued=${povCodes.length}`,
+    );
+  }
 
   // ── 1. Guest confirmation SMS + email ──────────────────────────────
   // Reuse the full notification pipeline. Idempotent (Redis notif: dedup keyed
@@ -261,6 +299,9 @@ export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<v
         productNames,
         scheduledItems,
         isNewRacer,
+        // POV codes ride the kiosk email (codes block) + SMS pointer clause,
+        // and fix sales_log povPurchased/povQty for kiosk POV sales.
+        ...(povCodes.length > 0 ? { povCodes } : {}),
       }),
       signal: AbortSignal.timeout(15_000),
     });
@@ -274,12 +315,26 @@ export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<v
   // ── 3. Append booking memo line ────────────────────────────────────
   // Rolling read-merge-write private note with the verified booking/memo
   // escalation for CONVERTED racing reservations (bmi-office-actions).
+  // ONE composed append (never a second appendProjectPrivateNote call — each
+  // is up to 3 read-merge-write-verify round trips and the rail runs under
+  // reserve-all's duration budget): the kiosk line + the POV line in the
+  // exact web format (buildReservationMemo, single-sourced) + an OWED line
+  // when the pool came up short so staff can backfill from the reservation
+  // (a kiosk guest has no confirmation page to revisit).
   try {
+    const povLine = buildReservationMemo({ povCodes });
+    const povOwedLine =
+      povQty > 0 && povCodes.length < povQty
+        ? `POV CODES OWED — pool short: issued ${povCodes.length} of ${povQty}. Import codes and backfill bill ${bmiBillId}.`
+        : "";
+    const note = ["Kiosk Booking, please check into session", povLine, povOwedLine]
+      .filter(Boolean)
+      .join("\n");
     const ok = await withRetry("booking memo append", () =>
       appendProjectPrivateNote({
         centerCode,
         projectId: officeProjectId,
-        note: "Kiosk Booking, please check into session",
+        note,
         billId: bmiBillId,
       }),
     );

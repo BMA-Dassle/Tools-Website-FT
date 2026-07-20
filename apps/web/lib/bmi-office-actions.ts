@@ -585,6 +585,11 @@ function mergePrivateMemo(
     const after = existing.slice(endIdx + NOTES_SECTION_END.length);
     const sectionContent = existing.slice(startIdx + NOTES_SECTION_START.length, endIdx).trim();
     const parsed = parseSection(sectionContent);
+    // Exact-duplicate suppression: a retried rail (e.g. kiosk post-reserve
+    // re-run) appending the identical entry is a no-op instead of a repeated
+    // line. Timestamped portal notes stay unique by their prefix, so genuine
+    // repeat notes from staff still land.
+    if (parsed.logLines.includes(note)) return existing;
     const url = contractUrl || parsed.contractUrl;
     const pdf = pdfUrl || parsed.pdfUrl;
     const updatedLog = parsed.logLines ? `${parsed.logLines}\n${note}` : note;
