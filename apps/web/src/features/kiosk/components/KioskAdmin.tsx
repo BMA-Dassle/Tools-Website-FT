@@ -214,7 +214,14 @@ export function KioskAdmin() {
         )}
 
         {tab === "device" && (
-          <DeviceTab draft={draft} patch={patch} persist={persist} onSave={() => void persist()} />
+          <DeviceTab
+            draft={draft}
+            patch={patch}
+            persist={persist}
+            onSave={() => void persist()}
+            pin={pin}
+            setMsg={setMsg}
+          />
         )}
 
         {tab === "readers" && (
@@ -268,13 +275,21 @@ function DeviceTab({
   patch,
   persist,
   onSave,
+  pin,
+  setMsg,
 }: {
   draft: Partial<KioskConfig>;
   patch: (p: Partial<KioskConfig>) => void;
   persist: (extra?: Partial<KioskConfig>) => void | Promise<void>;
   onSave: () => void;
+  pin: string;
+  setMsg: (m: string) => void;
 }) {
   const venueValue = VENUES.findIndex((v) => v.center === draft.center && v.brand === draft.brand);
+  const currentId = kioskId({
+    center: draft.center ?? "fort-myers",
+    kioskNumber: draft.kioskNumber ?? 1,
+  });
   return (
     <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
       <Field label="Location">
@@ -381,6 +396,7 @@ function DeviceTab({
             ? "No dispenser → Game Zone is RELOAD ONLY on this kiosk."
             : "No dispenser and no MSR → Game Zone cards are UNAVAILABLE on this kiosk."}
       </p>
+      <CloudSetups pin={pin} persist={persist} setMsg={setMsg} currentId={currentId} />
       <button
         type="button"
         onClick={onSave}
@@ -391,6 +407,118 @@ function DeviceTab({
     </div>
   );
 }
+
+/**
+ * Saved kiosk setups in Neon (kiosk_devices) — every Save writes there, and a
+ * reimaged/blank device pulls its setup back at boot ONLY via the provisioning
+ * URL. This block is the manual path: list every provisioned kiosk, tap Load
+ * to APPLY the cloud copy to this device (persist → localStorage + cloud), so
+ * the kiosk boots with it next time — no re-typing, no URL params.
+ */
+function CloudSetups({
+  pin,
+  persist,
+  setMsg,
+  currentId,
+}: {
+  pin: string;
+  persist: (extra?: Partial<KioskConfig>) => void | Promise<void>;
+  setMsg: (m: string) => void;
+  currentId: string;
+}) {
+  const [devices, setDevices] = useState<Array<{
+    kioskId: string;
+    brand: string;
+    config: Partial<KioskConfig>;
+    updatedAt: string;
+  }> | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const loadList = async () => {
+    setLoading(true);
+    const { ok, data } = await adminFetch(pin, "/api/kiosk/admin?action=devices");
+    setLoading(false);
+    if (!ok) {
+      setMsg("Couldn't reach the cloud registry (check DB).");
+      return;
+    }
+    const list = (data as { devices?: CloudDevice[] }).devices ?? [];
+    setDevices(list);
+    if (list.length === 0) setMsg("No kiosk setups saved in the cloud yet.");
+  };
+
+  const summarize = (c: Partial<KioskConfig>) =>
+    [
+      c.variant ?? "podium",
+      c.readerId ? "Square reader" : (c.cardInputMethod ?? "manual"),
+      c.dispenserId ? "dispenser" : c.msrEnabled ? "MSR" : null,
+      c.scannerEnabled ? "scanner" : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+  return (
+    <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold">Saved setups (cloud)</div>
+        <button
+          type="button"
+          onClick={() => void loadList()}
+          disabled={loading}
+          className="rounded-xl border border-white/15 px-4 py-2 text-sm font-bold text-white/70 disabled:opacity-40"
+        >
+          {loading ? "Loading…" : devices ? "Refresh" : "Load from cloud"}
+        </button>
+      </div>
+      {devices?.length ? (
+        <div className="space-y-2">
+          {devices.map((d) => (
+            <div
+              key={d.kioskId}
+              className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3"
+            >
+              <div className="min-w-0">
+                <div className="text-sm font-semibold">
+                  {d.brand}/{d.kioskId}
+                  {d.kioskId === currentId && (
+                    <span className="ml-2 rounded-full bg-[#00e2e5]/15 px-2 py-0.5 text-[11px] font-bold text-[#00e2e5]">
+                      THIS KIOSK
+                    </span>
+                  )}
+                </div>
+                <div className="truncate text-xs text-white/45">{summarize(d.config)}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  // persist = fill the form AND save to localStorage + cloud in
+                  // one tap, so the kiosk opens with this setup on next boot.
+                  void persist(d.config);
+                }}
+                className="shrink-0 rounded-xl bg-[#00e2e5] px-4 py-2 text-sm font-bold text-[#04252b]"
+              >
+                Load &amp; apply
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-white/40">
+          Every Save also writes this kiosk&rsquo;s setup to the cloud. Load &amp; apply pulls a
+          saved kiosk&rsquo;s settings onto THIS device (saved locally — it boots with them next
+          time).
+        </p>
+      )}
+    </div>
+  );
+}
+
+type CloudDevice = {
+  kioskId: string;
+  brand: string;
+  config: Partial<KioskConfig>;
+  updatedAt: string;
+};
 
 /**
  * Guest-photo camera pickers (owner 2026-07-18: waiver-time photo, some kiosks
