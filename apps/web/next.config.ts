@@ -140,7 +140,10 @@ const nextConfig: NextConfig = {
             "style-src 'self' 'unsafe-inline' https:",
             "font-src 'self' https:",
             "img-src 'self' data: blob: https: http:",
-            "connect-src 'self' https: wss://webserver22.sms-timing.com:10015",
+            // Loopback http entries: the kiosk PC's game-card-bridge
+            // (127.0.0.1:4599) — connect-src has no scheme-wide http allowance,
+            // so without these the kiosk silently falls back to cloud loads.
+            "connect-src 'self' https: wss://webserver22.sms-timing.com:10015 http://127.0.0.1:4599 http://localhost:4599",
             "frame-src 'self' https://www.cognitoforms.com https://kiosk.bmileisure.com https://*.3cx.us https://profile.squareup.com https://squareup.com https://pci-connect.squareup.com https://web.squarecdn.com https:",
             "media-src 'self' https://wuce3at4k1appcmf.public.blob.vercel-storage.com",
             "object-src 'none'",
