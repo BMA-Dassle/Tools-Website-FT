@@ -52,7 +52,8 @@ function raceItem(over: Partial<RaceItem> = {}): RaceItem {
     productTrackAdult: null,
     productTrackJunior: null,
     heats: [],
-    packageId: null,
+    packageIdAdult: null,
+    packageIdJunior: null,
     povQuantity: 0,
     addons: [],
     rookiePack: null,
@@ -162,7 +163,7 @@ describe("raceUsesZeroBmiModel — packages + combos now qualify", () => {
     expect(
       raceUsesZeroBmiModel(
         raceItem({
-          packageId: PKG_ID,
+          packageIdAdult: PKG_ID,
           heats: [
             heat({ productId: "x-starter", track: "Mega", tier: "starter", category: "adult" }),
             heat({
@@ -226,7 +227,7 @@ describe("raceItemChargeLines — pack-once / bundle / per-heat", () => {
   it("package charges packagePerRacerPrice × racers as ONE bundle line", () => {
     const pkg = getPackage(PKG_ID)!;
     const item = raceItem({
-      packageId: PKG_ID,
+      packageIdAdult: PKG_ID,
       heats: [
         heat({ productId: "s", track: "Mega", tier: "starter", assignedTo: "r1" }),
         heat({ productId: "i", track: "Mega", tier: "intermediate", assignedTo: "r1" }),
@@ -274,7 +275,7 @@ describe("buildRaceChargeLines — license dedup + standalone POV", () => {
     const session = sessionWith(
       [
         raceItem({
-          packageId: PKG_ID,
+          packageIdAdult: PKG_ID,
           heats: [
             heat({ track: "Mega", tier: "starter", assignedTo: "r1" }),
             heat({ track: "Mega", tier: "intermediate", assignedTo: "r1" }),
@@ -378,5 +379,206 @@ describe("buildRaceChargeLines — license dedup + standalone POV", () => {
     expect(pov).toBeDefined();
     expect(pov!.quantity).toBe(2);
     expect(pov!.amount).toBeCloseTo(10, 2);
+  });
+});
+
+// ── Per-category packages — the mixed-party undercharge fix (2026-07-19) ──
+// A single item-level packageId let a mixed party's junior selection overwrite
+// the adult variant, pricing EVERY racer at the junior per-racer price. These
+// pin the per-category split: each category's heats price at ITS variant.
+
+const UQ_ADULT = "ultimate-qualifier-weekday";
+const UQ_JUNIOR = "ultimate-qualifier-weekday-junior";
+const JUNIOR_STARTER_BLUE_NEW = "24960106"; // junior weekday Starter Blue (new racer), $15.99
+
+function mixedPackageHeats(): RaceHeatAssignment[] {
+  return [
+    heat({ productId: "s-a", track: "Blue", tier: "starter", category: "adult", assignedTo: "r1" }),
+    heat({
+      productId: "i-a",
+      track: "Blue",
+      tier: "intermediate",
+      category: "adult",
+      assignedTo: "r1",
+    }),
+    heat({
+      productId: "s-j",
+      track: "Blue",
+      tier: "starter",
+      category: "junior",
+      assignedTo: "r2",
+    }),
+    heat({
+      productId: "i-j",
+      track: "Blue",
+      tier: "intermediate",
+      category: "junior",
+      assignedTo: "r2",
+    }),
+  ];
+}
+
+describe("raceItemChargeLines — per-category packages (mixed-party pricing)", () => {
+  it("adult + junior variants price independently on separate lines", () => {
+    const adultPkg = getPackage(UQ_ADULT)!;
+    const juniorPkg = getPackage(UQ_JUNIOR)!;
+    // The regression premise: the two variants really do price differently.
+    expect(packagePerRacerPrice(adultPkg)).not.toBeCloseTo(packagePerRacerPrice(juniorPkg), 2);
+
+    const lines = raceItemChargeLines(
+      raceItem({
+        packageIdAdult: UQ_ADULT,
+        packageIdJunior: UQ_JUNIOR,
+        heats: mixedPackageHeats(),
+      }),
+    );
+    expect(lines).toHaveLength(2);
+    const adultLine = lines.find((l) => l.name === adultPkg.name);
+    const juniorLine = lines.find((l) => l.name === `${juniorPkg.name} (Junior)`);
+    expect(adultLine).toBeDefined();
+    expect(juniorLine).toBeDefined();
+    expect(adultLine!.quantity).toBe(1);
+    expect(adultLine!.amount).toBeCloseTo(packagePerRacerPrice(adultPkg), 2);
+    expect(juniorLine!.quantity).toBe(1);
+    expect(juniorLine!.amount).toBeCloseTo(packagePerRacerPrice(juniorPkg), 2);
+  });
+
+  it("adult package + junior SINGLE race: junior heats price per heat at the product price", () => {
+    const juniorPrice = getRaceProductById(JUNIOR_STARTER_BLUE_NEW)!.price;
+    const lines = raceItemChargeLines(
+      raceItem({
+        packageIdAdult: UQ_ADULT,
+        productIdJunior: JUNIOR_STARTER_BLUE_NEW,
+        heats: [
+          heat({ productId: "s-a", track: "Blue", tier: "starter", assignedTo: "r1" }),
+          heat({
+            productId: JUNIOR_STARTER_BLUE_NEW,
+            track: "Blue",
+            tier: "starter",
+            category: "junior",
+            assignedTo: "r2",
+          }),
+        ],
+      }),
+    );
+    const pkgLine = lines.find((l) => l.name === getPackage(UQ_ADULT)!.name);
+    const singleLine = lines.find((l) => l.name === "Junior Starter Race Blue");
+    expect(pkgLine).toBeDefined();
+    expect(singleLine).toBeDefined();
+    expect(singleLine!.quantity).toBe(1);
+    expect(singleLine!.amount).toBeCloseTo(juniorPrice, 2);
+  });
+});
+
+describe("buildRaceChargeLines — per-category license/POV suppression", () => {
+  it("junior single-race NEW racer still pays the license alongside an adult package", () => {
+    const session = sessionWith(
+      [
+        raceItem({
+          packageIdAdult: UQ_ADULT,
+          productIdJunior: JUNIOR_STARTER_BLUE_NEW,
+          heats: [
+            heat({ productId: "s-a", track: "Blue", tier: "starter", assignedTo: "r1" }),
+            heat({
+              productId: JUNIOR_STARTER_BLUE_NEW,
+              track: "Blue",
+              tier: "starter",
+              category: "junior",
+              assignedTo: "r2",
+            }),
+          ],
+        }),
+      ],
+      [member("r1", { isNewRacer: true }), member("r2", { isNewRacer: true, category: "junior" })],
+    );
+    const license = buildRaceChargeLines(session).filter((l) => l.name === "FastTrax License");
+    expect(license).toHaveLength(1);
+    expect(license[0].quantity).toBe(1); // the junior only — adult license rides the bundle
+  });
+
+  it("standalone POV still charges when the package covers only part of the party", () => {
+    const session = sessionWith(
+      [
+        raceItem({
+          packageIdAdult: UQ_ADULT,
+          productIdJunior: JUNIOR_STARTER_BLUE_NEW,
+          povQuantity: 1,
+          heats: [
+            heat({ productId: "s-a", track: "Blue", tier: "starter", assignedTo: "r1" }),
+            heat({
+              productId: JUNIOR_STARTER_BLUE_NEW,
+              track: "Blue",
+              tier: "starter",
+              category: "junior",
+              assignedTo: "r2",
+            }),
+          ],
+        }),
+      ],
+      [member("r1"), member("r2", { category: "junior" })],
+    );
+    const pov = buildRaceChargeLines(session).find((l) => l.name === "POV Race Video");
+    expect(pov).toBeDefined();
+    expect(pov!.quantity).toBe(1);
+  });
+
+  it("a new racer with NO heats pays no license (roster deselect / not-racing opt-out)", () => {
+    const session = sessionWith(
+      [
+        raceItem({
+          productIdAdult: SINGLE_STARTER_RED,
+          heats: [heat({ tier: "starter", assignedTo: "r1" })],
+        }),
+      ],
+      [member("r1", { isNewRacer: true }), member("spectator", { isNewRacer: true })],
+    );
+    const license = buildRaceChargeLines(session).filter((l) => l.name === "FastTrax License");
+    expect(license).toHaveLength(1);
+    expect(license[0].quantity).toBe(1); // r1 only — the heatless spectator pays nothing
+  });
+
+  it("partial package selection: bundle quantity = SELECTED racers, not the whole category", () => {
+    // 3 adults in the party, but only 2 were checked in the picker's roster —
+    // heats carry assignedTo for exactly those 2.
+    const session = sessionWith(
+      [
+        raceItem({
+          packageIdAdult: UQ_ADULT,
+          heats: ["r1", "r2"].flatMap((rid) => [
+            heat({ productId: "s-a", track: "Blue", tier: "starter", assignedTo: rid }),
+            heat({ productId: "i-a", track: "Blue", tier: "intermediate", assignedTo: rid }),
+          ]),
+        }),
+      ],
+      [
+        member("r1", { isNewRacer: true }),
+        member("r2", { isNewRacer: true }),
+        member("r3", { isNewRacer: true }), // deselected — no heats
+      ],
+    );
+    const lines = buildRaceChargeLines(session);
+    const bundle = lines.find((l) => l.name === getPackage(UQ_ADULT)!.name);
+    expect(bundle).toBeDefined();
+    expect(bundle!.quantity).toBe(2);
+    expect(bundle!.amount).toBeCloseTo(packagePerRacerPrice(getPackage(UQ_ADULT)!) * 2, 2);
+    // The deselected heatless racer gets NO license line either.
+    expect(lines.some((l) => l.name === "FastTrax License")).toBe(false);
+  });
+
+  it("fully-packaged mixed party: no license line, no standalone POV", () => {
+    const session = sessionWith(
+      [
+        raceItem({
+          packageIdAdult: UQ_ADULT,
+          packageIdJunior: UQ_JUNIOR,
+          heats: mixedPackageHeats(),
+        }),
+      ],
+      [member("r1", { isNewRacer: true }), member("r2", { isNewRacer: true, category: "junior" })],
+    );
+    const lines = buildRaceChargeLines(session);
+    expect(lines.some((l) => l.name === "FastTrax License")).toBe(false);
+    expect(lines.some((l) => l.name === "POV Race Video")).toBe(false);
+    expect(lines).toHaveLength(2); // the two bundle lines only
   });
 });

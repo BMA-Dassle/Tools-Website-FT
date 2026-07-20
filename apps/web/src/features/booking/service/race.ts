@@ -15,6 +15,8 @@
 import type { Dispatch } from "react";
 import type { Action } from "../state/machine";
 import type { BookingSession, PartyMember, RaceItem, RaceHeatAssignment } from "../state/types";
+import { packageIdForCategory, racePackageIds, raceItemFullyPackaged } from "../state/types";
+import { crossCategoryCollisionMessage, findCrossCategorySameStart } from "./conflict";
 import {
   bmiAdapter,
   type BmiProposal,
@@ -86,6 +88,26 @@ function licenseHeatIndices(session: BookingSession, item: RaceItem): Set<number
   return indices;
 }
 
+/**
+ * Cart-level cross-category guard (owner 2026-07-19): within one session an
+ * adult heat and a junior heat may not share the same (track, start). Adult
+ * and junior races are DIFFERENT BMI products sold into ONE physical session,
+ * so neither BMI's capacity gate nor the per-racer spacing rules stop the
+ * double-book. The grids grey these slots, but a stale availability cache (60s
+ * staleTime, keys shared with the cross-tier fan-out) can let a pick through —
+ * this runs before ANY BMI write and throws a guest-readable message (it
+ * surfaces verbatim in the kiosk toast / hold-error card).
+ */
+function assertNoCrossCategoryCollision(session: BookingSession, item: RaceItem): void {
+  const heats = session.items
+    .filter((i): i is RaceItem => i.kind === "race")
+    // The passed `item` carries the freshest heats — React state in
+    // session.items can lag one dispatch behind it.
+    .flatMap((i) => (i.id === item.id ? item : i).heats);
+  const hit = findCrossCategorySameStart(heats);
+  if (hit) throw new Error(crossCategoryCollisionMessage(hit.start, hit.track));
+}
+
 // ── bookHeatsOnAdvance: book unbooked heats when leaving heat picker ────
 
 export async function bookHeatsOnAdvance(
@@ -94,6 +116,7 @@ export async function bookHeatsOnAdvance(
   dispatch: Dispatch<Action>,
   onProgress?: (msg: string) => void,
 ): Promise<void> {
+  assertNoCrossCategoryCollision(session, item);
   let billId = session.bmiBillId;
 
   // Pre-count remaining heats so progress reads "Reserving heat 1 of N"
@@ -156,13 +179,19 @@ export async function bookHeatsOnAdvance(
     });
     billId = billAfter;
 
-    if (!billId) {
+    // The RESPONSE's orderId is AUTHORITATIVE. When the order we chained onto
+    // is cancelled (a deselect that empties a Pending-online order makes BMI
+    // auto-cancel it), booking/book does NOT error — it silently creates a
+    // fresh order and returns ITS id. Keeping the stale id strands every later
+    // line on invisible new W-numbers and every removeItem answers "Order is
+    // cancelled" (live find 2026-07-19: one lingering reservation per re-pick).
+    // Adopting the returned id also covers the brand-new-bill case (!billId).
+    if (result.rawOrderId && result.rawOrderId !== billId) {
       billId = result.rawOrderId;
       dispatch({ type: "setBmiBillId", id: billId });
-      // Attach the customer to the brand-new bill immediately (v1 parity:
-      // registerContactPerson) so a reservation never exists without a contact.
-      // Contact is collected up front (ContactStep), so session.contact is set.
-      // Non-fatal.
+      // Attach the customer to the (possibly brand-new) bill immediately (v1
+      // parity: registerContactPerson) so a reservation never exists without
+      // a contact. Non-fatal.
       await registerContact(billId, session.contact, session.party);
     }
 
@@ -179,9 +208,23 @@ export async function bookHeatsOnAdvance(
   // Square (inside the package bundle, or as a standalone POV line). Packages set
   // includesPov (not povQuantity), so derive the qty from the package + racers.
   if (billId && !item.povSold) {
-    const pkg = item.packageId ? getPackage(item.packageId) : null;
-    const racerCount = new Set(item.heats.map((h) => h.assignedTo).filter(Boolean)).size || 1;
-    const povQty = pkg?.includesPov ? racerCount : item.povQuantity;
+    // Package POV is per CATEGORY (adult/junior variants are separate packages):
+    // each variant with includesPov covers exactly ITS category's racers; the
+    // item-level povQuantity still applies to any non-packaged remainder (the
+    // POV step is visible unless every category is packaged — same seam).
+    let povQty = 0;
+    for (const category of ["adult", "junior"] as const) {
+      const pkg = getPackage(packageIdForCategory(item, category));
+      if (!pkg?.includesPov) continue;
+      const catRacers = new Set(
+        item.heats
+          .filter((h) => (h.category ?? "adult") === category)
+          .map((h) => h.assignedTo)
+          .filter(Boolean),
+      ).size;
+      povQty += catRacers || 1;
+    }
+    if (!raceItemFullyPackaged(item, session.party)) povQty += item.povQuantity;
     // A failed sellPov must NOT set povSold — that flag is the only retry
     // gate, so marking it on failure meant the $0 POV line never reached the
     // bill (and the confirmation page had no POV line to claim codes from).
@@ -192,8 +235,17 @@ export async function bookHeatsOnAdvance(
     let wroteMemo = false;
     // Package disclaimer trail (e.g. Ultimate Qualifier qualification terms) so
     // ops sees the acknowledgment at check-in. v1 parity (page.tsx booking/memo).
-    if (pkg?.disclaimers?.billMemo) {
-      await writeBillMemo(billId, pkg.disclaimers.billMemo);
+    // Deduped across the item's packages — the adult + junior variants of one
+    // family share the same memo text, which should land once, not twice.
+    const memos = [
+      ...new Set(
+        racePackageIds(item)
+          .map((id) => getPackage(id)?.disclaimers?.billMemo)
+          .filter((m): m is string => !!m),
+      ),
+    ];
+    for (const memo of memos) {
+      await writeBillMemo(billId, memo);
       wroteMemo = true;
     }
     // NOTE: the combo VIP memo is NOT written here. BMI's booking/memo is a
@@ -279,6 +331,18 @@ export async function holdPickedHeats(
   item: RaceItem,
   dispatch: Dispatch<Action>,
 ): Promise<HoldHeatsResult> {
+  // Cross-category double-book is a pick error, not a transient hold failure —
+  // report it through the result shape the picker already renders.
+  try {
+    assertNoCrossCategoryCollision(session, item);
+  } catch (err) {
+    return {
+      ok: false,
+      booked: [],
+      billId: session.bmiBillId,
+      error: err instanceof Error ? err.message : "Adults and juniors can't share a heat.",
+    };
+  }
   let billId = session.bmiBillId;
   const licenseHeats = licenseHeatIndices(session, item);
   const booked: Array<{ heatIndex: number; bmiLineId: string | null }> = [];
@@ -323,12 +387,14 @@ export async function holdPickedHeats(
       });
       billId = billAfter;
 
-      if (!billId) {
+      // Response orderId is AUTHORITATIVE — adopt it whenever it differs (BMI
+      // silently reparents onto a fresh order when the chained order was
+      // cancelled, e.g. after a deselect emptied it; see bookHeatsOnAdvance).
+      if (result.rawOrderId && result.rawOrderId !== billId) {
         billId = result.rawOrderId;
         dispatch({ type: "setBmiBillId", id: billId });
-        // Attach the customer to the brand-new bill immediately (v1 parity) so a
-        // reservation never exists without a contact. Contact is collected up
-        // front (ContactStep) — guaranteed complete before this step. Non-fatal.
+        // Attach the customer to the (possibly brand-new) bill immediately so
+        // a reservation never exists without a contact. Non-fatal.
         await registerContact(billId, session.contact, session.party);
       }
       booked.push({ heatIndex: i, bmiLineId: result.billLineId });
@@ -368,6 +434,7 @@ export async function holdRaceItem(
   item: RaceItem,
   dispatch: Dispatch<Action>,
 ): Promise<RaceHoldResult> {
+  assertNoCrossCategoryCollision(session, item);
   let billId = session.bmiBillId;
   const licenseHeats = licenseHeatIndices(session, item);
 
@@ -419,7 +486,10 @@ export async function holdRaceItem(
       personId,
     });
 
-    if (!billId) {
+    // Response orderId is AUTHORITATIVE — adopt it whenever it differs (BMI
+    // silently reparents onto a fresh order when the chained order was
+    // cancelled; see bookHeatsOnAdvance).
+    if (result.rawOrderId && result.rawOrderId !== billId) {
       billId = result.rawOrderId;
       dispatch({ type: "setBmiBillId", id: billId });
     }
@@ -482,12 +552,33 @@ export async function confirmRaceOrder(billId: string): Promise<string | null> {
 
 // ── cancel: cancel the BMI bill ─────────────────────────────────────────
 
-export async function cancelRaceOrder(billId: string): Promise<void> {
-  try {
-    await fetch(`/api/bmi?endpoint=bill/${billId}/cancel`, { method: "DELETE" });
-  } catch {
-    console.warn("[race.cancel] bill cancel failed (non-fatal):", billId);
+/**
+ * Cancel the whole BMI bill (releases every held heat/slot + the attached
+ * contact). Returns true only when BMI confirmed the cancel — the abandon
+ * paths (kiosk start-over/idle-timeout, web start-new-booking) depend on this
+ * landing, or the reservation keeps blocking its heat until BMI's ~20-min
+ * auto-expire. So: verify the response (`{success:true}`), retry transient
+ * failures, target the bill's own tenant via `clientKey`, and send with
+ * `keepalive` so a navigation (kiosk self-update hard reload) can't kill an
+ * in-flight attempt. Never throws.
+ */
+export async function cancelRaceOrder(billId: string, clientKey?: string): Promise<boolean> {
+  const params = new URLSearchParams({ endpoint: `bill/${billId}/cancel` });
+  if (clientKey) params.set("clientKey", clientKey);
+  const attempts = 3;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      const res = await fetch(`/api/bmi?${params}`, { method: "DELETE", keepalive: true });
+      const body = (await res.json().catch(() => null)) as { success?: boolean } | null;
+      if (res.ok && body?.success === true) return true;
+      console.warn(`[race.cancel] attempt ${i}/${attempts} not confirmed:`, billId, res.status);
+    } catch (err) {
+      console.warn(`[race.cancel] attempt ${i}/${attempts} failed:`, billId, err);
+    }
+    if (i < attempts) await new Promise((r) => setTimeout(r, 1000 * i));
   }
+  console.error("[race.cancel] bill cancel NOT confirmed after retries:", billId);
+  return false;
 }
 
 // ── internal: license sell via BMI proxy ─────────────────────────────────

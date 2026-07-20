@@ -17,6 +17,9 @@ export {
   newItem,
   newKbfIdentity,
   newPartyMember,
+  packageIdForCategory,
+  racePackageIds,
+  raceItemFullyPackaged,
 } from "./state/types";
 export type {
   AttractionItem,
@@ -43,7 +46,7 @@ export type { Action } from "./state/machine";
 export { STEP_REGISTRY } from "./state/steps";
 export type { StepDef } from "./state/steps";
 
-export { bookingKeys } from "./queries";
+export { bookingKeys, BOOKED_HEATS_POLL_MS, RACE_AVAILABILITY_POLL_MS } from "./queries";
 export { ActivitySchema, ContactInfoSchema } from "./schemas";
 export type { ActivityInput } from "./schemas";
 

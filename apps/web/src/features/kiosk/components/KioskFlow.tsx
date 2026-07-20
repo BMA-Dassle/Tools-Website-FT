@@ -18,14 +18,18 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import {
+  bookingKeys,
   emptySession,
   getActiveItem,
   newItem,
+  packageIdForCategory,
   type ActivityOffering,
   type AttractionItem,
   type BowlingItem,
   type PartyMember,
+  type RaceHeatAssignment,
   type RaceItem,
   type SessionItem,
   type StepDef,
@@ -46,7 +50,8 @@ import {
   releaseHeatBmiLines,
 } from "~/features/booking/service/checkout";
 import { comboBowlingComponent, getComboSpecial, type ComboSpecial } from "~/features/combos";
-import { eligiblePackages, scheduleForDate } from "@/lib/packages";
+import { getPackage } from "@/lib/packages";
+import { resolvePreselectPatch } from "../service/package-preselect";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
 import {
@@ -165,6 +170,20 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     storageKey: KIOSK_SESSION_STORAGE_KEY,
     schemaVersion: KIOSK_SCHEMA_VERSION,
   });
+  const queryClient = useQueryClient();
+  // Always-latest handleNext for steps' requestAdvance — the picker calls it
+  // after an await, from a closure created renders ago; the ref guarantees the
+  // CURRENT session/item advance (and the unracered sheet still intercepts).
+  // setTimeout(0) lets React flush the hold's final state first. Hooks live up
+  // here (the config early-return sits below); the ref is assigned by a plain
+  // statement right AFTER handleNext's declaration — NEVER by an effect
+  // registered up here: on a loading-screen render the early return means
+  // handleNext is still in its temporal dead zone, and an effect touching it
+  // crashed /kiosk/flow on first paint (live find 2026-07-19).
+  const handleNextRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const requestAdvance = useCallback(() => {
+    setTimeout(() => void handleNextRef.current(), 0);
+  }, []);
 
   // `?bowlingV3=1` preview opt-in must also reach a PERSISTED kiosk session —
   // context is only seeded at creation (same fix as BookingFlow).
@@ -185,7 +204,15 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   // idle watchdog so a guest isn't reset mid-dispense or during a fault hold.
   const [gzBusy, setGzBusy] = useState(false);
   const [vipCombo, setVipCombo] = useState<ComboSpecial | null>(null);
-  const [stepBusy, setStepBusy] = useState(false);
+  // The ref twin is the SYNCHRONOUS truth for handleNext's guard: a step's
+  // requestAdvance fires right after its hold clears busy, before React has
+  // flushed the state update.
+  const [stepBusy, setStepBusyState] = useState(false);
+  const stepBusyRef = useRef(false);
+  const setStepBusy = useCallback((busy: boolean) => {
+    stepBusyRef.current = busy;
+    setStepBusyState(busy);
+  }, []);
   const [bookingHeats, setBookingHeats] = useState(false);
   const [bookingHeatsProgress, setBookingHeatsProgress] = useState("Holding your spot…");
   const [kioskError, setKioskError] = useState<string | null>(null);
@@ -275,11 +302,11 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
    *  CartView's leave modal (web-only; the kiosk passes onAllActivities). */
   const handleStartOver = useCallback(async () => {
     setResetting(true);
-    try {
-      await abandonBooking(session);
-    } catch {
-      /* best-effort — BMI bills self-expire in ~20 min as the backstop */
-    }
+    // abandonBooking retries + verifies the BMI cancel (7/19 incident: silent
+    // cancel failures stacked abandoned holds onto live heats). false = BMI's
+    // ~20-min self-expire is the last resort; the /api/bmi log line has detail.
+    const released = await abandonBooking(session).catch(() => false);
+    if (!released) console.error("[kiosk] start-over could not confirm hold release");
     clearBookingSession(KIOSK_SESSION_STORAGE_KEY);
     // Self-update between guests: if a newer deploy is live, hard-reload to load
     // it (fullscreen re-engages on the first attract tap); otherwise soft-nav so
@@ -324,36 +351,30 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   }, [currentCursor]);
 
   // Preselect the tapped Experiences package once the party is known, so the
-  // product step can skip. MUST stay above the early return below (hook order).
-  // SAFE by construction: resolves via the SAME eligiblePackages() the product
-  // step uses (never a package the step wouldn't offer), and ONLY when the party
-  // is uniform + all-new with exactly one eligible variant. Any other case
-  // (returning racer, mixed adult+junior, no/multiple variants) leaves packageId
-  // unset → the product step shows normally.
+  // product step(s) can skip. MUST stay above the early return below (hook
+  // order). Per-category (packageIdAdult/Junior): a mixed adult+junior party
+  // gets BOTH variants stamped and skips both product steps (owner 2026-07-19);
+  // any category that doesn't resolve to exactly one all-new eligible variant
+  // stays unstamped → its product step shows normally (see package-preselect.ts).
   useEffect(() => {
     const preferred = session.preferredPackageId;
     if (!preferred) return;
     const race = session.items.find((i) => i.kind === "race") as
-      | (SessionItem & { packageId?: string; date?: string })
+      | (SessionItem & {
+          packageIdAdult?: string | null;
+          packageIdJunior?: string | null;
+          date?: string;
+        })
       | undefined;
-    if (!race || race.packageId || !race.date) return;
-    const party = session.party;
-    if (party.length === 0) return; // wait for the party step
-    if (party.some((m) => !m.isNewRacer)) return; // packages are new-racer-only
-    const cats = new Set(party.map((m) => m.category ?? "adult"));
-    if (cats.size !== 1) return; // mixed adult+junior → let the product step handle it
-    const category = [...cats][0] as "adult" | "junior";
-    const variants = eligiblePackages({
-      racerType: "new",
-      schedule: scheduleForDate(race.date),
-      category,
-    }).filter((p) => p.id.startsWith(preferred));
-    if (variants.length === 1) {
-      dispatch({
-        type: "updateItem",
-        id: race.id,
-        patch: { packageId: variants[0].id } as Partial<SessionItem>,
-      });
+    if (!race || !race.date) return;
+    const patch = resolvePreselectPatch({
+      party: session.party,
+      date: race.date,
+      preferredFamily: preferred,
+      current: race,
+    });
+    if (patch) {
+      dispatch({ type: "updateItem", id: race.id, patch: patch as Partial<SessionItem> });
     }
   }, [session.preferredPackageId, session.party, session.items, dispatch]);
 
@@ -612,6 +633,10 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   };
 
   const requestStartOver = () => {
+    // Never reset while a booking call is in flight (same set that pauses the
+    // IdleWatcher): the whole-bill cancel would race the in-flight book and the
+    // fresh line would land on a bill nobody owns anymore.
+    if (bookingHeats || stepBusy) return;
     // Nothing guest-visible to lose (no names, empty cart) — skip the ceremony.
     if (session.party.length === 0 && cartCount === 0) {
       void handleStartOver();
@@ -863,6 +888,9 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
               type="button"
               onClick={() => {
                 if (isReset) {
+                  // Same in-flight guard as requestStartOver — a booking call
+                  // could have started while the sheet was up.
+                  if (bookingHeats || stepBusy) return;
                   // Close first so the sheet doesn't sit over the z-40
                   // "Clearing this session…" loader.
                   setConfirmExit(null);
@@ -1207,6 +1235,10 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     }
     try {
       await bookHeatsOnAdvance(session, raceItem, dispatch, setBookingHeatsProgress);
+      // Booking consumed capacity the 60s-stale availability cache doesn't
+      // know about — refresh so the next grid (the junior leg after the adult
+      // leg books on advance) reads post-booking occupancy.
+      queryClient.invalidateQueries({ queryKey: bookingKeys.bmi.availabilityAll });
       advanceToNextStep();
     } catch (err) {
       setKioskError(
@@ -1233,6 +1265,45 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     setUnraceredPrompt(null);
   };
 
+  /** Unracered sheet, PACKAGE flow → append the skipped member(s) onto the
+   *  already-picked package heats and book: a racer does the WHOLE package or
+   *  none of it, so mirror every distinct picked (product, heat) of this
+   *  category. The product-clearing path above would dead-end here — on a
+   *  preselected-package launch the product step is hidden. Capacity is
+   *  enforced at book time: a full heat surfaces the kiosk error and nothing
+   *  partial books. */
+  const addToPackageForUnracered = async () => {
+    if (!unraceredPrompt || !activeItem || activeItem.kind !== "race") return;
+    const raceItem = activeItem as RaceItem;
+    const catHeats = raceItem.heats.filter(
+      (h) => h.heatId && (h.category ?? "adult") === unraceredPrompt.category,
+    );
+    const distinct = new Map<string, RaceHeatAssignment>();
+    for (const h of catHeats) distinct.set(`${h.productId}|${h.heatId}`, h);
+    const additions: RaceHeatAssignment[] = unraceredPrompt.members.flatMap((m) =>
+      [...distinct.values()].map((h) => ({
+        productId: h.productId,
+        track: h.track,
+        tier: h.tier,
+        category: h.category,
+        heatId: h.heatId,
+        bmiLineId: null,
+        assignedTo: m.id,
+      })),
+    );
+    setUnraceredPrompt(null);
+    if (additions.length === 0) return;
+    const updatedItem: RaceItem = { ...raceItem, heats: [...raceItem.heats, ...additions] };
+    // Store first, then book against the local copy (the dispatch hasn't
+    // re-rendered yet) — the ComboSteps confirm uses the same pattern.
+    dispatch({
+      type: "updateItem",
+      id: raceItem.id,
+      patch: { heats: updatedItem.heats } as Partial<SessionItem>,
+    });
+    await bookHeatsAndAdvance(updatedItem);
+  };
+
   /** Unracered sheet → explicit "they're not racing" opt-out (spectators are
    *  legitimate) — book what's picked and move on. */
   const continueWithoutUnracered = async () => {
@@ -1241,8 +1312,16 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     await bookHeatsAndAdvance(activeItem as RaceItem);
   };
 
+  // The active category's package while the unracered sheet is up — drives the
+  // sheet's package-flavored copy + the append-to-package primary action.
+  const unraceredPkg =
+    unraceredPrompt && activeItem?.kind === "race"
+      ? getPackage(packageIdForCategory(activeItem as RaceItem, unraceredPrompt.category))
+      : null;
+
   const handleNext = async () => {
-    if (stepBusy) return;
+    // Ref, not state: requestAdvance can fire before the state flush.
+    if (stepBusyRef.current) return;
     setKioskError(null);
 
     if (
@@ -1262,21 +1341,22 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       // Mixed-tier guard (owner 2026-07-18): the product step offers the tier the
       // HIGHEST racer earned, so a lower-tier guest gets crossed out of the heat
       // and the flow used to advance with them silently dropped. Never advance
-      // past a guest with no race — offer the add-another-race loop (the path
-      // back the guest "couldn't find") or an explicit not-racing opt-out.
-      // Packages own their race selections, so they're exempt.
-      if (!raceItem.packageId) {
-        const category = currentStep.id === "race-heat-adult" ? "adult" : "junior";
-        const assigned = new Set(
-          raceItem.heats.filter((h) => h.heatId && h.assignedTo).map((h) => h.assignedTo),
-        );
-        const unracered = session.party.filter(
-          (m) => (m.category ?? "adult") === category && !assigned.has(m.id),
-        );
-        if (unracered.length > 0 && raceItem.heats.some((h) => h.heatId)) {
-          setUnraceredPrompt({ category, members: unracered });
-          return;
-        }
+      // past a guest with no race — offer a way to add them (the path back the
+      // guest "couldn't find") or an explicit not-racing opt-out. Packages are
+      // covered too since the picker's roster checklist can deselect members
+      // (the old "packages own their race selections" exemption predates real
+      // selection); their sheet's primary action appends onto the picked
+      // package heats instead of the product-clearing back-nav.
+      const category = currentStep.id === "race-heat-adult" ? "adult" : "junior";
+      const assigned = new Set(
+        raceItem.heats.filter((h) => h.heatId && h.assignedTo).map((h) => h.assignedTo),
+      );
+      const unracered = session.party.filter(
+        (m) => (m.category ?? "adult") === category && !assigned.has(m.id),
+      );
+      if (unracered.length > 0 && raceItem.heats.some((h) => h.heatId)) {
+        setUnraceredPrompt({ category, members: unracered });
+        return;
       }
       await bookHeatsAndAdvance(raceItem);
       return;
@@ -1309,6 +1389,10 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
 
     advanceToNextStep();
   };
+  // Latest-closure handoff for requestAdvance (see the ref's declaration above
+  // the early return) — a plain render-time assignment, deliberately not an
+  // effect: it must only run on renders that actually initialize handleNext.
+  handleNextRef.current = handleNext;
 
   // Full-bleed activity photo backdrop — Podium renders every step over its
   // activity photography with the house navy scrim.
@@ -1362,6 +1446,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
             onChange={(patch) => dispatch({ type: "updateItem", id: activeItem.id, patch })}
             dispatch={dispatch}
             setBusy={setStepBusy}
+            requestAdvance={requestAdvance}
           />
         </div>
 
@@ -1430,7 +1515,9 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       )}
 
       {/* Mixed-tier guard: someone in this category has no race yet — make the
-          add-another-race path obvious instead of silently dropping them. */}
+          add-them path obvious instead of silently dropping them. Package
+          flows get an append-to-package primary action (the product-clearing
+          back-nav would dead-end on a preselected-package launch). */}
       {unraceredPrompt && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
           <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
@@ -1440,8 +1527,9 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
               {unraceredPrompt.members.length === 1 ? "isn't" : "aren't"} in a race yet
             </div>
             <p className="text-[26px] leading-snug text-white/60">
-              This race is above their level or they weren&rsquo;t added to a heat. Add a race that
-              fits them — your picked heats are saved — or continue without racing them.
+              {unraceredPkg
+                ? `They weren't included in the ${unraceredPkg.name}. Add them to the same heats, or continue without racing them.`
+                : "This race is above their level or they weren't added to a heat. Add a race that fits them — your picked heats are saved — or continue without racing them."}
             </p>
             <div className="flex flex-col gap-[16px] pt-[4px]">
               {/* k-btn-primary's flex:1 squashes its height in this column
@@ -1451,11 +1539,15 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
                   utilities. */}
               <button
                 type="button"
-                onClick={addRaceForUnracered}
+                onClick={() =>
+                  unraceredPkg ? void addToPackageForUnracered() : addRaceForUnracered()
+                }
                 className="k-btn-primary k-tap"
                 style={{ flex: "0 0 auto" }}
               >
-                Add a race for {unraceredPrompt.members.map((m) => m.firstName).join(" & ")}
+                {unraceredPkg
+                  ? `Add ${unraceredPrompt.members.map((m) => m.firstName).join(" & ")} to the ${unraceredPkg.name}`
+                  : `Add a race for ${unraceredPrompt.members.map((m) => m.firstName).join(" & ")}`}
               </button>
               <button
                 type="button"

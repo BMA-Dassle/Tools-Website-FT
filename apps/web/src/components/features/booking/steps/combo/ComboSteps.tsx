@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import type { BookingSession, BowlingItem, RaceItem, StepDef } from "~/features/booking";
-import { qamfCenterIdForCode } from "~/features/booking";
+import { bookingKeys, qamfCenterIdForCode } from "~/features/booking";
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
 import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import type { RaceHeatAssignment } from "~/features/booking/state/types";
@@ -548,6 +549,7 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
   dispatch,
   setBusy,
 }) => {
+  const queryClient = useQueryClient();
   const combo = comboFor(session);
   const date = item.date;
   const centerId = qamfCenterIdForCode(session.center) ?? 9172;
@@ -735,6 +737,9 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
         ),
       };
       await bookHeatsOnAdvance(updatedSession, updatedItem, dispatch);
+      // Booking consumed capacity the 60s-stale availability cache doesn't
+      // know about — refresh any grid rendered after this confirm.
+      queryClient.invalidateQueries({ queryKey: bookingKeys.bmi.availabilityAll });
       if (updatedBowling && !updatedBowling.qamfReservationId) {
         const qamfReservationId = await holdComboBowling({
           session: updatedSession,

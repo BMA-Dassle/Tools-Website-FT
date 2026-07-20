@@ -192,6 +192,81 @@ export function findCrossBookingConflict(
   return null;
 }
 
+// ── Cross-category same-slot (adults vs juniors) ─────────────────────────
+//
+// Adult and junior races are DIFFERENT BMI products, so BMI happily sells
+// both into one physical session — and nothing above catches it because every
+// rule here is per-racer ("different racers never conflict"). Owner rule
+// (2026-07-19): within one booking session, an adult heat and a junior heat
+// may not share the SAME TRACK + SAME START (a physical double-book — "if
+// adults select 3pm on Blue, obviously a junior race can't be at 3pm").
+// Same wall-clock time on a DIFFERENT track is allowed. Symmetric: it fires
+// whichever category picks second, and counts already-booked heats (the
+// kiosk books each leg eagerly on advance).
+
+/** One cart heat with the fields the cross-category rule needs. */
+export interface CategoryTrackHeat {
+  /** Naive center-local start string, e.g. "2026-07-02T15:36:00". */
+  heatId: string | null;
+  track: string | null;
+  category?: "adult" | "junior" | null;
+}
+
+/** Canonical (track|start) key — case-insensitive track, trailing "Track"
+ *  word stripped ("Blue Track" ≡ "Blue"), Z/millis stripped off the start. */
+function trackStartKey(track: string | null | undefined, heatId: string): string {
+  const t = (track ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]*track$/, "");
+  const start = heatId.replace(/\.\d+/, "").replace(/Z$/, "");
+  return `${t}|${start}`;
+}
+
+/**
+ * First (track, start) slot held by BOTH an adult and a junior heat, or null.
+ * Missing category defaults to "adult" (mirrors the party/heat defaults).
+ */
+export function findCrossCategorySameStart(
+  heats: CategoryTrackHeat[],
+): { start: string; track: string | null } | null {
+  const byaSlot = new Map<
+    string,
+    { categories: Set<string>; start: string; track: string | null }
+  >();
+  for (const h of heats) {
+    if (!h.heatId) continue;
+    const key = trackStartKey(h.track, h.heatId);
+    const entry = byaSlot.get(key) ?? {
+      categories: new Set<string>(),
+      start: h.heatId,
+      track: h.track,
+    };
+    entry.categories.add(h.category ?? "adult");
+    byaSlot.set(key, entry);
+    if (entry.categories.size > 1) return { start: entry.start, track: entry.track };
+  }
+  return null;
+}
+
+/** True when a candidate (track, start) collides with any OTHER-category heat
+ *  in `otherCategoryHeats` — the grid grey-out predicate. */
+export function collidesWithOtherCategory(
+  candidateTrack: string | null | undefined,
+  candidateStart: string,
+  otherCategoryHeats: Array<{ heatId: string | null; track: string | null }>,
+): boolean {
+  const key = trackStartKey(candidateTrack, candidateStart);
+  return otherCategoryHeats.some((h) => h.heatId && trackStartKey(h.track, h.heatId) === key);
+}
+
+/** Guest-readable rejection for a cross-category collision — lands verbatim in
+ *  the kiosk error toast / hold-error card, so keep it self-explanatory. */
+export function crossCategoryCollisionMessage(start: string, track: string | null): string {
+  const where = track ? ` on the ${track} Track` : "";
+  return `Adults and juniors can't share the same ${heatClockLabel(start)} heat${where} — please pick a different time for one group.`;
+}
+
 /** "2026-07-02T15:36:00" → "3:36 PM" (for rejection messages). */
 export function heatClockLabel(heatId: string): string {
   const m = heatId.match(/T(\d{2}):(\d{2})/);

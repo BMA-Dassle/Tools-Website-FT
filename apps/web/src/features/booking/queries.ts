@@ -13,6 +13,20 @@
  *
  * Add new query families here as activities ship.
  */
+/**
+ * Semi-live race grids (owner 2026-07-19): while a guest sits on any heat
+ * grid, other guests' bookings should show up without navigating — spot
+ * counts drop, filled heats grey out. Every availability query (both grids +
+ * the cross-tier occupancy probes) refetches on this interval; the
+ * `/api/bmi` proxy's 25s read-through Redis cache (purged on any booking
+ * write) caps what actually reaches BMI at ~1 call per (product, date, qty)
+ * per TTL no matter how many kiosks/phones poll.
+ */
+export const RACE_AVAILABILITY_POLL_MS = 30_000;
+/** The party's already-booked heats (cross-reservation spacing grey-outs) —
+ *  cheaper Neon read, slower drift, poll at a gentler cadence. */
+export const BOOKED_HEATS_POLL_MS = 60_000;
+
 export const bookingKeys = {
   /** Match every booking key — broad invalidation. */
   all: ["booking"] as const,
@@ -26,6 +40,11 @@ export const bookingKeys = {
   /** BMI reads (per-activity availability, person lookup, bill overview). */
   bmi: {
     all: ["booking", "bmi"] as const,
+    /** Prefix-match for EVERY availability query (any product/date) — invalidate
+     *  after a successful heat booking so the next grid (e.g. the junior leg
+     *  after the adult leg books) reads post-hold occupancy, not the 60s-stale
+     *  cache shared with the cross-tier fan-out. */
+    availabilityAll: ["booking", "bmi", "availability"] as const,
     availability: (params: { center: string; date: string; productId: string }) =>
       ["booking", "bmi", "availability", params] as const,
     overview: (billId: string) => ["booking", "bmi", "overview", billId] as const,

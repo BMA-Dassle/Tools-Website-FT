@@ -10,7 +10,7 @@ import type {
   RaceItem,
   SessionItem,
 } from "~/features/booking";
-import { findOffering } from "~/features/booking";
+import { findOffering, packageIdForCategory, raceItemFullyPackaged } from "~/features/booking";
 import { ATTRACTIONS } from "~/features/booking/service/attractions";
 import { getRaceProductById, type RaceProduct } from "~/features/booking/service/race-products";
 import { LICENSE_PRICE, POV_PRICE } from "~/features/booking/service/race-pricing";
@@ -439,7 +439,12 @@ function RaceCartCard({
   onRemove: () => void;
   onRemoveHeat?: (itemId: string, productId: string, heatId: string) => void;
 }) {
-  const pkg = item.packageId ? getPackage(item.packageId) : null;
+  // Per-category packages (adult/junior variants are separate ids); `pkg` is
+  // the shared display handle — every real family shares its display name +
+  // extras flags across variants, so the first non-null one drives the card.
+  const pkgAdult = getPackage(item.packageIdAdult);
+  const pkgJunior = getPackage(item.packageIdJunior);
+  const pkg = pkgAdult ?? pkgJunior;
   const adultProduct = item.productIdAdult ? getRaceProductById(item.productIdAdult) : null;
   const juniorProduct = item.productIdJunior ? getRaceProductById(item.productIdJunior) : null;
 
@@ -483,14 +488,27 @@ function RaceCartCard({
   // already includes license + POV; single/combo add session license (new
   // racers) + standalone POV + add-ons on top.
   const newRacerCount = session.party.filter((m) => m.isNewRacer).length;
+  // License rides the package bundle only for CATEGORIES that hold a package —
+  // a junior single-race new racer alongside an adult package still pays it —
+  // and only racers with an actual heat pay at all (roster deselect / opt-out).
+  // Mirrors buildRaceChargeLines exactly, so cart == charge.
+  const racingIds = new Set(
+    item.heats.filter((h) => h.heatId && h.assignedTo).map((h) => h.assignedTo!),
+  );
+  const nonPackageNewRacers = session.party.filter(
+    (m) =>
+      m.isNewRacer && racingIds.has(m.id) && !packageIdForCategory(item, m.category ?? "adult"),
+  ).length;
   // USA250: license + POV are racing add-ons too — discount them like the heats
   // (gated on this race item's date) so the cart estimate matches checkout.
   const raceAddonFactor = promoFactor(
     { domain: "racing", visitDate: item.date },
     session.appliedPromo,
   );
-  const licenseTotal = Math.round(LICENSE_PRICE * newRacerCount * raceAddonFactor * 100) / 100;
-  const povTotal = Math.round(POV_PRICE * item.povQuantity * raceAddonFactor * 100) / 100;
+  const licenseTotal =
+    Math.round(LICENSE_PRICE * nonPackageNewRacers * raceAddonFactor * 100) / 100;
+  const standalonePov = raceItemFullyPackaged(item, session.party) ? 0 : item.povQuantity;
+  const povTotal = Math.round(POV_PRICE * standalonePov * raceAddonFactor * 100) / 100;
   const addonsTotal = item.addons.reduce((sum, a) => sum + estimateAddon(a), 0);
 
   // Reduce race lines too (they carry domain/visitDate) so the cart estimate
@@ -499,11 +517,7 @@ function RaceCartCard({
     raceItemChargeLines(item),
     session.appliedPromo,
   ).reduce((s, l) => s + l.amount, 0);
-  const estimated = combo
-    ? 0
-    : pkg
-      ? raceLinesTotal + addonsTotal
-      : raceLinesTotal + licenseTotal + povTotal + addonsTotal;
+  const estimated = combo ? 0 : raceLinesTotal + licenseTotal + povTotal + addonsTotal;
 
   return (
     <li className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm">
@@ -533,8 +547,9 @@ function RaceCartCard({
         </div>
       </div>
 
-      {/* Heats — package shows all heats; individual races group by category */}
-      {pkg && item.heats.length > 0 ? (
+      {/* Heats — a single-category package shows one flat list; anything with
+          both categories (mixed-party packages included) groups adult/junior */}
+      {pkg && item.heats.length > 0 && (adultHeats.length === 0 || juniorHeats.length === 0) ? (
         <div className="mt-3 space-y-2">
           <HeatGroup label="Heats" heats={item.heats} party={session.party} accent="cyan" />
         </div>

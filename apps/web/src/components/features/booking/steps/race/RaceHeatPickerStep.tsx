@@ -1,9 +1,14 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PartyMember, RaceHeatAssignment, RaceItem, StepDef } from "~/features/booking";
-import { bookingKeys } from "~/features/booking";
+import {
+  bookingKeys,
+  packageIdForCategory,
+  BOOKED_HEATS_POLL_MS,
+  RACE_AVAILABILITY_POLL_MS,
+} from "~/features/booking";
 import {
   bmiAdapter,
   type BmiAvailabilityResponse,
@@ -16,6 +21,8 @@ import {
   type RaceTier,
 } from "~/features/booking/service/race-products";
 import {
+  collidesWithOtherCategory,
+  crossCategoryCollisionMessage,
   EXISTING_RESERVATION_CONFLICT_TOOLTIP,
   findHeatConflict,
   HEAT_CONFLICT_TOOLTIP,
@@ -32,7 +39,9 @@ import {
   getPublicReopenMinutes,
 } from "@/lib/group-events";
 import { getPackage } from "~/features/booking/service/packages";
-import { PackageHeatPicker, type PackagePick } from "./PackageHeatPicker";
+import { packageComponentsCovered } from "~/features/booking/service/package-picks";
+import { PackageHeatPicker } from "./PackageHeatPicker";
+import { useEagerHeatHold } from "./useEagerHeatHold";
 import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track-visuals";
 
 /**
@@ -56,20 +65,24 @@ import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track
  *     so BMI bookHeat (commit 10) lands one bill line per racer with the
  *     right `bmiPersonId`.
  *
- * Lead time: when any racer in the category is new, heats starting within
- * NEW_RACER_LEAD_MINUTES of "now" are filtered out so the racer has time to
- * check in before their heat (v1 HeatPicker:159-166 + page.tsx:2280-2288).
+ * Lead time: heats starting too close to "now" are filtered out so the racer
+ * has time to check in before their heat (v1 HeatPicker:159-166 +
+ * page.tsx:2280-2288). Web: new racers only (NEW_RACER_LEAD_MINUTES). Kiosk:
+ * every party — see the KIOSK_*_LEAD_MINUTES constants below.
  * Private event guard: full-screen "Private Event" block when the date is a
  * buyout (v1 HeatPicker:211-237).
  */
 
-// Minimum minutes between "now" and a new racer's heat start (check-in buffer).
-// Web = 40: the racer still has to get to the building and check in. Kiosk = 20
-// (owner 2026-07-19: "only require 20 minutes here") — the new racer is already
-// IN the building finishing their account/waiver at the device, so the buffer
-// only needs to cover the license + kart briefing.
+// Minimum minutes between "now" and a heat start the grid will show.
+// Web = 40, new racers only: the racer still has to get to the building and
+// check in (returning racers with waivers see everything). Kiosk applies to
+// EVERYONE (owner 2026-07-19: "15 minutes for starters and 10 minutes for all
+// others") — the party is already IN the building at the device, so starters
+// (new racers) only need the license + kart briefing buffer and returning
+// racers just need to reach the grid.
 const NEW_RACER_LEAD_MINUTES = 40;
-const KIOSK_NEW_RACER_LEAD_MINUTES = 20;
+const KIOSK_NEW_RACER_LEAD_MINUTES = 15;
+const KIOSK_RETURNING_LEAD_MINUTES = 10;
 
 // Single-race products have no fixed raceCount and NO per-racer heat cap
 // (owner 2026-07-02: racers may book as many heats as they like) — the
@@ -151,6 +164,21 @@ function heatsForCategory(item: RaceItem, productIds: Set<string>): RaceHeatAssi
   return item.heats.filter((h) => h.productId && productIds.has(h.productId));
 }
 
+/** The OTHER category's held (track, start) slots across every race item in
+ *  the session — the cross-category collision signal (owner 2026-07-19:
+ *  adults and juniors can't share one physical session). Includes booked
+ *  (bmiLineId) heats — the kiosk books each leg eagerly on advance. */
+function otherCategoryHeats(
+  items: Array<{ kind: string; heats?: RaceHeatAssignment[] }>,
+  category: Category,
+): Array<{ heatId: string | null; track: TrackOrNull }> {
+  return items
+    .filter((i) => i.kind === "race" && Array.isArray(i.heats))
+    .flatMap((i) => i.heats!)
+    .filter((h) => h.heatId && (h.category ?? "adult") !== category)
+    .map((h) => ({ heatId: h.heatId, track: h.track }));
+}
+
 function entriesForPick(
   block: BmiBlock,
   productId: string,
@@ -179,21 +207,20 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     onChange,
     dispatch,
     setBusy,
+    requestAdvance,
   }) => {
     const allRacers = session.party;
     const racers = racersOfCategory(allRacers, category);
-    const partySize = racers.length;
     const productId = productIdForCategory(item, category);
 
     // Package flow: when a package is selected instead of an individual
-    // product, delegate to PackageHeatPicker (v1 parity: page.tsx:2223).
-    // Once the customer confirms picks, heats are written to item.heats
-    // and the outer Next button (BookingFlow) handles BMI booking via
-    // bookHeatsOnAdvance — same as the regular heat picker path.
-    const pkg = useMemo(
-      () => (productId ? null : getPackage(item.packageId)),
-      [productId, item.packageId],
-    );
+    // product, delegate to PackageHeatPicker. The picker owns its own heat
+    // writes + eager BMI holds (tap = held, single-race parity — owner
+    // 2026-07-19) and derives its picks from item.heats, so it ALWAYS renders
+    // live: no Confirm hand-off, no "Heats Selected" interstitial, and
+    // back-nav lands on the grid with picks intact.
+    const pkgId = productId ? null : packageIdForCategory(item, category);
+    const pkg = useMemo(() => getPackage(pkgId), [pkgId]);
 
     // Express-lane eligibility — computed ABOVE the package early-return so
     // the package grid gets the same opening-heats signal as the single-race
@@ -203,75 +230,34 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     const allReturningHaveWaivers =
       !anyNewInCategory &&
       session.party.filter((m) => !m.isNewRacer).every((m) => m.waiverValid === true);
-    const packageHeatsAlreadyPicked = !!(
-      pkg &&
-      pkg.races.length > 0 &&
-      item.heats.some((h) => h.heatId && !h.bmiLineId)
-    );
-    if (pkg && pkg.races.length > 0 && item.date && !packageHeatsAlreadyPicked) {
+    if (pkg && pkg.races.length > 0 && item.date) {
       return (
         <PackageHeatPicker
           pkg={pkg}
           date={item.date}
-          racerCount={partySize}
+          racers={racers}
+          mixedParty={hasCategory(session, "adult") && hasCategory(session, "junior")}
           category={pkg.category !== "any" ? pkg.category : category}
           expressEligible={allReturningHaveWaivers}
           kiosk={!!session.context?.kiosk}
-          onConfirm={(picks: PackagePick[]) => {
-            const newHeats: RaceHeatAssignment[] = picks.flatMap((pick) =>
-              racers.map((r) => ({
-                productId: pick.productId,
-                track: pick.track as RaceHeatAssignment["track"],
-                // $0 build-key parts: package component SKUs aren't in
-                // RACE_PRODUCTS, so booking + charge resolve the $0 pair from
-                // (category:tier:track) instead of the productId.
-                tier: pick.component.tier,
-                category,
-                heatId: pick.block.start,
-                bmiLineId: null,
-                assignedTo: r.id,
-              })),
-            );
-            onChange({ heats: [...item.heats, ...newHeats] });
-          }}
-          onCancel={() => dispatch({ type: "back" })}
+          // Kiosk lead cutoff (same policy as the single-race grid): hide heats
+          // starting within 15 min when a starter is in the party, 10 min
+          // otherwise. Web packages keep their existing no-cutoff behavior.
+          leadCutoffMs={
+            session.context?.kiosk
+              ? Date.now() +
+                (anyNewInCategory ? KIOSK_NEW_RACER_LEAD_MINUTES : KIOSK_RETURNING_LEAD_MINUTES) *
+                  60_000
+              : 0
+          }
+          crossCategoryHeats={otherCategoryHeats(session.items, category)}
+          item={item}
+          session={session}
+          onChange={onChange}
+          dispatch={dispatch}
+          setBusy={setBusy}
+          requestAdvance={requestAdvance}
         />
-      );
-    }
-    if (pkg && packageHeatsAlreadyPicked) {
-      const pickSummary = pkg.races.map((comp) => {
-        const heat = item.heats.find(
-          (h) => h.heatId && comp.tracks.some((t) => t.productId === h.productId),
-        );
-        return { label: comp.label, time: heat ? formatTime(heat.heatId!) : "—" };
-      });
-      return (
-        <div className="space-y-6">
-          <div className="text-center">
-            <h2 className="font-display text-2xl uppercase tracking-widest text-white">
-              Heats Selected
-            </h2>
-            <p className="mt-1 text-sm text-white/50">{pkg.name} — ready to reserve</p>
-          </div>
-          <div className="mx-auto max-w-md space-y-2">
-            {pickSummary.map((s) => (
-              <div
-                key={s.label}
-                className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3"
-              >
-                <span className="text-sm font-semibold text-white">{s.label}</span>
-                <span className="text-sm text-[#00E2E5]">{s.time}</span>
-              </div>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => onChange({ heats: item.heats.filter((h) => !!h.bmiLineId) })}
-            className="mx-auto block text-sm text-white/40 underline hover:text-white/60"
-          >
-            Re-pick heats
-          </button>
-        </div>
       );
     }
 
@@ -305,16 +291,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
 
     // Eager hold: heats are reserved with BMI the moment they're picked (single
     // racer) or confirmed (multi), not when the customer leaves the grid — so a
-    // busy-day spot isn't lost while they linger. `holdingRef` serializes holds
-    // (a hold lazily creates the bill; two concurrent holds would create two
-    // bills) and the grid is disabled while a hold is in flight. `holdingKey`
-    // marks WHICH card is being held so the "Holding…" spinner shows ON that
-    // card (always in view — the customer just clicked it), not in a top banner
-    // they'd miss when scrolled down a long heat list.
-    const [holding, setHolding] = useState(false);
-    const [holdingKey, setHoldingKey] = useState<string | null>(null);
-    const [holdError, setHoldError] = useState<string | null>(null);
-    const holdingRef = useRef(false);
+    // busy-day spot isn't lost while they linger. Machinery shared with the
+    // package grid via useEagerHeatHold (serialization, optimistic write +
+    // revert-on-failure, per-card "Holding…" key, wizard-Next busy wiring).
+    const { holding, holdingKey, holdError, setHoldError, holdingRef, holdHeats } =
+      useEagerHeatHold({ item, session, onChange, dispatch, setBusy });
 
     // Express-lane signal — mirrors the guard's computation (the package grid
     // there shares it) so the single-race grid applies the same new-racer lead
@@ -380,6 +361,10 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
           }),
         enabled: !!item.date && fetchPlan.length > 0 && partySize > 0,
         staleTime: 60_000,
+        // Semi-live grid: other guests' bookings surface without navigating
+        // (spot counts drop, filled heats grey) — owner 2026-07-19.
+        refetchInterval: RACE_AVAILABILITY_POLL_MS,
+        refetchIntervalInBackground: false,
       })),
     });
 
@@ -464,6 +449,10 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       },
       enabled: !!item.date && racerPersonIds.length > 0,
       staleTime: 60_000,
+      // Semi-live: a heat the party books in ANOTHER reservation greys here
+      // without a remount (cheap Neon read — gentler cadence than the grid).
+      refetchInterval: BOOKED_HEATS_POLL_MS,
+      refetchIntervalInBackground: false,
     });
 
     // Gap enforcement spans ALL of this category's heats — every product/track the
@@ -476,6 +465,11 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     const cartConflictBlocks = item.heats
       .filter((h) => h.heatId && h.assignedTo && categoryRacerIds.has(h.assignedTo))
       .map((h) => ({ heatId: h.heatId as string, track: h.track as TrackOrNull }));
+    // Cross-category same-slot: the OTHER category's held sessions anywhere in
+    // the cart (adults on the junior grid and vice versa) — exact (track,
+    // start) match only, NOT the spacing rules (different racers still never
+    // "conflict"; they just can't share one physical session).
+    const crossCategoryBlocks = otherCategoryHeats(session.items, category);
     const existingConflictBlocks = (bookedHeatsQuery.data?.heats ?? []).map((h) => ({
       heatId: h.heatId,
       track: (h.track as TrackOrNull) ?? null,
@@ -483,12 +477,15 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
 
     // (anyNewInCategory / allReturningHaveWaivers are computed above the
     // package early-return so the package grid shares the signal.)
-    const leadMinutes = allReturningHaveWaivers
-      ? 0
-      : session.context?.kiosk
+    const kiosk = !!session.context?.kiosk;
+    const leadMinutes = kiosk
+      ? anyNewInCategory
         ? KIOSK_NEW_RACER_LEAD_MINUTES
+        : KIOSK_RETURNING_LEAD_MINUTES
+      : allReturningHaveWaivers
+        ? 0
         : NEW_RACER_LEAD_MINUTES;
-    const leadCutoffMs = anyNewInCategory ? Date.now() + leadMinutes * 60_000 : 0;
+    const leadCutoffMs = anyNewInCategory || kiosk ? Date.now() + leadMinutes * 60_000 : 0;
 
     const allProposals = useMemo<TrackedProposal[]>(() => {
       const list: TrackedProposal[] = [];
@@ -569,44 +566,6 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     const visibleProposals = activeTrackFilter
       ? allProposals.filter((tp) => tp.track === activeTrackFilter)
       : allProposals;
-
-    // Hold a just-picked block all-or-nothing. Reserves the new heats with BMI
-    // immediately; on failure releases anything that succeeded and reverts the
-    // pick so the cart never shows a heat that isn't actually held.
-    const holdHeats = async (nextHeats: RaceHeatAssignment[], holdKey: string | null) => {
-      if (holdingRef.current) return;
-      holdingRef.current = true;
-      setHolding(true);
-      setHoldingKey(holdKey);
-      setHoldError(null);
-      setBusy?.(true); // disable the wizard Next while this hold is in flight
-      onChange({ heats: nextHeats });
-      try {
-        const res = await holdPickedHeats(session, { ...item, heats: nextHeats }, dispatch);
-        if (!res.ok) {
-          if (res.booked.length > 0) {
-            await releaseHeatBmiLines(
-              { ...session, bmiBillId: res.billId },
-              res.booked.map((b) => ({ bmiLineId: b.bmiLineId })),
-            );
-          }
-          onChange({ heats: item.heats }); // revert to pre-pick
-          setHoldError(`Couldn't hold that heat — ${res.error}. Please pick another time.`);
-        }
-      } catch (err) {
-        onChange({ heats: item.heats });
-        setHoldError(
-          err instanceof Error
-            ? `Couldn't hold that heat: ${err.message}`
-            : "Couldn't hold that heat. Please try again.",
-        );
-      } finally {
-        holdingRef.current = false;
-        setHolding(false);
-        setHoldingKey(null);
-        setBusy?.(false);
-      }
-    };
 
     const handleClickBlock = async (tp: TrackedProposal) => {
       if (holdingRef.current) return;
@@ -850,6 +809,12 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                   heatsConflict(parseLocal(p.heatId).getTime(), p.track, blockStartMs, tp.track),
                 );
               const isConflict = conflictsWithCart || conflictsWithExisting;
+              // The OTHER category holds this exact (track, start) session —
+              // adults and juniors can't share one physical heat.
+              const isCrossCategory =
+                !isSelected &&
+                crossCategoryBlocks.length > 0 &&
+                collidesWithOtherCategory(tp.track, block.start, crossCategoryBlocks);
               const isEventReserved =
                 !isSelected &&
                 blockWindows.some((w) => {
@@ -874,6 +839,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
               const isFull =
                 isLowCap ||
                 isConflict ||
+                isCrossCategory ||
                 isCapped ||
                 isEventReserved ||
                 isBeforeReopen ||
@@ -882,17 +848,21 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                 ? (tp.restriction!.cardLabel ?? "Not available")
                 : isEventReserved || isBeforeReopen
                   ? "Reserved for event"
-                  : isConflict
-                    ? conflictsWithExisting
-                      ? "Too close to existing reservation"
-                      : "Too close to picked heat"
-                    : isLowCap
-                      ? `Need ${partySize}, only ${block.freeSpots} left`
-                      : isCapped
-                        ? "Unselect a picked heat to change"
-                        : spotsLabel(block.freeSpots, block.capacity).label;
+                  : isCrossCategory
+                    ? category === "junior"
+                      ? "Adults race at this time — pick another"
+                      : "Juniors race at this time — pick another"
+                    : isConflict
+                      ? conflictsWithExisting
+                        ? "Too close to existing reservation"
+                        : "Too close to picked heat"
+                      : isLowCap
+                        ? `Need ${partySize}, only ${block.freeSpots} left`
+                        : isCapped
+                          ? "Unselect a picked heat to change"
+                          : spotsLabel(block.freeSpots, block.capacity).label;
               const statusClass =
-                isRestricted || isEventReserved || isBeforeReopen || isConflict
+                isRestricted || isEventReserved || isBeforeReopen || isConflict || isCrossCategory
                   ? "text-amber-400"
                   : isLowCap
                     ? "text-red-400"
@@ -927,11 +897,13 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                   title={
                     isRestricted
                       ? tp.restriction!.reason
-                      : conflictsWithExisting
-                        ? EXISTING_RESERVATION_CONFLICT_TOOLTIP
-                        : isConflict
-                          ? HEAT_CONFLICT_TOOLTIP
-                          : undefined
+                      : isCrossCategory
+                        ? crossCategoryCollisionMessage(block.start, tp.track)
+                        : conflictsWithExisting
+                          ? EXISTING_RESERVATION_CONFLICT_TOOLTIP
+                          : isConflict
+                            ? HEAT_CONFLICT_TOOLTIP
+                            : undefined
                   }
                   className={`relative rounded-xl border p-3 text-left transition-all duration-150 ${cardClass}`}
                 >
@@ -961,7 +933,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                       className={`h-full rounded-full ${
                         isLowCap
                           ? "bg-red-500"
-                          : isConflict || isEventReserved
+                          : isConflict || isEventReserved || isCrossCategory
                             ? "bg-amber-400/50"
                             : block.freeSpots / block.capacity <= 0.3
                               ? "bg-amber-400"
@@ -969,7 +941,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                       }`}
                       style={{
                         width:
-                          isConflict || isEventReserved
+                          isConflict || isEventReserved || isCrossCategory
                             ? "100%"
                             : `${(block.freeSpots / block.capacity) * 100}%`,
                       }}
@@ -1061,13 +1033,21 @@ function canAdvanceFor(
   if (!hasCategory(session, category)) return true;
   const productId = productIdForCategory(item, category);
 
-  // Package flow: PackageHeatPicker auto-advances via dispatch("next")
-  // after writing heats, so canAdvance just needs to confirm heats exist.
-  if (!productId && item.packageId) {
-    const pkg = getPackage(item.packageId);
+  // Package flow: picks hold incrementally (tap = held), so the gate must
+  // require EVERY component covered — an any-heat check would let Continue
+  // pass with only the Starter picked. Scoped to THIS category's racers (a
+  // mixed party's adult heats must not advance the junior step).
+  const packageId = packageIdForCategory(item, category);
+  if (!productId && packageId) {
+    const pkg = getPackage(packageId);
     if (pkg && pkg.races.length > 0) {
-      const hasHeats = item.heats.some((h) => h.heatId);
-      return hasHeats ? true : { reason: "Pick your package heats." };
+      const categoryIds = new Set(
+        session.party.filter((m) => (m.category ?? "adult") === category).map((m) => m.id),
+      );
+      const coverage = packageComponentsCovered(pkg, item.heats, categoryIds);
+      return coverage.covered
+        ? true
+        : { reason: `Pick your ${coverage.missing[0]?.label ?? "package"} heat.` };
     }
   }
 

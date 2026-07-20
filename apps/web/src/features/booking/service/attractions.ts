@@ -83,11 +83,16 @@ export async function bookAttractionOnAdvance(
     clientKey: ctx?.clientKey,
   });
 
-  if (!session.bmiBillId) {
+  // Response orderId is AUTHORITATIVE — adopt it whenever it differs. BMI
+  // silently reparents onto a fresh order when the chained order was cancelled
+  // (e.g. a race deselect emptied it — emptied Pending-online orders
+  // auto-cancel); keeping the stale id strands the line on an invisible new
+  // W-number (live find 2026-07-19, race flow).
+  if (result.rawOrderId && result.rawOrderId !== session.bmiBillId) {
     dispatch({ type: "setBmiBillId", id: result.rawOrderId });
-    // Attach the customer to the brand-new bill immediately (v1 parity) so an
-    // attraction reservation never exists without a contact. Contact is collected
-    // up front (ContactStep), so session.contact is populated. Non-fatal.
+    // Attach the customer to the (possibly brand-new) bill immediately (v1
+    // parity) so an attraction reservation never exists without a contact.
+    // Non-fatal.
     await registerContact(result.rawOrderId, session.contact, session.party);
   }
 

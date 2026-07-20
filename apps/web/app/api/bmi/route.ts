@@ -86,6 +86,47 @@ const ALLOWED_DELETE = [
   "bill", // bill/{orderId}/cancel
 ];
 
+// ── Availability read-through cache (semi-live race grids, 2026-07-19) ───────
+//
+// The heat grids poll availability every 30s so other guests' bookings show
+// up without navigating. This 25s RAW-TEXT cache caps what actually reaches
+// BMI at ~1 call per (client, date, product, qty) per TTL no matter how many
+// kiosks/phones sit on a grid. The cached value is the upstream body STRING,
+// byte-for-byte — never JSON.parse'd (17-digit BMI id precision rule).
+// Best-effort throughout: any Redis failure falls open to the upstream call.
+// ANY successful booking write through this proxy (book / sell / removeItem /
+// bill cancel) purges the whole cache, so every device converges within one
+// poll and an own-session post-hold refetch reads truly fresh data.
+
+const AVAIL_CACHE_TTL_S = 25;
+const AVAIL_INDEX_TTL_S = 21_600; // 6h — the index only outlives entries to be purgeable
+const availCacheIndexKey = (clientKey: string) => `bmi:avail:index:${clientKey}`;
+
+/** Cache key from the RAW body — ids regexed, never parsed (precision rule).
+ *  Quantity is part of the key: BMI shapes the response by requested qty. */
+function availabilityCacheKey(
+  clientKey: string,
+  date: string | null,
+  bodyStr: string,
+): string | null {
+  const productId = bodyStr.match(/"ProductId"\s*:\s*(\d+)/)?.[1];
+  if (!date || !productId) return null;
+  const pageId = bodyStr.match(/"PageId"\s*:\s*(\d+)/)?.[1] ?? "";
+  const quantity = bodyStr.match(/"Quantity"\s*:\s*(\d+)/)?.[1] ?? "1";
+  return `bmi:avail:${clientKey}:${date}:${productId}:${pageId}:${quantity}`;
+}
+
+async function purgeAvailabilityCache(clientKey: string): Promise<void> {
+  try {
+    const idx = availCacheIndexKey(clientKey);
+    const keys = await redis.smembers(idx);
+    if (keys.length > 0) await redis.del(...keys);
+    await redis.del(idx);
+  } catch {
+    /* best-effort — entries self-expire in 25s anyway */
+  }
+}
+
 // ── GET handler ───────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
@@ -342,6 +383,27 @@ export async function POST(req: NextRequest) {
 
     // Pass request body as raw text to avoid JSON number precision loss on orderId
     const bodyStr = await req.text();
+
+    // Availability read-through cache — HIT returns the stored raw text
+    // without touching BMI (the grids poll every 30s; see cache block above).
+    const availKey =
+      endpoint === "availability"
+        ? availabilityCacheKey(clientKey, searchParams.get("date"), bodyStr)
+        : null;
+    if (availKey) {
+      try {
+        const cached = await redis.get(availKey);
+        if (cached) {
+          return new NextResponse(cached, {
+            status: 200,
+            headers: { "Content-Type": "application/json", "X-Bmi-Cache": "hit" },
+          });
+        }
+      } catch {
+        /* fall open to upstream */
+      }
+    }
+
     console.log(`[BMI POST] ${url}`);
 
     const upstream = await fetch(url, {
@@ -353,6 +415,28 @@ export async function POST(req: NextRequest) {
 
     const rawText = await upstream.text();
     console.log(`[BMI POST] ${endpoint} → ${upstream.status} (${rawText.length} bytes)`);
+
+    if (availKey && upstream.ok) {
+      try {
+        await redis.set(availKey, rawText, "EX", AVAIL_CACHE_TTL_S);
+        await redis.sadd(availCacheIndexKey(clientKey), availKey);
+        await redis.expire(availCacheIndexKey(clientKey), AVAIL_INDEX_TTL_S);
+      } catch {
+        /* best-effort */
+      }
+    }
+
+    // Any successful booking WRITE invalidates the availability cache — every
+    // polling grid (this device and every other one) converges within one
+    // poll, and an own-session post-hold refetch reads truly fresh data.
+    if (
+      upstream.ok &&
+      (endpoint.startsWith("booking/book") ||
+        endpoint.startsWith("booking/sell") ||
+        endpoint.startsWith("booking/removeItem"))
+    ) {
+      await purgeAvailabilityCache(clientKey);
+    }
 
     // Log all booking-related calls to Redis for BMI evidence
     const LOGGED_ENDPOINTS = [
@@ -458,12 +542,22 @@ export async function DELETE(req: NextRequest) {
 
     // Cancel returns raw `true`/`false`
     const text = await upstream.text();
+    // A bill cancel frees every heat it held — purge the availability cache so
+    // the polling grids see the freed capacity within one poll.
+    if (upstream.ok) await purgeAvailabilityCache(clientKey);
+    // Bill cancels release abandoned holds (kiosk start-over / idle timeout) —
+    // an unlogged failure here leaves a reservation blocking its heats, so every
+    // outcome must be traceable in the runtime logs (7/19 incident).
+    const logLine = `[bmi.delete] ${clientKey} ${endpoint} → ${upstream.status} ${text.slice(0, 120)}`;
+    if (upstream.ok && text === "true") console.log(logLine);
+    else console.error(logLine);
     try {
       return NextResponse.json(JSON.parse(text), { status: upstream.status });
     } catch {
       return NextResponse.json({ success: text === "true" }, { status: upstream.status });
     }
   } catch (err) {
+    console.error(`[bmi.delete] ${endpoint} threw:`, err instanceof Error ? err.message : err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "BMI API error" },
       { status: 500 },

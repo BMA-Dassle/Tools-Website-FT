@@ -2,7 +2,9 @@
 
 import { useMemo, useState, type ComponentProps } from "react";
 import { IconDiscount2 } from "@tabler/icons-react";
-import type { RaceItem, StepDef } from "~/features/booking";
+import type { RaceHeatAssignment, RaceItem, StepDef } from "~/features/booking";
+import { packageIdForCategory } from "~/features/booking";
+import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
 import { membershipDiscountsForNames } from "~/features/booking/service/membership-discounts";
 import {
   filterProducts,
@@ -13,7 +15,7 @@ import {
   type RacerType,
 } from "~/features/booking/service/race-products";
 import { scheduleForDate, LICENSE_PRICE } from "~/features/booking/service/race-pricing";
-import { eligiblePackages } from "~/features/booking/service/packages";
+import { eligiblePackages, getPackage } from "~/features/booking/service/packages";
 import { ComboUpsellCard } from "../combo/ComboUpsellCard";
 import { PackageCard } from "./PackageCard";
 import { RacePackTeaser } from "./RacePackTeaser";
@@ -224,19 +226,60 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
       return eligiblePackages({ racerType, schedule, category });
     }, [item.date, racerType]);
 
-    // Package selection lives on item.packageId so back-nav doesn't lose it
+    // Package selection lives on item.packageIdAdult/Junior (one per category —
+    // adult and junior variants price differently) so back-nav doesn't lose it
     // AND so saveBookingDetails can write it to /api/booking-record (which
     // feeds sales_log.package_id via the v1 confirmation page).
-    const selectedPackageId = item.packageId;
+    const selectedPackageId = packageIdForCategory(item, category);
 
     const selectedProductId = category === "adult" ? item.productIdAdult : item.productIdJunior;
 
-    const setProductWithTrack = (productId: string, track: string | null) =>
+    // Package heats hold in BMI the moment they're tapped, so abandoning the
+    // outgoing package for a different selection must ALSO drop + release its
+    // held lines — or they orphan on the shared bill (charged nothing, still
+    // confirmed). Returns the cart minus the outgoing package's heats for this
+    // category; the caller merges it into the same onChange.
+    const dropOutgoingPackageHeats = (): {
+      heatsPatch: { heats: RaceHeatAssignment[] } | Record<string, never>;
+      removed: RaceHeatAssignment[];
+    } => {
+      const outgoing = getPackage(selectedPackageId);
+      if (!outgoing) return { heatsPatch: {}, removed: [] };
+      const ids = new Set(outgoing.races.flatMap((c) => c.tracks.map((t) => t.productId)));
+      const removed = item.heats.filter(
+        (h) =>
+          !!h.heatId &&
+          (h.category ?? "adult") === category &&
+          !!h.productId &&
+          ids.has(h.productId),
+      );
+      if (removed.length === 0) return { heatsPatch: {}, removed: [] };
+      const removedSet = new Set(removed);
+      return { heatsPatch: { heats: item.heats.filter((h) => !removedSet.has(h)) }, removed };
+    };
+
+    // Picking a single race also CLEARS this category's package — the two are
+    // mutually exclusive per category, and a stale package id would price the
+    // single heats at the package per-racer rate (checkout keys on the field).
+    const setProductWithTrack = (productId: string, track: string | null) => {
+      const { heatsPatch, removed } = dropOutgoingPackageHeats();
       onChange(
         category === "adult"
-          ? { productIdAdult: productId, productTrackAdult: track }
-          : { productIdJunior: productId, productTrackJunior: track },
+          ? {
+              productIdAdult: productId,
+              productTrackAdult: track,
+              packageIdAdult: null,
+              ...heatsPatch,
+            }
+          : {
+              productIdJunior: productId,
+              productTrackJunior: track,
+              packageIdJunior: null,
+              ...heatsPatch,
+            },
       );
+      if (removed.some((h) => h.bmiLineId)) void releaseHeatBmiLines(session, removed);
+    };
 
     const handleCardClick = (product: RaceProduct) => {
       // Multi-track products — combined single races AND mixed-track combo packs
@@ -388,24 +431,35 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
                   setOpenPackDetails((cur) => (cur === pkg.id ? null : pkg.id))
                 }
                 onSelect={() => {
-                  // Persist the package pick on item state so back-nav
-                  // doesn't lose it + so saveBookingDetails forwards it
-                  // to the booking-record (drives sales_log.package_id).
-                  // Clearing individual product pick keeps the cart shape
-                  // consistent — package picks own their own race selections.
+                  // Re-selecting the SAME package keeps its held heats —
+                  // looking around via back-nav must stay free.
+                  if (pkg.id === selectedPackageId) return;
+                  // Persist the package pick on THIS CATEGORY's field so
+                  // back-nav doesn't lose it + so saveBookingDetails forwards
+                  // it to the booking-record (drives sales_log.package_id).
+                  // Per-category fields keep a mixed party's adult and junior
+                  // variants (different SKUs AND prices) from overwriting
+                  // each other. A DIFFERENT package drops + releases the
+                  // outgoing one's held heats (they hold at tap time now).
+                  const { heatsPatch, removed } = dropOutgoingPackageHeats();
                   onChange(
                     category === "adult"
                       ? {
-                          packageId: pkg.id,
+                          packageIdAdult: pkg.id,
                           productIdAdult: null,
                           productTrackAdult: null,
+                          ...heatsPatch,
                         }
                       : {
-                          packageId: pkg.id,
+                          packageIdJunior: pkg.id,
                           productIdJunior: null,
                           productTrackJunior: null,
+                          ...heatsPatch,
                         },
                   );
+                  if (removed.some((h) => h.bmiLineId)) {
+                    void releaseHeatBmiLines(session, removed);
+                  }
                 }}
               />
             ))}
@@ -711,7 +765,7 @@ export const RaceProductStepAdult: StepDef<RaceItem> = {
   isVisible: (_item, session) => hasCategory(session, "adult"),
   canAdvance: (item, session) => {
     if (!hasCategory(session, "adult")) return true;
-    if (item.packageId) return true;
+    if (item.packageIdAdult) return true;
     if (item.productIdAdult) return true;
     // Already added races via "Add another" (which clears the product)? Continue.
     const adultIds = new Set(
@@ -729,7 +783,7 @@ export const RaceProductStepJunior: StepDef<RaceItem> = {
   isVisible: (_item, session) => hasCategory(session, "junior"),
   canAdvance: (item, session) => {
     if (!hasCategory(session, "junior")) return true;
-    if (item.packageId) return true;
+    if (item.packageIdJunior) return true;
     if (item.productIdJunior) return true;
     // Already added races via "Add another" (which clears the product)? Continue.
     const juniorIds = new Set(

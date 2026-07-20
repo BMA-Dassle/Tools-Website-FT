@@ -18,6 +18,7 @@ import type {
   SessionItem,
   PartyMember,
 } from "../state/types";
+import { packageIdForCategory, racePackageIds, raceItemFullyPackaged } from "../state/types";
 import type { ContactInfo } from "../types";
 import { activeComboSpecial, comboChargeLines } from "~/features/combos/combo-pricing";
 import type { DiscountDomain } from "~/features/discount-codes";
@@ -362,7 +363,11 @@ export async function saveBookingDetails(
   );
 
   const rookiePack = raceItems.some((r) => r.rookiePack === true);
-  const packageId = raceItems.find((r) => r.packageId)?.packageId ?? null;
+  // Adult-first (racePackageIds order): the sales dashboard rolls variants up
+  // by family, so a mixed party's record counts once under the adult variant;
+  // the full list rides along for future per-variant reporting.
+  const packageIds = [...new Set(raceItems.flatMap(racePackageIds))];
+  const packageId = packageIds[0] ?? null;
 
   // Attraction bookings — store slot times for confirmation page display
   const attractionItems = session.items.filter((i): i is AttractionItem => i.kind === "attraction");
@@ -425,6 +430,7 @@ export async function saveBookingDetails(
         status: "pending_payment",
         rookiePack,
         package: packageId,
+        packages: packageIds.length > 1 ? packageIds : undefined,
         comboSpecial: session.comboSpecialId ?? undefined,
         fastLane: fastLane || undefined,
         attractions: attractionBookings.length > 0 ? attractionBookings : undefined,
@@ -532,13 +538,41 @@ export async function releaseItemBmiLines(
  *     contact in one call (whole-bill cancel, not per-line), and
  *   - any QAMF bowling/KBF temporary hold (a separate vendor, not on the BMI bill).
  *
- * Best-effort + non-fatal per vendor: a failed release will TTL out server-side,
- * and the caller still clears the local session. Pair with `clearBookingSession()`
- * on the client. Do NOT call this on a CONFIRMED booking — it cancels the bill.
+ * Non-fatal per vendor (the caller still clears the local session), but NOT
+ * fire-and-forget: the BMI cancel is response-checked, retried, and verified
+ * via the bill overview — a silently-failed cancel leaves a contact-bearing
+ * reservation blocking its heats for ~20 min (the 7/19 kiosk incident: stacked
+ * `(0/1)` holds on the same heats from repeated start-overs). Pair with
+ * `clearBookingSession()` on the client. Do NOT call this on a CONFIRMED
+ * booking — it cancels the bill.
+ *
+ * Returns true when every vendor hold was confirmed released.
  */
-export async function abandonBooking(session: BookingSession): Promise<void> {
+export async function abandonBooking(session: BookingSession): Promise<boolean> {
+  let released = true;
   if (session.bmiBillId) {
-    await cancelRaceOrder(session.bmiBillId);
+    // Same center→tenant mapping as removeBmiBillLines: the cancel must hit the
+    // tenant that owns the bill, or BMI 404s and the hold survives.
+    const clientKey = session.center === "naples" ? "headpinznaples" : "headpinzftmyers";
+    let cancelled = await cancelRaceOrder(session.bmiBillId, clientKey);
+    if (cancelled) {
+      // Verify with the same liveness signal rebuildRaceBillIfExpired uses: a
+      // cancelled bill has zero lines. If lines survive, the cancel didn't
+      // actually take — try once more.
+      try {
+        const ov = await fetchBillOverview(session.bmiBillId);
+        if (ov.lines.length > 0) {
+          console.warn(
+            "[abandon] bill still has lines after cancel — retrying:",
+            session.bmiBillId,
+          );
+          cancelled = await cancelRaceOrder(session.bmiBillId, clientKey);
+        }
+      } catch {
+        /* overview unreachable — trust the confirmed cancel */
+      }
+    }
+    released = cancelled;
   }
   for (const item of session.items) {
     if (
@@ -547,16 +581,19 @@ export async function abandonBooking(session: BookingSession): Promise<void> {
       item.qamfCenterId
     ) {
       try {
+        // keepalive: a kiosk self-update hard reload must not kill the release.
         await fetch(`/api/bowling/v2/reserve/hold/${item.qamfReservationId}`, {
           method: "DELETE",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ centerId: item.qamfCenterId }),
+          keepalive: true,
         });
       } catch {
         /* QAMF hold TTLs out on its own — non-fatal */
       }
     }
   }
+  return released;
 }
 
 // ── Square customer lookup ──────────────────────────────────────────────
@@ -789,8 +826,9 @@ function distinctRacerCount(heats: RaceHeatAssignment[]): number {
  * Canonical Square charge lines for ONE race item under the $0 model — the
  * SINGLE source the credit reserve path, the cash reserve path, AND the cart
  * estimate all consume, so displayed == charged by construction:
- *   - PACKAGE → one bundle line at `packagePerRacerPrice × racers` (already
- *     includes the $4.99 license + $5 POV per racer).
+ *   - PACKAGE → one bundle line PER CATEGORY at that variant's
+ *     `packagePerRacerPrice × racers` (already includes the $4.99 license +
+ *     $5 POV per racer) — adult and junior variants price independently.
  *   - COMBO   → one line per pack at the pack TOTAL (`product.price × packs`,
  *     packs = distinct racers), NOT price × heats.
  *   - SINGLE  → one line per category product at the per-heat price × heats.
@@ -878,21 +916,30 @@ export function raceItemChargeLines(
       });
   };
 
-  if (item.packageId) {
-    const pkg = getPackage(item.packageId);
-    if (!pkg) return [];
-    const kept = item.heats.filter(keep);
-    if (kept.length === 0) return [];
-    return splitByDiscount(kept, true, pkg.name, packagePerRacerPrice(pkg), pkg.cartLineKey);
-  }
   const lines: BillLine[] = [];
   for (const category of ["adult", "junior"] as const) {
+    const catHeats = item.heats.filter((h) => (h.category ?? "adult") === category && keep(h));
+    if (catHeats.length === 0) continue;
+    // PACKAGE for this category — priced at ITS variant's per-racer rate. Per
+    // category, not per item: a mixed party's adult and junior variants carry
+    // different prices, and the old item-level branch charged every racer at
+    // whichever variant was picked last (junior — a live undercharge).
+    const pkgId = packageIdForCategory(item, category);
+    if (pkgId) {
+      const pkg = getPackage(pkgId);
+      if (!pkg) continue;
+      // Adult + junior variants share the display name ("Ultimate Qualifier") —
+      // suffix the junior line so the review/receipt's two lines read apart.
+      const name = pkg.category === "junior" ? `${pkg.name} (Junior)` : pkg.name;
+      lines.push(
+        ...splitByDiscount(catHeats, true, name, packagePerRacerPrice(pkg), pkg.cartLineKey),
+      );
+      continue;
+    }
     const pid = category === "adult" ? item.productIdAdult : item.productIdJunior;
     if (!pid) continue;
     const product = getRaceProductById(pid);
     if (!product) continue;
-    const catHeats = item.heats.filter((h) => (h.category ?? "adult") === category && keep(h));
-    if (catHeats.length === 0) continue;
     // combo = one pack per racer at the pack TOTAL; single = per heat.
     lines.push(
       ...splitByDiscount(
@@ -916,10 +963,12 @@ export function raceItemChargeLines(
  * category has no selected product (e.g. cleared by the "add another race" loop).
  */
 function chargeLineKeyForHeat(item: RaceItem, heat: RaceHeatAssignment): string | null {
-  if (item.packageId) {
-    return getPackage(item.packageId)?.cartLineKey ?? null;
+  const category = heat.category ?? "adult";
+  const pkgId = packageIdForCategory(item, category);
+  if (pkgId) {
+    return getPackage(pkgId)?.cartLineKey ?? null;
   }
-  const pid = (heat.category ?? "adult") === "junior" ? item.productIdJunior : item.productIdAdult;
+  const pid = category === "junior" ? item.productIdJunior : item.productIdAdult;
   return getRaceProductById(pid)?.productId ?? null;
 }
 
@@ -983,15 +1032,35 @@ export function buildRaceChargeLines(
   for (const item of session.items) {
     if (item.kind !== "race") continue;
     if (!comboLines) lines.push(...raceItemChargeLines(item, excludeHeats, racingDiscountFor));
-    if (item.packageId) {
-      for (const h of item.heats) if (h.assignedTo) packageRacerIds.add(h.assignedTo);
-    } else if (item.povQuantity > 0) {
+    // Package coverage is per HEAT CATEGORY (adult/junior variants are separate
+    // packages) — only racers whose category actually holds a package get the
+    // bundled license/POV; e.g. a junior single-race new racer alongside an
+    // adult package still pays the $4.99 license below.
+    for (const h of item.heats) {
+      if (h.assignedTo && packageIdForCategory(item, h.category ?? "adult")) {
+        packageRacerIds.add(h.assignedTo);
+      }
+    }
+    // Standalone POV counts unless the package(s) cover the whole party — same
+    // seam as the POV step's visibility (raceItemFullyPackaged), so a quantity
+    // the step offered is always charged and a bundled one never is.
+    if (item.povQuantity > 0 && !raceItemFullyPackaged(item, session.party)) {
       standalonePovQty += item.povQuantity;
     }
   }
 
+  // Only racers with an actual heat pay the license — a new racer who ends up
+  // not racing (the package roster deselect / the kiosk "not racing today"
+  // opt-out) must not be charged $4.99 for nothing.
+  const racingMemberIds = new Set(
+    session.items.flatMap((i) =>
+      i.kind === "race"
+        ? i.heats.filter((h) => h.heatId && h.assignedTo).map((h) => h.assignedTo!)
+        : [],
+    ),
+  );
   const newRacerCount = session.party.filter(
-    (m) => m.isNewRacer && !packageRacerIds.has(m.id),
+    (m) => m.isNewRacer && racingMemberIds.has(m.id) && !packageRacerIds.has(m.id),
   ).length;
   // Rookie Pack FLAG flow (the license/POV step opt-in + the kiosk mixed-party
   // auto-enroll — distinct from the PACKAGE flow, whose bundle line already

@@ -85,7 +85,12 @@ import {
   raceHeatsForPersonsOnDate,
   type ReservationProductKind,
 } from "@/lib/bowling-db";
-import { findCrossBookingConflict, heatClockLabel } from "./conflict";
+import {
+  crossCategoryCollisionMessage,
+  findCrossBookingConflict,
+  findCrossCategorySameStart,
+  heatClockLabel,
+} from "./conflict";
 import { shortenUrl } from "@/lib/short-url";
 import type {
   BookingSession,
@@ -588,6 +593,20 @@ export class ExistingBookingConflictError extends Error {
   }
 }
 
+/**
+ * Thrown when an adult heat and a junior heat in the SAME cart share one
+ * (track, start) physical session (owner 2026-07-19 — adult and junior BMI
+ * products sell into the same session, so BMI never blocks it). Raised BEFORE
+ * any Square write, so nothing was charged.
+ */
+export class CrossCategoryHeatCollisionError extends Error {
+  code = "CROSS_CATEGORY_HEAT_COLLISION";
+  constructor(message: string) {
+    super(message);
+    this.name = "CrossCategoryHeatCollisionError";
+  }
+}
+
 /** Rejection copy for a cross-reservation spacing conflict. */
 export function existingBookingConflictMessage(conflict: {
   cart: { heatId: string | null; racer?: string | null };
@@ -776,6 +795,32 @@ async function unifiedReserveInner(
         if (err instanceof ExistingBookingConflictError) throw err;
         console.error("[unifiedReserve] cross-reservation check errored (failing open):", err);
       }
+    }
+  }
+
+  // ── 0c. Guard: cross-category same-slot (adults vs juniors) ─────────
+  // An adult heat and a junior heat in this cart must not share one (track,
+  // start) physical session (owner 2026-07-19). Pure cart data — NOT
+  // fail-open (there is no external query to fail): the grids grey these
+  // slots and the hold path asserts, but this is the last gate before money
+  // moves. raceHeatsMetadata already carries heatId/track/category.
+  if (raceItems.length > 0) {
+    const collision = findCrossCategorySameStart(
+      raceItems.flatMap((r) =>
+        raceHeatsMetadata(r.heats, session.party).map((h) => ({
+          heatId: (h.heatId as string | null) ?? null,
+          track: (h.track as string | null) ?? null,
+          category: (h.category as "adult" | "junior" | null) ?? null,
+        })),
+      ),
+    );
+    if (collision) {
+      console.error(
+        `[unifiedReserve] CROSS_CATEGORY_HEAT_COLLISION — ${collision.track ?? "?"} ${collision.start}`,
+      );
+      throw new CrossCategoryHeatCollisionError(
+        crossCategoryCollisionMessage(collision.start, collision.track),
+      );
     }
   }
 

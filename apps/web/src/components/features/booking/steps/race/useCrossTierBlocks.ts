@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
-import { bookingKeys } from "~/features/booking";
+import { bookingKeys, RACE_AVAILABILITY_POLL_MS } from "~/features/booking";
 import { bmiAdapter, type BmiAvailabilityResponse } from "~/features/booking/data";
 import type { Schedule } from "~/features/booking/service/race-pricing";
 import {
@@ -69,6 +69,10 @@ export function useCrossTierBlocks(args: {
         bmiAdapter.getAvailability({ date: date!, productId, pageId, quantity }),
       enabled: !!date && fetches.length > 0,
       staleTime: 60_000,
+      // Semi-live: the occupancy unions the restriction rules read must track
+      // other guests' bookings while the grid sits open (owner 2026-07-19).
+      refetchInterval: RACE_AVAILABILITY_POLL_MS,
+      refetchIntervalInBackground: false,
     })),
   });
 

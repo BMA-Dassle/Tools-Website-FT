@@ -1,8 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Dispatch } from "react";
 import { useQueries } from "@tanstack/react-query";
-import { bookingKeys } from "~/features/booking";
+import { IconFlag3 } from "@tabler/icons-react";
+import { bookingKeys, RACE_AVAILABILITY_POLL_MS, type PartyMember } from "~/features/booking";
+import type { Action, BookingSession, RaceHeatAssignment, RaceItem } from "~/features/booking";
+import {
+  derivePackagePicks,
+  rosterSyncPlan,
+  type CommittedPick,
+} from "~/features/booking/service/package-picks";
+import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
+import { useEagerHeatHold } from "./useEagerHeatHold";
 import {
   bmiAdapter,
   type BmiAvailabilityResponse,
@@ -12,13 +22,14 @@ import {
 import {
   type PackageDefinition,
   type PackageRaceComponent,
-  type PackageTrackOption,
-  primaryTrack,
   packageHeatGapMinutes,
+  packagePerRacerPrice,
 } from "~/features/booking/service/packages";
 import {
   heatsConflict,
   violatesMinGapAfter,
+  collidesWithOtherCategory,
+  crossCategoryCollisionMessage,
   HEAT_CONFLICT_TOOLTIP,
   packageGapTooltip,
 } from "~/features/booking/service/conflict";
@@ -27,18 +38,17 @@ import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track-visuals";
 import { useCrossTierBlocks } from "./useCrossTierBlocks";
 
-export interface PackagePick {
-  component: PackageRaceComponent;
-  productId: string;
-  track: string;
-  proposal: BmiProposal;
-  block: BmiBlock;
-}
-
 interface Props {
   pkg: PackageDefinition;
   date: string;
-  racerCount: number;
+  /** This category's roster ("who's racing" of the step's category). The
+   *  picker renders them as a checklist (all pre-checked) — deselected members
+   *  aren't booked for the package, and the confirm hands back the selection. */
+  racers: PartyMember[];
+  /** True when the party spans adults AND juniors — drives the loud
+   *  "Booking: Adults / Juniors" banner (the live mixed-party confusion:
+   *  "couldn't tell who I was booking", owner 2026-07-19). */
+  mixedParty: boolean;
   /** The booking step's category (junior packages evaluate the junior rules). */
   category: "adult" | "junior";
   /** allReturningHaveWaivers from the step — the opening-heats signal. */
@@ -46,8 +56,28 @@ interface Props {
   /** Rendering on the in-center kiosk — presentation-only (rules with a
    *  kioskPresentation hide instead of grey, e.g. the VIP anchor holds). */
   kiosk?: boolean;
-  onConfirm: (picks: PackagePick[]) => void;
-  onCancel: () => void;
+  /** Epoch ms — heats starting before this are hidden (kiosk lead time:
+   *  15 min with a starter in the party, 10 min otherwise; see the
+   *  KIOSK_*_LEAD_MINUTES constants in RaceHeatPickerStep). 0 = no cutoff
+   *  (web keeps its existing package behavior). */
+  leadCutoffMs?: number;
+  /** The OTHER category's held slots across the whole session (adult heats on
+   *  the junior step and vice versa) — a candidate sharing one of these
+   *  (track, start) slots is greyed: adults and juniors can't share a physical
+   *  session (owner 2026-07-19). */
+  crossCategoryHeats?: Array<{ heatId: string | null; track: string | null }>;
+  /** The wizard step contract, forwarded by the guard — the picker owns its
+   *  own heat writes + eager BMI holds (single-race parity, owner 2026-07-19:
+   *  "we confirm them as we're selecting races"): picks derive from item.heats
+   *  and every tap holds immediately. No Confirm step, no interstitial. */
+  item: RaceItem;
+  session: BookingSession;
+  onChange: (patch: Partial<RaceItem>) => void;
+  dispatch: Dispatch<Action>;
+  setBusy?: (busy: boolean) => void;
+  /** Fires the host's handleNext when the FINAL component's hold lands —
+   *  pick, pick, done (owner-approved auto-advance). */
+  requestAdvance?: () => void;
 }
 
 interface TrackedProposal {
@@ -117,36 +147,40 @@ function SelectedHeats({
   picks,
   components,
   onClearFrom,
+  disabled,
 }: {
-  picks: Map<string, TrackedProposal>;
+  picks: Map<string, CommittedPick>;
   components: PackageRaceComponent[];
   onClearFrom: (ref: string) => void;
+  disabled?: boolean;
 }) {
   const filled = components.filter((c) => picks.has(c.ref));
   if (filled.length === 0) return null;
   return (
     <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
       <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
-        Heats Selected
+        Heats Locked In
       </p>
       <div className="flex flex-wrap gap-2">
         {filled.map((c) => {
           const p = picks.get(c.ref)!;
-          const trackSuffix = c.tracks.length > 1 ? ` ${p.track}` : "";
+          const trackSuffix = c.tracks.length > 1 && p.track ? ` ${p.track}` : "";
           return (
             <span
               key={c.ref}
               className="inline-flex items-center gap-2 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200"
             >
-              <span>
-                🏎️ {c.label}
-                {trackSuffix} · {formatTime(p.block.start)}
+              <span className="inline-flex items-center gap-1">
+                <IconFlag3 size={14} aria-hidden />
+                {c.label}
+                {trackSuffix} · {formatTime(p.start)}
               </span>
               <button
                 type="button"
                 aria-label={`Clear ${c.label} selection`}
                 onClick={() => onClearFrom(c.ref)}
-                className="-mr-1 text-base leading-none text-emerald-300/60 transition-colors hover:text-red-400"
+                disabled={disabled}
+                className="-mr-1 text-base leading-none text-emerald-300/60 transition-colors hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 ×
               </button>
@@ -161,40 +195,198 @@ function SelectedHeats({
   );
 }
 
+/**
+ * "Who's in this package" roster — the loud category banner (mixed parties)
+ * plus a per-member checklist. A racer does the WHOLE 2-heat package or none
+ * of it (per-heat cherry-picking would break the Starter→Intermediate
+ * progression), so selection lives here at package level, all pre-checked.
+ * The live price line uses the SAME packagePerRacerPrice the charge builder
+ * uses (checkout.ts raceItemChargeLines) — displayed == charged.
+ */
+export function PackageCategoryBanner({
+  category,
+  detail,
+}: {
+  category: "adult" | "junior";
+  detail?: string;
+}) {
+  const adult = category === "adult";
+  return (
+    <div
+      className={`rounded-xl border-2 p-3 text-center ${
+        adult ? "border-[#00E2E5]/50 bg-[#00E2E5]/10" : "border-amber-400/50 bg-amber-400/10"
+      }`}
+    >
+      <p
+        className={`font-display text-xl uppercase tracking-widest ${
+          adult ? "text-[#00E2E5]" : "text-amber-400"
+        }`}
+      >
+        Booking: {adult ? "Adults" : "Juniors"}
+      </p>
+      {detail && <p className="mt-0.5 text-xs text-white/60">{detail}</p>}
+    </div>
+  );
+}
+
+function PackageRacerRoster({
+  pkg,
+  racers,
+  selectedIds,
+  onToggle,
+  disabled,
+}: {
+  pkg: PackageDefinition;
+  racers: PartyMember[];
+  selectedIds: Set<string>;
+  onToggle: (id: string) => void;
+  disabled?: boolean;
+}) {
+  const perRacer = packagePerRacerPrice(pkg);
+  const selectedCount = racers.filter((r) => selectedIds.has(r.id)).length;
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+      {racers.length === 1 ? (
+        <p className="text-base font-semibold text-white">
+          Booking for: <span className="text-[#00E2E5]">{racers[0].firstName}</span>
+        </p>
+      ) : (
+        <>
+          <p className="mb-2 text-xs font-bold uppercase tracking-wider text-white/50">
+            Racers in this package — tap to remove someone
+          </p>
+          <div className="space-y-1.5">
+            {racers.map((r) => {
+              const checked = selectedIds.has(r.id);
+              return (
+                <button
+                  key={r.id}
+                  type="button"
+                  aria-pressed={checked}
+                  aria-label={
+                    checked
+                      ? `Remove ${r.firstName} from this package`
+                      : `Add ${r.firstName} to this package`
+                  }
+                  onClick={() => onToggle(r.id)}
+                  disabled={disabled}
+                  className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                    checked
+                      ? "border-[#00E2E5]/40 bg-[#00E2E5]/5"
+                      : "border-white/10 bg-white/5 hover:border-white/20"
+                  }`}
+                >
+                  <div
+                    className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 transition-colors ${
+                      checked ? "border-[#00E2E5] bg-[#00E2E5]" : "border-white/30"
+                    }`}
+                  >
+                    {checked && (
+                      <svg
+                        className="h-3 w-3 text-[#000418]"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </div>
+                  <span
+                    className={`truncate text-base font-semibold ${
+                      checked ? "text-white" : "text-white/50 line-through"
+                    }`}
+                  >
+                    {r.firstName}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+      {selectedCount === 0 ? (
+        <p className="mt-2 text-sm font-semibold text-amber-400">
+          Select at least one racer to book this package
+        </p>
+      ) : (
+        <p className="mt-2 text-sm text-white/70">
+          ${perRacer.toFixed(2)} per racer × {selectedCount} ={" "}
+          <span className="font-bold text-white">${(perRacer * selectedCount).toFixed(2)}</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ── Main component ──────────────────────────────────────────────────────────
 
 export function PackageHeatPicker({
   pkg,
   date,
-  racerCount,
+  racers,
+  mixedParty,
   category,
   expressEligible,
   kiosk,
-  onConfirm,
-  onCancel,
+  leadCutoffMs = 0,
+  crossCategoryHeats,
+  item,
+  session,
+  onChange,
+  dispatch,
+  setBusy,
+  requestAdvance,
 }: Props) {
+  // Availability is still fetched at FULL roster size (the query key omits
+  // quantity, so a selection-sized fetch wouldn't refetch anyway); the
+  // "enough spots" check below uses the live selected count.
+  const racerCount = Math.max(1, racers.length);
+  // This category's heats on THIS package's SKUs — the committed picks.
+  const pkgProductIds = useMemo(
+    () => new Set(pkg.races.flatMap((c) => c.tracks.map((t) => t.productId))),
+    [pkg],
+  );
+  const committedPkgHeats = item.heats.filter(
+    (h) =>
+      !!h.heatId &&
+      (h.category ?? "adult") === category &&
+      !!h.productId &&
+      pkgProductIds.has(h.productId),
+  );
+  // Roster selection — reconciled from committed heats on back-nav/resume so
+  // the checkboxes always tell the truth about who is actually held.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() =>
+    committedPkgHeats.length > 0
+      ? new Set(committedPkgHeats.map((h) => h.assignedTo).filter((id): id is string => !!id))
+      : new Set(racers.map((r) => r.id)),
+  );
+  const selectedRacers = racers.filter((r) => selectedIds.has(r.id));
+  const selectedCount = selectedRacers.length;
   const sortedComponents = useMemo(
     () => [...pkg.races].sort((a, b) => a.sequence - b.sequence),
     [pkg],
   );
   const totalComponents = sortedComponents.length;
-  const ctaRef = useRef<HTMLDivElement>(null);
 
   const [currentComponentIdx, setCurrentComponentIdx] = useState(0);
-  const [picks, setPicks] = useState<Map<string, TrackedProposal>>(new Map());
   // Track filter driven by tapping a TrackInfoBanner card — scoped to the
   // CURRENT multi-track step (other steps' locked cards stay visible so the
-  // guest keeps seeing the whole package). Reset on step change below.
+  // guest keeps seeing the whole package). Cleared on step change below.
   const [trackFilter, setTrackFilter] = useState<"Red" | "Blue" | "Mega" | null>(null);
 
   const currentComponent = sortedComponents[currentComponentIdx] ?? null;
-  const pickedCount = sortedComponents.filter((c) => picks.has(c.ref)).length;
-  const allPicked = pickedCount === totalComponents;
-  // Highest-sequence pick so far — headlines the step banner ("✓ Starter locked
-  // in") so the hand-off to the NEXT race is unmissable (owner 2026-07-18:
-  // guests picked race 1 and never realized the grid had moved on to race 2).
-  const lastPicked = [...sortedComponents].reverse().find((c) => picks.has(c.ref)) ?? null;
   const stepBannerRef = useRef<HTMLDivElement>(null);
+
+  // Tap-to-hold machinery — shared with the single-race grid.
+  const { holding, holdingKey, holdError, setHoldError, holdingRef, holdHeats } = useEagerHeatHold({
+    item,
+    session,
+    onChange,
+    dispatch,
+    setBusy,
+  });
 
   // Fetch availability for ALL components + tracks in parallel
   const fetchItems = useMemo(
@@ -225,6 +417,10 @@ export function PackageHeatPicker({
           quantity: racerCount,
         }),
       staleTime: 60_000,
+      // Semi-live grid: other guests' bookings surface without navigating
+      // (spot counts drop, filled heats grey) — owner 2026-07-19.
+      refetchInterval: RACE_AVAILABILITY_POLL_MS,
+      refetchIntervalInBackground: false,
     })),
   });
 
@@ -273,6 +469,7 @@ export function PackageHeatPicker({
       for (const p of q.data.proposals) {
         const block = p.blocks?.[0]?.block;
         if (!block) continue;
+        if (leadCutoffMs > 0 && parseLocal(block.start).getTime() < leadCutoffMs) continue;
         const verdict = evaluateRaceRestrictions({
           tier: fi.comp.tier,
           category,
@@ -307,7 +504,31 @@ export function PackageHeatPicker({
     });
     list.sort((a, b) => parseLocal(a.block.start).getTime() - parseLocal(b.block.start).getTime());
     return list;
-  }, [queries, fetchItems, category, expressEligible, kiosk, crossTierBlocks]);
+  }, [queries, fetchItems, category, expressEligible, kiosk, leadCutoffMs, crossTierBlocks]);
+
+  // Picks are DERIVED from item.heats (the cart is the source of truth) — each
+  // tap holds immediately, so there is no local picks state to "confirm" into
+  // the cart, and back-nav re-renders the live grid with picks intact.
+  const proposalsLite = useMemo(
+    () =>
+      allProposals.map((tp) => ({
+        productId: tp.productId,
+        track: tp.track,
+        start: tp.block.start,
+        stop: tp.block.stop,
+      })),
+    [allProposals],
+  );
+  const picks = useMemo(
+    () => derivePackagePicks(pkg, item.heats, category, proposalsLite),
+    [pkg, item.heats, category, proposalsLite],
+  );
+  const pickedCount = sortedComponents.filter((c) => picks.has(c.ref)).length;
+  const allPicked = pickedCount === totalComponents;
+  // Highest-sequence pick so far — headlines the step banner ("✓ Starter locked
+  // in") so the hand-off to the NEXT race is unmissable (owner 2026-07-18:
+  // guests picked race 1 and never realized the grid had moved on to race 2).
+  const lastPicked = [...sortedComponents].reverse().find((c) => picks.has(c.ref)) ?? null;
 
   // Display-only track filter for the CURRENT step's cards. Other components'
   // (locked / already-picked) cards always stay visible, and picks/gap/conflict
@@ -338,25 +559,21 @@ export function PackageHeatPicker({
       }
       const compProposals = allProposals.filter((tp) => tp.component.ref === comp.ref);
       const anyFitsConfigured = compProposals.some(
-        (tp) => !violatesMinGapAfter(prev.block.stop, tp.block.start, gap.minutes),
+        (tp) => !violatesMinGapAfter(prev.stop, tp.block.start, gap.minutes),
       );
       m.set(comp.ref, anyFitsConfigured ? gap.minutes : Math.min(gap.minutes, 30));
     }
     return m;
   }, [sortedComponents, picks, allProposals]);
 
-  // Auto-scroll CTA when last pick is made
-  useEffect(() => {
-    if (allPicked) {
-      setTimeout(() => ctaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
-    }
-  }, [allPicked]);
-
   // Auto-advance currentComponentIdx when picks change
   useEffect(() => {
     const nextUnpicked = sortedComponents.findIndex((c) => !picks.has(c.ref));
     if (nextUnpicked >= 0 && nextUnpicked !== currentComponentIdx) {
       setCurrentComponentIdx(nextUnpicked);
+      // The filter belongs to the step it was set on — a pick hands the flow
+      // to the next race, which may be single-track or want the full grid.
+      setTrackFilter(null);
     }
   }, [picks, sortedComponents, currentComponentIdx]);
 
@@ -369,71 +586,139 @@ export function PackageHeatPicker({
     }
   }, [currentComponentIdx, pickedCount, allPicked]);
 
-  function handleClickHeat(tp: TrackedProposal) {
-    if (tp.component.ref !== currentComponent?.ref) return;
+  /** One heat entry per selected racer for a tapped card — same shape the old
+   *  Confirm wrote, incl. the $0 build-key parts (tier/category). */
+  function entriesForComponent(
+    tp: TrackedProposal,
+    forRacers: PartyMember[],
+  ): RaceHeatAssignment[] {
+    return forRacers.map((r) => ({
+      productId: tp.productId,
+      track: tp.track as RaceHeatAssignment["track"],
+      tier: tp.component.tier,
+      category,
+      heatId: tp.block.start,
+      bmiLineId: null,
+      assignedTo: r.id,
+    }));
+  }
 
+  /** This category's heats on components with sequence ≥ seq — a deselect/
+   *  switch clears the target AND every later race (the gap rule anchors on
+   *  the earlier pick). */
+  const heatsFromSequence = (seq: number): RaceHeatAssignment[] => {
+    const ids = new Set(
+      sortedComponents
+        .filter((c) => c.sequence >= seq)
+        .flatMap((c) => c.tracks.map((t) => t.productId)),
+    );
+    return item.heats.filter(
+      (h) =>
+        !!h.heatId && (h.category ?? "adult") === category && !!h.productId && ids.has(h.productId),
+    );
+  };
+
+  /** Deselect a component (chip × or tapping its picked card): drop its heats
+   *  + every later component's from the cart, then release the BMI lines —
+   *  the single-race deselect pattern (cart is the charge's source of truth,
+   *  so drop first, best-effort release after). */
+  async function deselectFrom(ref: string) {
+    if (holdingRef.current) return;
+    const target = sortedComponents.find((c) => c.ref === ref);
+    if (!target) return;
+    const removed = heatsFromSequence(target.sequence);
+    if (removed.length === 0) return;
+    const removedSet = new Set(removed);
+    onChange({ heats: item.heats.filter((h) => !removedSet.has(h)) });
+    setCurrentComponentIdx(sortedComponents.indexOf(target));
+    setTrackFilter(null); // jumping back to an earlier step — clear its filter
+    if (removed.some((h) => h.bmiLineId)) await releaseHeatBmiLines(session, removed);
+  }
+
+  /** Tap = hold. The pick is written to the cart and reserved with BMI the
+   *  moment it's tapped (single-race parity — owner 2026-07-19); when the
+   *  FINAL component lands, the wizard advances itself via requestAdvance
+   *  (routed through handleNext so the kiosk unracered sheet + advance-time
+   *  POV/memo writer still run). */
+  async function handleClickHeat(tp: TrackedProposal) {
+    if (holdingRef.current) return;
     const ref = tp.component.ref;
     const existing = picks.get(ref);
 
-    if (existing && existing.block.start === tp.block.start) {
-      const newPicks = new Map(picks);
-      newPicks.delete(ref);
-      for (const comp of sortedComponents) {
-        if (comp.sequence > tp.component.sequence) {
-          newPicks.delete(comp.ref);
-        }
-      }
-      setPicks(newPicks);
+    // Same product + same start = the picked card → clear it (and later
+    // races). Start alone isn't identity: Red and Blue run the same cadence
+    // (live find 2026-07-19 — both 7:48 cards rendered "Selected").
+    if (existing && existing.productId === tp.productId && existing.start === tp.block.start) {
+      await deselectFrom(ref);
       return;
     }
+    if (tp.component.ref !== currentComponent?.ref) return; // locked card (defensive)
+    if (selectedCount === 0) return; // roster shows the pick-a-racer warning
 
-    const newPicks = new Map(picks);
-    newPicks.set(ref, tp);
-    for (const comp of sortedComponents) {
-      if (comp.sequence > tp.component.sequence) {
-        newPicks.delete(comp.ref);
+    // Switch on the current component: release the old pick's lines first so
+    // they never orphan on the bill; a failed hold then leaves the component
+    // honestly unpicked (revert to the minus-old cart, not the old pick).
+    let base = item.heats;
+    if (existing) {
+      const replaced = heatsFromSequence(tp.component.sequence);
+      if (replaced.length > 0) {
+        const replacedSet = new Set(replaced);
+        base = item.heats.filter((h) => !replacedSet.has(h));
+        if (replaced.some((h) => h.bmiLineId)) await releaseHeatBmiLines(session, replaced);
       }
     }
-    setPicks(newPicks);
-
-    const nextIdx = sortedComponents.findIndex((c) => !newPicks.has(c.ref));
-    if (nextIdx >= 0) {
-      setCurrentComponentIdx(nextIdx);
-    }
-    // The filter belongs to the step it was set on — the pick hands the flow
-    // to the next race, which may be single-track or want the full grid.
-    setTrackFilter(null);
+    const willComplete = sortedComponents.every((c) => c.ref === ref || picks.has(c.ref));
+    const ok = await holdHeats(
+      [...base, ...entriesForComponent(tp, selectedRacers)],
+      `${tp.productId}|${tp.block.start}`,
+      base,
+    );
+    if (ok && willComplete) requestAdvance?.();
   }
 
-  const clearPickAndLater = useCallback(
-    (ref: string) => {
-      const target = sortedComponents.find((c) => c.ref === ref);
-      if (!target) return;
-      setPicks((prev) => {
-        const next = new Map(prev);
-        for (const c of sortedComponents) {
-          if (c.sequence >= target.sequence) next.delete(c.ref);
-        }
+  /** Roster toggle AFTER picks may exist: per-line holds make the sync safe —
+   *  OFF releases only that member's package lines, ON holds their entries
+   *  for every committed component (sequence order — license twin lands on
+   *  the Starter). */
+  async function toggleRacer(id: string) {
+    if (holdingRef.current) return;
+    const nowIncluded = !selectedIds.has(id);
+    const plan = rosterSyncPlan({
+      memberId: id,
+      nowIncluded,
+      pkg,
+      category,
+      heats: item.heats,
+      picks,
+    });
+    if (!nowIncluded) {
+      // Unchecking the LAST racer with heats held would strand pick-shaped
+      // state with nobody on it — clear the heats instead.
+      if (picks.size > 0 && selectedCount === 1) {
+        setHoldError(
+          "At least one racer must stay on the package — clear the heats (×) to change who's racing.",
+        );
+        return;
+      }
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
         return next;
       });
-      setCurrentComponentIdx(sortedComponents.indexOf(target));
-      setTrackFilter(null); // jumping back to an earlier step — clear its filter
-    },
-    [sortedComponents],
-  );
-
-  function handleConfirm() {
-    const result: PackagePick[] = sortedComponents.map((comp) => {
-      const pick = picks.get(comp.ref)!;
-      return {
-        component: comp,
-        productId: pick.productId,
-        track: pick.track,
-        proposal: pick.proposal,
-        block: pick.block,
-      };
-    });
-    onConfirm(result);
+      if (plan.toRemove.length > 0) {
+        const rm = new Set(plan.toRemove);
+        onChange({ heats: item.heats.filter((h) => !rm.has(h)) });
+        if (plan.toRemove.some((h) => h.bmiLineId)) {
+          await releaseHeatBmiLines(session, plan.toRemove);
+        }
+      }
+      return;
+    }
+    if (plan.toAdd.length > 0) {
+      const ok = await holdHeats([...item.heats, ...plan.toAdd], null);
+      if (!ok) return; // hold failed — leave them unchecked, error banner shows
+    }
+    setSelectedIds((prev) => new Set(prev).add(id));
   }
 
   const displayDate = parseLocal(date + "T12:00:00").toLocaleDateString("en-US", {
@@ -453,9 +738,32 @@ export function PackageHeatPicker({
           Pick Your Heats
         </h2>
         <p className="text-sm text-white/50">
-          {displayDate} · Pick {totalComponents} heat{totalComponents === 1 ? "" : "s"}
+          {displayDate} · {selectedCount} racer{selectedCount === 1 ? "" : "s"} · Pick{" "}
+          {totalComponents} heat{totalComponents === 1 ? "" : "s"}
         </p>
       </div>
+
+      {/* WHO is being booked — the mixed-party banner + the member checklist.
+          This step books ONE category's package; without the banner the only
+          adult/junior signal was the tiny step title (owner 2026-07-19:
+          "couldn't tell who I was booking"). */}
+      {mixedParty && (
+        <PackageCategoryBanner
+          category={category}
+          detail={
+            category === "adult"
+              ? "Juniors get their own races on the next step."
+              : "Adult races were picked on the previous step."
+          }
+        />
+      )}
+      <PackageRacerRoster
+        pkg={pkg}
+        racers={racers}
+        selectedIds={selectedIds}
+        onToggle={(id) => void toggleRacer(id)}
+        disabled={holding}
+      />
 
       <ProgressDots current={pickedCount} total={totalComponents} />
 
@@ -472,7 +780,7 @@ export function PackageHeatPicker({
         >
           {lastPicked && picks.get(lastPicked.ref) && (
             <p className="mb-1 text-xs font-semibold text-emerald-300">
-              ✓ {lastPicked.label} locked in · {formatTime(picks.get(lastPicked.ref)!.block.start)}
+              ✓ {lastPicked.label} locked in · {formatTime(picks.get(lastPicked.ref)!.start)}
             </p>
           )}
           <p className="text-xs font-bold uppercase tracking-widest text-amber-300">
@@ -490,10 +798,16 @@ export function PackageHeatPicker({
       ) : allPicked ? (
         <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] px-4 py-2 text-center">
           <p className="text-xs font-bold uppercase tracking-widest text-emerald-300">
-            All heats selected — review and confirm below
+            All heats locked in
           </p>
         </div>
       ) : null}
+
+      {holdError && !holding && (
+        <div className="mx-auto max-w-sm rounded-xl border border-red-500/30 bg-red-500/5 p-3 text-center text-xs text-red-300">
+          {holdError}
+        </div>
+      )}
 
       {/* Track info for multi-track steps — tapping a card filters the current
           step's heats to that track; tapping again shows all. */}
@@ -505,7 +819,12 @@ export function PackageHeatPicker({
         />
       )}
 
-      <SelectedHeats picks={picks} components={sortedComponents} onClearFrom={clearPickAndLater} />
+      <SelectedHeats
+        picks={picks}
+        components={sortedComponents}
+        onClearFrom={(ref) => void deselectFrom(ref)}
+        disabled={holding}
+      />
 
       {/* Heat grid */}
       {isLoading ? (
@@ -516,201 +835,197 @@ export function PackageHeatPicker({
         <div className="flex h-48 flex-col items-center justify-center gap-3">
           <p className="text-sm text-white/40">No heats available for this date.</p>
         </div>
+      ) : visibleProposals.length === 0 ? (
+        <div className="bg-white/3 rounded-xl border border-white/10 p-4 text-center text-sm text-white/50">
+          No {trackFilter} Track heats for this race — tap the track above to show all.
+        </div>
       ) : (
         <>
-          {visibleProposals.length === 0 ? (
-            <div className="bg-white/3 rounded-xl border border-white/10 p-4 text-center text-sm text-white/50">
-              No {trackFilter} Track heats for this race — tap the track above to show all.
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
-              {visibleProposals.map((tp, idx) => {
-                const component = tp.component;
-                const tierBadge = TIER_BADGE[component.tier] ?? TIER_BADGE.starter;
-                const trackBadge = TRACK_BADGE[tp.track] ?? {
-                  bg: "bg-white/10",
-                  text: "text-white/70",
-                };
-                const showTrackBadge = component.tracks.length > 1;
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+            {visibleProposals.map((tp, idx) => {
+              const component = tp.component;
+              const tierBadge = TIER_BADGE[component.tier] ?? TIER_BADGE.starter;
+              const trackBadge = TRACK_BADGE[tp.track] ?? {
+                bg: "bg-white/10",
+                text: "text-white/70",
+              };
+              const showTrackBadge = component.tracks.length > 1;
 
-                const isPicked = picks.get(component.ref)?.block.start === tp.block.start;
-                const isOtherStep = !!(currentComponent && currentComponent.ref !== component.ref);
-                const blockStart = parseLocal(tp.block.start).getTime();
+              // Pick identity = product + start (NOT start alone) — Red and
+              // Blue share the 12-min cadence, so a start-only compare marked
+              // BOTH tracks' same-time cards "Selected" (live find 2026-07-19).
+              const pickedForComponent = picks.get(component.ref);
+              const isPicked =
+                !!pickedForComponent &&
+                pickedForComponent.productId === tp.productId &&
+                pickedForComponent.start === tp.block.start;
+              const isOtherStep = !!(currentComponent && currentComponent.ref !== component.ref);
+              const blockStart = parseLocal(tp.block.start).getTime();
+              const isThisHolding = holdingKey === `${tp.productId}|${tp.block.start}`;
 
-                // Gap rule (with the late-night 60→30 fallback from effectiveGapByRef)
-                const gap = packageHeatGapMinutes(component);
-                const gapMinutes = gap ? (effectiveGapByRef.get(component.ref) ?? gap.minutes) : 0;
-                const prevPick = gap ? picks.get(gap.ref) : null;
-                const isGapViolation =
-                  prevPick && gap
-                    ? violatesMinGapAfter(prevPick.block.stop, tp.block.start, gapMinutes)
-                    : false;
-                const gapAnchor =
-                  prevPick && gap
-                    ? { stop: prevPick.block.stop, minutes: gapMinutes, refLabel: gap.ref }
-                    : null;
+              // Gap rule (with the late-night 60→30 fallback from effectiveGapByRef)
+              const gap = packageHeatGapMinutes(component);
+              const gapMinutes = gap ? (effectiveGapByRef.get(component.ref) ?? gap.minutes) : 0;
+              const prevPick = gap ? picks.get(gap.ref) : null;
+              const isGapViolation =
+                prevPick && gap
+                  ? violatesMinGapAfter(prevPick.stop, tp.block.start, gapMinutes)
+                  : false;
+              const gapAnchor =
+                prevPick && gap
+                  ? { stop: prevPick.stop, minutes: gapMinutes, refLabel: gap.ref }
+                  : null;
 
-                // Standard heat conflict with all existing picks
-                const isConflict = Array.from(picks.values()).some(
-                  (existing) =>
-                    existing.component.ref !== component.ref &&
-                    heatsConflict(
-                      parseLocal(existing.block.start).getTime(),
-                      existing.track,
-                      blockStart,
-                      tp.track,
-                    ),
-                );
+              // Standard heat conflict with all existing picks
+              const isConflict = [...picks.entries()].some(
+                ([ref, existing]) =>
+                  ref !== component.ref &&
+                  heatsConflict(
+                    parseLocal(existing.start).getTime(),
+                    existing.track,
+                    blockStart,
+                    tp.track,
+                  ),
+              );
 
-                const isLowCap = tp.block.freeSpots < racerCount;
-                // Restriction rule that disables (not hides) this slot — e.g.
-                // the VIP anchor reserve (race-restriction-rules.ts).
-                const isRestricted = !isPicked && !!tp.restriction;
-                const isFull = isPicked
-                  ? true
-                  : isRestricted ||
-                    isOtherStep ||
-                    isLowCap ||
-                    isConflict ||
-                    isGapViolation ||
-                    false;
+              // Cross-category slot collision — the OTHER category (adults on
+              // the junior step / juniors on the adult step) already holds this
+              // exact (track, start) session somewhere in the cart.
+              const isCrossCategory =
+                !isPicked &&
+                !!crossCategoryHeats?.length &&
+                collidesWithOtherCategory(tp.track, tp.block.start, crossCategoryHeats);
 
-                const statusLabel = isPicked
-                  ? "Selected"
-                  : isRestricted
-                    ? (tp.restriction!.cardLabel ?? "Not available")
-                    : isOtherStep
-                      ? "Locked — finish the current step"
+              const isLowCap = tp.block.freeSpots < Math.max(1, selectedCount);
+              // Restriction rule that disables (not hides) this slot — e.g.
+              // the VIP anchor reserve (race-restriction-rules.ts).
+              const isRestricted = !isPicked && !!tp.restriction;
+              const isBlocked =
+                isRestricted ||
+                isOtherStep ||
+                isLowCap ||
+                isConflict ||
+                isGapViolation ||
+                isCrossCategory;
+              // Picked cards stay TAPPABLE (tap = clear, single-race parity);
+              // everything is untappable while a hold is in flight.
+              const isDisabled = holding || (!isPicked && isBlocked);
+              const isFull = !isPicked && isBlocked;
+
+              const statusLabel = isPicked
+                ? "Selected"
+                : isRestricted
+                  ? (tp.restriction!.cardLabel ?? "Not available")
+                  : isOtherStep
+                    ? "Locked — finish the current step"
+                    : isCrossCategory
+                      ? category === "junior"
+                        ? "Adults race at this time — pick another"
+                        : "Juniors race at this time — pick another"
                       : isGapViolation && gapAnchor
                         ? `Available ${gapAnchor.minutes} min after ${gapAnchor.refLabel} ends`
                         : isConflict
                           ? "Too close to picked heat"
                           : isLowCap
-                            ? `Need ${racerCount}, only ${tp.block.freeSpots} left`
+                            ? `Need ${Math.max(1, selectedCount)}, only ${tp.block.freeSpots} left`
                             : spotsLabel(tp.block.freeSpots, tp.block.capacity).label;
 
-                const statusClass = isPicked
-                  ? "text-emerald-300"
-                  : isRestricted || isOtherStep || isGapViolation || isConflict
-                    ? "text-amber-400"
-                    : isLowCap
-                      ? "text-red-400"
-                      : spotsLabel(tp.block.freeSpots, tp.block.capacity).text;
+              const statusClass = isPicked
+                ? "text-emerald-300"
+                : isRestricted || isOtherStep || isGapViolation || isConflict || isCrossCategory
+                  ? "text-amber-400"
+                  : isLowCap
+                    ? "text-red-400"
+                    : spotsLabel(tp.block.freeSpots, tp.block.capacity).text;
 
-                const cardTooltip = isRestricted
-                  ? tp.restriction!.reason
-                  : isOtherStep
-                    ? "Locked — clear a heat above (×) to change it"
+              const cardTooltip = isRestricted
+                ? tp.restriction!.reason
+                : isOtherStep
+                  ? "Locked — clear a heat above (×) to change it"
+                  : isCrossCategory
+                    ? crossCategoryCollisionMessage(tp.block.start, tp.track)
                     : isGapViolation && gapAnchor
                       ? packageGapTooltip(gapAnchor.minutes, gapAnchor.refLabel)
                       : isConflict
                         ? HEAT_CONFLICT_TOOLTIP
                         : undefined;
 
-                const trackTheme = TRACK_CARD[tp.track] ?? TRACK_CARD.Mega;
-                const cardClass = isPicked
-                  ? trackTheme.selected
-                  : isFull
-                    ? DISABLED_CARD
-                    : `${trackTheme.base} ${trackTheme.baseHover} cursor-pointer`;
+              const trackTheme = TRACK_CARD[tp.track] ?? TRACK_CARD.Mega;
+              const cardClass = isPicked
+                ? `${trackTheme.selected} cursor-pointer`
+                : isFull
+                  ? DISABLED_CARD
+                  : `${trackTheme.base} ${trackTheme.baseHover} cursor-pointer`;
 
-                return (
-                  <button
-                    key={`${tp.block.start}-${tp.productId}-${idx}`}
-                    type="button"
-                    onClick={() => !isFull && handleClickHeat(tp)}
-                    disabled={isFull}
-                    title={cardTooltip}
-                    className={`rounded-xl border p-3 text-left transition-all duration-150 ${cardClass}`}
-                  >
-                    {/* Tier + track badges */}
-                    <div className="mb-1.5 flex flex-wrap items-center gap-1">
-                      <span
-                        className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${tierBadge.bg} ${tierBadge.text}`}
-                      >
-                        {component.tier}
-                      </span>
-                      {showTrackBadge && (
-                        <span
-                          className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${trackBadge.bg} ${trackBadge.text}`}
-                        >
-                          {tp.track}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mb-2 text-base font-bold text-white">
-                      {formatTime(tp.block.start)}
-                    </div>
-                    <div className="mb-1 text-xs font-medium text-white/60">{tp.block.name}</div>
-                    <div className={`text-[13px] font-medium ${statusClass}`}>{statusLabel}</div>
-                    {/* Capacity bar */}
-                    <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
-                      <div
-                        className={`h-full rounded-full ${
-                          isLowCap
-                            ? "bg-red-500"
-                            : isRestricted || isConflict || isGapViolation || isOtherStep
-                              ? "bg-amber-400/50"
-                              : tp.block.freeSpots / tp.block.capacity <= 0.3
-                                ? "bg-amber-400"
-                                : "bg-emerald-400"
-                        }`}
-                        style={{
-                          width:
-                            isRestricted || isConflict || isGapViolation || isOtherStep
-                              ? "100%"
-                              : `${(tp.block.freeSpots / tp.block.capacity) * 100}%`,
-                        }}
-                      />
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {/* CTA area */}
-          <div
-            ref={ctaRef}
-            className={`rounded-xl border p-5 transition-all duration-300 ${
-              allPicked ? "border-amber-500/40 bg-amber-500/8" : "border-white/10 bg-white/3"
-            }`}
-          >
-            {allPicked ? (
-              <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-                <div>
-                  <p className="mb-1 text-xs text-white/50">All {totalComponents} heats selected</p>
-                  <p className="text-sm text-white/70">
-                    {sortedComponents
-                      .map((c) => {
-                        const pick = picks.get(c.ref)!;
-                        const trackSuffix = c.tracks.length > 1 ? ` ${pick.track}` : "";
-                        return `${c.label}${trackSuffix} · ${formatTime(pick.block.start)}`;
-                      })
-                      .join(" → ")}
-                  </p>
-                </div>
+              return (
                 <button
+                  key={`${tp.block.start}-${tp.productId}-${idx}`}
                   type="button"
-                  onClick={handleConfirm}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-amber-400 px-6 py-3 text-sm font-bold text-[#000418] shadow-lg shadow-amber-500/25 transition-colors hover:bg-amber-300"
+                  onClick={() => !isDisabled && void handleClickHeat(tp)}
+                  disabled={isDisabled}
+                  title={cardTooltip}
+                  className={`relative rounded-xl border p-3 text-left transition-all duration-150 ${cardClass}`}
                 >
-                  Confirm &amp; Continue →
+                  {isThisHolding && (
+                    <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1.5 rounded-xl border border-[#00E2E5]/60 bg-[#000418]/85 backdrop-blur-sm">
+                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/20 border-t-[#00E2E5]" />
+                      <span className="text-[11px] font-semibold text-[#00E2E5]">Holding…</span>
+                    </div>
+                  )}
+                  {/* Tier + track badges */}
+                  <div className="mb-1.5 flex flex-wrap items-center gap-1">
+                    <span
+                      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${tierBadge.bg} ${tierBadge.text}`}
+                    >
+                      {component.tier}
+                    </span>
+                    {showTrackBadge && (
+                      <span
+                        className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${trackBadge.bg} ${trackBadge.text}`}
+                      >
+                        {tp.track}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mb-2 text-base font-bold text-white">
+                    {formatTime(tp.block.start)}
+                  </div>
+                  <div className="mb-1 text-xs font-medium text-white/60">{tp.block.name}</div>
+                  <div className={`text-[13px] font-medium ${statusClass}`}>{statusLabel}</div>
+                  {/* Capacity bar */}
+                  <div className="mt-2 h-1 overflow-hidden rounded-full bg-white/10">
+                    <div
+                      className={`h-full rounded-full ${
+                        isLowCap
+                          ? "bg-red-500"
+                          : isRestricted ||
+                              isConflict ||
+                              isGapViolation ||
+                              isOtherStep ||
+                              isCrossCategory
+                            ? "bg-amber-400/50"
+                            : tp.block.freeSpots / tp.block.capacity <= 0.3
+                              ? "bg-amber-400"
+                              : "bg-emerald-400"
+                      }`}
+                      style={{
+                        width:
+                          isRestricted || isConflict || isGapViolation || isOtherStep
+                            ? "100%"
+                            : `${(tp.block.freeSpots / tp.block.capacity) * 100}%`,
+                      }}
+                    />
+                  </div>
                 </button>
-              </div>
-            ) : (
-              <p className="text-center text-sm text-white/40">
-                Selected <span className="font-bold text-white">{pickedCount}</span> of{" "}
-                <span className="font-bold text-white">{totalComponents}</span> heats
-              </p>
-            )}
+              );
+            })}
           </div>
         </>
       )}
 
       <button
         type="button"
-        onClick={onCancel}
+        onClick={() => dispatch({ type: "back" })}
         className="text-sm text-white/40 transition-colors hover:text-white/70"
       >
         ← Change package

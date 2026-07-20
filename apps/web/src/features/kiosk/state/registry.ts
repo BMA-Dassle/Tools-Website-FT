@@ -15,7 +15,7 @@ import { KioskBowlingTierStep } from "../steps/KioskBowlingTierStep";
 import { KioskBowlingPeopleStep } from "../steps/KioskBowlingPeopleStep";
 import { KioskRacePeopleStep, KioskAttractionPeopleStep } from "../steps/KioskPeopleStep";
 
-export const KIOSK_SCHEMA_VERSION = 10; // v10: signer-only guardians (session.guardians)
+export const KIOSK_SCHEMA_VERSION = 11; // v11: RaceItem.packageIdAdult/Junior split (was single packageId)
 export const KIOSK_SESSION_STORAGE_KEY = "kiosk_booking_session";
 
 /** Match the web registry's World Cup gating for bowling time steps. */
@@ -52,11 +52,13 @@ function insertAfter(steps: StepDef[], afterId: string, step: StepDef): StepDef[
 /**
  * Skip the race product step when the guest launched from an Experiences package
  * tile (session.preferredPackageId) AND the flow has already resolved that
- * package onto the item — they picked it by tapping the tile, so no reselect
- * (owner 2026-07-19). Because visible steps are filtered by isVisible, hiding it
- * also makes Back skip it. Falls back to showing the step whenever nothing was
- * preseeded (mixed party / no single eligible variant / normal racing / combo),
- * so no other path is disrupted.
+ * package onto the item's CATEGORY — they picked it by tapping the tile, so no
+ * reselect (owner 2026-07-19). Because visible steps are filtered by isVisible,
+ * hiding it also makes Back skip it. Package fields are per-category
+ * (packageIdAdult/Junior), so a mixed party skips BOTH product steps when both
+ * variants preseeded (owner 2026-07-19), and each category falls back to its own
+ * product step whenever its side wasn't preseeded (no single eligible variant /
+ * normal racing / combo) — no other path is disrupted.
  */
 function skipWhenPreselected(step: StepDef): StepDef {
   const stepCategory = step.id.includes("junior") ? "junior" : "adult";
@@ -64,14 +66,15 @@ function skipWhenPreselected(step: StepDef): StepDef {
     ...step,
     isVisible: (item, session) => {
       if (!step.isVisible(item, session)) return false;
-      const pkgId = (item as { packageId?: string }).packageId;
+      // Structural cast (item is the generic SessionItem here) — field names in
+      // lockstep with RaceItem.packageIdAdult/Junior (state/types.ts).
+      const fields = item as { packageIdAdult?: string | null; packageIdJunior?: string | null };
+      const pkgId = stepCategory === "junior" ? fields.packageIdJunior : fields.packageIdAdult;
       const preferred = session.preferredPackageId;
       if (!preferred || typeof pkgId !== "string" || !pkgId.startsWith(preferred)) return true;
-      // Skip ONLY the product step whose category matches the preseeded package —
-      // a mixed party (a later-added junior on an adult preseed) still gets its
-      // own product step, so no racer is left without a package.
-      const pkgCategory = getPackage(pkgId)?.category;
-      return !(pkgCategory === "any" || pkgCategory === stepCategory);
+      // Skip only when the preseeded variant is still enabled — a flag-disabled
+      // variant must fall back to the product step, not dead-end at heats.
+      return !getPackage(pkgId);
     },
   };
 }
