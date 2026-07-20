@@ -101,13 +101,13 @@ export function BookingFlow({
   // Always-latest handleNext for steps' requestAdvance — the picker calls it
   // after an await, from a closure created renders ago; the ref guarantees the
   // CURRENT session/item advance. setTimeout(0) lets React flush the hold's
-  // final state (busy=false, fresh heats) first. Declared up here with the
-  // other hooks (the loading early-return sits below); the effect body runs
-  // post-render, when handleNext (declared later) is initialized.
+  // final state (busy=false, fresh heats) first. Hooks live up here (the
+  // loading early-return sits below); the ref is assigned by a plain statement
+  // right AFTER handleNext's declaration — NEVER by an effect registered up
+  // here: on a loading-screen render the early return means handleNext is
+  // still in its temporal dead zone, and an effect touching it crashed the
+  // flow on first paint (live find 2026-07-19, /kiosk/flow).
   const handleNextRef = useRef<() => Promise<void>>(() => Promise.resolve());
-  useEffect(() => {
-    handleNextRef.current = handleNext;
-  });
   const requestAdvance = useCallback(() => {
     setTimeout(() => void handleNextRef.current(), 0);
   }, []);
@@ -678,6 +678,10 @@ export function BookingFlow({
 
     advanceToNextStep();
   };
+  // Latest-closure handoff for requestAdvance (see the ref's declaration above
+  // the early return) — a plain render-time assignment, deliberately not an
+  // effect: it must only run on renders that actually initialize handleNext.
+  handleNextRef.current = handleNext;
 
   const handleGoToStep = (index: number) => {
     if (index < stepIndex) {
