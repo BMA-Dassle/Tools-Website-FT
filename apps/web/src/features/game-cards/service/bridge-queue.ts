@@ -38,19 +38,22 @@ async function heartbeat(locationCode: number): Promise<void> {
 }
 
 /**
- * Per-center bridge liveness for the reload UI ("instant loading" vs "may
- * take a few minutes"). Fails closed to false — a dead Redis just means the
- * softer wording shows.
+ * Per-center "instant loading" truth for the reload UI: the bridge must be
+ * ALIVE (heartbeat < 30s) AND the center must be in the queue flag — a live
+ * bridge at a non-flagged center gets no jobs, so promising "instant" there
+ * would be a lie. Fails closed to false — a dead Redis just means the softer
+ * wording shows.
  */
 export async function bridgeStatus(): Promise<Record<string, boolean>> {
   const codes = Object.keys(CENTERS).map(Number);
+  const flagged = eisQueueCenters();
   const out: Record<string, boolean> = {};
   for (const c of codes) out[String(c)] = false;
   try {
     const vals = await redis.mget(...codes.map(heartbeatKey));
     codes.forEach((c, i) => {
       const t = vals[i] ? Date.parse(vals[i] as string) : NaN;
-      out[String(c)] = Number.isFinite(t) && Date.now() - t < BRIDGE_ALIVE_MS;
+      out[String(c)] = Number.isFinite(t) && Date.now() - t < BRIDGE_ALIVE_MS && flagged.has(c);
     });
   } catch {
     /* fail closed */
