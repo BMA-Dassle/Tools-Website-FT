@@ -29,6 +29,7 @@ import { KIOSK_AD_SLIDES, KIOSK_LOGOS, KIOSK_PHOTOS } from "../assets";
 import { BrandedLoader } from "./BrandedLoader";
 import { useKioskClock, syncGlowPhase } from "../hooks/useKioskClock";
 import { useKioskAvailability } from "../hooks/useKioskAvailability";
+import { captureKioskBootVersion, kioskUpdateAvailable } from "../version";
 
 const AD_ROTATE_MS = 8000;
 
@@ -110,6 +111,22 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   useEffect(() => {
     syncGlowPhase(rootRef.current, offset);
   }, [offset, config, booting]);
+
+  // Self-update while IDLE: the between-guest reset check (version.ts) only
+  // fires when a session ends, so a kiosk parked on attract overnight keeps
+  // serving the old build indefinitely. Attract = nobody mid-anything, so a
+  // hard reload is always safe here. Capture the boot version (idempotent),
+  // then check every 5 min; reload when a newer deploy is live (owner asked
+  // 2026-07-19 "when on this page does it check for updates?" — now).
+  useEffect(() => {
+    void captureKioskBootVersion();
+    const t = setInterval(() => {
+      void kioskUpdateAvailable().then((update) => {
+        if (update) window.location.reload();
+      });
+    }, 5 * 60_000);
+    return () => clearInterval(t);
+  }, []);
 
   // While the cloud fallback resolves, hold the loader instead of flashing
   // the staff setup card at a guest.

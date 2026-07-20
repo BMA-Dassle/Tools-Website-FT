@@ -24,6 +24,7 @@ const cacheKey = (c: string) => `kiosk:avail:${c}`;
 const DEFAULT_AVAILABLE: ExperienceAvailability = {
   "race-bowl": true,
   "ultimate-qualifier": true,
+  bowling: true,
 };
 
 // Per-instance single-flight so concurrent cache misses don't stampede vendors.
