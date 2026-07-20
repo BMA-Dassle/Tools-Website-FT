@@ -179,13 +179,19 @@ export async function bookHeatsOnAdvance(
     });
     billId = billAfter;
 
-    if (!billId) {
+    // The RESPONSE's orderId is AUTHORITATIVE. When the order we chained onto
+    // is cancelled (a deselect that empties a Pending-online order makes BMI
+    // auto-cancel it), booking/book does NOT error — it silently creates a
+    // fresh order and returns ITS id. Keeping the stale id strands every later
+    // line on invisible new W-numbers and every removeItem answers "Order is
+    // cancelled" (live find 2026-07-19: one lingering reservation per re-pick).
+    // Adopting the returned id also covers the brand-new-bill case (!billId).
+    if (result.rawOrderId && result.rawOrderId !== billId) {
       billId = result.rawOrderId;
       dispatch({ type: "setBmiBillId", id: billId });
-      // Attach the customer to the brand-new bill immediately (v1 parity:
-      // registerContactPerson) so a reservation never exists without a contact.
-      // Contact is collected up front (ContactStep), so session.contact is set.
-      // Non-fatal.
+      // Attach the customer to the (possibly brand-new) bill immediately (v1
+      // parity: registerContactPerson) so a reservation never exists without
+      // a contact. Non-fatal.
       await registerContact(billId, session.contact, session.party);
     }
 
@@ -381,12 +387,14 @@ export async function holdPickedHeats(
       });
       billId = billAfter;
 
-      if (!billId) {
+      // Response orderId is AUTHORITATIVE — adopt it whenever it differs (BMI
+      // silently reparents onto a fresh order when the chained order was
+      // cancelled, e.g. after a deselect emptied it; see bookHeatsOnAdvance).
+      if (result.rawOrderId && result.rawOrderId !== billId) {
         billId = result.rawOrderId;
         dispatch({ type: "setBmiBillId", id: billId });
-        // Attach the customer to the brand-new bill immediately (v1 parity) so a
-        // reservation never exists without a contact. Contact is collected up
-        // front (ContactStep) — guaranteed complete before this step. Non-fatal.
+        // Attach the customer to the (possibly brand-new) bill immediately so
+        // a reservation never exists without a contact. Non-fatal.
         await registerContact(billId, session.contact, session.party);
       }
       booked.push({ heatIndex: i, bmiLineId: result.billLineId });
@@ -478,7 +486,10 @@ export async function holdRaceItem(
       personId,
     });
 
-    if (!billId) {
+    // Response orderId is AUTHORITATIVE — adopt it whenever it differs (BMI
+    // silently reparents onto a fresh order when the chained order was
+    // cancelled; see bookHeatsOnAdvance).
+    if (result.rawOrderId && result.rawOrderId !== billId) {
       billId = result.rawOrderId;
       dispatch({ type: "setBmiBillId", id: billId });
     }
