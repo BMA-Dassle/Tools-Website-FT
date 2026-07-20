@@ -47,13 +47,15 @@ describe("classifyFault", () => {
     expect(b.resumeReady!(st({ stacker: "enough" }))).toBe(true);
   });
 
-  it("A1 / 50 bin full → hold, Resume gated until bin ok, reinit", () => {
+  it("A1 / 50 bin full → hold, Resume gated on TWO full→empty cycles, reinit", () => {
     for (const c of ["A1", "50"]) {
       const b = classifyFault(info(c)) as Extract<FaultBehavior, { kind: "hold" }>;
       expect(b.kind).toBe("hold");
       expect(b.reinitOnResume).toBe(true);
-      expect(b.resumeReady!(st({ errorBin: "full" }))).toBe(false);
-      expect(b.resumeReady!(st({ errorBin: "ok" }))).toBe(true);
+      // The tray reads "empty" whether pulled out or emptied+reinserted, so a
+      // snapshot can't confirm service — gate on two clear cycles instead.
+      expect(b.resumeAfterClearCycles).toBe(2);
+      expect(b.resumeReady).toBeUndefined();
     }
   });
 

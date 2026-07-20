@@ -72,6 +72,25 @@ const BAD_READ_HOLD: HoldFault = {
   reinitOnResume: true,
 };
 
+/** Hold shown when the reject/error bin is FULL. Checked PROACTIVELY — before
+ *  charging and before every card — because a full bin only surfaces via
+ *  capture() when a bad card needs rejecting; a bin that's already full at the
+ *  start (with cards that all read fine) would otherwise never be caught (owner
+ *  2026-07-19: "assume bin full at the start, check constantly"). Resume is
+ *  GATED on the bin reporting clear (sensor-derived errorBin === "ok"). */
+const BIN_FULL_HOLD: HoldFault = {
+  kind: "hold",
+  title: "Card bin full",
+  message: "Empty the reject tray, then slide it back in to resume.",
+  hint: "Pull the tray out, empty it, and reinsert it — Resume unlocks once it's back in.",
+  // The tray reads "empty" whether it's pulled out OR emptied + reinserted, so a
+  // single clear can't confirm it was serviced. Require the full→empty cycle
+  // TWICE: pulling the tray clears it once, reinserting the empty tray re-trips
+  // the sensor and clears it again — a plain pull-out only ever clears once.
+  resumeAfterClearCycles: 2,
+  reinitOnResume: true,
+};
+
 interface CartCard {
   accountNumber: string;
   packageId: string;
@@ -460,6 +479,9 @@ export function KioskGameZone({
   // BUY: one upfront charge for the basket, THEN dispense + load + present each
   // card one at a time (load must clear before a card is handed over).
   const payNewCards = async (cardNonce: string) => {
+    // Don't take money if the bin is already full — hold up front so staff empty
+    // it before we charge (bail → stay on the cart, nothing charged).
+    if (!(await holdIfBinFull())) return;
     setPhase("loading");
     setError(null);
     setDispenseMsg("Processing payment…");
@@ -510,6 +532,21 @@ export function KioskGameZone({
     }
   };
 
+  // Proactive bin-full gate: the bin can be full at the START of a buy (or fill
+  // mid-run) with every card reading fine, in which case capture() never runs
+  // and the fault would go unseen. Check the sensor-derived bin state up front
+  // and before each card; hold until staff empty it (owner 2026-07-19: "check
+  // constantly"). Only a CONFIRMED "full" holds — a transient "unknown" read
+  // (already retried in getBinState) proceeds, so normal buys aren't blocked.
+  // Returns false only if staff bail to an attendant.
+  const holdIfBinFull = async (): Promise<boolean> => {
+    while ((await dispenser.getBinState()) === "full") {
+      const resumed = await holdUntilResolved(BIN_FULL_HOLD);
+      if (!resumed) return false;
+    }
+    return true;
+  };
+
   // Dispense → read → load → present, ONE card at a time. Faults are handled by
   // category: a recoverable "hold" (out of cards, jam, bin) pauses on the hold
   // overlay and, on staff resume, retries the SAME card; a bad blank is captured
@@ -530,6 +567,10 @@ export function KioskGameZone({
     for (let i = 0; i < newCards.length; i++) {
       const txnId = rows[i]?.txnId;
       if (!txnId) break;
+      // Assume the bin can be full at any point — check BEFORE every dispense
+      // (owner 2026-07-19). A full bin has nowhere to reject a bad blank, so
+      // hold here until staff empty it rather than dispensing into a dead end.
+      if (!(await holdIfBinFull())) return abort(i, SEE_ATTENDANT_SAFE);
       setNewCardAt(i, { cardStatus: "dispensing" });
       setDispenseMsg(`Dispensing card ${i + 1} of ${newCards.length}…`);
 
@@ -679,6 +720,12 @@ export function KioskGameZone({
   } | null>(null);
 
   const readerPrepare = async (kind: "reload" | "new_card") => {
+    // New-card dispense needs a non-full bin — hold before charging on the
+    // reader (reload never dispenses/bins, so it's exempt). Staff bail → throw
+    // the money-safe message so the terminal flow aborts before any charge.
+    if (kind === "new_card" && !(await holdIfBinFull())) {
+      throw new Error(SEE_ATTENDANT_SAFE);
+    }
     const items =
       kind === "new_card"
         ? newCards.map((c) => ({ packageId: c.packageId }))

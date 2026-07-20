@@ -342,6 +342,16 @@ function StatusCard({
   const { status, sensors, polling, setPolling, busy } = reader;
   const [binCount, setBinCount] = useState<number | null>(null);
 
+  // Read the sensor block once on open so the bin state shows immediately —
+  // the "Error bin" chip is sensor-derived (st2 is unreliable on this unit and
+  // reads "unknown"). Ref-guarded so it fires exactly once regardless of `act`.
+  const didReadSensorsRef = useRef(false);
+  useEffect(() => {
+    if (didReadSensorsRef.current) return;
+    didReadSensorsRef.current = true;
+    act("read sensors", (c) => c.getSensors());
+  }, [act]);
+
   const chip = (label: string, value: string, tone: "ok" | "warn" | "bad" | "dim") => {
     const cls = {
       ok: "border-[#46d68c]/40 bg-[#46d68c]/10 text-[#46d68c]",
@@ -368,7 +378,11 @@ function StatusCard({
         : status?.stacker === "empty"
           ? "bad"
           : "dim";
-  const binTone = status?.errorBin === "full" ? "bad" : status?.errorBin === "ok" ? "ok" : "dim";
+  // Bin state reads from the SENSOR block (reliable), NOT status.errorBin (st2),
+  // which the HB-HDN unit leaves at "unknown". Populated by the mount read
+  // above, plus Refresh / polling.
+  const binState = sensors?.binState ?? "unknown";
+  const binTone = binState === "full" ? "bad" : binState === "ok" ? "ok" : "dim";
 
   const cardText = {
     none: "None inside",
@@ -408,11 +422,7 @@ function StatusCard({
       <div className="grid grid-cols-3 gap-3">
         {chip("Card", status ? cardText : "—", status ? cardTone : "dim")}
         {chip("Stacker", status?.stacker ?? "—", stackerTone)}
-        {chip(
-          "Error bin",
-          status?.errorBin === "full" ? "FULL" : (status?.errorBin ?? "—"),
-          binTone,
-        )}
+        {chip("Error bin", binState === "full" ? "FULL" : binState === "ok" ? "OK" : "—", binTone)}
       </div>
 
       {sensors && (

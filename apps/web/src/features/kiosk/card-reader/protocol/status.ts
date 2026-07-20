@@ -46,6 +46,9 @@ export interface SensorStatus {
   sensors: boolean[];
   /** S8 is "Reserve" in the spec; kept raw for the diagnostics log. */
   s8Raw: number | null;
+  /** Reject-bin state derived from this block — the RELIABLE bin signal on the
+   *  HB-HDN unit (st2 always reads "unknown"). See binStateFromSensors. */
+  binState: ErrorBinLevel;
 }
 
 /**
@@ -56,7 +59,7 @@ export interface SensorStatus {
 export function parseSensors(data: Uint8Array): SensorStatus {
   const sensors: boolean[] = [];
   for (let i = 0; i < 7; i++) sensors.push(data[i] === 0x31);
-  return { sensors, s8Raw: data.length > 7 ? data[7] : null };
+  return { sensors, s8Raw: data.length > 7 ? data[7] : null, binState: binStateFromSensors(data) };
 }
 
 /**
