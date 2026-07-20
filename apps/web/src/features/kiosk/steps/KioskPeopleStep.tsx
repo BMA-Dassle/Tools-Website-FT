@@ -44,9 +44,13 @@ import {
   type PersonData,
 } from "~/components/features/booking/steps/race/ReturningRacerLookup";
 import { useKioskConfig } from "../KioskConfigContext";
-import { kioskHasCamera } from "../config";
+import { kioskHasCamera, kioskId } from "../config";
 import { KioskWaiverPhoto } from "../components/KioskWaiverPhoto";
 import { formatPersonName, normalizeEmail } from "../name-format";
+import { kioskMobileJoinEnabled } from "../flags";
+import { useMobileJoin } from "../hooks/useMobileJoin";
+import { mergeJoinedGuests } from "../join/merge";
+import { KioskMobileJoinPanel } from "../components/KioskMobileJoinPanel";
 
 /** Waiver-gated attraction slugs (duckpin is exempt — uses the party-count step). */
 const WAIVER_SLUGS = new Set(["gel-blaster", "laser-tag", "shuffly"]);
@@ -266,6 +270,52 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       setIncluded(next);
     }
   };
+
+  // Mobile join (flag-gated): a QR panel below the entry buttons lets adults
+  // sign in / register + sign the waiver on their OWN phone; the 3s poll
+  // merges finished guests straight into the roster. The hook stays mounted
+  // while local overlays (form/lookup/waiver) are open — only leaving the
+  // step (or KioskFlow's explicit closes) ends the join session. Phone joins
+  // bypass guardAdd on purpose — the phone page shows its own split-payment
+  // warning before anyone signs in.
+  const mobileJoin = useMobileJoin({
+    enabled: kioskMobileJoinEnabled() && !!kioskCfg,
+    itemId: item.id,
+    kioskId: kioskCfg ? kioskId(kioskCfg) : null,
+    center: kioskCfg?.center ?? null,
+    brand: kioskCfg?.brand ?? null,
+    stepKind: isRace ? "race" : "attraction",
+    onGuests: (guests) => {
+      const { toAdd, promoteGuardians, alreadyPresent } = mergeJoinedGuests(
+        party,
+        guardians,
+        guests,
+      );
+      for (const member of toAdd) dispatch({ type: "addPartyMember", member });
+      // A guardian who joined from their phone steps onto the roster — the
+      // joinGuardian mechanics (same object id keeps wards' refs valid).
+      for (const g of promoteGuardians) {
+        dispatch({ type: "addPartyMember", member: { ...g, waiverValid: true } });
+        dispatch({ type: "removeGuardian", id: g.id });
+      }
+      // Someone already on the roster re-verified by phone — silent success:
+      // waiver now signed + the short Pandora id (never touch bmiPersonId).
+      for (const hit of alreadyPresent) {
+        dispatch({
+          type: "updatePartyMember",
+          id: hit.memberId,
+          patch: {
+            waiverValid: true,
+            ...(hit.pandoraPersonId ? { pandoraPersonId: hit.pandoraPersonId } : {}),
+          },
+        });
+      }
+      if (!isRace) {
+        const newIds = [...toAdd, ...promoteGuardians].map((m) => m.id);
+        if (newIds.length) setIncluded(new Set([...included, ...newIds]));
+      }
+    },
+  });
 
   const resetForm = () => {
     setForm(null);
@@ -1191,27 +1241,43 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
 
       {/* add / sign-in entry points */}
       {form === null && !lookupOpen && (
-        <div className="grid grid-cols-2 gap-[16px]">
-          <button
-            type="button"
-            onClick={() =>
-              guardAdd(() => {
-                resetForm();
-                setForm({ mode: "new" });
-              })
-            }
-            className="k-tap rounded-[28px] border-2 border-dashed border-[#00e2e5]/45 px-[24px] py-[28px] text-[28px] font-bold text-[#00e2e5]"
-          >
-            + Add a new player
-          </button>
-          <button
-            type="button"
-            onClick={() => guardAdd(() => setLookupOpen(true))}
-            className="k-tap rounded-[28px] border-2 border-[#00e2e5]/45 bg-[#00e2e5]/10 px-[24px] py-[28px] text-[28px] font-bold text-white"
-          >
-            Sign in — find my people
-          </button>
-        </div>
+        <>
+          <div className="grid grid-cols-2 gap-[16px]">
+            <button
+              type="button"
+              onClick={() =>
+                guardAdd(() => {
+                  resetForm();
+                  setForm({ mode: "new" });
+                })
+              }
+              className="k-tap rounded-[28px] border-2 border-dashed border-[#00e2e5]/45 px-[24px] py-[28px] text-[28px] font-bold text-[#00e2e5]"
+            >
+              + Add a new player
+            </button>
+            <button
+              type="button"
+              onClick={() => guardAdd(() => setLookupOpen(true))}
+              className="k-tap rounded-[28px] border-2 border-[#00e2e5]/45 bg-[#00e2e5]/10 px-[24px] py-[28px] text-[28px] font-bold text-white"
+            >
+              Sign in — find my people
+            </button>
+          </div>
+
+          {/* Mobile join QR — the panel hides with the entry buttons while a
+              form/lookup overlay is open, but the session + poll keep running
+              (the hook above stays mounted). Renders null while the flag is
+              off (snapshot stays idle). */}
+          <KioskMobileJoinPanel
+            status={mobileJoin.status}
+            code={mobileJoin.code}
+            joinUrl={mobileJoin.joinUrl}
+            qrDataUrl={mobileJoin.qrDataUrl}
+            activeClients={mobileJoin.activeClients}
+            inProgressClients={mobileJoin.inProgressClients}
+            onReopen={mobileJoin.reopen}
+          />
+        </>
       )}
 
       {/* Linked family — OPT-IN suggestions (tap to add), never auto-added */}

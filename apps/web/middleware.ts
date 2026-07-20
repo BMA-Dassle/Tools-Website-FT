@@ -579,6 +579,13 @@ export async function middleware(request: NextRequest) {
     // chrome is host-aware. Without this the /hp rewrite 404s it on HeadPinz.
     pathname === "/reload" ||
     pathname.startsWith("/reload/") ||
+    // Kiosk mobile-join phone page — QR codes on in-center kiosks land here
+    // on EITHER brand domain; brand comes from the join-session record, not
+    // the host. Without this the /hp rewrite turns it into a 404 on HeadPinz.
+    // (/join-our-team is an exact-key legacy redirect — no collision: the
+    // prefix test requires the trailing slash.)
+    pathname === "/join" ||
+    pathname.startsWith("/join/") ||
     // In-center kiosk (defensive — the early-return block above normally
     // handles /kiosk before we get here; this keeps a future reorder from
     // /hp-rewriting the kiosk into a 404).
@@ -640,13 +647,21 @@ export async function middleware(request: NextRequest) {
     if (pathname === "/july4") {
       requestHeaders.set("x-no-chrome", "1");
     }
+    // Kiosk mobile-join phone flow: a focused mid-visit screen with its own
+    // brand header — no site Nav/Footer/mobile bar on either host (x-no-chrome
+    // suppresses all three via the root layout).
+    if (pathname === "/join" || pathname.startsWith("/join/")) {
+      requestHeaders.set("x-no-chrome", "1");
+    }
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // July-4 promo landing on the FastTrax host: suppress site chrome so the
   // full-bleed marketing hero (with its own dual-brand logos) stands alone.
   // (The HeadPinz host is handled in the shared-route block above.)
-  if (pathname === "/july4") {
+  // The kiosk mobile-join phone flow gets the same treatment — it renders its
+  // own brand header from the join-session record.
+  if (pathname === "/july4" || pathname === "/join" || pathname.startsWith("/join/")) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-no-chrome", "1");
     return NextResponse.next({ request: { headers: requestHeaders } });

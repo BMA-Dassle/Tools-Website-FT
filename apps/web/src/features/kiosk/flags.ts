@@ -59,6 +59,17 @@ export function kioskWaiverBmiAttachEnabled(): boolean {
 }
 
 /**
+ * Mobile join — the people-step QR that lets guests sign in / register (and
+ * sign their waiver) on their own phone and pop into the kiosk's player list.
+ * OPT-IN (defaults OFF), the kioskGroupWaiverEnabled precedent: the API routes
+ * and /join/{code} page deploy dark; this flag exposes the QR panel on the
+ * kiosk after the owner live smoke. Set "true" in Vercel + redeploy.
+ */
+export function kioskMobileJoinEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_MOBILE_JOIN_ENABLED === "true";
+}
+
+/**
  * Game Zone cards riding the booking cart (owner 2026-07-18: with items in the
  * cart, cards "should just be in the cart" — one payment at the shared
  * checkout, card lines on the DEPOSIT order, fulfillment on the confirmation

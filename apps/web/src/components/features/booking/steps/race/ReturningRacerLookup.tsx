@@ -36,6 +36,12 @@ interface Props {
   onVerified: (person: PersonData) => void;
   onSwitchToNew: () => void;
   autoCode?: string | null;
+  /** Intro line on the method chooser. Defaults preserve the racing copy —
+   *  the kiosk mobile-join page overrides it (attraction sessions must not
+   *  say "racer"). */
+  introText?: string;
+  /** Label of the "actually I'm new" switch. Same defaulting rationale. */
+  switchToNewLabel?: string;
 }
 
 type Mode = "choose" | "phone" | "email" | "code";
@@ -164,7 +170,13 @@ async function fetchAccountDetails(
   return valid.slice(0, 5);
 }
 
-export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Props) {
+export function ReturningRacerLookup({
+  onVerified,
+  onSwitchToNew,
+  autoCode,
+  introText = "Find your account to unlock your earned speeds",
+  switchToNewLabel = "Actually, I'm a new racer →",
+}: Props) {
   const [mode, setMode] = useState<Mode>("choose");
   const [phase, setPhase] = useState<Phase>("input");
   const [phone, setPhone] = useState("");
@@ -387,9 +399,7 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
   if (mode === "choose") {
     return (
       <div className="mx-auto max-w-sm space-y-3">
-        <p className="text-center text-sm text-white/60">
-          Find your account to unlock your earned speeds
-        </p>
+        <p className="text-center text-sm text-white/60">{introText}</p>
         <button type="button" onClick={() => setMode("phone")} className={btnClass}>
           Look Up by Phone
         </button>
@@ -404,7 +414,7 @@ export function ReturningRacerLookup({ onVerified, onSwitchToNew, autoCode }: Pr
           onClick={onSwitchToNew}
           className="w-full py-2 text-center text-xs text-white/40 transition-colors hover:text-white/60"
         >
-          Actually, I&apos;m a new racer →
+          {switchToNewLabel}
         </button>
       </div>
     );

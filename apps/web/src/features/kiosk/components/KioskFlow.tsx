@@ -69,6 +69,8 @@ import { KioskGameZone } from "./KioskGameZone";
 import { KioskRacePackFlow } from "./KioskRacePackFlow";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { IdleWatcher } from "./IdleWatcher";
+import { useMobileJoinStatus } from "../hooks/useMobileJoin";
+import { closeMobileJoin } from "../join/kiosk-client";
 import { BrandedLoader, BrandedLoaderOverlay } from "./BrandedLoader";
 import { todayYmd } from "../service/first-available";
 import { KIOSK_PHOTOS, KIOSK_LOGOS } from "../assets";
@@ -243,6 +245,11 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   // error (dispenser hold fault) auto-raises the beacon; Clear reveals the
   // underlying hold screen for staff (owner 2026-07-20).
   const [assistReason, setAssistReason] = useState<"help" | "card-error">("help");
+  // Mobile join (people-step QR): live session snapshot — drives the
+  // "phone sign-in in progress → continuing cancels it" confirm sheet and
+  // pauses the idle watchdog while phones are actively signing in.
+  const mobileJoin = useMobileJoinStatus();
+  const [confirmMobileJoin, setConfirmMobileJoin] = useState(false);
   const timerRef = useRef<ReservationTimerHandle>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const seededGotoRef = useRef(false);
@@ -330,6 +337,9 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
    *  reservation modal, CheckoutStep's "Cancel & clear cart" two-step, and
    *  CartView's leave modal (web-only; the kiosk passes onAllActivities). */
   const handleStartOver = useCallback(async () => {
+    // End any live phone sign-in session FIRST — phones show "session ended"
+    // within one poll instead of spinning against a dead code.
+    closeMobileJoin("start-over");
     setResetting(true);
     // abandonBooking retries + verifies the BMI cancel (7/19 incident: silent
     // cancel failures stacked abandoned holds onto live heats). false = BMI's
@@ -987,8 +997,23 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       {confirmSheet}
       <IdleWatcher
         timeoutMs={checkoutActive ? IDLE_CHECKOUT_MS : IDLE_FLOW_MS}
-        paused={bookingHeats || stepBusy || resetting || assistActive || gzBusy}
-        onReset={() => void handleStartOver()}
+        // A guest signing in on their PHONE generates no kiosk touches — pause
+        // the watchdog while phones are actively connected. Bounded by
+        // construction: heartbeats expire server-side in ~30s, so an abandoned
+        // phone unpauses within one heartbeat window; an untouched QR with no
+        // phones still idle-resets normally.
+        paused={
+          bookingHeats ||
+          stepBusy ||
+          resetting ||
+          assistActive ||
+          gzBusy ||
+          (mobileJoin.status === "open" && mobileJoin.activeClients > 0)
+        }
+        onReset={() => {
+          closeMobileJoin("idle");
+          void handleStartOver();
+        }}
       />
       {assistActive && (
         <div className="k-assist-overlay">
@@ -1391,9 +1416,10 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       ? getPackage(packageIdForCategory(activeItem as RaceItem, unraceredPrompt.category))
       : null;
 
-  const handleNext = async () => {
-    // Ref, not state: requestAdvance can fire before the state flush.
-    if (stepBusyRef.current) return;
+  /** The advance body — everything Continue does once any mobile-join
+   *  confirmation is settled. Called directly by the confirm sheet's
+   *  "Continue anyway". */
+  const handleNextInner = async () => {
     setKioskError(null);
 
     if (
@@ -1460,6 +1486,24 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     }
 
     advanceToNextStep();
+  };
+
+  const handleNext = async () => {
+    // Ref, not state: requestAdvance can fire before the state flush.
+    if (stepBusyRef.current) return;
+    // Phone sign-in in progress → confirm before continuing, because
+    // continuing CANCELS it (owner requirement: make that very clear —
+    // never silently kill someone mid-OTP on their own phone). Finished
+    // phones (already merged into the roster) don't count.
+    if (
+      (currentStep.id === "race-party" || currentStep.id === "kiosk-who") &&
+      mobileJoin.status === "open" &&
+      mobileJoin.inProgressClients > 0
+    ) {
+      setConfirmMobileJoin(true);
+      return;
+    }
+    await handleNextInner();
   };
   // Latest-closure handoff for requestAdvance (see the ref's declaration above
   // the early return) — a plain render-time assignment, deliberately not an
@@ -1633,6 +1677,87 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           </div>
         </div>
       )}
+
+      {/* Phone sign-in in progress — Continue cancels it, so confirm first
+          (owner requirement). If every phone finishes while the sheet is up,
+          it flips to an all-clear with a one-tap Continue (the live count
+          drives the copy). Same z-[80] pattern as the sheets above. */}
+      {confirmMobileJoin &&
+        (mobileJoin.inProgressClients > 0 ? (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
+            <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
+              <div className="k-eyebrow text-[#f0b341]">Phone sign-in in progress</div>
+              <div className="k-display text-[46px] leading-[1.05]">
+                {mobileJoin.inProgressClients === 1
+                  ? "Someone's still signing in on their phone"
+                  : `${mobileJoin.inProgressClients} people are still signing in on their phones`}
+              </div>
+              <p className="text-[26px] leading-snug text-white/60">
+                Continuing now cancels{" "}
+                {mobileJoin.inProgressClients === 1 ? "that sign-in" : "those sign-ins"} —
+                they&rsquo;d need to be added here at the kiosk instead. Anyone who already finished
+                is on your list.
+              </p>
+              <div className="flex flex-col gap-[16px] pt-[4px]">
+                {/* Inline flex per the .kiosk-canvas cascade gotcha (see the
+                    unracered sheet above). */}
+                <button
+                  type="button"
+                  onClick={() => setConfirmMobileJoin(false)}
+                  className="k-btn-primary k-tap"
+                  style={{ flex: "0 0 auto" }}
+                >
+                  Wait for them to finish
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmMobileJoin(false);
+                    closeMobileJoin("continued");
+                    void handleNextInner();
+                  }}
+                  className="k-btn-ghost k-tap"
+                  style={{ flex: "0 0 auto" }}
+                >
+                  Continue anyway — cancel phone sign-in
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
+            <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
+              <div className="k-eyebrow text-[#46d68c]">All set</div>
+              <div className="k-display text-[46px] leading-[1.05]">
+                They finished — everyone&rsquo;s on your list
+              </div>
+              <p className="text-[26px] leading-snug text-white/60">
+                The phone sign-in wrapped up while you waited. You&rsquo;re good to continue.
+              </p>
+              <div className="flex flex-col gap-[16px] pt-[4px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmMobileJoin(false);
+                    void handleNextInner();
+                  }}
+                  className="k-btn-primary k-tap"
+                  style={{ flex: "0 0 auto" }}
+                >
+                  Continue
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmMobileJoin(false)}
+                  className="k-btn-ghost k-tap"
+                  style={{ flex: "0 0 auto" }}
+                >
+                  Stay on this step
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
 
       {/* Combo schedule confirm books BOTH races + holds the VIP lane — a real
           ~minute of vendor calls. Cover the heat grid with a clear branded
