@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 
+vi.mock("@/lib/redis", () => ({
+  default: { set: vi.fn(async () => "OK"), mget: vi.fn(async () => []) },
+}));
+
 vi.mock("../data/transactions-log", () => ({
   claimQueuedJobs: vi.fn(async () => [
     { txnId: "t-1", accountNumber: "1038010", tokens: 500, bonusTokens: 100 },

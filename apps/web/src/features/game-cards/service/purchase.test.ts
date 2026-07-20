@@ -3,6 +3,10 @@ import type { PurchaseInput } from "../schemas";
 
 vi.stubEnv("INTERCARD_MAC", "TESTMAC");
 
+vi.mock("@/lib/redis", () => ({
+  default: { set: vi.fn(async () => "OK"), mget: vi.fn(async () => []) },
+}));
+
 const order: string[] = [];
 
 vi.mock("../data/intercard", () => {

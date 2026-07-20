@@ -370,6 +370,7 @@ export async function purchase(
 
   return {
     ok: true,
+    groupId,
     charged: true,
     results,
     anyPending: results.some((r) => r.creditPending),
@@ -405,6 +406,7 @@ async function loadCardsInline(rows: CartRow[], locationCode: number): Promise<C
       row.txnId,
       loaded ? "loaded" : "pending",
       loaded ? undefined : "load not confirmed",
+      loaded ? "soap" : undefined,
     );
 
     let balance;
@@ -419,6 +421,7 @@ async function loadCardsInline(rows: CartRow[], locationCode: number): Promise<C
       }
     }
     results.push({
+      txnId: row.txnId,
       accountNumber: row.accountNumber,
       tokens: row.pkg.tokens,
       bonusTokens: row.pkg.bonusTokens,
@@ -457,6 +460,7 @@ async function awaitQueueOutcome(rows: CartRow[], groupId: string): Promise<Card
     await sleep(Math.min(QUEUE_POLL_MS, Math.max(50, deadline - Date.now())));
   }
   return rows.map((row) => ({
+    txnId: row.txnId,
     accountNumber: row.accountNumber,
     tokens: row.pkg.tokens,
     bonusTokens: row.pkg.bonusTokens,

@@ -66,6 +66,7 @@ function row(overrides: Partial<TxnRow>): TxnRow {
     ackedAt: null,
     eisCode: null,
     eisDescription: null,
+    loadedVia: null,
     ...overrides,
   };
 }

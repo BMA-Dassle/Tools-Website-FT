@@ -11,7 +11,7 @@
  * round-trip). Full-bleed Game Zone background.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import PaymentForm from "@/components/square/PaymentForm";
 import Button from "~/components/ui/Button";
 import Card from "~/components/ui/Card";
@@ -22,7 +22,8 @@ import Modal from "~/components/ui/Modal";
 import { CENTER_LIST, type CenterConfig } from "~/config/intercard-centers";
 import { TOKEN_PACKAGES, type TokenPackage } from "~/features/game-cards";
 import { useCardBalance, usePurchase } from "~/features/game-cards";
-import type { CardBalance, CardTxn, PurchaseResult } from "~/features/game-cards";
+import type { CardBalance, CardTxn, PurchaseResult, VerifyResult } from "~/features/game-cards";
+import { apiPost } from "~/features/game-cards/api";
 import { normalizeCard } from "~/features/game-cards/normalize";
 import { useGameCardAccount } from "~/features/game-cards/account-hooks";
 import AccountPanel from "./AccountPanel";
@@ -143,6 +144,97 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
   const verify = useCardBalance(lookupAccount, center?.code, phase === "lookup" && !!lookupAccount);
   const purchase = usePurchase();
 
+  // Per-center bridge liveness — drives the "instant loading" wording (and
+  // doubles as the staff status readout). Refreshed on mount and every 30s.
+  const [bridgeUp, setBridgeUp] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const data = await apiPost<{ centers: Record<string, boolean> }>(
+          "/api/game-cards/bridge-status",
+          {},
+        );
+        if (!cancelled) setBridgeUp(data.centers ?? {});
+      } catch {
+        /* leave whatever we had */
+      }
+    };
+    void load();
+    const id = setInterval(load, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+  const bridgeAlive = center ? !!bridgeUp[String(center.code)] : false;
+
+  // Success screen: keep polling until every card's credit actually lands
+  // (bridge loads confirm in seconds; cron-recovered ones within minutes),
+  // then pull a fresh balance for each landed card. Guests just see the row
+  // flip from "Adding tokens…" to "+N tokens" — no pathway jargon.
+  const [pollExpired, setPollExpired] = useState(false);
+  const landedRef = useRef<Set<string>>(new Set());
+  const pollGroupId = result?.anyPending && !pollExpired ? result.groupId : null;
+  useEffect(() => {
+    if (!pollGroupId) return;
+    landedRef.current = new Set();
+    let cancelled = false;
+    const startedAt = Date.now();
+    const id = setInterval(async () => {
+      if (Date.now() - startedAt > 10 * 60_000) {
+        clearInterval(id);
+        setPollExpired(true);
+        return;
+      }
+      try {
+        const data = await apiPost<{
+          rows: { txnId: string; accountNumber: string; loaded: boolean }[];
+        }>("/api/game-cards/load-status", { groupId: pollGroupId });
+        if (cancelled) return;
+        const fresh = data.rows.filter((r) => r.loaded && !landedRef.current.has(r.txnId));
+        if (fresh.length === 0) return;
+        for (const f of fresh) landedRef.current.add(f.txnId);
+        // Best-effort balance re-read per landed card (may lag the credit).
+        const balances = new Map<string, VerifyResult>();
+        for (const f of fresh) {
+          try {
+            balances.set(
+              f.txnId,
+              await apiPost<VerifyResult>("/api/game-cards/verify", {
+                accountNumber: f.accountNumber,
+              }),
+            );
+          } catch {
+            /* balance is garnish — the load is what matters */
+          }
+        }
+        if (cancelled) return;
+        setResult((prev) => {
+          if (!prev) return prev;
+          const results = prev.results.map((r) => {
+            if (r.loaded || !landedRef.current.has(r.txnId)) return r;
+            const v = balances.get(r.txnId);
+            return {
+              ...r,
+              loaded: true,
+              creditPending: false,
+              balance: v?.balance ?? r.balance,
+              transactions: v?.transactions ?? r.transactions,
+            };
+          });
+          return { ...prev, results, anyPending: results.some((x) => x.creditPending) };
+        });
+      } catch {
+        /* transient — next tick retries */
+      }
+    }, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [pollGroupId]);
+
   // Reload one or more saved game cards from the account panel: seed a queue,
   // confirm the location, then assign a package to each into the cart. The
   // saved cards' home center pre-selects in the picker, but the guest ALWAYS
@@ -171,15 +263,23 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
           <h1 className="text-xl font-semibold text-white">
             {result.anyPending ? "Payment received" : "Tokens added!"}
           </h1>
+          {result.anyPending && !pollExpired && (
+            <p className="text-sm text-white/60">
+              Adding tokens to your card{bridgeAlive ? " — usually just a few seconds" : ""}. This
+              screen updates automatically.
+            </p>
+          )}
           <div className="space-y-3">
             {result.results.map((r) => (
-              <div key={r.accountNumber} className="space-y-2 rounded-lg bg-white/[0.04] px-3 py-3">
+              <div key={r.txnId} className="space-y-2 rounded-lg bg-white/[0.04] px-3 py-3">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-white/70">Card {r.accountNumber}</span>
                   <span className={r.loaded ? "text-[#00E2E5]" : "text-amber-300"}>
                     {r.loaded
                       ? `+${r.tokens}${r.bonusTokens ? ` +${r.bonusTokens} bonus` : ""} tokens`
-                      : "Credit pending"}
+                      : pollExpired
+                        ? "Credit pending"
+                        : "Adding tokens…"}
                   </span>
                 </div>
                 {r.balance && (
@@ -318,7 +418,15 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
                 setPhase("package");
               }}
             >
-              {c.label}
+              <span className="inline-flex items-center gap-2">
+                {c.label}
+                {bridgeUp[String(c.code)] && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#00E2E5]/15 px-2 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-[#00E2E5]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#00E2E5]" />
+                    Instant loading
+                  </span>
+                )}
+              </span>
             </Button>
           ))}
         </div>

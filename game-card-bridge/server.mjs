@@ -114,6 +114,11 @@ const server = http.createServer((req, res) => {
           bonusTokens: body.bonusTokens,
           employeeId: EMPLOYEE_ID,
         });
+        console.log(
+          `[kiosk-credit] card=${String(body.accountNumber || "").replace(/[^0-9]/g, "")} ` +
+            `${Number(body.tokens) || 0}+${Number(body.bonusTokens) || 0}` +
+            ` → ${r.ok ? "ok" : `fail(${r.code ?? "?"})`}`,
+        );
         return send(res, r.ok ? 200 : 502, {
           ok: r.ok,
           code: r.code ?? "?",

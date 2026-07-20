@@ -22,7 +22,7 @@
 import { useEffect, useRef, useState } from "react";
 import PaymentForm from "@/components/square/PaymentForm";
 import { KioskTerminalCheckoutGate } from "./KioskTerminalCheckoutGate";
-import { creditTokensViaBridge } from "../service/game-card-bridge";
+import { bridgeHealth, creditTokensViaBridge } from "../service/game-card-bridge";
 import { kioskTerminalEnabled, kioskGzCartEnabled } from "~/features/kiosk/flags";
 import {
   TOKEN_PACKAGES,
@@ -182,6 +182,24 @@ function pkgLabel(packageId: string): string {
   return `${p.tokens} tokens${p.bonusTokens ? ` +${p.bonusTokens} free` : ""} · $${(p.priceCents / 100).toFixed(0)}`;
 }
 
+/** Staff-readable card-system status: local bridge (instant) vs cloud (slower).
+ *  Renders nothing until the first health check answers. */
+function BridgeChip({ up }: { up: boolean | null }) {
+  if (up === null) return null;
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${
+        up
+          ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
+          : "border-amber-400/30 bg-amber-400/10 text-amber-300"
+      }`}
+    >
+      <span className={`h-2 w-2 rounded-full ${up ? "bg-emerald-300" : "bg-amber-300"}`} />
+      {up ? "Local card system" : "Cloud card system"}
+    </span>
+  );
+}
+
 export function KioskGameZone({
   center,
   brand,
@@ -217,6 +235,23 @@ export function KioskGameZone({
   // check there, with new-card sales greyed out (owner 2026-07-20; the first
   // MSR release wrongly jumped straight to reload, hiding balance check).
   const [mode, setMode] = useState<Mode>("choose");
+
+  // Local bridge status chip (staff-facing, guest-benign): green = loads hit
+  // the local card system instantly; amber = cloud path (slower to the floor).
+  const [bridgeUp, setBridgeUp] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const check = async () => {
+      const up = await bridgeHealth();
+      if (!cancelled) setBridgeUp(up);
+    };
+    void check();
+    const id = setInterval(check, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
   const [cards, setCards] = useState<CartCard[]>([
     { accountNumber: "", packageId: TOKEN_PACKAGES[1].id, status: "unverified" },
   ]);
@@ -1395,7 +1430,10 @@ export function KioskGameZone({
     return (
       <div className="mx-auto max-w-2xl px-2 py-6 kiosk-zoom">
         <div className="mb-5 flex items-center justify-between">
-          <h1 className="font-heading text-4xl font-extrabold italic">New cards</h1>
+          <span className="flex items-center gap-4">
+            <h1 className="font-heading text-4xl font-extrabold italic">New cards</h1>
+            <BridgeChip up={bridgeUp} />
+          </span>
           <button
             type="button"
             onClick={() => setMode("choose")}
@@ -1637,7 +1675,10 @@ export function KioskGameZone({
         </div>
       )}
       <div className="mb-5 flex items-center justify-between">
-        <h1 className="font-heading text-4xl font-extrabold italic">Reload game cards</h1>
+        <span className="flex items-center gap-4">
+          <h1 className="font-heading text-4xl font-extrabold italic">Reload game cards</h1>
+          <BridgeChip up={bridgeUp} />
+        </span>
         <button
           type="button"
           onClick={() => setMode("choose")}

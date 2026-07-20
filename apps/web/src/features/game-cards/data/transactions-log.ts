@@ -79,6 +79,7 @@ export interface TxnRow {
   ackedAt: string | null;
   eisCode: string | null;
   eisDescription: string | null;
+  loadedVia: string | null;
 }
 
 /** One claimed credit job, as handed to the on-prem bridge. */
@@ -129,6 +130,9 @@ async function ensureSchema(): Promise<void> {
   await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS acked_at TIMESTAMPTZ`;
   await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS eis_code TEXT`;
   await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS eis_description TEXT`;
+  // Which door delivered the credit: 'bridge' (web queue, on-prem EIS),
+  // 'kiosk_bridge' (kiosk fast path), 'soap' (cloud), 'verify' (history match).
+  await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS loaded_via TEXT`;
   await q`CREATE INDEX IF NOT EXISTS ict_acct ON intercard_transactions (account_number)`;
   await q`CREATE INDEX IF NOT EXISTS ict_group ON intercard_transactions (group_id)`;
   // Partial index the reconcile cron scans: charged-but-not-loaded rows.
@@ -275,7 +279,7 @@ export async function ackQueuedJob(p: {
       rows = await q`
         UPDATE intercard_transactions
         SET load_state = 'loaded', state = 'completed', completed_at = NOW(), error = NULL,
-            queue_state = 'done', acked_at = NOW(),
+            queue_state = 'done', acked_at = NOW(), loaded_via = 'bridge',
             eis_code = ${code}, eis_description = ${desc}
         WHERE txn_id = ${p.txnId} AND claimed_by = ${p.workerId}
           AND queue_state IN ('claimed', 'verify')
@@ -308,22 +312,36 @@ export async function ackQueuedJob(p: {
   }
 }
 
-/** One-statement view of a purchase group's progress (purchase wait-loop poll). */
-export async function getGroupQueueStates(
-  groupId: string,
-): Promise<{ txnId: string; loadState: LoadState; queueState: QueueState | null }[]> {
+export interface GroupLoadStatus {
+  txnId: string;
+  accountNumber: string;
+  loadState: LoadState;
+  queueState: QueueState | null;
+  loadedVia: LoadedVia | null;
+  tokens: number;
+  bonusTokens: number;
+}
+
+/** One-statement view of a purchase group's progress — feeds the purchase
+ *  wait loop AND the public load-status poll the success screen uses. */
+export async function getGroupQueueStates(groupId: string): Promise<GroupLoadStatus[]> {
   if (!isDbConfigured()) return [];
   try {
     await ensureSchema();
     const q = sql();
     const rows = await q`
-      SELECT txn_id, load_state, queue_state FROM intercard_transactions
+      SELECT txn_id, account_number, load_state, queue_state, loaded_via, tokens, bonus_tokens
+      FROM intercard_transactions
       WHERE group_id = ${groupId}
     `;
     return rows.map((r) => ({
       txnId: r.txn_id as string,
+      accountNumber: r.account_number as string,
       loadState: r.load_state as LoadState,
       queueState: (r.queue_state ?? null) as QueueState | null,
+      loadedVia: (r.loaded_via ?? null) as LoadedVia | null,
+      tokens: r.tokens as number,
+      bonusTokens: r.bonus_tokens as number,
     }));
   } catch {
     return [];
@@ -405,7 +423,7 @@ export async function markVerifiedLoaded(txnId: string): Promise<boolean> {
     const rows = await q`
       UPDATE intercard_transactions
       SET load_state = 'loaded', state = 'completed', completed_at = NOW(), error = NULL,
-          queue_state = 'done'
+          queue_state = 'done', loaded_via = 'verify'
       WHERE txn_id = ${txnId} AND queue_state = 'verify' AND load_state = 'pending'
       RETURNING txn_id
     `;
@@ -451,23 +469,40 @@ export async function markChargeFailed(txnId: string, error: string): Promise<vo
   });
 }
 
-/** Flip load state after the Intercard call (loaded → completed). */
+export type LoadedVia = "bridge" | "kiosk_bridge" | "soap" | "verify";
+
+/** Flip load state after the Intercard call (loaded → completed). `via` stamps
+ *  which door delivered a confirmed load (diagnostics; never guest-facing). */
 export async function markLoadState(
   txnId: string,
   loadState: LoadState,
   error?: string,
+  via?: LoadedVia,
 ): Promise<void> {
   await safeUpdate(async (q) => {
     const state = loadState === "loaded" ? "completed" : "charged";
     const completed = loadState === "loaded";
-    await q`
-      UPDATE intercard_transactions
-      SET load_state = ${loadState},
-          state = ${state},
-          error = ${error ?? null},
-          completed_at = ${completed ? new Date().toISOString() : null}
-      WHERE txn_id = ${txnId}
-    `;
+    const loadedVia = loadState === "loaded" ? (via ?? null) : null;
+    if (loadedVia) {
+      await q`
+        UPDATE intercard_transactions
+        SET load_state = ${loadState},
+            state = ${state},
+            error = ${error ?? null},
+            completed_at = ${completed ? new Date().toISOString() : null},
+            loaded_via = ${loadedVia}
+        WHERE txn_id = ${txnId}
+      `;
+    } else {
+      await q`
+        UPDATE intercard_transactions
+        SET load_state = ${loadState},
+            state = ${state},
+            error = ${error ?? null},
+            completed_at = ${completed ? new Date().toISOString() : null}
+        WHERE txn_id = ${txnId}
+      `;
+    }
   });
 }
 
@@ -578,6 +613,7 @@ function rowToTxn(r: any): TxnRow {
     ackedAt: r.acked_at ?? null,
     eisCode: r.eis_code ?? null,
     eisDescription: r.eis_description ?? null,
+    loadedVia: r.loaded_via ?? null,
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

@@ -1865,3 +1865,21 @@ runs inside `npm run build`. **Rule: for any JSX/UI change, run `npm run build` 
 (it runs tsc + the a11y-gate) before pushing — never just `tsc`.** Common jsx-a11y trips on
 this repo: `autoFocus`, click handlers on non-button elements without role/label, controls
 without an accessible label. See `apps/web/lib/a11y.ts` for the helper props.
+
+## Multi-writer checkout: stale files + wrong-cwd pathspec = phantom equality (2026-07-20)
+
+Two traps that nearly deleted sibling work (dispenser-fault beacon, MSR chooser) from
+`KioskGameZone.tsx` while pushing the game-card bridge-status chip:
+
+- **`git diff origin/main -- <repo-relative-path>` run from `apps/web/` matches NOTHING and
+  prints nothing** — indistinguishable from "file is identical". Always run pathspec'd
+  diffs from the repo root (or use paths relative to the cwd), and treat "no output" as
+  UNVERIFIED until the pathspec is proven to match (`git log -1 -- <path>`).
+- **In this shared checkout a working-tree file can be OLDER than origin/main** (siblings
+  push via worktrees; the checkout lags). Editing a hot multi-writer file in place and
+  cherry-picking onto origin can silently revert their pushed features — the 3-way merge
+  saw 227 deletions that were just staleness. **Rule: before editing any kiosk/multi-writer
+  file, `git show origin/main:<path>` → overwrite the working file → re-apply your edit on
+  that fresh base → verify `git diff origin/main -- <path>` (from root) shows ONLY your
+  hunks.** Also expect local `tsc` to fail on OTHER stale files (e.g. card-reader) — verify
+  the file-level diff instead, and lint the file directly.

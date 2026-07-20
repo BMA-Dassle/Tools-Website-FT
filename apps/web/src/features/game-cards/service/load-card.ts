@@ -110,6 +110,7 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
     input.txnId,
     loaded ? "loaded" : "pending",
     loaded ? undefined : "load not confirmed",
+    loaded ? (input.preLoaded ? "kiosk_bridge" : "soap") : undefined,
   );
 
   let balance: CardBalance | undefined;

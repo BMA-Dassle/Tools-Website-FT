@@ -52,6 +52,8 @@ export type PublicPackage = Pick<
 
 /** Per-card outcome within a (possibly multi-card) reload. */
 export interface CardLoadResult {
+  /** Ledger row id — the success screen polls load-status with these. */
+  txnId: string;
   accountNumber: string;
   /** Tokens/bonus credited on this load. */
   tokens: number;
@@ -68,6 +70,8 @@ export interface CardLoadResult {
 /** Outcome returned to the client after a purchase attempt (one charge, N cards). */
 export interface PurchaseResult {
   ok: true;
+  /** Ledger group id shared by every card in this charge (for load-status polls). */
+  groupId: string;
   /** Square charge settled (for the whole cart). */
   charged: boolean;
   /** Per-card load results. */

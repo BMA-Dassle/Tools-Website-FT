@@ -55,6 +55,7 @@ describe("ackQueuedJob", () => {
     expect(q).toContain("load_state = 'loaded'");
     expect(q).toContain("state = 'completed'");
     expect(q).toContain("queue_state = 'done'");
+    expect(q).toContain("loaded_via = 'bridge'");
     expect(q).toContain("IN ('claimed', 'verify')");
     expect(q).toContain("claimed_by =");
     expect(res.applied).toBe(true);
@@ -115,6 +116,7 @@ describe("enqueue + replay-set exclusion", () => {
     expect(await markVerifiedLoaded("t-1")).toBe(true);
     expect(lastQuery()).toContain("queue_state = 'verify' AND load_state = 'pending'");
     expect(lastQuery()).toContain("queue_state = 'done'");
+    expect(lastQuery()).toContain("loaded_via = 'verify'");
     expect(await markVerifyManual("t-1", "why")).toBe(true);
     expect(lastQuery()).toContain("load_state = 'load_failed'");
     expect(lastQuery()).toContain("queue_state = 'manual'");

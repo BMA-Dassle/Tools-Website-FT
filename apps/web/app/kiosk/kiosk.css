@@ -468,9 +468,17 @@
 }
 .kiosk-canvas .k-util-help {
   flex: 1;
+  /* Never tower into a one-word-per-line column when the bar is crowded:
+     keep a readable floor, clamp to two lines, ellipsize the rest. */
+  min-width: 200px;
   text-align: center;
   font-size: 22px;
+  line-height: 1.25;
   color: var(--k-dim);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 /* Guest assistance (owner 2026-07-18): the whole screen flashes red as a
    beacon staff can see across the room; the kiosk holds exactly where it is

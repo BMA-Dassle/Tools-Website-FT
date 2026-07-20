@@ -112,7 +112,7 @@ export async function reconcilePendingLoads(dryRun = false): Promise<ReconcileSu
         tpiTransactionID: row.tpiTransactionId,
       });
       if (code === 0) {
-        await markLoadState(row.txnId, "loaded");
+        await markLoadState(row.txnId, "loaded", undefined, "soap");
         summary.loaded++;
         continue;
       }

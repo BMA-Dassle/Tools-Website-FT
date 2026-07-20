@@ -14,6 +14,23 @@ const BRIDGE_URL =
   process.env.NEXT_PUBLIC_GAME_CARD_BRIDGE_URL?.replace(/\/$/, "") || "http://127.0.0.1:4599";
 
 /**
+ * Local bridge liveness for the GZ status chip: true = the bridge answers on
+ * this PC (loads go through the LOCAL card system, instant), false =
+ * unreachable (loads ride the cloud path and take longer to hit the floor).
+ * Never throws.
+ */
+export async function bridgeHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${BRIDGE_URL}/health`, { signal: AbortSignal.timeout(2_000) });
+    if (!res.ok) return false;
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
+    return data?.ok === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Credit tokens onto a card via the on-prem bridge. Returns true ONLY on a
  * confirmed load (bridge → EIS ResponseCode 0). Any failure/unreachable returns
  * false so the caller does the cloud-SOAP fallback — never throws.

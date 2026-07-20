@@ -152,6 +152,13 @@ export const BridgeAckSchema = z.object({
 });
 export type BridgeAckInput = z.infer<typeof BridgeAckSchema>;
 
+/** Success-screen poll: has each card in this purchase group loaded yet?
+ *  The groupId is a server-minted UUID (capability token — unguessable). */
+export const LoadStatusSchema = z.object({
+  groupId: z.string().uuid(),
+});
+export type LoadStatusInput = z.infer<typeof LoadStatusSchema>;
+
 /** Attach + load tokens onto ONE just-dispensed new card (post-charge). */
 export const LoadCardSchema = z.object({
   groupId: z.string().uuid(),
