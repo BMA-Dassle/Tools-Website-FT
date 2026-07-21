@@ -359,6 +359,29 @@ export async function POST(req: NextRequest) {
       console.error("[booking-confirmation] sales-log write failed:", err);
     }
 
+    // ── Express Lane → BMI "Confirmation Kiosk" state (owner 2026-07-21) ──
+    // Express-lane web bookings skip Guest Services, so staff work them from
+    // the SAME BMI state the kiosk flow lands in (per-location custom ids —
+    // FM 55397028 / Naples 8489113). Fires once per bill: this sits behind the
+    // notif dedup above. Kiosk bookings are excluded — kiosk-post-reserve
+    // already stamps the state on that rail. Best-effort: a vendor hiccup
+    // never blocks the confirmation send.
+    if (isExpressLane && !kioskMode && billId) {
+      try {
+        const { setProjectState, officeProjectIdFromBillId, KIOSK_CONFIRMATION_STATE_IDS } =
+          await import("@/lib/bmi-office-actions");
+        const centerCode = location === "naples" ? "naples" : "fort-myers";
+        await setProjectState({
+          centerCode,
+          projectId: officeProjectIdFromBillId(String(billId)),
+          stateId: KIOSK_CONFIRMATION_STATE_IDS[centerCode],
+          label: "Kiosk confirmation (express lane)",
+        });
+      } catch (err) {
+        console.error("[booking-confirmation] express-lane kiosk state failed (non-fatal):", err);
+      }
+    }
+
     const results: { email: boolean; sms: boolean | null } = { email: false, sms: null };
 
     // ── KIOSK lightweight confirmation (owner 2026-07-19) ──────────────

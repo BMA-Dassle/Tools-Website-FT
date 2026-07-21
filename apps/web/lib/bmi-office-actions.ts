@@ -165,6 +165,27 @@ const PANDORA_LOCATION_IDS: Record<string, string> = {
 
 const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net";
 
+/** BMI "Confirmation Kiosk" custom state ids — PER LOCATION (owner 2026-07-21).
+ *  Custom state ids are client-key-scoped entities, so the Fort Myers id means
+ *  nothing at Naples: writing 55397028 there silently landed nowhere, which is
+ *  why Naples kiosk bookings never showed in the kiosk state. Set by the kiosk
+ *  post-reserve rail AND by express-lane web bookings (both are "skip Guest
+ *  Services" paths staff work from this state). */
+export const KIOSK_CONFIRMATION_STATE_IDS: Record<string, string> = {
+  "fort-myers": "55397028",
+  fasttrax: "55397028",
+  naples: "8489113",
+};
+
+/** BMI Office project id = bill id + 1. Both are 17-digit strings beyond
+ *  Number.MAX_SAFE_INTEGER — the increment runs on the last 10 digits only
+ *  (safe as a Number) and the prefix stays raw text. Same computation
+ *  unified-reserve does inline; never Number()/JSON-round-trip the whole id. */
+export function officeProjectIdFromBillId(billId: string): string {
+  const tail = (Number(billId.slice(-10)) + 1).toString();
+  return billId.slice(0, -tail.length) + tail;
+}
+
 // ── Update project state (generic) ──────────────────────────────────
 
 export async function setProjectState(params: {

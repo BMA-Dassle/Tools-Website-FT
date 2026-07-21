@@ -34,7 +34,11 @@
  */
 import { getRaceProductById } from "./race-products";
 import { buildReservationMemo } from "./reservation-memo";
-import { appendProjectPrivateNote, setProjectState } from "@/lib/bmi-office-actions";
+import {
+  appendProjectPrivateNote,
+  setProjectState,
+  KIOSK_CONFIRMATION_STATE_IDS,
+} from "@/lib/bmi-office-actions";
 import { kioskPovCodesEnabled } from "~/features/kiosk/flags";
 import type { BookingSession, RaceItem } from "../state/types";
 import type { ContactInfo } from "../types";
@@ -345,21 +349,25 @@ export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<v
     console.error("[kiosk-post] booking memo append failed (non-fatal):", err);
   }
 
-  // ── 4. BMI Office confirmation state → 55397028 ────────────────────
-  // setProjectState tries Pandora first, falls back to the Office API (which is
-  // the owner-intended landing spot if Pandora rejects the custom state id).
+  // ── 4. BMI Office confirmation state → "Confirmation Kiosk" ────────
+  // State ids are PER LOCATION (owner 2026-07-21: FM 55397028, Naples 8489113 —
+  // the FM id was hard-coded before, so Naples kiosk bookings never landed in
+  // the kiosk state). setProjectState goes Office-first for custom ids, falls
+  // back to Pandora.
+  const kioskStateId =
+    KIOSK_CONFIRMATION_STATE_IDS[centerCode] ?? KIOSK_CONFIRMATION_STATE_IDS["fort-myers"];
   try {
-    await withRetry("office state 55397028", () =>
+    await withRetry(`office state ${kioskStateId}`, () =>
       setProjectState({
         centerCode,
         projectId: officeProjectId,
-        stateId: "55397028",
+        stateId: kioskStateId,
         label: "Kiosk confirmation",
       }),
     );
-    console.log(`[kiosk-post] office state 55397028 set for project ${officeProjectId}`);
+    console.log(`[kiosk-post] office state ${kioskStateId} set for project ${officeProjectId}`);
   } catch (err) {
-    console.error("[kiosk-post] office state 55397028 failed (non-fatal):", err);
+    console.error(`[kiosk-post] office state ${kioskStateId} failed (non-fatal):`, err);
   }
 
   // ── 2. Pandora race-SESSION assignment ─────────────────────────────

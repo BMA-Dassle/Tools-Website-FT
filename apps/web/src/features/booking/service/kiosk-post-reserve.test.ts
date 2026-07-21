@@ -15,6 +15,11 @@ import { appendProjectPrivateNote } from "@/lib/bmi-office-actions";
 vi.mock("@/lib/bmi-office-actions", () => ({
   appendProjectPrivateNote: vi.fn(async () => true),
   setProjectState: vi.fn(async () => true),
+  KIOSK_CONFIRMATION_STATE_IDS: {
+    "fort-myers": "55397028",
+    fasttrax: "55397028",
+    naples: "8489113",
+  },
 }));
 
 type ScheduleResult = { personId: string; heatStart: string; status: string };
