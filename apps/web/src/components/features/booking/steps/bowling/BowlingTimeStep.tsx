@@ -48,6 +48,8 @@ import {
 import { NextAvailableCard } from "../../bowling/NextAvailableCard";
 import { TimeSlotGrid, type GridSlot } from "../../bowling/TimeSlotGrid";
 import { VipUpgradeModal } from "../../bowling/VipUpgradeModal";
+// Kiosk-only (kiosk.css keyframes drive it — web keeps the pulse skeleton).
+import { BrandedLoader } from "~/features/kiosk/components/BrandedLoader";
 
 // Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
 // seems negative"); FastTrax red stays on racing only. VIP keeps gold.
@@ -353,22 +355,26 @@ const BowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       )}
 
       {slotsQuery.isLoading ? (
-        <div className="space-y-4">
-          <div
-            className={`animate-pulse rounded-2xl bg-white/[0.05] ${kiosk ? "h-[280px]" : "h-36"}`}
-            aria-hidden
-          />
-          <div className="flex flex-wrap gap-2" aria-hidden>
-            {Array.from({ length: 8 }).map((_, i) => (
-              <span
-                key={i}
-                className={`animate-pulse rounded-lg bg-white/[0.05] ${
-                  kiosk ? "h-[64px] w-[150px]" : "h-9 w-20"
-                }`}
-              />
-            ))}
+        kiosk ? (
+          // Kiosk design rule: anything that loads shows the logo loader
+          // (kiosk.css keyframes) — never a bare skeleton.
+          <div className="flex justify-center py-[80px]">
+            <BrandedLoader
+              brand={session.entryBrand}
+              label="Checking lane times"
+              sublabel="Finding every open lane right now"
+            />
           </div>
-        </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="h-36 animate-pulse rounded-2xl bg-white/[0.05]" aria-hidden />
+            <div className="flex flex-wrap gap-2" aria-hidden>
+              {Array.from({ length: 8 }).map((_, i) => (
+                <span key={i} className="h-9 w-20 animate-pulse rounded-lg bg-white/[0.05]" />
+              ))}
+            </div>
+          </div>
+        )
       ) : slotsQuery.isError ? (
         <div className="space-y-3 text-center">
           <p className={`text-white/50 ${kiosk ? "text-[26px]" : "text-sm"}`}>

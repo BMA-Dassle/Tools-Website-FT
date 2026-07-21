@@ -66,6 +66,9 @@ export function TimeSlotGrid(props: TimeSlotGridProps) {
               const isSelected = selectedAt === slot.bookedAt;
               const isReserving = reservingAt === slot.bookedAt;
               if (kiosk) {
+                // Tap = live QAMF hold (1-3s) — the tapped pill must light up
+                // and spin IMMEDIATELY or the tap reads as dead; siblings dim
+                // so the one in flight is unmistakable (owner 2026-07-21).
                 return (
                   <button
                     key={slot.bookedAt}
@@ -73,10 +76,20 @@ export function TimeSlotGrid(props: TimeSlotGridProps) {
                     onClick={() => onPick(slot)}
                     disabled={disabled || !!conflict}
                     title={conflict ?? undefined}
-                    className={`k-chip k-tap ${isSelected ? "sel" : ""} ${
-                      conflict ? "opacity-35 line-through" : ""
+                    className={`k-chip k-tap ${isSelected || isReserving ? "sel" : ""} ${
+                      conflict
+                        ? "opacity-35 line-through"
+                        : disabled && !isReserving
+                          ? "opacity-40"
+                          : ""
                     }`}
                   >
+                    {isReserving && (
+                      <span
+                        className="h-[24px] w-[24px] animate-spin rounded-full border-[3px] border-current border-t-transparent"
+                        aria-hidden
+                      />
+                    )}
                     {slot.label}
                   </button>
                 );
