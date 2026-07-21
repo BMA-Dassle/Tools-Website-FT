@@ -86,6 +86,10 @@ export const KIOSK_GLOW_PERIODS_MS: Record<string, number> = {
   "kiosk-sweep": 7500,
   "kiosk-pulse": 2400,
   "kiosk-racecar": 8000, // one crossing per 8s ad slide (AD_ROTATE_MS)
+  "kiosk-ad-flicker": 7000, // ad-zone neon headline flicker
+  "kiosk-ad-sheen": 4500, // ad-zone banner light sweep
+  "kiosk-ad-blink": 1400, // ad-zone banner beacon dots
+  "kiosk-ad-rumble": 8000, // banner text rattle — locked to kiosk-racecar
 };
 
 /**

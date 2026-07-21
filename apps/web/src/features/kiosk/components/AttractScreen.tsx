@@ -12,7 +12,7 @@
  * the stored device config and persist. A kiosk with no config shows the
  * one-time setup card instead of the attract loop.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { IconSignature, IconUserCheck } from "@tabler/icons-react";
 import {
@@ -189,8 +189,10 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
 
   // Modulo again: adIndex may have been computed against the other center's
   // slide count for one render right after the config resolves.
-  const slideIndex = adIndex % adSlides.length;
-  const ad = adSlides[slideIndex];
+  const ad = adSlides[adIndex % adSlides.length];
+  // Car (and the banner-text rumble it causes) is STAGGERED per kioskNumber so
+  // the bank hands the crossing off screen-to-screen — see the car's comment.
+  const carPhaseMs = (((config.kioskNumber ?? 1) - 1) % 4) * 2000;
   const start = (goto?: string) => {
     // Kiosk funnel top: a guest engaged the attract screen. The entry tag says
     // which chip (or "all" for a plain touch) so conversions trace to it.
@@ -235,7 +237,12 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
         <div className="kiosk-sweep absolute inset-0" />
       </div>
 
-      {/* Ad zone — top 480px, display only (a tap anywhere still starts) */}
+      {/* Ad zone — top 480px, display only (a tap anywhere still starts).
+          v2 "doors" (owner 2026-07-21): centered neon "<X> STARTS HERE"
+          headline + "TOUCH ANYWHERE …" marquee banner riding the car lane.
+          The slide accent drives the tube glow, banner border, beacon dots,
+          and accent text. No pips, no sub-copy — sign + banner make one
+          sentence. */}
       <button
         type="button"
         onClick={() => start()}
@@ -246,14 +253,38 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           className="absolute inset-0 bg-cover bg-center opacity-90 [filter:saturate(0.78)_brightness(0.82)]"
           style={{ backgroundImage: `url(${ad.photo})` }}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#000418]/95 via-[#040e2c]/60 to-[#071440]/50" />
-        {/* FastTrax only: the race car zips along the bottom edge once per
-            slide (behind the title text — rendered before it). Clock-locked
-            like the other glow fx, but STAGGERED per kioskNumber so the bank
-            of kiosks hands the car off screen-to-screen, highest number →
-            lowest (right to left, matching the physical lineup): each kiosk
-            starts its 2s crossing 2s after the next-higher one. 4 crossings
-            fill the 8s cycle, so numbers wrap mod 4 if there are ever >4. */}
+        {/* Darker scrim than v1 — the neon headline needs the extra ground. */}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#000418]/95 via-[#020a1e]/80 to-[#040a24]/70" />
+        <NeonAdTitle title={ad.title} accent={ad.accent} />
+        {/* Marquee banner on the bottom 100px — the strip the car crosses. */}
+        <div
+          className="absolute inset-x-0 bottom-0 flex h-[100px] items-center justify-center gap-[26px] overflow-hidden border-t-[3px] shadow-[0_-12px_44px_rgba(0,0,0,0.45)]"
+          style={{
+            borderColor: ad.accent,
+            backgroundImage: `linear-gradient(90deg, ${withAlpha(ad.accent, 0.16)}, rgba(0,4,24,0.88) 45%, rgba(0,4,24,0.88) 55%, ${withAlpha(ad.accent, 0.16)})`,
+            backgroundColor: "rgba(0,4,24,0.82)",
+          }}
+        >
+          <span className="kiosk-ad-sheen absolute inset-0" aria-hidden="true" />
+          <BannerDot accent={ad.accent} />
+          {/* FastTrax: the text rattles while the car drives over it — same 8s
+              cycle AND the same per-kiosk stagger as the car, so the rumble
+              tracks this kiosk's own crossing, not the bank's. */}
+          <div
+            className={`k-display text-[42px]${config.brand === "fasttrax" ? " kiosk-ad-rumble" : ""}`}
+            data-glow-phase-ms={carPhaseMs}
+          >
+            Touch anywhere <span style={{ color: ad.accent }}>{ad.bannerAction}</span>
+          </div>
+          <BannerDot accent={ad.accent} />
+        </div>
+        {/* FastTrax only: the race car drives ALONG the banner (rendered after
+            it → on top, like it's the road) once per slide. Clock-locked like
+            the other glow fx, but STAGGERED per kioskNumber so the bank of
+            kiosks hands the car off screen-to-screen, highest number → lowest
+            (right to left, matching the physical lineup): each kiosk starts
+            its 2s crossing 2s after the next-higher one. 4 crossings fill the
+            8s cycle, so numbers wrap mod 4 if there are ever >4. */}
         {config.brand === "fasttrax" && (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
@@ -261,25 +292,10 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
             alt=""
             aria-hidden="true"
             draggable={false}
-            data-glow-phase-ms={(((config.kioskNumber ?? 1) - 1) % 4) * 2000}
-            className="kiosk-racecar pointer-events-none absolute bottom-[10px] left-full h-[90px] w-auto max-w-none"
+            data-glow-phase-ms={carPhaseMs}
+            className="kiosk-racecar pointer-events-none absolute bottom-[8px] left-full h-[90px] w-auto max-w-none"
           />
         )}
-        {/* Title/sub + pips sit ABOVE the race car's lane (car: bottom 10px,
-            90px tall → clears ~100px) so the crossing never covers the copy. */}
-        <div className="absolute bottom-[120px] left-[64px]">
-          <div className="k-display text-[64px]">{ad.title}</div>
-          <div className="mt-[8px] text-[28px] text-white/60">{ad.sub}</div>
-        </div>
-        <div className="absolute bottom-[124px] right-[64px] flex gap-[10px]">
-          {/* Index key: slide titles repeat (two "SKIP THE LINE" ads) */}
-          {adSlides.map((s, i) => (
-            <span
-              key={i}
-              className={`h-[10px] w-[56px] rounded-full ${i === slideIndex ? "bg-[#00e2e5]" : "bg-white/20"}`}
-            />
-          ))}
-        </div>
       </button>
 
       {/* Welcome zone */}
@@ -394,6 +410,57 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
       <div className="absolute bottom-0 left-0 right-0 z-20 h-[10px] bg-gradient-to-r from-[#e53935] via-white/60 to-[#00e2e5]" />
     </div>
   );
+}
+
+/** Centered one-line neon headline for the ad zone. Auto-fits: long titles
+ *  (GEL BLASTERS START HERE) shrink from 76px until the line clears ~64px
+ *  side margins — measured, so a future copy tweak can't silently clip.
+ *  `.k-display`'s `text-wrap: balance` re-enables wrapping underneath
+ *  `white-space: nowrap` (shorthand interaction), so nowrap is forced on BOTH
+ *  properties. */
+function NeonAdTitle({ title, accent }: { title: string; accent: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // Layout effect so the size lands before paint — a long headline never
+  // flashes oversized on the slide flip. This component is never SSR'd (the
+  // attract root renders behind the boot loader), so the server-side
+  // useLayoutEffect warning can't fire.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.fontSize = "76px";
+    const w = el.scrollWidth;
+    if (w > 950) el.style.fontSize = `${Math.floor((76 * 950) / w)}px`;
+  }, [title]);
+  return (
+    <div className="kiosk-ad-flicker absolute bottom-[122px] left-1/2 -translate-x-1/2">
+      <div
+        ref={ref}
+        className="k-display whitespace-nowrap text-[76px] text-white [text-wrap:nowrap]"
+        style={{
+          textShadow: `0 0 6px rgba(255,255,255,0.85), 0 0 24px ${accent}, 0 0 64px ${withAlpha(accent, 0.42)}`,
+        }}
+      >
+        {title}
+      </div>
+    </div>
+  );
+}
+
+/** Blinking beacon dot flanking the banner text. */
+function BannerDot({ accent }: { accent: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="kiosk-ad-blink h-[12px] w-[12px] shrink-0 rounded-full"
+      style={{ background: accent, boxShadow: `0 0 16px ${accent}` }}
+    />
+  );
+}
+
+/** #rrggbb → rgba() at the given alpha (slide accents arrive as hex). */
+function withAlpha(hex: string, alpha: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
 }
 
 function QuickChip({

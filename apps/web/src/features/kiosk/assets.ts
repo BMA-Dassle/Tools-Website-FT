@@ -32,80 +32,72 @@ export const KIOSK_PHOTOS = {
   raceCar: `${BLOB}/images/kiosk/ft-race-car.webp`,
 } as const;
 
-/** Attract-screen ad rotation (placeholder offers; owner supplies real copy). */
+/** Attract-screen ad rotation — v2 "doors" (owner 2026-07-21): every slide is
+ *  a centered neon "<X> STARTS HERE" headline over the activity photo, with a
+ *  "TOUCH ANYWHERE …" marquee banner riding the car lane. Replaced the v1
+ *  five-offer rotation (VIP / Mega Track / Race Packs / 2× Skip-the-Line) —
+ *  the welcome zone's VIP + race-pack quick chips still carry those offers. */
 export interface KioskAdSlide {
+  /** Neon headline (k-display renders it uppercase). Always one line — the
+   *  renderer auto-shrinks long titles rather than wrapping. */
   title: string;
-  sub: string;
+  /** Accent-colored tail of the banner line: “Touch anywhere {bannerAction}”. */
+  bannerAction: string;
+  /** Slide accent — neon tube glow, banner border, beacon dots, accent text. */
   accent: string;
   photo: string;
 }
 
-/** Fort Myers complex (FastTrax + HeadPinz share the campus) — racing-forward. */
+/** Fort Myers complex (FastTrax + HeadPinz share the campus). Gel is GREEN
+ *  (k-ok, matches the glowing gear in the photo — owner pick 2026-07-21),
+ *  not the purple k-gel category token. */
 const FORT_MYERS_AD_SLIDES: KioskAdSlide[] = [
   {
-    title: "ULTIMATE VIP EXPERIENCE",
-    sub: "Race · Bowl · Race — from $65 per person",
-    accent: "#e8b14c",
-    photo: KIOSK_PHOTOS.vip,
-  },
-  {
-    title: "MEGA TRACK TUESDAYS",
-    sub: "The big track runs all day",
-    accent: "#e53935",
-    photo: KIOSK_PHOTOS.redTrack,
-  },
-  {
-    title: "RACE PACKS",
-    sub: "Bank five races. Save on every one.",
-    accent: "#00e2e5",
-    photo: KIOSK_PHOTOS.flag,
-  },
-  {
-    title: "SKIP THE LINE",
-    sub: "Racing starts here — book your heat at this kiosk",
+    title: "Racing starts here",
+    bannerAction: "to book",
     accent: "#e53935",
     photo: KIOSK_PHOTOS.race,
   },
   {
-    title: "SKIP THE LINE",
-    sub: "Bowling starts here — book your lane at this kiosk",
+    title: "Bowling starts here",
+    bannerAction: "to book",
     accent: "#00e2e5",
     photo: KIOSK_PHOTOS.bowl,
   },
-];
-
-/** HeadPinz Naples has NO karting (owner 2026-07-20) — bowling + Nexus
- *  attractions only, never racing ads or track photography. */
-const NAPLES_AD_SLIDES: KioskAdSlide[] = [
   {
-    title: "HYPERBOWLING VIP SUITES",
-    sub: "Glowing lanes, private suite seating, lounge service",
-    accent: "#e8b14c",
-    photo: KIOSK_PHOTOS.vipLanes,
-  },
-  {
-    title: "NEXUS GEL BLASTER",
-    sub: "High-tech gel blaster battles in a glowing arena",
-    accent: "#00e2e5",
+    title: "Gel blasters start here",
+    bannerAction: "to book",
+    accent: "#46d68c",
     photo: KIOSK_PHOTOS.gel,
   },
   {
-    title: "NEXUS LASER TAG",
-    sub: "Multi-level laser tag with haptic vests",
-    accent: "#8652FF",
-    photo: KIOSK_PHOTOS.laser,
+    title: "Game Zone starts here",
+    bannerAction: "to get started",
+    accent: "#f0b341",
+    photo: KIOSK_PHOTOS.arcade,
   },
+];
+
+/** HeadPinz Naples has NO karting (owner 2026-07-20) — same doors minus
+ *  racing, never track photography. */
+const NAPLES_AD_SLIDES: KioskAdSlide[] = [
   {
-    title: "KIDS BOWL FREE",
-    sub: "Registered kids bowl free — Monday to Friday",
-    accent: "#FFD700",
-    photo: KIOSK_PHOTOS.kbf,
-  },
-  {
-    title: "SKIP THE LINE",
-    sub: "Bowling starts here — book your lane at this kiosk",
+    title: "Bowling starts here",
+    bannerAction: "to book",
     accent: "#00e2e5",
     photo: KIOSK_PHOTOS.bowl,
+  },
+  {
+    title: "Gel blasters start here",
+    bannerAction: "to book",
+    accent: "#46d68c",
+    photo: KIOSK_PHOTOS.gel,
+  },
+  {
+    title: "Game Zone starts here",
+    bannerAction: "to get started",
+    accent: "#f0b341",
+    photo: KIOSK_PHOTOS.arcade,
   },
 ];
 
