@@ -1246,21 +1246,31 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
             // screen — only when NO Game Zone cards ride the cart, once per
             // session, and only when this kiosk can actually sell + fulfill a
             // new card (cart rail + reader rail + dispenser "full" capability).
-            const upsellEligible =
-              CHECKOUT_UPSELL_PACK != null &&
-              !upsellSeenRef.current &&
-              !session.gameCardPurchase?.cards.length &&
-              kioskGzCartEnabled() &&
-              kioskTerminalEnabled() &&
-              !!config.readerId &&
-              gameZoneCapability(config) === "full";
+            // Every gate is named so a device console shows exactly why the
+            // page didn't appear (owner 7/21: "bought a race, didn't see it" —
+            // a test rig without the reader/dispenser skips it by design).
+            const failedGates = (
+              [
+                ["upsell-pack", CHECKOUT_UPSELL_PACK != null],
+                ["once-per-session", !upsellSeenRef.current],
+                ["no-cards-in-cart", !session.gameCardPurchase?.cards.length],
+                ["gz-cart-flag", kioskGzCartEnabled()],
+                ["terminal-flag", kioskTerminalEnabled()],
+                ["reader-paired", !!config.readerId],
+                ["dispenser-full", gameZoneCapability(config) === "full"],
+              ] as const
+            )
+              .filter(([, ok]) => !ok)
+              .map(([name]) => name);
             setCartActive(false);
-            if (upsellEligible) {
+            if (failedGates.length === 0) {
               upsellSeenRef.current = true;
               clarityEvent("kiosk:upsell:shown");
               setUpsellActive(true);
               return;
             }
+            console.log(`[kiosk] checkout upsell skipped: ${failedGates.join(", ")}`);
+            clarityTag("kiosk_upsell_skip", failedGates.join(",").slice(0, 60));
             clarityEvent("kiosk:checkout:start");
             setCheckoutActive(true);
           }}

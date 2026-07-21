@@ -81,6 +81,9 @@ export function KioskRewardsSection({
   const [verifyStep, setVerifyStep] = useState<"idle" | "sending" | "code">("idle");
   const [verifyCode, setVerifyCode] = useState("");
   const [verifyError, setVerifyError] = useState("");
+  // Collapsed by default (owner 2026-07-21: three tier rows swallowed the
+  // screen) — the header row is the toggle; picking a reward re-collapses.
+  const [expanded, setExpanded] = useState(false);
 
   // Same whole-bill dollar-off filter as the web LoyaltySection.
   async function fetchTiers() {
@@ -263,6 +266,8 @@ export function KioskRewardsSection({
     if (tier) {
       clarityTag("reward_redeemed", String(tier.discountCents));
       clarityEvent("rewards:reward_selected");
+      // Reward locked in — give the screen back to the order.
+      setExpanded(false);
     }
     dispatch({ type: "setLoyalty", loyalty: { ...loyalty, selectedRewardTier: tier } });
   }
@@ -326,9 +331,24 @@ export function KioskRewardsSection({
 
   const affordableTiers = rewardTiers.filter((t) => t.points <= loyalty.balance);
 
+  const selectedTier = loyalty.selectedRewardTier;
+  // Collapsed subtitle: the one thing worth knowing at a glance.
+  const collapsedHint = selectedTier
+    ? `${selectedTier.name} applied — tap to change`
+    : loyalty.verified
+      ? `Tap to spend ${pointsUnit} on this order`
+      : `Tap to verify & spend your ${pointsUnit}`;
+
   return (
-    <div className="k-glass space-y-[24px] p-[32px]" style={{ borderColor: `${GOLD}35` }}>
-      <div className="flex items-center justify-between gap-[20px]">
+    <div className="k-glass p-[32px]" style={{ borderColor: `${GOLD}35` }}>
+      {/* Header doubles as the collapse toggle (owner 2026-07-21: the tier
+          list swallowed the screen — collapsed by default). */}
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        aria-expanded={expanded}
+        className="k-tap flex w-full items-center justify-between gap-[20px] text-left"
+      >
         <div className="min-w-0">
           <p className="k-eyebrow" style={{ color: GOLD }}>
             {rewardsName}
@@ -336,24 +356,50 @@ export function KioskRewardsSection({
           <p className="k-num mt-[6px] text-[40px] font-extrabold text-white">
             {loyalty.balance.toLocaleString()} <span className="text-[28px]">{pointsUnit}</span>
           </p>
-          {earnPreview > 0 && (
-            <p className="text-[23px] text-white/45">
-              You&apos;ll earn ~{earnPreview.toLocaleString()} more {pointsUnit} on today&apos;s
-              order.
+          {expanded ? (
+            earnPreview > 0 && (
+              <p className="text-[23px] text-white/45">
+                {`You'll earn ~${earnPreview.toLocaleString()} more ${pointsUnit} on today's order.`}
+              </p>
+            )
+          ) : (
+            <p
+              className="text-[23px]"
+              style={{ color: selectedTier ? GOLD : "rgba(245,236,238,0.45)" }}
+            >
+              {collapsedHint}
             </p>
           )}
         </div>
-        <span
-          className="shrink-0 rounded-full px-[20px] py-[8px] text-[20px] font-bold uppercase tracking-wider"
-          style={{ backgroundColor: `${GOLD}15`, color: GOLD }}
-        >
-          {loyalty.verified ? "Verified" : "Member"}
+        <span className="flex shrink-0 items-center gap-[16px]">
+          <span
+            className="rounded-full px-[20px] py-[8px] text-[20px] font-bold uppercase tracking-wider"
+            style={{ backgroundColor: `${GOLD}15`, color: GOLD }}
+          >
+            {selectedTier
+              ? `−$${(selectedTier.discountCents / 100).toFixed(2)}`
+              : loyalty.verified
+                ? "Verified"
+                : "Member"}
+          </span>
+          <svg
+            className={`h-[34px] w-[34px] text-white/45 transition-transform ${expanded ? "rotate-180" : ""}`}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
         </span>
-      </div>
+      </button>
 
       {/* Redemption unlock — skipped entirely for OTP-proven phones. */}
-      {!loyalty.verified && (
-        <div className="border-t border-white/10 pt-[24px]">
+      {expanded && !loyalty.verified && (
+        <div className="mt-[24px] border-t border-white/10 pt-[24px]">
           {verifyStep !== "code" ? (
             <div className="flex items-center justify-between gap-[24px]">
               <p className="text-[25px] text-white/55">
@@ -404,8 +450,8 @@ export function KioskRewardsSection({
       )}
 
       {/* Tier redemption — big tap rows, toggle on/off. */}
-      {loyalty.verified && rewardTiers.length > 0 && (
-        <div className="space-y-[14px] border-t border-white/10 pt-[24px]">
+      {expanded && loyalty.verified && rewardTiers.length > 0 && (
+        <div className="mt-[24px] space-y-[14px] border-t border-white/10 pt-[24px]">
           <p className="text-[25px] font-semibold text-white/60">
             Spend {pointsUnit} on this order
           </p>
