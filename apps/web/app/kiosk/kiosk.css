@@ -115,6 +115,31 @@
   animation: k-slot-glow 2.4s ease-in-out infinite;
 }
 
+/* Mobile-join tile (KioskMobileJoinPanel): amber breathing glow while a
+   phone is mid sign-in — the kiosk is visibly waiting on someone even with
+   the QR sheet closed. */
+@keyframes k-join-signing {
+  0%,
+  100% {
+    box-shadow: 0 0 22px rgba(240, 179, 65, 0.22);
+    border-color: rgba(240, 179, 65, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 52px rgba(240, 179, 65, 0.55);
+    border-color: rgba(240, 179, 65, 0.95);
+  }
+}
+.k-join-signing {
+  border-color: rgba(240, 179, 65, 0.55);
+  animation: k-join-signing 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .k-join-signing {
+    animation: none;
+    box-shadow: 0 0 40px rgba(240, 179, 65, 0.4);
+  }
+}
+
 /* Touch scrolling: momentum, hidden scrollbar (bottom fades hint instead). */
 .kiosk-scroll {
   overflow-y: auto;

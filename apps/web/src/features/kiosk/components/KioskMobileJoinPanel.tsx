@@ -1,14 +1,19 @@
 "use client";
 
 /**
- * "Join from your phone" panel on the people step — QR code + the rules of
- * the road (adults 18+, no split payment) + a live "phone sign-in in
- * progress" line. Purely presentational; the session/poll lives in
- * useMobileJoin. Renders nothing while the feature flag is off (the parent
- * gates), and degrades to a muted card with a retry when the session
- * couldn't open (the kiosk's manual add flows are never blocked by this
- * feature).
+ * "Join from your phone" on the people step — a compact tile that expands
+ * into a focused QR sheet on tap (owner 2026-07-20: the always-open panel
+ * read as clutter). While a phone is mid sign-in the tile wears an amber
+ * breathing glow (k-join-signing) + a live count line, so the group sees the
+ * kiosk is waiting on someone even with the sheet closed. The no-split-payment
+ * warning lives on the PHONE flow only (JoinPhoneFlow warns at landing and
+ * again before finishing) — the kiosk no longer repeats it. Purely
+ * presentational; the session/poll lives in useMobileJoin. Renders nothing
+ * while the feature flag is off (the parent gates), and degrades to a muted
+ * card with a retry when the session couldn't open (the kiosk's manual add
+ * flows are never blocked by this feature).
  */
+import { useState } from "react";
 import type { MobileJoinSnapshot } from "../join/kiosk-client";
 
 interface Props extends MobileJoinSnapshot {
@@ -16,101 +21,121 @@ interface Props extends MobileJoinSnapshot {
   onReopen: () => void;
 }
 
-export function KioskMobileJoinPanel({
-  status,
-  code,
-  qrDataUrl,
-  inProgressClients,
-  onReopen,
-}: Props) {
+function AmberPulse() {
+  return (
+    <span className="relative flex h-[14px] w-[14px] shrink-0" aria-hidden="true">
+      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#f0b341] opacity-60" />
+      <span className="relative inline-flex h-[14px] w-[14px] rounded-full bg-[#f0b341]" />
+    </span>
+  );
+}
+
+export function KioskMobileJoinPanel({ status, qrDataUrl, inProgressClients, onReopen }: Props) {
+  const [expanded, setExpanded] = useState(false);
+
   if (status === "idle") return null;
 
   const unavailable = status === "closed" || status === "error";
+  const signing = inProgressClients > 0;
+  const signingLine =
+    inProgressClients === 1
+      ? "1 phone signing in right now"
+      : `${inProgressClients} phones signing in right now`;
+
+  if (unavailable) {
+    return (
+      <div className="k-glass flex flex-wrap items-center justify-between gap-[20px] p-[28px]">
+        <div>
+          <div className="k-eyebrow text-white/40">Or join from your phone</div>
+          <div className="mt-[6px] text-[26px] font-bold text-white/55">
+            Phone sign-in isn&rsquo;t available right now — add players here at the kiosk.
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onReopen}
+          className="k-tap rounded-2xl border-2 border-white/25 px-[28px] py-[16px] text-[24px] font-bold text-white/80"
+        >
+          Get a new code
+        </button>
+      </div>
+    );
+  }
+
+  if (!expanded) {
+    return (
+      <div className="flex">
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className={`k-tap flex items-center gap-[22px] rounded-3xl border-2 px-[26px] py-[20px] text-left ${
+            signing ? "k-join-signing" : "border-white/25"
+          }`}
+        >
+          {qrDataUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={qrDataUrl}
+              alt=""
+              aria-hidden="true"
+              className="h-[96px] w-[96px] shrink-0 rounded-xl bg-white p-[6px]"
+            />
+          ) : (
+            <span className="grid h-[96px] w-[96px] shrink-0 place-items-center rounded-xl border-2 border-dashed border-white/20">
+              <span className="h-[28px] w-[28px] animate-spin rounded-full border-4 border-white/15 border-t-[#00e2e5]" />
+            </span>
+          )}
+          <span className="min-w-0">
+            <span className="block text-[28px] font-bold text-white">Join from your phone</span>
+            {signing ? (
+              <span className="mt-[4px] flex items-center gap-[10px] text-[20px] font-semibold text-[#f5d38a]">
+                <AmberPulse />
+                {signingLine}
+              </span>
+            ) : (
+              <span className="mt-[4px] block text-[20px] text-white/45">
+                Tap to show the QR code
+              </span>
+            )}
+          </span>
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="k-glass p-[28px]">
-      {unavailable ? (
-        <div className="flex flex-wrap items-center justify-between gap-[20px]">
-          <div>
-            <div className="k-eyebrow text-white/40">Or join from your phone</div>
-            <div className="mt-[6px] text-[26px] font-bold text-white/55">
-              Phone sign-in isn&rsquo;t available right now — add players here at the kiosk.
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onReopen}
-            className="k-tap rounded-2xl border-2 border-white/25 px-[28px] py-[16px] text-[24px] font-bold text-white/80"
-          >
-            Get a new code
-          </button>
-        </div>
+    <div className="k-glass flex flex-col items-center gap-[24px] px-[48px] py-[44px] text-center">
+      {qrDataUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={qrDataUrl}
+          alt="QR code — scan to sign in on your phone"
+          className="h-[400px] w-[400px] rounded-2xl bg-white p-[12px]"
+        />
       ) : (
-        <div className="flex items-start gap-[32px]">
-          {/* QR — sized for an arm's-length scan from the podium. */}
-          <div className="shrink-0">
-            {qrDataUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={qrDataUrl}
-                alt="QR code — scan to sign in on your phone"
-                className="h-[300px] w-[300px] rounded-2xl bg-white p-[10px]"
-              />
-            ) : (
-              <div className="grid h-[300px] w-[300px] place-items-center rounded-2xl border-2 border-dashed border-white/20">
-                <span className="h-[40px] w-[40px] animate-spin rounded-full border-4 border-white/15 border-t-[#00e2e5]" />
-              </div>
-            )}
-            {code && (
-              <div className="k-num mt-[10px] text-center text-[20px] tracking-widest text-white/45">
-                {code}
-              </div>
-            )}
-          </div>
-
-          <div className="min-w-0 flex-1 space-y-[16px]">
-            <div>
-              <div className="k-eyebrow text-[#00e2e5]">Or join from your phone</div>
-              <div className="mt-[4px] text-[34px] font-bold text-white">
-                Scan to sign in on your phone
-              </div>
-            </div>
-            <p className="text-[24px] leading-snug text-white/65">
-              Each adult can scan this code to sign in or register — waiver included — on their own
-              phone. They&rsquo;ll appear in the list above automatically.
-            </p>
-            <p className="text-[22px] text-white/45">
-              Phone sign-in is for adults (18+). Kids are added here at the kiosk.
-            </p>
-
-            {/* Split payment — one group, one payment (owner requirement:
-                warned on BOTH the kiosk and the phone). */}
-            <div className="flex items-start gap-[14px] rounded-2xl border-2 border-[#f0b341]/50 bg-[#f0b341]/10 px-[20px] py-[14px]">
-              <span
-                aria-hidden="true"
-                className="mt-[2px] grid h-[28px] w-[28px] shrink-0 place-items-center rounded-full bg-[#f0b341] text-[20px] font-black text-[#2a1c00]"
-              >
-                !
-              </span>
-              <p className="text-[22px] font-semibold leading-snug text-[#f5d38a]">
-                No split payments — the whole group pays together at this kiosk when you check out.
-              </p>
-            </div>
-
-            {inProgressClients > 0 && (
-              <div className="flex items-center gap-[14px] text-[24px] font-bold text-[#00e2e5]">
-                <span className="relative flex h-[16px] w-[16px]">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#00e2e5] opacity-60" />
-                  <span className="relative inline-flex h-[16px] w-[16px] rounded-full bg-[#00e2e5]" />
-                </span>
-                {inProgressClients === 1
-                  ? "1 phone signing in right now — they'll pop into the list above when they finish."
-                  : `${inProgressClients} phones signing in right now — they'll pop into the list above when they finish.`}
-              </div>
-            )}
-          </div>
+        <div className="grid h-[400px] w-[400px] place-items-center rounded-2xl border-2 border-dashed border-white/20">
+          <span className="h-[40px] w-[40px] animate-spin rounded-full border-4 border-white/15 border-t-[#00e2e5]" />
         </div>
       )}
+      <div>
+        <div className="text-[34px] font-bold text-white">Scan with your phone camera</div>
+        <p className="mt-[8px] text-[22px] text-white/45">
+          Adults 18+ &middot; waiver signed on the phone &middot; kids are added here at the kiosk
+        </p>
+      </div>
+      {signing && (
+        <div className="flex items-center gap-[14px] text-[22px] font-bold text-[#f5d38a]">
+          <AmberPulse />
+          {signingLine} — they&rsquo;ll pop into the list above when they finish.
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() => setExpanded(false)}
+        className="k-tap rounded-2xl border-2 border-white/25 px-[44px] py-[14px] text-[24px] font-bold text-white/80"
+      >
+        Done
+      </button>
     </div>
   );
 }
