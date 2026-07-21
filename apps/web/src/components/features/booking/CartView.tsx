@@ -937,7 +937,7 @@ function otherItemTitle(item: SessionItem): string {
 
 /** Epoch ms for sorting cart items chronologically. Items without a
  *  resolved time sort last. */
-function itemSortMs(item: SessionItem): number {
+export function itemSortMs(item: SessionItem): number {
   const FAR = Number.MAX_SAFE_INTEGER;
   switch (item.kind) {
     case "race": {

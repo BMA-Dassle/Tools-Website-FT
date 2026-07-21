@@ -56,6 +56,8 @@ import { getPackage } from "@/lib/packages";
 import { resolvePreselectPatch } from "../service/package-preselect";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
+import { kioskMergedCheckoutEnabled } from "../flags";
+import { KioskCheckoutScreen } from "./KioskCheckoutScreen";
 import { clarityEvent, clarityTag } from "~/lib/clarity";
 import {
   KIOSK_SCHEMA_VERSION,
@@ -464,6 +466,18 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   // POV + appetizer) and skip that step (see skipLicenseForMixedParty in the
   // registry). The license already charges per new racer; POV needs povQuantity;
   // the appetizer needs rookiePack. Gated on the Rookie flow flag.
+  // Game Zone cards never ride an EMPTY cart (owner 2026-07-21: "if you remove
+  // all attractions the cards need removed too") — they pay with the booking
+  // deposit, so there's nothing to charge them against. handleRemoveItem clears
+  // them on its last-item path; this guard covers every OTHER route to an empty
+  // cart (combo removal, unfinished-draft clearing, future paths).
+  useEffect(() => {
+    if (!hydrated) return;
+    if (session.items.length === 0 && session.gameCardPurchase) {
+      dispatch({ type: "setGameCardPurchase", purchase: null });
+    }
+  }, [hydrated, session.items.length, session.gameCardPurchase, dispatch]);
+
   useEffect(() => {
     if (process.env.NEXT_PUBLIC_ROOKIE_PACK_ENABLED !== "1") return;
     const race = session.items.find((i): i is RaceItem => i.kind === "race");
@@ -488,6 +502,13 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       </div>
     );
   }
+
+  // Merged cart+checkout (owner 2026-07-21), OPT-IN via
+  // NEXT_PUBLIC_KIOSK_MERGED_CHECKOUT: the cart surface becomes the ONE
+  // "review your order" screen (order + booking-as + rewards, pinned Review &
+  // Pay) and CheckoutStep skips its contact phase. Flag off = the proven
+  // two-screen path, byte-identical.
+  const mergedCheckout = kioskMergedCheckoutEnabled();
 
   const cartAlreadyHasContact = (activeId: string): boolean => {
     if (!contactIsComplete(session.contact)) return false;
@@ -1048,7 +1069,11 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           z-[80] — as the later sibling it must paint ON TOP of this confirm. */}
       {confirmSheet}
       <IdleWatcher
-        timeoutMs={checkoutActive ? IDLE_CHECKOUT_MS : IDLE_FLOW_MS}
+        // The merged cart+checkout screen is checkout dwell too (rewards
+        // verify, contact edits) — give it the longer leash.
+        timeoutMs={
+          checkoutActive || (cartActive && mergedCheckout) ? IDLE_CHECKOUT_MS : IDLE_FLOW_MS
+        }
         // A guest signing in on their PHONE generates no kiosk touches — pause
         // the watchdog while phones are actively connected. Bounded by
         // construction: heartbeats expire server-side in ~30s, so an abandoned
@@ -1104,7 +1129,16 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
         <CheckoutStep
           session={session}
           dispatch={dispatch}
-          onBack={() => setCheckoutActive(false)}
+          // Merged flow: Back (review/error) returns to the merged review
+          // screen; legacy keeps today's behavior (close checkout, land per
+          // render precedence).
+          onBack={() => {
+            setCheckoutActive(false);
+            if (mergedCheckout) setCartActive(true);
+          }}
+          // Merged flow: contact + rewards were confirmed on the merged
+          // screen — book immediately, land on review.
+          skipContactPhase={mergedCheckout}
           onStartOver={handleStartOver}
           // Stay inside the kiosk shell after payment — the web confirmation
           // URL rides along so the kiosk confirmation can surface its code.
@@ -1135,6 +1169,40 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   // (owner 2026-07-18) — the category chooser carries a "your visit so far" strip
   // to reach the cart.
   if (cartActive) {
+    // Merged cart+checkout (flag-gated): the ONE review-your-order screen —
+    // order items + booking-as + rewards, Review & Pay pinned in the reach
+    // band. Review & Pay hands off to CheckoutStep with the contact phase
+    // skipped (booking starts immediately).
+    if (mergedCheckout) {
+      return chrome(
+        <KioskCheckoutScreen
+          session={session}
+          dispatch={dispatch}
+          brand={config.brand}
+          onAllActivities={() => {
+            setCartActive(false);
+            dispatch({ type: "setActiveItem", id: null });
+          }}
+          onEditItem={(id) => {
+            setCartActive(false);
+            dispatch({ type: "setActiveItem", id });
+          }}
+          onRemoveItem={handleRemoveItem}
+          onRemoveHeat={handleRemoveHeat}
+          onRemoveCombo={session.comboSpecialId ? handleRemoveCombo : undefined}
+          onRemoveGameCards={
+            session.gameCardPurchase
+              ? () => dispatch({ type: "setGameCardPurchase", purchase: null })
+              : undefined
+          }
+          onReviewAndPay={() => {
+            clarityEvent("kiosk:checkout:start");
+            setCartActive(false);
+            setCheckoutActive(true);
+          }}
+        />,
+      );
+    }
     return chrome(
       <div ref={contentRef} className="k-flow-body kiosk-step-content kiosk-zoom">
         <CartView

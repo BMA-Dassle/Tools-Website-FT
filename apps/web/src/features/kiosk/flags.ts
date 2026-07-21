@@ -111,6 +111,20 @@ export function kioskGzCartEnabled(): boolean {
 }
 
 /**
+ * Merged cart+checkout screen (owner 2026-07-21): ONE "review your order"
+ * screen replaces the separate cart + contact-confirm screens (contact is
+ * already captured at player-add), re-adds HeadPinz/FastTrax Rewards on the
+ * kiosk, and frees the post-"Review & Pay" slot for the Game Zone upsell
+ * page — OPT-IN, defaults OFF (v2 cutover rule: the two-screen path stays
+ * the default until ops signs off on a live kiosk). Set the literal "true"
+ * in Vercel + redeploy to enable (NEXT_PUBLIC_* values are build-baked).
+ * Read at call time (never module scope) so tests can stub process.env.
+ */
+export function kioskMergedCheckoutEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_MERGED_CHECKOUT === "true";
+}
+
+/**
  * Kiosk POV code claiming — kill switch, defaults ON, server-side only
  * (unified-reserve + kiosk-post-reserve are the sole consumers, so no
  * NEXT_PUBLIC prefix / no rebuild needed). Set KIOSK_POV_CODES=0 in Vercel to
