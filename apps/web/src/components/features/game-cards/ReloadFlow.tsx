@@ -1,14 +1,17 @@
 "use client";
 
 /**
- * Public card-reload flow (cart of 1..10 cards, one payment).
+ * Public card-reload flow (cart of 1..10 cards, one payment) — kiosk parity.
  *
- * UX: card lookup (QR ?id prefilled + auto-verified) → shows balances +
- * expandable recent activity → "Reload Card" CTA → pick location → pick
- * package → cart (add more cards) → one payment (Apple/Google Pay, card, or
- * gift card) → per-card result. Payment is modeled on the booking checkout
- * step: PaymentForm in onTokenize mode (charge + Intercard load in one server
- * round-trip). Full-bleed Game Zone background.
+ * UX mirrors the kiosk Game Zone screens: a chooser (Reload / Check balance),
+ * then for reloads a MULTI-CARD grid — one row per card, scan (camera QR /
+ * barcode) or type each number, pick a token package per card inline — and one
+ * payment (Apple/Google Pay, card, or gift card) covering them all. Balance
+ * check keeps the single-card view with recent activity. The QR on a card
+ * (`swflpassport.com/?id=<n>` → `/reload?id=<n>`) pre-fills + auto-verifies.
+ * Payment is modeled on the booking checkout step: PaymentForm in onTokenize
+ * mode (charge + Intercard load in one server round-trip). Full-bleed Game
+ * Zone background.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -27,20 +30,31 @@ import { apiPost } from "~/features/game-cards/api";
 import { normalizeCard } from "~/features/game-cards/normalize";
 import { useGameCardAccount } from "~/features/game-cards/account-hooks";
 import AccountPanel from "./AccountPanel";
+import CardScanner from "./CardScanner";
 
 const GAME_ZONE_BG =
   "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-arcade.webp";
 
-type Phase = "lookup" | "location" | "package" | "cart" | "pay";
+type Phase = "lookup" | "location" | "cards" | "pay";
 
-/** What the guest tapped on the kiosk-style chooser. `balance` stops at the
- *  card view; `reload` skips it and jumps straight into the reload flow. */
-type EntryIntent = "reload" | "balance" | null;
+/** Chooser pick for the single-card lookup path (reload skips it entirely). */
+type EntryIntent = "balance" | null;
 
-interface CartLine {
+/** One row in the multi-card reload grid (kiosk parity). `key` is a stable
+ *  identity — rows can be removed while a verify round-trip is in flight. */
+interface ReloadCardRow {
+  key: number;
   accountNumber: string;
-  pkg: TokenPackage;
+  pkgId: string;
+  status: "unverified" | "verifying" | "ok" | "bad";
   balance?: CardBalance;
+}
+
+/** Kiosk default: pre-select the 100-token package; the guest can change it. */
+const DEFAULT_PKG_ID = TOKEN_PACKAGES[1].id;
+
+function pkgById(id: string): TokenPackage | undefined {
+  return TOKEN_PACKAGES.find((p) => p.id === id);
 }
 
 function dollars(cents: number): string {
@@ -131,6 +145,19 @@ function RecentActivity({ transactions }: { transactions: CardTxn[] }) {
   );
 }
 
+/** Compact token-package tile (kiosk TokenTileBody, sized for phones). */
+function TokenTileBody({ p }: { p: TokenPackage }) {
+  return (
+    <>
+      <div className="text-base font-bold text-white">
+        {p.tokens} tk
+        {p.bonusTokens > 0 && <span className="text-[#46d68c]"> +{p.bonusTokens}</span>}
+      </div>
+      <div className="text-xs text-white/50">{dollars(p.priceCents)}</div>
+    </>
+  );
+}
+
 export default function ReloadFlow({ initialCardId }: { initialCardId?: string }) {
   const initial = initialCardId ? normalizeCard(initialCardId) : "";
   const [phase, setPhase] = useState<Phase>("lookup");
@@ -138,12 +165,20 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
   const [entry, setEntry] = useState(initial);
   const [lookupAccount, setLookupAccount] = useState(initial);
   const [center, setCenter] = useState<CenterConfig | null>(null);
-  const [cart, setCart] = useState<CartLine[]>([]);
   const [email, setEmail] = useState("");
   const [payError, setPayError] = useState<string | null>(null);
   const [result, setResult] = useState<PurchaseResult | null>(null);
 
-  const [queue, setQueue] = useState<string[]>([]);
+  // Multi-card reload grid (kiosk parity).
+  const [cards, setCards] = useState<ReloadCardRow[]>([]);
+  const [editKey, setEditKey] = useState<number | null>(null);
+  const nextKeyRef = useRef(1);
+  const nextKey = () => nextKeyRef.current++;
+
+  // Camera scanner target: a grid row (by key) or the balance entry form.
+  const [scanTarget, setScanTarget] = useState<
+    { kind: "row"; key: number } | { kind: "entry" } | null
+  >(null);
 
   const account = useGameCardAccount();
   const verify = useCardBalance(lookupAccount, center?.code, phase === "lookup" && !!lookupAccount);
@@ -240,24 +275,76 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
     };
   }, [pollGroupId]);
 
-  // Reload one or more saved game cards from the account panel: seed a queue,
-  // confirm the location, then assign a package to each into the cart. The
-  // saved cards' home center pre-selects in the picker, but the guest ALWAYS
+  // ── Grid row helpers ──────────────────────────────────────────────────────
+  const setRow = (key: number, patch: Partial<ReloadCardRow>) =>
+    setCards((cs) => cs.map((c) => (c.key === key ? { ...c, ...patch } : c)));
+
+  const verifyRow = async (key: number, acctRaw: string) => {
+    const acct = normalizeCard(acctRaw);
+    if (!acct) return;
+    setRow(key, { accountNumber: acct, status: "verifying", balance: undefined });
+    try {
+      const v = await apiPost<VerifyResult>("/api/game-cards/verify", {
+        accountNumber: acct,
+        locationCode: center?.code,
+      });
+      setRow(key, v.exists ? { status: "ok", balance: v.balance } : { status: "bad" });
+    } catch {
+      setRow(key, { status: "bad" });
+    }
+  };
+
+  /** Enter the reload flow with these rows (center always re-confirmed). */
+  const startReload = (rows: ReloadCardRow[], preselect: CenterConfig | null) => {
+    setCards(rows);
+    setEditKey(rows.length === 1 ? rows[0].key : null);
+    setCenter(preselect);
+    setPhase("location");
+  };
+
+  // Reload one or more saved game cards from the account panel. The saved
+  // cards' home center pre-selects in the picker, but the guest ALWAYS
   // confirms — tokens load onto the chosen center's system right away, so
   // "where are you NOW" beats "where was this card used before".
   const reloadSavedCards = (accountNumbers: string[], locationCode: number | null) => {
     if (accountNumbers.length === 0) return;
-    setCart([]);
-    setQueue(accountNumbers);
-    const c =
-      locationCode != null ? (CENTER_LIST.find((x) => x.code === locationCode) ?? null) : null;
-    setCenter(c);
-    setPhase("location");
+    const rows = accountNumbers.slice(0, 10).map((acct) => ({
+      key: nextKey(),
+      accountNumber: normalizeCard(acct),
+      pkgId: DEFAULT_PKG_ID,
+      status: "verifying" as const,
+    }));
+    startReload(
+      rows,
+      locationCode != null ? (CENTER_LIST.find((x) => x.code === locationCode) ?? null) : null,
+    );
+    for (const r of rows) void verifyRow(r.key, r.accountNumber);
   };
   const accountPanel = <AccountPanel account={account} onReloadCards={reloadSavedCards} />;
 
   const verifiedCard = verify.data?.exists ? verify.data : null;
-  const totalCents = cart.reduce((s, l) => s + l.pkg.priceCents, 0);
+  const totalCents = cards.reduce((s, c) => s + (pkgById(c.pkgId)?.priceCents ?? 0), 0);
+  const allReady =
+    cards.length >= 1 &&
+    cards.length <= 10 &&
+    cards.every((c) => c.status === "ok" && normalizeCard(c.accountNumber).length > 0);
+
+  const scanner =
+    scanTarget !== null ? (
+      <CardScanner
+        onScan={(acct) => {
+          if (scanTarget.kind === "row") {
+            setRow(scanTarget.key, { accountNumber: acct });
+            void verifyRow(scanTarget.key, acct);
+          } else {
+            setEntry(acct);
+            setLookupAccount(acct);
+          }
+          setScanTarget(null);
+        }}
+        onClose={() => setScanTarget(null)}
+      />
+    ) : null;
 
   // ── Success ────────────────────────────────────────────────────────────
   if (result) {
@@ -309,7 +396,8 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
             variant="secondary"
             onClick={() => {
               setResult(null);
-              setCart([]);
+              setCards([]);
+              setEditKey(null);
               setPayError(null);
               setEntryIntent(null);
               setPhase("lookup");
@@ -328,20 +416,13 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
     <>
       <GameZoneBackground />
       <div className="mx-auto max-w-md space-y-4">{children}</div>
+      {scanner}
     </>
   );
 
-  // ── Lookup (chooser → enter/scan card → balances or straight to reload) ──
+  // ── Lookup (chooser → balance entry/card view; reload skips to location) ──
   if (phase === "lookup") {
-    // Kiosk-parity fast path: the guest already said "reload" on the chooser,
-    // so a verified lookup goes straight into the reload flow — no balance
-    // stop. State-during-render adjustment (per React docs, not an effect);
-    // the spinner below covers this pass.
-    if (entryIntent === "reload" && verifiedCard) {
-      setEntryIntent(null);
-      setPhase("location");
-    }
-    if ((verify.isFetching && !verify.data) || (entryIntent === "reload" && verifiedCard)) {
+    if (verify.isFetching && !verify.data) {
       return shell(
         <div className="flex min-h-60 items-center justify-center">
           <Spinner />
@@ -371,8 +452,20 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
           {verifiedCard.transactions && <RecentActivity transactions={verifiedCard.transactions} />}
           <Button
             onClick={() => {
+              // Hand-off to the reload grid with this card pre-verified.
+              startReload(
+                [
+                  {
+                    key: nextKey(),
+                    accountNumber: normalizeCard(verifiedCard.accountNumber),
+                    pkgId: DEFAULT_PKG_ID,
+                    status: "ok",
+                    balance: verifiedCard.balance,
+                  },
+                ],
+                null,
+              );
               setEntryIntent(null);
-              setPhase("location");
             }}
           >
             Reload Card
@@ -389,6 +482,7 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
         </Card>,
       );
     }
+
     // Chooser (kiosk parity): nothing typed or scanned yet → two big tiles.
     if (entryIntent === null && !lookupAccount) {
       return shell(
@@ -399,7 +493,19 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
           </h1>
           <button
             type="button"
-            onClick={() => setEntryIntent("reload")}
+            onClick={() => {
+              startReload(
+                [
+                  {
+                    key: nextKey(),
+                    accountNumber: "",
+                    pkgId: DEFAULT_PKG_ID,
+                    status: "unverified",
+                  },
+                ],
+                null,
+              );
+            }}
             className="w-full rounded-2xl border border-white/10 !border-l-[6px] !border-l-[#00E2E5] bg-[rgba(7,11,28,0.92)] p-5 text-left backdrop-blur-md transition hover:border-white/30 active:scale-[0.98]"
           >
             <div className="font-heading text-xl font-extrabold italic uppercase text-white">
@@ -428,22 +534,22 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
       );
     }
 
-    // Entry form (card number) — titled by what the guest tapped.
-    const entryTitle =
-      entryIntent === "reload"
-        ? "Reload existing cards"
-        : entryIntent === "balance"
-          ? "Check card balance"
-          : "Check Balance or Reload";
+    // Balance entry form (also the landing for a QR deep link that didn't match).
     return shell(
       <>
         {accountPanel}
         <Card className="space-y-4 p-6 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
-          <h1 className="text-xl font-semibold text-white">{entryTitle}</h1>
+          <h1 className="text-xl font-semibold text-white">
+            {entryIntent === "balance" ? "Check card balance" : "Check Balance or Reload"}
+          </h1>
           <p className="text-sm text-white/70">
-            Enter the number printed <span className="text-white">under the barcode</span> on your
-            card — not the QR code. Leading zeros aren&apos;t needed.
+            Scan the code on the back of your card, or enter the number printed{" "}
+            <span className="text-white">under the barcode</span> — not the QR code. Leading zeros
+            aren&apos;t needed.
           </p>
+          <Button variant="secondary" onClick={() => setScanTarget({ kind: "entry" })}>
+            Scan card with camera
+          </Button>
           <Input
             label="Card number"
             inputMode="numeric"
@@ -468,9 +574,6 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
           >
             ‹ Back
           </button>
-          <p className="text-center text-xs text-white/50">
-            Tip: scan the QR code on your card with your phone for a faster reload.
-          </p>
         </Card>
       </>,
     );
@@ -491,7 +594,7 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
               variant={center?.code === c.code ? "primary" : "secondary"}
               onClick={() => {
                 setCenter(c);
-                setPhase("package");
+                setPhase("cards");
               }}
             >
               <span className="inline-flex items-center gap-2">
@@ -506,105 +609,200 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
             </Button>
           ))}
         </div>
+        <button
+          className="w-full text-center text-xs text-white/40 underline"
+          onClick={() => {
+            setCards([]);
+            setEditKey(null);
+            setEntryIntent(null);
+            setPhase("lookup");
+            setLookupAccount("");
+            setEntry("");
+          }}
+        >
+          ‹ Back
+        </button>
       </Card>,
     );
   }
 
-  // ── Package (for the card currently being added; may be one of a queue) ──
-  if (phase === "package") {
-    const target = queue[0] ?? lookupAccount;
-    const queuedTotal = queue.length + cart.length;
+  // ── Cards grid (kiosk reload parity: row per card, package each, one pay) ──
+  if (phase === "cards") {
     return shell(
-      <Card className="space-y-3 p-6 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
+      <Card className="space-y-4 p-5 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-white">Add tokens</h2>
-          <span className="text-xs text-white/50">
-            Card {target}
-            {queue.length > 1 ? ` · ${cart.length + 1} of ${queuedTotal}` : ""}
-          </span>
-        </div>
-        <div className="grid gap-2">
-          {TOKEN_PACKAGES.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => {
-                const fromQueue = queue.length > 0;
-                setCart((c) => [
-                  ...c,
-                  {
-                    accountNumber: target,
-                    pkg: p,
-                    balance: fromQueue ? undefined : verifiedCard?.balance,
-                  },
-                ]);
-                if (fromQueue) {
-                  const rest = queue.slice(1);
-                  setQueue(rest);
-                  setPhase(rest.length ? "package" : "cart");
-                } else {
-                  setPhase("cart");
-                }
-              }}
-              className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-left transition hover:border-white/30"
-            >
-              <span className="text-white">{p.label}</span>
-              <span className="font-semibold text-[#00E2E5]">{dollars(p.priceCents)}</span>
-            </button>
-          ))}
-        </div>
-      </Card>,
-    );
-  }
-
-  // ── Cart (review, add more cards, pay) ───────────────────────────────────
-  if (phase === "cart") {
-    return shell(
-      <Card className="space-y-4 p-6 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
-        <h2 className="text-lg font-semibold text-white">Your reload</h2>
-        <div className="space-y-2">
-          {cart.map((l, i) => (
-            <div
-              key={`${l.accountNumber}-${i}`}
-              className="flex items-center justify-between rounded-lg bg-white/[0.04] px-3 py-2 text-sm"
-            >
-              <div>
-                <div className="text-white">{l.pkg.label}</div>
-                <div className="text-xs text-white/50">Card {l.accountNumber}</div>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-white">{dollars(l.pkg.priceCents)}</span>
-                <button
-                  className="text-xs text-white/40 underline"
-                  onClick={() => setCart((c) => c.filter((_, idx) => idx !== i))}
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-        {cart.length < 10 && (
+          <h2 className="font-heading text-2xl font-extrabold italic uppercase text-white">
+            Reload game cards
+          </h2>
           <button
-            className="w-full rounded-lg border border-dashed border-white/20 px-4 py-2 text-sm text-white/70 transition hover:border-white/40"
+            className="rounded-full border border-white/15 px-4 py-1.5 text-xs text-white/60"
             onClick={() => {
+              setCards([]);
+              setEditKey(null);
+              setEntryIntent(null);
+              setPhase("lookup");
               setLookupAccount("");
               setEntry("");
-              // Adding to an in-progress reload — skip the chooser AND the
-              // balance stop; a verified card goes straight back into the flow.
-              setEntryIntent("reload");
-              setPhase("lookup");
+            }}
+          >
+            Back
+          </button>
+        </div>
+        <p className="text-sm text-white/55">
+          Add each card and pick its token package — scan the code on the back or type the number.
+          One payment covers them all.
+        </p>
+
+        <div className="space-y-3">
+          {cards.map((c, i) => {
+            const expanded = editKey === c.key;
+            const pkg = pkgById(c.pkgId);
+            return (
+              <div key={c.key} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="flex items-center justify-between">
+                  <span className="font-heading text-base font-extrabold italic text-white">
+                    Card {i + 1}
+                  </span>
+                  <div className="flex items-center gap-3">
+                    {!expanded && (
+                      <button
+                        className="text-xs font-bold text-[#00E2E5]"
+                        onClick={() => setEditKey(c.key)}
+                      >
+                        Edit
+                      </button>
+                    )}
+                    {cards.length > 1 && (
+                      <button
+                        className="text-xs text-white/45"
+                        onClick={() => {
+                          setCards((cs) => cs.filter((x) => x.key !== c.key));
+                          setEditKey(null);
+                        }}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {expanded ? (
+                  <>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <Button
+                        variant="secondary"
+                        onClick={() => setScanTarget({ kind: "row", key: c.key })}
+                      >
+                        Scan card
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        onClick={() => void verifyRow(c.key, c.accountNumber)}
+                        disabled={normalizeCard(c.accountNumber).length === 0}
+                        loading={c.status === "verifying"}
+                      >
+                        Check
+                      </Button>
+                    </div>
+                    <div className="mt-2">
+                      <Input
+                        label="Card number"
+                        inputMode="numeric"
+                        value={c.accountNumber}
+                        onChange={(e) =>
+                          setRow(c.key, {
+                            accountNumber: e.target.value.replace(/\D/g, ""),
+                            status: "unverified",
+                          })
+                        }
+                        onBlur={() =>
+                          c.status === "unverified" &&
+                          normalizeCard(c.accountNumber).length > 0 &&
+                          void verifyRow(c.key, c.accountNumber)
+                        }
+                      />
+                    </div>
+                    {c.status === "ok" && (
+                      <div className="mt-2 text-sm text-[#46d68c]">
+                        Balance {c.balance?.tokens ?? 0} tokens
+                        {c.balance && c.balance.bonusTokens > 0
+                          ? ` + ${c.balance.bonusTokens} bonus`
+                          : ""}
+                      </div>
+                    )}
+                    {c.status === "bad" && (
+                      <div className="mt-2 text-sm text-red-300">
+                        Card not found — check the number.
+                      </div>
+                    )}
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {TOKEN_PACKAGES.map((p) => (
+                        <button
+                          key={p.id}
+                          onClick={() => {
+                            setRow(c.key, { pkgId: p.id });
+                            // Collapse after picking IF the card is verified; keep
+                            // it open when the number still needs checking.
+                            if (c.status === "ok") setEditKey(null);
+                          }}
+                          className={`rounded-xl border-2 px-2 py-3 text-center ${
+                            c.pkgId === p.id
+                              ? "border-[#00E2E5] bg-[#00E2E5]/10 text-white"
+                              : "border-white/10 bg-white/[0.02] text-white/60"
+                          }`}
+                        >
+                          <TokenTileBody p={p} />
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="mt-1 text-sm font-semibold text-white/80">
+                    {normalizeCard(c.accountNumber).length > 0
+                      ? `#${normalizeCard(c.accountNumber)}`
+                      : "No card number"}{" "}
+                    · {pkg?.label ?? "—"}
+                    {c.status === "ok" ? (
+                      <span className="text-[#46d68c]"> · ✓</span>
+                    ) : c.status === "verifying" ? (
+                      <span className="text-white/50"> · checking…</span>
+                    ) : (
+                      <span className="text-[#f0b341]"> · needs check</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {cards.length < 10 && (
+          <button
+            className="w-full rounded-2xl border-2 border-dashed border-[#00E2E5]/40 px-4 py-3 text-sm font-bold text-[#00E2E5]"
+            onClick={() => {
+              const k = nextKey();
+              setCards((cs) => [
+                ...cs,
+                { key: k, accountNumber: "", pkgId: DEFAULT_PKG_ID, status: "unverified" },
+              ]);
+              setEditKey(k);
             }}
           >
             + Add another card
           </button>
         )}
-        <div className="flex items-center justify-between border-t border-white/10 pt-3">
-          <span className="text-white/60">Total</span>
-          <span className="text-lg font-semibold text-white">{dollars(totalCents)}</span>
+
+        <div className="flex items-center justify-between rounded-2xl border border-[#00E2E5]/35 bg-white/[0.04] px-4 py-3">
+          <div className="font-heading text-xl font-extrabold tabular-nums text-white">
+            {dollars(totalCents)}
+          </div>
+          <Button onClick={() => setPhase("pay")} disabled={!allReady}>
+            Pay &amp; load
+          </Button>
         </div>
-        <Button onClick={() => setPhase("pay")} disabled={cart.length === 0}>
-          Pay {dollars(totalCents)}
-        </Button>
+        {!allReady && (
+          <p className="text-center text-xs text-white/40">Check each card number to continue.</p>
+        )}
         <p className="text-xs text-white/50">{center?.label}</p>
       </Card>,
     );
@@ -627,7 +825,10 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
       const r = await purchase.mutateAsync({
         kind: "reload",
         locationCode: center!.code,
-        items: cart.map((l) => ({ accountNumber: l.accountNumber, packageId: l.pkg.id })),
+        items: cards.map((c) => ({
+          accountNumber: normalizeCard(c.accountNumber),
+          packageId: c.pkgId,
+        })),
         cardNonce: cardNonce ?? savedCardId ?? undefined,
         giftCardNonce: giftCardNonce ?? undefined,
         contact: email ? { email } : undefined,
@@ -647,9 +848,9 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
     <Card className="space-y-4 p-6 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-white">
-          {cart.length === 1 ? "Reload" : `${cart.length} cards`}
+          {cards.length === 1 ? "Reload" : `${cards.length} cards`}
         </h2>
-        <button className="text-xs text-white/40 underline" onClick={() => setPhase("cart")}>
+        <button className="text-xs text-white/40 underline" onClick={() => setPhase("cards")}>
           Back
         </button>
       </div>
@@ -666,8 +867,12 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
       {payError && <ErrorBox>{payError}</ErrorBox>}
       <PaymentForm
         amount={totalCents / 100}
-        itemName={cart.length === 1 ? cart[0].pkg.label : `${cart.length}-card reload`}
-        billId={cart[0]?.accountNumber ?? "reload"}
+        itemName={
+          cards.length === 1
+            ? (pkgById(cards[0].pkgId)?.label ?? "Reload")
+            : `${cards.length}-card reload`
+        }
+        billId={normalizeCard(cards[0]?.accountNumber ?? "") || "reload"}
         contact={{ firstName: "", lastName: "", email, phone: "" }}
         locationId={center!.paymentFormKey}
         squareCustomerId={account.selectedCustomerId ?? undefined}
@@ -676,7 +881,7 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
         onTokenize={handleTokenize}
         onSuccess={() => {}}
         onError={(msg) => setPayError(msg)}
-        onCancel={() => setPhase("cart")}
+        onCancel={() => setPhase("cards")}
       />
     </Card>,
   );
