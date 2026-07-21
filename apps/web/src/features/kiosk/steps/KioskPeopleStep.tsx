@@ -163,6 +163,10 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   const [gPhone, setGPhone] = useState("");
   const [gEmail, setGEmail] = useState("");
   const [gError, setGError] = useState<string | null>(null);
+  // Which guardian chip is mid-verification — the tap kicks off 1-3 Pandora
+  // calls before anything else changes on screen, so the tapped chip must
+  // light up + spin immediately or the tap reads as dead (owner 2026-07-21).
+  const [choosingGuardianId, setChoosingGuardianId] = useState<string | null>(null);
   // Linked family are OPT-IN suggestions — tap to add, never auto-pulled in.
   const [linked, setLinked] = useState<LinkedSuggestion[]>([]);
   // Members whose Pandora waiver status is still being fetched — a returning racer
@@ -617,6 +621,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     const gf = guardianFlow;
     if (!gf) return;
     setBusyAll(true);
+    setChoosingGuardianId(g.id);
     setGError(null);
     try {
       let sid = shortPandoraId(g);
@@ -655,6 +660,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       );
     } finally {
       setBusyAll(false);
+      setChoosingGuardianId(null);
     }
   };
 
@@ -1498,28 +1504,43 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                           {candidates.map((a) => {
                             const reachable =
                               !!shortPandoraId(a) || !!a.phone?.trim() || !!a.email?.trim();
+                            const choosing = choosingGuardianId === a.id;
                             return (
                               <button
                                 key={a.id}
                                 type="button"
                                 disabled={!reachable || busy}
                                 onClick={() => void chooseGuardian(a)}
+                                aria-pressed={choosing}
                                 className={`k-tap rounded-2xl border-2 px-[24px] py-[16px] text-left ${
-                                  reachable
-                                    ? "border-[#00e2e5]/45 bg-[#00e2e5]/5"
-                                    : "border-white/10 bg-white/[0.03] opacity-50"
+                                  choosing
+                                    ? "border-[#00e2e5] bg-[#00e2e5]/15"
+                                    : busy && reachable
+                                      ? "border-[#00e2e5]/25 bg-[#00e2e5]/5 opacity-40"
+                                      : reachable
+                                        ? "border-[#00e2e5]/45 bg-[#00e2e5]/5"
+                                        : "border-white/10 bg-white/[0.03] opacity-50"
                                 }`}
                               >
                                 <div className="text-[26px] font-bold text-white">
                                   {a.firstName} {a.lastName ?? ""}
                                 </div>
-                                <div className="text-[20px] text-white/50">
-                                  {!reachable
-                                    ? "Can't verify here — use Find their account"
-                                    : a.waiverValid
-                                      ? "Waiver on file"
-                                      : "Signs their own waiver first"}
-                                </div>
+                                {choosing ? (
+                                  <div className="flex items-center gap-[10px] text-[20px] font-semibold text-[#00e2e5]">
+                                    <span className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-[#00e2e5]/30 border-t-[#00e2e5]" />
+                                    Checking their waiver…
+                                  </div>
+                                ) : (
+                                  <div
+                                    className={`text-[20px] ${reachable ? "text-[#00e2e5]/80" : "text-white/50"}`}
+                                  >
+                                    {!reachable
+                                      ? "Can't verify here — use Find their account"
+                                      : a.waiverValid
+                                        ? "Waiver on file — tap to sign"
+                                        : "Tap to sign — their own waiver first"}
+                                  </div>
+                                )}
                               </button>
                             );
                           })}
