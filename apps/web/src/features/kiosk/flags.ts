@@ -113,15 +113,28 @@ export function kioskGzCartEnabled(): boolean {
 /**
  * Merged cart+checkout screen (owner 2026-07-21): ONE "review your order"
  * screen replaces the separate cart + contact-confirm screens (contact is
- * already captured at player-add), re-adds HeadPinz/FastTrax Rewards on the
- * kiosk, and frees the post-"Review & Pay" slot for the Game Zone upsell
- * page — OPT-IN, defaults OFF (v2 cutover rule: the two-screen path stays
- * the default until ops signs off on a live kiosk). Set the literal "true"
- * in Vercel + redeploy to enable (NEXT_PUBLIC_* values are build-baked).
+ * already captured at player-add) and re-adds HeadPinz/FastTrax Rewards on
+ * the kiosk — OPT-IN, defaults OFF (v2 cutover rule: the two-screen path
+ * stays the default until ops signs off on a live kiosk). Set the literal
+ * "true" in Vercel + redeploy to enable (NEXT_PUBLIC_* values are
+ * build-baked — scope the var to Preview too or preview builds bake it off).
  * Read at call time (never module scope) so tests can stub process.env.
  */
 export function kioskMergedCheckoutEnabled(): boolean {
   return process.env.NEXT_PUBLIC_KIOSK_MERGED_CHECKOUT === "true";
+}
+
+/**
+ * Game Zone checkout-upsell page (owner 2026-07-21) — its OWN switch,
+ * separate from the merged-checkout rollout (owner: "separate out the
+ * merged checkout and upsell flags"). Kill switch, defaults ON: the page is
+ * only reachable inside the merged flow anyway, so the merged flag stays
+ * the single rollout decision and this one exists to turn the OFFER off
+ * without touching the screen. Set the literal "false" in Vercel + redeploy
+ * to hide it. Read at call time so tests can stub process.env.
+ */
+export function kioskCheckoutUpsellEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_CHECKOUT_UPSELL !== "false";
 }
 
 /**

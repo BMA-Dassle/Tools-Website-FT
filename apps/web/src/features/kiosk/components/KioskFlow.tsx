@@ -56,7 +56,12 @@ import { getPackage } from "@/lib/packages";
 import { resolvePreselectPatch } from "../service/package-preselect";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
-import { kioskMergedCheckoutEnabled, kioskGzCartEnabled, kioskTerminalEnabled } from "../flags";
+import {
+  kioskMergedCheckoutEnabled,
+  kioskCheckoutUpsellEnabled,
+  kioskGzCartEnabled,
+  kioskTerminalEnabled,
+} from "../flags";
 import { KioskCheckoutScreen } from "./KioskCheckoutScreen";
 import { KioskCheckoutUpsell } from "./KioskCheckoutUpsell";
 import { TOKEN_PACKAGES } from "~/features/game-cards/constants";
@@ -1248,16 +1253,26 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
             // new card (cart rail + reader rail + dispenser "full" capability).
             // Every gate is named so a device console shows exactly why the
             // page didn't appear (owner 7/21: "bought a race, didn't see it" —
-            // a test rig without the reader/dispenser skips it by design).
+            // a test rig without the reader/dispenser skips it by design;
+            // NEXT_PUBLIC_KIOSK_TERMINAL_ENABLED must also be scoped to the
+            // Vercel PREVIEW env or preview builds bake it off).
+            // `?upsellPreview=1` on the flow URL bypasses ONLY the hardware
+            // gates so the page can be SEEN on any rig; accepting still rides
+            // the real rails — a readerless checkout fails closed at pay time,
+            // so this never risks a broken sale (staff-typed URL only).
+            const upsellPreview =
+              typeof window !== "undefined" &&
+              new URLSearchParams(window.location.search).get("upsellPreview") === "1";
             const failedGates = (
               [
+                ["upsell-flag", kioskCheckoutUpsellEnabled()],
                 ["upsell-pack", CHECKOUT_UPSELL_PACK != null],
                 ["once-per-session", !upsellSeenRef.current],
                 ["no-cards-in-cart", !session.gameCardPurchase?.cards.length],
                 ["gz-cart-flag", kioskGzCartEnabled()],
-                ["terminal-flag", kioskTerminalEnabled()],
-                ["reader-paired", !!config.readerId],
-                ["dispenser-full", gameZoneCapability(config) === "full"],
+                ["terminal-flag", upsellPreview || kioskTerminalEnabled()],
+                ["reader-paired", upsellPreview || !!config.readerId],
+                ["dispenser-full", upsellPreview || gameZoneCapability(config) === "full"],
               ] as const
             )
               .filter(([, ok]) => !ok)
