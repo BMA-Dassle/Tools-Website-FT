@@ -57,9 +57,64 @@ let rememberedCrtPort: SerialPort | null = null;
 // fulfillment, admin) owning its own open/close put "Connecting to the card
 // dispenser…" on every screen change (owner 2026-07-21). Unmount PARKS the
 // connection here instead of closing; the next consumer adopts it instantly.
-// Cleared when the device actually drops (module-level onDisconnected below)
-// or on a deliberate disconnect().
+// Cleared when the device actually drops (module-level onDisconnected below),
+// on a deliberate disconnect(), or by the hidden-window release below.
 let sharedClient: CrtReaderClient | null = null;
+
+// ── Hidden-window port release ──────────────────────────────────────────────
+// A serial port can be open in ONE process at a time, and park-and-adopt keeps
+// it open indefinitely. If staff provision in a normal Edge window and then a
+// fullscreen kiosk window (a SEPARATE Edge profile/process) comes up over it,
+// the hidden window would hold the COM port forever and the kiosk's scan fails
+// everywhere. So: when THIS window goes hidden (Chromium marks fully-occluded
+// windows hidden), release the shared connection after a short grace — never
+// mid-operation — and let the visible window take the port. Components
+// reconnect when their window becomes visible again (see the per-instance
+// visibility effect in the hook).
+const sharedReleaseListeners = new Set<(reason: string | null) => void>();
+let sharedActiveOps = 0; // ops in flight across ALL hook instances (runResult)
+let releaseTimer: ReturnType<typeof setTimeout> | null = null;
+let visibilityReleaseInstalled = false;
+const RELEASE_HIDDEN_MS = 8_000;
+
+async function releaseSharedClient(reason: string | null): Promise<void> {
+  const c = sharedClient;
+  if (!c) return;
+  sharedClient = null;
+  await c.close().catch(() => undefined);
+  // close() doesn't fire onDisconnected (it's a clean close) — notify wired
+  // components ourselves so they don't sit on a dead client.
+  const listeners = [...sharedReleaseListeners];
+  sharedReleaseListeners.clear();
+  for (const cb of listeners) cb(reason);
+}
+
+function installVisibilityRelease(): void {
+  if (visibilityReleaseInstalled || typeof document === "undefined") return;
+  visibilityReleaseInstalled = true;
+  const check = () => {
+    releaseTimer = null;
+    if (document.visibilityState !== "hidden" || !sharedClient) return;
+    if (sharedActiveOps > 0) {
+      releaseTimer = setTimeout(check, 3_000); // mid-dispense — never interrupt
+      return;
+    }
+    void releaseSharedClient("window hidden — COM port released for the visible window");
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      if (!releaseTimer) releaseTimer = setTimeout(check, RELEASE_HIDDEN_MS);
+    } else if (releaseTimer) {
+      clearTimeout(releaseTimer);
+      releaseTimer = null;
+    }
+  });
+  // Navigating away / closing the tab: release immediately (the browser would
+  // drop the port anyway — this just makes it deterministic).
+  window.addEventListener("pagehide", () => {
+    void releaseSharedClient("page closed");
+  });
+}
 
 const EMPTY_LOG: readonly LogEntry[] = [];
 const POLL_MS = 1_200;
@@ -166,7 +221,7 @@ export function serialBlockedMessage(
 function openErrorMessage(err: unknown): string {
   const name = err instanceof DOMException ? err.name : "";
   if (name === "InvalidStateError" || name === "NetworkError") {
-    return "Reader port is in use by another tab or program — close it and retry.";
+    return "Reader port is in use by another window or program — another Edge window (normal or kiosk) may be connected to the reader. Close it and retry.";
   }
   if (name === "SecurityError") {
     return serialBlockedMessage(err);
@@ -272,38 +327,63 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
     setClient(c);
     setUnavailable(false);
     setConnection({ state: "connected", info: c.info });
+    const onDrop = (reason: string | null) => {
+      clientRef.current = null;
+      setClient(null);
+      setPolling(false);
+      setBusy(null);
+      // Hidden-window release: WE gave the port up so the visible window (the
+      // fullscreen kiosk, another profile/process) can take it. Don't fight to
+      // re-grab it — the visibility effect reconnects when we're visible again.
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        setConnection({ state: "disconnected", hadPortGrant: true });
+        return;
+      }
+      if (trustRef.current) {
+        // Provisioned kiosk — recover automatically (backoff loop); only
+        // mark unavailable if that gives up.
+        setConnection({
+          state: "connecting",
+          detail: `Reader disconnected${reason ? ` — ${reason}` : ""}. Reconnecting…`,
+        });
+        attemptReconnectRef.current();
+      } else {
+        setConnection({
+          state: "error",
+          message: `Reader disconnected${reason ? ` — ${reason}` : ""}. Check the cable, then reconnect.`,
+          canRetry: true,
+        });
+      }
+    };
+    sharedReleaseListeners.add(onDrop);
     unsubsRef.current.push(
       c.onStatus((s) => setStatus(s)),
-      c.onDisconnected((reason) => {
-        clientRef.current = null;
-        setClient(null);
-        setPolling(false);
-        setBusy(null);
-        if (trustRef.current) {
-          // Provisioned kiosk — recover automatically (backoff loop); only
-          // mark unavailable if that gives up.
-          setConnection({
-            state: "connecting",
-            detail: `Reader disconnected${reason ? ` — ${reason}` : ""}. Reconnecting…`,
-          });
-          attemptReconnectRef.current();
-        } else {
-          setConnection({
-            state: "error",
-            message: `Reader disconnected${reason ? ` — ${reason}` : ""}. Check the cable, then reconnect.`,
-            canRetry: true,
-          });
-        }
-      }),
+      c.onDisconnected(onDrop),
+      () => sharedReleaseListeners.delete(onDrop),
     );
   }, []);
 
   // Adopt the parked live connection from the previous screen, if any —
   // instant CONNECTED, no port re-open, no "Connecting…" flash. Declared
-  // before the auto-reconnect effect below so adoption wins on mount.
+  // before the auto-reconnect effect below so adoption wins on mount. Also
+  // installs the once-per-page hidden-window release hook.
   useEffect(() => {
+    installVisibilityRelease();
     if (!clientRef.current && sharedClient) wireClient(sharedClient);
   }, [wireClient]);
+
+  // When THIS window becomes visible again and the port was released (or lost)
+  // while hidden, take it back automatically — the port follows whichever
+  // window is actually in front.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      if (trustRef.current && !clientRef.current && !sharedClient) attemptReconnectRef.current();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
 
   // PARK the connection + stop reconnecting when the owner unmounts. Do NOT
   // close the port — the next screen adopts it via sharedClient; closing here
@@ -528,10 +608,22 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
       }
       if (!clientRef.current && !stopReconnectRef.current) {
         setUnavailable(true);
+        // Say WHY precisely: zero granted ports = this browser PROFILE has no
+        // serial access at all (the SerialAllowAllPortsForUrls reg-add needs an
+        // ELEVATED shell — run un-elevated it fails silently; kiosk mode can't
+        // show the picker to grant manually). Distinct from a wired-but-dead
+        // reader.
+        const grants =
+          typeof navigator !== "undefined" && "serial" in navigator
+            ? (await navigator.serial.getPorts().catch(() => [] as SerialPort[])).length
+            : 0;
         setConnection({
           state: "error",
           canRetry: true,
-          message: "The card reader is offline and couldn't reconnect. Please see an attendant.",
+          message:
+            grants === 0
+              ? "No COM ports are granted to this browser profile — the serial policy isn't applied here. Run the SerialAllowAllPortsForUrls reg add from an ADMINISTRATOR prompt and relaunch, or pair the port once in a normal window using this same profile."
+              : "The card reader is offline and couldn't reconnect. If another Edge window is (or was just) connected to it, close that window. Otherwise check the reader's cable/power. Please see an attendant.",
         });
       }
     } finally {
@@ -575,6 +667,7 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
         };
       }
       busyRef.current = label;
+      sharedActiveOps++; // hidden-window release never interrupts an op in flight
       setBusy(label);
       setLastError(null);
       try {
@@ -585,6 +678,7 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
         return { ok: false, error };
       } finally {
         busyRef.current = null;
+        sharedActiveOps--;
         setBusy(null);
       }
     },
