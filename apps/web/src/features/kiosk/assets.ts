@@ -3,6 +3,8 @@
  * Static v1; a CMS/config layer can replace this later without touching
  * components.
  */
+import type { CenterCode } from "~/features/booking";
+
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 
 export const KIOSK_LOGOS = {
@@ -35,7 +37,8 @@ export interface KioskAdSlide {
   photo: string;
 }
 
-export const KIOSK_AD_SLIDES: KioskAdSlide[] = [
+/** Fort Myers complex (FastTrax + HeadPinz share the campus) — racing-forward. */
+const FORT_MYERS_AD_SLIDES: KioskAdSlide[] = [
   {
     title: "ULTIMATE VIP EXPERIENCE",
     sub: "Race · Bowl · Race — from $65 per person",
@@ -67,3 +70,44 @@ export const KIOSK_AD_SLIDES: KioskAdSlide[] = [
     photo: KIOSK_PHOTOS.bowl,
   },
 ];
+
+/** HeadPinz Naples has NO karting (owner 2026-07-20) — bowling + Nexus
+ *  attractions only, never racing ads or track photography. */
+const NAPLES_AD_SLIDES: KioskAdSlide[] = [
+  {
+    title: "HYPERBOWLING VIP SUITES",
+    sub: "Glowing lanes, private suite seating, lounge service",
+    accent: "#e8b14c",
+    photo: KIOSK_PHOTOS.vipLanes,
+  },
+  {
+    title: "NEXUS GEL BLASTER",
+    sub: "High-tech gel blaster battles in a glowing arena",
+    accent: "#00e2e5",
+    photo: KIOSK_PHOTOS.gel,
+  },
+  {
+    title: "NEXUS LASER TAG",
+    sub: "Multi-level laser tag with haptic vests",
+    accent: "#8652FF",
+    photo: KIOSK_PHOTOS.laser,
+  },
+  {
+    title: "KIDS BOWL FREE",
+    sub: "Registered kids bowl free — Monday to Friday",
+    accent: "#FFD700",
+    photo: KIOSK_PHOTOS.kbf,
+  },
+  {
+    title: "SKIP THE LINE",
+    sub: "Bowling starts here — book your lane at this kiosk",
+    accent: "#00e2e5",
+    photo: KIOSK_PHOTOS.bowl,
+  },
+];
+
+/** The attract rotation for this kiosk's center (null = not provisioned yet;
+ *  the Fort Myers set is a harmless placeholder behind the setup card). */
+export function kioskAdSlidesFor(center: CenterCode | null): KioskAdSlide[] {
+  return center === "naples" ? NAPLES_AD_SLIDES : FORT_MYERS_AD_SLIDES;
+}

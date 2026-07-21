@@ -25,7 +25,7 @@ import {
 import { kioskGroupWaiverEnabled } from "../flags";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { useKioskConfig } from "../KioskConfigContext";
-import { KIOSK_AD_SLIDES, KIOSK_LOGOS, KIOSK_PHOTOS } from "../assets";
+import { kioskAdSlidesFor, KIOSK_LOGOS, KIOSK_PHOTOS } from "../assets";
 import { BrandedLoader } from "./BrandedLoader";
 import { useKioskClock, syncGlowPhase } from "../hooks/useKioskClock";
 import { useKioskAvailability } from "../hooks/useKioskAvailability";
@@ -48,6 +48,8 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   // Lock the VIP quick-chip when the combo can't actually be booked today
   // (cached server-side; see useKioskAvailability).
   const vipAvailable = useKioskAvailability(config?.center ?? null)("race-bowl");
+  // Center-scoped rotation — Naples never advertises karting.
+  const adSlides = kioskAdSlidesFor(config?.center ?? null);
 
   // Boot: merge provisioning URL params over stored config; if the device has
   // no local config yet but the URL names a venue, pull the saved setup from
@@ -95,13 +97,13 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
     let timer: number | undefined;
     const tick = () => {
       const now = Date.now() + offset;
-      setAdIndex(Math.floor(now / AD_ROTATE_MS) % KIOSK_AD_SLIDES.length);
+      setAdIndex(Math.floor(now / AD_ROTATE_MS) % adSlides.length);
       // +25ms lands safely past the boundary despite setTimeout clamp/rounding.
       timer = window.setTimeout(tick, AD_ROTATE_MS - (now % AD_ROTATE_MS) + 25);
     };
     tick();
     return () => window.clearTimeout(timer);
-  }, [offset]);
+  }, [offset, adSlides.length]);
 
   // Seek the glow / ken-burns / sweep / pulse animations to the shared clock's
   // phase so all kiosks breathe together. Re-runs whenever the clock (re)syncs
@@ -139,7 +141,10 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   }
   if (!config) return <SetupCard />;
 
-  const ad = KIOSK_AD_SLIDES[adIndex];
+  // Modulo again: adIndex may have been computed against the other center's
+  // slide count for one render right after the config resolves.
+  const slideIndex = adIndex % adSlides.length;
+  const ad = adSlides[slideIndex];
   const start = (goto?: string) => {
     router.push(goto ? `/kiosk/flow?goto=${goto}` : "/kiosk/flow");
   };
@@ -166,9 +171,12 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
       />
       {/* Cinematic backdrop — photo + navy scrim + red glow + light sweep */}
       <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
+        {/* Naples has no karting — its attract backdrop is the lanes. */}
         <div
           className="kiosk-kenburns absolute -inset-[6%] bg-cover bg-center"
-          style={{ backgroundImage: `url(${KIOSK_PHOTOS.race})` }}
+          style={{
+            backgroundImage: `url(${config.center === "naples" ? KIOSK_PHOTOS.bowl : KIOSK_PHOTOS.race})`,
+          }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#000418] from-[8%] via-[#020a22]/80 to-[#040e2c]/60" />
         <div className="absolute inset-0 bg-[radial-gradient(60%_40%_at_78%_22%,rgba(229,57,53,0.28),transparent_65%),radial-gradient(55%_42%_at_18%_80%,rgba(0,226,229,0.22),transparent_62%)]" />
@@ -193,10 +201,10 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
         </div>
         <div className="absolute bottom-[44px] right-[64px] flex gap-[10px]">
           {/* Index key: slide titles repeat (two "SKIP THE LINE" ads) */}
-          {KIOSK_AD_SLIDES.map((s, i) => (
+          {adSlides.map((s, i) => (
             <span
               key={i}
-              className={`h-[10px] w-[56px] rounded-full ${i === adIndex ? "bg-[#00e2e5]" : "bg-white/20"}`}
+              className={`h-[10px] w-[56px] rounded-full ${i === slideIndex ? "bg-[#00e2e5]" : "bg-white/20"}`}
             />
           ))}
         </div>
@@ -220,7 +228,9 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           Let&rsquo;s play.
         </div>
         <div className="max-w-[24ch] text-[34px] text-white/60">
-          Book racing, bowling &amp; attractions right here — takes about a minute.
+          {config.center === "naples"
+            ? "Book bowling, blasters & laser tag right here — takes about a minute."
+            : "Book racing, bowling & attractions right here — takes about a minute."}
         </div>
         <span className="kiosk-pulse k-display grid h-[150px] w-full max-w-[80%] place-items-center rounded-full bg-[#00e2e5] text-[44px] tracking-wide text-[#04252b]">
           Touch to get started

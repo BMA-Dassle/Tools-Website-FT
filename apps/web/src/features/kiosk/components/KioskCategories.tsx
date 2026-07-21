@@ -107,8 +107,10 @@ export function KioskCategories({
           {hasCart ? "Add anything else?" : "What are we doing today?"}
         </h1>
         <div className="flex min-h-0 flex-1 flex-col gap-[28px]">
+          {/* Naples has no karting — its category cards show lanes, not track
+              photography, and the blurb sells what's actually there. */}
           <CategoryCard
-            photo={KIOSK_PHOTOS.vip}
+            photo={center === "naples" ? KIOSK_PHOTOS.vipLanes : KIOSK_PHOTOS.vip}
             eyebrow={combos.map((c) => c.name).join(" · ") || "Bundled experiences"}
             accent="#e8b14c"
             title="Experiences"
@@ -118,11 +120,15 @@ export function KioskCategories({
             onClick={() => setCat("exp")}
           />
           <CategoryCard
-            photo={KIOSK_PHOTOS.race}
+            photo={center === "naples" ? KIOSK_PHOTOS.bowl : KIOSK_PHOTOS.race}
             eyebrow={`${offerings.length} attractions`}
             accent="#00e2e5"
             title="Attractions"
-            blurb="Racing, bowling, blasters & more — pick a time and go"
+            blurb={
+              center === "naples"
+                ? "Bowling, gel blasters, laser tag & more — pick a time and go"
+                : "Racing, bowling, blasters & more — pick a time and go"
+            }
             disabled={!anyAttractionAvailable}
             disabledNote="Nothing left to book today — the front desk can help with walk-ins."
             onClick={() => setCat("attr")}
