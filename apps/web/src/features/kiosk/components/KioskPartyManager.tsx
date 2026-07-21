@@ -601,6 +601,7 @@ export function KioskPartyManager({
       creditBalances: person.creditBalances,
       isBillingCustomer: isMain,
       phone: person.phone || undefined,
+      phoneVerified: person.phoneVerified || undefined,
       email: person.email || undefined,
     });
     onAddMember(member);

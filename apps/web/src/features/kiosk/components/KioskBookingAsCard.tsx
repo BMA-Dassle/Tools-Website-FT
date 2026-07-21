@@ -40,7 +40,16 @@ export function KioskBookingAsCard({
     if (!draftValid) return;
     dispatch({
       type: "setContact",
-      patch: { firstName: firstName.trim(), lastName: lastName.trim(), email, phone, smsOptIn },
+      patch: {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email,
+        phone,
+        smsOptIn,
+        // A manually edited phone is no longer OTP-proven — rewards must
+        // re-verify before redeeming against the new number.
+        ...(phone !== (c.phone ?? "") ? { phoneVerified: false } : {}),
+      },
     });
     setEditing(false);
   };

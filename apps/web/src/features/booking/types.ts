@@ -64,4 +64,11 @@ export interface ContactInfo {
   email: string;
   phone: string;
   smsOptIn: boolean;
+  /**
+   * Kiosk: `phone` was proven by a successful SMS OTP this session (copied
+   * from the party member who became main — see PartyMember.phoneVerified).
+   * Lets kiosk rewards redemption skip its SMS verify. Cleared whenever the
+   * phone is manually edited. Web flows never set it.
+   */
+  phoneVerified?: boolean;
 }

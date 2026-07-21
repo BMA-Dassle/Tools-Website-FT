@@ -106,6 +106,9 @@ export function JoinPhoneFlow({
         dobIso,
         phone: person.phone || undefined,
         email: cleanEmail || undefined,
+        // OTP-proven phone (phone-mode lookup only) — lets kiosk rewards skip
+        // its SMS verify when this guest becomes the main contact.
+        phoneVerified: person.phoneVerified || undefined,
         memberships: person.memberships,
         creditBalances: person.creditBalances,
         isNewRacer: false,

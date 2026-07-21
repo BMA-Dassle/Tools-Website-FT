@@ -34,12 +34,14 @@ import { contactIsComplete } from "~/components/features/booking/steps/ContactSt
 import { activeComboSpecial, comboChargeLines } from "~/features/combos/combo-pricing";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { KioskBookingAsCard } from "./KioskBookingAsCard";
+import { KioskRewardsSection } from "./KioskRewardsSection";
 import { KIOSK_LOGOS } from "../assets";
 
 export function KioskCheckoutScreen({
   session,
   dispatch,
   brand,
+  center,
   onEditItem,
   onRemoveItem,
   onRemoveHeat,
@@ -51,6 +53,7 @@ export function KioskCheckoutScreen({
   session: BookingSession;
   dispatch: Dispatch<Action>;
   brand: "fasttrax" | "headpinz";
+  center: "fort-myers" | "naples";
   onEditItem: (id: string) => void;
   onRemoveItem: (id: string) => void;
   onRemoveHeat?: (itemId: string, productId: string, heatId: string) => void;
@@ -75,10 +78,17 @@ export function KioskCheckoutScreen({
   const comboEstimate = activeComboSpecial(session)
     ? (comboChargeLines(session) ?? []).reduce((s, l) => s + l.amount, 0)
     : 0;
-  const estTotal =
+  // A selected reward tier reduces the charge (CheckoutStep nets it the same
+  // way) — the displayed estimate must drop with it or the tier tap reads as
+  // a no-op.
+  const rewardDiscount = (session.loyalty?.selectedRewardTier?.discountCents ?? 0) / 100;
+  const estTotal = Math.max(
+    0,
     items.reduce((s, i) => s + estimateCartItemTotal(i, session), 0) +
-    comboEstimate +
-    (gz?.totalCents ?? 0) / 100;
+      comboEstimate +
+      (gz?.totalCents ?? 0) / 100 -
+      rewardDiscount,
+  );
 
   const itemsReady = items.length > 0 && allItemsReady(session);
   const contactOk = contactIsComplete(session.contact);
@@ -123,7 +133,12 @@ export function KioskCheckoutScreen({
           {items.length > 0 && (
             <>
               <KioskBookingAsCard session={session} dispatch={dispatch} />
-              {/* Rewards section lands here (kiosk-native LoyaltySection sibling). */}
+              <KioskRewardsSection
+                session={session}
+                dispatch={dispatch}
+                center={center}
+                estTotal={estTotal}
+              />
               {!itemsReady && (
                 <p className="text-center text-[24px] text-white/45">
                   Finish setting up each activity (tap Edit) before paying.

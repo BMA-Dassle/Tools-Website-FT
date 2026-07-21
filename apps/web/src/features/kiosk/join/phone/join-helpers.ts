@@ -109,6 +109,8 @@ export interface DraftGuest {
   dobIso: string;
   phone?: string;
   email?: string;
+  /** Phone proven by this join's SMS OTP (returning sign-in only). */
+  phoneVerified?: boolean;
   memberships?: string[];
   creditBalances?: Array<{ kind: string; balance: number }>;
   isNewRacer: boolean;
@@ -130,6 +132,7 @@ export function buildGuestPayload(draft: DraftGuest): JoinGuestPayload {
       : {}),
     ...(draft.phone ? { phone: draft.phone } : {}),
     ...(draft.email ? { email: draft.email } : {}),
+    ...(draft.phone && draft.phoneVerified ? { phoneVerified: true } : {}),
     dobIso: draft.dobIso,
   };
 }

@@ -119,6 +119,16 @@ export interface PartyMember {
    *  phone/email become session.contact so there's no separate contact step. */
   phone?: string;
   email?: string;
+  /**
+   * Kiosk: true when `phone` was proven by a successful SMS OTP this session
+   * (returning-racer phone lookup on the kiosk, or the mobile-join phone
+   * sign-in). Rides into session.contact when this member becomes main, where
+   * it lets rewards redemption skip the checkout SMS verify (owner
+   * 2026-07-21: "you don't need OTP if the main contact was already verified
+   * in racers sign up"). NEVER set for typed/unverified phones (new-racer
+   * forms, login-code or email lookups, manual contact edits).
+   */
+  phoneVerified?: boolean;
   /** Kiosk: this person's date of birth as an ISO "YYYY-MM-DD" string, captured
    *  from a returning-racer lookup so the setup form never re-asks a birthday we
    *  already have on file (owner 2026-07-19). Ignored by the web flow. */
@@ -807,6 +817,7 @@ export function newPartyMember(args: {
   isMinor?: boolean;
   phone?: string;
   email?: string;
+  phoneVerified?: boolean;
   dobIso?: string;
 }): PartyMember {
   return {
@@ -824,6 +835,7 @@ export function newPartyMember(args: {
     isMinor: args.isMinor,
     phone: args.phone,
     email: args.email,
+    phoneVerified: args.phoneVerified,
     dobIso: args.dobIso,
   };
 }

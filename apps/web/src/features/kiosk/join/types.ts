@@ -63,6 +63,8 @@ export interface JoinGuestPayload {
   creditBalances?: Array<{ kind: string; balance: number }>;
   phone?: string;
   email?: string;
+  /** Phone proven by the join flow's SMS OTP (returning sign-in only). */
+  phoneVerified?: boolean;
   dobIso: string; // "YYYY-MM-DD" — required, drives the server-side 18+ gate
 }
 

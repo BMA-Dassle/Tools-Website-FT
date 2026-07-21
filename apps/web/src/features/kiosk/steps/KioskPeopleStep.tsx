@@ -74,6 +74,13 @@ function toIsoDob(mmddyyyy: string): string {
   return m ? `${m[3]}-${m[1]}-${m[2]}` : mmddyyyy;
 }
 
+/** Bare 10 digits from any US phone formatting (strips a leading 1). */
+function tenDigitsOf(phone: string | undefined): string {
+  let d = (phone ?? "").replace(/\D/g, "");
+  if (d.length === 11 && d.startsWith("1")) d = d.slice(1);
+  return d;
+}
+
 /** A participant still needs setup when they lack an account or a valid waiver. */
 function needsSetup(m: PartyMember): boolean {
   return !m.bmiPersonId || !m.waiverValid;
@@ -251,6 +258,10 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         lastName: m.lastName ?? "",
         ...(m.phone ? { phone: m.phone } : {}),
         ...(m.email ? { email: m.email } : {}),
+        // OTP-proven phone rides along (or explicitly clears a stale flag when
+        // the new main's phone isn't proven) — kiosk rewards redemption keys
+        // on this to skip its SMS verify.
+        phoneVerified: !!(m.phone && m.phoneVerified),
       },
     });
   };
@@ -327,7 +338,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         dispatch({ type: "removeGuardian", id: g.id });
       }
       // Someone already on the roster re-verified by phone — silent success:
-      // waiver now signed + the short Pandora id (never touch bmiPersonId).
+      // waiver now signed + the short Pandora id (never touch bmiPersonId) +
+      // the OTP-proven phone (feeds the rewards verify-skip when they're main).
       for (const hit of alreadyPresent) {
         dispatch({
           type: "updatePartyMember",
@@ -335,8 +347,20 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           patch: {
             waiverValid: true,
             ...(hit.pandoraPersonId ? { pandoraPersonId: hit.pandoraPersonId } : {}),
+            ...(hit.phone && hit.phoneVerified ? { phone: hit.phone, phoneVerified: true } : {}),
           },
         });
+        // The re-verified member may already BE the session contact — refresh
+        // its proven flag too (phones match ⇒ safe to upgrade).
+        const m = party.find((p) => p.id === hit.memberId);
+        if (
+          hit.phone &&
+          hit.phoneVerified &&
+          m?.isBillingCustomer &&
+          tenDigitsOf(session.contact.phone) === tenDigitsOf(hit.phone)
+        ) {
+          dispatch({ type: "setContact", patch: { phoneVerified: true } });
+        }
       }
       if (!isRace) {
         const newIds = [...toAdd, ...promoteGuardians].map((m) => m.id);
@@ -1004,6 +1028,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       creditBalances: person.creditBalances,
       isBillingCustomer: isMain,
       phone: person.phone || undefined,
+      phoneVerified: person.phoneVerified || undefined,
       email: normalizeEmail(person.email ?? "") || undefined,
     });
     dispatch({ type: "addPartyMember", member });

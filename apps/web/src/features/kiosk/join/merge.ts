@@ -55,6 +55,7 @@ export function guestToPartyMember(g: JoinGuestPayload): PartyMember {
     creditBalances: g.creditBalances,
     phone: g.phone,
     email: g.email,
+    phoneVerified: g.phoneVerified,
     dobIso: g.dobIso,
   });
   // newPartyMember doesn't take pandoraPersonId — spread it on (the
@@ -72,8 +73,14 @@ export interface MergeResult {
   /** Existing party members who re-signed-in by phone → patch waiverValid
    *  true (+ the short Pandora id the phone resolved — the one waiver-sign
    *  accepts; NEVER the 17-digit bmiPersonId, which other flows rely on).
+   *  An OTP-proven phone rides along so the member gains phoneVerified.
    *  Silent success, never a duplicate card. */
-  alreadyPresent: Array<{ memberId: string; pandoraPersonId?: string }>;
+  alreadyPresent: Array<{
+    memberId: string;
+    pandoraPersonId?: string;
+    phone?: string;
+    phoneVerified?: boolean;
+  }>;
 }
 
 export function mergeJoinedGuests(
@@ -111,7 +118,11 @@ export function mergeJoinedGuests(
 
     const inParty = party.find((m) => matches(m, gids, gname));
     if (inParty) {
-      alreadyPresent.push({ memberId: inParty.id, pandoraPersonId: g.pandoraPersonId });
+      alreadyPresent.push({
+        memberId: inParty.id,
+        pandoraPersonId: g.pandoraPersonId,
+        ...(g.phone && g.phoneVerified ? { phone: g.phone, phoneVerified: true } : {}),
+      });
       continue;
     }
     const asGuardian = guardians.find((m) => matches(m, gids, gname));

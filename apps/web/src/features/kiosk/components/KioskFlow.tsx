@@ -1224,6 +1224,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           session={session}
           dispatch={dispatch}
           brand={config.brand}
+          center={config.center}
           onAllActivities={() => {
             setCartActive(false);
             dispatch({ type: "setActiveItem", id: null });
@@ -1374,6 +1375,9 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
                     lastName: m.lastName ?? "",
                     ...(m.phone ? { phone: m.phone } : {}),
                     ...(m.email ? { email: m.email } : {}),
+                    // OTP-proven phone rides along — kiosk rewards redemption
+                    // keys on this to skip its SMS verify.
+                    phoneVerified: !!(m.phone && m.phoneVerified),
                   },
                 });
               }

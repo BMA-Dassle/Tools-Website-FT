@@ -47,6 +47,8 @@ export const joinGuestSchema = z.object({
     .optional(),
   phone: z.string().trim().max(20).optional(),
   email: z.string().trim().email().max(120).optional(),
+  /** Phone proven by the join flow's SMS OTP (returning sign-in only). */
+  phoneVerified: z.boolean().optional(),
   dobIso: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
 

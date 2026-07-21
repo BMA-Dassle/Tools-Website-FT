@@ -12,6 +12,9 @@ export interface PersonData {
   fullName: string;
   email: string;
   phone?: string;
+  /** True when `phone` was proven by the SMS OTP this lookup ran (phone mode
+   *  only — email/login-code lookups never verify a phone). */
+  phoneVerified?: boolean;
   races: number;
   loginCode: string;
   memberships: string[];
@@ -267,6 +270,9 @@ export function ReturningRacerLookup({
       fullName: a.fullName,
       email: a.email || (mode === "email" ? email.trim().toLowerCase() : ""),
       phone: mode === "phone" ? phone.replace(/\D/g, "").replace(/^1/, "") : undefined,
+      // Phone mode only reaches here AFTER handleSmsVerify succeeded, so the
+      // phone above is OTP-proven (email mode proves the email, not a phone).
+      phoneVerified: mode === "phone" || undefined,
       races: a.races,
       loginCode: a.loginCode,
       memberships: a.memberships,
