@@ -25,8 +25,19 @@ export function DeviceCheckCard({ config }: { config: KioskConfig | null }) {
 
   useEffect(() => {
     let alive = true;
-    // Game Zone reload path: does the on-prem bridge answer on this PC?
-    void bridgeHealth().then((ok) => alive && setGameZone(ok ? "local" : "cloud"));
+    // Game Zone reload path: does the on-prem bridge answer on this PC? Right
+    // after a reboot the bridge service is still starting, so a single early
+    // probe falsely reads "cloud" — retry a few times before concluding.
+    void (async () => {
+      for (let i = 0; i < 6 && alive; i++) {
+        if (await bridgeHealth()) {
+          if (alive) setGameZone("local");
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 2500));
+      }
+      if (alive) setGameZone("cloud");
+    })();
     // CRT-591: a persisted serial grant needs no prompt — presence = likely wired.
     void (async () => {
       const nav = navigator as Navigator & { serial?: { getPorts(): Promise<unknown[]> } };
