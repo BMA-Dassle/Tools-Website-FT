@@ -5,6 +5,8 @@
  * free of fetch boilerplate and gives one place to shape errors.
  */
 import type {
+  CheckinBindMember,
+  CheckinBindResponse,
   CheckinConfirmOtpResponse,
   CheckinItinerary,
   CheckinLookupResponse,
@@ -84,6 +86,24 @@ export async function fetchItinerary(
     return (await res.json()) as CheckinItinerary;
   } catch {
     return null;
+  }
+}
+
+export async function bindParty(
+  center: string,
+  proofToken: string,
+  members: CheckinBindMember[],
+  kioskId?: string,
+): Promise<CheckinBindResponse> {
+  try {
+    const res = await fetch("/api/kiosk/checkin/join", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ center, proofToken, members, kioskId }),
+    });
+    return (await res.json()) as CheckinBindResponse;
+  } catch {
+    return { ok: false, error: "network" };
   }
 }
 

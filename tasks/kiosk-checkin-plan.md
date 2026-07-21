@@ -71,18 +71,31 @@ this feature at all.
 Other v1 exclusions: no money collected at the kiosk (balance shows as display-only "due at
 the front desk"); group/daily-events waivers keep using `/kiosk/waiver`.
 
-## 8. Rollout — three dark PRs
+## 8. Rollout — dark PRs (refined during build)
 
-- **PR1** — read-only lookup + itinerary (+ server-side `bookingrecord:code`/`res` reverse
-  indexes at reserve time). Flag OFF; staff smoke by typed URL.
-- **PR2** — party completion: people monolith mount, mobile-join `checkin` stepKind,
-  waivers, Neon-first people rows, short-id resolution, BMI attach (**A3 probe = launch
-  gate**), racing slot bind + schedule (+ schedule-status sweep), QAMF compose.
-- **PR3** — complete pipeline: check-in-all stepper, **-5 Arrived** stamp (verify-by-reread),
-  memo, Neon/booking-record stamps + the checked-in-but-never-opened settle path, done
-  screen + lane-open lift.
+- **PR1 (shipped)** — read-only lookup + itinerary (+ server-side `bookingrecord:code`/`res`
+  reverse indexes at reserve time). Flag OFF; staff smoke by typed URL.
+- **PR2 (this branch, feat/kiosk-checkin-2-party)** — PARTY COMPLETION + BMI ATTACH. The
+  itinerary screen mounts the people monolith (`KioskAttractionPeopleStep.Component`) over a
+  local reducer — add / returning lookup / minor+guardian / waiver signature + the
+  mobile-join QR + merge, all writing into `session.party` (the exact KioskWaiverFlow
+  pattern). An "Add my group to my reservation" button POSTs the ready members
+  (`bmiPersonId` && `waiverValid`) to a proof-gated `join` route that persists to Neon
+  (`kiosk_checkin_events`/`_people`) FIRST, then attaches each as a BMI projectPerson via the
+  proven `registerProjectPersonServer` behind **KIOSK_WAIVER_BMI_ATTACH** (billId as the
+  public-booking `orderId`, matching bmi-sync's late-add). Scope stops at attach (roster +
+  waiver %). **Dedicated `checkin` mobile-join stepKind SKIPPED** — the monolith's built-in
+  QR rides `attraction` stepKind; a distinct kind would require editing the multi-writer
+  monolith to pass it, for only marginally better phone copy (documented follow-up).
+  Launch gate shared with group waiver: **A3 attach probe**.
+- **PR3** — the actual check-in: tap-to-assign people → heats/lanes, Pandora session
+  schedule (extract `scheduleRacers` from kiosk-post-reserve), QAMF bowling roster
+  (players-PATCH compose + `syncQamfPlayers`), **-5 Arrived** stamp (verify-by-reread), memo,
+  Neon/booking-record stamps + the checked-in-but-never-opened settle path, done screen +
+  lane-open lift, and the schedule-status sweep. Bowling names/shoes need their own grid UI
+  (the people monolith is waiver-only).
 - Then owner live smoke → flip `NEXT_PUBLIC_KIOSK_CHECKIN_ENABLED` → watch
-  `kiosk_checkin_people` failure statuses + the sweep.
+  `kiosk_checkin_people` statuses.
 
 ## 9. Launch gates (in order)
 

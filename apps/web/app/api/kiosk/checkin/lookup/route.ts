@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json<CheckinLookupResponse>({ ok: false, reason: "cancelled" });
     }
     if (resolved.proven) {
-      const proofToken = await mintProof(resolved.billId, center);
+      const proofToken = await mintProof(resolved.billId, center, "code");
       return NextResponse.json<CheckinLookupResponse>({
         ok: true,
         matches: [

@@ -14,7 +14,7 @@
  */
 import { randomBytes } from "crypto";
 import redis from "@/lib/redis";
-import { displayNameFromFull } from "@/lib/display-name";
+import { displayNameFromFull, makeDisplayName } from "@/lib/display-name";
 import { verifyBillSignature } from "@/lib/booking-confirmation-link";
 import { todayET } from "~/features/daily-events/format";
 import { resolveCenter } from "~/features/cancellation/centers";
@@ -27,6 +27,13 @@ import {
   type BowlingReservation,
 } from "@/lib/bowling-db";
 import { ATTRACTIONS } from "@/lib/attractions-data";
+import { registerProjectPersonServer } from "~/features/kiosk/waiver/bmi-attach";
+import { kioskCheckinAttachEnabled } from "../flags";
+import {
+  openCheckinEvent,
+  upsertCheckinPerson,
+  setCheckinPersonStatus,
+} from "../data/kiosk-checkins-db";
 import {
   assembleItinerary,
   fmtTime12,
@@ -36,6 +43,8 @@ import {
 } from "./itinerary";
 import { classifyScan } from "./scan";
 import type {
+  CheckinBindMember,
+  CheckinBindResult,
   CheckinBrowseRow,
   CheckinItinerary,
   CheckinLookupMatch,
@@ -120,17 +129,32 @@ export async function readRef(token: string): Promise<RefHandle | null> {
     return null;
   }
 }
-export async function mintProof(billId: string, center: CenterSlug): Promise<string> {
+export async function mintProof(
+  billId: string,
+  center: CenterSlug,
+  verifiedVia: CheckinVerifiedVia = "otp",
+): Promise<string> {
   const token = newToken();
-  await redis.set(`checkin:proof:${token}`, JSON.stringify({ billId, center }), "EX", PROOF_TTL);
+  await redis.set(
+    `checkin:proof:${token}`,
+    JSON.stringify({ billId, center, verifiedVia }),
+    "EX",
+    PROOF_TTL,
+  );
   return token;
 }
 export async function readProof(
   token: string,
-): Promise<{ billId: string; center: CenterSlug } | null> {
+): Promise<{ billId: string; center: CenterSlug; verifiedVia?: CheckinVerifiedVia } | null> {
   try {
     const raw = await redis.get(`checkin:proof:${token}`);
-    return raw ? (JSON.parse(raw) as { billId: string; center: CenterSlug }) : null;
+    return raw
+      ? (JSON.parse(raw) as {
+          billId: string;
+          center: CenterSlug;
+          verifiedVia?: CheckinVerifiedVia;
+        })
+      : null;
   } catch {
     return null;
   }
@@ -394,7 +418,7 @@ export async function matchByPhone(
     seen.add(row.bmiBillId);
     const summary = await loadSummary(row.bmiBillId);
     if (!summary || summary.cancelled) continue;
-    const proofToken = await mintProof(row.bmiBillId, center);
+    const proofToken = await mintProof(row.bmiBillId, center, "otp");
     matches.push({
       proofToken,
       label: summary.label,
@@ -550,7 +574,7 @@ export async function confirmContactOtp(
       attemptsLeft?: number;
     };
     if (data.verified) {
-      const proofToken = await mintProof(billId, center);
+      const proofToken = await mintProof(billId, center, "browse-otp");
       return { ok: true, proofToken };
     }
     return { ok: false, attemptsLeft: data.attemptsLeft };
@@ -695,6 +719,98 @@ function emptyItinerary(center: CenterSlug, reason: CheckinItinerary["reason"]):
     dueAtCenterCents: 0,
     reason,
   };
+}
+
+// ── party bind (PR2 — attach the added party to the reservation) ─────────────
+/**
+ * Attach the ready party members to an existing reservation as BMI
+ * projectPersons, persisting to Neon FIRST (house hard rule) so an attach
+ * failure never loses the record. This is the SAME proven primitive the
+ * group-waiver flow uses (registerProjectPersonServer, behind
+ * KIOSK_WAIVER_BMI_ATTACH); billId is passed as the public-booking "orderId"
+ * exactly as the staff edit engine's late-add does (bmi-sync). Only people who
+ * are actually playing reach here — signer-only guardians live in
+ * session.guardians and are never in the party the client sends.
+ *
+ * PR2 stops at attach (roster + waiver %). Heat/lane assignment, Pandora
+ * session scheduling, and the -5 Arrived stamp are PR3.
+ */
+export async function bindPartyMembers(args: {
+  billId: string;
+  center: CenterSlug;
+  kioskId?: string | null;
+  verifiedVia: CheckinVerifiedVia;
+  members: CheckinBindMember[];
+}): Promise<{ ok: boolean; results: CheckinBindResult[] }> {
+  const businessDate = todayET();
+  const event = await openCheckinEvent({
+    billId: args.billId,
+    center: args.center,
+    kioskId: args.kioskId ?? null,
+    verifiedVia: args.verifiedVia,
+    businessDate,
+  });
+  const clientKey = bmiClientKeyFor(args.center);
+  const attachEnabled = kioskCheckinAttachEnabled();
+  const results: CheckinBindResult[] = [];
+
+  for (const m of args.members) {
+    // Ready players only (identified + waivered) — mirrors the people step's
+    // peopleReady gate; anything else the client shouldn't have sent.
+    if (!m.bmiPersonId || !m.waiverValid) continue;
+    const displayName = m.firstName ? makeDisplayName(m.firstName, m.lastName ?? "") : "Guest";
+    const slotKey = m.pandoraPersonId || m.bmiPersonId;
+
+    // Neon FIRST — never gated on the external attach.
+    const row = event
+      ? await upsertCheckinPerson({
+          eventId: event.id,
+          slotKey,
+          personId: m.bmiPersonId,
+          pandoraPersonId: m.pandoraPersonId ?? null,
+          displayName,
+          firstName: m.firstName,
+          lastName: m.lastName ?? null,
+          waiverValid: true,
+        })
+      : null;
+
+    // Re-attach guard (mirrors the group-waiver route): the Neon row carries
+    // the prior status across reloads / return visits, so an already-attached
+    // person is never re-POSTed — no duplicate projectPerson, no
+    // attached→failed status downgrade. Durable, unlike the client's boundIds.
+    if (row?.bmiAttachStatus === "attached") {
+      results.push({ displayName, attach: "attached" });
+      continue;
+    }
+
+    let attach: CheckinBindResult["attach"] = "skipped";
+    // Persist-first house rule: only write to BMI once we have a durable Neon
+    // row. If the DB is unavailable (event/row null) we do NOT fire a BMI write
+    // that would leave no recoverable record.
+    if (attachEnabled && row) {
+      try {
+        const res = await registerProjectPersonServer({
+          clientKey,
+          projectId: args.billId, // injected as the public-booking "orderId" (bmi-sync late-add idiom)
+          personId: m.bmiPersonId,
+          firstName: m.firstName,
+          lastName: m.lastName ?? "",
+        });
+        attach = res.ok ? "attached" : "failed";
+      } catch {
+        attach = "failed";
+      }
+      await setCheckinPersonStatus(row.id, {
+        bmiAttachStatus: attach,
+        error:
+          attach === "failed" ? { step: "attach", message: "registerProjectPerson failed" } : null,
+      });
+    }
+    results.push({ displayName, attach });
+  }
+
+  return { ok: true, results };
 }
 
 export { loadSummary };

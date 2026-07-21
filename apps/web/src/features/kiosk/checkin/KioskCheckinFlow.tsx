@@ -12,7 +12,7 @@
  * Structure mirrors KioskWaiverFlow: page-local state, IdleWatcher, resetToKiosk
  * exit, canvas Podium classes, the shell's global on-screen keyboard for input.
  */
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useReducer, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
   IconChevronLeft,
@@ -24,11 +24,15 @@ import {
   IconClock,
   IconUserCheck,
 } from "@tabler/icons-react";
+import { emptySession, reducer, type AttractionItem } from "~/features/booking";
+import { KioskAttractionPeopleStep } from "../steps/KioskPeopleStep";
 import { IdleWatcher } from "../components/IdleWatcher";
 import { BrandedLoader } from "../components/BrandedLoader";
 import { useKioskConfig } from "../KioskConfigContext";
+import { kioskId } from "../config";
 import { resetToKiosk } from "../version";
 import {
+  bindParty,
   confirmContactOtp,
   fetchItinerary,
   lookupBrowse,
@@ -41,10 +45,34 @@ import {
 import { useWedgeScan } from "./wedge-scan";
 import type {
   CheckinActivity,
+  CheckinBindMember,
   CheckinBrowseRow,
   CheckinItinerary,
   CheckinLookupMatch,
 } from "./types";
+
+/** The people monolith, mounted directly over a local reducer (KioskWaiverFlow
+ *  pattern) — gives add-people + returning lookup + waivers + the mobile-join
+ *  QR + merge, all writing into our local session.party. */
+const PeopleScreens = KioskAttractionPeopleStep.Component;
+
+/** Slug-less synthetic attraction item — no racing age floor; never booked. */
+function newCheckinItem(): AttractionItem {
+  return {
+    id: "checkin",
+    kind: "attraction",
+    slug: null,
+    date: null,
+    slot: null,
+    qty: 1,
+    productId: null,
+    pageId: null,
+    price: 0,
+    bmiLineId: null,
+    slotProposal: null,
+    assignedTo: [],
+  };
+}
 
 const IDLE_MS = 120_000;
 
@@ -87,6 +115,24 @@ export function KioskCheckinFlow() {
 
   // Itinerary
   const [itinerary, setItinerary] = useState<CheckinItinerary | null>(null);
+  const [proofToken, setProofToken] = useState<string | null>(null);
+
+  // Party panel — the people monolith runs on this LOCAL, non-persisted booking
+  // reducer (center baked in; config hydrates synchronously on a provisioned
+  // kiosk, and the unprovisioned case redirects below).
+  const [session, dispatch] = useReducer(reducer, undefined, () => ({
+    ...emptySession({
+      entryBrand: config?.brand ?? "fasttrax",
+      context: { kiosk: true, ...(config ? { center: config.center } : {}) },
+    }),
+    center: config?.center ?? null,
+  }));
+  const [checkinItem, setCheckinItem] = useState<AttractionItem>(newCheckinItem);
+  const [peopleBusy, setPeopleBusy] = useState(false);
+  const [binding, setBinding] = useState(false);
+  const [bindMsg, setBindMsg] = useState<string | null>(null);
+  // member ids already attached this visit — never re-attach on a second tap.
+  const [boundIds, setBoundIds] = useState<Set<string>>(() => new Set());
 
   const goHome = useCallback(() => {
     void resetToKiosk(() => router.replace("/kiosk"));
@@ -98,10 +144,10 @@ export function KioskCheckinFlow() {
   }, [hydrated, config, router]);
 
   const openItinerary = useCallback(
-    async (proofToken: string) => {
+    async (token: string) => {
       setBusy(true);
       setError(null);
-      const data = await fetchItinerary(center, proofToken);
+      const data = await fetchItinerary(center, token);
       setBusy(false);
       if (!data || !data.ok) {
         setError(
@@ -112,10 +158,37 @@ export function KioskCheckinFlow() {
         return;
       }
       setItinerary(data);
+      setProofToken(token);
       setStage("itinerary");
     },
     [center],
   );
+
+  const readyMembers = session.party.filter((m) => m.bmiPersonId && m.waiverValid);
+  const unboundReady = readyMembers.filter((m) => !boundIds.has(m.id));
+
+  const bindGroup = async () => {
+    if (!proofToken || unboundReady.length === 0) return;
+    setBinding(true);
+    setBindMsg(null);
+    const members: CheckinBindMember[] = unboundReady.map((m) => ({
+      bmiPersonId: m.bmiPersonId as string,
+      pandoraPersonId: m.pandoraPersonId ?? null,
+      firstName: m.firstName,
+      lastName: m.lastName,
+      waiverValid: !!m.waiverValid,
+    }));
+    const res = await bindParty(center, proofToken, members, config ? kioskId(config) : undefined);
+    setBinding(false);
+    if (!res.ok) {
+      setBindMsg("We couldn't add your group to the reservation — please see the front desk.");
+      return;
+    }
+    const justBound = unboundReady.map((m) => m.id);
+    setBoundIds((prev) => new Set([...prev, ...justBound]));
+    const n = res.results?.length ?? justBound.length;
+    setBindMsg(`Added ${n} ${n === 1 ? "person" : "people"} to your reservation.`);
+  };
 
   const tapBrowseRow = async (row: CheckinBrowseRow) => {
     setBusy(true);
@@ -254,7 +327,7 @@ export function KioskCheckinFlow() {
 
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-[#000418]">
-      <IdleWatcher timeoutMs={IDLE_MS} paused={busy} onReset={goHome} />
+      <IdleWatcher timeoutMs={IDLE_MS} paused={busy || peopleBusy || binding} onReset={goHome} />
 
       {/* Header */}
       <div className="flex shrink-0 items-center gap-[24px] border-b border-white/10 px-[48px] py-[32px]">
@@ -372,7 +445,51 @@ export function KioskCheckinFlow() {
         )}
 
         {stage === "itinerary" && itinerary && (
-          <ItineraryScreen itinerary={itinerary} onNewBooking={() => router.push("/kiosk/flow")} />
+          <div className="space-y-[32px]">
+            <ItineraryScreen
+              itinerary={itinerary}
+              onNewBooking={() => router.push("/kiosk/flow")}
+            />
+
+            {/* Add your group — the people monolith (add / returning lookup /
+                minor+guardian / waiver signature) + the mobile-join QR, all
+                writing into the local session.party. */}
+            <div className="border-t border-white/10 pt-[28px]">
+              <div className="k-eyebrow mb-[10px] text-[#00e2e5]">Add your group</div>
+              <p className="mb-[20px] text-[26px] text-white/55">
+                Add anyone with you who still needs an account or a waiver — or have them scan the
+                QR to sign in on their own phone.
+              </p>
+              <PeopleScreens
+                item={checkinItem}
+                session={session}
+                onChange={(patch) => setCheckinItem((prev) => ({ ...prev, ...patch }))}
+                dispatch={dispatch}
+                setBusy={setPeopleBusy}
+              />
+
+              {bindMsg && (
+                <div className="mt-[20px] rounded-2xl border-2 border-[#46d68c]/40 bg-[#46d68c]/10 px-[28px] py-[20px] text-[26px] text-[#a7e8c6]">
+                  {bindMsg}
+                </div>
+              )}
+
+              {unboundReady.length > 0 && (
+                <button
+                  type="button"
+                  onClick={bindGroup}
+                  disabled={binding}
+                  className="k-btn-primary k-tap mt-[20px] h-[96px] w-full text-[32px] disabled:opacity-40"
+                >
+                  {binding
+                    ? "Adding your group…"
+                    : `Add ${unboundReady.length} ${
+                        unboundReady.length === 1 ? "person" : "people"
+                      } to my reservation`}
+                </button>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -529,10 +646,11 @@ function ItineraryScreen(props: { itinerary: CheckinItinerary; onNewBooking: () 
         </div>
       )}
 
-      {/* Party (read-only in PR1) */}
+      {/* Who's already on the reservation (read-only; the interactive
+          "Add your group" panel renders below the itinerary). */}
       {itinerary.roster.length > 0 && (
         <div>
-          <div className="k-eyebrow mb-[14px] text-white/40">Your group</div>
+          <div className="k-eyebrow mb-[14px] text-white/40">Already on this reservation</div>
           <div className="flex flex-wrap gap-[12px]">
             {itinerary.roster.map((p, i) => (
               <span

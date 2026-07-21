@@ -75,6 +75,44 @@ export interface CheckinConfirmOtpResponse {
   attemptsLeft?: number;
 }
 
+// ── Party bind (POST /api/kiosk/checkin/join, proof-gated) ──────────────────
+// PR2: attach the added/identified party to the reservation as BMI
+// projectPersons (+ persist to Neon). Heat/lane assignment, Pandora session
+// scheduling, and the -5 Arrived stamp are PR3.
+
+/** A ready party member the client sends to be attached. */
+export interface CheckinBindMember {
+  /** 17-digit Office id (returning) or short Pandora id (new) — digit string. */
+  bmiPersonId: string;
+  /** Short Pandora id when known (for PR3 scheduling; not used by attach). */
+  pandoraPersonId?: string | null;
+  firstName: string;
+  lastName?: string;
+  waiverValid: boolean;
+}
+
+export interface CheckinBindRequest {
+  center: string;
+  proofToken: string;
+  /** Kiosk device id ("center:kioskNumber…") for provenance. */
+  kioskId?: string;
+  members: CheckinBindMember[];
+}
+
+export interface CheckinBindResult {
+  displayName: string;
+  /** attached = on the BMI reservation; skipped = attach flag off (Neon only);
+   *  failed = attach errored (recorded, guest unaffected, staff reconcile). */
+  attach: "attached" | "skipped" | "failed";
+}
+
+export interface CheckinBindResponse {
+  ok: boolean;
+  results?: CheckinBindResult[];
+  error?: string;
+  reason?: "expired-proof" | "no-members" | "cancelled";
+}
+
 // ── Itinerary envelope (GET /api/kiosk/checkin/itinerary, proof-gated) ──────
 
 export type CheckinActivityKind = "racing" | "bowling" | "attraction";

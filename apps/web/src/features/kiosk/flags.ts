@@ -57,6 +57,21 @@ export function kioskCheckinEnabled(): boolean {
 }
 
 /**
+ * BMI registerProjectPerson attach for kiosk CHECK-IN party binds — OPT-IN,
+ * defaults OFF, server-side only. Deliberately SEPARATE from the group-waiver's
+ * KIOSK_WAIVER_BMI_ATTACH (which is live + default-ON): check-in ships dark, and
+ * the billId-vs-projectId attach semantics against an existing confirmed
+ * reservation are still A3-probe-gated. Until this is set to "1" (after the A3
+ * APPLY run + owner sign-off), a check-in bind persists to Neon
+ * (kiosk_checkin_people) but performs NO BMI write — so a staff tester reaching
+ * /kiosk/checkin by typed URL never mutates a real reservation. Read at call
+ * time so tests can stub process.env.
+ */
+export function kioskCheckinAttachEnabled(): boolean {
+  return process.env.KIOSK_CHECKIN_BMI_ATTACH === "1";
+}
+
+/**
  * BMI registerProjectPerson attach for kiosk waiver joins — kill switch,
  * defaults ON (owner 2026-07-19), server-side only (the join route is the
  * sole consumer, so no NEXT_PUBLIC prefix). registerProjectPerson is proven
