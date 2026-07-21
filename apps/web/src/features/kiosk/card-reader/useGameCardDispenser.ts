@@ -20,7 +20,7 @@ import type { CrtReaderClient } from "./client";
 import type { CrtErrorInfo } from "./protocol/errors";
 import type { CrtStatus, ErrorBinLevel } from "./protocol/status";
 import type { CrtDeviceInfo } from "./client";
-import { kioskDeviceKey, type KioskConfig } from "../config";
+import { kioskDeviceKey, resolveKioskConfig, saveKioskConfig, type KioskConfig } from "../config";
 
 /** An op either succeeds with a value, or fails with a classified fault. */
 export type OpResult<T> =
@@ -58,6 +58,21 @@ export function useGameCardDispenser({ config, onConnected }: UseGameCardDispens
         }).catch(() => {
           /* hint save is best-effort — never block the flow */
         });
+        // ALSO write the hint to the LOCAL store (localStorage) right now. The
+        // idle self-update reloads /kiosk with no URL params — that boot reads
+        // localStorage, and when the hint lived only in Neon the reload forgot
+        // the port and re-scanned. With this, a reload connects directly and
+        // hunting only ever happens if that direct connect fails.
+        const resolved = resolveKioskConfig({
+          ...config,
+          cardReaderBaud: info.baudRate,
+          ...(portIndex >= 0 ? { cardReaderPortIndex: portIndex } : {}),
+          cardReaderPortInfo:
+            portInfo.usbVendorId != null
+              ? { usbVendorId: portInfo.usbVendorId, usbProductId: portInfo.usbProductId }
+              : (config.cardReaderPortInfo ?? null),
+        });
+        if (resolved) saveKioskConfig(resolved);
       }
       onConnected?.(info, portInfo);
     },

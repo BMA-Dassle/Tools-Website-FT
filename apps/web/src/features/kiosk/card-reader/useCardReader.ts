@@ -52,6 +52,15 @@ export interface UseCardReaderOptions {
 // load). Reconnect reuses it directly, so returning to a screen doesn't re-hunt.
 let rememberedCrtPort: SerialPort | null = null;
 
+// The LIVE client parked across component unmounts. Re-opening a native COM
+// port + the CRT handshake takes seconds, and each screen (Game Zone, GZ
+// fulfillment, admin) owning its own open/close put "Connecting to the card
+// dispenser…" on every screen change (owner 2026-07-21). Unmount PARKS the
+// connection here instead of closing; the next consumer adopts it instantly.
+// Cleared when the device actually drops (module-level onDisconnected below)
+// or on a deliberate disconnect().
+let sharedClient: CrtReaderClient | null = null;
+
 const EMPTY_LOG: readonly LogEntry[] = [];
 const POLL_MS = 1_200;
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -252,11 +261,58 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
     };
   }, []);
 
-  // Close the port + stop reconnecting when the owner unmounts.
+  // Listener unsubscribes THIS component instance registered on the (shared)
+  // client — detached on unmount WITHOUT closing the connection.
+  const unsubsRef = useRef<Array<() => void>>([]);
+
+  /** Attach this component to a live client: state + listeners. Used by a
+   *  fresh connect AND by adopting the parked shared client on mount. */
+  const wireClient = useCallback((c: CrtReaderClient) => {
+    clientRef.current = c;
+    setClient(c);
+    setUnavailable(false);
+    setConnection({ state: "connected", info: c.info });
+    unsubsRef.current.push(
+      c.onStatus((s) => setStatus(s)),
+      c.onDisconnected((reason) => {
+        clientRef.current = null;
+        setClient(null);
+        setPolling(false);
+        setBusy(null);
+        if (trustRef.current) {
+          // Provisioned kiosk — recover automatically (backoff loop); only
+          // mark unavailable if that gives up.
+          setConnection({
+            state: "connecting",
+            detail: `Reader disconnected${reason ? ` — ${reason}` : ""}. Reconnecting…`,
+          });
+          attemptReconnectRef.current();
+        } else {
+          setConnection({
+            state: "error",
+            message: `Reader disconnected${reason ? ` — ${reason}` : ""}. Check the cable, then reconnect.`,
+            canRetry: true,
+          });
+        }
+      }),
+    );
+  }, []);
+
+  // Adopt the parked live connection from the previous screen, if any —
+  // instant CONNECTED, no port re-open, no "Connecting…" flash. Declared
+  // before the auto-reconnect effect below so adoption wins on mount.
+  useEffect(() => {
+    if (!clientRef.current && sharedClient) wireClient(sharedClient);
+  }, [wireClient]);
+
+  // PARK the connection + stop reconnecting when the owner unmounts. Do NOT
+  // close the port — the next screen adopts it via sharedClient; closing here
+  // is what caused a full re-open (seconds) on every screen change.
   useEffect(() => {
     return () => {
       stopReconnectRef.current = true;
-      void clientRef.current?.close();
+      unsubsRef.current.forEach((u) => u());
+      unsubsRef.current = [];
       clientRef.current = null;
     };
   }, []);
@@ -266,6 +322,9 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
     setUnavailable(false);
     const c = clientRef.current;
     clientRef.current = null;
+    if (c && sharedClient === c) sharedClient = null; // deliberate close kills the parked copy
+    unsubsRef.current.forEach((u) => u());
+    unsubsRef.current = [];
     setClient(null);
     setPolling(false);
     setStatus(null);
@@ -295,32 +354,14 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
             onProgress: (detail) => setConnection({ state: "connecting", detail }),
           },
         );
-        clientRef.current = c;
-        setClient(c);
-        setUnavailable(false); // recovered — clear any prior terminal state
-        setConnection({ state: "connected", info: c.info });
-        c.onStatus((s) => setStatus(s));
-        c.onDisconnected((reason) => {
-          clientRef.current = null;
-          setClient(null);
-          setPolling(false);
-          setBusy(null);
-          if (trustRef.current) {
-            // Provisioned kiosk — recover automatically (backoff loop); only
-            // mark unavailable if that gives up.
-            setConnection({
-              state: "connecting",
-              detail: `Reader disconnected${reason ? ` — ${reason}` : ""}. Reconnecting…`,
-            });
-            attemptReconnectRef.current();
-          } else {
-            setConnection({
-              state: "error",
-              message: `Reader disconnected${reason ? ` — ${reason}` : ""}. Check the cable, then reconnect.`,
-              canRetry: true,
-            });
-          }
+        // Park the client for adoption by later screens, and clear the parked
+        // copy the moment the DEVICE actually drops (module-level listener —
+        // never unsubscribed, tied to the client's own lifetime).
+        sharedClient = c;
+        c.onDisconnected(() => {
+          if (sharedClient === c) sharedClient = null;
         });
+        wireClient(c);
         // Remember WHERE we connected: the port object (this session) + its
         // index in getPorts() (saved to config → Neon, so a fresh session/boot
         // tries it first instead of re-scanning).
@@ -341,7 +382,7 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
         setConnection({ state: "error", message: openErrorMessage(err), canRetry: true });
       }
     },
-    [preferredBaud, ring],
+    [preferredBaud, ring, wireClient],
   );
 
   const connect = useCallback(async () => {
