@@ -42,12 +42,13 @@ export interface TokenPackage {
    * Checkout-upsell special (owner 2026-07-21): offered ONLY on the kiosk's
    * post-"Review & Pay" upsell page. Implies, everywhere the pack flows:
    *   - hidden from the /reload grid and the standalone Game Zone grids;
-   *   - the $2 new-card activation fee is WAIVED (the marketed price is the
-   *     whole price — "$5" must never ring up as $7);
    *   - quantity capped at one card per person on the transaction (client
    *     stepper + reserve-time guard);
    *   - `compareAtCents` renders the strikethrough "was" price — DISPLAY
    *     ONLY, `priceCents` stays the charge authority.
+   * The $2 new-card activation fee applies like any other new card (owner
+   * 2026-07-21 final call) — the upsell page shows it explicitly so its CTA
+   * total matches the charge ($5 tokens + $2 activation).
    */
   upsell?: { compareAtCents: number };
 }

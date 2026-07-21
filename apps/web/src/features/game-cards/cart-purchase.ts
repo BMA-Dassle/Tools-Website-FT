@@ -57,12 +57,12 @@ export function resolveCartPurchase(
     }
     return { packageId: c.packageId, accountNumber: c.accountNumber?.trim() ?? "", pkg };
   });
-  // Checkout-upsell packs WAIVE the new-card activation fee (the marketed $5
-  // is the whole price — see TokenPackage.upsell); every other new card pays
-  // it exactly as before.
-  const feeCardCount = cards.filter((c) => !c.pkg.upsell).length;
+  // EVERY new card pays the one-time activation fee — checkout-upsell cards
+  // included (owner 2026-07-21, reversing the earlier waiver: "add card
+  // activation fee to upsell"). The upsell page displays the fee explicitly
+  // so its CTA total matches this charge.
   const totalCents =
-    cards.reduce((s, c) => s + c.pkg.priceCents, 0) + activationFeeCents(p.mode, feeCardCount);
+    cards.reduce((s, c) => s + c.pkg.priceCents, 0) + activationFeeCents(p.mode, cards.length);
   const orderLines: ResolvedCartPurchase["orderLines"] = cards.map((c) => ({
     name:
       p.mode === "new_card"
@@ -72,10 +72,10 @@ export function resolveCartPurchase(
     catalogObjectId: SQUARE_TOKEN_CATALOG_ID,
     amountCents: c.pkg.priceCents,
   }));
-  if (p.mode === "new_card" && feeCardCount > 0) {
+  if (p.mode === "new_card") {
     orderLines.push({
       name: "Card activation fee",
-      quantity: String(feeCardCount),
+      quantity: String(cards.length),
       catalogObjectId: SQUARE_ACTIVATION_FEE_CATALOG_ID,
       amountCents: ACTIVATION_FEE_CENTS,
     });

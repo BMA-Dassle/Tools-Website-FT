@@ -15,7 +15,7 @@
  */
 
 import { useState } from "react";
-import type { TokenPackage } from "~/features/game-cards/constants";
+import { ACTIVATION_FEE_CENTS, type TokenPackage } from "~/features/game-cards/constants";
 
 export function KioskCheckoutUpsell({
   pack,
@@ -37,6 +37,11 @@ export function KioskCheckoutUpsell({
   const pctOff = pack.upsell
     ? Math.round((1 - pack.priceCents / pack.upsell.compareAtCents) * 100)
     : 0;
+  // Every new card pays the one-time activation fee (owner 2026-07-21) —
+  // shown here and folded into the CTA so displayed == charged
+  // (resolveCartPurchase adds the same fee line to the order).
+  const feeDollars = (ACTIVATION_FEE_CENTS * qty) / 100;
+  const totalDollars = priceDollars + feeDollars;
 
   return (
     <div className="k-flow-body flex flex-col items-center justify-center">
@@ -80,6 +85,15 @@ export function KioskCheckoutUpsell({
             you&apos;re done.
           </p>
 
+          {/* One-time card activation, same as every new Game Zone card —
+              shown so the CTA total below never surprises anyone. */}
+          <div className="flex items-baseline justify-between border-t border-white/10 pt-[20px] text-[25px]">
+            <span className="text-white/55">
+              {qty > 1 ? `Card activation × ${qty} (one-time)` : "Card activation (one-time)"}
+            </span>
+            <span className="k-num text-white/75">+${feeDollars.toFixed(2)}</span>
+          </div>
+
           {maxQty > 1 && (
             <div className="flex items-center justify-between gap-[20px] border-t border-white/10 pt-[24px]">
               <div>
@@ -120,7 +134,7 @@ export function KioskCheckoutUpsell({
             className="k-btn-primary k-tap"
             style={{ flex: "0 0 auto" }}
           >
-            Add {qty > 1 ? `${qty} cards` : "to order"} — ${priceDollars.toFixed(2)} →
+            Add {qty > 1 ? `${qty} cards` : "to order"} — ${totalDollars.toFixed(2)} →
           </button>
           <button
             type="button"
