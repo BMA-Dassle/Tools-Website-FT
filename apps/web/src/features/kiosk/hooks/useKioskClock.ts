@@ -85,6 +85,7 @@ export const KIOSK_GLOW_PERIODS_MS: Record<string, number> = {
   "kiosk-kenburns": 60000, // 30s ease-in-out alternate → 60s there-and-back cycle
   "kiosk-sweep": 7500,
   "kiosk-pulse": 2400,
+  "kiosk-racecar": 8000, // one crossing per 8s ad slide (AD_ROTATE_MS)
 };
 
 /**
@@ -97,6 +98,11 @@ export const KIOSK_GLOW_PERIODS_MS: Record<string, number> = {
  * its original start time, so the same delay lands at a different phase), while
  * a currentTime seek is exact whenever it runs — mount, clock resync, or
  * remount. No-op under prefers-reduced-motion (no animations to seek).
+ *
+ * Per-element stagger: an element may carry data-glow-phase-ms to shift its
+ * phase WITHIN the shared cycle (still clock-locked, just offset). Used by the
+ * attract race car so the bank of kiosks hands the car off screen-to-screen
+ * (highest kiosk number → lowest) instead of every screen animating in unison.
  */
 export function syncGlowPhase(root: HTMLElement | null, offset: number): void {
   if (!root) return;
@@ -104,9 +110,10 @@ export function syncGlowPhase(root: HTMLElement | null, offset: number): void {
   for (const [name, period] of Object.entries(KIOSK_GLOW_PERIODS_MS)) {
     // Class name and @keyframes name match for every glow effect in kiosk.css.
     root.querySelectorAll<HTMLElement>(`.${name}`).forEach((el) => {
+      const phaseShift = Number(el.dataset.glowPhaseMs) || 0;
       for (const anim of el.getAnimations()) {
         if (anim instanceof CSSAnimation && anim.animationName === name) {
-          anim.currentTime = now % period;
+          anim.currentTime = (now + phaseShift) % period;
         }
       }
     });

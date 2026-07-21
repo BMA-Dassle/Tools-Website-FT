@@ -27,6 +27,9 @@ export const KIOSK_PHOTOS = {
   vipLanes: `${BLOB}/images/headpinz/hyperbowling.jpg`,
   flag: `${BLOB}/images/subpages/checkered-flag.webp`,
   arcade: `${BLOB}/images/headpinz/gallery-arcade.webp`,
+  /** FastTrax race car cutout (transparent bg) — races across the attract
+   *  ad zone once per slide on FastTrax kiosks. Art faces LEFT. 1011×240. */
+  raceCar: `${BLOB}/images/kiosk/ft-race-car.webp`,
 } as const;
 
 /** Attract-screen ad rotation (placeholder offers; owner supplies real copy). */

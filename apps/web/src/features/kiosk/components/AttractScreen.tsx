@@ -247,6 +247,24 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           style={{ backgroundImage: `url(${ad.photo})` }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#000418]/95 via-[#040e2c]/60 to-[#071440]/50" />
+        {/* FastTrax only: the race car zips along the bottom edge once per
+            slide (behind the title text — rendered before it). Clock-locked
+            like the other glow fx, but STAGGERED per kioskNumber so the bank
+            of kiosks hands the car off screen-to-screen, highest number →
+            lowest (right to left, matching the physical lineup): each kiosk
+            starts its 2s crossing 2s after the next-higher one. 4 crossings
+            fill the 8s cycle, so numbers wrap mod 4 if there are ever >4. */}
+        {config.brand === "fasttrax" && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={KIOSK_PHOTOS.raceCar}
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            data-glow-phase-ms={(((config.kioskNumber ?? 1) - 1) % 4) * 2000}
+            className="kiosk-racecar pointer-events-none absolute bottom-[10px] left-full h-[90px] w-auto max-w-none"
+          />
+        )}
         <div className="absolute bottom-[40px] left-[64px]">
           <div className="k-display text-[64px]">{ad.title}</div>
           <div className="mt-[8px] text-[28px] text-white/60">{ad.sub}</div>

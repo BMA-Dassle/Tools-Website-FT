@@ -67,6 +67,24 @@
   animation: kiosk-sweep 7.5s ease-in-out infinite;
 }
 
+/* FastTrax attract ad zone: the race car zips right→left along the bottom
+   once per ad slide, then parks offscreen for the rest of it. The element is
+   anchored at left:100% (x=1080), so translateX(0) is fully hidden and
+   -1500px clears the canvas plus the ~380px rendered car width. */
+@keyframes kiosk-racecar {
+  0%,
+  75% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-1500px);
+  }
+}
+.kiosk-racecar {
+  /* KIOSK_GLOW_PERIODS_MS: 8000 — locked to the 8s ad rotation */
+  animation: kiosk-racecar 8s linear infinite;
+}
+
 @keyframes kiosk-pulse {
   0%,
   100% {
@@ -176,6 +194,7 @@
   .kiosk-kenburns,
   .kiosk-sweep,
   .kiosk-pulse,
+  .kiosk-racecar,
   .k-slot-card,
   .k-slot-glow {
     animation: none;
