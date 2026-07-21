@@ -18,7 +18,14 @@
 import { useState } from "react";
 import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
 
-type RosterPlayer = { name: string; shoeSize: string | null; bumpers: boolean | null };
+type RosterPlayer = {
+  name: string;
+  shoeSize: string | null;
+  bumpers: boolean | null;
+  /** Party linkage from the people step (signed-in carry-over) — preserved
+   *  through this step's rewrites so back-navigation keeps toggles honest. */
+  memberId?: string;
+};
 type BowlItem = BowlingItem | KbfItem;
 
 /** Canonical category value → sizes, mirroring the web confirmation editor so
@@ -116,6 +123,7 @@ function rosterOf(item: BowlItem): RosterPlayer[] {
   const count = playerCountOf(item);
   const existing = item.players ?? [];
   return Array.from({ length: count }, (_, i) => ({
+    ...existing[i],
     name: existing[i]?.name ?? "",
     shoeSize: existing[i] ? existing[i].shoeSize : null,
     bumpers: existing[i] ? existing[i].bumpers : null,

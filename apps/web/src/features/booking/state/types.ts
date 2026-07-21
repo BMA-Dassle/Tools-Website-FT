@@ -395,7 +395,19 @@ interface BowlingCommon {
    * names for the QAMF lane setup and persist the roster with the
    * reservation (persist-at-capture).
    */
-  players?: Array<{ name: string; shoeSize: string | null; bumpers: boolean | null }>;
+  players?: Array<{
+    name: string;
+    shoeSize: string | null;
+    bumpers: boolean | null;
+    /**
+     * Kiosk signed-in carry-over: PartyMember.id when this row came from the
+     * session party (guest signed in for racing/an attraction earlier in the
+     * transaction) rather than being typed. Lets the bowling people step
+     * toggle roster members in/out without name-matching. Reserve paths read
+     * name/shoeSize/bumpers only — this never leaves the client session.
+     */
+    memberId?: string;
+  }>;
   /** Laser tag / gel blaster add-ons booked via BMI. */
   attractionAddons: BowlingAttractionAddon[];
   /** Pizza bowl per-lane modifier selections. Each entry = one lane. */
