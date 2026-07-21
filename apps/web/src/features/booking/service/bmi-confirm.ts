@@ -60,11 +60,16 @@ export async function bmiBillIsLive(clientKey: string, billId: string): Promise<
     },
     cache: "no-store",
   });
-  // A clean 404 means the bill is gone (definitely not live). Other non-OK
-  // statuses throw so the caller can decide (it fails open — a transient BMI
-  // error must never block a legitimate paying customer).
+  // A clean 404 means the bill is gone (definitely not live). Pandora also
+  // answers 400 "Entity Bill not found by key = …" when the bill doesn't exist
+  // in THIS center's BMI (e.g. it was created against the other center) — that
+  // is just as definitive, so report not-live rather than failing open. Other
+  // non-OK statuses throw so the caller can decide (it fails open — a transient
+  // BMI error must never block a legitimate paying customer).
   if (!res.ok) {
     if (res.status === 404) return false;
+    const body = await res.text().catch(() => "");
+    if (res.status === 400 && /not found/i.test(body)) return false;
     throw new Error(`BMI bill overview failed: ${res.status}`);
   }
   const ov = parseWithRawIds<{ lines?: unknown[] }>(await res.text());
@@ -113,9 +118,16 @@ export async function confirmBmiPayment(input: BmiConfirmInput): Promise<BmiConf
     throw new Error(`BMI payment/confirm failed: ${bmiRes.status} ${bmiText.slice(0, 200)}`);
   }
 
-  const bmiData = JSON.parse(bmiText);
-  return {
-    reservationNumber: bmiData.reservationNumber ?? null,
-    reservationCode: bmiData.reservationCode ?? null,
-  };
+  // BMI answers HTTP 200 with a status-only body (status 4 = BillNotFound) when
+  // the bill doesn't exist in this center — e.g. a bill created in the OTHER
+  // center's BMI. Every genuine confirm returns a reservationNumber (2,271 of
+  // 2,271 healthy rows carry one), so a missing number means the confirm did
+  // not land anywhere: fail loudly instead of marking the booking confirmed.
+  // Regex on raw text — never JSON.parse an id-bearing BMI response.
+  const reservationNumber = bmiText.match(/"reservationNumber"\s*:\s*"([^"]+)"/)?.[1] ?? null;
+  const reservationCode = bmiText.match(/"reservationCode"\s*:\s*"([^"]+)"/)?.[1] ?? null;
+  if (!reservationNumber) {
+    throw new Error(`BMI payment/confirm returned no reservationNumber: ${bmiText.slice(0, 200)}`);
+  }
+  return { reservationNumber, reservationCode };
 }

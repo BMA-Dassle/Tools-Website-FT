@@ -54,6 +54,7 @@ export async function registerContact(
   billId: string,
   contact: Partial<ContactInfo>,
   party: { bmiPersonId?: string; isBillingCustomer?: boolean }[],
+  clientKey?: string,
 ): Promise<void> {
   if (!contact.firstName || !contact.email || !contact.phone) return;
   try {
@@ -68,7 +69,11 @@ export async function registerContact(
     if (billingMember?.bmiPersonId) {
       json = json.slice(0, -1) + `,"personId":${billingMember.bmiPersonId}}`;
     }
-    await fetch(`/api/bmi?${new URLSearchParams({ endpoint: "person/registerContactPerson" })}`, {
+    const qs = new URLSearchParams({
+      endpoint: "person/registerContactPerson",
+      ...(clientKey ? { clientKey } : {}),
+    });
+    await fetch(`/api/bmi?${qs}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: json,
@@ -92,11 +97,16 @@ export async function registerProjectPersons(
   billId: string,
   party: { id: string; bmiPersonId?: string; firstName: string; lastName?: string }[],
   items: SessionItem[],
+  clientKey?: string,
 ): Promise<void> {
   const booked = bmiBookedMemberIds(
     items,
     party.map((m) => m.id),
   );
+  const qs = new URLSearchParams({
+    endpoint: "person/registerProjectPerson",
+    ...(clientKey ? { clientKey } : {}),
+  });
   for (const member of party) {
     if (!booked.has(member.id)) continue;
     if (!member.bmiPersonId) continue;
@@ -106,7 +116,7 @@ export async function registerProjectPersons(
         lastName: member.lastName ?? "",
       });
       const raw = `{"personId":${member.bmiPersonId},"orderId":${billId},` + regBody.slice(1);
-      await fetch(`/api/bmi?${new URLSearchParams({ endpoint: "person/registerProjectPerson" })}`, {
+      await fetch(`/api/bmi?${qs}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: raw,

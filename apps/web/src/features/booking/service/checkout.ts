@@ -125,19 +125,23 @@ export async function runCheckout(
     throw new Error("No items were booked — nothing to check out");
   }
 
+  // The bill lives in the CENTER's BMI (a Naples bill is only reachable with
+  // the Naples client key) — every follow-up call on it must carry that key.
+  const bmiKey = session.center === "naples" ? "headpinznaples" : "headpinzftmyers";
+
   // 2. Register billing contact on the combined bill
   onProgress("Registering contact…");
-  await registerContact(billId, contact, sessionWithContact.party);
+  await registerContact(billId, contact, sessionWithContact.party, bmiKey);
 
   // 3. Register verified racers as project persons — only party members
   // actually booked into a BMI activity (a kiosk sign-in with no race or
   // attraction never joins the reservation roster).
   onProgress("Registering racers…");
-  await registerProjectPersons(billId, session.party, sessionWithContact.items);
+  await registerProjectPersons(billId, session.party, sessionWithContact.items, bmiKey);
 
   // 4. Fetch bill overview for pricing
   onProgress("Loading totals…");
-  const bmiOverview = await fetchBillOverview(billId);
+  const bmiOverview = await fetchBillOverview(billId, bmiKey);
 
   // v2 $0 model: the BMI bill is $0 (heats are $0 build products), so the real
   // amount comes from the registry (race + license + FL tax), not the bill. Build
@@ -157,8 +161,9 @@ export async function runCheckout(
 
 // ── Bill overview ───────────────────────────────────────────────────────
 
-export async function fetchBillOverview(billId: string): Promise<BillOverview> {
-  const res = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${billId}`);
+export async function fetchBillOverview(billId: string, clientKey?: string): Promise<BillOverview> {
+  const keyQs = clientKey ? `&clientKey=${clientKey}` : "";
+  const res = await fetch(`/api/sms?endpoint=bill%2Foverview&billId=${billId}${keyQs}`);
   if (!res.ok) {
     throw new Error(`Bill overview failed: ${res.status}`);
   }

@@ -39,12 +39,19 @@ export function resolveAttractionContext(
   const config = ATTRACTIONS[slug];
   if (!config) return null;
 
+  // CENTER FIRST: a Naples session must resolve Naples products and the Naples
+  // BMI client key. Brand-based resolution alone maps "headpinz" to HP Fort
+  // Myers, which sent every Naples gel-blaster / laser-tag booking into the
+  // Fort Myers BMI — invisible to Naples staff (2026-07-20 incident; the
+  // fallback below never fired because FM sells both attractions too).
   let location: LocationKey =
-    config.location === "both"
-      ? session.entryBrand === "headpinz"
-        ? "headpinz"
-        : "fasttrax"
-      : config.location;
+    session.center === "naples" && config.products.some((p) => p.location === "naples")
+      ? "naples"
+      : config.location === "both"
+        ? session.entryBrand === "headpinz"
+          ? "headpinz"
+          : "fasttrax"
+        : config.location;
 
   // Fallback: if no products exist at the resolved location (e.g. gel-blaster
   // at "fasttrax"), try the center-based location instead.
@@ -92,8 +99,10 @@ export async function bookAttractionOnAdvance(
     dispatch({ type: "setBmiBillId", id: result.rawOrderId });
     // Attach the customer to the (possibly brand-new) bill immediately (v1
     // parity) so an attraction reservation never exists without a contact.
+    // Same clientKey as the bill was created with — a Naples bill lives in the
+    // Naples BMI; the default (FM) key would silently attach nothing.
     // Non-fatal.
-    await registerContact(result.rawOrderId, session.contact, session.party);
+    await registerContact(result.rawOrderId, session.contact, session.party, ctx?.clientKey);
   }
 
   dispatch({

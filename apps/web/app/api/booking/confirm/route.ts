@@ -308,7 +308,7 @@ export async function POST(req: NextRequest) {
           clientKey,
           httpStatus: bmiRes.status,
           orderId: billId,
-          wNumber: rawText.match(/"reservationNumber"\s*:\s*"(W\d+)"/)?.[1] || null,
+          wNumber: rawText.match(/"reservationNumber"\s*:\s*"([^"]+)"/)?.[1] || null,
           depositKind,
           amount,
           request: bmiBody,
@@ -327,8 +327,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Extract results — use regex on raw text for bigint safety
-    const resNumMatch = rawText.match(/"reservationNumber"\s*:\s*"(W\d+)"/);
+    // Extract results — use regex on raw text for bigint safety. Prefix-
+    // agnostic: FM numbers are W-prefixed but other centers may differ.
+    const resNumMatch = rawText.match(/"reservationNumber"\s*:\s*"([^"]+)"/);
     const resCodeMatch = rawText.match(/"reservationCode"\s*:\s*"([^"]+)"/);
     const statusMatch = rawText.match(/"status"\s*:\s*(\d+)/);
     const bmiStatus = statusMatch ? parseInt(statusMatch[1], 10) : null;
