@@ -247,7 +247,11 @@ export function kioskHasCamera(cfg: KioskConfig | null): boolean {
  */
 export function gameZoneCapability(cfg: KioskConfig | null): "full" | "reload" | "none" {
   if (!cfg) return "none";
-  if (cfg.dispenserId) return "full";
+  // A dispenser (the CRT-591) only counts when the reader is ENABLED. dispenserId
+  // holds the CRT's serial, saved on a past connect — it lingers after the CRT
+  // toggle is turned off, and must NOT keep Game Zone alive on its own (owner
+  // 2026-07-21: CRT + MSR both off but Game Zone still showed).
+  if (cfg.cardReaderEnabled && cfg.dispenserId) return "full";
   if (cfg.msrEnabled) return "reload";
   return "none";
 }

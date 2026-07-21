@@ -1,10 +1,35 @@
 import { describe, expect, it } from "vitest";
 import {
+  gameZoneCapability,
   mergeKioskConfig,
   parseKioskConfigFromSearchParams,
   resolveKioskConfig,
   type KioskConfig,
 } from "./config";
+
+describe("gameZoneCapability", () => {
+  const base = (over: Partial<KioskConfig>): KioskConfig =>
+    resolveKioskConfig({ center: "fort-myers", ...over })!;
+
+  it("is 'none' when both the CRT and MSR are off, even with a stale dispenserId", () => {
+    // The CRT serial lingers in dispenserId after the toggle is turned off — it
+    // must NOT keep Game Zone alive (owner 2026-07-21).
+    expect(gameZoneCapability(base({ dispenserId: "SN9", cardReaderEnabled: false }))).toBe("none");
+  });
+
+  it("is 'full' only when the CRT is enabled AND a dispenser is present", () => {
+    expect(gameZoneCapability(base({ cardReaderEnabled: true, dispenserId: "SN9" }))).toBe("full");
+    expect(gameZoneCapability(base({ cardReaderEnabled: true, dispenserId: null }))).toBe("none");
+  });
+
+  it("is 'reload' for an MSR-only kiosk", () => {
+    expect(gameZoneCapability(base({ msrEnabled: true }))).toBe("reload");
+  });
+
+  it("is 'none' for a null config", () => {
+    expect(gameZoneCapability(null)).toBe("none");
+  });
+});
 
 describe("parseKioskConfigFromSearchParams", () => {
   it("parses a full provisioning URL — venue slug determines brand", () => {

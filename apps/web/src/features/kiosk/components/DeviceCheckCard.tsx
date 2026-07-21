@@ -52,14 +52,17 @@ export function DeviceCheckCard({ config }: { config: KioskConfig | null }) {
         ? "HeadPinz — Fort Myers"
         : "FastTrax — Fort Myers";
 
-  const gzHardware = config?.dispenserId
-    ? `dispenser ${config.dispenserId}`
+  // "Configured" = a card device is actually ENABLED. A lingering dispenserId
+  // (the CRT serial from a past connect) must NOT read as present after the CRT
+  // toggle is turned off.
+  const gzHardware = config?.cardReaderEnabled
+    ? config.dispenserId
+      ? `CRT-591 ${config.dispenserId}`
+      : "CRT-591 serial"
     : config?.msrEnabled
       ? "MSR (reload only)"
-      : config?.cardReaderEnabled
-        ? "CRT-591 serial"
-        : "none";
-  const gzConfigured = !!(config?.dispenserId || config?.msrEnabled || config?.cardReaderEnabled);
+      : "none";
+  const gzConfigured = !!(config?.cardReaderEnabled || config?.msrEnabled);
 
   const rows: Array<{ label: string; value: string; tone: Tone }> = [
     {

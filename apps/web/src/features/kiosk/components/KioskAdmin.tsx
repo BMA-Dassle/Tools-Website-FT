@@ -549,11 +549,11 @@ function DeviceTab({
       />
       {draft.msrEnabled && <KioskAdminMsr draft={draft} persist={persist} />}
       <p className="text-xs text-white/40">
-        {draft.dispenserId
-          ? "Dispenser present → full Game Zone (buy + reload); MSR setting ignored."
+        {draft.cardReaderEnabled && draft.dispenserId
+          ? "CRT-591 enabled + dispenser present → full Game Zone (buy + reload); MSR ignored."
           : draft.msrEnabled
-            ? "No dispenser → Game Zone is RELOAD ONLY on this kiosk."
-            : "No dispenser and no MSR → Game Zone cards are UNAVAILABLE on this kiosk."}
+            ? "MSR only → Game Zone is RELOAD ONLY on this kiosk."
+            : "No enabled CRT-591 or MSR → Game Zone cards are UNAVAILABLE on this kiosk."}
       </p>
       <SectionLabel>Cameras</SectionLabel>
       <CameraPickers draft={draft} patch={patch} />
