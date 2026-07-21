@@ -19,6 +19,32 @@ const NODE_COLORS: Record<TimelineNode["kind"], string> = {
   store_credit: "#ef4444",
 };
 
+// Square Dashboard transaction deep link (seller must be signed in; a stale
+// format just lands on the transactions list, never errors).
+const sqTransactionUrl = (paymentId: string, locationId?: string) =>
+  `https://app.squareup.com/dashboard/sales/transactions/${paymentId}` +
+  (locationId ? `/by-unit/${locationId}` : "");
+
+function SquareLink({ href, title }: { href: string; title: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={title}
+      style={{
+        fontSize: "0.7rem",
+        fontWeight: 700,
+        color: "#60a5fa",
+        textDecoration: "none",
+        whiteSpace: "nowrap",
+      }}
+    >
+      Square ↗
+    </a>
+  );
+}
+
 function orderStateColor(state: string): string {
   if (state === "COMPLETED") return "#22c55e";
   if (state === "OPEN") return "#3b82f6";
@@ -251,6 +277,17 @@ export default function PaymentsTab({
                           label={`${t.paymentId.slice(0, 8)}…`}
                           onCopied={onCopied}
                         />
+                        {/* A tender on an order = a captured charge; explicit
+                            non-COMPLETED statuses (failed/canceled) get no link. */}
+                        {(!t.status || t.status === "COMPLETED") && (
+                          <>
+                            {" "}
+                            <SquareLink
+                              href={sqTransactionUrl(t.paymentId, n.order?.locationId)}
+                              title="Open this transaction in the Square Dashboard"
+                            />
+                          </>
+                        )}
                       </span>
                     ))}
                   </div>

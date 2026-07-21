@@ -164,6 +164,8 @@ export interface TimelineNode {
   order?: {
     id: string;
     state: string;
+    /** Square location id — powers the dashboard transaction deep link. */
+    locationId?: string;
     totalCents: number;
     netDueCents: number;
     tenders: Array<{
@@ -225,6 +227,7 @@ async function orderNode(
       order: {
         id: facts.id,
         state: facts.state,
+        locationId: facts.locationId || undefined,
         totalCents: facts.totalCents,
         netDueCents: facts.netDueCents,
         tenders,
