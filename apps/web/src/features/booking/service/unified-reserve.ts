@@ -1112,6 +1112,14 @@ async function unifiedReserveInner(
       ? resolveCartPurchase(session.gameCardPurchase)
       : null;
   const gzCents = gzPurchase?.totalCents ?? 0;
+  // Checkout-upsell cards are capped at ONE per person on the transaction
+  // (owner 2026-07-21) — fail closed like every other pricing guard here.
+  if (gzPurchase) {
+    const upsellCards = gzPurchase.cards.filter((c) => c.pkg.upsell).length;
+    if (upsellCards > Math.max(1, session.party.length)) {
+      throw new Error("Discounted Game Zone cards are limited to one per player.");
+    }
+  }
   if (gzPurchase && !prepareOnly && !useTerminal) {
     throw new Error(
       "Game Zone cards in the cart require the reader payment — please see the front desk.",

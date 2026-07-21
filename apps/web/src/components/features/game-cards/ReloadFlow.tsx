@@ -736,7 +736,8 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
                       </div>
                     )}
                     <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {TOKEN_PACKAGES.map((p) => (
+                      {/* Checkout-upsell specials never show on the public grid. */}
+                      {TOKEN_PACKAGES.filter((p) => !p.upsell).map((p) => (
                         <button
                           key={p.id}
                           onClick={() => {

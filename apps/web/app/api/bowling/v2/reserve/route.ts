@@ -440,6 +440,18 @@ export async function POST(req: NextRequest) {
           ? resolveCartPurchase(body.gameCardPurchase)
           : null;
       const gzCents = gz?.totalCents ?? 0;
+      // Checkout-upsell cards: one per person on the transaction (owner
+      // 2026-07-21). PREPARE is the authoritative gate — finalize must
+      // byte-match the prepared order, so it can't smuggle extras past this.
+      if (gz) {
+        const upsellCards = gz.cards.filter((c) => c.pkg.upsell).length;
+        if (upsellCards > Math.max(1, body.players?.length ?? 0)) {
+          return NextResponse.json(
+            { error: "Discounted Game Zone cards are limited to one per player." },
+            { status: 422 },
+          );
+        }
+      }
       let anchorGameCards: AnchorGameCards | undefined;
       if (gz) {
         const gzLoc = body.gameCardLocationCode;

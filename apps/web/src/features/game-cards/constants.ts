@@ -38,6 +38,18 @@ export interface TokenPackage {
   priceCents: number;
   tokens: number;
   bonusTokens: number;
+  /**
+   * Checkout-upsell special (owner 2026-07-21): offered ONLY on the kiosk's
+   * post-"Review & Pay" upsell page. Implies, everywhere the pack flows:
+   *   - hidden from the /reload grid and the standalone Game Zone grids;
+   *   - the $2 new-card activation fee is WAIVED (the marketed price is the
+   *     whole price — "$5" must never ring up as $7);
+   *   - quantity capped at one card per person on the transaction (client
+   *     stepper + reserve-time guard);
+   *   - `compareAtCents` renders the strikethrough "was" price — DISPLAY
+   *     ONLY, `priceCents` stays the charge authority.
+   */
+  upsell?: { compareAtCents: number };
 }
 
 export const TOKEN_PACKAGES: readonly TokenPackage[] = [
@@ -58,6 +70,19 @@ export const TOKEN_PACKAGES: readonly TokenPackage[] = [
     priceCents: 10000,
     tokens: 1000,
     bonusTokens: 250,
+  },
+  // Checkout upsell (owner 2026-07-21): "100 tokens for $5 — 50% off". The
+  // marketed 100 tokens load as 50 regular (matching the $5 at the normal
+  // 10¢/token rate) + 50 bonus making up the discount — reg vs bonus buckets
+  // are tracked/refunded separately end-to-end. APPEND-ONLY position: grids
+  // default to TOKEN_PACKAGES[1], so this must stay last.
+  {
+    id: "tok-upsell-100",
+    label: "100 Tokens — Checkout Special",
+    priceCents: 500,
+    tokens: 50,
+    bonusTokens: 50,
+    upsell: { compareAtCents: 1000 },
   },
 ] as const;
 

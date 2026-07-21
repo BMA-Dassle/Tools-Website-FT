@@ -56,8 +56,10 @@ import { getPackage } from "@/lib/packages";
 import { resolvePreselectPatch } from "../service/package-preselect";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
-import { kioskMergedCheckoutEnabled } from "../flags";
+import { kioskMergedCheckoutEnabled, kioskGzCartEnabled, kioskTerminalEnabled } from "../flags";
 import { KioskCheckoutScreen } from "./KioskCheckoutScreen";
+import { KioskCheckoutUpsell } from "./KioskCheckoutUpsell";
+import { TOKEN_PACKAGES } from "~/features/game-cards/constants";
 import { clarityEvent, clarityTag } from "~/lib/clarity";
 import {
   KIOSK_SCHEMA_VERSION,
@@ -122,6 +124,11 @@ function activityLabelFor(item: SessionItem): string {
 
 const IDLE_FLOW_MS = 120_000;
 const IDLE_CHECKOUT_MS = 180_000;
+
+/** The checkout-upsell token pack (owner 2026-07-21: "100 tokens for $5,
+ *  50% off") — the single offer on the post-"Review & Pay" upsell page.
+ *  Registry-driven: the first `upsell`-flagged pack wins; none = no page. */
+const CHECKOUT_UPSELL_PACK = TOKEN_PACKAGES.find((p) => p.upsell) ?? null;
 
 /** Kiosk-native steps are already authored at canvas px. Every OTHER (reused web)
  *  wizard step is web-rem-sized and reads small on the 1080px canvas, so it gets
@@ -204,6 +211,11 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
 
   const [cartActive, setCartActive] = useState(false);
   const [checkoutActive, setCheckoutActive] = useState(false);
+  // Checkout upsell page (merged flow): shown between "Review & Pay" and the
+  // pay screen when eligible; once per guest session (state remounts with the
+  // start-over route change, so the next guest sees it again).
+  const [upsellActive, setUpsellActive] = useState(false);
+  const upsellSeenRef = useRef(false);
   const [gzOpen, setGzOpen] = useState(false);
   // Standalone race-pack purchase (attract "Race Packs" chip) — a LOCKED
   // pack-only flow; its party is local until "Race today" adopts it here.
@@ -714,6 +726,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   const openCart = () => {
     clarityEvent("kiosk:cart:open");
     setCheckoutActive(false);
+    setUpsellActive(false);
     setCartActive(true);
     dispatch({ type: "setActiveItem", id: null });
   };
@@ -728,6 +741,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   const goHome = () => {
     setCartActive(false);
     setCheckoutActive(false);
+    setUpsellActive(false);
     setGzOpen(false);
     setVipCombo(null);
     setKioskError(null);
@@ -916,7 +930,8 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   const sessionBanner =
     (session.party.length > 0 || cartCount > 0 || hasGameCards) &&
     !cartActive &&
-    !checkoutActive ? (
+    !checkoutActive &&
+    !upsellActive ? (
       <button
         type="button"
         onClick={requestOpenCart}
@@ -1119,6 +1134,36 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     </div>
   );
 
+  // ── Checkout upsell (merged flow): discounted Game Zone card page ──
+  if (upsellActive && CHECKOUT_UPSELL_PACK) {
+    return chrome(
+      <KioskCheckoutUpsell
+        pack={CHECKOUT_UPSELL_PACK}
+        partySize={session.party.length}
+        onAdd={(packageId, quantity) => {
+          clarityEvent("kiosk:upsell:accepted");
+          dispatch({
+            type: "setGameCardPurchase",
+            purchase: {
+              mode: "new_card",
+              cards: Array.from({ length: quantity }, () => ({ packageId })),
+            },
+          });
+          clarityEvent("kiosk:checkout:start");
+          setUpsellActive(false);
+          setCheckoutActive(true);
+        }}
+        onSkip={() => {
+          clarityEvent("kiosk:upsell:declined");
+          clarityEvent("kiosk:checkout:start");
+          setUpsellActive(false);
+          setCheckoutActive(true);
+        }}
+      />,
+      KIOSK_PHOTOS.arcade,
+    );
+  }
+
   // ── Checkout ──
   if (checkoutActive) {
     return chrome(
@@ -1196,8 +1241,26 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
               : undefined
           }
           onReviewAndPay={() => {
-            clarityEvent("kiosk:checkout:start");
+            // Upsell page (owner 2026-07-21): between Review & Pay and the pay
+            // screen — only when NO Game Zone cards ride the cart, once per
+            // session, and only when this kiosk can actually sell + fulfill a
+            // new card (cart rail + reader rail + dispenser "full" capability).
+            const upsellEligible =
+              CHECKOUT_UPSELL_PACK != null &&
+              !upsellSeenRef.current &&
+              !session.gameCardPurchase?.cards.length &&
+              kioskGzCartEnabled() &&
+              kioskTerminalEnabled() &&
+              !!config.readerId &&
+              gameZoneCapability(config) === "full";
             setCartActive(false);
+            if (upsellEligible) {
+              upsellSeenRef.current = true;
+              clarityEvent("kiosk:upsell:shown");
+              setUpsellActive(true);
+              return;
+            }
+            clarityEvent("kiosk:checkout:start");
             setCheckoutActive(true);
           }}
         />,
