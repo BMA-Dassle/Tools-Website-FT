@@ -32,6 +32,7 @@ import { useKioskClock, syncGlowPhase } from "../hooks/useKioskClock";
 import { useKioskAvailability } from "../hooks/useKioskAvailability";
 import { captureKioskBootVersion, kioskUpdateAvailable } from "../version";
 import { bridgeHealth } from "../service/game-card-bridge";
+import { clickableDivProps } from "@/lib/a11y";
 
 const AD_ROTATE_MS = 8000;
 
@@ -489,11 +490,10 @@ function BootInfoOverlay({ config, onDismiss }: { config: KioskConfig; onDismiss
 
   return (
     <div
-      role="status"
-      onClick={(e) => {
+      {...clickableDivProps((e) => {
         e.stopPropagation();
         onDismiss();
-      }}
+      }, "Dismiss boot check")}
       className="absolute left-1/2 top-6 z-50 w-[92%] max-w-[560px] -translate-x-1/2 cursor-pointer rounded-2xl border border-[#00e2e5]/40 bg-[#0a1730]/95 p-5 text-left shadow-2xl backdrop-blur"
     >
       <div className="flex items-baseline justify-between gap-3">
