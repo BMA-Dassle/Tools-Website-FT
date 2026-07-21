@@ -95,6 +95,34 @@ export function KioskAdmin() {
     }
   }, [config]);
 
+  // Pull the saved config from NEON when staff unlock the admin, so every field
+  // (COM/port info, baud, reader id, toggles, cameras — everything) reflects the
+  // cloud, the source of truth, not just this browser profile's localStorage
+  // (Edge kiosk mode vs regular Edge are different profiles). Runs once per
+  // unlock, keyed on the device's real saved identity; if the device has no
+  // local identity yet, staff use the "Load from cloud" picker instead. Seeds
+  // the FORM only (source→cloud); Save writes it back to this device.
+  const pulledCloud = useRef(false);
+  useEffect(() => {
+    if (!authed || pulledCloud.current || !config?.center) return;
+    pulledCloud.current = true;
+    const id = kioskDeviceKey(config);
+    void (async () => {
+      const { ok, data } = await adminFetch(
+        pin,
+        `/api/kiosk/admin?action=config&kioskId=${encodeURIComponent(id)}`,
+      );
+      const cloudCfg = ok ? (data?.device?.config as Partial<KioskConfig> | undefined) : undefined;
+      const resolved = cloudCfg ? resolveKioskConfig(cloudCfg) : null;
+      if (!resolved) return;
+      seeded.current = true; // stop the local-seed effect from clobbering the pull
+      setDraft(resolved);
+      setSource("cloud");
+      setMsg(`Loaded saved setup from cloud — ${id}.`);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
+
   const patch = (p: Partial<KioskConfig>) => {
     seeded.current = true; // staff touched a field — stop auto-reseeding
     setSource("edited");
@@ -217,43 +245,61 @@ export function KioskAdmin() {
           ))}
         </div>
 
-        <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-2 text-xs text-white/55">
-          {config ? (
-            <>
-              Currently saved on this device:{" "}
-              <span className="font-semibold text-white/80">
-                {config.brand}/{config.center} #{config.kioskNumber ?? 1}
-              </span>{" "}
-              · {config.readerId ? `reader ${config.readerId}` : "no reader"} ·{" "}
-              {config.cardInputMethod ?? "manual"} · {config.variant}
-            </>
-          ) : (
-            "Nothing saved on this device yet — pick a location on the Device tab and Save."
-          )}
-        </div>
-
-        {/* What the FORM reflects right now — so staff never edit a stale LOCAL
-            seed thinking it's the cloud copy. */}
-        {draft.center && (
+        {/* One status bar: what identity you're editing + where it came from
+            (Local seed / Cloud pull / Unsaved edits). Replaces the old stacked
+            "saved on this device" + source-chip pair. */}
+        {draft.center ? (
           <div
-            className={`flex items-center gap-2 rounded-xl border px-4 py-2 text-xs ${
+            className={`space-y-1 rounded-xl border px-4 py-2.5 text-xs ${
               source === "cloud"
-                ? "border-[#46d68c]/40 bg-[#46d68c]/10 text-[#46d68c]"
+                ? "border-[#46d68c]/40 bg-[#46d68c]/10"
                 : source === "edited"
-                  ? "border-amber-400/40 bg-amber-400/10 text-amber-200"
-                  : "border-white/10 bg-white/[0.02] text-white/55"
+                  ? "border-amber-400/40 bg-amber-400/10"
+                  : "border-white/10 bg-white/[0.02]"
             }`}
           >
-            <span className="font-bold uppercase tracking-widest">
-              {source === "cloud" ? "Cloud" : source === "edited" ? "Unsaved" : "Local"}
-            </span>
-            <span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-white/70">
+                Editing{" "}
+                <span className="font-semibold text-white/90">
+                  {draft.center === "naples"
+                    ? "HeadPinz — Naples"
+                    : draft.brand === "headpinz"
+                      ? "HeadPinz — Fort Myers"
+                      : "FastTrax — Fort Myers"}{" "}
+                  #{draft.kioskNumber ?? 1}
+                </span>
+                <span className="ml-2 font-mono text-white/35">
+                  {kioskDeviceKey({
+                    center: draft.center,
+                    brand: draft.brand ?? "fasttrax",
+                    kioskNumber: draft.kioskNumber ?? 1,
+                  })}
+                </span>
+              </span>
+              <span
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest ${
+                  source === "cloud"
+                    ? "bg-[#46d68c]/20 text-[#46d68c]"
+                    : source === "edited"
+                      ? "bg-amber-400/20 text-amber-200"
+                      : "bg-white/10 text-white/50"
+                }`}
+              >
+                {source === "cloud" ? "Cloud" : source === "edited" ? "Unsaved" : "Local"}
+              </span>
+            </div>
+            <div className="text-white/45">
               {source === "cloud"
-                ? `Editing the cloud copy of ${kioskDeviceKey({ center: draft.center, brand: draft.brand ?? "fasttrax", kioskNumber: draft.kioskNumber ?? 1 })} — Save to keep it on this device.`
+                ? "Loaded from the cloud — Save to keep it on this device."
                 : source === "edited"
                   ? "Unsaved changes — Save to write them to this device + cloud."
-                  : `Showing this device's local setup. If it looks wrong, use “Load from cloud” below to pull ${kioskDeviceKey({ center: draft.center, brand: draft.brand ?? "fasttrax", kioskNumber: draft.kioskNumber ?? 1 })}.`}
-            </span>
+                  : "This device's local setup. Load from cloud below if it looks wrong."}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-2.5 text-xs text-white/55">
+            Nothing set up on this device yet — pick a location below, or Load from cloud.
           </div>
         )}
 
@@ -315,6 +361,20 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+/** Section divider inside a settings card — groups a long flat form into
+ *  scannable blocks (first one has no top margin). */
+function SectionLabel({ children, first }: { children: React.ReactNode; first?: boolean }) {
+  return (
+    <div
+      className={`border-b border-white/10 pb-1.5 text-xs font-bold uppercase tracking-widest text-[#00e2e5]/70 ${
+        first ? "" : "pt-2"
+      }`}
+    >
+      {children}
+    </div>
+  );
+}
+
 const selectClass =
   // color-scheme:dark makes the NATIVE dropdown popup render dark too — otherwise
   // the open <option> list is white-on-white and unreadable (owner 2026-07-19).
@@ -362,6 +422,7 @@ function DeviceTab({
   const launchUrl = slug ? `${origin}/kiosk?center=${slug}&kiosk=${draft.kioskNumber ?? 1}` : null;
   return (
     <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+      <SectionLabel first>Identity</SectionLabel>
       <Field label="Location">
         <select
           className={selectClass}
@@ -401,6 +462,7 @@ function DeviceTab({
           <option value="pitcrew">Version C — Pit Crew (one question at a time)</option>
         </select>
       </Field>
+      <SectionLabel>Payment</SectionLabel>
       <Field label="Card input method">
         <select
           className={selectClass}
@@ -422,6 +484,7 @@ function DeviceTab({
           <p className="mt-2 text-xs text-white/40">Reader: {draft.readerId}</p>
         )}
       </Field>
+      <SectionLabel>Hardware — scanners &amp; Game Zone</SectionLabel>
       <div className="grid grid-cols-2 gap-3">
         <Toggle
           label="QR / barcode scanner"
@@ -458,14 +521,16 @@ function DeviceTab({
         onToggle={(v) => patch({ msrEnabled: v })}
       />
       {draft.msrEnabled && <KioskAdminMsr draft={draft} persist={persist} />}
-      <CameraPickers draft={draft} patch={patch} />
-      <p className="-mt-2 text-xs text-white/40">
+      <p className="text-xs text-white/40">
         {draft.dispenserId
           ? "Dispenser present → full Game Zone (buy + reload); MSR setting ignored."
           : draft.msrEnabled
             ? "No dispenser → Game Zone is RELOAD ONLY on this kiosk."
             : "No dispenser and no MSR → Game Zone cards are UNAVAILABLE on this kiosk."}
       </p>
+      <SectionLabel>Cameras</SectionLabel>
+      <CameraPickers draft={draft} patch={patch} />
+      <SectionLabel>Cloud &amp; launch</SectionLabel>
       <CloudSetups pin={pin} persist={cloudPersist} setMsg={setMsg} currentId={currentId} />
       {launchUrl && (
         <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.02] p-4">
