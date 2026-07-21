@@ -291,11 +291,26 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         guardians,
         guests,
       );
-      for (const member of toAdd) dispatch({ type: "addPartyMember", member });
+      // Owner 2026-07-20: a phone joiner landing on a main-less roster IS the
+      // group's main person — "first person added becomes main" applies no
+      // matter which surface added them (the race-today pack hand-off set
+      // this precedent 2026-07-19). Contact seeds from what the phone gave
+      // us; the contact step fills any missing email.
+      let hasMain = party.some((m) => m.isBillingCustomer);
+      const asMainIfFirst = (member: PartyMember): PartyMember => {
+        if (hasMain) return member;
+        hasMain = true;
+        const main = { ...member, isBillingCustomer: true };
+        setContactFrom(main);
+        return main;
+      };
+      for (const member of toAdd) {
+        dispatch({ type: "addPartyMember", member: asMainIfFirst(member) });
+      }
       // A guardian who joined from their phone steps onto the roster — the
       // joinGuardian mechanics (same object id keeps wards' refs valid).
       for (const g of promoteGuardians) {
-        dispatch({ type: "addPartyMember", member: { ...g, waiverValid: true } });
+        dispatch({ type: "addPartyMember", member: asMainIfFirst({ ...g, waiverValid: true }) });
         dispatch({ type: "removeGuardian", id: g.id });
       }
       // Someone already on the roster re-verified by phone — silent success:
