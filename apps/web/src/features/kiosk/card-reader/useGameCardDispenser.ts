@@ -2,10 +2,11 @@
  * Guest-facing Game Zone dispenser — the reusable orchestration layer over the
  * CRT-591 reader for buying new cards and reloading existing ones.
  *
- * Owns ONE reader connection for the whole session (the consuming component
- * must stay mounted for the session — useCardReader closes the port on unmount).
- * Every op goes through useCardReader's serialized runner so only one hardware
- * command is ever in flight.
+ * Owns ONE reader connection for the whole session. Unmounting PARKS the live
+ * connection (useCardReader's module-scoped sharedClient) and the next screen
+ * adopts it instantly — no per-screen port re-open. Every op goes through
+ * useCardReader's serialized runner so only one hardware command is ever in
+ * flight.
  *
  * Faults are classified (recovery.ts): transient faults self-retry here
  * (invisible to the guest); everything else comes back as an `OpResult` fault

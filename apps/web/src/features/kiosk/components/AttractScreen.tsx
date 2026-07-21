@@ -20,6 +20,7 @@ import {
   loadKioskConfig,
   saveKioskConfig,
   kioskDeviceKey,
+  venueSlug,
   type KioskConfig,
 } from "../config";
 import { kioskGroupWaiverEnabled } from "../flags";
@@ -58,16 +59,15 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   // Center-scoped rotation — Naples never advertises karting.
   const adSlides = kioskAdSlidesFor(config?.center ?? null);
 
-  // Boot source-of-truth rule (owner 2026-07-21): the launch URL's identity —
-  // venue slug + kiosk number (`?center=HPFM&kiosk=3`) — decides where config
-  // comes from.
-  //   • URL HAS center+kiosk  → load from NEON only. localStorage is per-Edge-
-  //     profile (kiosk mode vs regular are different profiles) and can be stale
-  //     or wiped, so with an explicit identity we trust the cloud, not local.
-  //   • URL LACKS them         → load from localStorage (the fast-boot cache).
-  // Safety: if Neon has no row / is unreachable, fall back to the local cache
-  // (or the bare URL identity) so an overnight reboot during a DB blip never
-  // bricks the kiosk.
+  // Boot source-of-truth rule (owner 2026-07-21): NEON is authoritative
+  // whenever the kiosk knows WHO it is — identity from the launch URL
+  // (`?center=HPFM&kiosk=3`) or, failing that, from the saved local config
+  // (start-over / idle returns land on bare /kiosk but the device still knows
+  // itself). localStorage is only the fallback when Neon has no row or is
+  // unreachable, so an overnight reboot during a DB blip never bricks.
+  // The URL is then rewritten to the CANONICAL launch form (identity kept, not
+  // stripped) so hard reloads — e.g. the idle self-update — stay
+  // cloud-authoritative too (owner: "is it losing that on start over?").
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -75,21 +75,21 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
       const hasUrlIdentity = urlConfig.center != null && urlConfig.kioskNumber != null;
       let resolved = mergeKioskConfig(stored, urlConfig);
 
-      if (hasUrlIdentity) {
-        const identity = mergeKioskConfig(null, urlConfig); // center+brand+kiosk from URL
-        if (identity) {
-          try {
-            const id = kioskDeviceKey(identity);
-            const res = await fetch(`/api/kiosk/device?kioskId=${encodeURIComponent(id)}`);
-            const device = res.ok ? (await res.json()).device : null;
-            resolved = device?.config
-              ? mergeKioskConfig(device.config as KioskConfig, urlConfig) // Neon wins
-              : stored
-                ? mergeKioskConfig(stored, urlConfig) // no cloud row → local cache
-                : identity; // nothing saved anywhere → bare URL identity
-          } catch {
-            resolved = stored ? mergeKioskConfig(stored, urlConfig) : identity; // DB down → cache
-          }
+      // Who is this kiosk? URL wins; otherwise the saved local identity.
+      const urlIdentity = hasUrlIdentity ? mergeKioskConfig(null, urlConfig) : null;
+      const identity = urlIdentity ?? stored;
+      if (identity) {
+        try {
+          const id = kioskDeviceKey(identity);
+          const res = await fetch(`/api/kiosk/device?kioskId=${encodeURIComponent(id)}`);
+          const device = res.ok ? (await res.json()).device : null;
+          resolved = device?.config
+            ? mergeKioskConfig(device.config as KioskConfig, urlConfig) // Neon wins
+            : stored
+              ? mergeKioskConfig(stored, urlConfig) // no cloud row → local cache
+              : urlIdentity; // nothing saved anywhere → bare URL identity
+        } catch {
+          resolved = stored ? mergeKioskConfig(stored, urlConfig) : urlIdentity; // DB down → cache
         }
       }
 
@@ -107,7 +107,15 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
         /* sessionStorage unavailable — ignore */
       }
       if ((hasUrlIdentity || exitedAdmin) && resolved) setBootInfo(resolved);
-      if (Object.keys(urlConfig).length > 0) {
+      // Keep the identity IN the URL (canonical launch form) instead of
+      // stripping it — the next hard reload re-pulls Neon.
+      if (resolved) {
+        window.history.replaceState(
+          null,
+          "",
+          `/kiosk?center=${venueSlug(resolved)}&kiosk=${resolved.kioskNumber ?? 1}`,
+        );
+      } else if (Object.keys(urlConfig).length > 0) {
         window.history.replaceState(null, "", "/kiosk");
       }
       setBooting(false);
