@@ -20,7 +20,6 @@ import {
   loadKioskConfig,
   saveKioskConfig,
   kioskDeviceKey,
-  venueSlug,
   type KioskConfig,
 } from "../config";
 import { kioskGroupWaiverEnabled } from "../flags";
@@ -31,7 +30,7 @@ import { BrandedLoader } from "./BrandedLoader";
 import { useKioskClock, syncGlowPhase } from "../hooks/useKioskClock";
 import { useKioskAvailability } from "../hooks/useKioskAvailability";
 import { captureKioskBootVersion, kioskUpdateAvailable } from "../version";
-import { bridgeHealth } from "../service/game-card-bridge";
+import { DeviceCheckCard } from "./DeviceCheckCard";
 import { clickableDivProps } from "@/lib/a11y";
 
 const AD_ROTATE_MS = 8000;
@@ -381,122 +380,13 @@ function QuickChip({
   );
 }
 
-type BootTone = "ok" | "warn" | "dim" | "test";
-
 /**
- * Transient staff boot confirmation — shows the venue + kiosk number and TESTS
- * the devices that can be probed from here: the Game Zone reload path (LOCAL
- * on-prem bridge vs CLOUD queue), the CRT-591 serial grant, and cameras. The
- * Square reader / scanner / swipe can't be live-probed on the attract screen
- * (admin-token or passive HID), so those show their configured state. Auto-hides
- * after 30s; tap to dismiss. Positioned at the top so it never blocks the "tap
- * to start" area, and stops its own tap from starting a guest session.
+ * Transient staff boot confirmation — the shared DeviceCheckCard (venue +
+ * device tests) in a top overlay that auto-hides after 30s and dismisses on
+ * tap. Positioned at the top so it never blocks the "tap to start" area, and
+ * stops its own tap from starting a guest session.
  */
 function BootInfoOverlay({ config, onDismiss }: { config: KioskConfig; onDismiss: () => void }) {
-  const venueName =
-    config.center === "naples"
-      ? "HeadPinz — Naples"
-      : config.brand === "headpinz"
-        ? "HeadPinz — Fort Myers"
-        : "FastTrax — Fort Myers";
-
-  const [gameZone, setGameZone] = useState<"testing" | "local" | "cloud">("testing");
-  const [serial, setSerial] = useState<"testing" | "granted" | "none" | "unsupported">("testing");
-  const [cams, setCams] = useState<"testing" | number>("testing");
-
-  useEffect(() => {
-    let alive = true;
-    // Game Zone reload path: does the on-prem bridge answer on this PC?
-    void bridgeHealth().then((ok) => alive && setGameZone(ok ? "local" : "cloud"));
-    // CRT-591: a persisted serial grant needs no prompt — presence = likely wired.
-    void (async () => {
-      const nav = navigator as Navigator & { serial?: { getPorts(): Promise<unknown[]> } };
-      if (!nav.serial) return alive && setSerial("unsupported");
-      const ports = await nav.serial.getPorts().catch(() => []);
-      if (alive) setSerial(ports.length > 0 ? "granted" : "none");
-    })();
-    // Cameras: count video inputs (no permission needed to count).
-    void navigator.mediaDevices
-      ?.enumerateDevices()
-      .then((d) => alive && setCams(d.filter((x) => x.kind === "videoinput").length))
-      .catch(() => alive && setCams(0));
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const gzHardware = config.dispenserId
-    ? `dispenser ${config.dispenserId}`
-    : config.msrEnabled
-      ? "MSR (reload only)"
-      : config.cardReaderEnabled
-        ? "CRT-591 serial"
-        : "none";
-  const gzConfigured = !!(config.dispenserId || config.msrEnabled || config.cardReaderEnabled);
-
-  const rows: Array<{ label: string; value: string; tone: BootTone }> = [
-    // Live tests
-    {
-      label: "Game Zone reload",
-      value:
-        gameZone === "testing"
-          ? "checking…"
-          : gameZone === "local"
-            ? "LOCAL bridge — instant"
-            : "CLOUD queue (slower to floor)",
-      tone: gameZone === "testing" ? "test" : gameZone === "local" ? "ok" : "warn",
-    },
-    {
-      label: "Card device",
-      value:
-        serial === "testing"
-          ? "checking…"
-          : !gzConfigured
-            ? "none configured"
-            : serial === "granted"
-              ? `${gzHardware} — serial OK`
-              : serial === "unsupported"
-                ? `${gzHardware} — no Web Serial`
-                : `${gzHardware} — no serial grant`,
-      tone:
-        serial === "testing"
-          ? "test"
-          : !gzConfigured
-            ? "dim"
-            : serial === "granted"
-              ? "ok"
-              : "warn",
-    },
-    {
-      label: "Cameras",
-      value: cams === "testing" ? "checking…" : cams > 0 ? `${cams} detected` : "none detected",
-      tone: cams === "testing" ? "test" : cams > 0 ? "ok" : "dim",
-    },
-    // Configured-state (not live-probed here)
-    {
-      label: "Square reader",
-      value: config.readerId ?? "none",
-      tone: config.readerId ? "ok" : "dim",
-    },
-    {
-      label: "QR / barcode scanner",
-      value: config.scannerEnabled ? "enabled (test in flow)" : "off",
-      tone: config.scannerEnabled ? "ok" : "dim",
-    },
-    {
-      label: "USB card swipe",
-      value: config.swipeEnabled ? "enabled" : "off",
-      tone: config.swipeEnabled ? "ok" : "dim",
-    },
-  ];
-
-  const dot: Record<BootTone, string> = {
-    ok: "bg-[#46d68c]",
-    warn: "bg-amber-400",
-    dim: "bg-white/25",
-    test: "bg-[#00e2e5] animate-pulse",
-  };
-
   return (
     <div
       {...clickableDivProps((e) => {
@@ -505,28 +395,9 @@ function BootInfoOverlay({ config, onDismiss }: { config: KioskConfig; onDismiss
       }, "Dismiss boot check")}
       className="absolute left-1/2 top-6 z-50 w-[92%] max-w-[560px] -translate-x-1/2 cursor-pointer rounded-2xl border border-[#00e2e5]/40 bg-[#0a1730]/95 p-5 text-left shadow-2xl backdrop-blur"
     >
-      <div className="flex items-baseline justify-between gap-3">
-        <div className="text-lg font-extrabold text-white">
-          {venueName} <span className="text-[#00e2e5]">#{config.kioskNumber ?? 1}</span>
-        </div>
-        <div className="rounded-full bg-[#00e2e5]/15 px-2.5 py-0.5 font-mono text-xs font-bold text-[#00e2e5]">
-          {venueSlug(config)}:{config.kioskNumber ?? 1}
-        </div>
-      </div>
-      <div className="mt-1 text-xs text-white/45">
+      <DeviceCheckCard config={config} />
+      <div className="mt-2 text-xs text-white/45">
         Boot check — tap to dismiss (auto-hides in 30s).
-      </div>
-      <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-        {rows.map((r) => (
-          <div
-            key={r.label}
-            className="flex items-center gap-2 rounded-lg bg-white/[0.03] px-3 py-2 text-sm"
-          >
-            <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${dot[r.tone]}`} />
-            <span className="shrink-0 text-white/45">{r.label}:</span>
-            <span className="truncate font-medium text-white/85">{r.value}</span>
-          </div>
-        ))}
       </div>
     </div>
   );

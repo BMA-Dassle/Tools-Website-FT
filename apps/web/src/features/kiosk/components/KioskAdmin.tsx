@@ -31,6 +31,7 @@ import {
 } from "../config";
 import { KioskAdminCardReader } from "./KioskAdminCardReader";
 import { KioskAdminMsr } from "./KioskAdminMsr";
+import { DeviceCheckCard } from "./DeviceCheckCard";
 import { KIOSK_VERSION } from "../version";
 
 type Tab = "device" | "readers" | "cardreader" | "diag" | "comps";
@@ -75,6 +76,9 @@ export function KioskAdmin() {
   // stale — the chip tells staff whether they're editing this device's LOCAL
   // seed, a CLOUD copy they pulled, or unsaved EDITS.
   const [source, setSource] = useState<"local" | "cloud" | "edited">("local");
+  // Device-test panel on the PIN gate (no auth needed — all client-side). >0 =
+  // shown; the value is also the remount key so pressing again re-runs the tests.
+  const [pinTest, setPinTest] = useState(0);
 
   // Draft config — seeded from the live device config.
   const [draft, setDraft] = useState<Partial<KioskConfig>>(
@@ -181,7 +185,7 @@ export function KioskAdmin() {
 
   if (!authed) {
     return (
-      <div className="absolute inset-0 flex items-center justify-center bg-[#000418] px-8">
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 overflow-y-auto bg-[#000418] px-8 py-10">
         <div className="w-full max-w-sm space-y-5 rounded-3xl border border-white/10 bg-[#0d1a36] p-8 text-center">
           <div className="font-heading text-3xl font-extrabold italic">Kiosk admin</div>
           <p className="text-sm text-white/55">Staff PIN required.</p>
@@ -203,10 +207,24 @@ export function KioskAdmin() {
           >
             Unlock
           </button>
+          {/* Device tests need no PIN (all client-side) — staff can check the
+              reader/bridge/cameras from the gate. */}
+          <button
+            type="button"
+            onClick={() => setPinTest((n) => n + 1)}
+            className="w-full rounded-xl border border-white/15 px-5 py-2.5 text-sm font-bold text-white/70"
+          >
+            {pinTest ? "Re-run device tests" : "Run device tests"}
+          </button>
           <a href="/kiosk" className="block text-xs text-white/40">
             Back to kiosk
           </a>
         </div>
+        {pinTest > 0 && (
+          <div className="w-full max-w-md rounded-2xl border border-[#00e2e5]/30 bg-[#0a1730]/95 p-5 text-left">
+            <DeviceCheckCard key={pinTest} config={config} />
+          </div>
+        )}
       </div>
     );
   }
