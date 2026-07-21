@@ -120,7 +120,7 @@ export function KioskCategories({
             onClick={() => setCat("exp")}
           />
           <CategoryCard
-            photo={center === "naples" ? KIOSK_PHOTOS.bowl : KIOSK_PHOTOS.race}
+            photo={brand === "headpinz" ? KIOSK_PHOTOS.bowl : KIOSK_PHOTOS.race}
             eyebrow={`${offerings.length} attractions`}
             accent="#00e2e5"
             title="Attractions"

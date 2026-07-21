@@ -209,11 +209,12 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
       {bootInfo && <BootInfoOverlay config={bootInfo} onDismiss={() => setBootInfo(null)} />}
       {/* Cinematic backdrop — photo + navy scrim + red glow + light sweep */}
       <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
-        {/* Naples has no karting — its attract backdrop is the lanes. */}
+        {/* HeadPinz is a bowling brand (FM + Naples) — its attract backdrop is
+            the lanes; FastTrax leads with the track. */}
         <div
           className="kiosk-kenburns absolute -inset-[6%] bg-cover bg-center"
           style={{
-            backgroundImage: `url(${config.center === "naples" ? KIOSK_PHOTOS.bowl : KIOSK_PHOTOS.race})`,
+            backgroundImage: `url(${config.brand === "headpinz" ? KIOSK_PHOTOS.bowl : KIOSK_PHOTOS.race})`,
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#000418] from-[8%] via-[#020a22]/80 to-[#040e2c]/60" />
