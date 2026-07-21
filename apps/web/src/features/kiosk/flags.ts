@@ -61,12 +61,12 @@ export function kioskWaiverBmiAttachEnabled(): boolean {
 /**
  * Mobile join — the people-step QR that lets guests sign in / register (and
  * sign their waiver) on their own phone and pop into the kiosk's player list.
- * OPT-IN (defaults OFF), the kioskGroupWaiverEnabled precedent: the API routes
- * and /join/{code} page deploy dark; this flag exposes the QR panel on the
- * kiosk after the owner live smoke. Set "true" in Vercel + redeploy.
+ * Kill switch, defaults ON (owner 2026-07-20): set the literal "false" in
+ * Vercel + redeploy to hide the QR panel. The /join/{code} page and API
+ * routes stay deployed either way.
  */
 export function kioskMobileJoinEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_KIOSK_MOBILE_JOIN_ENABLED === "true";
+  return process.env.NEXT_PUBLIC_KIOSK_MOBILE_JOIN_ENABLED !== "false";
 }
 
 /**
