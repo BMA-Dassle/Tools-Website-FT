@@ -141,11 +141,17 @@ export async function createTerminalCheckout(args: {
    * never tapped twice. Omitted for non-money callers → random per call.
    */
   idempotencyKey?: string;
+  /**
+   * Capture on tap. Defaults to true (the money path). The admin "test the
+   * reader" diagnostic passes false: if staff accidentally tap a card before
+   * cancelling, it's only an uncaptured auth that the cancel voids — no charge.
+   */
+  autocomplete?: boolean;
 }): Promise<TerminalCheckoutResult | null> {
   if (!SQUARE_TOKEN) return null;
   const checkout: Record<string, unknown> = {
     device_options: { device_id: args.deviceId, skip_receipt_screen: true },
-    payment_options: { autocomplete: true },
+    payment_options: { autocomplete: args.autocomplete ?? true },
     reference_id: args.referenceId.slice(0, 40),
     note: args.note?.slice(0, 500),
   };

@@ -66,10 +66,21 @@ export async function loadKioskDevice(kioskId: string): Promise<KioskDeviceRow |
   if (!isDbConfigured()) return null;
   await ensureSchema();
   const q = sql();
-  const rows = (await q`
-    SELECT kiosk_id, center, kiosk_number, brand, config, updated_at
-    FROM kiosk_devices WHERE kiosk_id = ${kioskId} LIMIT 1
-  `) as Array<Record<string, unknown>>;
+  const query = (id: string) =>
+    q`
+      SELECT kiosk_id, center, kiosk_number, brand, config, updated_at
+      FROM kiosk_devices WHERE kiosk_id = ${id} LIMIT 1
+    ` as unknown as Promise<Array<Record<string, unknown>>>;
+  let rows = await query(kioskId);
+  // Legacy fallback: keys used to be `<center>:<number>` (e.g. `naples:3`)
+  // before the venue-slug scheme. Only Naples is unambiguous (HPN ⇒ naples);
+  // a Fort Myers `<center>:<number>` can't tell FT from HPFM, so we never guess
+  // it (that ambiguity is the very collision we're fixing) — re-save those once
+  // through admin to write the new `FT:`/`HPFM:` key.
+  if (!rows[0]) {
+    const [slug, num] = kioskId.split(":");
+    if (slug === "HPN" && num) rows = await query(`naples:${num}`);
+  }
   const r = rows[0];
   if (!r) return null;
   return {

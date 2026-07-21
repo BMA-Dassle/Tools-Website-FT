@@ -8,6 +8,8 @@ import {
 import {
   listReaders,
   createDeviceCode,
+  createTerminalCheckout,
+  dismissTerminalCheckout,
   squareLocationId,
 } from "~/features/kiosk/service/square-terminal";
 import { addDeposit, DEPOSIT_KIND } from "@/lib/pandora-deposits";
@@ -22,6 +24,9 @@ import { addDeposit, DEPOSIT_KIND } from "@/lib/pandora-deposits";
  *      ?action=devices                    → all provisioned kiosks (overview)
  * POST { action:"save-config", ...cfg }   → upsert config to Neon
  *      { action:"pair-reader", center, brand } → new device code to pair a reader
+ *      { action:"reader-test", deviceId } → wake a reader with a $1 test checkout
+ *                                            (autocomplete off) → { checkoutId }
+ *      { action:"reader-test-cancel", checkoutId } → dismiss the test checkout
  *      { action:"comp", personId, kind, amount } → add a comp deposit
  */
 
@@ -78,7 +83,11 @@ export async function POST(req: NextRequest) {
       if (!center || !brand) {
         return NextResponse.json({ error: "center + brand required" }, { status: 400 });
       }
-      const kioskId = `${center}:${kioskNumber}`;
+      // Key by venue slug (FT / HPFM / HPN) + number — the same identity the
+      // launch URL carries. The slug distinguishes FastTrax-FM from HeadPinz-FM
+      // (both center `fort-myers`), so they no longer clobber one cloud row.
+      const slug = center === "naples" ? "HPN" : brand === "headpinz" ? "HPFM" : "FT";
+      const kioskId = `${slug}:${kioskNumber}`;
       await saveKioskDevice({ kioskId, center, kioskNumber, brand, config });
       return NextResponse.json({ ok: true, kioskId });
     }
@@ -90,6 +99,30 @@ export async function POST(req: NextRequest) {
       const code = await createDeviceCode(squareLocationId(center, brand), name);
       if (!code) return NextResponse.json({ error: "Square not configured" }, { status: 500 });
       return NextResponse.json({ pairing: code });
+    }
+
+    if (action === "reader-test") {
+      // Push a live checkout to the physical reader so staff can SEE it wake
+      // (Ping only asks Square if it's paired). autocomplete:false → an
+      // accidental tap before cancel is an uncaptured auth the cancel voids.
+      const deviceId = String(body.deviceId || "");
+      if (!deviceId) return NextResponse.json({ error: "deviceId required" }, { status: 400 });
+      const result = await createTerminalCheckout({
+        deviceId,
+        amountCents: 100,
+        referenceId: "reader-test",
+        note: "Reader test — cancel me (no charge)",
+        autocomplete: false,
+      });
+      if (!result) return NextResponse.json({ error: "Square not configured" }, { status: 500 });
+      return NextResponse.json({ ok: true, checkoutId: result.checkoutId, status: result.status });
+    }
+
+    if (action === "reader-test-cancel") {
+      const checkoutId = String(body.checkoutId || "");
+      if (!checkoutId) return NextResponse.json({ error: "checkoutId required" }, { status: 400 });
+      const ok = await dismissTerminalCheckout(checkoutId);
+      return NextResponse.json({ ok });
     }
 
     if (action === "comp") {

@@ -22,7 +22,13 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useKioskConfig } from "../KioskConfigContext";
-import { kioskId, resolveKioskConfig, type KioskConfig, type KioskVariant } from "../config";
+import {
+  kioskDeviceKey,
+  resolveKioskConfig,
+  venueSlug,
+  type KioskConfig,
+  type KioskVariant,
+} from "../config";
 import { KioskAdminCardReader } from "./KioskAdminCardReader";
 import { KioskAdminMsr } from "./KioskAdminMsr";
 import { KIOSK_VERSION } from "../version";
@@ -64,6 +70,11 @@ export function KioskAdmin() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("device");
   const [msg, setMsg] = useState<string | null>(null);
+  // Which copy the form currently reflects. Edge kiosk mode and regular Edge are
+  // different browser profiles with different localStorage, so "local" may be
+  // stale — the chip tells staff whether they're editing this device's LOCAL
+  // seed, a CLOUD copy they pulled, or unsaved EDITS.
+  const [source, setSource] = useState<"local" | "cloud" | "edited">("local");
 
   // Draft config — seeded from the live device config.
   const [draft, setDraft] = useState<Partial<KioskConfig>>(
@@ -86,19 +97,29 @@ export function KioskAdmin() {
 
   const patch = (p: Partial<KioskConfig>) => {
     seeded.current = true; // staff touched a field — stop auto-reseeding
+    setSource("edited");
     setDraft((d) => ({ ...d, ...p }));
+  };
+
+  /** CloudSetups "Load & apply" wrapper: same as persist, but marks the form as
+   *  reflecting the CLOUD copy so the source chip is truthful (staff pulled it
+   *  from Neon, not this device's local seed). */
+  const applyCloud = (extra: Partial<KioskConfig> = {}) => {
+    setSource("cloud");
+    return persist(extra);
   };
 
   /** Persist the draft (+ optional change) to BOTH localStorage and Neon in one
    *  step — so selecting a reader (or any change) actually saves, no separate
-   *  "go to Device tab and Save" trap (owner: settings didn't seem to save). */
-  const persist = async (extra: Partial<KioskConfig> = {}) => {
+   *  "go to Device tab and Save" trap (owner: settings didn't seem to save).
+   *  Returns whether the CLOUD save succeeded (local always happens). */
+  const persist = async (extra: Partial<KioskConfig> = {}): Promise<boolean> => {
     const merged = { ...draft, ...extra };
     setDraft(merged);
     const resolved = resolveKioskConfig(merged);
     if (!resolved) {
       setMsg("Pick a location on the Device tab first.");
-      return;
+      return false;
     }
     setConfig(resolved); // localStorage (fast boot) + notifies the store
     const { ok } = await adminFetch(pin, "/api/kiosk/admin", {
@@ -113,9 +134,13 @@ export function KioskAdmin() {
     });
     setMsg(
       ok
-        ? `Saved — kiosk ${kioskId(resolved)} (this device + cloud).`
+        ? `Saved — kiosk ${kioskDeviceKey(resolved)} (this device + cloud).`
         : "Saved on this device; cloud save failed (check DB).",
     );
+    // A save clears the "unsaved edits" state (now it IS the saved local setup);
+    // a cloud-sourced form stays "cloud".
+    if (ok) setSource((s) => (s === "edited" ? "local" : s));
+    return ok;
   };
 
   const tryAuth = async () => {
@@ -207,6 +232,31 @@ export function KioskAdmin() {
           )}
         </div>
 
+        {/* What the FORM reflects right now — so staff never edit a stale LOCAL
+            seed thinking it's the cloud copy. */}
+        {draft.center && (
+          <div
+            className={`flex items-center gap-2 rounded-xl border px-4 py-2 text-xs ${
+              source === "cloud"
+                ? "border-[#46d68c]/40 bg-[#46d68c]/10 text-[#46d68c]"
+                : source === "edited"
+                  ? "border-amber-400/40 bg-amber-400/10 text-amber-200"
+                  : "border-white/10 bg-white/[0.02] text-white/55"
+            }`}
+          >
+            <span className="font-bold uppercase tracking-widest">
+              {source === "cloud" ? "Cloud" : source === "edited" ? "Unsaved" : "Local"}
+            </span>
+            <span>
+              {source === "cloud"
+                ? `Editing the cloud copy of ${kioskDeviceKey({ center: draft.center, brand: draft.brand ?? "fasttrax", kioskNumber: draft.kioskNumber ?? 1 })} — Save to keep it on this device.`
+                : source === "edited"
+                  ? "Unsaved changes — Save to write them to this device + cloud."
+                  : `Showing this device's local setup. If it looks wrong, use “Load from cloud” below to pull ${kioskDeviceKey({ center: draft.center, brand: draft.brand ?? "fasttrax", kioskNumber: draft.kioskNumber ?? 1 })}.`}
+            </span>
+          </div>
+        )}
+
         {msg && (
           <div className="rounded-xl border border-[#00e2e5]/40 bg-[#00e2e5]/10 px-4 py-3 text-sm">
             {msg}
@@ -218,7 +268,7 @@ export function KioskAdmin() {
             draft={draft}
             patch={patch}
             persist={persist}
-            onSave={() => void persist()}
+            cloudPersist={applyCloud}
             pin={pin}
             setMsg={setMsg}
           />
@@ -274,22 +324,42 @@ function DeviceTab({
   draft,
   patch,
   persist,
-  onSave,
+  cloudPersist,
   pin,
   setMsg,
 }: {
   draft: Partial<KioskConfig>;
   patch: (p: Partial<KioskConfig>) => void;
-  persist: (extra?: Partial<KioskConfig>) => void | Promise<void>;
-  onSave: () => void;
+  persist: (extra?: Partial<KioskConfig>) => void | Promise<unknown>;
+  cloudPersist: (extra?: Partial<KioskConfig>) => void | Promise<unknown>;
   pin: string;
   setMsg: (m: string) => void;
 }) {
   const venueValue = VENUES.findIndex((v) => v.center === draft.center && v.brand === draft.brand);
-  const currentId = kioskId({
+  const currentId = kioskDeviceKey({
     center: draft.center ?? "fort-myers",
+    brand: draft.brand ?? "fasttrax",
     kioskNumber: draft.kioskNumber ?? 1,
   });
+
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "failed">("idle");
+  const save = async () => {
+    setSaveState("saving");
+    const ok = await persist();
+    setSaveState(ok ? "saved" : "failed");
+    setTimeout(() => setSaveState("idle"), 4000);
+  };
+
+  // The URL to pin as the kiosk's launch shortcut (Edge kiosk mode AND any
+  // regular shortcut). Identity in the URL → every browser profile on this PC
+  // resolves to the same Neon setup, ending the localStorage mismatch between
+  // kiosk mode and regular Edge. Lazy init (not an effect) — DeviceTab only
+  // mounts client-side after auth, so window is defined.
+  const [origin] = useState(() => (typeof window !== "undefined" ? window.location.origin : ""));
+  const slug = draft.center
+    ? venueSlug({ center: draft.center, brand: draft.brand ?? "fasttrax" })
+    : null;
+  const launchUrl = slug ? `${origin}/kiosk?center=${slug}&kiosk=${draft.kioskNumber ?? 1}` : null;
   return (
     <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
       <Field label="Location">
@@ -396,14 +466,62 @@ function DeviceTab({
             ? "No dispenser → Game Zone is RELOAD ONLY on this kiosk."
             : "No dispenser and no MSR → Game Zone cards are UNAVAILABLE on this kiosk."}
       </p>
-      <CloudSetups pin={pin} persist={persist} setMsg={setMsg} currentId={currentId} />
+      <CloudSetups pin={pin} persist={cloudPersist} setMsg={setMsg} currentId={currentId} />
+      {launchUrl && (
+        <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+          <div className="text-xs font-semibold uppercase tracking-widest text-white/40">
+            Launch URL for this kiosk
+          </div>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 overflow-x-auto whitespace-nowrap rounded-lg bg-black/30 px-3 py-2 font-mono text-xs text-[#00e2e5]">
+              {launchUrl}
+            </code>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard
+                  ?.writeText(launchUrl)
+                  .then(() => setMsg("Launch URL copied."))
+                  .catch(() => setMsg("Couldn't copy — select and copy it manually."));
+              }}
+              className="shrink-0 rounded-lg border border-white/15 px-4 py-2 text-xs font-bold text-white/70"
+            >
+              Copy
+            </button>
+          </div>
+          <p className="text-xs text-white/40">
+            Pin this as the shortcut for BOTH Edge kiosk mode and any normal launch on this PC.
+            Because the kiosk (<span className="font-mono">{slug}</span> #{draft.kioskNumber ?? 1})
+            is in the URL, every browser profile loads the same cloud setup — no more mismatched
+            config.
+          </p>
+        </div>
+      )}
       <button
         type="button"
-        onClick={onSave}
-        className="w-full rounded-xl bg-[#00e2e5] px-5 py-3.5 font-bold text-[#04252b]"
+        disabled={saveState === "saving"}
+        onClick={() => void save()}
+        className={`w-full rounded-xl px-5 py-3.5 font-bold text-[#04252b] disabled:opacity-60 ${
+          saveState === "saved"
+            ? "bg-[#46d68c]"
+            : saveState === "failed"
+              ? "bg-amber-400"
+              : "bg-[#00e2e5]"
+        }`}
       >
-        Save setup (local + cloud)
+        {saveState === "saving"
+          ? "Saving…"
+          : saveState === "saved"
+            ? "✓ Saved (this device + cloud)"
+            : saveState === "failed"
+              ? "Saved locally — cloud save failed, tap to retry"
+              : "Save setup (local + cloud)"}
       </button>
+      {saveState === "saved" && (
+        <p className="text-center text-xs text-[#46d68c]">
+          Saved to this device and the cloud. Reopen admin any time to reload it.
+        </p>
+      )}
     </div>
   );
 }
@@ -422,7 +540,7 @@ function CloudSetups({
   currentId,
 }: {
   pin: string;
-  persist: (extra?: Partial<KioskConfig>) => void | Promise<void>;
+  persist: (extra?: Partial<KioskConfig>) => void | Promise<unknown>;
   setMsg: (m: string) => void;
   currentId: string;
 }) {
@@ -876,11 +994,11 @@ function DiagTab({
   };
   return (
     <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-      <DiagRow
-        label="Square reader"
-        detail={draft.readerId ?? "none"}
-        action="Ping"
-        onRun={pingReader}
+      <ReaderTestRow
+        readerId={draft.readerId ?? null}
+        pin={pin}
+        onPing={pingReader}
+        setMsg={setMsg}
       />
       <DiagRow
         label="QR / barcode scanner"
@@ -934,6 +1052,100 @@ function DiagRow({
       >
         {action}
       </button>
+    </div>
+  );
+}
+
+/**
+ * Square reader diagnostics: Ping checks Square's API says it's PAIRED; "Send
+ * test" pushes a live $1 checkout so the PHYSICAL reader lights up (the real
+ * proof it's reachable + awake), then staff tap "Cancel test" to dismiss it.
+ * The test checkout is autocomplete:false server-side — an accidental card tap
+ * before cancel is only an uncaptured auth the cancel voids, so no money moves.
+ */
+function ReaderTestRow({
+  readerId,
+  pin,
+  onPing,
+  setMsg,
+}: {
+  readerId: string | null;
+  pin: string;
+  onPing: () => void;
+  setMsg: (m: string) => void;
+}) {
+  const [checkoutId, setCheckoutId] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"send" | "cancel" | null>(null);
+
+  const sendTest = async () => {
+    if (!readerId) return setMsg("No reader selected — pick one on the Readers tab.");
+    setBusy("send");
+    const { ok, data } = await adminFetch(pin, "/api/kiosk/admin", {
+      method: "POST",
+      body: JSON.stringify({ action: "reader-test", deviceId: readerId }),
+    });
+    setBusy(null);
+    if (ok && data.checkoutId) {
+      setCheckoutId(data.checkoutId);
+      setMsg("Test sent — the reader should light up now. Tap “Cancel test” to dismiss it.");
+    } else {
+      setMsg(`Couldn't send test: ${data.error ?? "error"}`);
+    }
+  };
+
+  const cancelTest = async () => {
+    if (!checkoutId) return;
+    setBusy("cancel");
+    const { ok, data } = await adminFetch(pin, "/api/kiosk/admin", {
+      method: "POST",
+      body: JSON.stringify({ action: "reader-test-cancel", checkoutId }),
+    });
+    setBusy(null);
+    setCheckoutId(null);
+    setMsg(
+      ok && data.ok
+        ? "Test cancelled — reader cleared."
+        : "Cancel failed — dismiss it on the reader.",
+    );
+  };
+
+  return (
+    <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3">
+      <div>
+        <div className="font-semibold">Square reader</div>
+        <div className="text-xs text-white/40">
+          {readerId ?? "none"}
+          {checkoutId && <span className="text-amber-300"> · test armed — cancel it</span>}
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onPing}
+          className="rounded-lg border border-white/15 px-4 py-2 text-sm font-bold text-white/70"
+        >
+          Ping
+        </button>
+        {checkoutId ? (
+          <button
+            type="button"
+            disabled={busy === "cancel"}
+            onClick={() => void cancelTest()}
+            className="rounded-lg border border-red-400/50 bg-red-400/10 px-4 py-2 text-sm font-bold text-red-200 disabled:opacity-40"
+          >
+            {busy === "cancel" ? "Cancelling…" : "Cancel test"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={busy === "send" || !readerId}
+            onClick={() => void sendTest()}
+            className="rounded-lg bg-[#00e2e5] px-4 py-2 text-sm font-bold text-[#04252b] disabled:opacity-40"
+          >
+            {busy === "send" ? "Sending…" : "Send test"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

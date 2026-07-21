@@ -20,7 +20,7 @@ export function KioskAdminMsr({
   persist,
 }: {
   draft: Partial<KioskConfig>;
-  persist: (extra?: Partial<KioskConfig>) => void | Promise<void>;
+  persist: (extra?: Partial<KioskConfig>) => void | Promise<unknown>;
 }) {
   const [permMsg, setPermMsg] = useState<string | null>(null);
   const [badSwipe, setBadSwipe] = useState(false);

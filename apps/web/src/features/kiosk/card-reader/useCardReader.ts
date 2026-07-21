@@ -336,6 +336,14 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
     // do NOT await getPorts() first here, and we pass NO filter — a native
     // COM device has no USB ids to filter on, and staff must see all ports.
     const gestureActive = gestureIsActive();
+    // A held Fullscreen-API element makes Chromium SUPPRESS the serial-port
+    // chooser — the "picker only shows if you open DevTools" bug (opening
+    // DevTools drops fullscreen, which is why it then works). Drop out of
+    // fullscreen first; fire-and-forget (NOT awaited) so requestPort() still
+    // runs inside this click's transient activation.
+    if (typeof document !== "undefined" && document.fullscreenElement) {
+      void document.exitFullscreen?.().catch(() => {});
+    }
     let port: SerialPort;
     try {
       port = await navigator.serial.requestPort();

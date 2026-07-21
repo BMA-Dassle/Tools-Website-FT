@@ -91,9 +91,36 @@ export interface KioskConfig {
   cameraLowerId?: string | null;
 }
 
-/** Stable per-device id used to pull the saved setup back from Neon. */
+/**
+ * Join/waiver pointer key (Redis) — center + number only. Kept 2-part because
+ * the mobile-join schema validates this exact shape; do NOT add brand here.
+ */
 export function kioskId(cfg: Pick<KioskConfig, "center" | "kioskNumber">): string {
   return `${cfg.center}:${cfg.kioskNumber ?? 1}`;
+}
+
+/**
+ * Canonical venue slug — the SAME token used in the launch URL (`?center=`).
+ * Encodes location + brand in one identifier so no separate brand param is
+ * needed:
+ *   FT   → FastTrax @ Fort Myers
+ *   HPFM → HeadPinz @ Fort Myers
+ *   HPN  → HeadPinz @ Naples
+ */
+export function venueSlug(cfg: Pick<KioskConfig, "center" | "brand">): "FT" | "HPFM" | "HPN" {
+  if (cfg.center === "naples") return "HPN";
+  return cfg.brand === "headpinz" ? "HPFM" : "FT";
+}
+
+/**
+ * Device-registry (Neon) key — `<venueSlug>:<number>` (e.g. `HPFM:3`). The
+ * slug already distinguishes FastTrax-FM from HeadPinz-FM (both center
+ * `fort-myers`), so brand-less `?center=HPFM&kiosk=3` resolves to exactly one
+ * cloud row and they stop clobbering each other. Naples rows fall back to the
+ * legacy `naples:<number>` key in loadKioskDevice().
+ */
+export function kioskDeviceKey(cfg: Pick<KioskConfig, "center" | "brand" | "kioskNumber">): string {
+  return `${venueSlug(cfg)}:${cfg.kioskNumber ?? 1}`;
 }
 
 const STORAGE_KEY = "kiosk_config";

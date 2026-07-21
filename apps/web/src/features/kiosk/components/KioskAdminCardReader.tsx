@@ -62,7 +62,7 @@ export function KioskAdminCardReader({
   setMsg,
 }: {
   draft: Partial<KioskConfig>;
-  persist: (extra?: Partial<KioskConfig>) => void | Promise<void>;
+  persist: (extra?: Partial<KioskConfig>) => void | Promise<unknown>;
   setMsg: (m: string) => void;
 }) {
   const reader = useCardReader({
