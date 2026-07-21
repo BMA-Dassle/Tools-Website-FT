@@ -28,6 +28,7 @@ import {
   type WedgeCapture,
 } from "../card-reader";
 import type { CrtReaderClient } from "../card-reader";
+import { describePort } from "../card-reader/ports";
 import type { KioskConfig } from "../config";
 
 const inputClass =
@@ -142,6 +143,26 @@ function ConnectionCard({
 }) {
   const { connection, connect, connectPort, disconnect } = reader;
   const [permMsg, setPermMsg] = useState<string | null>(null);
+
+  // Granted COM ports (getPorts needs no chooser — with the "allow all serial"
+  // Edge policy it returns every port). Pick one → open + probe it → onConnected
+  // saves it. Web Serial hides the "COM3" name, so ports are labelled by USB id.
+  const [grantedPorts, setGrantedPorts] = useState<SerialPort[]>([]);
+  const refreshPorts = useCallback(async () => {
+    if (typeof navigator === "undefined" || !("serial" in navigator)) return;
+    setGrantedPorts(await navigator.serial.getPorts().catch(() => [] as SerialPort[]));
+  }, []);
+  useEffect(() => {
+    void refreshPorts();
+  }, [refreshPorts]);
+  const tryPort = (i: number) => {
+    const port = grantedPorts[i];
+    if (!port) return;
+    setPermMsg("Connecting to the selected port…");
+    void connectPort(port).then((ok) => {
+      setPermMsg(ok ? null : "That port didn’t answer as a CRT-591 — pick another.");
+    });
+  };
 
   /**
    * Camera-admin parity (owner 2026-07-19, after "browser blocked serial
@@ -261,6 +282,40 @@ function ConnectionCard({
           raw console. Details: docs/crt-591/README.md.
         </p>
       )}
+
+      {connection.state !== "connected" &&
+        connection.state !== "connecting" &&
+        grantedPorts.length > 0 && (
+          <div className="space-y-1.5">
+            <div className="text-xs font-semibold uppercase tracking-widest text-white/40">
+              Granted COM ports — pick one to connect &amp; save
+            </div>
+            <div className="flex gap-2">
+              <select
+                className={`${inputClass} [color-scheme:dark]`}
+                defaultValue=""
+                onChange={(e) => tryPort(Number(e.target.value))}
+              >
+                <option value="" disabled>
+                  Select a port…
+                </option>
+                {grantedPorts.map((p, i) => (
+                  <option key={i} value={i}>
+                    {describePort(p, i)}
+                  </option>
+                ))}
+              </select>
+              <button type="button" className={btnGhost} onClick={() => void refreshPorts()}>
+                Refresh
+              </button>
+            </div>
+            <p className="text-xs text-white/40">
+              No chooser needed once the “allow all serial” policy is set. Picking a port opens and
+              probes it — the CRT-591 shows its firmware/serial above and saves automatically. Not
+              the reader? Pick another.
+            </p>
+          </div>
+        )}
 
       <div className="flex flex-wrap gap-2">
         {connection.state !== "connected" && connection.state !== "connecting" && (

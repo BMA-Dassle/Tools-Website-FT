@@ -11,8 +11,9 @@
  * KioskShell's fullscreen handler can't spend the gesture, and a blocked
  * chooser names the blocking layer via serialBlockedMessage.
  */
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { gestureIsActive, serialBlockedMessage, useSerialMsr } from "../card-reader";
+import { describePort } from "../card-reader/ports";
 import type { KioskConfig } from "../config";
 
 export function KioskAdminMsr({
@@ -43,6 +44,25 @@ export function KioskAdminMsr({
       });
     },
   });
+
+  // Granted COM ports (no chooser with the "allow all serial" policy). Pick one
+  // → open it at the MSR baud → onConnected saves it; verify by swiping a card.
+  const [grantedPorts, setGrantedPorts] = useState<SerialPort[]>([]);
+  const refreshPorts = useCallback(async () => {
+    if (typeof navigator === "undefined" || !("serial" in navigator)) return;
+    setGrantedPorts(await navigator.serial.getPorts().catch(() => [] as SerialPort[]));
+  }, []);
+  useEffect(() => {
+    void refreshPorts();
+  }, [refreshPorts]);
+  const tryPort = (i: number) => {
+    const port = grantedPorts[i];
+    if (!port) return;
+    setPermMsg("Opening the selected port…");
+    void msr.connectPort(port).then((ok) => {
+      setPermMsg(ok ? null : "That port didn’t open — pick another, then swipe a card to verify.");
+    });
+  };
 
   const grantAndListen = async () => {
     if (typeof navigator === "undefined" || !("serial" in navigator)) {
@@ -132,17 +152,54 @@ export function KioskAdminMsr({
           </button>
         </div>
       ) : (
-        <button
-          type="button"
-          className="rounded-xl bg-[#00e2e5] px-5 py-2.5 text-sm font-bold text-[#04252b] disabled:opacity-40"
-          disabled={c.state === "unsupported" || c.state === "connecting"}
-          // Keep KioskShell's document-level fullscreen handler from spending
-          // this tap's transient activation before requestPort() runs.
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => void grantAndListen()}
-        >
-          Grant COM port &amp; listen…
-        </button>
+        <div className="space-y-2">
+          {grantedPorts.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-xs font-semibold uppercase tracking-widest text-white/40">
+                Granted COM ports — pick the MSR to connect &amp; save
+              </div>
+              <div className="flex gap-2">
+                <select
+                  className="w-full rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-white [color-scheme:dark] focus:border-[#00E2E5] focus:outline-none"
+                  defaultValue=""
+                  disabled={c.state === "connecting"}
+                  onChange={(e) => tryPort(Number(e.target.value))}
+                >
+                  <option value="" disabled>
+                    Select a port…
+                  </option>
+                  {grantedPorts.map((p, i) => (
+                    <option key={i} value={i}>
+                      {describePort(p, i)}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-xl border border-white/15 px-4 py-2.5 text-sm font-bold text-white/70"
+                  onClick={() => void refreshPorts()}
+                >
+                  Refresh
+                </button>
+              </div>
+              <p className="text-xs text-white/40">
+                No chooser needed with the “allow all serial” policy. Pick a port, then swipe a Game
+                Zone card below to confirm it’s the MSR — it saves automatically.
+              </p>
+            </div>
+          )}
+          <button
+            type="button"
+            className="rounded-xl bg-[#00e2e5] px-5 py-2.5 text-sm font-bold text-[#04252b] disabled:opacity-40"
+            disabled={c.state === "unsupported" || c.state === "connecting"}
+            // Keep KioskShell's document-level fullscreen handler from spending
+            // this tap's transient activation before requestPort() runs.
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={() => void grantAndListen()}
+          >
+            Grant COM port &amp; listen…
+          </button>
+        </div>
       )}
       {permMsg && <p className="text-sm text-white/60">{permMsg}</p>}
       <p className="text-xs text-white/40">
