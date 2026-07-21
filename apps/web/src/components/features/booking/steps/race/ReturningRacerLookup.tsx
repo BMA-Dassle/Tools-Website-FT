@@ -26,6 +26,8 @@ interface FoundAccount {
   email: string;
   loginCode: string;
   lastSeen: string;
+  /** Epoch ms of the last line-up — the sortable form of `lastSeen` (0 = never). */
+  lastSeenAt: number;
   races: number;
   memberships: string[];
   birthDate: string | null;
@@ -67,6 +69,15 @@ interface SearchCandidate {
   localId: string;
   description: string;
   score: number;
+  /** Epoch ms parsed from the description's "Last seen: M/D/YYYY" (0 = none). */
+  lastSeenAt: number;
+}
+
+function lastSeenFromDescription(desc: string): number {
+  const m = desc.match(/Last seen:\s*(\d{1,2}\/\d{1,2}\/\d{4})/);
+  if (!m) return 0;
+  const t = new Date(m[1]).getTime();
+  return Number.isFinite(t) ? t : 0;
 }
 
 /**
@@ -75,28 +86,58 @@ interface SearchCandidate {
  * action; fetchAccountDetails() runs AFTER /api/sms-verify PUT succeeds and
  * carries the verified identifier (`verify=phone:…|email:…`) or the typed
  * login code (`code=…`) so the server-side gate on person/deposits admits it.
+ *
+ * Accepts multiple queries because phones are stored in mixed formats upstream:
+ * a guest saved as "12397762044" or "+12397762044" only matches the 1-prefixed
+ * search, never the bare 10 digits. Results are merged before ranking.
+ *
+ * Ranking (owner 2026-07-21): keep the TOP 10 candidates ordered by most
+ * recent use first (Last seen), then the description completeness score —
+ * so the account the guest actually uses surfaces instead of whichever
+ * duplicate the API happened to list first.
  */
-async function searchCandidates(query: string): Promise<SearchCandidate[]> {
-  const searchRes = await fetch(
-    `/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=500`,
+async function searchCandidates(queries: string | string[]): Promise<SearchCandidate[]> {
+  const qs = Array.isArray(queries) ? queries : [queries];
+  const batches = await Promise.all(
+    qs.map(async (query) => {
+      try {
+        const searchRes = await fetch(
+          `/api/bmi-office?action=search&q=${encodeURIComponent(query)}&max=500`,
+        );
+        if (!searchRes.ok) return [];
+        return (await searchRes.json()) as Array<{ localId: string; description: string }>;
+      } catch {
+        return [];
+      }
+    }),
   );
-  if (!searchRes.ok) return [];
-  const results = (await searchRes.json()) as Array<{
-    localId: string;
-    description: string;
-  }>;
 
+  const byId = new Map<string, { localId: string; description: string }>();
+  for (const r of batches.flat()) {
+    if (!byId.has(r.localId)) byId.set(r.localId, r);
+  }
+
+  // One candidate per person NAME (duplicate accounts abound); keep the copy
+  // that was used most recently, breaking ties on description completeness.
   const byName = new Map<string, SearchCandidate>();
-  for (const r of results) {
+  for (const r of byId.values()) {
     const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
-    const name = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
+    const rawName = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
+    const name = rawName.toLowerCase();
     const score = scoreSearchResult(r.description);
+    const lastSeenAt = lastSeenFromDescription(r.description);
     const existing = byName.get(name);
-    if (!existing || score > existing.score) {
-      byName.set(name, { localId: r.localId, description: r.description, score });
+    if (
+      !existing ||
+      lastSeenAt > existing.lastSeenAt ||
+      (lastSeenAt === existing.lastSeenAt && score > existing.score)
+    ) {
+      byName.set(name, { localId: r.localId, description: r.description, score, lastSeenAt });
     }
   }
-  return [...byName.values()].slice(0, 10);
+  return [...byName.values()]
+    .sort((a, b) => b.lastSeenAt - a.lastSeenAt || b.score - a.score)
+    .slice(0, 10);
 }
 
 async function fetchAccountDetails(
@@ -138,18 +179,24 @@ async function fetchAccountDetails(
           /* non-fatal */
         }
 
+        // lastLineUp is often absent on the person record even when the search
+        // description carried "Last seen:" — trust whichever is more recent.
+        const fromLineUp = p.lastLineUp ? new Date(p.lastLineUp).getTime() : 0;
+        const lastSeenAt = Math.max(Number.isFinite(fromLineUp) ? fromLineUp : 0, r.lastSeenAt);
         return {
           personId: String(p.id),
           fullName: `${p.firstName || ""} ${p.name || ""}`.trim(),
           email: p.addresses?.[0]?.email || "",
           loginCode,
-          lastSeen: p.lastLineUp
-            ? new Date(p.lastLineUp).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })
-            : "",
+          lastSeen:
+            lastSeenAt > 0
+              ? new Date(lastSeenAt).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })
+              : "",
+          lastSeenAt,
           races: (p.tags || []).length,
           memberships,
           birthDate: p.birthDate || null,
@@ -161,13 +208,17 @@ async function fetchAccountDetails(
     }),
   );
 
+  // Owner ranking (2026-07-21): most recent use first, then credit deposits,
+  // then memberships — the account the guest actually uses lands on top.
   const valid = details.filter((d): d is FoundAccount => d !== null);
   valid.sort((a, b) => {
-    if (a.memberships.length > 0 && b.memberships.length === 0) return -1;
-    if (a.memberships.length === 0 && b.memberships.length > 0) return 1;
-    return (b.lastSeen || "").localeCompare(a.lastSeen || "");
+    if (b.lastSeenAt !== a.lastSeenAt) return b.lastSeenAt - a.lastSeenAt;
+    const depA = a.creditBalances.reduce((s, c) => s + c.balance, 0);
+    const depB = b.creditBalances.reduce((s, c) => s + c.balance, 0);
+    if (depB !== depA) return depB - depA;
+    return b.memberships.length - a.memberships.length;
   });
-  return valid.slice(0, 5);
+  return valid.slice(0, 10);
 }
 
 export function ReturningRacerLookup({
@@ -234,7 +285,10 @@ export function ReturningRacerLookup({
     setPhase("looking");
     setSmsError("");
     try {
-      const found = await searchCandidates(digits);
+      // Phones are stored upstream in mixed formats — bare 10 digits, 11 with
+      // a leading 1, or E.164 (+1…). The office search only matches the stored
+      // string, so search both forms and let searchCandidates merge them.
+      const found = await searchCandidates([digits, `1${digits}`]);
       if (found.length === 0) {
         setPhase("not-found");
         return;
