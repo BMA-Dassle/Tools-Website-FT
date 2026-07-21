@@ -149,30 +149,38 @@ export function KioskCheckoutScreen({
         </div>
       </div>
 
+      {/* Two-row action zone (owner 7/21: total + CTA in one row squeezed the
+          button into a two-line wrap): estimate on its own right-aligned line,
+          full-width no-wrap CTA under it. */}
       <div className="k-z-actions">
-        <button type="button" onClick={onAllActivities} className="k-btn-ghost k-tap">
-          ← All activities
-        </button>
-        {items.length > 0 && (
-          <>
-            <div className="ml-auto shrink-0 pr-[8px] text-right">
-              <div className="text-[22px] font-bold uppercase tracking-[0.18em] text-white/45">
-                Est. total <span className="normal-case tracking-normal">(plus tax)</span>
-              </div>
-              <div className="k-num text-[52px] font-extrabold leading-none text-[#00e2e5]">
+        <div className="flex w-full flex-col gap-[16px]">
+          {items.length > 0 && (
+            <div className="flex items-baseline justify-end gap-[14px] pr-[8px]">
+              <span className="text-[23px] font-bold uppercase tracking-[0.16em] text-white/45">
+                Est. total
+              </span>
+              <span className="k-num text-[48px] font-extrabold leading-none text-[#00e2e5]">
                 ${estTotal.toFixed(2)}
-              </div>
+              </span>
+              <span className="text-[22px] text-white/35">+ tax</span>
             </div>
-            <button
-              type="button"
-              onClick={onReviewAndPay}
-              disabled={!itemsReady || !contactOk}
-              className="k-btn-primary k-tap"
-            >
-              Review &amp; Pay →
+          )}
+          <div className="flex items-center gap-[24px]">
+            <button type="button" onClick={onAllActivities} className="k-btn-ghost k-tap">
+              ← All activities
             </button>
-          </>
-        )}
+            {items.length > 0 && (
+              <button
+                type="button"
+                onClick={onReviewAndPay}
+                disabled={!itemsReady || !contactOk}
+                className="k-btn-primary k-tap whitespace-nowrap"
+              >
+                Review &amp; Pay →
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     </>
   );
