@@ -113,6 +113,23 @@ export interface CheckinBindResponse {
   reason?: "expired-proof" | "no-members" | "cancelled";
 }
 
+// ── Complete ("check in everyone") — POST /api/kiosk/checkin/complete ────────
+export interface CheckinCompleteResponse {
+  ok: boolean;
+  alreadyComplete?: boolean;
+  /** Racers added to their Pandora session this call. */
+  scheduled?: number;
+  /** Racers that couldn't be scheduled (sync lag) — escalated to a staff memo. */
+  scheduleUnlinked?: string[];
+  /** True when the BMI project was stamped -5 "Arrived". */
+  stateStamped?: boolean;
+  /** Whether the done screen may interactively open bowling lanes (mirrors the
+   *  check-in attach gate — dark until enabled, so staff testing fires no KDS). */
+  laneOpenEnabled?: boolean;
+  error?: string;
+  reason?: "expired-proof" | "cancelled" | "busy";
+}
+
 // ── Itinerary envelope (GET /api/kiosk/checkin/itinerary, proof-gated) ──────
 
 export type CheckinActivityKind = "racing" | "bowling" | "attraction";

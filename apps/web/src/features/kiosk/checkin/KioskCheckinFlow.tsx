@@ -33,6 +33,7 @@ import { kioskId } from "../config";
 import { resetToKiosk } from "../version";
 import {
   bindParty,
+  completeCheckin,
   confirmContactOtp,
   fetchItinerary,
   lookupBrowse,
@@ -47,6 +48,7 @@ import type {
   CheckinActivity,
   CheckinBindMember,
   CheckinBrowseRow,
+  CheckinCompleteResponse,
   CheckinItinerary,
   CheckinLookupMatch,
 } from "./types";
@@ -76,7 +78,9 @@ function newCheckinItem(): AttractionItem {
 
 const IDLE_MS = 120_000;
 
-type Stage = "find" | "phone-otp" | "matches" | "browse" | "browse-otp" | "itinerary";
+type Stage = "find" | "phone-otp" | "matches" | "browse" | "browse-otp" | "itinerary" | "done";
+
+const DONE_RESET_MS = 60_000;
 
 /** True after hydration — no setState-in-effect, no hydration mismatch. */
 function useHydrated(): boolean {
@@ -133,6 +137,7 @@ export function KioskCheckinFlow() {
   const [bindMsg, setBindMsg] = useState<string | null>(null);
   // member ids already attached this visit — never re-attach on a second tap.
   const [boundIds, setBoundIds] = useState<Set<string>>(() => new Set());
+  const [complete, setComplete] = useState<CheckinCompleteResponse | null>(null);
 
   const goHome = useCallback(() => {
     void resetToKiosk(() => router.replace("/kiosk"));
@@ -166,29 +171,53 @@ export function KioskCheckinFlow() {
 
   const readyMembers = session.party.filter((m) => m.bmiPersonId && m.waiverValid);
   const unboundReady = readyMembers.filter((m) => !boundIds.has(m.id));
+  // A party member still mid-setup (added but no account/waiver yet) blocks
+  // check-in — mirror the people step's readiness gate.
+  const partyNeedsSetup = session.party.some((m) => !m.bmiPersonId || !m.waiverValid);
 
-  const bindGroup = async () => {
-    if (!proofToken || unboundReady.length === 0) return;
+  // "Check everyone in": attach any newly-added party first, then finalize
+  // (schedule onto the session + -5 Arrived + memo) in one tap.
+  const checkInEveryone = async () => {
+    if (!proofToken || binding) return;
     setBinding(true);
     setBindMsg(null);
-    const members: CheckinBindMember[] = unboundReady.map((m) => ({
-      bmiPersonId: m.bmiPersonId as string,
-      pandoraPersonId: m.pandoraPersonId ?? null,
-      firstName: m.firstName,
-      lastName: m.lastName,
-      waiverValid: !!m.waiverValid,
-    }));
-    const res = await bindParty(center, proofToken, members, config ? kioskId(config) : undefined);
+    if (unboundReady.length > 0) {
+      const members: CheckinBindMember[] = unboundReady.map((m) => ({
+        bmiPersonId: m.bmiPersonId as string,
+        pandoraPersonId: m.pandoraPersonId ?? null,
+        firstName: m.firstName,
+        lastName: m.lastName,
+        waiverValid: !!m.waiverValid,
+      }));
+      const b = await bindParty(center, proofToken, members, config ? kioskId(config) : undefined);
+      if (!b.ok) {
+        setBinding(false);
+        setBindMsg("We couldn't add your group — please see the front desk.");
+        return;
+      }
+      setBoundIds((prev) => new Set([...prev, ...unboundReady.map((m) => m.id)]));
+    }
+    const c = await completeCheckin(center, proofToken, config ? kioskId(config) : undefined);
     setBinding(false);
-    if (!res.ok) {
-      setBindMsg("We couldn't add your group to the reservation — please see the front desk.");
+    if (!c.ok) {
+      setBindMsg(
+        c.reason === "busy"
+          ? "One moment — finishing up. Tap again."
+          : "We couldn't check you in — please see the front desk.",
+      );
       return;
     }
-    const justBound = unboundReady.map((m) => m.id);
-    setBoundIds((prev) => new Set([...prev, ...justBound]));
-    const n = res.results?.length ?? justBound.length;
-    setBindMsg(`Added ${n} ${n === 1 ? "person" : "people"} to your reservation.`);
+    setComplete(c);
+    setStage("done");
   };
+
+  // Auto-reset the done screen back to attract — deferred while a lane-open POST
+  // is in flight (binding), and the timer restarts whenever busy clears.
+  useEffect(() => {
+    if (stage !== "done" || binding) return;
+    const t = setTimeout(goHome, DONE_RESET_MS);
+    return () => clearTimeout(t);
+  }, [stage, binding, goHome]);
 
   const tapBrowseRow = async (row: CheckinBrowseRow) => {
     setBusy(true);
@@ -342,9 +371,11 @@ export function KioskCheckinFlow() {
         <div className="min-w-0 flex-1">
           <div className="k-eyebrow text-[#00e2e5]">Check in</div>
           <div className="k-display truncate text-[52px]">
-            {stage === "itinerary" && itinerary
-              ? `Welcome back, ${itinerary.firstName || "friend"}!`
-              : "Find your reservation"}
+            {stage === "done"
+              ? "You're checked in"
+              : stage === "itinerary" && itinerary
+                ? `Welcome back, ${itinerary.firstName || "friend"}!`
+                : "Find your reservation"}
           </div>
         </div>
         <IconUserCheck size={56} className="shrink-0 text-white/25" aria-hidden="true" />
@@ -469,27 +500,36 @@ export function KioskCheckinFlow() {
               />
 
               {bindMsg && (
-                <div className="mt-[20px] rounded-2xl border-2 border-[#46d68c]/40 bg-[#46d68c]/10 px-[28px] py-[20px] text-[26px] text-[#a7e8c6]">
+                <div className="mt-[20px] rounded-2xl border-2 border-[#e94141]/40 bg-[#e94141]/10 px-[28px] py-[20px] text-[26px] text-[#ffb4b4]">
                   {bindMsg}
                 </div>
               )}
 
-              {unboundReady.length > 0 && (
-                <button
-                  type="button"
-                  onClick={bindGroup}
-                  disabled={binding}
-                  className="k-btn-primary k-tap mt-[20px] h-[96px] w-full text-[32px] disabled:opacity-40"
-                >
-                  {binding
-                    ? "Adding your group…"
-                    : `Add ${unboundReady.length} ${
-                        unboundReady.length === 1 ? "person" : "people"
-                      } to my reservation`}
-                </button>
+              <button
+                type="button"
+                onClick={checkInEveryone}
+                disabled={binding || partyNeedsSetup}
+                className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
+              >
+                {binding ? "Checking you in…" : "Check everyone in"}
+              </button>
+              {partyNeedsSetup && (
+                <p className="mt-[12px] text-center text-[24px] text-white/45">
+                  Finish adding everyone above first — each person needs an account and a signed
+                  waiver.
+                </p>
               )}
             </div>
           </div>
+        )}
+
+        {stage === "done" && itinerary && (
+          <DoneScreen
+            itinerary={itinerary}
+            complete={complete}
+            onFinish={goHome}
+            onBusyChange={setBinding}
+          />
         )}
       </div>
     </div>
@@ -681,6 +721,192 @@ function ItineraryScreen(props: { itinerary: CheckinItinerary; onNewBooking: () 
           Start a new booking ›
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── Done ────────────────────────────────────────────────────────────────────
+function DoneScreen(props: {
+  itinerary: CheckinItinerary;
+  complete: CheckinCompleteResponse | null;
+  onFinish: () => void;
+  onBusyChange: (busy: boolean) => void;
+}) {
+  const { itinerary, complete } = props;
+  const scheduled = complete?.scheduled ?? 0;
+  const laneOpenEnabled = complete?.laneOpenEnabled === true;
+  const bowlingActivities = itinerary.activities.filter(
+    (a) => a.kind === "bowling" && a.neonReservationId,
+  );
+
+  return (
+    <div className="space-y-[28px]">
+      <div className="flex flex-col items-center py-[24px] text-center">
+        <div
+          className="flex h-[140px] w-[140px] items-center justify-center rounded-full border-[3px] border-[#46d68c] bg-[#46d68c]/15 text-[72px] font-black text-[#46d68c]"
+          aria-hidden="true"
+        >
+          ✓
+        </div>
+        <div className="k-display mt-[20px] text-[64px]">You&rsquo;re all checked in.</div>
+        <p className="mt-[10px] text-[30px] text-white/60">
+          {scheduled > 0
+            ? `${scheduled} ${scheduled === 1 ? "racer" : "racers"} added to your race — head over when your heat is called.`
+            : "The front desk knows you're here."}
+        </p>
+      </div>
+
+      {complete?.scheduleUnlinked && complete.scheduleUnlinked.length > 0 && (
+        <div className="k-glass border-[#f0b341]/40 p-[24px] text-[26px] text-[#f0b341]">
+          {complete.scheduleUnlinked.join(", ")} may need a hand at the desk — a team member has
+          been notified.
+        </div>
+      )}
+
+      {/* What's next — the same activity cards, now as a reminder. */}
+      {itinerary.activities.map((a, i) => (
+        <div key={`${a.kind}-${i}`} className="k-glass relative overflow-hidden p-[28px] pl-[44px]">
+          <span
+            className="absolute inset-y-0 left-0 w-[12px]"
+            style={{ background: ACCENT[a.kind] }}
+            aria-hidden="true"
+          />
+          <div className="flex items-center gap-[24px]">
+            <div className="min-w-0 flex-1">
+              <div className="k-display text-[36px]">{a.title}</div>
+              <div className="mt-[4px] text-[26px] text-white/55">{a.building}</div>
+            </div>
+            <div className="k-display text-[40px] text-white">{a.timeLabel}</div>
+          </div>
+        </div>
+      ))}
+
+      {/* Bowling lane-open — interactive only when the check-in attach gate is
+          on (dark-safe: staff testing never fires a real lane / KDS ticket). */}
+      {bowlingActivities.map((a) => (
+        <LaneOpenPanel
+          key={a.neonReservationId}
+          neonReservationId={a.neonReservationId as number}
+          laneLabel={a.laneLabel ?? a.title}
+          interactive={laneOpenEnabled}
+          onBusyChange={props.onBusyChange}
+        />
+      ))}
+
+      <button
+        type="button"
+        onClick={props.onFinish}
+        className="k-btn-primary k-tap h-[104px] w-full text-[34px]"
+      >
+        Done
+      </button>
+    </div>
+  );
+}
+
+/** Bowling lane-open on the done screen — lifts KioskConfirmation's poll+POST. */
+function LaneOpenPanel(props: {
+  neonReservationId: number;
+  laneLabel: string;
+  interactive: boolean;
+  onBusyChange: (busy: boolean) => void;
+}) {
+  const { neonReservationId, interactive } = props;
+  const [phase, setPhase] = useState<"idle" | "ready" | "opening" | "open" | "failed">("idle");
+  const [laneLabel, setLaneLabel] = useState(props.laneLabel);
+
+  useEffect(() => {
+    if (!interactive || phase !== "idle") return;
+    let alive = true;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/bowling/v2/reservations/${neonReservationId}/checkin`, {
+          cache: "no-store",
+        });
+        if (!res.ok || !alive) return;
+        const data = (await res.json()) as { phase?: string; laneLabel?: string };
+        if (!alive) return;
+        if (data.phase === "ready") {
+          if (data.laneLabel) setLaneLabel(data.laneLabel);
+          setPhase("ready");
+        } else if (data.phase === "running" || data.phase === "completed") {
+          if (data.laneLabel) setLaneLabel(data.laneLabel);
+          setPhase("open");
+        }
+      } catch {
+        /* skip this tick */
+      }
+    };
+    void poll();
+    const iv = setInterval(() => void poll(), 10_000);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, [interactive, phase, neonReservationId]);
+
+  const openLane = async () => {
+    setPhase("opening");
+    props.onBusyChange(true);
+    try {
+      const res = await fetch(`/api/bowling/v2/reservations/${neonReservationId}/checkin`, {
+        method: "POST",
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; lanesOpened?: number };
+      if (res.ok && data.ok && (data.lanesOpened ?? 0) > 0) {
+        setPhase("open");
+        return;
+      }
+      // Verify — a partial/staff open may have succeeded anyway.
+      const v = await fetch(`/api/bowling/v2/reservations/${neonReservationId}/checkin`, {
+        cache: "no-store",
+      });
+      const vd = (await v.json().catch(() => ({}))) as { phase?: string };
+      setPhase(vd.phase === "running" || vd.phase === "completed" ? "open" : "failed");
+    } catch {
+      setPhase("failed");
+    } finally {
+      props.onBusyChange(false);
+    }
+  };
+
+  // Nothing to show until a lane is actually openable (or already open).
+  if (phase === "idle") {
+    return (
+      <div className="k-glass p-[24px] text-[26px] text-white/55">
+        <IconClock size={26} className="mr-[10px] inline text-[#2dd4ea]" aria-hidden="true" />
+        Your lane opens about 30 minutes before your time — we&rsquo;ll get it ready.
+      </div>
+    );
+  }
+  if (phase === "open") {
+    return (
+      <div className="k-glass border-[#46d68c]/40 p-[28px] text-[30px] text-[#a7e8c6]">
+        {laneLabel} is open — shoes are on the way. Have fun!
+      </div>
+    );
+  }
+  if (phase === "failed") {
+    return (
+      <div className="k-glass border-[#f0b341]/40 p-[28px] text-[28px] text-[#f0b341]">
+        We couldn&rsquo;t open {laneLabel} — please see the front desk and they&rsquo;ll get you
+        started.
+      </div>
+    );
+  }
+  // ready | opening
+  return (
+    <div className="k-glass border-[#2dd4ea]/50 p-[32px]">
+      <div className="k-display text-[36px] text-[#2dd4ea]">{laneLabel} is ready</div>
+      <p className="mt-[8px] text-[26px] text-white/60">Open it now and head over to bowl.</p>
+      <button
+        type="button"
+        onClick={openLane}
+        disabled={phase === "opening"}
+        className="k-btn-primary k-tap mt-[20px] h-[96px] w-full text-[32px] disabled:opacity-40"
+      >
+        {phase === "opening" ? "Opening your lane…" : `Open ${laneLabel} now`}
+      </button>
     </div>
   );
 }

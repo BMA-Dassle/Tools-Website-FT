@@ -28,12 +28,18 @@ import {
 } from "@/lib/bowling-db";
 import { ATTRACTIONS } from "@/lib/attractions-data";
 import { registerProjectPersonServer } from "~/features/kiosk/waiver/bmi-attach";
+import { setProjectState, appendProjectPrivateNote } from "@/lib/bmi-office-actions";
 import { kioskCheckinAttachEnabled } from "../flags";
 import {
   openCheckinEvent,
+  getCheckinEvent,
+  completeCheckinEvent,
+  listCheckinPeople,
   upsertCheckinPerson,
   setCheckinPersonStatus,
 } from "../data/kiosk-checkins-db";
+import { scheduleCheckinRacers, heatStopFor, type ScheduleRacer } from "./schedule-racers";
+import { getRaceProductById } from "~/features/booking/service/race-products";
 import {
   assembleItinerary,
   fmtTime12,
@@ -265,6 +271,7 @@ interface NeonHeat {
   track?: string | null;
   tier?: string;
   category?: string;
+  productId?: string | null;
   bmiPersonId?: string | null;
   racer?: string;
 }
@@ -811,6 +818,267 @@ export async function bindPartyMembers(args: {
   }
 
   return { ok: true, results };
+}
+
+// ── complete ("check in everyone") — PR3 finalize ────────────────────────────
+// Comfortably longer than the worst-case finalize (schedule withRetry ~15s×3 +
+// the 10s/20s straggler re-POSTs) so a "busy, tap again" retry can't acquire a
+// prematurely-expired lock and re-run the pipeline.
+const LOCK_TTL = 150; // seconds — single-flight per billId
+
+/** Best-effort single-flight lock. Returns a release fn, or null if held. */
+async function acquireBillLock(billId: string): Promise<null | (() => Promise<void>)> {
+  const key = `checkin:lock:${billId}`;
+  const token = newToken();
+  try {
+    const ok = await redis.set(key, token, "EX", LOCK_TTL, "NX");
+    if (ok === null) return null;
+    return async () => {
+      // Only release if we still own it.
+      try {
+        const cur = await redis.get(key);
+        if (cur === token) await redis.del(key);
+      } catch {
+        /* lock self-expires */
+      }
+    };
+  } catch {
+    // Redis down — proceed without a lock (the DB unique keys are the backstop).
+    return async () => {};
+  }
+}
+
+function etTimeLabel(): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(Date.now());
+}
+
+export interface CompleteResult {
+  ok: boolean;
+  alreadyComplete?: boolean;
+  scheduled?: number;
+  scheduleUnlinked?: string[];
+  stateStamped?: boolean;
+  laneOpenEnabled?: boolean;
+  reason?: "cancelled" | "busy";
+}
+
+/**
+ * Finalize check-in for the whole party. Assigns the people added in PR2 to the
+ * reservation's open heat slots, schedules them onto the Pandora session, stamps
+ * the BMI project -5 "Arrived", and writes the staff memo. All external writes
+ * (schedule / -5 / memo) are gated behind KIOSK_CHECKIN_ATTACH (default OFF) so
+ * the finalize is dark-safe; the local event/record stamps always run.
+ * Idempotent: a completed event returns alreadyComplete without re-writing.
+ */
+export async function completeCheckin(args: {
+  billId: string;
+  center: CenterSlug;
+  kioskId?: string | null;
+  verifiedVia: CheckinVerifiedVia;
+}): Promise<CompleteResult> {
+  const { billId, center } = args;
+  const businessDate = todayET();
+
+  const release = await acquireBillLock(billId);
+  if (!release) return { ok: false, reason: "busy" };
+
+  try {
+    const summary = await loadSummary(billId);
+    if (summary?.cancelled) return { ok: false, reason: "cancelled" };
+
+    const event = await openCheckinEvent({
+      billId,
+      center,
+      kioskId: args.kioskId ?? null,
+      verifiedVia: args.verifiedVia,
+      businessDate,
+    });
+    if (event) {
+      const existing = await getCheckinEvent(billId, businessDate);
+      if (existing?.completedAt) {
+        // Replay (double-tap / resolved busy-retry): report the persisted state
+        // so the done screen keeps the lane panel interactive + the right count.
+        const priorPeople = await listCheckinPeople(event.id);
+        return {
+          ok: true,
+          alreadyComplete: true,
+          scheduled: priorPeople.filter((p) => p.scheduleStatus === "inserted").length,
+          stateStamped: existing.bmiStateStatus === "set",
+          laneOpenEnabled: kioskCheckinAttachEnabled(),
+        };
+      }
+    }
+
+    const group = summary?.moneyGroup ?? [];
+    const record = summary?.record ?? null;
+    const heats = neonHeats(group);
+    const hasRacing = heats.length > 0 || (record?.racers?.length ?? 0) > 0;
+    const officeProjectId = (() => {
+      try {
+        return (BigInt(billId) + BigInt(1)).toString();
+      } catch {
+        return null;
+      }
+    })();
+    // Racing BMI project lives on the FastTrax Pandora location; bowling/
+    // attraction-only reservations use the venue slug.
+    const stateCenterCode: string = hasRacing ? "fasttrax" : center;
+
+    const attachEnabled = kioskCheckinAttachEnabled();
+    const people = event ? await listCheckinPeople(event.id) : [];
+
+    let scheduled = 0;
+    // Names we must flag to staff: schedule sync-lag failures, people with no
+    // resolved short id, and people who arrived with no open slot to place them.
+    const memoFailures: string[] = [];
+    const unplaced: string[] = [];
+    let stateStamped = false;
+
+    if (attachEnabled && hasRacing) {
+      // Assign the added people to open heat slots (no bmiPersonId), earliest
+      // heat first, and schedule them onto the session. Auto-assign in heat
+      // order — a per-person tap-to-assign picker is a follow-up (PR4).
+      const openSlots = heats
+        .filter((h) => !h.bmiPersonId && h.heatId)
+        .sort((a, b) => timeKey(a.heatId).localeCompare(timeKey(b.heatId)));
+      const racers: ScheduleRacer[] = [];
+      // personId here is the SHORT Pandora id ONLY — a 17-digit Office id 500s
+      // the whole batch, so anyone without a resolved short id is isolated to
+      // the memo instead of being POSTed (review H1).
+      const bound: { personRowId: number; personId: string }[] = [];
+      people.forEach((p, i) => {
+        const slot = openSlots[i];
+        const name = p.firstName || p.displayName || "Racer";
+        if (!slot) {
+          // More added people than open heat slots — party grew.
+          unplaced.push(name);
+          return;
+        }
+        if (!p.pandoraPersonId) {
+          // No short id resolved (e.g. a returning racer whose lookup didn't
+          // upsert) — can't schedule; flag for the desk, don't poison the batch.
+          memoFailures.push(name);
+          void setCheckinPersonStatus(p.id, { scheduleStatus: "failed" });
+          return;
+        }
+        const productId = slot.productId ?? null;
+        const product = productId ? getRaceProductById(productId) : null;
+        racers.push({
+          racerName: name,
+          personId: p.pandoraPersonId,
+          product: product?.name ?? "Race",
+          productId,
+          tier: slot.tier || product?.tier || "starter",
+          track: (slot.track as ScheduleRacer["track"]) ?? null,
+          category: slot.category || product?.category || "adult",
+          heatName: product?.name ?? "Race",
+          heatStart: slot.heatId as string,
+          heatStop: heatStopFor(slot.heatId as string),
+        });
+        bound.push({ personRowId: p.id, personId: p.pandoraPersonId });
+      });
+
+      if (racers.length > 0) {
+        const res = await scheduleCheckinRacers({
+          reservationNumber:
+            record?.reservationNumber ??
+            group.find((r) => r.bmiReservationNumber)?.bmiReservationNumber ??
+            "",
+          racers,
+        });
+        scheduled = res.linked;
+        // Per-person status matched by personId (never by name — duplicate first
+        // names would collide, review L6).
+        const failedIds = new Set(res.unlinkedPersonIds);
+        for (const b of bound) {
+          await setCheckinPersonStatus(b.personRowId, {
+            scheduleStatus: failedIds.has(b.personId) ? "failed" : "inserted",
+          });
+        }
+        memoFailures.push(...res.unlinked);
+      }
+    }
+
+    // -5 "Arrived" — the staff-visible "party is here and ready" signal. Only
+    // for reservations that actually have a BMI project (racing/attraction).
+    if (attachEnabled && hasRacing && officeProjectId) {
+      try {
+        await setProjectState({
+          centerCode: stateCenterCode,
+          projectId: officeProjectId,
+          stateId: "-5",
+          label: "Arrived",
+        });
+        stateStamped = true;
+      } catch (err) {
+        console.error("[kiosk-checkin] -5 Arrived stamp failed (non-fatal):", err);
+      }
+    }
+
+    // ONE composed staff memo (only where a BMI project exists — racing;
+    // bowling/attraction-only reservations have no billId+1 project to note on).
+    if (attachEnabled && hasRacing && officeProjectId) {
+      const names = people.map((p) => p.displayName).join(", ") || "party";
+      const couldNotAdd = [...new Set(memoFailures)];
+      const note =
+        `Kiosk check-in ${etTimeLabel()}: ${names} — waivers ✓` +
+        (scheduled > 0 ? `, ${scheduled} added to session` : "") +
+        (couldNotAdd.length > 0 ? ` — COULD NOT add to session: ${couldNotAdd.join(", ")}` : "") +
+        (unplaced.length > 0
+          ? ` — no open slot for: ${unplaced.join(", ")} (needs a new booking)`
+          : "");
+      try {
+        await appendProjectPrivateNote({
+          centerCode: stateCenterCode,
+          projectId: officeProjectId,
+          note,
+          billId,
+        });
+      } catch (err) {
+        console.error("[kiosk-checkin] check-in memo failed (non-fatal):", err);
+      }
+    }
+
+    // Our own record stamp (always — benign, respects the cancelled guard).
+    await stampBookingRecordCheckedIn(billId);
+
+    if (event) {
+      await completeCheckinEvent(
+        event.id,
+        stateStamped ? "set" : attachEnabled && hasRacing ? "failed" : "pending",
+      );
+    }
+
+    return {
+      ok: true,
+      scheduled,
+      scheduleUnlinked: [...new Set([...memoFailures, ...unplaced])],
+      stateStamped,
+      laneOpenEnabled: attachEnabled,
+    };
+  } finally {
+    await release();
+  }
+}
+
+/** Stamp kioskCheckinAt on the Redis booking record (never un-cancel it). */
+async function stampBookingRecordCheckedIn(billId: string): Promise<void> {
+  try {
+    const raw = await redis.get(`bookingrecord:${billId}`);
+    if (!raw) return;
+    const rec = JSON.parse(raw) as { status?: string };
+    if (rec.status === "cancelled" || rec.status === "refunded") return;
+    const updated = { ...rec, kioskCheckinAt: new Date().toISOString() };
+    // 90-day TTL to match the booking-record route.
+    await redis.set(`bookingrecord:${billId}`, JSON.stringify(updated), "EX", 60 * 60 * 24 * 90);
+  } catch {
+    /* non-fatal */
+  }
 }
 
 export { loadSummary };

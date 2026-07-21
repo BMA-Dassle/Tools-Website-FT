@@ -7,6 +7,7 @@
 import type {
   CheckinBindMember,
   CheckinBindResponse,
+  CheckinCompleteResponse,
   CheckinConfirmOtpResponse,
   CheckinItinerary,
   CheckinLookupResponse,
@@ -102,6 +103,23 @@ export async function bindParty(
       body: JSON.stringify({ center, proofToken, members, kioskId }),
     });
     return (await res.json()) as CheckinBindResponse;
+  } catch {
+    return { ok: false, error: "network" };
+  }
+}
+
+export async function completeCheckin(
+  center: string,
+  proofToken: string,
+  kioskId?: string,
+): Promise<CheckinCompleteResponse> {
+  try {
+    const res = await fetch("/api/kiosk/checkin/complete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ center, proofToken, kioskId }),
+    });
+    return (await res.json()) as CheckinCompleteResponse;
   } catch {
     return { ok: false, error: "network" };
   }

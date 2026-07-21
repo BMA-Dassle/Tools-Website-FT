@@ -88,14 +88,36 @@ the front desk"); group/daily-events waivers keep using `/kiosk/waiver`.
   QR rides `attraction` stepKind; a distinct kind would require editing the multi-writer
   monolith to pass it, for only marginally better phone copy (documented follow-up).
   Launch gate shared with group waiver: **A3 attach probe**.
-- **PR3** — the actual check-in: tap-to-assign people → heats/lanes, Pandora session
-  schedule (extract `scheduleRacers` from kiosk-post-reserve), QAMF bowling roster
-  (players-PATCH compose + `syncQamfPlayers`), **-5 Arrived** stamp (verify-by-reread), memo,
-  Neon/booking-record stamps + the checked-in-but-never-opened settle path, done screen +
-  lane-open lift, and the schedule-status sweep. Bowling names/shoes need their own grid UI
-  (the people monolith is waiver-only).
-- Then owner live smoke → flip `NEXT_PUBLIC_KIOSK_CHECKIN_ENABLED` → watch
-  `kiosk_checkin_people` statuses.
+- **PR3 (this branch, feat/kiosk-checkin-3-complete)** — the "check in everyone" FINALIZE.
+  One button binds any newly-added party (PR2) then POSTs `/api/kiosk/checkin/complete`:
+  Redis single-flight lock per billId → open/reuse the event (idempotent; `alreadyComplete`
+  short-circuit) → assign added people to open heat slots (`booking_metadata.heats` rows with
+  `bmiPersonId` null, earliest-first; auto-assign — a per-person tap-to-assign picker is
+  PR4) → `scheduleCheckinRacers` (new `schedule-racers.ts`, adapted from kiosk-post-reserve:
+  SHORT ids, per-racer results + 10s/20s re-POST + incomplete-memo, FastTrax-only, no 8s
+  delay) → **-5 "Arrived"** via `setProjectState` (racing → "fasttrax" Pandora location) →
+  ONE composed staff memo → mark event complete → stamp `kioskCheckinAt` on the booking
+  record. Done screen: what's-next + a bowling lane-open panel (lifts KioskConfirmation's
+  poll+POST). **All external writes (schedule/-5/memo/interactive lane-open) gated behind
+  `KIOSK_CHECKIN_BMI_ATTACH` (default OFF)** — dark-safe: staff typed-URL testing fires no
+  schedule/state/lane/KDS write, only the local event + record stamps.
+- **PR4 (hardening, not yet built)** — per-person tap-to-assign heat picker; bowling
+  names/shoes roster grid + `syncQamfPlayers` compose (the people monolith is waiver-only);
+  write `bmiPersonId` back to `booking_metadata.heats` (spacing-guard truth); `-5`
+  verify-by-reread; schedule-status sweep cron over `kiosk_checkin_people`; the
+  checked-in-but-lane-never-opened settle path in `bowling-no-show-close`.
+- Then A3 attach probe + `-5` state-stamp probe on a converted racing reservation → owner
+  live smoke → flip `KIOSK_CHECKIN_BMI_ATTACH=1` then `NEXT_PUBLIC_KIOSK_CHECKIN_ENABLED` →
+  watch `kiosk_checkin_people` statuses.
+
+  ⚠ **Owner decision to confirm before enabling (`-5` consequence):** stamping the BMI project
+  `-5 "Arrived"` at kiosk check-in makes `race-dayof-pay` treat the guest as arrived and settle
+  the day-of order immediately (gift-card-funded — no NEW card charge, but the order
+  settles/completes at check-in, potentially 30+ min before the race, bypassing the
+  `raceSettleGate` track-truth wait). This is the normal arrival→settle path (the gate only
+  defers when arrival is unknown), but it's a real behavioral consequence of the locked `-5`
+  choice — confirm early settlement is acceptable, or pick a non-arrival state that only flags
+  "ready" without triggering settle.
 
 ## 9. Launch gates (in order)
 
