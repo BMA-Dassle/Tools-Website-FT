@@ -21,7 +21,7 @@ import {
 } from "~/components/features/booking/steps/race/ReturningRacerLookup";
 import WaiverSigning from "@/components/pandora/WaiverSigning";
 import { pandoraOnboardGuest, type PandoraWaiverTemplate } from "@/lib/pandora";
-import { formatPersonName, normalizeEmail } from "~/features/kiosk/name-format";
+import { formatPersonName, normalizeEmail } from "~/lib/helpers/name-format";
 import { useJoinSession } from "./useJoinSession";
 import { NewGuestForm, type NewGuestFields } from "./NewGuestForm";
 import {

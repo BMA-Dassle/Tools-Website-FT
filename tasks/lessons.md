@@ -1883,3 +1883,26 @@ Two traps that nearly deleted sibling work (dispenser-fault beacon, MSR chooser)
   that fresh base → verify `git diff origin/main -- <path>` (from root) shows ONLY your
   hunks.** Also expect local `tsc` to fail on OTHER stale files (e.g. card-reader) — verify
   the file-level diff instead, and lint the file directly.
+
+## Case-normalizers must never run per keystroke; OSK decisions must read live DOM (2026-07-21)
+
+Kiosk bowling names landed as "SaRA GoODFELLOW" / "SeBASTIAN" — two bugs compounding:
+
+- **`OnScreenKeyboardHost` never re-renders while a guest types** (typing updates only the
+  step's state; the host is a KioskShell sibling), so the render-time smart-caps decision
+  (`letterCase`) froze at its focus-time value (`true` on an empty field) inside the `press`
+  closure → every letter emitted UPPERCASE. **Rule: any per-keypress decision in the OSK
+  must be computed inside `press()` from the field's live `value`/`selectionStart`, and the
+  host needs an explicit re-render bump per keypress for its labels.**
+- **`formatPersonName` on every `onChange` self-defeats.** Its mixed-case guard (preserve
+  "McDonald") means an ALL-CAPS stream is only fixable at chars 1–2: "S"→"S", "SE"→"Se",
+  but "SeB" now contains a lowercase letter, reads as deliberate mixed case, and every
+  later capital is preserved → "SeBASTIAN". **Rule: store names AS TYPED, normalize on
+  blur / at commit — never per keystroke.** (Racing names never showed the bug because
+  KioskPeopleStep formats one-shot at commit.) A payload-time backstop also can't repair
+  already-mangled mixed-case rows — the guard preserves them by design.
+
+Fix: press-time caps in OnScreenKeyboard.tsx; blur-time formatting in the bowling
+people/details steps; backstop `formatPersonName` in both reserve payload builders.
+`name-format.ts` moved to `apps/web/src/lib/helpers/` (booking service needed it;
+kiosk→booking would be backwards layering).

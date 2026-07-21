@@ -25,7 +25,7 @@
  */
 import { useCallback, useEffect, useRef } from "react";
 import type { BowlingItem, PartyMember, StepDef } from "~/features/booking";
-import { formatPersonName, normalizeEmail } from "../name-format";
+import { formatPersonName, normalizeEmail } from "~/lib/helpers/name-format";
 
 type BowlItem = BowlingItem;
 type Player = { name: string; shoeSize: string | null; bumpers: boolean | null; memberId?: string };
@@ -146,10 +146,14 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
       if (selectedIds.has(m.id)) writeRows(rows.filter((r) => r.memberId !== m.id));
       else writeRows([...rows, rowOf(m)]);
     };
+    // Names are stored AS TYPED and case-normalized on BLUR, never per
+    // keystroke: two chars into an ALL-CAPS stream formatPersonName's output
+    // ("SA" → "Sa") reads as deliberate mixed case, so every later capital is
+    // preserved and the guest lands "SaRA GoODFELLOW" (owner 2026-07-21).
+    // Blur (OSK "Done", tapping the next field, Continue) formats the whole
+    // token at once; the reserve payload formats once more as the backstop.
     const setExtraName = (idx: number, name: string) => {
-      // Normalize case as typed (owner 2026-07-19: no all-caps names).
-      const clean = formatPersonName(name);
-      writeRows(rows.map((p, i) => (i === idx ? { ...p, name: clean } : p)));
+      writeRows(rows.map((p, i) => (i === idx ? { ...p, name } : p)));
     };
     const setExtraFirst = (idx: number, first: string) => {
       const { lastName } = splitName(rows[idx].name);
@@ -268,6 +272,7 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
                   type="text"
                   value={splitName(p.name).firstName}
                   onChange={(e) => setExtraFirst(idx, e.target.value)}
+                  onBlur={(e) => setExtraFirst(idx, formatPersonName(e.target.value))}
                   placeholder="First name"
                   aria-label={`Extra bowler ${n + 1} first name`}
                   className={inputCls}
@@ -276,6 +281,7 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
                   type="text"
                   value={splitName(p.name).lastName}
                   onChange={(e) => setExtraLast(idx, e.target.value)}
+                  onBlur={(e) => setExtraLast(idx, formatPersonName(e.target.value))}
                   placeholder="Last name (optional)"
                   aria-label={`Extra bowler ${n + 1} last name`}
                   className={inputCls}
@@ -314,7 +320,8 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
               <input
                 type="text"
                 value={contact.firstName ?? ""}
-                onChange={(e) => setContactField({ firstName: formatPersonName(e.target.value) })}
+                onChange={(e) => setContactField({ firstName: e.target.value })}
+                onBlur={(e) => setContactField({ firstName: formatPersonName(e.target.value) })}
                 placeholder="Main person first name"
                 aria-label="Main person first name"
                 className={contactInputCls}
@@ -322,7 +329,8 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
               <input
                 type="text"
                 value={contact.lastName ?? ""}
-                onChange={(e) => setContactField({ lastName: formatPersonName(e.target.value) })}
+                onChange={(e) => setContactField({ lastName: e.target.value })}
+                onBlur={(e) => setContactField({ lastName: formatPersonName(e.target.value) })}
                 placeholder="Main person last name"
                 aria-label="Main person last name"
                 className={contactInputCls}
@@ -368,11 +376,11 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
   // it), but the UI edits it as separate First / Last fields (owner 2026-07-19 —
   // last name was silently required). Compose "First Last" from the two fields.
   const setName = (i: number, name: string) => {
-    // Normalize case as typed (owner 2026-07-19: no all-caps names) — the
-    // formatted value is what the reserve/QAMF roster and contact receive.
-    const clean = formatPersonName(name);
-    writeRows(players.map((p, idx) => (idx === i ? { ...p, name: clean } : p)));
-    if (i === mainIdx) dispatch({ type: "setContact", patch: splitName(clean) });
+    // Stored AS TYPED; case is normalized on blur (formatPersonName per
+    // keystroke self-defeats on ALL-CAPS typing — see the signed-in mode's
+    // setExtraName comment) and once more at the reserve payload.
+    writeRows(players.map((p, idx) => (idx === i ? { ...p, name } : p)));
+    if (i === mainIdx) dispatch({ type: "setContact", patch: splitName(name) });
   };
   const setFirst = (i: number, first: string) => {
     const { lastName } = splitName(players[i].name);
@@ -410,6 +418,7 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
                   type="text"
                   value={splitName(p.name).firstName}
                   onChange={(e) => setFirst(i, e.target.value)}
+                  onBlur={(e) => setFirst(i, formatPersonName(e.target.value))}
                   placeholder="First name"
                   aria-label={`Bowler ${i + 1} first name`}
                   className={inputCls}
@@ -418,6 +427,7 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
                   type="text"
                   value={splitName(p.name).lastName}
                   onChange={(e) => setLast(i, e.target.value)}
+                  onBlur={(e) => setLast(i, formatPersonName(e.target.value))}
                   placeholder={isMain ? "Last name" : "Last name (optional)"}
                   aria-label={`Bowler ${i + 1} last name`}
                   className={inputCls}

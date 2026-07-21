@@ -17,6 +17,7 @@
  */
 import { useState } from "react";
 import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
+import { formatPersonName } from "~/lib/helpers/name-format";
 
 type RosterPlayer = {
   name: string;
@@ -182,6 +183,10 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
                 type="text"
                 value={p.name}
                 onChange={(e) => update(i, { name: e.target.value })}
+                // Case-normalize on blur, never per keystroke (an ALL-CAPS
+                // stream reads as mixed case two chars in and gets preserved —
+                // "SaRA"); the reserve payload formats once more as backstop.
+                onBlur={(e) => update(i, { name: formatPersonName(e.target.value) })}
                 placeholder={`Bowler ${i + 1}`}
                 autoComplete="off"
                 className="mb-[20px] w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[18px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"

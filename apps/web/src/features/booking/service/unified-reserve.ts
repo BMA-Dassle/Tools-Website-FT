@@ -33,6 +33,7 @@ import { grantKioskRacePacks } from "./race-pack-grant.server";
 import { upsertPackPurchases, markPackCharged } from "../data/race-pack-purchases-db";
 import { SQUARE_RACE_PACK_CATALOG_ID } from "../data/packs";
 import { centerCodeFor } from "~/config/intercard-centers";
+import { formatPersonName } from "~/lib/helpers/name-format";
 import { after } from "next/server";
 import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
 import { confirmBmiPayment, bmiBillIsLive } from "./bmi-confirm";
@@ -1403,7 +1404,9 @@ async function unifiedReserveInner(
     const players =
       rosterPlayers && rosterPlayers.length > 0
         ? rosterPlayers.map((p, i) => ({
-            name: p.name.trim() || `Bowler ${i + 1}`,
+            // Typed kiosk names are case-normalized once more here — the last
+            // stop before QAMF lane monitors + Neon see the roster.
+            name: formatPersonName(p.name) || `Bowler ${i + 1}`,
             shoeSize: p.shoeSize || null, // "" = own shoes
             bumpers: p.bumpers ?? null,
           }))

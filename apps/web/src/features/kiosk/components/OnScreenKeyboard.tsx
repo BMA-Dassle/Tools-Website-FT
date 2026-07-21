@@ -102,6 +102,13 @@ export function OnScreenKeyboardHost() {
   const [target, setTarget] = useState<EditableEl | null>(null);
   const [layout, setLayout] = useState<OskLayoutId>("qwerty");
   const [shift, setShift] = useState(false);
+  // Re-render after every keypress. Typing changes only the FIELD's state (the
+  // host is a KioskShell sibling), so without this bump the host never
+  // re-renders while a guest types and the focus-time smart-caps decision goes
+  // stale inside the press closure — every letter of an empty field landed
+  // UPPERCASE ("SEBASTIAN"), which per-keystroke formatting then half-fixed
+  // into "SeBASTIAN" (owner 2026-07-21 caps bug).
+  const [, setEditTick] = useState(0);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // After "Done", a transparent full-canvas shield briefly swallows the next tap
   // so it can't fall THROUGH to whatever sits under the (now-closing) keyboard —
@@ -191,6 +198,8 @@ export function OnScreenKeyboardHost() {
   // Smart-caps is for NAMES (qwerty) only. The email layout never capitalizes —
   // auto-capping the first letter was landing "John@…" in bookings, and emails
   // are normalized lowercase at capture anyway (owner 2026-07-19).
+  // letterCase drives the KEY LABELS only — press() recomputes the actual
+  // case per keypress so a stale render can never uppercase a whole word.
   const letterCase =
     layout === "qwerty"
       ? shouldCapitalize(target.value, target.selectionStart ?? target.value.length, shift)
@@ -215,11 +224,15 @@ export function OnScreenKeyboardHost() {
     }
     const start = target.selectionStart ?? target.value.length;
     const end = target.selectionEnd ?? start;
-    const literal =
-      code.length === 1 && /[a-z]/.test(code) && letterCase ? code.toUpperCase() : code;
+    // Decide the case HERE, from the field's live value — never from the
+    // render-time letterCase (that closure is only as fresh as the last
+    // re-render; see setEditTick above).
+    const caps = layout === "qwerty" && shouldCapitalize(target.value, start, shift);
+    const literal = code.length === 1 && /[a-z]/.test(code) && caps ? code.toUpperCase() : code;
     const next = applyOskKey(target.value, start, end, literal);
     setNativeValue(target, next.value, next.caret);
     if (shift && code !== OSK_BACKSPACE) setShift(false);
+    setEditTick((t) => t + 1);
   };
 
   return (

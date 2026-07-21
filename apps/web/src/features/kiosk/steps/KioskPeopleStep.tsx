@@ -46,7 +46,7 @@ import {
 import { useKioskConfig } from "../KioskConfigContext";
 import { kioskHasCamera, kioskId } from "../config";
 import { KioskWaiverPhoto } from "../components/KioskWaiverPhoto";
-import { formatPersonName, normalizeEmail } from "../name-format";
+import { formatPersonName, normalizeEmail } from "~/lib/helpers/name-format";
 import { kioskMobileJoinEnabled } from "../flags";
 import { useMobileJoin } from "../hooks/useMobileJoin";
 import { mergeJoinedGuests } from "../join/merge";

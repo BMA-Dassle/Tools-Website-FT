@@ -15,6 +15,7 @@ import type { Dispatch } from "react";
 import type { Action } from "../state/machine";
 import { buildKbfExtraSquareLineItems, isFridayYmd } from "./kbf-pricing";
 import { promoFactor } from "./promo-pricing";
+import { formatPersonName } from "~/lib/helpers/name-format";
 
 type BowlingLikeItem = BowlingItem | KbfItem;
 
@@ -233,8 +234,10 @@ export async function bowlingReserve(params: BowlingReserveParams): Promise<Bowl
     if (!r) return p;
     return {
       ...p,
-      // KBF keeps its pass-derived names; open bowling takes the typed name.
-      name: item.kind === "kbf" ? p.name : r.name.trim() || p.name,
+      // KBF keeps its pass-derived names; open bowling takes the typed name —
+      // case-normalized once more here (the kiosk formats on blur, but this is
+      // the last stop before QAMF lane monitors + Neon see the roster).
+      name: item.kind === "kbf" ? p.name : formatPersonName(r.name) || p.name,
       shoeSize: r.shoeSize || null, // "" = own shoes → no rental size recorded
       bumpers: r.bumpers ?? null,
     };
