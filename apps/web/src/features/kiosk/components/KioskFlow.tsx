@@ -127,6 +127,7 @@ const NATIVE_STEP_IDS = new Set([
   "attraction-slot",
   "bowling-slots",
   "bowling-tier",
+  "bowling-offer",
   // v3 single-time-pick steps render their own kiosk variant at canvas px.
   "bowling-experience",
   "bowling-time",

@@ -12,6 +12,7 @@ import { KioskSlotStep } from "../steps/KioskSlotStep";
 import { KioskBowlingDetailsStep } from "../steps/KioskBowlingDetailsStep";
 import { KioskBowlingTimeStep } from "../steps/KioskBowlingTimeStep";
 import { KioskBowlingTierStep } from "../steps/KioskBowlingTierStep";
+import { KioskBowlingOfferStep } from "../steps/KioskBowlingOfferStep";
 import { KioskBowlingPeopleStep } from "../steps/KioskBowlingPeopleStep";
 import { KioskRacePeopleStep, KioskAttractionPeopleStep } from "../steps/KioskPeopleStep";
 
@@ -187,14 +188,26 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
       "bowling-tier",
       hiddenInCombo(hiddenForWorldCup(classicOnly(KioskBowlingTierStep as StepDef))),
     );
+    // Kiosk-native "Choose a Package" (Podium reskin of the classic offer
+    // step; same shared useBowlingOffers brain, so the duration + slot +
+    // QAMF-hold contract is unchanged; v3 keeps its own kiosk-variant steps).
+    steps = replaceStep(
+      steps,
+      "bowling-offer",
+      hiddenInCombo(hiddenForWorldCup(classicOnly(KioskBowlingOfferStep as StepDef))),
+    );
     steps = insertAfter(steps, "bowling-shoes", hiddenInCombo(KioskBowlingDetailsStep as StepDef));
     return [hiddenInCombo(KioskBowlingPeopleStep as StepDef), ...steps];
   })(),
   kbf: insertAfter(
     replaceStep(
-      [...STEP_REGISTRY.kbf],
-      "bowling-slots",
-      classicOnly(KioskBowlingTimeStep as StepDef),
+      replaceStep(
+        [...STEP_REGISTRY.kbf],
+        "bowling-slots",
+        classicOnly(KioskBowlingTimeStep as StepDef),
+      ),
+      "bowling-offer",
+      classicOnly(KioskBowlingOfferStep as StepDef),
     ),
     "bowling-shoes",
     KioskBowlingDetailsStep as StepDef,
