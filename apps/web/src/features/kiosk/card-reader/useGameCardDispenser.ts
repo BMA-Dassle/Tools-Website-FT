@@ -39,6 +39,9 @@ export function useGameCardDispenser({ config, onConnected }: UseGameCardDispens
   const reader = useCardReader({
     preferredBaud: config?.cardReaderBaud ?? null,
     portInfo: config?.cardReaderPortInfo ?? null,
+    // Saved "where I found it" index — the guest flow reuses the admin-provisioned
+    // port directly instead of re-scanning in front of a guest.
+    portIndex: config?.cardReaderPortIndex ?? null,
     // Kiosk is provisioned (cardReaderEnabled) → silently auto-reconnect on
     // mount, no picker in front of a guest.
     trustSingleGrant: !!config?.cardReaderEnabled,

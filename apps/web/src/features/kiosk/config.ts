@@ -80,6 +80,13 @@ export interface KioskConfig {
   /** USB vendor/product of the granted serial adapter — reconnect matching. */
   cardReaderPortInfo?: { usbVendorId?: number; usbProductId?: number } | null;
   /**
+   * Index of the reader's port in navigator.serial.getPorts(). A NATIVE COM
+   * reader has no USB id and no name, so this stable index is the only saveable
+   * "where I found it" — reconnect tries it FIRST (verifying by probe) before
+   * scanning, so it stops re-hunting every time.
+   */
+  cardReaderPortIndex?: number | null;
+  /**
    * Guest-photo cameras for waiver-time capture (owner 2026-07-18: photo
    * required for adults, optional for minors, on the waiver page). Device ids
    * from enumerateDevices(); UPPER = adult height, LOWER = kids/wheelchair
@@ -227,6 +234,7 @@ export function resolveKioskConfig(partial: Partial<KioskConfig>): KioskConfig |
     cardReaderEnabled: partial.cardReaderEnabled ?? false,
     cardReaderBaud: partial.cardReaderBaud ?? null,
     cardReaderPortInfo: partial.cardReaderPortInfo ?? null,
+    cardReaderPortIndex: partial.cardReaderPortIndex ?? null,
     cameraUpperId: partial.cameraUpperId ?? null,
     cameraLowerId: partial.cameraLowerId ?? null,
   };

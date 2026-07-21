@@ -69,9 +69,10 @@ export function KioskAdminCardReader({
   const reader = useCardReader({
     preferredBaud: draft.cardReaderBaud ?? null,
     portInfo: draft.cardReaderPortInfo ?? null,
+    portIndex: draft.cardReaderPortIndex ?? null,
     // Silent grant-reuse only after this kiosk has connected successfully once.
     trustSingleGrant: !!draft.cardReaderEnabled,
-    onConnected: (info, portInfo) => {
+    onConnected: (info, portInfo, portIndex) => {
       void persist({
         cardReaderEnabled: true,
         cardReaderBaud: info.baudRate,
@@ -79,6 +80,8 @@ export function KioskAdminCardReader({
           portInfo.usbVendorId != null
             ? { usbVendorId: portInfo.usbVendorId, usbProductId: portInfo.usbProductId }
             : null,
+        // Native COM has no USB id — save its getPorts() index as "where I found it".
+        ...(portIndex >= 0 ? { cardReaderPortIndex: portIndex } : {}),
         // The unit's serial number IS the kiosk's dispenser id.
         ...(info.serialNumber ? { dispenserId: info.serialNumber } : {}),
       });

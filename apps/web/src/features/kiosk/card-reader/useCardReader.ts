@@ -32,14 +32,25 @@ export interface UseCardReaderOptions {
   preferredBaud?: number | null;
   portInfo?: { usbVendorId?: number; usbProductId?: number } | null;
   /**
+   * Saved index of the reader's port in getPorts() (native COM has no USB id) —
+   * reconnect tries this port FIRST (probe-verified) before scanning.
+   */
+  portIndex?: number | null;
+  /**
    * Reuse a single remembered grant without showing the picker. Only pass
    * true once a connect has SUCCEEDED on this kiosk (e.g. config says the
    * reader is set up) — before that, silently reusing a grant hides the
    * picker from staff who granted the wrong COM port on the first try.
    */
   trustSingleGrant?: boolean;
-  onConnected?: (info: CrtDeviceInfo, portInfo: SerialPortInfo) => void;
+  /** portIndex = the connected port's position in getPorts(), to save for next time. */
+  onConnected?: (info: CrtDeviceInfo, portInfo: SerialPortInfo, portIndex: number) => void;
 }
+
+// Session cache of the port that last connected as a CRT-591 (module-scoped so
+// it survives component remounts — tab switches / SPA nav — within one page
+// load). Reconnect reuses it directly, so returning to a screen doesn't re-hunt.
+let rememberedCrtPort: SerialPort | null = null;
 
 const EMPTY_LOG: readonly LogEntry[] = [];
 const POLL_MS = 1_200;
@@ -162,7 +173,13 @@ export function gestureIsActive(): boolean | null {
 }
 
 export function useCardReader(opts: UseCardReaderOptions = {}) {
-  const { preferredBaud = null, portInfo = null, trustSingleGrant = false, onConnected } = opts;
+  const {
+    preferredBaud = null,
+    portInfo = null,
+    portIndex = null,
+    trustSingleGrant = false,
+    onConnected,
+  } = opts;
 
   const [ring] = useState(() => new LogRing(300));
 
@@ -304,7 +321,14 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
             });
           }
         });
-        onConnectedRef.current?.(c.info, chosen.getInfo());
+        // Remember WHERE we connected: the port object (this session) + its
+        // index in getPorts() (saved to config → Neon, so a fresh session/boot
+        // tries it first instead of re-scanning).
+        rememberedCrtPort = chosen;
+        const idx = (await navigator.serial.getPorts().catch(() => [] as SerialPort[])).indexOf(
+          chosen,
+        );
+        onConnectedRef.current?.(c.info, chosen.getInfo(), idx);
       } catch (err) {
         if (o.silent) {
           // Auto-reconnect on load: a failure must not slam the panel into an
@@ -401,6 +425,20 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
     if (clientRef.current) return true;
     const granted = await navigator.serial.getPorts().catch(() => [] as SerialPort[]);
     if (granted.length === 0) return false;
+    // FIRST try where we found it before — the remembered port (this session) or
+    // the saved index (across reloads/boots) — so a native COM reader stops
+    // re-scanning on every return. beginConnect probe-verifies, so a stale/moved
+    // index just falls through to the scan below.
+    const preferred =
+      rememberedCrtPort && granted.includes(rememberedCrtPort)
+        ? rememberedCrtPort
+        : portIndex != null && portIndex >= 0 && portIndex < granted.length
+          ? granted[portIndex]
+          : null;
+    if (preferred) {
+      await beginConnect(preferred, { silent: true });
+      if (clientRef.current) return true;
+    }
     let match: SerialPort | null = null;
     if (portInfo?.usbVendorId != null) {
       match =
@@ -426,7 +464,7 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
       if (clientRef.current) return true;
     }
     return clientRef.current != null;
-  }, [portInfo, beginConnect]);
+  }, [portInfo, portIndex, beginConnect]);
 
   // Auto-reconnect loop (provisioned kiosks): retry the silent reopen with
   // backoff. Succeeds → connected (unavailable cleared in beginConnect). Gives
