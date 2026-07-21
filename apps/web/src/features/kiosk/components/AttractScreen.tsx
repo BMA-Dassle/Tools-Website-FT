@@ -265,11 +265,13 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
             className="kiosk-racecar pointer-events-none absolute bottom-[10px] left-full h-[90px] w-auto max-w-none"
           />
         )}
-        <div className="absolute bottom-[40px] left-[64px]">
+        {/* Title/sub + pips sit ABOVE the race car's lane (car: bottom 10px,
+            90px tall → clears ~100px) so the crossing never covers the copy. */}
+        <div className="absolute bottom-[120px] left-[64px]">
           <div className="k-display text-[64px]">{ad.title}</div>
           <div className="mt-[8px] text-[28px] text-white/60">{ad.sub}</div>
         </div>
-        <div className="absolute bottom-[44px] right-[64px] flex gap-[10px]">
+        <div className="absolute bottom-[124px] right-[64px] flex gap-[10px]">
           {/* Index key: slide titles repeat (two "SKIP THE LINE" ads) */}
           {adSlides.map((s, i) => (
             <span
