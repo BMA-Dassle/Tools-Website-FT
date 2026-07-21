@@ -33,6 +33,10 @@ const GAME_ZONE_BG =
 
 type Phase = "lookup" | "location" | "package" | "cart" | "pay";
 
+/** What the guest tapped on the kiosk-style chooser. `balance` stops at the
+ *  card view; `reload` skips it and jumps straight into the reload flow. */
+type EntryIntent = "reload" | "balance" | null;
+
 interface CartLine {
   accountNumber: string;
   pkg: TokenPackage;
@@ -130,6 +134,7 @@ function RecentActivity({ transactions }: { transactions: CardTxn[] }) {
 export default function ReloadFlow({ initialCardId }: { initialCardId?: string }) {
   const initial = initialCardId ? normalizeCard(initialCardId) : "";
   const [phase, setPhase] = useState<Phase>("lookup");
+  const [entryIntent, setEntryIntent] = useState<EntryIntent>(null);
   const [entry, setEntry] = useState(initial);
   const [lookupAccount, setLookupAccount] = useState(initial);
   const [center, setCenter] = useState<CenterConfig | null>(null);
@@ -306,6 +311,7 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
               setResult(null);
               setCart([]);
               setPayError(null);
+              setEntryIntent(null);
               setPhase("lookup");
               setLookupAccount("");
               setEntry("");
@@ -325,9 +331,17 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
     </>
   );
 
-  // ── Lookup (enter/scan card, verify, show balances + Reload CTA) ─────────
+  // ── Lookup (chooser → enter/scan card → balances or straight to reload) ──
   if (phase === "lookup") {
-    if (verify.isFetching && !verify.data) {
+    // Kiosk-parity fast path: the guest already said "reload" on the chooser,
+    // so a verified lookup goes straight into the reload flow — no balance
+    // stop. State-during-render adjustment (per React docs, not an effect);
+    // the spinner below covers this pass.
+    if (entryIntent === "reload" && verifiedCard) {
+      setEntryIntent(null);
+      setPhase("location");
+    }
+    if ((verify.isFetching && !verify.data) || (entryIntent === "reload" && verifiedCard)) {
       return shell(
         <div className="flex min-h-60 items-center justify-center">
           <Spinner />
@@ -355,7 +369,14 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
           {verifiedCard.balance && <BalanceRow balance={verifiedCard.balance} />}
           <p className="text-[11px] leading-snug text-white/40">{SYNC_NOTE}</p>
           {verifiedCard.transactions && <RecentActivity transactions={verifiedCard.transactions} />}
-          <Button onClick={() => setPhase("location")}>Reload Card</Button>
+          <Button
+            onClick={() => {
+              setEntryIntent(null);
+              setPhase("location");
+            }}
+          >
+            Reload Card
+          </Button>
           <button
             className="w-full text-center text-xs text-white/40 underline"
             onClick={() => {
@@ -368,12 +389,57 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
         </Card>,
       );
     }
-    // No verified card yet → account panel + entry form.
+    // Chooser (kiosk parity): nothing typed or scanned yet → two big tiles.
+    if (entryIntent === null && !lookupAccount) {
+      return shell(
+        <>
+          {accountPanel}
+          <h1 className="font-heading text-3xl font-extrabold italic uppercase text-white">
+            Game Zone cards
+          </h1>
+          <button
+            type="button"
+            onClick={() => setEntryIntent("reload")}
+            className="w-full rounded-2xl border border-white/10 !border-l-[6px] !border-l-[#00E2E5] bg-[rgba(7,11,28,0.92)] p-5 text-left backdrop-blur-md transition hover:border-white/30 active:scale-[0.98]"
+          >
+            <div className="font-heading text-xl font-extrabold italic uppercase text-white">
+              Reload existing cards
+            </div>
+            <div className="mt-1 text-sm text-white/55">
+              Add tokens to 1–10 cards you already have
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setEntryIntent("balance")}
+            className="w-full rounded-2xl border border-white/10 !border-l-[6px] !border-l-[#46d68c] bg-[rgba(7,11,28,0.92)] p-5 text-left backdrop-blur-md transition hover:border-white/30 active:scale-[0.98]"
+          >
+            <div className="font-heading text-xl font-extrabold italic uppercase text-white">
+              Check card balance
+            </div>
+            <div className="mt-1 text-sm text-white/55">
+              See your tokens, bonus tokens &amp; eTickets
+            </div>
+          </button>
+          <p className="text-center text-xs text-white/50">
+            Tip: scan the QR code on your card with your phone for a faster reload.
+          </p>
+        </>,
+      );
+    }
+
+    // Entry form (card number) — titled by what the guest tapped.
+    const entryTitle =
+      entryIntent === "reload"
+        ? "Reload existing cards"
+        : entryIntent === "balance"
+          ? "Check card balance"
+          : "Check Balance or Reload";
     return shell(
       <>
         {accountPanel}
         <Card className="space-y-4 p-6 backdrop-blur-md !bg-[rgba(7,11,28,0.92)]">
-          <h1 className="text-xl font-semibold text-white">Check Balance or Reload</h1>
+          <h1 className="text-xl font-semibold text-white">{entryTitle}</h1>
           <p className="text-sm text-white/70">
             Enter the number printed <span className="text-white">under the barcode</span> on your
             card — not the QR code. Leading zeros aren&apos;t needed.
@@ -392,6 +458,16 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
           >
             Look up card
           </Button>
+          <button
+            className="w-full text-center text-xs text-white/40 underline"
+            onClick={() => {
+              setEntryIntent(null);
+              setLookupAccount("");
+              setEntry("");
+            }}
+          >
+            ‹ Back
+          </button>
           <p className="text-center text-xs text-white/50">
             Tip: scan the QR code on your card with your phone for a faster reload.
           </p>
@@ -513,6 +589,9 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
             onClick={() => {
               setLookupAccount("");
               setEntry("");
+              // Adding to an in-progress reload — skip the chooser AND the
+              // balance stop; a verified card goes straight back into the flow.
+              setEntryIntent("reload");
               setPhase("lookup");
             }}
           >
