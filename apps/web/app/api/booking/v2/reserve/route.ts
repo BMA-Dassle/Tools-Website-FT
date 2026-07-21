@@ -28,6 +28,7 @@ import {
 } from "~/features/booking/service/conflict";
 import { existingBookingConflictMessage } from "~/features/booking/service/unified-reserve";
 import redis from "@/lib/redis";
+import { writeReservationIndexes } from "@/lib/booking-record-index";
 import {
   validateCreditRedemptions,
   deductCreditRedemptions,
@@ -825,6 +826,16 @@ export async function POST(req: NextRequest) {
           // guards against) and the bmi-cancel-sweep cron recovers the state.
         }
       }
+
+      // Reverse indexes (W# + reservationCode → billId) so a scanned code or
+      // typed W-number resolves at kiosk check-in. Written server-side here
+      // because kiosk bookings never load the web confirmation page that
+      // historically wrote the `res:` index. Best-effort; idempotent.
+      await writeReservationIndexes(
+        body.bmiBillId,
+        reservationNumber,
+        reservationCode ?? `r${body.bmiBillId}`,
+      );
 
       // BMI_AUTOCANCEL_WORKAROUND — remove when BMI fixes payment/confirm
       // Step 3b: Set project state to Confirmation (-3) via Pandora.

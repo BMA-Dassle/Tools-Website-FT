@@ -43,6 +43,20 @@ export function kioskGroupWaiverEnabled(): boolean {
 }
 
 /**
+ * Kiosk self-service CHECK-IN flow — OPT-IN, defaults OFF. A guest with an
+ * existing reservation finds it at the kiosk, sees a "what's next" itinerary,
+ * finishes the party's waivers, binds people to purchased slots, and the whole
+ * party checks in at once (BMI marked -5 Arrived, bowling lane-open offered).
+ * Gates only the attract-screen entry button; the /kiosk/checkin page stays
+ * reachable by typed URL for staff testing. Set the literal "true" in Vercel +
+ * redeploy to show the button (NEXT_PUBLIC_* values are build-baked). Read at
+ * call time (never module scope) so tests can stub process.env.
+ */
+export function kioskCheckinEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_CHECKIN_ENABLED === "true";
+}
+
+/**
  * BMI registerProjectPerson attach for kiosk waiver joins — kill switch,
  * defaults ON (owner 2026-07-19), server-side only (the join route is the
  * sole consumer, so no NEXT_PUBLIC prefix). registerProjectPerson is proven

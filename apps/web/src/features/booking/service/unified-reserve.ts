@@ -105,6 +105,7 @@ import type {
 } from "../state/types";
 import type { ContactInfo } from "../types";
 import redis from "@/lib/redis";
+import { writeReservationIndexes } from "@/lib/booking-record-index";
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
@@ -1990,6 +1991,16 @@ async function unifiedReserveInner(
           // Redis down — non-fatal.
         }
       }
+
+      // Reverse indexes (W# + reservationCode → billId) so a scanned code or
+      // typed W-number resolves at kiosk check-in — written server-side here
+      // (kiosk bookings never load the web confirmation page that historically
+      // wrote the `res:` index). Best-effort; idempotent.
+      await writeReservationIndexes(
+        bmiBillId,
+        bmiReservationNumber,
+        bmiReservationCode ?? `r${bmiBillId}`,
+      );
 
       // ── KIOSK: claim POV codes INLINE, before the response ────────────
       // The web claims on its confirmation page; the kiosk never renders one,

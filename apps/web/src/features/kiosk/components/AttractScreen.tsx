@@ -14,7 +14,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { IconSignature } from "@tabler/icons-react";
+import { IconSignature, IconUserCheck } from "@tabler/icons-react";
 import {
   mergeKioskConfig,
   loadKioskConfig,
@@ -23,7 +23,7 @@ import {
   venueSlug,
   type KioskConfig,
 } from "../config";
-import { kioskGroupWaiverEnabled } from "../flags";
+import { kioskGroupWaiverEnabled, kioskCheckinEnabled } from "../flags";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { useKioskConfig } from "../KioskConfigContext";
 import { kioskAdSlidesFor, KIOSK_LOGOS, KIOSK_PHOTOS } from "../assets";
@@ -324,6 +324,21 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
         >
           <IconSignature size={34} aria-hidden="true" />
           Online &amp; Group Waiver
+        </button>
+      )}
+
+      {/* Self-service check-in entry — full-width bar for guests who already
+          booked. A "not booking" affordance, so it sits OUTSIDE the welcome-zone
+          start button. OPT-IN flag, default OFF — set
+          NEXT_PUBLIC_KIOSK_CHECKIN_ENABLED=true in Vercel to show. */}
+      {kioskCheckinEnabled() && (
+        <button
+          type="button"
+          onClick={() => router.push("/kiosk/checkin")}
+          className="k-display k-tap relative z-10 mx-[64px] mb-[8px] flex h-[92px] shrink-0 items-center justify-center gap-[16px] rounded-2xl border-2 border-[#00e2e5]/40 text-[30px] text-[#00e2e5]"
+        >
+          <IconUserCheck size={34} aria-hidden="true" />
+          Checking in? Start here
         </button>
       )}
 
