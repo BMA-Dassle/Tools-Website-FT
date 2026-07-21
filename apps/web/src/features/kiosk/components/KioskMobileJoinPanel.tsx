@@ -94,7 +94,7 @@ export function KioskMobileJoinPanel({ status, qrDataUrl, inProgressClients, onR
               </span>
             ) : (
               <span className="mt-[4px] block text-[20px] text-white/45">
-                Tap to show the QR code
+                Adults 18+ can join right here &mdash; tap for the QR code
               </span>
             )}
           </span>
