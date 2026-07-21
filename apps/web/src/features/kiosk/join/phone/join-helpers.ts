@@ -140,9 +140,14 @@ export function centerDisplayName(center: JoinCenter, brand: JoinBrand): string 
   return brand === "headpinz" ? "HeadPinz Fort Myers" : "FastTrax Fort Myers";
 }
 
-/** The Pandora location key the WAIVER path uses — brand-only, mirroring
- *  KioskPeopleStep's brandLocation (the kiosk signs Naples waivers against
- *  the headpinz key today; if that ever goes center-aware, change BOTH). */
-export function brandLocationFor(brand: JoinBrand): "headpinz" | "fasttrax" {
+/** The Pandora location key the WAIVER path uses — CENTER first, mirroring
+ *  KioskPeopleStep's brandLocation: a Naples kiosk registers people and signs
+ *  waivers at the NAPLES Pandora location. Brand alone maps "headpinz" to HP
+ *  Fort Myers (same misroute class as the 7/20 attraction-BMI incident). */
+export function brandLocationFor(
+  brand: JoinBrand,
+  center?: JoinCenter | null,
+): "headpinz" | "fasttrax" | "naples" {
+  if (center === "naples") return "naples";
   return brand === "headpinz" ? "headpinz" : "fasttrax";
 }

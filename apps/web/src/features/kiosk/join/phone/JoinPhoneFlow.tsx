@@ -67,7 +67,7 @@ export function JoinPhoneFlow({
   const [step, setStep] = useState<Step>({ k: "choose" });
 
   const brand = meta?.brand ?? "fasttrax";
-  const brandLocation = brandLocationFor(brand);
+  const brandLocation = brandLocationFor(brand, meta?.center);
   const stepKind = meta?.status === "open" ? meta.stepKind : "race";
 
   /* ── flow actions ──────────────────────────────────────────────────────── */

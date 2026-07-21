@@ -99,7 +99,16 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
 }) => {
   const isRace = item.kind === "race";
   const party = session.party;
-  const brandLocation = session.entryBrand === "headpinz" ? "headpinz" : "fasttrax";
+  // CENTER FIRST: the Naples kiosk registers people, fetches waiver templates,
+  // and checks waiver validity at the NAPLES Pandora location. Brand alone maps
+  // "headpinz" to HP Fort Myers — Naples guests were being registered/signed
+  // against Fort Myers (same misroute class as the 7/20 attraction-BMI bug).
+  const brandLocation =
+    session.center === "naples"
+      ? "naples"
+      : session.entryBrand === "headpinz"
+        ? "headpinz"
+        : "fasttrax";
   const attractionItem = item as AttractionItem;
 
   // Racing races the whole party; an attraction toggles who's in THIS one.
@@ -1724,7 +1733,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                       headers: { "content-type": "application/json" },
                       body: JSON.stringify({
                         personId: waiverFor.personId,
-                        location: session.center === "naples" ? "naples" : brandLocation,
+                        location: brandLocation,
                         pngBase64,
                       }),
                     }).catch(() => {});

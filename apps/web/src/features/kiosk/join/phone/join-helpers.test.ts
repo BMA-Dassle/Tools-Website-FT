@@ -105,11 +105,16 @@ describe("endedFromMeta", () => {
 });
 
 describe("venue naming + waiver location", () => {
-  it("names centers and mirrors the kiosk's brand-only waiver location", () => {
+  it("names centers and mirrors the kiosk's center-first waiver location", () => {
     expect(centerDisplayName("naples", "headpinz")).toBe("HeadPinz Naples");
     expect(centerDisplayName("fort-myers", "headpinz")).toBe("HeadPinz Fort Myers");
     expect(centerDisplayName("fort-myers", "fasttrax")).toBe("FastTrax Fort Myers");
     expect(brandLocationFor("headpinz")).toBe("headpinz");
     expect(brandLocationFor("fasttrax")).toBe("fasttrax");
+    // Center wins: the Naples kiosk signs waivers at the NAPLES Pandora
+    // location, whatever the brand (7/20 misroute-class fix).
+    expect(brandLocationFor("headpinz", "naples")).toBe("naples");
+    expect(brandLocationFor("fasttrax", "naples")).toBe("naples");
+    expect(brandLocationFor("headpinz", "fort-myers")).toBe("headpinz");
   });
 });
