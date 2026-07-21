@@ -208,16 +208,14 @@ async function fetchAccountDetails(
     }),
   );
 
-  // Owner ranking (2026-07-21): most recent use first, then credit deposits,
-  // then memberships — the account the guest actually uses lands on top.
+  // Owner ranking (2026-07-21): accounts that carry a relevant membership
+  // (license / intermediate / pro / …) or a credit deposit form the TOP tier,
+  // ordered by most recent visit; everything else sits below, also by most
+  // recent visit — so the account the guest actually uses lands on top.
   const valid = details.filter((d): d is FoundAccount => d !== null);
-  valid.sort((a, b) => {
-    if (b.lastSeenAt !== a.lastSeenAt) return b.lastSeenAt - a.lastSeenAt;
-    const depA = a.creditBalances.reduce((s, c) => s + c.balance, 0);
-    const depB = b.creditBalances.reduce((s, c) => s + c.balance, 0);
-    if (depB !== depA) return depB - depA;
-    return b.memberships.length - a.memberships.length;
-  });
+  const topTier = (a: FoundAccount) =>
+    a.memberships.length > 0 || a.creditBalances.some((c) => c.balance > 0) ? 1 : 0;
+  valid.sort((a, b) => topTier(b) - topTier(a) || b.lastSeenAt - a.lastSeenAt);
   return valid.slice(0, 10);
 }
 
