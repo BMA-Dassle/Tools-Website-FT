@@ -224,6 +224,15 @@ export function KioskAdmin() {
           </div>
           <a
             href="/kiosk"
+            // Flag the attract screen to re-run the device boot-check on return,
+            // so staff can confirm the reader/bridge/cameras right after editing.
+            onClick={() => {
+              try {
+                sessionStorage.setItem("kioskBootCheck", "1");
+              } catch {
+                /* sessionStorage unavailable — ignore */
+              }
+            }}
             className="rounded-full border border-white/15 px-5 py-2 text-sm text-white/60"
           >
             Exit to kiosk

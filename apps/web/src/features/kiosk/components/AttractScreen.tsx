@@ -96,9 +96,18 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
 
       if (cancelled) return;
       if (resolved) saveKioskConfig(resolved);
-      // Show the boot confirmation only when this load carried the identity
-      // (a provisioning launch), not on every in-session return to /kiosk.
-      if (hasUrlIdentity && resolved) setBootInfo(resolved);
+      // Show the boot confirmation (which re-runs the device tests) when this
+      // load carried the provisioning identity, OR when staff just exited the
+      // admin (a one-shot sessionStorage flag) — never on a plain guest return
+      // to /kiosk.
+      let exitedAdmin = false;
+      try {
+        exitedAdmin = sessionStorage.getItem("kioskBootCheck") === "1";
+        if (exitedAdmin) sessionStorage.removeItem("kioskBootCheck");
+      } catch {
+        /* sessionStorage unavailable — ignore */
+      }
+      if ((hasUrlIdentity || exitedAdmin) && resolved) setBootInfo(resolved);
       if (Object.keys(urlConfig).length > 0) {
         window.history.replaceState(null, "", "/kiosk");
       }
