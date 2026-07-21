@@ -392,8 +392,10 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
   );
 
   // Reopen a remembered port with NO picker (open() needs no user gesture).
-  // Matches the saved USB ids, or a lone grant — never guesses among many.
-  // Returns true once connected.
+  // Matches the saved USB ids, or a lone grant; a NATIVE COM reader (no USB id)
+  // among several granted ports has no stable identifier at all, so we probe
+  // each and keep the first that answers as a CRT-591 (its protocol reply is the
+  // identity — non-readers just fail). Returns true once connected.
   const reopenSilently = useCallback(async (): Promise<boolean> => {
     if (typeof navigator === "undefined" || !("serial" in navigator)) return false;
     if (clientRef.current) return true;
@@ -411,8 +413,18 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
         }) ?? null;
     }
     if (!match && granted.length === 1) match = granted[0];
-    if (!match) return false;
-    await beginConnect(match, { silent: true });
+    if (match) {
+      await beginConnect(match, { silent: true });
+      return clientRef.current != null;
+    }
+    // No unique match (native COM among several granted ports, e.g. the
+    // SerialAllowAllPortsForUrls policy hands back every port). Probe each until
+    // the CRT-591 responds — a non-reader port fails and we move on.
+    for (const p of granted) {
+      if (stopReconnectRef.current || clientRef.current) break;
+      await beginConnect(p, { silent: true });
+      if (clientRef.current) return true;
+    }
     return clientRef.current != null;
   }, [portInfo, beginConnect]);
 

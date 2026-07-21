@@ -83,7 +83,9 @@ export function KioskAdminCardReader({
         ...(info.serialNumber ? { dispenserId: info.serialNumber } : {}),
       });
       setMsg(
-        `Card reader connected — ${info.firmware || "unknown firmware"} @ ${info.baudRate} baud.`,
+        `Card reader connected — ${info.firmware || "unknown firmware"} @ ${info.baudRate} baud${
+          info.serialNumber ? ` (serial ${info.serialNumber})` : ""
+        }. Saved to this device + cloud.`,
       );
     },
   });
@@ -162,6 +164,37 @@ function ConnectionCard({
     void connectPort(port).then((ok) => {
       setPermMsg(ok ? null : "That port didn’t answer as a CRT-591 — pick another.");
     });
+  };
+
+  // Auto-scan: try every granted port in turn, stop at the first that answers as
+  // a CRT-591 (connectPort probes it; onConnected saves it). Web Serial hides
+  // the COM name, so brute-force is how "find the reader" works here.
+  const [scanning, setScanning] = useState(false);
+  const autoScan = async () => {
+    if (typeof navigator === "undefined" || !("serial" in navigator)) return;
+    const ports = await navigator.serial.getPorts().catch(() => [] as SerialPort[]);
+    setGrantedPorts(ports);
+    if (ports.length === 0) {
+      setPermMsg(
+        "No granted COM ports to scan — set the “allow all serial” policy, or use Prompt for permissions.",
+      );
+      return;
+    }
+    setScanning(true);
+    try {
+      for (let i = 0; i < ports.length; i++) {
+        setPermMsg(`Scanning for the CRT-591 — port ${i + 1} of ${ports.length}…`);
+        if (await connectPort(ports[i])) {
+          setPermMsg(null); // the CONNECTED card is the proof
+          return;
+        }
+      }
+      setPermMsg(
+        `No CRT-591 answered on any of the ${ports.length} granted port(s). Check the reader’s USB lead and power, then Refresh and scan again.`,
+      );
+    } finally {
+      setScanning(false);
+    }
   };
 
   /**
@@ -284,7 +317,7 @@ function ConnectionCard({
       )}
 
       {connection.state !== "connected" &&
-        connection.state !== "connecting" &&
+        (connection.state !== "connecting" || scanning) &&
         grantedPorts.length > 0 && (
           <div className="space-y-1.5">
             <div className="text-xs font-semibold uppercase tracking-widest text-white/40">
@@ -294,6 +327,7 @@ function ConnectionCard({
               <select
                 className={`${inputClass} [color-scheme:dark]`}
                 defaultValue=""
+                disabled={scanning}
                 onChange={(e) => tryPort(Number(e.target.value))}
               >
                 <option value="" disabled>
@@ -305,14 +339,27 @@ function ConnectionCard({
                   </option>
                 ))}
               </select>
-              <button type="button" className={btnGhost} onClick={() => void refreshPorts()}>
+              <button
+                type="button"
+                className={btnGhost}
+                disabled={scanning}
+                onClick={() => void refreshPorts()}
+              >
                 Refresh
               </button>
             </div>
+            <button
+              type="button"
+              className={btnPrimary}
+              disabled={scanning}
+              onClick={() => void autoScan()}
+            >
+              {scanning ? "Scanning…" : "Auto-scan for the CRT-591"}
+            </button>
             <p className="text-xs text-white/40">
-              No chooser needed once the “allow all serial” policy is set. Picking a port opens and
-              probes it — the CRT-591 shows its firmware/serial above and saves automatically. Not
-              the reader? Pick another.
+              No chooser needed once the “allow all serial” policy is set. <b>Auto-scan</b> tries
+              every port and stops at the reader; or pick a port yourself. Either way, on a hit the
+              CRT-591 shows its firmware/serial above and saves automatically.
             </p>
           </div>
         )}
