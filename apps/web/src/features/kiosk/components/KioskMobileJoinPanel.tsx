@@ -64,42 +64,40 @@ export function KioskMobileJoinPanel({ status, qrDataUrl, inProgressClients, onR
 
   if (!expanded) {
     return (
-      <div className="flex">
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className={`k-tap flex items-center gap-[22px] rounded-3xl border-2 px-[26px] py-[20px] text-left ${
-            signing ? "k-join-signing" : "border-white/25"
-          }`}
-        >
-          {qrDataUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={qrDataUrl}
-              alt=""
-              aria-hidden="true"
-              className="h-[96px] w-[96px] shrink-0 rounded-xl bg-white p-[6px]"
-            />
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        className={`k-tap flex w-full items-center gap-[22px] rounded-[28px] border-2 px-[26px] py-[20px] text-left ${
+          signing ? "k-join-signing" : "border-white/25"
+        }`}
+      >
+        {qrDataUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={qrDataUrl}
+            alt=""
+            aria-hidden="true"
+            className="h-[96px] w-[96px] shrink-0 rounded-xl bg-white p-[6px]"
+          />
+        ) : (
+          <span className="grid h-[96px] w-[96px] shrink-0 place-items-center rounded-xl border-2 border-dashed border-white/20">
+            <span className="h-[28px] w-[28px] animate-spin rounded-full border-4 border-white/15 border-t-[#00e2e5]" />
+          </span>
+        )}
+        <span className="min-w-0">
+          <span className="block text-[28px] font-bold text-white">Join from your phone</span>
+          {signing ? (
+            <span className="mt-[4px] flex items-center gap-[10px] text-[20px] font-semibold text-[#f5d38a]">
+              <AmberPulse />
+              {signingLine}
+            </span>
           ) : (
-            <span className="grid h-[96px] w-[96px] shrink-0 place-items-center rounded-xl border-2 border-dashed border-white/20">
-              <span className="h-[28px] w-[28px] animate-spin rounded-full border-4 border-white/15 border-t-[#00e2e5]" />
+            <span className="mt-[4px] block text-[20px] text-white/45">
+              Adults 18+ can join right here &mdash; tap for the QR code
             </span>
           )}
-          <span className="min-w-0">
-            <span className="block text-[28px] font-bold text-white">Join from your phone</span>
-            {signing ? (
-              <span className="mt-[4px] flex items-center gap-[10px] text-[20px] font-semibold text-[#f5d38a]">
-                <AmberPulse />
-                {signingLine}
-              </span>
-            ) : (
-              <span className="mt-[4px] block text-[20px] text-white/45">
-                Adults 18+ can join right here &mdash; tap for the QR code
-              </span>
-            )}
-          </span>
-        </button>
-      </div>
+        </span>
+      </button>
     );
   }
 
