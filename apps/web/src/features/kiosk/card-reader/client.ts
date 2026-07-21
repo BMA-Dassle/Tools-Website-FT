@@ -92,6 +92,12 @@ export interface CrtResult<T = void> {
 export interface ConnectOptions {
   /** Try this baud first (persisted from the last successful connect). */
   preferredBaud?: number | null;
+  /**
+   * Probe ONLY these bauds (overrides preferredBaud + BAUD_CANDIDATES). Used by
+   * the quick scan pass: hunting across many ports at the SAVED baud only is
+   * ~6× faster per port than the full sweep — the full sweep runs as pass 2.
+   */
+  bauds?: readonly number[];
   addr?: number;
   onLog?: (e: EngineLogEvent) => void;
   onProgress?: (message: string) => void;
@@ -132,9 +138,9 @@ export class CrtReaderClient {
     openTransport: TransportFactory,
     opts: ConnectOptions = {},
   ): Promise<CrtReaderClient> {
-    const candidates = [
-      ...new Set([opts.preferredBaud, ...BAUD_CANDIDATES].filter((b): b is number => !!b)),
-    ];
+    const candidates = opts.bauds?.length
+      ? [...opts.bauds]
+      : [...new Set([opts.preferredBaud, ...BAUD_CANDIDATES].filter((b): b is number => !!b))];
     let lastLinkError: Error | null = null;
 
     for (const baudRate of candidates) {

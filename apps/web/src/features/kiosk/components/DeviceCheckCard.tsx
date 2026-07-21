@@ -94,7 +94,15 @@ export function DeviceCheckCard({ config }: { config: KioskConfig | null }) {
           : !gzConfigured
             ? "none configured"
             : serial === "granted"
-              ? `${gzHardware} — serial OK`
+              ? // Show the saved hint so "did it load from cloud?" is visible at
+                // a glance: a missing "port/baud" here means the row has no hint.
+                `${gzHardware} — serial OK${
+                  config?.cardReaderEnabled && config.cardReaderPortIndex != null
+                    ? ` · saved port ${config.cardReaderPortIndex + 1} @ ${config.cardReaderBaud ?? "auto"}`
+                    : config?.cardReaderEnabled
+                      ? " · no saved port yet"
+                      : ""
+                }`
               : serial === "unsupported"
                 ? `${gzHardware} — no Web Serial`
                 : `${gzHardware} — no serial grant`,

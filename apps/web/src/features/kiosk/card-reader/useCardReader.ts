@@ -421,7 +421,7 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
   // The open + auto-baud + discovery half — safe to await freely (no user
   // gesture needed once we hold a port).
   const beginConnect = useCallback(
-    async (chosen: SerialPort, o: { silent?: boolean } = {}) => {
+    async (chosen: SerialPort, o: { silent?: boolean; quickBaud?: boolean } = {}) => {
       if (clientRef.current) return;
       setLastError(null);
       setConnection({ state: "connecting", detail: "Opening port…" });
@@ -430,6 +430,9 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
           (baudRate) => openSerialTransport(chosen, { baudRate }),
           {
             preferredBaud,
+            // Quick pass: probe the SAVED baud only (~6× faster per port when
+            // hunting across many ports); the full sweep runs as pass 2.
+            bauds: o.quickBaud && preferredBaud ? [preferredBaud] : undefined,
             onLog: (e) => ring.push(e),
             onProgress: (detail) => setConnection({ state: "connecting", detail }),
           },
@@ -590,14 +593,24 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
     }
     // No unique match (native COM among several granted ports, e.g. the
     // SerialAllowAllPortsForUrls policy hands back every port). Probe each until
-    // the CRT-591 responds — a non-reader port fails and we move on.
+    // the CRT-591 responds — a non-reader port fails and we move on. Two passes:
+    // first every port at the SAVED baud only (fast — the saved index may just
+    // have shifted, e.g. Bluetooth COM ports enumerate late after Windows boots
+    // and reorder getPorts()), then the full auto-baud sweep as the last resort.
+    if (preferredBaud) {
+      for (const p of granted) {
+        if (stopReconnectRef.current || clientRef.current) break;
+        await beginConnect(p, { silent: true, quickBaud: true });
+        if (clientRef.current) return true;
+      }
+    }
     for (const p of granted) {
       if (stopReconnectRef.current || clientRef.current) break;
       await beginConnect(p, { silent: true });
       if (clientRef.current) return true;
     }
     return clientRef.current != null;
-  }, [portInfo, portIndex, beginConnect]);
+  }, [portInfo, portIndex, preferredBaud, beginConnect]);
 
   // Auto-reconnect loop (provisioned kiosks): retry the silent reopen with
   // backoff. Succeeds → connected (unavailable cleared in beginConnect). Gives
