@@ -11,7 +11,9 @@ import { z } from "zod";
 const digitString = z.string().regex(/^\d+$/).max(24);
 
 export const createJoinSessionSchema = z.object({
-  kioskId: z.string().regex(/^(fort-myers|naples):\d{1,4}$/),
+  // Optional `~nonce` suffix = per-device scope for the supersede rule (two
+  // devices sharing a kioskNumber must never retire each other's live QR).
+  kioskId: z.string().regex(/^(fort-myers|naples):\d{1,4}(~[a-z0-9]{4,16})?$/),
   center: z.enum(["fort-myers", "naples"]),
   brand: z.enum(["fasttrax", "headpinz"]),
   stepKind: z.enum(["race", "attraction"]),

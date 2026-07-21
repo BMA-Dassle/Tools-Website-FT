@@ -65,8 +65,37 @@ export interface OpenMobileJoinArgs {
   stepKind: JoinStepKind;
 }
 
+const DEVICE_NONCE_KEY = "kiosk_join_device";
+const newNonce = () => (Math.random().toString(36).slice(2) + "00000000").slice(0, 8);
+const memoryNonce = newNonce();
+
+/**
+ * Scope the server's one-session-per-kiosk supersede rule to this DEVICE.
+ * kioskNumber is honor-system config — two devices configured (or defaulted)
+ * to the same number would otherwise retire each other's live QR every time
+ * both sit on a people step (seen live 2026-07-20 as codes "expiring" within
+ * seconds). localStorage keeps the suffix stable across reloads so a reloaded
+ * kiosk still instantly supersedes its own stale QR; a storage-less webview
+ * falls back to a per-load id and stale sessions die by the 300s TTL instead.
+ */
+function deviceScopedKioskId(kioskId: string): string {
+  let nonce: string;
+  try {
+    const stored = window.localStorage.getItem(DEVICE_NONCE_KEY);
+    if (stored && /^[a-z0-9]{4,16}$/.test(stored)) {
+      nonce = stored;
+    } else {
+      nonce = newNonce();
+      window.localStorage.setItem(DEVICE_NONCE_KEY, nonce);
+    }
+  } catch {
+    nonce = memoryNonce;
+  }
+  return `${kioskId}~${nonce}`;
+}
+
 /** Open a fresh join session. Always a NEW code — the server supersedes any
- *  prior session for this kiosk, so stale QRs die cleanly. */
+ *  prior session for this device, so stale QRs die cleanly. */
 export async function openMobileJoin(args: OpenMobileJoinArgs): Promise<void> {
   const seq = ++openSeq;
   closed = false;
@@ -77,7 +106,7 @@ export async function openMobileJoin(args: OpenMobileJoinArgs): Promise<void> {
     const res = await fetch("/api/kiosk/join", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(args),
+      body: JSON.stringify({ ...args, kioskId: deviceScopedKioskId(args.kioskId) }),
       cache: "no-store",
     });
     if (!res.ok) throw new Error(`create failed (${res.status})`);

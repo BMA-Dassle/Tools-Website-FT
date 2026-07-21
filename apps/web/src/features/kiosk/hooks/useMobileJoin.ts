@@ -31,6 +31,11 @@ import {
   type JoinStepKind,
 } from "../join/types";
 
+/** Pause before self-healing a dead session — long enough to not hammer the
+ *  create route when the server is genuinely down, short enough that a guest
+ *  mid-scan barely notices. */
+const REOPEN_DELAY_MS = 6_000;
+
 /** Live snapshot for components OUTSIDE the step (KioskFlow's confirm sheet
  *  + idle pause) — same store the step's hook drives. */
 export function useMobileJoinStatus(): MobileJoinSnapshot {
@@ -85,12 +90,25 @@ export function useMobileJoin(args: {
     };
   }, [enabled, itemId, kioskId, center, brand, stepKind, openNonce]);
 
+  // Owner 2026-07-20: the QR must stay live for as long as the kiosk sits on
+  // this screen. Any session death while mounted (superseded, TTL loss, Redis
+  // blip, absolute cap) self-heals with a fresh code after a short pause —
+  // leaving the step is the only terminal close (unmount clears the timer
+  // before it fires).
+  useEffect(() => {
+    if (!enabled || !kioskId || !center || !brand) return;
+    if (snapshot.status !== "closed" && snapshot.status !== "error") return;
+    const timer = setTimeout(() => setOpenNonce((n) => n + 1), REOPEN_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [snapshot.status, enabled, kioskId, center, brand]);
+
   useEffect(() => {
     const joinUrl = snapshot.joinUrl;
     if (!joinUrl) return;
     let alive = true;
     QRCode.toDataURL(joinUrl, {
-      width: 360,
+      // 2× the sheet's 400px render so the big QR stays crisp.
+      width: 800,
       margin: 1,
       color: { dark: "#04252b", light: "#ffffff" },
     })
