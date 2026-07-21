@@ -104,8 +104,9 @@ export function KioskAdmin() {
   // cloud, the source of truth, not just this browser profile's localStorage
   // (Edge kiosk mode vs regular Edge are different profiles). Runs once per
   // unlock, keyed on the device's real saved identity; if the device has no
-  // local identity yet, staff use the "Load from cloud" picker instead. Seeds
-  // the FORM only (source→cloud); Save writes it back to this device.
+  // local identity yet, staff use the "Load from cloud" picker instead. The
+  // cloud copy fully OVERRIDES the local store immediately (owner 2026-07-21:
+  // "if we're grabbing settings from cloud, save the full settings local").
   const pulledCloud = useRef(false);
   useEffect(() => {
     if (!authed || pulledCloud.current || !config?.center) return;
@@ -121,8 +122,9 @@ export function KioskAdmin() {
       if (!resolved) return;
       seeded.current = true; // stop the local-seed effect from clobbering the pull
       setDraft(resolved);
+      setConfig(resolved); // complete local override — this device now runs the cloud copy
       setSource("cloud");
-      setMsg(`Loaded saved setup from cloud — ${id}.`);
+      setMsg(`Loaded saved setup from cloud — ${id} (saved to this device).`);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);
