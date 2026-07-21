@@ -162,6 +162,31 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
     const addExtra = () => writeRows([...rows, { name: "", shoeSize: null, bumpers: null }]);
     const removeExtra = (idx: number) => writeRows(rows.filter((_, i) => i !== idx));
 
+    // Main is selectable like everywhere else (owner 2026-07-20) — same
+    // pattern as the racing people step: flip isBillingCustomer and make
+    // that member the booking contact (their phone/email carry when known,
+    // the contact fields below stay editable either way).
+    const markMain = (id: string) => {
+      party.forEach((m) => {
+        const shouldBe = m.id === id;
+        if (!!m.isBillingCustomer !== shouldBe) {
+          dispatch({ type: "updatePartyMember", id: m.id, patch: { isBillingCustomer: shouldBe } });
+        }
+      });
+      const m = party.find((x) => x.id === id);
+      if (m) {
+        dispatch({
+          type: "setContact",
+          patch: {
+            firstName: m.firstName,
+            lastName: m.lastName ?? "",
+            ...(m.phone ? { phone: m.phone } : {}),
+            ...(m.email ? { email: normalizeEmail(m.email) } : {}),
+          },
+        });
+      }
+    };
+
     // Contact name is normally carried from sign-in; only ask for what's
     // missing (a CRM record without a last name is the rare exception).
     const contactNameMissing = !contact.firstName?.trim() || !contact.lastName?.trim();
@@ -200,31 +225,33 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
                   >
                     ✓
                   </button>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-x-[16px] gap-y-[6px]">
-                      <span
-                        className="k-display truncate text-[40px]"
-                        // Names render as entered — .k-display's design uppercase
-                        // is for headings, not people (owner 2026-07-19).
-                        style={{ textTransform: "none" }}
-                      >
-                        {m.firstName} {m.lastName ?? ""}
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-[16px] gap-y-[6px]">
+                    <span
+                      className="k-display truncate text-[40px]"
+                      // Names render as entered — .k-display's design uppercase
+                      // is for headings, not people (owner 2026-07-19).
+                      style={{ textTransform: "none" }}
+                    >
+                      {m.firstName} {m.lastName ?? ""}
+                    </span>
+                    {m.isMinor && (
+                      <span className="rounded-full bg-white/10 px-[14px] py-[4px] text-[20px] font-bold text-white/70">
+                        Minor
                       </span>
-                      {m.isBillingCustomer && (
-                        <span className="k-eyebrow rounded-full bg-[#00e2e5]/15 px-[14px] py-[4px] text-[18px] text-[#00e2e5]">
-                          Main
-                        </span>
-                      )}
-                      {m.isMinor && (
-                        <span className="rounded-full bg-white/10 px-[14px] py-[4px] text-[20px] font-bold text-white/70">
-                          Minor
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-[6px] text-[22px] text-white/45">
-                      {isIn ? "Bowling" : "Not bowling"}
-                    </div>
+                    )}
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => markMain(m.id)}
+                    aria-pressed={!!m.isBillingCustomer}
+                    className={`shrink-0 rounded-2xl border-2 px-[24px] py-[16px] text-[24px] font-bold ${
+                      m.isBillingCustomer
+                        ? "border-[#00e2e5] bg-[#00e2e5]/10 text-white"
+                        : "border-white/15 text-white/55"
+                    }`}
+                  >
+                    {m.isBillingCustomer ? "★ Main" : "Main"}
+                  </button>
                 </div>
               </div>
             );
@@ -279,13 +306,8 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
         {/* Booking contact — carried from sign-in; email/phone stay editable
             so the confirmation lands where the guest wants it. */}
         <div className="k-glass space-y-[16px] p-[24px]">
-          <div>
-            <div className="k-eyebrow text-white/40">Confirmation goes to</div>
-            {!contactNameMissing && (
-              <div className="k-display mt-[6px] text-[32px]" style={{ textTransform: "none" }}>
-                {contact.firstName} {contact.lastName}
-              </div>
-            )}
+          <div className="k-eyebrow text-white/40">
+            Confirmation goes to {contact.firstName ?? ""}
           </div>
           {contactNameMissing && (
             <div className="grid grid-cols-2 gap-[16px]">
