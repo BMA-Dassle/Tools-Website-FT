@@ -1248,18 +1248,20 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           }
           onReviewAndPay={() => {
             // Upsell page (owner 2026-07-21): between Review & Pay and the pay
-            // screen — only when NO Game Zone cards ride the cart, once per
-            // session, and only when this kiosk can actually sell + fulfill a
-            // new card (cart rail + reader rail + dispenser "full" capability).
+            // screen — BOWLING carts only for now (owner: "they need bowling
+            // in cart to trigger upsell"; KBF counts — it's a lane booking),
+            // only when NO Game Zone cards ride the cart, once per session,
+            // and only when this kiosk can actually sell + fulfill a new card
+            // (cart rail + reader rail + dispenser "full" capability — the
+            // dispenser is a hard requirement, owner re-confirmed 7/21).
             // Every gate is named so a device console shows exactly why the
-            // page didn't appear (owner 7/21: "bought a race, didn't see it" —
-            // a test rig without the reader/dispenser skips it by design;
-            // NEXT_PUBLIC_KIOSK_TERMINAL_ENABLED must also be scoped to the
-            // Vercel PREVIEW env or preview builds bake it off).
+            // page didn't appear (NEXT_PUBLIC_KIOSK_TERMINAL_ENABLED must be
+            // scoped to the Vercel PREVIEW env or preview builds bake it off).
             // `?upsellPreview=1` on the flow URL bypasses ONLY the hardware
-            // gates so the page can be SEEN on any rig; accepting still rides
-            // the real rails — a readerless checkout fails closed at pay time,
-            // so this never risks a broken sale (staff-typed URL only).
+            // gates so the page can be SEEN on any rig (bowling still
+            // required in the cart); accepting still rides the real rails —
+            // a readerless checkout fails closed at pay time, so this never
+            // risks a broken sale (staff-typed URL only).
             const upsellPreview =
               typeof window !== "undefined" &&
               new URLSearchParams(window.location.search).get("upsellPreview") === "1";
@@ -1267,6 +1269,10 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
               [
                 ["upsell-flag", kioskCheckoutUpsellEnabled()],
                 ["upsell-pack", CHECKOUT_UPSELL_PACK != null],
+                [
+                  "bowling-in-cart",
+                  session.items.some((i) => i.kind === "bowling" || i.kind === "kbf"),
+                ],
                 ["once-per-session", !upsellSeenRef.current],
                 ["no-cards-in-cart", !session.gameCardPurchase?.cards.length],
                 ["gz-cart-flag", kioskGzCartEnabled()],
