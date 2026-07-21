@@ -76,7 +76,8 @@ interface Props {
   dispatch: Dispatch<Action>;
   setBusy?: (busy: boolean) => void;
   /** Fires the host's handleNext when the FINAL component's hold lands —
-   *  pick, pick, done (owner-approved auto-advance). */
+   *  pick, pick, done (owner-approved auto-advance). Deferred until the hold's
+   *  bmiLineIds are COMMITTED to item.heats (see the advancePending effect). */
   requestAdvance?: () => void;
 }
 
@@ -371,6 +372,14 @@ export function PackageHeatPicker({
   const totalComponents = sortedComponents.length;
 
   const [currentComponentIdx, setCurrentComponentIdx] = useState(0);
+  // Armed when the FINAL component's hold succeeds; the effect below fires
+  // requestAdvance only once the hold's bmiLineIds are visible on the
+  // COMMITTED item.heats. Never advance straight from the tap handler: the
+  // host's handleNext closure can predate the hold's updateHeat commits, and
+  // its bookHeatsOnAdvance backstop then re-books the final component —
+  // doubled BMI lines on the reservation (live find 2026-07-21, W52981:
+  // Intermediate ×4 for 2 racers; the cart and charge stayed correct).
+  const [advancePending, setAdvancePending] = useState(false);
   // Track filter driven by tapping a TrackInfoBanner card — scoped to the
   // CURRENT multi-track step (other steps' locked cards stay visible so the
   // guest keeps seeing the whole package). Cleared on step change below.
@@ -566,6 +575,22 @@ export function PackageHeatPicker({
     return m;
   }, [sortedComponents, picks, allProposals]);
 
+  // Wizard auto-advance, commit-gated: fires only on a render where every
+  // package heat carries its bmiLineId — i.e. the hold's updateHeat dispatches
+  // have flushed. By then the host has re-rendered in the same commit, so the
+  // handleNext that requestAdvance reaches (via its latest-closure ref) sees
+  // the booked heats and its bookHeatsOnAdvance backstop is a true no-op.
+  useEffect(() => {
+    if (!advancePending) return;
+    if (!allPicked) {
+      setAdvancePending(false); // pick came apart (deselect) — disarm
+      return;
+    }
+    if (committedPkgHeats.some((h) => !h.bmiLineId)) return; // commit not flushed yet
+    setAdvancePending(false);
+    requestAdvance?.();
+  }, [advancePending, allPicked, committedPkgHeats, requestAdvance]);
+
   // Auto-advance currentComponentIdx when picks change
   useEffect(() => {
     const nextUnpicked = sortedComponents.findIndex((c) => !picks.has(c.ref));
@@ -673,7 +698,9 @@ export function PackageHeatPicker({
       `${tp.productId}|${tp.block.start}`,
       base,
     );
-    if (ok && willComplete) requestAdvance?.();
+    // Arm the commit-gated advance instead of calling requestAdvance here —
+    // fired pre-commit it re-books the final component (see advancePending).
+    if (ok && willComplete) setAdvancePending(true);
   }
 
   /** Roster toggle AFTER picks may exist: per-line holds make the sync safe —
