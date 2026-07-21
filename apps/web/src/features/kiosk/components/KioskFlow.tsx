@@ -56,6 +56,7 @@ import { getPackage } from "@/lib/packages";
 import { resolvePreselectPatch } from "../service/package-preselect";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
+import { clarityEvent, clarityTag } from "~/lib/clarity";
 import {
   KIOSK_SCHEMA_VERSION,
   KIOSK_SESSION_STORAGE_KEY,
@@ -265,6 +266,9 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   // never affect the on-screen beacon.
   useEffect(() => {
     if (!assistActive || !config) return;
+    // Clarity friction milestone: the beacon went up (help tap or card error).
+    clarityTag("kiosk_assist", assistReason);
+    clarityEvent("kiosk:assist");
     const send = () =>
       void fetch("/api/kiosk/assist", {
         method: "POST",
@@ -291,6 +295,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
         // Standalone race packs (FastTrax kiosks; kill-switch aware). Deferred
         // a microtask so the effect body stays setState-free (hooks-lint).
         if (kioskRacePacksEnabled() && config.brand === "fasttrax") {
+          clarityEvent("kiosk:packs:open");
           void Promise.resolve().then(() => setPacksOpen(true));
         }
         return;
@@ -353,7 +358,10 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     await resetToKiosk(() => router.replace("/kiosk"));
   }, [session, router]);
 
-  const handleReservationExpired = useCallback(() => setReservationExpired(true), []);
+  const handleReservationExpired = useCallback(() => {
+    setReservationExpired(true);
+    clarityEvent("kiosk:hold:expired");
+  }, []);
   const handleExtendReservation = useCallback(async (): Promise<boolean> => {
     const ok = await timerRef.current?.refresh();
     if (ok) setReservationExpired(false);
@@ -388,6 +396,38 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     }
     prevCursorRef.current = currentCursor;
   }, [currentCursor]);
+
+  // Clarity smart-event breadcrumbs: one milestone per step VIEW (including
+  // the first step of a flow), plus the activity as a session tag — funnels
+  // per activity are built from these in the Clarity dashboard. Keyed on
+  // item+step so re-renders never re-fire.
+  const stepViewKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeItem) return;
+    const visible = KIOSK_STEP_REGISTRY[activeItem.kind].filter((s) =>
+      s.isVisible(activeItem, session),
+    );
+    if (visible.length === 0) return;
+    const idx = Math.min(session.cursors[activeItem.id] ?? 0, visible.length - 1);
+    const key = `${activeItem.id}:${visible[idx].id}`;
+    if (stepViewKeyRef.current === key) return;
+    stepViewKeyRef.current = key;
+    const activity =
+      activeItem.kind === "attraction"
+        ? ((activeItem as AttractionItem).slug ?? "attraction")
+        : activeItem.kind;
+    clarityTag("kiosk_activity", activity);
+    clarityTag("kiosk_step", visible[idx].id);
+    clarityEvent(`kiosk:step:${activity}:${visible[idx].id}`);
+  }, [activeItem, session]);
+
+  // Friction breadcrumb: every inline kiosk error is a Clarity milestone (the
+  // message rides along as a tag) — segment for sessions that hit trouble.
+  useEffect(() => {
+    if (!kioskError) return;
+    clarityTag("kiosk_error", kioskError.slice(0, 60));
+    clarityEvent("kiosk:error");
+  }, [kioskError]);
 
   // Preselect the tapped Experiences package once the party is known, so the
   // product step(s) can skip. MUST stay above the early return below (hook
@@ -561,6 +601,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
 
   // Show the itinerary overview first (owner: the approved VIP overview screen).
   const pickCombo = (combo: ComboSpecial) => {
+    clarityEvent("kiosk:vip:overview");
     // Re-entry: this combo is already seeded in the cart (guest backed out
     // mid-flow) — re-open its race item instead of dead-ending on the error.
     if (session.comboSpecialId === combo.id) {
@@ -585,6 +626,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
 
   // "Let's set it up" from the overview — seed the combo items + enter the flow.
   const startCombo = (combo: ComboSpecial) => {
+    clarityEvent("kiosk:vip:start");
     dispatch({ type: "setComboSpecial", id: combo.id });
     const raceItem = stampToday(newItem("race"));
     dispatch({ type: "addItem", item: raceItem });
@@ -649,6 +691,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   // must reflect them.
   const cartCount = session.items.length + (session.gameCardPurchase?.cards.length ? 1 : 0);
   const openCart = () => {
+    clarityEvent("kiosk:cart:open");
     setCheckoutActive(false);
     setCartActive(true);
     dispatch({ type: "setActiveItem", id: null });
@@ -678,6 +721,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     if (bookingHeats || stepBusy) return;
     // Nothing guest-visible to lose (no names, empty cart) — skip the ceremony.
     if (session.party.length === 0 && cartCount === 0) {
+      clarityEvent("kiosk:start-over");
       void handleStartOver();
       return;
     }
@@ -708,6 +752,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
    *  race draft (see the variant-resolve effect above). */
   const abandonActiveDraft = () => {
     if (!activeItem) return;
+    clarityEvent("kiosk:abandon:item");
     void handleRemoveItem(activeItem.id);
     if (activeItem.kind === "race" && session.preferredPackageId) {
       dispatch({ type: "setPreferredPackage", id: null });
@@ -945,6 +990,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
                   // Same in-flight guard as requestStartOver — a booking call
                   // could have started while the sheet was up.
                   if (bookingHeats || stepBusy) return;
+                  clarityEvent("kiosk:start-over");
                   // Close first so the sheet doesn't sit over the z-40
                   // "Clearing this session…" loader.
                   setConfirmExit(null);
@@ -1017,6 +1063,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           (mobileJoin.status === "open" && mobileJoin.activeClients > 0)
         }
         onReset={() => {
+          clarityEvent("kiosk:idle:reset");
           closeMobileJoin("idle");
           void handleStartOver();
         }}
@@ -1107,6 +1154,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           onRemoveItem={handleRemoveItem}
           onRemoveHeat={handleRemoveHeat}
           onCheckout={() => {
+            clarityEvent("kiosk:checkout:start");
             setCartActive(false);
             setCheckoutActive(true);
           }}
@@ -1268,7 +1316,10 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
         onPickCombo={pickCombo}
         onPickPackageExperience={pickPackageExperience}
         onOpenCart={() => setCartActive(true)}
-        onOpenGameZone={() => setGzOpen(true)}
+        onOpenGameZone={() => {
+          clarityEvent("kiosk:gamezone:open");
+          setGzOpen(true);
+        }}
       />,
     );
   }
@@ -1338,6 +1389,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     }
     try {
       await bookHeatsOnAdvance(session, raceItem, dispatch, setBookingHeatsProgress);
+      if (hasUnbooked) clarityEvent("kiosk:heats:booked");
       // Booking consumed capacity the 60s-stale availability cache doesn't
       // know about — refresh so the next grid (the junior leg after the adult
       // leg books on advance) reads post-booking occupancy.
@@ -1460,6 +1512,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       );
       if (unracered.length > 0 && raceItem.heats.some((h) => h.heatId)) {
         setUnraceredPrompt({ category, members: unracered });
+        clarityEvent("kiosk:unracered:prompt");
         return;
       }
       await bookHeatsAndAdvance(raceItem);
@@ -1477,6 +1530,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
         setBookingHeats(true);
         try {
           await bookAttractionOnAdvance(session, attractionItem, dispatch);
+          clarityEvent("kiosk:slot:booked");
           advanceToNextStep();
         } catch (err) {
           setKioskError(

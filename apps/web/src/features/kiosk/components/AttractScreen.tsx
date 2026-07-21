@@ -30,6 +30,7 @@ import { kioskAdSlidesFor, KIOSK_LOGOS, KIOSK_PHOTOS } from "../assets";
 import { BrandedLoader } from "./BrandedLoader";
 import { useKioskClock, syncGlowPhase } from "../hooks/useKioskClock";
 import { useKioskAvailability } from "../hooks/useKioskAvailability";
+import { clarityEvent, clarityTag } from "~/lib/clarity";
 import { captureKioskBootVersion, kioskUpdateAvailable } from "../version";
 import { DeviceCheckCard } from "./DeviceCheckCard";
 import { clickableDivProps } from "@/lib/a11y";
@@ -191,6 +192,10 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   const slideIndex = adIndex % adSlides.length;
   const ad = adSlides[slideIndex];
   const start = (goto?: string) => {
+    // Kiosk funnel top: a guest engaged the attract screen. The entry tag says
+    // which chip (or "all" for a plain touch) so conversions trace to it.
+    clarityTag("kiosk_entry", goto ?? "all");
+    clarityEvent("kiosk:attract:engage");
     router.push(goto ? `/kiosk/flow?goto=${goto}` : "/kiosk/flow");
   };
 
@@ -319,7 +324,10 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
       {kioskGroupWaiverEnabled() && (
         <button
           type="button"
-          onClick={() => router.push("/kiosk/waiver")}
+          onClick={() => {
+            clarityEvent("kiosk:waiver:open");
+            router.push("/kiosk/waiver");
+          }}
           className="k-display k-tap relative z-10 mx-[64px] mb-[8px] flex h-[92px] shrink-0 items-center justify-center gap-[16px] rounded-2xl border-2 border-white/15 text-[30px] text-white/60"
         >
           <IconSignature size={34} aria-hidden="true" />

@@ -23,6 +23,7 @@ import {
   clearRacePackConfirmation,
   type RacePackConfirmLine,
 } from "../service/race-pack-confirmation";
+import { clarityEvent } from "~/lib/clarity";
 import { readPovConfirmation, clearPovConfirmation } from "../service/pov-confirmation";
 import PovVoucherBlock from "@/components/booking/PovVoucherBlock";
 
@@ -79,6 +80,12 @@ export function KioskConfirmation({ src }: { src: string | null }) {
   // POV video codes claimed with the booking (unified-reserve → checkout stash)
   // — display nicety; the durable copies are the guest email + reservation memo.
   const [povCodes, setPovCodes] = useState<string[] | null>(null);
+  // Kiosk funnel bottom: a paid booking reached the confirmation screen.
+  // (ClarityAnalytics also fires the shared "booking:confirmed" for this path —
+  // this one is the kiosk-only smart event.)
+  useEffect(() => {
+    clarityEvent("kiosk:confirmed");
+  }, []);
   useEffect(() => {
     let alive = true;
     void (async () => {

@@ -2,13 +2,16 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
+import { loadKioskConfig, venueSlug, kioskDeviceKey } from "~/features/kiosk/config";
 
 /**
  * Microsoft Clarity — session replay + heatmaps for the booking/marketing site.
  *
  * Loads on all public routes INCLUDING KBF (product decision 2026-06-09 — no
- * kids PII captured to worry about). Admin routes (`/admin/*`) are NEVER
- * recorded: they're staff views of customer PII.
+ * kids PII captured to worry about) and the in-center kiosk (owner ask
+ * 2026-07-21 — kiosk smart events; sessions tagged kiosk=true for filtering).
+ * Admin routes (`/admin/*`, `/kiosk/admin`) are NEVER recorded: they're staff
+ * views of customer PII / device config.
  *
  * Masking: controlled in the Clarity dashboard (project x4kmifcwpp). Keep it on
  * "Strict" so typed input (names, emails, phones) is never captured — you still
@@ -29,13 +32,19 @@ export default function ClarityAnalytics() {
   useEffect(() => {
     // Never record /admin (staff PII views) or /account (customer subscription
     // + card last4 are rendered text — Strict input-masking does NOT hide them).
-    // /kiosk is excluded too: a shared in-center device would flood Clarity
-    // with junk always-on sessions and capture bystander interactions.
+    // /kiosk IS recorded as of 2026-07-21 (owner ask: kiosk smart events /
+    // funnels). The old always-on-device concern is handled by tagging: every
+    // kiosk session carries kiosk=true + device identity (below) so kiosk
+    // traffic is one filter away from any web analysis, and the kiosk:* smart
+    // events give the in-center funnel. Strict masking covers the on-screen
+    // keyboard's key labels too, so typed guest input is never reconstructable
+    // from replays. /kiosk/admin (staff device-config screen — no customer
+    // PII, but no analytics value either) never initializes Clarity.
     if (
       !pathname ||
       pathname.startsWith("/admin") ||
       pathname.startsWith("/account") ||
-      pathname.startsWith("/kiosk")
+      pathname.startsWith("/kiosk/admin")
     )
       return;
     if (typeof window === "undefined") return;
@@ -85,6 +94,23 @@ export default function ClarityAnalytics() {
         if (code) fire("set", "entry_code", code);
         const loc = qs.get("location");
         if (loc) fire("set", "entry_location", loc);
+      } catch {
+        /* non-fatal */
+      }
+    }
+
+    // Kiosk sessions: stamp the device identity on every route change (set is
+    // idempotent) so kiosk traffic is segmentable — and excludable — in every
+    // Clarity view. Config may not exist yet on a first boot; tags fill in on
+    // the next navigation once the attract screen has resolved it.
+    if (pathname.startsWith("/kiosk")) {
+      try {
+        fire("set", "kiosk", "true");
+        const cfg = loadKioskConfig();
+        if (cfg) {
+          fire("set", "kiosk_venue", venueSlug(cfg));
+          fire("set", "kiosk_device", kioskDeviceKey(cfg));
+        }
       } catch {
         /* non-fatal */
       }
