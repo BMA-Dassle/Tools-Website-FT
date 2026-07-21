@@ -1,5 +1,31 @@
 # Game-card bridge (kiosk PC)
 
+## Setup a PC (start here)
+
+One script per center — clean-reinstalls everything (Node if missing, latest
+bridge, env, browser policies, self-healing boot task) and verifies a clean
+cloud poll. On the PC, in an **admin** PowerShell (the secret = Vercel's
+`GAME_CARD_BRIDGE_SECRET`; it is deliberately not in this public repo — the
+script prompts for it):
+
+```
+# FastTrax Fort Myers
+irm https://raw.githubusercontent.com/BMA-Dassle/Tools-Website-FT/main/game-card-bridge/install-fasttrax.ps1 -OutFile C:\work\setup.ps1
+
+# HeadPinz Fort Myers
+irm https://raw.githubusercontent.com/BMA-Dassle/Tools-Website-FT/main/game-card-bridge/install-headpinz-fm.ps1 -OutFile C:\work\setup.ps1
+
+# HeadPinz Naples
+irm https://raw.githubusercontent.com/BMA-Dassle/Tools-Website-FT/main/game-card-bridge/install-naples.ps1 -OutFile C:\work\setup.ps1
+
+# then, for any of the three:
+C:\work\setup.ps1
+```
+
+(`install.ps1` is the underlying parameterized installer: `-Center 13|12|6
+-Secret <hex>`.) After a green finish, restart the kiosk browser so the Game
+Zone chip reads LOCAL.
+
 Loads Intercard tokens onto game cards through the **on-prem EIS transaction
 server** (raw TCP `:3044`, `iEnhancedInterfaceRequest` XML) — the immediate path
 SWFLPassport uses. The cloud SOAP endpoint (our default) propagates to the
