@@ -793,7 +793,13 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       >
         Guest assistance
       </button>
-      <div className="k-util-help">A team member can help — tap Guest assistance</div>
+      {/* Hint doubles as the flex spacer. It yields entirely when the cart
+          pill is up — sharing the row with every button squeezed it into a
+          skinny word-per-line column (owner 7/20), and it's redundant next
+          to the Guest assistance button anyway. */}
+      <div className="k-util-help">
+        {cartCount === 0 && "A team member can help — tap Guest assistance"}
+      </div>
       {cartCount > 0 && (
         <button type="button" onClick={requestOpenCart} className="k-cart-pill k-tap">
           <svg
