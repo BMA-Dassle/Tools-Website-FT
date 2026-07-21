@@ -19,7 +19,10 @@ import { raceItemFullyPackaged } from "~/features/booking";
  *    Pack picks POV for every new racer in the party.
  *
  * 2. **Per-racer qty stepper** — existing-racer flow (no Rookie chooser).
- *    qty=0 state: "Add for all N racers — $X" primary button.
+ *    qty=0 state: "Add for all N racers — $X" primary button + a "No thanks"
+ *    ghost that advances without adding (staff 2026-07-21: the kiosk footer
+ *    reads "Add to my visit" on this last step, which guests misread as
+ *    adding the camera — an explicit decline removes the ambiguity).
  *    qty>0 state: -/+ stepper + count + total + "Set to all" helper.
  *    Identical UI to v1 PovUpsell:235-283.
  *
@@ -42,7 +45,12 @@ function isRookiePackEnabled(): boolean {
   return process.env.NEXT_PUBLIC_ROOKIE_PACK_ENABLED === "1";
 }
 
-const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, onChange }) => {
+const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({
+  item,
+  session,
+  onChange,
+  requestAdvance,
+}) => {
   const racerCount = Math.max(1, session.party.length);
   const newRacerCount = session.party.filter((m) => m.isNewRacer).length;
   const showRookieFlow = isRookiePackEnabled() && newRacerCount > 0;
@@ -244,14 +252,27 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, o
       {!showRookieFlow && (
         <div className="space-y-4 rounded-xl border border-white/10 bg-white/[0.03] p-5">
           {qty === 0 ? (
-            <button
-              type="button"
-              onClick={() => setQty(racerCount)}
-              className="w-full rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/15 py-3.5 text-sm font-bold text-[#00E2E5] transition-colors hover:bg-[#00E2E5]/25"
-            >
-              Add for all {racerCount} racer{racerCount !== 1 ? "s" : ""} — $
-              {(POV_PRICE * racerCount).toFixed(2)}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setQty(racerCount)}
+                className="w-full rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/15 py-3.5 text-sm font-bold text-[#00E2E5] transition-colors hover:bg-[#00E2E5]/25"
+              >
+                Add for all {racerCount} racer{racerCount !== 1 ? "s" : ""} — $
+                {(POV_PRICE * racerCount).toFixed(2)}
+              </button>
+              {/* Explicit decline — advances without adding, so the guest never
+                  has to work out that the footer button won't add the camera. */}
+              {requestAdvance && (
+                <button
+                  type="button"
+                  onClick={requestAdvance}
+                  className="w-full rounded-xl border border-white/15 py-3 text-sm font-semibold text-white/50 transition-colors hover:border-white/30 hover:text-white/80"
+                >
+                  No thanks — continue without the camera
+                </button>
+              )}
+            </>
           ) : (
             <>
               <div className="flex items-center justify-between">
