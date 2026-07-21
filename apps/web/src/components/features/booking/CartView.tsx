@@ -117,91 +117,12 @@ export function CartView({
 
       {/* Combo special: the combo prices as ONE flat per-person line at
           checkout, and it leaves the cart as one unit too. */}
-      {(() => {
-        const combo = session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
-        if (!combo) return null;
-        return (
-          <div
-            className="mt-4 flex flex-col gap-3 rounded-xl border p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
-            style={{ borderColor: combo.accentColor, backgroundColor: "rgba(7,16,39,0.5)" }}
-          >
-            <div>
-              <span className="font-semibold" style={{ color: combo.accentColor }}>
-                {combo.name}:
-              </span>{" "}
-              <span className="text-white/80">
-                ${(combo.price.weekday / 100).toFixed(0)}/person Mon–Thu · $
-                {(combo.price.weekend / 100).toFixed(0)}/person Fri–Sun, applied at checkout (plus
-                tax).
-              </span>
-            </div>
-            {onRemoveCombo && (
-              <button
-                type="button"
-                onClick={() => void onRemoveCombo()}
-                className="shrink-0 self-start rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-400/70 transition-colors hover:bg-red-500/10 hover:text-red-400 sm:self-auto"
-              >
-                Remove combo
-              </button>
-            )}
-          </div>
-        );
-      })()}
+      <CartComboBanner session={session} onRemoveCombo={onRemoveCombo} />
 
       {/* KIOSK: Game Zone cards riding this cart — paid with the deposit at
           checkout, dispensed/loaded on the confirmation screen. Web sessions
           never carry gameCardPurchase, so this renders nothing on web. */}
-      {session.gameCardPurchase &&
-        (() => {
-          let gz: ReturnType<typeof resolveCartPurchase>;
-          try {
-            gz = resolveCartPurchase(session.gameCardPurchase);
-          } catch {
-            gz = null;
-          }
-          if (!gz) return null;
-          return (
-            <div
-              className="mt-4 rounded-xl border p-3 text-sm"
-              style={{ borderColor: "rgba(248,0,198,0.4)", backgroundColor: "rgba(7,16,39,0.5)" }}
-            >
-              <div className="flex items-center justify-between">
-                <span className="font-semibold" style={{ color: "#f800c6" }}>
-                  Game Zone cards
-                </span>
-                {onRemoveGameCards && (
-                  <button
-                    type="button"
-                    onClick={onRemoveGameCards}
-                    className="shrink-0 rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-400/70 transition-colors hover:bg-red-500/10 hover:text-red-400"
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
-              <ul className="mt-1.5 space-y-0.5 text-white/70">
-                {gz.orderLines.map((l, i) => {
-                  const qty = Number(l.quantity) || 1;
-                  return (
-                    <li key={i} className="flex justify-between gap-3">
-                      <span className="min-w-0 truncate">
-                        {l.name}
-                        {qty > 1 ? ` ×${qty}` : ""}
-                      </span>
-                      <span className="shrink-0 tabular-nums">
-                        ${((l.amountCents * qty) / 100).toFixed(2)}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-              <div className="mt-1.5 flex justify-between border-t border-white/10 pt-1.5 font-bold text-white">
-                <span>Cards total — paid with your booking</span>
-                <span className="tabular-nums">${(gz.totalCents / 100).toFixed(2)}</span>
-              </div>
-            </div>
-          );
-        })()}
+      <CartGameCardsBlock session={session} onRemoveGameCards={onRemoveGameCards} />
 
       {session.items.length === 0 ? (
         <p className="mt-6 text-sm text-white/50">No items yet.</p>
@@ -337,9 +258,111 @@ export function LeaveConfirmModal({
   );
 }
 
+// ── Shared cart blocks (also composed by the kiosk merged checkout) ─────────
+
+/** Combo-special banner — flat per-person pricing note + "Remove combo".
+ *  Renders nothing when no combo is stamped on the session. */
+export function CartComboBanner({
+  session,
+  onRemoveCombo,
+}: {
+  session: BookingSession;
+  onRemoveCombo?: () => Promise<void> | void;
+}) {
+  const combo = session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
+  if (!combo) return null;
+  return (
+    <div
+      className="mt-4 flex flex-col gap-3 rounded-xl border p-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+      style={{ borderColor: combo.accentColor, backgroundColor: "rgba(7,16,39,0.5)" }}
+    >
+      <div>
+        <span className="font-semibold" style={{ color: combo.accentColor }}>
+          {combo.name}:
+        </span>{" "}
+        <span className="text-white/80">
+          ${(combo.price.weekday / 100).toFixed(0)}/person Mon–Thu · $
+          {(combo.price.weekend / 100).toFixed(0)}/person Fri–Sun, applied at checkout (plus tax).
+        </span>
+      </div>
+      {onRemoveCombo && (
+        <button
+          type="button"
+          onClick={() => void onRemoveCombo()}
+          className="shrink-0 self-start rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-400/70 transition-colors hover:bg-red-500/10 hover:text-red-400 sm:self-auto"
+        >
+          Remove combo
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Game Zone cards riding this cart (kiosk-only session state) — line list +
+ *  "paid with your booking" total + Remove. Renders nothing without a purchase
+ *  (web sessions never carry one) or on bad pointers (the server rejects the
+ *  charge in that case; the cart just shows without cards). */
+export function CartGameCardsBlock({
+  session,
+  onRemoveGameCards,
+}: {
+  session: BookingSession;
+  onRemoveGameCards?: () => void;
+}) {
+  if (!session.gameCardPurchase) return null;
+  let gz: ReturnType<typeof resolveCartPurchase>;
+  try {
+    gz = resolveCartPurchase(session.gameCardPurchase);
+  } catch {
+    gz = null;
+  }
+  if (!gz) return null;
+  return (
+    <div
+      className="mt-4 rounded-xl border p-3 text-sm"
+      style={{ borderColor: "rgba(248,0,198,0.4)", backgroundColor: "rgba(7,16,39,0.5)" }}
+    >
+      <div className="flex items-center justify-between">
+        <span className="font-semibold" style={{ color: "#f800c6" }}>
+          Game Zone cards
+        </span>
+        {onRemoveGameCards && (
+          <button
+            type="button"
+            onClick={onRemoveGameCards}
+            className="shrink-0 rounded-lg border border-red-500/20 px-3 py-1.5 text-xs font-semibold text-red-400/70 transition-colors hover:bg-red-500/10 hover:text-red-400"
+          >
+            Remove
+          </button>
+        )}
+      </div>
+      <ul className="mt-1.5 space-y-0.5 text-white/70">
+        {gz.orderLines.map((l, i) => {
+          const qty = Number(l.quantity) || 1;
+          return (
+            <li key={i} className="flex justify-between gap-3">
+              <span className="min-w-0 truncate">
+                {l.name}
+                {qty > 1 ? ` ×${qty}` : ""}
+              </span>
+              <span className="shrink-0 tabular-nums">
+                ${((l.amountCents * qty) / 100).toFixed(2)}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="mt-1.5 flex justify-between border-t border-white/10 pt-1.5 font-bold text-white">
+        <span>Cards total — paid with your booking</span>
+        <span className="tabular-nums">${(gz.totalCents / 100).toFixed(2)}</span>
+      </div>
+    </div>
+  );
+}
+
 // ── Per-item cards ─────────────────────────────────────────────────────────
 
-function CartItemCard({
+export function CartItemCard({
   item,
   session,
   onEdit,
@@ -364,26 +387,10 @@ function CartItemCard({
     );
   }
   if (item.kind === "attraction") {
-    return <AttractionCartCard item={item} onEdit={onEdit} onRemove={onRemove} />;
+    return <AttractionCartCard item={item} session={session} onEdit={onEdit} onRemove={onRemove} />;
   }
   // Estimated total for bowling/kbf from enriched lineItems
-  const bowlingEstimate =
-    item.kind === "bowling" || item.kind === "kbf"
-      ? item.lineItems.reduce((s, li) => {
-          // USA250: reduce priced bowling lines so the cart matches checkout.
-          const full = (li.priceCents ?? 0) * li.quantity;
-          const f =
-            (li.priceCents ?? 0) > 0
-              ? promoFactor(
-                  { domain: "bowling", visitDate: item.date ?? item.bookedAt?.slice(0, 10) },
-                  session.appliedPromo,
-                )
-              : 1;
-          return s + (f === 1 ? full : Math.round(full * f));
-        }, 0) /
-          100 +
-        (item.hasBookingFee ? 2.99 : 0)
-      : 0;
+  const bowlingEstimate = estimateCartItemTotal(item, session);
 
   // Combo bowling is configured by the combo wizard (its own steps are
   // hidden) and is charged inside the flat combo line — no Edit, no per-item
@@ -482,42 +489,11 @@ function RaceCartCard({
   // here read as an extra charge).
   const combo = session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
 
-  // Estimate — use the SAME per-item charge builder the checkout uses
-  // (raceItemChargeLines: package bundle / combo pack / single), so the cart
-  // total can NEVER drift from what Square charges. The package bundle line
-  // already includes license + POV; single/combo add session license (new
-  // racers) + standalone POV + add-ons on top.
+  // Estimate — the SAME per-item charge builder the checkout uses (see
+  // estimateCartItemTotal), so the cart total can NEVER drift from what
+  // Square charges. Combo mode shows no per-item dollars (flat combo line).
   const newRacerCount = session.party.filter((m) => m.isNewRacer).length;
-  // License rides the package bundle only for CATEGORIES that hold a package —
-  // a junior single-race new racer alongside an adult package still pays it —
-  // and only racers with an actual heat pay at all (roster deselect / opt-out).
-  // Mirrors buildRaceChargeLines exactly, so cart == charge.
-  const racingIds = new Set(
-    item.heats.filter((h) => h.heatId && h.assignedTo).map((h) => h.assignedTo!),
-  );
-  const nonPackageNewRacers = session.party.filter(
-    (m) =>
-      m.isNewRacer && racingIds.has(m.id) && !packageIdForCategory(item, m.category ?? "adult"),
-  ).length;
-  // USA250: license + POV are racing add-ons too — discount them like the heats
-  // (gated on this race item's date) so the cart estimate matches checkout.
-  const raceAddonFactor = promoFactor(
-    { domain: "racing", visitDate: item.date },
-    session.appliedPromo,
-  );
-  const licenseTotal =
-    Math.round(LICENSE_PRICE * nonPackageNewRacers * raceAddonFactor * 100) / 100;
-  const standalonePov = raceItemFullyPackaged(item, session.party) ? 0 : item.povQuantity;
-  const povTotal = Math.round(POV_PRICE * standalonePov * raceAddonFactor * 100) / 100;
-  const addonsTotal = item.addons.reduce((sum, a) => sum + estimateAddon(a), 0);
-
-  // Reduce race lines too (they carry domain/visitDate) so the cart estimate
-  // matches what checkout charges. Add-ons stay full price.
-  const raceLinesTotal = applyPromoToBillLines(
-    raceItemChargeLines(item),
-    session.appliedPromo,
-  ).reduce((s, l) => s + l.amount, 0);
-  const estimated = combo ? 0 : raceLinesTotal + licenseTotal + povTotal + addonsTotal;
+  const estimated = estimateCartItemTotal(item, session);
 
   return (
     <li className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm">
@@ -657,10 +633,12 @@ function RaceCartCard({
 
 function AttractionCartCard({
   item,
+  session,
   onEdit,
   onRemove,
 }: {
   item: AttractionItem;
+  session: BookingSession;
   onEdit: () => void;
   onRemove: () => void;
 }) {
@@ -686,7 +664,7 @@ function AttractionCartCard({
       })
     : null;
 
-  const total = isPerPerson ? item.price * item.qty : item.price;
+  const total = estimateCartItemTotal(item, session);
 
   return (
     <li className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm">
@@ -874,7 +852,69 @@ function estimateAddon(a: { id: string; qty: number }): number {
   return (meta?.price ?? 0) * a.qty;
 }
 
-function allItemsReady(session: BookingSession): boolean {
+/**
+ * Per-item cart estimate in DOLLARS — the SAME charge builders checkout uses
+ * (raceItemChargeLines + the promo factors), so a summed cart total can never
+ * drift from what Square charges. Combo-priced items return 0: the combo's
+ * flat per-person price is charged as ONE line at checkout (see
+ * CartComboBanner), so per-item dollars would read as extra charges.
+ *
+ * Race math mirrors buildRaceChargeLines exactly: the package bundle line
+ * already includes license + POV; single/combo add session license (new
+ * racers with a heat, in categories without a package) + standalone POV +
+ * add-ons on top. USA250-style promos reduce race lines AND the license/POV
+ * add-ons (gated on the item's date); bowling lines reduce per line.
+ */
+export function estimateCartItemTotal(item: SessionItem, session: BookingSession): number {
+  if (item.kind === "race") {
+    if (session.comboSpecialId && getComboSpecial(session.comboSpecialId)) return 0;
+    const racingIds = new Set(
+      item.heats.filter((h) => h.heatId && h.assignedTo).map((h) => h.assignedTo!),
+    );
+    const nonPackageNewRacers = session.party.filter(
+      (m) =>
+        m.isNewRacer && racingIds.has(m.id) && !packageIdForCategory(item, m.category ?? "adult"),
+    ).length;
+    const raceAddonFactor = promoFactor(
+      { domain: "racing", visitDate: item.date },
+      session.appliedPromo,
+    );
+    const licenseTotal =
+      Math.round(LICENSE_PRICE * nonPackageNewRacers * raceAddonFactor * 100) / 100;
+    const standalonePov = raceItemFullyPackaged(item, session.party) ? 0 : item.povQuantity;
+    const povTotal = Math.round(POV_PRICE * standalonePov * raceAddonFactor * 100) / 100;
+    const addonsTotal = item.addons.reduce((sum, a) => sum + estimateAddon(a), 0);
+    const raceLinesTotal = applyPromoToBillLines(
+      raceItemChargeLines(item),
+      session.appliedPromo,
+    ).reduce((s, l) => s + l.amount, 0);
+    return raceLinesTotal + licenseTotal + povTotal + addonsTotal;
+  }
+  if (item.kind === "attraction") {
+    const config = item.slug ? ATTRACTIONS[item.slug] : null;
+    return config?.bookingMode === "per-person" ? item.price * item.qty : item.price;
+  }
+  // bowling / kbf — combo bowling is charged inside the flat combo line.
+  if (session.comboSpecialId && item.kind === "bowling") return 0;
+  return (
+    item.lineItems.reduce((s, li) => {
+      // USA250: reduce priced bowling lines so the cart matches checkout.
+      const full = (li.priceCents ?? 0) * li.quantity;
+      const f =
+        (li.priceCents ?? 0) > 0
+          ? promoFactor(
+              { domain: "bowling", visitDate: item.date ?? item.bookedAt?.slice(0, 10) },
+              session.appliedPromo,
+            )
+          : 1;
+      return s + (f === 1 ? full : Math.round(full * f));
+    }, 0) /
+      100 +
+    (item.hasBookingFee ? 2.99 : 0)
+  );
+}
+
+export function allItemsReady(session: BookingSession): boolean {
   return session.items.every((item) => {
     switch (item.kind) {
       case "race":

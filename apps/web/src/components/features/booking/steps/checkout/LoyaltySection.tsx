@@ -276,7 +276,11 @@ export function LoyaltySection({ session, dispatch, phone }: LoyaltySectionProps
             </p>
             <p className="text-xs text-white/50">
               {loyalty.balance} {pointsUnit} available
-              {loyalty.isNewSignup && " (includes 300 signup bonus)"}
+              {/* No signup bonus exists at enroll time (the old "includes 300
+                  signup bonus" claim was false) — the real 500-{pointsUnit}
+                  bonus comes from completing the profile on the rewards portal. */}
+              {loyalty.isNewSignup &&
+                ` — complete your profile at the rewards page for 500 bonus ${pointsUnit}`}
             </p>
           </div>
           <span

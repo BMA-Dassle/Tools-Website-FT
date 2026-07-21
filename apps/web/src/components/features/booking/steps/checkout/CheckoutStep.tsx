@@ -110,6 +110,14 @@ interface CheckoutStepProps {
   hideRewards?: boolean;
   /** Kiosk: hide Apple/Google Pay (shared public device). Web default = shown. */
   hideWallets?: boolean;
+  /**
+   * KIOSK merged cart+checkout: the merged screen already confirmed the
+   * contact (and rewards/promo), so skip the contact phase entirely — mount
+   * straight into booking with session.contact and land on review. Review's
+   * "Back" then returns to the caller (onBack → the merged screen) instead of
+   * the contact phase. Web default = false (contact phase unchanged).
+   */
+  skipContactPhase?: boolean;
 }
 
 type Phase =
@@ -157,6 +165,7 @@ export function CheckoutStep({
   readerDeviceId,
   hideRewards = false,
   hideWallets = false,
+  skipContactPhase = false,
 }: CheckoutStepProps) {
   // Post-payment redirect — kiosk overrides this to stay inside /kiosk.
   const go =
@@ -164,7 +173,14 @@ export function CheckoutStep({
     ((url: string) => {
       window.location.href = url;
     });
-  const [phase, setPhase] = useState<Phase>({ step: "contact" });
+  const [phase, setPhase] = useState<Phase>(() =>
+    // Merged kiosk checkout skips the contact phase: mount on the booking
+    // spinner (the auto-submit effect below runs the actual submit). Falls
+    // back to the contact form when the contact is somehow incomplete.
+    skipContactPhase && contactIsComplete(session.contact)
+      ? { step: "booking", progress: "Preparing your order…" }
+      : { step: "contact" },
+  );
   const [clickwrapAccepted, setClickwrapAccepted] = useState(false);
   const [cancelConfirm, setCancelConfirm] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -659,6 +675,20 @@ export function CheckoutStep({
       });
     }
   }
+
+  // Merged kiosk checkout (skipContactPhase): the merged screen gates its
+  // Review & Pay on a complete contact, so submit immediately on mount — one
+  // submit per mount (re-mounting after a Back re-runs it; runCheckout reuses
+  // session.bmiBillId, the same path web exercises on review→contact→review).
+  // The contact-form fallback is a defensive net for an incomplete contact.
+  const autoSubmitted = useRef(false);
+  useEffect(() => {
+    if (!skipContactPhase || autoSubmitted.current) return;
+    autoSubmitted.current = true;
+    if (isValidContact) void handleContactSubmit();
+    else setPhase({ step: "contact" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Review → Payment transition ───────────────────────────────
 
@@ -1243,7 +1273,10 @@ export function CheckoutStep({
         <div className="flex items-center justify-between gap-4">
           <button
             type="button"
-            onClick={() => setPhase({ step: "contact" })}
+            // Merged kiosk checkout has no contact phase — Back returns to the
+            // merged cart+checkout screen instead (re-entering Review & Pay
+            // re-books onto the same held bill).
+            onClick={() => (skipContactPhase ? onBack() : setPhase({ step: "contact" }))}
             className="text-sm text-white/40 transition-colors hover:text-white/70"
           >
             Back
