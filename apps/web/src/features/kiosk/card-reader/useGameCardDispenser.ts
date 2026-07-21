@@ -20,7 +20,7 @@ import type { CrtReaderClient } from "./client";
 import type { CrtErrorInfo } from "./protocol/errors";
 import type { CrtStatus, ErrorBinLevel } from "./protocol/status";
 import type { CrtDeviceInfo } from "./client";
-import type { KioskConfig } from "../config";
+import { kioskDeviceKey, type KioskConfig } from "../config";
 
 /** An op either succeeds with a value, or fails with a classified fault. */
 export type OpResult<T> =
@@ -36,16 +36,44 @@ export interface UseGameCardDispenserOptions {
 }
 
 export function useGameCardDispenser({ config, onConnected }: UseGameCardDispenserOptions) {
+  // On EVERY successful connect (even one found the slow way by scanning), save
+  // WHERE it was — port index + baud — to Neon via the non-gated reader-hint
+  // endpoint, so the next boot connects INSTANTLY instead of re-scanning. This is
+  // the guest flow, which has no admin auth, so it uses the hint endpoint.
+  const handleConnected = useCallback(
+    (info: CrtDeviceInfo, portInfo: SerialPortInfo, portIndex: number) => {
+      if (config?.cardReaderEnabled) {
+        void fetch("/api/kiosk/device", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            kioskId: kioskDeviceKey(config),
+            ...(portIndex >= 0 ? { cardReaderPortIndex: portIndex } : {}),
+            cardReaderBaud: info.baudRate,
+            cardReaderPortInfo:
+              portInfo.usbVendorId != null
+                ? { usbVendorId: portInfo.usbVendorId, usbProductId: portInfo.usbProductId }
+                : null,
+          }),
+        }).catch(() => {
+          /* hint save is best-effort — never block the flow */
+        });
+      }
+      onConnected?.(info, portInfo);
+    },
+    [config, onConnected],
+  );
+
   const reader = useCardReader({
     preferredBaud: config?.cardReaderBaud ?? null,
     portInfo: config?.cardReaderPortInfo ?? null,
-    // Saved "where I found it" index — the guest flow reuses the admin-provisioned
-    // port directly instead of re-scanning in front of a guest.
+    // Saved "where I found it" index — the guest flow reuses the saved port
+    // directly instead of re-scanning in front of a guest.
     portIndex: config?.cardReaderPortIndex ?? null,
     // Kiosk is provisioned (cardReaderEnabled) → silently auto-reconnect on
     // mount, no picker in front of a guest.
     trustSingleGrant: !!config?.cardReaderEnabled,
-    onConnected,
+    onConnected: handleConnected,
   });
 
   const { connection, status, busy, lastError, runResult, connect, disconnect, clearError } =

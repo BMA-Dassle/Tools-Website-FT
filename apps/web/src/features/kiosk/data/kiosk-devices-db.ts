@@ -61,6 +61,35 @@ export async function saveKioskDevice(args: {
   `;
 }
 
+/**
+ * Merge just the reader-location hints (port index / baud / USB info) into an
+ * existing device's config. Non-PII device layout, so this is callable WITHOUT
+ * the admin PIN — the guest dispenser flow (which has no admin auth) can save
+ * "where I found the CRT-591" to Neon, so a fresh boot connects straight to it
+ * instead of re-scanning. Only touches these three fields; never creates a row.
+ */
+export async function saveKioskReaderHint(
+  kioskId: string,
+  hint: {
+    cardReaderPortIndex?: number;
+    cardReaderBaud?: number;
+    cardReaderPortInfo?: { usbVendorId?: number; usbProductId?: number } | null;
+  },
+): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  const row = await loadKioskDevice(kioskId);
+  if (!row) return false;
+  const config = { ...row.config, ...hint };
+  await saveKioskDevice({
+    kioskId,
+    center: row.center,
+    kioskNumber: row.kioskNumber,
+    brand: row.brand,
+    config,
+  });
+  return true;
+}
+
 /** Pull a saved device config by kioskId (fallback when localStorage is empty). */
 export async function loadKioskDevice(kioskId: string): Promise<KioskDeviceRow | null> {
   if (!isDbConfigured()) return null;
