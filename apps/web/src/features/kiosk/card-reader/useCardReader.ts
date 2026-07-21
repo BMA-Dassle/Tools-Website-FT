@@ -451,6 +451,18 @@ export function useCardReader(opts: UseCardReaderOptions = {}) {
         );
         onConnectedRef.current?.(c.info, chosen.getInfo(), idx);
       } catch (err) {
+        // Surface EVERY per-port failure in the TX/RX log — especially opens
+        // that fail because another program holds the port (vendor debug tool,
+        // another Edge window). Without this, a held port was skipped in total
+        // silence and the log showed only TX-into-nothing on the other ports
+        // (the 2026-07-21 "kiosk is struggling" trace).
+        ring.push({
+          dir: "tx",
+          t: typeof performance !== "undefined" ? performance.now() : Date.now(),
+          bytes: new Uint8Array(0),
+          decoded: `PORT FAILED — ${err instanceof Error ? err.message : String(err)}`,
+          level: "error",
+        });
         if (o.silent) {
           // Auto-reconnect on load: a failure must not slam the panel into an
           // error state — fall back to disconnected so staff can pick manually.

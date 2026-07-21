@@ -57,7 +57,7 @@ import {
   type InitMode,
   type MoveTarget,
 } from "./protocol/constants";
-import { CrtError, CrtLinkError, CrtReadError } from "./protocol/errors";
+import { CrtError, CrtLinkError, CrtReadError, CrtTimeoutError } from "./protocol/errors";
 import type { ParsedFrame } from "./protocol/frame";
 import { parseSensors, parseStatus, type CrtStatus, type SensorStatus } from "./protocol/status";
 import {
@@ -196,10 +196,14 @@ export class CrtReaderClient {
         // Any link-level failure at this baud — silence (ackTimeout), noise
         // (NAK), a corrupt reply, OR the port closing on a framing/parity error
         // — is a "wrong baud (or transient noise)" signal: close this attempt
-        // and try the next candidate. transport.close() above frees the port so
-        // the next openTransport() re-opens it cleanly. Only a hard open failure
-        // (in use / permission), thrown from openTransport, aborts the sweep.
-        if (err instanceof CrtLinkError) {
+        // and try the next candidate. A RESPONSE timeout counts too: at a wrong
+        // baud, line noise can contain a stray 0x06 that fakes an ACK, and the
+        // send then times out with CrtTimeoutError — treating that as fatal
+        // aborted the sweep before the RIGHT baud (e.g. 38400) was ever tried.
+        // transport.close() above frees the port so the next openTransport()
+        // re-opens it cleanly. Only a hard open failure (in use / permission),
+        // thrown from openTransport, aborts the sweep.
+        if (err instanceof CrtLinkError || err instanceof CrtTimeoutError) {
           lastLinkError = err;
           continue;
         }
