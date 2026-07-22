@@ -1425,6 +1425,7 @@ export default function ConfirmationPage() {
     laneCount?: number;
     playerCount?: number;
     qamfReservationId?: string;
+    isDuckpin?: boolean;
   }>;
   // Racing is present only when the booking record actually has racers (→
   // raceGroups). The BMI-overview "Karting" heuristic is a fallback ONLY for
@@ -1500,16 +1501,23 @@ export default function ConfirmationPage() {
     if (act.kind === "racing") return ATTRACTIONS["racing"] ?? null;
     if (act.kind === "attraction")
       return ATTRACTIONS[attractionList[act.index]?.slug ?? ""] ?? null;
-    return (
-      ATTRACTIONS[bowlingList[act.index]?.kind === "kbf" ? "kids-bowl-free" : "bowling"] ?? null
-    );
+    // FastTrax duckpin uses the FastTrax "duck-pin" config (building "FastTrax
+    // Fort Myers", amber, location fasttrax) instead of HeadPinz "bowling".
+    const b = bowlingList[act.index];
+    const bowlingCfgKey = b?.isDuckpin
+      ? "duck-pin"
+      : b?.kind === "kbf"
+        ? "kids-bowl-free"
+        : "bowling";
+    return ATTRACTIONS[bowlingCfgKey] ?? null;
   };
-  // Bowling always reads "Bowling" (never the experience name); KBF stays distinct.
+  // Bowling reads "Bowling"; FastTrax duckpin reads "Duckpin"; KBF stays distinct.
   const activityLabel = (act: ActivityRef | null): string => {
     if (!act) return "";
     if (act.kind === "racing") return "Racing";
     if (act.kind === "attraction") return activityCfg(act)?.name ?? "Activity";
-    return bowlingList[act.index]?.kind === "kbf" ? "Kids Bowl Free" : "Bowling";
+    const b = bowlingList[act.index];
+    return b?.isDuckpin ? "Duckpin" : b?.kind === "kbf" ? "Kids Bowl Free" : "Bowling";
   };
   const activityAddress = (cfg: AttractionConfig | null): string => {
     if (!cfg) return ATTR_ADDR.headpinz;
@@ -2698,7 +2706,10 @@ export default function ConfirmationPage() {
                 /hp/book/bowling/confirmation. */}
                 {bowlingToShow.map((b, i) => {
                   const isKbf = b.kind === "kbf";
-                  const cfg = ATTRACTIONS[isKbf ? "kids-bowl-free" : "bowling"];
+                  // FastTrax duckpin → FastTrax "duck-pin" cfg (amber, FastTrax
+                  // Fort Myers) instead of HeadPinz "bowling".
+                  const cfg =
+                    ATTRACTIONS[b.isDuckpin ? "duck-pin" : isKbf ? "kids-bowl-free" : "bowling"];
                   const color = cfg?.color ?? "#fd5b56";
                   return (
                     <div

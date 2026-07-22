@@ -394,6 +394,9 @@ export async function saveBookingDetails(
     laneCount: b.laneCount,
     playerCount: b.kind === "bowling" ? b.playerCount : undefined,
     qamfReservationId: b.qamfReservationId,
+    // FastTrax duckpin flag so the multi-item confirmation (v2) can render it
+    // as FastTrax "Duckpin" instead of HeadPinz "Bowling".
+    isDuckpin: b.kind === "bowling" ? !!b.isDuckpin : false,
   }));
 
   // Express Lane: EVERY racer in the party must be a returning racer with a

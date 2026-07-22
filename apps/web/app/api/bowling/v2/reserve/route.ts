@@ -1972,10 +1972,14 @@ export async function POST(req: NextRequest) {
   // URL uses ?code= (the short code) so the sequential neonId never
   // appears in the browser bar. The confirmation page resolves the
   // code server-side via /api/bowling/v2/reservations/by-code/[code].
+  // FastTrax duckpin confirms on the FastTrax domain (/book/bowling-confirmation)
+  // so BrandNav + the short link stay on-brand; HeadPinz bowling/KBF stay on /hp.
   const confirmBase =
-    productKind === "kbf"
-      ? "/hp/book/kids-bowl-free/confirmation"
-      : "/hp/book/bowling/confirmation";
+    centerId === FASTTRAX_QAMF_CENTER_ID
+      ? "/book/bowling-confirmation"
+      : productKind === "kbf"
+        ? "/hp/book/kids-bowl-free/confirmation"
+        : "/hp/book/bowling/confirmation";
   let shortCode: string | undefined;
   try {
     // Generate the code, then store the code-based destination URL

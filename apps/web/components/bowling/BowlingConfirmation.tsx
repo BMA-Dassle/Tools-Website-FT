@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import HeadPinzNav from "@/components/headpinz/Nav";
+import BrandNav from "@/components/BrandNav";
 import EditPizzaPanel from "@/components/bowling/EditPizzaPanel";
 import type {
   BowlingReservation,
@@ -35,17 +35,21 @@ const GOLD = "#FFD700";
 const BG = "#0a1628";
 
 // Keyed by Square location / center code (stored on BowlingReservation.centerCode)
+const FASTTRAX_CENTER_CODE = "LAB52GY480CJF";
 const CENTER_NAME: Record<string, string> = {
   TXBSQN0FEKQ11: "HeadPinz Fort Myers",
   PPTR5G2N0QXF7: "HeadPinz Naples",
+  [FASTTRAX_CENTER_CODE]: "FastTrax Fort Myers",
 };
 const CENTER_ADDRESS: Record<string, string> = {
   TXBSQN0FEKQ11: "14513 Global Pkwy, Fort Myers",
   PPTR5G2N0QXF7: "8525 Radio Ln, Naples",
+  [FASTTRAX_CENTER_CODE]: "14513 Global Pkwy, Fort Myers",
 };
 const CENTER_PHONE: Record<string, string> = {
   TXBSQN0FEKQ11: "(239) 302-2155",
   PPTR5G2N0QXF7: "(239) 455-3755",
+  [FASTTRAX_CENTER_CODE]: "(239) 275-2226",
 };
 
 type ReservationWithLines = BowlingReservation & {
@@ -178,7 +182,7 @@ interface KindConfig {
   heroSubtitle: (hasPaidDeposit: boolean) => string;
   fetchFailNote: (centerName: string) => string;
   linesHeader: string;
-  arrivalBullets: (displayRemaining: number) => React.ReactNode;
+  arrivalBullets: (displayRemaining: number, opts?: { hasShoes?: boolean }) => React.ReactNode;
   /** Optional link shown above the cancel section (e.g. reschedule for KBF). */
   changeLink?: { href: string; label: string };
   navLinks: { href: string; label: string }[];
@@ -221,10 +225,10 @@ const KIND_CONFIG: Record<BowlingConfirmationKind, KindConfig> = {
       "Your deposit has been charged and your lane is reserved. Bring this confirmation when you arrive.",
     fetchFailNote: () => "Please show your booking reference at the front desk.",
     linesHeader: "Order",
-    arrivalBullets: (displayRemaining) => (
+    arrivalBullets: (displayRemaining, opts) => (
       <>
         <li>Show this confirmation at the front desk.</li>
-        <li>Rental shoes are available at the front counter.</li>
+        {opts?.hasShoes !== false && <li>Rental shoes are available at the front counter.</li>}
         <li>Your lane is held until 10 minutes after start time.</li>
         {displayRemaining > 0 && (
           <li>
@@ -996,6 +1000,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   // Derive center info + QAMF ID from the fetched reservation object.
   // URL carries only the short code; everything else comes from Neon.
   const centerCode = reservation?.centerCode ?? "";
+  const isFastTrax = centerCode === FASTTRAX_CENTER_CODE;
   const centerName = CENTER_NAME[centerCode] ?? "HeadPinz";
   const centerAddress = CENTER_ADDRESS[centerCode] ?? "";
   const qamfId = reservation?.qamfReservationId ?? "";
@@ -1124,8 +1129,9 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   const displayTotal = reservation?.totalCents ?? 0;
   const hasPaidDeposit = displayDepositPaid > 0;
 
-  // HeadPinz Rewards — 10 Pinz per $1 spent on the day-of order total (tax-inclusive)
-  const hasRewardsLinked = !!reservation?.squareCustomerId;
+  // HeadPinz Rewards — 10 Pinz per $1 spent (HeadPinz-only; FastTrax has no
+  // HeadPinz Rewards program, so never show it on a FastTrax duckpin confirmation).
+  const hasRewardsLinked = !!reservation?.squareCustomerId && !isFastTrax;
   const rewardDiscountCents = reservation?.rewardDiscountCents ?? 0;
   // Remaining = total − reward − deposit (reward reduces what's owed at center)
   const displayRemaining = displayTotal - displayDepositPaid - rewardDiscountCents;
@@ -1135,11 +1141,23 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   const guestName = reservation?.guestName ?? "";
   const lines = reservation?.lines ?? [];
 
-  const cfg = KIND_CONFIG[kind];
+  const baseCfg = KIND_CONFIG[kind];
+  // FastTrax duckpin lives on fasttraxent.com under /book — rewrite the HeadPinz
+  // /hp booking links so "Change Date & Time" / "Book another" stay on-brand.
+  const cfg: KindConfig = isFastTrax
+    ? {
+        ...baseCfg,
+        changeLink: { href: "/book/duck-pin", label: "Change Date & Time" },
+        navLinks: [
+          { href: "/book/duck-pin", label: "Book another lane" },
+          { href: "/book", label: "Book something else" },
+        ],
+      }
+    : baseCfg;
 
   return (
     <div style={{ backgroundColor: BG }} className="min-h-screen">
-      <HeadPinzNav />
+      <BrandNav />
 
       <main className="pt-28 sm:pt-36 pb-24 px-4 sm:px-6">
         <div className="max-w-5xl mx-auto">
@@ -1698,7 +1716,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                     When you arrive
                   </div>
                   <ul className="text-white/75 text-sm space-y-1 list-disc list-inside">
-                    {cfg.arrivalBullets(displayRemaining)}
+                    {cfg.arrivalBullets(displayRemaining, { hasShoes: !isFastTrax })}
                   </ul>
                 </div>
               )}
@@ -2134,7 +2152,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
 function ConfirmationSkeleton() {
   return (
     <div style={{ backgroundColor: BG }} className="min-h-screen">
-      <HeadPinzNav />
+      <BrandNav />
       <main className="pt-28 pb-20 px-4 sm:px-6">
         <div className="max-w-5xl mx-auto">
           <div className="lg:grid lg:grid-cols-5 lg:gap-6">

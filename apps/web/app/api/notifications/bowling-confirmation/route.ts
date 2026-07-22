@@ -287,7 +287,9 @@ export async function POST(req: NextRequest) {
     // Using fasttraxent.com here caused a redirect loop that dropped the
     // /hp prefix and landed on the wrong (FastTrax attractions)
     // confirmation page — stuck on "Confirming your booking…" forever.
-    const siteUrl = "https://headpinz.com";
+    // FastTrax duckpin lives on fasttraxent.com — its short link resolves to the
+    // /book/bowling-confirmation route there (BrandNav defers to the FT layout nav).
+    const siteUrl = isFastTrax ? "https://fasttraxent.com" : "https://headpinz.com";
     const confirmLink = r.shortCode ? `${siteUrl}/s/${r.shortCode}` : undefined;
 
     // ── Resolve contacts (override or reservation) ──────────────
@@ -362,13 +364,16 @@ export async function POST(req: NextRequest) {
           html = html.replace(/\^\[ConfirmButtonSection\]\$/g, "");
         }
 
-        // Nav links
-        const bookAnotherLink = isKbf
-          ? `${siteUrl}/hp/book/kids-bowl-free`
-          : `${siteUrl}/hp/book/bowling`;
+        // Nav links (FastTrax duckpin → fasttraxent.com/book; HeadPinz → /hp/book)
+        const bookAnotherLink = isFastTrax
+          ? `${siteUrl}/book/duck-pin`
+          : isKbf
+            ? `${siteUrl}/hp/book/kids-bowl-free`
+            : `${siteUrl}/hp/book/bowling`;
+        const exploreLink = isFastTrax ? `${siteUrl}/book` : `${siteUrl}/hp/book`;
         html = html
           .replace(/\^\[BookAnotherLink\]\$/g, bookAnotherLink)
-          .replace(/\^\[ExploreLink\]\$/g, `${siteUrl}/hp/book`);
+          .replace(/\^\[ExploreLink\]\$/g, exploreLink);
 
         const subject = isKbf
           ? `Kids Bowl Free Confirmed - ${center.name}`
