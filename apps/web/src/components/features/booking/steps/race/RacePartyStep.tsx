@@ -208,6 +208,18 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
     setAddingExisting(false);
   }
 
+  // Multi-select from one OTP (a household sharing a phone/email). The first
+  // chosen account claims billing/main + contact ONLY on a fresh lookup; in the
+  // "Add existing racer" flow a main already exists, so all go in as extras.
+  function handleMultipleVerified(people: PersonData[]) {
+    if (people.length === 0) return;
+    const claimFirst = !verifiedPerson && !session.party.some((m) => m.bmiPersonId);
+    people.forEach((person, i) => {
+      if (i === 0 && claimFirst) handlePersonVerified(person);
+      else handleAddExistingVerified(person);
+    });
+  }
+
   async function fetchLinkedPersons(personId: string) {
     setLinkedLoading(true);
     try {
@@ -330,6 +342,7 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
         </div>
         <ReturningRacerLookup
           onVerified={handlePersonVerified}
+          onVerifiedMultiple={handleMultipleVerified}
           onSwitchToNew={() => {
             clarityTag("returning_racer", "false");
             clarityEvent("racer:new");
@@ -413,6 +426,7 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
         </div>
         <ReturningRacerLookup
           onVerified={handleAddExistingVerified}
+          onVerifiedMultiple={handleMultipleVerified}
           onSwitchToNew={() => {
             setAddingExisting(false);
             addNewMember();
