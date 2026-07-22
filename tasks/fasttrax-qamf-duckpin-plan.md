@@ -126,8 +126,34 @@ Apply the shoe-removal matrix. **Verify:** kiosk duckpin advances with names onl
 ### PR 5 — FastTrax branding on confirmation + notifications
 `bowling-confirmation` route: FastTrax `CENTER_META`, brand-aware sender ("FastTrax Entertainment"), `siteUrl`/links → fasttraxent.com, FT SMS from-number. New FT confirmation route/`confirmBase`; short link → `fasttraxent.com/s/`. `BowlingConfirmation.tsx` FastTrax brand path. **Fix `cancellation/notify.ts` `brandFor()`/`rebookUrl()`** to resolve FastTrax from center/product, not just `productKind==='race'` (else a duckpin cancel is mis-branded HeadPinz). New shared top-level route → pair with `SHARED_TOP_LEVEL_ROUTES`/`isSharedTopLevelRoute` (project hard rule) — though a `/book/*` FT-only route likely needs none; confirm.
 
-### PR 6 — Cutover & retire BMI duckpin
-After ops smoke: flip flag on; redirect BMI `duck-pin` → QAMF flow; then remove BMI wiring (`attractions-data.ts` 161-196 + PRODUCT_ATTRACTION_MAP 483-484, `activities-catalog.ts` attraction entry). One product, one booking system.
+### PR 6 — Cutover & retire BMI duckpin (post-sign-off runbook — no code yet)
+Intentionally NOT coded now (cutover safety pattern). With the flag OFF, `duck-pin`
+stays the live BMI attraction. Runbook once the QAMF path is verified:
+1. Fill the seed (PR 0 prices/variation ids) → run `seed-fasttrax-duckpin.ts` → flip its rows `is_active=TRUE`.
+2. Flip `NEXT_PUBLIC_FASTTRAX_QAMF_DUCKPIN="true"` on a Vercel PREVIEW; smoke web + kiosk end-to-end (hold → reserve → deposit → confirmation → cancel). Also smoke `?bowlingV3=1` (one-time layout) once.
+3. Ops sign-off → flip the flag in production. The entry conversion (PR 3) routes `duck-pin` to QAMF automatically; the BMI attraction path is bypassed (no double-listing).
+4. THEN a cleanup PR removes the BMI wiring: `attractions-data.ts` duck-pin (161-196) + PRODUCT_ATTRACTION_MAP (483-484) and the `activities-catalog.ts` duck-pin attraction entry.
+
+---
+
+## Implementation status (branch `feat/qamf-fasttrax-duckpin`)
+
+| PR | Status | Commit |
+|---|---|---|
+| PR 1 — center plumbing | ✅ done, tsc clean | `ce074856` |
+| PR 2 — seed scaffold | ✅ scaffold (blocked on prices) | `78de66d0` |
+| PR 3 — item model + entry + tier-skip | ✅ done, tsc clean | `6745f356` |
+| PR 4 — no shoes | ✅ done, tsc clean | `dfe90178` |
+| PR 5 — branding + shoe-free confirmations | ✅ done, tsc clean | `da3c2f19` |
+| PR 6 — cutover | ⏸ post-sign-off runbook (no code) | — |
+
+**Everything is flag-gated OFF** (`NEXT_PUBLIC_FASTTRAX_QAMF_DUCKPIN`), so production is byte-identical to today until the flag flips.
+
+**Remaining before launch (owner/ops):**
+1. **Prices** (30/60/90 in cents) + **3 Square variation ids** → unblocks the PR 2 seed.
+2. **FastTrax-branded confirmation DISPLAY page** — `components/bowling/BowlingConfirmation.tsx` is HeadPinz nav/palette/`/hp` links; a FastTrax brand path + a FastTrax confirmation route + `confirmBase`/short-link domain need an owner design + domain decision (deferred, not coded).
+3. **Smoke test** on a preview with the flag on (can't run here — no app + seed not runnable without prices).
+4. Confirm the QAMF **1.2 (per-player DELETE) / 1.3 (lanes PATCH)** mutation endpoints on 11542 before relying on edit/reschedule (center-live probe validated reads only).
 
 ---
 
