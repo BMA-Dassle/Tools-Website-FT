@@ -8,12 +8,14 @@
  *   - Fetches TODAY's availability for every single-race product on the
  *     schedule's track(s) — same query keys as the booking grids, so React
  *     Query dedupes against an in-flight wizard on the same device.
- *   - STARTER heats display as bookable, filtered through the SAME restriction
- *     engine the wizard enforces (evaluateRaceRestrictions, kiosk
- *     presentation, walk-up context: not express-eligible, party of 1).
- *   - INTERMEDIATE / PRO heats always display greyed — "Returning drivers
- *     only" (owner: "assume inter and pro is returning following those
- *     rules... show them just greyed out as non-bookable").
+ *   - Every tier renders the same (owner 2026-07-21: Inter/Pro must NOT read
+ *     "returning only" — they look just like Starter). A heat greys out only
+ *     when the BOOKING RULES say it isn't bookable right now: starting too
+ *     soon (kiosk lead-time floors), full, or restriction-engine blocked.
+ *   - Rule context per tier: Starter assumes a NEW racer (15-min lead, not
+ *     express-eligible); Intermediate/Pro assume a RETURNING qualified racer
+ *     (10-min lead, express-eligible) — "assume inter and pro is returning
+ *     following those rules".
  *
  * Read-only: no holds, no session writes — display truth only. The booking
  * wizard remains the sole authority for actual bookability at purchase time.
@@ -37,11 +39,11 @@ import {
 export type DisplayTrack = "Red" | "Blue" | "Mega";
 
 export type HeatDisplayStatus =
-  | "open" // Starter, bookable now
-  | "low" // Starter, ≤30% spots left
+  | "open" // bookable now
+  | "low" // bookable, ≤30% spots left
   | "full" // no spots left
-  | "restricted" // Starter, blocked by a restriction rule (greyed w/ label)
-  | "returning-only"; // Intermediate / Pro — never bookable at the kiosk walk-up
+  | "restricted" // blocked by a restriction rule (greyed w/ the rule's label)
+  | "too-soon"; // starts inside the kiosk lead-time floor (greyed)
 
 export interface DisplayHeat {
   key: string;
@@ -60,10 +62,13 @@ export interface DisplayHeat {
   statusLabel?: string;
 }
 
-// Match the kiosk booking grid's lead-time floor for returning racers — a heat
-// starting sooner than this can't be reached through the wizard, so the info
-// grid shouldn't advertise it (RaceHeatPickerStep KIOSK_RETURNING_LEAD_MINUTES).
-const LEAD_MINUTES = 10;
+// The kiosk booking grid's lead-time floors (RaceHeatPickerStep
+// KIOSK_NEW_RACER_LEAD_MINUTES / KIOSK_RETURNING_LEAD_MINUTES). Heats inside
+// the floor GREY OUT here rather than disappear (owner 2026-07-21: "greying
+// out starter thats in 10 minutes following our booking rules") — Starter
+// assumes a new racer (15), Inter/Pro assume returning (10).
+const NEW_RACER_LEAD_MINUTES = 15;
+const RETURNING_LEAD_MINUTES = 10;
 
 function parseLocalMs(iso: string): number {
   return new Date(iso.replace(/Z$/, "")).getTime();
@@ -139,7 +144,6 @@ export function useRaceGridDisplay(center: string): {
 
   const heats = useMemo<DisplayHeat[]>(() => {
     const nowMs = Date.now();
-    const minStartMs = nowMs + LEAD_MINUTES * 60_000;
 
     // Per-product raw blocks, indexed alongside `fetches`.
     const perProduct: RestrictionBlock[][] = queries.map((q) => {
@@ -175,11 +179,13 @@ export function useRaceGridDisplay(center: string): {
     const out: DisplayHeat[] = [];
     fetches.forEach((src, i) => {
       const q = queries[i];
+      const leadMinutes = src.tier === "starter" ? NEW_RACER_LEAD_MINUTES : RETURNING_LEAD_MINUTES;
+      const leadCutoffMs = nowMs + leadMinutes * 60_000;
       for (const p of q.data?.proposals ?? []) {
         const b = p.blocks?.[0]?.block;
         if (!b) continue;
         const startMs = parseLocalMs(b.start);
-        if (startMs < minStartMs) continue; // past / unreachable lead window
+        if (startMs < nowMs) continue; // already started — off the board
 
         const base = {
           key: `${src.track}:${src.tier}:${src.category}:${b.start}`,
@@ -193,24 +199,14 @@ export function useRaceGridDisplay(center: string): {
           capacity: b.capacity,
         };
 
-        // Inter/Pro: always greyed for the walk-up view.
-        if (src.tier !== "starter") {
-          out.push({
-            ...base,
-            status: "returning-only",
-            statusLabel: b.freeSpots === 0 ? "Full" : "Returning drivers only",
-          });
-          continue;
-        }
-
         if (b.freeSpots === 0) {
           out.push({ ...base, status: "full", statusLabel: "Full" });
           continue;
         }
 
-        // Starter: run the real rule engine with walk-up context. A brand-new
-        // party is never express-eligible, so opening-window heats grey out
-        // with the rule's own label — matching what the wizard would enforce.
+        // The real rule engine, per-tier context: Starter = new racer (never
+        // express-eligible, so opening-window heats grey with the rule's own
+        // label); Inter/Pro = returning qualified racer with a valid waiver.
         const verdict = evaluateRaceRestrictions({
           tier: src.tier,
           category: src.category,
@@ -221,7 +217,7 @@ export function useRaceGridDisplay(center: string): {
           productBlocks: perProduct[i],
           categoryTrackBlocks: categoryByTrack.get(`${src.track}:${src.category}`),
           trackAllTierBlocks: allByTrack.get(src.track),
-          expressEligible: false,
+          expressEligible: src.tier !== "starter",
           kiosk: true,
         });
         if (verdict.blocked) {
@@ -231,6 +227,12 @@ export function useRaceGridDisplay(center: string): {
             status: "restricted",
             statusLabel: verdict.cardLabel ?? "Unavailable",
           });
+          continue;
+        }
+
+        // Inside the kiosk lead-time floor → greyed, not hidden.
+        if (startMs < leadCutoffMs) {
+          out.push({ ...base, status: "too-soon", statusLabel: "Starting soon" });
           continue;
         }
 
