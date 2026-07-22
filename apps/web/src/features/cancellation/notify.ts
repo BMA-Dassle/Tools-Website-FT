@@ -18,6 +18,7 @@ import { join } from "path";
 import { markCancelNotified, type BowlingReservation } from "@/lib/bowling-db";
 import { eventStartEt, formatGan, legLabel } from "./guards";
 import type { CancelOutcome } from "./types";
+import { FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
 
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
@@ -34,7 +35,12 @@ interface BrandMeta {
 
 function brandFor(r: BowlingReservation): BrandMeta {
   const isNaples = r.centerCode === "naples" || r.centerCode === "PPTR5G2N0QXF7";
-  if (r.productKind === "race") {
+  // FastTrax duckpin (QAMF bowling): a bowling ('open') row at the FastTrax
+  // Square location. Brand it FastTrax like racing — NOT HeadPinz.
+  if (
+    r.productKind === "race" ||
+    (r.centerCode === FASTTRAX_CENTER_CODE && r.productKind === "open")
+  ) {
     return {
       brand: "FastTrax",
       fromName: "FastTrax Entertainment",
@@ -65,6 +71,10 @@ function brandFor(r: BowlingReservation): BrandMeta {
 export function rebookUrl(legs: BowlingReservation[]): string {
   const kinds = new Set(legs.map((l) => l.productKind));
   if (kinds.has("race")) return "https://fasttraxent.com/book";
+  // FastTrax duckpin (bowling at the FastTrax location) rebooks on fasttraxent.com.
+  if (legs.some((l) => l.centerCode === FASTTRAX_CENTER_CODE && l.productKind === "open")) {
+    return "https://fasttraxent.com/book/duck-pin";
+  }
   if (kinds.has("attraction")) {
     const md = legs.find((l) => l.productKind === "attraction")?.bookingMetadata as
       | { attractions?: Array<{ slug?: unknown }> }

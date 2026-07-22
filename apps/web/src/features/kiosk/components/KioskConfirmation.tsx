@@ -476,7 +476,9 @@ export function KioskConfirmation({ src }: { src: string | null }) {
                 {laneLabel ? `${laneLabel} is open` : "Your lane is open"}
               </div>
               <p className="mt-[12px] text-[32px] leading-snug">
-                Head on over — your shoes will be delivered right to your lane.
+                {config?.brand === "fasttrax"
+                  ? "Head on over — your lane is ready."
+                  : "Head on over — your shoes will be delivered right to your lane."}
               </p>
             </>
           )}

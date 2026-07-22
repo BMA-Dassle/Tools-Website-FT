@@ -3,6 +3,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import redis from "@/lib/redis";
 import { getBowlingReservation, type BowlingReservation } from "@/lib/bowling-db";
+import { FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -12,6 +13,19 @@ const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
 const VOX_FROM_HEADPINZ = "+12393022155";
 const VOX_FROM_NAPLES = "+12394553755";
+// TODO(owner): dedicated FastTrax check-in line. Interim: FM building number.
+const VOX_FROM_FASTTRAX = "+12393022155";
+
+/** HeadPinz-blue "Before You Arrive" shoe-rental step (empty for FastTrax). */
+const SHOE_RENTAL_EMAIL_SECTION = `<tr>
+  <td style="padding: 8px 0; border-bottom: 1px solid #eeeeee">
+    <strong style="color: #004aad; font-size: 16px">2.</strong>
+    <strong style="color: #1a1a1a; font-size: 13px">Shoe Rentals</strong>
+    <p style="margin: 2px 0 0 22px; font-size: 12px; color: #666; line-height: 1.4;">
+      Bowling shoes are available at the front counter. If you added shoes to your reservation, they're already included.
+    </p>
+  </td>
+</tr>`;
 
 // ── Center metadata ─────────────────────────────────────────────────────────
 
@@ -32,6 +46,13 @@ const CENTER_META: Record<
     phone: "(239) 455-3755",
     smsFrom: VOX_FROM_NAPLES,
     location: "naples",
+  },
+  [FASTTRAX_CENTER_CODE]: {
+    name: "FastTrax Fort Myers",
+    address: "14513 Global Parkway, Fort Myers, FL 33913",
+    phone: "(239) 275-2226",
+    smsFrom: VOX_FROM_FASTTRAX,
+    location: "fortmyers",
   },
 };
 
@@ -81,7 +102,12 @@ function formatDate(iso: string): { dateFull: string; timeFull: string; dateComp
   return { dateFull, timeFull, dateCompact };
 }
 
-async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+async function sendEmail(
+  to: string,
+  subject: string,
+  html: string,
+  fromName = "HeadPinz Entertainment",
+): Promise<boolean> {
   if (!SENDGRID_API_KEY) {
     console.error("[bowling-confirmation] No SENDGRID_API_KEY");
     return false;
@@ -94,7 +120,7 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
     },
     body: JSON.stringify({
       personalizations: [{ to: [{ email: to }], bcc: [{ email: "vendorcases@dassle.us" }] }],
-      from: { email: FROM_EMAIL, name: "HeadPinz Entertainment" },
+      from: { email: FROM_EMAIL, name: fromName },
       subject,
       content: [{ type: "text/html", value: html }],
     }),
@@ -237,6 +263,8 @@ export async function POST(req: NextRequest) {
       lines: { label: string; quantity: number; unitPriceCents: number }[];
     };
     const center = CENTER_META[r.centerCode] ?? CENTER_META.TXBSQN0FEKQ11;
+    const isFastTrax = r.centerCode === FASTTRAX_CENTER_CODE;
+    const brandFromName = isFastTrax ? "FastTrax Entertainment" : "HeadPinz Entertainment";
     const { dateFull, timeFull, dateCompact } = formatDate(r.bookedAt);
 
     const results: { email: boolean; sms: boolean | null } = {
@@ -290,7 +318,9 @@ export async function POST(req: NextRequest) {
           .replace(/\^\[CenterPhone\]\$/g, center.phone)
           .replace(/\^\[BookingDate\]\$/g, dateFull)
           .replace(/\^\[BookingTime\]\$/g, timeFull)
-          .replace(/\^\[PlayerCount\]\$/g, String(r.playerCount ?? 1));
+          .replace(/\^\[PlayerCount\]\$/g, String(r.playerCount ?? 1))
+          // FastTrax duckpin has no shoes — blank the "Shoe Rentals" step.
+          .replace(/\^\[ShoeRentalSection\]\$/g, isFastTrax ? "" : SHOE_RENTAL_EMAIL_SECTION);
 
         // Payment section — only show if there's a deposit
         if (r.depositCents > 0) {
@@ -344,7 +374,7 @@ export async function POST(req: NextRequest) {
           ? `Kids Bowl Free Confirmed - ${center.name}`
           : `Bowling Confirmed - ${center.name}`;
 
-        results.email = await sendEmail(emailTo!, subject, html);
+        results.email = await sendEmail(emailTo!, subject, html, brandFromName);
       } catch (err) {
         console.error("[bowling-confirmation] email failed:", err);
       }
@@ -360,9 +390,10 @@ export async function POST(req: NextRequest) {
 
           // Single-segment GSM-7 budget — compact message, details on
           // the confirmation page.
+          const smsBrand = isFastTrax ? "FastTrax" : "HeadPinz";
           const smsBody = confirmLink
-            ? `HeadPinz: Bowling #${ref} for ${dateTime} at ${center.name}. View: ${confirmLink}`
-            : `HeadPinz: Bowling #${ref} for ${dateTime} at ${center.name}.`;
+            ? `${smsBrand}: Bowling #${ref} for ${dateTime} at ${center.name}. View: ${confirmLink}`
+            : `${smsBrand}: Bowling #${ref} for ${dateTime} at ${center.name}.`;
 
           results.sms = await sendSms(normalized, smsBody, center.smsFrom);
         }
