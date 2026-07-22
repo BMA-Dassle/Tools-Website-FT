@@ -40,7 +40,7 @@ import {
   worldCupWindowActive,
 } from "~/features/world-cup";
 import { qamfCenterIdForCode } from "~/features/booking/types";
-import { fasttraxQamfDuckpinActive } from "~/features/booking/flags";
+import { fasttraxQamfDuckpinActive, playNowActive } from "~/features/booking/flags";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
 
 export interface BookingFlowProps {
@@ -224,6 +224,13 @@ export function BookingFlow({
     if (initialContext?.center && !session.center) {
       dispatch({ type: "setCenter", center: initialContext.center });
     }
+    // Play Now (per-lane QR) is always the FastTrax Fort Myers complex — seed
+    // the center so the HeadPinz location picker never appears and the guest
+    // lands straight on "Who's bowling?". The duckpin item still resolves to
+    // QAMF 11542 via its isDuckpin marker (reducer), not from this CenterCode.
+    if (initialContext?.playNow && !session.center) {
+      dispatch({ type: "setCenter", center: "fort-myers" });
+    }
     // World Cup entry (?experience=world-cup): seed the bowling item in
     // match-picker mode — VIP tier pinned, hourly per-lane pricing;
     // WorldCupMatchStep replaces the Slots/Tier/Offer steps. Gated on the
@@ -258,6 +265,16 @@ export function BookingFlow({
         const b = created as Extract<SessionItem, { kind: "bowling" }>;
         b.variant = "hourly";
         b.isDuckpin = true;
+      }
+      // "Play Now" per-lane QR (?playNow=1&lane=N): pin the scanned lane and run
+      // the compressed immediate-time flow. Entry arrives via the duck-pin slug,
+      // so the branch above already set variant "hourly" + isDuckpin; here we bind
+      // the physical lane so the hold targets it. Inert until a later PR reads it.
+      if (created.kind === "bowling" && playNowActive(session)) {
+        const b = created as Extract<SessionItem, { kind: "bowling" }>;
+        b.variant = "hourly";
+        b.isDuckpin = true;
+        if (session.context?.pinnedLane != null) b.pinnedLaneNumber = session.context.pinnedLane;
       }
       return created;
     };

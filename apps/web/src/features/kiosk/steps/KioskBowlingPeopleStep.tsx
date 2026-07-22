@@ -26,28 +26,17 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { BowlingItem, PartyMember, StepDef } from "~/features/booking";
 import { formatPersonName, normalizeEmail } from "~/lib/helpers/name-format";
+import {
+  type BowlPlayer,
+  fullNameOf,
+  playersOf,
+  rowOf,
+  splitName,
+  whosBowlingCanAdvance,
+} from "~/features/booking/service/whos-bowling";
 
 type BowlItem = BowlingItem;
-type Player = { name: string; shoeSize: string | null; bumpers: boolean | null; memberId?: string };
-
-function playersOf(item: BowlItem): Player[] {
-  const p = item.players ?? [];
-  return p.length > 0 ? p : [{ name: "", shoeSize: null, bumpers: null }];
-}
-
-function splitName(full: string): { firstName: string; lastName: string } {
-  const parts = full.trim().split(/\s+/).filter(Boolean);
-  return { firstName: parts[0] ?? "", lastName: parts.slice(1).join(" ") };
-}
-
-function fullNameOf(m: PartyMember): string {
-  return `${m.firstName} ${m.lastName ?? ""}`.trim();
-}
-
-/** A party member's bowling row — name mirrors the roster, details come later. */
-function rowOf(m: PartyMember): Player {
-  return { name: fullNameOf(m), shoeSize: null, bumpers: null, memberId: m.id };
-}
+type Player = BowlPlayer;
 
 const inputCls =
   "min-w-0 flex-1 rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[18px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none";
@@ -502,27 +491,5 @@ export const KioskBowlingPeopleStep: StepDef<BowlItem> = {
   title: "Who's bowling?",
   Component: KioskBowlingPeopleStepComponent,
   isVisible: () => true,
-  canAdvance: (item, session) => {
-    const players = item.players ?? [];
-    if (players.length === 0) {
-      return {
-        reason:
-          session.party.length > 0
-            ? "Tap at least one bowler — or add a bowler."
-            : "Add a first name for every bowler.",
-      };
-    }
-    if (players.some((p) => !splitName(p.name).firstName)) {
-      return { reason: "Add a first name for every bowler." };
-    }
-    const c = session.contact;
-    if (!c.firstName?.trim() || !c.lastName?.trim()) {
-      return { reason: "The main person needs a first and last name." };
-    }
-    if (!c.email?.includes("@")) return { reason: "The main person needs an email." };
-    if ((c.phone ?? "").replace(/\D/g, "").length < 10) {
-      return { reason: "The main person needs a mobile number." };
-    }
-    return true;
-  },
+  canAdvance: (item, session) => whosBowlingCanAdvance(item, session),
 };

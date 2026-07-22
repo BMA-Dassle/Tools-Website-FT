@@ -76,6 +76,16 @@ export function parseEntryContextFromSearchParams(sp: RawSearchParams): EntryCon
   // FastTrax QAMF duckpin preview opt-in (dark-flag testing). Exact value only.
   if (first(sp.ftDuckpin) === "1") out.ftDuckpin = true;
 
+  // "Play Now" per-lane QR entry (`?playNow=1&lane=N`). Exact value for the flag;
+  // the lane must be a positive integer (validated against real center lanes
+  // downstream). parseInt on a small lane number is safe (never a BMI id).
+  if (first(sp.playNow) === "1") out.playNow = true;
+  const laneRaw = first(sp.lane);
+  if (laneRaw) {
+    const lane = Number.parseInt(laneRaw, 10);
+    if (Number.isInteger(lane) && lane > 0) out.pinnedLane = lane;
+  }
+
   const firstName = first(sp.firstName);
   const lastName = first(sp.lastName);
   const email = first(sp.email);

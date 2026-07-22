@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBowlingReservation, updateBowlingCheckinMethod } from "@/lib/bowling-db";
 import { getReservation, listLanes, setReservationStatus, setLaneStatus } from "@/lib/qamf-bowling";
-import { CENTER_CODE_TO_QAMF_ID } from "@/lib/qamf-centers";
+import { CENTER_CODE_TO_QAMF_ID, isFastTraxDuckpinCenter } from "@/lib/qamf-centers";
+import { processLaneOpen } from "@/lib/bowling-lane-open";
 
 /**
  * Check-in API for bowling reservations.
@@ -202,6 +203,27 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   console.log(
     `[checkin] neonId=${neonId} qamfId=${qamfId}: Arrived + ${lanesOpened}/${lanes.length} lanes opened → ${laneLabel} (self-checkin)`,
   );
+
+  // FastTrax duckpin (Play Now / bowl-now): settle the 100%-prepaid day-of
+  // order right now (gift-card apply + KDS) instead of waiting on the QAMF
+  // webhook/cron. processLaneOpen is idempotent (guards on dayof_order_sent_at)
+  // so racing the webhook can't double-settle; FastTrax-gated so HeadPinz
+  // self-checkin stays byte-identical (it keeps settling via webhook/cron).
+  if (isFastTraxDuckpinCenter(centerId) && lanesOpened > 0) {
+    try {
+      await processLaneOpen({
+        reservation,
+        laneNumbers,
+        idempotencyBase: `lane-open-${neonId}`,
+        source: "webhook",
+      });
+    } catch (e) {
+      console.warn(
+        `[checkin] inline processLaneOpen neonId=${neonId} failed (webhook/cron will retry):`,
+        e instanceof Error ? e.message : e,
+      );
+    }
+  }
 
   return NextResponse.json({ ok: true, lanesOpened, laneLabel });
 }

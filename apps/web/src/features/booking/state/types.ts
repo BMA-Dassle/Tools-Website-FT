@@ -482,6 +482,15 @@ export interface BowlingItem extends BookingItemBase, BowlingCommon {
    * sessions persisted before this field hydrate undefined → falsy (HeadPinz).
    */
   isDuckpin?: boolean;
+  /**
+   * "Play Now" per-lane QR: the specific physical duckpin lane this booking is
+   * pinned to (from EntryContext.pinnedLane). When set, the hold targets THIS
+   * lane (QAMF createReservation Lanes:[{LaneNumber}]) instead of auto-assign,
+   * the wizard hides date/time selection, and the lane opens immediately on
+   * confirmation. Optional so sessions persisted before this field hydrate
+   * undefined → falsy (normal auto-assign). See flags.ts playNowActive.
+   */
+  pinnedLaneNumber?: number;
 }
 
 export interface KbfItem extends BookingItemBase, BowlingCommon {

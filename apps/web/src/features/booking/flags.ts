@@ -43,3 +43,23 @@ export function fasttraxQamfDuckpinEnabled(): boolean {
 export function fasttraxQamfDuckpinActive(session: Pick<BookingSession, "context">): boolean {
   return fasttraxQamfDuckpinEnabled() || session.context?.ftDuckpin === true;
 }
+
+/**
+ * "Bowl Now" / "Play Now" per-lane QR flow (FastTrax duckpin, center 11542).
+ * ON by default — the ONLY way in is scanning a physical per-lane QR
+ * (`?playNow=1&lane=N`); there is no discoverable public route, so there is no
+ * exposure risk in leaving it enabled while it bakes. KILL SWITCH: set
+ * `NEXT_PUBLIC_FASTTRAX_PLAY_NOW="false"` in Vercel to disable instantly.
+ */
+export function fasttraxPlayNowEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_FASTTRAX_PLAY_NOW !== "false";
+}
+
+/**
+ * Is "Play Now" active for THIS session? Unlike the flow flags above, Play Now
+ * is NEVER globally on — it activates only for a session that entered via a
+ * per-lane QR (`context.playNow`); the env flag is purely a kill switch.
+ */
+export function playNowActive(session: Pick<BookingSession, "context">): boolean {
+  return session.context?.playNow === true && fasttraxPlayNowEnabled();
+}

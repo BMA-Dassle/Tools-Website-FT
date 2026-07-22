@@ -45,6 +45,7 @@ import { LoyaltySection } from "./LoyaltySection";
 import { PromoCodeInput } from "./PromoCodeInput";
 import { contactIsComplete } from "../ContactStep";
 import { kioskTerminalEnabled, kioskGzCartEnabled } from "~/features/kiosk/flags";
+import { playNowActive } from "~/features/booking/flags";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { centerCodeFor } from "~/config/intercard-centers";
 import { qamfCenterCode, HEADPINZ_FM_CENTER_ID, HEADPINZ_FM_CENTER_CODE } from "@/lib/qamf-centers";
@@ -1391,14 +1392,21 @@ export function CheckoutStep({
           await saveBookingDetails(session, `bowl-${result.qamfReservationId}`, overview, contact);
           clearBookingSession(storageKey);
 
+          // Play Now (per-lane duckpin QR) lands on the FastTrax-branded
+          // confirmation with ?playNow=1 so it auto-opens the lane. Everything
+          // else keeps the existing HeadPinz confirmation route.
+          const playNow = playNowActive(session);
           const confirmBase =
             bowlingItem.kind === "kbf"
               ? "/hp/book/kids-bowl-free/confirmation"
-              : "/hp/book/bowling/confirmation";
+              : playNow
+                ? "/book/bowling-confirmation"
+                : "/hp/book/bowling/confirmation";
+          const playNowQ = playNow ? "&playNow=1" : "";
           go(
             result.shortCode
-              ? `${confirmBase}?code=${result.shortCode}&neonId=${result.neonId}`
-              : `${confirmBase}?neonId=${result.neonId}`,
+              ? `${confirmBase}?code=${result.shortCode}&neonId=${result.neonId}${playNowQ}`
+              : `${confirmBase}?neonId=${result.neonId}${playNowQ}`,
           );
         } else {
           // Mixed or BMI-only: unified reserve (one Square order for everything).

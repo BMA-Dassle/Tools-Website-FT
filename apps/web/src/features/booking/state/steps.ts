@@ -15,7 +15,7 @@
 import type { ComponentType, Dispatch } from "react";
 import type { Action } from "./machine";
 import type { BookingItem, BookingSession, SessionItem } from "./types";
-import { bowlingV3Active } from "../flags";
+import { bowlingV3Active, playNowActive } from "../flags";
 
 /**
  * Props a step component receives:
@@ -94,6 +94,8 @@ import BowlingExperienceStep from "~/components/features/booking/steps/bowling/B
 import BowlingTimeStep from "~/components/features/booking/steps/bowling/BowlingTimeStep";
 import BowlingShoesStep from "~/components/features/booking/steps/bowling/BowlingShoesStep";
 import BowlingFoodStep from "~/components/features/booking/steps/bowling/BowlingFoodStep";
+import WhosBowlingStep from "~/components/features/booking/steps/bowling/WhosBowlingStep";
+import BowlNowDurationStep from "~/components/features/booking/steps/bowling/BowlNowDurationStep";
 import WorldCupMatchStep from "~/components/features/booking/steps/bowling/WorldCupMatchStep";
 import KbfIdentityStep from "~/components/features/booking/steps/bowling/KbfIdentityStep";
 import KbfBowlersStep from "~/components/features/booking/steps/bowling/KbfBowlersStep";
@@ -171,6 +173,28 @@ export function classicOnly(step: StepDef): StepDef {
 }
 
 /**
+ * "Play Now" per-lane QR flow (FastTrax duckpin). The guest scanned a specific
+ * lane's QR, so the resource + immediate time are pre-seeded: every date/time
+ * selection step is hidden and the flow leads with the "Who's bowling?" step.
+ * `hiddenForPlayNow` hides a step in Play Now; `playNowOnly` shows one ONLY in
+ * Play Now. Both compose isVisible, so Back skips them too (like the flow
+ * wrappers above). Generalizes to other attractions later — an attraction Play
+ * Now would hide its date/slot steps the same way + add its own people step.
+ */
+export function hiddenForPlayNow(step: StepDef): StepDef {
+  return {
+    ...step,
+    isVisible: (item, session) => !playNowActive(session) && step.isVisible(item, session),
+  };
+}
+export function playNowOnly(step: StepDef): StepDef {
+  return {
+    ...step,
+    isVisible: (item, session) => playNowActive(session) && step.isVisible(item, session),
+  };
+}
+
+/**
  * Default per-kind step lists. Real race components live in
  * `components/features/booking/steps/race/`; non-race kinds use
  * placeholders until their PR ships (PR-B3 attractions, PR-B5 bowling,
@@ -214,31 +238,38 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     AttractionSlotStep as StepDef,
   ],
   bowling: [
+    // Play Now (per-lane QR): the responsive "Who's bowling?" step leads the
+    // compressed flow, then a compact "How long?" duration pick. Only visible
+    // when playNowActive — every date/time step below is hiddenForPlayNow (the
+    // lane + immediate time come from the QR).
+    playNowOnly(WhosBowlingStep as StepDef),
+    playNowOnly(BowlNowDurationStep as StepDef),
     // Contact first so we always capture base customer info. (Bowling/KBF are
     // QAMF-vendored — no BMI bill — but the confirmation/notifications need it.)
     // The whole list is combo-hidden: a combo's bowling item is configured
     // programmatically by the combo steps (the cart hides its Edit too).
-    hiddenInCombo(ContactStep),
-    hiddenInCombo(BowlingPlayersStep as StepDef),
+    // In Play Now the "Who's bowling?" step captures contact, so this is hidden.
+    hiddenForPlayNow(hiddenInCombo(ContactStep)),
+    hiddenForPlayNow(hiddenInCombo(BowlingPlayersStep as StepDef)),
     // World Cup mode: the match picker replaces Slots/Tier/Offer (it holds
     // the lane at the fixture kickoff itself); its own isVisible gates on
     // item.isWorldCup so plain bowling items never see it.
     hiddenInCombo(WorldCupMatchStep as StepDef),
     // Classic flow (flag OFF): date+hour → tier → package+time-confirm.
-    hiddenInCombo(hiddenForWorldCup(classicOnly(BowlingSlotsStep as StepDef))),
+    hiddenForPlayNow(hiddenInCombo(hiddenForWorldCup(classicOnly(BowlingSlotsStep as StepDef)))),
     // Duckpin has a single non-VIP offer — skip the Tier (Regular/VIP) step.
     hiddenInCombo(hiddenForWorldCup(hiddenForDuckpin(classicOnly(BowlingTierStep as StepDef)))),
-    hiddenInCombo(hiddenForWorldCup(classicOnly(BowlingOfferStep as StepDef))),
+    hiddenForPlayNow(hiddenInCombo(hiddenForWorldCup(classicOnly(BowlingOfferStep as StepDef)))),
     // v3 single-time-pick flow (flag ON): date → experience → time+hold.
-    hiddenInCombo(hiddenForWorldCup(v3Only(BowlingDateStep as StepDef))),
-    hiddenInCombo(hiddenForWorldCup(v3Only(BowlingExperienceStep as StepDef))),
-    hiddenInCombo(hiddenForWorldCup(v3Only(BowlingTimeStep as StepDef))),
+    hiddenForPlayNow(hiddenInCombo(hiddenForWorldCup(v3Only(BowlingDateStep as StepDef)))),
+    hiddenForPlayNow(hiddenInCombo(hiddenForWorldCup(v3Only(BowlingExperienceStep as StepDef)))),
+    hiddenForPlayNow(hiddenInCombo(hiddenForWorldCup(v3Only(BowlingTimeStep as StepDef)))),
     // FastTrax duckpin has no shoes — skip the shoe-rental step (kiosk clones
     // this list, so this hides it on both web and kiosk).
     hiddenInCombo(hiddenForDuckpin(BowlingShoesStep as StepDef)),
     // Attractions step removed — user returns to activity picker and
-    // adds attractions as separate cart items.
-    hiddenInCombo(BowlingFoodStep as StepDef),
+    // adds attractions as separate cart items. Hidden in Play Now (bowl now = fast).
+    hiddenForPlayNow(hiddenInCombo(BowlingFoodStep as StepDef)),
   ],
   kbf: [
     KbfIdentityStep as StepDef,

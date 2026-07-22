@@ -87,6 +87,20 @@ export interface EntryContext {
    * is dark. See src/features/booking/flags.ts.
    */
   ftDuckpin?: true;
+  /**
+   * "Play Now" per-lane QR entry (`?playNow=1`) — a guest scanned the QR on a
+   * specific duckpin lane. Compresses the wizard to immediate time (date/time
+   * steps hidden), holds the pinned lane on entry, and auto-opens the lane on
+   * the confirmation screen. Designed to generalize to other attractions later.
+   * See src/features/booking/flags.ts (playNowActive) and BookingFlow's seed.
+   */
+  playNow?: true;
+  /**
+   * The physical resource (duckpin lane number) the scanned QR is attached to,
+   * from `?lane=N`. Seeds BowlingItem.pinnedLaneNumber so the hold pins THIS
+   * lane instead of letting QAMF auto-assign. Only meaningful with `playNow`.
+   */
+  pinnedLane?: number;
 }
 
 /** Convenience: an empty context. Used when the entry URL carried nothing. */

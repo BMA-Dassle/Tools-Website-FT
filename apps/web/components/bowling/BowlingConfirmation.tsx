@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import BrandNav from "@/components/BrandNav";
@@ -706,6 +706,9 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   const codeParam = sp.get("code") ?? "";
   const legacyNeonIdStr = sp.get("neonId") ?? "0";
   const autoOpenNames = sp.get("names") === "1";
+  // Play Now (per-lane QR): open the lane automatically the moment it's ready —
+  // no manual "check in" tap. See the auto-open effect below.
+  const autoOpenLane = sp.get("playNow") === "1";
 
   const legacyNeonId = parseInt(legacyNeonIdStr, 10);
 
@@ -832,6 +835,35 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoOpenNames, players.length]);
+
+  // ── Auto-open the lane on Play Now (?playNow=1) ───────────────────
+  // The per-lane QR is "bowl now": open the lane the instant the poll reports
+  // "ready" (an immediate booking satisfies the check-in gate) — no manual tap.
+  // Fires once; on failure the manual button below is the fallback. State
+  // transitions live in runAutoOpenLane, never synchronously in the effect.
+  const [autoOpeningLane, setAutoOpeningLane] = useState(false);
+  const autoOpenFired = useRef(false);
+  const runAutoOpenLane = useCallback(async () => {
+    setAutoOpeningLane(true);
+    try {
+      const res = await fetch(`/api/bowling/v2/reservations/${neonId}/checkin`, { method: "POST" });
+      if (res.ok) {
+        const data = (await res.json()) as { laneLabel?: string };
+        setLaneReadyPhase("running");
+        if (data.laneLabel) setLaneReadyLabel(data.laneLabel);
+      }
+    } catch {
+      /* fall back to the manual Check In button */
+    } finally {
+      setAutoOpeningLane(false);
+    }
+  }, [neonId]);
+  useEffect(() => {
+    if (!autoOpenLane || !hasNeonRecord || isCancelled) return;
+    if (laneReadyPhase !== "ready" || autoOpenFired.current) return;
+    autoOpenFired.current = true;
+    void runAutoOpenLane();
+  }, [autoOpenLane, hasNeonRecord, isCancelled, laneReadyPhase, runAutoOpenLane]);
 
   // Block self-serve cancellation within 1 hour of the reservation start.
   const isWithin1Hour = reservation
@@ -1183,7 +1215,23 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                   </div>
                 </div>
               )}
-              {laneReadyPhase === "ready" && (
+              {laneReadyPhase === "ready" && autoOpenLane && (
+                <div
+                  className="w-full py-4 rounded-2xl text-center font-body font-black uppercase tracking-wider text-white"
+                  style={{
+                    background: "linear-gradient(135deg, #22c55e 0%, #16a34a 100%)",
+                    fontSize: "15px",
+                    letterSpacing: "1.5px",
+                    boxShadow: "0 4px 24px rgba(34,197,94,0.4)",
+                  }}
+                >
+                  🎳{" "}
+                  {autoOpeningLane
+                    ? "Turning on your lane…"
+                    : "Your lane is ready — turning it on…"}
+                </div>
+              )}
+              {laneReadyPhase === "ready" && !autoOpenLane && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1214,9 +1262,11 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                   >
                     {laneReadyLabel ? `${laneReadyLabel} is open!` : "Your lane is open!"}
                   </p>
-                  <p className="text-white/60 text-sm">
-                    🥿 Shoes will be delivered directly to you.
-                  </p>
+                  {!autoOpenLane && (
+                    <p className="text-white/60 text-sm">
+                      🥿 Shoes will be delivered directly to you.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
