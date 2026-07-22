@@ -27,15 +27,16 @@ export function bowlingV3Active(session: Pick<BookingSession, "context">): boole
 }
 
 /**
- * FastTrax duckpin on QAMF (center 11542). DARK by default — while off, the
- * `duck-pin` offering stays the legacy BMI attraction and NOTHING routes to
- * QAMF/11542, so the flag-off state is byte-identical to today. Flip via
- * `NEXT_PUBLIC_FASTTRAX_QAMF_DUCKPIN="true"` in Vercel (or `?ftDuckpin=1` per
- * session for preview testing) once the catalog is seeded and ops signs off.
- * See tasks/fasttrax-qamf-duckpin-plan.md.
+ * FastTrax duckpin on QAMF (center 11542). LIVE by default (owner 2026-07-22) —
+ * `duck-pin` routes to QAMF bowling at 11542 (30/60/90 per lane, no shoes) and
+ * the legacy BMI attraction path is bypassed. This is a KILL SWITCH: set
+ * `NEXT_PUBLIC_FASTTRAX_QAMF_DUCKPIN="false"` in Vercel to instantly revert to
+ * the BMI duckpin attraction (no deploy needed). `?ftDuckpin=1` also forces it on
+ * per-session (harmless now that the default is on). See
+ * tasks/fasttrax-qamf-duckpin-plan.md.
  */
 export function fasttraxQamfDuckpinEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_FASTTRAX_QAMF_DUCKPIN === "true";
+  return process.env.NEXT_PUBLIC_FASTTRAX_QAMF_DUCKPIN !== "false";
 }
 
 /** Is FastTrax QAMF duckpin active for THIS session (env flag or preview param)? */
