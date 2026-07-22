@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useCallback, useState } from "react";
+import { useRef, useEffect, useState } from "react";
 
 /**
  * Reusable signature pad component — renders an HTML5 Canvas that captures
@@ -93,34 +93,34 @@ function SignaturePadInner({
   const drawingRef = useRef(false);
   const lastPosRef = useRef({ x: 0, y: 0 });
 
-  const initCanvas = useCallback(
-    (canvas: HTMLCanvasElement | null) => {
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      // Scale for high-DPI displays
-      const dpr = window.devicePixelRatio || 1;
-      const rect = canvas.getBoundingClientRect();
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      ctx.scale(dpr, dpr);
-      ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = strokeWidth;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-    },
-    [strokeColor, strokeWidth],
-  );
+  // Latest callbacks/styles live in refs so the canvas effect NEVER re-runs.
+  // Re-running it re-assigns canvas.width, which erases every pixel — with an
+  // inline onSign prop that meant the signature wiped itself on the first
+  // stroke (onSign → parent setState → new onSign identity → effect re-run).
+  const onSignRef = useRef(onSign);
+  const onClearRef = useRef(onClear);
+  const strokeStyleRef = useRef({ strokeColor, strokeWidth });
+  useEffect(() => {
+    onSignRef.current = onSign;
+    onClearRef.current = onClear;
+    strokeStyleRef.current = { strokeColor, strokeWidth };
+  });
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
-    initCanvas(canvas);
-
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
+    // Scale for high-DPI displays — once on mount only (assigning
+    // canvas.width clears the canvas, so this must never re-run mid-signing)
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
 
     function getPos(e: MouseEvent | Touch): { x: number; y: number } {
       const r = canvas!.getBoundingClientRect();
@@ -137,6 +137,8 @@ function SignaturePadInner({
       if (!drawingRef.current) return;
       e.preventDefault();
       const pos = getPos("touches" in e ? e.touches[0] : (e as MouseEvent));
+      ctx!.strokeStyle = strokeStyleRef.current.strokeColor;
+      ctx!.lineWidth = strokeStyleRef.current.strokeWidth;
       ctx!.beginPath();
       ctx!.moveTo(lastPosRef.current.x, lastPosRef.current.y);
       ctx!.lineTo(pos.x, pos.y);
@@ -146,7 +148,7 @@ function SignaturePadInner({
       if (!hasDrawnRef.current) {
         hasDrawnRef.current = true;
         setHasDrawn(true);
-        onSign?.();
+        onSignRef.current?.();
       }
     }
 
@@ -171,7 +173,8 @@ function SignaturePadInner({
       canvas.removeEventListener("touchmove", draw);
       canvas.removeEventListener("touchend", stopDraw);
     };
-  }, [initCanvas, onSign]);
+    // Mount-only by design — see comment above (re-running wipes the canvas).
+  }, []);
 
   // Expose imperative methods via padRef
   useEffect(() => {
@@ -186,11 +189,11 @@ function SignaturePadInner({
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         hasDrawnRef.current = false;
         setHasDrawn(false);
-        onClear?.();
+        onClearRef.current?.();
       },
       isEmpty: () => !hasDrawnRef.current,
     };
-  }, [padRef, onClear]);
+  }, [padRef]);
 
   return (
     <div className={className}>
