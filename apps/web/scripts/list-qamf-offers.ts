@@ -29,6 +29,7 @@ const API_VER = "2025-12-01.1.0";
 const CENTERS = [
   { id: 9172, label: "Fort Myers" },
   { id: 3148, label: "Naples" },
+  { id: 11542, label: "FastTrax" },
 ];
 
 async function mintToken(centerId: number): Promise<string> {
