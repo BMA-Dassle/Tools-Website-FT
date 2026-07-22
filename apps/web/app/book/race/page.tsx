@@ -1558,7 +1558,7 @@ export default function BookRacePage() {
       {/* Hero banner */}
       <div className="relative overflow-hidden pt-[140px] pb-6">
         <Image
-          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg"
+          src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-kiosk.webp"
           alt="FastTrax Racing"
           fill
           className="object-cover object-center"

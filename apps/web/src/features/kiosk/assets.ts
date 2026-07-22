@@ -13,8 +13,8 @@ export const KIOSK_LOGOS = {
 } as const;
 
 export const KIOSK_PHOTOS = {
-  race: `${BLOB}/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg`,
-  redTrack: `${BLOB}/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg`,
+  race: `${BLOB}/images/tracks/blue-track-kiosk.webp`,
+  redTrack: `${BLOB}/images/tracks/red-track-kiosk.webp`,
   bowl: `${BLOB}/images/headpinz/gallery-bowling.webp`,
   kbf: `${BLOB}/images/headpinz/birthday-girl-bowling.jpg`,
   gel: `${BLOB}/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg`,

@@ -182,7 +182,7 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
         label: "Go-Kart Racing",
         description: "High-speed electric karts on Red or Blue track",
         image:
-          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
+          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-kiosk.webp",
         maxPerGuest: 1,
         bmiTracks: [
           { track: "Red", productId: "47122743", pageId: "47123025" },
@@ -378,7 +378,7 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
         label: "Go-Kart Racing",
         description: "High-speed electric karts on Red or Blue track",
         image:
-          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
+          "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-kiosk.webp",
         maxPerGuest: 1,
         // Booking-v2 $0 build products (page 49504534), adult:starter, withLicense variant
         bmiTracks: [

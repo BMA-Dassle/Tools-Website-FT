@@ -807,7 +807,7 @@ export default function RacePacksPage() {
       {step === "select" ? (
         <div className="relative overflow-hidden">
           <Image
-            src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg"
+            src="https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-kiosk.webp"
             alt="FastTrax Racing"
             fill
             className="object-cover object-center"

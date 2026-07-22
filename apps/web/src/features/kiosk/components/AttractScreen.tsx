@@ -257,9 +257,12 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
         <div className="absolute inset-0 bg-gradient-to-t from-[#000418]/95 via-[#020a1e]/80 to-[#040a24]/70" />
         <NeonAdTitle title={ad.title} accent={ad.accent} />
         {/* Red standout line above the headline (Mega Tuesday junior rule) —
-            always red, independent of the slide accent. */}
+            always red, independent of the slide accent. bottom-[310px] clears
+            the headline, which renders TWO lines tall in practice (title top
+            ≈ 272px from the zone bottom) despite NeonAdTitle's nowrap intent —
+            228px overlapped it (owner screenshot 2026-07-21). */}
         {ad.notice && (
-          <div className="absolute bottom-[228px] left-1/2 -translate-x-1/2">
+          <div className="absolute bottom-[310px] left-1/2 -translate-x-1/2">
             <div className="whitespace-nowrap rounded-full border-2 border-[#e53935] bg-[rgba(0,4,24,0.82)] px-[30px] py-[12px] text-[30px] font-bold text-[#ff5a52] shadow-[0_0_28px_rgba(229,57,53,0.45)]">
               {ad.notice}
             </div>

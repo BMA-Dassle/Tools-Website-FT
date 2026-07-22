@@ -30,7 +30,7 @@ const TRACK_INFO: Record<
     stat: "1,095 ft",
     tagline: "Technical & clockwise — more turns, more strategy.",
     image:
-      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-1Fsl8rQ5rVIHi6hXkkvUraGEqr4WM2.jpg",
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/red-track-kiosk.webp",
     accent: "red",
   },
   Blue: {
@@ -38,7 +38,7 @@ const TRACK_INFO: Record<
     stat: "1,013 ft",
     tagline: "High-speed & counter-clockwise — long straights, quick finishes.",
     image:
-      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-kiosk.webp",
     accent: "blue",
   },
 };

@@ -1489,7 +1489,7 @@ export default function ConfirmationPage() {
   // (same source the attraction-select screen uses) so each card/detail
   // is photo-rich and clearly labeled.
   const BLUE_TRACK =
-    "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg";
+    "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-kiosk.webp";
   const ATTR_ADDR: Record<string, string> = {
     fasttrax: "14501 Global Parkway, Fort Myers",
     headpinz: "14513 Global Parkway, Fort Myers",

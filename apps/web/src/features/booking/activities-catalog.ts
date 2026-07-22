@@ -70,7 +70,7 @@ const CATALOG: ActivityOffering[] = [
     displayName: "High-Speed Electric Racing",
     blurb: "Florida's largest indoor go-kart racing on 3 unique tracks.",
     heroImage:
-      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-kiosk.webp",
     accentColor: "#E41C1D",
     durationLabel: "Single races & packs",
   },

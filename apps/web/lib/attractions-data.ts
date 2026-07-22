@@ -294,7 +294,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     maxGroupSize: 10,
     showWaiverPrompt: true,
     heroImage:
-      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-iYCkFVDkIiDVwNQaiABoZsqzj2Fjnj.jpg",
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-kiosk.webp",
     color: "#E41C1D",
     description: "Florida's largest indoor go-kart racing on 3 unique tracks",
     building: "FastTrax Fort Myers",
