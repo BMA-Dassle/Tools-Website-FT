@@ -990,7 +990,10 @@ export function KioskGameZone({
     // visible so guests learn where to go, but greyed out.
     const canSellNewCards = capability !== "reload";
     return (
-      <div className="w-full">
+      // Center the chooser vertically in the flow body — min-h-full keeps it
+      // centered when it fits and lets it scroll if it ever overflows (owner
+      // 2026-07-21: chooser sat too high).
+      <div className="flex min-h-full w-full flex-col justify-center">
         <div className="mb-[32px] flex items-center justify-between">
           <h1 className="k-display text-[74px]">Game Zone cards</h1>
           <button
