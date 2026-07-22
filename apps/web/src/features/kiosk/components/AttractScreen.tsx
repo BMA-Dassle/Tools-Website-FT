@@ -14,7 +14,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { IconSignature, IconUserCheck } from "@tabler/icons-react";
+import { IconFlag, IconSignature, IconUserCheck } from "@tabler/icons-react";
 import {
   mergeKioskConfig,
   loadKioskConfig,
@@ -23,7 +23,7 @@ import {
   venueSlug,
   type KioskConfig,
 } from "../config";
-import { kioskGroupWaiverEnabled, kioskCheckinEnabled } from "../flags";
+import { kioskGroupWaiverEnabled, kioskCheckinEnabled, kioskRaceInfoEnabled } from "../flags";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { useKioskConfig } from "../KioskConfigContext";
 import { kioskAdSlidesFor, KIOSK_LOGOS, KIOSK_PHOTOS } from "../assets";
@@ -371,19 +371,42 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
         </button>
       )}
 
-      {/* Self-service check-in entry — full-width bar for guests who already
-          booked. A "not booking" affordance, so it sits OUTSIDE the welcome-zone
-          start button. OPT-IN flag, default OFF — set
-          NEXT_PUBLIC_KIOSK_CHECKIN_ENABLED=true in Vercel to show. */}
-      {kioskCheckinEnabled() && (
-        <button
-          type="button"
-          onClick={() => router.push("/kiosk/checkin")}
-          className="k-display k-tap relative z-10 mx-[64px] mb-[8px] flex h-[92px] shrink-0 items-center justify-center gap-[16px] rounded-2xl border-2 border-[#00e2e5]/40 text-[30px] text-[#00e2e5]"
-        >
-          <IconUserCheck size={34} aria-hidden="true" />
-          Checking in? Start here
-        </button>
+      {/* Self-service check-in + race-info entries — "not booking" affordances,
+          so they sit OUTSIDE the welcome-zone start button. One flex row: with
+          both flags on they sit side by side; with one on it spans full width
+          (owner 2026-07-21). Both OPT-IN, default OFF — set
+          NEXT_PUBLIC_KIOSK_CHECKIN_ENABLED / NEXT_PUBLIC_KIOSK_RACE_INFO_ENABLED
+          to "true" in Vercel to show. Race info additionally requires the
+          Fort Myers complex — racing never advertises at Naples. */}
+      {(kioskCheckinEnabled() || (kioskRaceInfoEnabled() && config.center === "fort-myers")) && (
+        <div className="relative z-10 mx-[64px] mb-[8px] flex shrink-0 gap-[16px]">
+          {kioskCheckinEnabled() && (
+            <button
+              type="button"
+              onClick={() => router.push("/kiosk/checkin")}
+              className="k-display k-tap flex h-[92px] flex-1 items-center justify-center gap-[16px] rounded-2xl border-2 border-[#00e2e5]/40 text-[30px] text-[#00e2e5]"
+            >
+              <IconUserCheck size={34} aria-hidden="true" />
+              Checking in? Start here
+            </button>
+          )}
+          {kioskRaceInfoEnabled() && config.center === "fort-myers" && (
+            <button
+              type="button"
+              onClick={() => {
+                clarityEvent("kiosk:raceinfo:open");
+                router.push("/kiosk/race-info");
+              }}
+              className="k-tap flex h-[92px] flex-1 flex-col items-center justify-center rounded-2xl border-2 border-[#e53935]/50 text-[#ff6b6b]"
+            >
+              <span className="k-display flex items-center gap-[14px] text-[30px]">
+                <IconFlag size={30} aria-hidden="true" />
+                View race grid
+              </span>
+              <span className="text-[19px] text-[#ff6b6b]/70">Check upcoming race times</span>
+            </button>
+          )}
+        </div>
       )}
 
       <div className="relative z-10 flex h-[130px] shrink-0 items-center justify-center gap-[32px] pb-[16px]">

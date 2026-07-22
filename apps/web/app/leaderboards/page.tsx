@@ -8,172 +8,24 @@ import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { trackBookingClick } from "@/lib/analytics";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 
+// Track/tier/class → rscId/scgId matrix + formatters live in the shared
+// constants module (2026-07-21) so the kiosk Race Info hub reads the same
+// source of truth. Local aliases keep this page's JSX unchanged.
+import {
+  RECORD_TRACKS as tracks,
+  recordsStartDate as getStartDate,
+  formatRecordDate as formatDate,
+  formatRecordTime as formatTime,
+  type BestTimeRecord,
+  type RecordCategory as Category,
+  type RecordTrackKey as Track,
+  type RecordTimeRange as TimeRange,
+} from "~/lib/constants/race-records";
+
 const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 
 // Besttimes API — proxied through /api/besttimes with auto-token renewal
 const API_BASE = "/api/besttimes";
-
-type BestTimeRecord = {
-  position: number;
-  participant: string;
-  score: string;
-  date: string;
-};
-
-type Category = {
-  label: string;
-  color: string;
-  border: string;
-  rscId: string;
-  scgId: string;
-};
-
-type Track = "blue" | "red" | "mega";
-
-type TrackConfig = {
-  key: Track;
-  label: string;
-  accent: string;
-  adult: Category[];
-  junior: Category[];
-};
-
-const tracks: TrackConfig[] = [
-  {
-    key: "blue",
-    label: "Blue Track",
-    accent: "rgb(0,74,173)",
-    adult: [
-      {
-        label: "Starter",
-        color: "rgb(228,28,29)",
-        border: "rgba(228,28,29,0.59)",
-        rscId: "11208654",
-        scgId: "11207805",
-      },
-      {
-        label: "Intermediate",
-        color: "rgb(0,74,173)",
-        border: "rgba(0,74,173,0.59)",
-        rscId: "11208654",
-        scgId: "11207803",
-      },
-      {
-        label: "Pro",
-        color: "rgb(134,82,255)",
-        border: "rgba(134,82,255,0.59)",
-        rscId: "11208654",
-        scgId: "11207807",
-      },
-    ],
-    junior: [
-      {
-        label: "Junior Starter",
-        color: "rgb(228,28,29)",
-        border: "rgba(228,28,29,0.59)",
-        rscId: "11208654",
-        scgId: "11936433",
-      },
-      {
-        label: "Junior Intermediate",
-        color: "rgb(0,74,173)",
-        border: "rgba(0,74,173,0.59)",
-        rscId: "11208654",
-        scgId: "12755221",
-      },
-      {
-        label: "Junior Pro",
-        color: "rgb(134,82,255)",
-        border: "rgba(134,82,255,0.59)",
-        rscId: "11208654",
-        scgId: "15175252",
-      },
-    ],
-  },
-  {
-    key: "red",
-    label: "Red Track",
-    accent: "rgb(228,28,29)",
-    adult: [
-      {
-        label: "Starter",
-        color: "rgb(228,28,29)",
-        border: "rgba(228,28,29,0.59)",
-        rscId: "11208660",
-        scgId: "12113911",
-      },
-      {
-        label: "Intermediate",
-        color: "rgb(0,74,173)",
-        border: "rgba(0,74,173,0.59)",
-        rscId: "11208660",
-        scgId: "11207809",
-      },
-      {
-        label: "Pro",
-        color: "rgb(134,82,255)",
-        border: "rgba(134,82,255,0.59)",
-        rscId: "11208660",
-        scgId: "11207813",
-      },
-    ],
-    junior: [
-      {
-        label: "Junior",
-        color: "rgb(228,28,29)",
-        border: "rgba(228,28,29,0.59)",
-        rscId: "11208660",
-        scgId: "11207811",
-      },
-    ],
-  },
-  {
-    key: "mega",
-    label: "Mega Track",
-    accent: "rgb(134,82,255)",
-    adult: [
-      {
-        label: "Starter",
-        color: "rgb(228,28,29)",
-        border: "rgba(228,28,29,0.59)",
-        rscId: "-1",
-        scgId: "11207799",
-      },
-      {
-        label: "Intermediate",
-        color: "rgb(0,74,173)",
-        border: "rgba(0,74,173,0.59)",
-        rscId: "-1",
-        scgId: "11207797",
-      },
-      {
-        label: "Pro",
-        color: "rgb(134,82,255)",
-        border: "rgba(134,82,255,0.59)",
-        rscId: "-1",
-        scgId: "11207801",
-      },
-    ],
-    junior: [
-      {
-        label: "Junior Intermediate",
-        color: "rgb(0,74,173)",
-        border: "rgba(0,74,173,0.59)",
-        rscId: "-1",
-        scgId: "16924035",
-      },
-      {
-        label: "Junior Pro",
-        color: "rgb(134,82,255)",
-        border: "rgba(134,82,255,0.59)",
-        rscId: "-1",
-        scgId: "16924037",
-      },
-    ],
-  },
-];
-
-type TimeRange = "month" | "year" | "alltime";
 
 function estNow() {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -185,30 +37,6 @@ function estNow() {
   }).formatToParts(new Date());
   const get = (t: string) => parts.find((p) => p.type === t)?.value || "";
   return { year: get("year"), month: get("month"), weekday: get("weekday") };
-}
-
-function getStartDate(range: TimeRange): string {
-  const { year, month } = estNow();
-  if (range === "month") return `${year}-${month}-1 06:00:00`;
-  if (range === "year") return `${year}-1-1 06:00:00`;
-  return "2024-1-1 06:00:00";
-}
-
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function formatTime(score: string): string {
-  // Handle "1:02.212" format from Mega Track
-  if (score.includes(":")) return score;
-  const secs = parseFloat(score);
-  if (secs >= 60) {
-    const mins = Math.floor(secs / 60);
-    const rem = (secs % 60).toFixed(3);
-    return `${mins}:${rem.padStart(6, "0")}`;
-  }
-  return `${secs.toFixed(3)}s`;
 }
 
 function LeaderboardCard({ category, timeRange }: { category: Category; timeRange: TimeRange }) {

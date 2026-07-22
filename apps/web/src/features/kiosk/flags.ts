@@ -57,6 +57,21 @@ export function kioskCheckinEnabled(): boolean {
 }
 
 /**
+ * Race Info hub on the kiosk — OPT-IN, defaults OFF. A view-only destination
+ * (owner 2026-07-21): tile landing → Upcoming Races (live availability grid,
+ * nothing bookable), Race Records, Race Types, The Tracks, plus a Book Now
+ * bar back into the booking flow. Gates only the attract-screen entry button
+ * (which also requires center === "fort-myers" — racing is FM-only); the
+ * /kiosk/race-info page stays reachable by typed URL for staff testing. Set
+ * the literal "true" in Vercel + redeploy to show the button (NEXT_PUBLIC_*
+ * values are build-baked). Read at call time (never module scope) so tests
+ * can stub process.env.
+ */
+export function kioskRaceInfoEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_RACE_INFO_ENABLED === "true";
+}
+
+/**
  * BMI registerProjectPerson attach for kiosk CHECK-IN party binds — OPT-IN,
  * defaults OFF, server-side only. Deliberately SEPARATE from the group-waiver's
  * KIOSK_WAIVER_BMI_ATTACH (which is live + default-ON): check-in ships dark, and

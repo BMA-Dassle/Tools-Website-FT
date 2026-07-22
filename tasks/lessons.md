@@ -1,5 +1,26 @@
 # Lessons Learned
 
+## Mockups must speak the product's own design language — kiosk mockups use the PODIUM system + real photos (2026-07-21)
+
+**What happened:** Planning the kiosk Race Info hub, three mockup rounds got rejected ("looks like
+shit", "take design of kiosk not website") before landing. The first used flat placeholder frames
+with generic neon styling; the second borrowed the WEBSITE's attractions-card treatment (dashed
+borders, arcade photo on a racing tile); only the third — built from the kiosk's actual PODIUM
+tokens (kiosk.css `.kiosk-canvas`), the real `CategoryCard` full-bleed-photo pattern, `k-btn-primary`
+for the CTA, Exo 2 italic + Barlow, and the venue's real photography — matched expectations.
+
+**Rules:**
+
+1. **Read the target surface's design system BEFORE mocking** — for kiosk work that's
+   `app/kiosk/kiosk.css` (PODIUM tokens/classes) + `KioskCategories.tsx` (CategoryCard,
+   ShelfBanner), not the marketing site's styles. Kiosk ≠ website even when they share a brand.
+2. **Real photography, never placeholder art** — the site's Vercel-blob assets are downloadable;
+   embed them (data URIs in artifacts) rather than drawing stand-in SVG shapes.
+3. **Match the photo to the content** — an arcade photo on a "Race Types" tile reads as wrong
+   instantly. KIOSK_PHOTOS is the curated manifest; pick per-subject.
+4. **Owner mock sign-off ≠ visual sign-off** — "concept matches" still came with "make it look a
+   lot better when building." Budget polish into the build, not just the mock.
+
 ## A vendor "success" with an aggregate count can hide a skipped item — demand per-item results (2026-07-19)
 
 **What happened:** Kiosk booking W52504 (2 racers, same 5:36 Blue heat) confirmed cleanly, but only

@@ -26,6 +26,8 @@ export const KIOSK_PHOTOS = {
    *  above is the combo hero (racing) and looked wrong on a lanes card. */
   vipLanes: `${BLOB}/images/headpinz/hyperbowling.jpg`,
   flag: `${BLOB}/images/subpages/checkered-flag.webp`,
+  /** Kart-action shot (attractions library) — Race Info hub "Race Types" tile. */
+  raceAction: `${BLOB}/images/attractions/DSC06577.webp`,
   arcade: `${BLOB}/images/headpinz/gallery-arcade.webp`,
   /** FastTrax race car cutout (transparent bg) — races across the attract
    *  ad zone once per slide on FastTrax kiosks. Art faces LEFT. 1011×240. */

@@ -293,7 +293,9 @@ function GameZoneUnavailableCard() {
   );
 }
 
-function CategoryCard({
+/** Full-bleed photo category tile (k-ph + eyebrow + k-display title + accent
+ *  bar). Exported for reuse by kiosk-native tile screens (Race Info hub). */
+export function CategoryCard({
   photo,
   eyebrow,
   accent,
