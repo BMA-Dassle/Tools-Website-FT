@@ -39,6 +39,15 @@ interface FoundAccount {
 
 interface Props {
   onVerified: (person: PersonData) => void;
+  /**
+   * Optional multi-select. When provided AND the phone/email OTP matched more
+   * than one account (a household sharing a number/email), the post-verify
+   * screen becomes a checkbox picker and this fires ONCE with every chosen
+   * account — the consumer adds them all. When only one account matches, the
+   * screen stays single-tap and calls {@link onVerified}. The login-code path
+   * always resolves a single account and never uses this.
+   */
+  onVerifiedMultiple?: (people: PersonData[]) => void;
   onSwitchToNew: () => void;
   autoCode?: string | null;
   /** Intro line on the method chooser. Defaults preserve the racing copy —
@@ -224,6 +233,7 @@ async function fetchAccountDetails(
 
 export function ReturningRacerLookup({
   onVerified,
+  onVerifiedMultiple,
   onSwitchToNew,
   autoCode,
   introText = "Find your account to unlock your earned speeds",
@@ -238,6 +248,9 @@ export function ReturningRacerLookup({
   const [smsError, setSmsError] = useState("");
   const [codeError, setCodeError] = useState("");
   const [accounts, setAccounts] = useState<FoundAccount[]>([]);
+  // Multi-select: personIds ticked on the post-verify list (only used when the
+  // consumer wired onVerifiedMultiple AND more than one account matched).
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   // Search hits held between "code sent" and "code verified" — PII details
   // are only fetched once the OTP verifies (server enforces this too).
   const [candidates, setCandidates] = useState<SearchCandidate[]>([]);
@@ -264,14 +277,16 @@ export function ReturningRacerLookup({
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
   }
 
-  function selectAccount(a: FoundAccount) {
-    const person: PersonData = {
+  function buildPerson(a: FoundAccount): PersonData {
+    return {
       personId: a.personId,
       fullName: a.fullName,
       email: a.email || (mode === "email" ? email.trim().toLowerCase() : ""),
       phone: mode === "phone" ? phone.replace(/\D/g, "").replace(/^1/, "") : undefined,
       // Phone mode only reaches here AFTER handleSmsVerify succeeded, so the
       // phone above is OTP-proven (email mode proves the email, not a phone).
+      // Every returned account shares the OTP'd phone/email, so the proof holds
+      // for each of them in a multi-select add.
       phoneVerified: mode === "phone" || undefined,
       races: a.races,
       loginCode: a.loginCode,
@@ -279,8 +294,30 @@ export function ReturningRacerLookup({
       birthDate: a.birthDate,
       creditBalances: a.creditBalances,
     };
+  }
+
+  function selectAccount(a: FoundAccount) {
+    const person = buildPerson(a);
     setPhase("verified");
     setTimeout(() => onVerified(person), 400);
+  }
+
+  // Commit the ticked accounts as ONE batch (multi-select path).
+  function confirmMultiple() {
+    const chosen = accounts.filter((a) => selectedIds.has(a.personId)).map(buildPerson);
+    if (chosen.length === 0 || !onVerifiedMultiple) return;
+    setPhase("verified");
+    const emit = onVerifiedMultiple;
+    setTimeout(() => emit(chosen), 400);
+  }
+
+  function toggleSelected(personId: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(personId)) next.delete(personId);
+      else next.add(personId);
+      return next;
+    });
   }
 
   async function handlePhoneLookup() {
@@ -523,6 +560,71 @@ export function ReturningRacerLookup({
   // ── Verified → show account selection ─────────────────────
 
   if (phase === "phone-verified") {
+    // Multi-select only when the consumer opted in AND the OTP matched more
+    // than one account (a household on one phone/email). A lone match stays a
+    // single tap — no reason to make one person tick a box and confirm.
+    const multiEnabled = !!onVerifiedMultiple && accounts.length > 1;
+    const startOver = (
+      <button
+        type="button"
+        onClick={() => {
+          setMode("choose");
+          setPhase("input");
+          setSelectedIds(new Set());
+        }}
+        className="w-full py-2 text-center text-xs text-white/30 hover:text-white/50"
+      >
+        ← Start over
+      </button>
+    );
+
+    if (multiEnabled) {
+      const allSelected = selectedIds.size === accounts.length;
+      const count = selectedIds.size;
+      return (
+        <div className="mx-auto max-w-sm space-y-3">
+          <div className="flex items-center justify-between gap-2.5 rounded-xl border border-emerald-500/25 bg-gradient-to-r from-emerald-500/10 to-emerald-500/[0.03] px-4 py-3">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/20">
+                <CheckIcon className="h-4 w-4 text-emerald-400" />
+              </span>
+              <div className="text-left">
+                <p className="text-sm font-semibold text-emerald-300">Verified</p>
+                <p className="text-xs text-white/40">Tap everyone to add</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setSelectedIds(allSelected ? new Set() : new Set(accounts.map((a) => a.personId)))
+              }
+              className="shrink-0 text-xs font-semibold text-[#00E2E5]/80 transition-colors hover:text-[#00E2E5]"
+            >
+              {allSelected ? "Clear all" : "Select all"}
+            </button>
+          </div>
+          {accounts.map((a) => (
+            <AccountCard
+              key={a.personId}
+              account={a}
+              selectable
+              selected={selectedIds.has(a.personId)}
+              onSelect={() => toggleSelected(a.personId)}
+            />
+          ))}
+          <button
+            type="button"
+            disabled={count === 0}
+            onClick={confirmMultiple}
+            className="w-full rounded-xl bg-[#00E2E5] py-3 text-sm font-bold text-[#000418] transition-colors hover:bg-white disabled:opacity-40"
+          >
+            {count <= 1 ? "Add selected" : `Add ${count} people`}
+          </button>
+          {startOver}
+        </div>
+      );
+    }
+
     return (
       <div className="mx-auto max-w-sm space-y-3">
         <div className="flex items-center justify-center gap-2.5 rounded-xl border border-emerald-500/25 bg-gradient-to-r from-emerald-500/10 to-emerald-500/[0.03] px-4 py-3">
@@ -537,16 +639,7 @@ export function ReturningRacerLookup({
         {accounts.map((a) => (
           <AccountCard key={a.personId} account={a} onSelect={() => selectAccount(a)} />
         ))}
-        <button
-          type="button"
-          onClick={() => {
-            setMode("choose");
-            setPhase("input");
-          }}
-          className="w-full py-2 text-center text-xs text-white/30 hover:text-white/50"
-        >
-          ← Start over
-        </button>
+        {startOver}
       </div>
     );
   }
@@ -779,7 +872,18 @@ function creditLabel(kind: string): string {
   return kind.replace(/^credit\s*-\s*/i, "").trim() || kind;
 }
 
-function AccountCard({ account, onSelect }: { account: FoundAccount; onSelect: () => void }) {
+function AccountCard({
+  account,
+  onSelect,
+  selectable = false,
+  selected = false,
+}: {
+  account: FoundAccount;
+  onSelect: () => void;
+  /** Render a checkbox instead of a chevron and toggle rather than advance. */
+  selectable?: boolean;
+  selected?: boolean;
+}) {
   const tier = account.memberships.length > 0 ? tierFromMemberships(account.memberships) : null;
   const theme = tier ? TIER_THEME[tier] : null;
 
@@ -787,7 +891,13 @@ function AccountCard({ account, onSelect }: { account: FoundAccount; onSelect: (
     <button
       type="button"
       onClick={onSelect}
-      className="group flex w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3.5 text-left transition-all hover:border-[#00E2E5]/40 hover:bg-white/[0.08] focus:outline-none focus-visible:border-[#00E2E5]/60"
+      aria-pressed={selectable ? selected : undefined}
+      className={
+        "group flex w-full items-center gap-3 rounded-xl border p-3.5 text-left transition-all focus:outline-none focus-visible:border-[#00E2E5]/60 " +
+        (selected
+          ? "border-[#00E2E5]/60 bg-[#00E2E5]/10"
+          : "border-white/10 bg-white/5 hover:border-[#00E2E5]/40 hover:bg-white/[0.08]")
+      }
     >
       <div
         className={
@@ -835,7 +945,19 @@ function AccountCard({ account, onSelect }: { account: FoundAccount; onSelect: (
         )}
       </div>
 
-      <ChevronRightIcon className="h-5 w-5 shrink-0 text-white/20 transition-all group-hover:translate-x-0.5 group-hover:text-[#00E2E5]" />
+      {selectable ? (
+        <span
+          aria-hidden="true"
+          className={
+            "flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-2 transition-colors " +
+            (selected ? "border-[#00E2E5] bg-[#00E2E5]" : "border-white/25")
+          }
+        >
+          {selected && <CheckIcon className="h-4 w-4 text-[#000418]" />}
+        </span>
+      ) : (
+        <ChevronRightIcon className="h-5 w-5 shrink-0 text-white/20 transition-all group-hover:translate-x-0.5 group-hover:text-[#00E2E5]" />
+      )}
     </button>
   );
 }

@@ -14,7 +14,7 @@
  * no matter what step is up — that's what aborts a mid-OTP or mid-signature
  * flow when the kiosk continues, cancels, or times out.
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   ReturningRacerLookup,
   type PersonData,
@@ -45,6 +45,9 @@ type Step =
   | { k: "waiver"; draft: DraftGuest; template: PandoraWaiverTemplate }
   | { k: "submitting" }
   | { k: "success"; firstName: string }
+  /** Multi-select finished: everyone who made it onto the kiosk list, plus any
+   *  under-18 accounts skipped (phone flow is adults-only). */
+  | { k: "batchDone"; added: string[]; skipped: string[] }
   | { k: "blockedMinor"; firstName?: string }
   | { k: "error"; message: string; retry?: () => void };
 
@@ -65,6 +68,19 @@ export function JoinPhoneFlow({
   const session = useJoinSession(code, initialMeta);
   const { meta, ended, reconnecting, engage, setStage, disengage, end, clientId } = session;
   const [step, setStep] = useState<Step>({ k: "choose" });
+
+  // Multi-select from ONE OTP: adults sharing a phone/email sign in together.
+  // A ref (not state) because we process the queue through a chain of async
+  // steps — onboard → sign waiver → submit — and React state would stale-close
+  // across them. `active` gates the batch behaviour inside the shared single-
+  // guest pipeline (handleVerified / submit); we stay engaged on the kiosk for
+  // the whole batch and disengage only once the queue drains.
+  const batchRef = useRef<{
+    queue: PersonData[];
+    added: string[];
+    skipped: string[];
+    active: boolean;
+  }>({ queue: [], added: [], skipped: [], active: false });
 
   const brand = meta?.brand ?? "fasttrax";
   const brandLocation = brandLocationFor(brand, meta?.center);
@@ -132,13 +148,59 @@ export function JoinPhoneFlow({
       return;
     }
     if (age < 18) {
-      setStep({ k: "blockedMinor", firstName: person.fullName.split(/\s+/)[0] });
+      const fn = person.fullName.split(/\s+/)[0];
+      // In a multi-select batch, a minor is skipped (added at the kiosk by a
+      // guardian) and we move on — one under-18 account shouldn't block the
+      // adults who signed in with them.
+      if (batchRef.current.active) {
+        batchRef.current.skipped.push(fn);
+        advanceBatch();
+        return;
+      }
+      setStep({ k: "blockedMinor", firstName: fn });
       return;
     }
     void onboardReturning(person, String(person.birthDate).slice(0, 10));
   };
 
+  // Single returning racer (one account matched, or the login-code path) —
+  // never a batch, so clear any stale batch state before the shared pipeline.
+  const handleSingleVerified = (person: PersonData) => {
+    batchRef.current.active = false;
+    handleVerified(person);
+  };
+
+  // Start a multi-select batch: the first person runs now, the rest queue and
+  // process one-by-one as each finishes onboarding + waiver + submit.
+  const startBatch = (people: PersonData[]) => {
+    if (people.length === 0) return;
+    if (people.length === 1) {
+      handleSingleVerified(people[0]);
+      return;
+    }
+    batchRef.current = { queue: people.slice(1), added: [], skipped: [], active: true };
+    handleVerified(people[0]);
+  };
+
+  // Pull the next queued person, or wrap up when the queue drains.
+  const advanceBatch = () => {
+    const next = batchRef.current.queue.shift();
+    if (next) {
+      handleVerified(next);
+      return;
+    }
+    batchRef.current.active = false;
+    disengage(); // whole batch done — stop counting this phone as in-progress
+    const { added, skipped } = batchRef.current;
+    if (added.length === 0) {
+      setStep({ k: "blockedMinor", firstName: skipped[0] });
+    } else {
+      setStep({ k: "batchDone", added: [...added], skipped: [...skipped] });
+    }
+  };
+
   const onboardNew = async (fields: NewGuestFields) => {
+    batchRef.current.active = false; // new-guest onboarding is never batched
     setStep({ k: "onboarding" });
     const cleanFirst = formatPersonName(fields.firstName);
     const cleanLast = formatPersonName(fields.lastName);
@@ -186,6 +248,13 @@ export function JoinPhoneFlow({
         cache: "no-store",
       });
       if (res.ok) {
+        // In a batch, record the add and move to the next person — stay engaged
+        // and hold the summary until the queue drains (advanceBatch disengages).
+        if (batchRef.current.active) {
+          batchRef.current.added.push(draft.firstName);
+          advanceBatch();
+          return;
+        }
         disengage();
         setStep({ k: "success", firstName: draft.firstName });
         return;
@@ -301,7 +370,8 @@ export function JoinPhoneFlow({
       {step.k === "returning" && (
         <div className={card}>
           <ReturningRacerLookup
-            onVerified={handleVerified}
+            onVerified={handleSingleVerified}
+            onVerifiedMultiple={startBatch}
             onSwitchToNew={() => setStep({ k: "newForm" })}
             introText="Find your account — we'll text or email you a code"
             switchToNewLabel="Actually, I'm new here →"
@@ -322,8 +392,15 @@ export function JoinPhoneFlow({
           onConfirm={(dob) => {
             const age = ageFromDob(dob);
             if (age === null) return "Enter your birthday as MM/DD/YYYY.";
+            const fn = step.person.fullName.split(/\s+/)[0];
             if (age < 18) {
-              setStep({ k: "blockedMinor", firstName: step.person.fullName.split(/\s+/)[0] });
+              // Batch: skip the minor and roll on to the next queued adult.
+              if (batchRef.current.active) {
+                batchRef.current.skipped.push(fn);
+                advanceBatch();
+                return null;
+              }
+              setStep({ k: "blockedMinor", firstName: fn });
               return null;
             }
             void onboardReturning(
@@ -387,6 +464,36 @@ export function JoinPhoneFlow({
           </p>
           <button type="button" className={outlineBtn} onClick={() => setStep({ k: "choose" })}>
             Add another person
+          </button>
+        </div>
+      )}
+
+      {step.k === "batchDone" && (
+        <div className="space-y-4 text-center">
+          <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-500/15 text-3xl font-black text-emerald-400">
+            ✓
+          </div>
+          <h2 className="text-xl font-extrabold text-white">
+            {step.added.length === 1
+              ? "You're on the kiosk list!"
+              : `${step.added.length} people added!`}
+          </h2>
+          <p className="text-sm text-white/60">
+            <span className="font-bold text-white">{step.added.join(", ")}</span>
+            {step.added.length === 1 ? " has" : " have"} been added. Head back to your group — the
+            kiosk shows you&rsquo;re in.
+          </p>
+          {step.skipped.length > 0 && (
+            <p className="text-xs text-[#f5d38a]">
+              {step.skipped.join(", ")} {step.skipped.length === 1 ? "is" : "are"} under 18 — an
+              adult can add {step.skipped.length === 1 ? "them" : "each of them"} at the kiosk.
+            </p>
+          )}
+          <p className="text-xs text-white/40">
+            Reminder: your group pays together at the kiosk — split payment isn&rsquo;t available.
+          </p>
+          <button type="button" className={outlineBtn} onClick={() => setStep({ k: "choose" })}>
+            Add more people
           </button>
         </div>
       )}

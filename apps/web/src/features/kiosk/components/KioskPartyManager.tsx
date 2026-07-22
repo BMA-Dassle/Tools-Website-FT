@@ -578,9 +578,18 @@ export function KioskPartyManager({
     setLinked((prev) => prev.filter((l) => l.id !== lp.id));
   };
 
-  const handleVerified = (person: PersonData) => {
+  // `claimMain` defaults to the first-added-becomes-main rule; a batch add
+  // passes it explicitly so only ONE member claims main (reading party.length
+  // inside a loop is stale — every iteration would think it's first). `batchIds`
+  // are the other accounts added in the same batch, so linked-family
+  // suggestions don't re-offer a sibling already selected.
+  const handleVerified = (
+    person: PersonData,
+    claimMain: boolean = !!onSetContact && party.length === 0,
+    batchIds?: Set<string>,
+  ) => {
     const [first, ...rest] = person.fullName.trim().split(/\s+/);
-    const isMain = !!onSetContact && party.length === 0;
+    const isMain = claimMain;
     // Capture the returning racer's saved birthday so we never re-ask it (owner
     // bug 2026-07-19). Office lookup returns birthDate; drive the age bucket from
     // it. importLinked backfills from Pandora if the Office record lacked one.
@@ -609,7 +618,9 @@ export function KioskPartyManager({
     if (isMain) setContactFrom(member); // main person → booking contact
     setLookupOpen(false);
     const alreadyIds = new Set(
-      [person.personId, ...party.map((m) => m.bmiPersonId)].filter(Boolean) as string[],
+      [person.personId, ...party.map((m) => m.bmiPersonId), ...(batchIds ?? [])].filter(
+        Boolean,
+      ) as string[],
     );
     // Mark "checking waiver…" until the authoritative Pandora status lands, so the
     // card doesn't flash "Waiver needed" first (owner 2026-07-19). Skip if the
@@ -623,6 +634,16 @@ export function KioskPartyManager({
     }
     // Authoritative waiver check + linked family (mirrors web RacePartyStep).
     void importLinked(person.personId, member.id, alreadyIds);
+  };
+
+  // Add several returning racers from ONE OTP (household sharing a phone/email).
+  // Only the first claims main (when eligible); each still gets its own
+  // authoritative Pandora waiver check via handleVerified → importLinked.
+  const handleVerifiedMultiple = (people: PersonData[]) => {
+    if (people.length === 0) return;
+    const canClaimMain = !!onSetContact && party.length === 0;
+    const batchIds = new Set(people.map((p) => p.personId));
+    people.forEach((person, i) => handleVerified(person, canClaimMain && i === 0, batchIds));
   };
 
   const openSetup = (member: PartyMember) => {
@@ -1014,6 +1035,7 @@ export function KioskPartyManager({
           </div>
           <ReturningRacerLookup
             onVerified={handleVerified}
+            onVerifiedMultiple={handleVerifiedMultiple}
             onSwitchToNew={() => {
               setLookupOpen(false);
               resetForm();
