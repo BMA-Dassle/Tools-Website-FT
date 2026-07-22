@@ -1,5 +1,6 @@
 import { type NeonQueryFunction } from "@neondatabase/serverless";
 import { sql, isDbConfigured } from "@/lib/db";
+import { FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
 
 /**
  * Bowling V2 — Neon data layer.
@@ -2458,7 +2459,7 @@ const SHOES_INCLUDED_RE = /fun\s*4\s*all|pizza\s*bowl/i;
 export async function buildQamfMemo(reservationId: number): Promise<string> {
   const q = sql();
   const resRows = await q`
-    SELECT deposit_cents, notes, short_code
+    SELECT deposit_cents, notes, short_code, center_code
     FROM bowling_reservations WHERE id = ${reservationId}
   `;
   if (!resRows.length) return "";
@@ -2466,7 +2467,9 @@ export async function buildQamfMemo(reservationId: number): Promise<string> {
     deposit_cents: number;
     notes: string | null;
     short_code: string | null;
+    center_code: string | null;
   };
+  const isFastTrax = res.center_code === FASTTRAX_CENTER_CODE;
 
   const lines = (await q`
     SELECT brl.label, brl.quantity, brl.unit_price_cents, bsp.product_kind
@@ -2483,22 +2486,28 @@ export async function buildQamfMemo(reservationId: number): Promise<string> {
 
   const parts: string[] = [];
 
-  // Shoe status + short URL
-  const hasShoeAddOn = lines.some((l) => l.product_kind === "addon_shoe");
-  const shoesIncluded = lines.some((l) => SHOES_INCLUDED_RE.test(l.label));
-  let shoeLine: string;
-  if (hasShoeAddOn) {
-    const shoeQty = lines
-      .filter((l) => l.product_kind === "addon_shoe")
-      .reduce((s, l) => s + l.quantity, 0);
-    shoeLine = `${shoeQty} pair${shoeQty !== 1 ? "s" : ""} shoes paid`;
-  } else if (shoesIncluded) {
-    shoeLine = "Shoes included";
+  // Shoe status + short URL. FastTrax duckpin has no shoes — omit the shoe
+  // status entirely (a "SHOES NOT INCLUDED" note would confuse duckpin staff)
+  // and brand the short link to fasttraxent.com.
+  if (isFastTrax) {
+    if (res.short_code) parts.push(`fasttraxent.com/s/${res.short_code}`);
   } else {
-    shoeLine = "SHOES NOT INCLUDED";
+    const hasShoeAddOn = lines.some((l) => l.product_kind === "addon_shoe");
+    const shoesIncluded = lines.some((l) => SHOES_INCLUDED_RE.test(l.label));
+    let shoeLine: string;
+    if (hasShoeAddOn) {
+      const shoeQty = lines
+        .filter((l) => l.product_kind === "addon_shoe")
+        .reduce((s, l) => s + l.quantity, 0);
+      shoeLine = `${shoeQty} pair${shoeQty !== 1 ? "s" : ""} shoes paid`;
+    } else if (shoesIncluded) {
+      shoeLine = "Shoes included";
+    } else {
+      shoeLine = "SHOES NOT INCLUDED";
+    }
+    if (res.short_code) shoeLine += ` | headpinz.com/s/${res.short_code}`;
+    parts.push(shoeLine);
   }
-  if (res.short_code) shoeLine += ` | headpinz.com/s/${res.short_code}`;
-  parts.push(shoeLine);
 
   // Line items summary
   if (lines.length > 0) {
@@ -2588,6 +2597,19 @@ export async function getReservationPlayersWithShoeAllowance(
     WHERE reservation_id = ${reservationId}
     ORDER BY slot ASC
   `;
+
+  // FastTrax duckpin has no shoes — force allowance 0 so every shoe UI/roster
+  // path stays dark, independent of catalog/label heuristics. (Defensive: the
+  // FastTrax catalog also seeds no addon_shoe and a non-matching slug.)
+  const ftRows = await q`
+    SELECT center_code FROM bowling_reservations WHERE id = ${reservationId}
+  `;
+  if ((ftRows[0] as Record<string, unknown>)?.center_code === FASTTRAX_CENTER_CODE) {
+    return {
+      players: playerRows.map((r) => rowToPlayer(r as Record<string, unknown>)),
+      shoePairsAllowed: 0,
+    };
+  }
 
   // Sum qty of addon_shoe lines — join lines → products to check product_kind
   const shoeRows = await q`

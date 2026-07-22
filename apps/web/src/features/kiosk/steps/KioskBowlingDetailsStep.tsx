@@ -18,6 +18,7 @@
 import { useState } from "react";
 import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
 import { formatPersonName } from "~/lib/helpers/name-format";
+import { centerHasShoeRental } from "@/lib/qamf-centers";
 
 type RosterPlayer = {
   name: string;
@@ -131,12 +132,15 @@ function rosterOf(item: BowlItem): RosterPlayer[] {
   }));
 }
 
-function playerComplete(p: RosterPlayer): boolean {
-  return p.name.trim().length > 0 && p.shoeSize !== null && p.bumpers !== null;
+function playerComplete(p: RosterPlayer, hasShoes: boolean): boolean {
+  const shoeOk = !hasShoes || p.shoeSize !== null;
+  return p.name.trim().length > 0 && shoeOk && p.bumpers !== null;
 }
 
 const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item, onChange }) => {
   const roster = rosterOf(item);
+  // FastTrax duckpin (center 11542) has no shoes — collect name + bumpers only.
+  const hasShoes = centerHasShoeRental(item.qamfCenterId);
   // Which shoe category is expanded per bowler. Undefined → derive from the
   // stored size (so a saved "Male 9" reopens on Men's with 9 selected).
   const [openCat, setOpenCat] = useState<Record<number, string>>({});
@@ -145,13 +149,15 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
     onChange({ players: next } as Partial<BowlItem>);
   };
 
-  const readyCount = roster.filter(playerComplete).length;
+  const readyCount = roster.filter((p) => playerComplete(p, hasShoes)).length;
 
   return (
     <div className="space-y-[24px]">
       <div className="flex items-center justify-between gap-[16px]">
         <p className="text-[26px] text-white/55">
-          Names, shoes and bumpers — so your lane is ready the moment you are.
+          {hasShoes
+            ? "Names, shoes and bumpers — so your lane is ready the moment you are."
+            : "Names and bumpers — so your lane is ready the moment you are."}
         </p>
         <span className="k-eyebrow shrink-0 text-[#00e2e5] tabular-nums">
           {readyCount} of {roster.length} ready
@@ -160,7 +166,7 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
 
       <div className="space-y-[20px]">
         {roster.map((p, i) => {
-          const complete = playerComplete(p);
+          const complete = playerComplete(p, hasShoes);
           return (
             <div
               key={i}
@@ -192,73 +198,78 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
                 className="mb-[20px] w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[18px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
               />
 
-              <span className="mb-[8px] block text-[22px] font-semibold uppercase tracking-widest text-white/40">
-                Shoe size
-              </span>
+              {hasShoes && (
+                <span className="mb-[8px] block text-[22px] font-semibold uppercase tracking-widest text-white/40">
+                  Shoe size
+                </span>
+              )}
               {/* Category first (Own shoes / Toddler / Men's / Women's), then a
-                  short size grid for that category — never one giant list. */}
-              {(() => {
-                const selCat = openCat[i] !== undefined ? openCat[i] : categoryOf(p.shoeSize);
-                return (
-                  <>
-                    <div className="mb-[12px] flex flex-wrap gap-[10px]">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOpenCat((c) => ({ ...c, [i]: OWN_SHOES }));
-                          update(i, { shoeSize: OWN_SHOES });
-                        }}
-                        className={`rounded-2xl border-2 px-[28px] py-[16px] text-[24px] font-semibold ${
-                          p.shoeSize === OWN_SHOES
-                            ? "border-[#00E2E5] bg-[#00E2E5]/10 text-white"
-                            : "border-white/10 text-white/50"
-                        }`}
-                      >
-                        Own shoes
-                      </button>
-                      {SHOE_CATEGORIES.map((cat) => (
+                  short size grid for that category — never one giant list.
+                  Hidden entirely for FastTrax duckpin (no shoes). */}
+              {hasShoes &&
+                (() => {
+                  const selCat = openCat[i] !== undefined ? openCat[i] : categoryOf(p.shoeSize);
+                  return (
+                    <>
+                      <div className="mb-[12px] flex flex-wrap gap-[10px]">
                         <button
-                          key={cat.value}
                           type="button"
                           onClick={() => {
-                            setOpenCat((c) => ({ ...c, [i]: cat.value }));
-                            // Switching category clears a stale cross-category size.
-                            if (categoryOf(p.shoeSize) !== cat.value) update(i, { shoeSize: null });
+                            setOpenCat((c) => ({ ...c, [i]: OWN_SHOES }));
+                            update(i, { shoeSize: OWN_SHOES });
                           }}
                           className={`rounded-2xl border-2 px-[28px] py-[16px] text-[24px] font-semibold ${
-                            selCat === cat.value
+                            p.shoeSize === OWN_SHOES
                               ? "border-[#00E2E5] bg-[#00E2E5]/10 text-white"
                               : "border-white/10 text-white/50"
                           }`}
                         >
-                          {cat.label}
+                          Own shoes
                         </button>
-                      ))}
-                    </div>
-                    {selCat && selCat !== OWN_SHOES && SHOE_SIZES[selCat] && (
-                      <div className="mb-[20px] flex flex-wrap gap-[10px]">
-                        {SHOE_SIZES[selCat].map((size) => {
-                          const value = `${selCat} ${size}`;
-                          return (
-                            <button
-                              key={size}
-                              type="button"
-                              onClick={() => update(i, { shoeSize: value })}
-                              className={`min-w-[74px] rounded-2xl border-2 px-[18px] py-[16px] text-center text-[24px] font-semibold tabular-nums ${
-                                p.shoeSize === value
-                                  ? "border-[#00E2E5] bg-[#00E2E5]/10 text-white"
-                                  : "border-white/10 text-white/50"
-                              }`}
-                            >
-                              {size}
-                            </button>
-                          );
-                        })}
+                        {SHOE_CATEGORIES.map((cat) => (
+                          <button
+                            key={cat.value}
+                            type="button"
+                            onClick={() => {
+                              setOpenCat((c) => ({ ...c, [i]: cat.value }));
+                              // Switching category clears a stale cross-category size.
+                              if (categoryOf(p.shoeSize) !== cat.value)
+                                update(i, { shoeSize: null });
+                            }}
+                            className={`rounded-2xl border-2 px-[28px] py-[16px] text-[24px] font-semibold ${
+                              selCat === cat.value
+                                ? "border-[#00E2E5] bg-[#00E2E5]/10 text-white"
+                                : "border-white/10 text-white/50"
+                            }`}
+                          >
+                            {cat.label}
+                          </button>
+                        ))}
                       </div>
-                    )}
-                  </>
-                );
-              })()}
+                      {selCat && selCat !== OWN_SHOES && SHOE_SIZES[selCat] && (
+                        <div className="mb-[20px] flex flex-wrap gap-[10px]">
+                          {SHOE_SIZES[selCat].map((size) => {
+                            const value = `${selCat} ${size}`;
+                            return (
+                              <button
+                                key={size}
+                                type="button"
+                                onClick={() => update(i, { shoeSize: value })}
+                                className={`min-w-[74px] rounded-2xl border-2 px-[18px] py-[16px] text-center text-[24px] font-semibold tabular-nums ${
+                                  p.shoeSize === value
+                                    ? "border-[#00E2E5] bg-[#00E2E5]/10 text-white"
+                                    : "border-white/10 text-white/50"
+                                }`}
+                              >
+                                {size}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
 
               <div className="flex items-center gap-[20px]">
                 <span className="text-[22px] font-semibold uppercase tracking-widest text-white/40">
@@ -295,10 +306,13 @@ export const KioskBowlingDetailsStep: StepDef<BowlItem> = {
   canAdvance: (item) => {
     const roster = rosterOf(item);
     if (roster.length === 0) return { reason: "Add at least one bowler first." };
-    const incomplete = roster.findIndex((p) => !playerComplete(p));
+    const hasShoes = centerHasShoeRental(item.qamfCenterId);
+    const incomplete = roster.findIndex((p) => !playerComplete(p, hasShoes));
     if (incomplete >= 0) {
       return {
-        reason: `Bowler ${incomplete + 1} still needs a name, shoe choice, and bumpers answer.`,
+        reason: hasShoes
+          ? `Bowler ${incomplete + 1} still needs a name, shoe choice, and bumpers answer.`
+          : `Bowler ${incomplete + 1} still needs a name and bumpers answer.`,
       };
     }
     return true;

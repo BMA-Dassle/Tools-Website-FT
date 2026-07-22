@@ -107,6 +107,7 @@ import type {
 import type { ContactInfo } from "../types";
 import redis from "@/lib/redis";
 import { writeReservationIndexes } from "@/lib/booking-record-index";
+import { FASTTRAX_QAMF_CENTER_ID } from "@/lib/qamf-centers";
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
@@ -249,7 +250,9 @@ function resolveLocationId(session: BookingSession): string {
   // FastTrax entity's Square account.
   const hasHeadpinzProduct = session.items.some(
     (i) =>
-      isBowlingLike(i) ||
+      // FastTrax duckpin is a bowling item but its revenue books to the FastTrax
+      // entity, not HeadPinz — exclude it from the HeadPinz test.
+      (isBowlingLike(i) && !(i.kind === "bowling" && (i as BowlingItem).isDuckpin)) ||
       (i.kind === "attraction" && !FASTTRAX_ATTRACTION_SLUGS.has((i as AttractionItem).slug ?? "")),
   );
   if (hasHeadpinzProduct) {
@@ -1710,29 +1713,34 @@ async function unifiedReserveInner(
         finalParts.push(worldCupQamfBanner(wcFixture));
       }
 
-      // Shoe status — staff see it at a glance
-      const hasShoeAddOn = item.lineItems.some((li) =>
-        (li.label ?? "").toLowerCase().includes("shoe"),
-      );
-      const shoesIncluded =
-        !!combo ||
-        item.experienceSlug?.includes("fun-4-all") ||
-        item.experienceSlug?.includes("pizza-bowl");
-      let shoeLine: string;
-      if (combo) {
-        shoeLine = "Shoes included (VIP)";
-      } else if (hasShoeAddOn) {
-        const shoeQty = item.lineItems
-          .filter((li) => (li.label ?? "").toLowerCase().includes("shoe"))
-          .reduce((s, li) => s + li.quantity, 0);
-        shoeLine = `${shoeQty} pair${shoeQty !== 1 ? "s" : ""} shoes paid`;
-      } else if (shoesIncluded) {
-        shoeLine = "Shoes included";
+      // Shoe status — staff see it at a glance. FastTrax duckpin has no shoes:
+      // omit the status line and brand the short link to fasttraxent.com.
+      if (centerId === FASTTRAX_QAMF_CENTER_ID) {
+        if (shortCode) finalParts.push(`fasttraxent.com/s/${shortCode}`);
       } else {
-        shoeLine = "SHOES NOT INCLUDED";
+        const hasShoeAddOn = item.lineItems.some((li) =>
+          (li.label ?? "").toLowerCase().includes("shoe"),
+        );
+        const shoesIncluded =
+          !!combo ||
+          item.experienceSlug?.includes("fun-4-all") ||
+          item.experienceSlug?.includes("pizza-bowl");
+        let shoeLine: string;
+        if (combo) {
+          shoeLine = "Shoes included (VIP)";
+        } else if (hasShoeAddOn) {
+          const shoeQty = item.lineItems
+            .filter((li) => (li.label ?? "").toLowerCase().includes("shoe"))
+            .reduce((s, li) => s + li.quantity, 0);
+          shoeLine = `${shoeQty} pair${shoeQty !== 1 ? "s" : ""} shoes paid`;
+        } else if (shoesIncluded) {
+          shoeLine = "Shoes included";
+        } else {
+          shoeLine = "SHOES NOT INCLUDED";
+        }
+        if (shortCode) shoeLine += ` | headpinz.com/s/${shortCode}`;
+        finalParts.push(shoeLine);
       }
-      if (shortCode) shoeLine += ` | headpinz.com/s/${shortCode}`;
-      finalParts.push(shoeLine);
 
       // Line items summary
       if (item.lineItems.length > 0) {
@@ -2220,6 +2228,44 @@ async function unifiedReserveInner(
           // after() outside a request scope (script/cron) — run inline; those
           // contexts stay alive so a fire-and-forget still completes.
           void runKioskPost();
+        }
+      }
+
+      // ── KIOSK: "Confirmation Kiosk" state for ATTRACTION-ONLY bookings ──
+      // The racing rail above (runKioskPostReserve §4) is the ONLY place that
+      // stamps the per-location kiosk confirmation state, but it is gated on
+      // race items — so an attraction-only ("arena") kiosk booking at HP FM /
+      // Naples never left plain "-3 Confirmation" for the kiosk state staff work
+      // from (owner-reported). The rail's guest notification is hard-coded
+      // FastTrax racing copy and CANNOT fire for an attraction, so flip JUST the
+      // state here — never the notification / Pandora session assignment.
+      // Per-location ids (FM 55397028 / Naples 8489113); setProjectState is
+      // idempotent. Deferred via after() and never throwing, exactly like the rail.
+      if (session.context?.kiosk && bmiReservationNumber && raceItems.length === 0) {
+        const resNumberAttr: string = bmiReservationNumber;
+        const flipKioskState = async () => {
+          try {
+            const { setProjectState, KIOSK_CONFIRMATION_STATE_IDS } =
+              await import("@/lib/bmi-office-actions");
+            await setProjectState({
+              centerCode,
+              projectId: officeProjectId,
+              stateId:
+                KIOSK_CONFIRMATION_STATE_IDS[centerCode] ??
+                KIOSK_CONFIRMATION_STATE_IDS["fort-myers"],
+              label: "Kiosk confirmation (attraction)",
+            });
+            console.log(
+              `[kiosk-post] attraction confirmation state set for project ${officeProjectId} (${resNumberAttr})`,
+            );
+          } catch (e) {
+            console.error("[kiosk-post] attraction state flip failed (non-fatal):", e);
+          }
+        };
+        try {
+          after(flipKioskState);
+        } catch {
+          void flipKioskState();
         }
       }
     } catch (err) {

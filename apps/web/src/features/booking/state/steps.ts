@@ -233,7 +233,9 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     hiddenInCombo(hiddenForWorldCup(v3Only(BowlingDateStep as StepDef))),
     hiddenInCombo(hiddenForWorldCup(v3Only(BowlingExperienceStep as StepDef))),
     hiddenInCombo(hiddenForWorldCup(v3Only(BowlingTimeStep as StepDef))),
-    hiddenInCombo(BowlingShoesStep as StepDef),
+    // FastTrax duckpin has no shoes — skip the shoe-rental step (kiosk clones
+    // this list, so this hides it on both web and kiosk).
+    hiddenInCombo(hiddenForDuckpin(BowlingShoesStep as StepDef)),
     // Attractions step removed — user returns to activity picker and
     // adds attractions as separate cart items.
     hiddenInCombo(BowlingFoodStep as StepDef),

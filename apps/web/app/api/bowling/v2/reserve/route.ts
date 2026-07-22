@@ -2000,26 +2000,32 @@ export async function POST(req: NextRequest) {
   try {
     const finalParts: string[] = [];
 
-    // Shoe status + short URL — first line so staff see it at a glance
-    const hasShoeAddOn = productItems.some(({ product }) => product.productKind === "addon_shoe");
-    const shoesIncludedInExperience = reservationLines.some((l) =>
-      /fun\s*4\s*all|pizza\s*bowl/i.test(l.label),
-    );
-    let shoeLine: string;
-    if (hasShoeAddOn) {
-      const shoeQty = productItems
-        .filter(({ product }) => product.productKind === "addon_shoe")
-        .reduce((s, { quantity }) => s + quantity, 0);
-      shoeLine = `${shoeQty} pair${shoeQty !== 1 ? "s" : ""} shoes paid`;
-    } else if (shoesIncludedInExperience) {
-      shoeLine = "Shoes included";
+    // Shoe status + short URL — first line so staff see it at a glance.
+    // FastTrax duckpin has no shoes: omit the shoe status entirely (a false
+    // "SHOES NOT INCLUDED" would confuse duckpin staff) and brand the link.
+    if (centerId === FASTTRAX_QAMF_CENTER_ID) {
+      if (shortCode) finalParts.push(`fasttraxent.com/s/${shortCode}`);
     } else {
-      shoeLine = "SHOES NOT INCLUDED";
+      const hasShoeAddOn = productItems.some(({ product }) => product.productKind === "addon_shoe");
+      const shoesIncludedInExperience = reservationLines.some((l) =>
+        /fun\s*4\s*all|pizza\s*bowl/i.test(l.label),
+      );
+      let shoeLine: string;
+      if (hasShoeAddOn) {
+        const shoeQty = productItems
+          .filter(({ product }) => product.productKind === "addon_shoe")
+          .reduce((s, { quantity }) => s + quantity, 0);
+        shoeLine = `${shoeQty} pair${shoeQty !== 1 ? "s" : ""} shoes paid`;
+      } else if (shoesIncludedInExperience) {
+        shoeLine = "Shoes included";
+      } else {
+        shoeLine = "SHOES NOT INCLUDED";
+      }
+      if (shortCode) {
+        shoeLine += ` | headpinz.com/s/${shortCode}`;
+      }
+      finalParts.push(shoeLine);
     }
-    if (shortCode) {
-      shoeLine += ` | headpinz.com/s/${shortCode}`;
-    }
-    finalParts.push(shoeLine);
 
     // KBF bowler breakdown — right after shoe/URL so staff see it immediately
     if (productKind === "kbf") {
