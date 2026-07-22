@@ -44,6 +44,7 @@ import {
   type PersonData,
 } from "~/components/features/booking/steps/race/ReturningRacerLookup";
 import { useKioskConfig } from "../KioskConfigContext";
+import { isMegaTuesdayToday } from "../assets";
 import { kioskHasCamera, kioskId } from "../config";
 import { KioskWaiverPhoto } from "../components/KioskWaiverPhoto";
 import { formatPersonName, normalizeEmail } from "~/lib/helpers/name-format";
@@ -1102,6 +1103,26 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           ? "Your group is signed in — everyone here needs an account and a signed waiver."
           : "Add everyone playing. Each person gets an account and signs the waiver right here — so check-in is the Express Lane, not a line."}
       </p>
+
+      {/* Mega Tuesday junior rule (owner 2026-07-21) — the kiosk books TODAY,
+          so on Mega days first-time Juniors can't race at all. Racing only. */}
+      {isRace && isMegaTuesdayToday() && (
+        <div className="flex items-start gap-[18px] rounded-2xl border-2 border-[#e53935] bg-[#e53935]/12 px-[28px] py-[22px]">
+          <span
+            aria-hidden="true"
+            className="mt-[4px] grid h-[36px] w-[36px] shrink-0 place-items-center rounded-full bg-[#e53935] text-[26px] font-black text-white"
+          >
+            !
+          </span>
+          <div>
+            <div className="k-eyebrow text-[#ff5a52]">Mega Tuesday</div>
+            <div className="mt-[4px] text-[28px] font-bold text-[#ff8a86]">
+              First-time Junior racers can&rsquo;t race today — Juniors must qualify on a
+              split-track (Blue/Red) day first.
+            </div>
+          </div>
+        </div>
+      )}
 
       {blockReason && (
         <div className="flex items-start gap-[18px] rounded-2xl border-2 border-[#f0b341]/60 bg-[#f0b341]/12 px-[28px] py-[22px]">

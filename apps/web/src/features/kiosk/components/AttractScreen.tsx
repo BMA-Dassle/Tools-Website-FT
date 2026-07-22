@@ -256,6 +256,15 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
         {/* Darker scrim than v1 — the neon headline needs the extra ground. */}
         <div className="absolute inset-0 bg-gradient-to-t from-[#000418]/95 via-[#020a1e]/80 to-[#040a24]/70" />
         <NeonAdTitle title={ad.title} accent={ad.accent} />
+        {/* Red standout line above the headline (Mega Tuesday junior rule) —
+            always red, independent of the slide accent. */}
+        {ad.notice && (
+          <div className="absolute bottom-[228px] left-1/2 -translate-x-1/2">
+            <div className="whitespace-nowrap rounded-full border-2 border-[#e53935] bg-[rgba(0,4,24,0.82)] px-[30px] py-[12px] text-[30px] font-bold text-[#ff5a52] shadow-[0_0_28px_rgba(229,57,53,0.45)]">
+              {ad.notice}
+            </div>
+          </div>
+        )}
         {/* Marquee banner on the bottom 100px — the strip the car crosses. */}
         <div
           className="absolute inset-x-0 bottom-0 flex h-[100px] items-center justify-center gap-[26px] overflow-hidden border-t-[3px] shadow-[0_-12px_44px_rgba(0,0,0,0.45)]"

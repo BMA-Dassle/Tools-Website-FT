@@ -14,6 +14,7 @@
  * tappable — the Book Now bar on the hub landing is the booking entry.
  */
 import { useState } from "react";
+import { IconAlertTriangle } from "@tabler/icons-react";
 import { useTrackStatus, type CurrentRace } from "@/hooks/useTrackStatus";
 import { useKioskConfig } from "../../KioskConfigContext";
 import {
@@ -229,6 +230,13 @@ export function UpcomingRaces() {
             {visible.map((h) => (
               <HeatCard key={h.key} heat={h} />
             ))}
+          </div>
+          {/* Junior-on-Mega rule — bold + red, must stand out (owner 2026-07-21). */}
+          <div className="flex items-center justify-center gap-[20px] rounded-[20px] border-2 border-[#e53935] bg-[#e53935]/15 px-[28px] py-[20px]">
+            <IconAlertTriangle size={44} className="shrink-0 text-[#ff5a52]" aria-hidden="true" />
+            <div className="text-[28px] font-bold leading-snug text-[#ff5a52]">
+              No Junior races on the Mega Track.
+            </div>
           </div>
           <div className="text-center text-[22px] text-white/40">
             Intermediate &amp; Pro require a qualifying lap time — everyone starts in Starter. Tap

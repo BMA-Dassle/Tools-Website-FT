@@ -48,6 +48,9 @@ export interface KioskAdSlide {
   /** Slide accent — neon tube glow, banner border, beacon dots, accent text. */
   accent: string;
   photo: string;
+  /** Optional RED standout line above the headline (owner 2026-07-21 — the
+   *  Mega Tuesday junior rule). Always red regardless of the slide accent. */
+  notice?: string;
 }
 
 /** Fort Myers complex (FastTrax + HeadPinz share the campus). Gel is GREEN
@@ -103,8 +106,34 @@ const NAPLES_AD_SLIDES: KioskAdSlide[] = [
   },
 ];
 
+/** Mega Tuesday door (owner 2026-07-21) — leads the Fort Myers rotation on
+ *  Tuesdays only, Mega-purple accent + the red junior rule. */
+const MEGA_TUESDAY_SLIDE: KioskAdSlide = {
+  title: "It's Mega Tuesday",
+  bannerAction: "to race the Mega",
+  accent: "#8652ff",
+  photo: KIOSK_PHOTOS.race,
+  notice: "No first-time Junior racers on Mega",
+};
+
+/** Center-local (America/New_York) Tuesday check — mirrors scheduleForDate's
+ *  "day 2 = mega" rule without needing a booking date. Also consumed by the
+ *  kiosk people step's Mega-day junior notice (the kiosk books TODAY). */
+export function isMegaTuesdayToday(): boolean {
+  return (
+    new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "long" }).format(
+      new Date(),
+    ) === "Tuesday"
+  );
+}
+
 /** The attract rotation for this kiosk's center (null = not provisioned yet;
- *  the Fort Myers set is a harmless placeholder behind the setup card). */
+ *  the Fort Myers set is a harmless placeholder behind the setup card).
+ *  Called per render, so the Tuesday slide appears/retires on the attract
+ *  loop's own re-render cadence — no reload needed across midnight. */
 export function kioskAdSlidesFor(center: CenterCode | null): KioskAdSlide[] {
-  return center === "naples" ? NAPLES_AD_SLIDES : FORT_MYERS_AD_SLIDES;
+  if (center === "naples") return NAPLES_AD_SLIDES;
+  return isMegaTuesdayToday()
+    ? [MEGA_TUESDAY_SLIDE, ...FORT_MYERS_AD_SLIDES]
+    : FORT_MYERS_AD_SLIDES;
 }
