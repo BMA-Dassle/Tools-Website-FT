@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { trackBookingClick } from "@/lib/analytics";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
+import { RACE_TYPE_CARDS, KART_CLASS_CARDS } from "~/lib/constants/racing-content";
 
 const glowShadow = "rgba(229,0,0,0.48) 0px 0px 30px";
 const blueGlow = "rgba(0,12,255,0.4) 0px 0px 30px";
@@ -61,57 +62,7 @@ export default function RacingPage() {
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
-            {[
-              {
-                title: "Adult Starter",
-                color: "rgb(228,28,29)",
-                border: "rgba(228,28,29,0.59)",
-                age: "13+ / 59\u201d+",
-                qual: "None \u2014 all racers start here",
-                desc: "Fun meets friendly competition. Perfect for families, casual drivers, and first-timers.",
-              },
-              {
-                title: "Adult Intermediate",
-                color: "rgb(0,74,173)",
-                border: "rgba(0,74,173,0.59)",
-                age: "13+ / 59\u201d+",
-                qual: "Lap time of 41s (Blue) or 46s (Red) in Starter",
-                desc: "For serious drivers. High-speed karts, competitive lap tracking, challenging layout.",
-              },
-              {
-                title: "Adult Pro",
-                color: "rgb(134,82,255)",
-                border: "rgba(134,82,255,0.59)",
-                age: "13+ / 59\u201d+",
-                qual: "Lap time of 32.5s (Blue) or 37s (Red) in Intermediate",
-                desc: "Ultimate test of skill and speed. Fastest karts, precision timing, most demanding config.",
-              },
-              {
-                title: "Junior Starter",
-                color: "rgb(228,28,29)",
-                border: "rgba(228,28,29,0.59)",
-                age: "7\u201313 / 49\u201d\u201370\u201d",
-                qual: "None \u2014 all juniors start here",
-                desc: "Speed-controlled karts, easy track layout, team supervision.",
-                note: "Not available on Mega Track Tuesdays",
-              },
-              {
-                title: "Junior Intermediate",
-                color: "rgb(0,74,173)",
-                border: "rgba(0,74,173,0.59)",
-                age: "7\u201313 / 49\u201d\u201370\u201d",
-                qual: "Lap time of 1:15 in Junior Starter",
-                desc: "Faster karts, more challenging layout, real competition.",
-              },
-              {
-                title: "Junior Pro",
-                color: "rgb(134,82,255)",
-                border: "rgba(134,82,255,0.59)",
-                age: "7\u201313 / 49\u201d\u201370\u201d",
-                qual: "Lap time of 45s in Junior Intermediate",
-                desc: "Fastest junior karts, precision timing, most demanding config.",
-              },
-            ].map((rt) => (
+            {RACE_TYPE_CARDS.map((rt) => (
               <div
                 key={rt.title}
                 className="flex flex-col h-full"
@@ -207,41 +158,7 @@ export default function RacingPage() {
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-            {[
-              {
-                title: "Adult Karts",
-                color: "rgb(228,28,29)",
-                border: "rgba(228,28,29,0.59)",
-                items: [
-                  { label: "Ages", value: "13+" },
-                  { label: "Min Height", value: "59\u201d (4\u20199\u201d)" },
-                ],
-              },
-              {
-                title: "Junior Karts",
-                color: "rgb(0,74,173)",
-                border: "rgba(0,74,173,0.59)",
-                items: [
-                  { label: "Ages", value: "7\u201313" },
-                  { label: "Height", value: "49\u201d to 70\u201d" },
-                  { label: "Track", value: "Blue Track only" },
-                  {
-                    label: "Note",
-                    value: "First-time Junior races not available on Mega Track Tuesdays",
-                  },
-                ],
-              },
-              {
-                title: "Mini Karts",
-                color: "rgb(134,82,255)",
-                border: "rgba(134,82,255,0.59)",
-                items: [
-                  { label: "Ages", value: "4\u20136" },
-                  { label: "Height", value: "No minimum" },
-                  { label: "Hours", value: "Close at 10:00 PM daily" },
-                ],
-              },
-            ].map((kart) => (
+            {KART_CLASS_CARDS.map((kart) => (
               <div
                 key={kart.title}
                 className="flex flex-col h-full"

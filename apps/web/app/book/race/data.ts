@@ -1027,10 +1027,10 @@ export const TIER_DESCRIPTIONS: Record<RaceTier, string> = {
   pro: "Our fastest unlocked speed. Maximum performance for racers who've proven their skill.",
 };
 
-/** Qualifying lap times per tier per track */
+/** Qualifying lap times per tier per track (Mega times added 2026-07-21, owner) */
 export const TIER_QUALIFYING: Record<RaceTier, string> = {
-  starter: "41s (Blue Track) or 46s (Red Track) to unlock Intermediate",
-  intermediate: "32.5s (Blue Track) or 37s (Red Track) to unlock Pro",
+  starter: "41s (Blue Track), 46s (Red Track), or 1:28 (Mega Track) to unlock Intermediate",
+  intermediate: "32.5s (Blue Track), 37s (Red Track), or 1:08.5 (Mega Track) to unlock Pro",
   pro: "",
 };
 
