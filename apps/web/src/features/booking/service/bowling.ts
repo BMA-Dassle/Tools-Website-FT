@@ -17,6 +17,7 @@ import { buildKbfExtraSquareLineItems, isFridayYmd } from "./kbf-pricing";
 import { promoFactor } from "./promo-pricing";
 import { formatPersonName } from "~/lib/helpers/name-format";
 import { qamfCenterCode, HEADPINZ_FM_CENTER_CODE } from "@/lib/qamf-centers";
+import { playNowActive } from "../flags";
 
 type BowlingLikeItem = BowlingItem | KbfItem;
 
@@ -274,6 +275,9 @@ export async function bowlingReserve(params: BowlingReserveParams): Promise<Bowl
       ...(session.appliedPromo ? { promoCode: session.appliedPromo.code } : {}),
       // Kiosk sessions stamp their source so the admin board can badge them.
       ...(session.context?.kiosk ? { bookingSource: "kiosk" } : {}),
+      // Play Now ("bowl now" per-lane QR): the route suppresses the booking +
+      // lane-ready notifications and turns the lane on server-side at payment.
+      ...(playNowActive(session) ? { playNow: true } : {}),
       // KIOSK: Game Zone cards riding this cart — the reserve route re-resolves
       // the exact deposit-order lines prepare created and marks the ledger rows
       // charged (owner 2026-07-18). Same session on prepare + finalize.

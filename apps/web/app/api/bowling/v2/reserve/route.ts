@@ -20,6 +20,7 @@ import {
   setBowlingReservationPromo,
   updateBowlingReservationNotes,
   updateBowlingReservationShortCode,
+  markLaneReadySent,
   type BowlingSquareProduct,
   type ReservationLine,
 } from "@/lib/bowling-db";
@@ -29,6 +30,7 @@ import {
   FASTTRAX_QAMF_CENTER_ID,
   FASTTRAX_CENTER_CODE,
   FASTTRAX_TAX_CATALOG_ID,
+  isFastTraxDuckpinCenter,
 } from "@/lib/qamf-centers";
 import redis from "@/lib/redis";
 import { shortenUrl } from "@/lib/short-url";
@@ -355,6 +357,14 @@ interface ReserveBody {
    * Passed through to the bowling-confirmation notification route.
    */
   smsOptIn?: boolean;
+  /**
+   * Play Now (per-lane duckpin QR / "bowl now"): the guest is standing at the
+   * lane, so turn it on SERVER-SIDE right at payment (Arrived → Ready →
+   * Running) and SUPPRESS both the booking-confirmation email/SMS and the
+   * lane-ready notification. Bowling-only carts hit this route; a mixed cart
+   * with added attractions goes through unified-reserve and keeps its email.
+   */
+  playNow?: boolean;
   // ── Loyalty reward redemption ─────────────────────────────────────
   /** Square Loyalty reward tier ID to redeem (e.g. "$10 off F&B"). */
   rewardTierId?: string;
@@ -2097,17 +2107,48 @@ export async function POST(req: NextRequest) {
     console.warn("[bowling/v2/reserve] final notes build failed (non-fatal):", err);
   }
 
-  // ── Fire confirmation email + SMS (server-side, non-blocking) ────
-  // Triggered here instead of the client to avoid the browser aborting
-  // the request during the post-booking redirect.
   const notifOrigin = req.nextUrl.origin;
-  fetch(`${notifOrigin}/api/notifications/bowling-confirmation`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ neonId, smsOptIn: body.smsOptIn ?? true }),
-  }).catch((err) => {
-    console.error("[bowling/v2/reserve] notification fire-and-forget failed:", err);
-  });
+
+  if (body.playNow && neonId && isFastTraxDuckpinCenter(centerId)) {
+    // ── Play Now ("bowl now"): the guest is AT the lane. ──────────────
+    // 1) Suppress the booking-confirmation email/SMS (no email for a walk-up
+    //    QR booking — a mixed cart with attractions goes through
+    //    unified-reserve, which keeps its confirmation).
+    // 2) Suppress the lane-ready notification (mark it sent so the webhook/cron
+    //    never fire "Your Lane is Ready!" — the lane's already turning on).
+    // 3) Turn the lane on NOW, server-side, by calling the self-check-in route
+    //    (Arrived → Ready → Running + settles the prepaid day-of order). Awaited
+    //    so the lane is live before the guest reaches the confirmation screen —
+    //    no "your lane is ready, tap to check in" step. Best-effort: if it
+    //    hiccups, the confirmation page's poll self-opens as a fallback.
+    markLaneReadySent(neonId).catch(() => {});
+    try {
+      const openRes = await fetch(`${notifOrigin}/api/bowling/v2/reservations/${neonId}/checkin`, {
+        method: "POST",
+      });
+      if (!openRes.ok) {
+        console.warn(
+          `[bowling/v2/reserve] playNow lane-open HTTP ${openRes.status} neonId=${neonId} — confirmation will self-open`,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        `[bowling/v2/reserve] playNow lane-open failed neonId=${neonId} (confirmation self-opens):`,
+        err,
+      );
+    }
+  } else {
+    // ── Fire confirmation email + SMS (server-side, non-blocking) ────
+    // Triggered here instead of the client to avoid the browser aborting
+    // the request during the post-booking redirect.
+    fetch(`${notifOrigin}/api/notifications/bowling-confirmation`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ neonId, smsOptIn: body.smsOptIn ?? true }),
+    }).catch((err) => {
+      console.error("[bowling/v2/reserve] notification fire-and-forget failed:", err);
+    });
+  }
 
   // World Cup: staff booking alert, Ultimate-VIP style (owner 7/6). Only
   // after everything above succeeded; best-effort inside.
