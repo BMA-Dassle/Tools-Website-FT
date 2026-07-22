@@ -69,8 +69,9 @@ const WEB_OFFER_ID = 5;
 // Base unit = 30 min. Legacy BMI: 30-min $17.50, 60-min $35.00 (linear).
 const BASE_PRICE_CENTS = 1750;
 
-// PER_PERSON (kind 'open') vs PER_LANE (kind 'hourly'). See header ⚠ #1.
-const PER_LANE = false;
+// PER_PERSON (kind 'open') vs PER_LANE (kind 'hourly'). Owner-confirmed 7/22:
+// PER LANE ($17.50/$35/$52.50 per lane for 30/60/90).
+const PER_LANE = true;
 const EXPERIENCE_KIND = PER_LANE ? "hourly" : "open";
 
 // 30/60/90 → QAMF Time option ids; multiplier scales the base unit's quantity.

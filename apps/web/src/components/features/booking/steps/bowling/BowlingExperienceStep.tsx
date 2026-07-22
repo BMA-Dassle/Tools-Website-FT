@@ -125,8 +125,13 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   // isn't available offer the 1 hour"): the web never shows them, and the
   // kiosk surfaces one only when NO longer duration still has a slot today —
   // late-night walk-ups keep a bookable lane instead of a dead end.
+  const isDuckpin = item.kind === "bowling" && (item as BowlingItem).isDuckpin;
   const visibleDurations = (exp: BowlingExperienceWithDetails) => {
     const all = exp.durationOptions ?? [];
+    // FastTrax duckpin offers 30/60/90 as first-class durations — the 1-hour
+    // "kiosk-only fallback" rule below is HeadPinz-specific (1hr is a fallback
+    // under 1.5/2hr there) and must never suppress a duckpin price point.
+    if (isDuckpin) return all;
     return all.filter((o) => {
       if (o.durationMinutes !== 60) return true;
       if (!kiosk || !scanSettled) return false;
