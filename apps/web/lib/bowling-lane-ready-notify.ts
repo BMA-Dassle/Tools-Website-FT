@@ -10,6 +10,7 @@
 
 import { type BowlingReservation, markLaneReadySent } from "@/lib/bowling-db";
 import { shortenUrl } from "@/lib/short-url";
+import { FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
 
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
@@ -42,7 +43,12 @@ function formatTime(iso: string): string {
   });
 }
 
-async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+async function sendEmail(
+  to: string,
+  subject: string,
+  html: string,
+  fromName = "HeadPinz Entertainment",
+): Promise<boolean> {
   if (!SENDGRID_API_KEY) return false;
   const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
     method: "POST",
@@ -52,7 +58,7 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
     },
     body: JSON.stringify({
       personalizations: [{ to: [{ email: to }] }],
-      from: { email: FROM_EMAIL, name: "HeadPinz Entertainment" },
+      from: { email: FROM_EMAIL, name: fromName },
       subject,
       content: [{ type: "text/html", value: html }],
     }),
@@ -197,12 +203,19 @@ export async function sendLaneReadyNotification(
     await new Promise((resolve) => setTimeout(resolve, 5000));
   }
 
+  const isFastTrax = reservation.centerCode === FASTTRAX_CENTER_CODE;
+  const brandName = isFastTrax ? "FastTrax" : "HeadPinz";
+  const siteUrl = isFastTrax ? "https://fasttraxent.com" : SITE_URL;
   const center = CENTER_META[reservation.centerCode] ?? CENTER_META.TXBSQN0FEKQ11;
   const time = formatTime(reservation.bookedAt);
   const guestFirst = (reservation.guestName ?? "").split(" ")[0] || "there";
-  const rawPath = `/hp/book/bowling/checkin?neonId=${reservation.id}`;
+  // FastTrax duckpin self-open lives on the confirmation page (accepts ?neonId=);
+  // HeadPinz uses its dedicated /hp check-in page.
+  const rawPath = isFastTrax
+    ? `/book/bowling-confirmation?neonId=${reservation.id}`
+    : `/hp/book/bowling/checkin?neonId=${reservation.id}`;
   const shortCode = await shortenUrl(rawPath);
-  const checkinLink = `${SITE_URL}/s/${shortCode}`;
+  const checkinLink = `${siteUrl}/s/${shortCode}`;
   // Don't include lane number — guests will walk to it before staff is ready
   const lanePart = " Your lane is ready! Check in and open your lane right from your phone!";
 
@@ -216,6 +229,7 @@ export async function sendLaneReadyNotification(
         reservation.guestEmail,
         "Your Lane is Ready!",
         buildEmailHtml(guestFirst, time, center.name, laneLabel ?? "", checkinLink),
+        `${brandName} Entertainment`,
       );
     } catch (err) {
       console.warn(`[lane-ready] email failed neonId=${reservation.id}:`, err);
@@ -227,7 +241,7 @@ export async function sendLaneReadyNotification(
     try {
       const normalized = normalizePhone(reservation.guestPhone);
       if (normalized.length >= 10) {
-        const smsBody = `HeadPinz:${lanePart} ${checkinLink}`;
+        const smsBody = `${brandName}:${lanePart} ${checkinLink}`;
         smsOk = await sendSms(normalized, smsBody, center.smsFrom);
       }
     } catch (err) {

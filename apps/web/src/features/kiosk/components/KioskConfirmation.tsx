@@ -136,7 +136,9 @@ function bowlingNeonIdFromSrc(src: string | null): number | null {
     const url = new URL(src, "https://kiosk.local");
     const isBowling =
       url.pathname.includes("/book/bowling/confirmation") ||
-      url.pathname.includes("/book/kids-bowl-free/confirmation");
+      url.pathname.includes("/book/kids-bowl-free/confirmation") ||
+      // FastTrax duckpin standalone confirmation route.
+      url.pathname.includes("/book/bowling-confirmation");
     if (!isBowling) return null;
     const neonId = parseInt(url.searchParams.get("neonId") ?? "", 10);
     return Number.isFinite(neonId) && neonId > 0 ? neonId : null;

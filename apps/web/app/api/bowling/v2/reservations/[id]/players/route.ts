@@ -7,6 +7,7 @@ import {
 } from "@/lib/bowling-db";
 import { upsertMemberPref, getPrefsForPlayers } from "@/lib/kbf-prefs";
 import { getReservation, setLanePlayers } from "@/lib/qamf-bowling";
+import { CENTER_CODE_TO_QAMF_ID } from "@/lib/qamf-centers";
 
 // ── Square helpers (shoe-size KDS sync) ─────────────────────────────
 const SQUARE_BASE = "https://connect.squareup.com/v2";
@@ -52,10 +53,7 @@ function formatShoeSize(raw: string): string {
  *      so shoe size + bumpers are pre-filled on their next visit
  */
 
-const CENTER_CODE_TO_QAMF_ID: Record<string, number> = {
-  TXBSQN0FEKQ11: 9172,
-  PPTR5G2N0QXF7: 3148,
-};
+// center_code → QAMF id (incl. FastTrax duckpin 11542) — shared registry.
 
 // ── GET ──────────────────────────────────────────────────────────────────────
 
