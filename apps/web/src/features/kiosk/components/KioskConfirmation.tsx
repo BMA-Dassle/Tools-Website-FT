@@ -10,7 +10,7 @@
  * (e.g. /hp/book/bowling/confirmation?code=XXXX) — we surface its code and
  * keep a stable seam for the bowl-now live-lane display to hook into.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { useKioskConfig } from "../KioskConfigContext";
@@ -25,9 +25,97 @@ import {
 } from "../service/race-pack-confirmation";
 import { clarityEvent } from "~/lib/clarity";
 import { readPovConfirmation, clearPovConfirmation } from "../service/pov-confirmation";
+import { readKioskHasRacing, clearKioskHasRacing } from "../service/racing-confirmation";
 import PovVoucherBlock from "@/components/booking/PovVoucherBlock";
 
 const AUTO_RESET_SECONDS = 60;
+
+// Racing "what's next" popup content. Copy mirrors the web v2 confirmation's
+// arrival guidance (1st floor, 5 min early, e-ticket open and ready).
+const RACE_ICON_PROPS = {
+  width: 40,
+  height: 40,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "#e53935",
+  strokeWidth: 2,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+  "aria-hidden": true,
+} as const;
+
+const RACE_CHECKIN_STEPS: { title: string; body: ReactNode; icon: ReactNode }[] = [
+  {
+    title: "eTicket by text",
+    body: (
+      <>
+        Arrives shortly after checkout.{" "}
+        <strong className="text-white">Have it open at Race Check-In.</strong>
+      </>
+    ),
+    icon: (
+      <svg {...RACE_ICON_PROPS}>
+        <path d="M21 11.5a8.38 8.38 0 0 1-9 8.35 8.5 8.5 0 0 1-3.4-.7L3 20l1.1-4.1A8.38 8.38 0 0 1 3 11.5a8.5 8.5 0 0 1 8.5-8.5 8.38 8.38 0 0 1 9.5 8.5z" />
+      </svg>
+    ),
+  },
+  {
+    title: "Where",
+    body: (
+      <>
+        <strong className="text-white">1st floor, left side of the Red Track.</strong> All tracks
+        and race types check in there.
+      </>
+    ),
+    icon: (
+      <svg {...RACE_ICON_PROPS}>
+        <path d="M12 21s-7-5.3-7-11a7 7 0 0 1 14 0c0 5.7-7 11-7 11z" />
+        <circle cx="12" cy="10" r="2.6" />
+      </svg>
+    ),
+  },
+  {
+    title: "When",
+    body: (
+      <>
+        Be there <strong className="text-white">about 5 minutes before your race</strong> —
+        we&rsquo;ll text you and call it over the intercom. It&rsquo;s live racing, so delays can
+        happen.
+      </>
+    ),
+    icon: (
+      <svg {...RACE_ICON_PROPS}>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3.5 2" />
+      </svg>
+    ),
+  },
+  {
+    title: "Allow about 30 minutes",
+    body: <>Briefing video, lockers for your stuff (in the briefing room), and safety gear.</>,
+    icon: (
+      <svg {...RACE_ICON_PROPS}>
+        <path d="M12 3a9 9 0 0 1 9 9c0 1.5-.6 2-2 2h-3.5l-1 4h-5l-1-4H5c-1.4 0-2-.5-2-2a9 9 0 0 1 9-9z" />
+        <path d="M8 12h8" />
+      </svg>
+    ),
+  },
+  {
+    title: "Keep your head sock",
+    body: (
+      <>
+        It&rsquo;s included with your license —{" "}
+        <strong className="text-white">replacements cost extra.</strong>
+      </>
+    ),
+    icon: (
+      <svg {...RACE_ICON_PROPS}>
+        <path d="M9 3h6v4a3 3 0 0 1-3 3 3 3 0 0 1-3-3z" />
+        <path d="M9 5c-2 1-3.5 3.5-3.5 7 0 5 2 9 6.5 9s6.5-4 6.5-9c0-3.5-1.5-6-3.5-7" />
+      </svg>
+    ),
+  },
+];
 
 function codeFromSrc(src: string | null): string | null {
   if (!src) return null;
@@ -80,6 +168,10 @@ export function KioskConfirmation({ src }: { src: string | null }) {
   // POV video codes claimed with the booking (unified-reserve → checkout stash)
   // — display nicety; the durable copies are the guest email + reservation memo.
   const [povCodes, setPovCodes] = useState<string[] | null>(null);
+  // Checkout included a booked race (heats, not race-pack credits) — show the
+  // racing "what's next" banner with the race check-in details popup.
+  const [includesRacing, setIncludesRacing] = useState(false);
+  const [raceInfoOpen, setRaceInfoOpen] = useState(false);
   // Kiosk funnel bottom: a paid booking reached the confirmation screen.
   // (ClarityAnalytics also fires the shared "booking:confirmed" for this path —
   // this one is the kiosk-only smart event.)
@@ -105,6 +197,10 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       if (codes) {
         setPovCodes(codes);
         clearPovConfirmation();
+      }
+      if (readKioskHasRacing()) {
+        setIncludesRacing(true);
+        clearKioskHasRacing();
       }
     })();
     return () => {
@@ -243,7 +339,7 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       // With a card-fulfillment panel the column can exceed the canvas — scroll
       // from the top instead of center-clipping.
       className={`absolute inset-0 flex flex-col items-center gap-[36px] bg-[#000418] px-[64px] text-center ${
-        gzPayload || racePacks || povCodes || lanePanelVisible
+        gzPayload || racePacks || povCodes || lanePanelVisible || includesRacing
           ? "justify-start overflow-y-auto py-[56px]"
           : "justify-center overflow-hidden"
       }`}
@@ -274,6 +370,68 @@ export function KioskConfirmation({ src }: { src: string | null }) {
         Your confirmation and check-in links were just texted and emailed to you — that&rsquo;s your
         ticket, nothing to print.
       </p>
+      {includesRacing && (
+        // Racing "what's next" — deliberately first panel so a racing guest
+        // reads it before anything else; racing red to stand out from the
+        // cyan/amber panels below.
+        <div className="relative w-full max-w-[860px] rounded-[24px] border border-[#e53935]/45 bg-gradient-to-b from-[#e53935]/10 to-white/[0.03] p-[32px] text-left">
+          <div className="k-eyebrow flex items-center gap-[14px] text-[#e53935]">
+            <svg
+              width="30"
+              height="30"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#e53935"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M4 21V4" />
+              <path d="M4 4c3-1.5 6 1.5 9 0s5-1 7 0v9c-2-1-4-1.5-7 0s-6-1.5-9 0" />
+            </svg>
+            Racing — what&rsquo;s next
+          </div>
+          <p className="mt-[14px] text-[31px] leading-snug">
+            Your race <strong className="text-[#ffd9d8]">eTicket arrives by text</strong> in a few
+            minutes — have it open at{" "}
+            <strong className="text-[#ffd9d8]">
+              Race Check-In: 1st floor, left of the Red Track.
+            </strong>
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setRaceInfoOpen(true);
+              clarityEvent("kiosk:race-info-open");
+            }}
+            // k-btn-primary recolored to racing red (its cyan bg/ink/glow are
+            // the only things swapped); flex reset as on the Done button.
+            style={{
+              flex: "0 0 auto",
+              background: "#e53935",
+              color: "#fff",
+              boxShadow: "0 12px 44px rgba(229,57,53,0.35)",
+            }}
+            className="k-btn-primary k-tap mt-[26px] w-full"
+          >
+            How does race check-in work?
+            <svg
+              width="34"
+              height="34"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#fff"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m9 6 6 6-6 6" />
+            </svg>
+          </button>
+        </div>
+      )}
       {lanePanelVisible && (
         <div
           className={`relative w-full max-w-[860px] rounded-[24px] border bg-white/[0.04] p-[32px] text-left ${
@@ -428,6 +586,48 @@ export function KioskConfirmation({ src }: { src: string | null }) {
         className="relative h-[52px] opacity-70"
         draggable={false}
       />
+      {raceInfoOpen && (
+        // Race check-in details popup. `fixed` resolves against the transformed
+        // .kiosk-canvas ancestor, so this covers the 1080×1920 viewport even
+        // when the confirmation column behind it is scrolled. The 60s auto-reset
+        // keeps running (owner decision) — any tap here resets it via the
+        // document-level pointerdown listener.
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-[#000418]/85 p-[56px]">
+          <div className="max-h-full w-full overflow-y-auto rounded-[28px] border border-white/15 bg-[#071027]/95 p-[48px] text-left shadow-[0_40px_120px_rgba(0,0,0,0.6)]">
+            <div className="k-eyebrow text-[#e53935]">Race check-in</div>
+            <h2 className="k-display mt-[10px] text-[64px]">What to expect</h2>
+            <div className="mt-[30px] flex flex-col gap-[22px]">
+              {RACE_CHECKIN_STEPS.map((step) => (
+                <div
+                  key={step.title}
+                  className="flex items-start gap-[24px] rounded-[20px] border border-white/10 bg-white/[0.03] px-[28px] py-[24px]"
+                >
+                  <div className="flex h-[72px] w-[72px] flex-none items-center justify-center rounded-[18px] border border-[#e53935]/40 bg-[#e53935]/15">
+                    {step.icon}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[30px] font-extrabold leading-tight">{step.title}</div>
+                    <p className="mt-[6px] text-[26px] leading-snug text-white/70">{step.body}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setRaceInfoOpen(false)}
+              style={{
+                flex: "0 0 auto",
+                background: "#e53935",
+                color: "#fff",
+                boxShadow: "0 12px 44px rgba(229,57,53,0.35)",
+              }}
+              className="k-btn-primary k-tap mt-[34px] w-full"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -50,6 +50,7 @@ import { centerCodeFor } from "~/config/intercard-centers";
 import { stashGzFulfillment as stashKioskGameCards } from "~/features/kiosk/service/gz-fulfillment";
 import { stashRacePackConfirmation } from "~/features/kiosk/service/race-pack-confirmation";
 import { stashPovConfirmation } from "~/features/kiosk/service/pov-confirmation";
+import { stashKioskHasRacing } from "~/features/kiosk/service/racing-confirmation";
 import {
   kioskRacePacksEnabled,
   resolveKioskPacks,
@@ -1486,6 +1487,9 @@ export function CheckoutStep({
           stashKioskGameCards((result as { gameCards?: unknown }).gameCards);
           stashRacePackConfirmation((result as { racePacks?: unknown }).racePacks);
           stashPovConfirmation((result as { povCodes?: unknown }).povCodes);
+          // Booked heats only (race packs are credits, not a visit today) — the
+          // kiosk confirmation's racing "what's next" banner keys off this.
+          stashKioskHasRacing(session.items.some((i) => i.kind === "race"));
           await saveBookingDetails(sessionForReserve, effectiveBillId, overview, contact);
           clearBookingSession(storageKey);
 
