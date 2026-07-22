@@ -1034,6 +1034,7 @@ export function KioskPartyManager({
             </button>
           </div>
           <ReturningRacerLookup
+            wide
             onVerified={handleVerified}
             onVerifiedMultiple={handleVerifiedMultiple}
             onSwitchToNew={() => {

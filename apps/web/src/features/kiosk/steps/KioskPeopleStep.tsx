@@ -1530,6 +1530,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             </button>
           </div>
           <ReturningRacerLookup
+            wide
             onVerified={handleVerified}
             onVerifiedMultiple={handleVerifiedMultiple}
             onSwitchToNew={() => {

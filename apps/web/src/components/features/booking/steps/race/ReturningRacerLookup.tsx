@@ -49,6 +49,10 @@ interface Props {
    */
   onVerifiedMultiple?: (people: PersonData[]) => void;
   onSwitchToNew: () => void;
+  /** Kiosk surfaces render inside a wide panel — set this to double the
+   *  post-verify account list's width (max-w-sm → max-w-3xl) and lay the
+   *  cards out two-across. Web / phone-join leave it off (mobile, single col). */
+  wide?: boolean;
   autoCode?: string | null;
   /** Intro line on the method chooser. Defaults preserve the racing copy —
    *  the kiosk mobile-join page overrides it (attraction sessions must not
@@ -235,6 +239,7 @@ export function ReturningRacerLookup({
   onVerified,
   onVerifiedMultiple,
   onSwitchToNew,
+  wide = false,
   autoCode,
   introText = "Find your account to unlock your earned speeds",
   switchToNewLabel = "Actually, I'm a new racer →",
@@ -564,6 +569,9 @@ export function ReturningRacerLookup({
     // than one account (a household on one phone/email). A lone match stays a
     // single tap — no reason to make one person tick a box and confirm.
     const multiEnabled = !!onVerifiedMultiple && accounts.length > 1;
+    // Kiosk = double-wide (max-w-3xl is exactly 2× max-w-sm) with cards two-across.
+    const widthClass = wide ? "max-w-3xl" : "max-w-sm";
+    const cardGrid = wide ? "grid grid-cols-1 gap-3 sm:grid-cols-2" : "space-y-3";
     const startOver = (
       <button
         type="button"
@@ -582,7 +590,7 @@ export function ReturningRacerLookup({
       const allSelected = selectedIds.size === accounts.length;
       const count = selectedIds.size;
       return (
-        <div className="mx-auto max-w-sm space-y-3">
+        <div className={`mx-auto ${widthClass} space-y-3`}>
           <div className="flex items-center justify-between gap-2.5 rounded-xl border border-emerald-500/25 bg-gradient-to-r from-emerald-500/10 to-emerald-500/[0.03] px-4 py-3">
             <div className="flex items-center gap-2.5">
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/20">
@@ -603,15 +611,17 @@ export function ReturningRacerLookup({
               {allSelected ? "Clear all" : "Select all"}
             </button>
           </div>
-          {accounts.map((a) => (
-            <AccountCard
-              key={a.personId}
-              account={a}
-              selectable
-              selected={selectedIds.has(a.personId)}
-              onSelect={() => toggleSelected(a.personId)}
-            />
-          ))}
+          <div className={cardGrid}>
+            {accounts.map((a) => (
+              <AccountCard
+                key={a.personId}
+                account={a}
+                selectable
+                selected={selectedIds.has(a.personId)}
+                onSelect={() => toggleSelected(a.personId)}
+              />
+            ))}
+          </div>
           <button
             type="button"
             disabled={count === 0}
@@ -626,7 +636,7 @@ export function ReturningRacerLookup({
     }
 
     return (
-      <div className="mx-auto max-w-sm space-y-3">
+      <div className={`mx-auto ${widthClass} space-y-3`}>
         <div className="flex items-center justify-center gap-2.5 rounded-xl border border-emerald-500/25 bg-gradient-to-r from-emerald-500/10 to-emerald-500/[0.03] px-4 py-3">
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/20">
             <CheckIcon className="h-4 w-4 text-emerald-400" />
@@ -636,9 +646,11 @@ export function ReturningRacerLookup({
             <p className="text-xs text-white/40">Select your account below</p>
           </div>
         </div>
-        {accounts.map((a) => (
-          <AccountCard key={a.personId} account={a} onSelect={() => selectAccount(a)} />
-        ))}
+        <div className={cardGrid}>
+          {accounts.map((a) => (
+            <AccountCard key={a.personId} account={a} onSelect={() => selectAccount(a)} />
+          ))}
+        </div>
         {startOver}
       </div>
     );
