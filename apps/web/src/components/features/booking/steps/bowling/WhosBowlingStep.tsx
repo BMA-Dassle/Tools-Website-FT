@@ -22,7 +22,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BowlingItem, StepDef } from "~/features/booking";
 import { newPartyMember } from "~/features/booking";
-import { FASTTRAX_QAMF_CENTER_ID } from "@/lib/qamf-centers";
 import { formatPersonName, normalizeEmail } from "~/lib/helpers/name-format";
 import {
   type BowlPlayer,
@@ -107,87 +106,65 @@ const WhosBowlingStepComponent: StepDef<BowlingItem>["Component"] = ({
     if (changed) writeRows(next);
   }, [hasParty, party, item.players, writeRows]);
 
-  /* ── scan-time lane hold (the instant the QR is scanned) ─────────────────
-   * Play Now must lock the scanned lane immediately so nobody grabs it during
-   * the sign-in → pay flow. On mount we pin the lane at the longest window that
-   * fits (the hold route auto-downgrades 90→60→30); if it's busy we show the
-   * swap list. Guarded on item.qamfReservationId so nav/back never re-holds. */
-  const laneToHold = item.pinnedLaneNumber ?? null;
-  const [holdPhase, setHoldPhase] = useState<"holding" | "held" | "busy" | "error">(
-    item.qamfReservationId ? "held" : laneToHold == null ? "error" : "holding",
+  /* ── scanned-lane availability check (no hold yet — owner 2026-07-22) ────
+   * The QR names a lane; on mount we CHECK it's free (GET availability, no
+   * side effects). If it's busy, the swap list shows immediately — before the
+   * guest types anything. The actual pinned HOLD happens when they pick a
+   * duration on the next step, so changing duration never collides with our
+   * own hold (the live-test bug: hold-on-scan made lane 5 look occupied to a
+   * re-hold). Nothing but a human at lane N scanning N's QR competes for it in
+   * the meantime. */
+  const pinnedLane = item.pinnedLaneNumber ?? null;
+  const [lanePhase, setLanePhase] = useState<"checking" | "ok" | "busy" | "error">(
+    item.qamfReservationId ? "ok" : pinnedLane == null ? "error" : "checking",
   );
   const [openLanes, setOpenLanes] = useState<number[]>([]);
-  const [holdMsg, setHoldMsg] = useState(
-    !item.qamfReservationId && laneToHold == null
+  const [laneMsg, setLaneMsg] = useState(
+    !item.qamfReservationId && pinnedLane == null
       ? "This QR didn't include a lane — please see the front desk."
       : "",
   );
-  const holdAttempted = useRef(false);
+  const checkAttempted = useRef(false);
 
-  const runHold = useCallback(
+  const checkLane = useCallback(
     async (lane: number) => {
-      setHoldPhase("holding");
+      setLanePhase("checking");
       setBusy?.(true);
       try {
-        const r = await fetch("/api/bowling/v2/bowl-now/hold", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            lane,
-            players: item.playerCount,
-            replaceReservationId: item.qamfReservationId ?? undefined,
-          }),
+        const r = await fetch(`/api/bowling/v2/bowl-now/availability?lane=${lane}`, {
+          cache: "no-store",
         });
         const data = await r.json();
-        if (r.ok) {
-          dispatch({
-            type: "setBowlingHold",
-            itemId: item.id,
-            qamfReservationId: data.qamfReservationId,
-            qamfCenterId: FASTTRAX_QAMF_CENTER_ID,
-          });
-          onChange({
-            pinnedLaneNumber: lane,
-            durationMinutes: data.durationMinutes,
-            optionId: data.optionId,
-            optionType: "Time",
-            webOfferId: data.webOfferId,
-            bookedAt: data.bookedAt,
-            experienceId: data.experienceId ?? null,
-            experienceSlug: data.experienceSlug ?? null,
-            durationOptionId: data.durationOptionId ?? null,
-            durationMultiplier: data.durationMultiplier ?? 1,
-            laneCount: data.laneCount ?? 1,
-            lineItems: Array.isArray(data.lineItems) ? data.lineItems : [],
-            hasBookingFee: true,
-          } as Partial<BowlingItem>);
-          setHoldPhase("held");
-        } else if (r.status === 409) {
-          setOpenLanes(Array.isArray(data.openLanes) ? data.openLanes : []);
-          setHoldMsg(typeof data.error === "string" ? data.error : "That lane is busy right now.");
-          setHoldPhase("busy");
+        if (!r.ok) {
+          setLaneMsg(typeof data.error === "string" ? data.error : "Couldn't check the lane.");
+          setLanePhase("error");
+          return;
+        }
+        if (data.laneFree) {
+          onChange({ pinnedLaneNumber: lane } as Partial<BowlingItem>);
+          setLanePhase("ok");
         } else {
-          setHoldMsg(typeof data.error === "string" ? data.error : "Couldn't hold the lane.");
-          setHoldPhase("error");
+          setOpenLanes(Array.isArray(data.openLanes) ? data.openLanes : []);
+          setLaneMsg(`Lane ${lane} is in play right now.`);
+          setLanePhase("busy");
         }
       } catch {
-        setHoldMsg("Connection hiccup — try again.");
-        setHoldPhase("error");
+        setLaneMsg("Connection hiccup — try again.");
+        setLanePhase("error");
       } finally {
         setBusy?.(false);
       }
     },
-    [dispatch, onChange, item.id, item.playerCount, item.qamfReservationId, setBusy],
+    [onChange, setBusy],
   );
 
   useEffect(() => {
-    // Fire the scan-time hold exactly once, and only when one is actually
-    // needed (no existing hold + the QR carried a lane). All state transitions
-    // happen inside runHold — never synchronously in this effect body.
-    if (holdAttempted.current || item.qamfReservationId || laneToHold == null) return;
-    holdAttempted.current = true;
-    void runHold(laneToHold);
-  }, [item.qamfReservationId, laneToHold, runHold]);
+    // Check the scanned lane exactly once on entry (a held session skips it —
+    // the guest already has their lane). State transitions live in checkLane.
+    if (checkAttempted.current || item.qamfReservationId || pinnedLane == null) return;
+    checkAttempted.current = true;
+    void checkLane(pinnedLane);
+  }, [item.qamfReservationId, pinnedLane, checkLane]);
 
   const setContactField = (patch: {
     firstName?: string;
@@ -262,26 +239,26 @@ const WhosBowlingStepComponent: StepDef<BowlingItem>["Component"] = ({
     }
   };
 
-  // Play Now lane-hold states take precedence over the people form.
-  if (holdPhase === "holding") {
-    return <PlayNowStatus title={`Holding Lane ${laneToHold ?? ""}…`} spinner />;
+  // Play Now lane states take precedence over the people form.
+  if (lanePhase === "checking") {
+    return <PlayNowStatus title={`Checking Lane ${pinnedLane ?? ""}…`} spinner />;
   }
-  if (holdPhase === "error") {
+  if (lanePhase === "error") {
     return (
       <PlayNowStatus
         title="We hit a snag"
-        message={holdMsg}
-        onRetry={laneToHold != null ? () => runHold(laneToHold) : undefined}
+        message={laneMsg}
+        onRetry={pinnedLane != null ? () => checkLane(pinnedLane) : undefined}
       />
     );
   }
-  if (holdPhase === "busy") {
+  if (lanePhase === "busy") {
     return (
       <SwapLanes
-        lane={laneToHold}
-        message={holdMsg}
+        lane={pinnedLane}
+        message={laneMsg}
         openLanes={openLanes}
-        onPick={(m) => runHold(m)}
+        onPick={(m) => checkLane(m)}
       />
     );
   }
@@ -364,6 +341,15 @@ const WhosBowlingStepComponent: StepDef<BowlingItem>["Component"] = ({
       }
     };
 
+    // Per-bowler bumpers (owner 2026-07-22): duckpin KEEPS bumpers, and the
+    // kiosk collects them on its details step — Play Now has no details step,
+    // so they live right on the sign-in rows. Reserve reads players[].bumpers
+    // → QAMF ActivateBumpers; wiring already exists.
+    const toggleMemberBumpers = (memberId: string) =>
+      writeRows(rows.map((r) => (r.memberId === memberId ? { ...r, bumpers: !r.bumpers } : r)));
+    const toggleExtraBumpers = (idx: number) =>
+      writeRows(rows.map((r, i) => (i === idx ? { ...r, bumpers: !r.bumpers } : r)));
+
     const contactNameMissing = !contact.firstName?.trim() || !contact.lastName?.trim();
 
     return (
@@ -420,6 +406,15 @@ const WhosBowlingStepComponent: StepDef<BowlingItem>["Component"] = ({
                     {m.isBillingCustomer ? "★ Main" : "Main"}
                   </button>
                 </div>
+                {isIn && (
+                  <div className="mt-3 flex justify-end">
+                    <BumperChip
+                      on={!!rows.find((r) => r.memberId === m.id)?.bumpers}
+                      onToggle={() => toggleMemberBumpers(m.id)}
+                      name={m.firstName}
+                    />
+                  </div>
+                )}
               </div>
             );
           })}
@@ -457,6 +452,13 @@ const WhosBowlingStepComponent: StepDef<BowlingItem>["Component"] = ({
                 >
                   Remove
                 </button>
+              </div>
+              <div className="mt-3 flex justify-end">
+                <BumperChip
+                  on={!!p.bumpers}
+                  onToggle={() => toggleExtraBumpers(idx)}
+                  name={splitName(p.name).firstName || `Bowler ${n + 1}`}
+                />
               </div>
             </div>
           ))}
@@ -553,6 +555,9 @@ const WhosBowlingStepComponent: StepDef<BowlingItem>["Component"] = ({
   const setMain = (i: number) =>
     dispatch({ type: "setContact", patch: splitName(players[i].name) });
 
+  const toggleBumpers = (i: number) =>
+    writeRows(players.map((p, idx) => (idx === i ? { ...p, bumpers: !p.bumpers } : p)));
+
   return (
     <div className="mx-auto max-w-md space-y-6">
       <Heading />
@@ -611,6 +616,13 @@ const WhosBowlingStepComponent: StepDef<BowlingItem>["Component"] = ({
                   </button>
                 )}
               </div>
+              <div className="mt-3 flex justify-end">
+                <BumperChip
+                  on={!!p.bumpers}
+                  onToggle={() => toggleBumpers(i)}
+                  name={splitName(p.name).firstName || `Bowler ${i + 1}`}
+                />
+              </div>
               {isMain && (
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <input
@@ -660,6 +672,23 @@ const WhosBowlingStepComponent: StepDef<BowlingItem>["Component"] = ({
     </div>
   );
 };
+
+/** Per-bowler bumpers toggle — duckpin keeps bumpers (owner decision). */
+function BumperChip({ on, onToggle, name }: { on: boolean; onToggle: () => void; name: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={on}
+      aria-label={`Bumpers for ${name}`}
+      className={`rounded-full border px-3 py-1.5 text-xs font-bold uppercase tracking-wider ${
+        on ? "border-[#00E2E5] bg-[#00E2E5]/10 text-[#00E2E5]" : "border-white/15 text-white/45"
+      }`}
+    >
+      Bumpers {on ? "on" : "off"}
+    </button>
+  );
+}
 
 function Heading() {
   return (

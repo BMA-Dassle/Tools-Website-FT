@@ -68,6 +68,15 @@ export async function POST(req: NextRequest) {
   const players = Math.max(1, Math.min(24, Math.floor(body.players ?? 2)));
 
   try {
+    // 0) Release the superseded hold FIRST (duration change / lane swap).
+    // Release-after made our own hold occupy the lane, so re-holds 409'd
+    // against ourselves (owner live-test bug 2026-07-22). The window where the
+    // guest holds nothing is sub-second, and the only competitor for lane N is
+    // someone physically scanning N's QR — acceptable.
+    if (body.replaceReservationId) {
+      await deleteReservation(CENTER, body.replaceReservationId).catch(() => {});
+    }
+
     // 1) Is the scanned lane physically free right now?
     const lanes = await listLanes(CENTER);
     if (!laneIsFree(lanes, lane)) {
@@ -127,10 +136,6 @@ export async function POST(req: NextRequest) {
         const got = await getReservation(CENTER, res.Id);
         const assigned = (got.Lanes ?? []).map((l) => l.LaneNumber);
         if (assigned.length === 1 && assigned[0] === lane) {
-          // Release the prior hold (duration change / lane swap) — new one is safe.
-          if (body.replaceReservationId && body.replaceReservationId !== res.Id) {
-            await deleteReservation(CENTER, body.replaceReservationId).catch(() => {});
-          }
           // Build the Square line items now (per-lane duckpin pricing) so the
           // client stores exactly what checkout quotes/charges — displayed ==
           // charged. durationOpt carries the per-duration price override.

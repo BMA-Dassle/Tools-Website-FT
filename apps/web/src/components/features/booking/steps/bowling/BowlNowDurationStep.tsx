@@ -3,15 +3,16 @@
 /**
  * "How long?" — the Play Now duration step (FastTrax duckpin per-lane QR).
  *
- * The scan-time hold already pinned the lane at the LONGEST window that fits
- * before close (the ceiling, on item.durationMinutes) and stored its line
- * items, so checkout already works. This step lets the guest pick a SHORTER
- * (cheaper) duration: any option ≤ the ceiling is guaranteed to fit, and
- * picking one re-pins the same lane at that duration (the hold route releases
- * the previous hold). Prices come from the same per-lane buildBowlingLineItems
- * the rest of the bowling flow uses, so displayed == charged.
+ * Order per owner (2026-07-22 live test): ask the duration FIRST, then hold.
+ * No hold exists when this step mounts — "Who's bowling?" only CHECKED the
+ * scanned lane was free. We fetch the lane's availability (which durations
+ * still fit before close) and show ONLY those; tapping one places the pinned
+ * hold on the lane at that duration (releasing any previous pick first, so
+ * changing your mind never collides with your own hold). Prices come from the
+ * same per-lane buildBowlingLineItems the rest of the bowling flow uses, so
+ * displayed == charged.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { BowlingItem, StepDef } from "~/features/booking";
 import type {
   BowlingExperienceWithDetails,
@@ -53,18 +54,53 @@ const BowlNowDurationStepComponent: StepDef<BowlingItem>["Component"] = ({
 
   const playerCount = item.playerCount;
   const laneCount = bowlingLaneCount(playerCount);
-  const ceiling = item.durationMinutes ?? Number.POSITIVE_INFINITY;
-  const options = (exp?.durationOptions ?? [])
-    .filter((d) => d.durationMinutes <= ceiling)
-    .sort((a, b) => a.durationMinutes - b.durationMinutes);
+  const lane = item.pinnedLaneNumber ?? null;
 
-  const [changing, setChanging] = useState<number | null>(null);
+  // Which durations still fit before close on THIS lane (close-clamped by the
+  // availability route). null = not loaded yet; on fetch failure we fail open
+  // to every configured duration — the hold on tap is the final authority.
+  const [fittingOptionIds, setFittingOptionIds] = useState<number[] | null>(null);
+  const [laneStillFree, setLaneStillFree] = useState(true);
+  const [holding, setHolding] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (lane == null) return;
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch(`/api/bowling/v2/bowl-now/availability?lane=${lane}`, {
+          cache: "no-store",
+        });
+        if (!r.ok || !alive) return;
+        const data = (await r.json()) as {
+          laneFree?: boolean;
+          durations?: Array<{ minutes: number; optionId: number }>;
+        };
+        if (!alive) return;
+        setLaneStillFree(data.laneFree !== false || !!item.qamfReservationId);
+        if (Array.isArray(data.durations)) {
+          setFittingOptionIds(data.durations.map((d) => d.optionId));
+        }
+      } catch {
+        /* fail open — hold is the authority */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // Re-check when the lane changes (swap); a held session skips the free check.
+  }, [lane, item.qamfReservationId]);
+
+  const options = (exp?.durationOptions ?? [])
+    .filter((d) => fittingOptionIds == null || fittingOptionIds.includes(d.qamfOptionId))
+    .sort((a, b) => a.durationMinutes - b.durationMinutes);
+
   async function pick(d: BowlingExperienceDurationOption) {
-    if (d.qamfOptionId === item.optionId) return; // already selected
-    if (item.pinnedLaneNumber == null) return;
-    setChanging(d.qamfOptionId);
+    if (lane == null) return;
+    const alreadyHeld = item.qamfReservationId && d.qamfOptionId === item.optionId;
+    if (alreadyHeld) return; // re-tap of the held duration is a no-op
+    setHolding(d.qamfOptionId);
     setError(null);
     setBusy?.(true);
     try {
@@ -72,7 +108,7 @@ const BowlNowDurationStepComponent: StepDef<BowlingItem>["Component"] = ({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          lane: item.pinnedLaneNumber,
+          lane,
           players: playerCount,
           optionId: d.qamfOptionId,
           replaceReservationId: item.qamfReservationId ?? undefined,
@@ -80,7 +116,18 @@ const BowlNowDurationStepComponent: StepDef<BowlingItem>["Component"] = ({
       });
       const data = await r.json();
       if (!r.ok) {
-        setError(typeof data.error === "string" ? data.error : "Couldn't switch duration.");
+        // A prior hold was already released server-side — clear it locally so
+        // the guest re-picks cleanly instead of advancing on a dead hold.
+        if (item.qamfReservationId) {
+          dispatch({ type: "clearBowlingHold", itemId: item.id });
+        }
+        setError(
+          data.code === "lane_unavailable"
+            ? `${typeof data.error === "string" ? data.error : `Lane ${lane} is in play.`} Go back to pick another open lane.`
+            : typeof data.error === "string"
+              ? data.error
+              : "Couldn't hold that time — try again.",
+        );
         return;
       }
       dispatch({
@@ -106,7 +153,7 @@ const BowlNowDurationStepComponent: StepDef<BowlingItem>["Component"] = ({
     } catch {
       setError("Connection hiccup — try again.");
     } finally {
-      setChanging(null);
+      setHolding(null);
       setBusy?.(false);
     }
   }
@@ -116,9 +163,15 @@ const BowlNowDurationStepComponent: StepDef<BowlingItem>["Component"] = ({
       <div>
         <h2 className="font-display text-2xl uppercase tracking-widest text-white">How Long?</h2>
         <p className="mt-1 text-sm text-white/50">
-          Lane {item.pinnedLaneNumber} — starting now. Pick your time.
+          Lane {lane} — starting now. Tap a time to lock it in.
         </p>
       </div>
+
+      {!laneStillFree && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100">
+          Lane {lane} just went into play — go Back to pick another open lane.
+        </div>
+      )}
 
       {error && (
         <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100">
@@ -130,20 +183,20 @@ const BowlNowDurationStepComponent: StepDef<BowlingItem>["Component"] = ({
         <div className="h-24 animate-pulse rounded-2xl bg-white/[0.05]" aria-hidden />
       ) : options.length === 0 ? (
         <p className="text-sm text-white/50">
-          No duckpin durations are available right now — see the front desk.
+          No duckpin time fits before we close tonight — see the front desk.
         </p>
       ) : (
         <div className="space-y-3">
           {options.map((d) => {
-            const selected = d.qamfOptionId === item.optionId;
+            const selected = !!item.qamfReservationId && d.qamfOptionId === item.optionId;
             const price = exp ? priceOf(exp, d, playerCount, laneCount) : 0;
-            const busy = changing === d.qamfOptionId;
+            const busy = holding === d.qamfOptionId;
             return (
               <button
                 key={d.id}
                 type="button"
                 onClick={() => void pick(d)}
-                disabled={changing != null}
+                disabled={holding != null}
                 aria-pressed={selected}
                 className={`flex w-full items-center justify-between rounded-2xl border-2 px-5 py-4 text-left disabled:opacity-60 ${
                   selected ? "border-[#00E2E5] bg-[#00E2E5]/10" : "border-white/15 bg-white/5"
@@ -153,8 +206,8 @@ const BowlNowDurationStepComponent: StepDef<BowlingItem>["Component"] = ({
                   {d.label ?? `${d.durationMinutes} min`}
                 </span>
                 <span className="text-base font-semibold text-white/80">
-                  {busy ? "…" : fmtUsd(price)}
-                  {selected ? "  ✓" : ""}
+                  {busy ? "Holding…" : fmtUsd(price)}
+                  {selected ? "  ✓ Held" : ""}
                 </span>
               </button>
             );
@@ -177,7 +230,7 @@ const BowlNowDurationStep: StepDef<BowlingItem> = {
   canAdvance: (item) =>
     item.qamfReservationId && item.durationMinutes
       ? true
-      : { reason: "Pick how long you want to bowl" },
+      : { reason: "Tap a time to hold your lane" },
 };
 
 export default BowlNowDurationStep;
