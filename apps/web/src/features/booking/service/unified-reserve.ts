@@ -2222,6 +2222,45 @@ async function unifiedReserveInner(
           void runKioskPost();
         }
       }
+
+      // ── KIOSK: "Confirmation Kiosk" state for ATTRACTION-ONLY bookings ──
+      // The racing rail above (runKioskPostReserve §4) is the ONLY place that
+      // stamps the per-location kiosk confirmation state, but it is gated on
+      // race items — so an attraction-only ("arena") kiosk booking at HP FM /
+      // Naples never left plain "-3 Confirmation" for the kiosk state staff work
+      // from (owner-reported). The rail's guest notification is hard-coded
+      // FastTrax racing copy and CANNOT fire for an attraction, so flip JUST the
+      // state here — never the notification / Pandora session assignment.
+      // Per-location ids (FM 55397028 / Naples 8489113); setProjectState is
+      // idempotent. Deferred via after() and never throwing, exactly like the rail.
+      if (session.context?.kiosk && bmiReservationNumber && raceItems.length === 0) {
+        const resNumberAttr: string = bmiReservationNumber;
+        const flipKioskState = async () => {
+          try {
+            const { setProjectState, KIOSK_CONFIRMATION_STATE_IDS } = await import(
+              "@/lib/bmi-office-actions"
+            );
+            await setProjectState({
+              centerCode,
+              projectId: officeProjectId,
+              stateId:
+                KIOSK_CONFIRMATION_STATE_IDS[centerCode] ??
+                KIOSK_CONFIRMATION_STATE_IDS["fort-myers"],
+              label: "Kiosk confirmation (attraction)",
+            });
+            console.log(
+              `[kiosk-post] attraction confirmation state set for project ${officeProjectId} (${resNumberAttr})`,
+            );
+          } catch (e) {
+            console.error("[kiosk-post] attraction state flip failed (non-fatal):", e);
+          }
+        };
+        try {
+          after(flipKioskState);
+        } catch {
+          void flipKioskState();
+        }
+      }
     } catch (err) {
       // Captured deposit stays put (forward recovery, never auto-refund). Mark
       // the anchor confirm_failed; race-confirm-reconcile retries BMI confirm.
