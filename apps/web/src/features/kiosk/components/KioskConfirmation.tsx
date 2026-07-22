@@ -294,12 +294,23 @@ export function KioskConfirmation({ src }: { src: string | null }) {
     setLanePhase("failed");
   }
 
-  // Encode the booking code as a QR so staff can scan it at check-in (the SMS +
-  // email carry the full link; this is the on-screen fallback).
+  // Encode the CONFIRMATION URL (brand short link) as the QR so a guest can scan
+  // it with their phone and land on their confirmation — the same /s/{code}
+  // target the SMS + email use. Domain follows the kiosk brand (FastTrax →
+  // fasttraxent.com, HeadPinz → headpinz.com); the short link redirects to
+  // whichever confirmation route that booking uses. Was encoding the bare code,
+  // which scanned to useless plain text.
   useEffect(() => {
     if (!code) return;
+    const domain =
+      config?.brand === "headpinz" ? "https://headpinz.com" : "https://fasttraxent.com";
+    const qrTarget = `${domain}/s/${code}`;
     let cancelled = false;
-    QRCode.toDataURL(code, { width: 360, margin: 1, color: { dark: "#04252b", light: "#ffffff" } })
+    QRCode.toDataURL(qrTarget, {
+      width: 360,
+      margin: 1,
+      color: { dark: "#04252b", light: "#ffffff" },
+    })
       .then((url) => {
         if (!cancelled) setQrDataUrl(url);
       })
@@ -307,7 +318,7 @@ export function KioskConfirmation({ src }: { src: string | null }) {
     return () => {
       cancelled = true;
     };
-  }, [code]);
+  }, [code, config?.brand]);
 
   useEffect(() => {
     // NEVER auto-reset while cards are still dispensing/loading — the reset
@@ -457,9 +468,9 @@ export function KioskConfirmation({ src }: { src: string | null }) {
                   type="button"
                   disabled={lanePhase === "opening"}
                   onClick={() => void handleOpenLane()}
-                  className="k-btn-primary k-tap text-[34px]"
+                  className="k-btn-primary k-tap whitespace-nowrap text-[30px]"
                 >
-                  {lanePhase === "opening" ? "Opening your lane…" : "Yes — open my lane"}
+                  {lanePhase === "opening" ? "Opening…" : "Open my lane"}
                 </button>
                 <button
                   type="button"
