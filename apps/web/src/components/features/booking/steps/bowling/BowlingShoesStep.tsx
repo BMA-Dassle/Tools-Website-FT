@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
 import type { BowlingSquareProduct } from "@/lib/bowling-db";
+import { FASTTRAX_QAMF_CENTER_ID, FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
 
 // Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
 // seems negative"); FastTrax red stays on racing only. VIP keeps gold.
@@ -13,6 +14,7 @@ type BowlingLikeItem = BowlingItem | KbfItem;
 const QAMF_CENTER_CODES: Record<number, string> = {
   9172: "TXBSQN0FEKQ11",
   3148: "PPTR5G2N0QXF7",
+  [FASTTRAX_QAMF_CENTER_ID]: FASTTRAX_CENTER_CODE,
 };
 
 const BowlingShoesStepComponent: StepDef<BowlingLikeItem>["Component"] = ({ item, onChange }) => {

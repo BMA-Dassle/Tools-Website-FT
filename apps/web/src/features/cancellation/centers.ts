@@ -14,6 +14,7 @@
  * always take it from the freshly fetched Square object (close-out rule).
  */
 import type { ReservationProductKind } from "@/lib/bowling-db";
+import { FASTTRAX_CENTER_CODE, FASTTRAX_QAMF_CENTER_ID } from "@/lib/qamf-centers";
 
 export type CenterSlug = "fort-myers" | "naples";
 
@@ -50,6 +51,22 @@ export function resolveCenter(
   centerCode: string,
   productKind: ReservationProductKind,
 ): CenterIdentity {
+  // FastTrax duckpin: QAMF-backed bowling at the FastTrax Square location. It
+  // shares the FM building with HeadPinz, so center_code alone (LAB52GY480CJF)
+  // collapses to fort-myers→9172 below — which would send a duckpin cancel to
+  // the WRONG QAMF center. Duckpin is the only 'open' (bowling) row that uses
+  // the FastTrax center_code (racing/attraction rows there are 'race'/
+  // 'attraction'), so that pair uniquely identifies it → QAMF center 11542.
+  if (centerCode === FASTTRAX_CENTER_CODE && productKind === "open") {
+    return {
+      slug: "fort-myers",
+      qamfCenterId: FASTTRAX_QAMF_CENTER_ID,
+      bmiClientKey: "headpinzftmyers",
+      pandoraStateSlug: "fasttrax",
+      attractionCancelCenterCode: "TXBSQN0FEKQ11",
+    };
+  }
+
   const slug = SLUG_BY_CENTER_CODE[centerCode];
   if (!slug) {
     console.warn(

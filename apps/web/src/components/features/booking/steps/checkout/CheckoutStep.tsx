@@ -47,6 +47,7 @@ import { contactIsComplete } from "../ContactStep";
 import { kioskTerminalEnabled, kioskGzCartEnabled } from "~/features/kiosk/flags";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { centerCodeFor } from "~/config/intercard-centers";
+import { qamfCenterCode, HEADPINZ_FM_CENTER_ID, HEADPINZ_FM_CENTER_CODE } from "@/lib/qamf-centers";
 import { stashGzFulfillment as stashKioskGameCards } from "~/features/kiosk/service/gz-fulfillment";
 import { stashRacePackConfirmation } from "~/features/kiosk/service/race-pack-confirmation";
 import { stashPovConfirmation } from "~/features/kiosk/service/pov-confirmation";
@@ -536,12 +537,12 @@ export function CheckoutStep({
         for (const bi of bowlingItems) {
           if (bi.lineItems.length === 0) continue; // no package picked yet — skip
           try {
-            const centerId = bi.qamfCenterId ?? 9172;
+            const centerId = bi.qamfCenterId ?? HEADPINZ_FM_CENTER_ID;
             const res = await fetch("/api/square/bowling-orders/quote", {
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({
-                locationId: centerId === 9172 ? "TXBSQN0FEKQ11" : "PPTR5G2N0QXF7",
+                locationId: qamfCenterCode(centerId) ?? HEADPINZ_FM_CENTER_CODE,
                 lineItems: buildBowlingQuoteLineItems(bi, session),
                 depositPct: 100,
               }),

@@ -16,10 +16,12 @@ import type { BowlingItem, StepDef } from "~/features/booking";
 import type { BowlingExperienceWithDetails } from "@/lib/bowling-db";
 import { KIOSK_PHOTOS } from "../assets";
 import { BrandedLoader } from "../components/BrandedLoader";
+import { FASTTRAX_QAMF_CENTER_ID, FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
 
 const CENTER_CODES: Record<number, string> = {
   9172: "TXBSQN0FEKQ11", // HeadPinz Fort Myers
   3148: "PPTR5G2N0QXF7", // HeadPinz Naples
+  [FASTTRAX_QAMF_CENTER_ID]: FASTTRAX_CENTER_CODE, // FastTrax duckpin
 };
 
 /** Per-lane, per-hour base price = the primary (sortOrder 0) item of the tier's

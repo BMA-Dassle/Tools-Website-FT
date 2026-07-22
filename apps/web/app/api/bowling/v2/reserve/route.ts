@@ -25,6 +25,11 @@ import {
 } from "@/lib/bowling-db";
 import { setLanePlayers } from "@/lib/qamf-bowling";
 import { toLaneInsertName } from "@/lib/qamf-name";
+import {
+  FASTTRAX_QAMF_CENTER_ID,
+  FASTTRAX_CENTER_CODE,
+  FASTTRAX_TAX_CATALOG_ID,
+} from "@/lib/qamf-centers";
 import redis from "@/lib/redis";
 import { shortenUrl } from "@/lib/short-url";
 import {
@@ -153,6 +158,7 @@ interface ConfirmRetryEntry {
 const CENTER_CODE_TO_ID: Record<string, number> = {
   TXBSQN0FEKQ11: 9172,
   PPTR5G2N0QXF7: 3148,
+  [FASTTRAX_CENTER_CODE]: FASTTRAX_QAMF_CENTER_ID,
 };
 
 /**
@@ -174,6 +180,7 @@ const CENTER_CODE_TO_ID: Record<string, number> = {
 const QAMF_CENTER_ID_TO_CODE: Record<number, string> = {
   9172: "TXBSQN0FEKQ11",
   3148: "PPTR5G2N0QXF7",
+  [FASTTRAX_QAMF_CENTER_ID]: FASTTRAX_CENTER_CODE,
 };
 
 interface Player {
@@ -1415,6 +1422,8 @@ export async function POST(req: NextRequest) {
         const LOCATION_TAX: Record<string, string> = {
           TXBSQN0FEKQ11: "UBPQTR3W6ZKVRYFC7DXN2SJN",
           PPTR5G2N0QXF7: "BQNVIEEZQO2PX2FI72U6FEC4",
+          // FastTrax (Lee County) — same county rate as HeadPinz FM.
+          [FASTTRAX_CENTER_CODE]: FASTTRAX_TAX_CATALOG_ID,
         };
         const taxCatalogId = LOCATION_TAX[squareLocationId];
         const orderTaxes = taxCatalogId

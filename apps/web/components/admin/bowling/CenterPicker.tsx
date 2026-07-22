@@ -3,6 +3,9 @@
 const CENTERS = [
   { code: "TXBSQN0FEKQ11", label: "Fort Myers", qamfId: 9172 },
   { code: "PPTR5G2N0QXF7", label: "Naples", qamfId: 3148 },
+  // FastTrax duckpin (QAMF 11542) — shares the FM building; kept literal so the
+  // CenterCode union stays narrow (see @/lib/qamf-centers for the shared source).
+  { code: "LAB52GY480CJF", label: "FastTrax", qamfId: 11542 },
 ] as const;
 
 export { CENTERS };

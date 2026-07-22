@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { evaluateCode, getDiscountCodeByCode } from "~/features/discount-codes";
+import { FASTTRAX_CENTER_CODE, FASTTRAX_TAX_CATALOG_ID } from "@/lib/qamf-centers";
 
 /**
  * POST /api/square/bowling-orders/quote
@@ -49,6 +50,7 @@ function sqHeaders() {
 const LOCATION_TAX: Record<string, string> = {
   TXBSQN0FEKQ11: "UBPQTR3W6ZKVRYFC7DXN2SJN", // Lee County   6.5%
   PPTR5G2N0QXF7: "BQNVIEEZQO2PX2FI72U6FEC4", // Collier Co.  6.0%
+  [FASTTRAX_CENTER_CODE]: FASTTRAX_TAX_CATALOG_ID, // FastTrax — Lee County 6.5%
 };
 
 interface LineItemInput {

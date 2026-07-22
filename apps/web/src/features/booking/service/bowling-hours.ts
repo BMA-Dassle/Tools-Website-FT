@@ -10,6 +10,7 @@ import type { BookingSession } from "../state/types";
 import { findOffering } from "../activities-catalog";
 import { HP_LOCATIONS } from "@/lib/headpinz-locations";
 import { getPublicReopenMinutes } from "@/lib/group-events";
+import { FASTTRAX_QAMF_CENTER_ID, FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
 
 const ACTIVITY_ICON: Record<string, string> = {
   "gel-blaster": "🔫",
@@ -103,6 +104,8 @@ export function otherActivitiesOnDate(
 export const CENTERS: Record<number, { hpSlug: string; name: string }> = {
   9172: { hpSlug: "fort-myers", name: "HeadPinz Fort Myers" },
   3148: { hpSlug: "naples", name: "HeadPinz Naples" },
+  // FastTrax duckpin shares the Fort Myers building, so it reuses FM hours.
+  [FASTTRAX_QAMF_CENTER_ID]: { hpSlug: "fort-myers", name: "FastTrax" },
 };
 
 /** QAMF center ID → Square center code. Single source of truth — was
@@ -111,6 +114,7 @@ export const CENTERS: Record<number, { hpSlug: string; name: string }> = {
 export const QAMF_TO_CENTER_CODE: Record<number, string> = {
   9172: "TXBSQN0FEKQ11",
   3148: "PPTR5G2N0QXF7",
+  [FASTTRAX_QAMF_CENTER_ID]: FASTTRAX_CENTER_CODE,
 };
 
 /**

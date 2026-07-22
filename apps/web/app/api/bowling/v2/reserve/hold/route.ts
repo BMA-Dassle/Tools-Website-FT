@@ -5,6 +5,7 @@ import {
   DurationGuardError,
   qamfSlotTakenMessage,
 } from "~/features/booking/service/duration-guard";
+import { FASTTRAX_QAMF_CENTER_ID } from "@/lib/qamf-centers";
 
 /**
  * POST /api/bowling/v2/reserve/hold
@@ -24,7 +25,7 @@ import {
  * Response: { qamfReservationId, expiresAt, status }
  */
 
-const VALID_CENTER_IDS = new Set([9172, 3148]);
+const VALID_CENTER_IDS = new Set([9172, 3148, FASTTRAX_QAMF_CENTER_ID]);
 
 interface HoldBody {
   centerId: number;

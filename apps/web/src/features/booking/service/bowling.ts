@@ -16,6 +16,7 @@ import type { Action } from "../state/machine";
 import { buildKbfExtraSquareLineItems, isFridayYmd } from "./kbf-pricing";
 import { promoFactor } from "./promo-pricing";
 import { formatPersonName } from "~/lib/helpers/name-format";
+import { qamfCenterCode, HEADPINZ_FM_CENTER_CODE } from "@/lib/qamf-centers";
 
 type BowlingLikeItem = BowlingItem | KbfItem;
 
@@ -244,7 +245,9 @@ export async function bowlingReserve(params: BowlingReserveParams): Promise<Bowl
   });
 
   const kind = item.kind === "kbf" ? "kbf" : item.variant === "hourly" ? "hourly" : "open";
-  const locationId = centerId === 9172 ? "TXBSQN0FEKQ11" : "PPTR5G2N0QXF7";
+  // Map the QAMF center id to its Square location (9172→FM, 3148→Naples,
+  // 11542→FastTrax). Must NOT default a non-FM center to Naples.
+  const locationId = qamfCenterCode(centerId) ?? HEADPINZ_FM_CENTER_CODE;
 
   const res = await fetch("/api/bowling/v2/reserve", {
     method: "POST",
@@ -385,7 +388,7 @@ export async function bowlingTerminalPrepare(params: {
   const centerId = item.qamfCenterId;
   if (!centerId) throw new Error("No QAMF center on bowling item");
   const locationId =
-    params.depositLocationId ?? (centerId === 9172 ? "TXBSQN0FEKQ11" : "PPTR5G2N0QXF7");
+    params.depositLocationId ?? qamfCenterCode(centerId) ?? HEADPINZ_FM_CENTER_CODE;
   // The kiosk always quotes before checkout; without it we can't fix the amount
   // the reader charges, so refuse to arm rather than guess.
   if (item.quoteDepositCents == null || item.quoteDayofOrderId == null) {

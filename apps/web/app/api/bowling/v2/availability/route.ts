@@ -13,6 +13,7 @@ import {
   type ProbeMap,
 } from "~/features/booking/service/duration-feasibility";
 import { etMinutesOfDay } from "~/components/features/booking/steps/bowling/availability-client";
+import { FASTTRAX_QAMF_CENTER_ID, FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
 
 // Cold-start + 4-7 batches of 8 probes can exceed the default 10s budget
 // when QAMF auth is also cold. Other QAMF-touching routes use 30s; match
@@ -56,12 +57,15 @@ export const maxDuration = 30;
 const QAMF_TO_CENTER_CODE: Record<number, string> = {
   9172: "TXBSQN0FEKQ11",
   3148: "PPTR5G2N0QXF7",
+  [FASTTRAX_QAMF_CENTER_ID]: FASTTRAX_CENTER_CODE,
 };
 
-// QAMF center ID → HP_LOCATIONS slug (for closing-time lookup)
+// QAMF center ID → HP_LOCATIONS slug (for closing-time lookup).
+// FastTrax duckpin shares the Fort Myers building, so it reuses FM hours.
 const QAMF_TO_HP_SLUG: Record<number, string> = {
   9172: "fort-myers",
   3148: "naples",
+  [FASTTRAX_QAMF_CENTER_ID]: "fort-myers",
 };
 
 /**

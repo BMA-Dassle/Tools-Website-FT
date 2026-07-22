@@ -18,6 +18,7 @@ import { sendLaneReadyNotification } from "@/lib/bowling-lane-ready-notify";
 import { createWalkinDayofOrder } from "@/lib/bowling-walkin-order";
 import { completeReservationOrder } from "@/lib/bowling-order-complete";
 import { shortenUrl } from "@/lib/short-url";
+import { FASTTRAX_QAMF_CENTER_ID, FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
 import { enqueueBowlingSurvey } from "~/features/guest-survey";
 
 /**
@@ -117,11 +118,13 @@ const QAMF_STATUS_MAP: Record<string, BowlingReservation["status"] | "cancel"> =
 const CENTER_CODE_TO_QAMF_ID: Record<string, number> = {
   TXBSQN0FEKQ11: 9172,
   PPTR5G2N0QXF7: 3148,
+  [FASTTRAX_CENTER_CODE]: FASTTRAX_QAMF_CENTER_ID,
 };
 
 const QAMF_ID_TO_CENTER_CODE: Record<number, string> = {
   9172: "TXBSQN0FEKQ11",
   3148: "PPTR5G2N0QXF7",
+  [FASTTRAX_QAMF_CENTER_ID]: FASTTRAX_CENTER_CODE,
 };
 
 /** Prefixes we track in Neon. Everything else (F, W, etc.) is ignored. */
@@ -248,6 +251,9 @@ async function handleCancellation(
 const WALKIN_SMS_FROM: Record<string, string> = {
   TXBSQN0FEKQ11: "+12393022155",
   PPTR5G2N0QXF7: "+12394553755",
+  // TODO(owner): replace with the FastTrax check-in SMS line. Interim: reuse the
+  // FM building number so duckpin walk-in SMS has a valid (same-building) sender.
+  [FASTTRAX_CENTER_CODE]: "+12393022155",
 };
 
 /**
