@@ -75,8 +75,17 @@ export async function GET(req: NextRequest) {
 
   const centerId = Number(req.nextUrl.searchParams.get("centerId")) || DEFAULT_CENTER_ID;
 
-  const offers = await timed<WebOfferDetail[]>("listWebOffers", () => listWebOffers(centerId));
+  const offers = await timed<unknown>("listWebOffers", () => listWebOffers(centerId));
   const lanes = await timed<Lane[]>("listLanes", () => listLanes(centerId));
+
+  // listWebOffers does NOT unwrap the QAMF { WebOffers: [...] } envelope (unlike
+  // listLanes), so coerce to an array here rather than calling .filter/.map on
+  // the raw object — that would throw outside timed() and 500 the whole route.
+  const offerList: WebOfferDetail[] = Array.isArray(offers.data)
+    ? (offers.data as WebOfferDetail[])
+    : Array.isArray((offers.data as { WebOffers?: WebOfferDetail[] } | undefined)?.WebOffers)
+      ? (offers.data as { WebOffers: WebOfferDetail[] }).WebOffers
+      : [];
 
   const live = offers.ok && lanes.ok;
   return NextResponse.json({
@@ -87,10 +96,9 @@ export async function GET(req: NextRequest) {
       : `center ${centerId} did NOT respond cleanly — see step errors`,
     offers: offers.ok
       ? {
-          count: offers.data!.length,
-          enabled: offers.data!.filter((o) => o.IsEnabled === true || o.IsEnabled === "true")
-            .length,
-          items: offers.data!.map(summarizeOffer),
+          count: offerList.length,
+          enabled: offerList.filter((o) => o.IsEnabled === true || o.IsEnabled === "true").length,
+          items: offerList.map(summarizeOffer),
         }
       : { error: offers.error, ms: offers.ms },
     lanes: lanes.ok ? { count: lanes.data!.length } : { error: lanes.error, ms: lanes.ms },
