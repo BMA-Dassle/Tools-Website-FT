@@ -73,6 +73,9 @@ export function parseEntryContextFromSearchParams(sp: RawSearchParams): EntryCon
   // Vercel previews). Only the exact value counts.
   if (first(sp.bowlingV3) === "1") out.bowlingV3 = true;
 
+  // FastTrax QAMF duckpin preview opt-in (dark-flag testing). Exact value only.
+  if (first(sp.ftDuckpin) === "1") out.ftDuckpin = true;
+
   const firstName = first(sp.firstName);
   const lastName = first(sp.lastName);
   const email = first(sp.email);

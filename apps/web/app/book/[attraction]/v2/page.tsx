@@ -10,6 +10,7 @@ import {
   type EntryContext,
 } from "~/features/booking";
 import { parseEntryContextFromSearchParams } from "~/features/booking/state/parse-entry-context";
+import { fasttraxQamfDuckpinEnabled } from "~/features/booking/flags";
 import { resolveAppliedPromo, type AppliedPromo } from "~/features/discount-codes";
 
 /**
@@ -84,12 +85,21 @@ export default async function BookActivityV2Page({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { attraction: slug } = await params;
-  const activity = slugToActivity(slug);
+  let activity = slugToActivity(slug);
   if (!activity) notFound();
 
   const sp = await searchParams;
   const entryBrand = await readEntryBrand();
   const initialContext: EntryContext = parseEntryContextFromSearchParams(sp);
+
+  // FastTrax QAMF duckpin migration: when the flag is active, `duck-pin` is a
+  // QAMF bowling item (center 11542), NOT a BMI attraction. Flag-off keeps the
+  // legacy attraction path byte-identical. BookingFlow reads the slug to stamp
+  // isDuckpin on the seeded bowling item.
+  const ftDuckpinActive = fasttraxQamfDuckpinEnabled() || initialContext.ftDuckpin === true;
+  if (slug === "duck-pin" && ftDuckpinActive) {
+    activity = "bowling";
+  }
 
   // Promo seed: resolve, then check whether THIS activity is in scope.
   // The catalog's `findOffering(slug)` matches the URL slug for attractions

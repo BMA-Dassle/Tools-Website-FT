@@ -81,6 +81,12 @@ export interface EntryContext {
    * env flag is still dark. See src/features/booking/flags.ts.
    */
   bowlingV3?: true;
+  /**
+   * Preview opt-in for FastTrax QAMF duckpin (`?ftDuckpin=1`) — routes the
+   * duck-pin offering to QAMF center 11542 for this session while the env flag
+   * is dark. See src/features/booking/flags.ts.
+   */
+  ftDuckpin?: true;
 }
 
 /** Convenience: an empty context. Used when the entry URL carried nothing. */

@@ -135,6 +135,20 @@ function hiddenForWorldCup(step: StepDef): StepDef {
 }
 
 /**
+ * Hide a step for FastTrax duckpin bowling items (isDuckpin). Duckpin has a
+ * single non-VIP offer (skip the Tier step) and no shoes (skip the Shoes step),
+ * without affecting HeadPinz. HeadPinz items (isDuckpin falsy) are unchanged.
+ */
+export function hiddenForDuckpin(step: StepDef): StepDef {
+  return {
+    ...step,
+    isVisible: (item, session) =>
+      !(item.kind === "bowling" && (item as { isDuckpin?: boolean }).isDuckpin) &&
+      step.isVisible(item, session),
+  };
+}
+
+/**
  * Single-time-pick bowling flow (v3) coexistence wrappers (2026-07-19).
  * The classic Slots→Tier→Offer steps and the v3 Date→Experience→Time steps
  * BOTH live in the registry; exactly one set is visible per session, keyed
@@ -212,7 +226,8 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     hiddenInCombo(WorldCupMatchStep as StepDef),
     // Classic flow (flag OFF): date+hour → tier → package+time-confirm.
     hiddenInCombo(hiddenForWorldCup(classicOnly(BowlingSlotsStep as StepDef))),
-    hiddenInCombo(hiddenForWorldCup(classicOnly(BowlingTierStep as StepDef))),
+    // Duckpin has a single non-VIP offer — skip the Tier (Regular/VIP) step.
+    hiddenInCombo(hiddenForWorldCup(hiddenForDuckpin(classicOnly(BowlingTierStep as StepDef)))),
     hiddenInCombo(hiddenForWorldCup(classicOnly(BowlingOfferStep as StepDef))),
     // v3 single-time-pick flow (flag ON): date → experience → time+hold.
     hiddenInCombo(hiddenForWorldCup(v3Only(BowlingDateStep as StepDef))),

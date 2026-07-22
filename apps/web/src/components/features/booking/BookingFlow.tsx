@@ -40,6 +40,7 @@ import {
   worldCupWindowActive,
 } from "~/features/world-cup";
 import { qamfCenterIdForCode } from "~/features/booking/types";
+import { fasttraxQamfDuckpinActive } from "~/features/booking/flags";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
 
 export interface BookingFlowProps {
@@ -249,6 +250,14 @@ export function BookingFlow({
         b.variant = "hourly";
         b.tier = "vip";
         b.isWorldCup = true;
+      }
+      // FastTrax duckpin: the entry page maps duck-pin → activity "bowling" when
+      // the flag is active. Mark the item so it resolves to QAMF 11542 (reducer),
+      // prices per-lane (hourly), and drops shoes / uses FastTrax branding.
+      if (created.kind === "bowling" && slug === "duck-pin" && fasttraxQamfDuckpinActive(session)) {
+        const b = created as Extract<SessionItem, { kind: "bowling" }>;
+        b.variant = "hourly";
+        b.isDuckpin = true;
       }
       return created;
     };

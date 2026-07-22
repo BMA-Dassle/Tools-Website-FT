@@ -474,6 +474,14 @@ export interface BowlingItem extends BookingItemBase, BowlingCommon {
   isWorldCup?: boolean;
   /** WORLD_CUP_FIXTURES id of the picked match (persisted to booking metadata). */
   worldCupMatchId?: string | null;
+  /**
+   * FastTrax duckpin (QAMF center 11542). FastTrax and HeadPinz FM share the
+   * "fort-myers" CenterCode, so this item-level marker — not session.center —
+   * is what routes the item to 11542 (see reducer) and drives duckpin-specific
+   * behavior: no shoe step, no shoe-size capture, FastTrax branding. Optional so
+   * sessions persisted before this field hydrate undefined → falsy (HeadPinz).
+   */
+  isDuckpin?: boolean;
 }
 
 export interface KbfItem extends BookingItemBase, BowlingCommon {
@@ -764,6 +772,7 @@ export function newItem(activity: Activity): SessionItem {
         discountCode: null,
         isWorldCup: false,
         worldCupMatchId: null,
+        isDuckpin: false,
       };
     case "kbf":
       return {

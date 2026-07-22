@@ -6,7 +6,7 @@
  * web registry — zero risk to the live booking flow.
  */
 import { STEP_REGISTRY, type SessionItem, type StepDef } from "~/features/booking";
-import { classicOnly } from "~/features/booking/state/steps";
+import { classicOnly, hiddenForDuckpin } from "~/features/booking/state/steps";
 import { getPackage } from "@/lib/packages";
 import { KioskSlotStep } from "../steps/KioskSlotStep";
 import { KioskBowlingDetailsStep } from "../steps/KioskBowlingDetailsStep";
@@ -183,10 +183,13 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     );
     // Classic vs VIP Suites — kiosk-native Podium reskin (writes only item.tier;
     // the offer step still does duration + slot + hold).
+    // Duckpin has a single non-VIP offer — skip the Tier step (matches web).
     steps = replaceStep(
       steps,
       "bowling-tier",
-      hiddenInCombo(hiddenForWorldCup(classicOnly(KioskBowlingTierStep as StepDef))),
+      hiddenInCombo(
+        hiddenForWorldCup(hiddenForDuckpin(classicOnly(KioskBowlingTierStep as StepDef))),
+      ),
     );
     // Kiosk-native "Choose a Package" (Podium reskin of the classic offer
     // step; same shared useBowlingOffers brain, so the duration + slot +

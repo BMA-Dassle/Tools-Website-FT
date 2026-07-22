@@ -36,6 +36,7 @@ import {
   type StepDef,
 } from "~/features/booking";
 import { clearBookingSession, usePersistedReducer } from "~/features/booking/hooks";
+import { fasttraxQamfDuckpinEnabled } from "~/features/booking/flags";
 import { appendGrantedCredits } from "~/features/booking/data/race-credits";
 import { resetToKiosk } from "../version";
 import { CartView } from "~/components/features/booking/CartView";
@@ -153,11 +154,17 @@ const NATIVE_STEP_IDS = new Set([
 ]);
 
 /** ?goto= deep links from the attract screen's quick chips. */
-function seedForGoto(goto: string): { kind: SessionItem["kind"]; slug?: string } | "vip" | null {
+function seedForGoto(
+  goto: string,
+  ftDuckpinActive: boolean,
+): { kind: SessionItem["kind"]; slug?: string; duckpin?: boolean } | "vip" | null {
   if (goto === "race") return { kind: "race" };
   if (goto === "bowl" || goto === "bowling") return { kind: "bowling" };
   if (goto === "kbf") return { kind: "kbf" };
   if (goto === "vip") return "vip";
+  // FastTrax duckpin on QAMF: a bowling item (center 11542), not a BMI
+  // attraction, when the flag is active. Flag-off keeps the attraction path.
+  if (goto === "duck-pin" && ftDuckpinActive) return { kind: "bowling", duckpin: true };
   if (["gel-blaster", "laser-tag", "duck-pin", "shuffly"].includes(goto)) {
     return { kind: "attraction", slug: goto };
   }
@@ -319,7 +326,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
         }
         return;
       }
-      const seed = seedForGoto(goto);
+      const seed = seedForGoto(goto, fasttraxQamfDuckpinEnabled());
       if (seed === "vip") {
         const combo = getComboSpecial("race-bowl");
         if (
@@ -341,6 +348,10 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
         } else {
           const item = stampToday(newItem(seed.kind));
           if (item.kind === "attraction" && seed.slug) (item as AttractionItem).slug = seed.slug;
+          if (item.kind === "bowling" && seed.duckpin) {
+            item.variant = "hourly";
+            item.isDuckpin = true;
+          }
           dispatch({ type: "addItem", item });
         }
       }
@@ -559,6 +570,21 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   };
 
   const pickOffering = (offering: ActivityOffering) => {
+    // FastTrax duckpin on QAMF: the duck-pin tile seeds a bowling item at center
+    // 11542 (isDuckpin), NOT a BMI attraction, when the flag is active. Flag-off
+    // falls through to the normal attraction path below.
+    if (offering.slug === "duck-pin" && fasttraxQamfDuckpinEnabled()) {
+      const existingDuckpin = session.items.find((i) => i.kind === "bowling" && i.isDuckpin);
+      if (existingDuckpin) {
+        dispatch({ type: "setActiveItem", id: existingDuckpin.id });
+        return;
+      }
+      const dp = stampToday(newItem("bowling")) as BowlingItem;
+      dp.variant = "hourly";
+      dp.isDuckpin = true;
+      dispatch({ type: "addItem", item: dp });
+      return;
+    }
     // A bundle owns its race + bowling legs: the individual tiles used to
     // RE-OPEN those seeded items (racing re-entered the combo wizard, bowling
     // has no visible steps → dead cart bounce) — "gets all messed up" (owner

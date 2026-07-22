@@ -15,6 +15,7 @@
  */
 import type { AppliedPromo } from "~/features/discount-codes";
 import { qamfCenterIdForCode, type CenterCode, type ContactInfo } from "../types";
+import { FASTTRAX_QAMF_CENTER_ID } from "@/lib/qamf-centers";
 import {
   hasKbfItem,
   newKbfIdentity,
@@ -145,9 +146,14 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
     case "addItem": {
       // Stamp the QAMF center on bowling/KBF items from the session center so a
       // Naples booking books Naples (3148) — not a silent Fort Myers default.
+      // FastTrax duckpin shares the "fort-myers" CenterCode with HeadPinz FM, so
+      // it is resolved from the item's isDuckpin marker → 11542, never from center.
       let item = action.item;
       if (item.kind === "bowling" || item.kind === "kbf") {
-        const qamf = qamfCenterIdForCode(state.center);
+        const qamf =
+          item.kind === "bowling" && item.isDuckpin
+            ? FASTTRAX_QAMF_CENTER_ID
+            : qamfCenterIdForCode(state.center);
         if (qamf != null) item = { ...item, qamfCenterId: qamf };
       }
       const next: BookingSession = {
@@ -317,12 +323,14 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
       return {
         ...state,
         center: action.center,
-        items:
-          qamf == null
-            ? state.items
-            : state.items.map((i) =>
-                i.kind === "bowling" || i.kind === "kbf" ? { ...i, qamfCenterId: qamf } : i,
-              ),
+        items: state.items.map((i) => {
+          if (i.kind !== "bowling" && i.kind !== "kbf") return i;
+          // Never clobber a FastTrax duckpin item's 11542 with the center's id
+          // (both live at the "fort-myers" complex).
+          if (i.kind === "bowling" && i.isDuckpin)
+            return { ...i, qamfCenterId: FASTTRAX_QAMF_CENTER_ID };
+          return qamf == null ? i : { ...i, qamfCenterId: qamf };
+        }),
       };
     }
 
