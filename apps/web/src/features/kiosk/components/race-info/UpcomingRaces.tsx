@@ -54,7 +54,7 @@ function checkinLabel(race: CurrentRace): string {
   } catch {
     /* keep empty */
   }
-  return `Now Checking In · ${race.raceType} Heat #${race.heatNumber}${time ? ` · ${time}` : ""}`;
+  return `${race.raceType} Heat #${race.heatNumber}${time ? ` · ${time}` : ""}`;
 }
 
 /** Live status band — kiosk-scaled port of components/home/TrackStatus. */
@@ -69,12 +69,13 @@ function StatusBand() {
   return (
     <div className="rounded-[28px] border border-[#f0b341]/30 bg-[#f0b341]/5 p-[28px]">
       {races.length > 0 && (
-        <div className="mb-[20px] flex flex-col gap-[8px]">
+        <div className="mb-[20px] flex flex-col gap-[6px]">
+          <div className="k-display flex items-center gap-[12px] text-[20px] tracking-wide text-[#f0b341]/70">
+            <span className="h-[12px] w-[12px] animate-pulse rounded-full bg-[#f0b341]" />
+            Now Checking In
+          </div>
           {races.map((race) => (
-            <div
-              key={race.sessionId}
-              className="k-display animate-pulse text-[32px] text-[#f0b341]"
-            >
+            <div key={race.sessionId} className="k-display text-[30px] text-[#f0b341]">
               {checkinLabel(race)}
             </div>
           ))}
@@ -157,7 +158,9 @@ function HeatCard({ heat }: { heat: DisplayHeat }) {
 
 export function UpcomingRaces() {
   const { config } = useKioskConfig();
-  const { heats, tracks, isLoading, isError } = useRaceGridDisplay(config?.center ?? "fort-myers");
+  const { heats, tracks, schedule, isLoading, isError } = useRaceGridDisplay(
+    config?.center ?? "fort-myers",
+  );
   const [trackFilter, setTrackFilter] = useState<DisplayTrack | null>(null);
   const [classFilter, setClassFilter] = useState<"adult" | "junior">("adult");
   const activeTrack = trackFilter && tracks.includes(trackFilter) ? trackFilter : null;
@@ -165,6 +168,12 @@ export function UpcomingRaces() {
   const visible = heats.filter(
     (h) => h.category === classFilter && (!activeTrack || h.track === activeTrack),
   );
+
+  // The Junior-on-Mega rule only matters on a Mega day, and only when a guest
+  // is actually looking for Junior races — juniors don't run the Mega Track,
+  // so the board is (correctly) empty. Show the notice in place of the generic
+  // empty state; keep it off the board entirely on Red/Blue days.
+  const showMegaNoJunior = schedule === "mega" && classFilter === "junior";
 
   return (
     <div className="flex flex-col gap-[28px] pb-[48px]">
@@ -220,6 +229,17 @@ export function UpcomingRaces() {
           Race times aren&rsquo;t loading right now — our crew at the front desk has the full
           schedule.
         </div>
+      ) : showMegaNoJunior ? (
+        // Mega day + Junior filter: the board is empty by design — explain why.
+        <div className="flex flex-col items-center gap-[16px] rounded-[24px] border border-[#e53935]/40 bg-[#e53935]/10 px-[32px] py-[56px] text-center">
+          <IconAlertTriangle size={48} className="text-[#ff5a52]" aria-hidden="true" />
+          <div className="text-[32px] font-bold text-[#ff5a52]">
+            No Junior races on the Mega Track
+          </div>
+          <div className="max-w-[520px] text-[22px] leading-snug text-white/50">
+            The Mega Track runs adults only. Check back on a Red &amp; Blue day for Junior heats.
+          </div>
+        </div>
       ) : visible.length === 0 ? (
         <div className="py-[80px] text-center text-[30px] text-white/50">
           No more {classFilter} races on the board today.
@@ -230,13 +250,6 @@ export function UpcomingRaces() {
             {visible.map((h) => (
               <HeatCard key={h.key} heat={h} />
             ))}
-          </div>
-          {/* Junior-on-Mega rule — bold + red, must stand out (owner 2026-07-21). */}
-          <div className="flex items-center justify-center gap-[20px] rounded-[20px] border-2 border-[#e53935] bg-[#e53935]/15 px-[28px] py-[20px]">
-            <IconAlertTriangle size={44} className="shrink-0 text-[#ff5a52]" aria-hidden="true" />
-            <div className="text-[28px] font-bold leading-snug text-[#ff5a52]">
-              No Junior races on the Mega Track.
-            </div>
           </div>
           <div className="text-center text-[22px] text-white/40">
             Intermediate &amp; Pro require a qualifying lap time — everyone starts in Starter. Tap
