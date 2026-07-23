@@ -88,6 +88,17 @@ export interface KioskPartyManagerProps {
    *  camera is present; required for adults / optional for minors inside the photo
    *  component) or "off" to skip the photo step entirely. */
   photoStep?: "required-adults" | "off";
+  /** Fires after each waiver is successfully signed (a self-sign, a guardian's
+   *  own, or a minor's signed by a guardian) — the mobile /waiver flow posts an
+   *  E-SIGN audit row. Kiosk consumers omit it (no-op). */
+  onWaiverSigned?: (info: {
+    memberId: string;
+    personId: string;
+    firstName: string;
+    signerPersonId?: string;
+    waiverId?: string;
+    templateContentId?: string;
+  }) => void;
 }
 
 function ageFromDob(mmddyyyy: string): number | null {
@@ -171,6 +182,7 @@ export function KioskPartyManager({
   theme = "kiosk",
   hasCamera,
   photoStep = "required-adults",
+  onWaiverSigned,
 }: KioskPartyManagerProps) {
   const isRace = mode === "race";
 
@@ -1259,11 +1271,18 @@ export function KioskPartyManager({
                         ? `${waiverFor.signerName} — sign below for ${signer?.firstName ?? "the minor"}. It stays on file for the whole visit.`
                         : "Read and sign below — it stays on file for your whole visit."
                     }
-                    onComplete={() => {
-                      // Guardian just signed their OWN waiver → mark it and chain
-                      // straight to the minor's waiver (guardian as sigPersonID).
+                    onComplete={(waiverId) => {
+                      // Guardian just signed their OWN waiver → audit it, mark it,
+                      // and chain straight to the minor's (guardian as sigPersonID).
                       if (guardianChain && waiverFor.memberId === guardianChain.guardianId) {
                         onUpdateMember(guardianChain.guardianId, { waiverValid: true });
+                        onWaiverSigned?.({
+                          memberId: guardianChain.guardianId,
+                          personId: waiverFor.personId,
+                          firstName: guardianChain.guardianName,
+                          waiverId,
+                          templateContentId: waiverFor.template.contentID,
+                        });
                         setWaiverFor({
                           memberId: guardianChain.minorMemberId,
                           personId: guardianChain.minorPersonId,
@@ -1274,6 +1293,14 @@ export function KioskPartyManager({
                         return;
                       }
                       onUpdateMember(waiverFor.memberId, { waiverValid: true });
+                      onWaiverSigned?.({
+                        memberId: waiverFor.memberId,
+                        personId: waiverFor.personId,
+                        firstName: signer?.firstName ?? "",
+                        signerPersonId: waiverFor.signerPersonId,
+                        waiverId,
+                        templateContentId: waiverFor.template.contentID,
+                      });
                       // Minor signed by a guardian → best-effort BMI guardian link.
                       if (waiverFor.signerPersonId) {
                         linkMinorToGuardian(waiverFor.memberId, waiverFor.signerPersonId);

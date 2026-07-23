@@ -31,10 +31,18 @@ export interface WaiverAcceptance {
   personId: string;
   /** BMI waiverID returned by Pandora on success. */
   waiverId?: string;
-  /** How acceptance was captured. */
-  method: "checkbox" | "backfill";
+  /** How acceptance was captured. "signature" = the interactive sign-pad path
+   *  (the unified /waiver flow + kiosk); "checkbox" = digital-accept; "backfill"
+   *  = reconstructed. */
+  method: "checkbox" | "backfill" | "signature";
   /** Group-event slug (e.g. "healthnet-2026"). */
   eventSlug?: string;
+  /** Center the waiver was signed for (unified /waiver flow). */
+  center?: string;
+  /** For a MINOR's waiver signed BY a guardian: the guardian's SHORT Pandora id.
+   *  person_id stays the subject (the minor); this records who signed. Null on a
+   *  self-sign. */
+  signedByPersonId?: string;
 }
 
 let schemaReady = false;
@@ -56,9 +64,14 @@ async function ensureSchema(): Promise<void> {
       waiver_id      TEXT,
       method         TEXT NOT NULL,
       event_slug     TEXT,
+      center         TEXT,
+      signed_by_person_id TEXT,
       inserted_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
+  // Additive columns for the unified /waiver signature flow (existing tables).
+  await q`ALTER TABLE waiver_acceptances ADD COLUMN IF NOT EXISTS center TEXT`;
+  await q`ALTER TABLE waiver_acceptances ADD COLUMN IF NOT EXISTS signed_by_person_id TEXT`;
   await q`CREATE INDEX IF NOT EXISTS waiver_acc_person_idx ON waiver_acceptances(person_id)`;
   await q`CREATE INDEX IF NOT EXISTS waiver_acc_event_idx  ON waiver_acceptances(event_slug) WHERE event_slug IS NOT NULL`;
   await q`CREATE INDEX IF NOT EXISTS waiver_acc_email_idx  ON waiver_acceptances(email) WHERE email IS NOT NULL`;
@@ -80,11 +93,13 @@ export async function logWaiverAcceptance(a: WaiverAcceptance): Promise<void> {
     await q`
       INSERT INTO waiver_acceptances (
         ts, ip_address, user_agent, terms_version,
-        email, phone, first_name, person_id, waiver_id, method, event_slug
+        email, phone, first_name, person_id, waiver_id, method, event_slug,
+        center, signed_by_person_id
       ) VALUES (
         ${a.ts}, ${a.ipAddress ?? null}, ${a.userAgent ?? null}, ${a.termsVersion},
         ${a.email ?? null}, ${a.phone ?? null}, ${a.firstName ?? null},
-        ${a.personId}, ${a.waiverId ?? null}, ${a.method}, ${a.eventSlug ?? null}
+        ${a.personId}, ${a.waiverId ?? null}, ${a.method}, ${a.eventSlug ?? null},
+        ${a.center ?? null}, ${a.signedByPersonId ?? null}
       )
     `;
   } catch (err) {

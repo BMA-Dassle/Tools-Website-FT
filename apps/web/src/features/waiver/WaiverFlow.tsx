@@ -106,6 +106,22 @@ export function WaiverFlow({
           setParty((p) => p.map((m) => (m.id === id ? { ...m, ...patch } : m)))
         }
         onRemoveMember={(id) => setParty((p) => p.filter((m) => m.id !== id))}
+        onWaiverSigned={(info) => {
+          // Best-effort E-SIGN audit row in our own DB (Pandora holds the
+          // signature image; this is the persist-to-Neon record of acceptance).
+          void fetch("/api/waiver/record", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              personId: info.personId,
+              firstName: info.firstName,
+              center,
+              waiverId: info.waiverId,
+              termsVersion: info.templateContentId,
+              signedByPersonId: info.signerPersonId,
+            }),
+          }).catch(() => {});
+        }}
       />
 
       {ready && (
