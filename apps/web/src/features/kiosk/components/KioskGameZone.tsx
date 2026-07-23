@@ -122,7 +122,9 @@ function errText(data: unknown): string | null {
 }
 
 type Phase = "cart" | "paying" | "loading" | "done" | "error";
-type Mode = "choose" | "reload" | "newcard" | "balance";
+type Mode = "choose" | "reload" | "newcard" | "balance" | "consolidate";
+/** Consolidate flow steps: read the target card, then feed sources, then done. */
+type ConsoStep = "target" | "sources" | "done";
 
 /**
  * Guest-facing card number. The mag track pads the account to a fixed-width
@@ -278,6 +280,22 @@ export function KioskGameZone({
   const [doneAutoCloseIn, setDoneAutoCloseIn] = useState<number | null>(null);
   const locationCode = centerCodeFor(center, brand);
 
+  // Consolidation (CLOUD ONLY — gated on bridgeUp===false): combine several
+  // cards' balances onto one target card, one source at a time. The target is
+  // read + returned; each source is moved server-side (/api/game-cards/consolidate)
+  // then binned. consoBusy pauses the idle watchdog during the (up-to-30s) reads.
+  const [consoStep, setConsoStep] = useState<ConsoStep>("target");
+  const [consoTarget, setConsoTarget] = useState<{
+    account: string;
+    tokens: number;
+    bonusTokens: number;
+  } | null>(null);
+  const [consoSources, setConsoSources] = useState<
+    Array<{ account: string; tokens: number; bonusTokens: number }>
+  >([]);
+  const [consoBusy, setConsoBusy] = useState(false);
+  const [consoMsg, setConsoMsg] = useState<string | null>(null);
+
   // The CRT-591 dispenser owns ONE connection for the whole Game Zone session
   // (this component stays mounted until the guest exits). Auto-reconnects
   // silently on a provisioned kiosk.
@@ -325,19 +343,21 @@ export function KioskGameZone({
     h?.resolve(false);
   };
 
-  // When leaving reload, stop the gate from accepting more cards.
+  // When leaving reload/consolidate (both accept cards at the gate), stop the
+  // gate from accepting more.
   useEffect(() => {
-    if (mode !== "reload") return;
+    if (mode !== "reload" && mode !== "consolidate") return;
     return () => {
       if (dispenser.ready) void dispenser.stopAccepting();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
-  // Pause the idle watchdog while the dispenser is working or holding.
+  // Pause the idle watchdog while the dispenser is working, holding, or in the
+  // middle of a consolidate read/move (consoBusy).
   useEffect(() => {
-    onBusyChange?.(phase === "loading" || phase === "paying" || holdFault != null);
-  }, [phase, holdFault, onBusyChange]);
+    onBusyChange?.(phase === "loading" || phase === "paying" || holdFault != null || consoBusy);
+  }, [phase, holdFault, consoBusy, onBusyChange]);
 
   // Card-error beacon: report each hold fault to the parent exactly once, by
   // instance — a re-render (or the parent closing the beacon) must not re-raise
@@ -632,6 +652,140 @@ export function KioskGameZone({
       if (!resumed) return false;
     }
     return true;
+  };
+
+  // ── Consolidation (cloud-only) ──────────────────────────────────────────────
+  // Read the TARGET card and hand it straight back (it's the survivor). Balance
+  // is read via /verify for display; the move happens per-source below.
+  const consoReadTarget = async () => {
+    if (consoBusy || !readerReady) return;
+    setConsoBusy(true);
+    setConsoMsg(null);
+    try {
+      const r = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
+      await dispenser.present(); // ALWAYS return the target — consolidation never keeps it
+      if (!r.ok) {
+        setConsoMsg("Couldn't read that card — take it back and try again.");
+        return;
+      }
+      const account = r.value;
+      let tokens = 0;
+      let bonusTokens = 0;
+      try {
+        const res = await fetch("/api/game-cards/verify", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ accountNumber: account, locationCode }),
+        });
+        const data = await res.json();
+        const bal = data.balance ?? data;
+        tokens = bal.tokens ?? 0;
+        bonusTokens = bal.bonusTokens ?? 0;
+      } catch {
+        /* balance is display-only; the move re-reads server-side */
+      }
+      setConsoTarget({ account, tokens, bonusTokens });
+      setConsoSources([]);
+      setConsoStep("sources");
+    } finally {
+      setConsoBusy(false);
+    }
+  };
+
+  // Accept the next SOURCE card and move ALL its value onto the target
+  // (server-side, cloud). Only bin the source on a confirmed move; return it on
+  // a clean decline; hold/return on an ambiguous outcome (never bin unconfirmed).
+  const consoAddSource = async () => {
+    if (consoBusy || !consoTarget) return;
+    // Need bin room before we consume a source into it.
+    if (!(await holdIfBinFull())) {
+      setConsoMsg("Please see an attendant.");
+      return;
+    }
+    setConsoBusy(true);
+    setConsoMsg(null);
+    try {
+      const r = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
+      if (!r.ok) {
+        await dispenser.present();
+        setConsoMsg("Couldn't read that card — take it back and try again.");
+        return;
+      }
+      const source = r.value;
+      if (source === consoTarget.account || consoSources.some((s) => s.account === source)) {
+        await dispenser.present();
+        setConsoMsg(
+          "That's the card you're keeping (or already combined) — insert a different one.",
+        );
+        return;
+      }
+      const res = await fetch("/api/game-cards/consolidate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          locationCode,
+          targetAccount: consoTarget.account,
+          sourceAccount: source,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        // Value is on the target → safe to bin the emptied source.
+        if (!(await captureSafely())) {
+          setConsoMsg("Please see an attendant.");
+          return;
+        }
+        const movedTokens = data.moved?.tokens ?? 0;
+        const movedBonus = data.moved?.bonusTokens ?? 0;
+        setConsoSources((prev) => [
+          ...prev,
+          { account: source, tokens: movedTokens, bonusTokens: movedBonus },
+        ]);
+        if (data.targetBalance) {
+          setConsoTarget((t) =>
+            t
+              ? {
+                  ...t,
+                  tokens: data.targetBalance.tokens ?? t.tokens,
+                  bonusTokens: data.targetBalance.bonusTokens ?? t.bonusTokens,
+                }
+              : t,
+          );
+        }
+        setConsoMsg(null);
+        // Bin full now → the run is over (owner: "until the bin is full").
+        if ((await dispenser.getBinState()) === "full") setConsoStep("done");
+      } else if (data.outcome === "unknown") {
+        // Ambiguous — the source was NOT emptied. Return it; staff resolve.
+        await dispenser.present();
+        setConsoMsg(
+          data.message ||
+            "We couldn't confirm that one — your card is back. Please see an attendant.",
+        );
+      } else {
+        // Clean decline — nothing moved. Return the card.
+        await dispenser.present();
+        setConsoMsg(
+          data.message ||
+            errText(data) ||
+            "That card couldn't be combined — take it back and try again.",
+        );
+      }
+    } catch {
+      await dispenser.present().catch(() => {});
+      setConsoMsg(
+        "Something went wrong — your card is back. Please try again or see an attendant.",
+      );
+    } finally {
+      setConsoBusy(false);
+    }
+  };
+
+  const consoReset = () => {
+    setConsoStep("target");
+    setConsoTarget(null);
+    setConsoSources([]);
+    setConsoMsg(null);
   };
 
   // Dispense → read → load → present, ONE card at a time. Faults are handled by
@@ -1052,7 +1206,146 @@ export function KioskGameZone({
                 : "Insert a card to see its tokens, bonus tokens & eTickets"}
             </div>
           </button>
+          {/* Combine cards — CLOUD ONLY. Appears when this kiosk is on the cloud
+              path (no local bridge, bridgeUp===false); needs the reader to
+              accept + bin sources. Forcing a kiosk to cloud turns this on.
+              Kill-switch: set NEXT_PUBLIC_GC_CONSOLIDATE_DISABLED=1 to keep it
+              dark on cloud kiosks until TPI_ClearAccount is dry-run verified. */}
+          {bridgeUp === false &&
+            readerReady &&
+            process.env.NEXT_PUBLIC_GC_CONSOLIDATE_DISABLED !== "1" && (
+              <button
+                type="button"
+                onClick={() => {
+                  consoReset();
+                  setMode("consolidate");
+                }}
+                className="k-glass k-tap p-[40px] text-left"
+                style={{ borderLeft: "8px solid #b39dff" }}
+              >
+                <div className="k-display text-[48px]">Combine cards</div>
+                <div className="mt-[10px] text-[28px] text-white/55">
+                  Move the tokens from several cards onto one card to keep
+                </div>
+              </button>
+            )}
         </div>
+      </div>
+    );
+  }
+
+  // ── Combine cards (CLOUD ONLY): move several cards' tokens onto one ──
+  if (mode === "consolidate") {
+    const combinedTokens = consoTarget?.tokens ?? 0;
+    const combinedBonus = consoTarget?.bonusTokens ?? 0;
+    const last4 = (a: string) => `···${a.slice(-4)}`;
+    return (
+      <div className="mx-auto max-w-2xl px-2 py-6 kiosk-zoom">
+        <div className="mb-5 flex items-center justify-between">
+          <h1 className="font-heading text-4xl font-extrabold italic">Combine cards</h1>
+          {consoStep !== "done" && (
+            <button
+              type="button"
+              disabled={consoBusy}
+              onClick={() => setMode("choose")}
+              className="rounded-full border border-white/15 px-5 py-2 text-sm text-white/60 disabled:opacity-40"
+            >
+              Back
+            </button>
+          )}
+        </div>
+
+        {dispenser.error && (
+          <div className="mb-4 rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-amber-100">
+            {dispenser.error.message}
+            {dispenser.error.hint ? ` — ${dispenser.error.hint}` : ""}
+          </div>
+        )}
+        {consoMsg && (
+          <div className="mb-4 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-lg text-white/80">
+            {consoMsg}
+          </div>
+        )}
+
+        {consoStep === "target" && (
+          <div className="space-y-6">
+            <p className="text-2xl leading-snug text-white/70">
+              First, insert the card you want to <b>keep</b>. We&rsquo;ll read it and hand it right
+              back — every other card&rsquo;s tokens combine onto this one.
+            </p>
+            <button
+              type="button"
+              disabled={consoBusy}
+              onClick={() => void consoReadTarget()}
+              className="k-glass k-tap w-full p-10 text-center text-3xl font-bold disabled:opacity-40"
+            >
+              {consoBusy ? "Reading…" : "Insert the card to keep"}
+            </button>
+          </div>
+        )}
+
+        {consoStep === "sources" && consoTarget && (
+          <div className="space-y-6">
+            <div className="rounded-2xl border border-[#b39dff]/40 bg-[#b39dff]/10 p-6">
+              <div className="text-sm uppercase tracking-widest text-white/50">
+                Keeping card {last4(consoTarget.account)}
+              </div>
+              <div className="mt-1 text-4xl font-extrabold">
+                {combinedTokens.toLocaleString()} tokens
+                {combinedBonus ? ` + ${combinedBonus.toLocaleString()} bonus` : ""}
+              </div>
+              {consoSources.length > 0 && (
+                <div className="mt-1 text-lg text-white/60">
+                  {consoSources.length} card{consoSources.length === 1 ? "" : "s"} combined so far
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={consoBusy}
+              onClick={() => void consoAddSource()}
+              className="k-glass k-tap w-full p-10 text-center text-3xl font-bold disabled:opacity-40"
+            >
+              {consoBusy ? "Combining…" : "Insert a card to combine"}
+            </button>
+            <button
+              type="button"
+              disabled={consoBusy}
+              onClick={() => setConsoStep("done")}
+              className="w-full rounded-full border border-white/15 px-6 py-4 text-2xl text-white/70 disabled:opacity-40"
+            >
+              Done — I&rsquo;m finished
+            </button>
+          </div>
+        )}
+
+        {consoStep === "done" && consoTarget && (
+          <div className="space-y-6 text-center">
+            <div className="text-6xl">✅</div>
+            <p className="text-2xl text-white/70">
+              All set — your tokens are on the card you kept.
+            </p>
+            <div className="rounded-2xl border border-[#46d68c]/40 bg-[#46d68c]/10 p-8">
+              <div className="text-sm uppercase tracking-widest text-white/50">
+                Card {last4(consoTarget.account)}
+              </div>
+              <div className="mt-1 text-5xl font-extrabold">
+                {combinedTokens.toLocaleString()} tokens
+                {combinedBonus ? ` + ${combinedBonus.toLocaleString()} bonus` : ""}
+              </div>
+              <div className="mt-2 text-lg text-white/60">
+                {consoSources.length} card{consoSources.length === 1 ? "" : "s"} combined
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onExit}
+              className="k-glass k-tap w-full p-8 text-center text-3xl font-bold"
+            >
+              Done
+            </button>
+          </div>
+        )}
       </div>
     );
   }

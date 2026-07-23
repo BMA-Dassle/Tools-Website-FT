@@ -174,3 +174,21 @@ export const LoadCardSchema = z.object({
   preLoaded: z.boolean().optional(),
 });
 export type LoadCardInput = z.infer<typeof LoadCardSchema>;
+
+/**
+ * Card consolidation (kiosk, CLOUD ONLY): move ALL value from one source card
+ * onto a target card, then clear the source — done server-side via cloud SOAP.
+ * One source per call (the reader holds one card at a time); the kiosk loops.
+ * Both accounts are bigint strings; a card can't be combined onto itself.
+ */
+export const ConsolidateSchema = z
+  .object({
+    locationCode: z.number().int(),
+    targetAccount: accountNumber,
+    sourceAccount: accountNumber,
+  })
+  .refine((v) => v.targetAccount !== v.sourceAccount, {
+    message: "A card can't be combined onto itself",
+    path: ["sourceAccount"],
+  });
+export type ConsolidateInput = z.infer<typeof ConsolidateSchema>;
