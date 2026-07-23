@@ -16,7 +16,7 @@ import { getPackage } from "../constants";
 import { GameCardHttpError } from "../errors";
 import type { LoadCardInput } from "../schemas";
 import type { CardBalance } from "../types";
-import { creditTokens, verifyAccount } from "../data/intercard";
+import { clearAccount, creditTokens, verifyAccount } from "../data/intercard";
 import { getTxn, markLoadState, setTxnAccount } from "../data/transactions-log";
 
 export interface LoadCardResult {
@@ -85,6 +85,44 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
       `[game-cards] new-card load via on-prem bridge txn=${row.txnId} card=${input.accountNumber}`,
     );
   } else {
+    // Clear-on-encode (GC_CLEAR_ON_ENCODE): wipe any residual balance off the
+    // card BEFORE crediting, so a RECYCLED card can't stack old value on top of
+    // the new load. Cloud/SOAP path only (preLoaded=false) and NEW cards only —
+    // NEVER a reload (that would wipe the guest's own balance). If the clear
+    // doesn't confirm, we must NOT credit (would over-credit an uncleared card):
+    // mark the row load_failed so the reconcile cron never SOAP-credits it, and
+    // the kiosk retains the blank + routes to an attendant (payment is safe).
+    // (Owner 2026-07-22: the vendor's 24h-before-reuse guidance is intentionally
+    // ignored here — clears immediately before the credit.)
+    if (row.kind === "new_card" && process.env.GC_CLEAR_ON_ENCODE === "1") {
+      let clearOk = false;
+      try {
+        const { code } = await clearAccount({
+          accountNumbers: [input.accountNumber],
+          locationCode: input.locationCode,
+        });
+        clearOk = code === 0;
+        if (!clearOk) {
+          console.error(
+            `[game-cards] clear-on-encode code ${code} txn=${row.txnId} card=${input.accountNumber}`,
+          );
+        }
+      } catch (err) {
+        console.error(
+          `[game-cards] clear-on-encode threw txn=${row.txnId} card=${input.accountNumber}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+      if (!clearOk) {
+        await markLoadState(input.txnId, "load_failed", "clear-on-encode did not confirm");
+        return {
+          loaded: false,
+          accountNumber: input.accountNumber,
+          tokens: pkg.tokens,
+          bonusTokens: pkg.bonusTokens,
+        };
+      }
+    }
     try {
       const { code } = await creditTokens({
         locationCode: input.locationCode,

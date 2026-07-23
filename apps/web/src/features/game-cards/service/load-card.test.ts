@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.stubEnv("INTERCARD_MAC", "TESTMAC");
 
@@ -7,6 +7,7 @@ const order: string[] = [];
 vi.mock("../data/intercard", () => ({
   creditTokens: vi.fn(),
   verifyAccount: vi.fn(),
+  clearAccount: vi.fn(),
 }));
 
 vi.mock("../data/transactions-log", () => ({
@@ -123,5 +124,72 @@ describe("loadCard (buy: per-card load after charge)", () => {
     const res = await loadCard(input);
     expect(res.loaded).toBe(true);
     expect(intercard.creditTokens).not.toHaveBeenCalled();
+  });
+});
+
+describe("loadCard clear-on-encode (GC_CLEAR_ON_ENCODE=1)", () => {
+  beforeEach(() => {
+    vi.stubEnv("GC_CLEAR_ON_ENCODE", "1");
+  });
+  afterEach(() => {
+    // Turn the flag back off without disturbing INTERCARD_MAC (stubbed at module load).
+    vi.stubEnv("GC_CLEAR_ON_ENCODE", "");
+  });
+
+  it("clears the new card FIRST, then credits, when the clear confirms (code 0)", async () => {
+    const { intercard, log } = await mocks();
+    (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(chargedRow);
+    (intercard.clearAccount as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      order.push("clearAccount");
+      return { code: 0 };
+    });
+    (intercard.creditTokens as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      order.push("creditTokens");
+      return { code: 0 };
+    });
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: true,
+      accountNumber: input.accountNumber,
+      balance: { tokens: 500, bonusTokens: 100, eTickets: 0, timeMinutes: 0 },
+    });
+    const { loadCard } = await import("./load-card");
+
+    const res = await loadCard(input);
+    expect(res.loaded).toBe(true);
+    // Clear must run strictly before the credit.
+    expect(order.indexOf("clearAccount")).toBeLessThan(order.indexOf("creditTokens"));
+    expect(intercard.clearAccount).toHaveBeenCalledWith(
+      expect.objectContaining({ accountNumbers: [input.accountNumber], locationCode: 12 }),
+    );
+    expect(order).toContain("markLoadState:loaded");
+  });
+
+  it("does NOT credit and marks load_failed when the clear doesn't confirm", async () => {
+    const { intercard, log } = await mocks();
+    (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(chargedRow);
+    (intercard.clearAccount as ReturnType<typeof vi.fn>).mockResolvedValue({ code: -1 });
+    const { loadCard } = await import("./load-card");
+
+    const res = await loadCard(input);
+    expect(res.loaded).toBe(false);
+    // Never credit an uncleared card (would stack residual + new value).
+    expect(intercard.creditTokens).not.toHaveBeenCalled();
+    expect(order).toContain("markLoadState:load_failed");
+  });
+
+  it("never clears a reload (would wipe the guest's own balance)", async () => {
+    const { intercard, log } = await mocks();
+    (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue({ ...chargedRow, kind: "reload" });
+    (intercard.creditTokens as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0 });
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: true,
+      accountNumber: input.accountNumber,
+      balance: { tokens: 500, bonusTokens: 100, eTickets: 0, timeMinutes: 0 },
+    });
+    const { loadCard } = await import("./load-card");
+
+    const res = await loadCard(input);
+    expect(res.loaded).toBe(true);
+    expect(intercard.clearAccount).not.toHaveBeenCalled();
   });
 });
