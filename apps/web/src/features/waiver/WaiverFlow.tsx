@@ -15,6 +15,7 @@ import { useState, type CSSProperties, type ReactNode } from "react";
 import type { Brand, CenterCode } from "~/features/booking/types";
 import type { PartyMember } from "~/features/booking/state/types";
 import { KioskPartyManager, peopleReady } from "~/features/kiosk/components/KioskPartyManager";
+import { MobileWaiverPhoto } from "./MobileWaiverPhoto";
 
 /** Center-first Pandora location — a Naples waiver records at Naples, never HP
  *  Fort Myers (the 2026-07-20 misroute class). Mirrors join-helpers.brandLocationFor. */
@@ -94,8 +95,9 @@ export function WaiverFlow({
         mode="waiver"
         theme="mobile"
         guardianSigning
-        hasCamera={false}
-        photoStep="off"
+        hasCamera
+        photoStep="required-adults"
+        renderPhoto={(args) => <MobileWaiverPhoto {...args} />}
         party={party}
         brandLocation={location}
         center={center}

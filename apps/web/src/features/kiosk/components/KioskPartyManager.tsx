@@ -26,7 +26,7 @@
  *   - NEW racers are Starter-only (badge); RETURNING racers show their
  *     earned tier + credits (race mode).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { CenterCode, PartyMember } from "~/features/booking";
 import { newPartyMember } from "~/features/booking";
 import { tierFromMemberships } from "~/features/booking/service/race-products";
@@ -99,6 +99,16 @@ export interface KioskPartyManagerProps {
     waiverId?: string;
     templateContentId?: string;
   }) => void;
+  /** Supplies the pre-signature photo UI. Omitted = the kiosk's KioskWaiverPhoto
+   *  (dual-camera, device config). The mobile /waiver flow passes a single
+   *  front-camera MobileWaiverPhoto. The party overlay owns the upload; this only
+   *  renders the capture UI and calls back onCaptured/onSkip. */
+  renderPhoto?: (args: {
+    memberName: string;
+    isMinor: boolean;
+    onCaptured: (pngBase64: string) => void;
+    onSkip: () => void;
+  }) => ReactNode;
 }
 
 function ageFromDob(mmddyyyy: string): number | null {
@@ -183,6 +193,7 @@ export function KioskPartyManager({
   hasCamera,
   photoStep = "required-adults",
   onWaiverSigned,
+  renderPhoto,
 }: KioskPartyManagerProps) {
   const isRace = mode === "race";
 
@@ -1236,28 +1247,33 @@ export function KioskPartyManager({
           const signer = party.find((p) => p.id === waiverFor.memberId);
           const needPhoto =
             photoStep !== "off" && hasCameraResolved && photoDoneFor !== waiverFor.memberId;
+          const photoArgs = {
+            memberName: signer?.firstName ?? "Guest",
+            isMinor: !!signer?.isMinor,
+            onCaptured: (pngBase64: string) => {
+              // Fire-and-forget: the route persists to Neon FIRST and the sweep
+              // retries Pandora — never hold the waiver on network.
+              void fetch("/api/pandora/person-picture", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  personId: waiverFor.personId,
+                  location: center === "naples" ? "naples" : brandLocation,
+                  pngBase64,
+                }),
+              }).catch(() => {});
+              setPhotoDoneFor(waiverFor.memberId);
+            },
+            onSkip: () => setPhotoDoneFor(waiverFor.memberId),
+          };
           return (
             <div className="fixed inset-0 z-[76] overflow-y-auto bg-[#000418] p-[48px]">
               {needPhoto ? (
-                <KioskWaiverPhoto
-                  memberName={signer?.firstName ?? "Guest"}
-                  isMinor={!!signer?.isMinor}
-                  onCaptured={(pngBase64) => {
-                    // Fire-and-forget: the route persists to Neon FIRST and the
-                    // sweep retries Pandora — never hold the waiver on network.
-                    void fetch("/api/pandora/person-picture", {
-                      method: "POST",
-                      headers: { "content-type": "application/json" },
-                      body: JSON.stringify({
-                        personId: waiverFor.personId,
-                        location: center === "naples" ? "naples" : brandLocation,
-                        pngBase64,
-                      }),
-                    }).catch(() => {});
-                    setPhotoDoneFor(waiverFor.memberId);
-                  }}
-                  onSkip={() => setPhotoDoneFor(waiverFor.memberId)}
-                />
+                renderPhoto ? (
+                  renderPhoto(photoArgs)
+                ) : (
+                  <KioskWaiverPhoto {...photoArgs} />
+                )
               ) : (
                 <div className="mx-auto max-w-[900px]">
                   <WaiverSigning
