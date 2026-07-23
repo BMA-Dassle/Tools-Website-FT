@@ -23,9 +23,29 @@ function parseCenter(c: string | undefined): CenterCode | null {
   return null;
 }
 
-export default async function WaiverPage(props: { searchParams: Promise<{ c?: string }> }) {
-  const { c } = await props.searchParams;
+/** Reservation-scoped when both a BMI locationId (loc) and projectId (pid) are
+ *  present — signatures then attach to that reservation. */
+function parseReservation(
+  loc: string | undefined,
+  pid: string | undefined,
+): { locationId: number; projectId: string } | null {
+  const locationId = Number(loc);
+  if (!loc || !Number.isInteger(locationId) || locationId <= 0) return null;
+  if (!pid || !/^\d+$/.test(pid)) return null;
+  return { locationId, projectId: pid };
+}
+
+export default async function WaiverPage(props: {
+  searchParams: Promise<{ c?: string; loc?: string; pid?: string }>;
+}) {
+  const { c, loc, pid } = await props.searchParams;
   const h = await headers();
   const brand = h.get("x-brand") === "headpinz" ? "headpinz" : "fasttrax";
-  return <WaiverFlow brand={brand} initialCenter={parseCenter(c)} />;
+  return (
+    <WaiverFlow
+      brand={brand}
+      initialCenter={parseCenter(c)}
+      reservation={parseReservation(loc, pid)}
+    />
+  );
 }
