@@ -231,6 +231,16 @@ export function BookingFlow({
     if (initialContext?.playNow && !session.center) {
       dispatch({ type: "setCenter", center: "fort-myers" });
     }
+    // FastTrax duckpin (any entry, not just Play Now) is always the FastTrax
+    // Fort Myers complex — seed the center so the HeadPinz two-location picker
+    // (FM vs Naples) never appears; FastTrax is a single location. The item
+    // still resolves to QAMF 11542 via its isDuckpin marker (reducer), not from
+    // this CenterCode. Without this, a plain /book/duck-pin/v2 entry leaves the
+    // center unset and the (HeadPinz-only) CenterPickerModal wrongly blocks the
+    // FastTrax flow.
+    if (slug === "duck-pin" && fasttraxQamfDuckpinActive(session) && !session.center) {
+      dispatch({ type: "setCenter", center: "fort-myers" });
+    }
     // World Cup entry (?experience=world-cup): seed the bowling item in
     // match-picker mode — VIP tier pinned, hourly per-lane pricing;
     // WorldCupMatchStep replaces the Slots/Tier/Offer steps. Gated on the
