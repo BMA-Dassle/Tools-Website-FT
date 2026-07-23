@@ -461,13 +461,27 @@ export function KioskGameZone({
   const setNewCardAt = (i: number, patch: Partial<NewCard>) =>
     setNewCards((cs) => cs.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
 
+  // Return a held card to the guest — but ONLY when one is actually in the
+  // machine. The read screens auto-arm the gate hands-free (no tap); when nobody
+  // inserts a card, acceptAndRead times out and an UNCONDITIONAL present() then
+  // issues a MOVE with nothing to hand back — which on this unit can push a card
+  // out the front with no user action (the "randomly spits out a blank card
+  // after sitting" report). Gate present() on real card presence. Fail SAFE: if
+  // the status read is unavailable we present anyway, so a genuinely-inserted
+  // (but unreadable) card is NEVER stranded inside — returning the guest's card
+  // always wins over avoiding a spurious eject.
+  const presentIfCardPresent = async () => {
+    const s = await dispenser.getStatusNow();
+    if (!s || s.card !== "none") await dispenser.present();
+  };
+
   // RELOAD read: insert a card → the reader reads its account and returns it
   // (always — never captures a guest's card), then we verify to show balance.
   // acceptAndRead closes the entry gate before we present, so the unit can't
   // auto-swallow the returned card (the "it takes it" bug).
   const readReloadCard = async (i: number) => {
     const r = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
-    await dispenser.present(); // ALWAYS hand the card back — reload NEVER keeps a card
+    await presentIfCardPresent(); // hand back a real card; never eject on a no-card timeout
     if (!r.ok) {
       // Read/absent-card fault. Bound the auto-arm: after a few misses stop
       // re-arming so an unreadable or stuck card can't loop the gate forever.
@@ -514,7 +528,7 @@ export function KioskGameZone({
   const readBalanceCard = async () => {
     setBalCard({ accountNumber: "", status: "reading" });
     const r = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
-    await dispenser.present(); // give it straight back — never keep the card
+    await presentIfCardPresent(); // give a real card straight back; never eject on a no-card timeout
     if (!r.ok) {
       if (++autoReadFailsRef.current >= MAX_AUTO_READ_FAILS) setAutoReadBlocked(true);
       setBalCard(null); // dispenser.error banner explains what happened
@@ -562,19 +576,47 @@ export function KioskGameZone({
   // Placed AFTER the read handlers so the closure never references them
   // before declaration; still above every early return (hooks order safe).
   useEffect(() => {
-    if (!readerReady || dispenser.busy || phase !== "cart" || autoReadBlocked) return;
-    const armBalance = mode === "balance" && !balCard;
+    if (!readerReady || dispenser.busy || phase !== "cart") return;
+    const armBalance = mode === "balance" && !balCard && !autoReadBlocked;
     const reloadRow = mode === "reload" && reloadEditIdx != null ? cards[reloadEditIdx] : undefined;
     const armReload =
-      !!reloadRow && !reloadRow.accountNumber.trim() && reloadRow.status === "unverified";
-    if (!armBalance && !armReload) return;
+      !!reloadRow &&
+      !reloadRow.accountNumber.trim() &&
+      reloadRow.status === "unverified" &&
+      !autoReadBlocked;
+    // Consolidate auto-accepts cards continuously (owner: don't make the guest
+    // press a button for every card — keep accepting until they press Done). The
+    // target is a single read; then each source is read + moved and the effect
+    // re-arms. Timeouts are EXPECTED here (the guest is choosing cards), so this
+    // is NOT bounded by autoReadBlocked — it re-arms until Done (consoStep→done)
+    // or the bin fills. consoBusy guards the server round-trip between reads.
+    const armConsoTarget =
+      mode === "consolidate" && consoStep === "target" && !consoTarget && !consoBusy;
+    const armConsoSource =
+      mode === "consolidate" && consoStep === "sources" && !!consoTarget && !consoBusy;
+    if (!armBalance && !armReload && !armConsoTarget && !armConsoSource) return;
     const t = setTimeout(() => {
       if (armBalance) void readBalanceCard();
-      else if (reloadEditIdx != null) void readReloadCard(reloadEditIdx);
+      else if (armReload && reloadEditIdx != null) void readReloadCard(reloadEditIdx);
+      else if (armConsoTarget) void consoReadTarget();
+      else if (armConsoSource) void readConsoSource();
     }, 400);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readerReady, dispenser.busy, phase, mode, balCard, reloadEditIdx, cards, autoReadBlocked]);
+  }, [
+    readerReady,
+    dispenser.busy,
+    phase,
+    mode,
+    balCard,
+    reloadEditIdx,
+    cards,
+    autoReadBlocked,
+    consoStep,
+    consoTarget,
+    consoBusy,
+    consoSources,
+  ]);
 
   // A fresh card slot / mode change gets a clean auto-read budget (so a block on
   // one card doesn't strand a different one).
@@ -663,9 +705,10 @@ export function KioskGameZone({
     setConsoMsg(null);
     try {
       const r = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
-      await dispenser.present(); // ALWAYS return the target — consolidation never keeps it
+      await presentIfCardPresent(); // return a real card; never eject on a no-card timeout
       if (!r.ok) {
-        setConsoMsg("Couldn't read that card — take it back and try again.");
+        // No card inserted (auto-arm timeout) or unreadable — stay on the insert
+        // prompt and re-arm; no scary message while the guest is still deciding.
         return;
       }
       const account = r.value;
@@ -692,23 +735,27 @@ export function KioskGameZone({
     }
   };
 
-  // Accept the next SOURCE card and move ALL its value onto the target
-  // (server-side, cloud). Only bin the source on a confirmed move; return it on
-  // a clean decline; hold/return on an ambiguous outcome (never bin unconfirmed).
-  const consoAddSource = async () => {
+  // Auto-armed SOURCE read (owner: keep accepting cards until Done — no button
+  // per card). Read the next inserted card and move ALL its value onto the
+  // target (atomic, server-side, cloud). Bin the source ONLY on a confirmed
+  // move; return it on a decline/ambiguous outcome (never bin unconfirmed); a
+  // no-card timeout just re-arms silently so the guest can keep feeding cards.
+  const readConsoSource = async () => {
     if (consoBusy || !consoTarget) return;
-    // Need bin room before we consume a source into it.
-    if (!(await holdIfBinFull())) {
-      setConsoMsg("Please see an attendant.");
-      return;
-    }
+    // Set busy FIRST so the auto-arm effect can't re-enter this (and stack bin
+    // holds) while holdIfBinFull is awaiting a staff resume.
     setConsoBusy(true);
-    setConsoMsg(null);
     try {
+      // Need bin room before we consume a source into it.
+      if (!(await holdIfBinFull())) {
+        setConsoMsg("Please see an attendant.");
+        return;
+      }
       const r = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
       if (!r.ok) {
-        await dispenser.present();
-        setConsoMsg("Couldn't read that card — take it back and try again.");
+        // No card inserted (timeout) or unreadable — return any real card and
+        // wait for the next one. No message on an idle timeout (expected).
+        await presentIfCardPresent();
         return;
       }
       const source = r.value;
@@ -756,15 +803,16 @@ export function KioskGameZone({
         // Bin full now → the run is over (owner: "until the bin is full").
         if ((await dispenser.getBinState()) === "full") setConsoStep("done");
       } else if (data.outcome === "unknown") {
-        // Ambiguous — the source was NOT emptied. Return it; staff resolve.
-        await dispenser.present();
+        // Ambiguous — atomic, so value is all-on-target or all-on-source. Return
+        // the source (safe either way); staff resolve from the consolidation log.
+        await presentIfCardPresent();
         setConsoMsg(
           data.message ||
             "We couldn't confirm that one — your card is back. Please see an attendant.",
         );
       } else {
         // Clean decline — nothing moved. Return the card.
-        await dispenser.present();
+        await presentIfCardPresent();
         setConsoMsg(
           data.message ||
             errText(data) ||
@@ -772,7 +820,7 @@ export function KioskGameZone({
         );
       }
     } catch {
-      await dispenser.present().catch(() => {});
+      await presentIfCardPresent();
       setConsoMsg(
         "Something went wrong — your card is back. Please try again or see an attendant.",
       );
@@ -1210,7 +1258,8 @@ export function KioskGameZone({
               path (no local bridge, bridgeUp===false); needs the reader to
               accept + bin sources. Forcing a kiosk to cloud turns this on.
               Kill-switch: set NEXT_PUBLIC_GC_CONSOLIDATE_DISABLED=1 to keep it
-              dark on cloud kiosks until TPI_ClearAccount is dry-run verified. */}
+              dark on cloud kiosks until TPI_ConsolidateAccounts is dry-run
+              verified against the live service. */}
           {bridgeUp === false &&
             readerReady &&
             process.env.NEXT_PUBLIC_GC_CONSOLIDATE_DISABLED !== "1" && (
@@ -1270,49 +1319,84 @@ export function KioskGameZone({
         {consoStep === "target" && (
           <div className="space-y-6">
             <p className="text-2xl leading-snug text-white/70">
-              First, insert the card you want to <b>keep</b>. We&rsquo;ll read it and hand it right
+              First, insert the <b>card you want to keep</b>. We&rsquo;ll read it and hand it right
               back — every other card&rsquo;s tokens combine onto this one.
             </p>
-            <button
-              type="button"
-              disabled={consoBusy}
-              onClick={() => void consoReadTarget()}
-              className="k-glass k-tap w-full p-10 text-center text-3xl font-bold disabled:opacity-40"
-            >
-              {consoBusy ? "Reading…" : "Insert the card to keep"}
-            </button>
+            {/* Same insert animation as Check balance / Reload — auto-arms, so the
+                guest just inserts (no button to press). */}
+            <div className="flex justify-center py-8">
+              {consoBusy ? (
+                <BrandedLoader
+                  brand={brand}
+                  label="Reading your card…"
+                  sublabel="Coming right back out"
+                />
+              ) : (
+                <CardSlotGuide
+                  label="Insert the card to keep"
+                  sublabel="Use the card slot on the left — it reads in a second and comes right back out"
+                />
+              )}
+            </div>
           </div>
         )}
 
         {consoStep === "sources" && consoTarget && (
           <div className="space-y-6">
-            <div className="rounded-2xl border border-[#b39dff]/40 bg-[#b39dff]/10 p-6">
-              <div className="text-sm uppercase tracking-widest text-white/50">
-                Keeping card {last4(consoTarget.account)}
+            {/* PRIMARY card — the survivor. Bold accent + label so it reads as
+                clearly separate from the cards being combined in below. */}
+            <div className="rounded-2xl border-2 border-[#b39dff]/60 bg-[#b39dff]/10 p-6">
+              <div className="text-sm font-bold uppercase tracking-widest text-[#b39dff]">
+                Primary card — keeping this one
               </div>
-              <div className="mt-1 text-4xl font-extrabold">
+              <div className="mt-1 text-lg text-white/50">Card {last4(consoTarget.account)}</div>
+              <div className="mt-2 text-4xl font-extrabold">
                 {combinedTokens.toLocaleString()} tokens
                 {combinedBonus ? ` + ${combinedBonus.toLocaleString()} bonus` : ""}
               </div>
-              {consoSources.length > 0 && (
-                <div className="mt-1 text-lg text-white/60">
-                  {consoSources.length} card{consoSources.length === 1 ? "" : "s"} combined so far
-                </div>
+            </div>
+
+            {/* Insert-each-card animation (same component as balance/reload).
+                Auto-accepts one card at a time — no button per card. */}
+            <div className="flex justify-center py-4">
+              {consoBusy ? (
+                <BrandedLoader brand={brand} label="Combining…" sublabel="Moving the tokens over" />
+              ) : (
+                <CardSlotGuide
+                  label="Insert each card to combine"
+                  sublabel="Drop in one card at a time — press Done when you&rsquo;re finished"
+                />
               )}
             </div>
-            <button
-              type="button"
-              disabled={consoBusy}
-              onClick={() => void consoAddSource()}
-              className="k-glass k-tap w-full p-10 text-center text-3xl font-bold disabled:opacity-40"
-            >
-              {consoBusy ? "Combining…" : "Insert a card to combine"}
-            </button>
+
+            {/* The cards combined in so far (the "others"). */}
+            {consoSources.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-sm uppercase tracking-widest text-white/40">
+                  Combined in ({consoSources.length})
+                </div>
+                {consoSources.map((s, i) => (
+                  <div
+                    key={s.account}
+                    className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3"
+                  >
+                    <span className="text-lg text-white/70">
+                      {i + 1}. Card {last4(s.account)}
+                    </span>
+                    <span className="text-lg font-semibold text-white/80">
+                      +{s.tokens.toLocaleString()} tokens
+                      {s.bonusTokens ? ` +${s.bonusTokens.toLocaleString()} bonus` : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <button
               type="button"
               disabled={consoBusy}
               onClick={() => setConsoStep("done")}
-              className="w-full rounded-full border border-white/15 px-6 py-4 text-2xl text-white/70 disabled:opacity-40"
+              className="k-tap w-full rounded-full border border-white/15 px-6 py-5 text-2xl font-semibold text-white/80 disabled:opacity-40"
             >
               Done — I&rsquo;m finished
             </button>

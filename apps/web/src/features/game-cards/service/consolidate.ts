@@ -1,28 +1,29 @@
 /**
- * Card consolidation — CLOUD ONLY. Move ALL value from one source card onto a
- * target card, then clear the source, entirely server-side via the cloud SOAP
- * TPI service. There is no bridge path: consolidation is only offered on kiosks
- * running against the cloud (KioskGameZone gates the mode on `bridgeUp===false`).
+ * Card consolidation — CLOUD ONLY. Move the ENTIRE balance of a source card onto
+ * a target card in ONE atomic server-side call (TPI_ConsolidateAccounts) via the
+ * cloud SOAP TPI service. There is no bridge path: consolidation is only offered
+ * on kiosks running against the cloud (KioskGameZone gates the mode on
+ * `bridgeUp===false`).
  *
  * The kiosk holds only ONE card at a time, so it calls this once per source:
  *   read target (kiosk) → for each source: accept → POST here → bin on ok.
  *
- * MONEY-SAFETY (the whole reason this is a service, not two client calls):
- *  1. Read the source balance (verifyAccount).
- *  2. Credit the target with those exact values (creditAccountValues). This is
- *     idempotent on a stable tpiTransactionID — a retry with the same id returns
- *     0 without re-applying, so an ambiguous credit is safe to re-attempt.
- *  3. ONLY after the credit is confirmed (code 0) do we clear the source
- *     (clearAccount). Value therefore never lands nowhere.
- *  - Credit fails/declined  → nothing cleared, source keeps its value → the
- *    kiosk returns the card (outcome "declined").
- *  - Credit ambiguous       → we re-attempt once (id-dedup makes it safe); if
- *    still ambiguous, outcome "unknown" → the kiosk HOLDS and does NOT bin (the
- *    value is still on the source; staff re-query).
- *  - Clear fails after a good credit → the value is safely on the target and the
- *    source card is captured (binned) by the kiosk, so it can't be re-spent;
- *    we return ok:true with a clearWarning and log it for staff. (Part B's
- *    clear-on-encode is the backstop before any such card is re-issued.)
+ * WHY ATOMIC (not credit-then-clear): the server moves EVERY value field (cash,
+ * bonus cash, tokens, bonus tokens, points, time) in one transaction, so no
+ * field is ever dropped and there is no window where value sits nowhere. We do
+ * NOT enumerate the amounts, and there is NO separate, unguarded clear step (the
+ * source is drained by the same call).
+ *
+ * MONEY-SAFETY:
+ *  - Idempotent on a stable tpiTransactionID — a retry with the SAME id returns 0
+ *    without re-applying, so an ambiguous call is safe to re-attempt once.
+ *  - done (code 0)    → value is on the target, source drained → the kiosk bins it.
+ *  - declined (non-0) → nothing moved, source keeps its value → the kiosk returns it.
+ *  - unknown (both attempts threw) → the move is all-or-nothing (atomic), so the
+ *    value is EITHER fully on the target (source now empty) OR fully on the source
+ *    (nothing moved). Either way, returning the source to the guest loses nothing
+ *    and duplicates nothing — so the kiosk returns it and flags staff, and we
+ *    NEVER bin an unconfirmed source.
  *
  * Account numbers are bigint strings end-to-end — never Number() them.
  */
@@ -31,24 +32,18 @@ import { getCenter } from "~/config/intercard-centers";
 import { GameCardHttpError } from "../errors";
 import type { ConsolidateInput } from "../schemas";
 import type { CardBalance } from "../types";
-import {
-  verifyAccount,
-  creditAccountValues,
-  clearAccount,
-  IntercardError,
-} from "../data/intercard";
+import { verifyAccount, consolidateAccounts, IntercardError } from "../data/intercard";
 import { logConsolidation } from "../data/consolidations-log";
 
 export interface ConsolidateResult {
   /** true = value is on the target and the source may be binned. */
   ok: boolean;
   outcome: "done" | "declined" | "unknown";
+  /** The source's pre-move balance (display/audit; token-family only, the read
+   *  is cash-blind — the actual move covers every field server-side). */
   moved: { tokens: number; bonusTokens: number; points: number; minutes: number };
   /** Target balance re-read after the move (display). */
   targetBalance?: CardBalance;
-  /** Set when the credit landed but the source clear did not (source is binned,
-   *  so contained; flagged for staff / Part-B reuse guard). */
-  clearWarning?: string;
   message?: string;
 }
 
@@ -61,7 +56,8 @@ export async function consolidate(input: ConsolidateInput): Promise<ConsolidateR
     throw new GameCardHttpError(400, "SAME_CARD", "A card can't be combined onto itself.");
   }
 
-  // Both cards must exist. Read the source's movable value + confirm the target.
+  // Both cards must exist. Read the source balance for display/audit (the MOVE is
+  // server-authoritative and covers every field, incl. ones the read can't see).
   const [src, tgt] = await Promise.all([
     verifyAccount(input.sourceAccount, input.locationCode).catch(mapVerifyError),
     verifyAccount(input.targetAccount, input.locationCode).catch(mapVerifyError),
@@ -78,75 +74,60 @@ export async function consolidate(input: ConsolidateInput): Promise<ConsolidateR
     points: b.eTickets,
     minutes: b.timeMinutes,
   };
-  const hasValue =
-    moved.tokens > 0 || moved.bonusTokens > 0 || moved.points > 0 || moved.minutes > 0;
-  // Stable id: the credit dedups on it, so a retry after an ambiguous credit
-  // never double-applies. Reused for the whole per-source move.
+  // Stable id: dedups server-side, so a retry after an ambiguous call never
+  // double-applies. One id per source move.
   const tpiTransactionID = randomUUID();
 
-  // 1) Credit the target with the source's value (skip when there's nothing to move).
-  if (hasValue) {
-    const credit = await creditWithRetry({
+  // Atomic move: ALL value from the source onto the target in one call. We do
+  // NOT gate on a computed "has value" — the balance read is cash-blind, so a
+  // cash-only card would look empty; letting the server move whatever's there is
+  // what keeps every field (the fix for the old credit-then-clear cash drop).
+  const outcome = await consolidateWithRetry({
+    locationCode: input.locationCode,
+    targetAccount: input.targetAccount,
+    sourceAccounts: [input.sourceAccount],
+    tpiTransactionID,
+  });
+
+  if (outcome === "unknown") {
+    await logConsolidation({
+      id: tpiTransactionID,
       locationCode: input.locationCode,
-      accountNumber: input.targetAccount,
-      tokens: moved.tokens,
-      tokenBonus: moved.bonusTokens,
-      points: moved.points,
-      durationMinutes: moved.minutes,
-      tpiTransactionID,
+      sourceAccount: input.sourceAccount,
+      targetAccount: input.targetAccount,
+      preTokens: b.tokens,
+      preBonusTokens: b.bonusTokens,
+      outcome: "unknown",
+      description: "consolidate ambiguous — source returned to guest, not binned",
     });
-    if (credit === "unknown") {
-      await logConsolidation({
-        id: tpiTransactionID,
-        locationCode: input.locationCode,
-        sourceAccount: input.sourceAccount,
-        targetAccount: input.targetAccount,
-        preTokens: b.tokens,
-        preBonusTokens: b.bonusTokens,
-        outcome: "unknown",
-        description: "credit ambiguous — source NOT cleared",
-      });
-      return {
-        ok: false,
-        outcome: "unknown",
-        moved,
-        message: "We couldn't confirm the combine — please have staff check both cards.",
-      };
-    }
-    if (credit !== 0) {
-      await logConsolidation({
-        id: tpiTransactionID,
-        locationCode: input.locationCode,
-        sourceAccount: input.sourceAccount,
-        targetAccount: input.targetAccount,
-        preTokens: b.tokens,
-        preBonusTokens: b.bonusTokens,
-        outcome: "declined",
-        code: String(credit),
-      });
-      return {
-        ok: false,
-        outcome: "declined",
-        moved,
-        message: "That card couldn't be combined — please try again or see an attendant.",
-      };
-    }
+    return {
+      ok: false,
+      outcome: "unknown",
+      moved,
+      message: "We couldn't confirm the combine — your card is back. Please see an attendant.",
+    };
+  }
+  if (outcome !== 0) {
+    await logConsolidation({
+      id: tpiTransactionID,
+      locationCode: input.locationCode,
+      sourceAccount: input.sourceAccount,
+      targetAccount: input.targetAccount,
+      preTokens: b.tokens,
+      preBonusTokens: b.bonusTokens,
+      outcome: "declined",
+      code: String(outcome),
+    });
+    return {
+      ok: false,
+      outcome: "declined",
+      moved,
+      message: "That card couldn't be combined — please try again or see an attendant.",
+    };
   }
 
-  // 2) Value is safely on the target (or there was none) → clear the source.
-  //    A clear failure here does NOT lose value (it's on the target) and the
-  //    kiosk still bins the source, so it can't be re-spent.
-  let clearWarning: string | undefined;
-  try {
-    const { code } = await clearAccount({
-      locationCode: input.locationCode,
-      accountNumbers: [input.sourceAccount],
-    });
-    if (code !== 0) clearWarning = `clear returned ${code}`;
-  } catch (err) {
-    clearWarning = err instanceof Error ? err.message : "clear failed";
-  }
-
+  // Success — value is on the target, source drained. Re-read the target for
+  // the combined balance to show the guest.
   const targetBalance = (
     await verifyAccount(input.targetAccount, input.locationCode).catch(() => null)
   )?.balance;
@@ -158,17 +139,10 @@ export async function consolidate(input: ConsolidateInput): Promise<ConsolidateR
     targetAccount: input.targetAccount,
     preTokens: b.tokens,
     preBonusTokens: b.bonusTokens,
-    outcome: clearWarning ? "unknown" : "done",
-    description: clearWarning,
+    outcome: "done",
   });
 
-  return {
-    ok: true,
-    outcome: clearWarning ? "unknown" : "done",
-    moved,
-    targetBalance,
-    clearWarning,
-  };
+  return { ok: true, outcome: "done", moved, targetBalance };
 }
 
 /** verifyAccount throws IntercardError on infra trouble; surface as a 503 so the
@@ -186,17 +160,17 @@ function mapVerifyError(err: unknown): never {
 }
 
 /**
- * Credit, retrying ONCE on an ambiguous (thrown) call with the SAME id. The id
- * dedups server-side, so the retry either applies it (first attempt didn't land)
- * or returns 0 without re-applying (first attempt did land) — no double credit.
- * Returns the result code, or "unknown" if both attempts were ambiguous.
+ * Consolidate, retrying ONCE on an ambiguous (thrown) call with the SAME id. The
+ * id dedups server-side, so the retry either applies it (first attempt didn't
+ * land) or returns 0 without re-applying (first attempt did land) — no double
+ * move. Returns the result code, or "unknown" if both attempts were ambiguous.
  */
-async function creditWithRetry(
-  params: Parameters<typeof creditAccountValues>[0],
+async function consolidateWithRetry(
+  params: Parameters<typeof consolidateAccounts>[0],
 ): Promise<number | "unknown"> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const { code } = await creditAccountValues(params);
+      const { code } = await consolidateAccounts(params);
       return code;
     } catch {
       if (attempt === 1) return "unknown";
