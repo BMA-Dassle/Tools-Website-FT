@@ -15,6 +15,9 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.4.0 — Game Zone honors the global INTERCARD_LOAD_MODE switch: forcing
+ *         `cloud` stops the kiosk dialing the on-prem bridge, so the card-system
+ *         chip reads Cloud and every load rides the cloud SOAP path.
  * 1.3.1 — Game Zone shows a Local/Cloud card-system chip (bridge status) on
  *         the New cards + Reload screens; util-bar helper text clamps to two
  *         lines instead of towering when the bar is crowded.
@@ -26,7 +29,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.3.1";
+export const KIOSK_VERSION = "1.4.0";
 
 let bootVersion: string | null = null;
 let captured = false;
