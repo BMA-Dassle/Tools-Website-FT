@@ -407,7 +407,7 @@ const WhosBowlingStepComponent: StepDef<BowlingItem>["Component"] = ({
                   </button>
                 </div>
                 {isIn && (
-                  <div className="mt-3 flex justify-end">
+                  <div className="mt-3 flex">
                     <BumperChip
                       on={!!rows.find((r) => r.memberId === m.id)?.bumpers}
                       onToggle={() => toggleMemberBumpers(m.id)}
@@ -453,7 +453,7 @@ const WhosBowlingStepComponent: StepDef<BowlingItem>["Component"] = ({
                   Remove
                 </button>
               </div>
-              <div className="mt-3 flex justify-end">
+              <div className="mt-3 flex">
                 <BumperChip
                   on={!!p.bumpers}
                   onToggle={() => toggleExtraBumpers(idx)}
@@ -616,7 +616,7 @@ const WhosBowlingStepComponent: StepDef<BowlingItem>["Component"] = ({
                   </button>
                 )}
               </div>
-              <div className="mt-3 flex justify-end">
+              <div className="mt-3 flex">
                 <BumperChip
                   on={!!p.bumpers}
                   onToggle={() => toggleBumpers(i)}
@@ -673,19 +673,31 @@ const WhosBowlingStepComponent: StepDef<BowlingItem>["Component"] = ({
   );
 };
 
-/** Per-bowler bumpers toggle — duckpin keeps bumpers (owner decision). */
+/** Per-bowler bumpers toggle — duckpin keeps bumpers (owner decision). A
+ *  left-aligned labeled switch so it reads as a deliberate per-bowler setting,
+ *  not a floating chip. */
 function BumperChip({ on, onToggle, name }: { on: boolean; onToggle: () => void; name: string }) {
   return (
     <button
       type="button"
       onClick={onToggle}
-      aria-pressed={on}
+      role="switch"
+      aria-checked={on}
       aria-label={`Bumpers for ${name}`}
-      className={`rounded-full border px-3 py-1.5 text-xs font-bold uppercase tracking-wider ${
-        on ? "border-[#00E2E5] bg-[#00E2E5]/10 text-[#00E2E5]" : "border-white/15 text-white/45"
-      }`}
+      className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider"
     >
-      Bumpers {on ? "on" : "off"}
+      <span
+        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+          on ? "bg-[#00E2E5]" : "bg-white/15"
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+            on ? "translate-x-[18px]" : "translate-x-0.5"
+          }`}
+        />
+      </span>
+      <span className={on ? "text-[#00E2E5]" : "text-white/45"}>Bumpers</span>
     </button>
   );
 }

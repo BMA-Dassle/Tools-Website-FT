@@ -1262,7 +1262,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                   >
                     {laneReadyLabel ? `${laneReadyLabel} is open!` : "Your lane is open!"}
                   </p>
-                  {!autoOpenLane && (
+                  {!isFastTrax && (
                     <p className="text-white/60 text-sm">
                       🥿 Shoes will be delivered directly to you.
                     </p>
@@ -1701,9 +1701,11 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                       >
                         {laneReadyLabel ? `${laneReadyLabel} is open!` : "Your lane is open!"}
                       </p>
-                      <p className="text-white/60 text-sm">
-                        🥿 Shoes will be delivered directly to you.
-                      </p>
+                      {!isFastTrax && (
+                        <p className="text-white/60 text-sm">
+                          🥿 Shoes will be delivered directly to you.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
