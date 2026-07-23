@@ -234,9 +234,60 @@ export interface CreditTokensParams {
  * Returns the raw Intercard result code: 0 success, -1 server exception,
  * -2 MAC not registered. A duplicate tpiTransactionID returns 0 without
  * re-applying (server-side dedup) — safe to retry with the same id.
+ *
+ * Thin wrapper over creditAccountValues (cash/points/duration = 0) so the proven
+ * token-reload path is byte-for-byte unchanged.
  */
 export async function creditTokens(params: CreditTokensParams): Promise<{ code: number }> {
-  const { locationCode, accountNumber, tokens, bonusTokens, tpiTransactionID } = params;
+  return creditAccountValues({
+    locationCode: params.locationCode,
+    accountNumber: params.accountNumber,
+    tokens: params.tokens,
+    tokenBonus: params.bonusTokens,
+    tpiTransactionID: params.tpiTransactionID,
+    sessionId: params.sessionId,
+  });
+}
+
+export interface CreditAccountValuesParams {
+  locationCode: number;
+  accountNumber: string;
+  /** Any omitted value defaults to 0 (credits nothing of that kind). */
+  cash?: number;
+  cashBonus?: number;
+  tokens?: number;
+  tokenBonus?: number;
+  points?: number;
+  /** Time-play minutes to add. */
+  durationMinutes?: number;
+  /** Stable idempotency key — Intercard dedups on this (replay-safe). */
+  tpiTransactionID: string;
+  sessionId?: string;
+}
+
+/**
+ * Credit ARBITRARY (dynamic) values onto a card via TPICreditAccounts — cash,
+ * bonus cash, tokens, bonus tokens, points, and time-play minutes. This is the
+ * "load dynamic values" half of consolidation: after reading a source card's
+ * balance (verifyAccount), credit those exact amounts onto the target.
+ *
+ * Returns the raw result code (0 success, -1 server exception, -2 MAC not
+ * registered). Idempotent on tpiTransactionID (a duplicate id returns 0 without
+ * re-applying) — the caller MUST persist a stable id BEFORE calling and reuse it
+ * on retry, or a retry double-credits. XML shape is the LIVE-verified
+ * TPICreditAccounts creditAccountsXML (BonusCash / BonusTokens / Start-Duration-
+ * End), NOT the EIS `iEnhancedInterfaceRequest` shape.
+ */
+export async function creditAccountValues(
+  params: CreditAccountValuesParams,
+): Promise<{ code: number }> {
+  const { locationCode, accountNumber, tpiTransactionID } = params;
+  const cash = params.cash ?? 0;
+  const cashBonus = params.cashBonus ?? 0;
+  const tokens = params.tokens ?? 0;
+  const tokenBonus = params.tokenBonus ?? 0;
+  const points = params.points ?? 0;
+  const duration = params.durationMinutes ?? 0;
   const mac = macForCenter(locationCode); // per-location registration
   const now = new Date();
   const stamp = sqlDateTime(now, CENTER_TZ);
@@ -244,10 +295,10 @@ export async function creditTokens(params: CreditTokensParams): Promise<{ code: 
   const creditAccountsXml =
     `<CreditAccounts><CreditAccount>` +
     `<AccountNumber>${accountNumber}</AccountNumber>` +
-    `<Cash>0</Cash><BonusCash>0</BonusCash>` +
-    `<Tokens>${tokens}</Tokens><BonusTokens>${bonusTokens}</BonusTokens>` +
-    `<Points>0</Points>` +
-    `<StartTime>${stamp}</StartTime><Duration>0</Duration><EndTime>${stamp}</EndTime>` +
+    `<Cash>${cash}</Cash><BonusCash>${cashBonus}</BonusCash>` +
+    `<Tokens>${tokens}</Tokens><BonusTokens>${tokenBonus}</BonusTokens>` +
+    `<Points>${points}</Points>` +
+    `<StartTime>${stamp}</StartTime><Duration>${duration}</Duration><EndTime>${stamp}</EndTime>` +
     `<BlockedAccessID>0</BlockedAccessID>` +
     `</CreditAccount></CreditAccounts>`;
 
@@ -268,6 +319,65 @@ export async function creditTokens(params: CreditTokensParams): Promise<{ code: 
   const code = raw == null ? NaN : Number(raw);
   if (Number.isNaN(code)) {
     throw new IntercardError("BAD_RESPONSE", "Could not parse TPICreditAccounts result");
+  }
+  return { code };
+}
+
+export interface ClearAccountParams {
+  locationCode: number;
+  /** One or more account numbers (bigint strings) to clear. */
+  accountNumbers: string[];
+}
+
+/**
+ * Clear (wipe for re-issue) one or more accounts via TPI_ClearAccount — the
+ * "clear the source card" half of consolidation, and the reuse-old-cards step.
+ * Returns the raw result code (0 success, -1 server exception, -2 MAC not
+ * registered).
+ *
+ * ⚠️ MONEY-SAFETY:
+ *  - NOT idempotency-guarded (TPI_ClearAccount carries no transaction id). NEVER
+ *    blind-retry an ambiguous/failed clear — re-query the account (verifyAccount)
+ *    to see its real state, and only clear once the value is confirmed moved.
+ *  - Only clear a SOURCE after its value is confirmed credited to the target.
+ *
+ * ⚠️ REUSE: Intercard recommends waiting ~24h before a cleared card is re-issued
+ *    (spec, ClearCard §). Relevant to recycling binned cards as new-card stock.
+ *
+ * ⚠️ UNVERIFIED SHAPE: op name + envelope (Account array, LocID, GMT_DateTime)
+ *    come from the TPI spec (docs/intercard-tpi-api.yaml), NOT yet confirmed
+ *    against the live service the way TPICreditAccounts / AcountHistory were.
+ *    Dry-run on a THROWAWAY card and adjust field/array shape from the response
+ *    before enabling in production.
+ */
+export async function clearAccount(params: ClearAccountParams): Promise<{ code: number }> {
+  const { locationCode, accountNumbers } = params;
+  if (accountNumbers.length === 0) {
+    throw new IntercardError("NO_ACCOUNTS", "clearAccount requires at least one account number");
+  }
+  const mac = macForCenter(locationCode);
+  const now = new Date();
+
+  // Array of account numbers. SOAP array-of-scalar convention here mirrors
+  // MAC_ID's <string> wrapping; if a live dry-run faults, the likely fix is the
+  // item element name (<string> vs repeated <Account>).
+  const accountsXml = accountNumbers.map((a) => `<string>${xmlEscape(a)}</string>`).join("");
+
+  const inner =
+    macXml(mac) +
+    `<Account>${accountsXml}</Account>` +
+    `<LocID>${locationCode}</LocID>` +
+    `<tpiEmployeeID>${BRIDGE_EMP.id}</tpiEmployeeID>` +
+    `<tpiEmployeeFirstName>${BRIDGE_EMP.first}</tpiEmployeeFirstName>` +
+    `<tpiEmployeeLastName>${BRIDGE_EMP.last}</tpiEmployeeLastName>` +
+    timeDateMapXml("LT_DateTime", now, CENTER_TZ) +
+    timeDateMapXml("GMT_DateTime", now, "UTC");
+
+  const resp = await soapCall(INTERCARD_TPI_URL, "TPI_ClearAccount", inner, mac);
+  const raw = extractTag(resp, "TPI_ClearAccountResult");
+  const code = raw == null ? NaN : Number(raw);
+  if (Number.isNaN(code)) {
+    throw new IntercardError("BAD_RESPONSE", "Could not parse TPI_ClearAccount result");
   }
   return { code };
 }
