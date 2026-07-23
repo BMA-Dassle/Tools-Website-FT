@@ -1,5 +1,35 @@
 # Lessons Learned
 
+## Variably-priced Square catalog items REQUIRE base_price_money — and a failed quote is silent on the card path but fatal on the kiosk reader (2026-07-23)
+
+**What happened:** FastTrax duckpin on the kiosk died at the card reader with "Bowling quote
+missing — cannot start the reader payment," while the same duckpin booking via the "Bowl Now" QR
+(customer's own card) worked fine. Root cause (proven in prod logs):
+`POST /api/square/bowling-orders/quote 500 — BAD_REQUEST: The item variation EXW7E74IRPYJAQFA4YIIEW3G
+is variably priced and requires a value for base_price_money.` The duckpin Square item (`SQ.DUCKPIN`)
+is **variably priced**, but `buildBowlingQuoteLineItems` sent only `catalogObjectId` (no price) for a
+catalog line with no promo (`factor === 1`). Square rejected the whole quote order → no
+`quoteDayofOrderId`/`quoteDepositCents` on the item.
+
+**Why the two paths diverged:** `bowlingReserve` (card/web/QR) treats the quote as optional — if
+`item.quoteDayofOrderId` is absent it OMITS it and the reserve route rebuilds the day-of order
+server-side (which DOES always send `basePriceMoney`). So a broken quote is invisible there.
+`bowlingTerminalPrepare` (kiosk paired reader) HARD-REQUIRES the pre-created quote order — the reader
+can only charge an exact existing order — so it throws. HeadPinz bowling never hit this because its
+catalog items are fixed-price (catalog price rings fine without an override).
+
+**Rules:**
+
+1. **Always send `base_price_money` on a priced catalog-linked Square line.** Never rely on the
+   catalog price. Square honors it as a price-key override on fixed-price items and REQUIRES it on
+   variably-priced ones. Keep the quote builder byte-identical to the reserve day-of order build
+   (`route.ts` `sqLineItems` already always sends `unitPriceCents`).
+2. **A silently-caught quote failure is a real defect even when the UI still works** — the card path
+   masks it via server-side fallback; only the stricter reader path surfaces it. Don't dismiss "but
+   it works on web/QR." Grep Vercel logs for the actual Square `BAD_REQUEST` detail.
+3. When a fix touches a shared line-item builder, confirm the amount stays **dynamic** (per-duration
+   `priceCents`), never a static constant — displayed must still equal charged.
+
 ## Mockups must speak the product's own design language — kiosk mockups use the PODIUM system + real photos (2026-07-21)
 
 **What happened:** Planning the kiosk Race Info hub, three mockup rounds got rejected ("looks like
