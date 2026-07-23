@@ -30,7 +30,7 @@
  * joined to the reservation — they're not attending; "Join the fun" moves
  * them into the party, which is.
  */
-import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useReducer, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
   IconChevronLeft,
@@ -40,6 +40,7 @@ import {
   IconUsersGroup,
 } from "@tabler/icons-react";
 import { emptySession, reducer, type AttractionItem } from "~/features/booking";
+import { useReservationJoinAttach } from "~/features/waiver/attach/reservation-join";
 import { KioskAttractionPeopleStep } from "../steps/KioskPeopleStep";
 import { IdleWatcher } from "../components/IdleWatcher";
 import { useKioskConfig } from "../KioskConfigContext";
@@ -108,8 +109,6 @@ export function KioskWaiverFlow() {
   const [peopleBusy, setPeopleBusy] = useState(false);
   const [joinsInFlight, setJoinsInFlight] = useState(0);
   const [refreshTick, setRefreshTick] = useState(0);
-  // person ids already POSTed to /join — the attach effect must never double-post.
-  const postedRef = useRef<Set<string>>(new Set());
 
   // No device config → this URL was opened outside a provisioned kiosk.
   useEffect(() => {
@@ -167,40 +166,22 @@ export function KioskWaiverFlow() {
     void fetchRoster(target);
   };
 
-  // Attach pipeline: any PARTY member with a person id + valid waiver joins the
-  // reservation (signer-only guardians are not attending — never joined).
-  // Catches every ready path — fresh signature, onboard-returns-already-valid,
-  // returning lookup with a current waiver, the authoritative re-check patch.
-  useEffect(() => {
-    if (!selected || !config) return;
-    for (const m of session.party) {
-      const pid = m.pandoraPersonId ?? m.bmiPersonId;
-      if (!pid || !m.waiverValid || postedRef.current.has(pid)) continue;
-      postedRef.current.add(pid);
-      setJoinsInFlight((n) => n + 1);
-      void fetch("/api/kiosk/waiver/join", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          center: config.center,
-          locationId: selected.locationId,
-          projectId: selected.projectId,
-          personId: pid,
-          firstName: m.firstName,
-          lastName: m.lastName ?? "",
-          kioskId: kioskId(config),
-        }),
-      })
-        .catch(() => {
-          // Allow a retry on the next party change — the join never got saved.
-          postedRef.current.delete(pid);
-        })
-        .finally(() => {
-          setJoinsInFlight((n) => n - 1);
-          if (selected) void fetchRoster(selected);
-        });
-    }
-  }, [session.party, selected, config, fetchRoster]);
+  // Attach pipeline (extracted to useReservationJoinAttach so the mobile /waiver
+  // flow shares the exact same logic): any PARTY member with a person id + valid
+  // waiver joins the reservation — Neon persist-first, then probe-gated BMI attach.
+  // Signer-only guardians are not attending, so they're never in `party` here.
+  useReservationJoinAttach({
+    party: session.party,
+    target: selected,
+    center: config?.center ?? null,
+    kioskId: config ? kioskId(config) : null,
+    enabled: !!config,
+    onJoinStart: () => setJoinsInFlight((n) => n + 1),
+    onJoinSettled: () => {
+      setJoinsInFlight((n) => n - 1);
+      if (selected) void fetchRoster(selected);
+    },
+  });
 
   const goHome = useCallback(() => {
     void resetToKiosk(() => router.replace("/kiosk"));
