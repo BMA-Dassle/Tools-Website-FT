@@ -37,6 +37,19 @@ export const INTERCARD_BALANCE_URL =
   process.env.INTERCARD_BALANCE_URL ||
   "https://intercard.swflpassport.com/WS_AccountHistory/WebServiceAccountHistory.asmx";
 
+/**
+ * Cloud Enhanced 3rd Party Interface (Transaction Server) — raw TCP, the
+ * `iEnhancedInterfaceRequest` XML protocol (docs/intercard-enhanced-3rd-party-
+ * interface-v7.pdf). Used server-side for ConsolidateCards. "IP Addresses and
+ * port numbers must be configurable on site" (spec p.2) — set INTERCARD_EIS_HOST
+ * (or per-location INTERCARD_EIS_HOST_<code>) in Vercel; empty → the feature
+ * fails closed with a clear error.
+ */
+export const INTERCARD_EIS_PORT = Number(process.env.INTERCARD_EIS_PORT || 3044);
+export function eisHostForCenter(code: number): string {
+  return process.env[`INTERCARD_EIS_HOST_${code}`] || process.env.INTERCARD_EIS_HOST || "";
+}
+
 export type Brand = "headpinz" | "fasttrax";
 
 export interface CenterConfig {

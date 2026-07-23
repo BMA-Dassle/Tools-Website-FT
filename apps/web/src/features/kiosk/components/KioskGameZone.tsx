@@ -55,6 +55,12 @@ const MAX_BAD_BLANKS = 3;
  *  reload only ever reads an inserted card and presents it back. */
 const MAX_AUTO_READ_FAILS = 3;
 
+/** Combine cards (consolidation) entry point. HIDDEN (owner 2026-07-23) while the
+ *  rebuilt combine — the documented Enhanced-3PI ConsolidateCards op over the
+ *  cloud Transaction Server — awaits a live test (needs INTERCARD_EIS_HOST set in
+ *  Vercel). Flip to true to show the button again. */
+const GC_CONSOLIDATE_LIVE = false;
+
 /** The final "cards ready / tokens loaded" screen auto-closes after this many
  *  seconds (owner 2026-07-19). We only reach it once the dispenser sensor has
  *  confirmed every card was taken (waitTaken), so this is a hands-off "you're
@@ -1260,7 +1266,8 @@ export function KioskGameZone({
               Kill-switch: set NEXT_PUBLIC_GC_CONSOLIDATE_DISABLED=1 to keep it
               dark on cloud kiosks until TPI_ConsolidateAccounts is dry-run
               verified against the live service. */}
-          {bridgeUp === false &&
+          {GC_CONSOLIDATE_LIVE &&
+            bridgeUp === false &&
             readerReady &&
             process.env.NEXT_PUBLIC_GC_CONSOLIDATE_DISABLED !== "1" && (
               <button
@@ -1316,15 +1323,21 @@ export function KioskGameZone({
           </div>
         )}
 
+        {/* STEP 1 — read the survivor card. Hero insert animation, minimal text,
+            so it's unmistakable this first card is the one they keep. */}
         {consoStep === "target" && (
-          <div className="space-y-6">
-            <p className="text-2xl leading-snug text-white/70">
-              First, insert the <b>card you want to keep</b>. We&rsquo;ll read it and hand it right
-              back — every other card&rsquo;s tokens combine onto this one.
+          <div className="flex flex-col items-center text-center">
+            <div className="mb-2 text-lg font-bold uppercase tracking-[0.2em] text-[#b39dff]">
+              Step 1 of 2
+            </div>
+            <h2 className="font-heading text-5xl font-extrabold italic leading-tight">
+              Insert the card you want to keep
+            </h2>
+            <p className="mt-3 max-w-xl text-2xl text-white/60">
+              This is the card you&rsquo;ll walk away with — every other card&rsquo;s tokens move
+              onto it.
             </p>
-            {/* Same insert animation as Check balance / Reload — auto-arms, so the
-                guest just inserts (no button to press). */}
-            <div className="flex justify-center py-8">
+            <div className="mt-8 flex justify-center">
               {consoBusy ? (
                 <BrandedLoader
                   brand={brand}
@@ -1333,46 +1346,62 @@ export function KioskGameZone({
                 />
               ) : (
                 <CardSlotGuide
-                  label="Insert the card to keep"
-                  sublabel="Use the card slot on the left — it reads in a second and comes right back out"
+                  label="Insert your card"
+                  sublabel="It reads in a second and comes right back out"
                 />
               )}
             </div>
           </div>
         )}
 
+        {/* STEP 2 — feed the others. A compact "keeping" chip pins the survivor
+            at the top (clearly the target), then the SAME hero insert animation
+            makes it obvious the next cards are being combined in. */}
         {consoStep === "sources" && consoTarget && (
-          <div className="space-y-6">
-            {/* PRIMARY card — the survivor. Bold accent + label so it reads as
-                clearly separate from the cards being combined in below. */}
-            <div className="rounded-2xl border-2 border-[#b39dff]/60 bg-[#b39dff]/10 p-6">
-              <div className="text-sm font-bold uppercase tracking-widest text-[#b39dff]">
-                Primary card — keeping this one
+          <div className="flex flex-col items-center text-center">
+            <div className="mb-7 flex w-full items-center justify-between rounded-2xl border-2 border-[#b39dff]/60 bg-[#b39dff]/10 px-6 py-4 text-left">
+              <div>
+                <div className="text-sm font-bold uppercase tracking-[0.2em] text-[#b39dff]">
+                  Keeping this card
+                </div>
+                <div className="mt-0.5 text-lg text-white/55">
+                  Card {last4(consoTarget.account)}
+                </div>
               </div>
-              <div className="mt-1 text-lg text-white/50">Card {last4(consoTarget.account)}</div>
-              <div className="mt-2 text-4xl font-extrabold">
-                {combinedTokens.toLocaleString()} tokens
-                {combinedBonus ? ` + ${combinedBonus.toLocaleString()} bonus` : ""}
+              <div className="text-right">
+                <div className="text-4xl font-extrabold leading-none">
+                  {combinedTokens.toLocaleString()}
+                </div>
+                <div className="mt-1 text-sm text-white/50">
+                  tokens{combinedBonus ? ` + ${combinedBonus.toLocaleString()} bonus` : ""}
+                </div>
               </div>
             </div>
 
-            {/* Insert-each-card animation (same component as balance/reload).
-                Auto-accepts one card at a time — no button per card. */}
-            <div className="flex justify-center py-4">
+            <div className="text-lg font-bold uppercase tracking-[0.2em] text-[#46d68c]">
+              Step 2 of 2
+            </div>
+            <h2 className="mt-1 font-heading text-5xl font-extrabold italic leading-tight">
+              Add cards to combine
+            </h2>
+            <p className="mt-3 max-w-xl text-2xl text-white/60">
+              Insert each card one at a time — its tokens move onto your kept card.
+            </p>
+
+            <div className="mt-8 flex justify-center">
               {consoBusy ? (
                 <BrandedLoader brand={brand} label="Combining…" sublabel="Moving the tokens over" />
               ) : (
                 <CardSlotGuide
-                  label="Insert each card to combine"
-                  sublabel="Drop in one card at a time — press Done when you&rsquo;re finished"
+                  label="Insert a card to combine"
+                  sublabel="One card at a time — tap Done when you&rsquo;re finished"
                 />
               )}
             </div>
 
-            {/* The cards combined in so far (the "others"). */}
             {consoSources.length > 0 && (
-              <div className="space-y-2">
-                <div className="text-sm uppercase tracking-widest text-white/40">
+              <div className="mt-8 w-full space-y-2 text-left">
+                <div className="text-sm uppercase tracking-[0.2em] text-white/40">
                   Combined in ({consoSources.length})
                 </div>
                 {consoSources.map((s, i) => (
@@ -1396,7 +1425,7 @@ export function KioskGameZone({
               type="button"
               disabled={consoBusy}
               onClick={() => setConsoStep("done")}
-              className="k-tap w-full rounded-full border border-white/15 px-6 py-5 text-2xl font-semibold text-white/80 disabled:opacity-40"
+              className="k-tap mt-8 w-full rounded-full bg-[#46d68c] px-6 py-5 text-2xl font-extrabold text-[#04252b] disabled:opacity-40"
             >
               Done — I&rsquo;m finished
             </button>

@@ -1,29 +1,30 @@
 /**
- * Card consolidation — CLOUD ONLY. Move the ENTIRE balance of a source card onto
- * a target card in ONE atomic server-side call (TPI_ConsolidateAccounts) via the
- * cloud SOAP TPI service. There is no bridge path: consolidation is only offered
- * on kiosks running against the cloud (KioskGameZone gates the mode on
- * `bridgeUp===false`).
+ * Card consolidation — CLOUD ONLY, via the documented ConsolidateCards request
+ * (Intercard Enhanced 3rd Party Interface v7, docs/…-v7.pdf p.27-28): one atomic
+ * Transaction Server op moves ALL values of the source card onto the
+ * "primary/single" target card. Sent server-side over raw TCP to the
+ * cloud-hosted Transaction Server (data/intercard-eis.ts; host via
+ * INTERCARD_EIS_HOST). There is no bridge path: consolidation is only offered on
+ * kiosks running against the cloud (KioskGameZone gates on `bridgeUp===false`).
  *
  * The kiosk holds only ONE card at a time, so it calls this once per source:
  *   read target (kiosk) → for each source: accept → POST here → bin on ok.
  *
- * WHY ATOMIC (not credit-then-clear): the server moves EVERY value field (cash,
- * bonus cash, tokens, bonus tokens, points, time) in one transaction, so no
- * field is ever dropped and there is no window where value sits nowhere. We do
- * NOT enumerate the amounts, and there is NO separate, unguarded clear step (the
- * source is drained by the same call).
- *
  * MONEY-SAFETY:
- *  - Idempotent on a stable tpiTransactionID — a retry with the SAME id returns 0
- *    without re-applying, so an ambiguous call is safe to re-attempt once.
- *  - done (code 0)    → value is on the target, source drained → the kiosk bins it.
- *  - declined (non-0) → nothing moved, source keeps its value → the kiosk returns it.
- *  - unknown (both attempts threw) → the move is all-or-nothing (atomic), so the
- *    value is EITHER fully on the target (source now empty) OR fully on the source
- *    (nothing moved). Either way, returning the source to the guest loses nothing
- *    and duplicates nothing — so the kiosk returns it and flags staff, and we
- *    NEVER bin an unconfirmed source.
+ *  - The move is atomic and server-computed — every value field (cash, bonus
+ *    cash, tokens, bonus tokens, points, time) moves in one op; we never
+ *    enumerate amounts, so nothing can be dropped, and there is NO separate
+ *    unguarded clear step (the op drains the source).
+ *  - Retry: the Enhanced 3PI dedups on MacAddress+UTCDateTime (no id-based
+ *    idempotency), so each attempt carries a fresh timestamp. Retrying
+ *    ConsolidateCards is still safe: it moves ALL value, so a re-run after a
+ *    landed attempt moves nothing (source already empty).
+ *  - done (code 0)    → value is on the target, source drained → kiosk bins it.
+ *  - declined (non-0) → nothing moved (atomic) → kiosk returns the card.
+ *  - unknown (both attempts failed to exchange) → all-or-nothing means the value
+ *    is EITHER fully on the target (source empty) OR fully on the source —
+ *    returning the source to the guest loses nothing and duplicates nothing, so
+ *    the kiosk returns it and flags staff; we NEVER bin an unconfirmed source.
  *
  * Account numbers are bigint strings end-to-end — never Number() them.
  */
@@ -32,15 +33,16 @@ import { getCenter } from "~/config/intercard-centers";
 import { GameCardHttpError } from "../errors";
 import type { ConsolidateInput } from "../schemas";
 import type { CardBalance } from "../types";
-import { verifyAccount, consolidateAccounts, IntercardError } from "../data/intercard";
+import { verifyAccount, IntercardError } from "../data/intercard";
+import { consolidateCards, eisConfigured } from "../data/intercard-eis";
 import { logConsolidation } from "../data/consolidations-log";
 
 export interface ConsolidateResult {
   /** true = value is on the target and the source may be binned. */
   ok: boolean;
   outcome: "done" | "declined" | "unknown";
-  /** The source's pre-move balance (display/audit; token-family only, the read
-   *  is cash-blind — the actual move covers every field server-side). */
+  /** The source's pre-move balance (display/audit; token-family only — the move
+   *  itself is server-computed and covers every field). */
   moved: { tokens: number; bonusTokens: number; points: number; minutes: number };
   /** Target balance re-read after the move (display). */
   targetBalance?: CardBalance;
@@ -55,9 +57,18 @@ export async function consolidate(input: ConsolidateInput): Promise<ConsolidateR
   if (input.sourceAccount === input.targetAccount) {
     throw new GameCardHttpError(400, "SAME_CARD", "A card can't be combined onto itself.");
   }
+  // Fail closed with a clear message when the cloud EIS isn't configured —
+  // never let a misconfig read as "card declined."
+  if (!eisConfigured(input.locationCode)) {
+    throw new GameCardHttpError(
+      503,
+      "EIS_NOT_CONFIGURED",
+      "Combining cards isn't available right now — please see an attendant.",
+    );
+  }
 
-  // Both cards must exist. Read the source balance for display/audit (the MOVE is
-  // server-authoritative and covers every field, incl. ones the read can't see).
+  // Both cards must exist. Read the source balance for display/audit (the MOVE
+  // is server-authoritative and covers every field, incl. ones this read omits).
   const [src, tgt] = await Promise.all([
     verifyAccount(input.sourceAccount, input.locationCode).catch(mapVerifyError),
     verifyAccount(input.targetAccount, input.locationCode).catch(mapVerifyError),
@@ -74,31 +85,30 @@ export async function consolidate(input: ConsolidateInput): Promise<ConsolidateR
     points: b.eTickets,
     minutes: b.timeMinutes,
   };
-  // Stable id: dedups server-side, so a retry after an ambiguous call never
-  // double-applies. One id per source move.
-  const tpiTransactionID = randomUUID();
+  // Per-move id: echoed as <TransactionID> on the EIS request and the primary
+  // key of our audit row (NOT a dedup key — see the retry note above).
+  const transactionId = randomUUID();
 
-  // Atomic move: ALL value from the source onto the target in one call. We do
-  // NOT gate on a computed "has value" — the balance read is cash-blind, so a
-  // cash-only card would look empty; letting the server move whatever's there is
-  // what keeps every field (the fix for the old credit-then-clear cash drop).
+  // Atomic move: ALL value from the source onto the target in one documented op.
+  // No "has value" gate — the balance read is display-only and cash-blind; the
+  // server moves whatever is actually there.
   const outcome = await consolidateWithRetry({
     locationCode: input.locationCode,
     targetAccount: input.targetAccount,
     sourceAccounts: [input.sourceAccount],
-    tpiTransactionID,
+    transactionId,
   });
 
   if (outcome === "unknown") {
     await logConsolidation({
-      id: tpiTransactionID,
+      id: transactionId,
       locationCode: input.locationCode,
       sourceAccount: input.sourceAccount,
       targetAccount: input.targetAccount,
       preTokens: b.tokens,
       preBonusTokens: b.bonusTokens,
       outcome: "unknown",
-      description: "consolidate ambiguous — source returned to guest, not binned",
+      description: "ConsolidateCards exchange failed — source returned to guest, not binned",
     });
     return {
       ok: false,
@@ -107,16 +117,17 @@ export async function consolidate(input: ConsolidateInput): Promise<ConsolidateR
       message: "We couldn't confirm the combine — your card is back. Please see an attendant.",
     };
   }
-  if (outcome !== 0) {
+  if (outcome.code !== 0) {
     await logConsolidation({
-      id: tpiTransactionID,
+      id: transactionId,
       locationCode: input.locationCode,
       sourceAccount: input.sourceAccount,
       targetAccount: input.targetAccount,
       preTokens: b.tokens,
       preBonusTokens: b.bonusTokens,
       outcome: "declined",
-      code: String(outcome),
+      code: String(outcome.code),
+      description: outcome.description || undefined,
     });
     return {
       ok: false,
@@ -133,13 +144,14 @@ export async function consolidate(input: ConsolidateInput): Promise<ConsolidateR
   )?.balance;
 
   await logConsolidation({
-    id: tpiTransactionID,
+    id: transactionId,
     locationCode: input.locationCode,
     sourceAccount: input.sourceAccount,
     targetAccount: input.targetAccount,
     preTokens: b.tokens,
     preBonusTokens: b.bonusTokens,
     outcome: "done",
+    description: outcome.description || undefined,
   });
 
   return { ok: true, outcome: "done", moved, targetBalance };
@@ -160,21 +172,20 @@ function mapVerifyError(err: unknown): never {
 }
 
 /**
- * Consolidate, retrying ONCE on an ambiguous (thrown) call with the SAME id. The
- * id dedups server-side, so the retry either applies it (first attempt didn't
- * land) or returns 0 without re-applying (first attempt did land) — no double
- * move. Returns the result code, or "unknown" if both attempts were ambiguous.
+ * ConsolidateCards, retrying ONCE on a failed exchange. Safe for THIS op only:
+ * it moves ALL value, so a retry after a landed-but-unconfirmed attempt moves
+ * nothing (the source is already empty) — never a double-apply. Returns the
+ * CommandStatus, or "unknown" when both attempts failed to exchange.
  */
 async function consolidateWithRetry(
-  params: Parameters<typeof consolidateAccounts>[0],
-): Promise<number | "unknown"> {
+  params: Parameters<typeof consolidateCards>[0],
+): Promise<{ code: number; description: string } | "unknown"> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const { code } = await consolidateAccounts(params);
-      return code;
+      return await consolidateCards(params);
     } catch {
       if (attempt === 1) return "unknown";
-      // brief pause before the id-safe retry
+      // brief pause; the retry carries a fresh UTC_DateTime (dedup key)
       await new Promise((r) => setTimeout(r, 400));
     }
   }
