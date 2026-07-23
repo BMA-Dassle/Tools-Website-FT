@@ -38,6 +38,39 @@ describe("eisQueueCenters (rollout flag parsing)", () => {
   });
 });
 
+describe("intercardLoadMode (global override)", () => {
+  it("unset/garbage → auto", async () => {
+    const { intercardLoadMode } = await import("./bridge-queue");
+    expect(intercardLoadMode()).toBe("auto");
+    vi.stubEnv("INTERCARD_LOAD_MODE", "banana");
+    expect(intercardLoadMode()).toBe("auto");
+  });
+
+  it("parses cloud/local case-insensitively", async () => {
+    const { intercardLoadMode } = await import("./bridge-queue");
+    vi.stubEnv("INTERCARD_LOAD_MODE", "CLOUD");
+    expect(intercardLoadMode()).toBe("cloud");
+    vi.stubEnv("INTERCARD_LOAD_MODE", " Local ");
+    expect(intercardLoadMode()).toBe("local");
+  });
+
+  it("cloud mode forces ∅ queue centers even when the per-center list is set", async () => {
+    vi.stubEnv("GAME_CARD_EIS_QUEUE_CENTERS", "12,6,13");
+    vi.stubEnv("INTERCARD_LOAD_MODE", "cloud");
+    const { eisQueueCenters, isEisQueueCenter } = await import("./bridge-queue");
+    expect(eisQueueCenters().size).toBe(0);
+    expect(isEisQueueCenter(13)).toBe(false);
+  });
+
+  it("local mode forces every valid center, ignoring the per-center list", async () => {
+    vi.stubEnv("GAME_CARD_EIS_QUEUE_CENTERS", "");
+    vi.stubEnv("INTERCARD_LOAD_MODE", "local");
+    const { eisQueueCenters, isEisQueueCenter } = await import("./bridge-queue");
+    expect([...eisQueueCenters()].sort((a, b) => a - b)).toEqual([6, 12, 13]);
+    expect(isEisQueueCenter(6)).toBe(true);
+  });
+});
+
 describe("claimJobs / ackJob", () => {
   it("rejects unknown location codes before touching the DB", async () => {
     const { claimJobs } = await import("./bridge-queue");

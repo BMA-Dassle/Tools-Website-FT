@@ -98,6 +98,26 @@ The kiosk web app tries this bridge first for token loads and falls back to the
 cloud SOAP path (`NEXT_PUBLIC_GAME_CARD_BRIDGE_URL`, default
 `http://127.0.0.1:4599`) if the bridge is unreachable.
 
+## Global load-path switch (`INTERCARD_LOAD_MODE`)
+
+Set in **Vercel** (the app), not on the bridge PC. One master switch over the
+per-center `GAME_CARD_EIS_QUEUE_CENTERS` list, governing kiosk AND web at once:
+
+| value          | effect                                                                                                                                                                           |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cloud`        | Force cloud SOAP everywhere. Web skips the queue; the **kiosk stops calling this bridge entirely** (GZ chip + `/reload` badge show Cloud). The bridge becomes safe to uninstall. |
+| `local`        | Force local EIS at every center (all centers queue web reloads; kiosk dials the bridge).                                                                                         |
+| unset / `auto` | Per-center behavior via `GAME_CARD_EIS_QUEUE_CENTERS` (default; the pilot mechanism).                                                                                            |
+
+Mirror the SAME value into `NEXT_PUBLIC_INTERCARD_LOAD_MODE` so the kiosk browser
+agrees. The cloud SOAP fallback is **never** disabled by this flag — it only
+picks the preferred path, never the recover-forward safety net.
+
+Use `cloud` before the **card-consolidation project**: the local EIS path can
+only load tokens (no consolidate / card-clear), so those flows must run through
+cloud. Flip to `cloud`, confirm the kiosk chip reads Cloud, then uninstall the
+bridge.
+
 ## Queue safety (read before touching the worker)
 
 The EIS `CreditAccounts` request has **no idempotency id** (the cloud SOAP path

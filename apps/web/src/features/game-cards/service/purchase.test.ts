@@ -291,6 +291,24 @@ describe("bridge-queue mode (GAME_CARD_EIS_QUEUE_CENTERS flag)", () => {
     expect(order).toContain("markCharged");
     expect(order).not.toContain("markChargedQueued");
   });
+
+  it("INTERCARD_LOAD_MODE=cloud overrides the flag: a queue center falls back to inline SOAP", async () => {
+    vi.stubEnv("INTERCARD_LOAD_MODE", "cloud"); // beforeEach still lists center 12 in the flag
+    const { intercard } = await loadMocks();
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: true,
+      accountNumber: "1038010",
+      balance: { tokens: 0, bonusTokens: 0, eTickets: 0, timeMinutes: 0 },
+    });
+    (intercard.creditTokens as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0 });
+    const { purchase } = await import("./purchase");
+
+    const res = await purchase(single); // center 12 IS flagged, but cloud mode wins
+    expect(res.results[0].loaded).toBe(true);
+    expect(intercard.creditTokens).toHaveBeenCalledTimes(1);
+    expect(order).toContain("markCharged");
+    expect(order).not.toContain("markChargedQueued");
+  });
 });
 
 describe("chargeNewCardOrder (buy: charge upfront, no verify/load)", () => {

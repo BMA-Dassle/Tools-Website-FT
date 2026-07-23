@@ -14,12 +14,24 @@ const BRIDGE_URL =
   process.env.NEXT_PUBLIC_GAME_CARD_BRIDGE_URL?.replace(/\/$/, "") || "http://127.0.0.1:4599";
 
 /**
+ * Global load-path override — client mirror of the server INTERCARD_LOAD_MODE
+ * (bridge-queue.ts). Only 'cloud' changes client behavior: the kiosk stops
+ * dialing the on-prem bridge entirely, so every load rides the cloud SOAP path
+ * server-side and the GZ / device checks report Cloud. 'local'/'auto'/unset keep
+ * the bridge-first behavior. Keep this value identical to the server var.
+ */
+function forceCloud(): boolean {
+  return (process.env.NEXT_PUBLIC_INTERCARD_LOAD_MODE || "").trim().toLowerCase() === "cloud";
+}
+
+/**
  * Local bridge liveness for the GZ status chip: true = the bridge answers on
  * this PC (loads go through the LOCAL card system, instant), false =
  * unreachable (loads ride the cloud path and take longer to hit the floor).
  * Never throws.
  */
 export async function bridgeHealth(): Promise<boolean> {
+  if (forceCloud()) return false; // cloud mode: never claim the local bridge is up
   try {
     const res = await fetch(`${BRIDGE_URL}/health`, { signal: AbortSignal.timeout(2_000) });
     if (!res.ok) return false;
@@ -40,6 +52,7 @@ export async function creditTokensViaBridge(args: {
   tokens: number;
   bonusTokens: number;
 }): Promise<boolean> {
+  if (forceCloud()) return false; // cloud mode: force the server-side SOAP path (preLoaded:false)
   try {
     const res = await fetch(`${BRIDGE_URL}/credit`, {
       method: "POST",

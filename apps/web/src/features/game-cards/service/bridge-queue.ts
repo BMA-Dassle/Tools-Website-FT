@@ -61,12 +61,42 @@ export async function bridgeStatus(): Promise<Record<string, boolean>> {
   return out;
 }
 
+export type IntercardLoadMode = "cloud" | "local" | "auto";
+
 /**
- * Centers where web reloads ride the bridge queue. Flag env
- * GAME_CARD_EIS_QUEUE_CENTERS is a comma list of Intercard location codes
- * ("13" pilot → "12,6,13" full); unset/empty = v1 SOAP path everywhere.
+ * Global Intercard load-path override — the master switch over the per-center
+ * GAME_CARD_EIS_QUEUE_CENTERS list. Mirror the SAME value into the client via
+ * NEXT_PUBLIC_INTERCARD_LOAD_MODE so the kiosk shim agrees (see
+ * features/kiosk/service/game-card-bridge.ts).
+ *
+ *   cloud — force cloud SOAP EVERYWHERE (web skips the queue; the kiosk stops
+ *           dialing the on-prem bridge). The bridge becomes removable — use this
+ *           before the card-consolidation project, since the local EIS path can
+ *           only load tokens (no consolidate / clear).
+ *   local — force local EIS everywhere (all valid centers queue web reloads; the
+ *           kiosk dials the bridge).
+ *   auto  — default / unset: per-center behavior via GAME_CARD_EIS_QUEUE_CENTERS.
+ *
+ * The cloud SOAP fallback is NEVER disabled by this flag — it only picks the
+ * PREFERRED path, never the recover-forward safety net (paid tokens always land).
+ */
+export function intercardLoadMode(): IntercardLoadMode {
+  const v = (process.env.INTERCARD_LOAD_MODE || "").trim().toLowerCase();
+  return v === "cloud" || v === "local" ? v : "auto";
+}
+
+/**
+ * Centers where web reloads ride the bridge queue (local EIS). Resolution:
+ *   - INTERCARD_LOAD_MODE=cloud → ∅ (cloud SOAP everywhere)
+ *   - INTERCARD_LOAD_MODE=local → every valid center
+ *   - otherwise → GAME_CARD_EIS_QUEUE_CENTERS, a comma list of location codes
+ *     ("13" pilot → "12,6,13" full); unset/empty = SOAP path everywhere.
  */
 export function eisQueueCenters(): Set<number> {
+  const mode = intercardLoadMode();
+  if (mode === "cloud") return new Set<number>();
+  if (mode === "local") return new Set<number>(Object.keys(CENTERS).map(Number));
+
   const raw = process.env.GAME_CARD_EIS_QUEUE_CENTERS || "";
   const out = new Set<number>();
   for (const part of raw.split(",")) {
