@@ -349,27 +349,6 @@ export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<v
     console.error("[kiosk-post] booking memo append failed (non-fatal):", err);
   }
 
-  // ── 4. BMI Office confirmation state → "Confirmation Kiosk" ────────
-  // State ids are PER LOCATION (owner 2026-07-21: FM 55397028, Naples 8489113 —
-  // the FM id was hard-coded before, so Naples kiosk bookings never landed in
-  // the kiosk state). setProjectState goes Office-first for custom ids, falls
-  // back to Pandora.
-  const kioskStateId =
-    KIOSK_CONFIRMATION_STATE_IDS[centerCode] ?? KIOSK_CONFIRMATION_STATE_IDS["fort-myers"];
-  try {
-    await withRetry(`office state ${kioskStateId}`, () =>
-      setProjectState({
-        centerCode,
-        projectId: officeProjectId,
-        stateId: kioskStateId,
-        label: "Kiosk confirmation",
-      }),
-    );
-    console.log(`[kiosk-post] office state ${kioskStateId} set for project ${officeProjectId}`);
-  } catch (err) {
-    console.error(`[kiosk-post] office state ${kioskStateId} failed (non-fatal):`, err);
-  }
-
   // ── 2. Pandora race-SESSION assignment ─────────────────────────────
   // Assign the racers carrying a personId to the confirmed reservation's
   // session. Runs LAST + after a sync delay because it's the only action that
@@ -513,5 +492,33 @@ export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<v
     }
   } catch (err) {
     console.error("[kiosk-post] session assignment failed (non-fatal):", err);
+  }
+
+  // ── 4. BMI Office confirmation state → "Confirmation Kiosk" (LAST) ──
+  // Runs DEAD LAST — after the notification, memo, and the Pandora session
+  // assignment — because the confirmation state is the write that must WIN.
+  // The reserve flow set the project to `-3 Confirmation` via PANDORA before
+  // this rail started; that Pandora write returns 200 but propagates to Firebird
+  // ASYNCHRONOUSLY and, when it landed after this Office PUT, reverted ~80% of
+  // kiosk bookings back to plain Confirmation (live 2026-07-22). Two defenses:
+  // (1) run last so the `-3` has ~15s+ to propagate first, and (2) ensureAttempts
+  // re-reads + re-asserts across a further window so any residual late-lander is
+  // corrected. State ids are PER LOCATION (FM 55397028 / Naples 8489113).
+  const kioskStateId =
+    KIOSK_CONFIRMATION_STATE_IDS[centerCode] ?? KIOSK_CONFIRMATION_STATE_IDS["fort-myers"];
+  try {
+    await withRetry(`office state ${kioskStateId}`, () =>
+      setProjectState({
+        centerCode,
+        projectId: officeProjectId,
+        stateId: kioskStateId,
+        label: "Kiosk confirmation",
+        ensureAttempts: 3,
+        ensureGapMs: 4000,
+      }),
+    );
+    console.log(`[kiosk-post] office state ${kioskStateId} set for project ${officeProjectId}`);
+  } catch (err) {
+    console.error(`[kiosk-post] office state ${kioskStateId} failed (non-fatal):`, err);
   }
 }

@@ -2254,6 +2254,12 @@ async function unifiedReserveInner(
                 KIOSK_CONFIRMATION_STATE_IDS[centerCode] ??
                 KIOSK_CONFIRMATION_STATE_IDS["fort-myers"],
               label: "Kiosk confirmation (attraction)",
+              // Self-heal against the inline `-3` Pandora write landing late and
+              // reverting this custom state (the kiosk propagation race, live
+              // 2026-07-22). Attraction has no rail/session-assignment delay
+              // ahead of it, so the reassert window IS the propagation guard.
+              ensureAttempts: 4,
+              ensureGapMs: 4000,
             });
             console.log(
               `[kiosk-post] attraction confirmation state set for project ${officeProjectId} (${resNumberAttr})`,

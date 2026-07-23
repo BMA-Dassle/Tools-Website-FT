@@ -193,9 +193,38 @@ export async function setProjectState(params: {
   projectId: string;
   stateId: string;
   label?: string;
+  /** Custom-state (kiosk) only: after the Office PUT lands, re-read the project
+   *  state up to `ensureAttempts` times (gap `ensureGapMs`, default 4000ms) and
+   *  re-assert the custom id if it has drifted. Needed because the reserve flow's
+   *  inline `-3` confirm write goes via PANDORA, which returns 200 immediately but
+   *  propagates to Firebird ASYNCHRONOUSLY — it can land AFTER this Office PUT and
+   *  clobber the custom state back to plain Confirmation (live 2026-07-22: ~80% of
+   *  kiosk bookings reverted to `-3`). Re-asserting across the propagation window
+   *  makes the custom state the durable final write. Default 0 = no reassert, so
+   *  the built-in `-3` / web callers below are unchanged. */
+  ensureAttempts?: number;
+  ensureGapMs?: number;
 }): Promise<void> {
   const clientKey = CLIENT_KEYS[params.centerCode] || "headpinzftmyers";
   const locationId = PANDORA_LOCATION_IDS[params.centerCode] || "TXBSQN0FEKQ11";
+
+  // Read the current project state via the Office API (for reassert verification).
+  const readOfficeState = async (): Promise<string | null> => {
+    try {
+      const token = await getOfficeToken(clientKey);
+      const headers = apiHeaders(token, clientKey);
+      const getRes = await httpsRequest(
+        "GET",
+        `/api/${clientKey}/project/${params.projectId}`,
+        headers,
+      );
+      if (getRes.status >= 400) return null;
+      const p = JSON.parse(getRes.body) as { stateId?: string | number };
+      return p?.stateId != null ? String(p.stateId) : null;
+    } catch {
+      return null;
+    }
+  };
 
   const viaPandora = async (): Promise<boolean> => {
     try {
@@ -252,19 +281,47 @@ export async function setProjectState(params: {
   // first — that path is proven for them.
   const isCustomState = !params.stateId.startsWith("-");
   if (isCustomState) {
+    let landed = false;
     try {
       await viaOfficeApi();
-      return;
+      landed = true;
     } catch (err) {
       console.warn("[bmi-office] Office-API state update failed, trying Pandora:", err);
     }
-    if (await viaPandora()) {
-      console.log(
-        `[bmi-office] project ${params.projectId} state → ${params.stateId} via Pandora (fallback)${params.label ? ` (${params.label})` : ""}`,
-      );
-      return;
+    if (!landed) {
+      if (await viaPandora()) {
+        console.log(
+          `[bmi-office] project ${params.projectId} state → ${params.stateId} via Pandora (fallback)${params.label ? ` (${params.label})` : ""}`,
+        );
+        landed = true;
+      } else {
+        throw new Error(`state ${params.stateId} update failed on both paths`);
+      }
     }
-    throw new Error(`state ${params.stateId} update failed on both paths`);
+    // Self-heal against a late-landing cross-backend `-3` write (the kiosk
+    // propagation race). Watch the state across a short window; each time it has
+    // drifted off the custom id, PUT it again. The inline `-3` is a one-shot
+    // Pandora write, so once it has propagated and been overwritten here, it
+    // stays put.
+    const attempts = params.ensureAttempts ?? 0;
+    const gapMs = params.ensureGapMs ?? 4000;
+    for (let i = 0; i < attempts; i++) {
+      await new Promise((r) => setTimeout(r, gapMs));
+      const cur = await readOfficeState();
+      if (cur === params.stateId) continue;
+      console.warn(
+        `[bmi-office] project ${params.projectId} state drifted to ${cur ?? "?"} (expected ${params.stateId}) — re-asserting${params.label ? ` (${params.label})` : ""}`,
+      );
+      try {
+        await viaOfficeApi();
+      } catch (err) {
+        console.warn(
+          "[bmi-office] custom-state re-assert PUT failed (will retry if attempts remain):",
+          err,
+        );
+      }
+    }
+    return;
   }
 
   if (await viaPandora()) {

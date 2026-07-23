@@ -1927,3 +1927,33 @@ Fix: press-time caps in OnScreenKeyboard.tsx; blur-time formatting in the bowlin
 people/details steps; backstop `formatPersonName` in both reserve payload builders.
 `name-format.ts` moved to `apps/web/src/lib/helpers/` (booking service needed it;
 kiosk→booking would be backwards layering).
+
+## Kiosk "Confirmation Kiosk" state reverted to plain Confirmation — cross-backend write race (2026-07-22)
+
+Owner report: kiosk reservations turned from "Confirmation - Kiosk" back to "Confirmation".
+Live probe: **63/80** recent kiosk rows sat in `-3`, only 17 in the kiosk state — BOTH racing
+(W53xxx) and attraction (W385/W384). NOT the sweep (`bmi:sweep:log` had 0 kiosk hits), NOT
+`race-confirm-reconcile`, NOT BMI auto-cancel: the revert happens AT BOOKING TIME
+(`updated`≈`booked`), final state `-3` with `userUpdatedId=-1` (a Pandora write). Old
+kiosk-state rows stay kiosk forever → no delayed reverter; winning the booking-time race is
+permanent.
+
+**Root cause:** cross-backend write race. The reserve flow confirms via a PANDORA
+`reservation/state → -3` write (unified-reserve BMI_AUTOCANCEL_WORKAROUND). Pandora returns
+200 immediately but propagates to Firebird ASYNCHRONOUSLY. The kiosk custom-state write goes
+via the OFFICE API PUT seconds later. When the Pandora `-3` lands late it clobbers the Office
+kiosk write → plain Confirmation (~80% of bookings). The arena-fix assumption "inline -3 then
+custom-state overwrite ⇒ no regression" was WRONG — the two writes go to different backends
+with async replication, so "earlier" ≠ "lands first".
+
+**Fix:** (1) `setProjectState` gained opt-in `ensureAttempts`/`ensureGapMs` — for custom
+(kiosk) states, re-read + re-assert across a window so a late `-3` is corrected. (2) The kiosk
+state flip in `runKioskPostReserve` moved to run DEAD LAST (after the Pandora session
+assignment) with the self-heal on. (3) The attraction block in unified-reserve uses the
+self-heal (its reassert window IS the propagation guard — no rail delay ahead of it).
+Remediation: `scripts/kiosk-state-remediate.mts` (dry-run default, `--commit` to write).
+
+**Rule:** when two code paths write the SAME BMI project field via DIFFERENT backends
+(Pandora/Firebird vs Office API), you CANNOT rely on issue-order — Pandora writes propagate
+async and can land out of order. The authoritative write must be verified + re-asserted, or
+both writes must go through the same backend.
