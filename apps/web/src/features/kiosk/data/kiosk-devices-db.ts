@@ -90,6 +90,26 @@ export async function saveKioskReaderHint(
   return true;
 }
 
+/**
+ * Legacy-key fallback for a venue-slug kioskId with no row yet. Keys used to be
+ * `<center>:<number>` (e.g. `naples:3`, `fort-myers:14`) before the venue-slug
+ * scheme. The legacy KEY can't tell FT from HPFM (both center `fort-myers`) —
+ * but the ROW can: it stores the brand, and only a kiosk of that venue ever
+ * wrote it. So the fallback is safe exactly when the row's brand matches the
+ * slug's brand; loadKioskDevice enforces that. (When FT and HPFM kiosks shared
+ * a number they clobbered one `fort-myers:<n>` row — the brand check serves the
+ * last writer its own data and gives the other venue a plain miss, never the
+ * wrong venue's config.)
+ */
+export function legacyKioskDeviceLookup(kioskId: string): { key: string; brand: string } | null {
+  const [slug, num] = kioskId.split(":");
+  if (!num || !/^\d+$/.test(num)) return null;
+  if (slug === "HPN") return { key: `naples:${num}`, brand: "headpinz" };
+  if (slug === "HPFM") return { key: `fort-myers:${num}`, brand: "headpinz" };
+  if (slug === "FT") return { key: `fort-myers:${num}`, brand: "fasttrax" };
+  return null;
+}
+
 /** Pull a saved device config by kioskId (fallback when localStorage is empty). */
 export async function loadKioskDevice(kioskId: string): Promise<KioskDeviceRow | null> {
   if (!isDbConfigured()) return null;
@@ -101,14 +121,17 @@ export async function loadKioskDevice(kioskId: string): Promise<KioskDeviceRow |
       FROM kiosk_devices WHERE kiosk_id = ${id} LIMIT 1
     ` as unknown as Promise<Array<Record<string, unknown>>>;
   let rows = await query(kioskId);
-  // Legacy fallback: keys used to be `<center>:<number>` (e.g. `naples:3`)
-  // before the venue-slug scheme. Only Naples is unambiguous (HPN ⇒ naples);
-  // a Fort Myers `<center>:<number>` can't tell FT from HPFM, so we never guess
-  // it (that ambiguity is the very collision we're fixing) — re-save those once
-  // through admin to write the new `FT:`/`HPFM:` key.
+  // No row under the venue-slug key → try the pre-scheme legacy key, accepting
+  // the row ONLY when its stored brand matches the slug's venue (see
+  // legacyKioskDeviceLookup). This is what lets a kiosk that was provisioned
+  // before the slug scheme (and never re-saved through admin) still boot
+  // cloud-authoritative from its launch URL; the first save-config/reader-hint
+  // after that migrates the config to the new key.
   if (!rows[0]) {
-    const [slug, num] = kioskId.split(":");
-    if (slug === "HPN" && num) rows = await query(`naples:${num}`);
+    const legacy = legacyKioskDeviceLookup(kioskId);
+    if (legacy) {
+      rows = (await query(legacy.key)).filter((r) => String(r.brand) === legacy.brand);
+    }
   }
   const r = rows[0];
   if (!r) return null;
