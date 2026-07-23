@@ -85,6 +85,21 @@ import { closeMobileJoin } from "../join/kiosk-client";
 import { BrandedLoader, BrandedLoaderOverlay } from "./BrandedLoader";
 import { todayYmd } from "../service/first-available";
 import { KIOSK_PHOTOS, KIOSK_LOGOS } from "../assets";
+import { useResilientImages } from "../hooks/useResilientImage";
+
+/** Every full-bleed backdrop photo `chrome`/`backdropPhoto` can show — preloaded
+ *  and self-healed together so a flaky-WiFi failure never blanks a step. */
+const KIOSK_BACKDROP_PHOTOS = [
+  KIOSK_PHOTOS.race,
+  KIOSK_PHOTOS.bowl,
+  KIOSK_PHOTOS.kbf,
+  KIOSK_PHOTOS.gel,
+  KIOSK_PHOTOS.laser,
+  KIOSK_PHOTOS.duck,
+  KIOSK_PHOTOS.shuf,
+  KIOSK_PHOTOS.vip,
+  KIOSK_PHOTOS.arcade,
+];
 
 /** Walk-up device: every dated item starts on today's OPERATING day (todayYmd
  *  rolls at 2 AM ET, so a post-midnight session stays on its date). Bowling/KBF
@@ -180,6 +195,12 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   const availableFor = useKioskAvailability(config?.center ?? null);
   const vipAvailable = availableFor("race-bowl");
   const uqAvailable = availableFor("ultimate-qualifier");
+
+  // Self-heal the full-bleed step backdrops if a flaky-WiFi fetch fails — they
+  // paint as CSS background-images (see `chrome`), which never retry on their
+  // own, so on an unattended kiosk one failed load otherwise leaves the flow
+  // photo-less until a reload. Every backdrop `chrome` can use is healed here.
+  const resolveBackdrop = useResilientImages(KIOSK_BACKDROP_PHOTOS);
 
   const initial = useMemo(
     () =>
@@ -1093,7 +1114,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           // cards) stay readable over the activity photo — the photo reads as a
           // faint texture; bright photography lives in the cards/heroes.
           className="k-flow-bg k-ph wizard"
-          style={{ ["--k-img"]: `url(${bg})` } as React.CSSProperties}
+          style={{ ["--k-img"]: `url(${resolveBackdrop(bg)})` } as React.CSSProperties}
           aria-hidden="true"
         />
       ) : null}

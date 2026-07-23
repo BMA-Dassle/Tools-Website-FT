@@ -43,6 +43,7 @@ import {
 } from "~/features/booking/hooks/useBowlingOffers";
 import { formatHourLabel } from "~/components/features/booking/steps/bowling/availability-client";
 import { KIOSK_PHOTOS } from "../assets";
+import { useResilientImages } from "../hooks/useResilientImage";
 import { BrandedLoader } from "../components/BrandedLoader";
 
 type BowlingLikeItem = BowlingItem | KbfItem;
@@ -118,6 +119,12 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   const [expandedId, setExpandedId] = useState<number | null>(null);
   // The time chip the guest tapped but hasn't reserved yet (per expanded card).
   const [pendingBookedAt, setPendingBookedAt] = useState<string | null>(null);
+
+  // Self-heal the hero photos if a flaky-WiFi fetch fails (they're CSS
+  // background-images, which never retry on their own). `hero` is a render
+  // closure inside a .map, so it can't call a hook itself — resolve the whole
+  // set up here (before any early return) and look each URL up below.
+  const resolvePhoto = useResilientImages(visibleExperiences.map((e) => photoFor(e, kind)));
 
   if (loading) {
     return (
@@ -359,7 +366,7 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     return (
       <div
         className={`k-ph relative flex ${tall ? "h-[360px]" : "h-[260px]"} flex-col justify-end`}
-        style={{ ["--k-img"]: `url(${photoFor(exp, kind)})` } as React.CSSProperties}
+        style={{ ["--k-img"]: `url(${resolvePhoto(photoFor(exp, kind))})` } as React.CSSProperties}
       >
         <div className="relative z-[1] flex items-end justify-between gap-[24px] p-[36px]">
           <div className="min-w-0">

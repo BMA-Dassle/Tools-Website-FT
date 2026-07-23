@@ -26,6 +26,7 @@ import {
 import { enabledCombos, type ComboSpecial } from "~/features/combos";
 import { packageFamilyFromPrice } from "~/features/booking/service/packages";
 import { KIOSK_LOGOS, KIOSK_PHOTOS } from "../assets";
+import { useResilientImage } from "../hooks/useResilientImage";
 import { AdminTapZone } from "./AdminTapZone";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
@@ -268,12 +269,13 @@ function EmptyShelf({ note }: { note: string }) {
  *  and no MSR reader) — owner 2026-07-19. Non-interactive: guests are pointed to
  *  another kiosk or Guest Services. */
 function GameZoneUnavailableCard() {
+  const photoUrl = useResilientImage(KIOSK_PHOTOS.arcade);
   return (
     <div
       className="k-ph relative min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/10"
       style={
         {
-          ["--k-img"]: `url(${KIOSK_PHOTOS.arcade})`,
+          ["--k-img"]: `url(${photoUrl})`,
           filter: "grayscale(0.5) brightness(0.5)",
         } as React.CSSProperties
       }
@@ -316,6 +318,7 @@ export function CategoryCard({
   disabledNote?: string;
   onClick: () => void;
 }) {
+  const photoUrl = useResilientImage(photo);
   return (
     <button
       type="button"
@@ -325,7 +328,7 @@ export function CategoryCard({
       className={`k-ph k-tap relative min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/10 text-left ${
         disabled ? "opacity-50" : ""
       }`}
-      style={{ ["--k-img"]: `url(${photo})` } as React.CSSProperties}
+      style={{ ["--k-img"]: `url(${photoUrl})` } as React.CSSProperties}
     >
       <div className="absolute bottom-[40px] left-[48px] right-[120px]">
         <div className="k-eyebrow" style={{ color: disabled ? "#9aa4b2" : accent }}>
@@ -376,6 +379,7 @@ function ShelfBanner({
   disabledNote?: string;
   onClick: () => void;
 }) {
+  const photoUrl = useResilientImage(photo);
   return (
     <button
       type="button"
@@ -385,7 +389,7 @@ function ShelfBanner({
       className={`k-ph k-tap relative h-[340px] overflow-hidden rounded-[28px] border border-white/10 text-left ${
         disabled ? "opacity-50" : ""
       }`}
-      style={{ ["--k-img"]: `url(${photo})` } as React.CSSProperties}
+      style={{ ["--k-img"]: `url(${photoUrl})` } as React.CSSProperties}
     >
       <div className="absolute inset-y-0 left-[48px] right-[128px] flex flex-col justify-center">
         <div className="k-eyebrow" style={{ color: disabled ? "#9aa4b2" : accent }}>
@@ -440,6 +444,8 @@ function OfferingTile({
   // Which building the guest walks to — same venue badge the web landing puts
   // on every attraction card (owner 2026-07-19).
   const venue = effectiveBrand(offering, brand);
+  const heroUrl = useResilientImage(offering.heroImage);
+  const logoUrl = useResilientImage(KIOSK_LOGOS[venue]);
   return (
     <button
       type="button"
@@ -447,17 +453,13 @@ function OfferingTile({
       disabled={disabled}
       aria-label={offering.displayName}
       className={`k-ph k-tap relative overflow-hidden rounded-[28px] border border-white/10 text-left ${wide ? "col-span-2 h-[300px]" : "h-[340px]"} ${disabled ? "opacity-50" : ""}`}
-      style={
-        offering.heroImage
-          ? ({ ["--k-img"]: `url(${offering.heroImage})` } as React.CSSProperties)
-          : undefined
-      }
+      style={heroUrl ? ({ ["--k-img"]: `url(${heroUrl})` } as React.CSSProperties) : undefined}
     >
       {/* Venue chip — which building this attraction lives in. */}
       <div className="k-glass absolute right-[20px] top-[20px] flex items-center px-[20px] py-[12px]">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={KIOSK_LOGOS[venue]}
+          src={logoUrl}
           alt={venue === "fasttrax" ? "At FastTrax" : "At HeadPinz"}
           className="h-[30px] w-auto"
         />

@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import type { BowlingItem, StepDef } from "~/features/booking";
 import type { BowlingExperienceWithDetails } from "@/lib/bowling-db";
 import { KIOSK_PHOTOS } from "../assets";
+import { useResilientImages } from "../hooks/useResilientImage";
 import { BrandedLoader } from "../components/BrandedLoader";
 import { FASTTRAX_QAMF_CENTER_ID, FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
 
@@ -56,6 +57,11 @@ const KioskBowlingTierStepComponent: StepDef<BowlingItem>["Component"] = ({ item
     })();
   }, [centerCode]);
 
+  // Self-heal the two tier photos if a flaky-WiFi fetch fails (CSS
+  // background-images never retry on their own). `card` is a render closure, so
+  // resolve up here (before the early return) and look each URL up below.
+  const resolvePhoto = useResilientImages([KIOSK_PHOTOS.bowl, KIOSK_PHOTOS.vipLanes]);
+
   if (loading) {
     return (
       <div className="flex justify-center py-[48px]">
@@ -90,7 +96,7 @@ const KioskBowlingTierStepComponent: StepDef<BowlingItem>["Component"] = ({ item
         className="k-ph k-tap relative flex h-[440px] flex-col justify-end overflow-hidden rounded-[28px] border-2 text-left"
         style={
           {
-            ["--k-img"]: `url(${photo})`,
+            ["--k-img"]: `url(${resolvePhoto(photo)})`,
             borderColor: selected ? "#00e2e5" : "rgba(255,255,255,0.12)",
             boxShadow: selected ? "0 0 44px rgba(0,226,229,0.22)" : "none",
           } as React.CSSProperties

@@ -27,6 +27,7 @@ import { kioskGroupWaiverEnabled, kioskCheckinEnabled, kioskRaceInfoEnabled } fr
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { useKioskConfig } from "../KioskConfigContext";
 import { kioskAdSlidesFor, KIOSK_LOGOS, KIOSK_PHOTOS } from "../assets";
+import { useResilientImages } from "../hooks/useResilientImage";
 import { BrandedLoader } from "./BrandedLoader";
 import { useKioskClock, syncGlowPhase } from "../hooks/useKioskClock";
 import { useKioskAvailability } from "../hooks/useKioskAvailability";
@@ -59,6 +60,16 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   const vipAvailable = useKioskAvailability(config?.center ?? null)("race-bowl");
   // Center-scoped rotation — Naples never advertises karting.
   const adSlides = kioskAdSlidesFor(config?.center ?? null);
+
+  // Self-heal the attract photos (backdrop + rotating ad slides) if a flaky-WiFi
+  // fetch fails — they're CSS background-images, which never retry on their own,
+  // so on an unattended kiosk a single failed load otherwise blanks the attract
+  // loop until a reload. Both backdrops are healed (brand may not be known yet).
+  const resolvePhoto = useResilientImages([
+    KIOSK_PHOTOS.bowl,
+    KIOSK_PHOTOS.race,
+    ...adSlides.map((s) => s.photo),
+  ]);
 
   // Boot source-of-truth rule (owner 2026-07-21): NEON is authoritative
   // whenever the kiosk knows WHO it is — identity from the launch URL
@@ -229,7 +240,7 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
         <div
           className="kiosk-kenburns absolute -inset-[6%] bg-cover bg-center"
           style={{
-            backgroundImage: `url(${config.brand === "headpinz" ? KIOSK_PHOTOS.bowl : KIOSK_PHOTOS.race})`,
+            backgroundImage: `url(${resolvePhoto(config.brand === "headpinz" ? KIOSK_PHOTOS.bowl : KIOSK_PHOTOS.race)})`,
           }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#000418] from-[8%] via-[#020a22]/80 to-[#040e2c]/60" />
@@ -251,7 +262,7 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
       >
         <div
           className="absolute inset-0 bg-cover bg-center opacity-90 [filter:saturate(0.78)_brightness(0.82)]"
-          style={{ backgroundImage: `url(${ad.photo})` }}
+          style={{ backgroundImage: `url(${resolvePhoto(ad.photo)})` }}
         />
         {/* Darker scrim than v1 — the neon headline needs the extra ground. */}
         <div className="absolute inset-0 bg-gradient-to-t from-[#000418]/95 via-[#020a1e]/80 to-[#040a24]/70" />
