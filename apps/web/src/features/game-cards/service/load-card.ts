@@ -85,9 +85,11 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
       `[game-cards] new-card load via on-prem bridge txn=${row.txnId} card=${input.accountNumber}`,
     );
   } else {
-    // Clear-on-encode (GC_CLEAR_ON_ENCODE): wipe any residual balance off the
-    // card BEFORE crediting, so a RECYCLED card can't stack old value on top of
-    // the new load. Cloud/SOAP path only (preLoaded=false) and NEW cards only —
+    // Clear-on-encode (GC_CLEAR_ON_ENCODE): de-register the card's existing
+    // account BEFORE crediting (clearAccount → TPI_ClearAccount), so a RECYCLED
+    // card can't stack old value on top of the new load — the credit then
+    // re-materializes the account clean (behavior confirmed live 2026-07-23, see
+    // clearAccount). Cloud/SOAP path only (preLoaded=false) and NEW cards only —
     // NEVER a reload (that would wipe the guest's own balance). If the clear
     // doesn't confirm, we must NOT credit (would over-credit an uncleared card):
     // mark the row load_failed so the reconcile cron never SOAP-credits it, and

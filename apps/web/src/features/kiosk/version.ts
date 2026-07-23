@@ -15,6 +15,10 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.4.1 — fix: new-card clear-on-encode (GC_CLEAR_ON_ENCODE) now actually clears.
+ *         TPI_ClearAccount was sending the account array as <string> items,
+ *         which the server ignored (empty array → no-op, still code 0); the
+ *         array item must be <long> (int64). Verified live 2026-07-23.
  * 1.4.0 — Game Zone honors the global INTERCARD_LOAD_MODE switch: forcing
  *         `cloud` stops the kiosk dialing the on-prem bridge, so the card-system
  *         chip reads Cloud and every load rides the cloud SOAP path.
@@ -29,7 +33,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.4.0";
+export const KIOSK_VERSION = "1.4.1";
 
 let bootVersion: string | null = null;
 let captured = false;
