@@ -1769,7 +1769,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                   }}
                   className="w-full rounded-2xl border border-white/15 px-[28px] py-[18px] text-[24px] font-semibold text-white/60"
                 >
-                  Cancel — sign later
+                  ← Back
                 </button>
               </div>
             </div>
