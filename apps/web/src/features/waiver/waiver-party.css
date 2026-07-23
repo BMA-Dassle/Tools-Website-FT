@@ -1,0 +1,179 @@
+/*
+ * Mobile theme for the shared WaiverParty (KioskPartyManager) when it renders
+ * OUTSIDE the kiosk canvas — i.e. the first-party /waiver flow.
+ *
+ * The kiosk authors at a fixed 1080px-wide canvas with large px sizes, and
+ * kiosk.css is imported only in app/kiosk/layout.tsx with every k-* rule nested
+ * under .kiosk-canvas. So on a top-level /waiver page NONE of that applies. Under
+ * the `.wp-mobile` root hook we (a) re-implement the k-* looks and (b) override
+ * the kiosk's arbitrary Tailwind size utilities down to phone sizes.
+ *
+ * These are UNLAYERED rules, so they beat Tailwind's @layer utilities regardless
+ * of specificity or source order. The kiosk is untouched — it never has a
+ * .wp-mobile ancestor, so every existing class behaves exactly as before.
+ */
+
+.wp-mobile {
+  font-size: 16px;
+  line-height: 1.4;
+  color: #f5ecee;
+}
+
+/* ---- k-* look-alikes (kiosk.css is not loaded on /waiver) ---- */
+.wp-mobile .k-glass {
+  background: rgba(7, 16, 39, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+}
+.wp-mobile .k-display {
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.12;
+}
+.wp-mobile .k-eyebrow {
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.wp-mobile .k-tap {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.wp-mobile .k-btn-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #00e2e5;
+  color: #04252b;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.wp-mobile .k-btn-primary:disabled {
+  opacity: 0.4;
+}
+
+/* ---- font-size downscale (kiosk px -> mobile) ---- */
+.wp-mobile .text-\[40px\] {
+  font-size: 1.5rem;
+}
+.wp-mobile .text-\[32px\] {
+  font-size: 1.25rem;
+}
+.wp-mobile .text-\[30px\] {
+  font-size: 1.0625rem;
+}
+.wp-mobile .text-\[28px\] {
+  font-size: 1.0625rem;
+}
+.wp-mobile .text-\[26px\] {
+  font-size: 1rem;
+}
+.wp-mobile .text-\[24px\] {
+  font-size: 0.95rem;
+}
+.wp-mobile .text-\[22px\] {
+  font-size: 0.875rem;
+}
+.wp-mobile .text-\[20px\] {
+  font-size: 0.8125rem;
+}
+.wp-mobile .text-\[18px\] {
+  font-size: 0.75rem;
+}
+
+/* ---- padding downscale ---- */
+.wp-mobile .p-\[24px\] {
+  padding: 1rem;
+}
+.wp-mobile .p-\[28px\] {
+  padding: 1.15rem;
+}
+.wp-mobile .p-\[48px\] {
+  padding: 1rem;
+}
+.wp-mobile .px-\[24px\] {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+.wp-mobile .px-\[28px\] {
+  padding-left: 1.15rem;
+  padding-right: 1.15rem;
+}
+.wp-mobile .px-\[20px\] {
+  padding-left: 0.85rem;
+  padding-right: 0.85rem;
+}
+.wp-mobile .py-\[28px\] {
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+.wp-mobile .py-\[22px\] {
+  padding-top: 0.85rem;
+  padding-bottom: 0.85rem;
+}
+.wp-mobile .py-\[20px\] {
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+.wp-mobile .py-\[18px\] {
+  padding-top: 0.7rem;
+  padding-bottom: 0.7rem;
+}
+.wp-mobile .py-\[16px\] {
+  padding-top: 0.6rem;
+  padding-bottom: 0.6rem;
+}
+.wp-mobile .py-\[14px\] {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+.wp-mobile .py-\[12px\] {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+/* ---- fixed box sizes ---- */
+.wp-mobile .h-\[64px\].w-\[64px\] {
+  height: 2.5rem;
+  width: 2.5rem;
+}
+.wp-mobile .h-\[80px\] {
+  height: 3rem;
+}
+.wp-mobile .h-\[36px\].w-\[36px\] {
+  height: 1.75rem;
+  width: 1.75rem;
+}
+
+/* ---- radii ---- */
+.wp-mobile .rounded-\[28px\] {
+  border-radius: 1rem;
+}
+
+/* ---- gaps ---- */
+.wp-mobile .gap-\[18px\] {
+  gap: 0.75rem;
+}
+.wp-mobile .gap-\[16px\] {
+  gap: 0.75rem;
+}
+.wp-mobile .gap-\[12px\] {
+  gap: 0.5rem;
+}
+.wp-mobile .gap-x-\[24px\] {
+  column-gap: 0.9rem;
+}
+.wp-mobile .space-y-\[20px\] > * + * {
+  margin-top: 0.75rem;
+}
+.wp-mobile .space-y-\[16px\] > * + * {
+  margin-top: 0.6rem;
+}
+
+/* ---- stack the 2-col grids on a narrow screen ---- */
+@media (max-width: 480px) {
+  .wp-mobile .grid-cols-2 {
+    grid-template-columns: 1fr;
+  }
+}

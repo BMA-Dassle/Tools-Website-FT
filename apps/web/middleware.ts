@@ -410,8 +410,9 @@ export async function middleware(request: NextRequest) {
       "/headpinz-naples/waiver-2/": "/",
       "/waiver-2": "/",
       "/waiver-2/": "/",
-      "/waiver": "/",
-      "/waiver/": "/",
+      // NOTE: "/waiver" is NOT redirected — it's the unified first-party waiver
+      // flow (a shared top-level route below). Redirecting it would 404/​home it
+      // on headpinz.com.
       // Blog articles — redirect to home
       "/enjoying-family-fun-with-kids-bowl-free-at-headpinz": "/kids-bowl-free",
       "/enjoying-family-fun-with-kids-bowl-free-at-headpinz/": "/kids-bowl-free",
@@ -590,7 +591,12 @@ export async function middleware(request: NextRequest) {
     // handles /kiosk before we get here; this keeps a future reorder from
     // /hp-rewriting the kiosk into a 404).
     pathname === "/kiosk" ||
-    pathname.startsWith("/kiosk/");
+    pathname.startsWith("/kiosk/") ||
+    // Unified first-party waiver flow — QR / email / SMS links land here on
+    // EITHER brand host; center comes from ?c=, brand chrome is host-aware.
+    // Mirrors /join. (The static /waiver-3 legal page matches neither test.)
+    pathname === "/waiver" ||
+    pathname.startsWith("/waiver/");
   if (
     isHeadPinz &&
     !pathname.startsWith("/hp") &&
@@ -653,6 +659,10 @@ export async function middleware(request: NextRequest) {
     if (pathname === "/join" || pathname.startsWith("/join/")) {
       requestHeaders.set("x-no-chrome", "1");
     }
+    // Unified waiver flow: focused customer screen with its own brand header.
+    if (pathname === "/waiver" || pathname.startsWith("/waiver/")) {
+      requestHeaders.set("x-no-chrome", "1");
+    }
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
@@ -661,7 +671,13 @@ export async function middleware(request: NextRequest) {
   // (The HeadPinz host is handled in the shared-route block above.)
   // The kiosk mobile-join phone flow gets the same treatment — it renders its
   // own brand header from the join-session record.
-  if (pathname === "/july4" || pathname === "/join" || pathname.startsWith("/join/")) {
+  if (
+    pathname === "/july4" ||
+    pathname === "/join" ||
+    pathname.startsWith("/join/") ||
+    pathname === "/waiver" ||
+    pathname.startsWith("/waiver/")
+  ) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-no-chrome", "1");
     return NextResponse.next({ request: { headers: requestHeaders } });

@@ -52,8 +52,9 @@ export interface KioskPartyManagerProps {
   mode: PartyManagerMode;
   /** The roster. Session-scoped in the wizard; page-local in the waiver flow. */
   party: PartyMember[];
-  /** Pandora location key — session.entryBrand in the wizard. */
-  brandLocation: "fasttrax" | "headpinz";
+  /** Pandora location key — session.entryBrand in the wizard. Center-first:
+   *  "naples" for a Naples booking (the mobile /waiver flow passes it). */
+  brandLocation: "fasttrax" | "headpinz" | "naples";
   /** Venue center (photo uploads use "naples" at Naples) — session.center in the wizard. */
   center: CenterCode | null;
   /** Contact fallbacks used inside submitNew/submitSetup — session.contact in the wizard. */
