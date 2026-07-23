@@ -25,9 +25,10 @@ function sqHeaders() {
 }
 
 export async function POST(req: NextRequest) {
-  const { contractShortId, cardSourceId } = (await req.json()) as {
+  const { contractShortId, cardSourceId, verificationToken } = (await req.json()) as {
     contractShortId: string;
     cardSourceId: string;
+    verificationToken?: string;
   };
 
   if (!contractShortId || !cardSourceId) {
@@ -57,43 +58,23 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Tokenize the new card via Square (charge $0 to verify, then save)
+  // Save the card on file directly from the Web Payments SDK card token.
+  //
+  // We do NOT pre-charge a $0 "verification" payment first: Square rejects
+  // CreatePayment with amount_money.amount = 0 for a card source, so that step
+  // always failed (verifyData.payment?.id undefined → 400 "Card verification
+  // failed") and the route never reached CreateCard. CreateCard accepts the
+  // single-use card nonce as source_id directly — no charge needed to save it.
+  // (An optional client-supplied verificationToken from payments.verifyBuyer()
+  // is forwarded when present, for accounts/cards that require SCA/3DS.)
   try {
-    // Verify the card with a $0 auth
-    const verifyRes = await fetch(`${SQUARE_BASE}/payments`, {
-      method: "POST",
-      headers: sqHeaders(),
-      body: JSON.stringify({
-        idempotency_key: `gf-verify-${contractShortId}-${Date.now()}`,
-        source_id: cardSourceId,
-        amount_money: { amount: 0, currency: "USD" },
-        location_id: quote.square_location_id,
-        autocomplete: false,
-        verify_buyer_address_against: "POSTAL_CODE",
-      }),
-    });
-    const verifyData = await verifyRes.json();
-
-    // Save the card using the payment ID
-    const paymentId = verifyData.payment?.id;
-    if (!paymentId) {
-      const errMsg = verifyData.errors?.[0]?.detail || "Card verification failed";
-      return NextResponse.json({ error: errMsg }, { status: 400 });
-    }
-
-    // Cancel the $0 auth
-    await fetch(`${SQUARE_BASE}/payments/${paymentId}/cancel`, {
-      method: "POST",
-      headers: sqHeaders(),
-    });
-
-    // Save the new card
     const cardRes = await fetch(`${SQUARE_BASE}/cards`, {
       method: "POST",
       headers: sqHeaders(),
       body: JSON.stringify({
         idempotency_key: `gf-update-card-${contractShortId}-${Date.now()}`,
         source_id: cardSourceId,
+        ...(verificationToken ? { verification_token: verificationToken } : {}),
         card: { customer_id: customerId },
       }),
     });
