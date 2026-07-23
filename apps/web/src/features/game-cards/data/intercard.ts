@@ -330,10 +330,17 @@ export interface ClearAccountParams {
 }
 
 /**
- * Clear (wipe for re-issue) one or more accounts via TPI_ClearAccount — the
- * "clear the source card" half of consolidation, and the reuse-old-cards step.
- * Returns the raw result code (0 success, -1 server exception, -2 MAC not
+ * Clear (de-register for re-issue) one or more accounts via TPI_ClearAccount —
+ * the "clear the source card" half of consolidation, and the reuse-old-cards
+ * step. Returns the raw result code (0 success, -1 server exception, -2 MAC not
  * registered).
+ *
+ * WHAT IT ACTUALLY DOES: TPI_ClearAccount *removes the account from the system*
+ * ("so the cards can be re-issued" — spec), it does NOT merely zero the balance.
+ * After a clear, verifyAccount returns exists:false; a subsequent creditTokens
+ * on the same number RE-MATERIALIZES the account with only the new value (so the
+ * clear→credit "clear-on-encode" sequence yields a clean card, no residual
+ * stacking). All three behaviors confirmed live 2026-07-23 on a throwaway card.
  *
  * ⚠️ MONEY-SAFETY:
  *  - NOT idempotency-guarded (TPI_ClearAccount carries no transaction id). NEVER
@@ -343,12 +350,8 @@ export interface ClearAccountParams {
  *
  * ⚠️ REUSE: Intercard recommends waiting ~24h before a cleared card is re-issued
  *    (spec, ClearCard §). Relevant to recycling binned cards as new-card stock.
- *
- * ⚠️ UNVERIFIED SHAPE: op name + envelope (Account array, LocID, GMT_DateTime)
- *    come from the TPI spec (docs/intercard-tpi-api.yaml), NOT yet confirmed
- *    against the live service the way TPICreditAccounts / AcountHistory were.
- *    Dry-run on a THROWAWAY card and adjust field/array shape from the response
- *    before enabling in production.
+ *    (Owner 2026-07-22: this guidance is intentionally ignored in clear-on-encode
+ *    — we clear immediately before the credit.)
  */
 export async function clearAccount(params: ClearAccountParams): Promise<{ code: number }> {
   const { locationCode, accountNumbers } = params;
@@ -358,10 +361,14 @@ export async function clearAccount(params: ClearAccountParams): Promise<{ code: 
   const mac = macForCenter(locationCode);
   const now = new Date();
 
-  // Array of account numbers. SOAP array-of-scalar convention here mirrors
-  // MAC_ID's <string> wrapping; if a live dry-run faults, the likely fix is the
-  // item element name (<string> vs repeated <Account>).
-  const accountsXml = accountNumbers.map((a) => `<string>${xmlEscape(a)}</string>`).join("");
+  // Array of account numbers. The item element is <long>, NOT <string>: the
+  // Account array's items are AccountNumber (C# long / int64), unlike MAC_ID
+  // whose items really are strings. A <string> item deserializes to an EMPTY
+  // long[] server-side — the clear then no-ops but still returns 0 (a silent
+  // "success" that clears nothing). VERIFIED live 2026-07-23: <long> clears,
+  // <string> does not. Account numbers stay strings in JS (bigint precision);
+  // the tag name is what matters to the .NET serializer, not the JS type.
+  const accountsXml = accountNumbers.map((a) => `<long>${xmlEscape(a)}</long>`).join("");
 
   const inner =
     macXml(mac) +

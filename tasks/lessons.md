@@ -1,5 +1,37 @@
 # Lessons Learned
 
+## A .NET SOAP array of int64 serializes as `<long>`, not `<string>` — the wrong item tag no-ops AND returns success (2026-07-23)
+
+**What happened:** `clearAccount()` (Intercard `TPI_ClearAccount`, used by kiosk new-card
+clear-on-encode) was shipped with its account-array items wrapped in `<string>`, copied from the
+`MAC_ID` array pattern. A live dry-run on test card 1062056 showed the clear returning **code 0
+(success) while the balance stayed untouched** — a silent no-op. Switching the item tag to `<long>`
+cleared the card for real (verifyAccount then returned `exists:false`).
+
+**Root cause:** the two arrays have different item types. `MAC_ID` items are genuinely `string`, so
+`<string>` is right there. But `TPI_ClearAccount`'s `Account` items are `AccountNumber` =
+`int64` (C# `long`). The ASP.NET SOAP serializer names primitive-array items by their XSD type
+(`<long>`, `<int>`, `<string>`…); a `<string>` item does not deserialize into a `long[]`, so the
+array arrives **empty** — the op clears zero accounts and returns 0. A green result code proved
+nothing.
+
+**Also learned (same dry-run):** `TPI_ClearAccount` *de-registers the account entirely* ("so the
+cards can be re-issued" — spec), it does NOT just zero the balance. A `creditTokens` on the same
+number afterward RE-MATERIALIZES the account clean. So the clear→credit "clear-on-encode" sequence
+is sound — but only once the item tag is correct.
+
+**Rules:**
+
+1. **Match the SOAP array item tag to the item's XSD type, not to a sibling array's convention.**
+   `int64`/`long` → `<long>`; `int` → `<int>`; `string` → `<string>`. Check the spec's `items:` type
+   (`docs/intercard-tpi-api.yaml`) for every array, per-array.
+2. **A vendor `0`/success code is NOT proof of effect.** For any op that mutates value, verify the
+   effect out-of-band (re-read the account) — especially before wiring it into a money path or
+   flipping its feature flag. `GC_CLEAR_ON_ENCODE=1` on the buggy `<string>` version would have
+   silently stacked residual value on recycled cards behind a green check.
+3. Keep the account number a **string** in JS end-to-end (bigint precision) regardless of the XML tag
+   — the `<long>` is the wire element name, not a JS `Number()` cast.
+
 ## Variably-priced Square catalog items REQUIRE base_price_money — and a failed quote is silent on the card path but fatal on the kiosk reader (2026-07-23)
 
 **What happened:** FastTrax duckpin on the kiosk died at the card reader with "Bowling quote
