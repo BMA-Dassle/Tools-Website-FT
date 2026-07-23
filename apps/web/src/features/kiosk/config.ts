@@ -87,6 +87,23 @@ export interface KioskConfig {
    */
   cardReaderPortIndex?: number | null;
   /**
+   * Hardware QR scanner on its own COM port (Web Serial) — a SEPARATE device
+   * concept from `scannerEnabled` (the keyboard-wedge toggle above), which
+   * stays as-is. Model registry + driver: src/features/kiosk/qr-scanner/;
+   * staff surface: kiosk admin → QR scanner tab. See docs/qr-scanner/README.md.
+   */
+  qrScannerEnabled?: boolean;
+  /** Registry id from qr-scanner/models.ts ("honeywell-3320g"). Plain string —
+   *  a config saved by a NEWER build must degrade to the default model here,
+   *  not crash. */
+  qrScannerModel?: string | null;
+  /** Staff-confirmed working baud (null = the model's default). The unit's
+   *  real rate is found in the panel — a read-only device can't be probed. */
+  qrScannerBaud?: number | null;
+  /** USB vendor/product of the granted port — STRICT silent-reconnect matching
+   *  (no lone-grant guessing: the CRT-591 and MSR share this origin's grants). */
+  qrScannerPortInfo?: { usbVendorId?: number; usbProductId?: number } | null;
+  /**
    * Guest-photo cameras for waiver-time capture (owner 2026-07-18: photo
    * required for adults, optional for minors, on the waiver page). Device ids
    * from enumerateDevices(); UPPER = adult height, LOWER = kids/wheelchair
@@ -235,6 +252,10 @@ export function resolveKioskConfig(partial: Partial<KioskConfig>): KioskConfig |
     cardReaderBaud: partial.cardReaderBaud ?? null,
     cardReaderPortInfo: partial.cardReaderPortInfo ?? null,
     cardReaderPortIndex: partial.cardReaderPortIndex ?? null,
+    qrScannerEnabled: partial.qrScannerEnabled ?? false,
+    qrScannerModel: partial.qrScannerModel ?? null,
+    qrScannerBaud: partial.qrScannerBaud ?? null,
+    qrScannerPortInfo: partial.qrScannerPortInfo ?? null,
     cameraUpperId: partial.cameraUpperId ?? null,
     cameraLowerId: partial.cameraLowerId ?? null,
   };

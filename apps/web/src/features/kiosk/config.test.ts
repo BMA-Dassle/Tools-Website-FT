@@ -108,6 +108,36 @@ describe("resolveKioskConfig", () => {
     });
   });
 
+  it("defaults the qr-scanner fields off/null", () => {
+    expect(resolveKioskConfig({ center: "fort-myers" })).toMatchObject({
+      qrScannerEnabled: false,
+      qrScannerModel: null,
+      qrScannerBaud: null,
+      qrScannerPortInfo: null,
+    });
+  });
+
+  it("qr-scanner fields survive resolve + merge (readStorage re-resolves on boot)", () => {
+    // The strip-guard: a field missing from resolveKioskConfig's literal is
+    // silently dropped on every boot — this test catches that.
+    const saved = resolveKioskConfig({
+      center: "fort-myers",
+      qrScannerEnabled: true,
+      qrScannerModel: "honeywell-3320g",
+      qrScannerBaud: 115200,
+      qrScannerPortInfo: { usbVendorId: 0x0c2e, usbProductId: 0x0b61 },
+    });
+    const expected = {
+      qrScannerEnabled: true,
+      qrScannerModel: "honeywell-3320g",
+      qrScannerBaud: 115200,
+      qrScannerPortInfo: { usbVendorId: 0x0c2e, usbProductId: 0x0b61 },
+    };
+    expect(saved).toMatchObject(expected);
+    expect(resolveKioskConfig(saved!)).toMatchObject(expected);
+    expect(mergeKioskConfig(saved, { variant: "pitcrew" })).toMatchObject(expected);
+  });
+
   it("card-reader fields survive resolve + merge (readStorage re-resolves on boot)", () => {
     const saved = resolveKioskConfig({
       center: "fort-myers",

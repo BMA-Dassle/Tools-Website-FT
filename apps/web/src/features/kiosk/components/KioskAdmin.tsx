@@ -31,15 +31,17 @@ import {
 } from "../config";
 import { KioskAdminCardReader } from "./KioskAdminCardReader";
 import { KioskAdminMsr } from "./KioskAdminMsr";
+import { KioskAdminQrScanner } from "./KioskAdminQrScanner";
 import { DeviceCheckCard } from "./DeviceCheckCard";
 import { KIOSK_VERSION } from "../version";
 
-type Tab = "device" | "readers" | "cardreader" | "diag" | "comps";
+type Tab = "device" | "readers" | "cardreader" | "qrscanner" | "diag" | "comps";
 
 const TAB_LABELS: Record<Tab, string> = {
   device: "Device",
   readers: "Readers",
   cardreader: "Card reader",
+  qrscanner: "QR scanner",
   diag: "Diagnostics",
   comps: "Comps",
 };
@@ -259,8 +261,8 @@ export function KioskAdmin() {
           </a>
         </div>
 
-        <div className="flex gap-2">
-          {(["device", "readers", "cardreader", "diag", "comps"] as Tab[]).map((t) => (
+        <div className="flex flex-wrap gap-2">
+          {(["device", "readers", "cardreader", "qrscanner", "diag", "comps"] as Tab[]).map((t) => (
             <button
               key={t}
               type="button"
@@ -364,12 +366,17 @@ export function KioskAdmin() {
           <KioskAdminCardReader draft={draft} persist={persist} setMsg={setMsg} />
         )}
 
+        {tab === "qrscanner" && (
+          <KioskAdminQrScanner draft={draft} persist={persist} setMsg={setMsg} />
+        )}
+
         {tab === "diag" && (
           <DiagTab
             draft={draft}
             pin={pin}
             setMsg={setMsg}
             onOpenCardReader={() => setTab("cardreader")}
+            onOpenQrScanner={() => setTab("qrscanner")}
           />
         )}
 
@@ -529,6 +536,11 @@ function DeviceTab({
           label="CRT-591 card reader (COM)"
           on={!!draft.cardReaderEnabled}
           onToggle={(v) => patch({ cardReaderEnabled: v })}
+        />
+        <Toggle
+          label="QR scanner (COM)"
+          on={!!draft.qrScannerEnabled}
+          onToggle={(v) => patch({ qrScannerEnabled: v })}
         />
       </div>
       <Field label="Game Zone card dispenser device id (optional)">
@@ -1067,11 +1079,13 @@ function DiagTab({
   pin,
   setMsg,
   onOpenCardReader,
+  onOpenQrScanner,
 }: {
   draft: Partial<KioskConfig>;
   pin: string;
   setMsg: (m: string) => void;
   onOpenCardReader: () => void;
+  onOpenQrScanner: () => void;
 }) {
   const pingReader = async () => {
     if (!draft.readerId) return setMsg("No reader selected.");
@@ -1117,6 +1131,16 @@ function DiagTab({
         }
         action="Open panel"
         onRun={onOpenCardReader}
+      />
+      <DiagRow
+        label="QR scanner (COM)"
+        detail={
+          draft.qrScannerEnabled
+            ? `enabled — ${draft.qrScannerModel ?? "default model"} @ ${draft.qrScannerBaud ?? "default"} baud`
+            : "not set up"
+        }
+        action="Open panel"
+        onRun={onOpenQrScanner}
       />
     </div>
   );
