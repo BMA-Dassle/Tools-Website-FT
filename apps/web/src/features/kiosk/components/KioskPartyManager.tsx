@@ -34,6 +34,8 @@ import WaiverSigning from "@/components/pandora/WaiverSigning";
 import {
   pandoraOnboardGuest,
   pandoraFetchWaiverTemplate,
+  pandoraCreatePerson,
+  pandoraCheckWaiver,
   type PandoraWaiverTemplate,
 } from "@/lib/pandora";
 import {
@@ -69,6 +71,11 @@ export interface KioskPartyManagerProps {
   onSetContact?: (m: PartyMember) => void;
   /** StepDef setBusy passthrough. */
   setBusy?: (b: boolean) => void;
+  /** When true, a MINOR's waiver is signed BY their guardian (the guardian's
+   *  SHORT Pandora id rides Pandora's sigPersonID; the guardian signs their own
+   *  waiver first if it's lapsed). Default false = the minor self-signs
+   *  (unchanged kiosk behavior). Turned on by the mobile /waiver flow. */
+  guardianSigning?: boolean;
 }
 
 function ageFromDob(mmddyyyy: string): number | null {
@@ -93,6 +100,14 @@ function toIsoDob(mmddyyyy: string): string {
 /** A participant still needs setup when they lack an account or a valid waiver. */
 export function needsSetup(m: PartyMember): boolean {
   return !m.bmiPersonId || !m.waiverValid;
+}
+
+/** The SHORT Pandora id Pandora's waiver-sign accepts (a 17-digit Office id 500s
+ *  on sign). A new-created person's bmiPersonId IS the short id; a returning
+ *  lookup's id is the 17-digit Office id and needs an upsert-create to resolve
+ *  the short id — null here signals "resolve the short id before signing." */
+export function shortPandoraId(m: PartyMember): string | null {
+  return m.pandoraPersonId ?? (m.bmiPersonId && m.bmiPersonId.length <= 12 ? m.bmiPersonId : null);
 }
 
 /** canAdvance shared logic: at least one participant, everyone set up + waivered,
@@ -140,6 +155,7 @@ export function KioskPartyManager({
   onRemoveMember,
   onSetContact,
   setBusy,
+  guardianSigning = false,
 }: KioskPartyManagerProps) {
   const isRace = mode === "race";
 
@@ -160,6 +176,20 @@ export function KioskPartyManager({
     memberId: string;
     personId: string;
     template: PandoraWaiverTemplate;
+    /** Guardian signing a MINOR's waiver: the guardian's SHORT Pandora id +
+     *  display name (rides Pandora's sigPersonID). Absent = self-sign. */
+    signerPersonId?: string;
+    signerName?: string;
+  } | null>(null);
+  // guardianSigning: while a guardian signs their OWN (lapsed) waiver first, the
+  // pending minor waits here; the guardian's sign-complete chains straight to it.
+  const [guardianChain, setGuardianChain] = useState<{
+    minorMemberId: string;
+    minorPersonId: string;
+    minorTemplate: PandoraWaiverTemplate;
+    guardianId: string;
+    guardianSid: string;
+    guardianName: string;
   } | null>(null);
   // Linked family are OPT-IN suggestions — tap to add, never auto-pulled in.
   const [linked, setLinked] = useState<LinkedSuggestion[]>([]);
@@ -259,6 +289,114 @@ export function KioskPartyManager({
   // (the wizard passes onSetContact; the waiver flow doesn't).
   const isMainDefault = !!onSetContact && party.length === 0;
 
+  /** Best-effort BMI-level guardian link: re-run the upsert create for the minor
+   *  with guardianID attached (known person → same id, never a duplicate). The
+   *  waiver's sigPersonID records the guardian regardless, so a failure is
+   *  non-fatal. Skipped when the minor has no phone/email dedup identity. */
+  const linkMinorToGuardian = (minorMemberId: string, guardianSid: string) => {
+    const minor = party.find((m) => m.id === minorMemberId);
+    if (!minor) return;
+    const mPhone = minor.phone?.trim() ?? "";
+    const mEmail = minor.email?.trim() ?? "";
+    if (!mPhone && !mEmail) return;
+    void pandoraCreatePerson({
+      firstName: minor.firstName,
+      lastName: minor.lastName ?? "",
+      email: mEmail,
+      phone: mPhone,
+      birthdate: minor.dobIso,
+      guardianID: guardianSid,
+      location: brandLocation,
+    }).catch(() => {});
+  };
+
+  /** guardianSigning: resolve the minor's (pre-selected) guardian, ensure the
+   *  guardian's OWN waiver is current (sign it first if lapsed), then open the
+   *  minor's waiver with the guardian as sigPersonID. Any resolution failure
+   *  falls back to the minor's own sign so the flow never dead-ends (the
+   *  BMI-level guardianID link was already set at onboard). */
+  const beginMinorWaiver = async (
+    minor: PartyMember,
+    minorPersonId: string,
+    minorTemplate: PandoraWaiverTemplate,
+  ) => {
+    const selfSign = () =>
+      setWaiverFor({ memberId: minor.id, personId: minorPersonId, template: minorTemplate });
+    try {
+      const guardian = minor.guardianMemberId
+        ? party.find((m) => m.id === minor.guardianMemberId)
+        : undefined;
+      if (!guardian) {
+        selfSign();
+        return;
+      }
+      let sid = shortPandoraId(guardian);
+      if (!sid) {
+        const gPhone = guardian.phone?.trim() ?? "";
+        const gEmail = guardian.email?.trim() ?? "";
+        if (!gPhone && !gEmail) {
+          selfSign();
+          return;
+        }
+        const { personId } = await pandoraCreatePerson({
+          firstName: guardian.firstName,
+          lastName: guardian.lastName ?? "",
+          email: gEmail,
+          phone: gPhone,
+          birthdate: guardian.dobIso,
+          location: brandLocation,
+        });
+        onUpdateMember(guardian.id, { pandoraPersonId: personId });
+        sid = personId;
+      }
+      const status = await pandoraCheckWaiver(sid, brandLocation);
+      if (status.valid !== !!guardian.waiverValid) {
+        onUpdateMember(guardian.id, { waiverValid: status.valid });
+      }
+      if (status.valid) {
+        setWaiverFor({
+          memberId: minor.id,
+          personId: minorPersonId,
+          template: minorTemplate,
+          signerPersonId: sid,
+          signerName: guardian.firstName,
+        });
+        return;
+      }
+      // Guardian's own waiver lapsed → they sign it first; the overlay's
+      // sign-complete handler chains straight to the minor's waiver. A guardian
+      // is always an adult, so the adult template (age 35 — the bracket the
+      // monolith also defaults to) is correct.
+      const ownTemplate = await pandoraFetchWaiverTemplate(35, brandLocation);
+      setGuardianChain({
+        minorMemberId: minor.id,
+        minorPersonId,
+        minorTemplate,
+        guardianId: guardian.id,
+        guardianSid: sid,
+        guardianName: guardian.firstName,
+      });
+      setWaiverFor({ memberId: guardian.id, personId: sid, template: ownTemplate });
+    } catch {
+      // Rare (network) — never dead-end; the front desk can re-sign if needed.
+      selfSign();
+    }
+  };
+
+  /** Open the waiver overlay for a member — the guardian-signs-for-minor chain
+   *  when guardianSigning is on, otherwise self-sign (unchanged default). */
+  const openWaiverFor = async (
+    member: PartyMember,
+    personId: string,
+    template: PandoraWaiverTemplate,
+  ) => {
+    if (guardianSigning && member.isMinor) {
+      await beginMinorWaiver(member, personId, template);
+    } else {
+      setWaiverFor({ memberId: member.id, personId, template });
+    }
+  };
+
   /** Add a brand-NEW person (name + DOB + mobile [+ guardian if minor]) → onboard → waiver. */
   const submitNew = async () => {
     const age = ageFromDob(dob);
@@ -336,7 +474,7 @@ export function KioskPartyManager({
       if (!isRace) setIncluded(new Set([...included, member.id]));
       resetForm();
       if (!result.waiverValid && result.template) {
-        setWaiverFor({ memberId: member.id, personId: result.personId, template: result.template });
+        await openWaiverFor(member, result.personId, result.template);
       }
     } catch (err) {
       setFormError(
@@ -399,11 +537,16 @@ export function KioskPartyManager({
         });
         resetForm();
         if (!result.waiverValid && result.template) {
-          setWaiverFor({
-            memberId: member.id,
-            personId: result.personId,
-            template: result.template,
-          });
+          await openWaiverFor(
+            {
+              ...member,
+              isMinor: minor,
+              guardianMemberId: minor ? gid : undefined,
+              bmiPersonId: result.personId,
+            },
+            result.personId,
+            result.template,
+          );
         }
       } else {
         // Account exists (returning racer) — but the lookup's id is the
@@ -438,11 +581,16 @@ export function KioskPartyManager({
           });
           resetForm();
           if (!result.waiverValid && result.template) {
-            setWaiverFor({
-              memberId: member.id,
-              personId: result.personId,
-              template: result.template,
-            });
+            await openWaiverFor(
+              {
+                ...member,
+                isMinor: minor,
+                guardianMemberId: minor ? gid : undefined,
+                pandoraPersonId: result.personId,
+              },
+              result.personId,
+              result.template,
+            );
           }
         } else {
           // No phone/email on file to dedup against — DON'T upsert (risk of a
@@ -454,7 +602,11 @@ export function KioskPartyManager({
             guardianMemberId: minor ? gid : undefined,
           });
           resetForm();
-          setWaiverFor({ memberId: member.id, personId: member.bmiPersonId, template });
+          await openWaiverFor(
+            { ...member, isMinor: minor, guardianMemberId: minor ? gid : undefined },
+            member.bmiPersonId,
+            template,
+          );
         }
       }
     } catch (err) {
@@ -1082,10 +1234,33 @@ export function KioskPartyManager({
                     personId={waiverFor.personId}
                     template={waiverFor.template}
                     location={brandLocation}
+                    signerPersonId={waiverFor.signerPersonId}
                     heading={isRace ? "Racing Waiver" : "Activity Waiver"}
-                    subheading="Read and sign below — it stays on file for your whole visit."
+                    subheading={
+                      waiverFor.signerName
+                        ? `${waiverFor.signerName} — sign below for ${signer?.firstName ?? "the minor"}. It stays on file for the whole visit.`
+                        : "Read and sign below — it stays on file for your whole visit."
+                    }
                     onComplete={() => {
+                      // Guardian just signed their OWN waiver → mark it and chain
+                      // straight to the minor's waiver (guardian as sigPersonID).
+                      if (guardianChain && waiverFor.memberId === guardianChain.guardianId) {
+                        onUpdateMember(guardianChain.guardianId, { waiverValid: true });
+                        setWaiverFor({
+                          memberId: guardianChain.minorMemberId,
+                          personId: guardianChain.minorPersonId,
+                          template: guardianChain.minorTemplate,
+                          signerPersonId: guardianChain.guardianSid,
+                          signerName: guardianChain.guardianName,
+                        });
+                        return;
+                      }
                       onUpdateMember(waiverFor.memberId, { waiverValid: true });
+                      // Minor signed by a guardian → best-effort BMI guardian link.
+                      if (waiverFor.signerPersonId) {
+                        linkMinorToGuardian(waiverFor.memberId, waiverFor.signerPersonId);
+                        setGuardianChain(null);
+                      }
                       setWaiverFor(null);
                     }}
                   />
