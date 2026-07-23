@@ -76,6 +76,17 @@ export interface KioskPartyManagerProps {
    *  waiver first if it's lapsed). Default false = the minor self-signs
    *  (unchanged kiosk behavior). Turned on by the mobile /waiver flow. */
   guardianSigning?: boolean;
+  /** Visual theme. "kiosk" (default) keeps the fixed 1080-wide kiosk canvas
+   *  classes, byte-identical to today. "mobile" adds a `wp-mobile` root hook that
+   *  the mobile /waiver flow's stylesheet uses to render a phone-native layout. */
+  theme?: "kiosk" | "mobile";
+  /** Whether a camera is available for the pre-signature photo. Defaults to the
+   *  kiosk device config; the mobile flow passes it explicitly. */
+  hasCamera?: boolean;
+  /** Photo policy: "required-adults" (default — the kiosk behavior: shown when a
+   *  camera is present; required for adults / optional for minors inside the photo
+   *  component) or "off" to skip the photo step entirely. */
+  photoStep?: "required-adults" | "off";
 }
 
 function ageFromDob(mmddyyyy: string): number | null {
@@ -156,6 +167,9 @@ export function KioskPartyManager({
   onSetContact,
   setBusy,
   guardianSigning = false,
+  theme = "kiosk",
+  hasCamera,
+  photoStep = "required-adults",
 }: KioskPartyManagerProps) {
   const isRace = mode === "race";
 
@@ -203,6 +217,8 @@ export function KioskPartyManager({
   // has been completed/skipped so each signer gets their own capture.
   const { config: kioskCfg } = useKioskConfig();
   const [photoDoneFor, setPhotoDoneFor] = useState<string | null>(null);
+  // Camera source: an explicit prop (mobile) wins; else the kiosk device config.
+  const hasCameraResolved = hasCamera ?? kioskHasCamera(kioskCfg);
 
   const adults = party.filter((m) => !m.isMinor);
   const setBusyAll = (b: boolean) => setBusyLocal(b);
@@ -842,7 +858,7 @@ export function KioskPartyManager({
       : null;
 
   return (
-    <div className="space-y-[24px]">
+    <div className={theme === "mobile" ? "wp-mobile space-y-4" : "space-y-[24px]"}>
       <p className="text-[26px] text-white/55">
         {party.length > 0
           ? "Your group is signed in — everyone here needs an account and a signed waiver."
@@ -1205,7 +1221,8 @@ export function KioskPartyManager({
       {waiverFor &&
         (() => {
           const signer = party.find((p) => p.id === waiverFor.memberId);
-          const needPhoto = kioskHasCamera(kioskCfg) && photoDoneFor !== waiverFor.memberId;
+          const needPhoto =
+            photoStep !== "off" && hasCameraResolved && photoDoneFor !== waiverFor.memberId;
           return (
             <div className="fixed inset-0 z-[76] overflow-y-auto bg-[#000418] p-[48px]">
               {needPhoto ? (
