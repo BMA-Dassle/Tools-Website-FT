@@ -492,6 +492,48 @@ async function processQueueItem(
     const balanceCents = Math.max(0, totalCents - existing.collected_cents);
     const newEventDisplay = formatEventDate(item.event.dateRaw);
 
+    // Reconcile a STALE post-paid marker. `approval_required` is written once when
+    // an event is post-paid and is NEVER recomputed, but `isPostPaid` is derived
+    // live from BMI products on every pass (and the amounts below are rewritten to
+    // a normal charge accordingly). When an event is converted OUT of post-paid —
+    // the "GF Post Paid Account" line item removed in BMI — the stale flag keeps the
+    // 72h balance-charge cron skipping it (`approval_required = TRUE` is excluded),
+    // so a now-normal, card-on-file event silently never collects (H1091 /
+    // c675998f, 2026-07-24). Release the flag here so it rejoins the normal charge
+    // path (Path A auto-charges the card on file — owner decision 2026-07-24).
+    // Scoped to approved-then-converted rows (`approved_at` set) so a deliberate
+    // auto-charge HOLD on a normal event (h1174 pattern, `approved_at` NULL) is
+    // never disturbed. Runs OUTSIDE the change-gate below so it self-heals rows
+    // that were converted on an earlier pass. Idempotent: the WHERE clause no-ops
+    // once the flag is already clear.
+    if (!isPostPaid && existing.approval_required && existing.approved_at) {
+      const q = (await import("@/lib/db")).sql();
+      await q`UPDATE group_function_quotes
+        SET approval_required = FALSE, updated_at = NOW()
+        WHERE id = ${existing.id} AND approval_required = TRUE`;
+      existing = { ...existing, approval_required: false };
+      const { appendAuditLog } = await import("@/lib/group-function-db");
+      appendAuditLog({
+        quoteId: existing.id,
+        event: "postpaid_flag_released",
+        metadata: { reason: "converted_out_of_postpaid", trigger: "dispatch_cron" },
+      }).catch((err) => console.error("[group-quote-dispatch] flag-release audit error:", err));
+      try {
+        const { appendProjectPrivateNote, noteTimestamp } =
+          await import("@/lib/bmi-office-actions");
+        await appendProjectPrivateNote({
+          centerCode: center.centerCode,
+          projectId: item.reservationId,
+          note: `[${noteTimestamp()}] Converted out of post-paid — auto-charge hold released; balance now collects on the normal cycle.`,
+        });
+      } catch {
+        /* non-fatal */
+      }
+      console.log(
+        `[group-quote-dispatch] released stale post-paid flag for reservation=${item.reservationId}`,
+      );
+    }
+
     // Key-order-safe signatures. line_items / prior_payments come back from JSONB
     // with keys re-sorted by Postgres, so a raw JSON.stringify compare against the
     // freshly scanned BMI objects always reports a (false) change and would defeat

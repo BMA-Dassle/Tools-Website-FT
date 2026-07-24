@@ -2052,3 +2052,45 @@ the API error surfaced as a bare "see attendant," and the reader looped 30-secon
 - **A guest-facing entry point must not exist when its backend can't serve it** —
   probe availability before showing the button; a timeout with a guest's card held
   must be tight (seconds), and every failure path hands the card back.
+
+## `approval_required` is overloaded AND goes stale on post-paid conversion (2026-07-24)
+
+**Incident:** Owner asked why contract `c675998f` (H1091 "Welcome Boys and Girls
+Club", Naples, $1,116) wasn't charging inside the 72h window. My first answer —
+"it's a post-paid account, working as designed, invoice-only" — was **wrong**, and
+the owner corrected me. It *had been* post-paid, but the `"GF Post Paid Account"`
+BMI line was later removed, converting it to a normal within-96h full-payment event.
+
+**Root cause:** `isPostPaid` is derived LIVE from BMI products every dispatch pass,
+and amounts (`deposit_due_cents`/`balance_cents`) are rewritten accordingly — but
+`approval_required` is a sticky column written ONCE (at the post-paid hold) and
+**never reconciled**. The approve route sets `approved_at` and deliberately leaves
+`approval_required = TRUE` permanently. So a converted event kept the stale flag,
+and `getQuotesNeedingBalanceCharge` excludes `approval_required = TRUE` → the 72h
+auto-charge silently skipped a now-normal, card-on-file event. It also can't reach
+`balance_charged`, so `group-dayof-pay` (whose `OR approved_at IS NOT NULL` escape
+implies someone intended post-paid to settle) never fires either — dead zone.
+
+**The flag means TWO things** (disambiguate ONLY by `approved_at`):
+- post-paid marker: `approval_required=TRUE` + `approved_at` NOT NULL (went through /approve)
+- manual auto-charge HOLD (h1174 pattern): `approval_required=TRUE` + `approved_at` NULL, on a NORMAL event
+
+**Fix (fix/gf-stale-postpaid-flag-release):** reconcile the flag in group-quote-dispatch's
+post-sign branch — when `!isPostPaid && approval_required && approved_at`, clear
+`approval_required = FALSE` (idempotent, outside the change-gate so it self-heals).
+Scoped by `approved_at` so manual holds are untouched. No payment-cron predicate
+change needed: once the flag is FALSE the existing charge query matches it.
+Blast radius verified = 1 row (#286); the other 24 approved rows are still genuinely
+post-paid and untouched. Owner decision 2026-07-24: converted events auto-charge the
+card on file (Path A), accepting that the card was saved under a post-paid
+`autoCharge:false` contract.
+
+**Rules:**
+- **Any flag derived from BMI product state must be reconciled every pass, not written once.**
+  If `isPostPaid` can flip, everything gated on it (amounts AND `approval_required`) must re-derive.
+- **Don't declare "working as designed" on a payment gap until you've checked whether the
+  event's type CHANGED.** A stale marker on a converted event looks identical to correct
+  post-paid behavior; the line-item list is the tell.
+- **Never blanket-add `OR approved_at IS NOT NULL` to the balance-charge query** — a converted
+  row with a saved card would hit Path A and auto-charge a card banked under `autoCharge:false`.
+  Fix the stale flag upstream instead.
