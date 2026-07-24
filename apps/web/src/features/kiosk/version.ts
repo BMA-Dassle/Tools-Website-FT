@@ -15,6 +15,12 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.7.1 — device check reports the COM QR scanner (live serial-grant match
+ *         against the saved port, model + baud shown) instead of the retired
+ *         USB keyboard-wedge toggle; the sign-in boxes fold/unfold on an
+ *         always-visible "More ways to add people" bar at any time (roster
+ *         state is just the default), keeping the amber "N phones signing in"
+ *         status in every state.
  * 1.7.0 — the people-step sign-in methods are now three equal, tappable boxes
  *         under the entry buttons — "Sign in from your phone" (mobile-join QR,
  *         inline + tap to enlarge to a focused sheet), "Scan your license"
@@ -87,7 +93,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.7.0";
+export const KIOSK_VERSION = "1.7.1";
 
 let bootVersion: string | null = null;
 let captured = false;
