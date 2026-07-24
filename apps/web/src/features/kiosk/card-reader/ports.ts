@@ -10,7 +10,7 @@
 
 const USB_VENDORS: Record<number, string> = {
   0x0c2e: "Honeywell",
-  0x0d3a: "Posiflex",
+  0x065a: "Opticon",
   0x0403: "FTDI",
   0x067b: "Prolific",
   0x1a86: "CH340",

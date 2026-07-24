@@ -3,7 +3,7 @@
 /**
  * Hardware QR scanner setup/test panel — a tab inside the PIN-gated kiosk
  * admin, mirroring the CRT-591 tab's provisioning flow and the MSR card's
- * grant UX. The scanner (registry model — Honeywell 3320g or Posiflex 2D
+ * grant UX. The scanner (registry model — Honeywell 3320g or Opticon 2D
  * imager, USB serial) is read-only: scans stream in as CR/LF-terminated
  * lines, so the test surface is a live scan feed — there are no commands to
  * send and no TX log.

@@ -2,7 +2,7 @@
  * Hardware QR scanner model registry — the seam that keeps the driver
  * pluggable across scanner models. Entries are PURE DATA; the one
  * serial-line code path lives in useQrScanner. Another serial model is one
- * new literal here (the Posiflex was exactly that); a non-serial model adds
+ * new literal here (the Opticon was exactly that); a non-serial model adds
  * a `kind` union member, and TypeScript's exhaustiveness check flags every
  * switch site that must handle it. See docs/qr-scanner/README.md.
  */
@@ -69,21 +69,22 @@ const MODELS: Record<string, ScannerModel> = {
       "Default 115200 8-N-1 per the guide — confirm on the unit: if the feed " +
       "shows garbage or nothing, step through the baud rates and scan again.",
   },
-  "posiflex-2d": {
+  "opticon-2d": {
     kind: "serial-line",
-    id: "posiflex-2d",
-    label: "Posiflex 2D imaging scanner (USB serial)",
-    // Seeded AHEAD of hardware (2026-07-24) — no unit tested yet. 9600 8-N-1
-    // is the near-universal scanner serial default; if the unit is true
-    // USB-CDC the rate may not even matter. The feed + baud stepping decides.
+    id: "opticon-2d",
+    label: "Opticon 2D imaging scanner (USB serial)",
+    // Seeded AHEAD of hardware (2026-07-24; brand corrected from Posiflex →
+    // Opticon 2026-07-24) — no unit tested yet. 9600 8-N-1 is Opticon's
+    // classic serial default; if the unit is true USB-CDC the rate may not
+    // even matter. The feed + baud stepping decides.
     defaultBaudRate: 9600,
     baudCandidates: [9600, 115200, 57600, 38400, 19200, 4800],
     framing: {},
-    // Posiflex Technology's registered USB VID — NOT confirmed off a unit.
+    // Opticon, Inc.'s registered USB VID — NOT confirmed off a unit.
     // Some scanner lines enumerate under a USB-serial bridge VID instead
     // (FTDI 0403 / CH340 1a86 / CP210x 10c4); the panel shows the real ids
     // and flags a mismatch — record whatever it reports here.
-    expectedUsbIds: [{ usbVendorId: 0x0d3a }],
+    expectedUsbIds: [{ usbVendorId: 0x065a }],
     usbIdsConfirmed: false,
     notes:
       "UNCONFIRMED — provisioned ahead of hardware. Program the unit to USB " +

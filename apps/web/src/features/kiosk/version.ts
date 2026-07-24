@@ -15,6 +15,11 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.7.2 — scanner model #2's brand corrected: it's an OPTICON 2D imager, not
+ *         Posiflex. Registry id renamed posiflex-2d → opticon-2d, expected
+ *         VID now 0x065A (Opticon's registered VID; was Posiflex 0x0D3A).
+ *         Still fully unconfirmed until a unit is provisioned — 9600 default
+ *         + the panel's baud-stepping test flow unchanged.
  * 1.7.1 — device check reports the COM QR scanner (live serial-grant match
  *         against the saved port, model + baud shown) instead of the retired
  *         USB keyboard-wedge toggle; the sign-in boxes fold/unfold on an
@@ -98,7 +103,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.7.1";
+export const KIOSK_VERSION = "1.7.2";
 
 let bootVersion: string | null = null;
 let captured = false;
