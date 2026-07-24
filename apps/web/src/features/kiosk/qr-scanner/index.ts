@@ -20,3 +20,5 @@ export {
 } from "./models";
 export { LineAccumulator } from "./line-accumulator";
 export { matchScannerPort, type PortLike } from "./port-matching";
+export { AamvaBurst, parseAamvaLines, type AamvaLicense } from "./aamva";
+export { useLicenseScan, type LicenseScan, type UseLicenseScanOptions } from "./useLicenseScan";
