@@ -55,11 +55,11 @@ const MAX_BAD_BLANKS = 3;
  *  reload only ever reads an inserted card and presents it back. */
 const MAX_AUTO_READ_FAILS = 3;
 
-/** Combine cards (consolidation) entry point. HIDDEN (owner 2026-07-23) while the
- *  rebuilt combine — the documented Enhanced-3PI ConsolidateCards op over the
- *  cloud Transaction Server — awaits a live test (needs INTERCARD_EIS_HOST set in
- *  Vercel). Flip to true to show the button again. */
-const GC_CONSOLIDATE_LIVE = false;
+/** Combine cards (consolidation) entry point — ON (owner 2026-07-23). The combine
+ *  is the documented Enhanced-3PI ConsolidateCards op over the cloud Transaction
+ *  Server; INTERCARD_EIS_HOST must be set in Vercel or the flow fails closed
+ *  with a "see an attendant" message. Flip to false to hide the button. */
+const GC_CONSOLIDATE_LIVE = true;
 
 /** The final "cards ready / tokens loaded" screen auto-closes after this many
  *  seconds (owner 2026-07-19). We only reach it once the dispenser sensor has
@@ -1263,28 +1263,25 @@ export function KioskGameZone({
           {/* Combine cards — CLOUD ONLY. Appears when this kiosk is on the cloud
               path (no local bridge, bridgeUp===false); needs the reader to
               accept + bin sources. Forcing a kiosk to cloud turns this on.
-              Kill-switch: set NEXT_PUBLIC_GC_CONSOLIDATE_DISABLED=1 to keep it
-              dark on cloud kiosks until TPI_ConsolidateAccounts is dry-run
-              verified against the live service. */}
-          {GC_CONSOLIDATE_LIVE &&
-            bridgeUp === false &&
-            readerReady &&
-            process.env.NEXT_PUBLIC_GC_CONSOLIDATE_DISABLED !== "1" && (
-              <button
-                type="button"
-                onClick={() => {
-                  consoReset();
-                  setMode("consolidate");
-                }}
-                className="k-glass k-tap p-[40px] text-left"
-                style={{ borderLeft: "8px solid #b39dff" }}
-              >
-                <div className="k-display text-[48px]">Combine cards</div>
-                <div className="mt-[10px] text-[28px] text-white/55">
-                  Move the tokens from several cards onto one card to keep
-                </div>
-              </button>
-            )}
+              Re-enabled (owner 2026-07-23): the old NEXT_PUBLIC_GC_CONSOLIDATE_DISABLED
+              env kill-switch was dropped so a stale Vercel var can't keep the
+              button dark — GC_CONSOLIDATE_LIVE (top of file) is the one switch. */}
+          {GC_CONSOLIDATE_LIVE && bridgeUp === false && readerReady && (
+            <button
+              type="button"
+              onClick={() => {
+                consoReset();
+                setMode("consolidate");
+              }}
+              className="k-glass k-tap p-[40px] text-left"
+              style={{ borderLeft: "8px solid #b39dff" }}
+            >
+              <div className="k-display text-[48px]">Combine cards</div>
+              <div className="mt-[10px] text-[28px] text-white/55">
+                Move the tokens from several cards onto one card to keep
+              </div>
+            </button>
+          )}
         </div>
       </div>
     );
