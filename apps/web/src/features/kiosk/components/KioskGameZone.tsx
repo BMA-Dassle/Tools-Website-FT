@@ -295,6 +295,8 @@ export function KioskGameZone({
     account: string;
     tokens: number;
     bonusTokens: number;
+    eTickets: number;
+    timeMinutes: number;
   } | null>(null);
   const [consoSources, setConsoSources] = useState<
     Array<{ account: string; tokens: number; bonusTokens: number }>
@@ -777,6 +779,8 @@ export function KioskGameZone({
       setConsoCombining(true); // brief: the balance lookup for the display
       let tokens = 0;
       let bonusTokens = 0;
+      let eTickets = 0;
+      let timeMinutes = 0;
       try {
         const res = await fetch("/api/game-cards/verify", {
           method: "POST",
@@ -788,11 +792,13 @@ export function KioskGameZone({
         const bal = data.balance ?? data;
         tokens = bal.tokens ?? 0;
         bonusTokens = bal.bonusTokens ?? 0;
+        eTickets = bal.eTickets ?? 0;
+        timeMinutes = bal.timeMinutes ?? 0;
       } catch {
         /* balance is display-only; the move re-reads server-side */
       }
       if (consoRunRef.current !== run) return;
-      setConsoTarget({ account, tokens, bonusTokens });
+      setConsoTarget({ account, tokens, bonusTokens, eTickets, timeMinutes });
       setConsoSources([]);
       setConsoStep("sources");
     } finally {
@@ -883,6 +889,8 @@ export function KioskGameZone({
                   ...t,
                   tokens: data.targetBalance.tokens ?? t.tokens,
                   bonusTokens: data.targetBalance.bonusTokens ?? t.bonusTokens,
+                  eTickets: data.targetBalance.eTickets ?? t.eTickets,
+                  timeMinutes: data.targetBalance.timeMinutes ?? t.timeMinutes,
                 }
               : t,
           );
@@ -1394,6 +1402,8 @@ export function KioskGameZone({
   if (mode === "consolidate") {
     const combinedTokens = consoTarget?.tokens ?? 0;
     const combinedBonus = consoTarget?.bonusTokens ?? 0;
+    const combinedETickets = consoTarget?.eTickets ?? 0;
+    const combinedMinutes = consoTarget?.timeMinutes ?? 0;
     const last4 = (a: string) => `···${a.slice(-4)}`;
     return (
       <div className="mx-auto max-w-2xl px-2 py-6 kiosk-zoom">
@@ -1573,9 +1583,45 @@ export function KioskGameZone({
               </div>
               <div className="mt-1 text-5xl font-extrabold">
                 {combinedTokens.toLocaleString()} tokens
-                {combinedBonus ? ` + ${combinedBonus.toLocaleString()} bonus` : ""}
               </div>
-              <div className="mt-2 text-lg text-white/60">
+              {/* Everything else now on the kept card (cash / bonus cash are
+                  deliberately NOT shown — owner 2026-07-24). Each stat appears
+                  only when it carries a value. */}
+              {(combinedBonus > 0 || combinedETickets > 0 || combinedMinutes > 0) && (
+                <div className="mt-4 flex flex-wrap justify-center gap-3">
+                  {combinedBonus > 0 && (
+                    <div className="rounded-xl border border-white/10 bg-white/[0.04] px-5 py-3">
+                      <div className="font-heading text-2xl font-extrabold tabular-nums text-[#46d68c]">
+                        {combinedBonus.toLocaleString()}
+                      </div>
+                      <div className="mt-0.5 text-[11px] font-bold uppercase tracking-[0.2em] text-white/45">
+                        Bonus tokens
+                      </div>
+                    </div>
+                  )}
+                  {combinedETickets > 0 && (
+                    <div className="rounded-xl border border-white/10 bg-white/[0.04] px-5 py-3">
+                      <div className="font-heading text-2xl font-extrabold tabular-nums text-[#e8b14c]">
+                        {combinedETickets.toLocaleString()}
+                      </div>
+                      <div className="mt-0.5 text-[11px] font-bold uppercase tracking-[0.2em] text-white/45">
+                        eTickets
+                      </div>
+                    </div>
+                  )}
+                  {combinedMinutes > 0 && (
+                    <div className="rounded-xl border border-white/10 bg-white/[0.04] px-5 py-3">
+                      <div className="font-heading text-2xl font-extrabold tabular-nums text-white">
+                        {combinedMinutes.toLocaleString()}
+                      </div>
+                      <div className="mt-0.5 text-[11px] font-bold uppercase tracking-[0.2em] text-white/45">
+                        Time play (min)
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="mt-4 text-lg text-white/60">
                 {consoSources.length} card{consoSources.length === 1 ? "" : "s"} combined
               </div>
             </div>
