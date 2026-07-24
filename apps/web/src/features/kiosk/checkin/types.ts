@@ -167,6 +167,33 @@ export interface CheckinRosterPerson {
   boundTo: string[];
 }
 
+/** One purchased race slot on the reservation — the unit the guest assigns a
+ *  person to at check-in ("who is who"). `heatId` is the naive-ET block start,
+ *  and the stable key for the person→slot assignment. */
+export interface CheckinRaceSlot {
+  heatId: string;
+  productId: string | null;
+  /** Human label for the picker: "Starter Junior · Blue". */
+  classLabel: string;
+  tier: string;
+  /** The class this slot is FOR — a junior slot only accepts a junior. */
+  category: "adult" | "junior";
+  track: string | null;
+  timeLabel: string;
+  /** Name already bound to this slot (booker / web-identified racer), else null. */
+  occupantName: string | null;
+  /** True when no bmiPersonId is bound yet — assignable at the kiosk. */
+  open: boolean;
+}
+
+/** A guest's person→slot choice sent to /complete. */
+export interface CheckinSlotAssignment {
+  heatId: string;
+  /** SHORT Pandora id preferred, else the 17-digit Office id — matched to the
+   *  bound person row server-side. */
+  personId: string;
+}
+
 export interface CheckinItinerary {
   ok: boolean;
   // NOTE: the raw billId / officeProjectId are deliberately NOT returned to the
@@ -183,6 +210,9 @@ export interface CheckinItinerary {
     arriveByLabel: string | null;
   } | null;
   roster: CheckinRosterPerson[];
+  /** Purchased race slots (racing reservations only) — the "who is who"
+   *  assignment surface. Empty for non-racing. */
+  raceSlots: CheckinRaceSlot[];
   /** Display-only balance banner (no money is collected at the kiosk). */
   dueAtCenterCents: number;
   error?: string;

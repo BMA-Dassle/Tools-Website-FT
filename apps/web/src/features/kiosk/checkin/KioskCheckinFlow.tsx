@@ -52,7 +52,10 @@ import type {
   CheckinCompleteResponse,
   CheckinItinerary,
   CheckinLookupMatch,
+  CheckinRaceSlot,
+  CheckinSlotAssignment,
 } from "./types";
+import type { PartyMember } from "~/features/booking";
 
 /** The people monolith, mounted directly over a local reducer (KioskWaiverFlow
  *  pattern) — gives add-people + returning lookup + waivers + the mobile-join
@@ -141,6 +144,8 @@ export function KioskCheckinFlow() {
   // member ids already attached this visit — never re-attach on a second tap.
   const [boundIds, setBoundIds] = useState<Set<string>>(() => new Set());
   const [complete, setComplete] = useState<CheckinCompleteResponse | null>(null);
+  // Race-slot assignment ("who is who") — open-slot heatId → party member id.
+  const [assignMap, setAssignMap] = useState<Record<string, string>>({});
 
   const goHome = useCallback(() => {
     void resetToKiosk(() => router.replace("/kiosk"));
@@ -178,6 +183,22 @@ export function KioskCheckinFlow() {
   // check-in — mirror the people step's readiness gate.
   const partyNeedsSetup = session.party.some((m) => !m.bmiPersonId || !m.waiverValid);
 
+  // "Who is who" — the open (unfilled) purchased race slots, and the handler
+  // that assigns a ready party member to one. A member holds at most one slot.
+  const openRaceSlots = itinerary?.raceSlots.filter((s) => s.open) ?? [];
+  const assignRace = (heatId: string, memberId: string) => {
+    setAssignMap((prev) => {
+      const next: Record<string, string> = {};
+      for (const [h, mId] of Object.entries(prev)) {
+        if (mId === memberId) continue; // release the member's previous slot
+        next[h] = mId;
+      }
+      if (prev[heatId] === memberId) return next; // tapping the held slot clears it
+      next[heatId] = memberId;
+      return next;
+    });
+  };
+
   // "Check everyone in": attach any newly-added party first, then finalize
   // (schedule onto the session + -5 Arrived + memo) in one tap.
   const checkInEveryone = async () => {
@@ -200,7 +221,19 @@ export function KioskCheckinFlow() {
       }
       setBoundIds((prev) => new Set([...prev, ...unboundReady.map((m) => m.id)]));
     }
-    const c = await completeCheckin(center, proofToken, config ? kioskId(config) : undefined);
+    const assignments: CheckinSlotAssignment[] = Object.entries(assignMap)
+      .map(([heatId, memberId]) => {
+        const m = session.party.find((p) => p.id === memberId);
+        const personId = m?.pandoraPersonId || m?.bmiPersonId;
+        return personId ? { heatId, personId } : null;
+      })
+      .filter((x): x is CheckinSlotAssignment => !!x);
+    const c = await completeCheckin(
+      center,
+      proofToken,
+      config ? kioskId(config) : undefined,
+      assignments,
+    );
     setBinding(false);
     if (!c.ok) {
       setBindMsg(
@@ -504,6 +537,16 @@ export function KioskCheckinFlow() {
                 setBusy={setPeopleBusy}
               />
 
+              {/* Who is who — assign ready racers to the open purchased slots. */}
+              {openRaceSlots.length > 0 && (
+                <AssignRacesPanel
+                  slots={openRaceSlots}
+                  party={readyMembers}
+                  assignMap={assignMap}
+                  onAssign={assignRace}
+                />
+              )}
+
               {bindMsg && (
                 <div className="mt-[20px] rounded-2xl border-2 border-[#e94141]/40 bg-[#e94141]/10 px-[28px] py-[20px] text-[26px] text-[#ffb4b4]">
                   {bindMsg}
@@ -786,6 +829,95 @@ function ItineraryScreen(props: { itinerary: CheckinItinerary; onNewBooking: () 
         >
           Start a new booking ›
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Who's racing? (assign ready racers to open purchased slots) ───────────────
+/** Best-available class for a member: explicit racing category, else minor→junior.
+ *  A kiosk-added member may lack an explicit category (they onboard through an
+ *  attraction-shaped item), so this is a HINT that drives a soft warning, never
+ *  a hard block. */
+function effectiveCategory(m: PartyMember): "adult" | "junior" {
+  return m.category ?? (m.isMinor ? "junior" : "adult");
+}
+
+function racerName(m: PartyMember): string {
+  return `${m.firstName}${m.lastName ? ` ${m.lastName}` : ""}`.trim() || "Racer";
+}
+
+function AssignRacesPanel(props: {
+  slots: CheckinRaceSlot[];
+  party: PartyMember[];
+  assignMap: Record<string, string>;
+  onAssign: (heatId: string, memberId: string) => void;
+}) {
+  const { slots, party, assignMap, onAssign } = props;
+  return (
+    <div className="mt-[28px] border-t border-white/10 pt-[28px]">
+      <div className="k-eyebrow mb-[10px] text-[#e94141]">Who&rsquo;s racing?</div>
+      <p className="mb-[20px] text-[26px] text-white/55">
+        Tap a name to put them in each race. Junior classes need a junior racer.
+      </p>
+      <div className="space-y-[20px]">
+        {slots.map((slot) => {
+          const assignedId = assignMap[slot.heatId];
+          const assignedMember = party.find((p) => p.id === assignedId);
+          const assignedMismatch =
+            !!assignedMember && effectiveCategory(assignedMember) !== slot.category;
+          return (
+            <div key={slot.heatId} className="k-glass p-[28px]">
+              <div className="mb-[16px] flex items-center justify-between gap-[16px]">
+                <div className="k-display text-[32px]">{slot.classLabel}</div>
+                <div className="text-[28px] text-white/55">{slot.timeLabel}</div>
+              </div>
+              {party.length === 0 ? (
+                <p className="text-[24px] text-white/45">
+                  Add your racers above, then choose who runs this race.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-[12px]">
+                  {party.map((m) => {
+                    const selected = assignedId === m.id;
+                    const elsewhere = !selected && Object.values(assignMap).includes(m.id);
+                    const mismatch = effectiveCategory(m) !== slot.category;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => onAssign(slot.heatId, m.id)}
+                        aria-pressed={selected}
+                        className={`k-tap flex items-center gap-[10px] rounded-2xl border-2 px-[24px] py-[16px] text-[26px] ${
+                          selected
+                            ? "border-[#46d68c] bg-[#46d68c]/15 text-white"
+                            : elsewhere
+                              ? "border-white/10 bg-white/5 text-white/40"
+                              : "border-white/15 bg-white/5 text-white"
+                        }`}
+                      >
+                        {selected && (
+                          <IconUserCheck size={26} className="text-[#46d68c]" aria-hidden="true" />
+                        )}
+                        {racerName(m)}
+                        {mismatch && (
+                          <span className="text-[20px] text-[#f0b341]">
+                            ({effectiveCategory(m)})
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {assignedMismatch && (
+                <p className="mt-[14px] text-[24px] text-[#f0b341]">
+                  Heads up — this is a {slot.category} class. Double-check the racer is right.
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

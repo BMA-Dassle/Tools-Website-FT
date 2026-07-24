@@ -12,6 +12,7 @@ import type {
   CheckinItinerary,
   CheckinLookupResponse,
   CheckinSendOtpResponse,
+  CheckinSlotAssignment,
 } from "./types";
 
 async function postLookup(
@@ -112,12 +113,13 @@ export async function completeCheckin(
   center: string,
   proofToken: string,
   kioskId?: string,
+  assignments?: CheckinSlotAssignment[],
 ): Promise<CheckinCompleteResponse> {
   try {
     const res = await fetch("/api/kiosk/checkin/complete", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ center, proofToken, kioskId }),
+      body: JSON.stringify({ center, proofToken, kioskId, assignments }),
     });
     return (await res.json()) as CheckinCompleteResponse;
   } catch {

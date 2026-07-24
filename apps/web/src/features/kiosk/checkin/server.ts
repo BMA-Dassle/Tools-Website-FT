@@ -28,7 +28,11 @@ import {
 } from "@/lib/bowling-db";
 import { ATTRACTIONS } from "@/lib/attractions-data";
 import { registerProjectPersonServer } from "~/features/kiosk/waiver/bmi-attach";
-import { setProjectState, appendProjectPrivateNote } from "@/lib/bmi-office-actions";
+import {
+  setProjectState,
+  appendProjectPrivateNote,
+  KIOSK_CONFIRMATION_STATE_IDS,
+} from "@/lib/bmi-office-actions";
 import { kioskCheckinAttachEnabled } from "../flags";
 import {
   openCheckinEvent,
@@ -54,7 +58,9 @@ import type {
   CheckinBrowseRow,
   CheckinItinerary,
   CheckinLookupMatch,
+  CheckinRaceSlot,
   CheckinRosterPerson,
+  CheckinSlotAssignment,
   CheckinVerifiedVia,
 } from "./types";
 
@@ -290,6 +296,41 @@ function raceHeatStartsFromNeon(group: BowlingReservation[]): string[] {
   return neonHeats(group)
     .map((h) => h.heatId ?? "")
     .filter(Boolean);
+}
+
+function titleCase(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+/**
+ * Purchased race slots from the Neon race rows' `booking_metadata.heats` — the
+ * "who is who" assignment surface. One slot per heat; tier/category come from the
+ * heat row, falling back to the product registry, then a safe default. Sorted by
+ * start. Built only from Neon heats (the authoritative per-slot record with
+ * category/productId); a record-only fallback yields no slots, so the client
+ * degrades to the legacy earliest-first auto-assign.
+ */
+function buildRaceSlots(group: BowlingReservation[]): CheckinRaceSlot[] {
+  const slots: CheckinRaceSlot[] = [];
+  for (const h of neonHeats(group)) {
+    if (!h.heatId) continue;
+    const product = h.productId ? getRaceProductById(h.productId) : null;
+    const tier = h.tier || product?.tier || "starter";
+    const category = (h.category || product?.category || "adult") as "adult" | "junior";
+    const track = h.track ?? product?.track ?? null;
+    slots.push({
+      heatId: h.heatId,
+      productId: h.productId ?? null,
+      classLabel: `${titleCase(tier)} ${titleCase(category)}` + (track ? ` · ${track}` : ""),
+      tier,
+      category,
+      track,
+      timeLabel: fmtTime12(h.heatId),
+      occupantName: h.bmiPersonId ? (h.racer ? displayNameFromFull(h.racer) : "Racer") : null,
+      open: !h.bmiPersonId,
+    });
+  }
+  return slots.sort((a, b) => timeKey(a.heatId).localeCompare(timeKey(b.heatId)));
 }
 
 // ── reservation summary (label / center / cancelled) ─────────────────────────
@@ -710,6 +751,7 @@ export async function buildItinerary(
     activities,
     firstStop,
     roster,
+    raceSlots: buildRaceSlots(group),
     dueAtCenterCents,
   };
 }
@@ -723,6 +765,7 @@ function emptyItinerary(center: CenterSlug, reason: CheckinItinerary["reason"]):
     activities: [],
     firstStop: null,
     roster: [],
+    raceSlots: [],
     dueAtCenterCents: 0,
     reason,
   };
@@ -868,18 +911,23 @@ export interface CompleteResult {
 }
 
 /**
- * Finalize check-in for the whole party. Assigns the people added in PR2 to the
- * reservation's open heat slots, schedules them onto the Pandora session, stamps
- * the BMI project -5 "Arrived", and writes the staff memo. All external writes
- * (schedule / -5 / memo) are gated behind KIOSK_CHECKIN_ATTACH (default OFF) so
- * the finalize is dark-safe; the local event/record stamps always run.
- * Idempotent: a completed event returns alreadyComplete without re-writing.
+ * Finalize check-in for the whole party. Assigns the added people to the
+ * reservation's open heat slots — by the guest's explicit person→slot choice
+ * (`assignments`, class-validated client-side) when provided, else the legacy
+ * earliest-first positional auto-assign — schedules them onto the Pandora
+ * session, stamps the BMI project to the "Confirmation Kiosk" custom state, and
+ * writes the staff memo. All external writes (schedule / state / memo) are gated
+ * behind KIOSK_CHECKIN_ATTACH (default OFF) so the finalize is dark-safe; the
+ * local event/record stamps always run. Idempotent: a completed event returns
+ * alreadyComplete without re-writing.
  */
 export async function completeCheckin(args: {
   billId: string;
   center: CenterSlug;
   kioskId?: string | null;
   verifiedVia: CheckinVerifiedVia;
+  /** Guest's person→slot choices (racing). Empty → legacy auto-assign. */
+  assignments?: CheckinSlotAssignment[];
 }): Promise<CompleteResult> {
   const { billId, center } = args;
   const businessDate = todayET();
@@ -940,48 +988,91 @@ export async function completeCheckin(args: {
     let stateStamped = false;
 
     if (attachEnabled && hasRacing) {
-      // Assign the added people to open heat slots (no bmiPersonId), earliest
-      // heat first, and schedule them onto the session. Auto-assign in heat
-      // order — a per-person tap-to-assign picker is a follow-up (PR4).
-      const openSlots = heats
-        .filter((h) => !h.bmiPersonId && h.heatId)
-        .sort((a, b) => timeKey(a.heatId).localeCompare(timeKey(b.heatId)));
+      // Assign the added people to open heat slots (no bmiPersonId). The guest's
+      // explicit person→slot choices (class-validated at the kiosk) win; without
+      // them we fall back to the legacy earliest-first positional auto-assign.
+      const openHeats = heats.filter((h) => !h.bmiPersonId && h.heatId);
+      const openByHeatId = new Map(openHeats.map((h) => [h.heatId as string, h]));
+      // Match an assignment's personId against either id the person row carries.
+      const personByIdKey = new Map<string, (typeof people)[number]>();
+      for (const p of people) {
+        if (p.pandoraPersonId) personByIdKey.set(p.pandoraPersonId, p);
+        if (p.personId) personByIdKey.set(p.personId, p);
+      }
+
       const racers: ScheduleRacer[] = [];
       // personId here is the SHORT Pandora id ONLY — a 17-digit Office id 500s
       // the whole batch, so anyone without a resolved short id is isolated to
       // the memo instead of being POSTed (review H1).
       const bound: { personRowId: number; personId: string }[] = [];
-      people.forEach((p, i) => {
-        const slot = openSlots[i];
+      const usedHeatIds = new Set<string>();
+      const usedPersonRowIds = new Set<number>();
+
+      // Place one person on one open heat: build the schedule row from the
+      // slot's own product, and persist the binding (boundHeats) Neon-first.
+      const assignToSlot = async (p: (typeof people)[number], heat: NeonHeat): Promise<void> => {
         const name = p.firstName || p.displayName || "Racer";
-        if (!slot) {
-          // More added people than open heat slots — party grew.
-          unplaced.push(name);
-          return;
-        }
         if (!p.pandoraPersonId) {
           // No short id resolved (e.g. a returning racer whose lookup didn't
           // upsert) — can't schedule; flag for the desk, don't poison the batch.
           memoFailures.push(name);
-          void setCheckinPersonStatus(p.id, { scheduleStatus: "failed" });
+          await setCheckinPersonStatus(p.id, { scheduleStatus: "failed" });
           return;
         }
-        const productId = slot.productId ?? null;
+        const productId = heat.productId ?? null;
         const product = productId ? getRaceProductById(productId) : null;
         racers.push({
           racerName: name,
           personId: p.pandoraPersonId,
           product: product?.name ?? "Race",
           productId,
-          tier: slot.tier || product?.tier || "starter",
-          track: (slot.track as ScheduleRacer["track"]) ?? null,
-          category: slot.category || product?.category || "adult",
+          tier: heat.tier || product?.tier || "starter",
+          track: (heat.track as ScheduleRacer["track"]) ?? null,
+          category: heat.category || product?.category || "adult",
           heatName: product?.name ?? "Race",
-          heatStart: slot.heatId as string,
-          heatStop: heatStopFor(slot.heatId as string),
+          heatStart: heat.heatId as string,
+          heatStop: heatStopFor(heat.heatId as string),
         });
         bound.push({ personRowId: p.id, personId: p.pandoraPersonId });
-      });
+        usedHeatIds.add(heat.heatId as string);
+        usedPersonRowIds.add(p.id);
+        if (event) {
+          await upsertCheckinPerson({
+            eventId: event.id,
+            slotKey: p.slotKey,
+            displayName: p.displayName,
+            boundHeats: [heat],
+          });
+        }
+      };
+
+      const assignments = (args.assignments ?? []).filter((a) => a?.heatId && a?.personId);
+      if (assignments.length > 0) {
+        // Explicit guest choice. First assignment per (slot, person) wins;
+        // a slot already filled, an unknown person, or a double-booked person
+        // is skipped. Unassigned bound people are deliberately not racing.
+        for (const a of assignments) {
+          if (usedHeatIds.has(a.heatId)) continue;
+          const heat = openByHeatId.get(a.heatId);
+          const p = personByIdKey.get(a.personId);
+          if (!heat || !p || usedPersonRowIds.has(p.id)) continue;
+          await assignToSlot(p, heat);
+        }
+      } else {
+        // Legacy fallback: earliest-heat-first, positional (person i → slot i),
+        // no class match — preserved for callers that don't send assignments.
+        const openSlots = [...openHeats].sort((a, b) =>
+          timeKey(a.heatId).localeCompare(timeKey(b.heatId)),
+        );
+        for (let i = 0; i < people.length; i++) {
+          const slot = openSlots[i];
+          if (!slot) {
+            unplaced.push(people[i].firstName || people[i].displayName || "Racer");
+            continue;
+          }
+          await assignToSlot(people[i], slot);
+        }
+      }
 
       if (racers.length > 0) {
         const res = await scheduleCheckinRacers({
@@ -1004,19 +1095,24 @@ export async function completeCheckin(args: {
       }
     }
 
-    // -5 "Arrived" — the staff-visible "party is here and ready" signal. Only
-    // for reservations that actually have a BMI project (racing/attraction).
-    if (attachEnabled && hasRacing && officeProjectId) {
+    // "Confirmation Kiosk" custom state — the staff-visible "party is here and
+    // checked in" signal, the SAME state the kiosk post-reserve rail and
+    // express-lane web bookings land in (owner 2026-07-24, superseding -5).
+    // Unlike -5 "Arrived", this is NOT an arrival state, so it does not trigger
+    // race-dayof-pay to settle the day-of order early. Custom ids (no leading
+    // "-") go Office-API-first in setProjectState; Pandora 200-no-ops them.
+    const kioskStateId = KIOSK_CONFIRMATION_STATE_IDS[stateCenterCode];
+    if (attachEnabled && hasRacing && officeProjectId && kioskStateId) {
       try {
         await setProjectState({
           centerCode: stateCenterCode,
           projectId: officeProjectId,
-          stateId: "-5",
-          label: "Arrived",
+          stateId: kioskStateId,
+          label: "Confirmation Kiosk (check-in)",
         });
         stateStamped = true;
       } catch (err) {
-        console.error("[kiosk-checkin] -5 Arrived stamp failed (non-fatal):", err);
+        console.error("[kiosk-checkin] Confirmation Kiosk stamp failed (non-fatal):", err);
       }
     }
 
