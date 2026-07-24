@@ -23,6 +23,7 @@ import {
   IconMapPin,
   IconClock,
   IconUserCheck,
+  IconBolt,
 } from "@tabler/icons-react";
 import { emptySession, reducer, type AttractionItem } from "~/features/booking";
 import { KioskAttractionPeopleStep } from "../steps/KioskPeopleStep";
@@ -106,6 +107,8 @@ export function KioskCheckinFlow() {
   const [stage, setStage] = useState<Stage>("find");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Express-lane info modal — racing (FastTrax / Fort Myers) only.
+  const [showExpress, setShowExpress] = useState(false);
 
   // Phone path
   const [phone, setPhone] = useState("");
@@ -403,6 +406,8 @@ export function KioskCheckinFlow() {
             scanArmed={wedge.armed}
             onArmScan={wedge.arm}
             onBrowse={openBrowse}
+            showExpress={center === "fort-myers"}
+            onExpress={() => setShowExpress(true)}
           />
         )}
 
@@ -532,6 +537,53 @@ export function KioskCheckinFlow() {
           />
         )}
       </div>
+
+      {showExpress && <ExpressLaneModal onClose={() => setShowExpress(false)} />}
+    </div>
+  );
+}
+
+// ── Express-lane info modal ───────────────────────────────────────────────────
+/** Informational only — returning racers with signed waivers skip kiosk check-in
+ *  and go straight to Karting Check-In. No lookup, no eligibility check. */
+function ExpressLaneModal(props: { onClose: () => void }) {
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center p-[48px]">
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={props.onClose}
+        className="absolute inset-0 bg-black/70"
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="express-title"
+        className="k-glass relative z-10 max-w-[760px] p-[48px] text-center"
+      >
+        <div
+          className="mx-auto mb-[24px] flex h-[120px] w-[120px] items-center justify-center rounded-full border-[3px] border-[#00e2e5] bg-[#00e2e5]/12"
+          aria-hidden="true"
+        >
+          <IconBolt size={64} className="text-[#00e2e5]" />
+        </div>
+        <div id="express-title" className="k-display text-[48px]">
+          Express Lane
+        </div>
+        <p className="mt-[20px] text-[30px] leading-[1.4] text-white/70">
+          Already booked and your waiver&rsquo;s signed? Returning racers can skip check-in — head
+          straight to{" "}
+          <span className="font-bold text-white">Karting Check-In on the 1st floor</span>.
+          There&rsquo;s no need to sign in here.
+        </p>
+        <button
+          type="button"
+          onClick={props.onClose}
+          className="k-btn-primary k-tap mt-[36px] h-[104px] w-full text-[34px]"
+        >
+          Got it
+        </button>
+      </div>
     </div>
   );
 }
@@ -549,6 +601,8 @@ function FindScreen(props: {
   scanArmed: boolean;
   onArmScan: () => void;
   onBrowse: () => void;
+  showExpress: boolean;
+  onExpress: () => void;
 }) {
   return (
     <div className="space-y-[28px]">
@@ -604,6 +658,18 @@ function FindScreen(props: {
           <div className="text-[24px] text-white/50">Pick from today&rsquo;s list</div>
         </button>
       </div>
+
+      {/* Express lane — racing only. Info modal: returning racers skip check-in. */}
+      {props.showExpress && (
+        <button
+          type="button"
+          onClick={props.onExpress}
+          className="k-glass k-tap flex w-full items-center justify-center gap-[16px] p-[28px] text-center"
+        >
+          <IconBolt size={40} className="text-[#00e2e5]" aria-hidden="true" />
+          <div className="k-display text-[30px]">Here for racing? Express lane ›</div>
+        </button>
+      )}
     </div>
   );
 }
