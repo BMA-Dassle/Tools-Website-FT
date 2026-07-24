@@ -15,7 +15,7 @@ import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { useKioskConfig } from "../KioskConfigContext";
 import { resetToKiosk } from "../version";
-import { KIOSK_LOGOS } from "../assets";
+import { BrandLogo } from "./BrandLogo";
 import { readGzFulfillment, type GzFulfillmentPayload } from "../service/gz-fulfillment";
 import { KioskGzFulfillment } from "./KioskGzFulfillment";
 import {
@@ -594,12 +594,10 @@ export function KioskConfirmation({ src }: { src: string | null }) {
           ? "Grab each card as it comes out — we’ll finish up automatically."
           : `Returning to start in ${secondsLeft}s — touch anywhere to stay`}
       </p>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={KIOSK_LOGOS[config?.brand ?? "fasttrax"]}
-        alt=""
+      <BrandLogo
+        brand={config?.brand ?? "fasttrax"}
         className="relative h-[52px] opacity-70"
-        draggable={false}
+        fallbackClassName="k-display relative text-[24px] leading-none text-white/70"
       />
       {raceInfoOpen && (
         // Race check-in details popup. `fixed` resolves against the transformed

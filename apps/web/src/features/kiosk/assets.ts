@@ -1,37 +1,65 @@
 /**
- * Kiosk media manifest — all on Vercel Blob (same assets the website uses).
- * Static v1; a CMS/config layer can replace this later without touching
- * components.
+ * Kiosk media manifest.
+ *
+ * Photos are served through OUR OWN origin via the `/kimg` rewrite (see
+ * next.config.ts) instead of hitting the Vercel Blob host directly. The blob
+ * host sits behind a Vercel firewall challenge that trips per source-IP under
+ * bursty traffic — e.g. a NATed venue whose kiosks load many tiles at once —
+ * and a CSS `background-image` / plain <img> can't solve a JS challenge, so a
+ * challenged device is handed the "Security Checkpoint" HTML instead of the
+ * image and the tile silently blanks (owner report: HeadPinz-Fort-Myers,
+ * 2026-07-24). A same-origin request is never challenged (the app itself
+ * loaded fine), and the server-side proxy fetch isn't rate-flagged (same
+ * pattern as the existing /documents pass-through). Static v1; a CMS/config
+ * layer can replace this later without touching components.
  */
 import type { CenterCode } from "~/features/booking";
 
-const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
+/** Same-origin proxy base for blob-hosted photos (next.config `/kimg` rewrite). */
+const IMG = "/kimg";
+const BLOB_HOST = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 
+/**
+ * Route an absolute Vercel-Blob image URL through the same-origin `/kimg`
+ * proxy. Use for image URLs that come from SHARED catalogs
+ * (offering.heroImage, combo.heroImage) which the website still serves
+ * straight from the blob. Non-blob / already-relative URLs pass through.
+ */
+export function kioskImg(url: string | undefined): string | undefined {
+  if (!url) return url;
+  return url.startsWith(BLOB_HOST) ? `${IMG}${url.slice(BLOB_HOST.length)}` : url;
+}
+
+// Brand logos are BUNDLED into the app (apps/web/public/brand/) — tiny,
+// brand-critical, and guaranteed to load whenever the page itself did. Never
+// routed through the blob host. Render them via <BrandLogo>, which falls back
+// to a text wordmark if even the local file is somehow unavailable, so a
+// broken-image glyph can never appear.
 export const KIOSK_LOGOS = {
-  fasttrax: `${BLOB}/images/logo/FT_logo.png`,
-  headpinz: `${BLOB}/images/headpinz/hp-logo.webp`,
+  fasttrax: "/brand/ft-logo.png",
+  headpinz: "/brand/hp-logo.webp",
 } as const;
 
 export const KIOSK_PHOTOS = {
-  race: `${BLOB}/images/tracks/blue-track-kiosk.webp`,
-  redTrack: `${BLOB}/images/tracks/red-track-kiosk.webp`,
-  bowl: `${BLOB}/images/headpinz/gallery-bowling.webp`,
-  kbf: `${BLOB}/images/headpinz/birthday-girl-bowling.jpg`,
-  gel: `${BLOB}/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg`,
-  laser: `${BLOB}/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg`,
-  duck: `${BLOB}/images/attractions/duckpin-bowling-R8vkBZc68YfiqmN7yP2SP2hElvWOCX.webp`,
-  shuf: `${BLOB}/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg`,
-  vip: `${BLOB}/images/subpages/pricing-combos.webp`,
+  race: `${IMG}/images/tracks/blue-track-kiosk.webp`,
+  redTrack: `${IMG}/images/tracks/red-track-kiosk.webp`,
+  bowl: `${IMG}/images/headpinz/gallery-bowling.webp`,
+  kbf: `${IMG}/images/headpinz/birthday-girl-bowling.jpg`,
+  gel: `${IMG}/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg`,
+  laser: `${IMG}/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg`,
+  duck: `${IMG}/images/attractions/duckpin-bowling-R8vkBZc68YfiqmN7yP2SP2hElvWOCX.webp`,
+  shuf: `${IMG}/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg`,
+  vip: `${IMG}/images/subpages/pricing-combos.webp`,
   /** VIP bowling SUITES (HyperBowling glow) — the bowling-tier card. `vip`
    *  above is the combo hero (racing) and looked wrong on a lanes card. */
-  vipLanes: `${BLOB}/images/headpinz/hyperbowling.jpg`,
-  flag: `${BLOB}/images/subpages/checkered-flag.webp`,
+  vipLanes: `${IMG}/images/headpinz/hyperbowling.jpg`,
+  flag: `${IMG}/images/subpages/checkered-flag.webp`,
   /** Kart-action shot (attractions library) — Race Info hub "Race Types" tile. */
-  raceAction: `${BLOB}/images/attractions/DSC06577.webp`,
-  arcade: `${BLOB}/images/headpinz/gallery-arcade.webp`,
+  raceAction: `${IMG}/images/attractions/DSC06577.webp`,
+  arcade: `${IMG}/images/headpinz/gallery-arcade.webp`,
   /** FastTrax race car cutout (transparent bg) — races across the attract
    *  ad zone once per slide on FastTrax kiosks. Art faces LEFT. 1011×240. */
-  raceCar: `${BLOB}/images/kiosk/ft-race-car.webp`,
+  raceCar: `${IMG}/images/kiosk/ft-race-car.webp`,
 } as const;
 
 /** Attract-screen ad rotation — v2 "doors" (owner 2026-07-21): every slide is

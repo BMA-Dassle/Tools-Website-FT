@@ -109,20 +109,39 @@ async function fetchVersion(): Promise<string | null> {
   }
 }
 
-/** Record the deploy this tab booted on. Idempotent — safe to call on every mount. */
+/**
+ * Record the deploy this tab booted on. Idempotent — safe to call on every
+ * mount. Only latches once we ACTUALLY have a version: if the boot-time fetch
+ * fails (a network blip right at load — exactly what happens on a kiosk whose
+ * WiFi is flaky), we leave it uncaptured so a later call can still snapshot it.
+ * Previously this latched `captured = true` even on a failed fetch, which left
+ * `bootVersion` null for the life of the tab and SILENTLY disabled self-update
+ * until someone manually reopened the browser (found 2026-07-24).
+ */
 export async function captureKioskBootVersion(): Promise<void> {
   if (captured) return;
+  const v = await fetchVersion();
+  if (v == null) return; // fetch failed — don't latch; retry on the next call
+  bootVersion = v;
   captured = true;
-  bootVersion = await fetchVersion();
 }
 
 /**
  * True when the server is serving a DIFFERENT (newer) deploy than this tab booted
  * on, so a reset should hard-reload. Fails safe to false — unknown boot version,
  * a dev build, or a fetch error never forces a reload (and never loops).
+ *
+ * If the boot version was never captured (boot-time fetch failed), retry the
+ * capture here first — the 5-min attract poll calls this, so a device that
+ * booted during a blip recovers self-update on its own instead of staying
+ * stuck on the old build forever.
  */
 export async function kioskUpdateAvailable(): Promise<boolean> {
-  if (!bootVersion || bootVersion === "dev") return false;
+  if (!bootVersion) {
+    await captureKioskBootVersion();
+    if (!bootVersion) return false; // still couldn't capture — try again next tick
+  }
+  if (bootVersion === "dev") return false;
   const current = await fetchVersion();
   return !!current && current !== "dev" && current !== bootVersion;
 }

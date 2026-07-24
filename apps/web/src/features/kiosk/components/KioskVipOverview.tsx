@@ -9,6 +9,7 @@
  * Authored to the fixed 1080×1920 canvas. KioskFlow wraps this in its chrome
  * with the VIP photo backdrop.
  */
+import type { Brand } from "~/features/booking";
 import type { ComboLeg, ComboSpecial } from "~/features/combos";
 import {
   comboPriceCentsForDate,
@@ -16,7 +17,7 @@ import {
   comboStartHoursLabel,
 } from "~/features/combos/combo-specials";
 import { todayYmd } from "../service/first-available";
-import { KIOSK_LOGOS } from "../assets";
+import { BrandLogo } from "./BrandLogo";
 
 const ATTRACTION_LABEL: Record<string, string> = {
   "gel-blaster": "Gel Blaster",
@@ -42,9 +43,9 @@ function legLabel(leg: ComboLeg): { title: string; sub: string } {
 /** Which venue (brand) each leg happens at — racing is FastTrax, bowling +
  *  attractions are HeadPinz. Shown as a logo on the leg so guests know where to
  *  walk for each step (owner 2026-07-19). */
-function legVenue(leg: ComboLeg): { logo: string; name: string } {
-  if (leg.kind === "race") return { logo: KIOSK_LOGOS.fasttrax, name: "FastTrax" };
-  return { logo: KIOSK_LOGOS.headpinz, name: "HeadPinz" };
+function legVenue(leg: ComboLeg): { brand: Brand; name: string } {
+  if (leg.kind === "race") return { brand: "fasttrax", name: "FastTrax" };
+  return { brand: "headpinz", name: "HeadPinz" };
 }
 
 export function KioskVipOverview({
@@ -118,11 +119,11 @@ export function KioskVipOverview({
                     <div className="mt-[6px] text-[26px] text-white/55">{sub}</div>
                   </div>
                   <div className="flex shrink-0 flex-col items-center gap-[6px]">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={venue.logo}
+                    <BrandLogo
+                      brand={venue.brand}
                       alt={venue.name}
                       className="h-[52px] w-[104px] object-contain"
+                      fallbackClassName="k-display text-[24px] leading-none text-white/90"
                     />
                     <span className="text-[18px] uppercase tracking-widest text-white/40">
                       at {venue.name}

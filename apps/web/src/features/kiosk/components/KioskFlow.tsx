@@ -88,8 +88,9 @@ import { useMobileJoinStatus } from "../hooks/useMobileJoin";
 import { closeMobileJoin } from "../join/kiosk-client";
 import { BrandedLoader, BrandedLoaderOverlay } from "./BrandedLoader";
 import { todayYmd } from "../service/first-available";
-import { KIOSK_PHOTOS, KIOSK_LOGOS } from "../assets";
+import { KIOSK_PHOTOS } from "../assets";
 import { useResilientImages } from "../hooks/useResilientImage";
+import { BrandLogo } from "./BrandLogo";
 
 /** Every full-bleed backdrop photo `chrome`/`backdropPhoto` can show — preloaded
  *  and self-healed together so a flaky-WiFi failure never blanks a step. */
@@ -1872,7 +1873,6 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
 
   const activityLabel = activityLabelFor(activeItem);
 
-  const logo = KIOSK_LOGOS[config.brand === "headpinz" ? "headpinz" : "fasttrax"];
   const ctaLabel = isLastStep ? "Add to my visit" : "Continue";
 
   return chrome(
@@ -1880,8 +1880,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       {/* header zone: logo · activity · hold timer · progress · big title */}
       <div className="k-flow-head">
         <div className="k-fh-top">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={logo} alt="" className="h-[60px] w-auto" />
+          <BrandLogo brand={config.brand} className="h-[60px] w-auto" />
           <div className="flex items-center gap-5">
             <span className="k-fh-activity">{activityLabel}</span>
           </div>

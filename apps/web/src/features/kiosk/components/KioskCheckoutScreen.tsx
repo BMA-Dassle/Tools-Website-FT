@@ -35,7 +35,7 @@ import { activeComboSpecial, comboChargeLines } from "~/features/combos/combo-pr
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { KioskBookingAsCard } from "./KioskBookingAsCard";
 import { KioskRewardsSection } from "./KioskRewardsSection";
-import { KIOSK_LOGOS } from "../assets";
+import { BrandLogo } from "./BrandLogo";
 
 export function KioskCheckoutScreen({
   session,
@@ -62,7 +62,6 @@ export function KioskCheckoutScreen({
   onAllActivities: () => void;
   onReviewAndPay: () => void;
 }) {
-  const logo = KIOSK_LOGOS[brand === "headpinz" ? "headpinz" : "fasttrax"];
   const items = [...session.items].sort((a, b) => itemSortMs(a) - itemSortMs(b));
 
   // EST. TOTAL — the same builders checkout charges from. Per-item estimates
@@ -97,8 +96,7 @@ export function KioskCheckoutScreen({
     <>
       <div className="k-flow-head">
         <div className="k-fh-top">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={logo} alt="" className="h-[60px] w-auto" />
+          <BrandLogo brand={brand} className="h-[60px] w-auto" />
           <span className="k-fh-activity">Checkout</span>
         </div>
         <h1 className="k-display k-fh-title">Review your order</h1>

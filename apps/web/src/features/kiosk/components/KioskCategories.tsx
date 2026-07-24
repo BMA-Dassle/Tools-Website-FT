@@ -25,7 +25,7 @@ import {
 } from "~/features/booking";
 import { enabledCombos, type ComboSpecial } from "~/features/combos";
 import { packageFamilyFromPrice } from "~/features/booking/service/packages";
-import { KIOSK_LOGOS, KIOSK_PHOTOS } from "../assets";
+import { KIOSK_LOGOS, KIOSK_PHOTOS, kioskImg } from "../assets";
 import { useResilientImage } from "../hooks/useResilientImage";
 import { AdminTapZone } from "./AdminTapZone";
 import { useKioskConfig } from "../KioskConfigContext";
@@ -182,7 +182,7 @@ export function KioskCategories({
                 return (
                   <ShelfBanner
                     key={combo.id}
-                    photo={combo.heroImage || KIOSK_PHOTOS.vip}
+                    photo={kioskImg(combo.heroImage) || KIOSK_PHOTOS.vip}
                     eyebrow="Most popular"
                     accent="#e8b14c"
                     title={combo.name}
@@ -444,7 +444,7 @@ function OfferingTile({
   // Which building the guest walks to — same venue badge the web landing puts
   // on every attraction card (owner 2026-07-19).
   const venue = effectiveBrand(offering, brand);
-  const heroUrl = useResilientImage(offering.heroImage);
+  const heroUrl = useResilientImage(kioskImg(offering.heroImage));
   const logoUrl = useResilientImage(KIOSK_LOGOS[venue]);
   return (
     <button

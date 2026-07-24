@@ -26,8 +26,9 @@ import {
 import { kioskGroupWaiverEnabled, kioskCheckinEnabled, kioskRaceInfoEnabled } from "../flags";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { useKioskConfig } from "../KioskConfigContext";
-import { kioskAdSlidesFor, KIOSK_LOGOS, KIOSK_PHOTOS } from "../assets";
+import { kioskAdSlidesFor, KIOSK_PHOTOS } from "../assets";
 import { useResilientImages } from "../hooks/useResilientImage";
+import { BrandLogo } from "./BrandLogo";
 import { BrandedLoader } from "./BrandedLoader";
 import { useKioskClock, syncGlowPhase } from "../hooks/useKioskClock";
 import { useKioskAvailability } from "../hooks/useKioskAvailability";
@@ -328,12 +329,11 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
         className="relative z-10 flex flex-1 cursor-pointer flex-col items-center justify-center gap-[56px] px-[64px] text-center"
         aria-label="Touch to get started"
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={KIOSK_LOGOS[config.brand]}
+        <BrandLogo
+          brand={config.brand}
           alt={config.brand === "headpinz" ? "HeadPinz" : "FastTrax"}
           className="h-[220px] w-auto object-contain [filter:drop-shadow(0_0_34px_rgba(0,226,229,0.35))]"
-          draggable={false}
+          fallbackClassName="k-display text-[120px] leading-none text-white [filter:drop-shadow(0_0_34px_rgba(0,226,229,0.35))]"
         />
         <div className="k-display bg-gradient-to-r from-[#f5ecee] from-55% to-[#00e2e5] bg-clip-text text-[150px] text-transparent">
           Let&rsquo;s play.
@@ -433,20 +433,18 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
       )}
 
       <div className="relative z-10 flex h-[130px] shrink-0 items-center justify-center gap-[32px] pb-[16px]">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={KIOSK_LOGOS.fasttrax}
+        <BrandLogo
+          brand="fasttrax"
           alt="FastTrax"
           className="h-[56px] opacity-90"
-          draggable={false}
+          fallbackClassName="k-display text-[28px] leading-none text-white/90"
         />
         <span className="text-[28px] text-white/40">&times;</span>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={KIOSK_LOGOS.headpinz}
+        <BrandLogo
+          brand="headpinz"
           alt="HeadPinz"
           className="h-[52px] opacity-90"
-          draggable={false}
+          fallbackClassName="k-display text-[28px] leading-none text-white/90"
         />
         <span className="k-eyebrow text-white/45">
           {config.center === "naples" ? "Naples" : "Fort Myers"}

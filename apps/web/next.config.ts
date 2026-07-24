@@ -73,8 +73,37 @@ const nextConfig: NextConfig = {
       source: "/tax-exempt/:path*",
       destination: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/tax-exempt/:path*",
     },
+    // Kiosk image proxy — the kiosk paints its photos as CSS backgrounds /
+    // plain <img> (not next/image), so serve them through OUR origin instead
+    // of the blob host directly. The blob host is fronted by a Vercel firewall
+    // challenge that trips per source-IP under bursty traffic (a NATed venue
+    // loading many tiles at once) and returns a JS "Security Checkpoint" that a
+    // background/img request can't solve → blank tiles (HeadPinz-Fort-Myers,
+    // 2026-07-24). Same-origin requests are never challenged; the server-side
+    // proxy fetch isn't rate-flagged (same mechanism as /documents). Kiosk
+    // asset URLs are built off this prefix in features/kiosk/assets.ts.
+    {
+      source: "/kimg/:path*",
+      destination: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/:path*",
+    },
   ],
   headers: async () => [
+    // Kiosk images (proxied blob photos + bundled brand logos) — override the
+    // catch-all no-store below with a real cache TTL so the kiosk doesn't
+    // re-download every tile on each screen change. Must come before the
+    // catch-all so the more-specific rule wins. Immutable-ish: these URLs
+    // point at content-addressed / rarely-changing assets; the kiosk self-heal
+    // cache-busts with ?rl= when it must force a refetch anyway.
+    {
+      source: "/kimg/:path*",
+      headers: [
+        { key: "Cache-Control", value: "public, max-age=3600, stale-while-revalidate=604800" },
+      ],
+    },
+    {
+      source: "/brand/:path*",
+      headers: [{ key: "Cache-Control", value: "public, max-age=86400" }],
+    },
     // Admin embed pages — allow portal.headpinz.com to iframe them.
     // Must come before the catch-all so the more-specific rule wins.
     {
