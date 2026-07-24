@@ -165,10 +165,18 @@ export class AamvaBurst {
     return this.lines.length;
   }
 
-  /** Take the buffered burst (clearing it) and parse. Null = not a license. */
-  flush(): AamvaLicense | null {
+  /** Take the buffered burst's raw lines, clearing it — the consumer decides
+   *  what they are (AAMVA license vs a single-line QR like the SMS-Timing
+   *  member code). */
+  flushLines(): string[] {
     const lines = this.lines;
     this.lines = [];
+    return lines;
+  }
+
+  /** Take the buffered burst (clearing it) and parse. Null = not a license. */
+  flush(): AamvaLicense | null {
+    const lines = this.flushLines();
     if (lines.length === 0) return null;
     return parseAamvaLines(lines);
   }

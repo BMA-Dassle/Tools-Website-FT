@@ -135,8 +135,13 @@ license) — `AamvaBurst` regroups them and a 350 ms quiet gap ends the burst
   `LicenseMatchPicker`; no match → the new-player form opens prefilled. Waiver status
   resolves right after sign-in via importLinked ("Checking waiver…"), exactly like the
   phone OTP path. An already-open form is just filled. Bowling adds a name-only row.
-- The physical ID is the identity proof (exact last name + DOB); `phoneVerified` is never
-  set by this path — OTP-gated flows (rewards) still re-verify.
+- **SMS-Timing member QR** (2026-07-24): the app's personal QR scans as ONE line —
+  `https://smstim.in?["<clientKey>","<code>"]` (`member-qr.ts`). The code as an Office
+  search token returns exactly the member's record (~1 s) → same sign-in rail, no
+  name/DOB confirmation (possession of the QR = the member's app). Foreign clientKeys
+  yield no matches.
+- The physical ID / personal QR is the identity proof; `phoneVerified` is never set by
+  these paths — OTP-gated flows (rewards) still re-verify.
 - Port exclusivity: only ONE surface mounts `useLicenseScan` at a time (the kiosk shows
   one step/screen at once; `/kiosk/admin` is a separate route). The reconnect backoff
   covers the close/open race when surfaces hand the port off.

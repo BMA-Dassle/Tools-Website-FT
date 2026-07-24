@@ -50,9 +50,10 @@ import { KioskWaiverPhoto } from "../components/KioskWaiverPhoto";
 import { formatPersonName, normalizeEmail } from "~/lib/helpers/name-format";
 import { kioskMobileJoinEnabled } from "../flags";
 import { useMobileJoin } from "../hooks/useMobileJoin";
-import { useLicenseScan, type AamvaLicense } from "../qr-scanner";
+import { useLicenseScan, type AamvaLicense, type MemberQr } from "../qr-scanner";
 import {
   fetchLicenseMatches,
+  fetchMemberMatches,
   personDataFromMatch,
   prewarmLicenseLookup,
 } from "../license/lookup-client";
@@ -198,8 +199,10 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   // Driver's-license scan flow (handlers live below, after handleVerified):
   // in-flight lookup / multi-match picker / one-line outcome note.
   const [licenseBusy, setLicenseBusy] = useState(false);
+  // license is null when the picker came from an SMS-Timing member QR (no
+  // scanned name/DOB to prefill a form with).
   const [licenseMatches, setLicenseMatches] = useState<{
-    license: AamvaLicense;
+    license: AamvaLicense | null;
     matches: LicenseMatch[];
   } | null>(null);
   const [scanNote, setScanNote] = useState<string | null>(null);
@@ -1265,10 +1268,40 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     void runLicenseLookup(lic);
   };
 
+  /** SMS-Timing member QR (the app's personal QR) — straight to lookup: the
+   *  code IS the identity, so there's no form-prefill fallback (we know no
+   *  name); a miss just points the guest at the normal sign-in. */
+  const runMemberLookup = async (qr: MemberQr) => {
+    setLicenseBusy(true);
+    setScanNote(null);
+    setLookupOpen(false);
+    try {
+      const matches = await fetchMemberMatches(qr);
+      if (matches === null) {
+        setScanNote("We couldn't check that code just now — sign in below instead.");
+      } else if (matches.length === 0) {
+        setScanNote("We couldn't find an account for that code — sign in below instead.");
+      } else if (matches.length === 1) {
+        signInLicenseMatch(matches[0]);
+      } else {
+        setLicenseMatches({ license: null, matches });
+      }
+    } finally {
+      setLicenseBusy(false);
+    }
+  };
+
+  const handleMemberQr = (qr: MemberQr) => {
+    if (waiverFor || busy || licenseBusy || licenseMatches || splitWarn) return;
+    if (guardianFlow || form) return; // mid-task — a sign-in QR doesn't apply
+    void runMemberLookup(qr);
+  };
+
   const licenseScan = useLicenseScan({
     config: kioskCfg,
     enabled: true, // the hook itself no-ops unless this kiosk has the scanner
     onLicense: handleLicense,
+    onMemberQr: handleMemberQr,
   });
 
   // Absorb Pandora's Azure cold start BEFORE anyone scans (one shot per
@@ -1578,8 +1611,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           {/* Hardware-scanner hint — only when the port is actually listening. */}
           {licenseScan.listening && (
             <p className="text-center text-[22px] text-white/40">
-              Or scan a driver&rsquo;s license / state ID at the scanner — we&rsquo;ll sign you in
-              or fill the form for you.
+              Or scan a driver&rsquo;s license / state ID — or your app&rsquo;s QR code — at the
+              scanner and we&rsquo;ll sign you in.
             </p>
           )}
 
@@ -2106,7 +2139,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           picks theirs on the existing account cards. */}
       {licenseMatches && (
         <LicenseMatchPicker
-          firstName={formatPersonName(licenseMatches.license.firstName)}
+          firstName={
+            licenseMatches.license ? formatPersonName(licenseMatches.license.firstName) : ""
+          }
           matches={licenseMatches.matches}
           onPick={(m) => {
             setLicenseMatches(null);
@@ -2115,7 +2150,15 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           onNewInstead={() => {
             const lic = licenseMatches.license;
             setLicenseMatches(null);
-            openNewFormFromLicense(lic);
+            if (lic) {
+              openNewFormFromLicense(lic);
+            } else {
+              // Member QR path — no scanned name/DOB to prefill; blank form.
+              guardAdd(() => {
+                resetForm();
+                setForm({ mode: "new" });
+              });
+            }
           }}
           onCancel={() => setLicenseMatches(null)}
         />

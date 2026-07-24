@@ -11,7 +11,7 @@
  * surfaces also fall back to the form, never blocking the guest.
  */
 import type { PersonData } from "~/components/features/booking/steps/race/ReturningRacerLookup";
-import type { AamvaLicense } from "../qr-scanner";
+import type { AamvaLicense, MemberQr } from "../qr-scanner";
 import type { LicenseMatch } from "./types";
 
 export async function fetchLicenseMatches(
@@ -28,6 +28,23 @@ export async function fetchLicenseMatches(
         dobIso: license.dobIso,
         location,
       }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { ok?: boolean; matches?: LicenseMatch[] };
+    return data.ok && Array.isArray(data.matches) ? data.matches : null;
+  } catch {
+    return null;
+  }
+}
+
+/** SMS-Timing member QR (the app's personal QR) → the member's account(s).
+ *  Same return contract as fetchLicenseMatches. */
+export async function fetchMemberMatches(qr: MemberQr): Promise<LicenseMatch[] | null> {
+  try {
+    const res = await fetch("/api/kiosk/license-lookup", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ memberCode: qr.code, memberClientKey: qr.clientKey }),
     });
     if (!res.ok) return null;
     const data = (await res.json()) as { ok?: boolean; matches?: LicenseMatch[] };

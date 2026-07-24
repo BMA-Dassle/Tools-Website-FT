@@ -15,6 +15,10 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.6.5 — SMS-Timing member QR sign-in: scanning the app's personal QR
+ *         (https://smstim.in?["<clientKey>","<code>"]) Office-searches the
+ *         code and signs the member straight in (~1 s) — same rail as the
+ *         license scan; foreign clientKeys and junk codes are rejected.
  * 1.6.4 — license lookup rebuilt on the BMI Office token search with a
  *         combined "LastName M/D/YYYY" token (owner's vector — no leading
  *         zeros, raw https; undici 500s on these tokens): ~1 s live vs ~8.5 s
@@ -74,7 +78,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.6.4";
+export const KIOSK_VERSION = "1.6.5";
 
 let bootVersion: string | null = null;
 let captured = false;

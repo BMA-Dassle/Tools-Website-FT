@@ -1,9 +1,10 @@
 /**
- * Kiosk driver's-license lookup — server side. Given the last name + DOB read
- * off a scanned license (AAMVA PDF417), find the guest's existing account so
- * the kiosk signs them in instantly, without typing (owner 2026-07-23: the
- * physical ID is the identity proof — OTP-equivalent trust for walk-up
- * purposes; `phoneVerified` is never set by this path).
+ * Kiosk scan sign-in lookups — server side. Two scan types resolve to the
+ * same FoundAccount shape: a DRIVER'S LICENSE (last name + DOB, AAMVA) and
+ * the SMS-TIMING MEMBER QR (the app's personal code). Both sign the guest in
+ * instantly without typing (owner 2026-07-23/24: the physical ID / personal
+ * QR is the identity proof — OTP-equivalent trust for walk-up purposes;
+ * `phoneVerified` is never set by these paths).
  *
  * THE SEARCH IS THE BMI OFFICE TOKEN SEARCH with a combined token (owner
  * 2026-07-23, third revision — this one measured FAST):
@@ -96,13 +97,13 @@ interface SearchHit {
   description: string;
 }
 
-/** The combined-token search. One retry on 5xx; throws when the search stays
- *  unavailable (route → 502 → the kiosk falls back to the manual form). */
-async function officeSearchByNameDob(lastName: string, dobToken: string): Promise<SearchHit[]> {
+/** The token search (combined "LastName M/D/YYYY" or a member-QR code). One
+ *  retry on 5xx; throws when the search stays unavailable (route → 502 → the
+ *  kiosk falls back to the manual form). */
+async function officeSearchPerson(searchToken: string): Promise<SearchHit[]> {
   const token = await getOfficeToken(CLIENT_KEY);
   const path =
-    `/api/${CLIENT_KEY}/search/person` +
-    `?token=${encodeURIComponent(`${lastName.trim()} ${dobToken}`)}&maxResults=500`;
+    `/api/${CLIENT_KEY}/search/person` + `?token=${encodeURIComponent(searchToken)}&maxResults=500`;
   const headers = {
     Authorization: `Bearer ${token}`,
     "x-fast-version": SMS_VERSION,
@@ -135,17 +136,31 @@ const norm = (s: string | null | undefined) =>
     .trim()
     .toLowerCase();
 
+/** What buildMatch verifies the person record against — the license path
+ *  confirms name+DOB; the member-QR path has no scan identity (the code IS
+ *  the identity) so it passes nothing. */
+interface MatchConfirm {
+  lastName?: string;
+  dobIso?: string;
+  firstName?: string;
+}
+
 /** ONE Office person detail → the FoundAccount shape the kiosk's existing
  *  sign-in rail consumes. Returns null when the detail contradicts the scan
  *  (different last name / birthdate — a token false-positive) or the fetch
  *  died. No waiverValid here — importLinked resolves it right after sign-in,
  *  exactly like the phone OTP path. */
-async function buildMatch(hit: SearchHit, input: LicenseLookupInput): Promise<LicenseMatch | null> {
+async function buildMatch(hit: SearchHit, confirm: MatchConfirm): Promise<LicenseMatch | null> {
   const office = await fetchPersonRaw<OfficePerson>(CLIENT_KEY, hit.localId).catch(() => null);
   if (!office) return null;
   // Authoritative confirmation off the person record itself.
-  if (office.name && norm(office.name) !== norm(input.lastName)) return null;
-  if (office.birthDate && String(office.birthDate).slice(0, 10) !== input.dobIso) return null;
+  if (confirm.lastName && office.name && norm(office.name) !== norm(confirm.lastName)) return null;
+  if (
+    confirm.dobIso &&
+    office.birthDate &&
+    String(office.birthDate).slice(0, 10) !== confirm.dobIso
+  )
+    return null;
 
   const tags = (office.tags || []).sort((a, b) =>
     (b.lastSeen || "").localeCompare(a.lastSeen || ""),
@@ -157,8 +172,8 @@ async function buildMatch(hit: SearchHit, input: LicenseLookupInput): Promise<Li
 
   // Display name: Office record → the scanned license itself (a legacy
   // duplicate can carry no first name at all).
-  const firstName = office.firstName || input.firstName || "";
-  const lastName = office.name || input.lastName;
+  const firstName = office.firstName || confirm.firstName || "";
+  const lastName = office.name || confirm.lastName || "";
 
   const descSeen = lastSeenFromDescription(hit.description || "");
   const lineUpSeen = office.lastLineUp ? new Date(office.lastLineUp).getTime() : 0;
@@ -181,7 +196,7 @@ async function buildMatch(hit: SearchHit, input: LicenseLookupInput): Promise<Li
     lastSeenAt,
     races: (office.tags || []).length,
     memberships,
-    birthDate: office.birthDate ? String(office.birthDate).slice(0, 10) : input.dobIso,
+    birthDate: office.birthDate ? String(office.birthDate).slice(0, 10) : (confirm.dobIso ?? null),
     // Filled by the qualification refresh at the people-step exit — the
     // deposits pull is deliberately not part of the lookup (latency).
     creditBalances: [],
@@ -197,7 +212,7 @@ async function buildMatch(hit: SearchHit, input: LicenseLookupInput): Promise<Li
  */
 export async function lookupLicenseMatches(input: LicenseLookupInput): Promise<LicenseMatch[]> {
   const dobToken = dobTokenOf(input.dobIso);
-  const hits = await officeSearchByNameDob(input.lastName, dobToken);
+  const hits = await officeSearchPerson(`${input.lastName.trim()} ${dobToken}`);
   const dobMark = `(${dobToken})`;
   const candidates = hits
     .filter(
@@ -220,6 +235,26 @@ export async function lookupLicenseMatches(input: LicenseLookupInput): Promise<L
   const plausible = (m: LicenseMatch) =>
     firstNameAffinity(m.fullName.split(/\s+/)[0], input.firstName) > 0 ? 1 : 0;
   return matches.sort((a, b) => plausible(b) - plausible(a) || b.lastSeenAt - a.lastSeenAt);
+}
+
+/**
+ * SMS-Timing member-QR lookup (owner 2026-07-24): the app's personal QR
+ * carries `["<clientKey>","<code>"]` (qr-scanner/member-qr.ts) and the code
+ * as a search token returns exactly the member's record (~0.7 s live). No
+ * name/DOB confirmation — possession of the code IS the identity, same trust
+ * class as the login-code path. A QR issued under a different clientKey is
+ * not ours → no matches.
+ */
+export async function lookupMemberMatches(
+  code: string,
+  qrClientKey?: string,
+): Promise<LicenseMatch[]> {
+  if (qrClientKey && qrClientKey !== CLIENT_KEY) return [];
+  const hits = (await officeSearchPerson(code)).filter((h) => h?.localId).slice(0, MAX_CANDIDATES);
+  const matches = (await Promise.all(hits.map((h) => buildMatch(h, {})))).filter(
+    (m): m is LicenseMatch => m !== null,
+  );
+  return matches.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
 }
 
 /**

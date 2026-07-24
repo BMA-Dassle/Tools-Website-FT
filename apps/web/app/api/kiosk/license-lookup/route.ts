@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimited } from "~/features/kiosk/checkin/server";
-import { lookupLicenseMatches, warmLicenseLookup } from "~/features/kiosk/license/lookup.server";
+import {
+  lookupLicenseMatches,
+  lookupMemberMatches,
+  warmLicenseLookup,
+} from "~/features/kiosk/license/lookup.server";
 import type { LicenseMatch } from "~/features/kiosk/license/types";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +64,35 @@ export async function POST(req: NextRequest) {
       { ok: false, error: "Too many lookups — try again shortly" },
       { status: 429 },
     );
+  }
+
+  // SMS-Timing member QR — {"memberCode": "<guid>", "memberClientKey"?: "…"}.
+  // The code is the member's own secret (their app's QR) — same trust class
+  // as the login-code path; a foreign clientKey yields no matches.
+  const memberCode = String(body.memberCode ?? "").trim();
+  if (memberCode) {
+    if (!/^[0-9a-f][0-9a-f-]{15,63}$/i.test(memberCode)) {
+      return NextResponse.json<LicenseLookupResponse>(
+        { ok: false, error: "Invalid member code" },
+        { status: 400 },
+      );
+    }
+    try {
+      const matches = await lookupMemberMatches(
+        memberCode,
+        String(body.memberClientKey ?? "").trim() || undefined,
+      );
+      console.log(`[license-lookup] member-qr ${matches.length} match(es)`); // no PII
+      return NextResponse.json<LicenseLookupResponse>({ ok: true, matches });
+    } catch (err) {
+      console.warn(
+        `[license-lookup] member-qr failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return NextResponse.json<LicenseLookupResponse>(
+        { ok: false, error: "Lookup unavailable" },
+        { status: 502 },
+      );
+    }
   }
 
   const lastName = String(body.lastName ?? "").trim();

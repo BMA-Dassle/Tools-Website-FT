@@ -17,7 +17,8 @@
  */
 import { useCallback, useEffect, useRef } from "react";
 import type { KioskConfig } from "../config";
-import { AamvaBurst, type AamvaLicense } from "./aamva";
+import { AamvaBurst, parseAamvaLines, type AamvaLicense } from "./aamva";
+import { parseMemberQr, type MemberQr } from "./member-qr";
 import { useQrScanner } from "./useQrScanner";
 
 /** Quiet gap that ends a burst. A real burst lands in single-digit ms; 350 ms
@@ -31,20 +32,37 @@ export interface UseLicenseScanOptions {
   enabled: boolean;
   /** Fires once per physical license scan (held in a ref — inline closures fine). */
   onLicense: (license: AamvaLicense) => void;
+  /** Fires when an SMS-Timing member QR is scanned (the app's personal QR,
+   *  member-qr.ts) — omit on surfaces that only take licenses (bowling). */
+  onMemberQr?: (qr: MemberQr) => void;
 }
 
-export function useLicenseScan({ config, enabled, onLicense }: UseLicenseScanOptions) {
+export function useLicenseScan({ config, enabled, onLicense, onMemberQr }: UseLicenseScanOptions) {
   const onLicenseRef = useRef(onLicense);
   useEffect(() => {
     onLicenseRef.current = onLicense;
   }, [onLicense]);
+  const onMemberQrRef = useRef(onMemberQr);
+  useEffect(() => {
+    onMemberQrRef.current = onMemberQr;
+  }, [onMemberQr]);
 
   const burstRef = useRef(new AamvaBurst());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flush = useCallback(() => {
     timerRef.current = null;
-    const license = burstRef.current.flush();
+    const lines = burstRef.current.flushLines();
+    if (lines.length === 0) return;
+    // A member QR is one physical scan = ONE line (a license is ~35).
+    if (lines.length === 1) {
+      const qr = parseMemberQr(lines[0]);
+      if (qr) {
+        onMemberQrRef.current?.(qr);
+        return;
+      }
+    }
+    const license = parseAamvaLines(lines);
     if (license) onLicenseRef.current(license);
   }, []);
 
