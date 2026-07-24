@@ -23,6 +23,7 @@ import type {
 } from "@/lib/bowling-db";
 import { KBF_VIP_LANE_UPCHARGE_PER_PERSON_CENTS } from "~/features/booking/service/kbf-pricing";
 import { QAMF_TO_CENTER_CODE } from "~/features/booking/service/bowling-hours";
+import { isFastTraxDuckpinCenter, FASTTRAX_DUCKPIN_LEAD_MINUTES } from "@/lib/qamf-centers";
 import {
   isPerLaneExperience,
   releaseBowlingHold,
@@ -129,7 +130,8 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     date: item.date,
     players: Math.max(playerCount, 1),
     kind: availKind,
-    leadMinutes: kiosk ? 0 : 15,
+    // FastTrax duckpin is walk-up friendly (5-min lead); HeadPinz keeps 15.
+    leadMinutes: kiosk ? 0 : isFastTraxDuckpinCenter(centerId) ? FASTTRAX_DUCKPIN_LEAD_MINUTES : 15,
   });
 
   // Day-of-week + kind + world-cup filtering (classic parity).

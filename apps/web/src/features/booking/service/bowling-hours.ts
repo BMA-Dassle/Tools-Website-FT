@@ -10,7 +10,11 @@ import type { BookingSession } from "../state/types";
 import { findOffering } from "../activities-catalog";
 import { HP_LOCATIONS } from "@/lib/headpinz-locations";
 import { getPublicReopenMinutes } from "@/lib/group-events";
-import { FASTTRAX_QAMF_CENTER_ID, FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
+import {
+  FASTTRAX_QAMF_CENTER_ID,
+  FASTTRAX_CENTER_CODE,
+  fasttraxDuckpinHours,
+} from "@/lib/qamf-centers";
 
 const ACTIVITY_ICON: Record<string, string> = {
   "gel-blaster": "🔫",
@@ -126,6 +130,9 @@ export function centerHoursForDate(
   centerId: number,
   dateStr: string,
 ): { open: number; close: number } {
+  // FastTrax duckpin (11542) shares the FM complex but closes earlier — use its
+  // own hours, never fort-myers' midnight/2 AM (would over-run the clamp/grid).
+  if (centerId === FASTTRAX_QAMF_CENTER_ID) return fasttraxDuckpinHours(dateStr);
   const slug = CENTERS[centerId]?.hpSlug;
   const loc = slug ? HP_LOCATIONS[slug] : undefined;
   if (!loc) return { open: 9, close: 26 };

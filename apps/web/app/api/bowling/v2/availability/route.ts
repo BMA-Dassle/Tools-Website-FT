@@ -13,7 +13,11 @@ import {
   type ProbeMap,
 } from "~/features/booking/service/duration-feasibility";
 import { etMinutesOfDay } from "~/components/features/booking/steps/bowling/availability-client";
-import { FASTTRAX_QAMF_CENTER_ID, FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
+import {
+  FASTTRAX_QAMF_CENTER_ID,
+  FASTTRAX_CENTER_CODE,
+  fasttraxDuckpinHours,
+} from "@/lib/qamf-centers";
 
 // Cold-start + 4-7 batches of 8 probes can exceed the default 10s budget
 // when QAMF auth is also cold. Other QAMF-touching routes use 30s; match
@@ -88,6 +92,9 @@ function parseHourToken(token: string): number {
  * on a specific date. Sun-Thu → hours, Fri-Sat → hoursWeekend.
  */
 function centerHoursForDate(centerId: number, dateStr: string): { open: number; close: number } {
+  // FastTrax duckpin (11542) shares the FM complex but has its OWN, earlier
+  // hours — never inherit fort-myers' midnight/2 AM close here.
+  if (centerId === FASTTRAX_QAMF_CENTER_ID) return fasttraxDuckpinHours(dateStr);
   const slug = QAMF_TO_HP_SLUG[centerId];
   const loc = slug ? HP_LOCATIONS[slug] : undefined;
   if (!loc) return { open: 9, close: 26 };

@@ -26,6 +26,7 @@ import {
   QAMF_TO_CENTER_CODE,
   bowlingCartConflicts,
 } from "~/features/booking/service/bowling-hours";
+import { isFastTraxDuckpinCenter, FASTTRAX_DUCKPIN_LEAD_MINUTES } from "@/lib/qamf-centers";
 import {
   bowlingLaneCount,
   buildBowlingLineItems,
@@ -123,7 +124,8 @@ const BowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     kind: availKind,
     webOfferId: item.webOfferId,
     durationMinutes: item.durationMinutes,
-    leadMinutes: kiosk ? 0 : 15,
+    // FastTrax duckpin is walk-up friendly (5-min lead); HeadPinz keeps 15.
+    leadMinutes: kiosk ? 0 : isFastTraxDuckpinCenter(centerId) ? FASTTRAX_DUCKPIN_LEAD_MINUTES : 15,
   });
 
   const conflictOf = useMemo(
