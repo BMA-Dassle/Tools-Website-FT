@@ -1,33 +1,52 @@
 /**
  * Kiosk media manifest.
  *
- * Photos are served through OUR OWN origin via the `/kimg` rewrite (see
- * next.config.ts) instead of hitting the Vercel Blob host directly. The blob
- * host sits behind a Vercel firewall challenge that trips per source-IP under
- * bursty traffic — e.g. a NATed venue whose kiosks load many tiles at once —
- * and a CSS `background-image` / plain <img> can't solve a JS challenge, so a
- * challenged device is handed the "Security Checkpoint" HTML instead of the
- * image and the tile silently blanks (owner report: HeadPinz-Fort-Myers,
- * 2026-07-24). A same-origin request is never challenged (the app itself
- * loaded fine), and the server-side proxy fetch isn't rate-flagged (same
- * pattern as the existing /documents pass-through). Static v1; a CMS/config
- * layer can replace this later without touching components.
+ * Photos are served through the Next Image Optimizer (`/_next/image`), NOT the
+ * Vercel Blob host directly, for two reasons:
+ *
+ *  1. Same-origin. The blob host sits behind a Vercel firewall challenge that
+ *     trips per source-IP under bursty traffic (a NATed venue loading many
+ *     tiles at once) and hands back a JS "Security Checkpoint" that a CSS
+ *     `background-image` / plain <img> can't solve — so a challenged device
+ *     gets the checkpoint HTML instead of the image and the tile silently
+ *     blanks (owner report: HeadPinz-Fort-Myers, 2026-07-24). Same-origin
+ *     requests are never challenged; the optimizer fetches the source
+ *     server-side.
+ *  2. Cost + weight. The optimizer downscales + WebP-encodes + edge-caches, so
+ *     a 10.7 MB source original ships as ~tens of KB. The interim raw `/kimg`
+ *     proxy served originals untouched — and because Fast Data Transfer is
+ *     billed on every client egress (cache hit or not), one oversized
+ *     attraction photo pulled in a loop became a 717 MB transfer spike
+ *     (2026-07-24). (`/kimg` is still wired in next.config as a fallback for
+ *     kiosks that haven't self-updated to this build yet; remove it once the
+ *     fleet is confirmed on the optimizer path.)
+ *
+ * Width 1200 covers the 1080-px kiosk canvas; q75 is Next 16's default-allowed
+ * quality (`images.qualities` = [75]); the blob host is already in next.config
+ * `images.remotePatterns`. Static v1; a CMS/config layer can replace this later
+ * without touching components.
  */
 import type { CenterCode } from "~/features/booking";
 
-/** Same-origin proxy base for blob-hosted photos (next.config `/kimg` rewrite). */
-const IMG = "/kimg";
 const BLOB_HOST = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
+const OPT_WIDTH = 1200;
+const OPT_QUALITY = 75; // must be listed in next.config images.qualities (Next 16 default: [75])
 
 /**
- * Route an absolute Vercel-Blob image URL through the same-origin `/kimg`
- * proxy. Use for image URLs that come from SHARED catalogs
- * (offering.heroImage, combo.heroImage) which the website still serves
- * straight from the blob. Non-blob / already-relative URLs pass through.
+ * Route a Vercel-Blob image URL through the same-origin Next Image Optimizer.
+ * Absolute blob URLs are optimized; non-blob / already-relative URLs pass
+ * through untouched. Use for image URLs from SHARED catalogs
+ * (offering.heroImage, combo.heroImage) that the website serves straight from
+ * the blob.
  */
 export function kioskImg(url: string | undefined): string | undefined {
-  if (!url) return url;
-  return url.startsWith(BLOB_HOST) ? `${IMG}${url.slice(BLOB_HOST.length)}` : url;
+  if (!url || !url.startsWith(BLOB_HOST)) return url;
+  return `/_next/image?url=${encodeURIComponent(url)}&w=${OPT_WIDTH}&q=${OPT_QUALITY}`;
+}
+
+/** Optimized same-origin URL for a blob image PATH (with a leading slash). */
+function photo(path: string): string {
+  return kioskImg(`${BLOB_HOST}${path}`) as string;
 }
 
 // Brand logos are BUNDLED into the app (apps/web/public/brand/) — tiny,
@@ -41,25 +60,25 @@ export const KIOSK_LOGOS = {
 } as const;
 
 export const KIOSK_PHOTOS = {
-  race: `${IMG}/images/tracks/blue-track-kiosk.webp`,
-  redTrack: `${IMG}/images/tracks/red-track-kiosk.webp`,
-  bowl: `${IMG}/images/headpinz/gallery-bowling.webp`,
-  kbf: `${IMG}/images/headpinz/birthday-girl-bowling.jpg`,
-  gel: `${IMG}/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg`,
-  laser: `${IMG}/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg`,
-  duck: `${IMG}/images/attractions/duckpin-bowling-R8vkBZc68YfiqmN7yP2SP2hElvWOCX.webp`,
-  shuf: `${IMG}/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg`,
-  vip: `${IMG}/images/subpages/pricing-combos.webp`,
+  race: photo("/images/tracks/blue-track-kiosk.webp"),
+  redTrack: photo("/images/tracks/red-track-kiosk.webp"),
+  bowl: photo("/images/headpinz/gallery-bowling.webp"),
+  kbf: photo("/images/headpinz/birthday-girl-bowling.jpg"),
+  gel: photo("/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg"),
+  laser: photo("/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg"),
+  duck: photo("/images/attractions/duckpin-bowling-R8vkBZc68YfiqmN7yP2SP2hElvWOCX.webp"),
+  shuf: photo("/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg"),
+  vip: photo("/images/subpages/pricing-combos.webp"),
   /** VIP bowling SUITES (HyperBowling glow) — the bowling-tier card. `vip`
    *  above is the combo hero (racing) and looked wrong on a lanes card. */
-  vipLanes: `${IMG}/images/headpinz/hyperbowling.jpg`,
-  flag: `${IMG}/images/subpages/checkered-flag.webp`,
+  vipLanes: photo("/images/headpinz/hyperbowling.jpg"),
+  flag: photo("/images/subpages/checkered-flag.webp"),
   /** Kart-action shot (attractions library) — Race Info hub "Race Types" tile. */
-  raceAction: `${IMG}/images/attractions/DSC06577.webp`,
-  arcade: `${IMG}/images/headpinz/gallery-arcade.webp`,
+  raceAction: photo("/images/attractions/DSC06577.webp"),
+  arcade: photo("/images/headpinz/gallery-arcade.webp"),
   /** FastTrax race car cutout (transparent bg) — races across the attract
    *  ad zone once per slide on FastTrax kiosks. Art faces LEFT. 1011×240. */
-  raceCar: `${IMG}/images/kiosk/ft-race-car.webp`,
+  raceCar: photo("/images/kiosk/ft-race-car.webp"),
 } as const;
 
 /** Attract-screen ad rotation — v2 "doors" (owner 2026-07-21): every slide is
