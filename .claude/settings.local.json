@@ -274,7 +274,10 @@
       "Bash(node -e \"const s=require\\('./package.json'\\).scripts; console.log\\(JSON.stringify\\(s,null,1\\)\\)\")",
       "Bash(npx tsc *)",
       "PowerShell(cd c:\\\\git\\\\Tools-Website-FT\\\\apps\\\\web; npx tsc --noEmit 2>&1 | Select-Object -First 8; echo \"=== TSC EXIT $LASTEXITCODE ===\"; npx eslint \"src/features/kiosk/components/KioskGameZone.tsx\" 2>&1 | Select-String -Pattern \"error\" | Where-Object { $_ -notmatch \"warning\" } | Select-Object -First 8; echo \"=== lint done ===\"; npx vitest run src/features/kiosk src/features/game-cards 2>&1 | Select-Object -Last 4)",
-      "PowerShell(cd c:\\\\git\\\\Tools-Website-FT\\\\apps\\\\web; npx tsc --noEmit 2>&1 | Select-Object -First 8; echo \"=== TSC EXIT $LASTEXITCODE ===\"; npx eslint \"src/features/kiosk/components/KioskConfirmation.tsx\" 2>&1 | Select-String -Pattern \"error\" | Where-Object { $_ -notmatch \"warning\" } | Select-Object -First 8; echo \"=== lint done ===\"; npx vitest run src/features/kiosk 2>&1 | Select-Object -Last 4)"
+      "PowerShell(cd c:\\\\git\\\\Tools-Website-FT\\\\apps\\\\web; npx tsc --noEmit 2>&1 | Select-Object -First 8; echo \"=== TSC EXIT $LASTEXITCODE ===\"; npx eslint \"src/features/kiosk/components/KioskConfirmation.tsx\" 2>&1 | Select-String -Pattern \"error\" | Where-Object { $_ -notmatch \"warning\" } | Select-Object -First 8; echo \"=== lint done ===\"; npx vitest run src/features/kiosk 2>&1 | Select-Object -Last 4)",
+      "Bash(git fetch *)",
+      "Bash(git rev-list *)",
+      "Bash(git stash *)"
     ],
     "additionalDirectories": [
       "\\tmp"

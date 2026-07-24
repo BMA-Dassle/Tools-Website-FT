@@ -50,6 +50,7 @@ import { KioskWaiverPhoto } from "../components/KioskWaiverPhoto";
 import { formatPersonName, normalizeEmail } from "~/lib/helpers/name-format";
 import { kioskMobileJoinEnabled } from "../flags";
 import { useMobileJoin } from "../hooks/useMobileJoin";
+import { ageFromIso } from "../join/phone/join-helpers";
 import { mergeJoinedGuests } from "../join/merge";
 import { KioskMobileJoinPanel } from "../components/KioskMobileJoinPanel";
 
@@ -427,8 +428,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     // Minors register FIRST — no adult precondition (owner 2026-07-18). The
     // upsert-style create + waiver check below is what tells us whether a
     // guardian is even needed: a returning minor with a current waiver resolves
-    // to their existing person and needs no guardian at all.
-    const minor = age < 18;
+    // to their existing person and needs no guardian at all. (Minor routing
+    // uses the REFRESHED age below, not the typed one.)
     setBusyAll(true);
     setFormError(null);
     try {
@@ -447,25 +448,30 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         },
         brandLocation,
       );
+      // Refreshed age: the upsert may have resolved an EXISTING BMI record —
+      // its birthdate (returned by the waiver check) beats a kiosk typo, so
+      // minor/guardian routing uses it (2026-07-23 adult-waiver-on-a-17yo bug).
+      const rAge = ageFromIso(result.birthdate) ?? age;
+      const rMinor = rAge < 18;
       const member = newPartyMember({
         firstName: cleanFirst,
         lastName: cleanLast,
         isNewRacer: true, // new person → Starter-only for racing
-        category: age < 13 ? "junior" : "adult",
-        isMinor: minor,
+        category: rAge < 13 ? "junior" : "adult",
+        isMinor: rMinor,
         bmiPersonId: result.personId,
         waiverValid: result.waiverValid,
         isBillingCustomer: isMain, // first person is main by default
         phone: phone.trim(),
         email: cleanEmail || undefined,
-        dobIso: toIsoDob(dob),
+        dobIso: result.birthdate,
       });
       dispatch({ type: "addPartyMember", member });
       if (isMain) setContactFrom(member); // main person → booking contact
       if (!isRace) setIncluded(new Set([...included, member.id]));
       resetForm();
       if (!result.waiverValid && result.template) {
-        if (minor) {
+        if (rMinor) {
           // A minor never signs their own waiver — resolve a guardian first.
           setGuardianFlow({
             minorMemberId: member.id,
@@ -513,9 +519,14 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     setBusyAll(true);
     setFormError(null);
     // Route an unsigned minor into the guardian flow instead of the signature
-    // pad — a minor never signs their own waiver.
-    const openWaiverOrGuardian = (personId: string, template: PandoraWaiverTemplate) => {
-      if (minor) {
+    // pad — a minor never signs their own waiver. `asMinor` comes from the
+    // REFRESHED age when the onboard resolved an existing BMI record.
+    const openWaiverOrGuardian = (
+      personId: string,
+      template: PandoraWaiverTemplate,
+      asMinor: boolean,
+    ) => {
+      if (asMinor) {
         setGuardianFlow({
           minorMemberId: member.id,
           minorPersonId: personId,
@@ -538,20 +549,22 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           },
           brandLocation,
         );
+        const rAge = ageFromIso(result.birthdate) ?? age;
+        const rMinor = rAge < 18;
         dispatch({
           type: "updatePartyMember",
           id: member.id,
           patch: {
             bmiPersonId: result.personId,
             waiverValid: result.waiverValid,
-            isMinor: minor,
-            category: age < 13 ? "junior" : "adult",
-            dobIso: toIsoDob(dob),
+            isMinor: rMinor,
+            category: rAge < 13 ? "junior" : "adult",
+            dobIso: result.birthdate,
           },
         });
         resetForm();
         if (!result.waiverValid && result.template) {
-          openWaiverOrGuardian(result.personId, result.template);
+          openWaiverOrGuardian(result.personId, result.template, rMinor);
         }
       } else {
         // Account exists (returning racer) — but the lookup's id is the
@@ -575,20 +588,24 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             },
             brandLocation,
           );
+          // Returning racer: the BMI record's birthdate (refreshed by the
+          // onboard) is authoritative over what was typed at the kiosk.
+          const rAge = ageFromIso(result.birthdate) ?? age;
+          const rMinor = rAge < 18;
           dispatch({
             type: "updatePartyMember",
             id: member.id,
             patch: {
               pandoraPersonId: result.personId,
               waiverValid: result.waiverValid,
-              isMinor: minor,
-              category: age < 13 ? "junior" : "adult",
-              dobIso: toIsoDob(dob),
+              isMinor: rMinor,
+              category: rAge < 13 ? "junior" : "adult",
+              dobIso: result.birthdate,
             },
           });
           resetForm();
           if (!result.waiverValid && result.template) {
-            openWaiverOrGuardian(result.personId, result.template);
+            openWaiverOrGuardian(result.personId, result.template, rMinor);
           }
         } else {
           // No phone/email on file to dedup against — DON'T upsert (risk of a
@@ -606,7 +623,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             },
           });
           resetForm();
-          openWaiverOrGuardian(member.bmiPersonId, template);
+          openWaiverOrGuardian(member.bmiPersonId, template, minor);
         }
       }
     } catch (err) {
@@ -677,12 +694,21 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         sid = personId;
       }
       const status = await pandoraCheckWaiver(sid, brandLocation);
+      // MEMBERSHIP REFRESH: the waiver check just returned the BMI record's
+      // birthdate — use it when the roster entry has no DOB locally, instead of
+      // assuming adult. (2026-07-23: a 17-year-old signed an ADULT waiver as a
+      // "guardian" because unknown ages defaulted to 35 here.)
+      const gDobIso = g.dobIso ?? (status.birthdate ? String(status.birthdate).slice(0, 10) : null);
+      const gAge = ageFromIso(gDobIso);
+      if (gAge !== null && gAge < 18) {
+        throw new Error(`${g.firstName} is under 18 — a guardian must be an adult.`);
+      }
+      if (!g.dobIso && gDobIso) patchPerson(g.id, { dobIso: gDobIso });
       let ownTemplate: PandoraWaiverTemplate | null = null;
       if (!status.valid) {
-        const gAge = g.dobIso
-          ? Math.floor((Date.now() - new Date(g.dobIso).getTime()) / (365.25 * 864e5))
-          : 35; // adult template default when no DOB on file
-        ownTemplate = await pandoraFetchWaiverTemplate(gAge, brandLocation);
+        // Truly unknown age (no DOB locally OR in BMI) still gets the adult
+        // template — the <18 gate above can't fire without a birthdate.
+        ownTemplate = await pandoraFetchWaiverTemplate(gAge ?? 35, brandLocation);
       }
       if (status.valid !== !!g.waiverValid) patchPerson(g.id, { waiverValid: status.valid });
       proceedWithGuardian(g, sid, status.valid, ownTemplate, gf);
@@ -736,6 +762,14 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         },
         brandLocation,
       );
+      // The upsert may resolve to an EXISTING BMI record — re-gate on ITS
+      // birthdate, so a typed adult DOB can't smuggle a known minor in as
+      // the guardian.
+      const rAge = ageFromIso(result.birthdate) ?? gAge;
+      if (rAge < 18) {
+        setGError("A guardian must be 18 or older.");
+        return;
+      }
       const g = newPartyMember({
         firstName: gCleanFirst,
         lastName: gCleanLast,
@@ -745,7 +779,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         waiverValid: result.waiverValid,
         phone: gPhone.trim(),
         email: gCleanEmail || undefined,
-        dobIso: toIsoDob(gDob),
+        dobIso: result.birthdate,
       });
       dispatch({ type: "addGuardian", member: g });
       resetGuardianForm();
@@ -769,9 +803,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     if (!gf) return;
     const [first, ...rest] = person.fullName.trim().split(/\s+/);
     const bdIso = person.birthDate ? String(person.birthDate).slice(0, 10) : undefined;
-    const bdYears = bdIso
-      ? Math.floor((Date.now() - new Date(bdIso).getTime()) / (365.25 * 864e5))
-      : null;
+    const bdYears = ageFromIso(bdIso);
     if (bdYears !== null && bdYears < 18) {
       setGError("That account belongs to a minor — a guardian must be an adult.");
       return;
@@ -799,6 +831,11 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       let sid: string | null = null;
       let ownValid = person.waiverValid === true;
       let ownTemplate: PandoraWaiverTemplate | null = null;
+      // MEMBERSHIP REFRESH: an Office record can come back from the lookup with
+      // NO birthdate — the age gate above can't fire, and this path used to
+      // default the template age to 35 (2026-07-23: a 17-year-old signed an
+      // ADULT waiver). Pull the BMI record's birthdate before trusting "adult".
+      let refreshedIso: string | null = bdIso ?? null;
       if (dedupPhone || dedupEmail) {
         const { personId } = await pandoraCreatePerson({
           firstName: formatPersonName(first || person.fullName),
@@ -811,9 +848,21 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         sid = personId;
         const status = await pandoraCheckWaiver(personId, brandLocation);
         ownValid = status.valid;
+        if (!refreshedIso && status.birthdate) {
+          refreshedIso = String(status.birthdate).slice(0, 10);
+        }
+      } else if (!refreshedIso) {
+        // No dedup identity to upsert on — best-effort refresh by the lookup id.
+        const probe = await pandoraCheckWaiver(person.personId, brandLocation).catch(() => null);
+        if (probe?.birthdate) refreshedIso = String(probe.birthdate).slice(0, 10);
+      }
+      const refreshedAge = ageFromIso(refreshedIso);
+      if (refreshedAge !== null && refreshedAge < 18) {
+        setGError("That account belongs to a minor — a guardian must be an adult.");
+        return;
       }
       if (!ownValid) {
-        ownTemplate = await pandoraFetchWaiverTemplate(bdYears ?? 35, brandLocation);
+        ownTemplate = await pandoraFetchWaiverTemplate(refreshedAge ?? 35, brandLocation);
       }
       const g: PartyMember = {
         ...newPartyMember({
@@ -827,7 +876,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           waiverValid: ownValid,
           phone: person.phone || undefined,
           email: normalizeEmail(person.email ?? "") || undefined,
-          dobIso: bdIso,
+          dobIso: refreshedIso ?? undefined,
         }),
         ...(sid ? { pandoraPersonId: sid } : {}),
       };

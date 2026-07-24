@@ -221,25 +221,34 @@ export function calculateWaiverExpiry(durationDays: number): string {
  * Returns either:
  *   - `{ personId, waiverValid: true }` if waiver is already signed
  *   - `{ personId, waiverValid: false, template }` if waiver needs signing
+ *
+ * `birthdate` in the result is the REFRESHED one: the create is upsert-style, so
+ * a returning guest resolves to their EXISTING BMI record, and the waiver check
+ * returns that record's birthdate — which is authoritative for the waiver
+ * template. A kiosk typo (or a missing local DOB) must never hand a minor the
+ * adult waiver, so the template age prefers BMI's birthdate over the typed one.
+ * (2026-07-23: a 17-year-old got an adult waiver signature — Hayden Waln.)
  */
 export async function pandoraOnboardGuest(
   input: PandoraPersonCreateInput & { birthdate: string },
   location?: string,
 ): Promise<
-  | { personId: string; waiverValid: true; template: null }
-  | { personId: string; waiverValid: false; template: PandoraWaiverTemplate }
+  | { personId: string; waiverValid: true; template: null; birthdate: string }
+  | { personId: string; waiverValid: false; template: PandoraWaiverTemplate; birthdate: string }
 > {
-  // 1. Create person
+  // 1. Create person (upsert — a known person resolves to their existing record)
   const { personId } = await pandoraCreatePerson({ ...input, location });
 
-  // 2. Check if waiver already valid
+  // 2. Check if waiver already valid — the response carries the BMI record's
+  //    birthdate (membership refresh: BMI wins over what was typed).
   const status = await pandoraCheckWaiver(personId, location);
+  const birthdate = status.birthdate ? String(status.birthdate).slice(0, 10) : input.birthdate;
   if (status.valid) {
-    return { personId, waiverValid: true, template: null };
+    return { personId, waiverValid: true, template: null, birthdate };
   }
 
-  // 3. Fetch age-appropriate waiver template
-  const age = calculateAge(input.birthdate);
+  // 3. Fetch age-appropriate waiver template from the refreshed birthdate
+  const age = calculateAge(birthdate);
   const template = await pandoraFetchWaiverTemplate(age, location);
-  return { personId, waiverValid: false, template };
+  return { personId, waiverValid: false, template, birthdate };
 }

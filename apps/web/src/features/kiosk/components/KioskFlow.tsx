@@ -55,6 +55,10 @@ import {
 import { comboBowlingComponent, getComboSpecial, type ComboSpecial } from "~/features/combos";
 import { getPackage } from "@/lib/packages";
 import { resolvePreselectPatch } from "../service/package-preselect";
+import {
+  refreshQualifications,
+  type QualificationPatch,
+} from "../service/qualification-refresh-client";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
 import {
@@ -331,6 +335,27 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     const timer = setInterval(send, 30_000);
     return () => clearInterval(timer);
   }, [assistActive, assistReason, config]);
+
+  // Silent qualification refresh for the review→pay boundary (the last stop
+  // before money): fire-and-forget — the live memberships/credits/waiver
+  // patches land within a couple of seconds, before the pay tap builds charge
+  // lines, so discounts and credit offers price off current data. Fail-open by
+  // construction (refreshQualifications never throws). The people-step exit
+  // does the BLOCKING variant inside handleNextInner.
+  const refreshPartyQualificationsSilently = () => {
+    if (session.party.length === 0) return;
+    const brandLocation =
+      session.center === "naples"
+        ? "naples"
+        : session.entryBrand === "headpinz"
+          ? "headpinz"
+          : "fasttrax";
+    void refreshQualifications(session.party, brandLocation).then((fresh) => {
+      for (const [id, patch] of fresh) {
+        dispatch({ type: "updatePartyMember", id, patch });
+      }
+    });
+  };
 
   // Post-hydration seeding: center from device config; ?goto= deep link.
   useEffect(() => {
@@ -1309,6 +1334,8 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
             // required in the cart); accepting still rides the real rails —
             // a readerless checkout fails closed at pay time, so this never
             // risks a broken sale (staff-typed URL only).
+            // Live qualifications for the pay screen (discounts/credit offers).
+            refreshPartyQualificationsSilently();
             const upsellPreview =
               typeof window !== "undefined" &&
               new URLSearchParams(window.location.search).get("upsellPreview") === "1";
@@ -1364,6 +1391,8 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           onRemoveItem={handleRemoveItem}
           onRemoveHeat={handleRemoveHeat}
           onCheckout={() => {
+            // Live qualifications for the pay screen (discounts/credit offers).
+            refreshPartyQualificationsSilently();
             clarityEvent("kiosk:checkout:start");
             setCartActive(false);
             setCheckoutActive(true);
@@ -1692,6 +1721,50 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
    *  "Continue anyway". */
   const handleNextInner = async () => {
     setKioskError(null);
+
+    // QUALIFICATION REFRESH (owner 2026-07-23): a member's tier/memberships,
+    // waiver, and credits can change WHILE the party stands at the kiosk (a
+    // license bought at the desk, a waiver signed on a phone, a credit granted
+    // or spent). Re-pull the live values at the people-step exit so the
+    // product/heat steps gate on current data, not the sign-in snapshot.
+    // Field-scoped patches only (safe alongside the mobile-join poll); a
+    // refresh hiccup returns an empty map — the flow proceeds on the snapshot.
+    if (currentStep.id === "race-party" || currentStep.id === "kiosk-who") {
+      let fresh: Map<string, QualificationPatch> = new Map();
+      setBookingHeatsProgress("Checking everyone’s latest info…");
+      setBookingHeats(true);
+      try {
+        const brandLocation =
+          session.center === "naples"
+            ? "naples"
+            : session.entryBrand === "headpinz"
+              ? "headpinz"
+              : "fasttrax";
+        fresh = await refreshQualifications(session.party, brandLocation);
+      } finally {
+        setBookingHeats(false);
+      }
+      for (const [id, patch] of fresh) {
+        dispatch({ type: "updatePartyMember", id, patch });
+      }
+      // Gate on the RETURNED values — the dispatches above aren't visible in
+      // this closure. A racer whose waiver just came back INVALID (revoked /
+      // expired since sign-in) must re-sign before the race flow advances; the
+      // patched member card shows the "waiver needed" setup path.
+      if (activeItem.kind === "race") {
+        const downgraded = session.party.filter(
+          (m) => m.waiverValid && fresh.get(m.id)?.waiverValid === false,
+        );
+        if (downgraded.length > 0) {
+          setKioskError(
+            `${downgraded.map((m) => m.firstName).join(", ")} need${
+              downgraded.length === 1 ? "s" : ""
+            } a new waiver — the one on file is no longer valid.`,
+          );
+          return;
+        }
+      }
+    }
 
     if (
       currentStep.id === "race-party" &&
