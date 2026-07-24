@@ -543,8 +543,8 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
             {entryIntent === "balance" ? "Check card balance" : "Check Balance or Reload"}
           </h1>
           <p className="text-sm text-white/70">
-            Scan the <span className="text-white">QR code</span> on the back of your card, or type
-            the number printed under the barcode. Leading zeros aren&apos;t needed.
+            Scan the QR code on the back of your card, or type the number printed under the barcode.
+            Leading zeros aren&apos;t needed.
           </p>
           <Button variant="secondary" onClick={() => setScanTarget({ kind: "entry" })}>
             Scan QR code with camera
