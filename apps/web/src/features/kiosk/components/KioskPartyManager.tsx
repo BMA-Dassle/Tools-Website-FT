@@ -26,7 +26,7 @@
  *   - NEW racers are Starter-only (badge); RETURNING racers show their
  *     earned tier + credits (race mode).
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CenterCode, PartyMember } from "~/features/booking";
 import { newPartyMember } from "~/features/booking";
 import { tierFromMemberships } from "~/features/booking/service/race-products";
@@ -45,7 +45,11 @@ import { kioskHasCamera } from "../config";
 import { KioskWaiverPhoto } from "./KioskWaiverPhoto";
 import { formatPersonName } from "~/lib/helpers/name-format";
 import { useLicenseScan, type AamvaLicense } from "../qr-scanner";
-import { fetchLicenseMatches, personDataFromMatch } from "../license/lookup-client";
+import {
+  fetchLicenseMatches,
+  personDataFromMatch,
+  prewarmLicenseLookup,
+} from "../license/lookup-client";
 import type { LicenseMatch } from "../license/types";
 import { LicenseMatchPicker } from "./LicenseMatchPicker";
 
@@ -768,6 +772,16 @@ export function KioskPartyManager({
     enabled: true, // the hook itself no-ops unless this kiosk has the scanner
     onLicense: handleLicense,
   });
+
+  // Absorb Pandora's Azure cold start BEFORE anyone scans (one shot per
+  // mount) — otherwise the first scan after idle pays the spin-up.
+  const prewarmedRef = useRef(false);
+  useEffect(() => {
+    if (!prewarmedRef.current && kioskCfg?.qrScannerEnabled) {
+      prewarmedRef.current = true;
+      prewarmLicenseLookup(center === "naples" ? "naples" : brandLocation);
+    }
+  }, [kioskCfg, center, brandLocation]);
 
   const badgeFor = (m: PartyMember) => {
     if (isRace) {

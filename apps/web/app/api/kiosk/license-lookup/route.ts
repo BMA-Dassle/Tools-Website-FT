@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rateLimited } from "~/features/kiosk/checkin/server";
-import { lookupLicenseMatches } from "~/features/kiosk/license/lookup.server";
+import { lookupLicenseMatches, warmLicenseLookup } from "~/features/kiosk/license/lookup.server";
 import type { LicenseMatch } from "~/features/kiosk/license/types";
 
 export const dynamic = "force-dynamic";
@@ -34,13 +34,6 @@ function clientIp(req: NextRequest): string {
 }
 
 export async function POST(req: NextRequest) {
-  if (await rateLimited("license-lookup", clientIp(req), 60)) {
-    return NextResponse.json<LicenseLookupResponse>(
-      { ok: false, error: "Too many lookups — try again shortly" },
-      { status: 429 },
-    );
-  }
-
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;
@@ -48,6 +41,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json<LicenseLookupResponse>(
       { ok: false, error: "Invalid body" },
       { status: 400 },
+    );
+  }
+
+  // {"warm": true} — pre-absorb the Pandora cold start (fired when a
+  // scan-capable kiosk screen mounts, so the guest's real scan is fast).
+  // No PII involved; own rate bucket so warming can't starve real lookups.
+  if (body.warm === true) {
+    if (await rateLimited("license-warm", clientIp(req), 30)) {
+      return NextResponse.json<LicenseLookupResponse>({ ok: false }, { status: 429 });
+    }
+    const location = String(body.location ?? "").trim();
+    await warmLicenseLookup(LOCATIONS.has(location) ? location : undefined);
+    return NextResponse.json<LicenseLookupResponse>({ ok: true });
+  }
+
+  if (await rateLimited("license-lookup", clientIp(req), 60)) {
+    return NextResponse.json<LicenseLookupResponse>(
+      { ok: false, error: "Too many lookups — try again shortly" },
+      { status: 429 },
     );
   }
 

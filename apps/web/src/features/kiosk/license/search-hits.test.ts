@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  collapseSearchHits,
+  filterAndRankHits,
   firstNameAffinity,
   hitWaiverValid,
   type PandoraSearchHit,
@@ -37,26 +37,16 @@ describe("hitWaiverValid", () => {
   });
 });
 
-describe("collapseSearchHits", () => {
-  it("collapses duplicate records of one human to the most recent (live shape)", () => {
-    const out = collapseSearchHits(DUPES, "DOE", "2002-08-20", "ALEXANDER");
-    expect(out.map((h) => h.id)).toEqual(["1"]);
-  });
-
-  it("prefers a waiver-carrying duplicate over a more recent one without", () => {
-    const out = collapseSearchHits(
-      [
-        hit({ id: "recent-no-waiver", lastVisit: "2026-07-01T00:00:00Z" }),
-        hit({ id: "older-valid", waiverExpiry: FUTURE, lastVisit: "2026-01-01T00:00:00Z" }),
-      ],
-      "Doe",
-      "2002-08-20",
-    );
-    expect(out.map((h) => h.id)).toEqual(["older-valid"]);
+describe("filterAndRankHits", () => {
+  it("keeps EVERY duplicate record (live 4-dupe shape) — named ones first, search order kept", () => {
+    const out = filterAndRankHits(DUPES, "DOE", "2002-08-20", "ALEXANDER");
+    // Named dupes keep their most-recent-first order; the nameless legacy
+    // record (affinity 0) sinks to the end — but is still SHOWN.
+    expect(out.map((h) => h.id)).toEqual(["1", "2", "4", "3"]);
   });
 
   it("guards on exact last name + DOB (case-insensitive name)", () => {
-    const out = collapseSearchHits(
+    const out = filterAndRankHits(
       [
         hit({ id: "wrong-dob", birthdate: "2001-08-20T04:00:00.000Z" }),
         hit({ id: "wrong-last", lastName: "Doeber" }),
@@ -68,8 +58,8 @@ describe("collapseSearchHits", () => {
     expect(out.map((h) => h.id)).toEqual(["right"]);
   });
 
-  it("keeps twins (distinct first names) separate, scanned name first", () => {
-    const out = collapseSearchHits(
+  it("ranks twins (distinct first names) by scanned-name affinity", () => {
+    const out = filterAndRankHits(
       [
         hit({ id: "sam", firstName: "Sam", lastVisit: "2026-07-01T00:00:00Z" }),
         hit({ id: "alex", firstName: "Alex", lastVisit: "2026-01-01T00:00:00Z" }),
@@ -81,28 +71,18 @@ describe("collapseSearchHits", () => {
     expect(out.map((h) => h.id)).toEqual(["alex", "sam"]);
   });
 
-  it("drops nameless records when a named one matched, keeps one when alone", () => {
-    const withNamed = collapseSearchHits(
-      [hit({ id: "named" }), hit({ id: "nameless", firstName: null })],
+  it("without a scanned first name, the search's own order is preserved", () => {
+    const out = filterAndRankHits(
+      [hit({ id: "first" }), hit({ id: "second" })],
       "Doe",
       "2002-08-20",
     );
-    expect(withNamed.map((h) => h.id)).toEqual(["named"]);
-
-    const alone = collapseSearchHits(
-      [
-        hit({ id: "nameless-1", firstName: null }),
-        hit({ id: "nameless-2", firstName: null, waiverExpiry: FUTURE }),
-      ],
-      "Doe",
-      "2002-08-20",
-    );
-    expect(alone.map((h) => h.id)).toEqual(["nameless-2"]); // waiver-valid preferred
+    expect(out.map((h) => h.id)).toEqual(["first", "second"]);
   });
 
   it("returns [] when nothing matches", () => {
-    expect(collapseSearchHits([], "Doe", "2002-08-20")).toEqual([]);
-    expect(collapseSearchHits([hit({ lastName: "Smith" })], "Doe", "2002-08-20")).toEqual([]);
+    expect(filterAndRankHits([], "Doe", "2002-08-20")).toEqual([]);
+    expect(filterAndRankHits([hit({ lastName: "Smith" })], "Doe", "2002-08-20")).toEqual([]);
   });
 });
 

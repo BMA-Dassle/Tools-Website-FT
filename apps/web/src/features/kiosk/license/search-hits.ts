@@ -3,10 +3,12 @@
  * No server deps — unit-tested. See docs/pandora-api.md § person search.
  *
  * The endpoint already filters by last name + birthdate and orders by
- * lastVisit (most recent first), but real data is messy — verified live
- * 2026-07-23 against the owner's own scan: FOUR records came back for one
- * human (duplicate accounts abound), one of them with firstName null. This
- * module collapses that to what the kiosk should act on.
+ * lastVisit (most recent first). This module ONLY guards + ranks — it never
+ * hides records: guests genuinely have several duplicate accounts (the
+ * owner's own scan returns four), and the owner wants every match SHOWN so
+ * the guest picks theirs on the account cards (owner 2026-07-23: ">1 result
+ * → use our existing return racer selector"; earlier collapse-to-one was
+ * wrong — it silently auto-signed-in and the selector never appeared).
  */
 
 export interface PandoraSearchHit {
@@ -44,49 +46,28 @@ export function firstNameAffinity(a: string | null | undefined, b: string | null
 }
 
 /**
- * Collapse raw search hits to at most one record per PERSON:
- *  - exact-match guard on last name + DOB (belt-and-braces over upstream);
- *  - one hit per first name — the search's most-recent-first order picks the
- *    live duplicate, EXCEPT a later same-name duplicate with a CURRENT waiver
- *    beats a more recent one without (signing in against the waiver-carrying
- *    record spares the guest a pointless re-sign);
- *  - firstName-null hits are stale/incomplete duplicates: dropped whenever a
- *    named hit survived (ambiguous between twins otherwise), kept (first one,
- *    waiver-valid preferred) only when NOTHING named matched;
- *  - final order: scanned-first-name affinity, then the search's own order.
+ * Guard + rank raw search hits — EVERY exact match survives:
+ *  - exact-match guard on last name + DOB (belt-and-braces over upstream —
+ *    the search must never return a different human);
+ *  - order: scanned-first-name affinity first (twins with distinct names
+ *    sort the cardholder up), then the search's own most-recent-first order,
+ *    with nameless legacy records naturally sinking (affinity 0).
+ * One hit → the kiosk signs in directly; several → the account picker shows
+ * them all, best first.
  */
-export function collapseSearchHits(
+export function filterAndRankHits(
   hits: readonly PandoraSearchHit[],
   lastName: string,
   dobIso: string,
   scannedFirstName?: string,
 ): PandoraSearchHit[] {
-  const exact = hits.filter(
-    (h) =>
-      h?.id &&
-      norm(h.lastName) === norm(lastName) &&
-      String(h.birthdate ?? "").slice(0, 10) === dobIso,
-  );
-
-  const byFirst = new Map<string, PandoraSearchHit>();
-  const nameless: PandoraSearchHit[] = [];
-  for (const h of exact) {
-    const key = norm(h.firstName);
-    if (!key) {
-      nameless.push(h);
-      continue;
-    }
-    const kept = byFirst.get(key);
-    if (!kept) byFirst.set(key, h);
-    else if (!hitWaiverValid(kept) && hitWaiverValid(h)) byFirst.set(key, h);
-  }
-  let collapsed = [...byFirst.values()];
-  if (collapsed.length === 0 && nameless.length > 0) {
-    collapsed = [nameless.find(hitWaiverValid) ?? nameless[0]];
-  }
-
-  // Stable sort: affinity to the scanned given name first, search order after.
-  return collapsed
+  return hits
+    .filter(
+      (h) =>
+        h?.id &&
+        norm(h.lastName) === norm(lastName) &&
+        String(h.birthdate ?? "").slice(0, 10) === dobIso,
+    )
     .map((h, i) => ({ h, i, aff: firstNameAffinity(h.firstName, scannedFirstName) }))
     .sort((a, b) => b.aff - a.aff || a.i - b.i)
     .map(({ h }) => h);

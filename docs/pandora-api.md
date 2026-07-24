@@ -70,6 +70,13 @@ legacy short like `553343`), and both forms work against Office `person/{id}` (v
 **Cold start:** the Azure app 502s the first request(s) after idle — retry 5xx (the same reason
 `pandoraCreatePerson` retries). Verified live 2026-07-23: three 502s then clean 200s.
 
+**Latency (measured 2026-07-23, warm):** the search call itself takes **~7–9 s** consistently
+(8.5/8.9/8.5 s same name; 6.8 s different name) — the cost is inside this endpoint's Firebird
+query, independent of `limit`. This is the dominant cost of the kiosk license scan; making scans
+feel instant means optimizing THIS query (e.g. an index/computed column on
+`UPPER(lastname) + birthdate`). For comparison, `GET /bmi/person/{loc}/{id}` runs ~3 s and the
+Office `person/{id}` ~0.4 s.
+
 ### GET /bmi/race/next/{locationID}/{person|participant}/{id}
 
 Returns a racer's **next upcoming race** at a location. Used by the race check-in scanner

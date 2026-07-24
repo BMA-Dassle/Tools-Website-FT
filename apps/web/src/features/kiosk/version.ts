@@ -15,12 +15,23 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
- * 1.6.2 — Combine cards rebuilt on the real rails: TPI_ConsolidateAccounts on
+ * 1.6.3 — Combine cards rebuilt on the real rails: TPI_ConsolidateAccounts on
  *         the standard cloud SOAP host (WSDL-exact envelope — <long> account
  *         array, LocID position, GMT_DateTime; no raw sockets / extra hosts).
  *         Failures HALT the accept loop and show the actual cause + Try again
  *         (was: silent "see attendant" + 30s reset loop); button hides itself
  *         when the backend isn't configured; card always returned promptly.
+ *         Done/Back are tappable while waiting for a card (the wait had them
+ *         disabled ~permanently — guests were stuck) and exit INSTANTLY by
+ *         cancelling the pending insert wait; only the live money-move
+ *         (seconds) disables them, and the wait screen shows the insert
+ *         animation instead of a false "Combining…" spinner.
+ * 1.6.2 — license lookup shows EVERY matching account (duplicates included —
+ *         the picker appears whenever more than one record matches; 1.6.1
+ *         silently collapsed dupes to one) and returns faster: the 2-year
+ *         deposit pull moved out of the lookup (qualification refresh fills
+ *         credits at step exits) and the kiosk pre-warms Pandora when a
+ *         scan-capable screen mounts, so the first scan skips the cold start.
  * 1.6.1 — license lookup rebuilt on Pandora GET /bmi/person/search (lastName +
  *         birthday, filter=false, cold-start 5xx retry). 1.6.0 searched the
  *         Office token API, which 500s on name tokens — scans parsed but never
@@ -57,7 +68,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.6.2";
+export const KIOSK_VERSION = "1.6.3";
 
 let bootVersion: string | null = null;
 let captured = false;

@@ -37,6 +37,17 @@ export async function fetchLicenseMatches(
   }
 }
 
+/** Fire-and-forget cold-start absorber — call when a scan-capable screen
+ *  mounts so the guest's first real scan doesn't pay Pandora's Azure spin-up
+ *  (~5–25 s after idle). Failures are irrelevant; the real lookup retries. */
+export function prewarmLicenseLookup(location: "fasttrax" | "headpinz" | "naples"): void {
+  void fetch("/api/kiosk/license-lookup", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ warm: true, location }),
+  }).catch(() => {});
+}
+
 /** A matched account as the existing onVerified/handleVerified rail expects.
  *  `phoneVerified` is deliberately never set — the license proves identity,
  *  not phone possession (rewards' SMS verify must still run). */

@@ -17,26 +17,42 @@
  * Azure cold start 502s the first request(s) after idle, so the search
  * retries 5xx exactly like pandoraCreatePerson does.
  *
- * Enrichment (per matched person, ≤ a handful after collapseSearchHits):
- * Office person detail + deposit history supply what the kiosk sign-in
- * snapshot carries beyond name/DOB/waiver — memberships (tier), races,
- * loginCode, credits, email — and the Pandora person GET (picture=false)
- * fills phone/email. Both id forms the search returns (17-digit modern,
- * legacy short) were verified live against Office person/{id}. Every
- * enrichment is fail-open: a dead source degrades the card, never the
- * sign-in (the mid-session qualification refresh re-pulls tier/credits at
- * step boundaries anyway).
+ * EVERY exact match is returned (owner 2026-07-23: guests have duplicate
+ * accounts and want to SEE them — one match signs in directly, several show
+ * the account picker). Enrichment per match is deliberately LIGHT for speed
+ * (owner: "the search is taking a long time"): ONE Office person detail per
+ * match (~400 ms, parallel) supplies memberships/races/loginCode AND
+ * email/phone (addresses[0] carries mobile+phone+email — measured; the
+ * ~3.4 s Pandora person GET this used to make was redundant). The 2-year
+ * deposit-history pull was dropped too; KioskFlow's qualification refresh
+ * re-pulls credits (and tier/waiver) at the people-step exit and review→pay,
+ * before anything consumes them. Both id forms the search returns (17-digit
+ * modern, legacy short) were verified live against Office person/{id}.
+ * Enrichment is fail-open: a dead source degrades the card, never the
+ * sign-in.
+ *
+ * LATENCY BUDGET (measured 2026-07-23): the Pandora search call itself is
+ * ~7–9 s upstream even warm — that cost lives INSIDE bma-pandora-api's
+ * Firebird query, not here. Everything this module adds on top is now
+ * ~0.5 s. Making scans feel instant requires optimizing the Pandora
+ * endpoint's query/indexing (owner owns that API).
+ *
+ * warmLicenseLookup() absorbs the Azure cold start BEFORE a guest scans —
+ * the kiosk fires it (fire-and-forget) when a scan-capable screen mounts.
  *
  * BMI ID precision: every upstream body is parsed via parseWithRawIds
  * (officeGet does it internally; the Pandora fetches here do it explicitly) —
  * NEVER res.json() these responses.
  */
 import { parseWithRawIds, BMI_ID_FIELDS } from "@ft/db";
-import { fetchPersonRaw, officeGet, OfficeApiError } from "~/features/daily-events/data/bmi-office";
+import {
+  fetchPersonRaw,
+  getOfficeToken,
+  OfficeApiError,
+} from "~/features/daily-events/data/bmi-office";
 import { isRelevantMembership } from "~/features/booking/service/race-products";
-import { creditBalancesFromDeposits } from "~/features/booking/data/race-credits";
 import { resolvePandoraLocation } from "@/lib/pandora-locations";
-import { collapseSearchHits, hitWaiverValid, type PandoraSearchHit } from "./search-hits";
+import { filterAndRankHits, hitWaiverValid, type PandoraSearchHit } from "./search-hits";
 import type { LicenseMatch } from "./types";
 
 // Same key + default as app/api/bmi-office/route.ts — one Office DB serves
@@ -98,38 +114,6 @@ async function pandoraPersonSearch(input: LicenseLookupInput): Promise<PandoraSe
   throw new Error("Pandora person search unavailable (5xx after retries)");
 }
 
-/** Pandora person GET, picture=false — phone/email for the sign-in snapshot. */
-async function pandoraPersonLite(
-  personId: string,
-  location?: string,
-): Promise<{ firstName: string; email: string; phone: string } | null> {
-  const locationId = resolvePandoraLocation(location);
-  try {
-    const res = await fetch(
-      `${PANDORA_URL}/bmi/person/${locationId}/${personId}?picture=false&allRelated=false`,
-      {
-        headers: { Authorization: `Bearer ${pandoraKey()}` },
-        cache: "no-store",
-        signal: AbortSignal.timeout(15_000),
-      },
-    );
-    const body = parseWithRawIds<{ success?: boolean; data?: Record<string, unknown> }>(
-      await res.text(),
-      BMI_ID_FIELDS,
-    );
-    if (!res.ok || !body?.success || !body.data) return null;
-    const p = body.data;
-    return {
-      firstName: String(p.firstName ?? ""),
-      // Same field-name tolerance as app/api/pandora/route.ts.
-      email: String(p.email ?? p.emailAddress ?? ""),
-      phone: String(p.phoneNumber ?? p.phone ?? p.mobile ?? p.cellPhone ?? ""),
-    };
-  } catch {
-    return null; // fail-open — the sign-in proceeds without phone/email
-  }
-}
-
 interface OfficePerson {
   id?: unknown;
   firstName?: string;
@@ -138,27 +122,16 @@ interface OfficePerson {
   lastLineUp?: string | null;
   tags?: Array<{ tag?: string; lastSeen?: string }>;
   memberships?: Array<{ name: string; stops?: string | null }>;
-  addresses?: Array<{ email?: string; phone?: string }>;
+  addresses?: Array<{ email?: string; mobile?: string | null; phone?: string | null }>;
 }
 
-/** Office detail + deposits + Pandora contact → the FoundAccount shape the
- *  kiosk's existing sign-in rail consumes. Every source is fail-open. */
+/** ONE Office person detail → the FoundAccount shape the kiosk's existing
+ *  sign-in rail consumes (fail-open — a dead fetch degrades the card, never
+ *  the sign-in). Deposits are deliberately NOT fetched here (latency) —
+ *  creditBalances start empty and the qualification refresh fills them at
+ *  the people-step exit. */
 async function buildMatch(hit: PandoraSearchHit, input: LicenseLookupInput): Promise<LicenseMatch> {
-  const [office, pandora, deposits] = await Promise.all([
-    fetchPersonRaw<OfficePerson>(CLIENT_KEY, hit.id).catch(() => null),
-    pandoraPersonLite(hit.id, input.location),
-    (async () => {
-      const now = new Date();
-      const from = new Date(now.getFullYear() - 2, now.getMonth(), now.getDate())
-        .toISOString()
-        .split(".")[0];
-      const until = now.toISOString().split(".")[0];
-      return officeGet<Array<{ depositKind?: string | null; balance?: number | null }>>(
-        CLIENT_KEY,
-        `deposit/history?personId=${hit.id}&from=${encodeURIComponent(from)}&until=${encodeURIComponent(until)}`,
-      );
-    })().catch(() => null),
-  ]);
+  const office = await fetchPersonRaw<OfficePerson>(CLIENT_KEY, hit.id).catch(() => null);
 
   const tags = (office?.tags || []).sort((a, b) =>
     (b.lastSeen || "").localeCompare(a.lastSeen || ""),
@@ -168,10 +141,9 @@ async function buildMatch(hit: PandoraSearchHit, input: LicenseLookupInput): Pro
     .map((m) => m.name)
     .filter((n, i, a) => a.indexOf(n) === i);
 
-  // Display name: Office record → Pandora → search hit → the scanned license
-  // itself (a legacy duplicate can carry firstName null everywhere else).
-  const firstName =
-    office?.firstName || pandora?.firstName || hit.firstName || input.firstName || "";
+  // Display name: Office record → search hit → the scanned license itself
+  // (a legacy duplicate can carry firstName null everywhere else).
+  const firstName = office?.firstName || hit.firstName || input.firstName || "";
   const lastName = office?.name || hit.lastName;
 
   const searchSeen = hit.lastVisit ? new Date(hit.lastVisit).getTime() : 0;
@@ -184,8 +156,8 @@ async function buildMatch(hit: PandoraSearchHit, input: LicenseLookupInput): Pro
   return {
     personId: hit.id,
     fullName: `${firstName} ${lastName}`.trim(),
-    email: office?.addresses?.[0]?.email || pandora?.email || "",
-    phone: pandora?.phone || office?.addresses?.[0]?.phone || "",
+    email: office?.addresses?.[0]?.email || "",
+    phone: office?.addresses?.[0]?.mobile || office?.addresses?.[0]?.phone || "",
     loginCode: tags[0]?.tag || "",
     lastSeen:
       lastSeenAt > 0
@@ -201,21 +173,37 @@ async function buildMatch(hit: PandoraSearchHit, input: LicenseLookupInput): Pro
     // The record we matched IS the record we sign in against — its own
     // waiverExpiry (from the search hit) is the authoritative status.
     birthDate: String(hit.birthdate ?? "").slice(0, 10) || null,
-    creditBalances: creditBalancesFromDeposits(deposits),
+    // Filled by the qualification refresh at the people-step exit (see the
+    // buildMatch docblock) — never consumed before then.
+    creditBalances: [],
     waiverValid: hitWaiverValid(hit),
   };
 }
 
 /**
  * The full lookup: ONE Pandora search (already lastName+DOB filtered and
- * lastVisit-ordered) → collapse duplicate records → enrich the survivors in
- * parallel. Order is collapseSearchHits' (scanned-first-name affinity, then
- * the search's recency). Throws only when the search itself is unavailable.
+ * lastVisit-ordered) → guard/rank (EVERY exact match kept) → enrich all in
+ * parallel. Throws only when the search itself is unavailable.
  */
 export async function lookupLicenseMatches(input: LicenseLookupInput): Promise<LicenseMatch[]> {
   const hits = await pandoraPersonSearch(input);
-  const collapsed = collapseSearchHits(hits, input.lastName, input.dobIso, input.firstName);
-  return Promise.all(collapsed.map((h) => buildMatch(h, input)));
+  const ranked = filterAndRankHits(hits, input.lastName, input.dobIso, input.firstName);
+  return Promise.all(ranked.map((h) => buildMatch(h, input)));
+}
+
+/**
+ * Absorb the upstream cold starts BEFORE a guest scans: a throwaway Pandora
+ * search (the Azure app 502s its first requests after idle — the retries in
+ * pandoraPersonSearch ride it out) plus the Office token grab (Redis-cached
+ * 23h, so usually instant). Called fire-and-forget from the kiosk when a
+ * scan-capable screen mounts; failures are irrelevant — the real lookup
+ * retries anyway.
+ */
+export async function warmLicenseLookup(location?: string): Promise<void> {
+  await Promise.allSettled([
+    pandoraPersonSearch({ lastName: "ZZZWARMUP", dobIso: "1900-01-01", location }),
+    getOfficeToken(CLIENT_KEY),
+  ]);
 }
 
 export { OfficeApiError };
