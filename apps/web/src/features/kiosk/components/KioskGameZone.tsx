@@ -300,6 +300,15 @@ export function KioskGameZone({
     Array<{ account: string; tokens: number; bonusTokens: number }>
   >([]);
   const [consoBusy, setConsoBusy] = useState(false);
+  // TRUE only while a card is actually being processed (read → move → bin) —
+  // a few seconds. consoBusy alone covered the WHOLE cycle including the 30s
+  // wait-for-insert, which kept Done/Back disabled almost permanently and
+  // showed "Combining…" while merely waiting (owner 2026-07-23: "people keep
+  // getting stuck — need a way to exit and click done").
+  const [consoCombining, setConsoCombining] = useState(false);
+  // Cancel generation: Done/Back bump this so an in-flight wait/read bails
+  // silently (returning any held card) instead of writing stale state.
+  const consoRunRef = useRef(0);
   const [consoMsg, setConsoMsg] = useState<string | null>(null);
   // HALT: a service/transport failure STOPS the auto-accept loop and shows the
   // real reason + a "Try again" tap. Without this the loop re-armed straight
@@ -751,17 +760,21 @@ export function KioskGameZone({
   // is read via /verify for display; the move happens per-source below.
   const consoReadTarget = async () => {
     if (consoBusy || !readerReady) return;
+    const run = consoRunRef.current;
     setConsoBusy(true);
     setConsoMsg(null);
     try {
       const r = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
       await presentIfCardPresent(); // return a real card; never eject on a no-card timeout
+      // Guest tapped Back while we waited — bail without touching state.
+      if (consoRunRef.current !== run) return;
       if (!r.ok) {
         // No card inserted (auto-arm timeout) or unreadable — stay on the insert
         // prompt and re-arm; no scary message while the guest is still deciding.
         return;
       }
       const account = r.value;
+      setConsoCombining(true); // brief: the balance lookup for the display
       let tokens = 0;
       let bonusTokens = 0;
       try {
@@ -769,6 +782,7 @@ export function KioskGameZone({
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ accountNumber: account, locationCode }),
+          signal: AbortSignal.timeout(10_000),
         });
         const data = await res.json();
         const bal = data.balance ?? data;
@@ -777,10 +791,12 @@ export function KioskGameZone({
       } catch {
         /* balance is display-only; the move re-reads server-side */
       }
+      if (consoRunRef.current !== run) return;
       setConsoTarget({ account, tokens, bonusTokens });
       setConsoSources([]);
       setConsoStep("sources");
     } finally {
+      setConsoCombining(false);
       setConsoBusy(false);
     }
   };
@@ -792,16 +808,24 @@ export function KioskGameZone({
   // no-card timeout just re-arms silently so the guest can keep feeding cards.
   const readConsoSource = async () => {
     if (consoBusy || !consoTarget) return;
+    const run = consoRunRef.current;
     // Set busy FIRST so the auto-arm effect can't re-enter this (and stack bin
     // holds) while holdIfBinFull is awaiting a staff resume.
     setConsoBusy(true);
     try {
       // Need bin room before we consume a source into it.
       if (!(await holdIfBinFull())) {
-        setConsoMsg("Please see an attendant.");
+        if (consoRunRef.current === run) setConsoMsg("Please see an attendant.");
         return;
       }
+      if (consoRunRef.current !== run) return; // Done/Back tapped while holding
       const r = await dispenser.acceptAndRead({ timeoutMs: 30_000 });
+      // Done/Back tapped while we waited for an insert — hand back anything
+      // that was read and bail without touching state (the guest moved on).
+      if (consoRunRef.current !== run) {
+        if (r.ok) await presentIfCardPresent();
+        return;
+      }
       if (!r.ok) {
         // No card inserted (timeout) or unreadable — return any real card and
         // wait for the next one. No message on an idle timeout (expected).
@@ -809,6 +833,9 @@ export function KioskGameZone({
         return;
       }
       const source = r.value;
+      // A card is in hand — NOW we're combining (loader + Done/Back briefly
+      // disabled; this section is seconds, not the 30s insert wait).
+      setConsoCombining(true);
       if (source === consoTarget.account || consoSources.some((s) => s.account === source)) {
         await dispenser.present();
         setConsoMsg(
@@ -829,6 +856,14 @@ export function KioskGameZone({
         signal: AbortSignal.timeout(20_000),
       });
       const data = await res.json().catch(() => ({}));
+      // Done/Back tapped mid-move: if the value DID move, the source is drained —
+      // bin it (best-effort) so an empty card isn't handed back as if loaded;
+      // otherwise return the untouched card. Either way, no stale state writes.
+      if (consoRunRef.current !== run) {
+        if (res.ok && data.ok) await captureSafely();
+        else await presentIfCardPresent();
+        return;
+      }
       if (res.ok && data.ok) {
         // Value is on the target → safe to bin the emptied source.
         if (!(await captureSafely())) {
@@ -878,22 +913,36 @@ export function KioskGameZone({
       }
     } catch (err) {
       await presentIfCardPresent();
-      setConsoHalted(
-        err instanceof Error && err.name === "TimeoutError"
-          ? "The combine service didn't answer in time."
-          : "Couldn't reach the combine service.",
-      );
+      // Guest already exited via Done/Back — don't halt a screen they left.
+      if (consoRunRef.current === run) {
+        setConsoHalted(
+          err instanceof Error && err.name === "TimeoutError"
+            ? "The combine service didn't answer in time."
+            : "Couldn't reach the combine service.",
+        );
+      }
     } finally {
+      setConsoCombining(false);
       setConsoBusy(false);
     }
   };
 
+  /** Guest exits the combine (Done / Back): cancel any in-flight wait/read and
+   *  close the gate so the reader stops accepting — the exit is INSTANT even if
+   *  a 30s insert wait is pending (it bails via the run generation). */
+  const consoExit = () => {
+    consoRunRef.current += 1;
+    void dispenser.stopAccepting();
+  };
+
   const consoReset = () => {
+    consoRunRef.current += 1;
     setConsoStep("target");
     setConsoTarget(null);
     setConsoSources([]);
     setConsoMsg(null);
     setConsoHalted(null);
+    setConsoCombining(false);
   };
 
   // Dispense → read → load → present, ONE card at a time. Faults are handled by
@@ -1353,9 +1402,14 @@ export function KioskGameZone({
           {consoStep !== "done" && (
             <button
               type="button"
-              disabled={consoBusy}
-              onClick={() => setMode("choose")}
-              className="rounded-full border border-white/15 px-5 py-2 text-sm text-white/60 disabled:opacity-40"
+              // Tappable while waiting for a card — only a live money-move
+              // (seconds) disables it. Exit cancels the pending insert wait.
+              disabled={consoCombining}
+              onClick={() => {
+                consoExit();
+                setMode("choose");
+              }}
+              className="k-tap rounded-full border border-white/15 px-5 py-2 text-sm text-white/60 disabled:opacity-40"
             >
               Back
             </button>
@@ -1389,7 +1443,7 @@ export function KioskGameZone({
               onto it.
             </p>
             <div className="mt-8 flex justify-center">
-              {consoBusy ? (
+              {consoCombining ? (
                 <BrandedLoader
                   brand={brand}
                   label="Reading your card…"
@@ -1458,7 +1512,7 @@ export function KioskGameZone({
                     Try again
                   </button>
                 </div>
-              ) : consoBusy ? (
+              ) : consoCombining ? (
                 <BrandedLoader brand={brand} label="Combining…" sublabel="Moving the tokens over" />
               ) : (
                 <CardSlotGuide
@@ -1492,8 +1546,14 @@ export function KioskGameZone({
 
             <button
               type="button"
-              disabled={consoBusy}
-              onClick={() => setConsoStep("done")}
+              // Enabled while WAITING for a card (that's most of the time) —
+              // only a live money-move (a few seconds) disables it. Exiting
+              // cancels the pending insert wait, so the tap works instantly.
+              disabled={consoCombining}
+              onClick={() => {
+                consoExit();
+                setConsoStep("done");
+              }}
               className="k-tap mt-8 w-full rounded-full bg-[#46d68c] px-6 py-5 text-2xl font-extrabold text-[#04252b] disabled:opacity-40"
             >
               Done — I&rsquo;m finished
