@@ -62,6 +62,8 @@ export function personDataFromMatch(m: LicenseMatch): PersonData {
     memberships: m.memberships,
     birthDate: m.birthDate,
     creditBalances: m.creditBalances,
-    waiverValid: m.waiverValid,
+    // Absent since the Office-search rewrite — handleVerified then runs the
+    // same "Checking waiver…" → importLinked resolution the OTP path uses.
+    ...(typeof m.waiverValid === "boolean" ? { waiverValid: m.waiverValid } : {}),
   };
 }

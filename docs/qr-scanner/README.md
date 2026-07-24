@@ -127,11 +127,14 @@ license) — `AamvaBurst` regroups them and a 350 ms quiet gap ends the burst
   number, document dates are never extracted, stored, transmitted, or logged).
 - Consumers (`KioskPeopleStep`, `KioskPartyManager`, `KioskBowlingPeopleStep`): a scan on
   the roster looks the guest up by last name + DOB — `POST /api/kiosk/license-lookup`,
-  backed by **Pandora `GET /bmi/person/search`** (docs/pandora-api.md; the Office token
-  search can't do names) with Office/Pandora enrichment — and signs a match in through the
-  existing `handleVerified` rail (duplicate records collapse to one; true multi-match →
-  the returning-racer account cards via `LicenseMatchPicker`); no match → the new-player
-  form opens prefilled. An already-open form is just filled. Bowling adds a name-only row.
+  backed by the **BMI Office token search with a combined `"LastName M/D/YYYY"` token**
+  (no leading zeros; raw `https.get` — the endpoint 500s under undici; ~1 s live, vs
+  ~8.5 s for Pandora's person search) — and signs a match in through the existing
+  `handleVerified` rail. EVERY record of the guest is returned (duplicates included):
+  one → direct sign-in, several → the returning-racer account cards via
+  `LicenseMatchPicker`; no match → the new-player form opens prefilled. Waiver status
+  resolves right after sign-in via importLinked ("Checking waiver…"), exactly like the
+  phone OTP path. An already-open form is just filled. Bowling adds a name-only row.
 - The physical ID is the identity proof (exact last name + DOB); `phoneVerified` is never
   set by this path — OTP-gated flows (rewards) still re-verify.
 - Port exclusivity: only ONE surface mounts `useLicenseScan` at a time (the kiosk shows

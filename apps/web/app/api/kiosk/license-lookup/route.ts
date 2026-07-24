@@ -44,15 +44,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // {"warm": true} — pre-absorb the Pandora cold start (fired when a
+  // {"warm": true} — pre-fetch the Office auth token (fired when a
   // scan-capable kiosk screen mounts, so the guest's real scan is fast).
   // No PII involved; own rate bucket so warming can't starve real lookups.
   if (body.warm === true) {
     if (await rateLimited("license-warm", clientIp(req), 30)) {
       return NextResponse.json<LicenseLookupResponse>({ ok: false }, { status: 429 });
     }
-    const location = String(body.location ?? "").trim();
-    await warmLicenseLookup(LOCATIONS.has(location) ? location : undefined);
+    await warmLicenseLookup();
     return NextResponse.json<LicenseLookupResponse>({ ok: true });
   }
 

@@ -15,6 +15,12 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.6.4 — license lookup rebuilt on the BMI Office token search with a
+ *         combined "LastName M/D/YYYY" token (owner's vector — no leading
+ *         zeros, raw https; undici 500s on these tokens): ~1 s live vs ~8.5 s
+ *         on Pandora person search. Waiver resolves post-sign-in via the
+ *         OTP path's "Checking waiver…" rail; live duplicate ranks first
+ *         (plausible-name recency beats exact-name staleness).
  * 1.6.3 — Combine cards rebuilt on the real rails: TPI_ConsolidateAccounts on
  *         the standard cloud SOAP host (WSDL-exact envelope — <long> account
  *         array, LocID position, GMT_DateTime; no raw sockets / extra hosts).
@@ -68,7 +74,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.6.3";
+export const KIOSK_VERSION = "1.6.4";
 
 let bootVersion: string | null = null;
 let captured = false;

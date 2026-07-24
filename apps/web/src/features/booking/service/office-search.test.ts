@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  descriptionMatchesLastName,
+  dobTokenOf,
+  firstNameAffinity,
   lastSeenFromDescription,
   nameFromDescription,
   rankSearchResults,
@@ -25,6 +28,44 @@ describe("scoreSearchResult / lastSeenFromDescription", () => {
   it("parses the last-seen date, 0 when absent", () => {
     expect(lastSeenFromDescription(DESC_FULL)).toBe(new Date("3/1/2024").getTime());
     expect(lastSeenFromDescription(DESC_BARE)).toBe(0);
+  });
+});
+
+describe("dobTokenOf", () => {
+  it("strips leading zeros — the only form the Office search matches", () => {
+    expect(dobTokenOf("2002-08-20")).toBe("8/20/2002");
+    expect(dobTokenOf("1990-12-05")).toBe("12/5/1990");
+    expect(dobTokenOf("2010-01-01")).toBe("1/1/2010");
+  });
+});
+
+describe("descriptionMatchesLastName", () => {
+  // Live shape from the combined-token search: "Alex Trepasso (8/20/2002)
+  // zip: 33966 phone: 7249676207 Last seen: 7/22/2026 Memberships: …"
+  const DESC_DOB = "JANE DOE (8/20/2002) zip: 33901 phone: 2395551212 Last seen: 7/22/2026";
+  it("matches whole words case-insensitively", () => {
+    expect(descriptionMatchesLastName(DESC_DOB, "doe")).toBe(true);
+    expect(descriptionMatchesLastName(DESC_FULL, "DOE")).toBe(true);
+  });
+  it("does not match substrings of longer names", () => {
+    expect(descriptionMatchesLastName("JANE DOEBER (8/20/2002)", "DOE")).toBe(false);
+  });
+  it("matches a nameless legacy record whose name part is just the last name", () => {
+    expect(descriptionMatchesLastName(" DOE (8/20/2002) zip: 33973", "doe")).toBe(true);
+  });
+  it("matches inside hyphenated names; rejects empty needles", () => {
+    expect(descriptionMatchesLastName("ANA SMITH-JONES (1/2/2003)", "SMITH")).toBe(true);
+    expect(descriptionMatchesLastName(DESC_DOB, "  ")).toBe(false);
+  });
+});
+
+describe("firstNameAffinity", () => {
+  it("exact > prefix > none; empty never matches", () => {
+    expect(firstNameAffinity("Alex", "alex")).toBe(2);
+    expect(firstNameAffinity("Alex", "ALEXANDER")).toBe(1);
+    expect(firstNameAffinity("Sam", "Alexander")).toBe(0);
+    expect(firstNameAffinity(null, "Alexander")).toBe(0);
+    expect(firstNameAffinity("Alex", "")).toBe(0);
   });
 });
 

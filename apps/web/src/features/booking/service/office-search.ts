@@ -7,9 +7,13 @@
  * a display string like "JANE DOE (239) 555-1212 zip: 33901 Last seen:
  * 3/1/2024" — these helpers parse it; they never fetch.
  *
- * NOTE (2026-07-23): the Office token search only matches phone/email/login
- * codes — bare NAME tokens 500 upstream. Name+DOB lookups use Pandora's
- * `/bmi/person/search` instead (features/kiosk/license/lookup.server.ts).
+ * TOKEN GOTCHAS (verified live 2026-07-23):
+ *  - The upstream endpoint 500s under Node fetch/undici for slash-bearing or
+ *    single-word tokens — call it via raw `https.get` (app/api/bmi-office and
+ *    the kiosk license lookup both do); person/{id} fetches are fine on fetch.
+ *  - Birthdate tokens work as `M/D/YYYY` with NO leading zeros ("8/20/2002";
+ *    "08/20/2002" returns nothing). Combined "LastName M/D/YYYY" scopes the
+ *    search to one human — the kiosk license lookup's vector (owner ask).
  */
 
 export interface SearchCandidate {
@@ -41,6 +45,38 @@ export function lastSeenFromDescription(desc: string): number {
 export function nameFromDescription(desc: string): string {
   const nameMatch = desc.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
   return (nameMatch ? nameMatch[1].trim() : desc.split(" phone:")[0].trim()) || desc.trim();
+}
+
+/** "2002-08-20" → "8/20/2002" — the exact DOB token format the Office search
+ *  indexes (M/D/YYYY, NO leading zeros — "08/20/2002" matches NOTHING;
+ *  verified live 2026-07-23). Descriptions carry the same form as "(8/20/2002)". */
+export function dobTokenOf(dobIso: string): string {
+  const [y, m, d] = dobIso.split("-");
+  return `${Number(m)}/${Number(d)}/${y}`;
+}
+
+/** Whole-word, case-insensitive last-name test against the NAME part only —
+ *  "DOE" matches "JANE DOE" but not "JANE DOEBER". */
+export function descriptionMatchesLastName(desc: string, lastName: string): boolean {
+  const name = nameFromDescription(desc);
+  const esc = lastName.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!esc) return false;
+  return new RegExp(`(^|[^A-Za-z])${esc}([^A-Za-z]|$)`, "i").test(name);
+}
+
+/** Loose given-name affinity for RANKING (never filtering): exact = 2, one a
+ *  prefix of the other = 1 (license "ALEXANDER" ↔ account "Alex"), else 0. */
+export function firstNameAffinity(a: string | null | undefined, b: string | null | undefined) {
+  const x = String(a ?? "")
+    .trim()
+    .toLowerCase();
+  const y = String(b ?? "")
+    .trim()
+    .toLowerCase();
+  if (!x || !y) return 0;
+  if (x === y) return 2;
+  if (x.startsWith(y) || y.startsWith(x)) return 1;
+  return 0;
 }
 
 /**

@@ -20,6 +20,11 @@ export interface LicenseMatch {
   races: number;
   memberships: string[];
   birthDate: string | null;
+  /** Always [] since the Office-search rewrite (latency) — the qualification
+   *  refresh fills real balances at the people-step exit. */
   creditBalances: Array<{ kind: string; balance: number }>;
-  waiverValid: boolean;
+  /** Absent by design since the Office-search rewrite (2026-07-23): like the
+   *  phone OTP sign-in, waiver status resolves right AFTER sign-in via
+   *  importLinked (the roster card shows "Checking waiver…" briefly). */
+  waiverValid?: boolean;
 }

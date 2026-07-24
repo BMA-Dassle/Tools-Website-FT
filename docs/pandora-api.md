@@ -72,10 +72,12 @@ legacy short like `553343`), and both forms work against Office `person/{id}` (v
 
 **Latency (measured 2026-07-23, warm):** the search call itself takes **~7–9 s** consistently
 (8.5/8.9/8.5 s same name; 6.8 s different name) — the cost is inside this endpoint's Firebird
-query, independent of `limit`. This is the dominant cost of the kiosk license scan; making scans
-feel instant means optimizing THIS query (e.g. an index/computed column on
-`UPPER(lastname) + birthdate`). For comparison, `GET /bmi/person/{loc}/{id}` runs ~3 s and the
-Office `person/{id}` ~0.4 s.
+query, independent of `limit` (an index/computed column on `UPPER(lastname) + birthdate` would
+fix it). For comparison, `GET /bmi/person/{loc}/{id}` runs ~3 s and the Office `person/{id}`
+~0.4 s. **Because of this, the kiosk license lookup does NOT use this endpoint** — it uses the
+BMI Office token search with a combined `"LastName M/D/YYYY"` token (~1 s; no-leading-zeros
+format, raw `https.get` required — see office-search.ts). This endpoint remains documented for
+when the query gets optimized.
 
 ### GET /bmi/race/next/{locationID}/{person|participant}/{id}
 
