@@ -97,6 +97,7 @@ import {
   heatClockLabel,
 } from "./conflict";
 import { shortenUrl } from "@/lib/short-url";
+import { syncShoeKdsLineItems, type ShoeKdsPlayer } from "@/lib/bowling-shoe-kds";
 import type {
   BookingSession,
   BowlingItem,
@@ -1393,6 +1394,11 @@ async function unifiedReserveInner(
   // of the cart-wide total (races, attractions, combo lines).
   let bowlingPromoSavingsCents = 0;
 
+  // Kiosk rosters carry shoe sizes UP FRONT; accumulate them across bowling
+  // items (a combo shares ONE bowling day-of order) so we sync the $0 shoe-KDS
+  // line items ONCE after the loop, never clobbering earlier items.
+  const shoeKdsPlayers: ShoeKdsPlayer[] = [];
+
   for (const item of bowlingItems) {
     const centerId = item.qamfCenterId ?? 9172;
     const playerCount =
@@ -1418,6 +1424,12 @@ async function unifiedReserveInner(
             shoeSize: null as string | null,
             bumpers: null as boolean | null,
           }));
+
+    // Only real (kiosk) rosters carry shoe sizes; placeholder rosters are all
+    // null and contribute nothing (the helper filters sizeless players).
+    if (rosterPlayers && rosterPlayers.length > 0) {
+      shoeKdsPlayers.push(...players.map((p) => ({ name: p.name, shoeSize: p.shoeSize })));
+    }
 
     const guest = {
       name: `${contact.firstName} ${contact.lastName}`.trim(),
@@ -1828,6 +1840,22 @@ async function unifiedReserveInner(
       console.error("[unified-reserve] QAMF confirm failed (deposit retained):", err);
       throw err;
     }
+  }
+
+  // ── Sync shoe-size KDS items onto the bowling day-of order ─────────
+  // Kiosk collects shoe sizes UP FRONT, so — unlike the web flow (which syncs
+  // them post-booking via the confirmation-page players PATCH) — they must be
+  // pushed onto the day-of Square order here, or the shoe-desk/KDS view of that
+  // order is blank for kiosk bookings. Web placeholder rosters reach here with
+  // no sizes, so this is a no-op for them. Best-effort — the deposit is already
+  // captured and shoe-KDS items never gate the booking.
+  if (shoeKdsPlayers.length > 0 && bowlingDayofOrderId) {
+    await syncShoeKdsLineItems({
+      orderId: bowlingDayofOrderId,
+      players: shoeKdsPlayers,
+      idempotencyKey: `shoe-kds-${baseKey}-${Date.now()}`,
+      logLabel: "unified-reserve",
+    });
   }
 
   // Persist QAMF logs to Redis for debugging (avoids Vercel log truncation)
