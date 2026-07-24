@@ -56,9 +56,9 @@ const MAX_BAD_BLANKS = 3;
 const MAX_AUTO_READ_FAILS = 3;
 
 /** Combine cards (consolidation) entry point — ON (owner 2026-07-23). The combine
- *  is the documented Enhanced-3PI ConsolidateCards op over the cloud Transaction
- *  Server; INTERCARD_EIS_HOST must be set in Vercel or the flow fails closed
- *  with a "see an attendant" message. Flip to false to hide the button. */
+ *  is TPI_ConsolidateAccounts on the SAME cloud SOAP host as the token loads
+ *  (intercard.swflpassport.com; envelope WSDL-exact) — no extra hosts or env.
+ *  Flip to false to hide the button. */
 const GC_CONSOLIDATE_LIVE = true;
 
 /** The final "cards ready / tokens loaded" screen auto-closes after this many
@@ -301,6 +301,40 @@ export function KioskGameZone({
   >([]);
   const [consoBusy, setConsoBusy] = useState(false);
   const [consoMsg, setConsoMsg] = useState<string | null>(null);
+  // HALT: a service/transport failure STOPS the auto-accept loop and shows the
+  // real reason + a "Try again" tap. Without this the loop re-armed straight
+  // into the same failure forever — 30s gate wait, error, gate reopens (live
+  // 2026-07-23: "it just resets and keeps waiting for a card").
+  const [consoHalted, setConsoHalted] = useState<string | null>(null);
+  // Backend availability probe (null = checking). The Combine button only
+  // shows when the cloud EIS is actually configured for this center — an
+  // unconfigured backend must never dead-end a guest mid-flow.
+  const [consoAvailable, setConsoAvailable] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!GC_CONSOLIDATE_LIVE || bridgeUp !== false) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/game-cards/consolidate?locationCode=${locationCode}`, {
+          signal: AbortSignal.timeout(6_000),
+        });
+        const data = (await res.json().catch(() => null)) as {
+          available?: boolean;
+          reason?: string;
+        } | null;
+        if (cancelled) return;
+        setConsoAvailable(data?.available === true);
+        if (data?.available !== true) {
+          console.warn(`[kiosk] Combine cards hidden: ${data?.reason ?? "probe failed"}`);
+        }
+      } catch {
+        if (!cancelled) setConsoAvailable(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [bridgeUp, locationCode]);
 
   // The CRT-591 dispenser owns ONE connection for the whole Game Zone session
   // (this component stays mounted until the guest exits). Auto-reconnects
@@ -595,11 +629,20 @@ export function KioskGameZone({
     // target is a single read; then each source is read + moved and the effect
     // re-arms. Timeouts are EXPECTED here (the guest is choosing cards), so this
     // is NOT bounded by autoReadBlocked — it re-arms until Done (consoStep→done)
-    // or the bin fills. consoBusy guards the server round-trip between reads.
+    // or the bin fills. consoBusy guards the server round-trip between reads;
+    // consoHalted stops the loop dead after a service failure (Try again resumes).
     const armConsoTarget =
-      mode === "consolidate" && consoStep === "target" && !consoTarget && !consoBusy;
+      mode === "consolidate" &&
+      consoStep === "target" &&
+      !consoTarget &&
+      !consoBusy &&
+      !consoHalted;
     const armConsoSource =
-      mode === "consolidate" && consoStep === "sources" && !!consoTarget && !consoBusy;
+      mode === "consolidate" &&
+      consoStep === "sources" &&
+      !!consoTarget &&
+      !consoBusy &&
+      !consoHalted;
     if (!armBalance && !armReload && !armConsoTarget && !armConsoSource) return;
     const t = setTimeout(() => {
       if (armBalance) void readBalanceCard();
@@ -622,6 +665,7 @@ export function KioskGameZone({
     consoTarget,
     consoBusy,
     consoSources,
+    consoHalted,
   ]);
 
   // A fresh card slot / mode change gets a clean auto-read budget (so a block on
@@ -772,6 +816,8 @@ export function KioskGameZone({
         );
         return;
       }
+      // The guest's card is HELD during this call — the timeout must be tight
+      // (server-side SOAP attempts are 8s ×2 + verify reads; 20s covers them).
       const res = await fetch("/api/game-cards/consolidate", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -780,6 +826,7 @@ export function KioskGameZone({
           targetAccount: consoTarget.account,
           sourceAccount: source,
         }),
+        signal: AbortSignal.timeout(20_000),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok) {
@@ -808,27 +855,33 @@ export function KioskGameZone({
         setConsoMsg(null);
         // Bin full now → the run is over (owner: "until the bin is full").
         if ((await dispenser.getBinState()) === "full") setConsoStep("done");
-      } else if (data.outcome === "unknown") {
-        // Ambiguous — atomic, so value is all-on-target or all-on-source. Return
-        // the source (safe either way); staff resolve from the consolidation log.
+      } else if (data.outcome === "declined") {
+        // Clean decline for THIS card — return it, show why, keep accepting
+        // other cards (the guest may just try a different one).
         await presentIfCardPresent();
         setConsoMsg(
-          data.message ||
-            "We couldn't confirm that one — your card is back. Please see an attendant.",
+          `${data.message || "That card couldn't be combined — your card is back."}${
+            data.detail ? `\n${data.detail}` : ""
+          }`,
         );
       } else {
-        // Clean decline — nothing moved. Return the card.
+        // Service failure (unknown outcome / HTTP error / unconfigured): HALT
+        // the auto-accept loop and show the REAL reason — retrying into the
+        // same failure just eats the guest's card for 15s at a time.
         await presentIfCardPresent();
-        setConsoMsg(
+        const reason =
+          data.detail ||
           data.message ||
-            errText(data) ||
-            "That card couldn't be combined — take it back and try again.",
-        );
+          errText(data) ||
+          `Combine service error (HTTP ${res.status})`;
+        setConsoHalted(reason);
       }
-    } catch {
+    } catch (err) {
       await presentIfCardPresent();
-      setConsoMsg(
-        "Something went wrong — your card is back. Please try again or see an attendant.",
+      setConsoHalted(
+        err instanceof Error && err.name === "TimeoutError"
+          ? "The combine service didn't answer in time."
+          : "Couldn't reach the combine service.",
       );
     } finally {
       setConsoBusy(false);
@@ -840,6 +893,7 @@ export function KioskGameZone({
     setConsoTarget(null);
     setConsoSources([]);
     setConsoMsg(null);
+    setConsoHalted(null);
   };
 
   // Dispense → read → load → present, ONE card at a time. Faults are handled by
@@ -1266,7 +1320,7 @@ export function KioskGameZone({
               Re-enabled (owner 2026-07-23): the old NEXT_PUBLIC_GC_CONSOLIDATE_DISABLED
               env kill-switch was dropped so a stale Vercel var can't keep the
               button dark — GC_CONSOLIDATE_LIVE (top of file) is the one switch. */}
-          {GC_CONSOLIDATE_LIVE && bridgeUp === false && readerReady && (
+          {GC_CONSOLIDATE_LIVE && bridgeUp === false && readerReady && consoAvailable === true && (
             <button
               type="button"
               onClick={() => {
@@ -1315,7 +1369,7 @@ export function KioskGameZone({
           </div>
         )}
         {consoMsg && (
-          <div className="mb-4 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-lg text-white/80">
+          <div className="mb-4 whitespace-pre-line rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-lg text-white/80">
             {consoMsg}
           </div>
         )}
@@ -1385,8 +1439,26 @@ export function KioskGameZone({
               Insert each card one at a time — its tokens move onto your kept card.
             </p>
 
-            <div className="mt-8 flex justify-center">
-              {consoBusy ? (
+            <div className="mt-8 flex w-full justify-center">
+              {consoHalted ? (
+                /* Service failure — the loop is STOPPED. Show the real reason
+                   so staff can act on it; Try again resumes accepting cards. */
+                <div className="w-full rounded-2xl border border-red-400/40 bg-red-400/10 p-6 text-left">
+                  <div className="text-2xl font-bold text-red-200">
+                    Combining isn&rsquo;t working right now
+                  </div>
+                  <div className="mt-2 whitespace-pre-line text-lg text-red-100/80">
+                    {consoHalted}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setConsoHalted(null)}
+                    className="k-tap mt-5 w-full rounded-full bg-[#00e2e5] px-6 py-4 text-xl font-extrabold text-[#04252b]"
+                  >
+                    Try again
+                  </button>
+                </div>
+              ) : consoBusy ? (
                 <BrandedLoader brand={brand} label="Combining…" sublabel="Moving the tokens over" />
               ) : (
                 <CardSlotGuide

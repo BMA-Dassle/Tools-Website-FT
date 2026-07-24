@@ -162,6 +162,7 @@ async function soapCall(
   opName: string,
   innerXml: string,
   mac: string,
+  timeoutMs: number = SOAP_TIMEOUT_MS,
 ): Promise<string> {
   if (!mac) {
     throw new IntercardError("NO_MAC", "Intercard MAC is not configured for this location");
@@ -175,7 +176,7 @@ async function soapCall(
     `</soap:Envelope>`;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), SOAP_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
     res = await fetch(url, {
@@ -385,6 +386,72 @@ export async function clearAccount(params: ClearAccountParams): Promise<{ code: 
   const code = raw == null ? NaN : Number(raw);
   if (Number.isNaN(code)) {
     throw new IntercardError("BAD_RESPONSE", "Could not parse TPI_ClearAccount result");
+  }
+  return { code };
+}
+
+export interface ConsolidateAccountsParams {
+  locationCode: number;
+  /** The survivor card — receives all value. Raw digit string. */
+  targetAccount: string;
+  /** Source cards whose ENTIRE balance moves onto the target. Raw digit strings. */
+  sourceAccounts: string[];
+  /** Stable idempotency key — Intercard dedups on this (replay-safe). */
+  tpiTransactionID: string;
+  sessionId?: string;
+}
+
+/**
+ * TPI_ConsolidateAccounts — move ALL value (cash, bonus cash, tokens, bonus
+ * tokens, points, time) of the source accounts onto the target, atomically,
+ * on the SAME cloud SOAP host every other Intercard call uses. No bridge, no
+ * raw sockets, no per-site hosts.
+ *
+ * Envelope is taken from the LIVE WSDL (fetched 2026-07-23 from
+ * WS_ThirdPartyInterface.asmx?WSDL), not guessed — the first attempt failed on
+ * three shape bugs the WSDL settles: sourceAccounts is ArrayOfLong (`<long>`
+ * items, the same <string>-vs-<long> trap TPI_ClearAccount had), the location
+ * element is `LocID` positioned AFTER the transaction ids (SOAP sequences are
+ * order-sensitive), and the UTC stamp is `GMT_DateTime`.
+ *
+ * Returns the raw result code: 0 success, -1 server exception, -2 MAC not
+ * registered. Idempotent on tpiTransactionID (duplicate id → 0 without
+ * re-applying) — retry with the SAME id only. Timeout is tight (8s) because
+ * the kiosk is holding the guest's card while this runs.
+ */
+export async function consolidateAccounts(
+  params: ConsolidateAccountsParams,
+): Promise<{ code: number }> {
+  const { locationCode, targetAccount, sourceAccounts, tpiTransactionID } = params;
+  if (sourceAccounts.length === 0) {
+    throw new IntercardError("NO_ACCOUNTS", "consolidateAccounts requires a source account");
+  }
+  const mac = macForCenter(locationCode); // per-location registration
+  const now = new Date();
+
+  // WSDL sequence: MAC_ID, sourceAccounts, targetAccount, tpiSessionID,
+  // tpiTransactionID, LocID, employee ids, LT_DateTime, GMT_DateTime.
+  // Account numbers are raw text inside <long> — never Number() them in JS
+  // (they're int64-scale; precision dies in a JS number round-trip).
+  const sourcesXml = sourceAccounts.map((a) => `<long>${xmlEscape(a)}</long>`).join("");
+  const inner =
+    macXml(mac) +
+    `<sourceAccounts>${sourcesXml}</sourceAccounts>` +
+    `<targetAccount>${xmlEscape(targetAccount)}</targetAccount>` +
+    `<tpiSessionID>${xmlEscape(params.sessionId || tpiTransactionID)}</tpiSessionID>` +
+    `<tpiTransactionID>${xmlEscape(tpiTransactionID)}</tpiTransactionID>` +
+    `<LocID>${locationCode}</LocID>` +
+    `<tpiEmployeeID>${BRIDGE_EMP.id}</tpiEmployeeID>` +
+    `<tpiEmployeeFirstName>${BRIDGE_EMP.first}</tpiEmployeeFirstName>` +
+    `<tpiEmployeeLastName>${BRIDGE_EMP.last}</tpiEmployeeLastName>` +
+    timeDateMapXml("LT_DateTime", now, CENTER_TZ) +
+    timeDateMapXml("GMT_DateTime", now, "UTC");
+
+  const resp = await soapCall(INTERCARD_TPI_URL, "TPI_ConsolidateAccounts", inner, mac, 8_000);
+  const raw = extractTag(resp, "TPI_ConsolidateAccountsResult");
+  const code = raw == null ? NaN : Number(raw);
+  if (Number.isNaN(code)) {
+    throw new IntercardError("BAD_RESPONSE", "Could not parse TPI_ConsolidateAccounts result");
   }
   return { code };
 }

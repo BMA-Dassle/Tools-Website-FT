@@ -1,11 +1,11 @@
 /**
- * Card consolidation — CLOUD ONLY, via the documented ConsolidateCards request
- * (Intercard Enhanced 3rd Party Interface v7, docs/…-v7.pdf p.27-28): one atomic
- * Transaction Server op moves ALL values of the source card onto the
- * "primary/single" target card. Sent server-side over raw TCP to the
- * cloud-hosted Transaction Server (data/intercard-eis.ts; host via
- * INTERCARD_EIS_HOST). There is no bridge path: consolidation is only offered on
- * kiosks running against the cloud (KioskGameZone gates on `bridgeUp===false`).
+ * Card consolidation — CLOUD ONLY, via TPI_ConsolidateAccounts on the SAME
+ * Intercard cloud SOAP host every other call uses (intercard.swflpassport.com —
+ * the live-verified TPICreditAccounts host). One atomic server-side op moves
+ * ALL values of the source card onto the target. Envelope is WSDL-exact (pulled
+ * live 2026-07-23) — see consolidateAccounts in data/intercard.ts. No bridge,
+ * no raw sockets, no per-site hosts: consolidation is only offered on kiosks
+ * running against the cloud (KioskGameZone gates on `bridgeUp===false`).
  *
  * The kiosk holds only ONE card at a time, so it calls this once per source:
  *   read target (kiosk) → for each source: accept → POST here → bin on ok.
@@ -15,10 +15,10 @@
  *    cash, tokens, bonus tokens, points, time) moves in one op; we never
  *    enumerate amounts, so nothing can be dropped, and there is NO separate
  *    unguarded clear step (the op drains the source).
- *  - Retry: the Enhanced 3PI dedups on MacAddress+UTCDateTime (no id-based
- *    idempotency), so each attempt carries a fresh timestamp. Retrying
- *    ConsolidateCards is still safe: it moves ALL value, so a re-run after a
- *    landed attempt moves nothing (source already empty).
+ *  - Retry: idempotent on tpiTransactionID (duplicate id returns 0 without
+ *    re-applying) — the ONE retry reuses the SAME id, so it either lands the
+ *    move or no-ops. Doubly safe: consolidate moves ALL value, so a re-run
+ *    after a landed attempt moves nothing (source already empty).
  *  - done (code 0)    → value is on the target, source drained → kiosk bins it.
  *  - declined (non-0) → nothing moved (atomic) → kiosk returns the card.
  *  - unknown (both attempts failed to exchange) → all-or-nothing means the value
@@ -29,12 +29,11 @@
  * Account numbers are bigint strings end-to-end — never Number() them.
  */
 import { randomUUID } from "node:crypto";
-import { getCenter } from "~/config/intercard-centers";
+import { getCenter, macForCenter } from "~/config/intercard-centers";
 import { GameCardHttpError } from "../errors";
 import type { ConsolidateInput } from "../schemas";
 import type { CardBalance } from "../types";
-import { verifyAccount, IntercardError } from "../data/intercard";
-import { consolidateCards, eisConfigured } from "../data/intercard-eis";
+import { verifyAccount, consolidateAccounts, IntercardError } from "../data/intercard";
 import { logConsolidation } from "../data/consolidations-log";
 
 export interface ConsolidateResult {
@@ -47,6 +46,11 @@ export interface ConsolidateResult {
   /** Target balance re-read after the move (display). */
   targetBalance?: CardBalance;
   message?: string;
+  /** WHAT actually failed (staff-safe diagnostic — Intercard response code +
+   *  description, or the transport error). The kiosk shows this under the
+   *  guest message so a failure is debuggable AT the kiosk instead of a bare
+   *  "see an attendant" (owner 2026-07-23). */
+  detail?: string;
 }
 
 const ZERO: CardBalance = { tokens: 0, bonusTokens: 0, eTickets: 0, timeMinutes: 0 };
@@ -57,12 +61,13 @@ export async function consolidate(input: ConsolidateInput): Promise<ConsolidateR
   if (input.sourceAccount === input.targetAccount) {
     throw new GameCardHttpError(400, "SAME_CARD", "A card can't be combined onto itself.");
   }
-  // Fail closed with a clear message when the cloud EIS isn't configured —
-  // never let a misconfig read as "card declined."
-  if (!eisConfigured(input.locationCode)) {
+  // Fail closed with a clear message when the Intercard MAC isn't configured —
+  // never let a misconfig read as "card declined." (Same MAC the token loads
+  // use, so a working Game Zone means this passes.)
+  if (!macForCenter(input.locationCode)) {
     throw new GameCardHttpError(
       503,
-      "EIS_NOT_CONFIGURED",
+      "INTERCARD_NOT_CONFIGURED",
       "Combining cards isn't available right now — please see an attendant.",
     );
   }
@@ -96,10 +101,13 @@ export async function consolidate(input: ConsolidateInput): Promise<ConsolidateR
     locationCode: input.locationCode,
     targetAccount: input.targetAccount,
     sourceAccounts: [input.sourceAccount],
-    transactionId,
+    tpiTransactionID: transactionId,
   });
 
-  if (outcome === "unknown") {
+  if ("failed" in outcome) {
+    console.error(
+      `[consolidate] exchange FAILED src=${input.sourceAccount} tgt=${input.targetAccount} loc=${input.locationCode}: ${outcome.failed}`,
+    );
     await logConsolidation({
       id: transactionId,
       locationCode: input.locationCode,
@@ -108,16 +116,26 @@ export async function consolidate(input: ConsolidateInput): Promise<ConsolidateR
       preTokens: b.tokens,
       preBonusTokens: b.bonusTokens,
       outcome: "unknown",
-      description: "ConsolidateCards exchange failed — source returned to guest, not binned",
+      description: outcome.failed.slice(0, 300),
     });
     return {
       ok: false,
       outcome: "unknown",
       moved,
-      message: "We couldn't confirm the combine — your card is back. Please see an attendant.",
+      message: "We couldn't reach the card system — your card is back.",
+      detail: outcome.failed,
     };
   }
   if (outcome.code !== 0) {
+    const detail =
+      outcome.code === -2
+        ? "Intercard -2: MAC not registered for this location"
+        : outcome.code === -1
+          ? "Intercard -1: server exception"
+          : `Intercard result ${outcome.code}`;
+    console.error(
+      `[consolidate] DECLINED src=${input.sourceAccount} tgt=${input.targetAccount} loc=${input.locationCode}: ${detail}`,
+    );
     await logConsolidation({
       id: transactionId,
       locationCode: input.locationCode,
@@ -127,13 +145,14 @@ export async function consolidate(input: ConsolidateInput): Promise<ConsolidateR
       preBonusTokens: b.bonusTokens,
       outcome: "declined",
       code: String(outcome.code),
-      description: outcome.description || undefined,
+      description: detail,
     });
     return {
       ok: false,
       outcome: "declined",
       moved,
-      message: "That card couldn't be combined — please try again or see an attendant.",
+      message: "That card couldn't be combined — your card is back.",
+      detail,
     };
   }
 
@@ -151,7 +170,6 @@ export async function consolidate(input: ConsolidateInput): Promise<ConsolidateR
     preTokens: b.tokens,
     preBonusTokens: b.bonusTokens,
     outcome: "done",
-    description: outcome.description || undefined,
   });
 
   return { ok: true, outcome: "done", moved, targetBalance };
@@ -172,22 +190,31 @@ function mapVerifyError(err: unknown): never {
 }
 
 /**
- * ConsolidateCards, retrying ONCE on a failed exchange. Safe for THIS op only:
- * it moves ALL value, so a retry after a landed-but-unconfirmed attempt moves
- * nothing (the source is already empty) — never a double-apply. Returns the
- * CommandStatus, or "unknown" when both attempts failed to exchange.
+ * TPI_ConsolidateAccounts, retrying ONCE on a failed exchange with the SAME
+ * tpiTransactionID (server-side dedup: the retry either lands the move or
+ * returns 0 without re-applying — never a double-apply). Returns the result
+ * code, or `{failed}` carrying WHAT went wrong (transport/timeout error text)
+ * when both attempts failed to exchange — the caller surfaces it on-screen.
  */
 async function consolidateWithRetry(
-  params: Parameters<typeof consolidateCards>[0],
-): Promise<{ code: number; description: string } | "unknown"> {
+  params: Parameters<typeof consolidateAccounts>[0],
+): Promise<{ code: number } | { failed: string }> {
+  let lastFail = "no response";
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      return await consolidateCards(params);
-    } catch {
-      if (attempt === 1) return "unknown";
-      // brief pause; the retry carries a fresh UTC_DateTime (dedup key)
-      await new Promise((r) => setTimeout(r, 400));
+      return await consolidateAccounts(params);
+    } catch (err) {
+      lastFail =
+        err instanceof IntercardError
+          ? `${err.code}: ${err.message}`
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      if (attempt === 0) {
+        // brief pause; the retry reuses the SAME tpiTransactionID (id-dedup safe)
+        await new Promise((r) => setTimeout(r, 400));
+      }
     }
   }
-  return "unknown";
+  return { failed: lastFail };
 }

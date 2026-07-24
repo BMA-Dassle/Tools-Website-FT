@@ -57,7 +57,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.6.1";
+export const KIOSK_VERSION = "1.6.2";
 
 let bootVersion: string | null = null;
 let captured = false;

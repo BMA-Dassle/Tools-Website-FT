@@ -2019,3 +2019,36 @@ Remediation: `scripts/kiosk-state-remediate.mts` (dry-run default, `--commit` to
 (Pandora/Firebird vs Office API), you CANNOT rely on issue-order — Pandora writes propagate
 async and can land out of order. The authoritative write must be verified + re-asserted, or
 both writes must go through the same backend.
+
+## Combine cards shipped on a guessed transport — twice (2026-07-23)
+
+Owner report (verbatim mood): combining "does not work at all, completely got stuck,"
+the API error surfaced as a bare "see attendant," and the reader looped 30-second
+"waiting for a card" resets. Two design failures, both mine:
+
+1. **Guessed vendor contracts.** The first combine used a hand-guessed
+   `TPI_ConsolidateAccounts` SOAP envelope (errored live: `<string>` array items
+   instead of `<long>`, `LocationID` instead of `LocID` in the wrong sequence
+   position, `UTC_DateTime` instead of `GMT_DateTime`). The "fix" then swung to a
+   raw-TCP Enhanced-3PI client with a new `INTERCARD_EIS_HOST` env — a direct
+   host/IP socket from Vercel, which is not how ANYTHING cloud works in this stack.
+   The live WSDL was sitting on the host the whole time
+   (`WS_ThirdPartyInterface.asmx?WSDL`) and settles every envelope question.
+
+2. **Swallowed errors + unbounded retry loop.** Failures collapsed into a generic
+   guest message with the real cause only in server logs; the auto-accept loop
+   re-armed straight back into the same failure (30s gate timeout per cycle) while
+   holding the guest's card during a 30s×2 socket timeout.
+
+**Rules:**
+- **Never invent a vendor envelope or transport.** Cloud Intercard = the ONE SOAP
+  host (`intercard.swflpassport.com`) all verified calls use; fetch the live
+  `?WSDL` for any new op (element names, ORDER, array item types — `<long>` vs
+  `<string>` has now bitten twice: ClearAccount and ConsolidateAccounts). No raw
+  sockets, no per-site hosts/IPs, no new env endpoints without the owner naming one.
+- **Hardware flows must surface the REAL failure on-screen** (staff read the kiosk,
+  not Vercel logs) and **halt the retry loop** after a service failure — resume is
+  an explicit tap, never automatic re-entry into a known-dead backend.
+- **A guest-facing entry point must not exist when its backend can't serve it** —
+  probe availability before showing the button; a timeout with a guest's card held
+  must be tight (seconds), and every failure path hands the card back.

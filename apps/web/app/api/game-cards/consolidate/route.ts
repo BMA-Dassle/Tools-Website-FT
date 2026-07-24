@@ -1,10 +1,29 @@
 import type { NextRequest } from "next/server";
 import { ConsolidateSchema } from "~/features/game-cards/schemas";
 import { consolidate } from "~/features/game-cards/service/consolidate";
+import { getCenter, macForCenter } from "~/config/intercard-centers";
 import { GameCardHttpError, jsonOk, toErrorResponse } from "~/features/game-cards/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/**
+ * Availability probe: GET ?locationCode=13 → { available, reason? }. The kiosk
+ * checks this BEFORE showing the Combine button — an unconfigured backend must
+ * hide the feature, never dead-end a guest mid-flow. The combine rides the same
+ * cloud SOAP host + MAC as the (working) token loads, so MAC presence is the
+ * whole check.
+ */
+export async function GET(req: NextRequest) {
+  const code = Number(new URL(req.url).searchParams.get("locationCode") || "");
+  if (!Number.isInteger(code) || !getCenter(code)) {
+    return jsonOk({ available: false, reason: "invalid locationCode" });
+  }
+  if (!macForCenter(code)) {
+    return jsonOk({ available: false, reason: `Intercard MAC is not set (location ${code})` });
+  }
+  return jsonOk({ available: true });
+}
 
 /**
  * Card consolidation (CLOUD ONLY). Moves ALL value from one source card onto a
