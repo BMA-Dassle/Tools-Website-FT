@@ -49,9 +49,6 @@ export const OFFICE_ID_FIELDS = [
   "payMethodId",
   "productId",
   "contactPersonId",
-  // search/person hits carry the person id as `localId` (17-digit) — quoted so
-  // the kiosk license lookup can feed it straight into person fetches.
-  "localId",
 ] as const;
 
 export class OfficeApiError extends Error {

@@ -1,12 +1,15 @@
 /**
  * Pure helpers over BMI Office `search/person` results — extracted from
- * ReturningRacerLookup so the client lookup UI and the server-side kiosk
- * license lookup (features/kiosk/service/license-lookup.server.ts) share ONE
- * copy of the description parsing + ranking rules.
+ * ReturningRacerLookup so the description parsing + ranking rules are
+ * testable in isolation.
  *
  * An Office search hit is `{ localId, description }` where the description is
  * a display string like "JANE DOE (239) 555-1212 zip: 33901 Last seen:
  * 3/1/2024" — these helpers parse it; they never fetch.
+ *
+ * NOTE (2026-07-23): the Office token search only matches phone/email/login
+ * codes — bare NAME tokens 500 upstream. Name+DOB lookups use Pandora's
+ * `/bmi/person/search` instead (features/kiosk/license/lookup.server.ts).
  */
 
 export interface SearchCandidate {
@@ -38,16 +41,6 @@ export function lastSeenFromDescription(desc: string): number {
 export function nameFromDescription(desc: string): string {
   const nameMatch = desc.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
   return (nameMatch ? nameMatch[1].trim() : desc.split(" phone:")[0].trim()) || desc.trim();
-}
-
-/** Whole-word, case-insensitive last-name test against the NAME part only —
- *  "DOE" matches "JANE DOE" but not "JANE DOEBER". Cheap pre-filter before
- *  the authoritative per-person birthdate/lastName check. */
-export function descriptionMatchesLastName(desc: string, lastName: string): boolean {
-  const name = nameFromDescription(desc);
-  const esc = lastName.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  if (!esc) return false;
-  return new RegExp(`(^|[^A-Za-z])${esc}([^A-Za-z]|$)`, "i").test(name);
 }
 
 /**

@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  descriptionMatchesLastName,
   lastSeenFromDescription,
   nameFromDescription,
   rankSearchResults,
@@ -26,22 +25,6 @@ describe("scoreSearchResult / lastSeenFromDescription", () => {
   it("parses the last-seen date, 0 when absent", () => {
     expect(lastSeenFromDescription(DESC_FULL)).toBe(new Date("3/1/2024").getTime());
     expect(lastSeenFromDescription(DESC_BARE)).toBe(0);
-  });
-});
-
-describe("descriptionMatchesLastName", () => {
-  it("matches whole words case-insensitively", () => {
-    expect(descriptionMatchesLastName(DESC_FULL, "doe")).toBe(true);
-    expect(descriptionMatchesLastName(DESC_FULL, "DOE")).toBe(true);
-  });
-  it("does not match substrings of longer names", () => {
-    expect(descriptionMatchesLastName("JANE DOEBER (239) 555-1212", "DOE")).toBe(false);
-  });
-  it("matches inside hyphenated names", () => {
-    expect(descriptionMatchesLastName("ANA SMITH-JONES Last seen: 1/1/2024", "SMITH")).toBe(true);
-  });
-  it("rejects empty needles", () => {
-    expect(descriptionMatchesLastName(DESC_FULL, "  ")).toBe(false);
   });
 });
 

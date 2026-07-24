@@ -15,6 +15,17 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.6.2 — Combine cards rebuilt on the real rails: TPI_ConsolidateAccounts on
+ *         the standard cloud SOAP host (WSDL-exact envelope — <long> account
+ *         array, LocID position, GMT_DateTime; no raw sockets / extra hosts).
+ *         Failures HALT the accept loop and show the actual cause + Try again
+ *         (was: silent "see attendant" + 30s reset loop); button hides itself
+ *         when the backend isn't configured; card always returned promptly.
+ * 1.6.1 — license lookup rebuilt on Pandora GET /bmi/person/search (lastName +
+ *         birthday, filter=false, cold-start 5xx retry). 1.6.0 searched the
+ *         Office token API, which 500s on name tokens — scans parsed but never
+ *         found the account. Duplicate records now collapse to one sign-in
+ *         (waiver-carrying copy preferred). Verified against the live route.
  * 1.6.0 — driver's-license scan (hardware QR scanner): scanning a license at
  *         the people/party/bowling screens signs a returning guest in by last
  *         name + DOB (Pandora-matched; multi-match → account picker) or opens
@@ -46,7 +57,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.6.0";
+export const KIOSK_VERSION = "1.6.1";
 
 let bootVersion: string | null = null;
 let captured = false;
