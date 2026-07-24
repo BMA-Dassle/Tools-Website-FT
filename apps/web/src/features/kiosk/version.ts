@@ -30,6 +30,11 @@
  *         existing mobile-join feature). One shared KioskSignInBoxes across
  *         racing, gel blaster, laser tag, and race packs. UI only — scanning /
  *         parsing / lookup unchanged.
+ * 1.6.6 — Posiflex 2D imaging scanner added to the QR-scanner model registry
+ *         (admin → QR scanner tab → Model select). Output format, baud and
+ *         USB ids are all UNCONFIRMED until a unit is provisioned — the
+ *         panel's scan feed + baud stepping is the test surface, exactly the
+ *         flow the 3320g used. Default model stays the Honeywell.
  * 1.6.5 — SMS-Timing member QR sign-in: scanning the app's personal QR
  *         (https://smstim.in?["<clientKey>","<code>"]) Office-searches the
  *         code and signs the member straight in (~1 s) — same rail as the

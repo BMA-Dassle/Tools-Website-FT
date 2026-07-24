@@ -2,8 +2,10 @@
 
 Serial-line QR/barcode scanners driven **in the browser over Web Serial** by
 `apps/web/src/features/kiosk/qr-scanner/`. First unit: **Honeywell 3320g** in USB serial
-(CDC) mode. Staff surface: **/kiosk/admin → QR scanner tab** (PIN-gated) — model + baud
-selects, port grant, live scan feed.
+(CDC) mode. Second unit: **Posiflex 2D imaging scanner** (registry id `posiflex-2d`,
+added 2026-07-24 — everything about it is unconfirmed until a unit is provisioned; see
+its checklist below). Staff surface: **/kiosk/admin → QR scanner tab** (PIN-gated) —
+model + baud selects, port grant, live scan feed.
 
 This is a SEPARATE device concept from the keyboard-wedge "QR / barcode scanner" toggle
 (`scannerEnabled`, types into focused fields) — that path is untouched. The transport
@@ -29,6 +31,34 @@ semantic consumer is the **driver's-license scan** (below).
       they differ) in `qr-scanner/models.ts` and check this box with the values.
 - [ ] Suffix: 990D0A programmed (each scan arrives exactly once, no run-ons).
 
+## Posiflex 2D imaging scanner — FILL IN on first provisioning (nothing confirmed)
+
+Registry entry `posiflex-2d` was seeded 2026-07-24 **ahead of hardware** — no unit has
+been tested. Select it in the panel's Model dropdown and use the same feed/baud-stepping
+flow. To confirm on the unit:
+
+- [ ] Mode: program the unit to **USB Virtual COM (USB-COM)** via its programming
+      barcode. If it types into text fields, it's in keyboard mode. Confirm a COM port
+      appears in Device Manager → Ports (COM & LPT).
+- [ ] Suffix: program a **CR and/or LF** suffix so each scan arrives as one line (the
+      accumulator accepts CR, LF, or CR LF). No suffix = bytes arrive but nothing
+      decodes (the panel's wrong-baud warning also covers this case).
+- [ ] Baud rate: registry default **9600** (the near-universal scanner serial default) —
+      pure guess. Step the baud select until the feed decodes; record the working rate
+      here and correct `defaultBaudRate` if it isn't 9600. (A true USB-CDC unit may
+      ignore the rate entirely.)
+- [ ] USB VID:PID: expected VID **0x0D3A** (Posiflex Technology's registered VID) — also
+      a guess; some scanner lines enumerate under a USB-serial bridge VID instead (FTDI
+      0403 / CH340 1a86 / CP210x 10c4). The panel's Port row shows the real ids and
+      flags a mismatch. Record them in `expectedUsbIds`, flip `usbIdsConfirmed: true`,
+      and note the values here.
+- [ ] Scan payload shape: unknown. Copy a few test scans from the feed (Copy button) and
+      check the semantic consumers — an AAMVA license scan must regroup through
+      `AamvaBurst` and an SMS-Timing member QR must parse via `parseMemberQr` exactly as
+      they do on the 3320g. If the Posiflex frames them differently (e.g. different
+      intra-payload separators), record the raw feed output here before changing any
+      parser.
+
 ## Architecture
 
 ```
@@ -47,11 +77,12 @@ saved via the admin `persist()` → localStorage + Neon. **Any new field must be
 `resolveKioskConfig`'s literal in `config.ts` or boot-time re-resolve strips it**
 (`config.test.ts` has the strip-guard case).
 
-### Adding scanner model #2
+### Adding another scanner model
 
 - **Another serial-line model** (different baud/framing): one new data literal in
   `models.ts` (`kind: "serial-line"`, its own `defaultBaudRate`/`baudCandidates`/
-  `lineSettings`/`expectedUsbIds`). Zero code changes.
+  `lineSettings`/`expectedUsbIds`). Zero code changes — the Posiflex entry
+  (2026-07-24) was exactly this.
 - **A non-serial model** (HID/keyboard-wedge/other): add a new `kind` member to the
   `ScannerModel` union — TypeScript then flags the `switch`/branch sites in
   `useQrScanner.ts` and the panel that must handle it.
@@ -151,4 +182,5 @@ license) — `AamvaBurst` regroups them and a 350 ms quiet gap ends the burst
 - Check-in station migration (`app/admin/[token]/checkin/CheckInClient.tsx` has its own
   inline reader; `useQrScanner` covers its needs — baud override, `allowLoneGrantFallback`,
   `onScan` — when that migration is scheduled).
-- Scanner model #2 (unknown hardware; see "Adding scanner model #2").
+- Posiflex hardware confirmation (the registry entry exists; every line setting awaits a
+  real unit — see its checklist above).

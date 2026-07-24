@@ -1,10 +1,10 @@
 /**
  * Hardware QR scanner model registry — the seam that keeps the driver
- * pluggable for scanner model #2 (unknown yet). Entries are PURE DATA; the
- * one serial-line code path lives in useQrScanner. A serial model #2 is one
- * new literal here; a non-serial model #2 adds a `kind` union member, and
- * TypeScript's exhaustiveness check flags every switch site that must
- * handle it. See docs/qr-scanner/README.md.
+ * pluggable across scanner models. Entries are PURE DATA; the one
+ * serial-line code path lives in useQrScanner. Another serial model is one
+ * new literal here (the Posiflex was exactly that); a non-serial model adds
+ * a `kind` union member, and TypeScript's exhaustiveness check flags every
+ * switch site that must handle it. See docs/qr-scanner/README.md.
  */
 
 export interface LineFramingOptions {
@@ -46,7 +46,7 @@ export interface SerialLineScannerModel {
   notes?: string;
 }
 
-/** Grows to `SerialLineScannerModel | <NonSerialModel>` with scanner #2. */
+/** Grows to `SerialLineScannerModel | <NonSerialModel>` if a non-serial unit arrives. */
 export type ScannerModel = SerialLineScannerModel;
 
 export const DEFAULT_SCANNER_MODEL_ID = "honeywell-3320g";
@@ -68,6 +68,30 @@ const MODELS: Record<string, ScannerModel> = {
       "USB serial (CDC) mode; suffix 990D0A → every scan ends CR LF. " +
       "Default 115200 8-N-1 per the guide — confirm on the unit: if the feed " +
       "shows garbage or nothing, step through the baud rates and scan again.",
+  },
+  "posiflex-2d": {
+    kind: "serial-line",
+    id: "posiflex-2d",
+    label: "Posiflex 2D imaging scanner (USB serial)",
+    // Seeded AHEAD of hardware (2026-07-24) — no unit tested yet. 9600 8-N-1
+    // is the near-universal scanner serial default; if the unit is true
+    // USB-CDC the rate may not even matter. The feed + baud stepping decides.
+    defaultBaudRate: 9600,
+    baudCandidates: [9600, 115200, 57600, 38400, 19200, 4800],
+    framing: {},
+    // Posiflex Technology's registered USB VID — NOT confirmed off a unit.
+    // Some scanner lines enumerate under a USB-serial bridge VID instead
+    // (FTDI 0403 / CH340 1a86 / CP210x 10c4); the panel shows the real ids
+    // and flags a mismatch — record whatever it reports here.
+    expectedUsbIds: [{ usbVendorId: 0x0d3a }],
+    usbIdsConfirmed: false,
+    notes:
+      "UNCONFIRMED — provisioned ahead of hardware. Program the unit to USB " +
+      "Virtual COM (USB-COM) mode first (if it types into text fields it's in " +
+      "keyboard mode) and program a CR and/or LF suffix so each scan ends the " +
+      "line. Then scan a test code: garbage or nothing → step through the baud " +
+      "rates and scan again; record the working rate + USB ids in models.ts " +
+      "and docs/qr-scanner/README.md.",
   },
 };
 
