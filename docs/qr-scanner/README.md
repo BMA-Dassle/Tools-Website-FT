@@ -6,9 +6,9 @@ Serial-line QR/barcode scanners driven **in the browser over Web Serial** by
 selects, port grant, live scan feed.
 
 This is a SEPARATE device concept from the keyboard-wedge "QR / barcode scanner" toggle
-(`scannerEnabled`, types into focused fields) — that path is untouched. **What a scan
-MEANS (check-in, lookup, …) is deliberately not built here** — consumers get raw payloads
-via `useQrScanner`'s `onScan` / scan feed.
+(`scannerEnabled`, types into focused fields) — that path is untouched. The transport
+layer stays semantics-free (`useQrScanner` hands consumers raw payloads); the first
+semantic consumer is the **driver's-license scan** (below).
 
 ## How the device behaves on the wire
 
@@ -37,6 +37,8 @@ src/features/kiosk/qr-scanner/
   line-accumulator.ts pure bytes→payload framing (streaming UTF-8, buffer cap; tested)
   port-matching.ts    pure silent-reopen rule (strict; tested)
   useQrScanner.ts     React hook — mirror of card-reader/useSerialMsr.ts (listen-only)
+  aamva.ts            AAMVA license parser + burst regrouping (pure; tested)
+  useLicenseScan.ts   guest-flow consumer hook (burst → parsed license)
 components/KioskAdminQrScanner.tsx   the staff setup/test panel
 ```
 
@@ -113,10 +115,30 @@ policy, spent gesture). The panel's grant button names the blocking layer via
 | Chooser never opens                     | Policy/permission/gesture layer    | The grant button's message names the layer; see crt-591 README   |
 | Reload doesn't reconnect                | No USB ids saved, or grant revoked | Re-pick the port; check the saved-for-reconnect line             |
 
+## License scans (first semantic consumer, 2026-07-23)
+
+A US driver's license / state ID carries an AAMVA PDF417 barcode the 3320g reads.
+**Transport fact:** the AAMVA payload separates elements with LF, so ONE physical scan
+arrives as ~35 separate `onScan` lines inside the same millisecond (verified on a real FL
+license) — `AamvaBurst` regroups them and a 350 ms quiet gap ends the burst
+(`useLicenseScan`).
+
+- `aamva.ts` extracts **name + DOB only** (owner privacy stance: address, sex, license
+  number, document dates are never extracted, stored, transmitted, or logged).
+- Consumers (`KioskPeopleStep`, `KioskPartyManager`, `KioskBowlingPeopleStep`): a scan on
+  the roster looks the guest up by last name + DOB — `POST /api/kiosk/license-lookup`
+  (Office search → Pandora `picture=false` birthdate/lastName match → FoundAccount shape)
+  — and signs a match in through the existing `handleVerified` rail (multi-match → the
+  returning-racer account cards via `LicenseMatchPicker`); no match → the new-player form
+  opens prefilled. An already-open form is just filled. Bowling adds a name-only row.
+- The physical ID is the identity proof (exact last name + DOB); `phoneVerified` is never
+  set by this path — OTP-gated flows (rewards) still re-verify.
+- Port exclusivity: only ONE surface mounts `useLicenseScan` at a time (the kiosk shows
+  one step/screen at once; `/kiosk/admin` is a separate route). The reconnect backoff
+  covers the close/open race when surfaces hand the port off.
+
 ## What's deliberately NOT here yet
 
-- Scan semantics (what a payload triggers) — the consumer's job, later PRs.
-- Kiosk guest-flow wiring (`enabled` + `onScan` consumer à la `useGameCardDispenser`).
 - Check-in station migration (`app/admin/[token]/checkin/CheckInClient.tsx` has its own
   inline reader; `useQrScanner` covers its needs — baud override, `allowLoneGrantFallback`,
   `onScan` — when that migration is scheduled).

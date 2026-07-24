@@ -50,6 +50,10 @@ import { KioskWaiverPhoto } from "../components/KioskWaiverPhoto";
 import { formatPersonName, normalizeEmail } from "~/lib/helpers/name-format";
 import { kioskMobileJoinEnabled } from "../flags";
 import { useMobileJoin } from "../hooks/useMobileJoin";
+import { useLicenseScan, type AamvaLicense } from "../qr-scanner";
+import { fetchLicenseMatches, personDataFromMatch } from "../license/lookup-client";
+import type { LicenseMatch } from "../license/types";
+import { LicenseMatchPicker } from "../components/LicenseMatchPicker";
 import { ageFromIso } from "../join/phone/join-helpers";
 import { mergeJoinedGuests } from "../join/merge";
 import { KioskMobileJoinPanel } from "../components/KioskMobileJoinPanel";
@@ -187,6 +191,14 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   const [choosingGuardianId, setChoosingGuardianId] = useState<string | null>(null);
   // Linked family are OPT-IN suggestions — tap to add, never auto-pulled in.
   const [linked, setLinked] = useState<LinkedSuggestion[]>([]);
+  // Driver's-license scan flow (handlers live below, after handleVerified):
+  // in-flight lookup / multi-match picker / one-line outcome note.
+  const [licenseBusy, setLicenseBusy] = useState(false);
+  const [licenseMatches, setLicenseMatches] = useState<{
+    license: AamvaLicense;
+    matches: LicenseMatch[];
+  } | null>(null);
+  const [scanNote, setScanNote] = useState<string | null>(null);
   // Members whose Pandora waiver status is still being fetched — a returning racer
   // lands with waiverValid unknown, so without this the card flashes "Waiver
   // needed" before the check resolves (owner 2026-07-19). Shown as "Checking
@@ -231,9 +243,18 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   // Continue) advances PAST the OTP step without verifying (owner: entering the
   // phone jumped to the next page). Finish or cancel the lookup to continue.
   useEffect(() => {
-    setBusy?.(lookupOpen || form !== null || busy || checkingIds.size > 0 || guardianFlow !== null);
+    setBusy?.(
+      lookupOpen ||
+        form !== null ||
+        busy ||
+        checkingIds.size > 0 ||
+        guardianFlow !== null ||
+        // License scan mid-flight / match picker open — same "mid-task" rule.
+        licenseBusy ||
+        licenseMatches !== null,
+    );
     return () => setBusy?.(false);
-  }, [lookupOpen, form, busy, setBusy, checkingIds, guardianFlow]);
+  }, [lookupOpen, form, busy, setBusy, checkingIds, guardianFlow, licenseBusy, licenseMatches]);
 
   const setIncluded = (ids: Set<string>) => {
     if (isRace) return;
@@ -1133,6 +1154,119 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     setFormError(null);
   };
 
+  /* ── driver's-license scan (hardware QR scanner) ─────────────────────────
+     A scan carries the guest's name + DOB (aamva.ts extracts nothing else).
+     Roster view → look their account up by last name + DOB (owner 2026-07-23:
+     the physical ID is the identity proof) and sign them in; no account →
+     the new-player form opens prefilled. With a form already open, the scan
+     just fills it. (State lives up with the other state hooks — the setBusy
+     effect reads it.) */
+  const isoToMmDdYyyy = (iso: string) => {
+    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[2]}/${m[3]}/${m[1]}` : "";
+  };
+
+  /** Fill the OPEN new-player form (keeps any phone/email already typed). */
+  const fillNewForm = (lic: AamvaLicense) => {
+    setFirstName(formatPersonName(lic.firstName));
+    setLastName(formatPersonName(lic.lastName));
+    setDob(isoToMmDdYyyy(lic.dobIso));
+    setFormError(null);
+  };
+
+  const openNewFormFromLicense = (lic: AamvaLicense) => {
+    guardAdd(() => {
+      resetForm();
+      setForm({ mode: "new" });
+      fillNewForm(lic);
+    });
+  };
+
+  /** Sign a matched account in through the SAME rail as the OTP lookup. */
+  const signInLicenseMatch = (m: LicenseMatch) => {
+    const already = party.find(
+      (x) => x.bmiPersonId === m.personId || x.pandoraPersonId === m.personId,
+    );
+    if (already) {
+      setScanNote(`${already.firstName} is already signed in.`);
+      return;
+    }
+    // A signer-only guardian who scans their license wants to play — same
+    // move as the "Join the fun" button (same object id keeps wards' refs).
+    const g = guardians.find(
+      (x) => x.bmiPersonId === m.personId || x.pandoraPersonId === m.personId,
+    );
+    if (g) {
+      joinGuardian(g);
+      setScanNote(null);
+      return;
+    }
+    handleVerified(personDataFromMatch(m));
+    setScanNote(null);
+  };
+
+  const runLicenseLookup = async (lic: AamvaLicense) => {
+    setLicenseBusy(true);
+    setScanNote(null);
+    setLookupOpen(false); // a scan at the OTP screen IS the sign-in
+    try {
+      const matches = await fetchLicenseMatches(lic, brandLocation);
+      if (matches === null) {
+        // Lookup unavailable — never block the guest; fall through to the form.
+        setScanNote("We couldn't check for an account just now — let's set you up here.");
+        openNewFormFromLicense(lic);
+      } else if (matches.length === 0) {
+        setScanNote(null);
+        openNewFormFromLicense(lic);
+      } else if (matches.length === 1) {
+        signInLicenseMatch(matches[0]);
+      } else {
+        // Duplicates / twins — the guest picks (existing account selector).
+        setLicenseMatches({ license: lic, matches });
+      }
+    } finally {
+      setLicenseBusy(false);
+    }
+  };
+
+  const handleLicense = (lic: AamvaLicense) => {
+    if (waiverFor || busy || licenseBusy || licenseMatches || splitWarn) return;
+    if (guardianFlow) {
+      // The scan is the ADULT's ID — prefill the "new adult" guardian form.
+      // (A scanned minor is caught by the form's existing 18+ gate.)
+      setGFirst(formatPersonName(lic.firstName));
+      setGLast(formatPersonName(lic.lastName));
+      setGDob(isoToMmDdYyyy(lic.dobIso));
+      setGError(null);
+      setGuardianFlow({ ...guardianFlow, stage: "new-form" });
+      return;
+    }
+    if (form?.mode === "new") {
+      fillNewForm(lic);
+      return;
+    }
+    if (form?.mode === "setup") {
+      // Only take the DOB when the license plausibly belongs to THIS member —
+      // a parent scanning their own ID must not stamp their DOB on the kid.
+      if (form.member.firstName.trim().toLowerCase() === lic.firstName.trim().toLowerCase()) {
+        setDob(isoToMmDdYyyy(lic.dobIso));
+        setFormError(null);
+      } else {
+        setFormError(
+          `That license doesn't look like ${form.member.firstName}'s — enter their birthday instead.`,
+        );
+      }
+      return;
+    }
+    void runLicenseLookup(lic);
+  };
+
+  const licenseScan = useLicenseScan({
+    config: kioskCfg,
+    enabled: true, // the hook itself no-ops unless this kiosk has the scanner
+    onLicense: handleLicense,
+  });
+
   const badgeFor = (m: PartyMember) => {
     if (isRace) {
       if (m.isNewRacer) return { label: "Starter only", cls: "text-[#00e2e5]" };
@@ -1162,6 +1296,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     !lookupOpen &&
     !waiverFor &&
     !guardianFlow &&
+    !licenseBusy &&
+    !licenseMatches &&
     readyState !== true
       ? readyState.reason
       : null;
@@ -1206,6 +1342,21 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             <div className="k-eyebrow text-[#f0b341]">Before you continue</div>
             <div className="mt-[4px] text-[28px] font-bold text-[#f5d38a]">{blockReason}</div>
           </div>
+        </div>
+      )}
+
+      {/* license-scan progress + outcome (hardware scanner kiosks only) */}
+      {licenseBusy && (
+        <div className="flex items-center gap-[16px] rounded-2xl border-2 border-[#00e2e5]/40 bg-[#00e2e5]/10 px-[28px] py-[22px]">
+          <span className="h-[28px] w-[28px] shrink-0 animate-spin rounded-full border-2 border-[#00e2e5]/30 border-t-[#00e2e5]" />
+          <span className="text-[26px] font-bold text-[#7ff3f4]">
+            Checking your license for an account…
+          </span>
+        </div>
+      )}
+      {scanNote && !licenseBusy && (
+        <div className="rounded-2xl border border-white/12 bg-white/5 px-[24px] py-[16px] text-[22px] text-white/60">
+          {scanNote}
         </div>
       )}
 
@@ -1410,6 +1561,14 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             </button>
           </div>
 
+          {/* Hardware-scanner hint — only when the port is actually listening. */}
+          {licenseScan.listening && (
+            <p className="text-center text-[22px] text-white/40">
+              Or scan a driver&rsquo;s license / state ID at the scanner — we&rsquo;ll sign you in
+              or fill the form for you.
+            </p>
+          )}
+
           {/* Mobile join QR — the panel hides with the entry buttons while a
               form/lookup overlay is open, but the session + poll keep running
               (the hook above stays mounted). Renders null while the flag is
@@ -1533,6 +1692,12 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                 className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
               />
             </>
+          )}
+          {/* Scanner shortcut inside the form too. */}
+          {licenseScan.listening && form.mode === "new" && (
+            <p className="text-[20px] text-white/35">
+              Tip: scan a driver&rsquo;s license / state ID to fill this in.
+            </p>
           )}
           {/* Minor heads-up — the guardian is resolved AFTER onboarding, and
               only if the waiver actually needs signing. */}
@@ -1923,6 +2088,24 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             </div>
           );
         })()}
+      {/* License matched several accounts (duplicates / twins) — the guest
+          picks theirs on the existing account cards. */}
+      {licenseMatches && (
+        <LicenseMatchPicker
+          firstName={formatPersonName(licenseMatches.license.firstName)}
+          matches={licenseMatches.matches}
+          onPick={(m) => {
+            setLicenseMatches(null);
+            signInLicenseMatch(m);
+          }}
+          onNewInstead={() => {
+            const lic = licenseMatches.license;
+            setLicenseMatches(null);
+            openNewFormFromLicense(lic);
+          }}
+          onCancel={() => setLicenseMatches(null)}
+        />
+      )}
       {splitWarn && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
           <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">

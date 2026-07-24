@@ -15,6 +15,11 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.6.0 — driver's-license scan (hardware QR scanner): scanning a license at
+ *         the people/party/bowling screens signs a returning guest in by last
+ *         name + DOB (Pandora-matched; multi-match → account picker) or opens
+ *         the new-player form prefilled; guardian + setup forms scan-fill too.
+ *         Only name + DOB are read off the license — nothing else is kept.
  * 1.5.0 — mid-session qualification refreshing: tier/memberships, waiver, and
  *         credits re-pull from BMI/Pandora at the people-step exit + review→pay,
  *         so desk upgrades / phone-signed waivers land without re-adding anyone.
@@ -41,7 +46,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.5.0";
+export const KIOSK_VERSION = "1.6.0";
 
 let bootVersion: string | null = null;
 let captured = false;

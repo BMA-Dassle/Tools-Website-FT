@@ -6,6 +6,7 @@ import {
   tierFromMemberships,
 } from "~/features/booking/service/race-products";
 import { creditBalancesFromDeposits } from "~/features/booking/data/race-credits";
+import { rankSearchResults, type SearchCandidate } from "~/features/booking/service/office-search";
 
 export interface PersonData {
   personId: string;
@@ -23,7 +24,7 @@ export interface PersonData {
   waiverValid?: boolean;
 }
 
-interface FoundAccount {
+export interface FoundAccount {
   personId: string;
   fullName: string;
   email: string;
@@ -72,29 +73,8 @@ type Phase =
   | "verifying"
   | "verified";
 
-function scoreSearchResult(desc: string): number {
-  let s = 0;
-  if (/\(\d/.test(desc)) s += 100;
-  if (desc.includes("Memberships:")) s += 50;
-  if (desc.includes("zip:")) s += 25;
-  if (desc.includes("Last seen:")) s += 10;
-  return s;
-}
-
-interface SearchCandidate {
-  localId: string;
-  description: string;
-  score: number;
-  /** Epoch ms parsed from the description's "Last seen: M/D/YYYY" (0 = none). */
-  lastSeenAt: number;
-}
-
-function lastSeenFromDescription(desc: string): number {
-  const m = desc.match(/Last seen:\s*(\d{1,2}\/\d{1,2}\/\d{4})/);
-  if (!m) return 0;
-  const t = new Date(m[1]).getTime();
-  return Number.isFinite(t) ? t : 0;
-}
+// Description parsing + ranking now live in the shared pure module (the
+// server-side kiosk license lookup shares them) — see office-search.ts.
 
 /**
  * SECURITY (2026-07-18): the lookup is split so NO PII is fetched before the
@@ -128,32 +108,9 @@ async function searchCandidates(queries: string | string[]): Promise<SearchCandi
     }),
   );
 
-  const byId = new Map<string, { localId: string; description: string }>();
-  for (const r of batches.flat()) {
-    if (!byId.has(r.localId)) byId.set(r.localId, r);
-  }
-
-  // One candidate per person NAME (duplicate accounts abound); keep the copy
-  // that was used most recently, breaking ties on description completeness.
-  const byName = new Map<string, SearchCandidate>();
-  for (const r of byId.values()) {
-    const nameMatch = r.description.match(/^([^(]+?)(?:\s*\(|$|\s+phone:|\s+Last seen:)/);
-    const rawName = nameMatch ? nameMatch[1].trim() : r.description.split(" phone:")[0].trim();
-    const name = rawName.toLowerCase();
-    const score = scoreSearchResult(r.description);
-    const lastSeenAt = lastSeenFromDescription(r.description);
-    const existing = byName.get(name);
-    if (
-      !existing ||
-      lastSeenAt > existing.lastSeenAt ||
-      (lastSeenAt === existing.lastSeenAt && score > existing.score)
-    ) {
-      byName.set(name, { localId: r.localId, description: r.description, score, lastSeenAt });
-    }
-  }
-  return [...byName.values()]
-    .sort((a, b) => b.lastSeenAt - a.lastSeenAt || b.score - a.score)
-    .slice(0, 10);
+  // Dedupe by id, then one candidate per person NAME (most recent copy wins,
+  // ties on completeness) — shared rule, see office-search.ts.
+  return rankSearchResults(batches.flat(), 10);
 }
 
 async function fetchAccountDetails(
@@ -884,7 +841,8 @@ function creditLabel(kind: string): string {
   return kind.replace(/^credit\s*-\s*/i, "").trim() || kind;
 }
 
-function AccountCard({
+/** Exported for the kiosk license-scan match picker — same card, same look. */
+export function AccountCard({
   account,
   onSelect,
   selectable = false,

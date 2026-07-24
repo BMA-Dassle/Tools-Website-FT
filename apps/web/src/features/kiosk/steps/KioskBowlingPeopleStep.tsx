@@ -34,6 +34,8 @@ import {
   splitName,
   whosBowlingCanAdvance,
 } from "~/features/booking/service/whos-bowling";
+import { useKioskConfig } from "../KioskConfigContext";
+import { useLicenseScan, type AamvaLicense } from "../qr-scanner";
 
 type BowlItem = BowlingItem;
 type Player = BowlPlayer;
@@ -67,6 +69,51 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
       } as Partial<BowlItem>),
     [onChange],
   );
+
+  /* ── driver's-license scan (hardware QR scanner) ─────────────────────────
+     Bowling is waiver-exempt, so a scan just adds the bowler BY NAME — no
+     account, no lookup, no DOB (aamva.ts never extracts more than name+DOB,
+     and this consumer uses only the name). Mounted before the mode branch —
+     hooks can't live behind the early return. */
+  const { config: kioskCfg } = useKioskConfig();
+  const licenseScan = useLicenseScan({
+    config: kioskCfg,
+    enabled: true, // no-ops unless this kiosk has the scanner provisioned
+    onLicense: (lic: AamvaLicense) => {
+      const name = `${formatPersonName(lic.firstName)} ${formatPersonName(lic.lastName)}`.trim();
+      if (!name) return;
+      const rows = hasParty ? (item.players ?? []) : playersOf(item);
+      if (rows.some((r) => r.name.trim().toLowerCase() === name.toLowerCase())) return;
+      // Signed-in mode: a scanned PARTY member who's toggled off toggles on.
+      if (hasParty) {
+        const m = party.find((mm) => fullNameOf(mm).trim().toLowerCase() === name.toLowerCase());
+        if (m) {
+          writeRows([...rows, rowOf(m)]);
+          return;
+        }
+      }
+      // Fill the first empty row, else append (12-bowler cap, same as the UI).
+      const emptyIdx = rows.findIndex((r) => !r.name.trim());
+      if (emptyIdx >= 0) {
+        writeRows(rows.map((r, i) => (i === emptyIdx ? { ...r, name } : r)));
+        // Walk-up mode keeps the main row's name mirrored into the contact
+        // (same sync setName does) — main = contact-name match, else row 0.
+        if (!hasParty) {
+          const mainName = `${contact.firstName ?? ""} ${contact.lastName ?? ""}`
+            .trim()
+            .toLowerCase();
+          const matchIdx = rows.findIndex(
+            (p) => !!mainName && p.name.trim().toLowerCase() === mainName,
+          );
+          if (emptyIdx === (matchIdx >= 0 ? matchIdx : 0)) {
+            dispatch({ type: "setContact", patch: splitName(name) });
+          }
+        }
+      } else if (rows.length < 12) {
+        writeRows([...rows, { name, shoeSize: null, bumpers: null }]);
+      }
+    },
+  });
 
   // Signed-in group: seed everyone as bowling ONCE (first visit with no rows),
   // then keep party-linked rows honest — drop rows whose member left the
@@ -298,6 +345,12 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
           </button>
         )}
 
+        {licenseScan.listening && (
+          <p className="text-center text-[22px] text-white/40">
+            Or scan a driver&rsquo;s license / state ID at the scanner to add a bowler.
+          </p>
+        )}
+
         {/* Booking contact — carried from sign-in; email/phone stay editable
             so the confirmation lands where the guest wants it. */}
         <div className="k-glass space-y-[16px] p-[24px]">
@@ -481,6 +534,12 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
         >
           + Add another bowler
         </button>
+      )}
+
+      {licenseScan.listening && (
+        <p className="text-center text-[22px] text-white/40">
+          Or scan a driver&rsquo;s license / state ID at the scanner to add a bowler.
+        </p>
       )}
     </div>
   );
