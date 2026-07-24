@@ -15,6 +15,14 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.5.0 — mid-session qualification refreshing: tier/memberships, waiver, and
+ *         credits re-pull from BMI/Pandora at the people-step exit + review→pay,
+ *         so desk upgrades / phone-signed waivers land without re-adding anyone.
+ *         Fixes: minor-vs-adult waiver template now uses the BMI birthdate
+ *         (guardian paths no longer default unknown ages to adult); confirmation-
+ *         screen card fulfillment gets the out-of-cards/bin-full/jam hold with
+ *         staff Resume (was dead-ending the basket); Combine cards re-enabled
+ *         on the documented ConsolidateCards op.
  * 1.4.1 — fix: new-card clear-on-encode (GC_CLEAR_ON_ENCODE) now actually clears.
  *         TPI_ClearAccount was sending the account array as <string> items,
  *         which the server ignored (empty array → no-op, still code 0); the
@@ -33,7 +41,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.4.1";
+export const KIOSK_VERSION = "1.5.0";
 
 let bootVersion: string | null = null;
 let captured = false;
