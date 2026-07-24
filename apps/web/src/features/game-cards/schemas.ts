@@ -25,6 +25,16 @@ export const VerifyCardSchema = z.object({
 export type VerifyCardInput = z.infer<typeof VerifyCardSchema>;
 
 /**
+ * Resolve a raw scanned QR/barcode value to an account number. `raw` is the
+ * decoded payload (a bare number, a `?id=` URL, or an Intercard shortlink the
+ * server follows). Capped well under any real QR payload length.
+ */
+export const ResolveScanSchema = z.object({
+  raw: z.string().trim().min(1).max(2048),
+});
+export type ResolveScanInput = z.infer<typeof ResolveScanSchema>;
+
+/**
  * One line in the cart: the package to load, plus (for a reload) the existing
  * card it loads onto. New-card lines have NO accountNumber at purchase time —
  * the account is read off each blank as it's dispensed and attached at load.

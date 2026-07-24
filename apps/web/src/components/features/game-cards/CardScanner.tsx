@@ -2,8 +2,14 @@
 
 /**
  * Camera scanner for the back of a Game Zone card. Reads EITHER printed code:
- *  - the QR code — a web redirect (`swflpassport.com/?id=<n>`); we extract `id`
+ *  - the QR code — a web redirect; we extract the account id
  *  - the 1D barcode — the straight account number
+ *
+ * The QR isn't always a bare `?id=` URL: current card stock carries an
+ * Intercard shortlink (`icardinc.net/<code>`) that only reveals the id after a
+ * redirect. `cardNumberFromScan` decodes the local cases (bare number,
+ * `?id=` URL); when it can't, we hand the raw payload to /api/game-cards/
+ * resolve-scan, which follows the redirect server-side and returns the account.
  *
  * Uses the native BarcodeDetector where the browser ships it (Android Chrome:
  * QR + 1D barcodes), falling back to jsQR (pure JS, QR only — covers iPhone
@@ -12,9 +18,16 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { IconQrcode } from "@tabler/icons-react";
 import Modal from "~/components/ui/Modal";
 import ErrorBox from "~/components/ui/ErrorBox";
 import { cardNumberFromScan } from "~/features/game-cards/scan";
+import { apiPost } from "~/features/game-cards/api";
+
+/** A scanned payload we can't decode locally but might resolve via redirect. */
+function looksLikeHttpUrl(s: string): boolean {
+  return /^https?:\/\//i.test(s.trim());
+}
 
 /** Formats we ask the native detector for (superset — filtered by support). */
 const WANTED_FORMATS = ["qr_code", "code_128", "code_39", "itf", "ean_13", "upc_a", "codabar"];
@@ -49,7 +62,26 @@ async function makeDetect(): Promise<DetectFn> {
       /* fall through to jsQR */
     }
   }
-  const jsQR = (await import("jsqr")).default;
+  // Fallback (iPhone Safari + any browser without BarcodeDetector): ZXing.
+  // Pure JS/TS — no wasm, no CSP exposure (the same property that drove the
+  // original jsQR choice) — but it reads 1D barcodes too and localizes far
+  // better than jsQR's single-shot QR decode. One decode per tick off a
+  // downscaled canvas frame, so it slots into the existing polling loop.
+  const [{ BrowserMultiFormatReader }, { DecodeHintType, BarcodeFormat }] = await Promise.all([
+    import("@zxing/browser"),
+    import("@zxing/library"),
+  ]);
+  const hints = new Map();
+  hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+    BarcodeFormat.QR_CODE,
+    BarcodeFormat.CODE_128,
+    BarcodeFormat.CODE_39,
+    BarcodeFormat.ITF,
+    BarcodeFormat.EAN_13,
+    BarcodeFormat.UPC_A,
+    BarcodeFormat.CODABAR,
+  ]);
+  const reader = new BrowserMultiFormatReader(hints);
   return async (video, canvas) => {
     const w = video.videoWidth;
     const h = video.videoHeight;
@@ -61,8 +93,11 @@ async function makeDetect(): Promise<DetectFn> {
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return null;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    return jsQR(img.data, img.width, img.height)?.data ?? null;
+    try {
+      return reader.decodeFromCanvas(canvas).getText() || null;
+    } catch {
+      return null; // NotFoundException — nothing in this frame; keep scanning
+    }
   };
 }
 
@@ -79,6 +114,10 @@ export default function CardScanner({
   const [error, setError] = useState<string | null>(null);
   const [badCode, setBadCode] = useState(false);
   const doneRef = useRef(false);
+  // Distinct URL payloads we've already sent to the redirect resolver (one shot
+  // each) + an in-flight guard, so the 5-per-second tick doesn't spam the API.
+  const resolvedRef = useRef<Set<string>>(new Set());
+  const resolvingRef = useRef(false);
   const onScanRef = useRef(onScan);
   useEffect(() => {
     onScanRef.current = onScan;
@@ -129,7 +168,33 @@ export default function CardScanner({
               onScanRef.current(acct);
               return;
             }
-            setBadCode(true);
+            // Couldn't decode locally. A card QR is an Intercard shortlink whose
+            // id only appears after a redirect — resolve it server-side. Try
+            // each distinct URL once; keep scanning while it's in flight.
+            if (looksLikeHttpUrl(raw)) {
+              if (!resolvingRef.current && !resolvedRef.current.has(raw)) {
+                resolvedRef.current.add(raw);
+                resolvingRef.current = true;
+                apiPost<{ accountNumber: string }>("/api/game-cards/resolve-scan", { raw })
+                  .then((r) => {
+                    if (doneRef.current) return;
+                    if (r?.accountNumber) {
+                      doneRef.current = true;
+                      onScanRef.current(r.accountNumber);
+                    } else {
+                      setBadCode(true);
+                    }
+                  })
+                  .catch(() => {
+                    if (!doneRef.current) setBadCode(true);
+                  })
+                  .finally(() => {
+                    resolvingRef.current = false;
+                  });
+              }
+            } else {
+              setBadCode(true);
+            }
           }
         } catch {
           /* transient decode failure — keep scanning */
@@ -151,17 +216,26 @@ export default function CardScanner({
         <ErrorBox>{error}</ErrorBox>
       ) : (
         <>
-          <div className="overflow-hidden rounded-xl bg-black">
+          <div className="relative overflow-hidden rounded-xl bg-black">
             {/* Live camera preview — no audio track, nothing to caption. */}
             <video ref={videoRef} playsInline muted autoPlay className="h-64 w-full object-cover" />
+            {/* Aiming guide — shows guests it's the QR code they're centering. */}
+            <div
+              className="pointer-events-none absolute inset-0 flex items-center justify-center"
+              aria-hidden="true"
+            >
+              <IconQrcode className="h-28 w-28 text-white/70 drop-shadow-[0_1px_6px_rgba(0,0,0,0.8)]" />
+            </div>
           </div>
           <canvas ref={canvasRef} className="hidden" />
-          <p className="mt-3 text-sm text-white/60">
-            Point the camera at the QR code or barcode on the back of your card.
+          <p className="mt-3 flex items-center justify-center gap-2 text-sm text-white/60">
+            <IconQrcode className="h-4 w-4 shrink-0" aria-hidden="true" />
+            Center the QR code on the back of your card.
           </p>
           {badCode && (
             <p className="mt-2 text-xs text-amber-300">
-              That code doesn&apos;t look like a game card — try the QR code on the back.
+              That code doesn&apos;t look like a game card — scan the QR code on the back, or type
+              the number instead.
             </p>
           )}
         </>
