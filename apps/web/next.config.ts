@@ -88,22 +88,6 @@ const nextConfig: NextConfig = {
     },
   ],
   headers: async () => [
-    // Kiosk images (proxied blob photos + bundled brand logos) — override the
-    // catch-all no-store below with a real cache TTL so the kiosk doesn't
-    // re-download every tile on each screen change. Must come before the
-    // catch-all so the more-specific rule wins. Immutable-ish: these URLs
-    // point at content-addressed / rarely-changing assets; the kiosk self-heal
-    // cache-busts with ?rl= when it must force a refetch anyway.
-    {
-      source: "/kimg/:path*",
-      headers: [
-        { key: "Cache-Control", value: "public, max-age=3600, stale-while-revalidate=604800" },
-      ],
-    },
-    {
-      source: "/brand/:path*",
-      headers: [{ key: "Cache-Control", value: "public, max-age=86400" }],
-    },
     // Admin embed pages — allow portal.headpinz.com to iframe them.
     // Must come before the catch-all so the more-specific rule wins.
     {
@@ -181,6 +165,27 @@ const nextConfig: NextConfig = {
             "frame-ancestors 'self' https://booking.bmileisure.com https://portal.headpinz.com",
           ].join("; "),
         },
+      ],
+    },
+    // Kiosk image caching — MUST come LAST. Next applies matching header rules
+    // in order and a later same-key value overrides an earlier one, so these
+    // override the catch-all's no-store (above) for kiosk assets only. Without a
+    // real TTL the kiosk re-downloads every tile on each screen change — one
+    // attraction photo is ~10 MB — over venue WiFi. The catch-all's other
+    // security headers (CSP/HSTS/nosniff) still apply, per-key; nosniff is
+    // re-asserted defensively.
+    {
+      source: "/kimg/:path*",
+      headers: [
+        { key: "Cache-Control", value: "public, max-age=3600, stale-while-revalidate=604800" },
+        { key: "X-Content-Type-Options", value: "nosniff" },
+      ],
+    },
+    {
+      source: "/brand/:path*",
+      headers: [
+        { key: "Cache-Control", value: "public, max-age=86400" },
+        { key: "X-Content-Type-Options", value: "nosniff" },
       ],
     },
   ],
