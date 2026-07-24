@@ -543,12 +543,11 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
             {entryIntent === "balance" ? "Check card balance" : "Check Balance or Reload"}
           </h1>
           <p className="text-sm text-white/70">
-            Scan the code on the back of your card, or enter the number printed{" "}
-            <span className="text-white">under the barcode</span> — not the QR code. Leading zeros
-            aren&apos;t needed.
+            Scan the <span className="text-white">QR code</span> on the back of your card, or type
+            the number printed under the barcode. Leading zeros aren&apos;t needed.
           </p>
           <Button variant="secondary" onClick={() => setScanTarget({ kind: "entry" })}>
-            Scan card with camera
+            Scan QR code with camera
           </Button>
           <Input
             label="Card number"
@@ -649,8 +648,8 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
           </button>
         </div>
         <p className="text-sm text-white/55">
-          Add each card and pick its token package — scan the code on the back or type the number.
-          One payment covers them all.
+          Add each card and pick its token package — scan the QR code on the back or type the
+          number. One payment covers them all.
         </p>
 
         <div className="space-y-3">
@@ -693,7 +692,7 @@ export default function ReloadFlow({ initialCardId }: { initialCardId?: string }
                         variant="secondary"
                         onClick={() => setScanTarget({ kind: "row", key: c.key })}
                       >
-                        Scan card
+                        Scan QR
                       </Button>
                       <Button
                         variant="secondary"

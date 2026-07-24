@@ -2,8 +2,14 @@
 
 /**
  * Camera scanner for the back of a Game Zone card. Reads EITHER printed code:
- *  - the QR code — a web redirect (`swflpassport.com/?id=<n>`); we extract `id`
+ *  - the QR code — a web redirect; we extract the account id
  *  - the 1D barcode — the straight account number
+ *
+ * The QR isn't always a bare `?id=` URL: current card stock carries an
+ * Intercard shortlink (`icardinc.net/<code>`) that only reveals the id after a
+ * redirect. `cardNumberFromScan` decodes the local cases (bare number,
+ * `?id=` URL); when it can't, we hand the raw payload to /api/game-cards/
+ * resolve-scan, which follows the redirect server-side and returns the account.
  *
  * Uses the native BarcodeDetector where the browser ships it (Android Chrome:
  * QR + 1D barcodes), falling back to jsQR (pure JS, QR only — covers iPhone
@@ -15,6 +21,12 @@ import { useEffect, useRef, useState } from "react";
 import Modal from "~/components/ui/Modal";
 import ErrorBox from "~/components/ui/ErrorBox";
 import { cardNumberFromScan } from "~/features/game-cards/scan";
+import { apiPost } from "~/features/game-cards/api";
+
+/** A scanned payload we can't decode locally but might resolve via redirect. */
+function looksLikeHttpUrl(s: string): boolean {
+  return /^https?:\/\//i.test(s.trim());
+}
 
 /** Formats we ask the native detector for (superset — filtered by support). */
 const WANTED_FORMATS = ["qr_code", "code_128", "code_39", "itf", "ean_13", "upc_a", "codabar"];
@@ -79,6 +91,10 @@ export default function CardScanner({
   const [error, setError] = useState<string | null>(null);
   const [badCode, setBadCode] = useState(false);
   const doneRef = useRef(false);
+  // Distinct URL payloads we've already sent to the redirect resolver (one shot
+  // each) + an in-flight guard, so the 5-per-second tick doesn't spam the API.
+  const resolvedRef = useRef<Set<string>>(new Set());
+  const resolvingRef = useRef(false);
   const onScanRef = useRef(onScan);
   useEffect(() => {
     onScanRef.current = onScan;
@@ -129,7 +145,33 @@ export default function CardScanner({
               onScanRef.current(acct);
               return;
             }
-            setBadCode(true);
+            // Couldn't decode locally. A card QR is an Intercard shortlink whose
+            // id only appears after a redirect — resolve it server-side. Try
+            // each distinct URL once; keep scanning while it's in flight.
+            if (looksLikeHttpUrl(raw)) {
+              if (!resolvingRef.current && !resolvedRef.current.has(raw)) {
+                resolvedRef.current.add(raw);
+                resolvingRef.current = true;
+                apiPost<{ accountNumber: string }>("/api/game-cards/resolve-scan", { raw })
+                  .then((r) => {
+                    if (doneRef.current) return;
+                    if (r?.accountNumber) {
+                      doneRef.current = true;
+                      onScanRef.current(r.accountNumber);
+                    } else {
+                      setBadCode(true);
+                    }
+                  })
+                  .catch(() => {
+                    if (!doneRef.current) setBadCode(true);
+                  })
+                  .finally(() => {
+                    resolvingRef.current = false;
+                  });
+              }
+            } else {
+              setBadCode(true);
+            }
           }
         } catch {
           /* transient decode failure — keep scanning */
@@ -157,11 +199,12 @@ export default function CardScanner({
           </div>
           <canvas ref={canvasRef} className="hidden" />
           <p className="mt-3 text-sm text-white/60">
-            Point the camera at the QR code or barcode on the back of your card.
+            Point the camera at the QR code on the back of your card.
           </p>
           {badCode && (
             <p className="mt-2 text-xs text-amber-300">
-              That code doesn&apos;t look like a game card — try the QR code on the back.
+              That code doesn&apos;t look like a game card — scan the QR code on the back, or type
+              the number instead.
             </p>
           )}
         </>
