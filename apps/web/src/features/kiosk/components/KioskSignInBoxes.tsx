@@ -12,8 +12,12 @@
  *   3. Scan your FastTrax license — the racer's FastTrax license at the same
  *      scanner.
  *
- * Once the roster has someone on it (`collapsed`), the three boxes fold into a
- * slim bar so the roster stays front-and-center; tapping it reopens them.
+ * The boxes sit under an always-visible "More ways to add people" accordion
+ * bar the guest can fold or unfold AT ANY TIME. The `collapsed` prop is only
+ * the DEFAULT (empty roster → open, someone on the roster → folded so the
+ * roster stays front-and-center); a tap on the bar overrides it either way
+ * for the life of the mount. While folded, the bar keeps showing the amber
+ * "N phones signing in" status so an in-flight sign-in is never hidden.
  *
  * PURELY PRESENTATIONAL. It renders whatever the caller says is live and taps
  * back through props — it owns no scanning, parsing, or account-resolution.
@@ -23,7 +27,7 @@
  * untouched here.
  */
 import { useState } from "react";
-import { IconFlag, IconLicense } from "@tabler/icons-react";
+import { IconChevronDown, IconFlag, IconLicense } from "@tabler/icons-react";
 import type { MobileJoinSnapshot } from "../join/kiosk-client";
 
 /** The caller's `useMobileJoin` return — snapshot plus the derived QR + reopen. */
@@ -39,7 +43,8 @@ interface Props {
   /** COM scanner is open and listening — drives BOTH scan boxes (they share the
    *  one physical scanner). */
   scanListening: boolean;
-  /** Fold to the slim bar — pass `party.length > 0`. */
+  /** DEFAULT fold state — pass `party.length > 0`. The guest's own taps on
+   *  the accordion bar override it for the life of the mount. */
   collapsed: boolean;
 }
 
@@ -56,10 +61,11 @@ export function KioskSignInBoxes({ phone, scanListening, collapsed }: Props) {
   // Tapping the phone box swaps the box row for a focused QR sheet (inline, not
   // a modal — matches the flow's existing expand pattern).
   const [sheetOpen, setSheetOpen] = useState(false);
-  // While collapsed, a tap reopens the boxes. Sticky for the life of the step
-  // (mounts fresh per step) — once a guest asks to see the methods, keep them
-  // shown; `collapsed` alone re-hides them on the next fresh mount.
-  const [reopened, setReopened] = useState(false);
+  // The guest's fold override. null = follow the `collapsed` prop; a tap on
+  // the accordion bar sets it and wins for the life of the step (mounts fresh
+  // per step, so the prop's default comes back on the next mount).
+  const [override, setOverride] = useState<"open" | "closed" | null>(null);
+  const expanded = override !== null ? override === "open" : !collapsed;
 
   const phoneUnavailable =
     phone !== null && (phone.status === "closed" || phone.status === "error");
@@ -117,137 +123,144 @@ export function KioskSignInBoxes({ phone, scanListening, collapsed }: Props) {
     );
   }
 
-  // ── Collapsed bar (someone is already on the roster) ──
-  if (collapsed && !reopened) {
-    return (
+  const cols = visible === 1 ? "grid-cols-1" : visible === 2 ? "grid-cols-2" : "grid-cols-3";
+  return (
+    <div className="flex flex-col gap-[16px]">
+      {/* ── Accordion bar — always visible; a tap folds/unfolds the boxes.
+          While folded it carries the signing status (glow + amber chip); while
+          unfolded the phone tile below owns that signal, so the bar stays
+          quiet — the amber cue lives in exactly one place per state. ── */}
       <button
         type="button"
-        onClick={() => setReopened(true)}
+        onClick={() => setOverride(expanded ? "closed" : "open")}
+        aria-expanded={expanded}
         className={`k-tap flex w-full items-center gap-[20px] rounded-[24px] border-2 px-[26px] py-[20px] text-left ${
-          signing ? "k-join-signing" : "border-white/15 bg-white/[0.02]"
+          signing && !expanded ? "k-join-signing" : "border-white/15 bg-white/[0.02]"
         }`}
       >
         <span className="min-w-0 flex-1">
           <span className="block text-[24px] font-bold text-white">More ways to add people</span>
-          <span className="mt-[2px] block text-[19px] text-white/45">
-            {[
-              phoneVisible && "phone",
-              scanListening && "driver’s license",
-              scanListening && "FastTrax license",
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </span>
+          {!expanded && (
+            <span className="mt-[2px] block text-[19px] text-white/45">
+              {[
+                phoneVisible && "phone",
+                scanListening && "driver’s license",
+                scanListening && "FastTrax license",
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          )}
         </span>
-        {signing ? (
+        {signing && !expanded && (
           <span className="flex items-center gap-[10px] text-[20px] font-semibold text-[#f5d38a]">
             <AmberPulse />
             {phone?.inProgressClients === 1
               ? "1 phone signing in"
               : `${phone?.inProgressClients} phones signing in`}
           </span>
-        ) : (
-          <span aria-hidden="true" className="text-[26px] font-bold text-white/40">
-            +
-          </span>
         )}
+        <IconChevronDown
+          size={34}
+          stroke={2.5}
+          aria-hidden="true"
+          className={`shrink-0 text-white/45 transition-transform ${expanded ? "rotate-180" : ""}`}
+        />
       </button>
-    );
-  }
 
-  // ── Expanded: the box row ──
-  const cols = visible === 1 ? "grid-cols-1" : visible === 2 ? "grid-cols-2" : "grid-cols-3";
-  return (
-    <div className={`grid gap-[16px] ${cols}`}>
-      {/* Phone */}
-      {phoneVisible &&
-        (phoneUnavailable ? (
-          <button
-            type="button"
-            onClick={() => phone!.reopen()}
-            className="k-tap flex flex-col items-center justify-center gap-[12px] rounded-[26px] border-2 border-white/20 bg-white/[0.02] p-[24px] text-center"
-          >
-            <span className="text-[24px] font-bold text-white/60">Sign in from your phone</span>
-            <span className="text-[19px] text-white/40">
-              Phone sign-in dropped — tap for a new code.
-            </span>
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setSheetOpen(true)}
-            className={`k-tap flex flex-col items-center gap-[14px] rounded-[26px] border-2 p-[24px] text-center ${
-              signing ? "k-join-signing" : "border-[#00e2e5]/30 bg-[#00e2e5]/[0.04]"
-            }`}
-          >
-            <span className="text-[18px] font-bold uppercase tracking-[0.16em] text-[#00e2e5]">
-              Fastest
-            </span>
-            {phone!.qrDataUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={phone!.qrDataUrl}
-                alt=""
-                aria-hidden="true"
-                className="h-[150px] w-[150px] rounded-[14px] bg-white p-[8px]"
-              />
+      {expanded && (
+        <div className={`grid gap-[16px] ${cols}`}>
+          {/* Phone */}
+          {phoneVisible &&
+            (phoneUnavailable ? (
+              <button
+                type="button"
+                onClick={() => phone!.reopen()}
+                className="k-tap flex flex-col items-center justify-center gap-[12px] rounded-[26px] border-2 border-white/20 bg-white/[0.02] p-[24px] text-center"
+              >
+                <span className="text-[24px] font-bold text-white/60">Sign in from your phone</span>
+                <span className="text-[19px] text-white/40">
+                  Phone sign-in dropped — tap for a new code.
+                </span>
+              </button>
             ) : (
-              <span className="grid h-[150px] w-[150px] place-items-center rounded-[14px] border-2 border-dashed border-white/20">
-                <span className="h-[30px] w-[30px] animate-spin rounded-full border-4 border-white/15 border-t-[#00e2e5]" />
-              </span>
-            )}
-            <span>
-              <span className="block text-[27px] font-bold text-white">
-                Sign in from your phone
-              </span>
-              {signing ? (
-                <span className="mt-[4px] flex items-center justify-center gap-[10px] text-[19px] font-semibold text-[#f5d38a]">
-                  <AmberPulse />
-                  {phone!.inProgressClients === 1
-                    ? "1 phone signing in"
-                    : `${phone!.inProgressClients} phones signing in`}
+              <button
+                type="button"
+                onClick={() => setSheetOpen(true)}
+                className={`k-tap flex flex-col items-center gap-[14px] rounded-[26px] border-2 p-[24px] text-center ${
+                  signing ? "k-join-signing" : "border-[#00e2e5]/30 bg-[#00e2e5]/[0.04]"
+                }`}
+              >
+                <span className="text-[18px] font-bold uppercase tracking-[0.16em] text-[#00e2e5]">
+                  Fastest
                 </span>
-              ) : (
-                <span className="mt-[4px] block text-[19px] text-white/50">
-                  Adults 18+ — scan &amp; sign in on your own phone.
+                {phone!.qrDataUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={phone!.qrDataUrl}
+                    alt=""
+                    aria-hidden="true"
+                    className="h-[150px] w-[150px] rounded-[14px] bg-white p-[8px]"
+                  />
+                ) : (
+                  <span className="grid h-[150px] w-[150px] place-items-center rounded-[14px] border-2 border-dashed border-white/20">
+                    <span className="h-[30px] w-[30px] animate-spin rounded-full border-4 border-white/15 border-t-[#00e2e5]" />
+                  </span>
+                )}
+                <span>
+                  <span className="block text-[27px] font-bold text-white">
+                    Sign in from your phone
+                  </span>
+                  {signing ? (
+                    <span className="mt-[4px] flex items-center justify-center gap-[10px] text-[19px] font-semibold text-[#f5d38a]">
+                      <AmberPulse />
+                      {phone!.inProgressClients === 1
+                        ? "1 phone signing in"
+                        : `${phone!.inProgressClients} phones signing in`}
+                    </span>
+                  ) : (
+                    <span className="mt-[4px] block text-[19px] text-white/50">
+                      Adults 18+ — scan &amp; sign in on your own phone.
+                    </span>
+                  )}
                 </span>
-              )}
-            </span>
-          </button>
-        ))}
+              </button>
+            ))}
 
-      {/* Driver's license — presentational prompt; the scan itself is handled by
+          {/* Driver's license — presentational prompt; the scan itself is handled by
           the consumer's useLicenseScan. Not a button: the guest just scans. */}
-      {scanListening && (
-        <div className="flex flex-col items-center gap-[14px] rounded-[26px] border-2 border-[#f0b341]/35 bg-[#f0b341]/[0.05] p-[24px] text-center">
-          <span className="text-[18px] font-bold uppercase tracking-[0.16em] text-[#f0b341]">
-            No typing
-          </span>
-          <IconLicense size={72} stroke={1.5} className="text-[#f0b341]" aria-hidden="true" />
-          <span>
-            <span className="block text-[27px] font-bold text-white">Scan your license</span>
-            <span className="mt-[4px] block text-[19px] text-white/50">
-              Driver&rsquo;s license or state ID — we&rsquo;ll fill it in.
-            </span>
-          </span>
-        </div>
-      )}
+          {scanListening && (
+            <div className="flex flex-col items-center gap-[14px] rounded-[26px] border-2 border-[#f0b341]/35 bg-[#f0b341]/[0.05] p-[24px] text-center">
+              <span className="text-[18px] font-bold uppercase tracking-[0.16em] text-[#f0b341]">
+                No typing
+              </span>
+              <IconLicense size={72} stroke={1.5} className="text-[#f0b341]" aria-hidden="true" />
+              <span>
+                <span className="block text-[27px] font-bold text-white">Scan your license</span>
+                <span className="mt-[4px] block text-[19px] text-white/50">
+                  Driver&rsquo;s license or state ID — we&rsquo;ll fill it in.
+                </span>
+              </span>
+            </div>
+          )}
 
-      {/* FastTrax license — same scanner; handled by the consumer's scan wiring. */}
-      {scanListening && (
-        <div className="flex flex-col items-center gap-[14px] rounded-[26px] border-2 border-[#46d68c]/35 bg-[#46d68c]/[0.05] p-[24px] text-center">
-          <span className="text-[18px] font-bold uppercase tracking-[0.16em] text-[#46d68c]">
-            Members
-          </span>
-          <IconFlag size={72} stroke={1.5} className="text-[#46d68c]" aria-hidden="true" />
-          <span>
-            <span className="block text-[27px] font-bold text-white">
-              Scan your FastTrax license
-            </span>
-            <span className="mt-[4px] block text-[19px] text-white/50">
-              Racers — scan your FastTrax license.
-            </span>
-          </span>
+          {/* FastTrax license — same scanner; handled by the consumer's scan wiring. */}
+          {scanListening && (
+            <div className="flex flex-col items-center gap-[14px] rounded-[26px] border-2 border-[#46d68c]/35 bg-[#46d68c]/[0.05] p-[24px] text-center">
+              <span className="text-[18px] font-bold uppercase tracking-[0.16em] text-[#46d68c]">
+                Members
+              </span>
+              <IconFlag size={72} stroke={1.5} className="text-[#46d68c]" aria-hidden="true" />
+              <span>
+                <span className="block text-[27px] font-bold text-white">
+                  Scan your FastTrax license
+                </span>
+                <span className="mt-[4px] block text-[19px] text-white/50">
+                  Racers — scan your FastTrax license.
+                </span>
+              </span>
+            </div>
+          )}
         </div>
       )}
     </div>
