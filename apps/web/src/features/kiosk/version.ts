@@ -15,6 +15,15 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.7.0 — the people-step sign-in methods are now three equal, tappable boxes
+ *         under the entry buttons — "Sign in from your phone" (mobile-join QR,
+ *         inline + tap to enlarge to a focused sheet), "Scan your license"
+ *         (driver's license / state ID), and "Scan your FastTrax license" —
+ *         each shown only when its method is live, folding into a slim bar once
+ *         someone's on the roster. Race Packs gains phone sign-in (reuses the
+ *         existing mobile-join feature). One shared KioskSignInBoxes across
+ *         racing, gel blaster, laser tag, and race packs. UI only — scanning /
+ *         parsing / lookup unchanged.
  * 1.6.5 — SMS-Timing member QR sign-in: scanning the app's personal QR
  *         (https://smstim.in?["<clientKey>","<code>"]) Office-searches the
  *         code and signs the member straight in (~1 s) — same rail as the
@@ -78,7 +87,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.6.5";
+export const KIOSK_VERSION = "1.7.0";
 
 let bootVersion: string | null = null;
 let captured = false;

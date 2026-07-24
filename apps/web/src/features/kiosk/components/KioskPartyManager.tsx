@@ -41,7 +41,11 @@ import {
   type PersonData,
 } from "~/components/features/booking/steps/race/ReturningRacerLookup";
 import { useKioskConfig } from "../KioskConfigContext";
-import { kioskHasCamera } from "../config";
+import { kioskHasCamera, kioskId } from "../config";
+import { useMobileJoin } from "../hooks/useMobileJoin";
+import { mergeJoinedGuests } from "../join/merge";
+import { kioskMobileJoinEnabled } from "../flags";
+import { KioskSignInBoxes } from "./KioskSignInBoxes";
 import { KioskWaiverPhoto } from "./KioskWaiverPhoto";
 import { formatPersonName } from "~/lib/helpers/name-format";
 import { useLicenseScan, type AamvaLicense, type MemberQr } from "../qr-scanner";
@@ -814,6 +818,37 @@ export function KioskPartyManager({
     }
   }, [kioskCfg, center, brandLocation]);
 
+  // Mobile join (flag-gated, default on): the same phone-QR sign-in the race /
+  // attraction people step uses, reused here so the standalone flows (race
+  // packs) get "sign in from your phone" too. The join session is fully
+  // decoupled from the booking session — itemId is an opaque client key that
+  // never reaches the server. Joined guests merge into the LOCAL roster through
+  // the same onAddMember / onUpdateMember callbacks the rest of this component
+  // uses; there's no separate guardians list here, so pass []. stepKind only
+  // labels the phone page (no "race-pack" value exists — race maps to "race").
+  const mobileJoin = useMobileJoin({
+    enabled: kioskMobileJoinEnabled() && !!kioskCfg && mode !== "waiver",
+    itemId: `party-manager:${mode}`,
+    kioskId: kioskCfg ? kioskId(kioskCfg) : null,
+    center: kioskCfg?.center ?? null,
+    brand: kioskCfg?.brand ?? null,
+    stepKind: isRace ? "race" : "attraction",
+    onGuests: (guests) => {
+      const { toAdd, alreadyPresent } = mergeJoinedGuests(party, [], guests);
+      for (const member of toAdd) onAddMember(member);
+      // Someone already on the roster re-verified by phone — silent success:
+      // waiver now signed + the short Pandora id (NEVER touch bmiPersonId) + the
+      // OTP-proven phone.
+      for (const hit of alreadyPresent) {
+        onUpdateMember(hit.memberId, {
+          waiverValid: true,
+          ...(hit.pandoraPersonId ? { pandoraPersonId: hit.pandoraPersonId } : {}),
+          ...(hit.phone && hit.phoneVerified ? { phone: hit.phone, phoneVerified: true } : {}),
+        });
+      }
+    },
+  });
+
   const badgeFor = (m: PartyMember) => {
     if (isRace) {
       if (m.isNewRacer) return { label: "Starter only", cls: "text-[#00e2e5]" };
@@ -1036,12 +1071,16 @@ export function KioskPartyManager({
         </div>
       )}
 
-      {/* Hardware-scanner hint — only when the port is actually listening. */}
-      {licenseScan.listening && form === null && !lookupOpen && (
-        <p className="text-center text-[22px] text-white/40">
-          Or scan a driver&rsquo;s license / state ID — or your app&rsquo;s QR code — at the scanner
-          and we&rsquo;ll sign you in.
-        </p>
+      {/* Faster ways to sign in — phone QR + driver's-license + FastTrax
+          license, side by side. Phone box hides while the join flag is off /
+          idle; the scan boxes show only while the COM scanner is listening;
+          once someone's on the roster the trio folds into a slim bar. */}
+      {form === null && !lookupOpen && (
+        <KioskSignInBoxes
+          phone={mobileJoin}
+          scanListening={licenseScan.listening}
+          collapsed={party.length > 0}
+        />
       )}
 
       {/* Linked family — OPT-IN suggestions (tap to add), never auto-added */}

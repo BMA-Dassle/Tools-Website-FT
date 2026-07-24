@@ -253,9 +253,9 @@
   animation: k-slot-glow 2.4s ease-in-out infinite;
 }
 
-/* Mobile-join tile (KioskMobileJoinPanel): amber breathing glow while a
-   phone is mid sign-in — the kiosk is visibly waiting on someone even with
-   the QR sheet closed. */
+/* Mobile-join box (KioskSignInBoxes): amber breathing glow while a phone is
+   mid sign-in — the kiosk is visibly waiting on someone even with the QR
+   sheet closed. */
 @keyframes k-join-signing {
   0%,
   100% {

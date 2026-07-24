@@ -61,7 +61,7 @@ import type { LicenseMatch } from "../license/types";
 import { LicenseMatchPicker } from "../components/LicenseMatchPicker";
 import { ageFromIso } from "../join/phone/join-helpers";
 import { mergeJoinedGuests } from "../join/merge";
-import { KioskMobileJoinPanel } from "../components/KioskMobileJoinPanel";
+import { KioskSignInBoxes } from "../components/KioskSignInBoxes";
 
 /** Waiver-gated attraction slugs (duckpin is exempt — uses the party-count step). */
 const WAIVER_SLUGS = new Set(["gel-blaster", "laser-tag", "shuffly"]);
@@ -1608,26 +1608,16 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             </button>
           </div>
 
-          {/* Hardware-scanner hint — only when the port is actually listening. */}
-          {licenseScan.listening && (
-            <p className="text-center text-[22px] text-white/40">
-              Or scan a driver&rsquo;s license / state ID — or your app&rsquo;s QR code — at the
-              scanner and we&rsquo;ll sign you in.
-            </p>
-          )}
-
-          {/* Mobile join QR — the panel hides with the entry buttons while a
-              form/lookup overlay is open, but the session + poll keep running
-              (the hook above stays mounted). Renders null while the flag is
-              off (snapshot stays idle). */}
-          <KioskMobileJoinPanel
-            status={mobileJoin.status}
-            code={mobileJoin.code}
-            joinUrl={mobileJoin.joinUrl}
-            qrDataUrl={mobileJoin.qrDataUrl}
-            activeClients={mobileJoin.activeClients}
-            inProgressClients={mobileJoin.inProgressClients}
-            onReopen={mobileJoin.reopen}
+          {/* Faster ways to sign in — phone QR + driver's-license + FastTrax
+              license, side by side. The phone box hides while the join flag is
+              off (snapshot stays idle) and the scan boxes show only while the
+              COM scanner is listening; once someone's on the roster the trio
+              folds into a slim bar. The session + poll keep running while a
+              form/lookup overlay is open (the hook above stays mounted). */}
+          <KioskSignInBoxes
+            phone={mobileJoin}
+            scanListening={licenseScan.listening}
+            collapsed={party.length > 0}
           />
         </>
       )}
