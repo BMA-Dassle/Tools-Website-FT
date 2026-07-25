@@ -35,20 +35,21 @@ import { gameZoneCapability } from "../config";
 type CategoryKey = "exp" | "attr";
 
 /** The unit a tile's availability count is measured in, [singular, plural].
- *  Keyed per SLUG (not just bookingMode): duckpin and shuffly are both per-slot
- *  but read as lanes vs tables. Bowling/KBF are absent — QAMF gives no lane
- *  count, so those tiles show a time-only line (see TIME_ONLY_SLUGS). */
+ *  Keyed per SLUG. Only BMI-vendored attractions (which return a per-slot count)
+ *  are here — shuffly reads as tables. Everything on QAMF (bowling, KBF, and
+ *  duckpin post-migration) has no lane count and shows a time-only line
+ *  instead (see TIME_ONLY_SLUGS). */
 const AVAILABILITY_NOUN: Record<string, [string, string]> = {
-  "duck-pin": ["lane", "lanes"],
   shuffly: ["table", "tables"],
   "gel-blaster": ["player", "players"],
   "laser-tag": ["player", "players"],
   race: ["seat", "seats"],
 };
 
-/** Slugs whose vendor (QAMF bowling/KBF) returns bookable times but no lane
- *  count — the tile shows "Next lane · TIME" instead of "N lanes · TIME". */
-const TIME_ONLY_SLUGS = new Set(["bowling", "kbf"]);
+/** Slugs whose vendor (QAMF/Conqueror) returns bookable times but no lane count
+ *  — the tile shows "Next lane · TIME" instead of "N lanes · TIME". Duckpin is
+ *  here because it migrated off BMI to QAMF (FastTrax center 11542). */
+const TIME_ONLY_SLUGS = new Set(["bowling", "kbf", "duck-pin"]);
 
 /** The tile availability line: "3 lanes · 9:30 PM" when the vendor gives a
  *  count, "Next lane · 12:00 PM" for bowling/KBF (time only), or null when we

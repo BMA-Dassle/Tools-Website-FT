@@ -30,6 +30,7 @@ import {
 } from "~/features/booking/service/attractions";
 import { getStaticProducts } from "@/app/book/race/data";
 import type { FirstOpen } from "./first-available";
+import { FASTTRAX_QAMF_CENTER_ID } from "@/lib/qamf-centers";
 import { apiBase } from "@/lib/api-base";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import {
@@ -168,19 +169,19 @@ async function isPackageBookableToday(pkg: PackageDefinition, dateYmd: string): 
   );
 }
 
-/** The EARLIEST bookable bowling slot today for a kind set (null = none left).
- *  One cheap 30-min-grid scan of OUR availability route (which already applies
- *  day-of-week offers — KBF's Mon–Fri gate included — the close filter, and the
- *  now-floor). players=2 = the smallest lane party. QAMF returns bookable times
- *  but no lane count, so the returned FirstOpen carries `start` only — the tile
- *  shows a time-only "Next lane · TIME" line. */
-async function bowlingFirstOpenToday(
-  center: CenterCode,
+/** The EARLIEST bookable QAMF slot today at one center for a kind set (null =
+ *  none left). One cheap 30-min-grid scan of OUR availability route (which
+ *  already applies day-of-week offers — KBF's Mon–Fri gate included — the close
+ *  filter, and the now-floor). players=2 = the smallest lane party. QAMF returns
+ *  bookable times but no lane count, so the returned FirstOpen carries `start`
+ *  only — the tile shows a time-only "Next lane · TIME" line. Used for HeadPinz
+ *  bowling/KBF AND FastTrax duckpin (now a QAMF center, 11542 — the BMI page it
+ *  used to book is stale post-migration). */
+async function qamfFirstOpenToday(
+  centerId: number,
   dateYmd: string,
   kind: "open,hourly" | "kbf",
 ): Promise<FirstOpen | null> {
-  const centerId = qamfCenterIdForCode(center);
-  if (centerId == null) return null;
   const res = await fetch(
     `${apiBase()}/api/bowling/v2/availability?centerId=${centerId}&players=2` +
       `&startDate=${dateYmd}&kind=${kind}&stepMinutes=30&leadMinutes=0`,
@@ -348,10 +349,14 @@ export async function computeExperienceAvailability(
     isComboBookableToday(center, dateYmd).catch(() => true),
     isUltimateQualifierBookableToday(dateYmd).catch(() => true),
   ]);
+  // HeadPinz bowling/KBF QAMF center for this location (null → no line).
+  const hpCenterId = qamfCenterIdForCode(center);
   const slotsP = Promise.all([
     fm ? resolveSlotAvailability(racingFirstOpenToday(dateYmd)) : Promise.resolve(OPEN_NO_COUNT),
+    // Duckpin migrated to QAMF (FastTrax center 11542) — its old BMI page is
+    // stale, so read availability from QAMF like the other lanes (time-only).
     fm
-      ? resolveSlotAvailability(attractionFirstOpenToday("duck-pin", "fasttrax", dateYmd))
+      ? resolveSlotAvailability(qamfFirstOpenToday(FASTTRAX_QAMF_CENTER_ID, dateYmd, "open,hourly"))
       : Promise.resolve(OPEN_NO_COUNT),
     resolveSlotAvailability(attractionFirstOpenToday("gel-blaster", nexusLoc, dateYmd)),
     resolveSlotAvailability(attractionFirstOpenToday("laser-tag", nexusLoc, dateYmd)),
@@ -361,8 +366,12 @@ export async function computeExperienceAvailability(
     fm
       ? resolveSlotAvailability(attractionFirstOpenToday("shuffly", "headpinz", dateYmd))
       : Promise.resolve(OPEN_NO_COUNT),
-    resolveSlotAvailability(bowlingFirstOpenToday(center, dateYmd, "open,hourly")),
-    resolveSlotAvailability(bowlingFirstOpenToday(center, dateYmd, "kbf")),
+    hpCenterId != null
+      ? resolveSlotAvailability(qamfFirstOpenToday(hpCenterId, dateYmd, "open,hourly"))
+      : Promise.resolve(OPEN_NO_COUNT),
+    hpCenterId != null
+      ? resolveSlotAvailability(qamfFirstOpenToday(hpCenterId, dateYmd, "kbf"))
+      : Promise.resolve(OPEN_NO_COUNT),
   ]);
   const [[combo, uq], [race, duckPin, gel, laser, shufFt, shufHp, bowling, kbf]] =
     await Promise.all([boolsP, slotsP]);
