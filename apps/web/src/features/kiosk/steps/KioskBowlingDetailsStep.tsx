@@ -1,37 +1,48 @@
 "use client";
 
 /**
- * Kiosk bowler roster — REQUIRED on the kiosk (owner 2026-07-17): every
- * bowler's name, shoe size, and bumpers choice is collected in-flow, so the
- * lane is fully set up the moment the reservation lands (web collects these
- * post-booking, optionally). Writes BowlingCommon.players; the reserve paths
- * push real names/sizes/bumpers to QAMF and persist the roster to Neon.
+ * Kiosk bowler roster — the sign-in-style "Who's bowling?" screen, now the ONE
+ * place the full roster is captured (owner 2026-07-25). It replaces both the old
+ * lead-off sign-in step and the separate shoe-quantity step:
  *
- * Shoe size is picked the SAME cascading way as the web confirmation editor
- * (BowlingPlayersEditor): choose a CATEGORY (Toddler / Men's / Women's) first,
- * then a size within it — never one giant undifferentiated list (owner 2026-07-19).
- * The stored value uses the canonical "Male 9" / "Female 8" / "Toddler 10"
- * vocabulary the players API + KDS parser expect (formatShoeSize maps
- * male/female/toddler). "Own shoes" records "" (normalized to null at reserve);
- * the CHOICE is required for everyone, a rental SIZE only for renters.
+ *  • Per bowler: name (typed for walk-ups, pre-filled for a signed-in group),
+ *    shoe size, bumpers — each card COLLAPSES to a green-barred summary once it's
+ *    complete, so focus moves to whoever's left.
+ *  • Main contact (email/phone + who gets the confirmation) lives here now, not
+ *    on the first screen — the reserve reads session.contact, captured before it.
+ *  • Shoe rentals are DERIVED from the sizes chosen (pick "own shoes" → no charge)
+ *    instead of a separate group count, so the charge can't drift from the sizes.
+ *    Gated to item.kind === "bowling" and to shoe-rental centers; shoe-included
+ *    packages (Fun-4-All / Pizza Bowl / VIP) collect sizes but charge $0.
+ *
+ * KBF (item.kind === "kbf") is intentionally untouched: it keeps its own shoe
+ * step + this step's original name/shoe/bumpers capture, with no contact block
+ * and no derived shoe charge.
+ *
+ * Shoe size uses the same cascading category → size vocabulary as the web
+ * confirmation editor ("Male 9" / "Female 8" / "Toddler 10"); "" = own shoes
+ * (normalized to null at reserve), null = unanswered.
  */
-import { useState } from "react";
-import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
-import { formatPersonName } from "~/lib/helpers/name-format";
+import { useEffect, useMemo, useState } from "react";
+import type { BookingSession, BowlingItem, KbfItem, StepDef } from "~/features/booking";
+import { formatPersonName, normalizeEmail } from "~/lib/helpers/name-format";
 import { centerHasShoeRental } from "@/lib/qamf-centers";
+import type { BowlingSquareProduct } from "@/lib/bowling-db";
+import { splitName, whosBowlingCanAdvance } from "~/features/booking/service/whos-bowling";
+import {
+  QAMF_SHOE_CENTER_CODES,
+  deriveShoePatch,
+  shoeRentalCount,
+} from "~/features/booking/service/bowling-shoes";
 
 type RosterPlayer = {
   name: string;
   shoeSize: string | null;
   bumpers: boolean | null;
-  /** Party linkage from the people step (signed-in carry-over) — preserved
-   *  through this step's rewrites so back-navigation keeps toggles honest. */
   memberId?: string;
 };
 type BowlItem = BowlingItem | KbfItem;
 
-/** Canonical category value → sizes, mirroring the web confirmation editor so
- *  the saved label ("Male 9") matches what the players API + KDS expect. */
 const SHOE_SIZES: Record<string, string[]> = {
   Toddler: ["6", "7", "8", "9", "10", "11", "12", "13"],
   Male: [
@@ -92,19 +103,17 @@ const SHOE_SIZES: Record<string, string[]> = {
   ],
 };
 
-/** Family-friendly labels over the canonical stored values. */
 const SHOE_CATEGORIES: Array<{ value: keyof typeof SHOE_SIZES; label: string }> = [
   { value: "Toddler", label: "Toddler" },
   { value: "Male", label: "Men's" },
   { value: "Female", label: "Women's" },
 ];
 
-/** "Own shoes" sentinel — an explicit answer that isn't a rental size.
- *  Encoded as "" in players.shoeSize; the reserve mappings normalize "" → null
- *  so Neon/QAMF only ever see a real size or nothing. */
+/** "Own shoes" sentinel — an explicit answer that isn't a rental size. */
 const OWN_SHOES = "";
 
-/** Category part of a stored "Male 9" value ("" for own shoes / null / unknown). */
+const CAT_LABEL: Record<string, string> = { Male: "Men's", Female: "Women's", Toddler: "Toddler" };
+
 function categoryOf(shoeSize: string | null): string | null {
   if (shoeSize === null) return null;
   if (shoeSize === OWN_SHOES) return OWN_SHOES;
@@ -112,15 +121,18 @@ function categoryOf(shoeSize: string | null): string | null {
   return cat in SHOE_SIZES ? cat : null;
 }
 
+/** Human summary of a stored size for the collapsed card ("Male 9" → "Men's 9"). */
+function shoeSummary(shoeSize: string | null): string {
+  if (shoeSize === null) return "";
+  if (shoeSize === OWN_SHOES) return "Own shoes";
+  const [cat, size] = shoeSize.split(" ");
+  return `${CAT_LABEL[cat] ?? cat} ${size ?? ""}`.trim();
+}
+
 function playerCountOf(item: BowlItem): number {
   return item.kind === "bowling" ? item.playerCount : item.bowlers.length + item.paidAdults;
 }
 
-/**
- * Roster encoding: shoeSize null = UNANSWERED, "" = explicit "own shoes"
- * (normalized to null at the reserve mappings), "Mens 9" = rental size.
- * bumpers null = unanswered.
- */
 function rosterOf(item: BowlItem): RosterPlayer[] {
   const count = playerCountOf(item);
   const existing = item.players ?? [];
@@ -137,27 +149,164 @@ function playerComplete(p: RosterPlayer, hasShoes: boolean): boolean {
   return p.name.trim().length > 0 && shoeOk && p.bumpers !== null;
 }
 
-const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item, onChange }) => {
+const inputCls =
+  "w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[18px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none";
+
+const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({
+  item,
+  session,
+  onChange,
+  dispatch,
+}) => {
   const roster = rosterOf(item);
-  // FastTrax duckpin (center 11542) has no shoes — collect name + bumpers only.
+  const isBowling = item.kind === "bowling";
   const hasShoes = centerHasShoeRental(item.qamfCenterId);
-  // Which shoe category is expanded per bowler. Undefined → derive from the
-  // stored size (so a saved "Male 9" reopens on Men's with 9 selected).
+  const contact = session.contact;
+
   const [openCat, setOpenCat] = useState<Record<number, string>>({});
+  // Which card is expanded; completed cards collapse unless being edited.
+  const [activeEdit, setActiveEdit] = useState<number>(() =>
+    rosterOf(item).findIndex((p) => !playerComplete(p, hasShoes)),
+  );
+
+  // Shoe catalog for the derived charge (bowling + shoe-rental center only).
+  const centerCode = QAMF_SHOE_CENTER_CODES[item.qamfCenterId ?? 9172] ?? "TXBSQN0FEKQ11";
+  const [products, setProducts] = useState<BowlingSquareProduct[]>([]);
+  useEffect(() => {
+    if (!isBowling || !hasShoes) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/bowling/v2/square-products?centerCode=${centerCode}&kind=addon_shoe`,
+        );
+        const data = await res.json();
+        if (!cancelled) setProducts(Array.isArray(data) ? data : []);
+      } catch {
+        if (!cancelled) setProducts([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isBowling, hasShoes, centerCode]);
+
+  // Once the catalog loads, reconcile the shoe charge with whatever sizes are
+  // already chosen (back-nav can bring pre-picked sizes in before products).
+  useEffect(() => {
+    if (!isBowling || !hasShoes || products.length === 0) return;
+    const bowling = item as BowlingItem;
+    const patch = deriveShoePatch(
+      rosterOf(item),
+      bowling.experienceSlug,
+      bowling.lineItems,
+      products,
+    );
+    if (JSON.stringify(patch.shoeSelections) !== JSON.stringify(bowling.shoeSelections)) {
+      onChange(patch as Partial<BowlItem>);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products]);
+
+  // Main = the signed-in billing member's row, else the row whose name matches
+  // the booking contact, else the first row.
+  const mainIndex = useMemo(() => {
+    if (!isBowling) return -1;
+    const billing = session.party.find((m) => m.isBillingCustomer);
+    if (billing) {
+      const i = roster.findIndex((r) => r.memberId === billing.id);
+      if (i >= 0) return i;
+    }
+    const cn = `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim().toLowerCase();
+    const i = roster.findIndex((r) => !!cn && r.name.trim().toLowerCase() === cn);
+    return i >= 0 ? i : 0;
+  }, [isBowling, session.party, roster, contact.firstName, contact.lastName]);
+
+  const writePlayers = (next: RosterPlayer[]) => {
+    if (isBowling && hasShoes && products.length > 0) {
+      const bowling = item as BowlingItem;
+      const shoePatch = deriveShoePatch(next, bowling.experienceSlug, bowling.lineItems, products);
+      onChange({ players: next, ...shoePatch } as Partial<BowlItem>);
+    } else {
+      onChange({ players: next } as Partial<BowlItem>);
+    }
+  };
+
   const update = (index: number, patch: Partial<RosterPlayer>) => {
     const next = roster.map((p, i) => (i === index ? { ...p, ...patch } : p));
-    onChange({ players: next } as Partial<BowlItem>);
+    writePlayers(next);
+    // Editing the main walk-up bowler's name keeps session.contact in step.
+    if (isBowling && patch.name !== undefined && index === mainIndex && !next[index].memberId) {
+      dispatch({ type: "setContact", patch: splitName(next[index].name) });
+    }
+    // Collapse the card once complete and advance to the next unfinished bowler.
+    if (playerComplete(next[index], hasShoes)) {
+      const nextIncomplete = next.findIndex((p) => !playerComplete(p, hasShoes));
+      setActiveEdit(nextIncomplete);
+    } else {
+      setActiveEdit(index);
+    }
+  };
+
+  const setContactField = (patch: {
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    phone?: string;
+  }) =>
+    dispatch({
+      type: "setContact",
+      patch: patch.email !== undefined ? { ...patch, email: normalizeEmail(patch.email) } : patch,
+    });
+
+  const markMain = (index: number) => {
+    const r = roster[index];
+    if (r.memberId) {
+      session.party.forEach((m) => {
+        const shouldBe = m.id === r.memberId;
+        if (!!m.isBillingCustomer !== shouldBe) {
+          dispatch({ type: "updatePartyMember", id: m.id, patch: { isBillingCustomer: shouldBe } });
+        }
+      });
+      const m = session.party.find((x) => x.id === r.memberId);
+      if (m) {
+        dispatch({
+          type: "setContact",
+          patch: {
+            firstName: m.firstName,
+            lastName: m.lastName ?? "",
+            ...(m.phone ? { phone: m.phone } : {}),
+            ...(m.email ? { email: normalizeEmail(m.email) } : {}),
+          },
+        });
+      }
+    } else {
+      dispatch({ type: "setContact", patch: splitName(r.name) });
+    }
+  };
+
+  const setFirst = (i: number, first: string) => {
+    const { lastName } = splitName(roster[i].name);
+    update(i, { name: `${first.trim()} ${lastName}`.trim() });
+  };
+  const setLast = (i: number, last: string) => {
+    const { firstName } = splitName(roster[i].name);
+    update(i, { name: `${firstName} ${last.trim()}`.trim() });
   };
 
   const readyCount = roster.filter((p) => playerComplete(p, hasShoes)).length;
+  const contactNameMissing = !contact.firstName?.trim() || !contact.lastName?.trim();
+  const contactFirst = contact.firstName?.trim() || (roster[mainIndex]?.name.split(" ")[0] ?? "");
+  const rentals = shoeRentalCount(roster);
+  const shoePriceCents = products[0]?.priceCents ?? 0;
 
   return (
     <div className="space-y-[24px]">
       <div className="flex items-center justify-between gap-[16px]">
         <p className="text-[26px] text-white/55">
           {hasShoes
-            ? "Names, shoes and bumpers — so your lane is ready the moment you are."
-            : "Names and bumpers — so your lane is ready the moment you are."}
+            ? "Names, shoes and bumpers — plus who gets the confirmation."
+            : "Names and bumpers — plus who gets the confirmation."}
         </p>
         <span className="k-eyebrow shrink-0 text-[#00e2e5] tabular-nums">
           {readyCount} of {roster.length} ready
@@ -167,45 +316,100 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
       <div className="space-y-[20px]">
         {roster.map((p, i) => {
           const complete = playerComplete(p, hasShoes);
+          const isMain = isBowling && i === mainIndex;
+
+          // Collapsed summary — green bar, one line, tap to edit.
+          if (complete && activeEdit !== i) {
+            const meta = [
+              hasShoes ? shoeSummary(p.shoeSize) : "",
+              p.bumpers ? "Bumpers on" : "No bumpers",
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setActiveEdit(i)}
+                className="k-glass k-tap flex w-full items-center gap-[24px] p-[26px] text-left"
+                style={{ borderLeft: "10px solid #46d68c" }}
+              >
+                <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-full bg-[#46d68c] text-[30px] font-extrabold text-[#04252b]">
+                  ✓
+                </span>
+                <span className="shrink-0 text-[34px] font-bold text-white">{p.name}</span>
+                {isMain && (
+                  <span className="shrink-0 text-[26px] font-bold text-[#00e2e5]">★ Main</span>
+                )}
+                <span className="min-w-0 flex-1 truncate text-[26px] text-white/55">{meta}</span>
+                <span className="shrink-0 text-[24px] font-bold text-white/40">Edit</span>
+              </button>
+            );
+          }
+
           return (
             <div
               key={i}
               className="k-glass p-[28px]"
               style={{ borderLeft: `8px solid ${complete ? "#46d68c" : "rgba(255,255,255,0.15)"}` }}
             >
-              <div className="mb-[16px] flex items-center justify-between">
+              <div className="mb-[16px] flex items-center gap-[16px]">
                 <span className="k-display text-[34px]">Bowler {i + 1}</span>
+                <span className="flex-1" />
                 {complete && <span className="k-eyebrow text-[#46d68c]">Ready</span>}
+                {isBowling && (
+                  <button
+                    type="button"
+                    onClick={() => markMain(i)}
+                    aria-pressed={isMain}
+                    className={`shrink-0 rounded-2xl border-2 px-[24px] py-[14px] text-[24px] font-bold ${
+                      isMain
+                        ? "border-[#00e2e5] bg-[#00e2e5]/10 text-white"
+                        : "border-white/15 text-white/55"
+                    }`}
+                  >
+                    {isMain ? "★ Main" : "Main"}
+                  </button>
+                )}
               </div>
 
-              <label
-                htmlFor={`kiosk-bowler-name-${i}`}
-                className="mb-[8px] block text-[22px] font-semibold uppercase tracking-widest text-white/40"
-              >
+              <span className="mb-[8px] block text-[22px] font-semibold uppercase tracking-widest text-white/40">
                 Name
-              </label>
-              <input
-                id={`kiosk-bowler-name-${i}`}
-                type="text"
-                value={p.name}
-                onChange={(e) => update(i, { name: e.target.value })}
-                // Case-normalize on blur, never per keystroke (an ALL-CAPS
-                // stream reads as mixed case two chars in and gets preserved —
-                // "SaRA"); the reserve payload formats once more as backstop.
-                onBlur={(e) => update(i, { name: formatPersonName(e.target.value) })}
-                placeholder={`Bowler ${i + 1}`}
-                autoComplete="off"
-                className="mb-[20px] w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[18px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
-              />
+              </span>
+              {p.memberId ? (
+                <div className="mb-[20px] text-[34px] font-semibold text-white">
+                  {p.name || `Bowler ${i + 1}`}
+                </div>
+              ) : (
+                <div className="mb-[20px] grid grid-cols-2 gap-[16px]">
+                  <input
+                    type="text"
+                    value={splitName(p.name).firstName}
+                    onChange={(e) => setFirst(i, e.target.value)}
+                    onBlur={(e) => setFirst(i, formatPersonName(e.target.value))}
+                    placeholder="First name"
+                    aria-label={`Bowler ${i + 1} first name`}
+                    autoComplete="off"
+                    className={inputCls}
+                  />
+                  <input
+                    type="text"
+                    value={splitName(p.name).lastName}
+                    onChange={(e) => setLast(i, e.target.value)}
+                    onBlur={(e) => setLast(i, formatPersonName(e.target.value))}
+                    placeholder={isMain ? "Last name" : "Last name (optional)"}
+                    aria-label={`Bowler ${i + 1} last name`}
+                    autoComplete="off"
+                    className={inputCls}
+                  />
+                </div>
+              )}
 
               {hasShoes && (
                 <span className="mb-[8px] block text-[22px] font-semibold uppercase tracking-widest text-white/40">
                   Shoe size
                 </span>
               )}
-              {/* Category first (Own shoes / Toddler / Men's / Women's), then a
-                  short size grid for that category — never one giant list.
-                  Hidden entirely for FastTrax duckpin (no shoes). */}
               {hasShoes &&
                 (() => {
                   const selCat = openCat[i] !== undefined ? openCat[i] : categoryOf(p.shoeSize);
@@ -232,7 +436,6 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
                             type="button"
                             onClick={() => {
                               setOpenCat((c) => ({ ...c, [i]: cat.value }));
-                              // Switching category clears a stale cross-category size.
                               if (categoryOf(p.shoeSize) !== cat.value)
                                 update(i, { shoeSize: null });
                             }}
@@ -294,19 +497,93 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
           );
         })}
       </div>
+
+      {/* Derived shoe rentals — paid pairs follow the sizes chosen. */}
+      {isBowling && hasShoes && shoePriceCents > 0 && (
+        <div
+          className="k-glass flex items-center justify-between gap-[24px] p-[24px]"
+          style={{ borderLeft: "10px solid #00e2e5" }}
+        >
+          <div>
+            <div className="text-[22px] font-semibold uppercase tracking-widest text-white/40">
+              Shoe rentals
+            </div>
+            <div className="text-[30px] text-white">
+              {rentals} pair{rentals !== 1 ? "s" : ""}
+              <span className="text-[26px] text-white/45"> · from sizes chosen</span>
+            </div>
+          </div>
+          <div className="k-num text-[40px] font-extrabold text-white">
+            ${((rentals * shoePriceCents) / 100).toFixed(2)}
+          </div>
+        </div>
+      )}
+
+      {/* Main contact — where the confirmation lands (bowling only). */}
+      {isBowling && (
+        <div className="k-glass space-y-[16px] p-[24px]">
+          <div className="k-eyebrow text-white/40">
+            Confirmation goes to {contactFirst || "the main person"}
+          </div>
+          {contactNameMissing && (
+            <div className="grid grid-cols-2 gap-[16px]">
+              <input
+                type="text"
+                value={contact.firstName ?? ""}
+                onChange={(e) => setContactField({ firstName: e.target.value })}
+                onBlur={(e) => setContactField({ firstName: formatPersonName(e.target.value) })}
+                placeholder="Main person first name"
+                aria-label="Main person first name"
+                className={inputCls}
+              />
+              <input
+                type="text"
+                value={contact.lastName ?? ""}
+                onChange={(e) => setContactField({ lastName: e.target.value })}
+                onBlur={(e) => setContactField({ lastName: formatPersonName(e.target.value) })}
+                placeholder="Main person last name"
+                aria-label="Main person last name"
+                className={inputCls}
+              />
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-[16px]">
+            <input
+              type="email"
+              inputMode="email"
+              data-osk-layout="email"
+              value={contact.email ?? ""}
+              onChange={(e) => setContactField({ email: e.target.value })}
+              placeholder="Email (for your confirmation)"
+              aria-label="Main person email"
+              className={inputCls}
+            />
+            <input
+              type="tel"
+              inputMode="tel"
+              data-osk-layout="phone"
+              value={contact.phone ?? ""}
+              onChange={(e) => setContactField({ phone: e.target.value })}
+              placeholder="Mobile phone"
+              aria-label="Main person mobile phone"
+              className={inputCls}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export const KioskBowlingDetailsStep: StepDef<BowlItem> = {
   id: "kiosk-bowling-details",
-  title: "Bowlers",
+  title: "Who's bowling?",
   Component: KioskBowlingDetailsStepComponent,
   isVisible: () => true,
-  canAdvance: (item) => {
+  canAdvance: (item, session) => {
+    const hasShoes = centerHasShoeRental(item.qamfCenterId);
     const roster = rosterOf(item);
     if (roster.length === 0) return { reason: "Add at least one bowler first." };
-    const hasShoes = centerHasShoeRental(item.qamfCenterId);
     const incomplete = roster.findIndex((p) => !playerComplete(p, hasShoes));
     if (incomplete >= 0) {
       return {
@@ -314,6 +591,11 @@ export const KioskBowlingDetailsStep: StepDef<BowlItem> = {
           ? `Bowler ${incomplete + 1} still needs a name, shoe choice, and bumpers answer.`
           : `Bowler ${incomplete + 1} still needs a name and bumpers answer.`,
       };
+    }
+    // Bowling also requires the main contact (email/phone) before reserve; KBF
+    // keeps its original name/shoe/bumpers-only gate.
+    if (item.kind === "bowling") {
+      return whosBowlingCanAdvance(item, session as Pick<BookingSession, "party" | "contact">);
     }
     return true;
   },

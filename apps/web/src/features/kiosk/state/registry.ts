@@ -13,7 +13,7 @@ import { KioskBowlingDetailsStep } from "../steps/KioskBowlingDetailsStep";
 import { KioskBowlingTimeStep } from "../steps/KioskBowlingTimeStep";
 import { KioskBowlingTierStep } from "../steps/KioskBowlingTierStep";
 import { KioskBowlingOfferStep } from "../steps/KioskBowlingOfferStep";
-import { KioskBowlingPeopleStep } from "../steps/KioskBowlingPeopleStep";
+import { KioskBowlingCountStep } from "../steps/KioskBowlingCountStep";
 import { KioskRacePeopleStep, KioskAttractionPeopleStep } from "../steps/KioskPeopleStep";
 
 export const KIOSK_SCHEMA_VERSION = 11; // v11: RaceItem.packageIdAdult/Junior split (was single packageId)
@@ -159,15 +159,17 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     ),
     KioskSlotStep as StepDef,
   ],
-  // Kiosk rules: LEAD with the add-bowlers + main-contact step (owner: bowling
-  // should be the add-people screen, not a bare YOUR INFO form) — drops the web
-  // ContactStep + player-count stepper (the people step writes item.players +
-  // playerCount + session.contact, which is exactly what reserve reads). Then
-  // today-only "bowl now" time step (replaces the calendar), and names/shoe
-  // sizes/bumpers REQUIRED in-flow (web collects them post-booking).
+  // Kiosk rules (owner 2026-07-25): LEAD with "how many bowlers?" so lane
+  // availability shows without signing everyone in first (KioskBowlingCountStep:
+  // a count stepper for walk-ups, tap-to-toggle for a signed-in group). The full
+  // roster — names, shoe SIZES, bumpers, AND the main contact — is collected once
+  // at the end on KioskBowlingDetailsStep, which also DERIVES the paid shoe
+  // rentals from the sizes chosen, so the separate web ContactStep, player-count
+  // stepper, and shoe-quantity step are all dropped. Then today-only "bowl now"
+  // time step (replaces the calendar).
   bowling: (() => {
     let steps = [...STEP_REGISTRY.bowling].filter(
-      (s) => s.id !== "contact" && s.id !== "bowling-players",
+      (s) => s.id !== "contact" && s.id !== "bowling-players" && s.id !== "bowling-shoes",
     );
     // The kiosk replacements swap the CLASSIC web steps, so they must carry
     // the same classicOnly gate the web entries have — replaceStep swaps the
@@ -199,8 +201,11 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
       "bowling-offer",
       hiddenInCombo(hiddenForWorldCup(classicOnly(KioskBowlingOfferStep as StepDef))),
     );
-    steps = insertAfter(steps, "bowling-shoes", hiddenInCombo(KioskBowlingDetailsStep as StepDef));
-    return [hiddenInCombo(KioskBowlingPeopleStep as StepDef), ...steps];
+    // Details (names + shoe sizes + bumpers + main contact, derived shoe charge)
+    // lands right after the offer/hold — the shoe-quantity step it replaced is
+    // gone. Leads with the count/toggle step so availability comes first.
+    steps = insertAfter(steps, "bowling-offer", hiddenInCombo(KioskBowlingDetailsStep as StepDef));
+    return [hiddenInCombo(KioskBowlingCountStep as StepDef), ...steps];
   })(),
   kbf: insertAfter(
     replaceStep(
