@@ -452,17 +452,17 @@ function ShelfBanner({
         <div className="mt-[12px] line-clamp-3 text-[28px] leading-snug text-pretty break-words text-white/70">
           {disabled && disabledNote ? disabledNote : blurb}
         </div>
+        {priceLine && !disabled && (
+          <div className="mt-[12px] text-[26px] font-semibold tabular-nums text-white/85">
+            {priceLine}
+          </div>
+        )}
         {availLine && (
           <div className="mt-[12px] flex items-center gap-[10px]">
             <span className="h-[12px] w-[12px] flex-none rounded-full bg-[#46d68c]" />
             <span className="text-[26px] font-bold uppercase tracking-[0.06em] tabular-nums text-[#46d68c]">
               {availLine}
             </span>
-          </div>
-        )}
-        {priceLine && !disabled && (
-          <div className="mt-[12px] text-[26px] font-semibold tabular-nums text-white/85">
-            {priceLine}
           </div>
         )}
       </div>

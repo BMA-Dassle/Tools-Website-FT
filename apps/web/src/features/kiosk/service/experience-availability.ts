@@ -49,7 +49,10 @@ import {
 const MIN_PACKAGE_GAP_MINUTES = 30;
 
 /** The kiosk race grids' LOOSEST lead (096feb91: 15 min starters / 10 all
- *  others) — the tile stays live while any grid could still show a heat. */
+ *  others) — the tile stays live while any grid could still show a heat. The
+ *  Ultimate Qualifier "next available" uses this SAME short lead so it matches
+ *  the regular kiosk racing flow (owner 2026-07-25: a few minutes, not the
+ *  combo's 75-min new-racer window). */
 const RACE_LEAD_MS = 10 * 60_000;
 
 export interface ExperienceAvailability {
@@ -184,10 +187,17 @@ async function packageFirstOpen(
       heatsByRef[race.ref] = [];
     }
   }
-  const earliestOf = (heats: Array<{ start: string; freeSpots: number }>) =>
-    heats.length === 0
+  // Only heats far enough out to still be bookable (now + the short racing
+  // lead), so the "next available" can never be a heat that already started —
+  // and it uses the same few-minute lead as the regular kiosk racing flow.
+  const cutoffMs = Date.now() + RACE_LEAD_MS;
+  const isFuture = (h: { start: string }) => naiveEtStartMs(h.start) >= cutoffMs;
+  const earliestOf = (heats: Array<{ start: string; freeSpots: number }>) => {
+    const future = heats.filter(isFuture);
+    return future.length === 0
       ? null
-      : heats.reduce((a, b) => (naiveEtStartMs(b.start) < naiveEtStartMs(a.start) ? b : a));
+      : future.reduce((a, b) => (naiveEtStartMs(b.start) < naiveEtStartMs(a.start) ? b : a));
+  };
 
   const gateRace = pkg.races.find((r) => r.minMinutesAfterEndOf);
   if (!gateRace?.minMinutesAfterEndOf) {
@@ -199,9 +209,11 @@ async function packageFirstOpen(
   const prev = heatsByRef[gateRace.minMinutesAfterEndOf.ref] ?? []; // the Starter (booked first)
   const next = heatsByRef[gateRace.ref] ?? []; // the Intermediate (must clear the gap)
   if (prev.length === 0 || next.length === 0) return null;
-  // Earliest Starter heat that still has a valid Intermediate after it.
-  const valid = prev.filter((p) =>
-    next.some((n) => !violatesMinGapAfter(p.stop, n.start, MIN_PACKAGE_GAP_MINUTES)),
+  // Earliest FUTURE Starter heat that still has a valid Intermediate after it.
+  const valid = prev.filter(
+    (p) =>
+      isFuture(p) &&
+      next.some((n) => !violatesMinGapAfter(p.stop, n.start, MIN_PACKAGE_GAP_MINUTES)),
   );
   const start = earliestOf(valid);
   return start ? { start: start.start, freeSpots: start.freeSpots } : null;
@@ -219,12 +231,28 @@ async function qamfFirstOpenToday(
   centerId: number,
   dateYmd: string,
   kind: "open,hourly" | "kbf",
+  opts?: { durationMinutes?: number },
 ): Promise<FirstOpen | null> {
-  const res = await fetch(
-    `${apiBase()}/api/bowling/v2/availability?centerId=${centerId}&players=2` +
-      `&startDate=${dateYmd}&kind=${kind}&stepMinutes=30&leadMinutes=0&firstOnly=1`,
-    { cache: "no-store" },
-  );
+  const qs = new URLSearchParams({
+    centerId: String(centerId),
+    players: "2",
+    startDate: dateYmd,
+    kind,
+    stepMinutes: "30",
+    leadMinutes: "0",
+  });
+  if (opts?.durationMinutes) {
+    // Duration-accurate: only slots where a booking of THIS length genuinely
+    // fits (lane free for the whole window), so "next available" reflects what
+    // we actually sell — e.g. HeadPinz bowling's 1.5-hour offer, not an earlier
+    // 1-hour slot. Accurate mode scans the day (no firstOnly early-exit).
+    qs.set("durationMinutes", String(opts.durationMinutes));
+    qs.set("optionCheck", "accurate");
+  } else {
+    // No fixed duration → any bookable slot; stop at the first (cheap).
+    qs.set("firstOnly", "1");
+  }
+  const res = await fetch(`${apiBase()}/api/bowling/v2/availability?${qs}`, { cache: "no-store" });
   if (!res.ok) throw new Error(`bowling availability ${res.status}`);
   const data = (await res.json()) as { Availabilities?: Array<{ BookedAt?: string }> };
   const rows = data.Availabilities ?? [];
@@ -406,8 +434,14 @@ export async function computeExperienceAvailability(
     fm
       ? resolveSlotAvailability(attractionFirstOpenToday("shuffly", "headpinz", dateYmd))
       : Promise.resolve(OPEN_NO_COUNT),
+    // HeadPinz bowling: we sell the 1.5-hour booking, so the tile must reflect
+    // when a 90-min booking genuinely fits — probing without a duration surfaced
+    // an earlier 1-hour slot as "next available" (owner 2026-07-25). The 1-hour
+    // late-night fallback is a separate follow-up (both systems must align).
     hpCenterId != null
-      ? resolveSlotAvailability(qamfFirstOpenToday(hpCenterId, dateYmd, "open,hourly"))
+      ? resolveSlotAvailability(
+          qamfFirstOpenToday(hpCenterId, dateYmd, "open,hourly", { durationMinutes: 90 }),
+        )
       : Promise.resolve(OPEN_NO_COUNT),
     hpCenterId != null
       ? resolveSlotAvailability(qamfFirstOpenToday(hpCenterId, dateYmd, "kbf"))
