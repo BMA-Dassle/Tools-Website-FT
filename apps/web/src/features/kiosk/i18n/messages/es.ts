@@ -161,4 +161,39 @@ export const es: Record<MessageKey, string> = {
   "bowlingDetails.no": "No",
   "bowlingDetails.rentalSummary":
     "{count, plural, one {# alquiler de zapatos} other {# alquileres de zapatos}} · {price}/par",
+
+  // --- Bowling package / offer step (KioskBowlingOfferStep) ---
+  "offer.loading": "Verificando disponibilidad de pistas…",
+  "offer.nearClosing": "Solo hay 1 hora disponible tan cerca del cierre.",
+  "offer.howLong": "¿Cuánto tiempo?",
+  "offer.perLane": "/pista",
+  "offer.perPerson": "/persona",
+  "offer.perLaneHour": "/pista por hora",
+  "offer.pastClosing": "Después del cierre",
+  "offer.startTime": "Hora de inicio",
+  "offer.noLanesAtTime": "No hay pistas abiertas a esta hora — regresa y elige otra hora.",
+  "offer.pickDurationFirst": "Elige primero una duración.",
+  "offer.summary.lanes": "{count, plural, one {# pista} other {# pistas}}",
+  "offer.summary.bowlers": "{count, plural, one {# jugador} other {# jugadores}}",
+  "offer.cta.holding": "Apartando tus pistas…",
+  "offer.cta.reservedFor": "Reservado para las {time}",
+  "offer.cta.reserve": "Reservar {time}",
+  "offer.cta.noTimes": "No hay horarios disponibles",
+  "offer.heldNote": "Pistas apartadas — presiona Continuar abajo para seguir.",
+  "offer.free": "Gratis",
+  "offer.perPersonVipLane": "/persona · pista VIP",
+  "offer.openAt": "Abre a las {time}",
+  "offer.intro.widened": "Nada abierto a las {time} — los próximos horarios están abajo.",
+  "offer.intro.around":
+    "Alrededor de las {time} · {players, plural, one {# jugador} other {# jugadores}} en {lanes, plural, one {# pista} other {# pistas}}.",
+  "offer.intro.setup": "Configura tus pistas.",
+  "offer.widenedNote":
+    "El horario que elegiste se acaba de llenar. Elegir uno de los horarios de abajo cambia tu hora de inicio.",
+  "offer.makeVip": "Hazlo VIP",
+  "offer.vip.kbf": "Pistas brillantes HyperBowling · +{price}/persona",
+  "offer.vip.delta": "Asientos en suite privada, servicio de salón · +{price} /pista por hora",
+  "offer.vip.noDelta": "Asientos en suite privada, servicio de salón en tu pista",
+  "offer.seeVip": "Ver VIP",
+  "offer.noLanesToday":
+    "No hay pistas abiertas alrededor de esta hora hoy — regresa y elige otra hora, o la recepción puede ayudarte con visitas sin cita.",
 };

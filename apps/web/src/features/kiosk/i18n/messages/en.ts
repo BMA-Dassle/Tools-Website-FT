@@ -162,6 +162,44 @@ export const en = {
   "bowlingDetails.no": "No",
   "bowlingDetails.rentalSummary":
     "{count, plural, one {# shoe rental} other {# shoe rentals}} · {price}/pair",
+
+  // --- Bowling package / offer step (KioskBowlingOfferStep) ---
+  // Note: `error` shown on this step is a server/hook message (dynamic English)
+  // and is not keyed; formatBookedTime/formatHourLabel produce locale-neutral
+  // clock strings. "HyperBowling" is a product name — left untranslated.
+  "offer.loading": "Checking lane availability…",
+  "offer.nearClosing": "Only 1 hour available this close to closing.",
+  "offer.howLong": "How long?",
+  "offer.perLane": "/lane",
+  "offer.perPerson": "/person",
+  "offer.perLaneHour": "/lane per hour",
+  "offer.pastClosing": "Past closing",
+  "offer.startTime": "Start time",
+  "offer.noLanesAtTime": "No lanes open at this time — go back and pick another time.",
+  "offer.pickDurationFirst": "Pick a duration first.",
+  "offer.summary.lanes": "{count, plural, one {# lane} other {# lanes}}",
+  "offer.summary.bowlers": "{count, plural, one {# bowler} other {# bowlers}}",
+  "offer.cta.holding": "Holding your lanes…",
+  "offer.cta.reservedFor": "Reserved for {time}",
+  "offer.cta.reserve": "Reserve {time}",
+  "offer.cta.noTimes": "No times available",
+  "offer.heldNote": "Lanes held — hit Continue below to keep going.",
+  "offer.free": "Free",
+  "offer.perPersonVipLane": "/person · VIP lane",
+  "offer.openAt": "Open at {time}",
+  "offer.intro.widened": "Nothing open at {time} — the next open times are below.",
+  "offer.intro.around":
+    "Around {time} · {players, plural, one {# bowler} other {# bowlers}} on {lanes, plural, one {# lane} other {# lanes}}.",
+  "offer.intro.setup": "Set up your lanes.",
+  "offer.widenedNote":
+    "Your picked time just filled up. Choosing one of the times below changes your start time.",
+  "offer.makeVip": "Make it VIP",
+  "offer.vip.kbf": "HyperBowling glow lanes · +{price}/person",
+  "offer.vip.delta": "Private suite seating, lounge service · +{price} /lane per hour",
+  "offer.vip.noDelta": "Private suite seating, lounge service to your lane",
+  "offer.seeVip": "See VIP",
+  "offer.noLanesToday":
+    "No lanes open around this time today — go back and pick another time, or the front desk can help with walk-ins.",
 } as const;
 
 export type MessageKey = keyof typeof en;
