@@ -200,6 +200,35 @@ export const en = {
   "offer.seeVip": "See VIP",
   "offer.noLanesToday":
     "No lanes open around this time today — go back and pick another time, or the front desk can help with walk-ins.",
+
+  // --- "Who's bowling?" people step (KioskBowlingPeopleStep) ---
+  "bowlingPeople.signedInIntro":
+    "Your group is signed in — tap who’s bowling. Anyone else can join without an account.",
+  "bowlingPeople.walkupIntro":
+    "Add everyone bowling, and tap one person as the main contact for the reservation.",
+  "bowlingPeople.minor": "Minor",
+  "bowlingPeople.main": "Main",
+  "bowlingPeople.remove": "Remove",
+  "bowlingPeople.addAnother": "Add another bowler",
+  "bowlingPeople.firstName": "First name",
+  "bowlingPeople.lastName": "Last name",
+  "bowlingPeople.lastNameOptional": "Last name (optional)",
+  "bowlingPeople.mainFirstName": "Main person first name",
+  "bowlingPeople.mainLastName": "Main person last name",
+  "bowlingPeople.emailPlaceholder": "Email (for your confirmation)",
+  "bowlingPeople.phonePlaceholder": "Mobile phone",
+  "bowlingPeople.confirmationGoesTo": "Confirmation goes to {name}",
+  "bowlingPeople.scanHint": "Or scan a driver’s license / state ID at the scanner to add a bowler.",
+  "bowlingPeople.aria.removeFromBowling": "Remove {name} from bowling",
+  "bowlingPeople.aria.addToBowling": "Add {name} to bowling",
+  "bowlingPeople.aria.extraFirst": "Extra bowler {num} first name",
+  "bowlingPeople.aria.extraLast": "Extra bowler {num} last name",
+  "bowlingPeople.aria.removeExtra": "Remove extra bowler {num}",
+  "bowlingPeople.aria.bowlerFirst": "Bowler {num} first name",
+  "bowlingPeople.aria.bowlerLast": "Bowler {num} last name",
+  "bowlingPeople.aria.removeBowler": "Remove bowler {num}",
+  "bowlingPeople.aria.mainEmail": "Main person email",
+  "bowlingPeople.aria.mainPhone": "Main person mobile phone",
 } as const;
 
 export type MessageKey = keyof typeof en;

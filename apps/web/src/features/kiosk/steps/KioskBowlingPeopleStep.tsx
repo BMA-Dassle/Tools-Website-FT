@@ -36,6 +36,7 @@ import {
 } from "~/features/booking/service/whos-bowling";
 import { useKioskConfig } from "../KioskConfigContext";
 import { useLicenseScan, type AamvaLicense } from "../qr-scanner";
+import { useT } from "../i18n";
 
 type BowlItem = BowlingItem;
 type Player = BowlPlayer;
@@ -51,6 +52,7 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
   onChange,
   dispatch,
 }) => {
+  const t = useT();
   const party = session.party;
   const hasParty = party.length > 0;
   const contact = session.contact;
@@ -233,10 +235,7 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
 
     return (
       <div className="space-y-[24px]">
-        <p className="text-[26px] text-white/55">
-          Your group is signed in — tap who&rsquo;s bowling. Anyone else can join without an
-          account.
-        </p>
+        <p className="text-[26px] text-white/55">{t("bowlingPeople.signedInIntro")}</p>
 
         <div className="space-y-[16px]">
           {orderedParty.map((m) => {
@@ -255,7 +254,9 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
                     onClick={() => toggleMember(m)}
                     aria-pressed={isIn}
                     aria-label={
-                      isIn ? `Remove ${m.firstName} from bowling` : `Add ${m.firstName} to bowling`
+                      isIn
+                        ? t("bowlingPeople.aria.removeFromBowling", { name: m.firstName })
+                        : t("bowlingPeople.aria.addToBowling", { name: m.firstName })
                     }
                     className={`grid h-[64px] w-[64px] shrink-0 place-items-center rounded-2xl border-2 text-[32px] font-bold ${
                       isIn
@@ -276,7 +277,7 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
                     </span>
                     {m.isMinor && (
                       <span className="rounded-full bg-white/10 px-[14px] py-[4px] text-[20px] font-bold text-white/70">
-                        Minor
+                        {t("bowlingPeople.minor")}
                       </span>
                     )}
                   </div>
@@ -290,7 +291,7 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
                         : "border-white/15 text-white/55"
                     }`}
                   >
-                    {m.isBillingCustomer ? "★ Main" : "Main"}
+                    {m.isBillingCustomer ? `★ ${t("bowlingPeople.main")}` : t("bowlingPeople.main")}
                   </button>
                 </div>
               </div>
@@ -309,8 +310,8 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
                   value={splitName(p.name).firstName}
                   onChange={(e) => setExtraFirst(idx, e.target.value)}
                   onBlur={(e) => setExtraFirst(idx, formatPersonName(e.target.value))}
-                  placeholder="First name"
-                  aria-label={`Extra bowler ${n + 1} first name`}
+                  placeholder={t("bowlingPeople.firstName")}
+                  aria-label={t("bowlingPeople.aria.extraFirst", { num: n + 1 })}
                   className={inputCls}
                 />
                 <input
@@ -318,17 +319,17 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
                   value={splitName(p.name).lastName}
                   onChange={(e) => setExtraLast(idx, e.target.value)}
                   onBlur={(e) => setExtraLast(idx, formatPersonName(e.target.value))}
-                  placeholder="Last name (optional)"
-                  aria-label={`Extra bowler ${n + 1} last name`}
+                  placeholder={t("bowlingPeople.lastNameOptional")}
+                  aria-label={t("bowlingPeople.aria.extraLast", { num: n + 1 })}
                   className={inputCls}
                 />
                 <button
                   type="button"
                   onClick={() => removeExtra(idx)}
-                  aria-label={`Remove extra bowler ${n + 1}`}
+                  aria-label={t("bowlingPeople.aria.removeExtra", { num: n + 1 })}
                   className="shrink-0 text-[22px] text-white/40"
                 >
-                  Remove
+                  {t("bowlingPeople.remove")}
                 </button>
               </div>
             </div>
@@ -341,21 +342,19 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
             onClick={addExtra}
             className="k-tap w-full rounded-[28px] border-2 border-dashed border-[#00e2e5]/45 px-[24px] py-[24px] text-[28px] font-bold text-[#00e2e5]"
           >
-            + Add another bowler
+            + {t("bowlingPeople.addAnother")}
           </button>
         )}
 
         {licenseScan.listening && (
-          <p className="text-center text-[22px] text-white/40">
-            Or scan a driver&rsquo;s license / state ID at the scanner to add a bowler.
-          </p>
+          <p className="text-center text-[22px] text-white/40">{t("bowlingPeople.scanHint")}</p>
         )}
 
         {/* Booking contact — carried from sign-in; email/phone stay editable
             so the confirmation lands where the guest wants it. */}
         <div className="k-glass space-y-[16px] p-[24px]">
           <div className="k-eyebrow text-white/40">
-            Confirmation goes to {contact.firstName ?? ""}
+            {t("bowlingPeople.confirmationGoesTo", { name: contact.firstName ?? "" })}
           </div>
           {contactNameMissing && (
             <div className="grid grid-cols-2 gap-[16px]">
@@ -364,8 +363,8 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
                 value={contact.firstName ?? ""}
                 onChange={(e) => setContactField({ firstName: e.target.value })}
                 onBlur={(e) => setContactField({ firstName: formatPersonName(e.target.value) })}
-                placeholder="Main person first name"
-                aria-label="Main person first name"
+                placeholder={t("bowlingPeople.mainFirstName")}
+                aria-label={t("bowlingPeople.mainFirstName")}
                 className={contactInputCls}
               />
               <input
@@ -373,8 +372,8 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
                 value={contact.lastName ?? ""}
                 onChange={(e) => setContactField({ lastName: e.target.value })}
                 onBlur={(e) => setContactField({ lastName: formatPersonName(e.target.value) })}
-                placeholder="Main person last name"
-                aria-label="Main person last name"
+                placeholder={t("bowlingPeople.mainLastName")}
+                aria-label={t("bowlingPeople.mainLastName")}
                 className={contactInputCls}
               />
             </div>
@@ -386,8 +385,8 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
               data-osk-layout="email"
               value={contact.email ?? ""}
               onChange={(e) => setContactField({ email: e.target.value })}
-              placeholder="Email (for your confirmation)"
-              aria-label="Main person email"
+              placeholder={t("bowlingPeople.emailPlaceholder")}
+              aria-label={t("bowlingPeople.aria.mainEmail")}
               className={contactInputCls}
             />
             <input
@@ -396,8 +395,8 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
               data-osk-layout="phone"
               value={contact.phone ?? ""}
               onChange={(e) => setContactField({ phone: e.target.value })}
-              placeholder="Mobile phone"
-              aria-label="Main person mobile phone"
+              placeholder={t("bowlingPeople.phonePlaceholder")}
+              aria-label={t("bowlingPeople.aria.mainPhone")}
               className={contactInputCls}
             />
           </div>
@@ -442,9 +441,7 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
 
   return (
     <div className="space-y-[24px]">
-      <p className="text-[26px] text-white/55">
-        Add everyone bowling, and tap one person as the main contact for the reservation.
-      </p>
+      <p className="text-[26px] text-white/55">{t("bowlingPeople.walkupIntro")}</p>
 
       <div className="space-y-[16px]">
         {players.map((p, i) => {
@@ -461,8 +458,8 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
                   value={splitName(p.name).firstName}
                   onChange={(e) => setFirst(i, e.target.value)}
                   onBlur={(e) => setFirst(i, formatPersonName(e.target.value))}
-                  placeholder="First name"
-                  aria-label={`Bowler ${i + 1} first name`}
+                  placeholder={t("bowlingPeople.firstName")}
+                  aria-label={t("bowlingPeople.aria.bowlerFirst", { num: i + 1 })}
                   className={inputCls}
                 />
                 <input
@@ -470,8 +467,10 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
                   value={splitName(p.name).lastName}
                   onChange={(e) => setLast(i, e.target.value)}
                   onBlur={(e) => setLast(i, formatPersonName(e.target.value))}
-                  placeholder={isMain ? "Last name" : "Last name (optional)"}
-                  aria-label={`Bowler ${i + 1} last name`}
+                  placeholder={t(
+                    isMain ? "bowlingPeople.lastName" : "bowlingPeople.lastNameOptional",
+                  )}
+                  aria-label={t("bowlingPeople.aria.bowlerLast", { num: i + 1 })}
                   className={inputCls}
                 />
                 <button
@@ -484,16 +483,16 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
                       : "border-white/15 text-white/55"
                   }`}
                 >
-                  {isMain ? "★ Main" : "Main"}
+                  {isMain ? `★ ${t("bowlingPeople.main")}` : t("bowlingPeople.main")}
                 </button>
                 {players.length > 1 && (
                   <button
                     type="button"
                     onClick={() => removeRow(i)}
-                    aria-label={`Remove bowler ${i + 1}`}
+                    aria-label={t("bowlingPeople.aria.removeBowler", { num: i + 1 })}
                     className="shrink-0 text-[22px] text-white/40"
                   >
-                    Remove
+                    {t("bowlingPeople.remove")}
                   </button>
                 )}
               </div>
@@ -505,8 +504,8 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
                     data-osk-layout="email"
                     value={contact.email ?? ""}
                     onChange={(e) => setContactField({ email: e.target.value })}
-                    placeholder="Email (for your confirmation)"
-                    aria-label="Main person email"
+                    placeholder={t("bowlingPeople.emailPlaceholder")}
+                    aria-label={t("bowlingPeople.aria.mainEmail")}
                     className={contactInputCls}
                   />
                   <input
@@ -515,8 +514,8 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
                     data-osk-layout="phone"
                     value={contact.phone ?? ""}
                     onChange={(e) => setContactField({ phone: e.target.value })}
-                    placeholder="Mobile phone"
-                    aria-label="Main person mobile phone"
+                    placeholder={t("bowlingPeople.phonePlaceholder")}
+                    aria-label={t("bowlingPeople.aria.mainPhone")}
                     className={contactInputCls}
                   />
                 </div>
@@ -547,6 +546,8 @@ const KioskBowlingPeopleStepComponent: StepDef<BowlItem>["Component"] = ({
 
 export const KioskBowlingPeopleStep: StepDef<BowlItem> = {
   id: "kiosk-bowling-people",
+  // TODO(i18n): module-scope `title` + whosBowlingCanAdvance() reasons run outside
+  // React — English until step titles/validation are locale-threaded (see plan).
   title: "Who's bowling?",
   Component: KioskBowlingPeopleStepComponent,
   isVisible: () => true,

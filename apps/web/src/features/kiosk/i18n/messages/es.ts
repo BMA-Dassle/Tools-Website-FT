@@ -196,4 +196,34 @@ export const es: Record<MessageKey, string> = {
   "offer.seeVip": "Ver VIP",
   "offer.noLanesToday":
     "No hay pistas abiertas alrededor de esta hora hoy — regresa y elige otra hora, o la recepción puede ayudarte con visitas sin cita.",
+
+  // --- "Who's bowling?" people step (KioskBowlingPeopleStep) ---
+  "bowlingPeople.signedInIntro":
+    "Tu grupo inició sesión — toca quién va a jugar boliche. Cualquier otra persona puede unirse sin cuenta.",
+  "bowlingPeople.walkupIntro":
+    "Agrega a todos los que van a jugar boliche y toca a una persona como contacto principal de la reservación.",
+  "bowlingPeople.minor": "Menor",
+  "bowlingPeople.main": "Principal",
+  "bowlingPeople.remove": "Quitar",
+  "bowlingPeople.addAnother": "Agregar otro jugador",
+  "bowlingPeople.firstName": "Nombre",
+  "bowlingPeople.lastName": "Apellido",
+  "bowlingPeople.lastNameOptional": "Apellido (opcional)",
+  "bowlingPeople.mainFirstName": "Nombre del contacto principal",
+  "bowlingPeople.mainLastName": "Apellido del contacto principal",
+  "bowlingPeople.emailPlaceholder": "Correo (para tu confirmación)",
+  "bowlingPeople.phonePlaceholder": "Teléfono móvil",
+  "bowlingPeople.confirmationGoesTo": "La confirmación se envía a {name}",
+  "bowlingPeople.scanHint":
+    "O escanea una licencia de conducir / identificación estatal en el escáner para agregar un jugador.",
+  "bowlingPeople.aria.removeFromBowling": "Quitar a {name} del boliche",
+  "bowlingPeople.aria.addToBowling": "Agregar a {name} al boliche",
+  "bowlingPeople.aria.extraFirst": "Nombre del jugador adicional {num}",
+  "bowlingPeople.aria.extraLast": "Apellido del jugador adicional {num}",
+  "bowlingPeople.aria.removeExtra": "Quitar jugador adicional {num}",
+  "bowlingPeople.aria.bowlerFirst": "Nombre del jugador {num}",
+  "bowlingPeople.aria.bowlerLast": "Apellido del jugador {num}",
+  "bowlingPeople.aria.removeBowler": "Quitar jugador {num}",
+  "bowlingPeople.aria.mainEmail": "Correo del contacto principal",
+  "bowlingPeople.aria.mainPhone": "Teléfono móvil del contacto principal",
 };
