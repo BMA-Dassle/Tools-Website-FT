@@ -1,13 +1,24 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import redis from "@/lib/redis";
 import {
   unifiedReserve,
   readTerminalReserveRecovery,
   BillExpiredError,
+  ReserveInProgressError,
   type TerminalReserveRecovery,
 } from "~/features/booking/service/unified-reserve";
 import { radioServerFor } from "~/features/kiosk/assist-alert";
+
+// The recovery (grace + reserve replay) runs in after(); give it headroom.
+export const maxDuration = 60;
+
+// Square delivers payment.updated within seconds of capture — right while the
+// client is still running its OWN reserve. This webhook is a BACKSTOP for when
+// the client never finishes (walk-away), so it waits this long and re-checks
+// before acting, to avoid racing (and false-alarming on) a booking about to
+// succeed on its own.
+const RESERVE_GRACE_MS = 8000;
 
 /**
  * Square webhook receiver — kiosk direct-Terminal captured-but-unreserved backstop.
@@ -154,8 +165,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ignored: true, reason: "not a kiosk terminal deposit" });
   }
 
-  // Already booked? (idempotent no-op — the client's own reserve, or a prior
-  // webhook delivery, already completed it.)
+  // Already booked? (fast common-case no-op — the client's own reserve, or a
+  // prior webhook delivery, already completed it.)
   const bill = rec.session.bmiBillId;
   if (bill) {
     const confirmed = await redis.get(`bmi:confirmed:${bill}`).catch(() => null);
@@ -164,47 +175,62 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Serialize against the client's own reserve + concurrent webhook deliveries.
-  // unifiedReserve is itself idempotent (baseKey) and lock-guarded, so this is a
-  // fast-path guard, not the only protection.
-  const lockKey = `kiosk:terminal:webhook:${orderId}`;
-  let locked = "OK";
-  try {
-    locked = ((await redis.set(lockKey, "1", "EX", 120, "NX")) as string | null) ?? "OK";
-  } catch {
-    locked = "OK"; // Redis down — deterministic keys still prevent a double charge/booking
-  }
-  if (locked !== "OK") {
-    return NextResponse.json({ ignored: true, reason: "in progress" });
-  }
-
-  try {
-    await unifiedReserve({
-      session: rec.session,
-      contact: rec.contact,
-      externalPayment: {
-        paymentId,
-        depositOrderId: orderId,
-        amountCents,
-        source: "terminal",
-      },
-    });
-    console.log(`[square-webhook] recovered booking for order=${orderId} bill=${bill ?? "n/a"}`);
-    return NextResponse.json({ recovered: true });
-  } catch (err) {
-    if (err instanceof BillExpiredError) {
-      // The BMI hold auto-cancelled before we could book — can't rebook. Alert
-      // staff (no auto-refund). Return 200 so Square doesn't keep retrying a
-      // permanently-unbookable event.
-      await alertOrphan(orderId, paymentId, amountCents, rec, "bill_expired");
-      return NextResponse.json({ orphan: true, reason: "bill expired" });
+  // Ack Square immediately, then recover in the background AFTER a grace period,
+  // so we (a) never risk Square's delivery timeout while unifiedReserve runs and
+  // (b) let the client's own reserve win the common race instead of duplicating
+  // its work or false-alarming on it.
+  const recover = async () => {
+    try {
+      await new Promise((r) => setTimeout(r, RESERVE_GRACE_MS));
+      // The client almost certainly finished during the grace window — re-check.
+      if (bill) {
+        const confirmed = await redis.get(`bmi:confirmed:${bill}`).catch(() => null);
+        if (confirmed) return;
+      }
+      // Serialize against a concurrent webhook delivery / the client's reserve.
+      const lockKey = `kiosk:terminal:webhook:${orderId}`;
+      let locked = "OK";
+      try {
+        locked = ((await redis.set(lockKey, "1", "EX", 120, "NX")) as string | null) ?? "OK";
+      } catch {
+        locked = "OK"; // Redis down — unifiedReserve's own lock + baseKey still guard it
+      }
+      if (locked !== "OK") return;
+      try {
+        await unifiedReserve({
+          session: rec.session,
+          contact: rec.contact,
+          externalPayment: { paymentId, depositOrderId: orderId, amountCents, source: "terminal" },
+        });
+        console.log(
+          `[square-webhook] recovered booking for order=${orderId} bill=${bill ?? "n/a"}`,
+        );
+      } catch (err) {
+        if (err instanceof ReserveInProgressError) {
+          // The client is mid-reserve right now — it owns this booking. Not an
+          // orphan; do NOT alert. (unifiedReserve is idempotent, so even if we
+          // both proceeded there'd be no double-book — but skip the noise.)
+          return;
+        }
+        if (err instanceof BillExpiredError) {
+          // The BMI hold auto-cancelled before we could book — can't rebook.
+          await alertOrphan(orderId, paymentId, amountCents, rec, "bill_expired");
+          return;
+        }
+        console.error(`[square-webhook] reserve replay failed order=${orderId}:`, err);
+        await alertOrphan(orderId, paymentId, amountCents, rec, "reserve_error");
+      } finally {
+        await redis.del(lockKey).catch(() => {});
+      }
+    } catch (e) {
+      console.error(`[square-webhook] recover crashed order=${orderId}:`, e);
     }
-    // Transient failure — leave the deposit captured, alert, and let Square's
-    // own webhook retry drive another attempt.
-    console.error(`[square-webhook] reserve replay failed order=${orderId}:`, err);
-    await alertOrphan(orderId, paymentId, amountCents, rec, "reserve_error");
-    return NextResponse.json({ error: "reserve failed, will retry" }, { status: 500 });
-  } finally {
-    await redis.del(lockKey).catch(() => {});
+  };
+  try {
+    after(recover);
+  } catch {
+    // Outside a request scope (shouldn't happen for a route handler) — run inline.
+    void recover();
   }
+  return NextResponse.json({ accepted: true });
 }
