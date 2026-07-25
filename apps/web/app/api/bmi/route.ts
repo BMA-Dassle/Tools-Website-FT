@@ -63,6 +63,7 @@ const ALLOWED_GET = [
   "order",
   "person",
   "subscription",
+  "membership", // GET /membership → membership product catalog (kind=3)
 ];
 
 const ALLOWED_POST = [

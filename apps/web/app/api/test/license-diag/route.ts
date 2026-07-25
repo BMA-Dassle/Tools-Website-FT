@@ -72,6 +72,20 @@ export async function GET(req: NextRequest) {
     const doConfirm = searchParams.get("doConfirm") !== "0";
     const doCancel = searchParams.get("doCancel") === "1";
 
+    // List the membership product catalog (GET /membership) — find the FastTrax
+    // license membership's Id/XRef to sell. No person / side effects needed.
+    if (searchParams.get("listMemberships") === "1") {
+      const res = await fetch(`${apiBase()}/api/bmi?endpoint=membership&clientKey=${clientKey}`);
+      const text = await res.text();
+      let memberships: unknown = text;
+      try {
+        memberships = JSON.parse(text);
+      } catch {
+        /* keep raw */
+      }
+      return NextResponse.json({ ok: res.ok, status: res.status, memberships });
+    }
+
     if (!create && (!personId || !/^\d{1,20}$/.test(personId))) {
       return NextResponse.json(
         { error: "Provide create=1 (mint a fake person) or personId=<digits>" },
