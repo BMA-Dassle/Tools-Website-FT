@@ -49,11 +49,11 @@ const RACE_PACK_VIA_DEPOSIT =
 
 // FastTrax-license-on-pack-purchase (owner 2026-07-25): a NEW / unlicensed racer
 // buying a pack also needs a $4.99 FastTrax License, registered on their BMI
-// account so they're cleared to race. Flag default OFF; only active on the
-// via-deposit path (the live Square path that /api/square/pay's license hook
-// runs on). Verified live on a Vercel preview before the flag flips on.
+// account so they're cleared to race. Default ON (kill switch = set the env to
+// "false"); only active on the via-deposit path (the live Square path that
+// /api/square/pay's license hook runs on). Still verify BMI registration live.
 const RACE_PACK_LICENSE_ENABLED =
-  process.env.NEXT_PUBLIC_RACE_PACK_LICENSE === "true" && RACE_PACK_VIA_DEPOSIT;
+  process.env.NEXT_PUBLIC_RACE_PACK_LICENSE !== "false" && RACE_PACK_VIA_DEPOSIT;
 const LICENSE_FEE = 4.99;
 
 /** Does this account lack an active FastTrax license? (memberships already
