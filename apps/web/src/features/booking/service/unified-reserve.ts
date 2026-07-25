@@ -20,6 +20,7 @@ import {
   kioskGzCartEnabled,
   kioskPovCodesEnabled,
 } from "~/features/kiosk/flags";
+import { getOrderPaymentInfo } from "~/features/kiosk/service/square-terminal";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { startTxn, markCharged, markLoadState } from "~/features/game-cards/data/transactions-log";
 import {
@@ -159,6 +160,15 @@ export interface PrepareDepositResult {
   depositOrderId: string;
   depositCents: number;
   locationId: string;
+  /**
+   * Set when this session's deposit order was ALREADY captured on the reader but
+   * reserve never ran (client dropped between tap and reserve, then re-entered).
+   * The client must NOT arm the reader again — it resumes the booking with
+   * `paymentId` via the idempotent reserve-all path. See tasks/kiosk-terminal-resume-plan.md.
+   */
+  alreadyPaid?: boolean;
+  /** The captured reader paymentId, present only when alreadyPaid. */
+  paymentId?: string;
 }
 
 /**
@@ -1159,6 +1169,36 @@ async function unifiedReserveInner(
     // once the reader has captured the card. All fallible guards above already
     // ran, so no money moves after a step that can still fail (H3074 rule). ──
     if (prepareOnly) {
+      // ── Resume guard ─────────────────────────────────────────────────
+      // If a PRIOR prepare already created this session's deposit order and the
+      // reader has since CAPTURED it (COMPLETED) — but reserve never ran because
+      // the client dropped between the tap and reserve, then re-entered checkout
+      // — do NOT create a new order or re-arm the reader. Recover the captured
+      // paymentId from Square (source of truth even when the poll never stamped
+      // the anchor) and hand it back so the client resumes the booking via the
+      // idempotent reserve-all path, instead of hitting the "order must be OPEN"
+      // dead-end. Best-effort: any lookup error falls through to a normal prepare.
+      const priorAnchor = await readTerminalAnchor(seedSource ?? baseKey).catch(() => null);
+      if (priorAnchor?.depositOrderId) {
+        const info = await getOrderPaymentInfo(priorAnchor.depositOrderId).catch(() => null);
+        const resumePaymentId = info?.paymentId ?? priorAnchor.paymentId ?? null;
+        if (info?.state === "COMPLETED" && resumePaymentId) {
+          console.log(
+            `[kiosk-terminal] PREPARE resume — order ${priorAnchor.depositOrderId} already COMPLETED, paymentId=${resumePaymentId} seed=${seedSource ?? baseKey} (skipping reader)`,
+          );
+          return {
+            __prepare: true,
+            alreadyPaid: true,
+            seed: seedSource ?? baseKey,
+            depositOrderId: priorAnchor.depositOrderId,
+            // The reader charged booking deposit + card lines; mirror the normal
+            // prepare's total so the client's display/amount stays consistent.
+            depositCents: priorAnchor.depositCents + (priorAnchor.gameCards?.totalCents ?? 0),
+            paymentId: resumePaymentId,
+            locationId: priorAnchor.locationId,
+          };
+        }
+      }
       console.log(
         `[kiosk-terminal] PREPARE dayofTotalCents=${dayofTotalCents} depositPct=${depositPct} → depositCents=${depositCents} gzCents=${gzCents} loc=${locationId} seed=${seedSource ?? baseKey}`,
       );
