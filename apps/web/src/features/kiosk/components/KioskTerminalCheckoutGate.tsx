@@ -77,7 +77,16 @@ export function KioskTerminalCheckoutGate({
     setError(null);
     setPhase("preparing");
     try {
-      let data: { seed?: string; depositOrderId?: string; depositCents?: number; error?: string };
+      let data: {
+        seed?: string;
+        depositOrderId?: string;
+        depositCents?: number;
+        error?: string;
+        /** Deposit order was already captured (reader tapped, reserve never ran):
+         *  resume the booking with this payment instead of arming the reader. */
+        alreadyPaid?: boolean;
+        paymentId?: string;
+      };
       if (prepareFn) {
         // Bowling-only cart: create the deposit order via the bowling rail.
         try {
@@ -108,8 +117,23 @@ export function KioskTerminalCheckoutGate({
         if (!res.ok && !data.error) data.error = `prepare failed (${res.status})`;
       }
       console.log(
-        `[kiosk-terminal] prepare → depositCents=${data.depositCents} shown=${depositCentsExpected} order=${data.depositOrderId} seed=${data.seed} err=${data.error ?? ""}`,
+        `[kiosk-terminal] prepare → depositCents=${data.depositCents} shown=${depositCentsExpected} order=${data.depositOrderId} seed=${data.seed} alreadyPaid=${data.alreadyPaid ?? false} err=${data.error ?? ""}`,
       );
+      // Resume: the reader already captured this session's deposit on a prior
+      // attempt but reserve never ran. Skip the reader entirely and hand the
+      // captured payment up — CheckoutStep's idempotent externalPayment path
+      // finishes the booking (or lands on the paid-unconfirmed screen if the
+      // bill has since been cancelled). Never re-arm a COMPLETED order.
+      if (data.alreadyPaid && data.paymentId && data.depositOrderId) {
+        console.log("[kiosk-terminal] gate resume — order already paid, skipping reader");
+        onCaptured({
+          paymentId: data.paymentId,
+          depositOrderId: data.depositOrderId,
+          amountCents: data.depositCents ?? depositCentsExpected,
+          seed: data.seed ?? "",
+        });
+        return;
+      }
       if (
         data.error ||
         !data.depositOrderId ||
@@ -147,7 +171,7 @@ export function KioskTerminalCheckoutGate({
       setError("Couldn't start the payment. Please try again or see the front desk.");
       setPhase("error");
     }
-  }, [session, contact, depositCentsExpected, prepareFn]);
+  }, [session, contact, depositCentsExpected, prepareFn, onCaptured]);
 
   useEffect(() => {
     if (preparedOnce.current) return;

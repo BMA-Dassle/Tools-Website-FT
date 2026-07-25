@@ -22,6 +22,8 @@
  * authorize call.
  */
 
+import { createHash } from "crypto";
+
 import { KNOWN_DEPOSIT_GAN_PREFIXES } from "@/lib/gan";
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
@@ -167,9 +169,23 @@ export async function authorizeCardPayment(params: {
   buyerEmail?: string;
   note?: string;
 }): Promise<{ paymentId: string }> {
+  // Idempotency key must vary with the card token, NOT just the per-bill
+  // baseKey. Square records the key on a DECLINE too, bound to that request's
+  // source_id. Because Square nonces are single-use, any legitimate retry (a
+  // different card after a decline, or the same card re-tokenized) sends a new
+  // source_id — and a baseKey-only key would then collide as "Different request
+  // parameters used for the same idempotency_key", locking the customer out of
+  // the bill forever. Hashing source_id in gives each distinct card attempt its
+  // own key while a true network-level double-POST (identical body → identical
+  // nonce) still dedups. Double-charge is still prevented upstream: baseKey
+  // stays stable so all attempts hit the SAME deposit order, and Square rejects
+  // a second full authorization against an already-covered order. Vaulted-card
+  // retries (card-vault-sweep) pass a STABLE reusable token, so this stays
+  // replay-safe there too. (See tasks/lessons.md § idempotency-on-decline.)
+  const cardKeySuffix = createHash("sha256").update(params.sourceId).digest("hex").slice(0, 8);
   const body: Record<string, unknown> = {
     source_id: params.sourceId,
-    idempotency_key: `pay-card-${params.baseKey}`,
+    idempotency_key: `pay-card-${params.baseKey}-${cardKeySuffix}`,
     amount_money: { amount: params.amountCents, currency: "USD" },
     order_id: params.orderId,
     location_id: params.locationId,

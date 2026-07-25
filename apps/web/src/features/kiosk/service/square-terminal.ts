@@ -117,6 +117,32 @@ export interface TerminalCheckoutResult {
   checkoutId: string;
   status: string; // PENDING | IN_PROGRESS | COMPLETED | CANCELED | CANCEL_REQUESTED
   paymentIds?: string[];
+  /**
+   * True when this "result" is a RECOVERY, not a fresh checkout: the deposit
+   * order was already CAPTURED (reader tapped, reserve never ran) so we returned
+   * the existing paymentId instead of arming the reader again. The client
+   * resumes the booking via the normal COMPLETED branch — no re-charge.
+   */
+  alreadyPaid?: boolean;
+}
+
+/**
+ * Read a Square order's settlement state + the captured payment id from its
+ * tenders. Square is the source of truth for a reader capture even when the poll
+ * never stamped our anchor — so the kiosk resume path recovers the paymentId
+ * from here to replay reserve against an already-paid deposit order.
+ */
+export async function getOrderPaymentInfo(
+  orderId: string,
+): Promise<{ state: string; paymentId: string | null } | null> {
+  if (!SQUARE_TOKEN) return null;
+  const { body } = await sq<{
+    order?: { state?: string; tenders?: Array<{ id?: string; payment_id?: string }> };
+  }>(`/orders/${encodeURIComponent(orderId)}`);
+  const order = body.order;
+  if (!order) return null;
+  const paymentId = order.tenders?.find((t) => t.payment_id)?.payment_id ?? null;
+  return { state: order.state ?? "UNKNOWN", paymentId };
 }
 
 /**
@@ -180,6 +206,27 @@ export async function createTerminalCheckout(args: {
   // a misleading "Square not configured". Throw so the route returns the detail.
   const e = body.errors?.[0];
   const detail = e ? `${e.code}${e.field ? ` [${e.field}]` : ""}: ${e.detail}` : `HTTP ${status}`;
+  // Already-paid recovery (defense in depth behind the prepare-time resume): a
+  // re-arm against a deposit order the reader already CAPTURED — reserve never
+  // ran, the guest re-entered checkout — is NOT a failure. Square rejects it as
+  // "[checkout.order_id] The order must be OPEN, instead ... COMPLETED". Recover
+  // the captured paymentId and report COMPLETED so the client resumes the
+  // booking (its normal COMPLETED branch) instead of the dead-end error screen.
+  if (args.orderId && e?.field === "checkout.order_id" && /COMPLETED/i.test(e?.detail ?? "")) {
+    const info = await getOrderPaymentInfo(args.orderId).catch(() => null);
+    if (info?.paymentId) {
+      console.log(
+        `[square-terminal] order ${args.orderId} already COMPLETED — resuming with payment ${info.paymentId} (no re-charge)`,
+      );
+      return {
+        checkoutId: args.orderId,
+        status: "COMPLETED",
+        paymentIds: [info.paymentId],
+        alreadyPaid: true,
+      };
+    }
+    throw new Error("This order was already paid — please see the front desk (do not pay again).");
+  }
   console.error(
     `[square-terminal] createTerminalCheckout rejected device=${args.deviceId} order=${args.orderId ?? "(none)"} amount=${args.amountCents} → ${detail}`,
   );
