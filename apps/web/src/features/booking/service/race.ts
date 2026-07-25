@@ -111,7 +111,9 @@ function licenseHeatIndices(session: BookingSession, item: RaceItem): Set<number
     const memberId = item.heats[i].assignedTo;
     if (!memberId || seen.has(memberId)) continue;
     const member = session.party.find((m) => m.id === memberId);
-    if (!member?.isNewRacer) continue;
+    // licensePrepaid racers already bought + registered their license (race-pack
+    // "Race today" hand-off) — never book a SECOND withLicense grant for them.
+    if (!member?.isNewRacer || member.licensePrepaid) continue;
     seen.add(memberId);
     indices.add(i);
   }

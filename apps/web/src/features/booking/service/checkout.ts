@@ -1068,7 +1068,13 @@ export function buildRaceChargeLines(
     ),
   );
   const newRacerCount = session.party.filter(
-    (m) => m.isNewRacer && racingMemberIds.has(m.id) && !packageRacerIds.has(m.id),
+    (m) =>
+      m.isNewRacer &&
+      // licensePrepaid = the license was already bought + registered (race-pack
+      // "Race today" hand-off); never charge the $4.99 twice.
+      !m.licensePrepaid &&
+      racingMemberIds.has(m.id) &&
+      !packageRacerIds.has(m.id),
   ).length;
   // Rookie Pack FLAG flow (the license/POV step opt-in + the kiosk mixed-party
   // auto-enroll — distinct from the PACKAGE flow, whose bundle line already

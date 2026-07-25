@@ -4,6 +4,13 @@ import { addDeposit } from "@/lib/pandora-deposits";
 import { logSale } from "@/lib/sales-log";
 import { enqueueDepositFailure } from "@/lib/bmi-deposit-retry";
 import { authorizeMultiTender, SquarePaymentError } from "@/lib/square-gift-card";
+import { racePackLicenseEnabled } from "~/features/booking/service/race-pack-kiosk";
+import {
+  personNeedsLicense,
+  grantLicenses,
+  LICENSE_PRICE_CENTS,
+} from "~/features/booking/service/race-pack-license.server";
+import { upsertLicenseObligations } from "~/features/booking/data/race-license-grants-db";
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
@@ -65,6 +72,16 @@ interface PostPaymentAction {
   /** True when the buyer is a brand-new racer (no Pandora person
    *  on file before this purchase). Optional — analytics nicety. */
   isNewRacer?: boolean;
+  /** Race-pack flow: register a $4.99 FastTrax License on this racer AFTER the
+   *  charge (the $4.99 is already in the order line items). Flag-gated + the
+   *  server re-verifies the racer isn't already licensed before registering. */
+  license?: {
+    personId: string | number;
+    firstName: string;
+    lastName?: string;
+    email?: string;
+    phone?: string;
+  };
 }
 
 /**
@@ -362,6 +379,50 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Register a FastTrax license (race-pack flow, new/unlicensed racer). Runs
+    // AFTER the charge; the $4.99 is already in `amount`. Server re-verifies the
+    // racer isn't already licensed (never double-register), persists a durable
+    // obligation, then sells + confirms it. Never throws — a failure is a
+    // reconcile row (the guest already paid exactly once).
+    let licenseRegistered: boolean | undefined;
+    const license = postPaymentAction?.license;
+    if (license?.personId && racePackLicenseEnabled()) {
+      const personId = String(license.personId);
+      const sourceKey = `${billId}:${personId}`;
+      const memberName = `${license.firstName ?? ""} ${license.lastName ?? ""}`.trim() || "Racer";
+      try {
+        await upsertLicenseObligations(sourceKey, "web", [
+          {
+            personId,
+            memberName,
+            email: license.email ?? null,
+            phone: license.phone ?? null,
+            priceCents: LICENSE_PRICE_CENTS,
+          },
+        ]);
+        // Brand-new web person's Office record may still lag the create → null →
+        // trust the flow's intent (true). A verified-licensed racer → skip.
+        const needs = await personNeedsLicense(personId, true);
+        if (needs) {
+          const [out] = await grantLicenses({
+            sourceKey,
+            obligations: [{ personId, memberName, email: license.email, phone: license.phone }],
+            squareRef: cardPaymentId ?? primaryPaymentId,
+          });
+          licenseRegistered = out?.registered ?? false;
+        } else {
+          licenseRegistered = true; // already licensed — nothing to do
+          console.log(`[square/pay] license skipped — already licensed: person=${personId}`);
+        }
+      } catch (err) {
+        licenseRegistered = false;
+        console.error(
+          `[square/pay] license registration error after charge: billId=${billId} person=${personId}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
     console.log(
       `[square/pay] success billId=${billId} amount=${amount} gc=${gcApprovedCents} card=${cardApprovedCents} gcPaymentId=${gcPaymentId ?? "-"} cardPaymentId=${cardPaymentId ?? "-"}`,
     );
@@ -383,6 +444,9 @@ export async function POST(req: NextRequest) {
       depositId: depositResult?.depositId,
       depositCreditFailed: depositResult?.failed === true ? true : undefined,
       depositError: depositResult?.error,
+      // License registration outcome (race-pack flow). undefined when no license
+      // was requested; false = registration failed post-charge (reconcile row).
+      licenseRegistered,
     });
   } catch (err) {
     console.error("[square/pay] error:", err);

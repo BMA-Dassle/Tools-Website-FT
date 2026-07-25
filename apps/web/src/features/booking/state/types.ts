@@ -75,6 +75,15 @@ export interface PartyMember {
   pandoraPersonId?: string;
   /** Drives Starter-only filter + per-first-timer license fee. */
   isNewRacer: boolean;
+  /**
+   * The FastTrax license was ALREADY bought + registered for this racer (e.g. a
+   * standalone race-pack purchase's "Race today — use one now" hand-off). Keeps
+   * `isNewRacer: true` (Starter-only tier + the height/age safety confirm still
+   * apply) while suppressing a SECOND license — both the $4.99 checkout line
+   * (checkout.ts newRacerCount) and the withLicense BMI grant (race.ts
+   * licenseHeatIndices). Never re-charge a license the guest already paid for.
+   */
+  licensePrepaid?: boolean;
   /** Adult / junior — drives race product eligibility. */
   category?: "adult" | "junior";
   /** True when this member is also session.contact (the paying customer). */
