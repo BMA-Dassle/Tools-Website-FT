@@ -21,6 +21,14 @@ export const en = {
   "attract.subtitle.bowling":
     "Book bowling, blasters & laser tag right here — takes about a minute.",
   "attract.touchToStart": "Touch to get started",
+  "attract.startingUp": "Starting up…",
+  "attract.touchAnywhere": "Touch anywhere",
+  "attract.vipExperience": "VIP Experience",
+  "attract.racePacks": "Race packs — from {price}",
+  "attract.waiver": "Online & Group Waiver",
+  "attract.checkin": "Checking in? Start here",
+  "attract.raceGrid": "View race grid",
+  "attract.raceGridSub": "Check upcoming race times",
 
   // --- Category chooser (KioskCategories) ---
   "categories.heading.addAnything": "Add anything else?",

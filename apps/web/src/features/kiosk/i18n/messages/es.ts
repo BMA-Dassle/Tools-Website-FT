@@ -24,6 +24,14 @@ export const es: Record<MessageKey, string> = {
   "attract.subtitle.bowling":
     "Reserva boliche, blasters y láser tag aquí mismo — toma como un minuto.",
   "attract.touchToStart": "Toca para comenzar",
+  "attract.startingUp": "Iniciando…",
+  "attract.touchAnywhere": "Toca en cualquier lugar",
+  "attract.vipExperience": "Experiencia VIP",
+  "attract.racePacks": "Paquetes de carreras — desde {price}",
+  "attract.waiver": "Exención en línea y grupal",
+  "attract.checkin": "¿Vas a registrarte? Empieza aquí",
+  "attract.raceGrid": "Ver la parrilla de carreras",
+  "attract.raceGridSub": "Consulta los próximos horarios de carreras",
 
   // --- Category chooser (KioskCategories) ---
   "categories.heading.addAnything": "¿Agregar algo más?",

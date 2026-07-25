@@ -195,7 +195,7 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   if (booting && !config) {
     return (
       <div className="absolute inset-0 flex items-center justify-center bg-[#000418]">
-        <BrandedLoader brand="fasttrax" label="Starting up…" />
+        <BrandedLoader brand="fasttrax" label={t("attract.startingUp")} />
       </div>
     );
   }
@@ -300,7 +300,7 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
             className={`k-display text-[42px]${config.brand === "fasttrax" ? " kiosk-ad-rumble" : ""}`}
             data-glow-phase-ms={carPhaseMs}
           >
-            Touch anywhere <span style={{ color: ad.accent }}>{ad.bannerAction}</span>
+            {t("attract.touchAnywhere")} <span style={{ color: ad.accent }}>{ad.bannerAction}</span>
           </div>
           <BannerDot accent={ad.accent} />
         </div>
@@ -360,7 +360,7 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
               is still reachable via "Touch to get started" / any tap. */}
           <span className="col-span-2">
             <QuickChip
-              label="VIP Experience"
+              label={t("attract.vipExperience")}
               gold
               disabled={!vipAvailable}
               onClick={() => start("vip")}
@@ -371,7 +371,11 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
               the 2×2 grid never orphans a chip. Kill switch aware. */}
           {kioskRacePacksEnabled() && config.brand === "fasttrax" && (
             <span className="col-span-2">
-              <QuickChip label="Race packs — from $49.99" gold onClick={() => start("packs")} />
+              <QuickChip
+                label={t("attract.racePacks", { price: "$49.99" })}
+                gold
+                onClick={() => start("packs")}
+              />
             </span>
           )}
         </span>
@@ -392,7 +396,7 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           className="k-display k-tap relative z-10 mx-[64px] mb-[8px] flex h-[92px] shrink-0 items-center justify-center gap-[16px] rounded-2xl border-2 border-white/15 text-[30px] text-white/60"
         >
           <IconSignature size={34} aria-hidden="true" />
-          Online &amp; Group Waiver
+          {t("attract.waiver")}
         </button>
       )}
 
@@ -412,7 +416,7 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
               className="k-display k-tap flex h-[92px] flex-1 items-center justify-center gap-[16px] rounded-2xl border-2 border-[#00e2e5]/40 text-[30px] text-[#00e2e5]"
             >
               <IconUserCheck size={34} aria-hidden="true" />
-              Checking in? Start here
+              {t("attract.checkin")}
             </button>
           )}
           {kioskRaceInfoEnabled() && config.center === "fort-myers" && (
@@ -426,9 +430,9 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
             >
               <span className="k-display flex items-center gap-[14px] text-[30px]">
                 <IconFlag size={30} aria-hidden="true" />
-                View race grid
+                {t("attract.raceGrid")}
               </span>
-              <span className="text-[19px] text-[#ff6b6b]/70">Check upcoming race times</span>
+              <span className="text-[19px] text-[#ff6b6b]/70">{t("attract.raceGridSub")}</span>
             </button>
           )}
         </div>
