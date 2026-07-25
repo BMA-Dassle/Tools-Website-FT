@@ -22,9 +22,11 @@ import { getPublicReopenMinutes } from "@/lib/group-events";
 import { AttractionSlotStep } from "~/components/features/booking/steps/attraction";
 import { pickFirstSlot, slotLabel, slotStartMs, todayYmd } from "../service/first-available";
 import { BrandedLoader } from "../components/BrandedLoader";
+import { useT } from "../i18n";
 
 const KioskSlotStepComponent: StepDef<AttractionItem>["Component"] = (props) => {
   const { item, session, onChange, dispatch, setBusy } = props;
+  const t = useT();
   const ctx = useMemo(
     () => (item.slug ? resolveAttractionContext(item.slug, session) : null),
     [item.slug, session],
@@ -136,10 +138,9 @@ const KioskSlotStepComponent: StepDef<AttractionItem>["Component"] = (props) => 
       );
     } catch (err) {
       onChange({ slot: null, slotProposal: null, bmiLineId: null });
+      // err.message is a raw vendor/technical detail — appended untranslated.
       setHoldError(
-        err instanceof Error
-          ? `That time just filled — pick another below. (${err.message})`
-          : "That time just filled — pick another below.",
+        err instanceof Error ? `${t("slot.hold.filled")} (${err.message})` : t("slot.hold.filled"),
       );
       setFirstPick(null);
     } finally {
@@ -156,11 +157,7 @@ const KioskSlotStepComponent: StepDef<AttractionItem>["Component"] = (props) => 
       {/* Book-now hero */}
       {scanState === "loading" ? (
         <div className="flex justify-center py-[48px]">
-          <BrandedLoader
-            brand={session.entryBrand}
-            size={180}
-            label="Finding your next available time…"
-          />
+          <BrandedLoader brand={session.entryBrand} size={180} label={t("slot.finding")} />
         </div>
       ) : firstPick ? (
         <button
@@ -171,17 +168,17 @@ const KioskSlotStepComponent: StepDef<AttractionItem>["Component"] = (props) => 
           style={{ borderLeft: `8px solid ${heroSelected ? accent : "rgba(255,255,255,0.15)"}` }}
         >
           <div className="k-eyebrow" style={{ color: accent }}>
-            Next available · today
+            {t("slot.nextAvailable")}
           </div>
           <div className="k-display mt-[10px] text-[150px] leading-none tabular-nums">
             {slotLabel(firstPick.block.start)}
           </div>
           <div className="mt-[12px] text-[28px] text-white/60">
             {holding
-              ? "Holding your spot…"
+              ? t("slot.holding")
               : heroSelected
-                ? "Held for you — hit Continue to keep going"
-                : `${firstPick.block.freeSpots} spots open — tap to grab it`}
+                ? t("slot.held")
+                : t("slot.spotsOpen", { count: firstPick.block.freeSpots })}
           </div>
           {holding && (
             <div className="absolute right-[40px] top-1/2 h-[40px] w-[40px] -translate-y-1/2 animate-spin rounded-full border-4 border-white/20 border-t-[#00E2E5]" />
@@ -189,12 +186,11 @@ const KioskSlotStepComponent: StepDef<AttractionItem>["Component"] = (props) => 
         </button>
       ) : scanState === "error" ? (
         <div className="k-glass p-[28px] text-center text-[26px] text-red-200">
-          Couldn&rsquo;t check today&rsquo;s times — pick from the list below.
+          {t("slot.error")}
         </div>
       ) : (
         <div className="k-glass p-[32px] text-center text-[28px] text-white/55">
-          Nothing bookable for your group in the next few hours — today&rsquo;s remaining times are
-          below, or ask the front desk about walk-ins.
+          {t("slot.noneSoon")}
         </div>
       )}
 
@@ -206,13 +202,18 @@ const KioskSlotStepComponent: StepDef<AttractionItem>["Component"] = (props) => 
 
       {/* Later-today path — the full web slot grid with all its rules */}
       <div>
-        <div className="k-eyebrow mb-[16px] text-white/40">Or pick another time today</div>
+        <div className="k-eyebrow mb-[16px] text-white/40">{t("slot.orPickAnother")}</div>
+        {/* AttractionSlotStep is a shared WEB component (components/features/...)
+            — its own copy is out of this kiosk tranche's scope. */}
         <AttractionSlotStep.Component {...props} />
       </div>
     </div>
   );
 };
 
+// TODO(i18n): `title` + canAdvance `reason` are static StepDef metadata rendered
+// by the flow shell, out of useT()'s reach — localize with the step-registry
+// pass (separate tranche). Left English.
 export const KioskSlotStep: StepDef<AttractionItem> = {
   id: "attraction-slot", // keep the web id: KioskFlow's advance handler books on it
   title: "Time",

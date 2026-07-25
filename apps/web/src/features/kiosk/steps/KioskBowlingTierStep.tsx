@@ -18,6 +18,7 @@ import { KIOSK_PHOTOS } from "../assets";
 import { useResilientImages } from "../hooks/useResilientImage";
 import { BrandedLoader } from "../components/BrandedLoader";
 import { FASTTRAX_QAMF_CENTER_ID, FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
+import { useT } from "../i18n";
 
 const CENTER_CODES: Record<number, string> = {
   9172: "TXBSQN0FEKQ11", // HeadPinz Fort Myers
@@ -36,6 +37,7 @@ function primaryPriceCents(exps: BowlingExperienceWithDetails[], vip: boolean): 
 }
 
 const KioskBowlingTierStepComponent: StepDef<BowlingItem>["Component"] = ({ item, onChange }) => {
+  const t = useT();
   const centerId = item.qamfCenterId ?? 9172;
   const centerCode = CENTER_CODES[centerId] ?? "TXBSQN0FEKQ11";
   const [exps, setExps] = useState<BowlingExperienceWithDetails[]>([]);
@@ -65,7 +67,7 @@ const KioskBowlingTierStepComponent: StepDef<BowlingItem>["Component"] = ({ item
   if (loading) {
     return (
       <div className="flex justify-center py-[48px]">
-        <BrandedLoader brand="headpinz" size={160} label="Loading lanes…" />
+        <BrandedLoader brand="headpinz" size={160} label={t("bowlingTier.loading")} />
       </div>
     );
   }
@@ -110,7 +112,7 @@ const KioskBowlingTierStepComponent: StepDef<BowlingItem>["Component"] = ({ item
         <div className="relative z-[1] min-w-0 p-[32px]">
           {vip && (
             <div className="k-eyebrow mb-[8px]" style={{ color: accent }}>
-              Upgrade
+              {t("bowlingTier.upgrade")}
             </div>
           )}
           <div className="k-display break-words text-[52px] leading-none">{title}</div>
@@ -118,7 +120,10 @@ const KioskBowlingTierStepComponent: StepDef<BowlingItem>["Component"] = ({ item
           {priceCents != null && (
             <div className="mt-[14px] text-[30px] font-extrabold tabular-nums">
               ${(priceCents / 100).toFixed(2)}
-              <span className="text-[22px] font-semibold text-white/55"> /lane per hour</span>
+              <span className="text-[22px] font-semibold text-white/55">
+                {" "}
+                {t("bowlingTier.perLaneHour")}
+              </span>
             </div>
           )}
         </div>
@@ -129,15 +134,13 @@ const KioskBowlingTierStepComponent: StepDef<BowlingItem>["Component"] = ({ item
 
   return (
     <div className="space-y-[24px]">
-      <p className="text-[26px] text-white/55">
-        Standard lanes or the VIP suite with lounge service — pick your time next.
-      </p>
+      <p className="text-[26px] text-white/55">{t("bowlingTier.intro")}</p>
       <div className={`grid gap-[24px] ${hasVip ? "grid-cols-2" : "grid-cols-1"}`}>
         {card(
           false,
           KIOSK_PHOTOS.bowl,
-          "Classic Lanes",
-          "The house favorite — up to 8 per lane",
+          t("bowlingTier.classic.title"),
+          t("bowlingTier.classic.sub"),
           regularPrice,
           "#00E2E5",
         )}
@@ -147,8 +150,8 @@ const KioskBowlingTierStepComponent: StepDef<BowlingItem>["Component"] = ({ item
             // HyperBowling glow — the VIP-suite look. KIOSK_PHOTOS.vip is the
             // combo hero (racing) and looked wrong on a lanes card.
             KIOSK_PHOTOS.vipLanes,
-            "VIP Suites",
-            "Private suite seating, lounge service to your lane",
+            t("bowlingTier.vip.title"),
+            t("bowlingTier.vip.sub"),
             vipPrice,
             "#e8b14c",
           )}
@@ -157,6 +160,10 @@ const KioskBowlingTierStepComponent: StepDef<BowlingItem>["Component"] = ({ item
   );
 };
 
+// TODO(i18n): `title` and the canAdvance `reason` below are static StepDef
+// metadata rendered by the flow shell (KioskFlow), not inside the component, so
+// useT() can't reach them. Localizing them means a coordinated pass over the
+// whole step registry (racing steps included) — a separate tranche. Left English.
 export const KioskBowlingTierStep: StepDef<BowlingItem> = {
   id: "bowling-tier", // keep web id — offer step + cursors align
   title: "Lanes",

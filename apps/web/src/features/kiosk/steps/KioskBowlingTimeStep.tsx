@@ -19,6 +19,7 @@ import {
   operatingHours,
 } from "~/features/booking/service/bowling-hours";
 import { todayYmd } from "../service/first-available";
+import { useT } from "../i18n";
 
 type BowlingLikeItem = BowlingItem | KbfItem;
 
@@ -42,6 +43,7 @@ const KioskBowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   session,
   onChange,
 }) => {
+  const t = useT();
   const centerId = item.qamfCenterId ?? 9172;
   const center = CENTERS[centerId] ?? CENTERS[9172];
   const today = todayYmd();
@@ -94,18 +96,26 @@ const KioskBowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         seen.add(h.heatId);
         const m = wallMinutes(h.heatId);
         if (m != null)
-          busy.push({ startMin: m, endMin: m + ASSUMED_ACTIVITY_MINUTES, label: "You're racing" });
+          busy.push({
+            startMin: m,
+            endMin: m + ASSUMED_ACTIVITY_MINUTES,
+            label: t("bowlingTime.busy.racing"),
+          });
       }
     } else if (other.kind === "attraction" && other.slot) {
       const m = wallMinutes(other.slot);
       if (m != null)
-        busy.push({ startMin: m, endMin: m + ASSUMED_ACTIVITY_MINUTES, label: "You're booked" });
+        busy.push({
+          startMin: m,
+          endMin: m + ASSUMED_ACTIVITY_MINUTES,
+          label: t("bowlingTime.busy.booked"),
+        });
     } else if ((other.kind === "bowling" || other.kind === "kbf") && other.hour != null) {
       const start = other.hour * 60 + (other.minute ?? 0);
       busy.push({
         startMin: start,
         endMin: start + (other.durationMinutes ?? MIN_BOWLING_MINUTES),
-        label: "You're bowling",
+        label: t("bowlingTime.busy.bowling"),
       });
     }
   }
@@ -137,26 +147,24 @@ const KioskBowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
           style={{ borderLeft: `8px solid ${heroSelected ? "#00E2E5" : "rgba(255,255,255,0.15)"}` }}
         >
           <div className="k-eyebrow" style={{ color: "#00E2E5" }}>
-            Next open lanes · today at {center.name}
+            {t("bowlingTime.heroEyebrow", { center: center.name })}
           </div>
           <div className="k-display mt-[10px] text-[150px] leading-none tabular-nums">
             {bowlingTimeLabel(first.hour, first.minute)}
           </div>
           <div className="mt-[12px] text-[28px] text-white/60">
-            {heroSelected
-              ? "Locked in — hit Continue to pick your lane package"
-              : "Tap to bowl as soon as you're ready"}
+            {heroSelected ? t("bowlingTime.heroSelected") : t("bowlingTime.heroUnselected")}
           </div>
         </button>
       ) : (
         <div className="k-glass p-[32px] text-center text-[28px] text-white/55">
-          No more lane times today — the front desk can help with walk-in availability.
+          {t("bowlingTime.noneToday")}
         </div>
       )}
 
       {slots.length > 1 && (
         <div>
-          <div className="k-eyebrow mb-[16px] text-white/40">Or pick another time today</div>
+          <div className="k-eyebrow mb-[16px] text-white/40">{t("bowlingTime.orPickAnother")}</div>
           <div className="grid grid-cols-4 gap-[14px]">
             {slots.map((s) => {
               const conflict = conflictOf(s);
@@ -177,11 +185,8 @@ const KioskBowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
             })}
           </div>
           <p className="mt-[16px] text-[24px] text-white/40">
-            {anyConflicts
-              ? "Crossed-out times overlap something you've already booked this visit. "
-              : ""}
-            Exact lane availability is confirmed on the next step — if a time just filled,
-            we&rsquo;ll offer the closest open one.
+            {anyConflicts ? `${t("bowlingTime.conflictNote")} ` : ""}
+            {t("bowlingTime.availabilityNote")}
           </p>
         </div>
       )}
@@ -189,6 +194,9 @@ const KioskBowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   );
 };
 
+// TODO(i18n): `title` + canAdvance `reason` strings below are static StepDef
+// metadata rendered by the flow shell, out of useT()'s reach — localize with the
+// step-registry pass (separate tranche). Left English.
 export const KioskBowlingTimeStep: StepDef<BowlingLikeItem> = {
   id: "bowling-slots", // keep the web id: downstream steps + cursors align
   title: "Time",

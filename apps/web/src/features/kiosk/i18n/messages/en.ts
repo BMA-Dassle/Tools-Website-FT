@@ -101,6 +101,43 @@ export const en = {
   "confirmation.raceCheckin.eyebrow": "Race check-in",
   "confirmation.raceCheckin.title": "What to expect",
   "confirmation.raceCheckin.gotIt": "Got it",
+
+  // --- Bowling tier step (KioskBowlingTierStep) ---
+  "bowlingTier.loading": "Loading lanes…",
+  "bowlingTier.intro": "Standard lanes or the VIP suite with lounge service — pick your time next.",
+  "bowlingTier.upgrade": "Upgrade",
+  "bowlingTier.perLaneHour": "/lane per hour",
+  "bowlingTier.classic.title": "Classic Lanes",
+  "bowlingTier.classic.sub": "The house favorite — up to 8 per lane",
+  "bowlingTier.vip.title": "VIP Suites",
+  "bowlingTier.vip.sub": "Private suite seating, lounge service to your lane",
+
+  // --- Bowling time step (KioskBowlingTimeStep) ---
+  "bowlingTime.busy.racing": "You’re racing",
+  "bowlingTime.busy.booked": "You’re booked",
+  "bowlingTime.busy.bowling": "You’re bowling",
+  "bowlingTime.heroEyebrow": "Next open lanes · today at {center}",
+  "bowlingTime.heroSelected": "Locked in — continue to pick your lane package",
+  "bowlingTime.heroUnselected": "Tap to bowl as soon as you’re ready",
+  "bowlingTime.noneToday":
+    "No more lane times today — the front desk can help with walk-in availability.",
+  "bowlingTime.orPickAnother": "Or pick another time today",
+  "bowlingTime.conflictNote":
+    "Crossed-out times overlap something you’ve already booked this visit.",
+  "bowlingTime.availabilityNote":
+    "Exact lane availability is confirmed on the next step — if a time just filled, we’ll offer the closest open one.",
+
+  // --- Attraction slot step (KioskSlotStep) ---
+  "slot.finding": "Finding your next available time…",
+  "slot.nextAvailable": "Next available · today",
+  "slot.holding": "Holding your spot…",
+  "slot.held": "Held for you — continue to keep going",
+  "slot.spotsOpen": "{count, plural, one {# spot} other {# spots}} open — tap to grab it",
+  "slot.hold.filled": "That time just filled — pick another below.",
+  "slot.error": "Couldn’t check today’s times — pick from the list below.",
+  "slot.noneSoon":
+    "Nothing bookable for your group in the next few hours — today’s remaining times are below, or ask the front desk about walk-ins.",
+  "slot.orPickAnother": "Or pick another time today",
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -101,4 +101,43 @@ export const es: Record<MessageKey, string> = {
   "confirmation.raceCheckin.eyebrow": "Registro de carreras",
   "confirmation.raceCheckin.title": "Qué esperar",
   "confirmation.raceCheckin.gotIt": "Entendido",
+
+  // --- Bowling tier step (KioskBowlingTierStep) ---
+  "bowlingTier.loading": "Cargando pistas…",
+  "bowlingTier.intro":
+    "Pistas estándar o la suite VIP con servicio de salón — elige tu horario a continuación.",
+  "bowlingTier.upgrade": "Mejora",
+  "bowlingTier.perLaneHour": "/pista por hora",
+  "bowlingTier.classic.title": "Pistas clásicas",
+  "bowlingTier.classic.sub": "La favorita de la casa — hasta 8 por pista",
+  "bowlingTier.vip.title": "Suites VIP",
+  "bowlingTier.vip.sub": "Asientos en suite privada, servicio de salón en tu pista",
+
+  // --- Bowling time step (KioskBowlingTimeStep) ---
+  "bowlingTime.busy.racing": "Estás en carrera",
+  "bowlingTime.busy.booked": "Ya tienes una reserva",
+  "bowlingTime.busy.bowling": "Estás jugando boliche",
+  "bowlingTime.heroEyebrow": "Próximas pistas disponibles · hoy en {center}",
+  "bowlingTime.heroSelected": "Listo — continúa para elegir tu paquete de pista",
+  "bowlingTime.heroUnselected": "Toca para jugar boliche en cuanto estés listo",
+  "bowlingTime.noneToday":
+    "No quedan horarios de pista hoy — la recepción puede ayudarte con disponibilidad sin cita.",
+  "bowlingTime.orPickAnother": "O elige otro horario para hoy",
+  "bowlingTime.conflictNote":
+    "Los horarios tachados se cruzan con algo que ya reservaste en esta visita.",
+  "bowlingTime.availabilityNote":
+    "La disponibilidad exacta de pistas se confirma en el siguiente paso — si un horario se acaba de llenar, te ofreceremos el más cercano disponible.",
+
+  // --- Attraction slot step (KioskSlotStep) ---
+  "slot.finding": "Buscando tu próxima hora disponible…",
+  "slot.nextAvailable": "Próxima disponibilidad · hoy",
+  "slot.holding": "Apartando tu lugar…",
+  "slot.held": "Apartado para ti — continúa para seguir",
+  "slot.spotsOpen":
+    "{count, plural, one {# lugar disponible} other {# lugares disponibles}} — toca para tomarlo",
+  "slot.hold.filled": "Ese horario se acaba de llenar — elige otro abajo.",
+  "slot.error": "No pudimos revisar los horarios de hoy — elige de la lista de abajo.",
+  "slot.noneSoon":
+    "No hay nada disponible para tu grupo en las próximas horas — los horarios restantes de hoy están abajo, o pregunta en la recepción por disponibilidad sin cita.",
+  "slot.orPickAnother": "O elige otro horario para hoy",
 };
