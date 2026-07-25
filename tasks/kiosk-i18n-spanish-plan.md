@@ -122,3 +122,18 @@ Check-in flow · race-info hub · mobile-join guest screens.
   landed on the wrong branch, recovered via reflog).
 - es.ts is an AI first-pass — Phase 3 native-Spanish review + portrait layout QA still required
   before the flag is enabled anywhere.
+
+### 2026-07-25 (later) — 11 screens done
+Added since the first log entry (all green, pushed):
+- KioskBowlingDetailsStep · KioskBowlingOfferStep · KioskBowlingPeopleStep
+- KioskCheckoutScreen · KioskCheckoutUpsell
+
+**Converted so far (11):** Attract, Categories, Confirmation, BowlingTier, BowlingTime,
+Slot, BowlerDetails, BowlingOffer, BowlingPeople, Checkout, Upsell.
+
+**Remaining Phase 2 (largest/most delicate — do with fresh context):**
+- KioskRewardsSection (~492 lines) · KioskPeopleStep (racing, ~2,256 lines — headings/buttons,
+  TODO the interpolated business-rule strings) · Check-in flow · race-info hub · mobile-join.
+
+**Where the work lives:** isolated worktree `.claude/worktrees/agent-ab7395b5315a2b9b4` on
+`feat/kiosk-i18n-spanish` (the main tree is on other work). Reused CartView/web blocks stay English.
