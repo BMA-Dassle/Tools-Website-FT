@@ -297,4 +297,69 @@ export const es: Record<MessageKey, string> = {
   "join.err.dob": "Ingresa tu fecha de nacimiento como MM/DD/AAAA.",
   "join.err.phone": "Ingresa tu número de teléfono móvil.",
   "join.err.email": "Ese correo no parece correcto — o déjalo en blanco.",
+
+  // --- Mobile-join phone flow (join/phone/JoinPhoneFlow) ---
+  "joinFlow.finding": "Buscando tu grupo…",
+  "joinFlow.joinGroup": "Únete a tu grupo",
+  "joinFlow.race": "Carreras de Go-Kart",
+  "joinFlow.activity": "Registro de actividad",
+  "joinFlow.locationLine": "en {venue} — {kind}",
+  "joinFlow.onePayment":
+    "Un grupo, un pago. El pago dividido no está disponible aquí — todo tu grupo paga junto en el kiosco.",
+  "joinFlow.adultsOnly":
+    "Solo adultos mayores de 18. Cualquier persona menor de 18 se agrega en el kiosco, donde un adulto puede firmar por ella.",
+  "joinFlow.beenBefore": "Ya he venido antes",
+  "joinFlow.imNew": "Soy nuevo — regístrame",
+  "joinFlow.takesMinute": "Toma como un minuto. Tu grupo puede seguir en el kiosco.",
+  "joinFlow.lookupIntro": "Encuentra tu cuenta — te enviaremos un código por mensaje o correo",
+  "joinFlow.switchToNew": "En realidad, soy nuevo aquí →",
+  "joinFlow.back": "Atrás",
+  "joinFlow.setYourself": "Regístrate",
+  "joinFlow.signingFor": "Firmando por:",
+  "joinFlow.waiver.race": "Exención de carreras",
+  "joinFlow.waiver.activity": "Exención de actividad",
+  "joinFlow.waiver.subheading": "Firma una vez — cubre toda tu visita de hoy.",
+  "joinFlow.addingToGroup": "Agregándote al grupo…",
+  "joinFlow.onList": "¡Estás en la lista del kiosco!",
+  "joinFlow.addedHeadBack":
+    "{name} ha sido agregado. Regresa con tu grupo — el kiosco muestra que ya estás.",
+  "joinFlow.reminderPay":
+    "Recordatorio: tu grupo paga junto en el kiosco — el pago dividido no está disponible.",
+  "joinFlow.addAnother": "Agregar otra persona",
+  "joinFlow.batchHeading":
+    "{count, plural, one {¡Estás en la lista del kiosco!} other {¡# personas agregadas!}}",
+  "joinFlow.batchAddedTail":
+    "{count, plural, one { ha sido agregado} other { han sido agregados}}. Regresa con tu grupo — el kiosco muestra que ya estás.",
+  "joinFlow.batchSkipped":
+    "{names} {count, plural, one {es} other {son}} menor de 18 — un adulto puede {count, plural, one {agregarlo} other {agregar a cada uno}} en el kiosco.",
+  "joinFlow.addMore": "Agregar más personas",
+  "joinFlow.minorTitle": "¿Menor de 18? Ve al kiosco.",
+  "joinFlow.minorBody":
+    "Los jugadores menores de 18 se agregan en el kiosco para que un padre o tutor firme su exención. Cualquier persona mayor de 18 puede unirse aquí mismo.",
+  "joinFlow.addSomeoneElse": "Agregar a alguien más",
+  "joinFlow.tryAgain": "Intentar de nuevo",
+  "joinFlow.startOver": "Empezar de nuevo",
+  "joinFlow.reconnecting": "Reconectando…",
+  "joinFlow.confirmBirthday": "Confirma tu fecha de nacimiento",
+  "joinFlow.hiNeedOnce": "Hola {firstName} — la necesitamos una vez para tu exención.",
+  "joinFlow.dobAria": "Fecha de nacimiento",
+  "joinFlow.continue": "Continuar",
+  "joinFlow.err.setup":
+    "No pudimos terminar tu registro. Inténtalo de nuevo — o ve a la recepción.",
+  "joinFlow.err.full":
+    "La lista de este grupo está llena — ve a la recepción para que te agreguen.",
+  "joinFlow.err.rateLimit": "Un momento — inténtalo de nuevo en unos segundos.",
+  "joinFlow.err.addFail": "Algo falló al agregarte a la lista. Inténtalo de nuevo.",
+  "joinFlow.err.connection": "Problema de conexión — revisa tu señal e inténtalo de nuevo.",
+  "joinFlow.ended.movedOn.title": "El grupo siguió adelante.",
+  "joinFlow.ended.movedOn.body":
+    "El kiosco terminó de agregar jugadores antes de que terminaras. Avísale a tu grupo — pueden agregarte directamente en el kiosco, o ve a la recepción.",
+  "joinFlow.ended.cancelled.title": "Esta sesión se canceló en el kiosco.",
+  "joinFlow.ended.cancelled.body":
+    "Pídele a tu grupo que empiece de nuevo, luego escanea el nuevo código QR.",
+  "joinFlow.ended.expired.title": "Este código QR expiró.",
+  "joinFlow.ended.expired.body":
+    "Escanea de nuevo el código en la pantalla del kiosco para unirte.",
+  "joinFlow.ended.invalid.title": "Este enlace no es válido.",
+  "joinFlow.ended.invalid.body": "Escanea el código QR en el kiosco para unirte a tu grupo.",
 };

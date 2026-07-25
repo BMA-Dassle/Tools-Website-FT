@@ -307,6 +307,67 @@ export const en = {
   "join.err.dob": "Enter your birthday as MM/DD/YYYY.",
   "join.err.phone": "Enter your mobile phone number.",
   "join.err.email": "That email doesn’t look right — or leave it blank.",
+
+  // --- Mobile-join phone flow (join/phone/JoinPhoneFlow) ---
+  "joinFlow.finding": "Finding your group…",
+  "joinFlow.joinGroup": "Join your group",
+  "joinFlow.race": "Go-Kart Racing",
+  "joinFlow.activity": "Activity check-in",
+  "joinFlow.locationLine": "at {venue} — {kind}",
+  "joinFlow.onePayment":
+    "One group, one payment. Split payment isn’t available here — your whole group pays together at the kiosk.",
+  "joinFlow.adultsOnly":
+    "Adults 18+ only. Anyone under 18 gets added at the kiosk, where an adult can sign for them.",
+  "joinFlow.beenBefore": "I’ve been here before",
+  "joinFlow.imNew": "I’m new — set me up",
+  "joinFlow.takesMinute": "Takes about a minute. Your group can keep going at the kiosk.",
+  "joinFlow.lookupIntro": "Find your account — we’ll text or email you a code",
+  "joinFlow.switchToNew": "Actually, I’m new here →",
+  "joinFlow.back": "Back",
+  "joinFlow.setYourself": "Set yourself up",
+  "joinFlow.signingFor": "Signing for:",
+  "joinFlow.waiver.race": "Racing Waiver",
+  "joinFlow.waiver.activity": "Activity Waiver",
+  "joinFlow.waiver.subheading": "Sign once — it covers your whole visit today.",
+  "joinFlow.addingToGroup": "Adding you to the group…",
+  "joinFlow.onList": "You’re on the kiosk list!",
+  "joinFlow.addedHeadBack":
+    "{name} has been added. Head back to your group — the kiosk shows you’re in.",
+  "joinFlow.reminderPay":
+    "Reminder: your group pays together at the kiosk — split payment isn’t available.",
+  "joinFlow.addAnother": "Add another person",
+  "joinFlow.batchHeading":
+    "{count, plural, one {You’re on the kiosk list!} other {# people added!}}",
+  "joinFlow.batchAddedTail":
+    "{count, plural, one { has} other { have}} been added. Head back to your group — the kiosk shows you’re in.",
+  "joinFlow.batchSkipped":
+    "{names} {count, plural, one {is} other {are}} under 18 — an adult can add {count, plural, one {them} other {each of them}} at the kiosk.",
+  "joinFlow.addMore": "Add more people",
+  "joinFlow.minorTitle": "Under 18? Head to the kiosk.",
+  "joinFlow.minorBody":
+    "Players under 18 are added at the kiosk so a parent or guardian can sign their waiver. Everyone 18+ can join right here.",
+  "joinFlow.addSomeoneElse": "Add someone else instead",
+  "joinFlow.tryAgain": "Try again",
+  "joinFlow.startOver": "Start over",
+  "joinFlow.reconnecting": "Reconnecting…",
+  "joinFlow.confirmBirthday": "Confirm your birthday",
+  "joinFlow.hiNeedOnce": "Hi {firstName} — we need it once for your waiver.",
+  "joinFlow.dobAria": "Birthday",
+  "joinFlow.continue": "Continue",
+  "joinFlow.err.setup": "We couldn’t finish setting you up. Try again — or see the front desk.",
+  "joinFlow.err.full": "This group’s list is full — see the front desk to be added.",
+  "joinFlow.err.rateLimit": "One moment — try again in a few seconds.",
+  "joinFlow.err.addFail": "Something hiccuped adding you to the list. Try again.",
+  "joinFlow.err.connection": "Connection hiccup — check your signal and try again.",
+  "joinFlow.ended.movedOn.title": "The group moved on.",
+  "joinFlow.ended.movedOn.body":
+    "The kiosk finished adding players before you were done. Flag your group down — they can add you right at the kiosk, or see the front desk.",
+  "joinFlow.ended.cancelled.title": "This session was cancelled at the kiosk.",
+  "joinFlow.ended.cancelled.body": "Ask your group to start again, then scan the new QR code.",
+  "joinFlow.ended.expired.title": "This QR code expired.",
+  "joinFlow.ended.expired.body": "Scan the code on the kiosk screen again to join.",
+  "joinFlow.ended.invalid.title": "This link isn’t valid.",
+  "joinFlow.ended.invalid.body": "Scan the QR code on the kiosk to join your group.",
 } as const;
 
 export type MessageKey = keyof typeof en;
