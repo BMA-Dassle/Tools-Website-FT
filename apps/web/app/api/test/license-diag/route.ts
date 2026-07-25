@@ -3,7 +3,6 @@ import { apiBase } from "@/lib/api-base";
 import { fetchPersonRaw } from "~/features/daily-events/data/bmi-office";
 import {
   addMembership,
-  getMemberships,
   oneYearFromNow,
   LICENSE_MEMBERSHIP_KIND_ID,
 } from "@/lib/pandora-memberships";
@@ -11,8 +10,8 @@ import {
 /**
  * Diagnostic for the standalone FastTrax-license grant — the PANDORA membership
  * rail (no BMI bill). Mints a fake person (or takes personId), writes the license
- * membership via Pandora `addMembership`, then re-reads memberships (Pandora
- * Firebird = immediate; BMI Office = may lag) to PROVE the membership attaches.
+ * membership via Pandora `addMembership`, then reads the BMI Office record (the
+ * same source the booking gate uses) to PROVE the "License Fee" membership attaches.
  *
  * Usage (Vercel preview):
  *   GET /api/test/license-diag?create=1&membershipKindId=<F_MSK_ID>
@@ -62,21 +61,10 @@ async function bmiDirectGet(clientKey: string, path: string) {
   return { status: res.status, body };
 }
 
-/** Read memberships via BOTH sources: Pandora (Firebird, immediate) + BMI Office
- *  (cloud, may lag). Never throws — errors captured per source. */
+/** Read memberships from the BMI Office record (fetchPersonRaw) — the same source
+ *  the booking gate uses. There is no Pandora membership-read endpoint. Never
+ *  throws — errors captured. */
 async function membershipSnapshot(clientKey: string, personId: string) {
-  const pandora = await getMemberships(personId).then(
-    (rows) => ({
-      rows,
-      activeLicense: rows.some(
-        (m) =>
-          m.active &&
-          (m.name.toLowerCase().includes("license") ||
-            (!!LICENSE_MEMBERSHIP_KIND_ID && m.kindId === LICENSE_MEMBERSHIP_KIND_ID)),
-      ),
-    }),
-    (err) => ({ error: err instanceof Error ? err.message : "pandora read failed" }),
-  );
   const office = await fetchPersonRaw<{
     memberships?: Array<{ name?: string; stops?: string | null }>;
   }>(clientKey, personId).then(
@@ -93,15 +81,11 @@ async function membershipSnapshot(clientKey: string, personId: string) {
     },
     (err) => ({ error: err instanceof Error ? err.message : "office read failed" }),
   );
-  return { pandora, office };
+  return { office };
 }
 
-/** Licensed per EITHER read source. The Pandora read endpoint may not be
- *  deployed yet — the BMI Office read (what the booking gate uses) is authoritative. */
-const hasLicense = (snap: {
-  pandora: { activeLicense?: boolean };
-  office: { activeLicense?: boolean };
-}) => snap.office.activeLicense === true || snap.pandora.activeLicense === true;
+const hasLicense = (snap: { office: { activeLicense?: boolean } }) =>
+  snap.office.activeLicense === true;
 
 export async function GET(req: NextRequest) {
   try {
@@ -187,7 +171,7 @@ export async function GET(req: NextRequest) {
     }
 
     trace.after = await membershipSnapshot(clientKey, personId!);
-    type Snap = { pandora: { activeLicense?: boolean }; office: { activeLicense?: boolean } };
+    type Snap = { office: { activeLicense?: boolean } };
     const licenseAttached = hasLicense(trace.after as Snap) && !hasLicense(trace.before as Snap);
     trace.licenseAttached = licenseAttached;
 

@@ -7,11 +7,14 @@
  * licensed — no BMI booking/sell → payment/confirm dance (which we proved leaves an
  * unpaid bill and attaches NO membership; GET /membership is empty for FastTrax).
  *
- * Endpoints (parallel to the deposit endpoints; Pandora building 2026-07-25):
+ * Endpoint (verified live 2026-07-25):
  *   POST /v2/bmi/membership
- *        { locationID, personID, membershipKindID, activates?, expires } → membershipID
- *   GET  /v2/bmi/memberships/{locationID}/{personID}
- *        → the person's memberships (kind id + name + expiry)
+ *        { locationID, personID, membershipKindID, activates?, expires }
+ *        → { success, data: { action, linkID, membershipKindID, activates, expires } }
+ *
+ * There is NO Pandora membership-READ endpoint (owner: Pandora won't add one) —
+ * reads go through the BMI Office record (fetchPersonRaw), which shows the granted
+ * membership. So this module is WRITE-only.
  *
  * IMPORTANT: Pandora does NOT default `expires` (owner 2026-07-25) — the caller
  * MUST send it. `activates` defaults to now on Pandora's side.
@@ -42,58 +45,6 @@ function authHeaders(): HeadersInit {
     Accept: "application/json",
     "Content-Type": "application/json",
   };
-}
-
-export interface MembershipRow {
-  /** F_MSK_ID — membership kind id. */
-  kindId: string;
-  /** Human-readable name ("License Fee", "Intermediate", ...). */
-  name: string;
-  /** ISO expiry (null / far-future = never). */
-  expires: string | null;
-  /** Derived: not expired. */
-  active: boolean;
-}
-
-/** Read a person's memberships from Firebird via Pandora. Field-spelling tolerant
- *  until the exact response shape is confirmed against the live endpoint. */
-export async function getMemberships(
-  personId: string | number,
-  locationId: string = FASTTRAX_LOCATION_ID,
-): Promise<MembershipRow[]> {
-  const url = `${PANDORA_BASE}/v2/bmi/memberships/${encodeURIComponent(locationId)}/${encodeURIComponent(String(personId))}`;
-  const res = await fetch(url, { headers: authHeaders(), cache: "no-store" });
-  if (!res.ok) {
-    throw new Error(`Pandora memberships ${res.status}: ${(await res.text()).slice(0, 200)}`);
-  }
-  const json = (await res.json()) as { success?: boolean; data?: unknown };
-  const rows = Array.isArray(json.data) ? json.data : Array.isArray(json) ? json : [];
-  const now = Date.now();
-  return (rows as Array<Record<string, unknown>>).map((r) => {
-    const expires =
-      (r.OUT_MSK_EXPIRES as string) ?? (r.expires as string) ?? (r.stops as string) ?? null;
-    return {
-      kindId: String(r.OUT_MSK_ID ?? r.membershipKindID ?? r.kindId ?? ""),
-      name: String(r.OUT_MSK_NAME ?? r.name ?? ""),
-      expires,
-      active: !expires || new Date(expires).getTime() > now,
-    };
-  });
-}
-
-/** True when the person holds an ACTIVE membership marking a license (name match,
- *  or the configured license kind id). */
-export async function hasActiveLicenseMembership(
-  personId: string | number,
-  locationId: string = FASTTRAX_LOCATION_ID,
-): Promise<boolean> {
-  const rows = await getMemberships(personId, locationId);
-  return rows.some(
-    (m) =>
-      m.active &&
-      (m.name.toLowerCase().includes("license") ||
-        (!!LICENSE_MEMBERSHIP_KIND_ID && m.kindId === LICENSE_MEMBERSHIP_KIND_ID)),
-  );
 }
 
 export interface AddMembershipParams {
