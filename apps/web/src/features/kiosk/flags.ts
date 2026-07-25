@@ -43,17 +43,18 @@ export function kioskGroupWaiverEnabled(): boolean {
 }
 
 /**
- * Kiosk self-service CHECK-IN flow — OPT-IN, defaults OFF. A guest with an
- * existing reservation finds it at the kiosk, sees a "what's next" itinerary,
- * finishes the party's waivers, binds people to purchased slots, and the whole
- * party checks in at once (BMI marked -5 Arrived, bowling lane-open offered).
- * Gates only the attract-screen entry button; the /kiosk/checkin page stays
- * reachable by typed URL for staff testing. Set the literal "true" in Vercel +
- * redeploy to show the button (NEXT_PUBLIC_* values are build-baked). Read at
- * call time (never module scope) so tests can stub process.env.
+ * Kiosk self-service CHECK-IN flow — LIVE, kill switch, defaults ON (owner
+ * 2026-07-25, after the racer-scheduling smoke passed). A guest with an existing
+ * reservation finds it at the kiosk, sees a "what's next" itinerary, finishes
+ * the party's waivers, binds people to purchased slots, and the whole party
+ * checks in at once (BMI marked "Confirmation Kiosk", racers scheduled onto the
+ * session, bowling lane-open offered). Gates the attract-screen entry button
+ * (which is also Fort-Myers-only in AttractScreen — racing venue). Set the
+ * literal "false" in Vercel + redeploy to hide it. Read at call time (never
+ * module scope) so tests can stub process.env.
  */
 export function kioskCheckinEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_KIOSK_CHECKIN_ENABLED === "true";
+  return process.env.NEXT_PUBLIC_KIOSK_CHECKIN_ENABLED !== "false";
 }
 
 /**
@@ -72,18 +73,16 @@ export function kioskRaceInfoEnabled(): boolean {
 }
 
 /**
- * BMI registerProjectPerson attach for kiosk CHECK-IN party binds — OPT-IN,
- * defaults OFF, server-side only. Deliberately SEPARATE from the group-waiver's
- * KIOSK_WAIVER_BMI_ATTACH (which is live + default-ON): check-in ships dark, and
- * the billId-vs-projectId attach semantics against an existing confirmed
- * reservation are still A3-probe-gated. Until this is set to "1" (after the A3
- * APPLY run + owner sign-off), a check-in bind persists to Neon
- * (kiosk_checkin_people) but performs NO BMI write — so a staff tester reaching
- * /kiosk/checkin by typed URL never mutates a real reservation. Read at call
- * time so tests can stub process.env.
+ * BMI writes for kiosk CHECK-IN (registerProjectPerson attach, racer schedule,
+ * "Confirmation Kiosk" state stamp, staff memo, interactive lane-open) — kill
+ * switch, defaults ON (owner 2026-07-25, after the live smoke: register → attach
+ * → schedule linked 2/2 → state stamped, on W54518). Server-side only. Set
+ * KIOSK_CHECKIN_BMI_ATTACH=0 in Vercel to make check-in dark again (persists to
+ * Neon only, no BMI writes) without a redeploy. Read at call time so tests can
+ * stub process.env.
  */
 export function kioskCheckinAttachEnabled(): boolean {
-  return process.env.KIOSK_CHECKIN_BMI_ATTACH === "1";
+  return process.env.KIOSK_CHECKIN_BMI_ATTACH !== "0";
 }
 
 /**

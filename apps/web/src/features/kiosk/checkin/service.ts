@@ -12,6 +12,7 @@ import type {
   CheckinItinerary,
   CheckinLookupResponse,
   CheckinSendOtpResponse,
+  CheckinSlotAssignment,
 } from "./types";
 
 async function postLookup(
@@ -53,9 +54,13 @@ export async function lookupBrowse(center: string): Promise<CheckinLookupRespons
   }
 }
 
-export async function sendContactOtp(center: string, ref: string): Promise<CheckinSendOtpResponse> {
+export async function sendContactOtp(
+  center: string,
+  ref: string,
+  last4: string,
+): Promise<CheckinSendOtpResponse> {
   try {
-    const res = await postLookup({ center, ref }, "send-otp");
+    const res = await postLookup({ center, ref, last4 }, "send-otp");
     return (await res.json()) as CheckinSendOtpResponse;
   } catch {
     return { ok: false };
@@ -112,12 +117,13 @@ export async function completeCheckin(
   center: string,
   proofToken: string,
   kioskId?: string,
+  assignments?: CheckinSlotAssignment[],
 ): Promise<CheckinCompleteResponse> {
   try {
     const res = await fetch("/api/kiosk/checkin/complete", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ center, proofToken, kioskId }),
+      body: JSON.stringify({ center, proofToken, kioskId, assignments }),
     });
     return (await res.json()) as CheckinCompleteResponse;
   } catch {

@@ -405,18 +405,24 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           both flags on they sit side by side; with one on it spans full width
           (owner 2026-07-21). Both OPT-IN, default OFF — set
           NEXT_PUBLIC_KIOSK_CHECKIN_ENABLED / NEXT_PUBLIC_KIOSK_RACE_INFO_ENABLED
-          to "true" in Vercel to show. Race info additionally requires the
-          Fort Myers complex — racing never advertises at Naples. */}
-      {(kioskCheckinEnabled() || (kioskRaceInfoEnabled() && config.center === "fort-myers")) && (
+          to "true" in Vercel to show. BOTH are Fort-Myers-only (the two FM
+          venues share center "fort-myers") — racing never advertises at Naples
+          (owner 2026-07-25). */}
+      {config.center === "fort-myers" && (kioskCheckinEnabled() || kioskRaceInfoEnabled()) && (
         <div className="relative z-10 mx-[64px] mb-[8px] flex shrink-0 gap-[16px]">
           {kioskCheckinEnabled() && (
             <button
               type="button"
               onClick={() => router.push("/kiosk/checkin")}
-              className="k-display k-tap flex h-[92px] flex-1 items-center justify-center gap-[16px] rounded-2xl border-2 border-[#00e2e5]/40 text-[30px] text-[#00e2e5]"
+              className="k-tap flex h-[92px] flex-1 flex-col items-center justify-center rounded-2xl border-2 border-[#00e2e5]/40 text-[#00e2e5]"
             >
-              <IconUserCheck size={34} aria-hidden="true" />
-              {t("attract.checkin")}
+              <span className="k-display flex items-center gap-[14px] text-[30px]">
+                <IconUserCheck size={30} aria-hidden="true" />
+                {t("attract.raceReservation")}
+              </span>
+              <span className="text-[19px] text-[#00e2e5]/70">
+                {t("attract.raceReservationSub")}
+              </span>
             </button>
           )}
           {kioskRaceInfoEnabled() && config.center === "fort-myers" && (

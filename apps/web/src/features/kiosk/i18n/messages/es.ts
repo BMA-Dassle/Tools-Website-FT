@@ -32,6 +32,8 @@ export const es: Record<CoreKey, string> = {
   "attract.checkin": "¿Vas a registrarte? Empieza aquí",
   "attract.raceGrid": "Ver la parrilla de carreras",
   "attract.raceGridSub": "Consulta los próximos horarios de carreras",
+  "attract.raceReservation": "Reservación de carrera",
+  "attract.raceReservationSub": "Regístrate en tu reservación de carrera",
 
   // --- Category chooser (KioskCategories) ---
   "categories.heading.addAnything": "¿Agregar algo más?",

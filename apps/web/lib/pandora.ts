@@ -35,6 +35,10 @@ export interface PandoraWaiverStatus {
   personId: string;
   firstName?: string;
   lastName?: string;
+  /** Contact on file — the GET route returns these; used to resolve a short id
+   *  for a returning racer added with no local phone/email. */
+  email?: string | null;
+  phone?: string | null;
   birthdate?: string | null;
   waiverExpiry?: string | null;
   lastVisit?: string | null;

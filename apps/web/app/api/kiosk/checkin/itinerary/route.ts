@@ -31,6 +31,7 @@ export async function GET(req: NextRequest) {
         activities: [],
         firstStop: null,
         roster: [],
+        raceSlots: [],
         dueAtCenterCents: 0,
         reason: "expired-proof",
       },

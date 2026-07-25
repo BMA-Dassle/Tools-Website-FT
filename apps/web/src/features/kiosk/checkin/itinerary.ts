@@ -91,8 +91,10 @@ export function fmtArriveBy(iso: string | null | undefined, minsBefore: number):
 
 export interface RacerLite {
   name: string;
-  /** identified = has a BMI personId bound to the heat (PR1 readiness signal). */
+  /** identified = has a BMI personId bound to the heat. */
   identified: boolean;
+  /** waiverValid = Pandora shows a current waiver (pulled in from the project). */
+  waiverValid: boolean;
 }
 export interface RaceInput {
   startIso: string;
@@ -141,7 +143,9 @@ export function assembleItinerary(input: ItineraryInput): {
   const activities: CheckinActivity[] = [];
 
   if (input.racing) {
-    const readyCount = input.racing.racers.filter((r) => r.identified).length;
+    // Ready = identified AND holding a current waiver (the pulled-in project
+    // waivers). An identified racer with an expired/missing waiver is not ready.
+    const readyCount = input.racing.racers.filter((r) => r.identified && r.waiverValid).length;
     activities.push({
       kind: "racing",
       startIso: input.racing.startIso || null,

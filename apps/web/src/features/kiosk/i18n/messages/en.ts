@@ -29,6 +29,8 @@ export const en = {
   "attract.checkin": "Checking in? Start here",
   "attract.raceGrid": "View race grid",
   "attract.raceGridSub": "Check upcoming race times",
+  "attract.raceReservation": "Race Reservation",
+  "attract.raceReservationSub": "Check into race reservation",
 
   // --- Category chooser (KioskCategories) ---
   "categories.heading.addAnything": "Add anything else?",
