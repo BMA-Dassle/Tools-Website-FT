@@ -35,6 +35,41 @@ const DEFAULT_CLIENT_KEY = "headpinzftmyers";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// Direct BMI GET (bypasses our /api/bmi proxy) — the membership endpoint isn't
+// allowlisted on production's proxy, and apiBase() points there. Same creds the
+// proxy uses. Used only for the read-only catalog listing.
+const BMI_API_URL = process.env.BMI_API_URL || "https://api.bmileisure.com";
+const BMI_SUB_KEY = process.env.BMI_SUBSCRIPTION_KEY || "";
+async function bmiDirectGet(clientKey: string, path: string) {
+  const authRes = await fetch(`${BMI_API_URL}/auth/${clientKey}/publicbooking`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "BMI-Subscription-Key": BMI_SUB_KEY },
+    body: JSON.stringify({
+      Username: process.env.BMI_USERNAME || "",
+      Password: process.env.BMI_PASSWORD || "",
+    }),
+    cache: "no-store",
+  });
+  const authData = await authRes.json().catch(() => ({}));
+  const token = authData.AccessToken || authData.accessToken;
+  const res = await fetch(`${BMI_API_URL}/public-booking/${clientKey}/${path}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "BMI-Subscription-Key": BMI_SUB_KEY,
+      "Accept-Language": "en",
+    },
+    cache: "no-store",
+  });
+  const text = await res.text();
+  let body: unknown = text;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    /* keep raw */
+  }
+  return { status: res.status, body };
+}
+
 async function membershipSnapshot(clientKey: string, personId: string) {
   try {
     const person = await fetchPersonRaw<{
@@ -75,15 +110,8 @@ export async function GET(req: NextRequest) {
     // List the membership product catalog (GET /membership) — find the FastTrax
     // license membership's Id/XRef to sell. No person / side effects needed.
     if (searchParams.get("listMemberships") === "1") {
-      const res = await fetch(`${apiBase()}/api/bmi?endpoint=membership&clientKey=${clientKey}`);
-      const text = await res.text();
-      let memberships: unknown = text;
-      try {
-        memberships = JSON.parse(text);
-      } catch {
-        /* keep raw */
-      }
-      return NextResponse.json({ ok: res.ok, status: res.status, memberships });
+      const r = await bmiDirectGet(clientKey, "membership");
+      return NextResponse.json({ ok: r.status < 400, status: r.status, memberships: r.body });
     }
 
     if (!create && (!personId || !/^\d{1,20}$/.test(personId))) {
