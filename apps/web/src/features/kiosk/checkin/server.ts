@@ -604,9 +604,20 @@ export function maskPhone(phone: string): string {
 
 export async function sendContactOtp(
   billId: string,
-): Promise<{ ok: boolean; mask?: string; reason?: "no-contact" | "rate-limited" }> {
+  last4?: string,
+): Promise<{ ok: boolean; mask?: string; reason?: "no-contact" | "rate-limited" | "mismatch" }> {
   const phone = await resolveContactPhone(billId);
   if (!phone) return { ok: false, reason: "no-contact" };
+  // Ownership gate (owner 2026-07-25): the tapper must know the last 4 digits of
+  // the number on file before any text goes out — so a browse tap can't
+  // blind-OTP an arbitrary guest. Only a match/no-match is revealed, never the
+  // number, and it's checked BEFORE the cooldown so a wrong guess never burns
+  // the real owner's send window.
+  const digits = phone.replace(/\D/g, "");
+  const given = (last4 ?? "").replace(/\D/g, "").slice(-4);
+  if (given.length < 4 || digits.slice(-4) !== given) {
+    return { ok: false, reason: "mismatch" };
+  }
   // Per-reservation cooldown (anti-griefing against every booking's contact).
   const cd = await redis
     .set(`checkin:otp:cd:${billId}`, "1", "EX", OTP_COOLDOWN, "NX")

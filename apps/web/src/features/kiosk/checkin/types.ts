@@ -49,17 +49,20 @@ export interface CheckinLookupResponse {
   reason?: "not-found" | "cancelled" | "needs-otp" | "invalid" | "rate-limited";
 }
 
-/** POST /api/kiosk/checkin/lookup?action=send-otp — text the booking contact. */
+/** POST /api/kiosk/checkin/lookup?action=send-otp — text the booking contact.
+ *  `last4` gates the send: the tapper must know the last 4 digits of the number
+ *  on file, so a browse tap can't blind-text an arbitrary guest. */
 export interface CheckinSendOtpRequest {
   center: string;
   ref: string;
+  last4: string;
 }
 export interface CheckinSendOtpResponse {
   ok: boolean;
   /** Masked destination shown to the guest: "(239) •••-••12". */
   mask?: string;
   error?: string;
-  reason?: "not-found" | "no-contact" | "rate-limited";
+  reason?: "not-found" | "no-contact" | "rate-limited" | "mismatch";
 }
 
 /** POST /api/kiosk/checkin/lookup?action=confirm-otp — verify the texted code. */

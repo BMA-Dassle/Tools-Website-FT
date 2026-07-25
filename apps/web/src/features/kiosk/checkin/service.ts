@@ -54,9 +54,13 @@ export async function lookupBrowse(center: string): Promise<CheckinLookupRespons
   }
 }
 
-export async function sendContactOtp(center: string, ref: string): Promise<CheckinSendOtpResponse> {
+export async function sendContactOtp(
+  center: string,
+  ref: string,
+  last4: string,
+): Promise<CheckinSendOtpResponse> {
   try {
-    const res = await postLookup({ center, ref }, "send-otp");
+    const res = await postLookup({ center, ref, last4 }, "send-otp");
     return (await res.json()) as CheckinSendOtpResponse;
   } catch {
     return { ok: false };

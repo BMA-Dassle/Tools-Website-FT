@@ -71,7 +71,8 @@ export async function POST(req: NextRequest) {
         { status: 404 },
       );
     }
-    const res = await sendContactOtp(handle.billId);
+    const last4 = String(body.last4 ?? "").replace(/\D/g, "");
+    const res = await sendContactOtp(handle.billId, last4);
     return NextResponse.json<CheckinSendOtpResponse>(res, { status: res.ok ? 200 : 409 });
   }
 

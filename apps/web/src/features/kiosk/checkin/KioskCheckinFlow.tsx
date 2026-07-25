@@ -89,6 +89,7 @@ type Stage =
   | "phone-otp"
   | "matches"
   | "browse"
+  | "browse-verify"
   | "browse-otp"
   | "itinerary"
   | "party"
@@ -136,6 +137,7 @@ export function KioskCheckinFlow() {
   const [rows, setRows] = useState<CheckinBrowseRow[]>([]);
   const [pendingRef, setPendingRef] = useState<string | null>(null);
   const [otpMask, setOtpMask] = useState<string>("");
+  const [last4, setLast4] = useState("");
 
   // Itinerary
   const [itinerary, setItinerary] = useState<CheckinItinerary | null>(null);
@@ -338,22 +340,34 @@ export function KioskCheckinFlow() {
     return () => clearTimeout(t);
   }, [stage, binding, goHome]);
 
-  const tapBrowseRow = async (row: CheckinBrowseRow) => {
+  // Tapping a browse row does NOT text anyone yet — first the guest proves the
+  // booking is theirs by entering the last 4 of the number on file, so a tap
+  // can't blind-OTP an arbitrary guest.
+  const tapBrowseRow = (row: CheckinBrowseRow) => {
+    setError(null);
+    setPendingRef(row.ref);
+    setLast4("");
+    setStage("browse-verify");
+  };
+
+  const verifyLast4AndSend = async () => {
+    if (!pendingRef || last4.replace(/\D/g, "").length < 4) return;
     setBusy(true);
     setError(null);
-    const res = await sendContactOtp(center, row.ref);
+    const res = await sendContactOtp(center, pendingRef, last4);
     setBusy(false);
     if (!res.ok) {
       setError(
-        res.reason === "no-contact"
-          ? "No phone on that booking — please see the front desk."
+        res.reason === "mismatch"
+          ? "That doesn't match the number on this reservation. Try again, or see the front desk."
           : res.reason === "rate-limited"
             ? "A code was just sent — check your texts, or wait a moment."
-            : "We couldn't send a code. Please see the front desk.",
+            : res.reason === "no-contact"
+              ? "No phone on that booking — please see the front desk."
+              : "We couldn't send a code. Please see the front desk.",
       );
       return;
     }
-    setPendingRef(row.ref);
     setOtpMask(res.mask ?? "your number on file");
     setOtp("");
     setStage("browse-otp");
@@ -458,7 +472,8 @@ export function KioskCheckinFlow() {
     if (stage === "phone-otp") setStage("find");
     else if (stage === "matches") setStage("find");
     else if (stage === "browse") setStage("find");
-    else if (stage === "browse-otp") setStage("browse");
+    else if (stage === "browse-verify") setStage("browse");
+    else if (stage === "browse-otp") setStage("browse-verify");
     else if (stage === "assign") setStage("party");
     else if (stage === "party") setStage("itinerary");
     else if (stage === "itinerary") {
@@ -534,6 +549,35 @@ export function KioskCheckinFlow() {
           />
         )}
 
+        {stage === "browse-verify" && (
+          <div className="k-glass mx-auto max-w-[720px] p-[48px] text-center">
+            <div className="k-eyebrow text-[#00e2e5]">Confirm it&rsquo;s your booking</div>
+            <div className="k-display mt-[8px] text-[40px]">
+              Enter the last 4 digits of the phone on this reservation
+            </div>
+            <p className="mt-[12px] text-[28px] text-white/55">
+              We&rsquo;ll text a code to that number to check you in.
+            </p>
+            <input
+              type="tel"
+              inputMode="numeric"
+              value={last4}
+              onChange={(e) => setLast4(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              placeholder="••••"
+              aria-label="Last 4 digits of the phone number"
+              className="my-[32px] h-[120px] w-full rounded-2xl border-2 border-white/15 bg-white/5 text-center text-[64px] tracking-[0.5em] text-white placeholder:text-white/20"
+            />
+            <button
+              type="button"
+              onClick={verifyLast4AndSend}
+              disabled={last4.length < 4}
+              className="k-btn-primary k-tap h-[96px] w-full text-[34px] disabled:opacity-40"
+            >
+              Text me a code
+            </button>
+          </div>
+        )}
+
         {(stage === "phone-otp" || stage === "browse-otp") && (
           <OtpScreen
             code={otp}
@@ -600,7 +644,7 @@ export function KioskCheckinFlow() {
                           <button
                             type="button"
                             onClick={() => setShowExpress(true)}
-                            className="pointer-events-auto flex items-center gap-[8px] rounded-full border-2 border-[#00e2e5]/50 bg-[#00e2e5]/10 px-[18px] py-[6px] text-[22px] font-bold text-[#00e2e5]"
+                            className="pointer-events-auto flex items-center gap-[8px] rounded-full border-2 border-[#46d68c]/60 bg-[#46d68c]/15 px-[18px] py-[6px] text-[22px] font-bold text-[#46d68c]"
                           >
                             <IconBolt size={22} aria-hidden="true" />
                             Express lane
@@ -733,18 +777,21 @@ function ExpressLaneModal(props: { onClose: () => void }) {
         className="k-glass relative z-10 max-w-[760px] p-[48px] text-center"
       >
         <div
-          className="mx-auto mb-[24px] flex h-[120px] w-[120px] items-center justify-center rounded-full border-[3px] border-[#00e2e5] bg-[#00e2e5]/12"
+          className="mx-auto mb-[24px] flex h-[120px] w-[120px] items-center justify-center rounded-full border-[3px] border-[#46d68c] bg-[#46d68c]/15"
           aria-hidden="true"
         >
-          <IconBolt size={64} className="text-[#00e2e5]" />
+          <IconBolt size={64} className="text-[#46d68c]" />
         </div>
         <div id="express-title" className="k-display text-[48px]">
           Express Lane
         </div>
         <p className="mt-[20px] text-[30px] leading-[1.4] text-white/70">
-          You&rsquo;re all set — no need to sign in here. Head straight to{" "}
-          <span className="font-bold text-white">the pits</span> and a team member will get you on
-          the grid.
+          You&rsquo;re all set — no check-in needed. Express Lane{" "}
+          <span className="font-bold text-white">
+            skips the front desk and Guest Services check-in
+          </span>
+          . Head straight to <span className="font-bold text-white">the pits</span> and a team
+          member will get you on the grid.
         </p>
         <button
           type="button"
@@ -1010,14 +1057,18 @@ function RaceAssignScreen(props: {
       <button
         type="button"
         onClick={onCheckIn}
-        disabled={binding}
+        disabled={binding || assignedCount < slots.length}
         className="k-btn-primary k-tap h-[112px] w-full text-[36px] disabled:opacity-40"
       >
         {binding ? "Putting racers on the grid — one moment…" : "Check everyone in"}
       </button>
-      {assignedCount === 0 && (
+      {assignedCount < slots.length && (
         <p className="text-center text-[24px] text-white/45">
-          You can still check in — but racers won&rsquo;t be on the grid until they&rsquo;re chosen.
+          Assign a racer to every race to check in
+          {slots.length - assignedCount > 0
+            ? ` — ${slots.length - assignedCount} still open.`
+            : "."}{" "}
+          Everyone racing needs to be here.
         </p>
       )}
 
