@@ -33,12 +33,6 @@ export const maxDuration = 60;
 
 const DEFAULT_CLIENT_KEY = "headpinzftmyers";
 
-function baseUrl(req: NextRequest) {
-  const host = req.headers.get("host") || "localhost:3000";
-  const proto = host.includes("localhost") ? "http" : "https";
-  return `${proto}://${host}`;
-}
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function membershipSnapshot(clientKey: string, personId: string) {
@@ -88,7 +82,10 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const base = baseUrl(req);
+    // Self-call the UNPROTECTED base (production origin via apiBase), never the
+    // request host — a preview host sits behind Vercel SSO and 401s the internal
+    // /api/bmi call. The real registerStandaloneLicense uses apiBase() too.
+    const base = apiBase();
     const bmi = async (endpoint: string, body: string) => {
       const url = `${base}/api/bmi?endpoint=${encodeURIComponent(endpoint)}&clientKey=${clientKey}`;
       const res = await fetch(url, {
