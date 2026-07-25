@@ -368,6 +368,90 @@ export const en = {
   "joinFlow.ended.expired.body": "Scan the code on the kiosk screen again to join.",
   "joinFlow.ended.invalid.title": "This link isn’t valid.",
   "joinFlow.ended.invalid.body": "Scan the QR code on the kiosk to join your group.",
+
+  // --- Self-service check-in (checkin/KioskCheckinFlow) ---
+  // Reservation labels, activity titles, and lane labels come from the server
+  // and stay as returned. The `formatPhoneMask` "your number" fallback is a
+  // module helper (no hook) and stays English.
+  "checkin.loading": "Loading…",
+  "checkin.oneMoment": "One moment…",
+  "checkin.home": "Home",
+  "checkin.back": "Back",
+  "checkin.eyebrow": "Check in",
+  "checkin.doneTitle": "You’re checked in",
+  "checkin.welcomeBack": "Welcome back, {name}!",
+  "checkin.friend": "friend",
+  "checkin.findReservation": "Find your reservation",
+  "checkin.matches.prompt": "We found more than one reservation — tap the one you’re here for.",
+  "checkin.browse.prompt":
+    "Arriving soon at this location. Tap your booking — we’ll text a code to the number on the reservation to confirm it’s you.",
+  "checkin.browse.emptyTitle": "Nothing in the next few hours",
+  "checkin.browse.emptyBody": "Use your phone number above, or see the front desk.",
+  "checkin.addGroup.eyebrow": "Add your group",
+  "checkin.addGroup.body":
+    "Add anyone with you who still needs an account or a waiver — or have them scan the QR to sign in on their own phone.",
+  "checkin.checkingIn": "Checking you in…",
+  "checkin.checkEveryone": "Check everyone in",
+  "checkin.finishAddingFirst":
+    "Finish adding everyone above first — each person needs an account and a signed waiver.",
+  "checkin.err.cancelled": "That reservation was cancelled — please see the front desk.",
+  "checkin.err.openFail":
+    "We couldn’t open that reservation. Please try again or see the front desk.",
+  "checkin.err.addFail": "We couldn’t add your group — please see the front desk.",
+  "checkin.err.finishing": "One moment — finishing up. Tap again.",
+  "checkin.err.checkinFail": "We couldn’t check you in — please see the front desk.",
+  "checkin.err.noPhone": "No phone on that booking — please see the front desk.",
+  "checkin.err.codeJustSent": "A code was just sent — check your texts, or wait a moment.",
+  "checkin.err.sendCodeFail": "We couldn’t send a code. Please see the front desk.",
+  "checkin.err.codeNotFound":
+    "We couldn’t find that code. Try your phone number, or see the front desk.",
+  "checkin.err.enterMobile": "Enter your 10-digit mobile number.",
+  "checkin.err.textFail": "We couldn’t text that number. Please check it and try again.",
+  "checkin.err.incorrectTries":
+    "Incorrect code — {count, plural, one {# try} other {# tries}} left.",
+  "checkin.err.codeFailNew": "That code didn’t work. Request a new one.",
+  "checkin.err.noReservations":
+    "No reservations found for today under that number. See the front desk.",
+  "checkin.err.incorrectLeft": "Incorrect code — {count} left.",
+  "checkin.err.codeFailBack": "That code didn’t work. Go back and try again.",
+  "checkin.otpMaskFallback": "your number on file",
+  "checkin.find.usePhone": "Use your phone number",
+  "checkin.find.phoneBlurb": "Works for every booking. We’ll text you a quick code.",
+  "checkin.find.phoneAria": "Mobile phone number",
+  "checkin.find.textCode": "Text me a code",
+  "checkin.find.scanNow": "Scan now…",
+  "checkin.find.scanMyCode": "Scan my code",
+  "checkin.find.scanSub": "Email QR or W-number",
+  "checkin.find.findBooking": "Find my booking",
+  "checkin.find.findSub": "Pick from today’s list",
+  "checkin.otp.verify": "Verify it’s you",
+  "checkin.otp.textedTo": "We texted a code to {mask}",
+  "checkin.otp.enterCode": "Enter the 6-digit code from your texts.",
+  "checkin.otp.aria": "6-digit verification code",
+  "checkin.otp.openDay": "Open my day",
+  "checkin.itin.firstStop": "Start here · First stop",
+  "checkin.itin.arriveBy": "Arrive by {label}",
+  "checkin.itin.dueAtDesk": "{amount} due at the front desk — nothing is charged here.",
+  "checkin.itin.alreadyOn": "Already on this reservation",
+  "checkin.itin.someoneNotOn": "Someone with you who isn’t on this booking?",
+  "checkin.itin.startNew": "Start a new booking ›",
+  "checkin.done.allCheckedIn": "You’re all checked in.",
+  "checkin.done.racersAdded":
+    "{count, plural, one {# racer} other {# racers}} added to your race — head over when your heat is called.",
+  "checkin.done.frontDeskKnows": "The front desk knows you’re here.",
+  "checkin.done.needHand": "{names} may need a hand at the desk — a team member has been notified.",
+  "checkin.done.finish": "Done",
+  "checkin.lane.idle": "Your lane opens about 30 minutes before your time — we’ll get it ready.",
+  "checkin.lane.open": "{lane} is open — shoes are on the way. Have fun!",
+  "checkin.lane.failed":
+    "We couldn’t open {lane} — please see the front desk and they’ll get you started.",
+  "checkin.lane.ready": "{lane} is ready",
+  "checkin.lane.readyBody": "Open it now and head over to bowl.",
+  "checkin.lane.opening": "Opening your lane…",
+  "checkin.lane.openNow": "Open {lane} now",
+  "checkin.chip.laneOpens": "Lane opens about 30 minutes before your time",
+  "checkin.chip.racersReady": "{ready} of {total} racers ready",
+  "checkin.chip.waiversSigned": "{ready} of {total} waivers signed",
 } as const;
 
 export type MessageKey = keyof typeof en;
