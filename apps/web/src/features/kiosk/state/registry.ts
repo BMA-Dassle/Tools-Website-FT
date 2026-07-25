@@ -202,9 +202,17 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
       hiddenInCombo(hiddenForWorldCup(classicOnly(KioskBowlingOfferStep as StepDef))),
     );
     // Details (names + shoe sizes + bumpers + main contact, derived shoe charge)
-    // lands right after the offer/hold — the shoe-quantity step it replaced is
-    // gone. Leads with the count/toggle step so availability comes first.
-    steps = insertAfter(steps, "bowling-offer", hiddenInCombo(KioskBowlingDetailsStep as StepDef));
+    // must come AFTER the lane hold so we grab a lane fast while they still fill
+    // up: the hold is the offer step (classic) OR the v3 time step, and both sit
+    // before bowling-food — so park details immediately BEFORE food to land
+    // after the hold in either flow. (The shoe-quantity step it replaced is gone;
+    // the count/toggle step leads so availability + hold come first.)
+    const detailsStep = hiddenInCombo(KioskBowlingDetailsStep as StepDef);
+    const foodIdx = steps.findIndex((s) => s.id === "bowling-food");
+    steps =
+      foodIdx < 0
+        ? [...steps, detailsStep]
+        : [...steps.slice(0, foodIdx), detailsStep, ...steps.slice(foodIdx)];
     return [hiddenInCombo(KioskBowlingCountStep as StepDef), ...steps];
   })(),
   kbf: insertAfter(
