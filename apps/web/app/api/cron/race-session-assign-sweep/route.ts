@@ -56,7 +56,7 @@ function sweepEnabled(): boolean {
   return process.env.RACE_SESSION_ASSIGN_SWEEP_ENABLED !== "false";
 }
 
-/** Single quick POST to /bmi/schedule (12s cap) — never throws. */
+/** Single quick POST to /bmi/schedule (8s cap) — never throws. */
 async function postScheduleOnce(
   reservationNumber: string,
   racers: AssignRacer[],
@@ -69,7 +69,7 @@ async function postScheduleOnce(
         method: "POST",
         headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
         body: JSON.stringify({ racers }),
-        signal: AbortSignal.timeout(12_000),
+        signal: AbortSignal.timeout(8_000),
       },
     );
     const data = (await res.json().catch(() => null)) as ScheduleResponseData | null;
@@ -86,6 +86,17 @@ interface SweepOutcome {
   attempted?: number;
   missing?: string[];
 }
+
+// Reservations are processed by a bounded worker pool (not one big sequential
+// loop): the first tick after a Pandora rough patch can face a big backlog of
+// candidates, and a serial loop of 12s POSTs blew maxDuration (504, live
+// 2026-07-25). A deadline stops CLAIMING new work with headroom for the last
+// in-flight POST + the JSON response, so the handler always returns inside
+// maxDuration; anything not reached is picked up next tick (the Redis done-flag
+// means finished bookings are skipped, so the backlog drains monotonically).
+// Concurrency is kept modest so a flaky Pandora isn't hammered.
+const CONCURRENCY = 5;
+const DEADLINE_MS = 45_000;
 
 export async function GET(req: NextRequest) {
   const manualToken = req.nextUrl.searchParams.get("token");
@@ -113,18 +124,24 @@ export async function GET(req: NextRequest) {
     unassignable: 0,
     skippedDone: 0,
     noRacers: 0,
+    wouldPost: 0,
+    deferred: 0,
   };
   const outcomes: SweepOutcome[] = [];
 
-  for (const row of rows) {
+  // Process ONE candidate: classify cheaply (Redis done-flag → racers →
+  // assignable) then, when there's work, a single POST. Mutates the shared
+  // counters/outcomes; safe because every ++ is synchronous between awaits (the
+  // pool has no true parallelism). Never throws — the pool also guards.
+  const processRow = async (row: (typeof rows)[number]): Promise<void> => {
     const resNum = row.bmiReservationNumber;
-    if (!resNum) continue;
+    if (!resNum) return;
 
     if (!force) {
       const done = await redis.get(doneKey(resNum)).catch(() => null);
       if (done) {
         results.skippedDone++;
-        continue; // healthy booking already confirmed on a prior tick
+        return; // healthy booking already confirmed on a prior tick
       }
     }
 
@@ -136,7 +153,7 @@ export async function GET(req: NextRequest) {
       outcomes.push({ reservationNumber: resNum, status: "no-racers" });
       // Nothing this row can ever contribute — stop re-checking it.
       if (!dryRun) await redis.set(doneKey(resNum), "1", "EX", DONE_TTL_SEC).catch(() => {});
-      continue;
+      return;
     }
 
     if (assignable.length === 0) {
@@ -150,17 +167,18 @@ export async function GET(req: NextRequest) {
         missing: [...new Set(racers.map((r) => r.racerName))],
       });
       if (!dryRun) await redis.set(doneKey(resNum), "1", "EX", DONE_TTL_SEC).catch(() => {});
-      continue;
+      return;
     }
 
     if (dryRun) {
+      results.wouldPost++;
       outcomes.push({
         reservationNumber: resNum,
         status: "partial",
         attempted: assignable.length,
         missing: [...new Set(assignable.map((r) => r.racerName))],
       });
-      continue;
+      return;
     }
 
     const { ok, data } = await postScheduleOnce(resNum, assignable);
@@ -194,12 +212,44 @@ export async function GET(req: NextRequest) {
           ` — still not on grid: ${summary.missing.join(", ")}`,
       );
     }
-  }
+  };
+
+  // Bounded worker pool with a wall-clock deadline. Workers pull from a shared
+  // cursor (synchronous ++ → each index handled once); once past the deadline
+  // they stop claiming new rows, so in-flight POSTs finish and the handler
+  // returns well inside maxDuration.
+  let cursor = 0;
+  const runWorker = async (): Promise<void> => {
+    while (Date.now() - started < DEADLINE_MS) {
+      const idx = cursor++;
+      if (idx >= rows.length) return;
+      try {
+        await processRow(rows[idx]);
+      } catch (err) {
+        results.failed++;
+        console.error(
+          `[race-session-assign-sweep] row error: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, rows.length) }, () => runWorker()));
+
+  const processed =
+    results.linked +
+    results.partial +
+    results.failed +
+    results.unassignable +
+    results.skippedDone +
+    results.noRacers +
+    results.wouldPost;
+  results.deferred = Math.max(0, rows.length - processed);
 
   console.log(
     `[race-session-assign-sweep] dryRun=${dryRun} candidates=${results.candidates}` +
       ` linked=${results.linked} partial=${results.partial} failed=${results.failed}` +
-      ` unassignable=${results.unassignable} skippedDone=${results.skippedDone}`,
+      ` unassignable=${results.unassignable} skippedDone=${results.skippedDone}` +
+      ` deferred=${results.deferred} elapsedMs=${Date.now() - started}`,
   );
 
   return NextResponse.json({
