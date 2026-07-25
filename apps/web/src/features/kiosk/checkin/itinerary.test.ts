@@ -72,17 +72,17 @@ describe("timeKey", () => {
 });
 
 describe("assembleItinerary", () => {
-  it("collapses racing to one activity and counts identified racers as ready", () => {
+  it("collapses racing to one activity and counts identified + valid-waiver racers as ready", () => {
     const { activities } = assembleItinerary(
       base({
         racing: {
           startIso: "2026-07-20T16:12:00",
           title: "Race · Blue Track",
           racers: [
-            { name: "Eric O.", identified: true },
-            { name: "Dana O.", identified: true },
-            { name: "Guest 3", identified: false },
-            { name: "Guest 4", identified: false },
+            { name: "Eric O.", identified: true, waiverValid: true },
+            { name: "Dana O.", identified: true, waiverValid: true },
+            { name: "Guest 3", identified: false, waiverValid: false },
+            { name: "Guest 4", identified: false, waiverValid: false },
           ],
         },
       }),
@@ -94,13 +94,30 @@ describe("assembleItinerary", () => {
     expect(activities[0].timeLabel).toBe("4:12 PM");
   });
 
+  it("an identified racer with an expired/missing waiver is NOT ready", () => {
+    const { activities } = assembleItinerary(
+      base({
+        racing: {
+          startIso: "2026-07-20T16:12:00",
+          title: "Race · Blue Track",
+          racers: [
+            { name: "Eric O.", identified: true, waiverValid: true },
+            { name: "Dana O.", identified: true, waiverValid: false },
+          ],
+        },
+      }),
+    );
+    expect(activities[0].readyCount).toBe(1);
+    expect(activities[0].totalCount).toBe(2);
+  });
+
   it("sorts mixed activities by start (naive vs offset compared correctly) and sets first stop", () => {
     const { activities, firstStop } = assembleItinerary(
       base({
         racing: {
           startIso: "2026-07-20T16:12:00",
           title: "Race · Blue Track",
-          racers: [{ name: "Eric", identified: true }],
+          racers: [{ name: "Eric", identified: true, waiverValid: true }],
         },
         attractions: [
           { slug: "gel-blaster", startIso: "2026-07-20T15:30:00", qtyPaid: 4, readyCount: 0 },
@@ -128,7 +145,7 @@ describe("assembleItinerary", () => {
         racing: {
           startIso: "2026-07-20T16:12:00",
           title: "Race",
-          racers: [{ name: "Eric", identified: true }],
+          racers: [{ name: "Eric", identified: true, waiverValid: true }],
         },
       }),
     );

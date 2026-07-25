@@ -43,6 +43,7 @@ import {
   setCheckinPersonStatus,
 } from "../data/kiosk-checkins-db";
 import { scheduleCheckinRacers, heatStopFor, type ScheduleRacer } from "./schedule-racers";
+import { checkRacerWaivers } from "./waiver";
 import { getRaceProductById } from "~/features/booking/service/race-products";
 import {
   assembleItinerary,
@@ -680,11 +681,16 @@ export async function buildItinerary(
   const record = summary.record;
   const group = summary.moneyGroup;
 
-  // Racing — one activity at the earliest heat; readiness = personId present.
-  // Prefer the Redis booking record (carries racer names + personIds); fall
-  // back to the Neon race row's booking_metadata.heats when that record is
-  // gone (eviction / failed checkout POST) so the race never silently drops.
-  type RacerRow = { name: string; identified: boolean };
+  // Racing — one activity at the earliest heat. Prefer the Redis booking record
+  // (carries racer names + personIds); fall back to the Neon race row's
+  // booking_metadata.heats when that record is gone (eviction / failed checkout
+  // POST) so the race never silently drops.
+  type RacerRow = {
+    name: string;
+    identified: boolean;
+    personId: string | null;
+    waiverValid: boolean;
+  };
   let racing = null as null | { startIso: string; title: string; racers: RacerRow[] };
   const recRacers = record?.racers ?? [];
   if (recRacers.length > 0) {
@@ -699,6 +705,8 @@ export async function buildItinerary(
       racers: recRacers.map((r) => ({
         name: r.racerName ? displayNameFromFull(r.racerName) : "Racer",
         identified: !!r.personId,
+        personId: r.personId ?? null,
+        waiverValid: false,
       })),
     };
   } else {
@@ -713,8 +721,21 @@ export async function buildItinerary(
         racers: heats.map((h) => ({
           name: h.racer ? displayNameFromFull(h.racer) : "Racer",
           identified: !!h.bmiPersonId,
+          personId: h.bmiPersonId ?? null,
+          waiverValid: false,
         })),
       };
+    }
+  }
+
+  // Pull in existing valid waivers from the project (owner 2026-07-25): an
+  // identified racer whose Pandora waiver is still current is ready and needs no
+  // re-sign. Best-effort + parallel; a failed/unknown lookup leaves them as
+  // "needs a waiver" (the safe default, no regression on the prior behavior).
+  if (racing) {
+    const waiverBy = await checkRacerWaivers(racing.racers.map((r) => r.personId));
+    for (const r of racing.racers) {
+      r.waiverValid = r.personId ? (waiverBy.get(r.personId) ?? false) : false;
     }
   }
 
@@ -759,7 +780,7 @@ export async function buildItinerary(
       personId: null,
       pandoraPersonId: null,
       displayName: r.name,
-      waiverValid: false, // PR2 resolves waiver truth via Pandora
+      waiverValid: r.waiverValid, // pulled from the project's Pandora waivers
       boundTo: ["Racing"],
     }));
 
