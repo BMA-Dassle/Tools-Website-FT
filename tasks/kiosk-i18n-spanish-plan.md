@@ -155,3 +155,29 @@ BowlerDetails, BowlingOffer, BowlingPeople, Checkout, Upsell, Rewards, NewGuestF
   flag OFF — lowest priority).
 
 Pattern is now well-established across 13 examples; a cloud agent could finish the remainder.
+
+### 2026-07-25 (later still) — 14 screens done
+Added: KioskRewardsSection, mobile-join NewGuestForm, mobile-join JoinPhoneFlow (full multi-step
+flow incl. batch ICU plurals + EndedScreen/ReturningDobScreen sub-components).
+
+**Converted (14):** Attract, Categories, Confirmation, BowlingTier, BowlingTime, Slot,
+BowlerDetails, BowlingOffer, BowlingPeople, Checkout, Upsell, Rewards, NewGuestForm, JoinPhoneFlow.
+
+**Remaining Phase 2 (3 items, ~4,000 lines — do each with FRESH context):**
+1. `checkin/KioskCheckinFlow.tsx` (~937 lines). Already-scoped guest strings live at these lines:
+   headings/buttons — 10 "Check in everyone", 178 "Check everyone in", 378 "Find your reservation",
+   514 "Checking you in…", 593 "Scan my code"/"Scan now…", 690 "Add your group",
+   755 "The front desk knows you're here.", 908 "Opening your lane…"; errors — 160/260 cancelled,
+   195/206/230/233 front-desk, 205 finishing-up, 269 "Enter your 10-digit mobile number.",
+   277/293/330 code errors; aria — 570 "Mobile phone number". (Plus inline JSX text not caught by
+   the quoted-string grep — read the render sections.)
+2. `steps/KioskPeopleStep.tsx` (~2,255 lines) — racing sign-up. HAS SAFETY-CRITICAL AGE-GATE LOGIC
+   ("under 7 too young", guardian/minor routing) and interpolated validation (setFormError at lines
+   428/432/440/449/453/519/533/539/658/1262). Convert visible headings/labels/buttons; leave
+   `TODO(i18n)` on the interpolated business-rule/validation messages. DO NOT bulk-swap this file.
+3. `components/race-info/*` (~800 lines, 5 files) — view-only racing marketing content; flag OFF,
+   lowest priority.
+
+**Pattern reference:** 14 converted screens + the en.ts/es.ts catalogs are the template. es.ts is a
+first-pass AI translation — Phase 3 native-Spanish review + portrait layout QA still required before
+enabling NEXT_PUBLIC_KIOSK_I18N anywhere.
