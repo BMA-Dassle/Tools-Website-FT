@@ -31,18 +31,19 @@ import { slotLabel, type FirstOpen } from "../service/first-available";
 import { AdminTapZone } from "./AdminTapZone";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
+import { useT, type Translate } from "../i18n";
 
 type CategoryKey = "exp" | "attr";
 
-/** The unit a tile's availability count is measured in, [singular, plural].
- *  Keyed per SLUG. Only BMI-vendored attractions (which return a per-slot count)
- *  are here — shuffly reads as tables. Everything on QAMF (bowling, KBF, and
- *  duckpin post-migration) has no lane count and shows a time-only line
- *  instead (see TIME_ONLY_SLUGS). */
-const AVAILABILITY_NOUN: Record<string, [string, string]> = {
-  shuffly: ["table", "tables"],
-  "gel-blaster": ["player", "players"],
-  "laser-tag": ["player", "players"],
+/** The countable noun a tile's availability count reads as, keyed per SLUG →
+ *  the plural message key that renders it. Only BMI-vendored attractions (which
+ *  return a per-slot count) are here — shuffly reads as tables. Everything on
+ *  QAMF (bowling, KBF, and duckpin post-migration) has no lane count and shows a
+ *  time-only line instead (see TIME_ONLY_SLUGS). */
+const AVAILABILITY_NOUN: Record<string, "table" | "player"> = {
+  shuffly: "table",
+  "gel-blaster": "player",
+  "laser-tag": "player",
   // Racing is intentionally omitted — no availability line on the racing tile
   // (the home-page race grid covers heat times; owner 2026-07-25).
 };
@@ -54,24 +55,26 @@ const TIME_ONLY_SLUGS = new Set(["bowling", "kbf", "duck-pin"]);
 
 /** Experiences shelf line: "Next available · 6:15 PM · 5 slots" for the VIP
  *  combo / Ultimate Qualifier (earliest feasible start + seats). Null = no
- *  signal → the banner just omits the line. */
-function experienceLine(firstOpen?: FirstOpen): string | null {
+ *  signal → the banner just omits the line. Localized via ICU plural. */
+function experienceLine(t: Translate, firstOpen?: FirstOpen): string | null {
   if (!firstOpen) return null;
   const time = slotLabel(firstOpen.start);
-  if (firstOpen.freeSpots == null) return `Next available · ${time}`;
-  return `Next available · ${time} · ${firstOpen.freeSpots} slot${firstOpen.freeSpots === 1 ? "" : "s"}`;
+  if (firstOpen.freeSpots == null) return t("categories.exp.nextAvailable", { time });
+  return t("categories.exp.nextAvailableSlots", { time, count: firstOpen.freeSpots });
 }
 
-/** The tile availability line: "3 lanes · 9:30 PM" when the vendor gives a
+/** The tile availability line: "3 tables · 9:30 PM" when the vendor gives a
  *  count, "Next lane · 12:00 PM" for bowling/KBF (time only), or null when we
- *  have no signal (vendor blip → the tile just omits the line). */
-function availabilityLine(slug: string, firstOpen?: FirstOpen): string | null {
+ *  have no signal (vendor blip → the tile just omits the line). Localized via
+ *  ICU plural. */
+function availabilityLine(t: Translate, slug: string, firstOpen?: FirstOpen): string | null {
   if (!firstOpen) return null;
-  if (TIME_ONLY_SLUGS.has(slug)) return `Next lane · ${slotLabel(firstOpen.start)}`;
+  const time = slotLabel(firstOpen.start);
+  if (TIME_ONLY_SLUGS.has(slug)) return t("categories.tile.nextLane", { time });
   const noun = AVAILABILITY_NOUN[slug];
   if (!noun || firstOpen.freeSpots == null) return null;
-  const unit = firstOpen.freeSpots === 1 ? noun[0] : noun[1];
-  return `${firstOpen.freeSpots} ${unit} · ${slotLabel(firstOpen.start)}`;
+  const key = noun === "table" ? "categories.tile.countTables" : "categories.tile.countPlayers";
+  return t(key, { count: firstOpen.freeSpots, time });
 }
 
 export interface KioskCategoriesProps {
@@ -116,6 +119,7 @@ export function KioskCategories({
 }: KioskCategoriesProps) {
   const [cat, setCat] = useState<CategoryKey | null>(null);
   const { config } = useKioskConfig();
+  const t = useT();
   const gameZone = gameZoneCapability(config); // "full" | "reload" | "none"
   const offerings = landingOfferingsFor(brand, center);
   const combos = enabledCombos().filter((c) => c.center === center);
@@ -150,33 +154,33 @@ export function KioskCategories({
         {/* Hidden staff entry: 5 taps in the header area → admin. */}
         <AdminTapZone />
         <h1 className="k-display mb-[32px] text-[82px]">
-          {hasCart ? "Add anything else?" : "What are we doing today?"}
+          {hasCart ? t("categories.heading.addAnything") : t("categories.heading.whatToday")}
         </h1>
         <div className="flex min-h-0 flex-1 flex-col gap-[28px]">
           {/* Naples has no karting — its category cards show lanes, not track
               photography, and the blurb sells what's actually there. */}
           <CategoryCard
             photo={center === "naples" ? KIOSK_PHOTOS.vipLanes : KIOSK_PHOTOS.vip}
-            eyebrow={combos.map((c) => c.name).join(" · ") || "Bundled experiences"}
+            eyebrow={combos.map((c) => c.name).join(" · ") || t("categories.exp.eyebrowFallback")}
             accent="#e8b14c"
-            title="Experiences"
-            blurb="Multiple attractions combined into one easy price"
+            title={t("categories.exp.title")}
+            blurb={t("categories.exp.blurb")}
             disabled={!anyExperienceAvailable}
-            disabledNote="Not available right now — please check back or ask an attendant."
+            disabledNote={t("categories.disabled.experience")}
             onClick={() => setCat("exp")}
           />
           <CategoryCard
             photo={brand === "headpinz" ? KIOSK_PHOTOS.bowl : KIOSK_PHOTOS.race}
-            eyebrow={`${offerings.length} attractions`}
+            eyebrow={t("categories.attr.eyebrow", { count: offerings.length })}
             accent="#00e2e5"
-            title="Attractions"
+            title={t("categories.attr.title")}
             blurb={
               center === "naples"
-                ? "Bowling, gel blasters, laser tag & more — pick a time and go"
-                : "Racing, bowling, blasters & more — pick a time and go"
+                ? t("categories.attr.blurb.naples")
+                : t("categories.attr.blurb.default")
             }
             disabled={!anyAttractionAvailable}
-            disabledNote="Nothing left to book today — the front desk can help with walk-ins."
+            disabledNote={t("categories.disabled.attraction")}
             onClick={() => setCat("attr")}
           />
           {gameZone === "none" ? (
@@ -185,14 +189,17 @@ export function KioskCategories({
             <CategoryCard
               photo={KIOSK_PHOTOS.arcade}
               eyebrow={
-                gameZone === "reload" ? "Reload · check balance" : "Reload · buy · 1 to 10 cards"
+                gameZone === "reload"
+                  ? t("categories.gameZone.eyebrow.reload")
+                  : t("categories.gameZone.eyebrow.full")
               }
               accent="#f800c6"
+              // Game Zone — locked glossary proper noun, never translated.
               title="Game Zone"
               blurb={
                 gameZone === "reload"
-                  ? "Reload your arcade card or check its balance — no waiting"
-                  : "Buy or reload arcade tokens — no waiting"
+                  ? t("categories.gameZone.blurb.reload")
+                  : t("categories.gameZone.blurb.full")
               }
               onClick={onOpenGameZone}
             />
@@ -211,10 +218,10 @@ export function KioskCategories({
         onClick={() => setCat(null)}
         className="k-btn-ghost k-tap mb-[28px] h-[76px] self-start px-[32px] text-[24px]"
       >
-        ‹ All categories
+        ‹ {t("categories.backToCategories")}
       </button>
       <h1 className="k-display mb-[28px] text-[74px]">
-        {cat === "exp" ? "Pick your experience" : "Pick an attraction"}
+        {cat === "exp" ? t("categories.pick.experience") : t("categories.pick.attraction")}
       </h1>
       <div className="relative min-h-0 flex-1">
         <div className="kiosk-scroll h-full pb-[24px]">
@@ -228,8 +235,10 @@ export function KioskCategories({
                   <ShelfBanner
                     key={combo.id}
                     photo={kioskImg(combo.heroImage) || KIOSK_PHOTOS.vip}
-                    eyebrow="Most popular"
+                    eyebrow={t("categories.eyebrow.mostPopular")}
                     accent="#e8b14c"
+                    // combo.name is a product proper noun (data-driven) — never
+                    // translated.
                     title={combo.name}
                     // Tile = concise teaser (the full description lives on the
                     // overview screen this opens). The prose shortDescription was
@@ -238,10 +247,16 @@ export function KioskCategories({
                     blurb={combo.includes.slice(0, 3).join(" · ")}
                     // Both day-tier prices, matching the overview screen's format
                     // (owner 2026-07-19: show Mon–Thu AND Fri–Sun, not "From $X").
-                    priceLine={`$${(combo.price.weekday / 100).toFixed(0)}/person Mon–Thu · $${(combo.price.weekend / 100).toFixed(0)}/person Fri–Sun`}
+                    // The prices interpolate as pre-formatted "$65" values — only
+                    // the "/person" + day-range wording localizes; the number is
+                    // untouched.
+                    priceLine={t("categories.combo.priceLine", {
+                      weekday: `$${(combo.price.weekday / 100).toFixed(0)}`,
+                      weekend: `$${(combo.price.weekend / 100).toFixed(0)}`,
+                    })}
                     firstOpen={locked ? undefined : offeringFirstOpen(combo.id)}
                     disabled={locked}
-                    disabledNote="Not available right now — please check back or ask an attendant."
+                    disabledNote={t("categories.disabled.experience")}
                     onClick={() => onPickCombo(combo)}
                   />
                 );
@@ -249,19 +264,26 @@ export function KioskCategories({
               {showQualifier && (
                 <ShelfBanner
                   photo={KIOSK_PHOTOS.race}
-                  eyebrow="Premium racing"
+                  eyebrow={t("categories.eyebrow.premiumRacing")}
                   accent="#e53935"
+                  // "Ultimate Qualifier" is a racing PACKAGE product name — kept
+                  // untranslated like the combo names above.
                   title="Ultimate Qualifier"
-                  blurb="Qualify on a Starter, then level up — POV video, free appetizer & license included."
+                  blurb={t("categories.qualifier.blurb")}
                   // "From" stays here (unlike the flat-priced combo) because the
-                  // junior variant sets the floor and adults pay more.
+                  // junior variant sets the floor and adults pay more. Prices
+                  // interpolate as pre-formatted "$49" values.
                   priceLine={
                     [
                       qualifierFromWeekday != null
-                        ? `From $${qualifierFromWeekday.toFixed(0)}/person Mon–Thu`
+                        ? t("categories.qualifier.fromWeekday", {
+                            price: `$${qualifierFromWeekday.toFixed(0)}`,
+                          })
                         : null,
                       qualifierFromWeekend != null
-                        ? `From $${qualifierFromWeekend.toFixed(0)}/person Fri–Sun`
+                        ? t("categories.qualifier.fromWeekend", {
+                            price: `$${qualifierFromWeekend.toFixed(0)}`,
+                          })
                         : null,
                     ]
                       .filter(Boolean)
@@ -269,12 +291,12 @@ export function KioskCategories({
                   }
                   firstOpen={uqAvailable ? offeringFirstOpen("ultimate-qualifier") : undefined}
                   disabled={!uqAvailable}
-                  disabledNote="Not enough time left today to fit both races — please check back or ask an attendant."
+                  disabledNote={t("categories.qualifier.disabled")}
                   onClick={() => onPickPackageExperience("ultimate-qualifier")}
                 />
               )}
               {combos.length === 0 && !showQualifier && (
-                <EmptyShelf note="No bundled experiences are running at this location today." />
+                <EmptyShelf note={t("categories.emptyShelf")} />
               )}
             </div>
           )}
@@ -293,7 +315,7 @@ export function KioskCategories({
                   // instead of dead-ending the guest inside a flow with
                   // nothing to book (owner 2026-07-19).
                   disabled={!offeringAvailable(offeringKey(o))}
-                  disabledNote="Nothing left to book today — the front desk can help with walk-ins."
+                  disabledNote={t("categories.disabled.attraction")}
                   firstOpen={offeringFirstOpen(offeringKey(o))}
                   onClick={() => onPickOffering(o)}
                 />
@@ -318,6 +340,7 @@ function EmptyShelf({ note }: { note: string }) {
  *  another kiosk or Guest Services. */
 function GameZoneUnavailableCard() {
   const photoUrl = useResilientImage(KIOSK_PHOTOS.arcade);
+  const t = useT();
   return (
     <div
       className="k-ph relative min-h-0 flex-1 overflow-hidden rounded-[28px] border border-white/10"
@@ -327,15 +350,16 @@ function GameZoneUnavailableCard() {
           filter: "grayscale(0.5) brightness(0.5)",
         } as React.CSSProperties
       }
-      aria-label="Game Zone cards not available on this kiosk"
+      aria-label={t("categories.gameZone.unavailable.title")}
     >
       <div className="absolute inset-0 flex flex-col items-center justify-center px-[64px] text-center">
+        {/* Game Zone — locked glossary proper noun, never translated. */}
         <div className="k-eyebrow mb-[12px] text-[24px] text-white/50">Game Zone</div>
         <div className="k-display text-[48px] leading-[1.15] text-white/90">
-          Game Zone cards not available on this kiosk
+          {t("categories.gameZone.unavailable.title")}
         </div>
         <div className="mt-[16px] text-[26px] leading-[1.4] text-white/55">
-          Please use another kiosk or see Guest Services
+          {t("categories.gameZone.unavailable.note")}
         </div>
       </div>
       <div className="absolute inset-x-0 bottom-0 h-[8px] bg-white/20" />
@@ -367,6 +391,7 @@ export function CategoryCard({
   onClick: () => void;
 }) {
   const photoUrl = useResilientImage(photo);
+  const t = useT();
   return (
     <button
       type="button"
@@ -380,7 +405,7 @@ export function CategoryCard({
     >
       <div className="absolute bottom-[40px] left-[48px] right-[120px]">
         <div className="k-eyebrow" style={{ color: disabled ? "#9aa4b2" : accent }}>
-          {disabled ? "Unavailable" : eyebrow}
+          {disabled ? t("categories.tile.unavailable") : eyebrow}
         </div>
         <div className="k-display mt-[8px] text-[74px]">{title}</div>
         <div className="mt-[10px] text-[28px] text-white/65">
@@ -432,7 +457,8 @@ function ShelfBanner({
   onClick: () => void;
 }) {
   const photoUrl = useResilientImage(photo);
-  const availLine = disabled ? null : experienceLine(firstOpen);
+  const t = useT();
+  const availLine = disabled ? null : experienceLine(t, firstOpen);
   return (
     <button
       type="button"
@@ -446,7 +472,7 @@ function ShelfBanner({
     >
       <div className="absolute inset-y-0 left-[48px] right-[128px] flex flex-col justify-center">
         <div className="k-eyebrow" style={{ color: disabled ? "#9aa4b2" : accent }}>
-          {disabled ? "Unavailable" : eyebrow}
+          {disabled ? t("categories.tile.unavailable") : eyebrow}
         </div>
         <div className="k-display mt-[8px] text-[56px] leading-[1.05] text-balance">{title}</div>
         <div className="mt-[12px] line-clamp-3 text-[28px] leading-snug text-pretty break-words text-white/70">
@@ -505,6 +531,7 @@ function OfferingTile({
   onClick: () => void;
 }) {
   const accent = offering.accentColor ?? "#00e2e5";
+  const t = useT();
   // Which building the guest walks to — same venue badge the web landing puts
   // on every attraction card (owner 2026-07-19).
   const venue = effectiveBrand(offering, brand);
@@ -512,7 +539,7 @@ function OfferingTile({
   const logoUrl = useResilientImage(KIOSK_LOGOS[venue]);
   // Neutral "soonest opening" line (owner 2026-07-25: one calm tone, no urgency
   // colors). Hidden while locked — disabledNote carries the message instead.
-  const availLine = disabled ? null : availabilityLine(offering.slug, firstOpen);
+  const availLine = disabled ? null : availabilityLine(t, offering.slug, firstOpen);
   return (
     <button
       type="button"
@@ -527,7 +554,9 @@ function OfferingTile({
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={logoUrl}
-          alt={venue === "fasttrax" ? "At FastTrax" : "At HeadPinz"}
+          alt={t("categories.tile.atVenue", {
+            venue: venue === "fasttrax" ? "FastTrax" : "HeadPinz",
+          })}
           className="h-[30px] w-auto"
         />
       </div>
