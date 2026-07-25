@@ -61,6 +61,12 @@ export async function GET(req: NextRequest) {
     const clientKey = searchParams.get("clientKey") || DEFAULT_CLIENT_KEY;
     const create = searchParams.get("create") === "1";
     let personId = searchParams.get("personId");
+    // Which product to sell. 43473520 = kind-1 "License Fee" (charge line);
+    // 11253570 = kind-3 Membership (the actual license record). Test both.
+    const productId = searchParams.get("productId") || LICENSE_PRODUCT_ID;
+    if (!/^\d{1,20}$/.test(productId)) {
+      return NextResponse.json({ error: "bad productId" }, { status: 400 });
+    }
     const pageId = searchParams.get("pageId");
     const includePageId = searchParams.get("includePageId") === "1" && !!pageId;
     const doConfirm = searchParams.get("doConfirm") !== "0";
@@ -77,7 +83,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({
         ok: true,
         probe: true,
-        inputShape: { create, personId, clientKey, pageId, includePageId, doConfirm, doCancel },
+        inputShape: {
+          create,
+          personId,
+          productId,
+          clientKey,
+          pageId,
+          includePageId,
+          doConfirm,
+          doCancel,
+        },
         message: "Probe only — no BMI call. Drop probe=1 to actually run.",
       });
     }
@@ -106,7 +121,7 @@ export async function GET(req: NextRequest) {
       text.match(new RegExp(`"${field}"\\s*:\\s*(\\d+)`))?.[1] ?? null;
 
     const trace: Record<string, unknown> = {
-      input: { create, personId, clientKey, pageId, includePageId, doConfirm, doCancel },
+      input: { create, personId, productId, clientKey, pageId, includePageId, doConfirm, doCancel },
       timestamp: new Date().toISOString(),
     };
 
@@ -145,7 +160,7 @@ export async function GET(req: NextRequest) {
     // 1. Sell the license → new bill. Retry to absorb Firebird→cloud sync lag
     //    for a just-created person (the web legacy race-pack path polls the same).
     const sellParts = [
-      `"ProductId":${LICENSE_PRODUCT_ID}`,
+      `"ProductId":${productId}`,
       ...(includePageId ? [`"PageId":${Number(pageId)}`] : []),
       `"Quantity":1`,
       `"OrderId":null`,
@@ -156,7 +171,7 @@ export async function GET(req: NextRequest) {
     const sellBody = `{${sellParts.join(",")}}`;
     trace.sellBodySent = sellBody;
 
-    const maxSellTries = create ? 8 : 1;
+    const maxSellTries = create ? 6 : 1;
     let sell: Awaited<ReturnType<typeof bmi>> | null = null;
     let billId: string | null = null;
     for (let i = 1; i <= maxSellTries; i++) {
@@ -188,11 +203,18 @@ export async function GET(req: NextRequest) {
       await sleep(2500);
     }
 
-    trace.membershipsAfter = await membershipSnapshot(clientKey, personId!);
+    // Re-poll memberships — the Office record lags the sale a few seconds.
+    let after = await membershipSnapshot(clientKey, personId!);
+    for (let i = 0; i < 3 && !(after as { activeLicense?: boolean }).activeLicense; i++) {
+      await sleep(4000);
+      after = await membershipSnapshot(clientKey, personId!);
+    }
+    trace.membershipsAfter = after;
 
     const before = trace.membershipsBefore as { activeLicense?: boolean };
-    const after = trace.membershipsAfter as { activeLicense?: boolean };
-    const licenseAttached = after?.activeLicense === true && before?.activeLicense !== true;
+    const licenseAttached =
+      (after as { activeLicense?: boolean }).activeLicense === true &&
+      before?.activeLicense !== true;
     trace.licenseAttached = licenseAttached;
 
     if (doCancel) {
