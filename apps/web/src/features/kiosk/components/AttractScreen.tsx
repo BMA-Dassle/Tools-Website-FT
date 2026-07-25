@@ -26,6 +26,7 @@ import {
 import { kioskGroupWaiverEnabled, kioskCheckinEnabled, kioskRaceInfoEnabled } from "../flags";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { useKioskConfig } from "../KioskConfigContext";
+import { useT } from "../i18n";
 import { kioskAdSlidesFor, KIOSK_PHOTOS } from "../assets";
 import { useResilientImages } from "../hooks/useResilientImage";
 import { BrandLogo } from "./BrandLogo";
@@ -42,6 +43,7 @@ const AD_ROTATE_MS = 8000;
 export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }) {
   const router = useRouter();
   const { config } = useKioskConfig();
+  const t = useT();
   const [adIndex, setAdIndex] = useState(0);
   const [booting, setBooting] = useState(true);
   // Transient boot confirmation: when the kiosk loads via its provisioning URL
@@ -336,15 +338,15 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           fallbackClassName="k-display text-[120px] leading-none text-white [filter:drop-shadow(0_0_34px_rgba(0,226,229,0.35))]"
         />
         <div className="k-display bg-gradient-to-r from-[#f5ecee] from-55% to-[#00e2e5] bg-clip-text text-[150px] text-transparent">
-          Let&rsquo;s play.
+          {t("attract.letsPlay")}
         </div>
         <div className="max-w-[24ch] text-[34px] text-white/60">
           {config.center === "naples"
-            ? "Book bowling, blasters & laser tag right here — takes about a minute."
-            : "Book racing, bowling & attractions right here — takes about a minute."}
+            ? t("attract.subtitle.bowling")
+            : t("attract.subtitle.racing")}
         </div>
         <span className="kiosk-pulse k-display grid h-[150px] w-full max-w-[80%] place-items-center rounded-full bg-[#00e2e5] text-[44px] tracking-wide text-[#04252b]">
-          Touch to get started
+          {t("attract.touchToStart")}
         </span>
         {/* 2-col grid kept for the hidden "Race now" / "Bowl now" pair; the
             remaining chips span both columns so nothing sits orphaned at

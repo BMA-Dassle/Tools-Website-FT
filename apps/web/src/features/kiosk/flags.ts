@@ -153,6 +153,20 @@ export function kioskCheckoutUpsellEnabled(): boolean {
 }
 
 /**
+ * Guest-facing multi-language (i18n) on the kiosk — OPT-IN, defaults OFF. Gates
+ * the top-right flag LanguageSwitcher and any locale-aware copy fallback; with
+ * it off, the kiosk is English-only exactly as before (the switcher renders
+ * null and every screen keeps its default-locale text). Set the literal "true"
+ * in Vercel + redeploy to expose the language switcher (NEXT_PUBLIC_* values are
+ * build-baked — scope it to Preview too or preview builds bake it off). Read at
+ * call time (never module scope) so tests can stub process.env. See
+ * tasks/kiosk-i18n-spanish-plan.md.
+ */
+export function kioskI18nEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_I18N === "true";
+}
+
+/**
  * Kiosk POV code claiming — kill switch, defaults ON, server-side only
  * (unified-reserve + kiosk-post-reserve are the sole consumers, so no
  * NEXT_PUBLIC prefix / no rebuild needed). Set KIOSK_POV_CODES=0 in Vercel to

@@ -166,6 +166,41 @@ describe("resolveKioskConfig", () => {
   });
 });
 
+describe("locale (guest language default)", () => {
+  it("parses ?lang= to a supported locale, ignoring junk", () => {
+    expect(parseKioskConfigFromSearchParams({ center: "fasttrax", lang: "es" })).toMatchObject({
+      center: "fort-myers",
+      locale: "es",
+    });
+    expect(parseKioskConfigFromSearchParams({ center: "fasttrax", lang: "english" })).toMatchObject(
+      {
+        locale: "en",
+      },
+    );
+    // Unsupported → no locale key (resolve defaults it to "en").
+    expect(parseKioskConfigFromSearchParams({ center: "fasttrax", lang: "fr" })).toEqual({
+      center: "fort-myers",
+      brand: "fasttrax",
+    });
+  });
+
+  it("also accepts ?locale= and a BCP-47 subtag", () => {
+    expect(parseKioskConfigFromSearchParams({ center: "naples", locale: "es-US" })).toMatchObject({
+      locale: "es",
+    });
+  });
+
+  it("defaults to English and survives resolve + merge round-trips", () => {
+    expect(resolveKioskConfig({ center: "fort-myers" })).toMatchObject({ locale: "en" });
+    const saved = resolveKioskConfig({ center: "fort-myers", locale: "es" });
+    expect(saved).toMatchObject({ locale: "es" });
+    // readStorage re-resolves on boot — the field must not be stripped.
+    expect(resolveKioskConfig(saved!)).toMatchObject({ locale: "es" });
+    // A URL merge touching an unrelated field keeps the stored locale.
+    expect(mergeKioskConfig(saved, { variant: "pitcrew" })).toMatchObject({ locale: "es" });
+  });
+});
+
 describe("mergeKioskConfig", () => {
   const stored: KioskConfig = {
     center: "fort-myers",

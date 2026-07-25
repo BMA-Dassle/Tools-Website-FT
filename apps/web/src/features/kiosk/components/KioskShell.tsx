@@ -23,12 +23,14 @@
  */
 import { useEffect, useRef } from "react";
 import { KioskConfigProvider, useKioskConfig } from "../KioskConfigContext";
+import { LocaleProvider, LanguageSwitcher, useLocale, LOCALE_BCP47 } from "../i18n";
 import { captureKioskBootVersion, KIOSK_VERSION } from "../version";
 import { OnScreenKeyboardHost } from "./OnScreenKeyboard";
 import { KioskStage } from "./KioskStage";
 
 function KioskChrome({ children }: { children: React.ReactNode }) {
   const { config } = useKioskConfig();
+  const { locale } = useLocale();
   const wantsFullscreenRef = useRef(false);
 
   // Record the deploy this tab booted on, so a between-guest reset can detect a
@@ -148,9 +150,17 @@ function KioskChrome({ children }: { children: React.ReactNode }) {
   const brandClass = config?.brand === "headpinz" ? "brand-headpinz" : "brand-fasttrax";
 
   return (
-    <div className="select-none" style={{ touchAction: "manipulation" }}>
+    <div
+      className="select-none"
+      lang={LOCALE_BCP47[locale]}
+      style={{ touchAction: "manipulation" }}
+    >
       <KioskStage className={brandClass}>
         {children}
+        {/* Guest language switcher — fixed top-right on every screen (flag-gated,
+            renders null when i18n is off). Anchored to the 1080×1920 canvas like
+            the version tag below. */}
+        <LanguageSwitcher />
         <OnScreenKeyboardHost />
         {/* Version tag, every screen (owner 2026-07-20): staff confirm what a
             kiosk runs without opening admin. `fixed` anchors to the 1080×1920
@@ -170,7 +180,9 @@ function KioskChrome({ children }: { children: React.ReactNode }) {
 export function KioskShell({ children }: { children: React.ReactNode }) {
   return (
     <KioskConfigProvider>
-      <KioskChrome>{children}</KioskChrome>
+      <LocaleProvider>
+        <KioskChrome>{children}</KioskChrome>
+      </LocaleProvider>
     </KioskConfigProvider>
   );
 }

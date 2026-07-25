@@ -60,6 +60,7 @@ import {
   type QualificationPatch,
 } from "../service/qualification-refresh-client";
 import { useKioskConfig } from "../KioskConfigContext";
+import { useLocale } from "../i18n";
 import { gameZoneCapability } from "../config";
 import {
   kioskMergedCheckoutEnabled,
@@ -194,6 +195,10 @@ function seedForGoto(
 export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?: boolean }) {
   const router = useRouter();
   const { config } = useKioskConfig();
+  // Reset the guest's language override on Start-Over — the LocaleProvider is
+  // mounted in KioskShell (survives the soft-nav to /kiosk), so without this the
+  // next guest would inherit the previous guest's chosen language.
+  const { resetLocale } = useLocale();
   // Bookable-today availability for the Experiences (VIP combo + Ultimate
   // Qualifier), from the cached server endpoint — locks their entry points when
   // nothing fits today.
@@ -422,6 +427,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     // End any live phone sign-in session FIRST — phones show "session ended"
     // within one poll instead of spinning against a dead code.
     closeMobileJoin("start-over");
+    resetLocale();
     setResetting(true);
     // abandonBooking retries + verifies the BMI cancel (7/19 incident: silent
     // cancel failures stacked abandoned holds onto live heats). false = BMI's
@@ -433,7 +439,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     // it (fullscreen re-engages on the first attract tap); otherwise soft-nav so
     // the engaged fullscreen survives. Owner 2026-07-19: no more close+reopen.
     await resetToKiosk(() => router.replace("/kiosk"));
-  }, [session, router]);
+  }, [session, router, resetLocale]);
 
   const handleReservationExpired = useCallback(() => {
     setReservationExpired(true);

@@ -22,6 +22,7 @@
  *   "pitcrew" (one-question-per-screen). Both render the same flows.
  */
 import type { Brand, CenterCode } from "~/features/booking";
+import { DEFAULT_LOCALE, normalizeLocale, type KioskLocale } from "./i18n/locales";
 
 export type KioskVariant = "podium" | "pitcrew";
 
@@ -31,6 +32,13 @@ export interface KioskConfig {
   /** Square Terminal/reader device id for card-present checkouts (Devices API). */
   readerId: string | null;
   variant: KioskVariant;
+  /**
+   * Guest-facing language DEFAULT for this device (staff-set via `?lang=es` on
+   * the provisioning URL). The between-guest default the flag switcher resets to;
+   * a guest's live switch is ephemeral (LocaleProvider), never written here.
+   * Gated by NEXT_PUBLIC_KIOSK_I18N — with i18n off the kiosk is English-only.
+   */
+  locale?: KioskLocale;
   /** Staff-assigned kiosk number at this location (e.g. 1, 2). */
   kioskNumber?: number | null;
   /**
@@ -149,8 +157,11 @@ export function kioskDeviceKey(cfg: Pick<KioskConfig, "center" | "brand" | "kios
 
 const STORAGE_KEY = "kiosk_config";
 
-/** Bump when the persisted SHAPE changes — older envelopes are discarded. */
-const CONFIG_VERSION = 2;
+/** Bump when the persisted SHAPE changes — older envelopes are discarded.
+ *  v3 (2026-07-25): added `locale` (guest-language default). Discarding a v2
+ *  envelope is harmless — the device re-provisions from Neon by kioskId on the
+ *  next boot (see AttractScreen), same as the cloud-config rollout. */
+const CONFIG_VERSION = 3;
 
 interface PersistedEnvelope {
   v: number;
@@ -215,6 +226,10 @@ export function parseKioskConfigFromSearchParams(
   if (brand) out.brand = brand;
   const variant = normalizeVariant(first(sp.variant));
   if (variant) out.variant = variant;
+  // Default guest language for this device (?lang=es|en). Ignored unless the
+  // i18n flag is on; persisted so re-launches keep the venue's chosen default.
+  const locale = normalizeLocale(first(sp.lang) ?? first(sp.locale));
+  if (locale) out.locale = locale;
   const reader = first(sp.reader);
   if (typeof reader === "string" && reader.trim()) out.readerId = reader.trim();
   // Kiosk number — lets a fresh/re-imaged device (or a new deploy URL, where
@@ -240,6 +255,7 @@ export function resolveKioskConfig(partial: Partial<KioskConfig>): KioskConfig |
     brand,
     readerId: partial.readerId ?? null,
     variant: partial.variant ?? "podium",
+    locale: partial.locale ?? DEFAULT_LOCALE,
     kioskNumber: partial.kioskNumber ?? 1,
     dispenserId: partial.dispenserId ?? null,
     msrEnabled: partial.msrEnabled ?? false,
