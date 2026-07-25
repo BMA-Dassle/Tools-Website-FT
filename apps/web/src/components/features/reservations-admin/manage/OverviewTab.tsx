@@ -160,9 +160,11 @@ export default function OverviewTab({
       ? multi
         ? "Line items — day-of Square orders"
         : "Line items — day-of Square order"
-      : lineItemsMode === "none"
-        ? "Line items — booking estimate (day-of order not created yet)"
-        : "Line items — booking estimate";
+      : lineItemsMode === "loading"
+        ? "Line items"
+        : lineItemsMode === "none"
+          ? "Line items — booking estimate (day-of order not created yet)"
+          : "Line items — booking estimate";
 
   return (
     <>
@@ -267,14 +269,16 @@ export default function OverviewTab({
               showHeader={dayofNodes.length > 1}
             />
           ))
+        ) : lineItemsMode === "loading" ? (
+          // A day-of order exists but the Square read is still in flight — show a
+          // placeholder, never the stored BMI shadows (they'd flash the very
+          // "2 × Starter Race Red" data this card exists to replace).
+          <div style={{ color: "var(--ba-muted)", fontSize: "0.82rem", padding: "4px 0" }}>
+            Loading the day-of Square order…
+          </div>
         ) : (
           <>
             <StoredLinesTable lines={lines} />
-            {lineItemsMode === "loading" && (
-              <div style={{ marginTop: 8, fontSize: "0.72rem", color: "var(--ba-muted)" }}>
-                Loading the actual day-of Square order…
-              </div>
-            )}
             {lineItemsMode === "unavailable" && (
               <div style={{ marginTop: 8, fontSize: "0.72rem", color: "var(--ba-muted)" }}>
                 Couldn&rsquo;t load the day-of Square order — showing the booking estimate.
