@@ -145,6 +145,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/race-session-assign-sweep",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/race-cancel-watch",
       "schedule": "*/3 * * * *"
     },
