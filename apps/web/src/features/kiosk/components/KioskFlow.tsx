@@ -60,7 +60,7 @@ import {
   type QualificationPatch,
 } from "../service/qualification-refresh-client";
 import { useKioskConfig } from "../KioskConfigContext";
-import { useLocale } from "../i18n";
+import { useLocale, type MessageKey } from "../i18n";
 import { gameZoneCapability } from "../config";
 import {
   kioskMergedCheckoutEnabled,
@@ -192,13 +192,25 @@ function seedForGoto(
   return null;
 }
 
+/** Module-scope StepDef titles can't reach useT(); map the English title to a
+ *  message key at the render site (unmapped titles fall back to raw English). */
+const STEP_TITLE_KEYS: Record<string, MessageKey> = {
+  Lanes: "stepTitle.lanes",
+  Time: "stepTitle.time",
+  Bowlers: "stepTitle.bowlers",
+  Package: "stepTitle.package",
+  "Who's bowling?": "stepTitle.whosBowling",
+  "Who's playing?": "stepTitle.whosPlaying",
+  "Who's racing?": "stepTitle.whosRacing",
+};
+
 export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?: boolean }) {
   const router = useRouter();
   const { config } = useKioskConfig();
   // Reset the guest's language override on Start-Over — the LocaleProvider is
   // mounted in KioskShell (survives the soft-nav to /kiosk), so without this the
   // next guest would inherit the previous guest's chosen language.
-  const { resetLocale } = useLocale();
+  const { t, resetLocale } = useLocale();
   // Bookable-today availability for the Experiences (VIP combo + Ultimate
   // Qualifier), from the cached server endpoint — locks their entry points when
   // nothing fits today.
@@ -1900,7 +1912,11 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
         <div className="k-prog-label k-num">
           Step {stepIndex + 1} of {steps.length}
         </div>
-        <h1 className="k-display k-fh-title">{currentStep.title}</h1>
+        <h1 className="k-display k-fh-title">
+          {STEP_TITLE_KEYS[currentStep.title]
+            ? t(STEP_TITLE_KEYS[currentStep.title])
+            : currentStep.title}
+        </h1>
       </div>
 
       {/* body scroll zone */}

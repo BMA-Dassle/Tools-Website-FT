@@ -472,4 +472,13 @@ export const es: Record<MessageKey, string> = {
     "No pudimos terminar el registro. Inténtalo de nuevo o ve a la recepción.",
   "people.err.licenseMismatch":
     "Esa licencia no parece ser de {name} — mejor ingresa su fecha de nacimiento.",
+
+  // --- Flow step-header titles ---
+  "stepTitle.lanes": "Pistas",
+  "stepTitle.time": "Hora",
+  "stepTitle.bowlers": "Jugadores",
+  "stepTitle.package": "Paquete",
+  "stepTitle.whosBowling": "¿Quién juega boliche?",
+  "stepTitle.whosPlaying": "¿Quién juega?",
+  "stepTitle.whosRacing": "¿Quién corre?",
 };

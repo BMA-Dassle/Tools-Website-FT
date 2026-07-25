@@ -479,6 +479,16 @@ export const en = {
   "people.err.finishFail": "Couldn’t finish setup. Please try again or see the front desk.",
   "people.err.licenseMismatch":
     "That license doesn’t look like {name}’s — enter their birthday instead.",
+
+  // --- Flow step-header titles (KioskFlow renders currentStep.title; module-
+  // scope StepDef titles are mapped to these keys at the render site) ---
+  "stepTitle.lanes": "Lanes",
+  "stepTitle.time": "Time",
+  "stepTitle.bowlers": "Bowlers",
+  "stepTitle.package": "Package",
+  "stepTitle.whosBowling": "Who’s bowling?",
+  "stepTitle.whosPlaying": "Who’s playing?",
+  "stepTitle.whosRacing": "Who’s racing?",
 } as const;
 
 export type MessageKey = keyof typeof en;
