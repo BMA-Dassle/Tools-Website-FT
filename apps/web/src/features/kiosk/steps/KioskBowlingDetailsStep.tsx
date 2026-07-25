@@ -24,6 +24,7 @@ import {
   FASTTRAX_QAMF_CENTER_ID,
   FASTTRAX_CENTER_CODE,
 } from "@/lib/qamf-centers";
+import { useT, type MessageKey } from "../i18n";
 
 const QAMF_CENTER_CODES: Record<number, string> = {
   9172: "TXBSQN0FEKQ11",
@@ -107,11 +108,11 @@ const SHOE_SIZES: Record<string, string[]> = {
   ],
 };
 
-/** Family-friendly labels over the canonical stored values. */
-const SHOE_CATEGORIES: Array<{ value: keyof typeof SHOE_SIZES; label: string }> = [
-  { value: "Toddler", label: "Toddler" },
-  { value: "Male", label: "Men's" },
-  { value: "Female", label: "Women's" },
+/** Family-friendly labels over the canonical stored values (translated at render). */
+const SHOE_CATEGORIES: Array<{ value: keyof typeof SHOE_SIZES; labelKey: MessageKey }> = [
+  { value: "Toddler", labelKey: "bowlingDetails.cat.toddler" },
+  { value: "Male", labelKey: "bowlingDetails.cat.mens" },
+  { value: "Female", labelKey: "bowlingDetails.cat.womens" },
 ];
 
 /** "Own shoes" sentinel — an explicit answer that isn't a rental size.
@@ -153,6 +154,7 @@ function playerComplete(p: RosterPlayer, hasShoes: boolean): boolean {
 }
 
 const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item, onChange }) => {
+  const t = useT();
   const roster = rosterOf(item);
   // FastTrax duckpin (center 11542) has no shoes — collect name + bumpers only.
   const hasShoes = centerHasShoeRental(item.qamfCenterId);
@@ -254,12 +256,10 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
     <div className="space-y-[24px]">
       <div className="flex items-center justify-between gap-[16px]">
         <p className="text-[26px] text-white/55">
-          {hasShoes
-            ? "Names, shoes and bumpers — so your lane is ready the moment you are."
-            : "Names and bumpers — so your lane is ready the moment you are."}
+          {t(hasShoes ? "bowlingDetails.intro.shoes" : "bowlingDetails.intro.noShoes")}
         </p>
         <span className="k-eyebrow shrink-0 text-[#00e2e5] tabular-nums">
-          {readyCount} of {roster.length} ready
+          {t("bowlingDetails.readyCount", { ready: readyCount, total: roster.length })}
         </span>
       </div>
 
@@ -273,15 +273,19 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
               style={{ borderLeft: `8px solid ${complete ? "#46d68c" : "rgba(255,255,255,0.15)"}` }}
             >
               <div className="mb-[16px] flex items-center justify-between">
-                <span className="k-display text-[34px]">Bowler {i + 1}</span>
-                {complete && <span className="k-eyebrow text-[#46d68c]">Ready</span>}
+                <span className="k-display text-[34px]">
+                  {t("bowlingDetails.bowlerN", { num: i + 1 })}
+                </span>
+                {complete && (
+                  <span className="k-eyebrow text-[#46d68c]">{t("bowlingDetails.ready")}</span>
+                )}
               </div>
 
               <label
                 htmlFor={`kiosk-bowler-name-${i}`}
                 className="mb-[8px] block text-[22px] font-semibold uppercase tracking-widest text-white/40"
               >
-                Name
+                {t("bowlingDetails.name")}
               </label>
               <input
                 id={`kiosk-bowler-name-${i}`}
@@ -292,17 +296,19 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
                 // stream reads as mixed case two chars in and gets preserved —
                 // "SaRA"); the reserve payload formats once more as backstop.
                 onBlur={(e) => update(i, { name: formatPersonName(e.target.value) })}
-                placeholder={`Bowler ${i + 1}`}
+                placeholder={t("bowlingDetails.bowlerN", { num: i + 1 })}
                 autoComplete="off"
                 className="mb-[20px] w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[18px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
               />
 
               {hasShoes && (
                 <span className="mb-[8px] block text-[22px] font-semibold uppercase tracking-widest text-white/40">
-                  Shoe size
+                  {t("bowlingDetails.shoeSize")}
                   {chargeShoes && shoeProduct && (
                     <span className="ml-[10px] normal-case tracking-normal text-[#46d68c]">
-                      rental ${(shoeProduct.priceCents / 100).toFixed(2)}/pair · own shoes free
+                      {t("bowlingDetails.shoeRentalNote", {
+                        price: `$${(shoeProduct.priceCents / 100).toFixed(2)}`,
+                      })}
                     </span>
                   )}
                 </span>
@@ -328,7 +334,7 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
                               : "border-white/10 text-white/50"
                           }`}
                         >
-                          Own shoes
+                          {t("bowlingDetails.ownShoes")}
                         </button>
                         {SHOE_CATEGORIES.map((cat) => (
                           <button
@@ -346,7 +352,7 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
                                 : "border-white/10 text-white/50"
                             }`}
                           >
-                            {cat.label}
+                            {t(cat.labelKey)}
                           </button>
                         ))}
                       </div>
@@ -377,7 +383,7 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
 
               <div className="flex items-center gap-[20px]">
                 <span className="text-[22px] font-semibold uppercase tracking-widest text-white/40">
-                  Bumpers
+                  {t("bowlingDetails.bumpers")}
                 </span>
                 <div className="inline-flex overflow-hidden rounded-2xl border-2 border-white/15">
                   {([true, false] as const).map((v) => (
@@ -389,7 +395,7 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
                         p.bumpers === v ? "bg-[#00E2E5] text-[#04252b]" : "text-white/55"
                       }`}
                     >
-                      {v ? "Yes" : "No"}
+                      {t(v ? "bowlingDetails.yes" : "bowlingDetails.no")}
                     </button>
                   ))}
                 </div>
@@ -404,8 +410,10 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
       {chargeShoes && shoeProduct && rentalCount > 0 && (
         <div className="k-glass flex items-center justify-between px-[28px] py-[20px]">
           <span className="text-[24px] text-white/70">
-            {rentalCount} shoe rental{rentalCount === 1 ? "" : "s"} · $
-            {(shoeProduct.priceCents / 100).toFixed(2)}/pair
+            {t("bowlingDetails.rentalSummary", {
+              count: rentalCount,
+              price: `$${(shoeProduct.priceCents / 100).toFixed(2)}`,
+            })}
           </span>
           <span className="k-display text-[32px] tabular-nums text-[#46d68c]">
             ${(shoeTotalCents / 100).toFixed(2)}
@@ -418,6 +426,10 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
 
 export const KioskBowlingDetailsStep: StepDef<BowlItem> = {
   id: "kiosk-bowling-details",
+  // TODO(i18n): `title` and the `canAdvance` reasons below run at module scope
+  // (outside React) so they can't reach useT(). They stay English until step
+  // titles + validation reasons are threaded through the active locale — a
+  // cross-cutting change tracked in tasks/kiosk-i18n-spanish-plan.md.
   title: "Bowlers",
   Component: KioskBowlingDetailsStepComponent,
   isVisible: () => true,

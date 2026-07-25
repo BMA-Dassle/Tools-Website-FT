@@ -140,4 +140,25 @@ export const es: Record<MessageKey, string> = {
   "slot.noneSoon":
     "No hay nada disponible para tu grupo en las próximas horas — los horarios restantes de hoy están abajo, o pregunta en la recepción por disponibilidad sin cita.",
   "slot.orPickAnother": "O elige otro horario para hoy",
+
+  // --- Bowler roster / details (KioskBowlingDetailsStep) ---
+  "bowlingDetails.intro.shoes":
+    "Nombres, zapatos y bumpers — para que tu pista esté lista en cuanto tú lo estés.",
+  "bowlingDetails.intro.noShoes":
+    "Nombres y bumpers — para que tu pista esté lista en cuanto tú lo estés.",
+  "bowlingDetails.readyCount": "{ready} de {total} listos",
+  "bowlingDetails.bowlerN": "Jugador {num}",
+  "bowlingDetails.ready": "Listo",
+  "bowlingDetails.name": "Nombre",
+  "bowlingDetails.shoeSize": "Talla de zapato",
+  "bowlingDetails.shoeRentalNote": "alquiler {price}/par · zapatos propios gratis",
+  "bowlingDetails.ownShoes": "Zapatos propios",
+  "bowlingDetails.cat.toddler": "Infantil",
+  "bowlingDetails.cat.mens": "Hombre",
+  "bowlingDetails.cat.womens": "Mujer",
+  "bowlingDetails.bumpers": "Bumpers",
+  "bowlingDetails.yes": "Sí",
+  "bowlingDetails.no": "No",
+  "bowlingDetails.rentalSummary":
+    "{count, plural, one {# alquiler de zapatos} other {# alquileres de zapatos}} · {price}/par",
 };

@@ -16,7 +16,12 @@
  */
 import { useRef, useState } from "react";
 import type { PartyMember } from "~/features/booking";
-import { kioskPackSkus, kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
+import {
+  kioskPackSkus,
+  kioskRacePacksEnabled,
+  racePackLicenseEnabled,
+} from "~/features/booking/service/race-pack-kiosk";
+import { LICENSE_PRICE } from "~/features/booking/service/race-pricing";
 import { kioskTerminalEnabled } from "../flags";
 import { useKioskConfig } from "../KioskConfigContext";
 import { KioskPartyManager, peopleReady } from "./KioskPartyManager";
@@ -65,6 +70,9 @@ export function KioskRacePackFlow({
   const [phase, setPhase] = useState<Phase>("build");
   const [error, setError] = useState<string | null>(null);
   const [outcomes, setOutcomes] = useState<PackOutcome[]>([]);
+  const [licenseOutcomes, setLicenseOutcomes] = useState<
+    Array<{ memberName: string; registered: boolean }>
+  >([]);
   const purchaseKeyRef = useRef<string | null>(null);
 
   // Standalone surface sells ALL six SKUs — 3/5/10 × Mon–Thu/Any-Day (owner
@@ -73,10 +81,16 @@ export function KioskRacePackFlow({
   const readerReady = kioskTerminalEnabled() && !!config?.readerId;
 
   const assigned = party.filter((m) => picks[m.id] && m.bmiPersonId);
-  const totalCents = assigned.reduce((s, m) => {
+  const packCents = assigned.reduce((s, m) => {
     const sku = skus.find((p) => p.slug === picks[m.id]);
     return s + Math.round((sku?.price ?? 0) * 100);
   }, 0);
+  // FastTrax license for each new racer buying a pack (flag-gated). Client hint
+  // only — the server re-verifies each racer's license status and re-derives the
+  // charge; the reader charges (and displays) the server-authoritative total.
+  const licenseCents = Math.round(LICENSE_PRICE * 100);
+  const newRacers = racePackLicenseEnabled() ? assigned.filter((m) => m.isNewRacer) : [];
+  const totalCents = packCents + newRacers.length * licenseCents;
   const readiness =
     assigned.length > 0
       ? peopleReady(
@@ -99,6 +113,9 @@ export function KioskRacePackFlow({
       slug: picks[m.id],
       personId: m.bmiPersonId!,
       memberName: `${m.firstName} ${m.lastName ?? ""}`.trim(),
+      isNewRacer: m.isNewRacer === true,
+      email: m.email ?? undefined,
+      phone: m.phone ?? undefined,
     }));
     const res = await fetch("/api/race-packs/terminal", {
       method: "POST",
@@ -144,6 +161,7 @@ export function KioskRacePackFlow({
         return;
       }
       setOutcomes(data.packs ?? []);
+      setLicenseOutcomes(data.licenses ?? []);
       setPhase("done");
     } catch {
       setError(
@@ -186,16 +204,42 @@ export function KioskRacePackFlow({
             </div>
           ))}
         </div>
+        {licenseOutcomes.length > 0 && (
+          <div className="rounded-2xl border border-[#f0b341]/30 bg-[#f0b341]/[0.06] px-[24px] py-[18px]">
+            {licenseOutcomes.every((l) => l.registered) ? (
+              <div className="text-[24px] text-white/80">
+                <span className="font-bold text-[#46d68c]">FastTrax License added</span> for{" "}
+                {licenseOutcomes.map((l) => l.memberName).join(", ")} — good for a year, helmets
+                &amp; safety gear included. You&rsquo;re cleared to race.
+              </div>
+            ) : (
+              <div className="text-[24px] text-amber-200/90">
+                Your license is being set up — please check in at the front desk so we can finish it
+                (no need to pay again).
+              </div>
+            )}
+          </div>
+        )}
         <p className="text-[24px] text-white/55">
           Check in with their phone number any visit — the credits pay for races at checkout.
         </p>
         <div className="flex flex-col gap-[14px] pt-[8px]">
           <button
             type="button"
-            onClick={() =>
+            onClick={() => {
+              // Racers we just charged a license for are now licensed (BMI sale
+              // fired; a failed one is reconciled — the guest paid once either
+              // way). Mark them licensePrepaid on the hand-off so the immediate
+              // race checkout adds NO second $4.99 license and books no second
+              // withLicense grant — while isNewRacer stays true, so Starter-only
+              // tier + the height/age safety confirm still apply.
+              const licensedIds = new Set(newRacers.map((m) => m.id));
+              const handoffParty = party.map((m) =>
+                licensedIds.has(m.id) ? { ...m, licensePrepaid: true } : m,
+              );
               onRaceToday(
-                party,
-                party.flatMap((m): RaceTodayGrant[] => {
+                handoffParty,
+                handoffParty.flatMap((m): RaceTodayGrant[] => {
                   const sku = skus.find((p) => p.slug === picks[m.id]);
                   return sku && m.bmiPersonId
                     ? [
@@ -207,8 +251,8 @@ export function KioskRacePackFlow({
                       ]
                     : [];
                 }),
-              )
-            }
+              );
+            }}
             className="k-btn-primary k-tap"
             style={{ flex: "0 0 auto" }}
           >
@@ -355,6 +399,21 @@ export function KioskRacePackFlow({
               </div>
             </div>
           ))}
+          {newRacers.length > 0 && (
+            <div className="rounded-2xl border-2 border-[#f0b341]/40 bg-[#f0b341]/[0.08] px-[24px] py-[20px]">
+              <div className="k-eyebrow text-[#f0b341]">FastTrax License required</div>
+              <p className="mt-[6px] text-[22px] leading-snug text-white/80">
+                First-time {newRacers.length === 1 ? "racer" : "racers"} need a FastTrax Racing
+                License to get on track — <span className="font-bold text-white">$4.99 each</span>,
+                good for a full year and includes use of our helmets &amp; safety gear. We&rsquo;ll
+                add it now so {newRacers.length === 1 ? "they&rsquo;re" : "they&rsquo;re all"} ready
+                to race.
+              </p>
+              <p className="mt-[8px] text-[19px] text-white/50">
+                License for: {newRacers.map((m) => m.firstName).join(", ")}
+              </p>
+            </div>
+          )}
           <p className="text-[19px] text-white/45">
             One pack per racer · non-transferable · credits never expire.
           </p>

@@ -30,6 +30,15 @@ export function kioskRacePacksEnabled(): boolean {
   return process.env.NEXT_PUBLIC_KIOSK_RACE_PACKS_ENABLED !== "false";
 }
 
+/** FastTrax-license-on-pack-purchase KILL SWITCH — default OFF (owner smokes
+ *  both surfaces on a Vercel preview first; the BMI license registration must be
+ *  verified live before it fronts real guests). Gates BOTH the kiosk standalone
+ *  and web /book/race-packs license lines + registration. Flip on with
+ *  `NEXT_PUBLIC_RACE_PACK_LICENSE=true`. */
+export function racePackLicenseEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_RACE_PACK_LICENSE === "true";
+}
+
 /** Where a pack is being sold — the two surfaces carry different catalogs
  *  (owner 2026-07-19): the in-race teaser stays 3-packs only (fast decision
  *  mid-booking), the standalone attract flow sells all six (3/5/10). */

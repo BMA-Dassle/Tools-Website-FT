@@ -83,6 +83,17 @@ export interface PostPaymentAction {
   packLabel?: string;
   raceCount?: number;
   isNewRacer?: boolean;
+  /** When present (race-pack flow, new/unlicensed racer), the server registers a
+   *  $4.99 FastTrax License on this person AFTER the charge (booking/sell 43473520
+   *  → registerContactPerson → payment/confirm). The $4.99 is already in `amount`
+   *  above (added to the order line items client-side). */
+  license?: {
+    personId: string | number;
+    firstName: string;
+    lastName?: string;
+    email?: string;
+    phone?: string;
+  };
 }
 
 interface PaymentFormProps {

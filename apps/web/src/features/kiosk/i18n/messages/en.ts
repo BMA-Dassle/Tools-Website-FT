@@ -138,6 +138,30 @@ export const en = {
   "slot.noneSoon":
     "Nothing bookable for your group in the next few hours — today’s remaining times are below, or ask the front desk about walk-ins.",
   "slot.orPickAnother": "Or pick another time today",
+
+  // --- Bowler roster / details (KioskBowlingDetailsStep) ---
+  // NOTE: this step's StepDef `title` and its `canAdvance` validation reasons
+  // run at module scope (outside React), so they can't reach useT() — they stay
+  // English with a TODO(i18n) in the component until validation copy is threaded
+  // through the locale (a broader change tracked in the plan).
+  "bowlingDetails.intro.shoes":
+    "Names, shoes and bumpers — so your lane is ready the moment you are.",
+  "bowlingDetails.intro.noShoes": "Names and bumpers — so your lane is ready the moment you are.",
+  "bowlingDetails.readyCount": "{ready} of {total} ready",
+  "bowlingDetails.bowlerN": "Bowler {num}",
+  "bowlingDetails.ready": "Ready",
+  "bowlingDetails.name": "Name",
+  "bowlingDetails.shoeSize": "Shoe size",
+  "bowlingDetails.shoeRentalNote": "rental {price}/pair · own shoes free",
+  "bowlingDetails.ownShoes": "Own shoes",
+  "bowlingDetails.cat.toddler": "Toddler",
+  "bowlingDetails.cat.mens": "Men’s",
+  "bowlingDetails.cat.womens": "Women’s",
+  "bowlingDetails.bumpers": "Bumpers",
+  "bowlingDetails.yes": "Yes",
+  "bowlingDetails.no": "No",
+  "bowlingDetails.rentalSummary":
+    "{count, plural, one {# shoe rental} other {# shoe rentals}} · {price}/pair",
 } as const;
 
 export type MessageKey = keyof typeof en;
