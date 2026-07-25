@@ -546,49 +546,6 @@ export async function readTerminalAnchor(seed: string): Promise<TerminalAnchor |
   }
 }
 
-// ── Reserve-recovery record (Square webhook backstop) ─────────────────
-//
-// The FULL reserve input, keyed by the DEPOSIT ORDER id — the join the Square
-// `payment.updated` webhook actually has (payment.order_id). Written at prepare
-// so that if the reader captured the card but the client never ran reserve (the
-// browser died and the guest never came back — no inline resume can fire), the
-// webhook replays `unifiedReserve` verbatim with the captured paymentId. The
-// deposit order id is deterministic (dep-order-${baseKey}), so the webhook's
-// payment.order_id equals this key. 48h TTL matches the anchor.
-export interface TerminalReserveRecovery {
-  seed: string;
-  session: BookingSession;
-  contact: ContactInfo;
-  depositCents: number;
-  locationId: string;
-}
-const terminalRecoveryKey = (orderId: string) => `kiosk:terminal:recovery:${orderId}`;
-
-export async function writeTerminalReserveRecovery(
-  orderId: string,
-  rec: TerminalReserveRecovery,
-): Promise<void> {
-  try {
-    await redis.set(terminalRecoveryKey(orderId), JSON.stringify(rec), "EX", TERMINAL_ANCHOR_TTL_S);
-  } catch {
-    /* non-fatal — the webhook simply can't auto-recover this one if Redis was down */
-  }
-}
-
-export async function readTerminalReserveRecovery(
-  orderId: string,
-): Promise<TerminalReserveRecovery | null> {
-  try {
-    const raw = await redis.get(terminalRecoveryKey(orderId));
-    if (!raw) return null;
-    return typeof raw === "string"
-      ? (JSON.parse(raw) as TerminalReserveRecovery)
-      : (raw as TerminalReserveRecovery);
-  } catch {
-    return null;
-  }
-}
-
 // ── Route-entry idempotency guard + lock ──────────────────────────────
 
 /**
@@ -1296,17 +1253,6 @@ async function unifiedReserveInner(
         locationId,
         baseKey,
         ...(anchorGameCards ? { gameCards: anchorGameCards } : {}),
-      });
-      // Persist the FULL reserve input (keyed by the deposit order id) so the
-      // Square payment.updated webhook can replay unifiedReserve server-side if
-      // the reader captures but the client never runs reserve (walk-away). The
-      // deposit order id is what the webhook joins on (payment.order_id).
-      await writeTerminalReserveRecovery(depositOrderId, {
-        seed: seedSource ?? baseKey,
-        session,
-        contact,
-        depositCents,
-        locationId,
       });
       return {
         __prepare: true,

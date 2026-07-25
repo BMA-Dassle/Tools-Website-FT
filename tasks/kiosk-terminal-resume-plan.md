@@ -43,31 +43,21 @@ re-arm, never mint a new order (that would reopen double-charge). No cron.
 - displayed==charged untouched (no new charge).
 - tsc + eslint (incl. react-hooks + jsx-a11y) + a11y-gate + single turbo build.
 
-## PR2 — Full server-side rebuild via Square webhook (walk-away case) — BUILT
-booking-record is only a SUMMARY — not enough to rebuild reserve-all, so we persist the
-real input. The join is the DEPOSIT ORDER id (what the webhook has: `payment.order_id`),
-NOT the seed — the order's Square reference_id is the deposit note, not the seed.
-- [x] `unified-reserve`: `writeTerminalReserveRecovery(orderId, { seed, session, contact,
-      depositCents, locationId })` / `readTerminalReserveRecovery(orderId)` — Redis
-      `kiosk:terminal:recovery:${orderId}`, 48h TTL. Written at prepare next to the anchor.
-- [x] `/api/webhooks/square` (`payment.updated`/`payment.created`), signature-verified
-      (base64 HMAC-SHA256 of notificationUrl+rawBody, `x-square-hmacsha256-signature`).
-      On a COMPLETED payment whose `order_id` has a recovery record AND no confirmed
-      reservation (`bmi:confirmed:${bill}` miss): NX-lock, then
-      `unifiedReserve({ session, contact, externalPayment:{ paymentId, depositOrderId,
-      amountCents, source:"terminal" } })` — verbatim, idempotent via baseKey.
-- [x] Dead bill (BillExpiredError) or reserve error → durable orphan marker
-      `kiosk:terminal:orphan:${orderId}` + radio alert to venue FOH. NEVER auto-refunds
-      (forward-recovery rule — deposit stays put; a human refunds/rebooks).
-- [ ] OWNER ACTION (required to arm — dormant until then):
-      1. Square dashboard → Developers → Webhooks → add subscription to the PROD URL
-         `https://<prod-host>/api/webhooks/square`, events `payment.updated` (+ optionally
-         `payment.created`).
-      2. Set env `SQUARE_WEBHOOK_SIGNATURE_KEY` (from the subscription) and
-         `SQUARE_WEBHOOK_NOTIFICATION_URL` (the exact subscribed URL) on the Vercel project.
-      Until the key is set the route fail-closes (401) — safe no-op.
+## PR2 — Full server-side rebuild via Square webhook (walk-away case)
+booking-record is only a SUMMARY — not enough to rebuild reserve-all. So:
+- [ ] Persist the full reserve input at prepare: stash `{ session, contact }` in Redis
+      keyed by seed (e.g. `kiosk:terminal:reserveinput:${seed}`, TTL 48h) alongside the
+      existing terminal anchor.
+- [ ] `/api/webhooks/square` (`payment.updated` → COMPLETED), Square signature-verified.
+      On a completed terminal payment whose order reference_id = a kiosk seed AND no
+      confirmed reservation (`bmi:confirmed:${bill}` / Neon miss): load the persisted
+      input and call `unifiedReserve({ ...input, externalPayment:{ paymentId,
+      depositOrderId, amountCents, seed } })` — verbatim, fully idempotent via baseKey.
+- [ ] If the bill is dead (cancelled) → auto-refund the captured payment + staff alert
+      (Teams/radio) instead of booking.
+- [ ] Owner action: configure the Square webhook subscription + signature key.
 
-### Sequencing
-PR1 (branch fix/kiosk-terminal-captured-resume) fixes the dead-end + auto-recovers the
-re-entry case with zero infra. PR2 (branch fix/kiosk-terminal-webhook-reconcile, STACKED on
-PR1) adds the walk-away backstop. Merge PR1 first, then PR2.
+### PR2 sequencing note
+PR1 fixes the dead-end you saw and auto-recovers the common immediate-retry case with zero
+infra. PR2 (public money-moving webhook + signature verification + dashboard config) ships
+after PR1 proves out — not bundled into the same commit.
