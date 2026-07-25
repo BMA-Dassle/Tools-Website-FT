@@ -64,14 +64,21 @@ export interface ExperienceAvailability {
   "shuffly-headpinz": boolean;
 }
 
-/** The soonest bookable slot per tile, for the kiosk's "3 lanes · 9:30 PM"
- *  availability line. Only the attractions/racing whose availability carries a
- *  real per-block count are keyed here (bowling/KBF via QAMF have no count).
+/** The soonest bookable slot per tile, for the kiosk's tile availability line.
+ *  BMI attractions/racing carry a per-block count (freeSpots); QAMF bowling/KBF
+ *  carry only the time (no lane count) → a time-only "Next lane · TIME" line.
  *  A key is ABSENT when we have no signal (fail-open) — the tile just omits the
  *  line rather than showing "0 left". */
 export type ExperienceFirstOpen = Partial<
   Record<
-    "race" | "duck-pin" | "gel-blaster" | "laser-tag" | "shuffly-fasttrax" | "shuffly-headpinz",
+    | "race"
+    | "duck-pin"
+    | "gel-blaster"
+    | "laser-tag"
+    | "shuffly-fasttrax"
+    | "shuffly-headpinz"
+    | "bowling"
+    | "kbf",
     FirstOpen
   >
 >;
@@ -161,25 +168,38 @@ async function isPackageBookableToday(pkg: PackageDefinition, dateYmd: string): 
   );
 }
 
-/** Any bowling slot left today for a kind set? One cheap 30-min-grid scan of
- *  OUR availability route (which already applies day-of-week offers — KBF's
- *  Mon–Fri gate included — the close filter, and the now-floor). players=2 =
- *  the smallest lane party. */
-async function isBowlingBookableToday(
+/** The EARLIEST bookable bowling slot today for a kind set (null = none left).
+ *  One cheap 30-min-grid scan of OUR availability route (which already applies
+ *  day-of-week offers — KBF's Mon–Fri gate included — the close filter, and the
+ *  now-floor). players=2 = the smallest lane party. QAMF returns bookable times
+ *  but no lane count, so the returned FirstOpen carries `start` only — the tile
+ *  shows a time-only "Next lane · TIME" line. */
+async function bowlingFirstOpenToday(
   center: CenterCode,
   dateYmd: string,
   kind: "open,hourly" | "kbf",
-): Promise<boolean> {
+): Promise<FirstOpen | null> {
   const centerId = qamfCenterIdForCode(center);
-  if (centerId == null) return false;
+  if (centerId == null) return null;
   const res = await fetch(
     `${apiBase()}/api/bowling/v2/availability?centerId=${centerId}&players=2` +
       `&startDate=${dateYmd}&kind=${kind}&stepMinutes=30&leadMinutes=0`,
     { cache: "no-store" },
   );
   if (!res.ok) throw new Error(`bowling availability ${res.status}`);
-  const data = (await res.json()) as { Availabilities?: unknown[] };
-  return (data.Availabilities ?? []).length > 0;
+  const data = (await res.json()) as { Availabilities?: Array<{ BookedAt?: string }> };
+  const rows = data.Availabilities ?? [];
+  // The route sorts by BookedAt asc, but pick the min defensively.
+  let earliest: string | null = null;
+  for (const r of rows) {
+    if (!r.BookedAt) continue;
+    if (earliest == null || r.BookedAt < earliest) earliest = r.BookedAt;
+  }
+  if (!earliest) return null;
+  // QAMF's BookedAt carries an ET offset ("…T14:00:00-04:00"); strip it to a
+  // zone-less wall-clock so slotLabel renders it the same way as BMI starts.
+  const start = earliest.replace(/[+-]\d{2}:\d{2}$/, "").replace(/Z$/, "");
+  return { start }; // no freeSpots — QAMF gives no lane count
 }
 
 /** Server-safe ms for BMI's zone-less ET wall-clock ("2026-07-19T22:30:00").
@@ -319,13 +339,14 @@ export async function computeExperienceAvailability(
   // tiles never render there, and open can never false-lock anything.
   const OPEN_NO_COUNT: SlotAvailability = { open: true };
 
-  // Boolean-only checks (combos + bowling/KBF have no per-block count) and the
-  // slot-carrying checks run concurrently — one barrier, no lost parallelism.
+  // Boolean-only checks (combos carry no per-slot data) and the slot-carrying
+  // checks run concurrently — one barrier, no lost parallelism. Bowling/KBF
+  // carry a time only (QAMF gives no lane count) → a time-only tile line. All of
+  // this runs INSIDE the Redis-cached /api/kiosk/availability compute (300s TTL,
+  // single-flight), so the vendors are hit at most once per TTL per center.
   const boolsP = Promise.all([
     isComboBookableToday(center, dateYmd).catch(() => true),
     isUltimateQualifierBookableToday(dateYmd).catch(() => true),
-    isBowlingBookableToday(center, dateYmd, "open,hourly").catch(() => true),
-    isBowlingBookableToday(center, dateYmd, "kbf").catch(() => true),
   ]);
   const slotsP = Promise.all([
     fm ? resolveSlotAvailability(racingFirstOpenToday(dateYmd)) : Promise.resolve(OPEN_NO_COUNT),
@@ -340,16 +361,18 @@ export async function computeExperienceAvailability(
     fm
       ? resolveSlotAvailability(attractionFirstOpenToday("shuffly", "headpinz", dateYmd))
       : Promise.resolve(OPEN_NO_COUNT),
+    resolveSlotAvailability(bowlingFirstOpenToday(center, dateYmd, "open,hourly")),
+    resolveSlotAvailability(bowlingFirstOpenToday(center, dateYmd, "kbf")),
   ]);
-  const [[combo, uq, bowling, kbf], [race, duckPin, gel, laser, shufFt, shufHp]] =
+  const [[combo, uq], [race, duckPin, gel, laser, shufFt, shufHp, bowling, kbf]] =
     await Promise.all([boolsP, slotsP]);
 
   return {
     available: {
       "race-bowl": combo,
       "ultimate-qualifier": uq,
-      bowling,
-      kbf,
+      bowling: bowling.open,
+      kbf: kbf.open,
       race: race.open,
       "duck-pin": duckPin.open,
       "gel-blaster": gel.open,
@@ -365,6 +388,8 @@ export async function computeExperienceAvailability(
       "laser-tag": laser.firstOpen,
       "shuffly-fasttrax": shufFt.firstOpen,
       "shuffly-headpinz": shufHp.firstOpen,
+      bowling: bowling.firstOpen,
+      kbf: kbf.firstOpen,
     },
   };
 }

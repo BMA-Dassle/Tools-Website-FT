@@ -36,8 +36,8 @@ type CategoryKey = "exp" | "attr";
 
 /** The unit a tile's availability count is measured in, [singular, plural].
  *  Keyed per SLUG (not just bookingMode): duckpin and shuffly are both per-slot
- *  but read as lanes vs tables. Attractions absent here (bowling/KBF) show no
- *  line. */
+ *  but read as lanes vs tables. Bowling/KBF are absent — QAMF gives no lane
+ *  count, so those tiles show a time-only line (see TIME_ONLY_SLUGS). */
 const AVAILABILITY_NOUN: Record<string, [string, string]> = {
   "duck-pin": ["lane", "lanes"],
   shuffly: ["table", "tables"],
@@ -46,11 +46,18 @@ const AVAILABILITY_NOUN: Record<string, [string, string]> = {
   race: ["seat", "seats"],
 };
 
-/** "3 lanes · 9:30 PM" for the tile availability line, or null when we have no
- *  count for this attraction (bowling/KBF, or a vendor blip). */
+/** Slugs whose vendor (QAMF bowling/KBF) returns bookable times but no lane
+ *  count — the tile shows "Next lane · TIME" instead of "N lanes · TIME". */
+const TIME_ONLY_SLUGS = new Set(["bowling", "kbf"]);
+
+/** The tile availability line: "3 lanes · 9:30 PM" when the vendor gives a
+ *  count, "Next lane · 12:00 PM" for bowling/KBF (time only), or null when we
+ *  have no signal (vendor blip → the tile just omits the line). */
 function availabilityLine(slug: string, firstOpen?: FirstOpen): string | null {
+  if (!firstOpen) return null;
+  if (TIME_ONLY_SLUGS.has(slug)) return `Next lane · ${slotLabel(firstOpen.start)}`;
   const noun = AVAILABILITY_NOUN[slug];
-  if (!noun || !firstOpen) return null;
+  if (!noun || firstOpen.freeSpots == null) return null;
   const unit = firstOpen.freeSpots === 1 ? noun[0] : noun[1];
   return `${firstOpen.freeSpots} ${unit} · ${slotLabel(firstOpen.start)}`;
 }
