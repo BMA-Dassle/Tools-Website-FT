@@ -525,18 +525,20 @@ function OfferingTile({
         </div>
       </div>
       {/* Availability line sits on the accent bar as a footer (owner 2026-07-25:
-          moved down from above the title). Reserved 0–64px bottom zone keeps
-          titles aligned whether or not a tile has a line; neutral tone, no
-          urgency color. */}
+          moved down from above the title, then green = available per owner —
+          one green, NOT red/amber urgency tiers). Reserved 0–64px bottom zone
+          keeps titles aligned whether or not a tile has a line. */}
       <div className="absolute inset-x-0 bottom-0">
-        <div className={`flex h-[44px] items-center px-[36px] ${availLine ? "bg-black/25" : ""}`}>
+        <div
+          className={`flex h-[44px] items-center gap-[10px] px-[36px] ${availLine ? "bg-black/25" : ""}`}
+        >
           {availLine && (
-            <span
-              className="text-[22px] font-bold uppercase leading-none tracking-[0.08em] tabular-nums"
-              style={{ color: "rgba(245,236,238,0.88)" }}
-            >
-              {availLine}
-            </span>
+            <>
+              <span className="h-[10px] w-[10px] flex-none rounded-full bg-[#46d68c]" />
+              <span className="text-[22px] font-bold uppercase leading-none tracking-[0.08em] tabular-nums text-[#46d68c]">
+                {availLine}
+              </span>
+            </>
           )}
         </div>
         <div className="h-[8px]" style={{ background: disabled ? "#555" : accent }} />
