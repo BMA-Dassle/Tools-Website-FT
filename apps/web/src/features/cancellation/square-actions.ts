@@ -75,9 +75,25 @@ export async function fetchGiftCardFacts(
   };
 }
 
+/** One Square order line item, reduced to what the manage UI shows. */
+export interface OrderLineItem {
+  name: string;
+  /** Square returns quantity as a string; keep it verbatim for "×N" display. */
+  quantity: string;
+  /** Line total (already qty-multiplied, tax/discount applied) in cents. */
+  totalCents: number;
+}
+/** A flat service charge on the order (GF day-of orders carry these). */
+export interface OrderServiceCharge {
+  name: string;
+  totalCents: number;
+}
+
 export async function fetchOrderFacts(orderId: string): Promise<
   GatheredFacts["dayofOrders"][string] & {
     tenders: Array<{ paymentId: string; amountCents: number }>;
+    lineItems: OrderLineItem[];
+    serviceCharges: OrderServiceCharge[];
   }
 > {
   const r = await sq("GET", `/orders/${orderId}`);
@@ -89,6 +105,19 @@ export async function fetchOrderFacts(orderId: string): Promise<
       amountCents: t.amount_money?.amount ?? 0,
     }))
     .filter((t: { paymentId: string }) => t.paymentId);
+  const lineItems: OrderLineItem[] = (o.line_items ?? []).map(
+    (li: { name?: string; quantity?: string; total_money?: { amount?: number } }) => ({
+      name: li.name ?? "Item",
+      quantity: li.quantity ?? "1",
+      totalCents: li.total_money?.amount ?? 0,
+    }),
+  );
+  const serviceCharges: OrderServiceCharge[] = (o.service_charges ?? []).map(
+    (sc: { name?: string; total_money?: { amount?: number } }) => ({
+      name: sc.name ?? "Service charge",
+      totalCents: sc.total_money?.amount ?? 0,
+    }),
+  );
   return {
     id: o.id,
     state: o.state ?? "?",
@@ -98,6 +127,8 @@ export async function fetchOrderFacts(orderId: string): Promise<
     netDueCents: o.net_amount_due_money?.amount ?? 0,
     totalCents: o.total_money?.amount ?? 0,
     tenders,
+    lineItems,
+    serviceCharges,
   };
 }
 

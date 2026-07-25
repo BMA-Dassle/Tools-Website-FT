@@ -5,10 +5,16 @@
  * whole money group for combos/mixed carts), line items, promo/reward,
  * cancellation summary, notes preview.
  */
+import { useEffect } from "react";
 import { etWallMs, dollars, fmtClock, ganDisplay } from "~/features/reservations-admin/format";
 import { KIND_FULL_LABELS } from "~/features/reservations-admin/constants";
 import { centerLabel } from "~/features/reservations-admin/format";
-import type { DetailLeg, ReservationDetail } from "~/features/reservations-admin/service";
+import type {
+  DetailLeg,
+  PaymentTimeline,
+  ReservationDetail,
+  TimelineNode,
+} from "~/features/reservations-admin/service";
 import type { Reservation } from "~/features/reservations-admin/types";
 import { Card, KindChip, StatusChip } from "./ui";
 
@@ -91,12 +97,25 @@ function legSteps(leg: DetailLeg, boardRow: Reservation): ItineraryStep[] {
   return steps;
 }
 
+/** A day-of Square order node that carries usable line items. */
+type DayofOrderNode = TimelineNode & { order: NonNullable<TimelineNode["order"]> };
+
 export default function OverviewTab({
   detail,
   boardRow,
+  payments,
+  paymentsLoading,
+  paymentsError,
+  loadPayments,
 }: {
   detail: ReservationDetail;
   boardRow: Reservation;
+  /** Lazy Square payment timeline (shared with the Payments tab) — carries the
+   *  real day-of order line items. Null until loaded. */
+  payments: PaymentTimeline | null;
+  paymentsLoading: boolean;
+  paymentsError: string | null;
+  loadPayments: () => Promise<void>;
 }) {
   const r = detail.reservation;
   const multi = detail.group.length > 1;
@@ -112,6 +131,38 @@ export default function OverviewTab({
     quantity: number;
     unitPriceCents: number;
   }>;
+
+  // Line items truth = the day-of Square order (what was actually sold/charged).
+  // The stored `lines` are BMI $0-model per-heat shadows and mislead for race
+  // bookings, so auto-load the (cached) timeline once and prefer its day-of
+  // order(s); fall back to the stored lines only before a day-of order exists.
+  useEffect(() => {
+    if (payments == null && !paymentsLoading && !paymentsError) void loadPayments();
+  }, [payments, paymentsLoading, paymentsError, loadPayments]);
+
+  const dayofNodes = (payments?.nodes ?? []).filter(
+    (n): n is DayofOrderNode => n.kind === "dayof_order" && !!n.order?.lineItems,
+  );
+  const dayofExpected = detail.group.some((leg) => leg.squareDayofOrderId);
+  const legKindById = new Map(detail.group.map((leg) => [leg.id, leg.productKind]));
+
+  const lineItemsMode: "dayof" | "loading" | "unavailable" | "none" =
+    dayofNodes.length > 0
+      ? "dayof"
+      : !dayofExpected
+        ? "none"
+        : !paymentsError && (paymentsLoading || payments == null)
+          ? "loading"
+          : "unavailable";
+
+  const lineItemsTitle =
+    lineItemsMode === "dayof"
+      ? multi
+        ? "Line items — day-of Square orders"
+        : "Line items — day-of Square order"
+      : lineItemsMode === "none"
+        ? "Line items — booking estimate (day-of order not created yet)"
+        : "Line items — booking estimate";
 
   return (
     <>
@@ -204,38 +255,32 @@ export default function OverviewTab({
         </Card>
       )}
 
-      <Card title="Line items">
-        {lines.length === 0 ? (
-          <div style={{ color: "var(--ba-muted)", fontSize: "0.82rem" }}>No line items stored</div>
+      <Card title={lineItemsTitle}>
+        {lineItemsMode === "dayof" ? (
+          dayofNodes.map((node) => (
+            <DayofOrderSection
+              key={node.order.id}
+              node={node}
+              kindLabel={
+                KIND_FULL_LABELS[legKindById.get(node.legId ?? -1) ?? ""] ?? "Day-of order"
+              }
+              showHeader={dayofNodes.length > 1}
+            />
+          ))
         ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
-            <tbody>
-              {lines.map((l, i) => (
-                <tr key={i} style={{ borderBottom: "1px dashed var(--ba-border)" }}>
-                  <td style={{ padding: "4px 6px" }}>{l.label}</td>
-                  <td
-                    style={{
-                      padding: "4px 6px",
-                      textAlign: "right",
-                      color: "var(--ba-muted)",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    ×{l.quantity}
-                  </td>
-                  <td
-                    style={{
-                      padding: "4px 6px",
-                      textAlign: "right",
-                      fontVariantNumeric: "tabular-nums",
-                    }}
-                  >
-                    {dollars(l.unitPriceCents * l.quantity)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <>
+            <StoredLinesTable lines={lines} />
+            {lineItemsMode === "loading" && (
+              <div style={{ marginTop: 8, fontSize: "0.72rem", color: "var(--ba-muted)" }}>
+                Loading the actual day-of Square order…
+              </div>
+            )}
+            {lineItemsMode === "unavailable" && (
+              <div style={{ marginTop: 8, fontSize: "0.72rem", color: "var(--ba-muted)" }}>
+                Couldn&rsquo;t load the day-of Square order — showing the booking estimate.
+              </div>
+            )}
+          </>
         )}
         {(r.promoCode || r.rewardDiscountCents > 0) && (
           <div style={{ marginTop: 8, display: "flex", gap: 10, fontSize: "0.75rem" }}>
@@ -262,5 +307,105 @@ export default function OverviewTab({
         </div>
       </Card>
     </>
+  );
+}
+
+const CELL: React.CSSProperties = { padding: "4px 6px" };
+const NUM_CELL: React.CSSProperties = {
+  padding: "4px 6px",
+  textAlign: "right",
+  fontVariantNumeric: "tabular-nums",
+};
+
+/** The stored BMI `bowling_reservation_lines` — the booking-estimate fallback. */
+function StoredLinesTable({
+  lines,
+}: {
+  lines: Array<{ label: string; quantity: number; unitPriceCents: number }>;
+}) {
+  if (lines.length === 0) {
+    return (
+      <div style={{ color: "var(--ba-muted)", fontSize: "0.82rem" }}>No line items stored</div>
+    );
+  }
+  return (
+    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
+      <tbody>
+        {lines.map((l, i) => (
+          <tr key={i} style={{ borderBottom: "1px dashed var(--ba-border)" }}>
+            <td style={CELL}>{l.label}</td>
+            <td style={{ ...NUM_CELL, color: "var(--ba-muted)" }}>×{l.quantity}</td>
+            <td style={NUM_CELL}>{dollars(l.unitPriceCents * l.quantity)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** One day-of Square order's real contents: line items, service charges, total. */
+function DayofOrderSection({
+  node,
+  kindLabel,
+  showHeader,
+}: {
+  node: DayofOrderNode;
+  kindLabel: string;
+  showHeader: boolean;
+}) {
+  const { order } = node;
+  const items = order.lineItems ?? [];
+  const svc = order.serviceCharges ?? [];
+  return (
+    <div style={{ marginBottom: showHeader ? 12 : 0 }}>
+      {showHeader && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            marginBottom: 4,
+          }}
+        >
+          <span style={{ fontSize: "0.75rem", fontWeight: 700 }}>{kindLabel}</span>
+          <span
+            style={{
+              fontSize: "0.68rem",
+              color: "var(--ba-muted)",
+              fontFamily: "ui-monospace, monospace",
+            }}
+          >
+            {order.state}
+          </span>
+        </div>
+      )}
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.82rem" }}>
+        <tbody>
+          {items.map((li, i) => (
+            <tr key={`li-${i}`} style={{ borderBottom: "1px dashed var(--ba-border)" }}>
+              <td style={CELL}>{li.name}</td>
+              <td style={{ ...NUM_CELL, color: "var(--ba-muted)" }}>×{li.quantity}</td>
+              <td style={NUM_CELL}>{dollars(li.totalCents)}</td>
+            </tr>
+          ))}
+          {svc.map((sc, i) => (
+            <tr key={`sc-${i}`} style={{ borderBottom: "1px dashed var(--ba-border)" }}>
+              <td colSpan={2} style={{ ...CELL, color: "var(--ba-muted)" }}>
+                {sc.name}
+              </td>
+              <td style={{ ...NUM_CELL, color: "var(--ba-muted)" }}>{dollars(sc.totalCents)}</td>
+            </tr>
+          ))}
+          <tr>
+            <td colSpan={2} style={{ ...CELL, paddingTop: 6, fontWeight: 700 }}>
+              Total
+            </td>
+            <td style={{ ...NUM_CELL, paddingTop: 6, fontWeight: 700 }}>
+              {dollars(order.totalCents)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   );
 }

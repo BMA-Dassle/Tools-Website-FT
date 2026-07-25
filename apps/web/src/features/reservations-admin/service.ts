@@ -23,6 +23,8 @@ import {
   fetchGiftCardFacts,
   fetchOrderFacts,
   fetchPaymentFacts,
+  type OrderLineItem,
+  type OrderServiceCharge,
 } from "~/features/cancellation/square-actions";
 import { resolveCenter } from "~/features/cancellation/centers";
 import { getCardStatusForReservation } from "~/features/card-vault";
@@ -174,6 +176,9 @@ export interface TimelineNode {
       status?: string;
       refundedCents?: number;
     }>;
+    /** Real order contents — what was actually sold/charged (day-of orders). */
+    lineItems?: OrderLineItem[];
+    serviceCharges?: OrderServiceCharge[];
   };
   giftCard?: { id: string; gan: string; state: string; balanceCents: number };
   /** Node-level failure — the rest of the timeline still renders. */
@@ -231,6 +236,8 @@ async function orderNode(
         totalCents: facts.totalCents,
         netDueCents: facts.netDueCents,
         tenders,
+        lineItems: facts.lineItems,
+        serviceCharges: facts.serviceCharges,
       },
     };
   } catch (err) {
