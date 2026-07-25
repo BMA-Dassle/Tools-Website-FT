@@ -62,6 +62,7 @@ import { LicenseMatchPicker } from "../components/LicenseMatchPicker";
 import { ageFromIso } from "../join/phone/join-helpers";
 import { mergeJoinedGuests } from "../join/merge";
 import { KioskSignInBoxes } from "../components/KioskSignInBoxes";
+import { useT } from "../i18n";
 
 /** Waiver-gated attraction slugs (duckpin is exempt — uses the party-count step). */
 const WAIVER_SLUGS = new Set(["gel-blaster", "laser-tag", "shuffly"]);
@@ -115,6 +116,13 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   dispatch,
   setBusy,
 }) => {
+  const t = useT();
+  // TODO(i18n): PARTIAL — the validation/error setFormError messages are keyed
+  // (people.err.*), age-gate LOGIC untouched. The visible add-people / guardian /
+  // sign-in / waiver UI copy in this ~2,255-line step is NOT yet keyed; it needs a
+  // focused completion pass (see tasks/kiosk-i18n-spanish-plan.md). Static prose
+  // nodes are around lines 1371/1389/1541/1628/1774/1811/1908/1987/2159/2160 plus
+  // many ternary/template-literal strings.
   const isRace = item.kind === "race";
   const party = session.party;
   // CENTER FIRST: the Naples kiosk registers people, fetches waiver templates,
@@ -425,11 +433,11 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     const age = ageFromDob(dob);
     const isMain = party.length === 0;
     if (!firstName.trim() || !lastName.trim()) {
-      setFormError("Enter a first and last name.");
+      setFormError(t("people.err.name"));
       return;
     }
     if (age === null) {
-      setFormError("Enter the birthday as MM/DD/YYYY.");
+      setFormError(t("people.err.dob"));
       return;
     }
     // HARD racing age floor (venue rule: juniors are ages 7–13). The safety
@@ -438,7 +446,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     // turned away at the track (owner 2026-07-18 age-check ask).
     if (isRace && age < 7) {
       setFormError(
-        `${formatPersonName(firstName) || "This racer"} is under 7 — too young to race. Kids under 7 are welcome trackside, or check out Duckpin bowling.`,
+        t("people.err.tooYoung", { name: formatPersonName(firstName) || t("people.thisRacer") }),
       );
       return;
     }
@@ -446,11 +454,11 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     // gives an email so their contact is complete and no YOUR INFO step is needed.
     const digits = phone.replace(/\D/g, "");
     if (digits.length < 10) {
-      setFormError("Enter a mobile phone number.");
+      setFormError(t("people.err.phone"));
       return;
     }
     if (isMain && !email.includes("@")) {
-      setFormError("The main person needs an email for the confirmation.");
+      setFormError(t("people.err.email"));
       return;
     }
     // Minors register FIRST — no adult precondition (owner 2026-07-18). The
@@ -518,8 +526,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     } catch (err) {
       setFormError(
         err instanceof Error
-          ? `Couldn't set that person up: ${err.message}`
-          : "Couldn't set that person up. Please try again or see the front desk.",
+          ? t("people.err.setupFailMsg", { msg: err.message })
+          : t("people.err.setupFail"),
       );
     } finally {
       setBusyAll(false);
@@ -530,15 +538,13 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   const submitSetup = async (member: PartyMember) => {
     const age = ageFromDob(dob);
     if (age === null) {
-      setFormError("Enter the birthday as MM/DD/YYYY.");
+      setFormError(t("people.err.dob"));
       return;
     }
     // Same hard racing floor as submitNew — a "Set up" on an existing roster
     // member is still the moment we learn their real DOB.
     if (isRace && age < 7) {
-      setFormError(
-        `${member.firstName} is under 7 — too young to race. Kids under 7 are welcome trackside, or check out Duckpin bowling.`,
-      );
+      setFormError(t("people.err.tooYoung", { name: member.firstName }));
       return;
     }
     // A minor needing a signature gets a guardian AFTER onboarding — the
@@ -657,8 +663,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     } catch (err) {
       setFormError(
         err instanceof Error
-          ? `Couldn't finish setup: ${err.message}`
-          : "Couldn't finish setup. Please try again or see the front desk.",
+          ? t("people.err.finishFailMsg", { msg: err.message })
+          : t("people.err.finishFail"),
       );
     } finally {
       setBusyAll(false);
@@ -1259,9 +1265,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         setDob(isoToMmDdYyyy(lic.dobIso));
         setFormError(null);
       } else {
-        setFormError(
-          `That license doesn't look like ${form.member.firstName}'s — enter their birthday instead.`,
-        );
+        setFormError(t("people.err.licenseMismatch", { name: form.member.firstName }));
       }
       return;
     }

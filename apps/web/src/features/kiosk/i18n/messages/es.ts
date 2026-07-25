@@ -447,4 +447,21 @@ export const es: Record<MessageKey, string> = {
   "checkin.chip.laneOpens": "La pista se abre unos 30 minutos antes de tu hora",
   "checkin.chip.racersReady": "{ready} de {total} corredores listos",
   "checkin.chip.waiversSigned": "{ready} de {total} exenciones firmadas",
+
+  // --- Racing/attraction people step (KioskPeopleStep) — VALIDATION + errors ---
+  "people.thisRacer": "Este corredor",
+  "people.err.name": "Ingresa un nombre y apellido.",
+  "people.err.dob": "Ingresa la fecha de nacimiento como MM/DD/AAAA.",
+  "people.err.tooYoung":
+    "{name} es menor de 7 — demasiado joven para correr. Los niños menores de 7 son bienvenidos junto a la pista, o prueba el boliche Duckpin.",
+  "people.err.phone": "Ingresa un número de teléfono móvil.",
+  "people.err.email": "El contacto principal necesita un correo para la confirmación.",
+  "people.err.setupFailMsg": "No pudimos registrar a esa persona: {msg}",
+  "people.err.setupFail":
+    "No pudimos registrar a esa persona. Inténtalo de nuevo o ve a la recepción.",
+  "people.err.finishFailMsg": "No pudimos terminar el registro: {msg}",
+  "people.err.finishFail":
+    "No pudimos terminar el registro. Inténtalo de nuevo o ve a la recepción.",
+  "people.err.licenseMismatch":
+    "Esa licencia no parece ser de {name} — mejor ingresa su fecha de nacimiento.",
 };

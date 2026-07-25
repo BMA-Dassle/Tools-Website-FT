@@ -452,6 +452,25 @@ export const en = {
   "checkin.chip.laneOpens": "Lane opens about 30 minutes before your time",
   "checkin.chip.racersReady": "{ready} of {total} racers ready",
   "checkin.chip.waiversSigned": "{ready} of {total} waivers signed",
+
+  // --- Racing/attraction people step (KioskPeopleStep) — VALIDATION + errors ---
+  // The age-gate LOGIC (age < 7 / < 18 branches) is untouched; only display text
+  // is keyed. "Duckpin" is a locked glossary noun. The visible add-people /
+  // guardian / waiver UI copy in this ~2,255-line file is NOT yet keyed — see the
+  // TODO(i18n) in the component and tasks/kiosk-i18n-spanish-plan.md.
+  "people.thisRacer": "This racer",
+  "people.err.name": "Enter a first and last name.",
+  "people.err.dob": "Enter the birthday as MM/DD/YYYY.",
+  "people.err.tooYoung":
+    "{name} is under 7 — too young to race. Kids under 7 are welcome trackside, or check out Duckpin bowling.",
+  "people.err.phone": "Enter a mobile phone number.",
+  "people.err.email": "The main person needs an email for the confirmation.",
+  "people.err.setupFailMsg": "Couldn’t set that person up: {msg}",
+  "people.err.setupFail": "Couldn’t set that person up. Please try again or see the front desk.",
+  "people.err.finishFailMsg": "Couldn’t finish setup: {msg}",
+  "people.err.finishFail": "Couldn’t finish setup. Please try again or see the front desk.",
+  "people.err.licenseMismatch":
+    "That license doesn’t look like {name}’s — enter their birthday instead.",
 } as const;
 
 export type MessageKey = keyof typeof en;
