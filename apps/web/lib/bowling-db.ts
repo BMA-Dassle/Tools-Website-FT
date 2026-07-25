@@ -1238,6 +1238,35 @@ export async function getRaceReservationsAwaitingDayofPay(): Promise<BowlingRese
 }
 
 /**
+ * Confirmed RACE reservations whose racers may still need checking into their
+ * Pandora race session — the candidate set for the race-session-assign-sweep
+ * cron. Bounded to near-term heats (booked_at within a wide day-of window) so
+ * the re-POST is cheap and self-terminating: once a heat ages past the window
+ * the row drops out. Only rows carrying a reservation number + persisted heat
+ * metadata are returnable (the sweep rebuilds racers from booking_metadata.heats
+ * and posts to /bmi/schedule by reservation number). The sweep further skips any
+ * reservation already flagged done in Redis, so a healthy booking is re-checked
+ * at most once.
+ */
+export async function getRecentConfirmedRaceReservationsForAssign(): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT r.* FROM bowling_reservations r
+    WHERE r.product_kind = 'race'
+      AND r.status = 'confirmed'
+      AND r.bmi_reservation_number IS NOT NULL
+      AND r.booking_metadata IS NOT NULL
+      AND r.booked_at > NOW() - INTERVAL '6 hours'
+      AND r.booked_at < NOW() + INTERVAL '18 hours'
+    ORDER BY r.booked_at ASC
+    LIMIT 500
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/**
  * Standalone-attraction reservations awaiting day-of settlement: confirmed,
  * unpaid, with a gift card + open day-of order, AND with NO bowling/KBF
  * reservation sharing the same day-of order. When bowling IS in the session the

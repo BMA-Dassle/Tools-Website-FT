@@ -682,11 +682,19 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       );
       return;
     }
-    const existing = session.items.find(
-      (i) =>
-        i.kind === offering.kind &&
-        (offering.kind !== "attraction" || (i as AttractionItem).slug === offering.attractionSlug),
-    );
+    const existing = session.items.find((i) => {
+      if (i.kind !== offering.kind) return false;
+      if (offering.kind === "attraction") {
+        return (i as AttractionItem).slug === offering.attractionSlug;
+      }
+      // HeadPinz bowling and FastTrax duckpin are BOTH kind:"bowling". The
+      // duck-pin tile returns via the isDuckpin branch above, so reaching here
+      // with kind "bowling" is always the HeadPinz Bowling tile — it must NOT
+      // re-open a duckpin item left in the cart, or tapping "HeadPinz Bowling"
+      // brings up duckpin (owner 2026-07-25, FastTrax kiosks).
+      if (i.kind === "bowling") return !(i as BowlingItem).isDuckpin;
+      return true;
+    });
     if (existing) {
       dispatch({ type: "setActiveItem", id: existing.id });
       return;

@@ -1,166 +1,186 @@
 import { NextRequest, NextResponse } from "next/server";
-import { randomUUID } from "crypto";
+import { apiBase } from "@/lib/api-base";
 import { fetchPersonRaw } from "~/features/daily-events/data/bmi-office";
-import { LICENSE_PRODUCT_ID } from "~/features/booking/service/race-pack-license.server";
+import {
+  addMembership,
+  oneYearFromNow,
+  LICENSE_MEMBERSHIP_KIND_ID,
+} from "@/lib/pandora-memberships";
 
 /**
- * Diagnostic for standalone FastTrax-license registration (the race-pack license
- * rail). Runs sell(43473520) → registerContactPerson → payment/confirm against
- * the LIVE Public Booking API for a test person, then re-reads their BMI Office
- * memberships so we can PROVE selling 43473520 attaches the "License Fee"
- * membership (the one external unknown gating go-live). Mirrors the shape of
- * api/test/race-pack-diag.
+ * Diagnostic for the standalone FastTrax-license grant — the PANDORA membership
+ * rail (no BMI bill). Mints a fake person (or takes personId), writes the license
+ * membership via Pandora `addMembership`, then reads the BMI Office record (the
+ * same source the booking gate uses) to PROVE the "License Fee" membership attaches.
  *
  * Usage (Vercel preview):
- *   GET /api/test/license-diag?personId=<TEST_PERSON_ID>
+ *   GET /api/test/license-diag?create=1&membershipKindId=<F_MSK_ID>
+ *     → fake throwaway person + grant. No real customer. No card charged.
+ *   GET /api/test/license-diag?personId=<id>&membershipKindId=<F_MSK_ID>
+ *   GET /api/test/license-diag?listMemberships=1   → BMI /membership catalog
  *
- * Optional:
- *   pageId       — send PageId in the sell body (default: omitted). Set this if
- *                  the sell can't CREATE a bill without a page.
- *   includePageId (default "0") — only meaningful with pageId set.
- *   doConfirm    (default "1"; "0" stops before payment/confirm)
- *   doCancel     (default "0") — cancel the test bill afterward. LEAVE AT 0 to
- *                  see whether the membership persists; the real flow never cancels.
- *   clientKey    (default "headpinzftmyers")
- *
- * Read/WRITE against PROD BMI — use known test person ids only. `probe=1` echoes
- * the input shape without any BMI call.
+ * membershipKindId defaults to RACE_LICENSE_MEMBERSHIP_KIND_ID. `probe=1` echoes
+ * the input without any call. Read/WRITE against PROD Pandora — test ids only.
  */
+
+export const maxDuration = 60;
 
 const DEFAULT_CLIENT_KEY = "headpinzftmyers";
 
-function baseUrl(req: NextRequest) {
-  const host = req.headers.get("host") || "localhost:3000";
-  const proto = host.includes("localhost") ? "http" : "https";
-  return `${proto}://${host}`;
+// Direct BMI GET (bypasses our /api/bmi proxy, which on prod lacks the membership
+// allowlist and apiBase points there). Same creds the proxy uses.
+const BMI_API_URL = process.env.BMI_API_URL || "https://api.bmileisure.com";
+const BMI_SUB_KEY = process.env.BMI_SUBSCRIPTION_KEY || "";
+async function bmiDirectGet(clientKey: string, path: string) {
+  const authRes = await fetch(`${BMI_API_URL}/auth/${clientKey}/publicbooking`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "BMI-Subscription-Key": BMI_SUB_KEY },
+    body: JSON.stringify({
+      Username: process.env.BMI_USERNAME || "",
+      Password: process.env.BMI_PASSWORD || "",
+    }),
+    cache: "no-store",
+  });
+  const authData = await authRes.json().catch(() => ({}));
+  const token = authData.AccessToken || authData.accessToken;
+  const res = await fetch(`${BMI_API_URL}/public-booking/${clientKey}/${path}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "BMI-Subscription-Key": BMI_SUB_KEY,
+      "Accept-Language": "en",
+    },
+    cache: "no-store",
+  });
+  const text = await res.text();
+  let body: unknown = text;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    /* keep raw */
+  }
+  return { status: res.status, body };
 }
 
+/** Read memberships from the BMI Office record (fetchPersonRaw) — the same source
+ *  the booking gate uses. There is no Pandora membership-read endpoint. Never
+ *  throws — errors captured. */
 async function membershipSnapshot(clientKey: string, personId: string) {
-  try {
-    const person = await fetchPersonRaw<{
-      memberships?: Array<{ name?: string; stops?: string | null }>;
-    }>(clientKey, personId);
-    const now = Date.now();
-    const all = (person.memberships ?? []).map((m) => ({
-      name: m.name ?? "",
-      stops: m.stops ?? null,
-      active: !m.stops || new Date(m.stops).getTime() > now,
-    }));
-    return {
-      all,
-      activeLicense: all.some((m) => m.name.toLowerCase().includes("license") && m.active),
-    };
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : "membership read failed" };
-  }
+  const office = await fetchPersonRaw<{
+    memberships?: Array<{ name?: string; stops?: string | null }>;
+  }>(clientKey, personId).then(
+    (person) => {
+      const now = Date.now();
+      const all = (person.memberships ?? []).map((m) => ({
+        name: m.name ?? "",
+        active: !m.stops || new Date(m.stops).getTime() > now,
+      }));
+      return {
+        all,
+        activeLicense: all.some((m) => m.name.toLowerCase().includes("license") && m.active),
+      };
+    },
+    (err) => ({ error: err instanceof Error ? err.message : "office read failed" }),
+  );
+  return { office };
 }
+
+const hasLicense = (snap: { office: { activeLicense?: boolean } }) =>
+  snap.office.activeLicense === true;
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const personId = searchParams.get("personId");
     const clientKey = searchParams.get("clientKey") || DEFAULT_CLIENT_KEY;
-    const pageId = searchParams.get("pageId");
-    const includePageId = searchParams.get("includePageId") === "1" && !!pageId;
-    const doConfirm = searchParams.get("doConfirm") !== "0";
-    const doCancel = searchParams.get("doCancel") === "1";
-
-    if (!personId || !/^\d{1,20}$/.test(personId)) {
-      return NextResponse.json(
-        { error: "Required query param: personId (digits)" },
-        { status: 400 },
-      );
-    }
+    const create = searchParams.get("create") === "1";
+    let personId = searchParams.get("personId");
+    const membershipKindId = searchParams.get("membershipKindId") || undefined;
 
     if (searchParams.get("probe") === "1") {
       return NextResponse.json({
         ok: true,
         probe: true,
-        inputShape: { personId, clientKey, pageId, includePageId, doConfirm, doCancel },
-        message: "Probe only — no BMI call. Drop probe=1 to actually run.",
+        inputShape: { create, personId, membershipKindId, clientKey },
+        configuredKindId: LICENSE_MEMBERSHIP_KIND_ID || null,
       });
     }
 
-    const base = baseUrl(req);
-    const bmi = async (endpoint: string, body: string) => {
-      const url = `${base}/api/bmi?endpoint=${encodeURIComponent(endpoint)}&clientKey=${clientKey}`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body,
-      });
-      const text = await res.text();
-      let parsed: unknown = text;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        /* keep raw */
-      }
-      return { status: res.status, body: parsed, raw: text };
-    };
-    const rawField = (text: string, field: string) =>
-      text.match(new RegExp(`"${field}"\\s*:\\s*(\\d+)`))?.[1] ?? null;
+    // BMI membership product catalog (for reference — empty for FastTrax).
+    if (searchParams.get("listMemberships") === "1") {
+      const r = await bmiDirectGet(clientKey, "membership");
+      return NextResponse.json({ ok: r.status < 400, status: r.status, memberships: r.body });
+    }
+
+    if (!create && (!personId || !/^\d{1,20}$/.test(personId))) {
+      return NextResponse.json(
+        { error: "Provide create=1 (mint a fake person) or personId=<digits>" },
+        { status: 400 },
+      );
+    }
 
     const trace: Record<string, unknown> = {
-      input: { personId, clientKey, pageId, includePageId, doConfirm, doCancel },
+      input: { create, personId, membershipKindId, clientKey },
       timestamp: new Date().toISOString(),
     };
 
-    trace.membershipsBefore = await membershipSnapshot(clientKey, personId);
-
-    // 1. Sell the license → new bill.
-    const sellParts = [
-      `"ProductId":${LICENSE_PRODUCT_ID}`,
-      ...(includePageId ? [`"PageId":${Number(pageId)}`] : []),
-      `"Quantity":1`,
-      `"OrderId":null`,
-      `"ParentOrderItemId":null`,
-      `"DynamicLines":[]`,
-      `"PersonId":${personId}`,
-    ];
-    const sellBody = `{${sellParts.join(",")}}`;
-    trace.sellBodySent = sellBody;
-    const sell = await bmi("booking/sell", sellBody);
-    trace.sell = sell;
-    const billId = rawField(sell.raw, "orderId");
-    trace.billId = billId;
-    if (!billId) {
-      return NextResponse.json({ ok: false, stoppedAt: "sell", trace }, { status: 500 });
+    // Mint a fake throwaway person (Pandora → Firebird). addMembership writes to
+    // the SAME Firebird, so there is no cloud-sync lag between create and grant.
+    if (create) {
+      const suffix = `${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 900 + 100)}`;
+      const fake = {
+        firstName: "Ztest",
+        lastName: `Licdiag${suffix}`,
+        email: `licdiag+${suffix}@bma.test`,
+        phone: `239555${suffix.slice(-4)}`,
+        birthdate: "1990-01-01",
+      };
+      trace.fakePerson = fake;
+      const createRes = await fetch(`${apiBase()}/api/pandora`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(fake),
+      });
+      const createData = await createRes.json().catch(() => ({}));
+      trace.create = {
+        status: createRes.status,
+        personId: createData.personId,
+        error: createData.error,
+      };
+      if (!createData.personId) {
+        return NextResponse.json({ ok: false, stoppedAt: "create-person", trace }, { status: 502 });
+      }
+      personId = String(createData.personId);
     }
 
-    // 2. Register the contact person.
-    const regBody = `{"orderId":${billId},"PersonId":${personId},"firstName":"License","lastName":"Diag Test","email":"licensediag@bma.test","phone":"2395550100"}`;
-    trace.register = await bmi("person/registerContactPerson", regBody);
+    trace.personId = personId;
+    trace.before = await membershipSnapshot(clientKey, personId!);
 
-    // 3. Confirm (depositKind 0). Use BMI's own line price if present.
-    const sellJson = sell.body as { prices?: Array<{ amount?: number }> } | undefined;
-    const amount = sellJson?.prices?.[0]?.amount ?? 4.99;
-    trace.confirmAmount = amount;
-    if (doConfirm) {
-      const payBody = `{"id":"${randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${amount},"orderId":${billId},"depositKind":0}`;
-      trace.paymentConfirm = await bmi("payment/confirm", payBody);
-      await new Promise((r) => setTimeout(r, 2500));
-    }
-
-    trace.membershipsAfter = await membershipSnapshot(clientKey, personId);
-
-    const before = trace.membershipsBefore as { activeLicense?: boolean };
-    const after = trace.membershipsAfter as { activeLicense?: boolean };
-    trace.licenseAttached = after?.activeLicense === true && before?.activeLicense !== true;
-
-    if (doCancel) {
-      const cancelResp = await fetch(
-        `${base}/api/bmi?endpoint=${encodeURIComponent(`bill/${billId}/cancel`)}&clientKey=${clientKey}`,
-        { method: "DELETE" },
+    // Grant the license membership via Pandora (no BMI bill), 1-year term.
+    trace.expires = oneYearFromNow();
+    try {
+      trace.membershipId = await addMembership({
+        personId: personId!,
+        membershipKindId,
+        expires: trace.expires as string,
+      });
+    } catch (err) {
+      trace.grantError = err instanceof Error ? err.message : "addMembership failed";
+      return NextResponse.json(
+        { ok: false, stoppedAt: "addMembership", personId, trace },
+        { status: 500 },
       );
-      trace.cancel = { status: cancelResp.status };
     }
+
+    trace.after = await membershipSnapshot(clientKey, personId!);
+    type Snap = { office: { activeLicense?: boolean } };
+    const licenseAttached = hasLicense(trace.after as Snap) && !hasLicense(trace.before as Snap);
+    trace.licenseAttached = licenseAttached;
 
     return NextResponse.json({
       ok: true,
-      licenseAttached: trace.licenseAttached,
-      billId,
-      membershipsAfter: trace.membershipsAfter,
+      licenseAttached,
+      personId,
+      membershipId: trace.membershipId,
+      after: trace.after,
       trace,
     });
   } catch (err) {
