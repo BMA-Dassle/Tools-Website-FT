@@ -15,10 +15,25 @@
  * male/female/toddler). "Own shoes" records "" (normalized to null at reserve);
  * the CHOICE is required for everyone, a rental SIZE only for renters.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
+import type { BowlingSquareProduct } from "@/lib/bowling-db";
 import { formatPersonName } from "~/lib/helpers/name-format";
-import { centerHasShoeRental } from "@/lib/qamf-centers";
+import {
+  centerHasShoeRental,
+  FASTTRAX_QAMF_CENTER_ID,
+  FASTTRAX_CENTER_CODE,
+} from "@/lib/qamf-centers";
+
+const QAMF_CENTER_CODES: Record<number, string> = {
+  9172: "TXBSQN0FEKQ11",
+  3148: "PPTR5G2N0QXF7",
+  [FASTTRAX_QAMF_CENTER_ID]: FASTTRAX_CENTER_CODE,
+};
+
+/** Experiences where shoes are bundled in the price — never charge separately
+ *  (mirrors BowlingShoesStep). Sizes are still collected for lane setup. */
+const SHOES_INCLUDED_SLUGS = ["fun-4-all", "fun-4-all-vip", "pizza-bowl", "pizza-bowl-vip"];
 
 type RosterPlayer = {
   name: string;
@@ -141,15 +156,99 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
   const roster = rosterOf(item);
   // FastTrax duckpin (center 11542) has no shoes — collect name + bumpers only.
   const hasShoes = centerHasShoeRental(item.qamfCenterId);
+  const shoesIncluded = SHOES_INCLUDED_SLUGS.includes((item as BowlingItem).experienceSlug ?? "");
+  // Shoes are CHARGED (not just collected) when the center rents them and this
+  // experience doesn't bundle them into the price.
+  const chargeShoes = hasShoes && !shoesIncluded;
+  const centerCode = QAMF_CENTER_CODES[item.qamfCenterId ?? 9172] ?? "TXBSQN0FEKQ11";
   // Which shoe category is expanded per bowler. Undefined → derive from the
   // stored size (so a saved "Male 9" reopens on Men's with 9 selected).
   const [openCat, setOpenCat] = useState<Record<number, string>>({});
-  const update = (index: number, patch: Partial<RosterPlayer>) => {
-    const next = roster.map((p, i) => (i === index ? { ...p, ...patch } : p));
-    onChange({ players: next } as Partial<BowlItem>);
+  const [shoeProducts, setShoeProducts] = useState<BowlingSquareProduct[]>([]);
+  const shoeProduct = shoeProducts[0] ?? null;
+
+  // Fetch the rental-shoe product (id + price) so the shoe line items can be
+  // DERIVED from the sizes people pick — no separate "how many pairs" step.
+  useEffect(() => {
+    if (!chargeShoes) {
+      setShoeProducts([]);
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/bowling/v2/square-products?centerCode=${centerCode}&kind=addon_shoe`,
+        );
+        const data = await res.json();
+        if (alive) setShoeProducts(Array.isArray(data) ? data : []);
+      } catch {
+        if (alive) setShoeProducts([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [centerCode, chargeShoes]);
+
+  // One rental pair per bowler who picked a rental SIZE (own-shoes "" and
+  // unanswered null don't count) — the count can never disagree with the sizes.
+  const rentalCountFor = (r: RosterPlayer[]) =>
+    r.filter((p) => p.shoeSize !== null && p.shoeSize !== OWN_SHOES).length;
+
+  const shoePatchFor = (nextRoster: RosterPlayer[]): Partial<BowlItem> => {
+    // Idempotent recompute: strip any prior shoe line items, then re-add.
+    const nonShoe = item.lineItems.filter(
+      (li) => !shoeProducts.some((p) => p.id === li.squareProductId),
+    );
+    const count = rentalCountFor(nextRoster);
+    if (!shoeProduct || count === 0) {
+      return {
+        lineItems: nonShoe,
+        shoeSelections: {},
+        shoeProducts: undefined,
+      } as Partial<BowlItem>;
+    }
+    return {
+      shoeSelections: { [shoeProduct.id]: count },
+      shoeProducts: [
+        {
+          id: shoeProduct.id,
+          label: shoeProduct.label,
+          priceCents: shoeProduct.priceCents,
+          depositPct: shoeProduct.depositPct,
+          squareCatalogObjectId: shoeProduct.squareCatalogObjectId,
+        },
+      ],
+      lineItems: [
+        ...nonShoe,
+        {
+          squareProductId: shoeProduct.id,
+          quantity: count,
+          label: shoeProduct.label,
+          priceCents: shoeProduct.priceCents,
+          depositPct: shoeProduct.depositPct,
+          squareCatalogObjectId: shoeProduct.squareCatalogObjectId,
+        },
+      ],
+    } as Partial<BowlItem>;
   };
 
+  const update = (index: number, patch: Partial<RosterPlayer>) => {
+    const next = roster.map((p, i) => (i === index ? { ...p, ...patch } : p));
+    onChange({ players: next, ...(chargeShoes ? shoePatchFor(next) : {}) } as Partial<BowlItem>);
+  };
+
+  // Once the shoe product loads, reconcile the line items to the current sizes
+  // (0 pairs until someone picks a rental size; back-nav keeps prior picks).
+  useEffect(() => {
+    if (chargeShoes && shoeProducts.length > 0) onChange(shoePatchFor(roster));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shoeProducts.length]);
+
   const readyCount = roster.filter((p) => playerComplete(p, hasShoes)).length;
+  const rentalCount = rentalCountFor(roster);
+  const shoeTotalCents = shoeProduct ? rentalCount * shoeProduct.priceCents : 0;
 
   return (
     <div className="space-y-[24px]">
@@ -201,6 +300,11 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
               {hasShoes && (
                 <span className="mb-[8px] block text-[22px] font-semibold uppercase tracking-widest text-white/40">
                   Shoe size
+                  {chargeShoes && shoeProduct && (
+                    <span className="ml-[10px] normal-case tracking-normal text-[#46d68c]">
+                      rental ${(shoeProduct.priceCents / 100).toFixed(2)}/pair · own shoes free
+                    </span>
+                  )}
                 </span>
               )}
               {/* Category first (Own shoes / Toddler / Men's / Women's), then a
@@ -294,6 +398,20 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
           );
         })}
       </div>
+
+      {/* Rental total DERIVED from the sizes picked — no separate count to get
+          out of sync. Own-shoes bowlers add nothing. */}
+      {chargeShoes && shoeProduct && rentalCount > 0 && (
+        <div className="k-glass flex items-center justify-between px-[28px] py-[20px]">
+          <span className="text-[24px] text-white/70">
+            {rentalCount} shoe rental{rentalCount === 1 ? "" : "s"} · $
+            {(shoeProduct.priceCents / 100).toFixed(2)}/pair
+          </span>
+          <span className="k-display text-[32px] tabular-nums text-[#46d68c]">
+            ${(shoeTotalCents / 100).toFixed(2)}
+          </span>
+        </div>
+      )}
     </div>
   );
 };
