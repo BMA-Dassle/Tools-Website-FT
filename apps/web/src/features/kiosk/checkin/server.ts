@@ -212,15 +212,23 @@ export async function resolveScanToBillId(
         const billId = billIdFromSignedUrl(url);
         if (billId) return { billId, proven: true };
       }
-      // Ambiguous token that wasn't a signed short link → try the code index,
-      // unproven (OTP-gated).
+      // Not a signed short link → the code index. A hit here is a genuine
+      // reservationCode (the emailed QR payload; the enumerable r{billId}
+      // fallback classifies as "code", never "shortcode"), so scanning the QR is
+      // proof and it opens directly — no OTP (owner 2026-07-25).
       const byCode = await redis.get(`bookingrecord:code:${c.value}`).catch(() => null);
-      if (byCode) return { billId: byCode, proven: false };
+      if (byCode) return { billId: byCode, proven: true };
       return { reason: "not-found" };
     }
     case "code": {
       const byCode = await redis.get(`bookingrecord:code:${c.value}`).catch(() => null);
-      if (byCode) return { billId: byCode, proven: false };
+      if (byCode) {
+        // A genuine reservationCode (the emailed QR) opens directly — scanning
+        // the QR is proof of possession (owner 2026-07-25, QR not OTP-gated).
+        // The `r{billId}` fallback IS the billId (enumerable), so it stays gated.
+        const enumerableFallback = /^r\d{15,19}$/i.test(c.value);
+        return { billId: byCode, proven: !enumerableFallback };
+      }
       return { reason: "not-found" };
     }
     case "wnumber": {
