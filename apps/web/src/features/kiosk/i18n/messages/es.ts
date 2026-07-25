@@ -253,4 +253,33 @@ export const es: Record<MessageKey, string> = {
   "upsell.aria.more": "Más tarjetas",
   "upsell.cta": "{count, plural, one {Agregar a la orden} other {Agregar # tarjetas}} — {price}",
   "upsell.skip": "No gracias, continuar",
+
+  // --- Rewards on checkout (KioskRewardsSection) ---
+  "rewards.pointsUnit": "puntos",
+  "rewards.addMobile": "Agrega tu número de celular arriba para consultar tus {unit}.",
+  "rewards.checking": "Consultando tus {program}…",
+  "rewards.enrollBlurbPlain": "Gana 10 {unit} por cada $1 gastado. Únete gratis.",
+  "rewards.enrollBlurbPreview":
+    "Gana 10 {unit} por cada $1 gastado — eso es ~{earn} en la orden de hoy. Únete gratis.",
+  "rewards.enrollError":
+    "No pudimos crear una cuenta de recompensas — puedes registrarte en la recepción.",
+  "rewards.signingUp": "Registrando…",
+  "rewards.joinFree": "Únete gratis",
+  "rewards.collapsed.applied": "{name} aplicado — toca para cambiar",
+  "rewards.collapsed.spend": "Toca para usar tus {unit} en esta orden",
+  "rewards.collapsed.verifySpend": "Toca para verificar y usar tus {unit}",
+  "rewards.earnMore": "Ganarás ~{n} {unit} más en la orden de hoy.",
+  "rewards.verified": "Verificado",
+  "rewards.member": "Miembro",
+  "rewards.verifyPrompt": "Verifica que es tu cuenta para usar tus {unit} en esta orden.",
+  "rewards.sending": "Enviando…",
+  "rewards.textCode": "Envíame un código",
+  "rewards.enterCode": "Ingresa el código de 6 dígitos que enviamos a tu teléfono.",
+  "rewards.submit": "Enviar",
+  "rewards.sendError": "No pudimos enviar el código — inténtalo de nuevo.",
+  "rewards.codeMismatch": "Ese código no coincidió — inténtalo de nuevo.",
+  "rewards.verifyFailed": "La verificación falló — inténtalo de nuevo.",
+  "rewards.spendHeading": "Usa tus {unit} en esta orden",
+  "rewards.tierPoints": "{points} {unit}",
+  "rewards.notEnough": "Aún no tienes suficientes {unit} para una recompensa — ¡sigue ganando!",
 };

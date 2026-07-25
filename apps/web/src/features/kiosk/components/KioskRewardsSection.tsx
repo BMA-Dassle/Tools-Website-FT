@@ -29,6 +29,7 @@ import type { Dispatch } from "react";
 import type { Action } from "~/features/booking/state/machine";
 import type { BookingSession, SelectedRewardTier } from "~/features/booking";
 import { clarityEvent, clarityTag } from "~/lib/clarity";
+import { useT } from "../i18n";
 
 const GOLD = "#FFD700";
 
@@ -66,12 +67,15 @@ export function KioskRewardsSection({
   /** Estimated order dollars — drives the "you'll earn ~X" line. */
   estTotal?: number;
 }) {
+  const t = useT();
   const loyalty = session.loyalty;
   const digits = tenDigits(session.contact.phone);
   const phoneProven = !!session.contact.phoneVerified && digits.length === 10;
   const brand = session.entryBrand === "headpinz" ? "headpinz" : "fasttrax";
   const rewardsName = brand === "headpinz" ? "HeadPinz Rewards" : "FastTrax Rewards";
-  const pointsUnit = brand === "headpinz" ? "Pinz" : "points";
+  // "Pinz" is a HeadPinz brand term (untranslated); FastTrax's generic "points"
+  // localizes.
+  const pointsUnit = brand === "headpinz" ? "Pinz" : t("rewards.pointsUnit");
 
   const [loading, setLoading] = useState(false);
   const [notFound, setNotFound] = useState(false);
@@ -202,7 +206,7 @@ export function KioskRewardsSection({
         clarityEvent("rewards:signup");
         if (verified) void fetchTiers();
       } else {
-        setError("Couldn't create a rewards account — you can sign up at the front desk.");
+        setError(t("rewards.enrollError"));
       }
     } catch {
       setError("Couldn't create a rewards account — you can sign up at the front desk.");
@@ -222,7 +226,7 @@ export function KioskRewardsSection({
       });
       if (res.ok) setVerifyStep("code");
       else {
-        setVerifyError("Couldn't send the code — try again.");
+        setVerifyError(t("rewards.sendError"));
         setVerifyStep("idle");
       }
     } catch {
@@ -254,10 +258,10 @@ export function KioskRewardsSection({
         clarityEvent("kiosk:rewards:verified");
         void fetchTiers();
       } else {
-        setVerifyError(data.error ?? "That code didn't match — try again.");
+        setVerifyError(data.error ?? t("rewards.codeMismatch"));
       }
     } catch {
-      setVerifyError("Verification failed — try again.");
+      setVerifyError(t("rewards.verifyFailed"));
     }
   }
 
@@ -282,7 +286,7 @@ export function KioskRewardsSection({
           {rewardsName}
         </p>
         <p className="mt-[8px] text-[26px] text-white/55">
-          Add your mobile number above to check your {pointsUnit}.
+          {t("rewards.addMobile", { unit: pointsUnit })}
         </p>
       </div>
     );
@@ -295,7 +299,9 @@ export function KioskRewardsSection({
           className="h-[32px] w-[32px] animate-spin rounded-full border-[3px] border-white/15"
           style={{ borderTopColor: GOLD }}
         />
-        <span className="text-[26px] text-white/55">Checking your {rewardsName}…</span>
+        <span className="text-[26px] text-white/55">
+          {t("rewards.checking", { program: rewardsName })}
+        </span>
       </div>
     );
   }
@@ -309,8 +315,9 @@ export function KioskRewardsSection({
             {rewardsName}
           </p>
           <p className="mt-[6px] text-[26px] text-white/60">
-            Earn 10 {pointsUnit} per $1 spent
-            {earnPreview > 0 ? ` — that's ~${earnPreview} on today's order` : ""}. Free to join.
+            {earnPreview > 0
+              ? t("rewards.enrollBlurbPreview", { unit: pointsUnit, earn: earnPreview })
+              : t("rewards.enrollBlurbPlain", { unit: pointsUnit })}
           </p>
           {error && <p className="mt-[6px] text-[24px] text-red-400">{error}</p>}
         </div>
@@ -321,7 +328,7 @@ export function KioskRewardsSection({
           className="k-tap h-[92px] shrink-0 rounded-full px-[44px] text-[26px] font-extrabold uppercase tracking-wider disabled:opacity-50"
           style={{ backgroundColor: `${GOLD}20`, color: GOLD }}
         >
-          {enrolling ? "Signing up…" : "Join free"}
+          {enrolling ? t("rewards.signingUp") : t("rewards.joinFree")}
         </button>
       </div>
     );
@@ -334,10 +341,10 @@ export function KioskRewardsSection({
   const selectedTier = loyalty.selectedRewardTier;
   // Collapsed subtitle: the one thing worth knowing at a glance.
   const collapsedHint = selectedTier
-    ? `${selectedTier.name} applied — tap to change`
+    ? t("rewards.collapsed.applied", { name: selectedTier.name })
     : loyalty.verified
-      ? `Tap to spend ${pointsUnit} on this order`
-      : `Tap to verify & spend your ${pointsUnit}`;
+      ? t("rewards.collapsed.spend", { unit: pointsUnit })
+      : t("rewards.collapsed.verifySpend", { unit: pointsUnit });
 
   return (
     <div className="k-glass p-[32px]" style={{ borderColor: `${GOLD}35` }}>
@@ -359,7 +366,7 @@ export function KioskRewardsSection({
           {expanded ? (
             earnPreview > 0 && (
               <p className="text-[23px] text-white/45">
-                {`You'll earn ~${earnPreview.toLocaleString()} more ${pointsUnit} on today's order.`}
+                {t("rewards.earnMore", { n: earnPreview, unit: pointsUnit })}
               </p>
             )
           ) : (
@@ -379,8 +386,8 @@ export function KioskRewardsSection({
             {selectedTier
               ? `−$${(selectedTier.discountCents / 100).toFixed(2)}`
               : loyalty.verified
-                ? "Verified"
-                : "Member"}
+                ? t("rewards.verified")
+                : t("rewards.member")}
           </span>
           <svg
             className={`h-[34px] w-[34px] text-white/45 transition-transform ${expanded ? "rotate-180" : ""}`}
@@ -403,7 +410,7 @@ export function KioskRewardsSection({
           {verifyStep !== "code" ? (
             <div className="flex items-center justify-between gap-[24px]">
               <p className="text-[25px] text-white/55">
-                Verify it&apos;s your account to spend {pointsUnit} on this order.
+                {t("rewards.verifyPrompt", { unit: pointsUnit })}
               </p>
               <button
                 type="button"
@@ -412,14 +419,12 @@ export function KioskRewardsSection({
                 className="k-tap h-[92px] shrink-0 rounded-full px-[44px] text-[26px] font-extrabold uppercase tracking-wider disabled:opacity-50"
                 style={{ backgroundColor: `${GOLD}20`, color: GOLD }}
               >
-                {verifyStep === "sending" ? "Sending…" : "Text me a code"}
+                {verifyStep === "sending" ? t("rewards.sending") : t("rewards.textCode")}
               </button>
             </div>
           ) : (
             <div className="space-y-[16px]">
-              <p className="text-[25px] text-white/55">
-                Enter the 6-digit code we texted to your phone.
-              </p>
+              <p className="text-[25px] text-white/55">{t("rewards.enterCode")}</p>
               <div className="flex gap-[16px]">
                 <input
                   type="text"
@@ -437,7 +442,7 @@ export function KioskRewardsSection({
                   className="k-tap h-[92px] shrink-0 rounded-full px-[40px] text-[26px] font-extrabold uppercase disabled:opacity-40"
                   style={{ backgroundColor: `${GOLD}20`, color: GOLD }}
                 >
-                  Submit
+                  {t("rewards.submit")}
                 </button>
               </div>
               {verifyError && <p className="text-[24px] text-red-400">{verifyError}</p>}
@@ -453,7 +458,7 @@ export function KioskRewardsSection({
       {expanded && loyalty.verified && rewardTiers.length > 0 && (
         <div className="mt-[24px] space-y-[14px] border-t border-white/10 pt-[24px]">
           <p className="text-[25px] font-semibold text-white/60">
-            Spend {pointsUnit} on this order
+            {t("rewards.spendHeading", { unit: pointsUnit })}
           </p>
           {affordableTiers.map((tier) => {
             const isSelected = loyalty.selectedRewardTier?.id === tier.id;
@@ -471,7 +476,7 @@ export function KioskRewardsSection({
                 <span className="text-[30px] font-bold text-white">
                   {tier.name}
                   <span className="k-num ml-[14px] text-[24px] font-semibold text-white/40">
-                    {tier.points.toLocaleString()} {pointsUnit}
+                    {t("rewards.tierPoints", { points: tier.points, unit: pointsUnit })}
                   </span>
                 </span>
                 <span className="k-num text-[34px] font-extrabold" style={{ color: GOLD }}>
@@ -482,7 +487,7 @@ export function KioskRewardsSection({
           })}
           {affordableTiers.length === 0 && (
             <p className="text-[24px] text-white/35">
-              Not enough {pointsUnit} for a reward yet — keep earning!
+              {t("rewards.notEnough", { unit: pointsUnit })}
             </p>
           )}
         </div>

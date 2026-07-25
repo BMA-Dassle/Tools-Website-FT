@@ -258,6 +258,38 @@ export const en = {
   "upsell.aria.more": "More cards",
   "upsell.cta": "{count, plural, one {Add to order} other {Add # cards}} — {price}",
   "upsell.skip": "No thanks, continue",
+
+  // --- Rewards on checkout (KioskRewardsSection) ---
+  // The program name ("HeadPinz Rewards" / "FastTrax Rewards") is a brand proper
+  // noun and stays as-is. `{unit}` is the points unit: "Pinz" (HeadPinz, a brand
+  // term, untranslated) or the translated word below (FastTrax). Reward tier
+  // names come from Square (server data) and stay as returned.
+  "rewards.pointsUnit": "points",
+  "rewards.addMobile": "Add your mobile number above to check your {unit}.",
+  "rewards.checking": "Checking your {program}…",
+  "rewards.enrollBlurbPlain": "Earn 10 {unit} per $1 spent. Free to join.",
+  "rewards.enrollBlurbPreview":
+    "Earn 10 {unit} per $1 spent — that’s ~{earn} on today’s order. Free to join.",
+  "rewards.enrollError": "Couldn’t create a rewards account — you can sign up at the front desk.",
+  "rewards.signingUp": "Signing up…",
+  "rewards.joinFree": "Join free",
+  "rewards.collapsed.applied": "{name} applied — tap to change",
+  "rewards.collapsed.spend": "Tap to spend {unit} on this order",
+  "rewards.collapsed.verifySpend": "Tap to verify & spend your {unit}",
+  "rewards.earnMore": "You’ll earn ~{n} more {unit} on today’s order.",
+  "rewards.verified": "Verified",
+  "rewards.member": "Member",
+  "rewards.verifyPrompt": "Verify it’s your account to spend {unit} on this order.",
+  "rewards.sending": "Sending…",
+  "rewards.textCode": "Text me a code",
+  "rewards.enterCode": "Enter the 6-digit code we texted to your phone.",
+  "rewards.submit": "Submit",
+  "rewards.sendError": "Couldn’t send the code — try again.",
+  "rewards.codeMismatch": "That code didn’t match — try again.",
+  "rewards.verifyFailed": "Verification failed — try again.",
+  "rewards.spendHeading": "Spend {unit} on this order",
+  "rewards.tierPoints": "{points} {unit}",
+  "rewards.notEnough": "Not enough {unit} for a reward yet — keep earning!",
 } as const;
 
 export type MessageKey = keyof typeof en;
