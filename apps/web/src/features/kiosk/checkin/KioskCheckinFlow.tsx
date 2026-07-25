@@ -29,6 +29,7 @@ import { emptySession, reducer, type AttractionItem } from "~/features/booking";
 import { KioskAttractionPeopleStep } from "../steps/KioskPeopleStep";
 import { IdleWatcher } from "../components/IdleWatcher";
 import { BrandedLoader } from "../components/BrandedLoader";
+import { RacingWhatsNext } from "../components/RacingWhatsNext";
 import { useKioskConfig } from "../KioskConfigContext";
 import { kioskId } from "../config";
 import { resetToKiosk } from "../version";
@@ -1223,12 +1224,13 @@ function DoneScreen(props: {
         </div>
       )}
 
-      {/* What's next — the same activity cards, now as a reminder. */}
+      {/* What's next — the same activity cards, now as a reminder. Green bar:
+          this is the checked-in / done state (owner 2026-07-25). */}
       {itinerary.activities.map((a, i) => (
         <div key={`${a.kind}-${i}`} className="k-glass relative overflow-hidden p-[28px] pl-[44px]">
           <span
             className="absolute inset-y-0 left-0 w-[12px]"
-            style={{ background: ACCENT[a.kind] }}
+            style={{ background: "#46d68c" }}
             aria-hidden="true"
           />
           <div className="flex items-center gap-[24px]">
@@ -1241,20 +1243,19 @@ function DoneScreen(props: {
         </div>
       ))}
 
-      {/* Racing — what to do at the track (mirrors the booking-confirmation
-          race instructions, adapted for a guest who's already checked in). */}
+      {/* Racing — the SAME "what's next" panel + big red race-check-in button a
+          race booking shows on the kiosk confirmation (owner 2026-07-25). */}
       {itinerary.activities.some((a) => a.kind === "racing") && (
-        <div className="k-glass border-[#e94141]/40 p-[28px]">
-          <div className="k-eyebrow mb-[14px] text-[#ff6b6b]">At the track</div>
-          <ul className="space-y-[12px] text-[26px] leading-[1.35] text-white/70">
-            <li>Head to FastTrax Racing on the 2nd floor — no need to stop at Guest Services.</li>
-            <li>
-              Watch the screens for your heat, then report to the grid when your name is called.
-            </li>
-            <li>First-time racers get a quick safety briefing before their first race.</li>
-            <li>Closed-toe shoes required. Long hair tied back. Have fun and drive safe!</li>
-          </ul>
-        </div>
+        <RacingWhatsNext
+          intro={
+            <>
+              You&rsquo;re checked in. When your heat is called, head to{" "}
+              <strong className="text-[#ffd9d8]">
+                Race Check-In — 1st floor, left of the Red Track.
+              </strong>
+            </>
+          }
+        />
       )}
 
       {/* Bowling lane-open — interactive only when the check-in attach gate is
