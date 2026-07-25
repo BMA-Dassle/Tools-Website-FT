@@ -491,5 +491,6 @@ export const en = {
   "stepTitle.whosRacing": "Who’s racing?",
 } as const;
 
-export type MessageKey = keyof typeof en;
-export type Messages = Record<MessageKey, string>;
+/** Keys in this core catalog. The full `MessageKey` (core + per-screen fragment
+ *  files) is composed in ./index.ts so parallel screen work never edits this file. */
+export type CoreKey = keyof typeof en;

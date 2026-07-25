@@ -15,9 +15,9 @@
  * Proper nouns in the locked glossary (FastTrax, HeadPinz, Game Zone, Podium,
  * Pit Crew, Duckpin) stay untranslated in every locale.
  */
-import type { MessageKey } from "./en";
+import type { CoreKey } from "./en";
 
-export const es: Record<MessageKey, string> = {
+export const es: Record<CoreKey, string> = {
   "attract.letsPlay": "¡A jugar!",
   "attract.subtitle.racing":
     "Reserva carreras, boliche y atracciones aquí mismo — toma como un minuto.",
