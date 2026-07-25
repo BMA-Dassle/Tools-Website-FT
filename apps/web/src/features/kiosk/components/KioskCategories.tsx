@@ -498,24 +498,12 @@ function OfferingTile({
         />
       </div>
       {/* FIXED text geometry (owner 2026-07-18: wrap broke + lines didn't align
-          across boxes): a reserved availability row, then the title zone always
-          2 lines tall (1-line titles sit at its bottom) and the blurb zone
-          always 2 lines, so every card's text lands at identical heights.
-          textWrap:normal overrides k-display's text-wrap:balance — balance +
-          clamping is a Chromium wrap-breaker. */}
-      <div className="absolute inset-x-[36px] bottom-[36px]">
-        {/* Reserved so titles align whether or not a tile has an availability
-            line. Neutral tone, no urgency color (owner 2026-07-25). */}
-        <div className="mb-[10px] flex h-[30px] items-end">
-          {availLine && (
-            <span
-              className="text-[22px] font-bold uppercase leading-none tracking-[0.08em] tabular-nums"
-              style={{ color: "rgba(245,236,238,0.82)" }}
-            >
-              {availLine}
-            </span>
-          )}
-        </div>
+          across boxes): the title zone is always 2 lines tall (1-line titles sit
+          at its bottom) and the blurb zone always 2 lines, so every card's text
+          lands at identical heights. Lifted to bottom-[64px] to clear the
+          availability footer below. textWrap:normal overrides k-display's
+          text-wrap:balance — balance + clamping is a Chromium wrap-breaker. */}
+      <div className="absolute inset-x-[36px] bottom-[64px]">
         <div className="flex h-[84px] items-end">
           <span
             className="k-display line-clamp-2 break-words text-[36px] leading-[1.15]"
@@ -528,10 +516,23 @@ function OfferingTile({
           {disabled && disabledNote ? disabledNote : offering.blurb}
         </div>
       </div>
-      <div
-        className="absolute inset-x-0 bottom-0 h-[8px]"
-        style={{ background: disabled ? "#555" : accent }}
-      />
+      {/* Availability line sits on the accent bar as a footer (owner 2026-07-25:
+          moved down from above the title). Reserved 0–64px bottom zone keeps
+          titles aligned whether or not a tile has a line; neutral tone, no
+          urgency color. */}
+      <div className="absolute inset-x-0 bottom-0">
+        <div className={`flex h-[44px] items-center px-[36px] ${availLine ? "bg-black/25" : ""}`}>
+          {availLine && (
+            <span
+              className="text-[22px] font-bold uppercase leading-none tracking-[0.08em] tabular-nums"
+              style={{ color: "rgba(245,236,238,0.88)" }}
+            >
+              {availLine}
+            </span>
+          )}
+        </div>
+        <div className="h-[8px]" style={{ background: disabled ? "#555" : accent }} />
+      </div>
     </button>
   );
 }
