@@ -91,6 +91,7 @@ type Stage =
   | "browse"
   | "browse-otp"
   | "itinerary"
+  | "party"
   | "assign"
   | "done";
 
@@ -436,7 +437,8 @@ export function KioskCheckinFlow() {
     else if (stage === "matches") setStage("find");
     else if (stage === "browse") setStage("find");
     else if (stage === "browse-otp") setStage("browse");
-    else if (stage === "assign") setStage("itinerary");
+    else if (stage === "assign") setStage("party");
+    else if (stage === "party") setStage("itinerary");
     else if (stage === "itinerary") {
       setItinerary(null);
       setStage("find");
@@ -472,9 +474,11 @@ export function KioskCheckinFlow() {
               ? "You're checked in"
               : stage === "assign"
                 ? "Who's racing?"
-                : stage === "itinerary" && itinerary
-                  ? `Welcome back, ${itinerary.firstName || "friend"}!`
-                  : "Find your reservation"}
+                : stage === "party"
+                  ? "Add your group"
+                  : stage === "itinerary" && itinerary
+                    ? `Welcome back, ${itinerary.firstName || "friend"}!`
+                    : "Find your reservation"}
           </div>
         </div>
         <IconUserCheck size={56} className="shrink-0 text-white/25" aria-hidden="true" />
@@ -488,9 +492,12 @@ export function KioskCheckinFlow() {
           </div>
         )}
 
-        {busy && (
+        {(busy || binding) && (
           <div className="mb-[24px] flex justify-center">
-            <BrandedLoader brand={config.brand} label="One moment…" />
+            <BrandedLoader
+              brand={config.brand}
+              label={binding ? "Putting racers on the grid…" : "One moment…"}
+            />
           </div>
         )}
 
@@ -592,61 +599,68 @@ export function KioskCheckinFlow() {
           </div>
         )}
 
+        {/* Page 1 — the itinerary (no keyboard); "Continue" → the sign-in page. */}
         {stage === "itinerary" && itinerary && (
           <div className="space-y-[32px]">
             <ItineraryScreen itinerary={itinerary} />
+            <button
+              type="button"
+              onClick={() => setStage("party")}
+              className="k-btn-primary k-tap h-[112px] w-full text-[36px]"
+            >
+              Continue ›
+            </button>
+          </div>
+        )}
 
-            {/* Add your group — the people monolith (add / returning lookup /
-                minor+guardian / waiver signature) + the mobile-join QR, all
-                writing into the local session.party. */}
-            <div className="border-t border-white/10 pt-[28px]">
-              <div className="k-eyebrow mb-[10px] text-[#00e2e5]">Add your group</div>
-              <p className="mb-[20px] text-[26px] text-white/55">
-                Add anyone with you who still needs an account or a waiver — or have them scan the
-                QR to sign in on their own phone.
+        {/* Page 2 — add your group + sign in (the keyboard lives on this page,
+            so the itinerary above is never covered). */}
+        {stage === "party" && itinerary && (
+          <div>
+            <p className="mb-[20px] text-[26px] text-white/55">
+              Add anyone with you who still needs an account or a waiver — or have them scan the QR
+              to sign in on their own phone.
+            </p>
+            <PeopleScreens
+              item={checkinItem}
+              session={session}
+              onChange={(patch) => setCheckinItem((prev) => ({ ...prev, ...patch }))}
+              dispatch={dispatch}
+              setBusy={setPeopleBusy}
+            />
+
+            {bindMsg && (
+              <div className="mt-[20px] rounded-2xl border-2 border-[#e94141]/40 bg-[#e94141]/10 px-[28px] py-[20px] text-[26px] text-[#ffb4b4]">
+                {bindMsg}
+              </div>
+            )}
+
+            {/* Racing → the dedicated "Who's racing?" step; otherwise finalize. */}
+            {openRaceSlots.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setStage("assign")}
+                disabled={partyNeedsSetup}
+                className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
+              >
+                Next: who&rsquo;s racing ›
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={checkInEveryone}
+                disabled={binding || partyNeedsSetup}
+                className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
+              >
+                {binding ? "Checking you in…" : "Check everyone in"}
+              </button>
+            )}
+            {partyNeedsSetup && (
+              <p className="mt-[12px] text-center text-[24px] text-white/45">
+                Finish adding everyone above first — each person needs an account and a signed
+                waiver.
               </p>
-              <PeopleScreens
-                item={checkinItem}
-                session={session}
-                onChange={(patch) => setCheckinItem((prev) => ({ ...prev, ...patch }))}
-                dispatch={dispatch}
-                setBusy={setPeopleBusy}
-              />
-
-              {bindMsg && (
-                <div className="mt-[20px] rounded-2xl border-2 border-[#e94141]/40 bg-[#e94141]/10 px-[28px] py-[20px] text-[26px] text-[#ffb4b4]">
-                  {bindMsg}
-                </div>
-              )}
-
-              {/* Racing → go to the dedicated "Who's racing?" step; otherwise
-                  finalize straight from here. */}
-              {openRaceSlots.length > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => setStage("assign")}
-                  disabled={partyNeedsSetup}
-                  className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
-                >
-                  Next: who&rsquo;s racing ›
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={checkInEveryone}
-                  disabled={binding || partyNeedsSetup}
-                  className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
-                >
-                  {binding ? "Checking you in…" : "Check everyone in"}
-                </button>
-              )}
-              {partyNeedsSetup && (
-                <p className="mt-[12px] text-center text-[24px] text-white/45">
-                  Finish adding everyone above first — each person needs an account and a signed
-                  waiver.
-                </p>
-              )}
-            </div>
+            )}
           </div>
         )}
 
