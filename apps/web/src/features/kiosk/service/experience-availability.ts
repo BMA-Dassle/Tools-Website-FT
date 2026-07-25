@@ -390,8 +390,10 @@ export async function computeExperienceAvailability(
       "shuffly-headpinz": shufHp.open,
     },
     // Undefined values serialize away — absent key = "no line" on that tile.
+    // Racing intentionally omitted: the tile still LOCKS via race.open, but shows
+    // no availability line — the home-page race grid already covers heat times,
+    // and a per-tier line was too busy (owner 2026-07-25).
     firstOpen: {
-      race: race.firstOpen,
       "duck-pin": duckPin.firstOpen,
       "gel-blaster": gel.firstOpen,
       "laser-tag": laser.firstOpen,

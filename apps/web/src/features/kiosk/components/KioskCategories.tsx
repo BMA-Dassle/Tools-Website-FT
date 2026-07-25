@@ -43,7 +43,8 @@ const AVAILABILITY_NOUN: Record<string, [string, string]> = {
   shuffly: ["table", "tables"],
   "gel-blaster": ["player", "players"],
   "laser-tag": ["player", "players"],
-  race: ["seat", "seats"],
+  // Racing is intentionally omitted — no availability line on the racing tile
+  // (the home-page race grid covers heat times; owner 2026-07-25).
 };
 
 /** Slugs whose vendor (QAMF/Conqueror) returns bookable times but no lane count
