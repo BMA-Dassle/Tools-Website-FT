@@ -282,4 +282,19 @@ export const es: Record<MessageKey, string> = {
   "rewards.spendHeading": "Usa tus {unit} en esta orden",
   "rewards.tierPoints": "{points} {unit}",
   "rewards.notEnough": "Aún no tienes suficientes {unit} para una recompensa — ¡sigue ganando!",
+
+  // --- Mobile-join new-guest form (join/phone/NewGuestForm) ---
+  "join.firstName": "Nombre",
+  "join.lastName": "Apellido",
+  "join.birthday": "Fecha de nacimiento",
+  "join.mobilePhone": "Teléfono móvil",
+  "join.email": "Correo",
+  "join.optional": "(opcional)",
+  "join.settingUp": "Preparando todo…",
+  "join.continueToWaiver": "Continuar a la exención",
+  "join.back": "Atrás",
+  "join.err.name": "Ingresa tu nombre y apellido.",
+  "join.err.dob": "Ingresa tu fecha de nacimiento como MM/DD/AAAA.",
+  "join.err.phone": "Ingresa tu número de teléfono móvil.",
+  "join.err.email": "Ese correo no parece correcto — o déjalo en blanco.",
 };

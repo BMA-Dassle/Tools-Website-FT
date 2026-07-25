@@ -290,6 +290,23 @@ export const en = {
   "rewards.spendHeading": "Spend {unit} on this order",
   "rewards.tierPoints": "{points} {unit}",
   "rewards.notEnough": "Not enough {unit} for a reward yet — keep earning!",
+
+  // --- Mobile-join new-guest form (join/phone/NewGuestForm) ---
+  // The DOB placeholder "MM/DD/YYYY" and the phone example stay as-is — they are
+  // input format tokens the parser enforces, not translatable prose.
+  "join.firstName": "First name",
+  "join.lastName": "Last name",
+  "join.birthday": "Birthday",
+  "join.mobilePhone": "Mobile phone",
+  "join.email": "Email",
+  "join.optional": "(optional)",
+  "join.settingUp": "Setting you up…",
+  "join.continueToWaiver": "Continue to waiver",
+  "join.back": "Back",
+  "join.err.name": "Enter your first and last name.",
+  "join.err.dob": "Enter your birthday as MM/DD/YYYY.",
+  "join.err.phone": "Enter your mobile phone number.",
+  "join.err.email": "That email doesn’t look right — or leave it blank.",
 } as const;
 
 export type MessageKey = keyof typeof en;
