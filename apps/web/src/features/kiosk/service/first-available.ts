@@ -23,6 +23,16 @@ export interface CandidateSlot {
   freeSpots: number;
 }
 
+/** The "soonest opening" a tile can advertise: when the earliest bookable block
+ *  today starts and how many are left. `freeSpots` reads as remaining lanes/
+ *  tables for per-slot attractions, or remaining seats for per-person ones. */
+export interface FirstOpen {
+  /** BMI block start — zone-less ET wall-clock (format the adapters return);
+   *  render with {@link slotLabel} on the ET kiosk. */
+  start: string;
+  freeSpots: number;
+}
+
 export interface PickFirstSlotOptions {
   /** Current time in ms (caller supplies — keeps this pure/testable). */
   nowMs: number;

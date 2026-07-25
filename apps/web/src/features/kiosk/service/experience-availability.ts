@@ -29,6 +29,7 @@ import {
   type LocationKey,
 } from "~/features/booking/service/attractions";
 import { getStaticProducts } from "@/app/book/race/data";
+import type { FirstOpen } from "./first-available";
 import { apiBase } from "@/lib/api-base";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import {
@@ -61,6 +62,44 @@ export interface ExperienceAvailability {
    *  both are computed; the tile looks up the side its kiosk brand resolves. */
   "shuffly-fasttrax": boolean;
   "shuffly-headpinz": boolean;
+}
+
+/** The soonest bookable slot per tile, for the kiosk's "3 lanes · 9:30 PM"
+ *  availability line. Only the attractions/racing whose availability carries a
+ *  real per-block count are keyed here (bowling/KBF via QAMF have no count).
+ *  A key is ABSENT when we have no signal (fail-open) — the tile just omits the
+ *  line rather than showing "0 left". */
+export type ExperienceFirstOpen = Partial<
+  Record<
+    "race" | "duck-pin" | "gel-blaster" | "laser-tag" | "shuffly-fasttrax" | "shuffly-headpinz",
+    FirstOpen
+  >
+>;
+
+export interface ExperienceAvailabilityResult {
+  available: ExperienceAvailability;
+  firstOpen: ExperienceFirstOpen;
+}
+
+/** open=false locks the tile; firstOpen (when known) feeds its availability
+ *  line. A vendor blip resolves to `{ open: true }` with no firstOpen — never
+ *  false-lock, never invent a count. */
+interface SlotAvailability {
+  open: boolean;
+  firstOpen?: FirstOpen;
+}
+
+/** Resolve a first-open-slot probe into a tile's availability, failing OPEN
+ *  (available, no count) on any throw so a vendor blip never locks the tile. */
+async function resolveSlotAvailability(
+  probe: Promise<FirstOpen | null>,
+): Promise<SlotAvailability> {
+  try {
+    const slot = await probe;
+    return { open: slot !== null, firstOpen: slot ?? undefined };
+  } catch {
+    return { open: true };
+  }
 }
 
 async function isComboBookableToday(center: CenterCode, dateYmd: string): Promise<boolean> {
@@ -154,14 +193,16 @@ function naiveEtStartMs(start: string): number {
   return new Date(`${naive}${tz}`).getTime();
 }
 
-/** Does one BMI product still have a future slot with capacity today? */
-async function productHasFutureSlot(args: {
+/** The EARLIEST future slot with capacity today for one BMI product, or null if
+ *  none. Returns the block's `{ start, freeSpots }` so the caller can both lock
+ *  the tile (null → nothing left) and show the soonest opening + count. */
+async function productFirstOpenSlot(args: {
   dateYmd: string;
   productId: string;
   pageId: string;
   clientKey?: string;
   leadMs: number;
-}): Promise<boolean> {
+}): Promise<FirstOpen | null> {
   const avail = await bmiAdapter.getAvailability({
     date: args.dateYmd,
     productId: args.productId,
@@ -170,27 +211,36 @@ async function productHasFutureSlot(args: {
     clientKey: args.clientKey,
   });
   const cutoff = Date.now() + args.leadMs;
-  return (avail.proposals ?? []).some((p) => {
+  let best: { ms: number; slot: FirstOpen } | null = null;
+  for (const p of avail.proposals ?? []) {
     const b = p.blocks?.[0]?.block;
-    return !!b && b.freeSpots >= 1 && naiveEtStartMs(b.start) >= cutoff;
-  });
+    if (!b || b.freeSpots < 1) continue;
+    const ms = naiveEtStartMs(b.start);
+    if (ms < cutoff) continue;
+    // Proposals aren't guaranteed ordered — keep the earliest qualifying block.
+    if (!best || ms < best.ms) best = { ms, slot: { start: b.start, freeSpots: b.freeSpots } };
+  }
+  return best?.slot ?? null;
 }
 
-/** One attraction at one BUILDING: any future slot on any of its products.
- *  No artificial lead (kiosk prime directive: "book now" — ASAP is fine). */
-async function isAttractionBookableToday(
+/** One attraction at one BUILDING: the EARLIEST future slot across its products
+ *  (null = nothing left today). No artificial lead (kiosk prime directive:
+ *  "book now" — ASAP is fine). `freeSpots` on the returned slot is remaining
+ *  lanes/tables (per-slot) or seats (per-person). */
+async function attractionFirstOpenToday(
   slug: string,
   location: LocationKey,
   dateYmd: string,
-): Promise<boolean> {
+): Promise<FirstOpen | null> {
   const config = ATTRACTIONS[slug];
   const pageId = config?.pageIds[location];
-  if (!config || !pageId) return false;
+  if (!config || !pageId) return null;
   const products = config.products.filter((p) => p.location === location && !p.isCombo);
   let probed = false;
+  let best: FirstOpen | null = null;
   for (const p of products) {
     try {
-      const hit = await productHasFutureSlot({
+      const slot = await productFirstOpenSlot({
         dateYmd,
         productId: p.productId,
         pageId,
@@ -198,45 +248,48 @@ async function isAttractionBookableToday(
         leadMs: 0,
       });
       probed = true;
-      if (hit) return true;
+      // A product may open earlier than another (e.g. 30-min vs 1-hour duckpin).
+      if (slot && (!best || naiveEtStartMs(slot.start) < naiveEtStartMs(best.start))) best = slot;
     } catch {
       /* try the next product */
     }
   }
-  // Every probe failed = no signal — throw so the caller's .catch fails OPEN
+  // Every probe failed = no signal — throw so the caller's resolver fails OPEN
   // rather than false-locking the tile on a vendor blip.
   if (!probed && products.length > 0) throw new Error(`${slug}@${location}: every probe failed`);
-  return false;
+  return best;
 }
 
-/** Racing: any SINGLE-race product on today's schedule still has a heat far
- *  enough out for the kiosk grids. Packs are excluded — they need multiple
- *  heats and carry their own Experiences-shelf gating (ultimate-qualifier). */
-async function isRacingBookableToday(dateYmd: string): Promise<boolean> {
+/** Racing: the EARLIEST heat far enough out for the kiosk grids across today's
+ *  SINGLE-race products (null = none). Packs are excluded — they need multiple
+ *  heats and carry their own Experiences-shelf gating (ultimate-qualifier).
+ *  `freeSpots` is remaining seats in that heat (racing is per-person). */
+async function racingFirstOpenToday(dateYmd: string): Promise<FirstOpen | null> {
   const products = [
     ...getStaticProducts(dateYmd, "new"),
     ...getStaticProducts(dateYmd, "existing"),
   ].filter((p) => p.packType === "none");
   const seen = new Set<string>();
   let probed = false;
+  let best: FirstOpen | null = null;
   for (const p of products) {
     if (seen.has(p.productId)) continue;
     seen.add(p.productId);
     try {
-      const hit = await productHasFutureSlot({
+      const slot = await productFirstOpenSlot({
         dateYmd,
         productId: p.productId,
         pageId: p.pageId,
         leadMs: RACE_LEAD_MS,
       });
       probed = true;
-      if (hit) return true;
+      if (slot && (!best || naiveEtStartMs(slot.start) < naiveEtStartMs(best.start))) best = slot;
     } catch {
       /* try the next product */
     }
   }
   if (!probed && seen.size > 0) throw new Error("racing: every probe failed");
-  return false;
+  return best;
 }
 
 async function isUltimateQualifierBookableToday(dateYmd: string): Promise<boolean> {
@@ -250,40 +303,68 @@ async function isUltimateQualifierBookableToday(dateYmd: string): Promise<boolea
 }
 
 /** Compute availability for the Experiences-shelf items. Each check defaults to
- *  AVAILABLE if it throws — never false-lock on a vendor blip. */
+ *  AVAILABLE if it throws — never false-lock on a vendor blip. Attractions and
+ *  racing additionally carry their soonest-open slot for the tile availability
+ *  line; a blip yields open-with-no-count (never a fabricated "0 left"). */
 export async function computeExperienceAvailability(
   center: CenterCode,
-): Promise<ExperienceAvailability> {
+): Promise<ExperienceAvailabilityResult> {
   // Same 2 AM-ET business-day rollover the kiosk (and the rest of the app) use,
   // so a post-midnight session still resolves to today's operating date.
   const dateYmd = businessDayYmdET();
   const fm = center === "fort-myers";
   // Nexus attractions live in the HeadPinz building at FM, and at Naples.
   const nexusLoc: LocationKey = fm ? "headpinz" : "naples";
-  // Offerings a center doesn't carry resolve TRUE untouched — their tiles
-  // never render there, and true can never false-lock anything.
-  const [combo, uq, bowling, kbf, race, duckPin, gel, laser, shufFt, shufHp] = await Promise.all([
+  // Offerings a center doesn't carry resolve open+no-count untouched — their
+  // tiles never render there, and open can never false-lock anything.
+  const OPEN_NO_COUNT: SlotAvailability = { open: true };
+
+  // Boolean-only checks (combos + bowling/KBF have no per-block count) and the
+  // slot-carrying checks run concurrently — one barrier, no lost parallelism.
+  const boolsP = Promise.all([
     isComboBookableToday(center, dateYmd).catch(() => true),
     isUltimateQualifierBookableToday(dateYmd).catch(() => true),
     isBowlingBookableToday(center, dateYmd, "open,hourly").catch(() => true),
     isBowlingBookableToday(center, dateYmd, "kbf").catch(() => true),
-    fm ? isRacingBookableToday(dateYmd).catch(() => true) : Promise.resolve(true),
-    fm ? isAttractionBookableToday("duck-pin", "fasttrax", dateYmd).catch(() => true) : true,
-    isAttractionBookableToday("gel-blaster", nexusLoc, dateYmd).catch(() => true),
-    isAttractionBookableToday("laser-tag", nexusLoc, dateYmd).catch(() => true),
-    fm ? isAttractionBookableToday("shuffly", "fasttrax", dateYmd).catch(() => true) : true,
-    fm ? isAttractionBookableToday("shuffly", "headpinz", dateYmd).catch(() => true) : true,
   ]);
+  const slotsP = Promise.all([
+    fm ? resolveSlotAvailability(racingFirstOpenToday(dateYmd)) : Promise.resolve(OPEN_NO_COUNT),
+    fm
+      ? resolveSlotAvailability(attractionFirstOpenToday("duck-pin", "fasttrax", dateYmd))
+      : Promise.resolve(OPEN_NO_COUNT),
+    resolveSlotAvailability(attractionFirstOpenToday("gel-blaster", nexusLoc, dateYmd)),
+    resolveSlotAvailability(attractionFirstOpenToday("laser-tag", nexusLoc, dateYmd)),
+    fm
+      ? resolveSlotAvailability(attractionFirstOpenToday("shuffly", "fasttrax", dateYmd))
+      : Promise.resolve(OPEN_NO_COUNT),
+    fm
+      ? resolveSlotAvailability(attractionFirstOpenToday("shuffly", "headpinz", dateYmd))
+      : Promise.resolve(OPEN_NO_COUNT),
+  ]);
+  const [[combo, uq, bowling, kbf], [race, duckPin, gel, laser, shufFt, shufHp]] =
+    await Promise.all([boolsP, slotsP]);
+
   return {
-    "race-bowl": combo,
-    "ultimate-qualifier": uq,
-    bowling,
-    kbf,
-    race,
-    "duck-pin": duckPin,
-    "gel-blaster": gel,
-    "laser-tag": laser,
-    "shuffly-fasttrax": shufFt,
-    "shuffly-headpinz": shufHp,
+    available: {
+      "race-bowl": combo,
+      "ultimate-qualifier": uq,
+      bowling,
+      kbf,
+      race: race.open,
+      "duck-pin": duckPin.open,
+      "gel-blaster": gel.open,
+      "laser-tag": laser.open,
+      "shuffly-fasttrax": shufFt.open,
+      "shuffly-headpinz": shufHp.open,
+    },
+    // Undefined values serialize away — absent key = "no line" on that tile.
+    firstOpen: {
+      race: race.firstOpen,
+      "duck-pin": duckPin.firstOpen,
+      "gel-blaster": gel.firstOpen,
+      "laser-tag": laser.firstOpen,
+      "shuffly-fasttrax": shufFt.firstOpen,
+      "shuffly-headpinz": shufHp.firstOpen,
+    },
   };
 }

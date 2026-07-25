@@ -27,11 +27,33 @@ import { enabledCombos, type ComboSpecial } from "~/features/combos";
 import { packageFamilyFromPrice } from "~/features/booking/service/packages";
 import { KIOSK_LOGOS, KIOSK_PHOTOS, kioskImg } from "../assets";
 import { useResilientImage } from "../hooks/useResilientImage";
+import { slotLabel, type FirstOpen } from "../service/first-available";
 import { AdminTapZone } from "./AdminTapZone";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
 
 type CategoryKey = "exp" | "attr";
+
+/** The unit a tile's availability count is measured in, [singular, plural].
+ *  Keyed per SLUG (not just bookingMode): duckpin and shuffly are both per-slot
+ *  but read as lanes vs tables. Attractions absent here (bowling/KBF) show no
+ *  line. */
+const AVAILABILITY_NOUN: Record<string, [string, string]> = {
+  "duck-pin": ["lane", "lanes"],
+  shuffly: ["table", "tables"],
+  "gel-blaster": ["player", "players"],
+  "laser-tag": ["player", "players"],
+  race: ["seat", "seats"],
+};
+
+/** "3 lanes · 9:30 PM" for the tile availability line, or null when we have no
+ *  count for this attraction (bowling/KBF, or a vendor blip). */
+function availabilityLine(slug: string, firstOpen?: FirstOpen): string | null {
+  const noun = AVAILABILITY_NOUN[slug];
+  if (!noun || !firstOpen) return null;
+  const unit = firstOpen.freeSpots === 1 ? noun[0] : noun[1];
+  return `${firstOpen.freeSpots} ${unit} · ${slotLabel(firstOpen.start)}`;
+}
 
 export interface KioskCategoriesProps {
   brand: Brand;
@@ -49,6 +71,9 @@ export interface KioskCategoriesProps {
    *  slugs, except shuffly which keys per building (shuffly-fasttrax /
    *  shuffly-headpinz). Defaults available. */
   offeringAvailable?: (id: string) => boolean;
+  /** The soonest bookable slot per tile (same keys as offeringAvailable),
+   *  rendered as the tile's "3 lanes · 9:30 PM" line. Undefined = no line. */
+  offeringFirstOpen?: (id: string) => FirstOpen | undefined;
   onPickOffering: (offering: ActivityOffering) => void;
   onPickCombo: (combo: ComboSpecial) => void;
   /** Launch racing with a package FAMILY preselected (Experiences package tile). */
@@ -64,6 +89,7 @@ export function KioskCategories({
   vipComboAvailable = true,
   uqAvailable = true,
   offeringAvailable = () => true,
+  offeringFirstOpen = () => undefined,
   onPickOffering,
   onPickCombo,
   onPickPackageExperience,
@@ -247,6 +273,7 @@ export function KioskCategories({
                   // nothing to book (owner 2026-07-19).
                   disabled={!offeringAvailable(offeringKey(o))}
                   disabledNote="Nothing left to book today — the front desk can help with walk-ins."
+                  firstOpen={offeringFirstOpen(offeringKey(o))}
                   onClick={() => onPickOffering(o)}
                 />
               ))}
@@ -427,6 +454,7 @@ function OfferingTile({
   wide,
   disabled,
   disabledNote,
+  firstOpen,
   onClick,
 }: {
   offering: ActivityOffering;
@@ -438,6 +466,8 @@ function OfferingTile({
    *  blurb (e.g. bowling with no lanes left today). */
   disabled?: boolean;
   disabledNote?: string;
+  /** Soonest bookable slot → the "3 lanes · 9:30 PM" line above the title. */
+  firstOpen?: FirstOpen;
   onClick: () => void;
 }) {
   const accent = offering.accentColor ?? "#00e2e5";
@@ -446,6 +476,9 @@ function OfferingTile({
   const venue = effectiveBrand(offering, brand);
   const heroUrl = useResilientImage(kioskImg(offering.heroImage));
   const logoUrl = useResilientImage(KIOSK_LOGOS[venue]);
+  // Neutral "soonest opening" line (owner 2026-07-25: one calm tone, no urgency
+  // colors). Hidden while locked — disabledNote carries the message instead.
+  const availLine = disabled ? null : availabilityLine(offering.slug, firstOpen);
   return (
     <button
       type="button"
@@ -465,11 +498,24 @@ function OfferingTile({
         />
       </div>
       {/* FIXED text geometry (owner 2026-07-18: wrap broke + lines didn't align
-          across boxes): the title zone is always 2 lines tall (1-line titles sit
-          at its bottom) and the blurb zone always 2 lines, so every card's text
-          lands at identical heights. textWrap:normal overrides k-display's
-          text-wrap:balance — balance + clamping is a Chromium wrap-breaker. */}
+          across boxes): a reserved availability row, then the title zone always
+          2 lines tall (1-line titles sit at its bottom) and the blurb zone
+          always 2 lines, so every card's text lands at identical heights.
+          textWrap:normal overrides k-display's text-wrap:balance — balance +
+          clamping is a Chromium wrap-breaker. */}
       <div className="absolute inset-x-[36px] bottom-[36px]">
+        {/* Reserved so titles align whether or not a tile has an availability
+            line. Neutral tone, no urgency color (owner 2026-07-25). */}
+        <div className="mb-[10px] flex h-[30px] items-end">
+          {availLine && (
+            <span
+              className="text-[22px] font-bold uppercase leading-none tracking-[0.08em] tabular-nums"
+              style={{ color: "rgba(245,236,238,0.82)" }}
+            >
+              {availLine}
+            </span>
+          )}
+        </div>
         <div className="flex h-[84px] items-end">
           <span
             className="k-display line-clamp-2 break-words text-[36px] leading-[1.15]"

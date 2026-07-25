@@ -58,7 +58,7 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   const rootRef = useRef<HTMLDivElement>(null);
   // Lock the VIP quick-chip when the combo can't actually be booked today
   // (cached server-side; see useKioskAvailability).
-  const vipAvailable = useKioskAvailability(config?.center ?? null)("race-bowl");
+  const vipAvailable = useKioskAvailability(config?.center ?? null).available("race-bowl");
   // Center-scoped rotation — Naples never advertises karting.
   const adSlides = kioskAdSlidesFor(config?.center ?? null);
 

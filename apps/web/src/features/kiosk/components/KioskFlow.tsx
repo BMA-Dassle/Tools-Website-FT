@@ -197,7 +197,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   // Bookable-today availability for the Experiences (VIP combo + Ultimate
   // Qualifier), from the cached server endpoint — locks their entry points when
   // nothing fits today.
-  const availableFor = useKioskAvailability(config?.center ?? null);
+  const { available: availableFor, firstOpenFor } = useKioskAvailability(config?.center ?? null);
   const vipAvailable = availableFor("race-bowl");
   const uqAvailable = availableFor("ultimate-qualifier");
 
@@ -1555,6 +1555,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
         vipComboAvailable={vipAvailable}
         uqAvailable={uqAvailable}
         offeringAvailable={availableFor}
+        offeringFirstOpen={firstOpenFor}
         onPickOffering={pickOffering}
         onPickCombo={pickCombo}
         onPickPackageExperience={pickPackageExperience}
