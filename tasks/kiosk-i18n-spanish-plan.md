@@ -91,3 +91,34 @@ Extract guest-facing copy from ~50 components into `en.json`, in flow order:
 
 - Who is the native-Spanish reviewer for the Phase 3 pass?
 - Language toggle placement — persistent globe in a corner, or a first-screen "English / Español" choice on Attract? (Lean: both — Attract choice + persistent toggle.)
+
+## Progress log
+
+### 2026-07-25 — Phase 0/1 done, Phase 2 in progress
+**Branch `feat/kiosk-i18n-spanish` (green: tsc + eslint + a11y-gate + vitest). All flag-gated OFF.**
+
+Scaffolding + infra landed (LocaleProvider, useT(), pure `formatMessage` ICU engine,
+en/es catalogs, top-right flag `LanguageSwitcher`, `?lang=` config field, `kioskI18nEnabled()`).
+
+**Screens converted to `useT()` (guest-facing copy → en.ts/es.ts, es = first-pass):**
+- AttractScreen · KioskCategories · KioskConfirmation
+- KioskBowlingTierStep · KioskBowlingTimeStep · KioskSlotStep
+- KioskBowlingDetailsStep · KioskBowlingOfferStep
+
+**Remaining Phase 2 screens:** KioskBowlingPeopleStep · KioskPeopleStep (racing, ~2,256 lines —
+headings/buttons only, TODO interpolated business-rule strings) · Checkout/Upsell/Rewards ·
+Check-in flow · race-info hub · mobile-join guest screens.
+
+**Known deferrals (TODO(i18n) in code):**
+- StepDef `title` + `canAdvance` validation reasons run at module scope (outside React) → can't
+  reach useT(); stay English until step titles/validation are locale-threaded.
+- Confirmation strings with inline `<strong>`/rich text stay English — the plain-string engine
+  can't render ICU tags. Consider a `t.rich()` helper (rich-text handlers) as a follow-up.
+
+**Environment notes for whoever resumes:**
+- The main working tree (`C:/GIT/Tools-Website-FT`) is in use for OTHER work — do NOT commandeer it.
+  This i18n work is being done in an isolated worktree; `git rev-parse --abbrev-ref HEAD` before
+  every commit (a background/worktree agent moved the main HEAD onto a scratch branch once — commits
+  landed on the wrong branch, recovered via reflog).
+- es.ts is an AI first-pass — Phase 3 native-Spanish review + portrait layout QA still required
+  before the flag is enabled anywhere.
