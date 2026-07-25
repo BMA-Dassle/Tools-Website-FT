@@ -1,31 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
+import { apiBase } from "@/lib/api-base";
 import { fetchPersonRaw } from "~/features/daily-events/data/bmi-office";
 import { LICENSE_PRODUCT_ID } from "~/features/booking/service/race-pack-license.server";
 
 /**
  * Diagnostic for standalone FastTrax-license registration (the race-pack license
  * rail). Runs sell(43473520) → registerContactPerson → payment/confirm against
- * the LIVE Public Booking API for a test person, then re-reads their BMI Office
- * memberships so we can PROVE selling 43473520 attaches the "License Fee"
- * membership (the one external unknown gating go-live). Mirrors the shape of
- * api/test/race-pack-diag.
+ * the LIVE Public Booking API, then re-reads the person's BMI Office memberships
+ * so we can PROVE selling 43473520 attaches the "License Fee" membership (the one
+ * external unknown gating go-live). Mirrors the shape of api/test/race-pack-diag.
  *
  * Usage (Vercel preview):
- *   GET /api/test/license-diag?personId=<TEST_PERSON_ID>
+ *   GET /api/test/license-diag?create=1
+ *     → mints a FAKE throwaway person (Pandora), waits for cloud sync, then sells
+ *       them a license. No real customer touched. Nothing is charged to a card;
+ *       payment/confirm books the BMI bill as an external (depositKind 0) payment.
+ *   GET /api/test/license-diag?personId=<id>
+ *     → run against a specific existing person id.
  *
  * Optional:
- *   pageId       — send PageId in the sell body (default: omitted). Set this if
- *                  the sell can't CREATE a bill without a page.
- *   includePageId (default "0") — only meaningful with pageId set.
- *   doConfirm    (default "1"; "0" stops before payment/confirm)
- *   doCancel     (default "0") — cancel the test bill afterward. LEAVE AT 0 to
- *                  see whether the membership persists; the real flow never cancels.
- *   clientKey    (default "headpinzftmyers")
+ *   pageId + includePageId=1 — send PageId in the sell body (default omitted).
+ *   doConfirm (default "1"; "0" stops before payment/confirm)
+ *   doCancel  (default "0") — cancel the test bill afterward. LEAVE AT 0 to see
+ *             whether the membership persists; the real flow never cancels.
+ *   clientKey (default "headpinzftmyers")
  *
- * Read/WRITE against PROD BMI — use known test person ids only. `probe=1` echoes
- * the input shape without any BMI call.
+ * Read/WRITE against PROD BMI. `probe=1` echoes the input shape without any call.
  */
+
+export const maxDuration = 60;
 
 const DEFAULT_CLIENT_KEY = "headpinzftmyers";
 
@@ -34,6 +38,8 @@ function baseUrl(req: NextRequest) {
   const proto = host.includes("localhost") ? "http" : "https";
   return `${proto}://${host}`;
 }
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function membershipSnapshot(clientKey: string, personId: string) {
   try {
@@ -58,16 +64,17 @@ async function membershipSnapshot(clientKey: string, personId: string) {
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const personId = searchParams.get("personId");
     const clientKey = searchParams.get("clientKey") || DEFAULT_CLIENT_KEY;
+    const create = searchParams.get("create") === "1";
+    let personId = searchParams.get("personId");
     const pageId = searchParams.get("pageId");
     const includePageId = searchParams.get("includePageId") === "1" && !!pageId;
     const doConfirm = searchParams.get("doConfirm") !== "0";
     const doCancel = searchParams.get("doCancel") === "1";
 
-    if (!personId || !/^\d{1,20}$/.test(personId)) {
+    if (!create && (!personId || !/^\d{1,20}$/.test(personId))) {
       return NextResponse.json(
-        { error: "Required query param: personId (digits)" },
+        { error: "Provide create=1 (mint a fake person) or personId=<digits>" },
         { status: 400 },
       );
     }
@@ -76,7 +83,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({
         ok: true,
         probe: true,
-        inputShape: { personId, clientKey, pageId, includePageId, doConfirm, doCancel },
+        inputShape: { create, personId, clientKey, pageId, includePageId, doConfirm, doCancel },
         message: "Probe only — no BMI call. Drop probe=1 to actually run.",
       });
     }
@@ -102,13 +109,44 @@ export async function GET(req: NextRequest) {
       text.match(new RegExp(`"${field}"\\s*:\\s*(\\d+)`))?.[1] ?? null;
 
     const trace: Record<string, unknown> = {
-      input: { personId, clientKey, pageId, includePageId, doConfirm, doCancel },
+      input: { create, personId, clientKey, pageId, includePageId, doConfirm, doCancel },
       timestamp: new Date().toISOString(),
     };
 
-    trace.membershipsBefore = await membershipSnapshot(clientKey, personId);
+    // 0. Mint a fake throwaway person (Pandora → Firebird). booking/sell hits the
+    //    cloud, which lags Firebird a few seconds — the sell loop below retries.
+    if (create) {
+      const suffix = `${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 900 + 100)}`;
+      const fake = {
+        firstName: "Ztest",
+        lastName: `Licdiag${suffix}`,
+        email: `licdiag+${suffix}@bma.test`,
+        phone: `239555${suffix.slice(-4)}`,
+        birthdate: "1990-01-01",
+      };
+      trace.fakePerson = fake;
+      const createRes = await fetch(`${apiBase()}/api/pandora`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(fake),
+      });
+      const createData = await createRes.json().catch(() => ({}));
+      trace.create = {
+        status: createRes.status,
+        personId: createData.personId,
+        error: createData.error,
+      };
+      if (!createData.personId) {
+        return NextResponse.json({ ok: false, stoppedAt: "create-person", trace }, { status: 502 });
+      }
+      personId = String(createData.personId);
+    }
 
-    // 1. Sell the license → new bill.
+    trace.personId = personId;
+    trace.membershipsBefore = await membershipSnapshot(clientKey, personId!);
+
+    // 1. Sell the license → new bill. Retry to absorb Firebird→cloud sync lag
+    //    for a just-created person (the web legacy race-pack path polls the same).
     const sellParts = [
       `"ProductId":${LICENSE_PRODUCT_ID}`,
       ...(includePageId ? [`"PageId":${Number(pageId)}`] : []),
@@ -120,33 +158,45 @@ export async function GET(req: NextRequest) {
     ];
     const sellBody = `{${sellParts.join(",")}}`;
     trace.sellBodySent = sellBody;
-    const sell = await bmi("booking/sell", sellBody);
+
+    const maxSellTries = create ? 8 : 1;
+    let sell: Awaited<ReturnType<typeof bmi>> | null = null;
+    let billId: string | null = null;
+    for (let i = 1; i <= maxSellTries; i++) {
+      sell = await bmi("booking/sell", sellBody);
+      billId = rawField(sell.raw, "orderId");
+      if (billId) {
+        trace.sellTries = i;
+        break;
+      }
+      if (i < maxSellTries) await sleep(5000);
+    }
     trace.sell = sell;
-    const billId = rawField(sell.raw, "orderId");
     trace.billId = billId;
     if (!billId) {
-      return NextResponse.json({ ok: false, stoppedAt: "sell", trace }, { status: 500 });
+      return NextResponse.json({ ok: false, stoppedAt: "sell", personId, trace }, { status: 500 });
     }
 
-    // 2. Register the contact person.
+    // 2. Register the contact person on the bill.
     const regBody = `{"orderId":${billId},"PersonId":${personId},"firstName":"License","lastName":"Diag Test","email":"licensediag@bma.test","phone":"2395550100"}`;
     trace.register = await bmi("person/registerContactPerson", regBody);
 
-    // 3. Confirm (depositKind 0). Use BMI's own line price if present.
-    const sellJson = sell.body as { prices?: Array<{ amount?: number }> } | undefined;
+    // 3. Confirm (depositKind 0 = external). Use BMI's own line price if present.
+    const sellJson = sell!.body as { prices?: Array<{ amount?: number }> } | undefined;
     const amount = sellJson?.prices?.[0]?.amount ?? 4.99;
     trace.confirmAmount = amount;
     if (doConfirm) {
       const payBody = `{"id":"${randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":${amount},"orderId":${billId},"depositKind":0}`;
       trace.paymentConfirm = await bmi("payment/confirm", payBody);
-      await new Promise((r) => setTimeout(r, 2500));
+      await sleep(2500);
     }
 
-    trace.membershipsAfter = await membershipSnapshot(clientKey, personId);
+    trace.membershipsAfter = await membershipSnapshot(clientKey, personId!);
 
     const before = trace.membershipsBefore as { activeLicense?: boolean };
     const after = trace.membershipsAfter as { activeLicense?: boolean };
-    trace.licenseAttached = after?.activeLicense === true && before?.activeLicense !== true;
+    const licenseAttached = after?.activeLicense === true && before?.activeLicense !== true;
+    trace.licenseAttached = licenseAttached;
 
     if (doCancel) {
       const cancelResp = await fetch(
@@ -158,7 +208,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      licenseAttached: trace.licenseAttached,
+      licenseAttached,
+      personId,
       billId,
       membershipsAfter: trace.membershipsAfter,
       trace,
