@@ -1241,6 +1241,22 @@ function DoneScreen(props: {
         </div>
       ))}
 
+      {/* Racing — what to do at the track (mirrors the booking-confirmation
+          race instructions, adapted for a guest who's already checked in). */}
+      {itinerary.activities.some((a) => a.kind === "racing") && (
+        <div className="k-glass border-[#e94141]/40 p-[28px]">
+          <div className="k-eyebrow mb-[14px] text-[#ff6b6b]">At the track</div>
+          <ul className="space-y-[12px] text-[26px] leading-[1.35] text-white/70">
+            <li>Head to FastTrax Racing on the 2nd floor — no need to stop at Guest Services.</li>
+            <li>
+              Watch the screens for your heat, then report to the grid when your name is called.
+            </li>
+            <li>First-time racers get a quick safety briefing before their first race.</li>
+            <li>Closed-toe shoes required. Long hair tied back. Have fun and drive safe!</li>
+          </ul>
+        </div>
+      )}
+
       {/* Bowling lane-open — interactive only when the check-in attach gate is
           on (dark-safe: staff testing never fires a real lane / KDS ticket). */}
       {bowlingActivities.map((a) => (

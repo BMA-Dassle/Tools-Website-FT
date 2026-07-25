@@ -1197,15 +1197,32 @@ export async function completeCheckin(args: {
         }
       }
 
+      const reservationNumber =
+        record?.reservationNumber ??
+        group.find((r) => r.bmiReservationNumber)?.bmiReservationNumber ??
+        "";
+      // TEMP DIAGNOSTIC (owner 2026-07-25 "why don't they schedule?"): show where
+      // racers drop — no short id vs no open slot vs empty reservationNumber. No
+      // PII (id lengths + short-id presence only).
+      console.log(
+        `[kiosk-checkin] finalize ${billId}: people=${people.length}` +
+          ` heats=${heats.length} openHeats=${openHeats.length}` +
+          ` filledHeats=${heats.filter((h) => h.bmiPersonId).length}` +
+          ` assignments=${(args.assignments ?? []).length} racersBuilt=${racers.length}` +
+          ` resNo=${reservationNumber || "(EMPTY)"}`,
+      );
+      console.log(
+        `[kiosk-checkin] people ids: ${people
+          .map((p) => `office(${p.personId?.length ?? 0})/short:${p.pandoraPersonId ? "y" : "n"}`)
+          .join("; ")}`,
+      );
+
       if (racers.length > 0) {
-        const res = await scheduleCheckinRacers({
-          reservationNumber:
-            record?.reservationNumber ??
-            group.find((r) => r.bmiReservationNumber)?.bmiReservationNumber ??
-            "",
-          racers,
-        });
+        const res = await scheduleCheckinRacers({ reservationNumber, racers });
         scheduled = res.linked;
+        console.log(
+          `[kiosk-checkin] schedule result: linked=${res.linked} unlinked=[${res.unlinked.join(", ")}]`,
+        );
         // Per-person status matched by personId (never by name — duplicate first
         // names would collide, review L6).
         const failedIds = new Set(res.unlinkedPersonIds);
