@@ -23,9 +23,10 @@ const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net";
 const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
 
 /** Firebird membership-kind id (F_MSK_ID) for the FastTrax racing license — the
- *  "License Fee" membership. Provided by Pandora/BMI (BMI-side kind=3 product is
- *  11253570; the Firebird id may differ). Set via env until confirmed. */
-export const LICENSE_MEMBERSHIP_KIND_ID = process.env.RACE_LICENSE_MEMBERSHIP_KIND_ID || "";
+ *  "License Fee" membership (owner 2026-07-25, read off a licensed account). NOTE:
+ *  the Firebird kind id (11260957) differs from the BMI-side kind=3 product id
+ *  (11253570). Env-overridable. Confirm with the live diag smoke. */
+export const LICENSE_MEMBERSHIP_KIND_ID = process.env.RACE_LICENSE_MEMBERSHIP_KIND_ID || "11260957";
 
 /** The license term. Pandora won't default `expires`, so we always send now + 1yr. */
 export function oneYearFromNow(from: Date = new Date()): string {
