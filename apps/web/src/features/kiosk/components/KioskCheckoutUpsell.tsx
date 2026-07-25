@@ -16,6 +16,7 @@
 
 import { useState } from "react";
 import { ACTIVATION_FEE_CENTS, type TokenPackage } from "~/features/game-cards/constants";
+import { useT } from "../i18n";
 
 export function KioskCheckoutUpsell({
   pack,
@@ -29,6 +30,7 @@ export function KioskCheckoutUpsell({
   onAdd: (packageId: string, quantity: number) => void;
   onSkip: () => void;
 }) {
+  const t = useT();
   const maxQty = Math.max(1, partySize);
   const [qty, setQty] = useState(1);
   const totalTokens = pack.tokens + pack.bonusTokens;
@@ -47,20 +49,18 @@ export function KioskCheckoutUpsell({
     <div className="k-flow-body flex flex-col items-center justify-center">
       <div className="w-full max-w-[880px] space-y-[32px]">
         <div>
-          <div className="k-eyebrow text-[#f0b341]">One more thing…</div>
-          <div className="k-display mt-[10px] text-[64px] leading-[1.02]">
-            Add Game Zone tokens?
-          </div>
+          <div className="k-eyebrow text-[#f0b341]">{t("upsell.eyebrow")}</div>
+          <div className="k-display mt-[10px] text-[64px] leading-[1.02]">{t("upsell.title")}</div>
         </div>
 
         <div className="k-glass space-y-[28px] p-[44px]">
           <div className="flex items-end justify-between gap-[24px]">
             <div>
               <div className="k-eyebrow" style={{ color: "#f800c6" }}>
-                Game Zone token card
+                {t("upsell.cardLabel")}
               </div>
               <div className="k-display mt-[8px] text-[84px] leading-none text-white">
-                {totalTokens} tokens
+                {t("upsell.tokens", { count: totalTokens })}
               </div>
             </div>
             <div className="text-right">
@@ -74,38 +74,37 @@ export function KioskCheckoutUpsell({
               </div>
               {pctOff > 0 && (
                 <div className="mt-[6px] inline-block rounded-full bg-[#f0b341]/15 px-[18px] py-[6px] text-[24px] font-extrabold uppercase tracking-wider text-[#f0b341]">
-                  {pctOff}% off today
+                  {t("upsell.pctOff", { pct: pctOff })}
                 </div>
               )}
             </div>
           </div>
 
           <p className="text-[27px] leading-snug text-white/60">
-            Rides your booking payment — the card{qty > 1 ? "s print" : " prints"} right here when
-            you&apos;re done.
+            {t("upsell.ridesPayment", { count: qty })}
           </p>
 
           {/* One-time card activation, same as every new Game Zone card —
               shown so the CTA total below never surprises anyone. */}
           <div className="flex items-baseline justify-between border-t border-white/10 pt-[20px] text-[25px]">
-            <span className="text-white/55">
-              {qty > 1 ? `Card activation × ${qty} (one-time)` : "Card activation (one-time)"}
-            </span>
+            <span className="text-white/55">{t("upsell.activation", { count: qty })}</span>
             <span className="k-num text-white/75">+${feeDollars.toFixed(2)}</span>
           </div>
 
           {maxQty > 1 && (
             <div className="flex items-center justify-between gap-[20px] border-t border-white/10 pt-[24px]">
               <div>
-                <div className="text-[28px] font-bold text-white">How many cards?</div>
-                <div className="text-[23px] text-white/45">One per player (up to {maxQty})</div>
+                <div className="text-[28px] font-bold text-white">{t("upsell.howMany")}</div>
+                <div className="text-[23px] text-white/45">
+                  {t("upsell.onePerPlayer", { max: maxQty })}
+                </div>
               </div>
               <div className="flex items-center gap-[18px]">
                 <button
                   type="button"
                   onClick={() => setQty((q) => Math.max(1, q - 1))}
                   disabled={qty <= 1}
-                  aria-label="Fewer cards"
+                  aria-label={t("upsell.aria.fewer")}
                   className="k-tap h-[92px] w-[92px] rounded-full border-2 border-white/15 text-[44px] font-bold text-white disabled:opacity-30"
                 >
                   −
@@ -117,7 +116,7 @@ export function KioskCheckoutUpsell({
                   type="button"
                   onClick={() => setQty((q) => Math.min(maxQty, q + 1))}
                   disabled={qty >= maxQty}
-                  aria-label="More cards"
+                  aria-label={t("upsell.aria.more")}
                   className="k-tap h-[92px] w-[92px] rounded-full border-2 border-white/15 text-[44px] font-bold text-white disabled:opacity-30"
                 >
                   +
@@ -134,7 +133,7 @@ export function KioskCheckoutUpsell({
             className="k-btn-primary k-tap"
             style={{ flex: "0 0 auto" }}
           >
-            Add {qty > 1 ? `${qty} cards` : "to order"} — ${totalDollars.toFixed(2)} →
+            {t("upsell.cta", { count: qty, price: `$${totalDollars.toFixed(2)}` })} →
           </button>
           <button
             type="button"
@@ -142,7 +141,7 @@ export function KioskCheckoutUpsell({
             className="k-btn-ghost k-tap"
             style={{ flex: "0 0 auto" }}
           >
-            No thanks, continue
+            {t("upsell.skip")}
           </button>
         </div>
       </div>

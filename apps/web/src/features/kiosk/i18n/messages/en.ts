@@ -229,6 +229,35 @@ export const en = {
   "bowlingPeople.aria.removeBowler": "Remove bowler {num}",
   "bowlingPeople.aria.mainEmail": "Main person email",
   "bowlingPeople.aria.mainPhone": "Main person mobile phone",
+
+  // --- Merged cart + checkout screen (KioskCheckoutScreen) ---
+  // The reused CartView blocks (combo banner, item cards) are shared WEB
+  // components and stay English in this pass — only kiosk-native chrome is keyed.
+  "checkout.eyebrow": "Checkout",
+  "checkout.title": "Review your order",
+  "checkout.empty": "Your cart is empty — head back to pick an activity.",
+  "checkout.finishFirst": "Finish setting up each activity (tap Edit) before paying.",
+  "checkout.estTotal": "Est. total",
+  "checkout.plusTax": "+ tax",
+  "checkout.allActivities": "All activities",
+  "checkout.reviewAndPay": "Review & Pay",
+
+  // --- Checkout upsell (KioskCheckoutUpsell) — "Game Zone" stays untranslated ---
+  "upsell.eyebrow": "One more thing…",
+  "upsell.title": "Add Game Zone tokens?",
+  "upsell.cardLabel": "Game Zone token card",
+  "upsell.tokens": "{count} tokens",
+  "upsell.pctOff": "{pct}% off today",
+  "upsell.ridesPayment":
+    "Rides your booking payment — the {count, plural, one {card prints} other {cards print}} right here when you’re done.",
+  "upsell.activation":
+    "{count, plural, one {Card activation (one-time)} other {Card activation × # (one-time)}}",
+  "upsell.howMany": "How many cards?",
+  "upsell.onePerPlayer": "One per player (up to {max})",
+  "upsell.aria.fewer": "Fewer cards",
+  "upsell.aria.more": "More cards",
+  "upsell.cta": "{count, plural, one {Add to order} other {Add # cards}} — {price}",
+  "upsell.skip": "No thanks, continue",
 } as const;
 
 export type MessageKey = keyof typeof en;

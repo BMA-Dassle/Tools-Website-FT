@@ -36,6 +36,7 @@ import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { KioskBookingAsCard } from "./KioskBookingAsCard";
 import { KioskRewardsSection } from "./KioskRewardsSection";
 import { BrandLogo } from "./BrandLogo";
+import { useT } from "../i18n";
 
 export function KioskCheckoutScreen({
   session,
@@ -62,6 +63,7 @@ export function KioskCheckoutScreen({
   onAllActivities: () => void;
   onReviewAndPay: () => void;
 }) {
+  const t = useT();
   const items = [...session.items].sort((a, b) => itemSortMs(a) - itemSortMs(b));
 
   // EST. TOTAL — the same builders checkout charges from. Per-item estimates
@@ -97,16 +99,16 @@ export function KioskCheckoutScreen({
       <div className="k-flow-head">
         <div className="k-fh-top">
           <BrandLogo brand={brand} className="h-[60px] w-auto" />
-          <span className="k-fh-activity">Checkout</span>
+          <span className="k-fh-activity">{t("checkout.eyebrow")}</span>
         </div>
-        <h1 className="k-display k-fh-title">Review your order</h1>
+        <h1 className="k-display k-fh-title">{t("checkout.title")}</h1>
       </div>
 
       <div className="k-flow-body">
         <div className="mx-auto w-full max-w-[880px] space-y-[28px] pb-[24px]">
           {items.length === 0 ? (
             <div className="k-glass p-[44px] text-center text-[30px] text-white/60">
-              Your cart is empty — head back to pick an activity.
+              {t("checkout.empty")}
             </div>
           ) : (
             // CartView's own cards, web-rem sized → zoomed to kiosk scale.
@@ -138,9 +140,7 @@ export function KioskCheckoutScreen({
                 estTotal={estTotal}
               />
               {!itemsReady && (
-                <p className="text-center text-[24px] text-white/45">
-                  Finish setting up each activity (tap Edit) before paying.
-                </p>
+                <p className="text-center text-[24px] text-white/45">{t("checkout.finishFirst")}</p>
               )}
             </>
           )}
@@ -155,17 +155,17 @@ export function KioskCheckoutScreen({
           {items.length > 0 && (
             <div className="flex items-baseline justify-end gap-[14px] pr-[8px]">
               <span className="text-[23px] font-bold uppercase tracking-[0.16em] text-white/45">
-                Est. total
+                {t("checkout.estTotal")}
               </span>
               <span className="k-num text-[48px] font-extrabold leading-none text-[#00e2e5]">
                 ${estTotal.toFixed(2)}
               </span>
-              <span className="text-[22px] text-white/35">+ tax</span>
+              <span className="text-[22px] text-white/35">{t("checkout.plusTax")}</span>
             </div>
           )}
           <div className="flex items-center gap-[24px]">
             <button type="button" onClick={onAllActivities} className="k-btn-ghost k-tap">
-              ← All activities
+              ← {t("checkout.allActivities")}
             </button>
             {items.length > 0 && (
               <button
@@ -174,7 +174,7 @@ export function KioskCheckoutScreen({
                 disabled={!itemsReady || !contactOk}
                 className="k-btn-primary k-tap whitespace-nowrap"
               >
-                Review &amp; Pay →
+                {t("checkout.reviewAndPay")} →
               </button>
             )}
           </div>

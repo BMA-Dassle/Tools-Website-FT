@@ -226,4 +226,31 @@ export const es: Record<MessageKey, string> = {
   "bowlingPeople.aria.removeBowler": "Quitar jugador {num}",
   "bowlingPeople.aria.mainEmail": "Correo del contacto principal",
   "bowlingPeople.aria.mainPhone": "Teléfono móvil del contacto principal",
+
+  // --- Merged cart + checkout screen (KioskCheckoutScreen) ---
+  "checkout.eyebrow": "Pago",
+  "checkout.title": "Revisa tu orden",
+  "checkout.empty": "Tu carrito está vacío — regresa para elegir una actividad.",
+  "checkout.finishFirst": "Termina de configurar cada actividad (toca Editar) antes de pagar.",
+  "checkout.estTotal": "Total est.",
+  "checkout.plusTax": "+ impuestos",
+  "checkout.allActivities": "Todas las actividades",
+  "checkout.reviewAndPay": "Revisar y pagar",
+
+  // --- Checkout upsell (KioskCheckoutUpsell) — "Game Zone" stays untranslated ---
+  "upsell.eyebrow": "Una cosa más…",
+  "upsell.title": "¿Agregar fichas de Game Zone?",
+  "upsell.cardLabel": "Tarjeta de fichas Game Zone",
+  "upsell.tokens": "{count} fichas",
+  "upsell.pctOff": "{pct}% de descuento hoy",
+  "upsell.ridesPayment":
+    "Se incluye en el pago de tu reservación — la {count, plural, one {tarjeta se imprime} other {tarjetas se imprimen}} aquí mismo cuando termines.",
+  "upsell.activation":
+    "{count, plural, one {Activación de tarjeta (única vez)} other {Activación de tarjeta × # (única vez)}}",
+  "upsell.howMany": "¿Cuántas tarjetas?",
+  "upsell.onePerPlayer": "Una por jugador (hasta {max})",
+  "upsell.aria.fewer": "Menos tarjetas",
+  "upsell.aria.more": "Más tarjetas",
+  "upsell.cta": "{count, plural, one {Agregar a la orden} other {Agregar # tarjetas}} — {price}",
+  "upsell.skip": "No gracias, continuar",
 };
