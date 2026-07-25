@@ -1,5 +1,36 @@
 # Lessons Learned
 
+## A deterministic Square idempotency key locks a customer out after a card DECLINE (2026-07-25)
+
+**What happened:** A customer booking a 6pm VIP experience (3 adults + 1 junior) hit
+"Transaction limit exceeded. Please try a different card." (card 1 declined by Square), changed
+cards, and then got **"Different request parameters used for the same idempotency_key:
+pay-card-19876b77dfd6e279"** on every subsequent attempt — permanently stuck on that bill.
+
+**Root cause:** `authorizeCardPayment` derived its key as `pay-card-${baseKey}` where
+`baseKey = reserveBaseKey(billId)` — deterministic per bill. Square records the idempotency key on a
+**declined** payment too, bound to that request's `source_id`. Square Web-Payments nonces are
+**single-use**, so ANY retry (different card, or the same card re-tokenized) carries a new
+`source_id` under the unchanged key → Square rejects it as "different request parameters." The
+deterministic key was originally added to stop double-charge on double-submit
+(v2-rollout-readiness.md:153); it created the exact inverse trap. Same failure class as the lane-open
+`comp-resettle` case below (§ Gift-card / deposit funding).
+
+**Fix (commit pending, `apps/web/lib/square-gift-card.ts`):** fold a short `sha256(source_id)` hash
+into the card key → `pay-card-${baseKey}-${suffix}`. Each distinct card attempt gets its own key
+(decline→retry works); a true network-level double-POST (identical nonce) still dedups. Double-charge
+stays prevented because `baseKey` is still stable → all attempts share ONE deposit order, and Square
+rejects a second full authorization against an already-covered order. Vaulted-card retries
+(card-vault-sweep) pass a stable reusable token, so replay-safety there is preserved.
+
+**Guardrails:**
+- A payment idempotency key must be unique **per attempt**, not per order/bill. Key it off the
+  single-use payment token (nonce), never off a stable business id alone.
+- Prevent double-charge with a **stable ORDER** (one deposit order per bill) + Square's order-balance
+  check, NOT by freezing the payment key. Those are different jobs — don't conflate them.
+- Immediate operational unblock when a customer is stuck on this error: **start a fresh booking**
+  (new bill → new baseKey → new key). Verify no capture happened first (a decline captures nothing).
+
 ## A .NET SOAP array of int64 serializes as `<long>`, not `<string>` — the wrong item tag no-ops AND returns success (2026-07-23)
 
 **What happened:** `clearAccount()` (Intercard `TPI_ClearAccount`, used by kiosk new-card
