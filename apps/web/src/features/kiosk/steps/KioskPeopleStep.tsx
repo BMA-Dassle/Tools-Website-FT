@@ -117,12 +117,12 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   setBusy,
 }) => {
   const t = useT();
-  // TODO(i18n): PARTIAL — the validation/error setFormError messages are keyed
-  // (people.err.*), age-gate LOGIC untouched. The visible add-people / guardian /
-  // sign-in / waiver UI copy in this ~2,255-line step is NOT yet keyed; it needs a
-  // focused completion pass (see tasks/kiosk-i18n-spanish-plan.md). Static prose
-  // nodes are around lines 1371/1389/1541/1628/1774/1811/1908/1987/2159/2160 plus
-  // many ternary/template-literal strings.
+  // i18n: the visible add-people / guardian / sign-in / waiver UI copy is keyed
+  // (peopleUi.*), the validation/error setFormError messages are keyed
+  // (people.err.*), and age-gate LOGIC is untouched. Still English on purpose:
+  // the MODULE-SCOPE StepDef `title`s and `peopleReady()` block/canAdvance reason
+  // strings (they run outside React, no `t` in scope) — see the module-scope
+  // TODO(i18n) below.
   const isRace = item.kind === "race";
   const party = session.party;
   // CENTER FIRST: the Naples kiosk registers people, fetches waiver templates,
@@ -714,7 +714,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         const gPhoneTrim = g.phone?.trim() ?? "";
         const gEmailTrim = g.email?.trim() ?? "";
         if (!gPhoneTrim && !gEmailTrim) {
-          throw new Error(`We can't verify ${g.firstName} here — use "Find their account".`);
+          throw new Error(t("peopleUi.gErr.cantVerifyName", { name: g.firstName }));
         }
         const { personId } = await pandoraCreatePerson({
           firstName: g.firstName,
@@ -735,7 +735,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       const gDobIso = g.dobIso ?? (status.birthdate ? String(status.birthdate).slice(0, 10) : null);
       const gAge = ageFromIso(gDobIso);
       if (gAge !== null && gAge < 18) {
-        throw new Error(`${g.firstName} is under 18 — a guardian must be an adult.`);
+        throw new Error(t("peopleUi.gErr.underAge", { name: g.firstName }));
       }
       if (!g.dobIso && gDobIso) patchPerson(g.id, { dobIso: gDobIso });
       let ownTemplate: PandoraWaiverTemplate | null = null;
@@ -747,11 +747,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       if (status.valid !== !!g.waiverValid) patchPerson(g.id, { waiverValid: status.valid });
       proceedWithGuardian(g, sid, status.valid, ownTemplate, gf);
     } catch (err) {
-      setGError(
-        err instanceof Error
-          ? err.message
-          : "Couldn't verify that adult. Please try again or see the front desk.",
-      );
+      setGError(err instanceof Error ? err.message : t("peopleUi.gErr.verifyAdultFallback"));
     } finally {
       setBusyAll(false);
       setChoosingGuardianId(null);
@@ -765,19 +761,19 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     if (!gf) return;
     const gAge = ageFromDob(gDob);
     if (!gFirst.trim() || !gLast.trim()) {
-      setGError("Enter the adult's first and last name.");
+      setGError(t("peopleUi.gErr.enterName"));
       return;
     }
     if (gAge === null) {
-      setGError("Enter the birthday as MM/DD/YYYY.");
+      setGError(t("peopleUi.gErr.enterDob"));
       return;
     }
     if (gAge < 18) {
-      setGError("A guardian must be 18 or older.");
+      setGError(t("peopleUi.gErr.mustBe18"));
       return;
     }
     if (gPhone.replace(/\D/g, "").length < 10) {
-      setGError("Enter a mobile phone number.");
+      setGError(t("peopleUi.gErr.enterPhone"));
       return;
     }
     setBusyAll(true);
@@ -801,7 +797,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       // the guardian.
       const rAge = ageFromIso(result.birthdate) ?? gAge;
       if (rAge < 18) {
-        setGError("A guardian must be 18 or older.");
+        setGError(t("peopleUi.gErr.mustBe18"));
         return;
       }
       const g = newPartyMember({
@@ -821,8 +817,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     } catch (err) {
       setGError(
         err instanceof Error
-          ? `Couldn't set the guardian up: ${err.message}`
-          : "Couldn't set the guardian up. Please try again or see the front desk.",
+          ? t("peopleUi.gErr.setupFailMsg", { msg: err.message })
+          : t("peopleUi.gErr.setupFail"),
       );
     } finally {
       setBusyAll(false);
@@ -839,7 +835,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     const bdIso = person.birthDate ? String(person.birthDate).slice(0, 10) : undefined;
     const bdYears = ageFromIso(bdIso);
     if (bdYears !== null && bdYears < 18) {
-      setGError("That account belongs to a minor — a guardian must be an adult.");
+      setGError(t("peopleUi.gErr.accountIsMinor"));
       return;
     }
     // Already on the roster (party adult or a prior guardian chip)? Reuse that
@@ -854,7 +850,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       return;
     }
     if (party.some((m) => m.isMinor && m.bmiPersonId === person.personId)) {
-      setGError("That account belongs to a minor — a guardian must be an adult.");
+      setGError(t("peopleUi.gErr.accountIsMinor"));
       return;
     }
     setBusyAll(true);
@@ -892,7 +888,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       }
       const refreshedAge = ageFromIso(refreshedIso);
       if (refreshedAge !== null && refreshedAge < 18) {
-        setGError("That account belongs to a minor — a guardian must be an adult.");
+        setGError(t("peopleUi.gErr.accountIsMinor"));
         return;
       }
       if (!ownValid) {
@@ -921,8 +917,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     } catch (err) {
       setGError(
         err instanceof Error
-          ? `Couldn't verify that account: ${err.message}`
-          : "Couldn't verify that account. Please try again or see the front desk.",
+          ? t("peopleUi.gErr.verifyAccountMsg", { msg: err.message })
+          : t("peopleUi.gErr.verifyAccountFallback"),
       );
     } finally {
       setBusyAll(false);
@@ -1201,7 +1197,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       (x) => x.bmiPersonId === m.personId || x.pandoraPersonId === m.personId,
     );
     if (already) {
-      setScanNote(`${already.firstName} is already signed in.`);
+      setScanNote(t("peopleUi.scan.alreadySignedIn", { name: already.firstName }));
       return;
     }
     // A signer-only guardian who scans their license wants to play — same
@@ -1226,7 +1222,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       const matches = await fetchLicenseMatches(lic, brandLocation);
       if (matches === null) {
         // Lookup unavailable — never block the guest; fall through to the form.
-        setScanNote("We couldn't check for an account just now — let's set you up here.");
+        setScanNote(t("peopleUi.scan.lookupUnavailable"));
         openNewFormFromLicense(lic);
       } else if (matches.length === 0) {
         setScanNote(null);
@@ -1282,9 +1278,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     try {
       const matches = await fetchMemberMatches(qr);
       if (matches === null) {
-        setScanNote("We couldn't check that code just now — sign in below instead.");
+        setScanNote(t("peopleUi.scan.codeCheckFailed"));
       } else if (matches.length === 0) {
-        setScanNote("We couldn't find an account for that code — sign in below instead.");
+        setScanNote(t("peopleUi.scan.codeNotFound"));
       } else if (matches.length === 1) {
         signInLicenseMatch(matches[0]);
       } else {
@@ -1320,7 +1316,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
 
   const badgeFor = (m: PartyMember) => {
     if (isRace) {
-      if (m.isNewRacer) return { label: "Starter only", cls: "text-[#00e2e5]" };
+      if (m.isNewRacer) return { label: t("peopleUi.starterOnly"), cls: "text-[#00e2e5]" };
       const tier = tierFromMemberships(m.memberships ?? []);
       return {
         label: tier,
@@ -1356,9 +1352,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   return (
     <div className="space-y-[24px]">
       <p className="text-[26px] text-white/55">
-        {party.length > 0
-          ? "Your group is signed in — everyone here needs an account and a signed waiver."
-          : "Add everyone playing. Each person gets an account and signs the waiver right here — so check-in is the Express Lane, not a line."}
+        {party.length > 0 ? t("peopleUi.introSignedIn") : t("peopleUi.introAddEveryone")}
       </p>
 
       {/* Mega Tuesday junior rule (owner 2026-07-21) — the kiosk books TODAY,
@@ -1372,10 +1366,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             !
           </span>
           <div>
-            <div className="k-eyebrow text-[#ff5a52]">Mega Tuesday</div>
+            <div className="k-eyebrow text-[#ff5a52]">{t("peopleUi.megaTuesday")}</div>
             <div className="mt-[4px] text-[28px] font-bold text-[#ff8a86]">
-              First-time Junior racers can&rsquo;t race today — Juniors must qualify on a
-              split-track (Blue/Red) day first.
+              {t("peopleUi.megaJuniorWarning")}
             </div>
           </div>
         </div>
@@ -1390,7 +1383,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             !
           </span>
           <div>
-            <div className="k-eyebrow text-[#f0b341]">Before you continue</div>
+            <div className="k-eyebrow text-[#f0b341]">{t("peopleUi.beforeYouContinue")}</div>
             <div className="mt-[4px] text-[28px] font-bold text-[#f5d38a]">{blockReason}</div>
           </div>
         </div>
@@ -1401,7 +1394,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         <div className="flex items-center gap-[16px] rounded-2xl border-2 border-[#00e2e5]/40 bg-[#00e2e5]/10 px-[28px] py-[22px]">
           <span className="h-[28px] w-[28px] shrink-0 animate-spin rounded-full border-2 border-[#00e2e5]/30 border-t-[#00e2e5]" />
           <span className="text-[26px] font-bold text-[#7ff3f4]">
-            Checking your license for an account…
+            {t("peopleUi.checkingLicense")}
           </span>
         </div>
       )}
@@ -1437,8 +1430,8 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                     aria-pressed={isIn}
                     aria-label={
                       isIn
-                        ? `Remove ${m.firstName} from this activity`
-                        : `Add ${m.firstName} to this activity`
+                        ? t("peopleUi.aria.removeFromActivity", { name: m.firstName })
+                        : t("peopleUi.aria.addToActivity", { name: m.firstName })
                     }
                     className={`grid h-[64px] w-[64px] shrink-0 place-items-center rounded-2xl border-2 text-[32px] font-bold ${
                       isIn
@@ -1462,12 +1455,12 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                     </span>
                     {m.isBillingCustomer && (
                       <span className="k-eyebrow rounded-full bg-[#00e2e5]/15 px-[14px] py-[4px] text-[18px] text-[#00e2e5]">
-                        Main
+                        {t("peopleUi.main")}
                       </span>
                     )}
                     {m.isMinor && (
                       <span className="rounded-full bg-white/10 px-[14px] py-[4px] text-[20px] font-bold text-white/70">
-                        Minor
+                        {t("peopleUi.minor")}
                       </span>
                     )}
                     {badge && (
@@ -1475,31 +1468,35 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                     )}
                     {m.creditBalances && m.creditBalances.length > 0 && (
                       <span className="text-[22px] font-semibold text-[#46d68c]">
-                        {m.creditBalances.reduce((s, c) => s + c.balance, 0)} credits
+                        {t("peopleUi.credits", {
+                          n: m.creditBalances.reduce((s, c) => s + c.balance, 0),
+                        })}
                       </span>
                     )}
                   </div>
                   <div className="mt-[8px] flex flex-wrap items-center gap-x-[24px] gap-y-[6px] text-[22px]">
                     {ready ? (
                       <span className="font-semibold text-[#46d68c]">
-                        ✓ Account &amp; waiver ready
+                        {t("peopleUi.accountWaiverReady")}
                       </span>
                     ) : checking ? (
                       <span className="flex items-center gap-[10px] font-semibold text-[#00e2e5]">
                         <span className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-[#00e2e5]/30 border-t-[#00e2e5]" />
-                        Checking waiver…
+                        {t("peopleUi.checkingWaiver")}
                       </span>
                     ) : (
                       <span className="font-semibold text-[#f0b341]">
                         {m.bmiPersonId
                           ? m.isMinor
-                            ? "Waiver needed — a parent/guardian signs"
-                            : "Waiver needed"
-                          : "Account + waiver needed"}
+                            ? t("peopleUi.waiverNeededMinor")
+                            : t("peopleUi.waiverNeeded")
+                          : t("peopleUi.accountWaiverNeeded")}
                       </span>
                     )}
                     {guardian && (
-                      <span className="text-white/45">Guardian: {guardian.firstName}</span>
+                      <span className="text-white/45">
+                        {t("peopleUi.guardianLabel", { name: guardian.firstName })}
+                      </span>
                     )}
                     {!m.isBillingCustomer && (
                       <button
@@ -1507,7 +1504,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                         onClick={() => markMain(m.id)}
                         className="text-[#00e2e5]/80 underline-offset-4 hover:underline"
                       >
-                        Make main
+                        {t("peopleUi.makeMain")}
                       </button>
                     )}
                   </div>
@@ -1519,16 +1516,16 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                       onClick={() => openSetup(m)}
                       className="rounded-2xl border-2 border-[#f0b341]/55 px-[24px] py-[12px] text-[24px] font-bold text-[#f0b341]"
                     >
-                      {m.bmiPersonId ? "Sign waiver" : "Set up"}
+                      {m.bmiPersonId ? t("peopleUi.signWaiver") : t("peopleUi.setUp")}
                     </button>
                   )}
                   <button
                     type="button"
                     onClick={() => removeMember(m.id)}
-                    aria-label={`Remove ${m.firstName}`}
+                    aria-label={t("peopleUi.aria.remove", { name: m.firstName })}
                     className="text-[22px] text-white/40"
                   >
-                    Remove
+                    {t("peopleUi.remove")}
                   </button>
                 </div>
               </div>
@@ -1542,7 +1539,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           guardianMemberId refs stay valid). */}
       {guardians.length > 0 && (
         <div>
-          <div className="k-eyebrow mb-[12px] text-white/40">Guardians — signed, not playing</div>
+          <div className="k-eyebrow mb-[12px] text-white/40">{t("peopleUi.guardiansHeading")}</div>
           <div className="flex flex-wrap gap-[12px]">
             {guardians.map((g) => {
               const wards = party
@@ -1558,10 +1555,10 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                   </div>
                   <div className="text-[20px] text-white/45">
                     {wards.length > 0
-                      ? `Signed for ${wards.join(", ")}`
+                      ? t("peopleUi.signedFor", { names: wards.join(", ") })
                       : g.waiverValid
-                        ? "Waiver on file"
-                        : "Needs own waiver"}
+                        ? t("peopleUi.waiverOnFile")
+                        : t("peopleUi.needsOwnWaiver")}
                   </div>
                   <div className="mt-[10px] flex items-center gap-[24px]">
                     <button
@@ -1569,15 +1566,15 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                       onClick={() => joinGuardian(g)}
                       className="text-[22px] font-bold text-[#00e2e5]"
                     >
-                      Join the fun
+                      {t("peopleUi.joinTheFun")}
                     </button>
                     <button
                       type="button"
                       onClick={() => removeGuardianEntry(g.id)}
-                      aria-label={`Remove ${g.firstName}`}
+                      aria-label={t("peopleUi.aria.remove", { name: g.firstName })}
                       className="text-[20px] text-white/40"
                     >
-                      Remove
+                      {t("peopleUi.remove")}
                     </button>
                   </div>
                 </div>
@@ -1601,14 +1598,14 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
               }
               className="k-tap rounded-[28px] border-2 border-dashed border-[#00e2e5]/45 px-[24px] py-[28px] text-[28px] font-bold text-[#00e2e5]"
             >
-              + Add a new player
+              + {t("peopleUi.addNewPlayer")}
             </button>
             <button
               type="button"
               onClick={() => guardAdd(() => setLookupOpen(true))}
               className="k-tap rounded-[28px] border-2 border-[#00e2e5]/45 bg-[#00e2e5]/10 px-[24px] py-[28px] text-[28px] font-bold text-white"
             >
-              Sign in — find my people
+              {t("peopleUi.signInFindMyPeople")}
             </button>
           </div>
 
@@ -1629,7 +1626,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       {/* Linked family — OPT-IN suggestions (tap to add), never auto-added */}
       {linked.length > 0 && form === null && !lookupOpen && (
         <div>
-          <div className="k-eyebrow mb-[12px] text-white/40">On this account — tap to add</div>
+          <div className="k-eyebrow mb-[12px] text-white/40">{t("peopleUi.onThisAccount")}</div>
           <div className="flex flex-wrap gap-[12px]">
             {linked.map((lp) => {
               // Racing hard floor (7+): a linked kid under 7 can't be added to
@@ -1651,12 +1648,12 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                     + {lp.firstName} {lp.lastName}
                   </div>
                   <div className="text-[20px] text-white/50">
-                    {lp.age !== null ? `Age ${lp.age}` : "Family"}
+                    {lp.age !== null ? t("peopleUi.age", { age: lp.age }) : t("peopleUi.family")}
                     {tooYoung
-                      ? " · under 7 — too young to race"
+                      ? t("peopleUi.tooYoungSuffix")
                       : lp.waiverValid
-                        ? " · waiver on file"
-                        : " · needs waiver"}
+                        ? t("peopleUi.waiverOnFileSuffix")
+                        : t("peopleUi.needsWaiverSuffix")}
                   </div>
                 </button>
               );
@@ -1670,10 +1667,11 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         <div className="k-glass space-y-[20px] p-[28px]">
           <div className="k-display text-[32px]">
             {form.mode === "new" ? (
-              "New player"
+              t("peopleUi.newPlayer")
             ) : (
               <>
-                Set up <span style={{ textTransform: "none" }}>{form.member.firstName}</span>
+                {t("peopleUi.setUp")}{" "}
+                <span style={{ textTransform: "none" }}>{form.member.firstName}</span>
               </>
             )}
           </div>
@@ -1683,14 +1681,14 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                 type="text"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
-                placeholder="First name"
+                placeholder={t("peopleUi.firstName")}
                 className="rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
               />
               <input
                 type="text"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
-                placeholder="Last name"
+                placeholder={t("peopleUi.lastName")}
                 className="rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
               />
             </div>
@@ -1707,7 +1705,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
               );
               setDob(parts.join("/"));
             }}
-            placeholder="Birthday MM/DD/YYYY"
+            placeholder={t("peopleUi.birthday")}
             className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
           />
           {/* Every new player gives a mobile number; the main person (first added)
@@ -1720,7 +1718,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                 data-osk-layout="phone"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="Mobile phone"
+                placeholder={t("peopleUi.mobilePhone")}
                 className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
               />
               <input
@@ -1729,23 +1727,22 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                 data-osk-layout="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder={isMainDefault ? "Email (for your confirmation)" : "Email (optional)"}
+                placeholder={
+                  isMainDefault ? t("peopleUi.emailConfirmation") : t("peopleUi.emailOptional")
+                }
                 className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
               />
             </>
           )}
           {/* Scanner shortcut inside the form too. */}
           {licenseScan.listening && form.mode === "new" && (
-            <p className="text-[20px] text-white/35">
-              Tip: scan a driver&rsquo;s license / state ID to fill this in.
-            </p>
+            <p className="text-[20px] text-white/35">{t("peopleUi.scanTip")}</p>
           )}
           {/* Minor heads-up — the guardian is resolved AFTER onboarding, and
               only if the waiver actually needs signing. */}
           {ageFromDob(dob) !== null && (ageFromDob(dob) as number) < 18 && (
             <div className="rounded-2xl border border-white/12 bg-white/5 px-[20px] py-[16px] text-[22px] text-white/55">
-              Under 18 — if their waiver needs signing, a parent or guardian signs it next. The
-              adult doesn&apos;t have to play.
+              {t("peopleUi.minorHeadsUp")}
             </div>
           )}
           {formError && <p className="text-[24px] text-red-300">{formError}</p>}
@@ -1755,7 +1752,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
               onClick={resetForm}
               className="rounded-2xl border border-white/15 px-[28px] py-[18px] text-[24px] font-semibold text-white/60"
             >
-              Cancel
+              {t("peopleUi.cancel")}
             </button>
             <button
               type="button"
@@ -1765,7 +1762,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
               }
               className="k-btn-primary k-tap h-[80px] flex-1 text-[28px]"
             >
-              {busy ? "Setting up…" : "Continue to waiver"}
+              {busy ? t("peopleUi.settingUp") : t("peopleUi.continueToWaiver")}
             </button>
           </div>
         </div>
@@ -1775,13 +1772,13 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       {lookupOpen && (
         <div className="k-glass p-[28px]">
           <div className="mb-[16px] flex items-center justify-between">
-            <div className="k-display text-[32px]">Sign in</div>
+            <div className="k-display text-[32px]">{t("peopleUi.signIn")}</div>
             <button
               type="button"
               onClick={() => setLookupOpen(false)}
               className="text-[24px] font-semibold text-white/50"
             >
-              Close
+              {t("peopleUi.close")}
             </button>
           </div>
           <ReturningRacerLookup
@@ -1812,17 +1809,24 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             <div className="fixed inset-0 z-[76] overflow-y-auto bg-[#000418] p-[48px]">
               <div className="mx-auto max-w-[900px] space-y-[28px]">
                 <div>
-                  <div className="k-eyebrow text-[#00e2e5]">Parent / guardian needed</div>
+                  <div className="k-eyebrow text-[#00e2e5]">{t("peopleUi.guardianNeeded")}</div>
                   <h2 className="k-display mt-[8px] text-[44px]">
                     {guardianFlow.stage !== "choose"
-                      ? `A parent or guardian signs for ${minor?.firstName ?? "this minor"}`
+                      ? t("peopleUi.guardianSignsFor", {
+                          name: minor?.firstName ?? t("peopleUi.thisMinor"),
+                        })
                       : candidates.length > 0
-                        ? `Select a guardian for ${minor?.firstName ?? "this minor"} — or add one below`
-                        : `Add a guardian for ${minor?.firstName ?? "this minor"}`}
+                        ? t("peopleUi.selectGuardianFor", {
+                            name: minor?.firstName ?? t("peopleUi.thisMinor"),
+                          })
+                        : t("peopleUi.addGuardianFor", {
+                            name: minor?.firstName ?? t("peopleUi.thisMinor"),
+                          })}
                   </h2>
                   <p className="mt-[10px] text-[24px] text-white/55">
-                    {minor?.firstName ?? "They"} is under 18, so an adult signs the waiver. The
-                    adult doesn&apos;t have to play — they won&apos;t be added to the purchase.
+                    {t("peopleUi.guardianExplain", {
+                      name: minor?.firstName ?? t("peopleUi.they"),
+                    })}
                   </p>
                 </div>
 
@@ -1831,7 +1835,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                     {candidates.length > 0 && (
                       <div>
                         <div className="k-eyebrow mb-[12px] text-[#00e2e5]">
-                          Tap a name to select
+                          {t("peopleUi.tapNameToSelect")}
                         </div>
                         <div className="flex flex-wrap gap-[12px]">
                           {candidates.map((a) => {
@@ -1861,17 +1865,17 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                                 {choosing ? (
                                   <div className="flex items-center gap-[10px] text-[20px] font-semibold text-[#00e2e5]">
                                     <span className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-[#00e2e5]/30 border-t-[#00e2e5]" />
-                                    Checking their waiver…
+                                    {t("peopleUi.checkingTheirWaiver")}
                                   </div>
                                 ) : (
                                   <div
                                     className={`text-[20px] ${reachable ? "text-[#00e2e5]/80" : "text-white/50"}`}
                                   >
                                     {!reachable
-                                      ? "Can't verify here — use Find their account"
+                                      ? t("peopleUi.cantVerifyHereShort")
                                       : a.waiverValid
-                                        ? "Waiver on file — tap to sign"
-                                        : "Tap to sign — their own waiver first"}
+                                        ? t("peopleUi.waiverOnFileTapSign")
+                                        : t("peopleUi.tapToSignOwnFirst")}
                                   </div>
                                 )}
                               </button>
@@ -1890,7 +1894,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                         }}
                         className="k-tap rounded-[28px] border-2 border-dashed border-[#00e2e5]/45 px-[24px] py-[28px] text-[28px] font-bold text-[#00e2e5]"
                       >
-                        + Add a new guardian
+                        + {t("peopleUi.addNewGuardian")}
                       </button>
                       <button
                         type="button"
@@ -1901,7 +1905,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                         }}
                         className="k-tap rounded-[28px] border-2 border-[#00e2e5]/45 bg-[#00e2e5]/10 px-[24px] py-[28px] text-[28px] font-bold text-white"
                       >
-                        Find their account
+                        {t("peopleUi.findTheirAccount")}
                       </button>
                     </div>
                   </>
@@ -1909,20 +1913,20 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
 
                 {guardianFlow.stage === "new-form" && (
                   <div className="k-glass space-y-[20px] p-[28px]">
-                    <div className="k-display text-[32px]">New adult — guardian</div>
+                    <div className="k-display text-[32px]">{t("peopleUi.newAdultGuardian")}</div>
                     <div className="grid grid-cols-2 gap-[16px]">
                       <input
                         type="text"
                         value={gFirst}
                         onChange={(e) => setGFirst(e.target.value)}
-                        placeholder="First name"
+                        placeholder={t("peopleUi.firstName")}
                         className="rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
                       />
                       <input
                         type="text"
                         value={gLast}
                         onChange={(e) => setGLast(e.target.value)}
-                        placeholder="Last name"
+                        placeholder={t("peopleUi.lastName")}
                         className="rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
                       />
                     </div>
@@ -1940,7 +1944,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                         ].filter(Boolean);
                         setGDob(parts.join("/"));
                       }}
-                      placeholder="Birthday MM/DD/YYYY"
+                      placeholder={t("peopleUi.birthday")}
                       className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
                     />
                     <input
@@ -1949,7 +1953,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                       data-osk-layout="phone"
                       value={gPhone}
                       onChange={(e) => setGPhone(e.target.value)}
-                      placeholder="Mobile phone"
+                      placeholder={t("peopleUi.mobilePhone")}
                       className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
                     />
                     <input
@@ -1958,7 +1962,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                       data-osk-layout="email"
                       value={gEmail}
                       onChange={(e) => setGEmail(e.target.value)}
-                      placeholder="Email (optional)"
+                      placeholder={t("peopleUi.emailOptional")}
                       className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
                     />
                     {gError && <p className="text-[24px] text-red-300">{gError}</p>}
@@ -1971,7 +1975,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                         }}
                         className="rounded-2xl border border-white/15 px-[28px] py-[18px] text-[24px] font-semibold text-white/60"
                       >
-                        Back
+                        {t("peopleUi.back")}
                       </button>
                       <button
                         type="button"
@@ -1979,7 +1983,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                         onClick={() => void submitGuardianNew()}
                         className="k-btn-primary k-tap h-[80px] flex-1 text-[28px]"
                       >
-                        {busy ? "Setting up…" : "Continue to waiver"}
+                        {busy ? t("peopleUi.settingUp") : t("peopleUi.continueToWaiver")}
                       </button>
                     </div>
                   </div>
@@ -1988,7 +1992,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                 {guardianFlow.stage === "lookup" && (
                   <div className="k-glass p-[28px]">
                     <div className="mb-[16px] flex items-center justify-between">
-                      <div className="k-display text-[32px]">Find the guardian</div>
+                      <div className="k-display text-[32px]">{t("peopleUi.findTheGuardian")}</div>
                       <button
                         type="button"
                         onClick={() => {
@@ -1997,7 +2001,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                         }}
                         className="text-[24px] font-semibold text-white/50"
                       >
-                        Back
+                        {t("peopleUi.back")}
                       </button>
                     </div>
                     <ReturningRacerLookup
@@ -2024,7 +2028,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                   }}
                   className="w-full rounded-2xl border border-white/15 px-[28px] py-[18px] text-[24px] font-semibold text-white/60"
                 >
-                  ← Back
+                  {t("peopleUi.backArrow")}
                 </button>
               </div>
             </div>
@@ -2047,7 +2051,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             <div className="fixed inset-0 z-[76] overflow-y-auto bg-[#000418] p-[48px]">
               {needPhoto ? (
                 <KioskWaiverPhoto
-                  memberName={signer?.firstName ?? "Guest"}
+                  memberName={signer?.firstName ?? t("peopleUi.guest")}
                   isMinor={!!signer?.isMinor}
                   onCaptured={(pngBase64) => {
                     // Fire-and-forget: the route persists to Neon FIRST and the
@@ -2075,11 +2079,14 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                     template={waiverFor.template}
                     location={brandLocation}
                     signerPersonId={waiverFor.signerPersonId}
-                    heading={isRace ? "Racing Waiver" : "Activity Waiver"}
+                    heading={isRace ? t("peopleUi.racingWaiver") : t("peopleUi.activityWaiver")}
                     subheading={
                       waiverFor.signerName
-                        ? `${waiverFor.signerName} — sign below for ${signer?.firstName ?? "the minor"}. It stays on file for the whole visit.`
-                        : "Read and sign below — it stays on file for your whole visit."
+                        ? t("peopleUi.waiverSubSigner", {
+                            signer: waiverFor.signerName,
+                            name: signer?.firstName ?? t("peopleUi.theMinor"),
+                          })
+                        : t("peopleUi.waiverSubSelf")
                     }
                     onComplete={() => {
                       const gf = guardianFlow;
@@ -2160,11 +2167,12 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       {splitWarn && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
           <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
-            <div className="k-eyebrow text-[#f0b341]">Before you add more players</div>
-            <div className="k-display text-[46px] leading-[1.05]">One payment covers everyone</div>
+            <div className="k-eyebrow text-[#f0b341]">{t("peopleUi.beforeAddMore")}</div>
+            <div className="k-display text-[46px] leading-[1.05]">
+              {t("peopleUi.onePaymentCoversEveryone")}
+            </div>
             <p className="text-[26px] leading-snug text-white/60">
-              Payments can&rsquo;t be split at this kiosk — your whole group checks out together. To
-              split payments, split your party between multiple kiosks.
+              {t("peopleUi.splitPaymentBody")}
             </p>
             <div className="flex flex-col gap-[16px] pt-[4px]">
               {/* Inline flex per the .kiosk-canvas cascade gotcha (see the
@@ -2180,14 +2188,14 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                 className="k-btn-primary k-tap"
                 style={{ flex: "0 0 auto" }}
               >
-                Continue adding players
+                {t("peopleUi.continueAddingPlayers")}
               </button>
               <button
                 type="button"
                 onClick={() => setSplitWarn(null)}
                 className="k-tap rounded-2xl border border-white/15 px-[28px] py-[18px] text-[24px] font-semibold text-white/60"
               >
-                Never mind
+                {t("peopleUi.neverMind")}
               </button>
             </div>
           </div>
@@ -2203,6 +2211,10 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
  *  structurally signed BY a guardian (the guardian flow is the only path to a
  *  minor signature), so no separate guardian gate is needed here. Signer-only
  *  guardians live in session.guardians — never in `party`, never counted. */
+// TODO(i18n): module-scope reason strings — surfaced as the `blockReason` banner
+// AND used by canAdvance. They run outside React (no `t` in scope), so they stay
+// English until the StepDef title/validation strings are locale-threaded (same
+// deferred pass as the module-scope `title`s below).
 function peopleReady(party: PartyMember[], ids: string[]): true | { reason: string } {
   if (ids.length === 0 || party.length === 0) {
     return { reason: "Add at least one player — everyone needs an account and waiver." };

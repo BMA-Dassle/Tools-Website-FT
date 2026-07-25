@@ -16,6 +16,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BrandedLoader } from "./BrandedLoader";
+import { useT } from "../i18n";
 import type { Brand } from "~/features/booking";
 
 type Phase = "customer" | "starting" | "waiting" | "done" | "error" | "canceled";
@@ -42,6 +43,7 @@ export function KioskReaderPayment({
   onCaptured: (result: { cardId: string; customerId: string }) => void;
   onCancel: () => void;
 }) {
+  const t = useT();
   const [phase, setPhase] = useState<Phase>("customer");
   const [error, setError] = useState<string | null>(null);
   const actionIdRef = useRef<string | null>(null);
@@ -85,7 +87,7 @@ export function KioskReaderPayment({
       });
       const custData = await custRes.json();
       if (!custRes.ok || !custData.customerId) {
-        setError("Couldn't start card capture. Please try again.");
+        setError(t("pay.err.startCapture"));
         setPhase("error");
         return;
       }
@@ -100,7 +102,7 @@ export function KioskReaderPayment({
       });
       const data = await res.json();
       if (!res.ok || !data.actionId) {
-        setError(data.error || "Couldn't reach the card reader.");
+        setError(data.error || t("pay.err.reachReader"));
         setPhase("error");
         return;
       }
@@ -129,10 +131,10 @@ export function KioskReaderPayment({
         }
       }, POLL_MS);
     } catch {
-      setError("Couldn't start the card reader.");
+      setError(t("pay.err.startReader"));
       setPhase("error");
     }
-  }, [deviceId, referenceId, contact, cancel, cleanup, onCaptured, onCancel]);
+  }, [deviceId, referenceId, contact, cancel, cleanup, onCaptured, onCancel, t]);
 
   useEffect(() => {
     void start();
@@ -146,15 +148,17 @@ export function KioskReaderPayment({
         <>
           <BrandedLoader
             brand={brand}
-            label="Follow the prompts on the card reader"
-            sublabel={`Insert, tap, or swipe to pay $${(amountLabelCents / 100).toFixed(2)}`}
+            label={t("pay.reader.followPrompts")}
+            sublabel={t("pay.reader.insertToPay", {
+              amount: `$${(amountLabelCents / 100).toFixed(2)}`,
+            })}
           />
           <button
             type="button"
             onClick={() => void cancel()}
             className="font-heading rounded-full border-2 border-white/15 px-8 py-3 text-lg font-bold uppercase tracking-widest text-white/60"
           >
-            Cancel
+            {t("pay.cancel")}
           </button>
         </>
       )}
@@ -169,20 +173,24 @@ export function KioskReaderPayment({
               onClick={() => void start()}
               className="font-heading rounded-full bg-[#00e2e5] px-8 py-3 text-lg font-extrabold uppercase italic text-[#04252b]"
             >
-              Try again
+              {t("pay.tryAgain")}
             </button>
             <button
               type="button"
               onClick={onCancel}
               className="font-heading rounded-full border-2 border-white/15 px-8 py-3 text-lg font-bold uppercase tracking-widest text-white/60"
             >
-              Back
+              {t("pay.back")}
             </button>
           </div>
         </div>
       )}
       {phase === "done" && (
-        <BrandedLoader brand={brand} label="Card read" sublabel="Finishing your booking…" />
+        <BrandedLoader
+          brand={brand}
+          label={t("pay.reader.cardRead")}
+          sublabel={t("pay.finishingBooking")}
+        />
       )}
     </div>
   );

@@ -31,14 +31,15 @@ import { UpcomingRaces } from "./UpcomingRaces";
 import { RaceRecords } from "./RaceRecords";
 import { RaceTypes } from "./RaceTypes";
 import { TheTracks } from "./TheTracks";
+import { useT, type MessageKey } from "../../i18n";
 
 type View = "tiles" | "upcoming" | "records" | "types" | "tracks";
 
-const VIEW_TITLES: Record<Exclude<View, "tiles">, string> = {
-  upcoming: "Upcoming Races",
-  records: "Race Records",
-  types: "Race Types",
-  tracks: "The Tracks",
+const VIEW_TITLE_KEYS: Record<Exclude<View, "tiles">, MessageKey> = {
+  upcoming: "raceInfo.title.upcoming",
+  records: "raceInfo.title.records",
+  types: "raceInfo.title.types",
+  tracks: "raceInfo.title.tracks",
 };
 
 // Info screens hold no vendor state, so an abandoned one just returns to the
@@ -49,6 +50,7 @@ const IDLE_TIMEOUT_MS = 120_000;
 export function RaceInfoScreen() {
   const router = useRouter();
   const { config } = useKioskConfig();
+  const t = useT();
   const [view, setView] = useState<View>("tiles");
 
   // Optional ?view=upcoming|records|types|tracks deep link — staff/testing
@@ -65,17 +67,14 @@ export function RaceInfoScreen() {
   if (config && config.center !== "fort-myers") {
     return (
       <div className="k-flow items-center justify-center gap-[40px] px-[64px] text-center">
-        <div className="k-display text-[64px]">Racing lives at Fort Myers</div>
-        <div className="text-[30px] text-white/60">
-          FastTrax karting runs at our Fort Myers campus. This kiosk can still book bowling,
-          blasters &amp; laser tag.
-        </div>
+        <div className="k-display text-[64px]">{t("raceInfo.naples.title")}</div>
+        <div className="text-[30px] text-white/60">{t("raceInfo.naples.body")}</div>
         <button
           type="button"
           className="k-btn-ghost k-tap"
           onClick={() => router.replace("/kiosk")}
         >
-          Back to start
+          {t("raceInfo.backToStart")}
         </button>
       </div>
     );
@@ -110,7 +109,9 @@ export function RaceInfoScreen() {
         <div className="flex items-center gap-[28px]">
           <button
             type="button"
-            aria-label={view === "tiles" ? "Back to start" : "Back to Race Info"}
+            aria-label={
+              view === "tiles" ? t("raceInfo.backToStart") : t("raceInfo.aria.backToRaceInfo")
+            }
             onClick={back}
             className="k-tap flex h-[96px] w-[96px] shrink-0 items-center justify-center rounded-[24px] border-2 border-white/15 bg-white/5 text-white/80"
           >
@@ -118,11 +119,11 @@ export function RaceInfoScreen() {
           </button>
           <div>
             <div className="k-eyebrow">
-              <span className="text-[#e53935]">FastTrax Karting</span>
+              <span className="text-[#e53935]">{t("raceInfo.eyebrow.karting")}</span>
               <span className="text-white/40"> · Fort Myers</span>
             </div>
             <div className="k-display mt-[10px] text-[74px]">
-              {view === "tiles" ? "Race Info" : VIEW_TITLES[view]}
+              {view === "tiles" ? t("raceInfo.title.hub") : t(VIEW_TITLE_KEYS[view])}
             </div>
           </div>
         </div>
@@ -135,40 +136,40 @@ export function RaceInfoScreen() {
             <div className="relative flex min-h-0 flex-col">
               <CategoryCard
                 photo={KIOSK_PHOTOS.race}
-                eyebrow="Live · Today"
+                eyebrow={t("raceInfo.card.upcoming.eyebrow")}
                 accent="#e53935"
-                title="Upcoming Races"
-                blurb="Today's race times & open seats, live from the track."
+                title={t("raceInfo.title.upcoming")}
+                blurb={t("raceInfo.card.upcoming.blurb")}
                 onClick={() => open("upcoming")}
               />
             </div>
             <div className="relative flex min-h-0 flex-col">
               <CategoryCard
                 photo={KIOSK_PHOTOS.flag}
-                eyebrow="Hall of Fame"
+                eyebrow={t("raceInfo.card.records.eyebrow")}
                 accent="#e8b14c"
-                title="Race Records"
-                blurb="Fastest laps ever set — every track, every class."
+                title={t("raceInfo.title.records")}
+                blurb={t("raceInfo.card.records.blurb")}
                 onClick={() => open("records")}
               />
             </div>
             <div className="relative flex min-h-0 flex-col">
               <CategoryCard
                 photo={KIOSK_PHOTOS.raceAction}
-                eyebrow="Starter to Pro"
+                eyebrow={t("raceInfo.card.types.eyebrow")}
                 accent="#00e2e5"
-                title="Race Types"
-                blurb="How the qualification ladder works — and how you level up."
+                title={t("raceInfo.title.types")}
+                blurb={t("raceInfo.card.types.blurb")}
                 onClick={() => open("types")}
               />
             </div>
             <div className="relative flex min-h-0 flex-col">
               <CategoryCard
                 photo={KIOSK_PHOTOS.redTrack}
-                eyebrow="Blue · Red · Mega"
+                eyebrow={t("raceInfo.card.tracks.eyebrow")}
                 accent="#8652ff"
-                title="The Tracks"
-                blurb="Three layouts up to 2,108 ft — and the karts that run them."
+                title={t("raceInfo.title.tracks")}
+                blurb={t("raceInfo.card.tracks.blurb")}
                 onClick={() => open("tracks")}
               />
             </div>
@@ -178,11 +179,11 @@ export function RaceInfoScreen() {
           <div className="k-z-actions pt-[28px]">
             <button type="button" onClick={bookNow} className="k-btn-primary k-tap kiosk-pulse">
               <IconFlag size={44} aria-hidden="true" />
-              Book now
+              {t("raceInfo.bookNow")}
             </button>
           </div>
           <div className="flex h-[96px] shrink-0 items-center justify-center">
-            <span className="k-eyebrow text-white/35">Racing · Bowling · Attractions</span>
+            <span className="k-eyebrow text-white/35">{t("raceInfo.footer.tagline")}</span>
           </div>
         </>
       ) : (

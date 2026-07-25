@@ -41,6 +41,7 @@ import {
   type PersonData,
 } from "~/components/features/booking/steps/race/ReturningRacerLookup";
 import { useKioskConfig } from "../KioskConfigContext";
+import { useT } from "../i18n";
 import { kioskHasCamera, kioskId } from "../config";
 import { useMobileJoin } from "../hooks/useMobileJoin";
 import { mergeJoinedGuests } from "../join/merge";
@@ -110,7 +111,10 @@ export function needsSetup(m: PartyMember): boolean {
 }
 
 /** canAdvance shared logic: at least one participant, everyone set up + waivered,
- *  every minor has a guardian. `ids` = the participating member ids. */
+ *  every minor has a guardian. `ids` = the participating member ids.
+ *  TODO(i18n): module-scope + shared with canAdvance and checkin/server.ts, so it
+ *  can't reach useT() — the `reason` strings stay English until validation copy is
+ *  locale-threaded (see tasks/kiosk-i18n-spanish-plan.md). */
 export function peopleReady(party: PartyMember[], ids: string[]): true | { reason: string } {
   if (ids.length === 0 || party.length === 0) {
     return { reason: "Add at least one player — everyone needs an account and waiver." };
@@ -155,6 +159,7 @@ export function KioskPartyManager({
   onSetContact,
   setBusy,
 }: KioskPartyManagerProps) {
+  const t = useT();
   const isRace = mode === "race";
 
   // Racing races the whole party; an attraction toggles who's in THIS one.
@@ -296,11 +301,11 @@ export function KioskPartyManager({
     const age = ageFromDob(dob);
     const isMain = !!onSetContact && party.length === 0;
     if (!firstName.trim() || !lastName.trim()) {
-      setFormError("Enter a first and last name.");
+      setFormError(t("party.err.name"));
       return;
     }
     if (age === null) {
-      setFormError("Enter the birthday as MM/DD/YYYY.");
+      setFormError(t("party.err.dob"));
       return;
     }
     // HARD racing age floor (venue rule: juniors are ages 7–13). The safety
@@ -308,29 +313,27 @@ export function KioskPartyManager({
     // it at capture instead of letting a family book a 5-year-old and get
     // turned away at the track (owner 2026-07-18 age-check ask).
     if (isRace && age < 7) {
-      setFormError(
-        `${firstName.trim() || "This racer"} is under 7 — too young to race. Kids under 7 are welcome trackside, or check out Duckpin bowling.`,
-      );
+      setFormError(t("party.err.tooYoung", { name: firstName.trim() || t("party.thisRacer") }));
       return;
     }
     // Every new player gives a mobile number (owner rule); the main person also
     // gives an email so their contact is complete and no YOUR INFO step is needed.
     const digits = phone.replace(/\D/g, "");
     if (digits.length < 10) {
-      setFormError("Enter a mobile phone number.");
+      setFormError(t("party.err.phone"));
       return;
     }
     if (isMain && !email.includes("@")) {
-      setFormError("The main person needs an email for the confirmation.");
+      setFormError(t("party.err.emailMain"));
       return;
     }
     const minor = age < 18;
     if (minor && adults.length === 0) {
-      setFormError("Add an adult to the group first — a minor needs a guardian.");
+      setFormError(t("party.err.needAdult"));
       return;
     }
     if (minor && !guardianId) {
-      setFormError("Pick this minor's guardian.");
+      setFormError(t("party.err.pickGuardian"));
       return;
     }
     setBusyAll(true);
@@ -373,8 +376,8 @@ export function KioskPartyManager({
     } catch (err) {
       setFormError(
         err instanceof Error
-          ? `Couldn't set that person up: ${err.message}`
-          : "Couldn't set that person up. Please try again or see the front desk.",
+          ? t("party.err.setupFailMsg", { msg: err.message })
+          : t("party.err.setupFail"),
       );
     } finally {
       setBusyAll(false);
@@ -385,25 +388,23 @@ export function KioskPartyManager({
   const submitSetup = async (member: PartyMember) => {
     const age = ageFromDob(dob);
     if (age === null) {
-      setFormError("Enter the birthday as MM/DD/YYYY.");
+      setFormError(t("party.err.dob"));
       return;
     }
     // Same hard racing floor as submitNew — a "Set up" on an existing roster
     // member is still the moment we learn their real DOB.
     if (isRace && age < 7) {
-      setFormError(
-        `${member.firstName} is under 7 — too young to race. Kids under 7 are welcome trackside, or check out Duckpin bowling.`,
-      );
+      setFormError(t("party.err.tooYoung", { name: member.firstName }));
       return;
     }
     const minor = age < 18;
     const gid = member.guardianMemberId || guardianId;
     if (minor && adults.filter((a) => a.id !== member.id).length === 0) {
-      setFormError("Add an adult to the group first — a minor needs a guardian.");
+      setFormError(t("party.err.needAdult"));
       return;
     }
     if (minor && !gid) {
-      setFormError("Pick this minor's guardian.");
+      setFormError(t("party.err.pickGuardian"));
       return;
     }
     setBusyAll(true);
@@ -492,8 +493,8 @@ export function KioskPartyManager({
     } catch (err) {
       setFormError(
         err instanceof Error
-          ? `Couldn't finish setup: ${err.message}`
-          : "Couldn't finish setup. Please try again or see the front desk.",
+          ? t("party.err.finishFailMsg", { msg: err.message })
+          : t("party.err.finishFail"),
       );
     } finally {
       setBusyAll(false);
@@ -718,7 +719,7 @@ export function KioskPartyManager({
       (x) => x.bmiPersonId === m.personId || x.pandoraPersonId === m.personId,
     );
     if (already) {
-      setScanNote(`${already.firstName} is already signed in.`);
+      setScanNote(t("party.err.alreadySignedIn", { name: already.firstName }));
       return;
     }
     handleVerified(personDataFromMatch(m));
@@ -737,7 +738,7 @@ export function KioskPartyManager({
         center === "naples" ? "naples" : brandLocation,
       );
       if (matches === null) {
-        setScanNote("We couldn't check for an account just now — let's set you up here.");
+        setScanNote(t("party.license.checkFail"));
         openNewFormFromLicense(lic);
       } else if (matches.length === 0) {
         setScanNote(null);
@@ -765,9 +766,7 @@ export function KioskPartyManager({
         setDob(isoToMmDdYyyy(lic.dobIso));
         setFormError(null);
       } else {
-        setFormError(
-          `That license doesn't look like ${form.member.firstName}'s — enter their birthday instead.`,
-        );
+        setFormError(t("party.err.licenseMismatch", { name: form.member.firstName }));
       }
       return;
     }
@@ -783,9 +782,9 @@ export function KioskPartyManager({
     try {
       const matches = await fetchMemberMatches(qr);
       if (matches === null) {
-        setScanNote("We couldn't check that code just now — sign in below instead.");
+        setScanNote(t("party.member.checkCodeFail"));
       } else if (matches.length === 0) {
-        setScanNote("We couldn't find an account for that code — sign in below instead.");
+        setScanNote(t("party.member.codeNotFound"));
       } else if (matches.length === 1) {
         signInLicenseMatch(matches[0]);
       } else {
@@ -851,7 +850,7 @@ export function KioskPartyManager({
 
   const badgeFor = (m: PartyMember) => {
     if (isRace) {
-      if (m.isNewRacer) return { label: "Starter only", cls: "text-[#00e2e5]" };
+      if (m.isNewRacer) return { label: t("party.badge.starterOnly"), cls: "text-[#00e2e5]" };
       const tier = tierFromMemberships(m.memberships ?? []);
       return {
         label: tier,
@@ -886,9 +885,7 @@ export function KioskPartyManager({
   return (
     <div className="space-y-[24px]">
       <p className="text-[26px] text-white/55">
-        {party.length > 0
-          ? "Your group is signed in — everyone here needs an account and a signed waiver."
-          : "Add everyone playing. Each person gets an account and signs the waiver right here — so check-in is the Express Lane, not a line."}
+        {party.length > 0 ? t("party.intro.signedIn") : t("party.intro.empty")}
       </p>
 
       {blockReason && (
@@ -900,7 +897,7 @@ export function KioskPartyManager({
             !
           </span>
           <div>
-            <div className="k-eyebrow text-[#f0b341]">Before you continue</div>
+            <div className="k-eyebrow text-[#f0b341]">{t("party.beforeContinue")}</div>
             <div className="mt-[4px] text-[28px] font-bold text-[#f5d38a]">{blockReason}</div>
           </div>
         </div>
@@ -911,7 +908,7 @@ export function KioskPartyManager({
         <div className="flex items-center gap-[16px] rounded-2xl border-2 border-[#00e2e5]/40 bg-[#00e2e5]/10 px-[28px] py-[22px]">
           <span className="h-[28px] w-[28px] shrink-0 animate-spin rounded-full border-2 border-[#00e2e5]/30 border-t-[#00e2e5]" />
           <span className="text-[26px] font-bold text-[#7ff3f4]">
-            Checking your license for an account…
+            {t("party.license.checking")}
           </span>
         </div>
       )}
@@ -949,8 +946,8 @@ export function KioskPartyManager({
                     aria-pressed={isIn}
                     aria-label={
                       isIn
-                        ? `Remove ${m.firstName} from this activity`
-                        : `Add ${m.firstName} to this activity`
+                        ? t("party.member.aria.removeFromActivity", { name: m.firstName })
+                        : t("party.member.aria.addToActivity", { name: m.firstName })
                     }
                     className={`grid h-[64px] w-[64px] shrink-0 place-items-center rounded-2xl border-2 text-[32px] font-bold ${
                       isIn
@@ -968,12 +965,12 @@ export function KioskPartyManager({
                     </span>
                     {m.isBillingCustomer && (
                       <span className="k-eyebrow rounded-full bg-[#00e2e5]/15 px-[14px] py-[4px] text-[18px] text-[#00e2e5]">
-                        Main
+                        {t("party.badge.main")}
                       </span>
                     )}
                     {m.isMinor && (
                       <span className="rounded-full bg-white/10 px-[14px] py-[4px] text-[20px] font-bold text-white/70">
-                        Minor
+                        {t("party.badge.minor")}
                       </span>
                     )}
                     {badge && (
@@ -981,27 +978,33 @@ export function KioskPartyManager({
                     )}
                     {m.creditBalances && m.creditBalances.length > 0 && (
                       <span className="text-[22px] font-semibold text-[#46d68c]">
-                        {m.creditBalances.reduce((s, c) => s + c.balance, 0)} credits
+                        {t("party.credits", {
+                          n: m.creditBalances.reduce((s, c) => s + c.balance, 0),
+                        })}
                       </span>
                     )}
                   </div>
                   <div className="mt-[8px] flex flex-wrap items-center gap-x-[24px] gap-y-[6px] text-[22px]">
                     {ready ? (
                       <span className="font-semibold text-[#46d68c]">
-                        ✓ Account &amp; waiver ready
+                        ✓ {t("party.status.ready")}
                       </span>
                     ) : checking ? (
                       <span className="flex items-center gap-[10px] font-semibold text-[#00e2e5]">
                         <span className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-[#00e2e5]/30 border-t-[#00e2e5]" />
-                        Checking waiver…
+                        {t("party.status.checkingWaiver")}
                       </span>
                     ) : (
                       <span className="font-semibold text-[#f0b341]">
-                        {m.bmiPersonId ? "Waiver needed" : "Account + waiver needed"}
+                        {m.bmiPersonId
+                          ? t("party.status.waiverNeeded")
+                          : t("party.status.accountWaiverNeeded")}
                       </span>
                     )}
                     {guardian && (
-                      <span className="text-white/45">Guardian: {guardian.firstName}</span>
+                      <span className="text-white/45">
+                        {t("party.guardianLabel", { name: guardian.firstName })}
+                      </span>
                     )}
                     {onSetContact && !m.isBillingCustomer && (
                       <button
@@ -1009,7 +1012,7 @@ export function KioskPartyManager({
                         onClick={() => markMain(m.id)}
                         className="text-[#00e2e5]/80 underline-offset-4 hover:underline"
                       >
-                        Make main
+                        {t("party.makeMain")}
                       </button>
                     )}
                   </div>
@@ -1021,24 +1024,24 @@ export function KioskPartyManager({
                       onClick={() => openSetup(m)}
                       className="rounded-2xl border-2 border-[#f0b341]/55 px-[24px] py-[12px] text-[24px] font-bold text-[#f0b341]"
                     >
-                      {m.bmiPersonId ? "Sign waiver" : "Set up"}
+                      {m.bmiPersonId ? t("party.signWaiver") : t("party.setUp")}
                     </button>
                   )}
                   {isGuardianForSomeone(m) ? (
                     <span
                       className="text-[20px] font-semibold text-white/30"
-                      title="Guardian for a minor in your group — remove the minor first"
+                      title={t("party.guardianBadge.title")}
                     >
-                      Guardian
+                      {t("party.guardianBadge")}
                     </span>
                   ) : (
                     <button
                       type="button"
                       onClick={() => removeMember(m.id)}
-                      aria-label={`Remove ${m.firstName}`}
+                      aria-label={t("party.aria.remove", { name: m.firstName })}
                       className="text-[22px] text-white/40"
                     >
-                      Remove
+                      {t("party.remove")}
                     </button>
                   )}
                 </div>
@@ -1059,14 +1062,14 @@ export function KioskPartyManager({
             }}
             className="k-tap rounded-[28px] border-2 border-dashed border-[#00e2e5]/45 px-[24px] py-[28px] text-[28px] font-bold text-[#00e2e5]"
           >
-            + Add a new player
+            + {t("party.addNewPlayer")}
           </button>
           <button
             type="button"
             onClick={() => setLookupOpen(true)}
             className="k-tap rounded-[28px] border-2 border-[#00e2e5]/45 bg-[#00e2e5]/10 px-[24px] py-[28px] text-[28px] font-bold text-white"
           >
-            Sign in — find my people
+            {t("party.signInFindPeople")}
           </button>
         </div>
       )}
@@ -1086,7 +1089,7 @@ export function KioskPartyManager({
       {/* Linked family — OPT-IN suggestions (tap to add), never auto-added */}
       {linked.length > 0 && form === null && !lookupOpen && (
         <div>
-          <div className="k-eyebrow mb-[12px] text-white/40">On this account — tap to add</div>
+          <div className="k-eyebrow mb-[12px] text-white/40">{t("party.linked.heading")}</div>
           <div className="flex flex-wrap gap-[12px]">
             {linked.map((lp) => {
               // Racing hard floor (7+): a linked kid under 7 can't be added to
@@ -1108,12 +1111,14 @@ export function KioskPartyManager({
                     + {lp.firstName} {lp.lastName}
                   </div>
                   <div className="text-[20px] text-white/50">
-                    {lp.age !== null ? `Age ${lp.age}` : "Family"}
+                    {lp.age !== null
+                      ? t("party.linked.age", { age: lp.age })
+                      : t("party.linked.family")}
                     {tooYoung
-                      ? " · under 7 — too young to race"
+                      ? t("party.linked.tooYoung")
                       : lp.waiverValid
-                        ? " · waiver on file"
-                        : " · needs waiver"}
+                        ? t("party.linked.waiverOnFile")
+                        : t("party.linked.needsWaiver")}
                   </div>
                 </button>
               );
@@ -1126,7 +1131,9 @@ export function KioskPartyManager({
       {form !== null && (
         <div className="k-glass space-y-[20px] p-[28px]">
           <div className="k-display text-[32px]">
-            {form.mode === "new" ? "New player" : `Set up ${form.member.firstName}`}
+            {form.mode === "new"
+              ? t("party.form.newPlayer")
+              : t("party.form.setUpName", { name: form.member.firstName })}
           </div>
           {form.mode === "new" && (
             <div className="grid grid-cols-2 gap-[16px]">
@@ -1134,14 +1141,14 @@ export function KioskPartyManager({
                 type="text"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
-                placeholder="First name"
+                placeholder={t("party.form.firstName")}
                 className="rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
               />
               <input
                 type="text"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
-                placeholder="Last name"
+                placeholder={t("party.form.lastName")}
                 className="rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
               />
             </div>
@@ -1158,7 +1165,7 @@ export function KioskPartyManager({
               );
               setDob(parts.join("/"));
             }}
-            placeholder="Birthday MM/DD/YYYY"
+            placeholder={t("party.form.birthday")}
             className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
           />
           {/* Every new player gives a mobile number; the main person (first added)
@@ -1171,7 +1178,7 @@ export function KioskPartyManager({
                 data-osk-layout="phone"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="Mobile phone"
+                placeholder={t("party.form.mobilePhone")}
                 className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
               />
               <input
@@ -1180,27 +1187,27 @@ export function KioskPartyManager({
                 data-osk-layout="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder={isMainDefault ? "Email (for your confirmation)" : "Email (optional)"}
+                placeholder={
+                  isMainDefault ? t("party.form.emailMain") : t("party.form.emailOptional")
+                }
                 className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
               />
             </>
           )}
           {/* Scanner shortcut inside the form too. */}
           {licenseScan.listening && form.mode === "new" && (
-            <p className="text-[20px] text-white/35">
-              Tip: scan a driver&rsquo;s license / state ID to fill this in.
-            </p>
+            <p className="text-[20px] text-white/35">{t("party.license.tip")}</p>
           )}
           {/* Guardian picker appears once we know they're a minor */}
           {ageFromDob(dob) !== null && (ageFromDob(dob) as number) < 18 && (
             <div>
               <div className="mb-[10px] text-[22px] text-white/55">
-                Responsible guardian (a registered adult):
+                {t("party.form.guardianPrompt")}
               </div>
               {adults.filter((a) => form.mode !== "setup" || a.id !== form.member.id).length ===
               0 ? (
                 <div className="rounded-2xl border border-[#f0b341]/40 bg-[#f0b341]/10 px-[20px] py-[16px] text-[22px] text-[#f0b341]">
-                  Add an adult to the group first — a minor needs a guardian.
+                  {t("party.err.needAdult")}
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-[12px]">
@@ -1231,7 +1238,7 @@ export function KioskPartyManager({
               onClick={resetForm}
               className="rounded-2xl border border-white/15 px-[28px] py-[18px] text-[24px] font-semibold text-white/60"
             >
-              Cancel
+              {t("party.form.cancel")}
             </button>
             <button
               type="button"
@@ -1241,7 +1248,7 @@ export function KioskPartyManager({
               }
               className="k-btn-primary k-tap h-[80px] flex-1 text-[28px]"
             >
-              {busy ? "Setting up…" : "Continue to waiver"}
+              {busy ? t("party.form.settingUp") : t("party.form.continueToWaiver")}
             </button>
           </div>
         </div>
@@ -1251,13 +1258,13 @@ export function KioskPartyManager({
       {lookupOpen && (
         <div className="k-glass p-[28px]">
           <div className="mb-[16px] flex items-center justify-between">
-            <div className="k-display text-[32px]">Sign in</div>
+            <div className="k-display text-[32px]">{t("party.lookup.title")}</div>
             <button
               type="button"
               onClick={() => setLookupOpen(false)}
               className="text-[24px] font-semibold text-white/50"
             >
-              Close
+              {t("party.lookup.close")}
             </button>
           </div>
           <ReturningRacerLookup
@@ -1312,7 +1319,7 @@ export function KioskPartyManager({
             <div className="fixed inset-0 z-[76] overflow-y-auto bg-[#000418] p-[48px]">
               {needPhoto ? (
                 <KioskWaiverPhoto
-                  memberName={signer?.firstName ?? "Guest"}
+                  memberName={signer?.firstName ?? t("party.guest")}
                   isMinor={!!signer?.isMinor}
                   onCaptured={(pngBase64) => {
                     // Fire-and-forget: the route persists to Neon FIRST and the
@@ -1336,8 +1343,10 @@ export function KioskPartyManager({
                     personId={waiverFor.personId}
                     template={waiverFor.template}
                     location={brandLocation}
-                    heading={isRace ? "Racing Waiver" : "Activity Waiver"}
-                    subheading="Read and sign below — it stays on file for your whole visit."
+                    heading={
+                      isRace ? t("party.waiver.headingRace") : t("party.waiver.headingActivity")
+                    }
+                    subheading={t("party.waiver.subheading")}
                     onComplete={() => {
                       onUpdateMember(waiverFor.memberId, { waiverValid: true });
                       setWaiverFor(null);
@@ -1348,7 +1357,7 @@ export function KioskPartyManager({
                     onClick={() => setWaiverFor(null)}
                     className="mt-[24px] w-full rounded-2xl border border-white/15 px-[28px] py-[18px] text-[24px] font-semibold text-white/60"
                   >
-                    Cancel — sign later
+                    {t("party.waiver.cancelLater")}
                   </button>
                 </div>
               )}

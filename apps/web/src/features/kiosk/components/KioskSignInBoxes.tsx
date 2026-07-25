@@ -29,6 +29,7 @@
 import { useState } from "react";
 import { IconChevronDown, IconFlag, IconLicense } from "@tabler/icons-react";
 import type { MobileJoinSnapshot } from "../join/kiosk-client";
+import { useT } from "../i18n";
 
 /** The caller's `useMobileJoin` return — snapshot plus the derived QR + reopen. */
 export interface SignInPhone extends MobileJoinSnapshot {
@@ -58,6 +59,7 @@ function AmberPulse() {
 }
 
 export function KioskSignInBoxes({ phone, scanListening, collapsed }: Props) {
+  const t = useT();
   // Tapping the phone box swaps the box row for a focused QR sheet (inline, not
   // a modal — matches the flow's existing expand pattern).
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -89,7 +91,7 @@ export function KioskSignInBoxes({ phone, scanListening, collapsed }: Props) {
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={phone.qrDataUrl}
-            alt="QR code — scan to sign in on your phone"
+            alt={t("signin.sheet.qrAlt")}
             className="h-[400px] w-[400px] rounded-2xl bg-white p-[12px]"
           />
         ) : (
@@ -98,18 +100,13 @@ export function KioskSignInBoxes({ phone, scanListening, collapsed }: Props) {
           </div>
         )}
         <div>
-          <div className="text-[34px] font-bold text-white">Scan with your phone camera</div>
-          <p className="mt-[8px] text-[22px] text-white/45">
-            Adults 18+ &middot; waiver signed on the phone &middot; kids are added here at the kiosk
-          </p>
+          <div className="text-[34px] font-bold text-white">{t("signin.sheet.title")}</div>
+          <p className="mt-[8px] text-[22px] text-white/45">{t("signin.sheet.sub")}</p>
         </div>
         {signing && (
           <div className="flex items-center gap-[14px] text-[22px] font-bold text-[#f5d38a]">
             <AmberPulse />
-            {phone.inProgressClients === 1
-              ? "1 phone signing in right now"
-              : `${phone.inProgressClients} phones signing in right now`}{" "}
-            — they&rsquo;ll pop into the list above when they finish.
+            {t("signin.sheet.signing", { count: phone.inProgressClients })}
           </div>
         )}
         <button
@@ -117,7 +114,7 @@ export function KioskSignInBoxes({ phone, scanListening, collapsed }: Props) {
           onClick={() => setSheetOpen(false)}
           className="k-tap rounded-2xl border-2 border-white/25 px-[44px] py-[14px] text-[24px] font-bold text-white/80"
         >
-          Done
+          {t("signin.sheet.done")}
         </button>
       </div>
     );
@@ -139,13 +136,13 @@ export function KioskSignInBoxes({ phone, scanListening, collapsed }: Props) {
         }`}
       >
         <span className="min-w-0 flex-1">
-          <span className="block text-[24px] font-bold text-white">More ways to add people</span>
+          <span className="block text-[24px] font-bold text-white">{t("signin.moreWays")}</span>
           {!expanded && (
             <span className="mt-[2px] block text-[19px] text-white/45">
               {[
-                phoneVisible && "phone",
-                scanListening && "driver’s license",
-                scanListening && "FastTrax license",
+                phoneVisible && t("signin.method.phone"),
+                scanListening && t("signin.method.driversLicense"),
+                scanListening && t("signin.method.fasttraxLicense"),
               ]
                 .filter(Boolean)
                 .join(" · ")}
@@ -155,9 +152,7 @@ export function KioskSignInBoxes({ phone, scanListening, collapsed }: Props) {
         {signing && !expanded && (
           <span className="flex items-center gap-[10px] text-[20px] font-semibold text-[#f5d38a]">
             <AmberPulse />
-            {phone?.inProgressClients === 1
-              ? "1 phone signing in"
-              : `${phone?.inProgressClients} phones signing in`}
+            {t("signin.signingShort", { count: phone?.inProgressClients ?? 0 })}
           </span>
         )}
         <IconChevronDown
@@ -178,10 +173,10 @@ export function KioskSignInBoxes({ phone, scanListening, collapsed }: Props) {
                 onClick={() => phone!.reopen()}
                 className="k-tap flex flex-col items-center justify-center gap-[12px] rounded-[26px] border-2 border-white/20 bg-white/[0.02] p-[24px] text-center"
               >
-                <span className="text-[24px] font-bold text-white/60">Sign in from your phone</span>
-                <span className="text-[19px] text-white/40">
-                  Phone sign-in dropped — tap for a new code.
+                <span className="text-[24px] font-bold text-white/60">
+                  {t("signin.phone.title")}
                 </span>
+                <span className="text-[19px] text-white/40">{t("signin.phone.dropped")}</span>
               </button>
             ) : (
               <button
@@ -192,7 +187,7 @@ export function KioskSignInBoxes({ phone, scanListening, collapsed }: Props) {
                 }`}
               >
                 <span className="text-[18px] font-bold uppercase tracking-[0.16em] text-[#00e2e5]">
-                  Fastest
+                  {t("signin.phone.fastest")}
                 </span>
                 {phone!.qrDataUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -209,18 +204,16 @@ export function KioskSignInBoxes({ phone, scanListening, collapsed }: Props) {
                 )}
                 <span>
                   <span className="block text-[27px] font-bold text-white">
-                    Sign in from your phone
+                    {t("signin.phone.title")}
                   </span>
                   {signing ? (
                     <span className="mt-[4px] flex items-center justify-center gap-[10px] text-[19px] font-semibold text-[#f5d38a]">
                       <AmberPulse />
-                      {phone!.inProgressClients === 1
-                        ? "1 phone signing in"
-                        : `${phone!.inProgressClients} phones signing in`}
+                      {t("signin.signingShort", { count: phone!.inProgressClients })}
                     </span>
                   ) : (
                     <span className="mt-[4px] block text-[19px] text-white/50">
-                      Adults 18+ — scan &amp; sign in on your own phone.
+                      {t("signin.phone.sub")}
                     </span>
                   )}
                 </span>
@@ -232,13 +225,15 @@ export function KioskSignInBoxes({ phone, scanListening, collapsed }: Props) {
           {scanListening && (
             <div className="flex flex-col items-center gap-[14px] rounded-[26px] border-2 border-[#f0b341]/35 bg-[#f0b341]/[0.05] p-[24px] text-center">
               <span className="text-[18px] font-bold uppercase tracking-[0.16em] text-[#f0b341]">
-                No typing
+                {t("signin.license.badge")}
               </span>
               <IconLicense size={72} stroke={1.5} className="text-[#f0b341]" aria-hidden="true" />
               <span>
-                <span className="block text-[27px] font-bold text-white">Scan your license</span>
+                <span className="block text-[27px] font-bold text-white">
+                  {t("signin.license.title")}
+                </span>
                 <span className="mt-[4px] block text-[19px] text-white/50">
-                  Driver&rsquo;s license or state ID — we&rsquo;ll fill it in.
+                  {t("signin.license.sub")}
                 </span>
               </span>
             </div>
@@ -248,15 +243,15 @@ export function KioskSignInBoxes({ phone, scanListening, collapsed }: Props) {
           {scanListening && (
             <div className="flex flex-col items-center gap-[14px] rounded-[26px] border-2 border-[#46d68c]/35 bg-[#46d68c]/[0.05] p-[24px] text-center">
               <span className="text-[18px] font-bold uppercase tracking-[0.16em] text-[#46d68c]">
-                Members
+                {t("signin.fasttrax.badge")}
               </span>
               <IconFlag size={72} stroke={1.5} className="text-[#46d68c]" aria-hidden="true" />
               <span>
                 <span className="block text-[27px] font-bold text-white">
-                  Scan your FastTrax license
+                  {t("signin.fasttrax.title")}
                 </span>
                 <span className="mt-[4px] block text-[19px] text-white/50">
-                  Racers — scan your FastTrax license.
+                  {t("signin.fasttrax.sub")}
                 </span>
               </span>
             </div>

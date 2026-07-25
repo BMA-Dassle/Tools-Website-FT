@@ -37,11 +37,10 @@ import { useKioskConfig } from "../KioskConfigContext";
 import { BrandedLoader } from "./BrandedLoader";
 import { CardSlotGuide } from "./CardSlotGuide";
 import { KioskDispenserHold } from "./KioskDispenserHold";
+import { useT } from "../i18n";
 
 /** A recoverable dispenser fault the flow holds on until staff resume. */
 type HoldFault = Extract<FaultBehavior, { kind: "hold" }>;
-
-const SEE_ATTENDANT_SAFE = "Your payment is safe — please see an attendant.";
 
 /** Consecutive unreadable/duplicate blanks tolerated before we STOP dispensing
  *  and hold for staff. Bounded so a stack loaded facing the wrong way can't be
@@ -70,6 +69,9 @@ const DONE_AUTO_CLOSE_SECONDS = 30;
 /** Hold shown when too many blanks in a row can't be read — almost always the
  *  stock loaded facing the wrong way. No sensor can confirm orientation, so
  *  Resume is enabled immediately (staff judgment) and re-inits on resume. */
+// TODO(i18n): module-scope hold-fault copy (staff-facing dispenser recovery) —
+// can't reach the useT() hook here; stays English until the hold copy is threaded
+// through the locale (KioskDispenserHold render site).
 const BAD_READ_HOLD: HoldFault = {
   kind: "hold",
   title: "Check the card stock",
@@ -169,14 +171,19 @@ interface BalanceCard {
 /** Token-package tile body — labels the amount as TOKENS and calls out the free
  *  bonus clearly (owner ask 2026-07-18). Shared by the reload + new-card grids. */
 function TokenTileBody({ p }: { p: (typeof TOKEN_PACKAGES)[number] }) {
+  const t = useT();
   return (
     <>
       <div className="font-heading text-3xl font-extrabold leading-none tabular-nums">
         {p.tokens}
       </div>
-      <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/45">tokens</div>
+      <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/45">
+        {t("gamezone.tokensUnit")}
+      </div>
       {p.bonusTokens ? (
-        <div className="mt-1 text-base font-extrabold text-[#46d68c]">+{p.bonusTokens} free</div>
+        <div className="mt-1 text-base font-extrabold text-[#46d68c]">
+          {t("gamezone.freeBonus", { n: p.bonusTokens })}
+        </div>
       ) : null}
       <div className="mt-1.5 text-sm text-white/55">${(p.priceCents / 100).toFixed(0)}</div>
     </>
@@ -184,6 +191,9 @@ function TokenTileBody({ p }: { p: (typeof TOKEN_PACKAGES)[number] }) {
 }
 
 /** One-line package summary for a COLLAPSED card row (owner: minimize after pick). */
+// TODO(i18n): module-scope helper (no React) — can't reach useT(); the "tokens"/
+// "free" words stay English until this is threaded a `t` param or turned into a
+// component. Numbers/price already render correctly for es.
 function pkgLabel(packageId: string): string {
   const p = TOKEN_PACKAGES.find((x) => x.id === packageId);
   if (!p) return "";
@@ -240,6 +250,7 @@ export function KioskGameZone({
    *  beacon they need the hold screen (Resume / See attendant) usable. */
   onCardFault?: () => void;
 }) {
+  const t = useT();
   // Every kiosk lands on the chooser — MSR-only kiosks offer reload + balance
   // check there, with new-card sales greyed out (owner 2026-07-20; the first
   // MSR release wrongly jumped straight to reload, hiding balance check).
@@ -694,7 +705,7 @@ export function KioskGameZone({
     if (!(await holdIfBinFull())) return;
     setPhase("loading");
     setError(null);
-    setDispenseMsg("Processing payment…");
+    setDispenseMsg(t("gamezone.processingPayment"));
     try {
       const res = await fetch("/api/game-cards/purchase", {
         method: "POST",
@@ -708,7 +719,7 @@ export function KioskGameZone({
       });
       const data = await res.json();
       if (!res.ok || data.ok === false || !Array.isArray(data.rows)) {
-        setError(errText(data) || "Payment failed. Please see the front desk.");
+        setError(errText(data) || t("gamezone.err.paymentFailedDesk"));
         setPhase("error");
         return;
       }
@@ -718,7 +729,7 @@ export function KioskGameZone({
       );
       await dispenseNewCards(data.groupId, data.rows);
     } catch {
-      setError("Payment failed. Please try again or see the front desk.");
+      setError(t("gamezone.err.paymentFailedRetry"));
       setPhase("error");
     }
   };
@@ -821,7 +832,7 @@ export function KioskGameZone({
     try {
       // Need bin room before we consume a source into it.
       if (!(await holdIfBinFull())) {
-        if (consoRunRef.current === run) setConsoMsg("Please see an attendant.");
+        if (consoRunRef.current === run) setConsoMsg(t("gamezone.seeAttendant"));
         return;
       }
       if (consoRunRef.current !== run) return; // Done/Back tapped while holding
@@ -844,9 +855,7 @@ export function KioskGameZone({
       setConsoCombining(true);
       if (source === consoTarget.account || consoSources.some((s) => s.account === source)) {
         await dispenser.present();
-        setConsoMsg(
-          "That's the card you're keeping (or already combined) — insert a different one.",
-        );
+        setConsoMsg(t("gamezone.conso.sameCard"));
         return;
       }
       // The guest's card is HELD during this call — the timeout must be tight
@@ -873,7 +882,7 @@ export function KioskGameZone({
       if (res.ok && data.ok) {
         // Value is on the target → safe to bin the emptied source.
         if (!(await captureSafely())) {
-          setConsoMsg("Please see an attendant.");
+          setConsoMsg(t("gamezone.seeAttendant"));
           return;
         }
         const movedTokens = data.moved?.tokens ?? 0;
@@ -903,9 +912,7 @@ export function KioskGameZone({
         // other cards (the guest may just try a different one).
         await presentIfCardPresent();
         setConsoMsg(
-          `${data.message || "That card couldn't be combined — your card is back."}${
-            data.detail ? `\n${data.detail}` : ""
-          }`,
+          `${data.message || t("gamezone.conso.declined")}${data.detail ? `\n${data.detail}` : ""}`,
         );
       } else {
         // Service failure (unknown outcome / HTTP error / unconfigured): HALT
@@ -916,7 +923,7 @@ export function KioskGameZone({
           data.detail ||
           data.message ||
           errText(data) ||
-          `Combine service error (HTTP ${res.status})`;
+          t("gamezone.conso.serviceError", { status: res.status });
         setConsoHalted(reason);
       }
     } catch (err) {
@@ -925,8 +932,8 @@ export function KioskGameZone({
       if (consoRunRef.current === run) {
         setConsoHalted(
           err instanceof Error && err.name === "TimeoutError"
-            ? "The combine service didn't answer in time."
-            : "Couldn't reach the combine service.",
+            ? t("gamezone.conso.timeout")
+            : t("gamezone.conso.unreachable"),
         );
       }
     } finally {
@@ -976,16 +983,16 @@ export function KioskGameZone({
       // Assume the bin can be full at any point — check BEFORE every dispense
       // (owner 2026-07-19). A full bin has nowhere to reject a bad blank, so
       // hold here until staff empty it rather than dispensing into a dead end.
-      if (!(await holdIfBinFull())) return abort(i, SEE_ATTENDANT_SAFE);
+      if (!(await holdIfBinFull())) return abort(i, t("gamezone.seeAttendantSafe"));
       setNewCardAt(i, { cardStatus: "dispensing" });
-      setDispenseMsg(`Dispensing card ${i + 1} of ${newCards.length}…`);
+      setDispenseMsg(t("gamezone.dispensingCardN", { n: i + 1, total: newCards.length }));
 
       const r = await dispenser.dispenseAndRead();
       if (!r.ok) {
         const f = r.fault;
         if (f.kind === "hold") {
           const resumed = await holdUntilResolved(f);
-          if (!resumed) return abort(i, SEE_ATTENDANT_SAFE);
+          if (!resumed) return abort(i, t("gamezone.seeAttendantSafe"));
           i--; // retry the same paid card once the fault is cleared
           continue;
         }
@@ -994,10 +1001,10 @@ export function KioskGameZone({
           // error bin. A lone misfeed clears on the next card; too many in a row
           // means the stock is wrong-way, so HOLD for staff instead of feeding
           // the whole stacker through one card at a time.
-          if (!(await captureSafely())) return abort(i, SEE_ATTENDANT_SAFE);
+          if (!(await captureSafely())) return abort(i, t("gamezone.seeAttendantSafe"));
           if (++blanksBad >= MAX_BAD_BLANKS) {
             const resumed = await holdUntilResolved(BAD_READ_HOLD);
-            if (!resumed) return abort(i, SEE_ATTENDANT_SAFE);
+            if (!resumed) return abort(i, t("gamezone.seeAttendantSafe"));
             blanksBad = 0; // staff fixed the stock — start the count fresh
           }
           i--;
@@ -1005,7 +1012,7 @@ export function KioskGameZone({
         }
         return abort(
           i,
-          f.kind === "abort" ? f.message : `${r.info.message}. ${SEE_ATTENDANT_SAFE}`,
+          f.kind === "abort" ? f.message : `${r.info.message}. ${t("gamezone.seeAttendantSafe")}`,
         );
       }
       const account = r.value;
@@ -1014,11 +1021,11 @@ export function KioskGameZone({
       // credit an account we already loaded this session. Same bounded-then-hold
       // guard so a run of bad reads can't drain the stacker.
       if (usedAccounts.has(account)) {
-        if (!(await captureSafely())) return abort(i, SEE_ATTENDANT_SAFE);
+        if (!(await captureSafely())) return abort(i, t("gamezone.seeAttendantSafe"));
         if (++blanksBad >= MAX_BAD_BLANKS) {
           const resumed = await holdUntilResolved(BAD_READ_HOLD);
           if (!resumed) {
-            return abort(i, `Couldn't get a clean read from the dispenser. ${SEE_ATTENDANT_SAFE}`);
+            return abort(i, `${t("gamezone.err.cleanRead")} ${t("gamezone.seeAttendantSafe")}`);
           }
           blanksBad = 0;
         }
@@ -1028,7 +1035,7 @@ export function KioskGameZone({
       blanksBad = 0;
       usedAccounts.add(account);
 
-      setDispenseMsg(`Loading tokens onto card ${i + 1}…`);
+      setDispenseMsg(t("gamezone.loadingOntoCard", { n: i + 1 }));
       let loaded = false;
       let balanceTokens: number | undefined;
       // On-prem FIRST: load through the kiosk-PC bridge → local EIS server (fast).
@@ -1063,7 +1070,7 @@ export function KioskGameZone({
 
       if (loaded) {
         setNewCardAt(i, { account, loaded: true, cardStatus: "loaded", balanceTokens });
-        setDispenseMsg(`Take card ${i + 1}…`);
+        setDispenseMsg(t("gamezone.takeCardN", { n: i + 1 }));
         await dispenser.present();
         await dispenser.waitTaken({ timeoutMs: 30_000 });
       } else {
@@ -1072,9 +1079,7 @@ export function KioskGameZone({
         // full bin); either way the guest gets the money-safe attendant message.
         setNewCardAt(i, { account, loaded: false, cardStatus: "failed" });
         await captureSafely();
-        setError(
-          "A card couldn't be loaded and was retained. Your payment is safe — please see an attendant.",
-        );
+        setError(`${t("gamezone.err.cardRetained")} ${t("gamezone.seeAttendantSafe")}`);
         setPhase("error");
         return;
       }
@@ -1102,13 +1107,13 @@ export function KioskGameZone({
       });
       const data = await res.json();
       if (!res.ok || data.ok === false) {
-        setError(errText(data) || "Reload failed. Please see the front desk.");
+        setError(errText(data) || t("gamezone.err.reloadFailedDesk"));
         setPhase("error");
         return;
       }
       setPhase("done");
     } catch {
-      setError("Reload failed. Please try again or see the front desk.");
+      setError(t("gamezone.err.reloadFailedRetry"));
       setPhase("error");
     }
   };
@@ -1130,7 +1135,7 @@ export function KioskGameZone({
     // reader (reload never dispenses/bins, so it's exempt). Staff bail → throw
     // the money-safe message so the terminal flow aborts before any charge.
     if (kind === "new_card" && !(await holdIfBinFull())) {
-      throw new Error(SEE_ATTENDANT_SAFE);
+      throw new Error(t("gamezone.seeAttendantSafe"));
     }
     const items =
       kind === "new_card"
@@ -1143,7 +1148,7 @@ export function KioskGameZone({
     });
     const data = await res.json();
     if (!res.ok || !data.orderId || !(data.totalCents > 0)) {
-      throw new Error(errText(data) || "Couldn't start the reader payment.");
+      throw new Error(errText(data) || t("gamezone.err.startReader"));
     }
     readerPrep.current = data;
     return { seed: data.groupId, depositOrderId: data.orderId, depositCents: data.totalCents };
@@ -1195,7 +1200,7 @@ export function KioskGameZone({
   ) => {
     const prep = readerPrep.current;
     if (!prep) {
-      setError("Payment session expired. Please see the front desk.");
+      setError(t("gamezone.err.sessionExpired"));
       setPhase("error");
       return;
     }
@@ -1220,10 +1225,7 @@ export function KioskGameZone({
       const data = await res.json();
       if (!res.ok || data.ok === false) {
         // Money is ALREADY captured on the reader — never imply "pay again".
-        setError(
-          errText(data) ||
-            "We received your payment but couldn't finish — please see the front desk (do not pay again).",
-        );
+        setError(errText(data) || t("gamezone.err.paidNotFinished"));
         setPhase("error");
         return;
       }
@@ -1243,9 +1245,7 @@ export function KioskGameZone({
         await loadReloadViaBridge(data.groupId, data.rows ?? []);
       }
     } catch {
-      setError(
-        "We received your payment but couldn't finish — please see the front desk (do not pay again).",
-      );
+      setError(t("gamezone.err.paidNotFinished"));
       setPhase("error");
     }
   };
@@ -1256,18 +1256,15 @@ export function KioskGameZone({
     return (
       <div className="mx-auto max-w-lg py-16 text-center kiosk-zoom">
         <div className="font-heading text-5xl font-extrabold italic text-amber-300">
-          Game Zone is temporarily unavailable
+          {t("gamezone.unavailable.title")}
         </div>
-        <p className="mt-5 text-lg text-white/65">
-          The card machine is offline right now, so we can&rsquo;t sell or reload cards here. Please
-          see an attendant — they can help at the front desk.
-        </p>
+        <p className="mt-5 text-lg text-white/65">{t("gamezone.unavailable.body")}</p>
         <button
           type="button"
           onClick={onExit}
           className="font-heading mt-10 h-16 w-full rounded-full bg-[#00e2e5] text-xl font-extrabold uppercase italic text-[#04252b]"
         >
-          Back
+          {t("gamezone.back")}
         </button>
       </div>
     );
@@ -1295,8 +1292,8 @@ export function KioskGameZone({
       <div className="flex h-full items-center justify-center py-16">
         <BrandedLoader
           brand={brand}
-          label="Connecting to the card dispenser…"
-          sublabel="One moment"
+          label={t("gamezone.connecting.label")}
+          sublabel={t("gamezone.connecting.sub")}
         />
       </div>
     );
@@ -1314,13 +1311,13 @@ export function KioskGameZone({
       // 2026-07-21: chooser sat too high).
       <div className="flex min-h-full w-full flex-col justify-center">
         <div className="mb-[32px] flex items-center justify-between">
-          <h1 className="k-display text-[74px]">Game Zone cards</h1>
+          <h1 className="k-display text-[74px]">{t("gamezone.chooser.title")}</h1>
           <button
             type="button"
             onClick={onExit}
             className="rounded-full border border-white/15 px-[28px] py-[12px] text-[24px] text-white/60"
           >
-            Cancel
+            {t("gamezone.cancel")}
           </button>
         </div>
         <div className="grid gap-[24px]">
@@ -1331,15 +1328,15 @@ export function KioskGameZone({
             className="k-glass k-tap p-[40px] text-left disabled:opacity-40"
             style={{ borderLeft: "8px solid #f800c6" }}
           >
-            <div className="k-display text-[48px]">New Game Zone cards</div>
+            <div className="k-display text-[48px]">{t("gamezone.chooser.new.title")}</div>
             <div className="mt-[10px] text-[28px] text-white/55">
               {!canSellNewCards
-                ? "Not available at this kiosk — new Game Zone cards can be purchased at the front kiosk or at Guest Services"
+                ? t("gamezone.chooser.new.unavailable")
                 : readerReady
-                  ? "Set up 1–10 fresh cards — pick a token package for each"
+                  ? t("gamezone.chooser.new.ready")
                   : dispenser.reconnecting
-                    ? "Connecting to the card dispenser…"
-                    : "Card dispenser unavailable — see an attendant"}
+                    ? t("gamezone.connecting.label")
+                    : t("gamezone.chooser.new.offline")}
             </div>
           </button>
           <button
@@ -1348,9 +1345,9 @@ export function KioskGameZone({
             className="k-glass k-tap p-[40px] text-left"
             style={{ borderLeft: "8px solid #00e2e5" }}
           >
-            <div className="k-display text-[48px]">Reload existing cards</div>
+            <div className="k-display text-[48px]">{t("gamezone.chooser.reload.title")}</div>
             <div className="mt-[10px] text-[28px] text-white/55">
-              Add tokens to 1–10 cards you already have
+              {t("gamezone.chooser.reload.sub")}
             </div>
           </button>
           <button
@@ -1363,12 +1360,12 @@ export function KioskGameZone({
             className="k-glass k-tap p-[40px] text-left"
             style={{ borderLeft: "8px solid #46d68c" }}
           >
-            <div className="k-display text-[48px]">Check card balance</div>
+            <div className="k-display text-[48px]">{t("gamezone.chooser.balance.title")}</div>
             <div className="mt-[10px] text-[28px] text-white/55">
               {/* MSR kiosks swipe; dispenser kiosks insert. */}
               {capability === "reload"
-                ? "Swipe a card to see its tokens, bonus tokens & eTickets"
-                : "Insert a card to see its tokens, bonus tokens & eTickets"}
+                ? t("gamezone.chooser.balance.subSwipe")
+                : t("gamezone.chooser.balance.subInsert")}
             </div>
           </button>
           {/* Combine cards — CLOUD ONLY. Appears when this kiosk is on the cloud
@@ -1387,9 +1384,9 @@ export function KioskGameZone({
               className="k-glass k-tap p-[40px] text-left"
               style={{ borderLeft: "8px solid #b39dff" }}
             >
-              <div className="k-display text-[48px]">Combine cards</div>
+              <div className="k-display text-[48px]">{t("gamezone.combineCards")}</div>
               <div className="mt-[10px] text-[28px] text-white/55">
-                Move the tokens from several cards onto one card to keep
+                {t("gamezone.chooser.combine.sub")}
               </div>
             </button>
           )}
@@ -1408,7 +1405,9 @@ export function KioskGameZone({
     return (
       <div className="mx-auto max-w-2xl px-2 py-6 kiosk-zoom">
         <div className="mb-5 flex items-center justify-between">
-          <h1 className="font-heading text-4xl font-extrabold italic">Combine cards</h1>
+          <h1 className="font-heading text-4xl font-extrabold italic">
+            {t("gamezone.combineCards")}
+          </h1>
           {consoStep !== "done" && (
             <button
               type="button"
@@ -1421,7 +1420,7 @@ export function KioskGameZone({
               }}
               className="k-tap rounded-full border border-white/15 px-5 py-2 text-sm text-white/60 disabled:opacity-40"
             >
-              Back
+              {t("gamezone.back")}
             </button>
           )}
         </div>
@@ -1443,26 +1442,25 @@ export function KioskGameZone({
         {consoStep === "target" && (
           <div className="flex flex-col items-center text-center">
             <div className="mb-2 text-lg font-bold uppercase tracking-[0.2em] text-[#b39dff]">
-              Step 1 of 2
+              {t("gamezone.conso.step1")}
             </div>
             <h2 className="font-heading text-5xl font-extrabold italic leading-tight">
-              Insert the card you want to keep
+              {t("gamezone.conso.insertKeep.title")}
             </h2>
             <p className="mt-3 max-w-xl text-2xl text-white/60">
-              This is the card you&rsquo;ll walk away with — every other card&rsquo;s tokens move
-              onto it.
+              {t("gamezone.conso.insertKeep.body")}
             </p>
             <div className="mt-8 flex justify-center">
               {consoCombining ? (
                 <BrandedLoader
                   brand={brand}
-                  label="Reading your card…"
-                  sublabel="Coming right back out"
+                  label={t("gamezone.conso.reading.label")}
+                  sublabel={t("gamezone.conso.reading.sub")}
                 />
               ) : (
                 <CardSlotGuide
-                  label="Insert your card"
-                  sublabel="It reads in a second and comes right back out"
+                  label={t("gamezone.insertCard")}
+                  sublabel={t("gamezone.insertCard.subShort")}
                 />
               )}
             </div>
@@ -1477,10 +1475,10 @@ export function KioskGameZone({
             <div className="mb-7 flex w-full items-center justify-between rounded-2xl border-2 border-[#b39dff]/60 bg-[#b39dff]/10 px-6 py-4 text-left">
               <div>
                 <div className="text-sm font-bold uppercase tracking-[0.2em] text-[#b39dff]">
-                  Keeping this card
+                  {t("gamezone.conso.keeping")}
                 </div>
                 <div className="mt-0.5 text-lg text-white/55">
-                  Card {last4(consoTarget.account)}
+                  {t("gamezone.card", { ref: last4(consoTarget.account) })}
                 </div>
               </div>
               <div className="text-right">
@@ -1488,20 +1486,21 @@ export function KioskGameZone({
                   {combinedTokens.toLocaleString()}
                 </div>
                 <div className="mt-1 text-sm text-white/50">
-                  tokens{combinedBonus ? ` + ${combinedBonus.toLocaleString()} bonus` : ""}
+                  {t("gamezone.tokensUnit")}
+                  {combinedBonus
+                    ? ` + ${combinedBonus.toLocaleString()} ${t("gamezone.bonusUnit")}`
+                    : ""}
                 </div>
               </div>
             </div>
 
             <div className="text-lg font-bold uppercase tracking-[0.2em] text-[#46d68c]">
-              Step 2 of 2
+              {t("gamezone.conso.step2")}
             </div>
             <h2 className="mt-1 font-heading text-5xl font-extrabold italic leading-tight">
-              Add cards to combine
+              {t("gamezone.conso.addTitle")}
             </h2>
-            <p className="mt-3 max-w-xl text-2xl text-white/60">
-              Insert each card one at a time — its tokens move onto your kept card.
-            </p>
+            <p className="mt-3 max-w-xl text-2xl text-white/60">{t("gamezone.conso.addBody")}</p>
 
             <div className="mt-8 flex w-full justify-center">
               {consoHalted ? (
@@ -1509,7 +1508,7 @@ export function KioskGameZone({
                    so staff can act on it; Try again resumes accepting cards. */
                 <div className="w-full rounded-2xl border border-red-400/40 bg-red-400/10 p-6 text-left">
                   <div className="text-2xl font-bold text-red-200">
-                    Combining isn&rsquo;t working right now
+                    {t("gamezone.conso.notWorking")}
                   </div>
                   <div className="mt-2 whitespace-pre-line text-lg text-red-100/80">
                     {consoHalted}
@@ -1519,15 +1518,19 @@ export function KioskGameZone({
                     onClick={() => setConsoHalted(null)}
                     className="k-tap mt-5 w-full rounded-full bg-[#00e2e5] px-6 py-4 text-xl font-extrabold text-[#04252b]"
                   >
-                    Try again
+                    {t("gamezone.tryAgain")}
                   </button>
                 </div>
               ) : consoCombining ? (
-                <BrandedLoader brand={brand} label="Combining…" sublabel="Moving the tokens over" />
+                <BrandedLoader
+                  brand={brand}
+                  label={t("gamezone.conso.combining.label")}
+                  sublabel={t("gamezone.conso.combining.sub")}
+                />
               ) : (
                 <CardSlotGuide
-                  label="Insert a card to combine"
-                  sublabel="One card at a time — tap Done when you&rsquo;re finished"
+                  label={t("gamezone.conso.insertCombine.label")}
+                  sublabel={t("gamezone.conso.insertCombine.sub")}
                 />
               )}
             </div>
@@ -1535,7 +1538,7 @@ export function KioskGameZone({
             {consoSources.length > 0 && (
               <div className="mt-8 w-full space-y-2 text-left">
                 <div className="text-sm uppercase tracking-[0.2em] text-white/40">
-                  Combined in ({consoSources.length})
+                  {t("gamezone.conso.combinedIn", { count: consoSources.length })}
                 </div>
                 {consoSources.map((s, i) => (
                   <div
@@ -1543,11 +1546,13 @@ export function KioskGameZone({
                     className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3"
                   >
                     <span className="text-lg text-white/70">
-                      {i + 1}. Card {last4(s.account)}
+                      {t("gamezone.conso.sourceRow", { num: i + 1, ref: last4(s.account) })}
                     </span>
                     <span className="text-lg font-semibold text-white/80">
-                      +{s.tokens.toLocaleString()} tokens
-                      {s.bonusTokens ? ` +${s.bonusTokens.toLocaleString()} bonus` : ""}
+                      +{s.tokens.toLocaleString()} {t("gamezone.tokensUnit")}
+                      {s.bonusTokens
+                        ? ` +${s.bonusTokens.toLocaleString()} ${t("gamezone.bonusUnit")}`
+                        : ""}
                     </span>
                   </div>
                 ))}
@@ -1566,7 +1571,7 @@ export function KioskGameZone({
               }}
               className="k-tap mt-8 w-full rounded-full bg-[#46d68c] px-6 py-5 text-2xl font-extrabold text-[#04252b] disabled:opacity-40"
             >
-              Done — I&rsquo;m finished
+              {t("gamezone.conso.done.finished")}
             </button>
           </div>
         )}
@@ -1574,15 +1579,13 @@ export function KioskGameZone({
         {consoStep === "done" && consoTarget && (
           <div className="space-y-6 text-center">
             <div className="text-6xl">✅</div>
-            <p className="text-2xl text-white/70">
-              All set — your tokens are on the card you kept.
-            </p>
+            <p className="text-2xl text-white/70">{t("gamezone.conso.allSet")}</p>
             <div className="rounded-2xl border border-[#46d68c]/40 bg-[#46d68c]/10 p-8">
               <div className="text-sm uppercase tracking-widest text-white/50">
-                Card {last4(consoTarget.account)}
+                {t("gamezone.card", { ref: last4(consoTarget.account) })}
               </div>
               <div className="mt-1 text-5xl font-extrabold">
-                {combinedTokens.toLocaleString()} tokens
+                {combinedTokens.toLocaleString()} {t("gamezone.tokensUnit")}
               </div>
               {/* Everything else now on the kept card (cash / bonus cash are
                   deliberately NOT shown — owner 2026-07-24). Each stat appears
@@ -1595,7 +1598,7 @@ export function KioskGameZone({
                         {combinedBonus.toLocaleString()}
                       </div>
                       <div className="mt-0.5 text-[11px] font-bold uppercase tracking-[0.2em] text-white/45">
-                        Bonus tokens
+                        {t("gamezone.stat.bonusTokens")}
                       </div>
                     </div>
                   )}
@@ -1605,7 +1608,7 @@ export function KioskGameZone({
                         {combinedETickets.toLocaleString()}
                       </div>
                       <div className="mt-0.5 text-[11px] font-bold uppercase tracking-[0.2em] text-white/45">
-                        eTickets
+                        {t("gamezone.stat.eTickets")}
                       </div>
                     </div>
                   )}
@@ -1615,14 +1618,14 @@ export function KioskGameZone({
                         {combinedMinutes.toLocaleString()}
                       </div>
                       <div className="mt-0.5 text-[11px] font-bold uppercase tracking-[0.2em] text-white/45">
-                        Time play (min)
+                        {t("gamezone.stat.timePlay")}
                       </div>
                     </div>
                   )}
                 </div>
               )}
               <div className="mt-4 text-lg text-white/60">
-                {consoSources.length} card{consoSources.length === 1 ? "" : "s"} combined
+                {t("gamezone.conso.cardsCombined", { count: consoSources.length })}
               </div>
             </div>
             <button
@@ -1630,7 +1633,7 @@ export function KioskGameZone({
               onClick={onExit}
               className="k-glass k-tap w-full p-8 text-center text-3xl font-bold"
             >
-              Done
+              {t("gamezone.done")}
             </button>
           </div>
         )}
@@ -1644,13 +1647,15 @@ export function KioskGameZone({
     return (
       <div className="mx-auto max-w-2xl px-2 py-6 kiosk-zoom">
         <div className="mb-5 flex items-center justify-between">
-          <h1 className="font-heading text-4xl font-extrabold italic">Card balance</h1>
+          <h1 className="font-heading text-4xl font-extrabold italic">
+            {t("gamezone.balance.title")}
+          </h1>
           <button
             type="button"
             onClick={() => setMode("choose")}
             className="rounded-full border border-white/15 px-5 py-2 text-sm text-white/60"
           >
-            Back
+            {t("gamezone.back")}
           </button>
         </div>
 
@@ -1665,16 +1670,16 @@ export function KioskGameZone({
           <div className="flex justify-center py-12">
             {balCard.status === "reading" ? (
               <CardSlotGuide
-                label="Insert your card"
-                sublabel="Use the card slot on the left — it reads in a second and comes right back out"
+                label={t("gamezone.insertCard")}
+                sublabel={t("gamezone.insertCard.subLeft")}
               />
             ) : (
               <BrandedLoader
                 brand={brand}
-                label="Checking balance…"
+                label={t("gamezone.checkingBalance")}
                 sublabel={
                   balCard.accountNumber
-                    ? `Card #${displayCardNumber(balCard.accountNumber)}`
+                    ? t("gamezone.cardHash", { num: displayCardNumber(balCard.accountNumber) })
                     : undefined
                 }
               />
@@ -1683,7 +1688,7 @@ export function KioskGameZone({
         ) : balCard?.status === "ok" && bal ? (
           <div className="rounded-2xl border border-[#46d68c]/40 bg-white/[0.04] p-6">
             <div className="text-sm uppercase tracking-[0.25em] text-white/45">
-              Card #{displayCardNumber(balCard.accountNumber)}
+              {t("gamezone.cardHash", { num: displayCardNumber(balCard.accountNumber) })}
               {balCard.name ? ` · ${balCard.name}` : ""}
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3">
@@ -1692,7 +1697,7 @@ export function KioskGameZone({
                   {bal.tokens}
                 </div>
                 <div className="mt-1 text-xs font-bold uppercase tracking-[0.2em] text-white/45">
-                  Tokens
+                  {t("gamezone.stat.tokens")}
                 </div>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.03] px-5 py-4">
@@ -1700,7 +1705,7 @@ export function KioskGameZone({
                   {bal.bonusTokens}
                 </div>
                 <div className="mt-1 text-xs font-bold uppercase tracking-[0.2em] text-white/45">
-                  Bonus tokens
+                  {t("gamezone.stat.bonusTokens")}
                 </div>
               </div>
               <div className="rounded-xl border border-white/10 bg-white/[0.03] px-5 py-4">
@@ -1708,7 +1713,7 @@ export function KioskGameZone({
                   {bal.eTickets}
                 </div>
                 <div className="mt-1 text-xs font-bold uppercase tracking-[0.2em] text-white/45">
-                  eTickets
+                  {t("gamezone.stat.eTickets")}
                 </div>
               </div>
               {bal.timeMinutes > 0 && (
@@ -1717,7 +1722,7 @@ export function KioskGameZone({
                     {bal.timeMinutes}
                   </div>
                   <div className="mt-1 text-xs font-bold uppercase tracking-[0.2em] text-white/45">
-                    Time play (min)
+                    {t("gamezone.stat.timePlay")}
                   </div>
                 </div>
               )}
@@ -1726,17 +1731,17 @@ export function KioskGameZone({
             {balCard.transactions && balCard.transactions.length > 0 && (
               <div className="mt-5 border-t border-white/10 pt-4">
                 <div className="text-sm font-bold uppercase tracking-[0.25em] text-white/45">
-                  Recent activity
+                  {t("gamezone.balance.recentActivity")}
                 </div>
                 <ul className="mt-2 max-h-[420px] space-y-1.5 overflow-y-auto pr-1">
-                  {balCard.transactions.slice(0, 10).map((t, i) => {
-                    const tok = t.tokens || t.bonusTokens || 0;
+                  {balCard.transactions.slice(0, 10).map((tx, i) => {
+                    const tok = tx.tokens || tx.bonusTokens || 0;
                     const detail = tok
-                      ? `${tok > 0 ? "+" : ""}${tok} tokens`
-                      : t.points
-                        ? `${t.points > 0 ? "+" : ""}${t.points} eTickets`
+                      ? `${tok > 0 ? "+" : ""}${tok} ${t("gamezone.tokensUnit")}`
+                      : tx.points
+                        ? `${tx.points > 0 ? "+" : ""}${tx.points} ${t("gamezone.stat.eTickets")}`
                         : "";
-                    const when = t.timeStamp ? t.timeStamp.slice(0, 16) : "";
+                    const when = tx.timeStamp ? tx.timeStamp.slice(0, 16) : "";
                     return (
                       <li
                         key={i}
@@ -1744,11 +1749,11 @@ export function KioskGameZone({
                       >
                         <div className="min-w-0">
                           <div className="truncate text-base text-white/80">
-                            {t.transType || "Activity"}
-                            {t.device ? ` · ${t.device}` : ""}
+                            {tx.transType || t("gamezone.txn.activity")}
+                            {tx.device ? ` · ${tx.device}` : ""}
                           </div>
                           <div className="text-sm text-white/40">
-                            {t.location || "—"}
+                            {tx.location || "—"}
                             {when ? ` · ${when}` : ""}
                           </div>
                         </div>
@@ -1770,7 +1775,7 @@ export function KioskGameZone({
                 }}
                 className="rounded-xl border border-white/15 px-5 py-3.5 text-base font-semibold text-white/60"
               >
-                Check another card
+                {t("gamezone.balance.checkAnother")}
               </button>
               <button
                 type="button"
@@ -1790,7 +1795,7 @@ export function KioskGameZone({
                 }}
                 className="rounded-xl bg-[#00e2e5] px-5 py-3.5 text-base font-bold text-[#04252b]"
               >
-                Reload this card
+                {t("gamezone.balance.reloadThis")}
               </button>
             </div>
           </div>
@@ -1798,8 +1803,9 @@ export function KioskGameZone({
           <>
             {balCard?.status === "bad" && (
               <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-red-100">
-                We couldn&rsquo;t find that card — try {msrActive ? "swiping" : "inserting"} it
-                again.
+                {msrActive
+                  ? t("gamezone.balance.notFoundSwipe")
+                  : t("gamezone.balance.notFoundInsert")}
               </div>
             )}
             {readerReady ? (
@@ -1813,9 +1819,7 @@ export function KioskGameZone({
                 }}
                 className="w-full rounded-2xl bg-[#00e2e5] px-6 py-6 text-xl font-extrabold text-[#04252b] disabled:opacity-40"
               >
-                {autoReadBlocked
-                  ? "Couldn’t read — flip the card & tap to try again"
-                  : "Insert your card to check it"}
+                {autoReadBlocked ? t("gamezone.blockedFlip") : t("gamezone.balance.insertToCheck")}
               </button>
             ) : msrActive ? (
               // MSR kiosk: the swipe is the ONE way in — no typed entry, no
@@ -1823,13 +1827,11 @@ export function KioskGameZone({
               // immediately; the read card number shows on the result.
               <div className="space-y-2">
                 <div className="w-full rounded-2xl bg-[#00e2e5] px-6 py-6 text-center text-xl font-extrabold text-[#04252b]">
-                  {msrListening ? "Swipe your card to check it" : "Connecting to the card reader…"}
+                  {msrListening
+                    ? t("gamezone.balance.swipeToCheck")
+                    : t("gamezone.connectingReader")}
                 </div>
-                {msrBadSwipe && (
-                  <p className="text-sm text-amber-300">
-                    Couldn’t read that swipe — flip the card and swipe again, slow and steady.
-                  </p>
-                )}
+                {msrBadSwipe && <p className="text-sm text-amber-300">{t("gamezone.badSwipe")}</p>}
               </div>
             ) : (
               // Readerless kiosk fallback only — with a dispenser or MSR, that
@@ -1840,7 +1842,7 @@ export function KioskGameZone({
                   inputMode="numeric"
                   value={balTyped}
                   onChange={(e) => setBalTyped(e.target.value)}
-                  placeholder="Card number"
+                  placeholder={t("gamezone.cardNumberPlaceholder")}
                   className="flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-lg text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
                 />
                 <button
@@ -1848,7 +1850,7 @@ export function KioskGameZone({
                   onClick={() => balTyped.trim() && void fetchBalance(balTyped.trim())}
                   className="rounded-xl bg-[#00e2e5] px-5 py-2.5 text-sm font-bold text-[#04252b]"
                 >
-                  Check
+                  {t("gamezone.check")}
                 </button>
               </div>
             )}
@@ -1864,17 +1866,17 @@ export function KioskGameZone({
     // card fill in, not just a spinner (owner 2026-07-19).
     if (mode === "newcard") {
       const statusLabel = (c: NewCard): string => {
-        if (c.cardStatus === "loaded") return "Loaded ✓";
-        if (c.cardStatus === "failed") return "See attendant";
-        if (c.cardStatus === "dispensing") return "Dispensing…";
-        if (c.account) return "Loading tokens…";
-        return "Waiting…";
+        if (c.cardStatus === "loaded") return t("gamezone.status.loaded");
+        if (c.cardStatus === "failed") return t("gamezone.status.seeAttendant");
+        if (c.cardStatus === "dispensing") return t("gamezone.status.dispensing");
+        if (c.account) return t("gamezone.status.loadingTokens");
+        return t("gamezone.status.waiting");
       };
       return (
         <div className="mx-auto max-w-md py-10 kiosk-zoom">
           <div className="mb-6 text-center">
             <div className="font-heading text-4xl font-extrabold italic">
-              {newCards.length > 1 ? "Setting up your cards…" : "Setting up your card…"}
+              {t("gamezone.settingUp", { count: newCards.length })}
             </div>
             {dispenseMsg && <p className="mt-2 text-sm text-white/55">{dispenseMsg}</p>}
           </div>
@@ -1891,15 +1893,15 @@ export function KioskGameZone({
                 >
                   <div className="min-w-0">
                     <div className="font-heading text-[0.65rem] font-bold uppercase tracking-[0.3em] text-white/45">
-                      Card {i + 1}
+                      {t("gamezone.cardN", { n: i + 1 })}
                     </div>
                     <div className="font-heading text-xl font-extrabold tabular-nums">
-                      {c.account ? displayCardNumber(c.account) : "Dispensing…"}
+                      {c.account ? displayCardNumber(c.account) : t("gamezone.status.dispensing")}
                     </div>
                   </div>
                   <div className="text-right">
                     <div className="font-heading text-lg font-extrabold tabular-nums text-[#00e2e5]">
-                      {toks} tk
+                      {toks} {t("gamezone.tkAbbrev")}
                     </div>
                     <div
                       className={`text-xs ${failed ? "text-red-300" : done ? "text-[#46d68c]" : "text-white/50"}`}
@@ -1918,8 +1920,8 @@ export function KioskGameZone({
       <div className="flex h-full items-center justify-center py-16">
         <BrandedLoader
           brand={brand}
-          label="Loading your tokens…"
-          sublabel="Charging once, loading each card"
+          label={t("gamezone.loadingTokens.label")}
+          sublabel={t("gamezone.loadingTokens.sub")}
         />
       </div>
     );
@@ -1931,11 +1933,10 @@ export function KioskGameZone({
       return (
         <div className="mx-auto max-w-md py-12 text-center kiosk-zoom">
           <div className="font-heading text-6xl font-extrabold italic">
-            {newCards.length === 1 ? "Card ready!" : "Cards ready!"}
+            {t("gamezone.cardsReady", { count: newCards.length })}
           </div>
           <p className="mt-4 text-lg text-white/60">
-            {newTokensTotal} tokens across {newCards.length} card
-            {newCards.length > 1 ? "s" : ""}.
+            {t("gamezone.tokensAcross", { tokens: newTokensTotal, count: newCards.length })}
           </p>
           <div className="mt-6 space-y-3 text-left">
             {newCards.map((c, i) => {
@@ -1948,32 +1949,32 @@ export function KioskGameZone({
                 >
                   <div>
                     <div className="font-heading text-[0.65rem] font-bold uppercase tracking-[0.3em] text-white/45">
-                      Card {i + 1}
+                      {t("gamezone.cardN", { n: i + 1 })}
                     </div>
                     <div className="font-heading text-xl font-extrabold tabular-nums">
                       {c.account ? displayCardNumber(c.account) : "—"}
                     </div>
                   </div>
                   <div className="font-heading text-lg font-extrabold tabular-nums text-[#46d68c]">
-                    {toks} tk
+                    {toks} {t("gamezone.tkAbbrev")}
                   </div>
                 </div>
               );
             })}
           </div>
           <p className="mt-4 text-sm text-white/50">
-            Grab your card{newCards.length > 1 ? "s" : ""} from the dispenser — tap in at the games.
+            {t("gamezone.grabCards", { count: newCards.length })}
           </p>
           <button
             type="button"
             onClick={onExit}
             className="font-heading mt-8 h-16 w-full rounded-full bg-[#00e2e5] text-xl font-extrabold uppercase italic text-[#04252b]"
           >
-            Done
+            {t("gamezone.done")}
           </button>
           {doneAutoCloseIn != null && (
             <p className="mt-3 text-sm text-white/40">
-              Closing automatically in {doneAutoCloseIn}s
+              {t("gamezone.closingIn", { seconds: doneAutoCloseIn })}
             </p>
           )}
         </div>
@@ -1982,29 +1983,24 @@ export function KioskGameZone({
     return (
       <div className="mx-auto max-w-md py-16 text-center kiosk-zoom">
         <div className="font-heading text-6xl font-extrabold italic">
-          {reloadPending ? "Payment received!" : "Tokens loaded!"}
+          {reloadPending ? t("gamezone.paymentReceived") : t("gamezone.tokensLoaded")}
         </div>
         <p className="mt-4 text-lg text-white/60">
-          {reloadPending ? (
-            <>
-              Your tokens may take a minute to appear — if your balance looks off, see an attendant.
-            </>
-          ) : (
-            <>
-              {cards.length === 1 ? "Your card is" : `All ${cards.length} cards are`} ready — tap in
-              at the games.
-            </>
-          )}
+          {reloadPending
+            ? t("gamezone.reloadPendingBody")
+            : t("gamezone.cardsReadyBody", { count: cards.length })}
         </p>
         <button
           type="button"
           onClick={onExit}
           className="font-heading mt-10 h-16 w-full rounded-full bg-[#00e2e5] text-xl font-extrabold uppercase italic text-[#04252b]"
         >
-          Done
+          {t("gamezone.done")}
         </button>
         {doneAutoCloseIn != null && (
-          <p className="mt-3 text-sm text-white/40">Closing automatically in {doneAutoCloseIn}s</p>
+          <p className="mt-3 text-sm text-white/40">
+            {t("gamezone.closingIn", { seconds: doneAutoCloseIn })}
+          </p>
         )}
       </div>
     );
@@ -2016,7 +2012,9 @@ export function KioskGameZone({
       <div className="mx-auto max-w-2xl px-2 py-6 kiosk-zoom">
         <div className="mb-5 flex items-center justify-between">
           <span className="flex items-center gap-4">
-            <h1 className="font-heading text-4xl font-extrabold italic">New cards</h1>
+            <h1 className="font-heading text-4xl font-extrabold italic">
+              {t("gamezone.newCards.title")}
+            </h1>
             <BridgeChip up={bridgeUp} />
           </span>
           <button
@@ -2024,13 +2022,10 @@ export function KioskGameZone({
             onClick={() => setMode("choose")}
             className="rounded-full border border-white/15 px-5 py-2 text-sm text-white/60"
           >
-            Back
+            {t("gamezone.back")}
           </button>
         </div>
-        <p className="mb-5 text-white/55">
-          Add a card for everyone in your group and pick each one&rsquo;s token package. One payment
-          covers them all.
-        </p>
+        <p className="mb-5 text-white/55">{t("gamezone.newCards.intro")}</p>
 
         <div className="space-y-4">
           {newCards.map((c, i) => {
@@ -2038,7 +2033,9 @@ export function KioskGameZone({
             return (
               <div key={i} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
                 <div className="flex items-center justify-between">
-                  <span className="font-heading text-lg font-extrabold italic">Card {i + 1}</span>
+                  <span className="font-heading text-lg font-extrabold italic">
+                    {t("gamezone.cardN", { n: i + 1 })}
+                  </span>
                   <div className="flex items-center gap-4">
                     {!expanded && (
                       <button
@@ -2046,7 +2043,7 @@ export function KioskGameZone({
                         onClick={() => setNewEditIdx(i)}
                         className="text-sm font-bold text-[#00e2e5]"
                       >
-                        Edit
+                        {t("gamezone.edit")}
                       </button>
                     )}
                     {newCards.length > 1 && (
@@ -2058,7 +2055,7 @@ export function KioskGameZone({
                         }}
                         className="text-sm text-white/45"
                       >
-                        Remove
+                        {t("gamezone.remove")}
                       </button>
                     )}
                   </div>
@@ -2103,7 +2100,7 @@ export function KioskGameZone({
             }}
             className="mt-4 w-full rounded-2xl border-2 border-dashed border-[#f800c6]/40 px-5 py-4 font-bold text-[#f800c6]"
           >
-            + Add another card
+            {t("gamezone.addAnotherCard")}
           </button>
         )}
 
@@ -2113,7 +2110,9 @@ export function KioskGameZone({
               ${(newTotalCents / 100).toFixed(2)}
             </div>
             <div className="text-xs text-white/45">
-              includes ${(ACTIVATION_FEE_CENTS / 100).toFixed(0)} activation per card
+              {t("gamezone.newCards.activationNote", {
+                price: `$${(ACTIVATION_FEE_CENTS / 100).toFixed(0)}`,
+              })}
             </div>
           </div>
           {addToVisit ? (
@@ -2128,7 +2127,7 @@ export function KioskGameZone({
               }
               className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
             >
-              Add to my visit
+              {t("gamezone.addToVisit")}
             </button>
           ) : (
             <button
@@ -2137,29 +2136,27 @@ export function KioskGameZone({
               onClick={() => setPhase("paying")}
               className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
             >
-              Pay &amp; dispense
+              {t("gamezone.payDispense")}
             </button>
           )}
         </div>
         {addToVisit && (
           <p className="mt-2 text-center text-sm text-white/45">
-            Cards are paid with your booking at checkout and dispense on the confirmation screen.
+            {t("gamezone.newCards.checkoutNote")}
           </p>
         )}
         {!readerReady ? (
           <p className="mt-2 text-center text-sm text-amber-300/80">
             {dispenser.reconnecting
-              ? "Connecting to the card dispenser…"
-              : "Card dispenser is offline — please see an attendant to buy new cards."}
+              ? t("gamezone.connecting.label")
+              : t("gamezone.dispenserOffline.new")}
           </p>
         ) : dispenser.stacker === "empty" ? (
           <p className="mt-2 text-center text-sm text-amber-300/80">
-            The card dispenser is out of cards — please see an attendant.
+            {t("gamezone.dispenserOutOfCards")}
           </p>
         ) : dispenser.stacker === "few" ? (
-          <p className="mt-2 text-center text-sm text-white/40">
-            Pay, then take each card as it&rsquo;s dispensed.
-          </p>
+          <p className="mt-2 text-center text-sm text-white/40">{t("gamezone.payTakeEach")}</p>
         ) : null}
       </div>
     );
@@ -2179,11 +2176,11 @@ export function KioskGameZone({
       <div className="mx-auto max-w-md py-8 kiosk-zoom">
         <div className="mb-6 text-center">
           <div className="font-heading text-3xl font-extrabold italic">
-            Pay ${payAmount.toFixed(2)}
+            {t("gamezone.pay", { amount: `$${payAmount.toFixed(2)}` })}
           </div>
           <p className="mt-1 text-sm text-white/50">
-            {payCount} card{payCount > 1 ? "s" : ""} ·{" "}
-            {isNew ? "cards dispense once payment clears" : "tokens load the moment payment clears"}
+            {t("gamezone.payCount", { count: payCount })} ·{" "}
+            {isNew ? t("gamezone.paySubNew") : t("gamezone.paySubReload")}
           </p>
         </div>
         {useReader && readerId ? (
@@ -2231,7 +2228,7 @@ export function KioskGameZone({
           onClick={() => setPhase("cart")}
           className="mt-4 w-full rounded-xl border border-white/15 px-5 py-3 text-sm font-semibold text-white/60"
         >
-          Back
+          {t("gamezone.back")}
         </button>
       </div>
     );
@@ -2249,20 +2246,22 @@ export function KioskGameZone({
           {dispenser.busy === "presenting card" ? (
             <BrandedLoader
               brand={brand}
-              label="Take your card"
-              sublabel="It's coming back out now"
+              label={t("gamezone.takeYourCard")}
+              sublabel={t("gamezone.takeYourCard.sub")}
             />
           ) : (
             <CardSlotGuide
-              label="Insert your card"
-              sublabel="Use the card slot on the left — it reads in a second and comes right back"
+              label={t("gamezone.insertCard")}
+              sublabel={t("gamezone.insertCard.subLeftShort")}
             />
           )}
         </div>
       )}
       <div className="mb-5 flex items-center justify-between">
         <span className="flex items-center gap-4">
-          <h1 className="font-heading text-4xl font-extrabold italic">Reload game cards</h1>
+          <h1 className="font-heading text-4xl font-extrabold italic">
+            {t("gamezone.reload.title")}
+          </h1>
           <BridgeChip up={bridgeUp} />
         </span>
         <button
@@ -2270,15 +2269,15 @@ export function KioskGameZone({
           onClick={() => setMode("choose")}
           className="rounded-full border border-white/15 px-5 py-2 text-sm text-white/60"
         >
-          Back
+          {t("gamezone.back")}
         </button>
       </div>
       <p className="mb-5 text-white/55">
         {readerReady
-          ? "Add each card and pick its token package — insert each card to read it. One payment covers them all."
+          ? t("gamezone.reload.intro.insert")
           : msrActive
-            ? "Add each card and pick its token package — swipe each card on the reader. One payment covers them all."
-            : "Add each card and pick its token package — scan the barcode or type the number. One payment covers them all."}
+            ? t("gamezone.reload.intro.swipe")
+            : t("gamezone.reload.intro.type")}
       </p>
 
       {error && phase === "error" && (
@@ -2339,12 +2338,12 @@ export function KioskGameZone({
                       className="mt-3 w-full rounded-xl bg-[#00e2e5] px-5 py-3.5 text-base font-bold text-[#04252b] disabled:opacity-40"
                     >
                       {dispenser.busy && c.status !== "ok"
-                        ? "Insert your card…"
+                        ? t("gamezone.reload.insertHold")
                         : autoReadBlocked
-                          ? "Couldn’t read — flip the card & tap to try again"
+                          ? t("gamezone.blockedFlip")
                           : c.accountNumber.trim()
-                            ? "Insert a different card"
-                            : "Insert card to read"}
+                            ? t("gamezone.reload.insertDifferent")
+                            : t("gamezone.reload.insertToRead")}
                     </button>
                   )}
                   {/* MSR kiosk: the swipe is the ONE way in — no typed entry, no
@@ -2355,17 +2354,17 @@ export function KioskGameZone({
                     <>
                       <div className="mt-3 w-full rounded-xl bg-[#00e2e5] px-5 py-3.5 text-center text-base font-bold text-[#04252b]">
                         {c.status === "verifying"
-                          ? "Checking your card…"
+                          ? t("gamezone.checkingCard")
                           : c.accountNumber.trim()
-                            ? `Card #${displayCardNumber(c.accountNumber)} — swipe a different card to replace it`
+                            ? t("gamezone.msr.replaceCard", {
+                                num: displayCardNumber(c.accountNumber),
+                              })
                             : msrListening
-                              ? "Swipe your card on the reader"
-                              : "Connecting to the card reader…"}
+                              ? t("gamezone.swipeOnReader")
+                              : t("gamezone.connectingReader")}
                       </div>
                       {msrBadSwipe && (
-                        <p className="mt-2 text-sm text-amber-300">
-                          Couldn’t read that swipe — flip the card and swipe again, slow and steady.
-                        </p>
+                        <p className="mt-2 text-sm text-amber-300">{t("gamezone.badSwipe")}</p>
                       )}
                     </>
                   )}
@@ -2382,7 +2381,7 @@ export function KioskGameZone({
                         onBlur={() =>
                           c.accountNumber.trim() && c.status === "unverified" && verify(i)
                         }
-                        placeholder="Card number (scan or type)"
+                        placeholder={t("gamezone.cardNumberScanType")}
                         className="flex-1 rounded-xl border border-white/15 bg-white/5 px-4 py-3.5 text-lg text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
                       />
                       <button
@@ -2390,21 +2389,19 @@ export function KioskGameZone({
                         onClick={() => verify(i)}
                         className="rounded-xl bg-[#00e2e5] px-5 py-2.5 text-sm font-bold text-[#04252b]"
                       >
-                        {c.status === "verifying" ? "…" : "Check"}
+                        {c.status === "verifying" ? "…" : t("gamezone.check")}
                       </button>
                     </div>
                   )}
                   {c.status === "ok" && (
                     <div className="mt-2 text-sm text-[#46d68c]">
-                      {c.holderName ? `${c.holderName} · ` : ""}balance {c.balance?.tokens ?? 0}{" "}
-                      tokens
+                      {c.holderName ? `${c.holderName} · ` : ""}
+                      {t("gamezone.balanceTokens", { n: c.balance?.tokens ?? 0 })}
                     </div>
                   )}
                   {c.status === "bad" && (
                     <div className="mt-2 text-sm text-red-300">
-                      {msrActive
-                        ? "Card not found — try swiping it again."
-                        : "Card not found — check the number."}
+                      {msrActive ? t("gamezone.notFoundSwipe") : t("gamezone.notFoundNumber")}
                     </div>
                   )}
                   <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -2434,12 +2431,12 @@ export function KioskGameZone({
                 <div className="mt-1 text-lg font-semibold text-white/80">
                   {c.accountNumber.trim()
                     ? `#${displayCardNumber(c.accountNumber.trim())}`
-                    : "No card number"}{" "}
+                    : t("gamezone.noCardNumber")}{" "}
                   · {pkgLabel(c.packageId)}
                   {c.status === "ok" ? (
                     <span className="text-[#46d68c]"> · ✓</span>
                   ) : (
-                    <span className="text-[#f0b341]"> · needs check</span>
+                    <span className="text-[#f0b341]"> · {t("gamezone.needsCheck")}</span>
                   )}
                 </div>
               )}
@@ -2480,7 +2477,7 @@ export function KioskGameZone({
             }
             className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
           >
-            Add to my visit
+            {t("gamezone.addToVisit")}
           </button>
         ) : (
           <button
@@ -2489,18 +2486,18 @@ export function KioskGameZone({
             onClick={() => setPhase("paying")}
             className="font-heading h-14 rounded-full bg-[#00e2e5] px-8 text-lg font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
           >
-            Pay &amp; load
+            {t("gamezone.payLoad")}
           </button>
         )}
       </div>
       {addToVisit && (
         <p className="mt-2 text-center text-sm text-white/45">
-          Tokens are paid with your booking at checkout and load right after payment.
+          {t("gamezone.reload.checkoutNote")}
         </p>
       )}
       {!allReady && (
         <p className="mt-2 text-center text-sm text-white/40">
-          Check each card number to continue.
+          {t("gamezone.checkEachToContinue")}
         </p>
       )}
     </div>

@@ -13,6 +13,7 @@
  */
 import { AccountCard } from "~/components/features/booking/steps/race/ReturningRacerLookup";
 import type { LicenseMatch } from "../license/types";
+import { useT } from "../i18n";
 
 export function LicenseMatchPicker({
   firstName,
@@ -32,23 +33,22 @@ export function LicenseMatchPicker({
   onNewInstead: () => void;
   onCancel: () => void;
 }) {
+  const t = useT();
   return (
     <div className="fixed inset-0 z-[76] overflow-y-auto bg-[#000418] p-[48px]">
       <div className="mx-auto max-w-[900px] space-y-[28px]">
         <div>
-          <div className="k-eyebrow text-[#00e2e5]">License scanned</div>
+          <div className="k-eyebrow text-[#00e2e5]">{t("license.eyebrow")}</div>
           <h2 className="k-display mt-[8px] text-[44px]">
-            Welcome back
+            {t("license.welcome")}
             {firstName ? (
               <>
                 , <span style={{ textTransform: "none" }}>{firstName}</span>
               </>
             ) : null}{" "}
-            — which account is yours?
+            {t("license.whichAccount")}
           </h2>
-          <p className="mt-[10px] text-[24px] text-white/55">
-            More than one account matches your name and birthday. Tap yours to sign in.
-          </p>
+          <p className="mt-[10px] text-[24px] text-white/55">{t("license.subtitle")}</p>
         </div>
 
         <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 ${busy ? "opacity-50" : ""}`}>
@@ -64,7 +64,7 @@ export function LicenseMatchPicker({
             onClick={onNewInstead}
             className="k-tap rounded-[28px] border-2 border-dashed border-[#00e2e5]/45 px-[24px] py-[24px] text-[26px] font-bold text-[#00e2e5]"
           >
-            None of these — set me up as new
+            {t("license.noneNew")}
           </button>
           <button
             type="button"
@@ -72,7 +72,7 @@ export function LicenseMatchPicker({
             onClick={onCancel}
             className="k-tap rounded-[28px] border-2 border-white/15 px-[24px] py-[24px] text-[26px] font-semibold text-white/60"
           >
-            ← Back
+            ← {t("license.back")}
           </button>
         </div>
       </div>

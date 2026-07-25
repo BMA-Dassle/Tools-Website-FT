@@ -15,6 +15,7 @@ import type { Dispatch } from "react";
 import type { Action } from "~/features/booking/state/machine";
 import type { BookingSession } from "~/features/booking";
 import { contactIsComplete } from "~/components/features/booking/steps/ContactStep";
+import { useT } from "../i18n";
 
 const FIELD_CLS =
   "w-full rounded-2xl border border-white/12 bg-white/5 px-[24px] py-[18px] text-[28px] text-white placeholder-white/25 outline-none transition-colors focus:border-[#00e2e5]/60";
@@ -26,6 +27,7 @@ export function KioskBookingAsCard({
   session: BookingSession;
   dispatch: Dispatch<Action>;
 }) {
+  const t = useT();
   const c = session.contact;
   const [editing, setEditing] = useState(() => !contactIsComplete(c));
   const [firstName, setFirstName] = useState(c.firstName ?? "");
@@ -62,7 +64,7 @@ export function KioskBookingAsCard({
         className="k-glass k-tap flex w-full items-center justify-between gap-[24px] p-[32px] text-left"
       >
         <div className="min-w-0">
-          <p className="k-eyebrow">Booking as</p>
+          <p className="k-eyebrow">{t("bookingAs.label")}</p>
           <p className="mt-[6px] truncate text-[34px] font-bold text-white">
             {c.firstName} {c.lastName}
           </p>
@@ -70,11 +72,11 @@ export function KioskBookingAsCard({
             {[c.email, c.phone].filter(Boolean).join(" · ")}
           </p>
           {(c.smsOptIn ?? true) && (
-            <p className="mt-[4px] text-[22px] text-[#46d68c]">Text confirmation on</p>
+            <p className="mt-[4px] text-[22px] text-[#46d68c]">{t("bookingAs.textOn")}</p>
           )}
         </div>
         <span className="shrink-0 text-[26px] font-bold uppercase tracking-wider text-[#00e2e5]">
-          Change
+          {t("bookingAs.change")}
         </span>
       </button>
     );
@@ -82,31 +84,37 @@ export function KioskBookingAsCard({
 
   return (
     <div className="k-glass w-full space-y-[20px] p-[32px]">
-      <p className="k-eyebrow">Booking as</p>
+      <p className="k-eyebrow">{t("bookingAs.label")}</p>
       <div className="grid grid-cols-2 gap-[16px]">
         <label className="block">
-          <span className="mb-[6px] block text-[22px] font-semibold text-white/50">First name</span>
+          <span className="mb-[6px] block text-[22px] font-semibold text-white/50">
+            {t("bookingAs.firstName")}
+          </span>
           <input
             type="text"
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
             className={FIELD_CLS}
-            placeholder="First name"
+            placeholder={t("bookingAs.firstName")}
           />
         </label>
         <label className="block">
-          <span className="mb-[6px] block text-[22px] font-semibold text-white/50">Last name</span>
+          <span className="mb-[6px] block text-[22px] font-semibold text-white/50">
+            {t("bookingAs.lastName")}
+          </span>
           <input
             type="text"
             value={lastName}
             onChange={(e) => setLastName(e.target.value)}
             className={FIELD_CLS}
-            placeholder="Last name"
+            placeholder={t("bookingAs.lastName")}
           />
         </label>
       </div>
       <label className="block">
-        <span className="mb-[6px] block text-[22px] font-semibold text-white/50">Email</span>
+        <span className="mb-[6px] block text-[22px] font-semibold text-white/50">
+          {t("bookingAs.email")}
+        </span>
         <input
           type="email"
           value={email}
@@ -116,7 +124,9 @@ export function KioskBookingAsCard({
         />
       </label>
       <label className="block">
-        <span className="mb-[6px] block text-[22px] font-semibold text-white/50">Mobile phone</span>
+        <span className="mb-[6px] block text-[22px] font-semibold text-white/50">
+          {t("bookingAs.mobilePhone")}
+        </span>
         <input
           type="tel"
           value={phone}
@@ -132,9 +142,7 @@ export function KioskBookingAsCard({
           onChange={(e) => setSmsOptIn(e.target.checked)}
           className="h-[36px] w-[36px] rounded border-white/20 bg-white/5 accent-[#00e2e5]"
         />
-        <span className="text-[24px] text-white/60">
-          Text me my confirmation &amp; check-in reminder
-        </span>
+        <span className="text-[24px] text-white/60">{t("bookingAs.smsOptIn")}</span>
       </label>
       <button
         type="button"
@@ -142,7 +150,7 @@ export function KioskBookingAsCard({
         disabled={!draftValid}
         className="k-tap h-[84px] w-full rounded-full bg-[#00e2e5] text-[28px] font-extrabold uppercase tracking-wider text-[#04252b] disabled:opacity-40"
       >
-        Done
+        {t("bookingAs.done")}
       </button>
     </div>
   );
