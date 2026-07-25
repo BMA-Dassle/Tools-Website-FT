@@ -52,6 +52,16 @@ const AVAILABILITY_NOUN: Record<string, [string, string]> = {
  *  here because it migrated off BMI to QAMF (FastTrax center 11542). */
 const TIME_ONLY_SLUGS = new Set(["bowling", "kbf", "duck-pin"]);
 
+/** Experiences shelf line: "Next available · 6:15 PM · 5 slots" for the VIP
+ *  combo / Ultimate Qualifier (earliest feasible start + seats). Null = no
+ *  signal → the banner just omits the line. */
+function experienceLine(firstOpen?: FirstOpen): string | null {
+  if (!firstOpen) return null;
+  const time = slotLabel(firstOpen.start);
+  if (firstOpen.freeSpots == null) return `Next available · ${time}`;
+  return `Next available · ${time} · ${firstOpen.freeSpots} slot${firstOpen.freeSpots === 1 ? "" : "s"}`;
+}
+
 /** The tile availability line: "3 lanes · 9:30 PM" when the vendor gives a
  *  count, "Next lane · 12:00 PM" for bowling/KBF (time only), or null when we
  *  have no signal (vendor blip → the tile just omits the line). */
@@ -229,6 +239,7 @@ export function KioskCategories({
                     // Both day-tier prices, matching the overview screen's format
                     // (owner 2026-07-19: show Mon–Thu AND Fri–Sun, not "From $X").
                     priceLine={`$${(combo.price.weekday / 100).toFixed(0)}/person Mon–Thu · $${(combo.price.weekend / 100).toFixed(0)}/person Fri–Sun`}
+                    firstOpen={locked ? undefined : offeringFirstOpen(combo.id)}
                     disabled={locked}
                     disabledNote="Not available right now — please check back or ask an attendant."
                     onClick={() => onPickCombo(combo)}
@@ -256,6 +267,7 @@ export function KioskCategories({
                       .filter(Boolean)
                       .join(" · ") || undefined
                   }
+                  firstOpen={uqAvailable ? offeringFirstOpen("ultimate-qualifier") : undefined}
                   disabled={!uqAvailable}
                   disabledNote="Not enough time left today to fit both races — please check back or ask an attendant."
                   onClick={() => onPickPackageExperience("ultimate-qualifier")}
@@ -398,6 +410,7 @@ function ShelfBanner({
   title,
   blurb,
   priceLine,
+  firstOpen,
   disabled,
   disabledNote,
   onClick,
@@ -411,11 +424,15 @@ function ShelfBanner({
    *  Fri–Sun") so day-tier prices stay scannable instead of wrapping mid-blurb.
    *  Hidden while disabled — the disabledNote replaces the sell copy. */
   priceLine?: string;
+  /** Earliest feasible slot for the experiences line ("Next available · TIME ·
+   *  N slots"). Undefined = no line. */
+  firstOpen?: FirstOpen;
   disabled?: boolean;
   disabledNote?: string;
   onClick: () => void;
 }) {
   const photoUrl = useResilientImage(photo);
+  const availLine = disabled ? null : experienceLine(firstOpen);
   return (
     <button
       type="button"
@@ -435,6 +452,14 @@ function ShelfBanner({
         <div className="mt-[12px] line-clamp-3 text-[28px] leading-snug text-pretty break-words text-white/70">
           {disabled && disabledNote ? disabledNote : blurb}
         </div>
+        {availLine && (
+          <div className="mt-[12px] flex items-center gap-[10px]">
+            <span className="h-[12px] w-[12px] flex-none rounded-full bg-[#46d68c]" />
+            <span className="text-[26px] font-bold uppercase tracking-[0.06em] tabular-nums text-[#46d68c]">
+              {availLine}
+            </span>
+          </div>
+        )}
         {priceLine && !disabled && (
           <div className="mt-[12px] text-[26px] font-semibold tabular-nums text-white/85">
             {priceLine}

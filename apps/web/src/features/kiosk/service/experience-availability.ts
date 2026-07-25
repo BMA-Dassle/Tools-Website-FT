@@ -19,7 +19,11 @@
  */
 import { buildChains, getComboSpecial } from "~/features/combos";
 import { comboMinHeadcount, comboReorderFallbackEnabled } from "~/features/combos/combo-specials";
-import { candidatesForOrdering, fetchComboLegCandidates } from "~/features/combos/combo-booking";
+import {
+  candidatesForOrdering,
+  fetchComboLegCandidates,
+  type ComboLegPayload,
+} from "~/features/combos/combo-booking";
 import { bmiAdapter } from "~/features/booking/data/bmi";
 import { newPartyMember, qamfCenterIdForCode, type CenterCode } from "~/features/booking";
 import { violatesMinGapAfter } from "~/features/booking/service/conflict";
@@ -72,6 +76,8 @@ export interface ExperienceAvailability {
  *  line rather than showing "0 left". */
 export type ExperienceFirstOpen = Partial<
   Record<
+    | "race-bowl"
+    | "ultimate-qualifier"
     | "race"
     | "duck-pin"
     | "gel-blaster"
@@ -110,11 +116,15 @@ async function resolveSlotAvailability(
   }
 }
 
-async function isComboBookableToday(center: CenterCode, dateYmd: string): Promise<boolean> {
+/** VIP combo (race-bowl): the EARLIEST feasible race→VIP-lane→race chain today
+ *  → the tile's "Next available" start. `freeSpots` = min seats across the
+ *  chain's RACE legs (the binding constraint — the VIP lane is booked whole for
+ *  the group and QAMF gives it no per-seat count). null = nothing fits today. */
+async function comboFirstOpenToday(center: CenterCode, dateYmd: string): Promise<FirstOpen | null> {
   const combo = getComboSpecial("race-bowl");
-  if (!combo?.enabled || combo.center !== center) return false;
+  if (!combo?.enabled || combo.center !== center) return null;
   const centerId = qamfCenterIdForCode(center);
-  if (centerId == null) return false;
+  if (centerId == null) return null;
 
   const party = Array.from({ length: comboMinHeadcount(combo) }, (_, i) =>
     newPartyMember({ firstName: `probe${i + 1}`, category: "adult", isNewRacer: true }),
@@ -124,22 +134,35 @@ async function isComboBookableToday(center: CenterCode, dateYmd: string): Promis
     legCandidates,
     combo.transitionMinutes,
     combo.components.map((l) => l.maxWaitMinutes ?? null),
-  ).some((c) => c.chain != null);
-  if (!feasible && comboReorderFallbackEnabled() && combo.fallbackComponents) {
+  ).filter((c) => c.chain != null);
+  if (feasible.length === 0 && comboReorderFallbackEnabled() && combo.fallbackComponents) {
     feasible = buildChains(
       candidatesForOrdering(combo.components, legCandidates, combo.fallbackComponents),
       combo.transitionMinutes,
       combo.fallbackComponents.map((l) => l.maxWaitMinutes ?? null),
       combo.fallbackComponents.map((l) => l.minWaitMinutes ?? null),
-    ).some((c) => c.chain != null);
+    ).filter((c) => c.chain != null);
   }
-  return feasible;
+  if (feasible.length === 0) return null;
+  // Earliest feasible chain by its anchor (first race) start.
+  const earliest = feasible.reduce((a, b) => (b.anchor.startMs < a.anchor.startMs ? b : a));
+  const raceSpots = (earliest.chain ?? [])
+    .map((leg) => leg.payload as ComboLegPayload)
+    .filter((pl): pl is Extract<ComboLegPayload, { kind: "race" }> => pl.kind === "race")
+    .map((pl) => pl.candidate.freeSpots);
+  const freeSpots = raceSpots.length > 0 ? Math.min(...raceSpots) : undefined;
+  return { start: earliest.anchor.startIso, freeSpots };
 }
 
-/** Mirrors PackageCard's `blocked` gate: every component has heats today, and
- *  the gap-race has at least one Starter→Intermediate pair that clears the gap. */
-async function isPackageBookableToday(pkg: PackageDefinition, dateYmd: string): Promise<boolean> {
-  const heatsByRef: Record<string, Array<{ start: string; stop: string }>> = {};
+/** Mirrors PackageCard's `blocked` gate — every component has heats today and
+ *  the gap-race has a Starter→Intermediate pair that clears the gap — but also
+ *  returns the EARLIEST bookable START heat (the Starter the guest books first)
+ *  and its seats, for the tile's "Next available · N slots". null = won't fit. */
+async function packageFirstOpen(
+  pkg: PackageDefinition,
+  dateYmd: string,
+): Promise<FirstOpen | null> {
+  const heatsByRef: Record<string, Array<{ start: string; stop: string; freeSpots: number }>> = {};
   for (const race of pkg.races) {
     const track = primaryTrack(race);
     try {
@@ -152,21 +175,36 @@ async function isPackageBookableToday(pkg: PackageDefinition, dateYmd: string): 
       const blocks = (avail.proposals ?? [])
         .map((p) => p.blocks?.[0]?.block)
         .filter((b): b is NonNullable<typeof b> => Boolean(b));
-      heatsByRef[race.ref] = blocks.map((b) => ({ start: b.start, stop: b.stop }));
+      heatsByRef[race.ref] = blocks.map((b) => ({
+        start: b.start,
+        stop: b.stop,
+        freeSpots: b.freeSpots,
+      }));
     } catch {
       heatsByRef[race.ref] = [];
     }
   }
+  const earliestOf = (heats: Array<{ start: string; freeSpots: number }>) =>
+    heats.length === 0
+      ? null
+      : heats.reduce((a, b) => (naiveEtStartMs(b.start) < naiveEtStartMs(a.start) ? b : a));
+
   const gateRace = pkg.races.find((r) => r.minMinutesAfterEndOf);
   if (!gateRace?.minMinutesAfterEndOf) {
-    return pkg.races.every((r) => (heatsByRef[r.ref] ?? []).length > 0);
+    // No gap gate: bookable iff every race has a heat; start = first race's earliest.
+    if (!pkg.races.every((r) => (heatsByRef[r.ref] ?? []).length > 0)) return null;
+    const first = earliestOf(heatsByRef[pkg.races[0].ref] ?? []);
+    return first ? { start: first.start, freeSpots: first.freeSpots } : null;
   }
-  const prev = heatsByRef[gateRace.minMinutesAfterEndOf.ref] ?? [];
-  const next = heatsByRef[gateRace.ref] ?? [];
-  if (prev.length === 0 || next.length === 0) return false;
-  return prev.some((p) =>
+  const prev = heatsByRef[gateRace.minMinutesAfterEndOf.ref] ?? []; // the Starter (booked first)
+  const next = heatsByRef[gateRace.ref] ?? []; // the Intermediate (must clear the gap)
+  if (prev.length === 0 || next.length === 0) return null;
+  // Earliest Starter heat that still has a valid Intermediate after it.
+  const valid = prev.filter((p) =>
     next.some((n) => !violatesMinGapAfter(p.stop, n.start, MIN_PACKAGE_GAP_MINUTES)),
   );
+  const start = earliestOf(valid);
+  return start ? { start: start.start, freeSpots: start.freeSpots } : null;
 }
 
 /** The EARLIEST bookable QAMF slot today at one center for a kind set (null =
@@ -313,14 +351,18 @@ async function racingFirstOpenToday(dateYmd: string): Promise<FirstOpen | null> 
   return best;
 }
 
-async function isUltimateQualifierBookableToday(dateYmd: string): Promise<boolean> {
+/** Ultimate Qualifier: earliest bookable start across its enabled variants
+ *  today (null = none fit). Starter→Intermediate feasibility per variant. */
+async function uqFirstOpenToday(dateYmd: string): Promise<FirstOpen | null> {
   const variants = eligiblePackages({
     racerType: "new",
     schedule: scheduleForDate(dateYmd),
   }).filter((p) => p.id.startsWith("ultimate-qualifier"));
-  if (variants.length === 0) return false;
-  const results = await Promise.all(variants.map((v) => isPackageBookableToday(v, dateYmd)));
-  return results.some(Boolean);
+  if (variants.length === 0) return null;
+  const results = await Promise.all(variants.map((v) => packageFirstOpen(v, dateYmd)));
+  const opens = results.filter((r): r is FirstOpen => r != null);
+  if (opens.length === 0) return null;
+  return opens.reduce((a, b) => (naiveEtStartMs(b.start) < naiveEtStartMs(a.start) ? b : a));
 }
 
 /** Compute availability for the Experiences-shelf items. Each check defaults to
@@ -340,18 +382,16 @@ export async function computeExperienceAvailability(
   // tiles never render there, and open can never false-lock anything.
   const OPEN_NO_COUNT: SlotAvailability = { open: true };
 
-  // Boolean-only checks (combos carry no per-slot data) and the slot-carrying
-  // checks run concurrently — one barrier, no lost parallelism. Bowling/KBF
-  // carry a time only (QAMF gives no lane count) → a time-only tile line. All of
-  // this runs INSIDE the Redis-cached /api/kiosk/availability compute (300s TTL,
-  // single-flight), so the vendors are hit at most once per TTL per center.
-  const boolsP = Promise.all([
-    isComboBookableToday(center, dateYmd).catch(() => true),
-    isUltimateQualifierBookableToday(dateYmd).catch(() => true),
-  ]);
   // HeadPinz bowling/KBF QAMF center for this location (null → no line).
   const hpCenterId = qamfCenterIdForCode(center);
-  const slotsP = Promise.all([
+  // Every check runs concurrently — one barrier. Experiences (combo + Ultimate
+  // Qualifier) now carry their earliest feasible start + seats; bowling/KBF/
+  // duckpin carry a time only (QAMF gives no lane count). All of this runs INSIDE
+  // the Redis-cached /api/kiosk/availability compute (3m TTL, single-flight), so
+  // the vendors are hit at most once per TTL per center.
+  const [combo, uq, race, duckPin, gel, laser, shufFt, shufHp, bowling, kbf] = await Promise.all([
+    resolveSlotAvailability(comboFirstOpenToday(center, dateYmd)),
+    resolveSlotAvailability(uqFirstOpenToday(dateYmd)),
     fm ? resolveSlotAvailability(racingFirstOpenToday(dateYmd)) : Promise.resolve(OPEN_NO_COUNT),
     // Duckpin migrated to QAMF (FastTrax center 11542) — its old BMI page is
     // stale, so read availability from QAMF like the other lanes (time-only).
@@ -373,13 +413,11 @@ export async function computeExperienceAvailability(
       ? resolveSlotAvailability(qamfFirstOpenToday(hpCenterId, dateYmd, "kbf"))
       : Promise.resolve(OPEN_NO_COUNT),
   ]);
-  const [[combo, uq], [race, duckPin, gel, laser, shufFt, shufHp, bowling, kbf]] =
-    await Promise.all([boolsP, slotsP]);
 
   return {
     available: {
-      "race-bowl": combo,
-      "ultimate-qualifier": uq,
+      "race-bowl": combo.open,
+      "ultimate-qualifier": uq.open,
       bowling: bowling.open,
       kbf: kbf.open,
       race: race.open,
@@ -394,6 +432,8 @@ export async function computeExperienceAvailability(
     // no availability line — the home-page race grid already covers heat times,
     // and a per-tier line was too busy (owner 2026-07-25).
     firstOpen: {
+      "race-bowl": combo.firstOpen,
+      "ultimate-qualifier": uq.firstOpen,
       "duck-pin": duckPin.firstOpen,
       "gel-blaster": gel.firstOpen,
       "laser-tag": laser.firstOpen,
