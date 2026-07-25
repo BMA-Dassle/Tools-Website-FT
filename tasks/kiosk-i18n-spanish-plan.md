@@ -137,3 +137,21 @@ Slot, BowlerDetails, BowlingOffer, BowlingPeople, Checkout, Upsell.
 
 **Where the work lives:** isolated worktree `.claude/worktrees/agent-ab7395b5315a2b9b4` on
 `feat/kiosk-i18n-spanish` (the main tree is on other work). Reused CartView/web blocks stay English.
+
+### 2026-07-25 (later still) — 13 screens done
+Added: KioskRewardsSection, KioskCheckoutScreen, KioskCheckoutUpsell (checkout cluster
+complete), plus mobile-join NewGuestForm.
+
+**Converted (13):** Attract, Categories, Confirmation, BowlingTier, BowlingTime, Slot,
+BowlerDetails, BowlingOffer, BowlingPeople, Checkout, Upsell, Rewards, NewGuestForm.
+
+**Remaining Phase 2 (each deserves fresh context — large / delicate):**
+- `KioskPeopleStep.tsx` (~2,255 lines) — racing sign-up with AGE-GATE business logic and
+  interpolated validation (the "under 7 too young" rule etc.). Do NOT bulk-swap; convert visible
+  headings/labels/buttons and leave `TODO(i18n)` on the interpolated business-rule messages.
+- `join/phone/JoinPhoneFlow.tsx` (~628 lines) — the rest of the mobile-join phone flow.
+- Check-in flow (`checkin/*`).
+- Race-info hub (`components/race-info/*`, ~800 lines of view-only racing marketing content;
+  flag OFF — lowest priority).
+
+Pattern is now well-established across 13 examples; a cloud agent could finish the remainder.
