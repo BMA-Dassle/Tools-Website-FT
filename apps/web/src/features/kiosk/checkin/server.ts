@@ -302,35 +302,57 @@ function titleCase(s: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
 
+interface RaceSlotEntry {
+  slot: CheckinRaceSlot;
+  heat: NeonHeat;
+}
+
 /**
  * Purchased race slots from the Neon race rows' `booking_metadata.heats` — the
- * "who is who" assignment surface. One slot per heat; tier/category come from the
- * heat row, falling back to the product registry, then a safe default. Sorted by
- * start. Built only from Neon heats (the authoritative per-slot record with
- * category/productId); a record-only fallback yields no slots, so the client
- * degrades to the legacy earliest-first auto-assign.
+ * "who is who" assignment surface, paired with their source heat. Two racers in
+ * the SAME heat share a `heatId`, so each seat gets a stable UNIQUE `slotKey`
+ * (`heatId|productId|occurrence`) — the key the client assigns against and the
+ * server re-resolves. Deterministically sorted (by start, then product) so the
+ * slotKeys match between the itinerary GET and the complete POST, which both
+ * call this. Built only from Neon heats (the authoritative per-slot record with
+ * category/productId); a record-only fallback yields no slots.
  */
-function buildRaceSlots(group: BowlingReservation[]): CheckinRaceSlot[] {
-  const slots: CheckinRaceSlot[] = [];
-  for (const h of neonHeats(group)) {
-    if (!h.heatId) continue;
+function buildRaceSlotEntries(group: BowlingReservation[]): RaceSlotEntry[] {
+  const heats = neonHeats(group).filter((h) => h.heatId);
+  const sorted = [...heats].sort(
+    (a, b) =>
+      timeKey(a.heatId).localeCompare(timeKey(b.heatId)) ||
+      String(a.productId ?? "").localeCompare(String(b.productId ?? "")),
+  );
+  const seen = new Map<string, number>();
+  return sorted.map((h) => {
+    const base = `${h.heatId}|${h.productId ?? ""}`;
+    const occ = seen.get(base) ?? 0;
+    seen.set(base, occ + 1);
     const product = h.productId ? getRaceProductById(h.productId) : null;
     const tier = h.tier || product?.tier || "starter";
     const category = (h.category || product?.category || "adult") as "adult" | "junior";
     const track = h.track ?? product?.track ?? null;
-    slots.push({
-      heatId: h.heatId,
-      productId: h.productId ?? null,
-      classLabel: `${titleCase(tier)} ${titleCase(category)}` + (track ? ` · ${track}` : ""),
-      tier,
-      category,
-      track,
-      timeLabel: fmtTime12(h.heatId),
-      occupantName: h.bmiPersonId ? (h.racer ? displayNameFromFull(h.racer) : "Racer") : null,
-      open: !h.bmiPersonId,
-    });
-  }
-  return slots.sort((a, b) => timeKey(a.heatId).localeCompare(timeKey(b.heatId)));
+    return {
+      heat: h,
+      slot: {
+        slotKey: `${base}|${occ}`,
+        heatId: h.heatId as string,
+        productId: h.productId ?? null,
+        classLabel: `${titleCase(tier)} ${titleCase(category)}` + (track ? ` · ${track}` : ""),
+        tier,
+        category,
+        track,
+        timeLabel: fmtTime12(h.heatId),
+        occupantName: h.bmiPersonId ? (h.racer ? displayNameFromFull(h.racer) : "Racer") : null,
+        open: !h.bmiPersonId,
+      },
+    };
+  });
+}
+
+function buildRaceSlots(group: BowlingReservation[]): CheckinRaceSlot[] {
+  return buildRaceSlotEntries(group).map((e) => e.slot);
 }
 
 // ── reservation summary (label / center / cancelled) ─────────────────────────
@@ -995,7 +1017,12 @@ export async function completeCheckin(args: {
       // explicit person→slot choices (class-validated at the kiosk) win; without
       // them we fall back to the legacy earliest-first positional auto-assign.
       const openHeats = heats.filter((h) => !h.bmiPersonId && h.heatId);
-      const openByHeatId = new Map(openHeats.map((h) => [h.heatId as string, h]));
+      // Seat-unique slotKey → heat (two racers in one heat are distinct slots).
+      const openBySlotKey = new Map(
+        buildRaceSlotEntries(group)
+          .filter((e) => !e.heat.bmiPersonId)
+          .map((e) => [e.slot.slotKey, e.heat]),
+      );
       // Match an assignment's personId against either id the person row carries.
       const personByIdKey = new Map<string, (typeof people)[number]>();
       for (const p of people) {
@@ -1008,7 +1035,7 @@ export async function completeCheckin(args: {
       // the whole batch, so anyone without a resolved short id is isolated to
       // the memo instead of being POSTed (review H1).
       const bound: { personRowId: number; personId: string }[] = [];
-      const usedHeatIds = new Set<string>();
+      const usedSlotKeys = new Set<string>();
       const usedPersonRowIds = new Set<number>();
 
       // Place one person on one open heat: build the schedule row from the
@@ -1037,7 +1064,6 @@ export async function completeCheckin(args: {
           heatStop: heatStopFor(heat.heatId as string),
         });
         bound.push({ personRowId: p.id, personId: p.pandoraPersonId });
-        usedHeatIds.add(heat.heatId as string);
         usedPersonRowIds.add(p.id);
         if (event) {
           await upsertCheckinPerson({
@@ -1049,14 +1075,15 @@ export async function completeCheckin(args: {
         }
       };
 
-      const assignments = (args.assignments ?? []).filter((a) => a?.heatId && a?.personId);
+      const assignments = (args.assignments ?? []).filter((a) => a?.slotKey && a?.personId);
       if (assignments.length > 0) {
-        // Explicit guest choice. First assignment per (slot, person) wins;
-        // a slot already filled, an unknown person, or a double-booked person
-        // is skipped. Unassigned bound people are deliberately not racing.
+        // Explicit guest choice, keyed by the seat-unique slotKey. First
+        // assignment per slot/person wins; a filled/unknown slot, an unknown
+        // person, or a double-booked person is skipped. Unassigned bound people
+        // are deliberately not racing.
         for (const a of assignments) {
-          if (usedHeatIds.has(a.heatId)) continue;
-          const heat = openByHeatId.get(a.heatId);
+          if (usedSlotKeys.has(a.slotKey)) continue;
+          const heat = openBySlotKey.get(a.slotKey);
           const p = personByIdKey.get(a.personId);
           if (!heat || !p || usedPersonRowIds.has(p.id)) continue;
           // Class guard (defense in depth — the picker already filters by class):
@@ -1067,6 +1094,7 @@ export async function completeCheckin(args: {
             memoFailures.push(p.firstName || p.displayName || "Racer");
             continue;
           }
+          usedSlotKeys.add(a.slotKey);
           await assignToSlot(p, heat);
         }
       } else {

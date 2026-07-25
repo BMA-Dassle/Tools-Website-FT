@@ -11,12 +11,12 @@ function parseAssignments(raw: unknown): CheckinSlotAssignment[] {
   const out: CheckinSlotAssignment[] = [];
   for (const a of raw) {
     if (a && typeof a === "object") {
-      const heatId = (a as { heatId?: unknown }).heatId;
+      const slotKey = (a as { slotKey?: unknown }).slotKey;
       const personId = (a as { personId?: unknown }).personId;
       const category = (a as { category?: unknown }).category;
-      if (typeof heatId === "string" && typeof personId === "string" && heatId && personId) {
+      if (typeof slotKey === "string" && typeof personId === "string" && slotKey && personId) {
         out.push({
-          heatId,
+          slotKey,
           personId,
           category: category === "adult" || category === "junior" ? category : null,
         });

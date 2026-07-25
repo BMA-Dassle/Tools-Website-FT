@@ -168,9 +168,11 @@ export interface CheckinRosterPerson {
 }
 
 /** One purchased race slot on the reservation — the unit the guest assigns a
- *  person to at check-in ("who is who"). `heatId` is the naive-ET block start,
- *  and the stable key for the person→slot assignment. */
+ *  person to at check-in ("who is who"). `slotKey` is a stable UNIQUE id per
+ *  seat (two racers in the same heat share a `heatId` but never a `slotKey`);
+ *  `heatId` is the naive-ET block start, used only for scheduling. */
 export interface CheckinRaceSlot {
+  slotKey: string;
   heatId: string;
   productId: string | null;
   /** Human label for the picker: "Starter Junior · Blue". */
@@ -188,7 +190,8 @@ export interface CheckinRaceSlot {
 
 /** A guest's person→slot choice sent to /complete. */
 export interface CheckinSlotAssignment {
-  heatId: string;
+  /** Unique seat id (matches CheckinRaceSlot.slotKey), NOT the shared heatId. */
+  slotKey: string;
   /** SHORT Pandora id preferred, else the 17-digit Office id — matched to the
    *  bound person row server-side. */
   personId: string;

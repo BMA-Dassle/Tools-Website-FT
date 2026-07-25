@@ -46,6 +46,7 @@ import {
 } from "./service";
 import { useWedgeScan } from "./wedge-scan";
 import { resolveRaceClass } from "./category";
+import { pandoraCreatePerson } from "@/lib/pandora";
 import type {
   CheckinActivity,
   CheckinBindMember,
@@ -115,6 +116,9 @@ export function KioskCheckinFlow() {
   const { config } = useKioskConfig();
   const hydrated = useHydrated();
   const center = config?.center ?? "fort-myers";
+  // Pandora location for short-id resolution (mirrors KioskPeopleStep).
+  const brandLocation =
+    center === "naples" ? "naples" : config?.brand === "headpinz" ? "headpinz" : "fasttrax";
 
   const [stage, setStage] = useState<Stage>("find");
   const [busy, setBusy] = useState(false);
@@ -193,37 +197,76 @@ export function KioskCheckinFlow() {
   const partyNeedsSetup = session.party.some((m) => !m.bmiPersonId || !m.waiverValid);
 
   // "Who is who" — the open (unfilled) purchased race slots, and the handler
-  // that assigns a ready party member to one. A member holds at most one slot.
+  // that assigns a ready party member to one. Keyed by the seat-unique slotKey
+  // (never heatId — two racers can share a heat). A member holds at most one slot.
   const openRaceSlots = itinerary?.raceSlots.filter((s) => s.open) ?? [];
-  const assignRace = (heatId: string, memberId: string) => {
+  const assignRace = (slotKey: string, memberId: string) => {
     setAssignMap((prev) => {
       const next: Record<string, string> = {};
-      for (const [h, mId] of Object.entries(prev)) {
+      for (const [k, mId] of Object.entries(prev)) {
         if (mId === memberId) continue; // release the member's previous slot
-        next[h] = mId;
+        next[k] = mId;
       }
-      if (prev[heatId] === memberId) return next; // tapping the held slot clears it
-      next[heatId] = memberId;
+      if (prev[slotKey] === memberId) return next; // tapping the held slot clears it
+      next[slotKey] = memberId;
       return next;
     });
   };
-  const clearRace = (heatId: string) =>
+  const clearRace = (slotKey: string) =>
     setAssignMap((prev) => {
       const next = { ...prev };
-      delete next[heatId];
+      delete next[slotKey];
       return next;
     });
 
   // "Check everyone in": attach any newly-added party first, then finalize
-  // (schedule onto the session + -5 Arrived + memo) in one tap.
+  // (schedule onto the session + Confirmation Kiosk state + memo) in one tap.
   const checkInEveryone = async () => {
     if (!proofToken || binding) return;
     setBinding(true);
     setBindMsg(null);
+
+    // Resolve a SHORT Pandora id for every ASSIGNED racer that lacks one. A
+    // returning racer with a valid waiver never signs, so the people flow never
+    // resolved theirs — and /bmi/schedule 500s on a 17-digit Office id, so they'd
+    // be silently dropped from the grid. pandoraCreatePerson is upsert (a known
+    // person resolves to the SAME id), so this never duplicates. Kept local (the
+    // dispatch patch won't be visible synchronously); failures fall through and
+    // completeCheckin memos them for the desk.
+    const assignedMemberIds = new Set(Object.values(assignMap));
+    const shortIds = new Map<string, string>();
+    for (const m of session.party) {
+      if (!assignedMemberIds.has(m.id)) continue;
+      if (m.pandoraPersonId) {
+        shortIds.set(m.id, m.pandoraPersonId);
+      } else if (m.bmiPersonId && m.bmiPersonId.length <= 12) {
+        shortIds.set(m.id, m.bmiPersonId); // new racers: bmiPersonId IS the short id
+      } else if (m.phone?.trim() || m.email?.trim()) {
+        try {
+          const { personId } = await pandoraCreatePerson({
+            firstName: m.firstName,
+            lastName: m.lastName ?? "",
+            email: m.email?.trim() || undefined,
+            phone: m.phone?.trim() || undefined,
+            birthdate: m.dobIso,
+            location: brandLocation,
+          });
+          if (personId) {
+            shortIds.set(m.id, personId);
+            dispatch({ type: "updatePartyMember", id: m.id, patch: { pandoraPersonId: personId } });
+          }
+        } catch {
+          /* leave unresolved — completeCheckin memos them for the desk */
+        }
+      }
+    }
+    const shortIdFor = (m: PartyMember): string | null =>
+      shortIds.get(m.id) ?? m.pandoraPersonId ?? null;
+
     if (unboundReady.length > 0) {
       const members: CheckinBindMember[] = unboundReady.map((m) => ({
         bmiPersonId: m.bmiPersonId as string,
-        pandoraPersonId: m.pandoraPersonId ?? null,
+        pandoraPersonId: shortIdFor(m),
         firstName: m.firstName,
         lastName: m.lastName,
         waiverValid: !!m.waiverValid,
@@ -237,11 +280,12 @@ export function KioskCheckinFlow() {
       setBoundIds((prev) => new Set([...prev, ...unboundReady.map((m) => m.id)]));
     }
     const assignments: CheckinSlotAssignment[] = Object.entries(assignMap)
-      .map(([heatId, memberId]): CheckinSlotAssignment | null => {
+      .map(([slotKey, memberId]): CheckinSlotAssignment | null => {
         const m = session.party.find((p) => p.id === memberId);
-        const personId = m?.pandoraPersonId || m?.bmiPersonId;
-        if (!m || !personId) return null;
-        return { heatId, personId, category: resolveRaceClass(m) };
+        if (!m) return null;
+        const personId = shortIdFor(m) ?? m.bmiPersonId;
+        if (!personId) return null;
+        return { slotKey, personId, category: resolveRaceClass(m) };
       })
       .filter((x): x is CheckinSlotAssignment => x !== null);
     const c = await completeCheckin(
@@ -458,8 +502,6 @@ export function KioskCheckinFlow() {
             scanArmed={wedge.armed}
             onArmScan={wedge.arm}
             onBrowse={openBrowse}
-            showExpress={center === "fort-myers"}
-            onExpress={() => setShowExpress(true)}
           />
         )}
 
@@ -510,23 +552,41 @@ export function KioskCheckinFlow() {
               </div>
             ) : (
               rows.map((r) => (
-                <button
-                  key={r.ref}
-                  type="button"
-                  onClick={() => tapBrowseRow(r)}
-                  className="k-glass k-tap flex w-full items-center gap-[28px] p-[28px] text-left"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="k-display truncate text-[38px]">{r.label}</div>
-                    <div className="mt-[6px] text-[26px] text-white/55">{r.activitiesLabel}</div>
-                  </div>
-                  <div className="k-display text-[40px] text-[#00e2e5]">{r.timeLabel}</div>
-                  <IconChevronRight
-                    size={40}
-                    className="shrink-0 text-white/30"
-                    aria-hidden="true"
+                // Card is one big tap target (opens OTP); the Express pill is a
+                // sibling button on top (pointer-events-auto over the overlay) so
+                // there's no nested-button. Racing rows only.
+                <div key={r.ref} className="k-glass relative overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => tapBrowseRow(r)}
+                    aria-label={`Open ${r.label}, ${r.timeLabel}`}
+                    className="k-tap absolute inset-0"
                   />
-                </button>
+                  <div className="pointer-events-none relative flex items-center gap-[28px] p-[28px]">
+                    <div className="min-w-0 flex-1">
+                      <div className="k-display truncate text-[38px]">{r.label}</div>
+                      <div className="mt-[6px] flex items-center gap-[14px] text-[26px] text-white/55">
+                        <span>{r.activitiesLabel}</span>
+                        {r.kind === "racing" && (
+                          <button
+                            type="button"
+                            onClick={() => setShowExpress(true)}
+                            className="pointer-events-auto flex items-center gap-[8px] rounded-full border-2 border-[#00e2e5]/50 bg-[#00e2e5]/10 px-[18px] py-[6px] text-[22px] font-bold text-[#00e2e5]"
+                          >
+                            <IconBolt size={22} aria-hidden="true" />
+                            Express lane
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="k-display text-[40px] text-[#00e2e5]">{r.timeLabel}</div>
+                    <IconChevronRight
+                      size={40}
+                      className="shrink-0 text-white/30"
+                      aria-hidden="true"
+                    />
+                  </div>
+                </div>
               ))
             )}
           </div>
@@ -619,8 +679,8 @@ export function KioskCheckinFlow() {
 }
 
 // ── Express-lane info modal ───────────────────────────────────────────────────
-/** Informational only — returning racers with signed waivers skip kiosk check-in
- *  and go straight to Karting Check-In. No lookup, no eligibility check. */
+/** Informational only — opened from the "Express lane" pill on a racing browse
+ *  row: skip kiosk check-in, head to the pits. No lookup, no eligibility check. */
 function ExpressLaneModal(props: { onClose: () => void }) {
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center p-[48px]">
@@ -646,10 +706,9 @@ function ExpressLaneModal(props: { onClose: () => void }) {
           Express Lane
         </div>
         <p className="mt-[20px] text-[30px] leading-[1.4] text-white/70">
-          Already booked and your waiver&rsquo;s signed? Returning racers can skip check-in — head
-          straight to{" "}
-          <span className="font-bold text-white">Karting Check-In on the 1st floor</span>.
-          There&rsquo;s no need to sign in here.
+          You&rsquo;re all set — no need to sign in here. Head straight to{" "}
+          <span className="font-bold text-white">the pits</span> and a team member will get you on
+          the grid.
         </p>
         <button
           type="button"
@@ -676,8 +735,6 @@ function FindScreen(props: {
   scanArmed: boolean;
   onArmScan: () => void;
   onBrowse: () => void;
-  showExpress: boolean;
-  onExpress: () => void;
 }) {
   return (
     <div className="space-y-[28px]">
@@ -733,18 +790,6 @@ function FindScreen(props: {
           <div className="text-[24px] text-white/50">Pick from today&rsquo;s list</div>
         </button>
       </div>
-
-      {/* Express lane — racing only. Info modal: returning racers skip check-in. */}
-      {props.showExpress && (
-        <button
-          type="button"
-          onClick={props.onExpress}
-          className="k-glass k-tap flex w-full items-center justify-center gap-[16px] p-[28px] text-center"
-        >
-          <IconBolt size={40} className="text-[#00e2e5]" aria-hidden="true" />
-          <div className="k-display text-[30px]">Here for racing? Express lane ›</div>
-        </button>
-      )}
     </div>
   );
 }
@@ -872,7 +917,7 @@ function RaceAssignScreen(props: {
 }) {
   const { slots, party, assignMap, onAssign, onClear, onCheckIn, binding, bindMsg } = props;
   const [pickFor, setPickFor] = useState<CheckinRaceSlot | null>(null);
-  const assignedCount = slots.filter((s) => assignMap[s.heatId]).length;
+  const assignedCount = slots.filter((s) => assignMap[s.slotKey]).length;
 
   return (
     <div className="space-y-[24px]">
@@ -881,9 +926,9 @@ function RaceAssignScreen(props: {
       </p>
 
       {slots.map((slot) => {
-        const assigned = party.find((m) => m.id === assignMap[slot.heatId]);
+        const assigned = party.find((m) => m.id === assignMap[slot.slotKey]);
         return (
-          <div key={slot.heatId} className="k-glass p-[32px]">
+          <div key={slot.slotKey} className="k-glass p-[32px]">
             <div className="flex items-center justify-between gap-[20px]">
               <div className="min-w-0">
                 <div className="k-display text-[36px]">{slot.classLabel}</div>
@@ -932,7 +977,7 @@ function RaceAssignScreen(props: {
         disabled={binding}
         className="k-btn-primary k-tap h-[112px] w-full text-[36px] disabled:opacity-40"
       >
-        {binding ? "Checking you in…" : "Check everyone in"}
+        {binding ? "Putting racers on the grid — one moment…" : "Check everyone in"}
       </button>
       {assignedCount === 0 && (
         <p className="text-center text-[24px] text-white/45">
@@ -946,11 +991,11 @@ function RaceAssignScreen(props: {
           party={party}
           assignMap={assignMap}
           onPick={(memberId) => {
-            onAssign(pickFor.heatId, memberId);
+            onAssign(pickFor.slotKey, memberId);
             setPickFor(null);
           }}
           onRemove={() => {
-            onClear(pickFor.heatId);
+            onClear(pickFor.slotKey);
             setPickFor(null);
           }}
           onClose={() => setPickFor(null)}
@@ -971,7 +1016,7 @@ function RacerPickerModal(props: {
   onClose: () => void;
 }) {
   const { slot, party, assignMap, onPick, onRemove, onClose } = props;
-  const currentId = assignMap[slot.heatId];
+  const currentId = assignMap[slot.slotKey];
   const eligible = party.filter((m) => resolveRaceClass(m) === slot.category);
 
   return (
