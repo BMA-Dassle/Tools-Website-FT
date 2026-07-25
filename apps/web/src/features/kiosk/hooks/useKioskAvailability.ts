@@ -17,9 +17,10 @@ import { useEffect, useState } from "react";
 import type { CenterCode } from "~/features/booking";
 import type { FirstOpen } from "../service/first-available";
 
-/** The endpoint is server-cached (~5 min TTL); a light 2-min client poll keeps
- *  the kiosk fresh without adding vendor load. */
-const POLL_MS = 2 * 60_000;
+/** The endpoint is server-cached (~3 min TTL); a light 1-min client poll keeps
+ *  the tiles fresh without adding vendor load — the poll only reads the cache,
+ *  so the vendors are still hit at most once per TTL per center. */
+const POLL_MS = 60_000;
 
 export interface KioskAvailability {
   /** True unless the server reports the item can't be booked today. */

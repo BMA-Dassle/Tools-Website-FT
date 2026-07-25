@@ -184,7 +184,7 @@ async function qamfFirstOpenToday(
 ): Promise<FirstOpen | null> {
   const res = await fetch(
     `${apiBase()}/api/bowling/v2/availability?centerId=${centerId}&players=2` +
-      `&startDate=${dateYmd}&kind=${kind}&stepMinutes=30&leadMinutes=0`,
+      `&startDate=${dateYmd}&kind=${kind}&stepMinutes=30&leadMinutes=0&firstOnly=1`,
     { cache: "no-store" },
   );
   if (!res.ok) throw new Error(`bowling availability ${res.status}`);

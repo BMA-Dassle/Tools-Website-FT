@@ -23,7 +23,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const VALID_CENTERS: CenterCode[] = ["fort-myers", "naples"];
-const TTL_SECONDS = 300; // recompute at most once per 5 min per center
+// Recompute at most once per 3 min per center. Dropped from 5 min (owner wants
+// fresher tiles) — affordable because the QAMF lane scans now early-exit at the
+// first bookable slot (firstOnly), so each recompute is far cheaper than before.
+const TTL_SECONDS = 180;
 // v2: cached value now carries firstOpen alongside the booleans — bumping the
 // key sidesteps reading a pre-existing flat-boolean entry during rollout.
 const cacheKey = (c: string) => `kiosk:avail:v2:${c}`;
