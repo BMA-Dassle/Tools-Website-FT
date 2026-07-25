@@ -728,12 +728,35 @@ export async function buildItinerary(
     }
   }
 
+  // Main contact — BMI adds the booker to the project, so show them on the
+  // roster too (with their waiver status) even when they aren't on a heat, so
+  // they can just sign if their waiver's lapsed (owner 2026-07-25). Racing only
+  // (the waiver check is at the racing location); deduped against the racers.
+  const racerIds = new Set(
+    (racing?.racers ?? []).map((r) => r.personId).filter((x): x is string => !!x),
+  );
+  const mainContact =
+    racing &&
+    record?.contact?.firstName &&
+    record.primaryPersonId &&
+    !racerIds.has(record.primaryPersonId)
+      ? {
+          name: displayNameFromFull(
+            `${record.contact.firstName} ${record.contact.lastName ?? ""}`.trim(),
+          ),
+          personId: record.primaryPersonId,
+        }
+      : null;
+
   // Pull in existing valid waivers from the project (owner 2026-07-25): an
-  // identified racer whose Pandora waiver is still current is ready and needs no
-  // re-sign. Best-effort + parallel; a failed/unknown lookup leaves them as
-  // "needs a waiver" (the safe default, no regression on the prior behavior).
+  // identified racer (or the main contact) whose Pandora waiver is still current
+  // is ready and needs no re-sign. Best-effort + parallel; a failed/unknown
+  // lookup leaves them as "needs a waiver" (the safe default, no regression).
+  const waiverBy = await checkRacerWaivers([
+    ...(racing?.racers ?? []).map((r) => r.personId),
+    mainContact?.personId ?? null,
+  ]);
   if (racing) {
-    const waiverBy = await checkRacerWaivers(racing.racers.map((r) => r.personId));
     for (const r of racing.racers) {
       r.waiverValid = r.personId ? (waiverBy.get(r.personId) ?? false) : false;
     }
@@ -770,19 +793,33 @@ export async function buildItinerary(
   const depositCents = live.reduce((s, r) => s + (r.depositCents || 0), 0);
   const dueAtCenterCents = Math.max(0, totalCents - depositCents);
 
-  // Read-only party panel. Only IDENTIFIED racers (a real personId on the heat)
-  // are real people — unfilled slots carry category PLACEHOLDER names ("Adult 1",
-  // "Junior 1") that must never render as roster members. The empty slots are
-  // handled by the "Who's racing?" assignment step instead.
-  const roster: CheckinRosterPerson[] = (racing?.racers ?? [])
-    .filter((r) => r.identified)
-    .map((r) => ({
-      personId: null,
-      pandoraPersonId: null,
-      displayName: r.name,
-      waiverValid: r.waiverValid, // pulled from the project's Pandora waivers
-      boundTo: ["Racing"],
-    }));
+  // Read-only party panel: the main contact (booker) first, then the IDENTIFIED
+  // racers. Unfilled slots carry category PLACEHOLDER names ("Adult 1",
+  // "Junior 1") that must never render as roster members — they're handled by
+  // the "Who's racing?" assignment step. waiverValid is pulled from the
+  // project's Pandora waivers so a lapsed waiver shows as still-needed.
+  const roster: CheckinRosterPerson[] = [
+    ...(mainContact
+      ? [
+          {
+            personId: null,
+            pandoraPersonId: null,
+            displayName: mainContact.name,
+            waiverValid: waiverBy.get(mainContact.personId) ?? false,
+            boundTo: ["Main contact"],
+          },
+        ]
+      : []),
+    ...(racing?.racers ?? [])
+      .filter((r) => r.identified)
+      .map((r) => ({
+        personId: null,
+        pandoraPersonId: null,
+        displayName: r.name,
+        waiverValid: r.waiverValid,
+        boundTo: ["Racing"],
+      })),
+  ];
 
   const firstName = record?.contact?.firstName || (summary.label.split(" ")[0] ?? "there");
 
