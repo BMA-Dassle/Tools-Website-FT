@@ -13,8 +13,13 @@ function parseAssignments(raw: unknown): CheckinSlotAssignment[] {
     if (a && typeof a === "object") {
       const heatId = (a as { heatId?: unknown }).heatId;
       const personId = (a as { personId?: unknown }).personId;
+      const category = (a as { category?: unknown }).category;
       if (typeof heatId === "string" && typeof personId === "string" && heatId && personId) {
-        out.push({ heatId, personId });
+        out.push({
+          heatId,
+          personId,
+          category: category === "adult" || category === "junior" ? category : null,
+        });
       }
     }
   }

@@ -192,6 +192,9 @@ export interface CheckinSlotAssignment {
   /** SHORT Pandora id preferred, else the 17-digit Office id — matched to the
    *  bound person row server-side. */
   personId: string;
+  /** The racer's resolved class — the server rejects the assignment if it
+   *  doesn't match the slot's class (defense in depth; null = unknown, allowed). */
+  category?: "adult" | "junior" | null;
 }
 
 export interface CheckinItinerary {

@@ -45,6 +45,7 @@ import {
   verifyOwnPhoneOtp,
 } from "./service";
 import { useWedgeScan } from "./wedge-scan";
+import { resolveRaceClass } from "./category";
 import type {
   CheckinActivity,
   CheckinBindMember,
@@ -82,7 +83,15 @@ function newCheckinItem(): AttractionItem {
 
 const IDLE_MS = 120_000;
 
-type Stage = "find" | "phone-otp" | "matches" | "browse" | "browse-otp" | "itinerary" | "done";
+type Stage =
+  | "find"
+  | "phone-otp"
+  | "matches"
+  | "browse"
+  | "browse-otp"
+  | "itinerary"
+  | "assign"
+  | "done";
 
 const DONE_RESET_MS = 60_000;
 
@@ -198,6 +207,12 @@ export function KioskCheckinFlow() {
       return next;
     });
   };
+  const clearRace = (heatId: string) =>
+    setAssignMap((prev) => {
+      const next = { ...prev };
+      delete next[heatId];
+      return next;
+    });
 
   // "Check everyone in": attach any newly-added party first, then finalize
   // (schedule onto the session + -5 Arrived + memo) in one tap.
@@ -222,12 +237,13 @@ export function KioskCheckinFlow() {
       setBoundIds((prev) => new Set([...prev, ...unboundReady.map((m) => m.id)]));
     }
     const assignments: CheckinSlotAssignment[] = Object.entries(assignMap)
-      .map(([heatId, memberId]) => {
+      .map(([heatId, memberId]): CheckinSlotAssignment | null => {
         const m = session.party.find((p) => p.id === memberId);
         const personId = m?.pandoraPersonId || m?.bmiPersonId;
-        return personId ? { heatId, personId } : null;
+        if (!m || !personId) return null;
+        return { heatId, personId, category: resolveRaceClass(m) };
       })
-      .filter((x): x is CheckinSlotAssignment => !!x);
+      .filter((x): x is CheckinSlotAssignment => x !== null);
     const c = await completeCheckin(
       center,
       proofToken,
@@ -376,6 +392,7 @@ export function KioskCheckinFlow() {
     else if (stage === "matches") setStage("find");
     else if (stage === "browse") setStage("find");
     else if (stage === "browse-otp") setStage("browse");
+    else if (stage === "assign") setStage("itinerary");
     else if (stage === "itinerary") {
       setItinerary(null);
       setStage("find");
@@ -409,9 +426,11 @@ export function KioskCheckinFlow() {
           <div className="k-display truncate text-[52px]">
             {stage === "done"
               ? "You're checked in"
-              : stage === "itinerary" && itinerary
-                ? `Welcome back, ${itinerary.firstName || "friend"}!`
-                : "Find your reservation"}
+              : stage === "assign"
+                ? "Who's racing?"
+                : stage === "itinerary" && itinerary
+                  ? `Welcome back, ${itinerary.firstName || "friend"}!`
+                  : "Find your reservation"}
           </div>
         </div>
         <IconUserCheck size={56} className="shrink-0 text-white/25" aria-hidden="true" />
@@ -515,10 +534,7 @@ export function KioskCheckinFlow() {
 
         {stage === "itinerary" && itinerary && (
           <div className="space-y-[32px]">
-            <ItineraryScreen
-              itinerary={itinerary}
-              onNewBooking={() => router.push("/kiosk/flow")}
-            />
+            <ItineraryScreen itinerary={itinerary} />
 
             {/* Add your group — the people monolith (add / returning lookup /
                 minor+guardian / waiver signature) + the mobile-join QR, all
@@ -537,30 +553,33 @@ export function KioskCheckinFlow() {
                 setBusy={setPeopleBusy}
               />
 
-              {/* Who is who — assign ready racers to the open purchased slots. */}
-              {openRaceSlots.length > 0 && (
-                <AssignRacesPanel
-                  slots={openRaceSlots}
-                  party={readyMembers}
-                  assignMap={assignMap}
-                  onAssign={assignRace}
-                />
-              )}
-
               {bindMsg && (
                 <div className="mt-[20px] rounded-2xl border-2 border-[#e94141]/40 bg-[#e94141]/10 px-[28px] py-[20px] text-[26px] text-[#ffb4b4]">
                   {bindMsg}
                 </div>
               )}
 
-              <button
-                type="button"
-                onClick={checkInEveryone}
-                disabled={binding || partyNeedsSetup}
-                className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
-              >
-                {binding ? "Checking you in…" : "Check everyone in"}
-              </button>
+              {/* Racing → go to the dedicated "Who's racing?" step; otherwise
+                  finalize straight from here. */}
+              {openRaceSlots.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setStage("assign")}
+                  disabled={partyNeedsSetup}
+                  className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
+                >
+                  Next: who&rsquo;s racing ›
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={checkInEveryone}
+                  disabled={binding || partyNeedsSetup}
+                  className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
+                >
+                  {binding ? "Checking you in…" : "Check everyone in"}
+                </button>
+              )}
               {partyNeedsSetup && (
                 <p className="mt-[12px] text-center text-[24px] text-white/45">
                   Finish adding everyone above first — each person needs an account and a signed
@@ -569,6 +588,19 @@ export function KioskCheckinFlow() {
               )}
             </div>
           </div>
+        )}
+
+        {stage === "assign" && itinerary && (
+          <RaceAssignScreen
+            slots={openRaceSlots}
+            party={readyMembers}
+            assignMap={assignMap}
+            onAssign={assignRace}
+            onClear={clearRace}
+            onCheckIn={checkInEveryone}
+            binding={binding}
+            bindMsg={bindMsg}
+          />
         )}
 
         {stage === "done" && itinerary && (
@@ -751,7 +783,7 @@ function OtpScreen(props: {
 }
 
 // ── Itinerary ──────────────────────────────────────────────────────────────────
-function ItineraryScreen(props: { itinerary: CheckinItinerary; onNewBooking: () => void }) {
+function ItineraryScreen(props: { itinerary: CheckinItinerary }) {
   const { itinerary } = props;
   return (
     <div className="space-y-[24px]">
@@ -795,8 +827,8 @@ function ItineraryScreen(props: { itinerary: CheckinItinerary; onNewBooking: () 
         </div>
       )}
 
-      {/* Who's already on the reservation (read-only; the interactive
-          "Add your group" panel renders below the itinerary). */}
+      {/* Who's already on the reservation — identified people only (unfilled
+          slots are handled in the "Who's racing?" step, never shown here). */}
       {itinerary.roster.length > 0 && (
         <div>
           <div className="k-eyebrow mb-[14px] text-white/40">Already on this reservation</div>
@@ -817,107 +849,205 @@ function ItineraryScreen(props: { itinerary: CheckinItinerary; onNewBooking: () 
           </div>
         </div>
       )}
-
-      <div className="k-glass p-[28px] text-center">
-        <p className="text-[26px] text-white/55">
-          Someone with you who isn&rsquo;t on this booking?
-        </p>
-        <button
-          type="button"
-          onClick={props.onNewBooking}
-          className="k-tap mt-[12px] text-[30px] font-bold text-[#00e2e5]"
-        >
-          Start a new booking ›
-        </button>
-      </div>
     </div>
   );
 }
 
-// ── Who's racing? (assign ready racers to open purchased slots) ───────────────
-/** Best-available class for a member: explicit racing category, else minor→junior.
- *  A kiosk-added member may lack an explicit category (they onboard through an
- *  attraction-shaped item), so this is a HINT that drives a soft warning, never
- *  a hard block. */
-function effectiveCategory(m: PartyMember): "adult" | "junior" {
-  return m.category ?? (m.isMinor ? "junior" : "adult");
-}
-
+// ── Who's racing? (its own step — one card per booked race + a racer picker) ──
 function racerName(m: PartyMember): string {
   return `${m.firstName}${m.lastName ? ` ${m.lastName}` : ""}`.trim() || "Racer";
 }
 
-function AssignRacesPanel(props: {
+/** The whole assignment step: a card per open race with a "Choose racer" picker
+ *  that only offers class-eligible, ready people. */
+function RaceAssignScreen(props: {
   slots: CheckinRaceSlot[];
   party: PartyMember[];
   assignMap: Record<string, string>;
   onAssign: (heatId: string, memberId: string) => void;
+  onClear: (heatId: string) => void;
+  onCheckIn: () => void;
+  binding: boolean;
+  bindMsg: string | null;
 }) {
-  const { slots, party, assignMap, onAssign } = props;
+  const { slots, party, assignMap, onAssign, onClear, onCheckIn, binding, bindMsg } = props;
+  const [pickFor, setPickFor] = useState<CheckinRaceSlot | null>(null);
+  const assignedCount = slots.filter((s) => assignMap[s.heatId]).length;
+
   return (
-    <div className="mt-[28px] border-t border-white/10 pt-[28px]">
-      <div className="k-eyebrow mb-[10px] text-[#e94141]">Who&rsquo;s racing?</div>
-      <p className="mb-[20px] text-[26px] text-white/55">
-        Tap a name to put them in each race. Junior classes need a junior racer.
+    <div className="space-y-[24px]">
+      <p className="text-[28px] text-white/60">
+        Tap each race to choose who&rsquo;s driving it. Junior races only list junior racers.
       </p>
-      <div className="space-y-[20px]">
-        {slots.map((slot) => {
-          const assignedId = assignMap[slot.heatId];
-          const assignedMember = party.find((p) => p.id === assignedId);
-          const assignedMismatch =
-            !!assignedMember && effectiveCategory(assignedMember) !== slot.category;
-          return (
-            <div key={slot.heatId} className="k-glass p-[28px]">
-              <div className="mb-[16px] flex items-center justify-between gap-[16px]">
-                <div className="k-display text-[32px]">{slot.classLabel}</div>
-                <div className="text-[28px] text-white/55">{slot.timeLabel}</div>
-              </div>
-              {party.length === 0 ? (
-                <p className="text-[24px] text-white/45">
-                  Add your racers above, then choose who runs this race.
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-[12px]">
-                  {party.map((m) => {
-                    const selected = assignedId === m.id;
-                    const elsewhere = !selected && Object.values(assignMap).includes(m.id);
-                    const mismatch = effectiveCategory(m) !== slot.category;
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => onAssign(slot.heatId, m.id)}
-                        aria-pressed={selected}
-                        className={`k-tap flex items-center gap-[10px] rounded-2xl border-2 px-[24px] py-[16px] text-[26px] ${
-                          selected
-                            ? "border-[#46d68c] bg-[#46d68c]/15 text-white"
-                            : elsewhere
-                              ? "border-white/10 bg-white/5 text-white/40"
-                              : "border-white/15 bg-white/5 text-white"
-                        }`}
-                      >
-                        {selected && (
-                          <IconUserCheck size={26} className="text-[#46d68c]" aria-hidden="true" />
-                        )}
-                        {racerName(m)}
-                        {mismatch && (
-                          <span className="text-[20px] text-[#f0b341]">
-                            ({effectiveCategory(m)})
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
+
+      {slots.map((slot) => {
+        const assigned = party.find((m) => m.id === assignMap[slot.heatId]);
+        return (
+          <div key={slot.heatId} className="k-glass p-[32px]">
+            <div className="flex items-center justify-between gap-[20px]">
+              <div className="min-w-0">
+                <div className="k-display text-[36px]">{slot.classLabel}</div>
+                <div className="mt-[4px] text-[26px] text-white/55">
+                  {slot.track ? `${slot.track} · ` : ""}
+                  {slot.timeLabel}
                 </div>
-              )}
-              {assignedMismatch && (
-                <p className="mt-[14px] text-[24px] text-[#f0b341]">
-                  Heads up — this is a {slot.category} class. Double-check the racer is right.
-                </p>
+              </div>
+              {assigned ? (
+                <div className="flex shrink-0 items-center gap-[20px]">
+                  <span className="flex items-center gap-[10px] text-[30px] text-[#46d68c]">
+                    <IconUserCheck size={30} aria-hidden="true" />
+                    {racerName(assigned)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPickFor(slot)}
+                    className="k-tap text-[26px] font-bold text-[#00e2e5]"
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setPickFor(slot)}
+                  className="k-btn-primary k-tap h-[80px] shrink-0 px-[36px] text-[28px]"
+                >
+                  Choose racer
+                </button>
               )}
             </div>
-          );
-        })}
+          </div>
+        );
+      })}
+
+      {bindMsg && (
+        <div className="rounded-2xl border-2 border-[#e94141]/40 bg-[#e94141]/10 px-[28px] py-[20px] text-[26px] text-[#ffb4b4]">
+          {bindMsg}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={onCheckIn}
+        disabled={binding}
+        className="k-btn-primary k-tap h-[112px] w-full text-[36px] disabled:opacity-40"
+      >
+        {binding ? "Checking you in…" : "Check everyone in"}
+      </button>
+      {assignedCount === 0 && (
+        <p className="text-center text-[24px] text-white/45">
+          You can still check in — but racers won&rsquo;t be on the grid until they&rsquo;re chosen.
+        </p>
+      )}
+
+      {pickFor && (
+        <RacerPickerModal
+          slot={pickFor}
+          party={party}
+          assignMap={assignMap}
+          onPick={(memberId) => {
+            onAssign(pickFor.heatId, memberId);
+            setPickFor(null);
+          }}
+          onRemove={() => {
+            onClear(pickFor.heatId);
+            setPickFor(null);
+          }}
+          onClose={() => setPickFor(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Picker sheet for one race — lists ONLY ready racers whose class matches the
+ *  slot (the hard junior/adult check: an off-class racer is never offered). */
+function RacerPickerModal(props: {
+  slot: CheckinRaceSlot;
+  party: PartyMember[];
+  assignMap: Record<string, string>;
+  onPick: (memberId: string) => void;
+  onRemove: () => void;
+  onClose: () => void;
+}) {
+  const { slot, party, assignMap, onPick, onRemove, onClose } = props;
+  const currentId = assignMap[slot.heatId];
+  const eligible = party.filter((m) => resolveRaceClass(m) === slot.category);
+
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center p-[48px]">
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/70"
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pick-title"
+        className="k-glass relative z-10 max-h-[82%] w-full max-w-[720px] overflow-y-auto p-[40px]"
+      >
+        <div id="pick-title" className="k-display text-[40px]">
+          Who&rsquo;s racing the {slot.classLabel}?
+        </div>
+        <p className="mt-[8px] text-[26px] text-white/55">
+          {slot.track ? `${slot.track} · ` : ""}
+          {slot.timeLabel}
+        </p>
+
+        {eligible.length === 0 ? (
+          <p className="mt-[28px] text-[28px] text-[#f0b341]">
+            No {slot.category} racer is ready yet. Go back and add a {slot.category} racer with a
+            signed waiver first.
+          </p>
+        ) : (
+          <div className="mt-[28px] space-y-[14px]">
+            {eligible.map((m) => {
+              const selected = currentId === m.id;
+              const elsewhere = !selected && Object.values(assignMap).includes(m.id);
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => onPick(m.id)}
+                  className={`k-tap flex w-full items-center gap-[16px] rounded-2xl border-2 p-[24px] text-left text-[30px] ${
+                    selected
+                      ? "border-[#46d68c] bg-[#46d68c]/15 text-white"
+                      : "border-white/15 bg-white/5 text-white"
+                  }`}
+                >
+                  <IconUserCheck
+                    size={30}
+                    className={selected ? "text-[#46d68c]" : "text-white/30"}
+                    aria-hidden="true"
+                  />
+                  <span className="flex-1">{racerName(m)}</span>
+                  {elsewhere && <span className="text-[22px] text-white/40">in another race</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="mt-[28px] flex gap-[16px]">
+          {currentId && (
+            <button
+              type="button"
+              onClick={onRemove}
+              className="k-tap h-[88px] flex-1 rounded-2xl border-2 border-white/15 text-[28px] text-white/70"
+            >
+              Remove
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="k-tap h-[88px] flex-1 rounded-2xl border-2 border-white/15 text-[28px] text-white/70"
+          >
+            Close
+          </button>
+        </div>
       </div>
     </div>
   );

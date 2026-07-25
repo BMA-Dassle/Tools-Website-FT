@@ -727,16 +727,19 @@ export async function buildItinerary(
   const depositCents = live.reduce((s, r) => s + (r.depositCents || 0), 0);
   const dueAtCenterCents = Math.max(0, totalCents - depositCents);
 
-  // Read-only party panel (PR2 makes it interactive + waiver-accurate). Sourced
-  // from whatever the racing activity was built from, so it survives an evicted
-  // Redis record.
-  const roster: CheckinRosterPerson[] = (racing?.racers ?? []).map((r) => ({
-    personId: null,
-    pandoraPersonId: null,
-    displayName: r.name,
-    waiverValid: false, // PR2 resolves waiver truth via Pandora
-    boundTo: ["Racing"],
-  }));
+  // Read-only party panel. Only IDENTIFIED racers (a real personId on the heat)
+  // are real people — unfilled slots carry category PLACEHOLDER names ("Adult 1",
+  // "Junior 1") that must never render as roster members. The empty slots are
+  // handled by the "Who's racing?" assignment step instead.
+  const roster: CheckinRosterPerson[] = (racing?.racers ?? [])
+    .filter((r) => r.identified)
+    .map((r) => ({
+      personId: null,
+      pandoraPersonId: null,
+      displayName: r.name,
+      waiverValid: false, // PR2 resolves waiver truth via Pandora
+      boundTo: ["Racing"],
+    }));
 
   const firstName = record?.contact?.firstName || (summary.label.split(" ")[0] ?? "there");
 
@@ -1056,6 +1059,14 @@ export async function completeCheckin(args: {
           const heat = openByHeatId.get(a.heatId);
           const p = personByIdKey.get(a.personId);
           if (!heat || !p || usedPersonRowIds.has(p.id)) continue;
+          // Class guard (defense in depth — the picker already filters by class):
+          // a stated racer class must match the slot's class, else don't seat them.
+          const prod = heat.productId ? getRaceProductById(heat.productId) : null;
+          const slotCat = heat.category || prod?.category || "adult";
+          if (a.category && a.category !== slotCat) {
+            memoFailures.push(p.firstName || p.displayName || "Racer");
+            continue;
+          }
           await assignToSlot(p, heat);
         }
       } else {
