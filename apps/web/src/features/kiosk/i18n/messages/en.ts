@@ -63,6 +63,44 @@ export const en = {
   "categories.tile.nextLane": "Next lane · {time}",
   "categories.tile.countTables": "{count, plural, one {# table} other {# tables}} · {time}",
   "categories.tile.countPlayers": "{count, plural, one {# player} other {# players}} · {time}",
+
+  // --- Confirmation (KioskConfirmation) ---
+  // NOTE: several confirmation strings carry inline <strong> emphasis (the
+  // racing "what's next" paragraph, race-pack outcome lines, the POV caption,
+  // and the RACE_CHECKIN_STEPS bodies). The current formatMessage engine returns
+  // plain strings only — it can't render ICU rich-text tags — so those stay
+  // English with a TODO(i18n) in the component until the engine gains rich-text
+  // support (or a native reviewer splits them safely). Only plain copy is keyed.
+  "confirmation.booked": "You’re booked.",
+  "confirmation.receiptNote":
+    "Your confirmation and check-in links were just texted and emailed to you — that’s your ticket, nothing to print.",
+  "confirmation.racing.eyebrow": "Racing — what’s next",
+  "confirmation.racing.howButton": "How does race check-in work?",
+  "confirmation.lane.readyTitle": "{lane} is ready",
+  "confirmation.lane.readyTitleGeneric": "Your lane is ready",
+  "confirmation.lane.readyPrompt":
+    "Would you like us to open your lane now so you can start bowling?",
+  "confirmation.lane.opening": "Opening…",
+  "confirmation.lane.openButton": "Open my lane",
+  "confirmation.lane.later": "I’ll check in later",
+  "confirmation.lane.openTitle": "{lane} is open",
+  "confirmation.lane.openTitleGeneric": "Your lane is open",
+  "confirmation.lane.openBody.fasttrax": "Head on over — your lane is ready.",
+  "confirmation.lane.openBody.headpinz":
+    "Head on over — your shoes will be delivered right to your lane.",
+  "confirmation.lane.failedTitle": "We couldn’t open your lane",
+  "confirmation.lane.failedBody":
+    "Please see the front desk and they’ll get you bowling right away.",
+  "confirmation.racePacks.eyebrow": "Race packs",
+  "confirmation.qr.alt": "Check-in code",
+  "confirmation.bookingCode": "Booking code",
+  "confirmation.done": "Done — start over",
+  "confirmation.dispensing": "Dispensing your cards…",
+  "confirmation.dispensingHint": "Grab each card as it comes out — we’ll finish up automatically.",
+  "confirmation.returningIn": "Returning to start in {seconds}s — touch anywhere to stay",
+  "confirmation.raceCheckin.eyebrow": "Race check-in",
+  "confirmation.raceCheckin.title": "What to expect",
+  "confirmation.raceCheckin.gotIt": "Got it",
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -92,3 +92,17 @@ describe("categories catalog (ICU interpolation + plurals)", () => {
     );
   });
 });
+
+describe("confirmation catalog (interpolation)", () => {
+  it("interpolates the lane label and the auto-reset countdown", () => {
+    expect(formatMessage("en", "confirmation.lane.readyTitle", { lane: "Lane 7" })).toBe(
+      "Lane 7 is ready",
+    );
+    expect(formatMessage("es", "confirmation.lane.openTitle", { lane: "Lane 7" })).toBe(
+      "Lane 7 está abierta",
+    );
+    expect(formatMessage("en", "confirmation.returningIn", { seconds: 42 })).toBe(
+      "Returning to start in 42s — touch anywhere to stay",
+    );
+  });
+});

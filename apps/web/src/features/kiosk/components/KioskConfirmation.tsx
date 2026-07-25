@@ -26,12 +26,19 @@ import {
 import { clarityEvent } from "~/lib/clarity";
 import { readPovConfirmation, clearPovConfirmation } from "../service/pov-confirmation";
 import { readKioskHasRacing, clearKioskHasRacing } from "../service/racing-confirmation";
+import { useT } from "../i18n";
 import PovVoucherBlock from "@/components/booking/PovVoucherBlock";
 
 const AUTO_RESET_SECONDS = 60;
 
 // Racing "what's next" popup content. Copy mirrors the web v2 confirmation's
 // arrival guidance (1st floor, 5 min early, e-ticket open and ready).
+// TODO(i18n): these step bodies carry inline <strong> emphasis (rich text) and
+// read as a cohesive instructional unit with their titles. The formatMessage
+// engine returns plain strings only, so translating just the titles would leave
+// a half-Spanish popup. Localize the whole RACE_CHECKIN_STEPS unit in a later
+// pass once the engine supports ICU rich-text tags (or a native reviewer splits
+// each body safely). Kept English for now — do not guess.
 const RACE_ICON_PROPS = {
   width: 40,
   height: 40,
@@ -155,6 +162,7 @@ type LanePhase = "idle" | "ready" | "opening" | "open" | "declined" | "failed";
 export function KioskConfirmation({ src }: { src: string | null }) {
   const router = useRouter();
   const { config } = useKioskConfig();
+  const t = useT();
   const [secondsLeft, setSecondsLeft] = useState(AUTO_RESET_SECONDS);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   // Game Zone cards bought WITH the booking — checkout stashed the charged row
@@ -378,10 +386,9 @@ export function KioskConfirmation({ src }: { src: string | null }) {
         <circle cx="12" cy="12" r="10" />
         <path d="m7.5 12.5 3 3 6-7" />
       </svg>
-      <h1 className="k-display relative text-[124px] leading-none">You&rsquo;re booked.</h1>
+      <h1 className="k-display relative text-[124px] leading-none">{t("confirmation.booked")}</h1>
       <p className="relative max-w-[30ch] text-[34px] text-white/60">
-        Your confirmation and check-in links were just texted and emailed to you — that&rsquo;s your
-        ticket, nothing to print.
+        {t("confirmation.receiptNote")}
       </p>
       {includesRacing && (
         // Racing "what's next" — deliberately first panel so a racing guest
@@ -403,8 +410,11 @@ export function KioskConfirmation({ src }: { src: string | null }) {
               <path d="M4 21V4" />
               <path d="M4 4c3-1.5 6 1.5 9 0s5-1 7 0v9c-2-1-4-1.5-7 0s-6-1.5-9 0" />
             </svg>
-            Racing — what&rsquo;s next
+            {t("confirmation.racing.eyebrow")}
           </div>
+          {/* TODO(i18n): inline <strong> emphasis (rich text) — the plain-string
+              formatMessage engine can't render ICU tags. Localize in a later
+              pass with rich-text support or a native reviewer. Kept English. */}
           <p className="mt-[14px] text-[31px] leading-snug">
             Your race <strong className="text-[#ffd9d8]">eTicket arrives by text</strong> in a few
             minutes — have it open at{" "}
@@ -428,7 +438,7 @@ export function KioskConfirmation({ src }: { src: string | null }) {
             }}
             className="k-btn-primary k-tap mt-[26px] w-full"
           >
-            How does race check-in work?
+            {t("confirmation.racing.howButton")}
             <svg
               width="34"
               height="34"
@@ -458,10 +468,12 @@ export function KioskConfirmation({ src }: { src: string | null }) {
           {(lanePhase === "ready" || lanePhase === "opening") && (
             <>
               <div className="k-eyebrow text-[#00e2e5]">
-                {laneLabel ? `${laneLabel} is ready` : "Your lane is ready"}
+                {laneLabel
+                  ? t("confirmation.lane.readyTitle", { lane: laneLabel })
+                  : t("confirmation.lane.readyTitleGeneric")}
               </div>
               <p className="mt-[12px] text-[32px] leading-snug">
-                Would you like us to open your lane now so you can start bowling?
+                {t("confirmation.lane.readyPrompt")}
               </p>
               <div className="mt-[28px] flex items-center gap-[20px]">
                 <button
@@ -470,7 +482,9 @@ export function KioskConfirmation({ src }: { src: string | null }) {
                   onClick={() => void handleOpenLane()}
                   className="k-btn-primary k-tap whitespace-nowrap text-[30px]"
                 >
-                  {lanePhase === "opening" ? "Opening…" : "Open my lane"}
+                  {lanePhase === "opening"
+                    ? t("confirmation.lane.opening")
+                    : t("confirmation.lane.openButton")}
                 </button>
                 <button
                   type="button"
@@ -478,7 +492,7 @@ export function KioskConfirmation({ src }: { src: string | null }) {
                   onClick={() => setLanePhase("declined")}
                   className="k-btn-ghost k-tap"
                 >
-                  I&rsquo;ll check in later
+                  {t("confirmation.lane.later")}
                 </button>
               </div>
             </>
@@ -486,20 +500,22 @@ export function KioskConfirmation({ src }: { src: string | null }) {
           {lanePhase === "open" && (
             <>
               <div className="k-eyebrow text-[#46d68c]">
-                {laneLabel ? `${laneLabel} is open` : "Your lane is open"}
+                {laneLabel
+                  ? t("confirmation.lane.openTitle", { lane: laneLabel })
+                  : t("confirmation.lane.openTitleGeneric")}
               </div>
               <p className="mt-[12px] text-[32px] leading-snug">
                 {config?.brand === "fasttrax"
-                  ? "Head on over — your lane is ready."
-                  : "Head on over — your shoes will be delivered right to your lane."}
+                  ? t("confirmation.lane.openBody.fasttrax")
+                  : t("confirmation.lane.openBody.headpinz")}
               </p>
             </>
           )}
           {lanePhase === "failed" && (
             <>
-              <div className="k-eyebrow text-[#f0b341]">We couldn&rsquo;t open your lane</div>
+              <div className="k-eyebrow text-[#f0b341]">{t("confirmation.lane.failedTitle")}</div>
               <p className="mt-[12px] text-[32px] leading-snug">
-                Please see the front desk and they&rsquo;ll get you bowling right away.
+                {t("confirmation.lane.failedBody")}
               </p>
             </>
           )}
@@ -507,7 +523,13 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       )}
       {racePacks && (
         <div className="relative w-full max-w-[860px] rounded-[24px] border border-[#f0b341]/40 bg-white/[0.04] p-[32px] text-left">
-          <div className="k-eyebrow text-[#f0b341]">Race packs</div>
+          <div className="k-eyebrow text-[#f0b341]">{t("confirmation.racePacks.eyebrow")}</div>
+          {/* TODO(i18n): the per-member outcome lines below are conditional,
+              count-interpolated business-rule messages with inline bold (rich
+              text) — "N races today · M banked", "N races banked", "Credits are
+              loading…". Localize in a later pass with ICU plurals + rich-text
+              support once available (and a native reviewer). Kept English so the
+              numbers/wording aren't guessed. */}
           <div className="mt-[12px] space-y-[10px]">
             {racePacks.map((p, i) => (
               <div
@@ -548,6 +570,9 @@ export function KioskConfirmation({ src }: { src: string | null }) {
         <div className="kiosk-zoom relative w-full max-w-[860px] text-left">
           <PovVoucherBlock
             codes={povCodes}
+            // TODO(i18n): caption carries inline <strong> emphasis (rich text) —
+            // the plain-string formatMessage engine can't render ICU tags.
+            // Localize in a later pass with rich-text support. Kept English.
             caption={
               <>
                 These codes were also <strong className="text-white/80">emailed to you</strong> —
@@ -563,12 +588,18 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       {qrDataUrl ? (
         <div className="relative rounded-[24px] bg-white p-[20px]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={qrDataUrl} alt="Check-in code" width={300} height={300} className="block" />
+          <img
+            src={qrDataUrl}
+            alt={t("confirmation.qr.alt")}
+            width={300}
+            height={300}
+            className="block"
+          />
         </div>
       ) : null}
       {code ? (
         <div className="relative rounded-[24px] border border-white/15 bg-white/[0.04] px-[48px] py-[24px]">
-          <div className="k-eyebrow text-white/45">Booking code</div>
+          <div className="k-eyebrow text-white/45">{t("confirmation.bookingCode")}</div>
           <div className="k-display text-[64px] tracking-widest">{code}</div>
         </div>
       ) : null}
@@ -587,12 +618,12 @@ export function KioskConfirmation({ src }: { src: string | null }) {
         style={{ flex: "0 0 auto" }}
         className="k-btn-primary k-tap relative mt-[16px] h-[112px] w-full max-w-[70%] text-[36px] disabled:opacity-40"
       >
-        {gzBusy ? "Dispensing your cards…" : "Done — start over"}
+        {gzBusy ? t("confirmation.dispensing") : t("confirmation.done")}
       </button>
       <p className="relative text-[24px] text-white/40 tabular-nums">
         {gzBusy
-          ? "Grab each card as it comes out — we’ll finish up automatically."
-          : `Returning to start in ${secondsLeft}s — touch anywhere to stay`}
+          ? t("confirmation.dispensingHint")
+          : t("confirmation.returningIn", { seconds: secondsLeft })}
       </p>
       <BrandLogo
         brand={config?.brand ?? "fasttrax"}
@@ -607,8 +638,10 @@ export function KioskConfirmation({ src }: { src: string | null }) {
         // document-level pointerdown listener.
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-[#000418]/85 p-[56px]">
           <div className="max-h-full w-full overflow-y-auto rounded-[28px] border border-white/15 bg-[#071027]/95 p-[48px] text-left shadow-[0_40px_120px_rgba(0,0,0,0.6)]">
-            <div className="k-eyebrow text-[#e53935]">Race check-in</div>
-            <h2 className="k-display mt-[10px] text-[64px]">What to expect</h2>
+            <div className="k-eyebrow text-[#e53935]">{t("confirmation.raceCheckin.eyebrow")}</div>
+            <h2 className="k-display mt-[10px] text-[64px]">
+              {t("confirmation.raceCheckin.title")}
+            </h2>
             <div className="mt-[30px] flex flex-col gap-[22px]">
               {RACE_CHECKIN_STEPS.map((step) => (
                 <div
@@ -636,7 +669,7 @@ export function KioskConfirmation({ src }: { src: string | null }) {
               }}
               className="k-btn-primary k-tap mt-[34px] w-full"
             >
-              Got it
+              {t("confirmation.raceCheckin.gotIt")}
             </button>
           </div>
         </div>

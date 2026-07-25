@@ -68,4 +68,37 @@ export const es: Record<MessageKey, string> = {
   "categories.tile.nextLane": "Próxima pista · {time}",
   "categories.tile.countTables": "{count, plural, one {# mesa} other {# mesas}} · {time}",
   "categories.tile.countPlayers": "{count, plural, one {# jugador} other {# jugadores}} · {time}",
+
+  // --- Confirmation (KioskConfirmation) ---
+  "confirmation.booked": "¡Reservación confirmada!",
+  "confirmation.receiptNote":
+    "Acabamos de enviarte por mensaje y correo tu confirmación y los enlaces de registro — ese es tu boleto, no hay nada que imprimir.",
+  "confirmation.racing.eyebrow": "Carreras — lo que sigue",
+  "confirmation.racing.howButton": "¿Cómo funciona el registro de carreras?",
+  "confirmation.lane.readyTitle": "{lane} está lista",
+  "confirmation.lane.readyTitleGeneric": "Tu pista está lista",
+  "confirmation.lane.readyPrompt":
+    "¿Quieres que abramos tu pista ahora para que empieces a jugar boliche?",
+  "confirmation.lane.opening": "Abriendo…",
+  "confirmation.lane.openButton": "Abrir mi pista",
+  "confirmation.lane.later": "Me registro más tarde",
+  "confirmation.lane.openTitle": "{lane} está abierta",
+  "confirmation.lane.openTitleGeneric": "Tu pista está abierta",
+  "confirmation.lane.openBody.fasttrax": "Ve para allá — tu pista está lista.",
+  "confirmation.lane.openBody.headpinz":
+    "Ve para allá — tus zapatos te los llevarán directo a la pista.",
+  "confirmation.lane.failedTitle": "No pudimos abrir tu pista",
+  "confirmation.lane.failedBody":
+    "Por favor acude a la recepción y te pondrán a jugar boliche de inmediato.",
+  "confirmation.racePacks.eyebrow": "Paquetes de carreras",
+  "confirmation.qr.alt": "Código de registro",
+  "confirmation.bookingCode": "Código de reservación",
+  "confirmation.done": "Listo — empezar de nuevo",
+  "confirmation.dispensing": "Dispensando tus tarjetas…",
+  "confirmation.dispensingHint": "Toma cada tarjeta cuando salga — terminamos automáticamente.",
+  "confirmation.returningIn":
+    "Volviendo al inicio en {seconds}s — toca en cualquier lugar para quedarte",
+  "confirmation.raceCheckin.eyebrow": "Registro de carreras",
+  "confirmation.raceCheckin.title": "Qué esperar",
+  "confirmation.raceCheckin.gotIt": "Entendido",
 };
