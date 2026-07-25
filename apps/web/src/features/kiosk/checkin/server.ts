@@ -550,6 +550,10 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
   const groups = new Map<string, Grp>();
   for (const row of rows) {
     if (row.status === "cancelled" || row.status === "no_show") continue;
+    // Skip kiosk-booked reservations — that guest is already in-center (they
+    // just booked AT the kiosk), so they never need to find themselves here to
+    // check in (owner 2026-07-25).
+    if (row.bookingSource === "kiosk") continue;
     const evt = row.eventAt || row.bookedAt || "";
     const key = timeKey(evt);
     if (!key || key < lo || key > hi) continue;
@@ -575,6 +579,9 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
   );
   const out: CheckinBrowseRow[] = [];
   for (const g of ordered) {
+    // Racing check-in only — a reservation with no race leg never appears in
+    // this list (a race + bowling combo still shows; owner 2026-07-25).
+    if (!g.kinds.has("race")) continue;
     const { label: activitiesLabel, kind } = kindsToActivitiesLabel(g.kinds);
     const ref = await mintRef({ billId: g.billId, center });
     out.push({
