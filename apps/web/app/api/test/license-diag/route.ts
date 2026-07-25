@@ -96,8 +96,12 @@ async function membershipSnapshot(clientKey: string, personId: string) {
   return { pandora, office };
 }
 
-const hasLicense = (snap: { pandora: { activeLicense?: boolean } }) =>
-  snap.pandora.activeLicense === true;
+/** Licensed per EITHER read source. The Pandora read endpoint may not be
+ *  deployed yet — the BMI Office read (what the booking gate uses) is authoritative. */
+const hasLicense = (snap: {
+  pandora: { activeLicense?: boolean };
+  office: { activeLicense?: boolean };
+}) => snap.office.activeLicense === true || snap.pandora.activeLicense === true;
 
 export async function GET(req: NextRequest) {
   try {
@@ -183,9 +187,8 @@ export async function GET(req: NextRequest) {
     }
 
     trace.after = await membershipSnapshot(clientKey, personId!);
-    const licenseAttached =
-      hasLicense(trace.after as { pandora: { activeLicense?: boolean } }) &&
-      !hasLicense(trace.before as { pandora: { activeLicense?: boolean } });
+    type Snap = { pandora: { activeLicense?: boolean }; office: { activeLicense?: boolean } };
+    const licenseAttached = hasLicense(trace.after as Snap) && !hasLicense(trace.before as Snap);
     trace.licenseAttached = licenseAttached;
 
     return NextResponse.json({

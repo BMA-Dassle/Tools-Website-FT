@@ -135,13 +135,19 @@ export async function addMembership(params: AddMembershipParams): Promise<string
     cache: "no-store",
   });
   const text = await res.text();
-  let json: { success?: boolean; message?: string; data?: { membershipID?: string } } | null = null;
+  let json: {
+    success?: boolean;
+    message?: string;
+    data?: { linkID?: string; membershipID?: string };
+  } | null = null;
   try {
     json = JSON.parse(text);
   } catch {
     /* non-JSON */
   }
-  const id = json?.data?.membershipID;
+  // Live response (verified 2026-07-25): { success, data: { action:"inserted",
+  // linkID, membershipKindID, activates, expires } }. The grant id is `linkID`.
+  const id = json?.data?.linkID ?? json?.data?.membershipID;
   if (!res.ok || !json?.success || !id) {
     throw new Error(
       `Pandora addMembership failed: ${json?.message || text.slice(0, 200) || `HTTP ${res.status}`}`,
