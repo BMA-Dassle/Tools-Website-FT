@@ -15,25 +15,21 @@
  *                               client's new-racer hint only when the record can't
  *                               be read (a brand-new person whose Office record still
  *                               lags the Pandora create).
- *   registerStandaloneLicense() — booking/sell(43473520) → registerContactPerson →
- *                               payment/confirm. Selling 43473520 makes BMI auto-add
- *                               the kind=3 membership line (see OrderSummary.tsx:361),
- *                               i.e. it attaches the "License Fee" membership. Mirrors
- *                               the proven race-pack sell flow + legacy sellLicense
- *                               (race.ts:600) + the diag route (api/test/race-pack-diag).
- *
- * BMI ID precision: person/order ids are injected as RAW STRINGS and read back with
- * regex — NEVER JSON.stringify / JSON.parse an id (17-digit precision rule).
+ *   registerStandaloneLicense() — writes the "License Fee" membership straight into
+ *                               Firebird via Pandora `addMembership` (POST
+ *                               /v2/bmi/membership). NO BMI bill: the BMI booking/sell
+ *                               → payment/confirm path was proven to leave an unpaid
+ *                               bill and attach NO membership, and GET /membership is
+ *                               empty for FastTrax. This mirrors how race-pack CREDITS
+ *                               load (Pandora addDeposit) — the clean, bill-free rail.
  */
-import { randomUUID } from "crypto";
-import { apiBase } from "@/lib/api-base";
 import { fetchPersonRaw } from "~/features/daily-events/data/bmi-office";
 import { LICENSE_PRICE } from "./race-pricing";
+import { addMembership } from "@/lib/pandora-memberships";
 import { markLicenseRegistered, markLicenseRegisterFailed } from "../data/race-license-grants-db";
 
-/** BMI license product — kind=1 "License Fee" sell item. Selling it makes BMI
- *  auto-add the kind=3 membership (product 11253570) that marks the racer
- *  licensed for a year. Same id used across the race flows (race.ts, checkout.ts). */
+/** BMI license product — kind=1 "License Fee" fee line (the $4.99 charge in the
+ *  race flow). Kept for traceability; the standalone grant uses Pandora, not this. */
 export const LICENSE_PRODUCT_ID = "43473520";
 
 /** FastTrax Office/BMI client key (racing accounts live in the FastTrax BMI —
@@ -43,23 +39,12 @@ const FASTTRAX_CLIENT_KEY = "headpinzftmyers";
 /** License-fee price in cents, re-derived server-side (displayed == charged). */
 export const LICENSE_PRICE_CENTS = Math.round(LICENSE_PRICE * 100);
 
-/** Optional BMI page the standalone license bill is created on. Empty by default
- *  (the legacy sellLicense onto an existing bill sends no page); if a live smoke
- *  shows BMI needs a page to CREATE the bill, set RACE_LICENSE_PAGE_ID. */
-const LICENSE_PAGE_ID = process.env.RACE_LICENSE_PAGE_ID || "";
-
 interface OfficeMembership {
   name?: string;
   stops?: string | null;
 }
 interface OfficePersonMemberships {
   memberships?: OfficeMembership[];
-}
-
-/** Extract a raw numeric field from a BMI response body by regex (precision-safe). */
-function extractRawField(text: string, field: string): string | null {
-  const m = text.match(new RegExp(`"${field}"\\s*:\\s*(\\d+)`));
-  return m ? m[1] : null;
 }
 
 /**
@@ -112,78 +97,27 @@ export interface LicenseRegistrationInput {
   phone?: string;
 }
 
-/** Server-side POST to the BMI proxy with a RAW string body (id precision). */
-async function bmiPost(endpoint: string, body: string): Promise<{ ok: boolean; text: string }> {
-  const res = await fetch(`${apiBase()}/api/bmi?${new URLSearchParams({ endpoint })}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body,
-  });
-  const text = await res.text();
-  return { ok: res.ok, text };
-}
-
 /**
- * Register a FastTrax license on a racer's BMI account by selling product
- * 43473520 on its own bill and confirming it (depositKind 0 = external / Square).
- * Returns the BMI bill id. Throws on any step failure — the caller owns the
- * persist-first ledger + failure recovery (the money is already captured).
+ * Grant a FastTrax license by writing the "License Fee" membership into Firebird
+ * via Pandora (`addMembership`) — NO BMI bill. Returns the Pandora membership id.
+ * Throws on failure — the caller owns the persist-first ledger + reconcile (the
+ * money is already captured). Contact fields are accepted for API symmetry but the
+ * Pandora write only needs the personId (+ the license kind id + 1-year expiry,
+ * both handled inside addMembership).
  */
 export async function registerStandaloneLicense(
   input: LicenseRegistrationInput,
-): Promise<{ billId: string }> {
+): Promise<{ membershipId: string }> {
   if (!/^\d{1,20}$/.test(input.personId)) {
     throw new Error(
       `registerStandaloneLicense: invalid personId ${JSON.stringify(input.personId)}`,
     );
   }
-
-  // 1. Sell the license → new bill (OrderId:null). Raw-string body so the
-  //    17-digit PersonId survives. PageId only sent if configured.
-  const sellParts = [
-    `"ProductId":${LICENSE_PRODUCT_ID}`,
-    ...(LICENSE_PAGE_ID ? [`"PageId":${LICENSE_PAGE_ID}`] : []),
-    `"Quantity":1`,
-    `"OrderId":null`,
-    `"ParentOrderItemId":null`,
-    `"DynamicLines":[]`,
-    `"PersonId":${input.personId}`,
-  ];
-  const sell = await bmiPost("booking/sell", `{${sellParts.join(",")}}`);
-  if (!sell.ok)
-    throw new Error(`booking/sell ${LICENSE_PRODUCT_ID} failed: ${sell.text.slice(0, 160)}`);
-  const billId = extractRawField(sell.text, "orderId");
-  if (!billId) throw new Error(`booking/sell returned no orderId: ${sell.text.slice(0, 160)}`);
-
-  // 2. Attach the racer as the bill's contact person.
-  const email = (input.email ?? "").replace(/"/g, "");
-  const phone = (input.phone ?? "").replace(/\D/g, "");
-  const first = input.firstName.replace(/"/g, "").trim() || "Racer";
-  const last = input.lastName.replace(/"/g, "").trim();
-  const regBody =
-    `{"orderId":${billId},"PersonId":${input.personId},` +
-    `"firstName":"${first}","lastName":"${last}","email":"${email}","phone":"${phone}"}`;
-  const reg = await bmiPost("person/registerContactPerson", regBody);
-  if (!reg.ok) throw new Error(`registerContactPerson failed: ${reg.text.slice(0, 160)}`);
-
-  // 3. Confirm the bill (depositKind 0 = external Square payment). Use BMI's own
-  //    line price when present; fall back to the $4.99 license price.
-  let amount = LICENSE_PRICE;
-  try {
-    const parsed = JSON.parse(sell.text) as { prices?: Array<{ amount?: number }> };
-    const p = parsed.prices?.[0]?.amount;
-    if (typeof p === "number" && p > 0) amount = p;
-  } catch {
-    /* keep the fallback */
-  }
-  const payBody =
-    `{"id":"${randomUUID()}","paymentTime":"${new Date().toISOString()}",` +
-    `"amount":${amount},"orderId":${billId},"depositKind":0}`;
-  const pay = await bmiPost("payment/confirm", payBody);
-  if (!pay.ok) throw new Error(`payment/confirm failed: ${pay.text.slice(0, 160)}`);
-
-  console.log(`[race-license] registered license bill ${billId} for person ${input.personId}`);
-  return { billId };
+  const membershipId = await addMembership({ personId: input.personId });
+  console.log(
+    `[race-license] granted license membership ${membershipId} for person ${input.personId}`,
+  );
+  return { membershipId };
 }
 
 export interface LicenseGrantOutcome {
@@ -198,7 +132,7 @@ export interface LicenseGrantOutcome {
 
 /**
  * Register every persisted license obligation for a purchase. Runs strictly
- * AFTER the money is verified. Never throws — a failed BMI sale marks the row
+ * AFTER the money is verified. Never throws — a failed Pandora grant marks the row
  * 'register-failed' (+ logs) so the guest's purchase is never thrown away.
  */
 export async function grantLicenses(args: {
@@ -215,14 +149,14 @@ export async function grantLicenses(args: {
   for (const o of args.obligations) {
     const [firstName, ...rest] = o.memberName.trim().split(/\s+/);
     try {
-      const { billId } = await registerStandaloneLicense({
+      const { membershipId } = await registerStandaloneLicense({
         personId: o.personId,
         firstName: firstName || o.memberName || "Racer",
         lastName: rest.join(" "),
         email: o.email ?? undefined,
         phone: o.phone ?? undefined,
       });
-      await markLicenseRegistered(args.sourceKey, o.personId, billId, args.squareRef ?? null);
+      await markLicenseRegistered(args.sourceKey, o.personId, membershipId, args.squareRef ?? null);
       out.push({ personId: o.personId, memberName: o.memberName, registered: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "license registration failed";
