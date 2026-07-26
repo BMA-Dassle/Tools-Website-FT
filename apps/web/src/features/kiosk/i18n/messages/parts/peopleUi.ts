@@ -108,6 +108,11 @@ export const peopleUiEn = {
   "peopleUi.waiverSubSigner":
     "{signer} — sign below for {name}. It stays on file for the whole visit.",
   "peopleUi.waiverSubSelf": "Read and sign below — it stays on file for your whole visit.",
+  "peopleUi.waiverSignBelow": "Sign below",
+  "peopleUi.waiverClear": "Clear",
+  "peopleUi.waiverAgree": "I Agree & Sign Waiver",
+  "peopleUi.waiverSubmitting": "Submitting…",
+  "peopleUi.waiverAgreementNote": "By signing, you agree to the terms of the waiver above.",
 
   // split-payment warning
   "peopleUi.beforeAddMore": "Before you add more players",
@@ -246,6 +251,11 @@ export const peopleUiEs: Record<keyof typeof peopleUiEn, string> = {
   "peopleUi.waiverSubSigner":
     "{signer} — firma abajo por {name}. Queda en archivo durante toda la visita.",
   "peopleUi.waiverSubSelf": "Lee y firma abajo — queda en archivo durante toda tu visita.",
+  "peopleUi.waiverSignBelow": "Firma abajo",
+  "peopleUi.waiverClear": "Borrar",
+  "peopleUi.waiverAgree": "Acepto y firmo la exención",
+  "peopleUi.waiverSubmitting": "Enviando…",
+  "peopleUi.waiverAgreementNote": "Al firmar, aceptas los términos de la exención anterior.",
 
   // split-payment warning
   "peopleUi.beforeAddMore": "Antes de agregar más jugadores",

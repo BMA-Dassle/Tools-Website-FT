@@ -182,12 +182,12 @@ const ES_GUARDIAN_BOX = `<div style="border:2pt solid #000000; background:#edede
  * 2026-07-26). Uses an explicit light box + dark-red text so it stays legible
  * over the waiver's dark theme (same reason the guardian box sets its own colors). */
 const EN_GUARDIAN_TOP_BANNER = `<div style="border:3pt solid #b00020; background:#ffffff; color:#b00020; padding:16px 18px; margin:0 0 20px; text-align:center;">
-<div style="font-size:26pt; font-weight:bold; line-height:1.25;">A PARENT OR LEGAL GUARDIAN MUST SIGN FOR THIS MINOR</div>
+<div style="font-size:20pt; font-weight:bold; line-height:1.2; white-space:nowrap;">A PARENT OR LEGAL GUARDIAN MUST SIGN FOR THIS MINOR</div>
 <div style="color:#444; font-size:11pt; font-weight:normal; line-height:1.45; margin-top:12px;">Only this child’s parent or legal guardian may sign this waiver. Under <b>Florida Statute § 831.01</b>, falsely representing that you are the parent or legal guardian of a minor — or signing a name that is not your own — is forgery, a criminal offense under Florida law.</div>
 </div>`;
 
 const ES_GUARDIAN_TOP_BANNER = `<div style="border:3pt solid #b00020; background:#ffffff; color:#b00020; padding:16px 18px; margin:0 0 20px; text-align:center;">
-<div style="font-size:26pt; font-weight:bold; line-height:1.25;">UN PADRE, MADRE O TUTOR LEGAL DEBE FIRMAR POR ESTE MENOR</div>
+<div style="font-size:20pt; font-weight:bold; line-height:1.2; white-space:nowrap;">UN PADRE, MADRE O TUTOR LEGAL DEBE FIRMAR POR ESTE MENOR</div>
 <div style="color:#444; font-size:11pt; font-weight:normal; line-height:1.45; margin-top:12px;">Solo el padre, la madre o el tutor legal de este menor puede firmar esta exención. Conforme a la <b>Ley de Florida (Florida Statute) § 831.01</b>, declarar falsamente que usted es el padre, la madre o el tutor legal de un menor — o firmar un nombre que no es el suyo — constituye falsificación, un delito conforme a la ley de Florida.</div>
 </div>`;
 

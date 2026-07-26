@@ -2092,12 +2092,18 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                 // Center the signature UI vertically in the overlay — min-h-full
                 // centers it when it fits and lets the overlay scroll if it's
                 // ever taller (owner 2026-07-21: signature sat too high).
-                <div className="mx-auto flex min-h-full max-w-[900px] flex-col justify-center">
+                <div className="mx-auto flex min-h-full max-w-[980px] flex-col justify-center">
                   <WaiverSigning
                     personId={waiverFor.personId}
                     template={waiverFor.template}
                     location={brandLocation}
                     signerPersonId={waiverFor.signerPersonId}
+                    size="lg"
+                    submitLabel={t("peopleUi.waiverAgree")}
+                    submittingLabel={t("peopleUi.waiverSubmitting")}
+                    agreementNote={t("peopleUi.waiverAgreementNote")}
+                    signLabel={t("peopleUi.waiverSignBelow")}
+                    clearLabel={t("peopleUi.waiverClear")}
                     heading={isRace ? t("peopleUi.racingWaiver") : t("peopleUi.activityWaiver")}
                     subheading={
                       waiverFor.signerName
