@@ -19,6 +19,7 @@ import { paymentEn, paymentEs } from "./parts/payment";
 import { racepackEn, racepackEs } from "./parts/racepack";
 import { miscEn, miscEs } from "./parts/misc";
 import { peopleUiEn, peopleUiEs } from "./parts/peopleUi";
+import { checkinEn, checkinEs } from "./parts/checkin";
 import type { KioskLocale } from "../locales";
 
 /** English source of truth — core + every screen fragment. */
@@ -31,6 +32,7 @@ const EN = {
   ...racepackEn,
   ...miscEn,
   ...peopleUiEn,
+  ...checkinEn,
 };
 
 /** Spanish — each piece is exhaustively typed against its English counterpart. */
@@ -43,6 +45,7 @@ const ES = {
   ...racepackEs,
   ...miscEs,
   ...peopleUiEs,
+  ...checkinEs,
 };
 
 export type MessageKey = keyof typeof EN;
