@@ -15,6 +15,16 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.8.0 — SPANISH (guest i18n): the whole guest-facing kiosk speaks Spanish now,
+ *         behind NEXT_PUBLIC_KIOSK_I18N. A flag switcher (US / ES) sits on the
+ *         attract screen and the "what are we doing today?" chooser; the choice
+ *         rides in KioskConfig and resets to the device default on Start Over.
+ *         Ships with the IN-HOUSE WAIVER (NEXT_PUBLIC_KIOSK_WAIVER_INHOUSE,
+ *         default ON): we serve our OWN adult/minor waiver body (EN + ES) so it
+ *         can be translated, while keeping BMI's real contentID/duration so the
+ *         sign path is byte-identical. Minor waivers lead with a red
+ *         guardian-MUST-sign banner + a Florida Statute § 831.01 (forgery)
+ *         notice; the kiosk signing UI is enlarged to use the portrait screen.
  * 1.7.2 — scanner model #2's brand corrected: it's an OPTICON 2D imager, not
  *         Posiflex. Registry id renamed posiflex-2d → opticon-2d, expected
  *         VID now 0x065A (Opticon's registered VID; was Posiflex 0x0D3A).
@@ -103,7 +113,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.7.2";
+export const KIOSK_VERSION = "1.8.0";
 
 let bootVersion: string | null = null;
 let captured = false;
