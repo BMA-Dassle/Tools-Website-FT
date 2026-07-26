@@ -26,8 +26,14 @@ const RefreshSchema = z.object({
     .array(
       z.object({
         id: z.string().min(1).max(64),
-        // Raw digit string — 17-digit Office ids exceed MAX_SAFE_INTEGER.
+        // Raw digit strings — 17-digit Office ids exceed MAX_SAFE_INTEGER.
         bmiPersonId: z.string().regex(/^\d{1,20}$/),
+        // SHORT Pandora id when the session resolved one — the waiver read
+        // uses it (signatures land on this id, not the Office id).
+        pandoraPersonId: z
+          .string()
+          .regex(/^\d{1,20}$/)
+          .optional(),
       }),
     )
     .min(1)

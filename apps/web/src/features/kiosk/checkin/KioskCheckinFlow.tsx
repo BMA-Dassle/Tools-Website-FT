@@ -12,7 +12,7 @@
  * Structure mirrors KioskWaiverFlow: page-local state, IdleWatcher, resetToKiosk
  * exit, canvas Podium classes, the shell's global on-screen keyboard for input.
  */
-import { useCallback, useEffect, useReducer, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
   IconChevronLeft,
@@ -47,6 +47,8 @@ import {
   verifyOwnPhoneOtp,
 } from "./service";
 import { useWedgeScan } from "./wedge-scan";
+import { useQrScanner } from "../qr-scanner";
+import { heatsConflict } from "~/features/booking/service/conflict";
 import { resolveRaceClass } from "./category";
 import { pandoraCreatePerson, pandoraCheckWaiver } from "@/lib/pandora";
 import type {
@@ -130,6 +132,8 @@ export function KioskCheckinFlow() {
   const [error, setError] = useState<string | null>(null);
   // Express-lane info modal — racing (FastTrax / Fort Myers) only.
   const [showExpress, setShowExpress] = useState(false);
+  // True while the kiosk's serial QR scanner holds the port and hears scans.
+  const [scanListening, setScanListening] = useState(false);
 
   // Phone path
   const [phone, setPhone] = useState("");
@@ -202,13 +206,19 @@ export function KioskCheckinFlow() {
 
   // "Who is who" — the open (unfilled) purchased race slots, and the handler
   // that assigns a ready party member to one. Keyed by the seat-unique slotKey
-  // (never heatId — two racers can share a heat). A member holds at most one slot.
+  // (never heatId — two racers can share a heat). A member may hold SEVERAL
+  // slots (multi-race bookings: a red then a blue race is one person twice),
+  // subject to web booking's per-racer heat-spacing rules (raceSlotsConflict):
+  // assigning releases only the member's slots too close to the new one, never
+  // their compatible other races.
   const openRaceSlots = itinerary?.raceSlots.filter((s) => s.open) ?? [];
+  const slotByKey = (key: string) => openRaceSlots.find((s) => s.slotKey === key);
   const assignRace = (slotKey: string, memberId: string) => {
+    const target = slotByKey(slotKey);
     setAssignMap((prev) => {
       const next: Record<string, string> = {};
       for (const [k, mId] of Object.entries(prev)) {
-        if (mId === memberId) continue; // release the member's previous slot
+        if (mId === memberId && raceSlotsConflict(slotByKey(k), target)) continue; // too close — release
         next[k] = mId;
       }
       if (prev[slotKey] === memberId) return next; // tapping the held slot clears it
@@ -489,6 +499,24 @@ export function KioskCheckinFlow() {
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-[#000418]">
       <IdleWatcher timeoutMs={IDLE_MS} paused={busy || peopleBusy || binding} onReset={goHome} />
 
+      {/* The kiosk's QR reader is a SERIAL (COM-port) device — it never types
+          keystrokes, so the wedge hook alone hears nothing from it. Mounted
+          only on the find/list stages: serial opens are exclusive, and the
+          party stage's people monolith needs the port for its license scanner. */}
+      {(stage === "find" || stage === "matches" || stage === "browse") && (
+        <CheckinScanListener
+          onScan={(raw) => {
+            if (!busy) void onScan(raw);
+          }}
+          onLicenseLike={() =>
+            setError(
+              "That looks like a driver's license — scan the QR code from your confirmation email or text instead.",
+            )
+          }
+          onListeningChange={setScanListening}
+        />
+      )}
+
       {/* Header */}
       <div className="flex shrink-0 items-center gap-[24px] border-b border-white/10 px-[48px] py-[32px]">
         <button
@@ -541,6 +569,7 @@ export function KioskCheckinFlow() {
             onPhone={setPhone}
             onSendPhone={sendPhone}
             scanArmed={wedge.armed}
+            scanReady={scanListening}
             onArmScan={wedge.arm}
             onBrowse={openBrowse}
           />
@@ -686,12 +715,15 @@ export function KioskCheckinFlow() {
               </div>
             )}
 
-            {/* Racing → the dedicated "Who's racing?" step; otherwise finalize. */}
+            {/* Racing → the dedicated "Who's racing?" step; otherwise finalize.
+                peopleBusy gates BOTH: a sign-in lookup / waiver check still in
+                flight means the roster isn't settled yet — advancing early let a
+                guest skip past their own account resolving. */}
             {openRaceSlots.length > 0 ? (
               <button
                 type="button"
                 onClick={() => setStage("assign")}
-                disabled={partyNeedsSetup}
+                disabled={partyNeedsSetup || peopleBusy}
                 className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
               >
                 {t("checkin.nextWhosRacing")}
@@ -700,7 +732,7 @@ export function KioskCheckinFlow() {
               <button
                 type="button"
                 onClick={checkInEveryone}
-                disabled={binding || partyNeedsSetup}
+                disabled={binding || partyNeedsSetup || peopleBusy}
                 className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
               >
                 {binding ? t("checkin.checkingIn") : t("checkin.checkEveryone")}
@@ -797,6 +829,70 @@ function ExpressLaneModal(props: { onClose: () => void }) {
 
 // TODO(i18n): module-scope helper (no hook access) — the "your number" fallback
 // stays English until phone-mask formatting is threaded through the locale.
+
+// ── Serial QR-scanner listener ───────────────────────────────────────────────
+/** Quiet gap that ends one physical scan's line burst (mirrors useLicenseScan). */
+const SCAN_BURST_QUIET_MS = 350;
+
+/**
+ * The kiosk's QR reader is a COM-port device driven over Web Serial
+ * (useQrScanner, the same saved model/baud/port plumbing as the license
+ * scanner) — it never types keystrokes, so the keyboard-wedge hook alone hears
+ * nothing from it. Mount this ONLY while a find/list stage is showing: serial
+ * opens are exclusive, and the party stage's people monolith needs the port
+ * for its own license listener. Lines are regrouped over a short quiet gap —
+ * a reservation QR is ONE line; a driver's license bursts ~35 lines and is
+ * flagged once instead of spamming lookups.
+ */
+function CheckinScanListener(props: {
+  onScan: (raw: string) => void;
+  onLicenseLike: () => void;
+  onListeningChange: (listening: boolean) => void;
+}) {
+  const { config } = useKioskConfig();
+  const linesRef = useRef<string[]>([]);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const propsRef = useRef(props);
+  useEffect(() => {
+    propsRef.current = props;
+  }, [props]);
+
+  const scanner = useQrScanner({
+    enabled: !!config?.qrScannerEnabled,
+    modelId: config?.qrScannerModel,
+    baudRate: config?.qrScannerBaud ?? null,
+    portInfo: config?.qrScannerPortInfo ?? null,
+    // Strict saved-ids matching only — the MSR + dispenser share this origin's grants.
+    allowLoneGrantFallback: false,
+    onScan: (scan) => {
+      linesRef.current.push(scan.payload);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+        const lines = linesRef.current;
+        linesRef.current = [];
+        if (lines.length === 1) propsRef.current.onScan(lines[0]);
+        else if (lines.length > 1) propsRef.current.onLicenseLike();
+      }, SCAN_BURST_QUIET_MS);
+    },
+  });
+
+  const listening = scanner.connection.state === "listening";
+  useEffect(() => {
+    propsRef.current.onListeningChange(listening);
+  }, [listening]);
+  // Leaving the stage: never fire a half-collected burst, and report the port
+  // released so the find tile stops showing "ready".
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      propsRef.current.onListeningChange(false);
+    };
+  }, []);
+
+  return null;
+}
+
 function formatPhoneMask(phone: string): string {
   const d = phone.replace(/\D/g, "").slice(-10);
   return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : "your number";
@@ -808,6 +904,8 @@ function FindScreen(props: {
   onPhone: (v: string) => void;
   onSendPhone: () => void;
   scanArmed: boolean;
+  /** Serial scanner holds the port — scans work with no arming tap needed. */
+  scanReady: boolean;
   onArmScan: () => void;
   onBrowse: () => void;
 }) {
@@ -845,12 +943,14 @@ function FindScreen(props: {
           type="button"
           onClick={props.onArmScan}
           className={`k-glass k-tap flex flex-col items-center justify-center gap-[16px] p-[40px] text-center ${
-            props.scanArmed ? "border-[#00e2e5]/60" : ""
+            props.scanArmed || props.scanReady ? "border-[#00e2e5]/60" : ""
           }`}
         >
           <IconScan size={56} className="text-[#e94141]" aria-hidden="true" />
           <div className="k-display text-[32px]">
-            {props.scanArmed ? t("checkin.find.scanNow") : t("checkin.find.scanMyCode")}
+            {props.scanArmed || props.scanReady
+              ? t("checkin.find.scanNow")
+              : t("checkin.find.scanMyCode")}
           </div>
           <div className="text-[24px] text-white/50">{t("checkin.find.scanSub")}</div>
         </button>
@@ -984,6 +1084,21 @@ function racerName(m: PartyMember): string {
   return `${m.firstName}${m.lastName ? ` ${m.lastName}` : ""}`.trim() || "Racer";
 }
 
+/** Web booking's per-racer heat-spacing rules, applied to two purchased slots:
+ *  same-track heats must skip the adjacent slot, cross-track needs the 30-min
+ *  walk buffer (heatsConflict — the exact function the web picker + reserve
+ *  guard use). Unknown/unparseable slots count as conflicting (safe default). */
+function raceSlotsConflict(
+  a: CheckinRaceSlot | undefined,
+  b: CheckinRaceSlot | undefined,
+): boolean {
+  if (!a || !b) return true;
+  const aMs = Date.parse(a.heatId.replace(/Z$/, ""));
+  const bMs = Date.parse(b.heatId.replace(/Z$/, ""));
+  if (!Number.isFinite(aMs) || !Number.isFinite(bMs)) return true;
+  return heatsConflict(aMs, a.track, bMs, b.track);
+}
+
 /** The whole assignment step: a card per open race with a "Choose racer" picker
  *  that only offers class-eligible, ready people. */
 function RaceAssignScreen(props: {
@@ -1068,6 +1183,7 @@ function RaceAssignScreen(props: {
       {pickFor && (
         <RacerPickerModal
           slot={pickFor}
+          slots={slots}
           party={party}
           assignMap={assignMap}
           onPick={(memberId) => {
@@ -1086,19 +1202,23 @@ function RaceAssignScreen(props: {
 }
 
 /** Picker sheet for one race — lists ONLY ready racers whose class matches the
- *  slot (the hard junior/adult check: an off-class racer is never offered). */
+ *  slot (the hard junior/adult check: an off-class racer is never offered). A
+ *  racer already in ANOTHER race is still offered: compatible times coexist
+ *  (multi-race bookings); a too-close race is flagged and released on pick. */
 function RacerPickerModal(props: {
   slot: CheckinRaceSlot;
+  slots: CheckinRaceSlot[];
   party: PartyMember[];
   assignMap: Record<string, string>;
   onPick: (memberId: string) => void;
   onRemove: () => void;
   onClose: () => void;
 }) {
-  const { slot, party, assignMap, onPick, onRemove, onClose } = props;
+  const { slot, slots, party, assignMap, onPick, onRemove, onClose } = props;
   const t = useT();
   const currentId = assignMap[slot.slotKey];
   const eligible = party.filter((m) => resolveRaceClass(m) === slot.category);
+  const slotByKey = (key: string) => slots.find((s) => s.slotKey === key);
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center p-[48px]">
@@ -1130,7 +1250,14 @@ function RacerPickerModal(props: {
           <div className="mt-[28px] space-y-[14px]">
             {eligible.map((m) => {
               const selected = currentId === m.id;
-              const elsewhere = !selected && Object.values(assignMap).includes(m.id);
+              // The member's OTHER held slots: one too close to this race (per
+              // the web heat-spacing rules) gets released on pick — say so; a
+              // compatible one coexists and is purely informational.
+              const otherHeld = Object.entries(assignMap)
+                .filter(([k, id]) => id === m.id && k !== slot.slotKey)
+                .map(([k]) => slotByKey(k))
+                .filter((s): s is CheckinRaceSlot => !!s);
+              const conflicting = otherHeld.find((s) => raceSlotsConflict(s, slot));
               return (
                 <button
                   key={m.id}
@@ -1148,11 +1275,17 @@ function RacerPickerModal(props: {
                     aria-hidden="true"
                   />
                   <span className="flex-1">{racerName(m)}</span>
-                  {elsewhere && (
-                    <span className="text-[22px] text-white/40">
-                      {t("checkin.picker.elsewhere")}
+                  {conflicting ? (
+                    <span className="text-[22px] text-[#f0b341]">
+                      {t("checkin.picker.movesFrom", {
+                        label: conflicting.timeLabel || t("checkin.picker.otherRace"),
+                      })}
                     </span>
-                  )}
+                  ) : otherHeld.length > 0 ? (
+                    <span className="text-[22px] text-white/40">
+                      {t("checkin.picker.alsoAnother")}
+                    </span>
+                  ) : null}
                 </button>
               );
             })}

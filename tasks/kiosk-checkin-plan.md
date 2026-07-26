@@ -226,3 +226,33 @@ Owner: "guest action." Replaces the PR3 index-order auto-assign
 - **PR4b — assignment + Confirmation Kiosk state** (Parts B+C): mutating, still dark behind
   `KIOSK_CHECKIN_BMI_ATTACH`. Gates: A3 attach probe, schedule-bind probe, the new Confirmation
   Kiosk state probe, owner live smoke. The M4 early-settle gate is now GONE (Part B).
+
+## 12. Bug batch (owner smoke, 2026-07-25) — all fixed same day
+
+Four live-testing bugs, root causes confirmed in code before fixing:
+
+1. **QR scan found nothing.** The kiosk QR reader is a SERIAL (COM-port) device
+   (`useQrScanner` rail) — it never types keystrokes, so the find screen's
+   keyboard-wedge hook heard nothing. Fix: `CheckinScanListener` in
+   `KioskCheckinFlow` mounts `useQrScanner` (same saved model/baud/port plumbing
+   as the license scanner) on the find/matches/browse stages ONLY — the party
+   stage's people monolith needs the exclusive port for its license listener.
+   One-line bursts → `lookupByScan`; multi-line bursts (a license) → a friendly
+   "scan your confirmation QR" error. Wedge hook kept as fallback.
+2. **"Next: who's racing" tappable mid-lookup.** The party-stage buttons only
+   gated on `partyNeedsSetup`; a sign-in lookup in flight (empty/complete party)
+   left them enabled. Both buttons now also gate on `peopleBusy`.
+3. **One person couldn't take two races.** The assign step force-swapped a
+   member out of their other race ("already in another race"). Now a member may
+   hold SEVERAL slots under the SAME web-booking heat-spacing rules
+   (`heatsConflict`: same-track skip-adjacent 13 min, cross-track 30 min walk) —
+   client (`raceSlotsConflict` releases only a too-close slot; picker labels
+   "moves from their X race" vs "also in another race") AND server
+   (`violatesSpacing` in completeCheckin, which also checks heats pre-filled at
+   booking time by personId, mirroring findCrossBookingConflict; boundHeats now
+   accumulates per person since the upsert replaces).
+4. **Browse list hid 11pm+ reservations.** The ±3h window's forward edge cut
+   anything more than 3h out. Now the list shows the REST of today (query is
+   already today-scoped) with the 3h lookback kept. `BROWSE_WINDOW_MIN` →
+   `BROWSE_LOOKBACK_MIN`; §12 supersedes the "±3h window" wording in the §
+   "Owner decisions" list (lookback half unchanged).

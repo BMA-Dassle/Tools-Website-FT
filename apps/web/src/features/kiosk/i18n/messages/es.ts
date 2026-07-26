@@ -386,8 +386,8 @@ export const es: Record<CoreKey, string> = {
   "checkin.matches.prompt":
     "Encontramos más de una reservación — toca la que corresponde a tu visita.",
   "checkin.browse.prompt":
-    "Llegando pronto a esta ubicación. Toca tu reservación — enviaremos un código por mensaje al número de la reservación para confirmar que eres tú.",
-  "checkin.browse.emptyTitle": "Nada en las próximas horas",
+    "Reservaciones de hoy en esta ubicación. Toca tu reservación — enviaremos un código por mensaje al número de la reservación para confirmar que eres tú.",
+  "checkin.browse.emptyTitle": "Nada más por hoy",
   "checkin.browse.emptyBody": "Usa tu número de teléfono arriba, o ve a la recepción.",
   "checkin.addGroup.eyebrow": "Agrega a tu grupo",
   "checkin.addGroup.body":

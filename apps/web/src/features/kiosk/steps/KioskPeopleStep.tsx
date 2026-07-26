@@ -600,15 +600,47 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         if (!result.waiverValid && result.template) {
           openWaiverOrGuardian(result.personId, result.template, rMinor);
         }
+      } else if (shortPandoraId(member)) {
+        // A SHORT Pandora id is already on the member (created this session,
+        // or resolved by an earlier Set up) — NEVER create again. Re-taps used
+        // to re-run the "upsert" below, and Pandora's create is NOT an upsert:
+        // each pass minted a fresh duplicate person, the new waiver landed on
+        // the newest record, and readiness checks kept reading an older one
+        // (2026-07-25 Strachan incident — one kid ended up with EIGHT person
+        // records). Check the waiver on the id we have and sign against it.
+        const sid = shortPandoraId(member) as string;
+        const status = await pandoraCheckWaiver(sid, brandLocation);
+        const refreshedIso = status.birthdate
+          ? String(status.birthdate).slice(0, 10)
+          : toIsoDob(dob);
+        const rAge = ageFromIso(refreshedIso) ?? age;
+        const rMinor = rAge < 18;
+        dispatch({
+          type: "updatePartyMember",
+          id: member.id,
+          patch: {
+            waiverValid: status.valid,
+            isMinor: rMinor,
+            category: rAge < 13 ? "junior" : "adult",
+            dobIso: refreshedIso,
+          },
+        });
+        resetForm();
+        if (!status.valid) {
+          const template = await pandoraFetchWaiverTemplate(rAge, brandLocation);
+          openWaiverOrGuardian(sid, template, rMinor);
+        }
       } else {
         // Account exists (returning racer) — but the lookup's id is the
         // 17-digit OFFICE id, which Pandora's waiver-sign endpoint REJECTS
         // (live 2026-07-18: sign 500s; the "second time worked" because the
-        // upsert-style Pandora create resolved the same human to their SHORT
-        // id). Resolve the short id via that same upsert (known person → same
-        // personId, never a duplicate) using the member's OWN phone/email as
+        // Pandora create resolved the same human to their SHORT id). Resolve
+        // the short id via that create using the member's OWN phone/email as
         // the dedup identity, then sign against it. It also returns the REAL
         // waiver status — a regular with a current waiver skips signing.
+        // (Create is NOT a reliable upsert — it can mint a duplicate — but
+        // with no short id on file it's the only way to get a signable id;
+        // the short-id guard above makes sure it runs at most ONCE per member.)
         const dedupPhone = member.phone?.trim() ?? "";
         const dedupEmail = member.email?.trim() ?? "";
         if (dedupPhone || dedupEmail) {
@@ -925,27 +957,14 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     }
   };
 
-  /** Best-effort BMI-level guardian link: re-run the upsert create for the
-   *  minor with guardianID attached (known person → same id, never a
-   *  duplicate). The waiver's sigPersonID records the guardian regardless, so
-   *  a failure here is non-fatal — fire and forget. Skipped when the minor has
-   *  no phone/email dedup identity (an upsert then risks a duplicate person). */
-  const linkMinorToGuardian = (minorMemberId: string, guardianSid: string) => {
-    const minor = party.find((m) => m.id === minorMemberId);
-    if (!minor) return;
-    const mPhone = minor.phone?.trim() ?? "";
-    const mEmail = minor.email?.trim() ?? "";
-    if (!mPhone && !mEmail) return;
-    void pandoraCreatePerson({
-      firstName: minor.firstName,
-      lastName: minor.lastName ?? "",
-      email: mEmail,
-      phone: mPhone,
-      birthdate: minor.dobIso,
-      guardianID: guardianSid,
-      location: brandLocation,
-    }).catch(() => {});
-  };
+  // NOTE (2026-07-25, Strachan incident): there used to be a best-effort
+  // "linkMinorToGuardian" here that re-ran pandoraCreatePerson for the minor
+  // with guardianID attached, believing the create was an upsert. It is NOT —
+  // Pandora created a fresh DUPLICATE person on every minor sign (the field
+  // set differed from the original create), splitting the kid's identity so
+  // later waiver checks read a record the signature never landed on. The
+  // waiver's sigPersonID already records who signed; never re-create a person
+  // that already has an id.
 
   /** "Join the fun" — the signer-only guardian decides to play after all.
    *  Same object (same id) moves into the party, so minors' guardianMemberId
@@ -2116,10 +2135,10 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                         },
                       });
                       if (minorSigned) {
-                        // Best-effort BMI guardian link on the minor's person.
-                        if (waiverFor.signerPersonId) {
-                          linkMinorToGuardian(gf.minorMemberId, waiverFor.signerPersonId);
-                        }
+                        // No BMI-level guardian link here — the waiver's
+                        // sigPersonID records the guardian, and re-creating
+                        // the minor to attach guardianID provably minted a
+                        // duplicate person (2026-07-25 incident).
                         // Receipt goes to the guardian when the Main person is
                         // a minor (owner 2026-07-18) — contact is separate from
                         // the party, so this never adds them to the purchase.

@@ -68,7 +68,14 @@ export async function refreshQualifications(
 ): Promise<Map<string, QualificationPatch>> {
   const members = party
     .filter((m) => m.bmiPersonId)
-    .map((m) => ({ id: m.id, bmiPersonId: m.bmiPersonId as string }));
+    .map((m) => ({
+      id: m.id,
+      bmiPersonId: m.bmiPersonId as string,
+      // Waivers are SIGNED against the short Pandora id — the server reads
+      // waiver validity on it so a fresh signature is never missed by reading
+      // a duplicate/Office record instead (2026-07-25 incident).
+      ...(m.pandoraPersonId ? { pandoraPersonId: m.pandoraPersonId } : {}),
+    }));
   if (members.length === 0) return new Map();
   try {
     const res = await fetch("/api/kiosk/refresh-qualifications", {

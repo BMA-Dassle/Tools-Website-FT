@@ -32,7 +32,7 @@ export const checkinEn = {
 
   // Race-assignment step + racer picker.
   "checkin.assign.prompt":
-    "Tap each race to choose who’s driving it. Junior races only list junior racers.",
+    "Tap each race to choose who’s driving it. Junior races only list junior racers — and the same racer can take more than one race when there’s enough time between them.",
   "checkin.change": "Change",
   "checkin.chooseRacer": "Choose racer",
   "checkin.remove": "Remove",
@@ -42,6 +42,9 @@ export const checkinEn = {
   "checkin.picker.noneReady":
     "No {category} racer is ready yet. Go back and add a {category} racer with a signed waiver first.",
   "checkin.picker.elsewhere": "in another race",
+  "checkin.picker.movesFrom": "moves from their {label} race",
+  "checkin.picker.otherRace": "other",
+  "checkin.picker.alsoAnother": "also in another race",
 } as const;
 
 export const checkinEs: Record<keyof typeof checkinEn, string> = {
@@ -67,7 +70,7 @@ export const checkinEs: Record<keyof typeof checkinEn, string> = {
   "checkin.close": "Cerrar",
 
   "checkin.assign.prompt":
-    "Toca cada carrera para elegir quién la conduce. Las carreras junior solo muestran pilotos junior.",
+    "Toca cada carrera para elegir quién la conduce. Las carreras junior solo muestran pilotos junior — y el mismo piloto puede tomar más de una carrera cuando hay suficiente tiempo entre ellas.",
   "checkin.change": "Cambiar",
   "checkin.chooseRacer": "Elegir piloto",
   "checkin.remove": "Quitar",
@@ -77,4 +80,7 @@ export const checkinEs: Record<keyof typeof checkinEn, string> = {
   "checkin.picker.noneReady":
     "Aún no hay ningún piloto {category} listo. Regresa y agrega un piloto {category} con una exención firmada primero.",
   "checkin.picker.elsewhere": "en otra carrera",
+  "checkin.picker.movesFrom": "cambia de su carrera de {label}",
+  "checkin.picker.otherRace": "otra",
+  "checkin.picker.alsoAnother": "también en otra carrera",
 };

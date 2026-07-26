@@ -394,8 +394,8 @@ export const en = {
   "checkin.findReservation": "Find your reservation",
   "checkin.matches.prompt": "We found more than one reservation — tap the one you’re here for.",
   "checkin.browse.prompt":
-    "Arriving soon at this location. Tap your booking — we’ll text a code to the number on the reservation to confirm it’s you.",
-  "checkin.browse.emptyTitle": "Nothing in the next few hours",
+    "Today’s reservations at this location. Tap your booking — we’ll text a code to the number on the reservation to confirm it’s you.",
+  "checkin.browse.emptyTitle": "Nothing else today",
   "checkin.browse.emptyBody": "Use your phone number above, or see the front desk.",
   "checkin.addGroup.eyebrow": "Add your group",
   "checkin.addGroup.body":

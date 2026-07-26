@@ -337,8 +337,10 @@ export default function CheckInModal({
         {banner.text}
       </div>
 
-      {/* Shoe size picker */}
-      {phase !== "loading" && phase !== "completed" && phase !== "cancelled" && (
+      {/* Shoe size picker — FastTrax duckpin has NO rental shoes, so staff never
+          see the picker for it (owner 2026-07-26). The guest express check-in
+          already hides shoes for duckpin via shoePairsAllowed=0. */}
+      {!isDuckpin && phase !== "loading" && phase !== "completed" && phase !== "cancelled" && (
         <div style={{ marginBottom: "1rem" }}>
           <span
             style={{
@@ -488,26 +490,29 @@ export default function CheckInModal({
         <button type="button" onClick={onClose} style={{ ...NAV_BTN, fontSize: "0.8rem" }}>
           Close
         </button>
-        {((phase === "not_ready" && !staffCanOpen) || phase === "running" || phase === "error") && (
-          <button
-            type="button"
-            onClick={handleSaveShoesOnly}
-            disabled={savingShoes}
-            style={{
-              padding: "0.5rem 1.25rem",
-              borderRadius: 8,
-              fontSize: "0.8rem",
-              fontWeight: 700,
-              cursor: savingShoes ? "not-allowed" : "pointer",
-              border: "none",
-              backgroundColor: savingShoes ? "rgba(0,226,229,0.2)" : "rgba(0,226,229,0.9)",
-              color: savingShoes ? "rgba(0,226,229,0.5)" : "#000418",
-              opacity: savingShoes ? 0.6 : 1,
-            }}
-          >
-            {savingShoes ? "Saving…" : "Save Shoes"}
-          </button>
-        )}
+        {!isDuckpin &&
+          ((phase === "not_ready" && !staffCanOpen) ||
+            phase === "running" ||
+            phase === "error") && (
+            <button
+              type="button"
+              onClick={handleSaveShoesOnly}
+              disabled={savingShoes}
+              style={{
+                padding: "0.5rem 1.25rem",
+                borderRadius: 8,
+                fontSize: "0.8rem",
+                fontWeight: 700,
+                cursor: savingShoes ? "not-allowed" : "pointer",
+                border: "none",
+                backgroundColor: savingShoes ? "rgba(0,226,229,0.2)" : "rgba(0,226,229,0.9)",
+                color: savingShoes ? "rgba(0,226,229,0.5)" : "#000418",
+                opacity: savingShoes ? 0.6 : 1,
+              }}
+            >
+              {savingShoes ? "Saving…" : "Save Shoes"}
+            </button>
+          )}
         {staffCanOpen && (
           <button
             type="button"

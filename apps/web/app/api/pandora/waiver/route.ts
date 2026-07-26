@@ -49,12 +49,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "No waiver template found" }, { status: 404 });
     }
 
-    // Pass through — Pandora field names match our PandoraWaiverTemplate type
+    // Pass through — Pandora field names match our PandoraWaiverTemplate type.
+    // `duration` is in YEARS (BMI semantics; all locations return 1).
     const normalized = {
       id: String(template.id || ""),
       contentID: String(template.contentID),
       name: template.name || "",
-      duration: template.duration ?? 365,
+      duration: template.duration ?? 1,
       body: template.body || "",
     };
 
