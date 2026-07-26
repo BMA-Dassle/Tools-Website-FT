@@ -20,8 +20,9 @@
  * staff re-provision update the default automatically when no guest override is
  * in play.
  */
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useKioskConfig } from "../KioskConfigContext";
+import { setWaiverLang } from "@/lib/waiver-lang";
 import { DEFAULT_LOCALE, normalizeLocale, type KioskLocale } from "./locales";
 import { formatMessage, type TranslateValues } from "./format";
 import type { MessageKey } from "./messages";
@@ -47,6 +48,13 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
   const defaultLocale = normalizeLocale(config?.locale) ?? DEFAULT_LOCALE;
   const [override, setOverride] = useState<KioskLocale | null>(null);
   const locale = override ?? defaultLocale;
+
+  // Mirror the active locale into the ambient waiver language so the in-house
+  // waiver template (fetched from plain lib code that can't read this context)
+  // renders in the guest's language. Not setState — just a module setter.
+  useEffect(() => {
+    setWaiverLang(locale);
+  }, [locale]);
 
   const t = useCallback<Translate>((key, values) => formatMessage(locale, key, values), [locale]);
   // Stable identities so Start-Over's handleStartOver (and other consumers that

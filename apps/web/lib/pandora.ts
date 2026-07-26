@@ -11,6 +11,7 @@
  */
 
 import type { PandoraCenterKey } from "@/lib/pandora-locations";
+import { getWaiverLang } from "@/lib/waiver-lang";
 
 // ── Person types ─────────────────────────────────────────────────────────────
 
@@ -160,10 +161,25 @@ export async function pandoraCheckWaiver(
 export async function pandoraFetchWaiverTemplate(
   age: number,
   location?: string,
+  /** Waiver display language. In-house path only; BMI path is English-only.
+   *  Defaults to the ambient kiosk locale (set by LocaleProvider). */
+  lang: "en" | "es" = getWaiverLang(),
 ): Promise<PandoraWaiverTemplate> {
+  // In-house waivers (kioskWaiverInhouseEnabled, NEXT_PUBLIC, default ON) — serve
+  // OUR translatable body via the kiosk template route (which keeps BMI's real
+  // contentID so the sign path is unchanged). Set NEXT_PUBLIC_KIOSK_WAIVER_INHOUSE
+  // =false to revert to the BMI template. Env read inline to avoid a lib→features
+  // import; keep in sync with src/features/kiosk/flags.ts.
+  const inhouse = process.env.NEXT_PUBLIC_KIOSK_WAIVER_INHOUSE !== "false";
   const params = new URLSearchParams({ age: String(age) });
   if (location) params.set("location", location);
-  const res = await getWithRetry(`/api/pandora/waiver?${params}`);
+  let path = `/api/pandora/waiver?${params}`;
+  if (inhouse) {
+    const p = new URLSearchParams({ age: String(age), lang });
+    if (location) p.set("location", location);
+    path = `/api/kiosk/waiver/template?${p}`;
+  }
+  const res = await getWithRetry(path);
   if (!res.ok) {
     const data = await res.json().catch(() => null);
     throw new Error(data?.error || "Could not load waiver template");
@@ -236,6 +252,9 @@ export function calculateWaiverExpiry(durationDays: number): string {
 export async function pandoraOnboardGuest(
   input: PandoraPersonCreateInput & { birthdate: string },
   location?: string,
+  /** Waiver display language for the in-house template. Defaults to the ambient
+   *  kiosk locale (set by LocaleProvider); callers need not pass it. */
+  lang: "en" | "es" = getWaiverLang(),
 ): Promise<
   | { personId: string; waiverValid: true; template: null; birthdate: string }
   | { personId: string; waiverValid: false; template: PandoraWaiverTemplate; birthdate: string }
@@ -253,6 +272,6 @@ export async function pandoraOnboardGuest(
 
   // 3. Fetch age-appropriate waiver template from the refreshed birthdate
   const age = calculateAge(birthdate);
-  const template = await pandoraFetchWaiverTemplate(age, location);
+  const template = await pandoraFetchWaiverTemplate(age, location, lang);
   return { personId, waiverValid: false, template, birthdate };
 }
