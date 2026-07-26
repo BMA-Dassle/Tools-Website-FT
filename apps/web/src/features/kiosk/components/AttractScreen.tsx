@@ -26,7 +26,7 @@ import {
 import { kioskGroupWaiverEnabled, kioskCheckinEnabled, kioskRaceInfoEnabled } from "../flags";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { useKioskConfig } from "../KioskConfigContext";
-import { useT } from "../i18n";
+import { useT, LanguageSwitcher } from "../i18n";
 import { kioskAdSlidesFor, KIOSK_PHOTOS } from "../assets";
 import { useResilientImages } from "../hooks/useResilientImage";
 import { BrandLogo } from "./BrandLogo";
@@ -227,6 +227,8 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
 
   return (
     <div ref={rootRef} className="absolute inset-0 flex flex-col overflow-hidden bg-[#000418]">
+      {/* Language switcher — attract screen only (fixed top-right). */}
+      <LanguageSwitcher />
       {/* Hidden staff entry — 5 taps top-left corner → admin (no visible affordance) */}
       <button
         type="button"

@@ -31,7 +31,7 @@ import { slotLabel, type FirstOpen } from "../service/first-available";
 import { AdminTapZone } from "./AdminTapZone";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
-import { useT, type Translate } from "../i18n";
+import { useT, LanguageSwitcher, type Translate } from "../i18n";
 
 type CategoryKey = "exp" | "attr";
 
@@ -151,6 +151,9 @@ export function KioskCategories({
   if (cat === null) {
     return (
       <div className="relative flex h-full flex-col px-[64px] pb-[28px] pt-[72px]">
+        {/* Language switcher — "What are we doing today?" chooser only (fixed
+            top-right); hidden on the pick-experience / pick-attraction sub-views. */}
+        <LanguageSwitcher />
         {/* Hidden staff entry: 5 taps in the header area → admin. */}
         <AdminTapZone />
         <h1 className="k-display mb-[32px] text-[82px]">

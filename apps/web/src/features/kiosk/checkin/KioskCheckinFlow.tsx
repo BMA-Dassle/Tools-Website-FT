@@ -33,6 +33,7 @@ import { RacingWhatsNext } from "../components/RacingWhatsNext";
 import { useKioskConfig } from "../KioskConfigContext";
 import { kioskId } from "../config";
 import { resetToKiosk } from "../version";
+import { useT } from "../i18n";
 import {
   bindParty,
   completeCheckin,
@@ -117,6 +118,7 @@ const ACCENT: Record<CheckinActivity["kind"], string> = {
 export function KioskCheckinFlow() {
   const router = useRouter();
   const { config } = useKioskConfig();
+  const t = useT();
   const hydrated = useHydrated();
   const center = config?.center ?? "fort-myers";
   // Pandora location for short-id resolution (mirrors KioskPeopleStep).
@@ -181,9 +183,7 @@ export function KioskCheckinFlow() {
       setBusy(false);
       if (!data || !data.ok) {
         setError(
-          data?.reason === "cancelled"
-            ? "That reservation was cancelled — please see the front desk."
-            : "We couldn't open that reservation. Please try again or see the front desk.",
+          data?.reason === "cancelled" ? t("checkin.err.cancelled") : t("checkin.err.openFail"),
         );
         return;
       }
@@ -191,7 +191,7 @@ export function KioskCheckinFlow() {
       setProofToken(token);
       setStage("itinerary");
     },
-    [center],
+    [center, t],
   );
 
   const readyMembers = session.party.filter((m) => m.bmiPersonId && m.waiverValid);
@@ -300,7 +300,7 @@ export function KioskCheckinFlow() {
       const b = await bindParty(center, proofToken, members, config ? kioskId(config) : undefined);
       if (!b.ok) {
         setBinding(false);
-        setBindMsg("We couldn't add your group — please see the front desk.");
+        setBindMsg(t("checkin.err.addFail"));
         return;
       }
       setBoundIds((prev) => new Set([...prev, ...unboundReady.map((m) => m.id)]));
@@ -322,11 +322,7 @@ export function KioskCheckinFlow() {
     );
     setBinding(false);
     if (!c.ok) {
-      setBindMsg(
-        c.reason === "busy"
-          ? "One moment — finishing up. Tap again."
-          : "We couldn't check you in — please see the front desk.",
-      );
+      setBindMsg(c.reason === "busy" ? t("checkin.err.finishing") : t("checkin.err.checkinFail"));
       return;
     }
     setComplete(c);
@@ -360,16 +356,16 @@ export function KioskCheckinFlow() {
     if (!res.ok) {
       setError(
         res.reason === "mismatch"
-          ? "That doesn't match the number on this reservation. Try again, or see the front desk."
+          ? t("checkin.err.last4Mismatch")
           : res.reason === "rate-limited"
-            ? "A code was just sent — check your texts, or wait a moment."
+            ? t("checkin.err.codeJustSent")
             : res.reason === "no-contact"
-              ? "No phone on that booking — please see the front desk."
-              : "We couldn't send a code. Please see the front desk.",
+              ? t("checkin.err.noPhone")
+              : t("checkin.err.sendCodeFail"),
       );
       return;
     }
-    setOtpMask(res.mask ?? "your number on file");
+    setOtpMask(res.mask ?? t("checkin.otpMaskFallback"));
     setOtp("");
     setStage("browse-otp");
   };
@@ -390,9 +386,7 @@ export function KioskCheckinFlow() {
       return;
     }
     setError(
-      res.reason === "cancelled"
-        ? "That reservation was cancelled — please see the front desk."
-        : "We couldn't find that code. Try your phone number, or see the front desk.",
+      res.reason === "cancelled" ? t("checkin.err.cancelled") : t("checkin.err.codeNotFound"),
     );
   };
 
@@ -400,7 +394,7 @@ export function KioskCheckinFlow() {
 
   const sendPhone = async () => {
     if (phone.replace(/\D/g, "").length < 10) {
-      setError("Enter your 10-digit mobile number.");
+      setError(t("checkin.err.enterMobile"));
       return;
     }
     setBusy(true);
@@ -408,7 +402,7 @@ export function KioskCheckinFlow() {
     const sent = await sendOwnPhoneOtp(phone);
     setBusy(false);
     if (!sent) {
-      setError("We couldn't text that number. Please check it and try again.");
+      setError(t("checkin.err.textFail"));
       return;
     }
     setOtp("");
@@ -423,15 +417,15 @@ export function KioskCheckinFlow() {
       setBusy(false);
       setError(
         v.attemptsLeft && v.attemptsLeft > 0
-          ? `Incorrect code — ${v.attemptsLeft} ${v.attemptsLeft === 1 ? "try" : "tries"} left.`
-          : "That code didn't work. Request a new one.",
+          ? t("checkin.err.incorrectTries", { count: v.attemptsLeft })
+          : t("checkin.err.codeFailNew"),
       );
       return;
     }
     const res = await lookupByPhone(center, phone);
     setBusy(false);
     if (!res.ok || !res.matches || res.matches.length === 0) {
-      setError("No reservations found for today under that number. See the front desk.");
+      setError(t("checkin.err.noReservations"));
       return;
     }
     if (res.matches.length === 1) {
@@ -460,8 +454,8 @@ export function KioskCheckinFlow() {
     if (!res.ok || !res.proofToken) {
       setError(
         res.attemptsLeft && res.attemptsLeft > 0
-          ? `Incorrect code — ${res.attemptsLeft} left.`
-          : "That code didn't work. Go back and try again.",
+          ? t("checkin.err.incorrectLeft", { count: res.attemptsLeft })
+          : t("checkin.err.codeFailBack"),
       );
       return;
     }
@@ -486,7 +480,7 @@ export function KioskCheckinFlow() {
   if (!hydrated || !config) {
     return (
       <div className="absolute inset-0 flex items-center justify-center bg-[#000418]">
-        <BrandedLoader brand="fasttrax" label="Loading…" />
+        <BrandedLoader brand="fasttrax" label={t("checkin.loading")} />
       </div>
     );
   }
@@ -503,20 +497,22 @@ export function KioskCheckinFlow() {
           className="k-tap flex h-[88px] items-center gap-[8px] rounded-2xl border-2 border-white/15 px-[28px] text-[28px] font-bold text-white/70"
         >
           <IconChevronLeft size={36} aria-hidden="true" />
-          {stage === "find" ? "Home" : "Back"}
+          {stage === "find" ? t("checkin.home") : t("checkin.back")}
         </button>
         <div className="min-w-0 flex-1">
-          <div className="k-eyebrow text-[#00e2e5]">Check in</div>
+          <div className="k-eyebrow text-[#00e2e5]">{t("checkin.eyebrow")}</div>
           <div className="k-display truncate text-[52px]">
             {stage === "done"
-              ? "You're checked in"
+              ? t("checkin.doneTitle")
               : stage === "assign"
-                ? "Who's racing?"
+                ? t("checkin.assignTitle")
                 : stage === "party"
-                  ? "Add your group"
+                  ? t("checkin.addGroup.eyebrow")
                   : stage === "itinerary" && itinerary
-                    ? `Welcome back, ${itinerary.firstName || "friend"}!`
-                    : "Find your reservation"}
+                    ? t("checkin.welcomeBack", {
+                        name: itinerary.firstName || t("checkin.friend"),
+                      })
+                    : t("checkin.findReservation")}
           </div>
         </div>
         <IconUserCheck size={56} className="shrink-0 text-white/25" aria-hidden="true" />
@@ -534,7 +530,7 @@ export function KioskCheckinFlow() {
           <div className="mb-[24px] flex justify-center">
             <BrandedLoader
               brand={config.brand}
-              label={binding ? "Putting racers on the grid…" : "One moment…"}
+              label={binding ? t("checkin.puttingOnGrid") : t("checkin.oneMoment")}
             />
           </div>
         )}
@@ -552,20 +548,16 @@ export function KioskCheckinFlow() {
 
         {stage === "browse-verify" && (
           <div className="k-glass mx-auto max-w-[720px] p-[48px] text-center">
-            <div className="k-eyebrow text-[#00e2e5]">Confirm it&rsquo;s your booking</div>
-            <div className="k-display mt-[8px] text-[40px]">
-              Enter the last 4 digits of the phone on this reservation
-            </div>
-            <p className="mt-[12px] text-[28px] text-white/55">
-              We&rsquo;ll text a code to that number to check you in.
-            </p>
+            <div className="k-eyebrow text-[#00e2e5]">{t("checkin.verify.eyebrow")}</div>
+            <div className="k-display mt-[8px] text-[40px]">{t("checkin.verify.title")}</div>
+            <p className="mt-[12px] text-[28px] text-white/55">{t("checkin.verify.blurb")}</p>
             <input
               type="tel"
               inputMode="numeric"
               value={last4}
               onChange={(e) => setLast4(e.target.value.replace(/\D/g, "").slice(0, 4))}
               placeholder="••••"
-              aria-label="Last 4 digits of the phone number"
+              aria-label={t("checkin.verify.aria")}
               className="my-[32px] h-[120px] w-full rounded-2xl border-2 border-white/15 bg-white/5 text-center text-[64px] tracking-[0.5em] text-white placeholder:text-white/20"
             />
             <button
@@ -574,7 +566,7 @@ export function KioskCheckinFlow() {
               disabled={last4.length < 4}
               className="k-btn-primary k-tap h-[96px] w-full text-[34px] disabled:opacity-40"
             >
-              Text me a code
+              {t("checkin.find.textCode")}
             </button>
           </div>
         )}
@@ -590,9 +582,7 @@ export function KioskCheckinFlow() {
 
         {stage === "matches" && (
           <div className="space-y-[16px]">
-            <p className="text-[28px] text-white/55">
-              We found more than one reservation — tap the one you&rsquo;re here for.
-            </p>
+            <p className="text-[28px] text-white/55">{t("checkin.matches.prompt")}</p>
             {matches.map((m) => (
               <button
                 key={m.proofToken}
@@ -613,15 +603,12 @@ export function KioskCheckinFlow() {
 
         {stage === "browse" && (
           <div className="space-y-[16px]">
-            <p className="text-[28px] text-white/55">
-              Arriving soon at this location. Tap your booking — we&rsquo;ll text a code to the
-              number on the reservation to confirm it&rsquo;s you.
-            </p>
+            <p className="text-[28px] text-white/55">{t("checkin.browse.prompt")}</p>
             {rows.length === 0 ? (
               <div className="k-glass p-[48px] text-center">
-                <div className="k-display text-[40px]">Nothing in the next few hours</div>
+                <div className="k-display text-[40px]">{t("checkin.browse.emptyTitle")}</div>
                 <p className="mx-auto mt-[12px] max-w-[34ch] text-[26px] text-white/50">
-                  Use your phone number above, or see the front desk.
+                  {t("checkin.browse.emptyBody")}
                 </p>
               </div>
             ) : (
@@ -633,7 +620,7 @@ export function KioskCheckinFlow() {
                   <button
                     type="button"
                     onClick={() => tapBrowseRow(r)}
-                    aria-label={`Open ${r.label}, ${r.timeLabel}`}
+                    aria-label={t("checkin.browse.openAria", { label: r.label, time: r.timeLabel })}
                     className="k-tap absolute inset-0"
                   />
                   <div className="pointer-events-none relative flex items-center gap-[28px] p-[28px]">
@@ -648,7 +635,7 @@ export function KioskCheckinFlow() {
                             className="pointer-events-auto flex items-center gap-[8px] rounded-full border-2 border-[#46d68c]/60 bg-[#46d68c]/15 px-[18px] py-[6px] text-[22px] font-bold text-[#46d68c]"
                           >
                             <IconBolt size={22} aria-hidden="true" />
-                            Express lane
+                            {t("checkin.express.pill")}
                           </button>
                         )}
                       </div>
@@ -675,7 +662,7 @@ export function KioskCheckinFlow() {
               onClick={() => setStage("party")}
               className="k-btn-primary k-tap h-[112px] w-full text-[36px]"
             >
-              Continue ›
+              {t("checkin.continue")}
             </button>
           </div>
         )}
@@ -684,10 +671,7 @@ export function KioskCheckinFlow() {
             so the itinerary above is never covered). */}
         {stage === "party" && itinerary && (
           <div>
-            <p className="mb-[20px] text-[26px] text-white/55">
-              Add anyone with you who still needs an account or a waiver — or have them scan the QR
-              to sign in on their own phone.
-            </p>
+            <p className="mb-[20px] text-[26px] text-white/55">{t("checkin.addGroup.body")}</p>
             <PeopleScreens
               item={checkinItem}
               session={session}
@@ -710,7 +694,7 @@ export function KioskCheckinFlow() {
                 disabled={partyNeedsSetup}
                 className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
               >
-                Next: who&rsquo;s racing ›
+                {t("checkin.nextWhosRacing")}
               </button>
             ) : (
               <button
@@ -719,13 +703,12 @@ export function KioskCheckinFlow() {
                 disabled={binding || partyNeedsSetup}
                 className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
               >
-                {binding ? "Checking you in…" : "Check everyone in"}
+                {binding ? t("checkin.checkingIn") : t("checkin.checkEveryone")}
               </button>
             )}
             {partyNeedsSetup && (
               <p className="mt-[12px] text-center text-[24px] text-white/45">
-                Finish adding everyone above first — each person needs an account and a signed
-                waiver.
+                {t("checkin.finishAddingFirst")}
               </p>
             )}
           </div>
@@ -763,11 +746,12 @@ export function KioskCheckinFlow() {
 /** Informational only — opened from the "Express lane" pill on a racing browse
  *  row: skip kiosk check-in, head to the pits. No lookup, no eligibility check. */
 function ExpressLaneModal(props: { onClose: () => void }) {
+  const t = useT();
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center p-[48px]">
       <button
         type="button"
-        aria-label="Close"
+        aria-label={t("checkin.close")}
         onClick={props.onClose}
         className="absolute inset-0 bg-black/70"
       />
@@ -784,8 +768,13 @@ function ExpressLaneModal(props: { onClose: () => void }) {
           <IconBolt size={64} className="text-[#46d68c]" />
         </div>
         <div id="express-title" className="k-display text-[48px]">
-          Express Lane
+          {t("checkin.express.title")}
         </div>
+        {/* TODO(i18n): this body carries inline <strong> emphasis (rich text) and
+            reads as one instructional unit; the plain-string formatMessage engine
+            can't render ICU tags, so translating it piecemeal would leave a
+            half-Spanish paragraph. Localize once the engine supports rich text or
+            a native reviewer splits it safely. Kept English. */}
         <p className="mt-[20px] text-[30px] leading-[1.4] text-white/70">
           You&rsquo;re all set — no check-in needed. Express Lane{" "}
           <span className="font-bold text-white">
@@ -799,13 +788,15 @@ function ExpressLaneModal(props: { onClose: () => void }) {
           onClick={props.onClose}
           className="k-btn-primary k-tap mt-[36px] h-[104px] w-full text-[34px]"
         >
-          Got it
+          {t("checkin.gotIt")}
         </button>
       </div>
     </div>
   );
 }
 
+// TODO(i18n): module-scope helper (no hook access) — the "your number" fallback
+// stays English until phone-mask formatting is threaded through the locale.
 function formatPhoneMask(phone: string): string {
   const d = phone.replace(/\D/g, "").slice(-10);
   return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : "your number";
@@ -820,24 +811,23 @@ function FindScreen(props: {
   onArmScan: () => void;
   onBrowse: () => void;
 }) {
+  const t = useT();
   return (
     <div className="space-y-[28px]">
       {/* Phone — primary */}
       <div className="k-glass p-[40px]">
         <div className="mb-[20px] flex items-center gap-[20px]">
           <IconDeviceMobile size={44} className="text-[#00e2e5]" aria-hidden="true" />
-          <div className="k-display text-[40px]">Use your phone number</div>
+          <div className="k-display text-[40px]">{t("checkin.find.usePhone")}</div>
         </div>
-        <p className="mb-[20px] text-[26px] text-white/55">
-          Works for every booking. We&rsquo;ll text you a quick code.
-        </p>
+        <p className="mb-[20px] text-[26px] text-white/55">{t("checkin.find.phoneBlurb")}</p>
         <input
           type="tel"
           inputMode="tel"
           value={props.phone}
           onChange={(e) => props.onPhone(e.target.value)}
           placeholder="(239) 555-0123"
-          aria-label="Mobile phone number"
+          aria-label={t("checkin.find.phoneAria")}
           className="mb-[20px] h-[104px] w-full rounded-2xl border-2 border-white/15 bg-white/5 px-[32px] text-[44px] text-white placeholder:text-white/25"
         />
         <button
@@ -845,7 +835,7 @@ function FindScreen(props: {
           onClick={props.onSendPhone}
           className="k-btn-primary k-tap h-[96px] w-full text-[34px]"
         >
-          Text me a code
+          {t("checkin.find.textCode")}
         </button>
       </div>
 
@@ -860,9 +850,9 @@ function FindScreen(props: {
         >
           <IconScan size={56} className="text-[#e94141]" aria-hidden="true" />
           <div className="k-display text-[32px]">
-            {props.scanArmed ? "Scan now…" : "Scan my code"}
+            {props.scanArmed ? t("checkin.find.scanNow") : t("checkin.find.scanMyCode")}
           </div>
-          <div className="text-[24px] text-white/50">Email QR or W-number</div>
+          <div className="text-[24px] text-white/50">{t("checkin.find.scanSub")}</div>
         </button>
         <button
           type="button"
@@ -870,8 +860,8 @@ function FindScreen(props: {
           className="k-glass k-tap flex flex-col items-center justify-center gap-[16px] p-[40px] text-center"
         >
           <IconListSearch size={56} className="text-[#a78bfa]" aria-hidden="true" />
-          <div className="k-display text-[32px]">Find my booking</div>
-          <div className="text-[24px] text-white/50">Pick from today&rsquo;s list</div>
+          <div className="k-display text-[32px]">{t("checkin.find.findBooking")}</div>
+          <div className="text-[24px] text-white/50">{t("checkin.find.findSub")}</div>
         </button>
       </div>
     </div>
@@ -885,18 +875,21 @@ function OtpScreen(props: {
   mask: string;
   onVerify: () => void;
 }) {
+  const t = useT();
   return (
     <div className="k-glass mx-auto max-w-[720px] p-[48px] text-center">
-      <div className="k-eyebrow text-[#00e2e5]">Verify it&rsquo;s you</div>
-      <div className="k-display mt-[8px] text-[44px]">We texted a code to {props.mask}</div>
-      <p className="mt-[12px] text-[28px] text-white/55">Enter the 6-digit code from your texts.</p>
+      <div className="k-eyebrow text-[#00e2e5]">{t("checkin.otp.verify")}</div>
+      <div className="k-display mt-[8px] text-[44px]">
+        {t("checkin.otp.textedTo", { mask: props.mask })}
+      </div>
+      <p className="mt-[12px] text-[28px] text-white/55">{t("checkin.otp.enterCode")}</p>
       <input
         type="tel"
         inputMode="numeric"
         value={props.code}
         onChange={(e) => props.onCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
         placeholder="••••••"
-        aria-label="6-digit verification code"
+        aria-label={t("checkin.otp.aria")}
         className="my-[32px] h-[120px] w-full rounded-2xl border-2 border-white/15 bg-white/5 text-center text-[64px] tracking-[0.4em] text-white placeholder:text-white/20"
       />
       <button
@@ -905,7 +898,7 @@ function OtpScreen(props: {
         disabled={props.code.length < 6}
         className="k-btn-primary k-tap h-[96px] w-full text-[34px] disabled:opacity-40"
       >
-        Open my day
+        {t("checkin.otp.openDay")}
       </button>
     </div>
   );
@@ -914,17 +907,18 @@ function OtpScreen(props: {
 // ── Itinerary ──────────────────────────────────────────────────────────────────
 function ItineraryScreen(props: { itinerary: CheckinItinerary }) {
   const { itinerary } = props;
+  const t = useT();
   return (
     <div className="space-y-[24px]">
       {itinerary.firstStop && (
         <div className="k-glass flex items-center gap-[24px] border-[#00e2e5]/40 p-[32px]">
           <IconMapPin size={48} className="shrink-0 text-[#00e2e5]" aria-hidden="true" />
           <div className="min-w-0">
-            <div className="k-eyebrow text-[#00e2e5]">Start here · First stop</div>
+            <div className="k-eyebrow text-[#00e2e5]">{t("checkin.itin.firstStop")}</div>
             <div className="k-display text-[36px]">{itinerary.firstStop.building}</div>
             {itinerary.firstStop.arriveByLabel && (
               <div className="text-[28px] text-white/60">
-                Arrive by {itinerary.firstStop.arriveByLabel}
+                {t("checkin.itin.arriveBy", { label: itinerary.firstStop.arriveByLabel })}
               </div>
             )}
           </div>
@@ -951,8 +945,9 @@ function ItineraryScreen(props: { itinerary: CheckinItinerary }) {
 
       {itinerary.dueAtCenterCents > 0 && (
         <div className="k-glass border-[#f0b341]/40 p-[28px] text-[28px] text-[#f0b341]">
-          ${(itinerary.dueAtCenterCents / 100).toFixed(2)} due at the front desk — nothing is
-          charged here.
+          {t("checkin.itin.dueAtDesk", {
+            amount: `$${(itinerary.dueAtCenterCents / 100).toFixed(2)}`,
+          })}
         </div>
       )}
 
@@ -960,7 +955,7 @@ function ItineraryScreen(props: { itinerary: CheckinItinerary }) {
           slots are handled in the "Who's racing?" step, never shown here). */}
       {itinerary.roster.length > 0 && (
         <div>
-          <div className="k-eyebrow mb-[14px] text-white/40">Already on this reservation</div>
+          <div className="k-eyebrow mb-[14px] text-white/40">{t("checkin.itin.alreadyOn")}</div>
           <div className="flex flex-wrap gap-[12px]">
             {itinerary.roster.map((p, i) => (
               <span
@@ -983,6 +978,8 @@ function ItineraryScreen(props: { itinerary: CheckinItinerary }) {
 }
 
 // ── Who's racing? (its own step — one card per booked race + a racer picker) ──
+// TODO(i18n): module-scope helper (no hook access) — the "Racer" fallback stays
+// English until this is threaded through the locale.
 function racerName(m: PartyMember): string {
   return `${m.firstName}${m.lastName ? ` ${m.lastName}` : ""}`.trim() || "Racer";
 }
@@ -1000,14 +997,13 @@ function RaceAssignScreen(props: {
   bindMsg: string | null;
 }) {
   const { slots, party, assignMap, onAssign, onClear, onCheckIn, binding, bindMsg } = props;
+  const t = useT();
   const [pickFor, setPickFor] = useState<CheckinRaceSlot | null>(null);
   const assignedCount = slots.filter((s) => assignMap[s.slotKey]).length;
 
   return (
     <div className="space-y-[24px]">
-      <p className="text-[28px] text-white/60">
-        Tap each race to choose who&rsquo;s driving it. Junior races only list junior racers.
-      </p>
+      <p className="text-[28px] text-white/60">{t("checkin.assign.prompt")}</p>
 
       {slots.map((slot) => {
         const assigned = party.find((m) => m.id === assignMap[slot.slotKey]);
@@ -1032,7 +1028,7 @@ function RaceAssignScreen(props: {
                     onClick={() => setPickFor(slot)}
                     className="k-tap text-[26px] font-bold text-[#00e2e5]"
                   >
-                    Change
+                    {t("checkin.change")}
                   </button>
                 </div>
               ) : (
@@ -1041,7 +1037,7 @@ function RaceAssignScreen(props: {
                   onClick={() => setPickFor(slot)}
                   className="k-btn-primary k-tap h-[80px] shrink-0 px-[36px] text-[28px]"
                 >
-                  Choose racer
+                  {t("checkin.chooseRacer")}
                 </button>
               )}
             </div>
@@ -1061,15 +1057,11 @@ function RaceAssignScreen(props: {
         disabled={binding || assignedCount < slots.length}
         className="k-btn-primary k-tap h-[112px] w-full text-[36px] disabled:opacity-40"
       >
-        {binding ? "Putting racers on the grid — one moment…" : "Check everyone in"}
+        {binding ? t("checkin.puttingOnGridWait") : t("checkin.checkEveryone")}
       </button>
       {assignedCount < slots.length && (
         <p className="text-center text-[24px] text-white/45">
-          Assign a racer to every race to check in
-          {slots.length - assignedCount > 0
-            ? ` — ${slots.length - assignedCount} still open.`
-            : "."}{" "}
-          Everyone racing needs to be here.
+          {t("checkin.assign.remaining", { count: slots.length - assignedCount })}
         </p>
       )}
 
@@ -1104,6 +1096,7 @@ function RacerPickerModal(props: {
   onClose: () => void;
 }) {
   const { slot, party, assignMap, onPick, onRemove, onClose } = props;
+  const t = useT();
   const currentId = assignMap[slot.slotKey];
   const eligible = party.filter((m) => resolveRaceClass(m) === slot.category);
 
@@ -1111,7 +1104,7 @@ function RacerPickerModal(props: {
     <div className="absolute inset-0 z-50 flex items-center justify-center p-[48px]">
       <button
         type="button"
-        aria-label="Close"
+        aria-label={t("checkin.close")}
         onClick={onClose}
         className="absolute inset-0 bg-black/70"
       />
@@ -1122,7 +1115,7 @@ function RacerPickerModal(props: {
         className="k-glass relative z-10 max-h-[82%] w-full max-w-[720px] overflow-y-auto p-[40px]"
       >
         <div id="pick-title" className="k-display text-[40px]">
-          Who&rsquo;s racing the {slot.classLabel}?
+          {t("checkin.picker.title", { label: slot.classLabel })}
         </div>
         <p className="mt-[8px] text-[26px] text-white/55">
           {slot.track ? `${slot.track} · ` : ""}
@@ -1131,8 +1124,7 @@ function RacerPickerModal(props: {
 
         {eligible.length === 0 ? (
           <p className="mt-[28px] text-[28px] text-[#f0b341]">
-            No {slot.category} racer is ready yet. Go back and add a {slot.category} racer with a
-            signed waiver first.
+            {t("checkin.picker.noneReady", { category: slot.category })}
           </p>
         ) : (
           <div className="mt-[28px] space-y-[14px]">
@@ -1156,7 +1148,11 @@ function RacerPickerModal(props: {
                     aria-hidden="true"
                   />
                   <span className="flex-1">{racerName(m)}</span>
-                  {elsewhere && <span className="text-[22px] text-white/40">in another race</span>}
+                  {elsewhere && (
+                    <span className="text-[22px] text-white/40">
+                      {t("checkin.picker.elsewhere")}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -1170,7 +1166,7 @@ function RacerPickerModal(props: {
               onClick={onRemove}
               className="k-tap h-[88px] flex-1 rounded-2xl border-2 border-white/15 text-[28px] text-white/70"
             >
-              Remove
+              {t("checkin.remove")}
             </button>
           )}
           <button
@@ -1178,7 +1174,7 @@ function RacerPickerModal(props: {
             onClick={onClose}
             className="k-tap h-[88px] flex-1 rounded-2xl border-2 border-white/15 text-[28px] text-white/70"
           >
-            Close
+            {t("checkin.close")}
           </button>
         </div>
       </div>
@@ -1194,6 +1190,7 @@ function DoneScreen(props: {
   onBusyChange: (busy: boolean) => void;
 }) {
   const { itinerary, complete } = props;
+  const t = useT();
   const scheduled = complete?.scheduled ?? 0;
   const laneOpenEnabled = complete?.laneOpenEnabled === true;
   const bowlingActivities = itinerary.activities.filter(
@@ -1209,18 +1206,17 @@ function DoneScreen(props: {
         >
           ✓
         </div>
-        <div className="k-display mt-[20px] text-[64px]">You&rsquo;re all checked in.</div>
+        <div className="k-display mt-[20px] text-[64px]">{t("checkin.done.allCheckedIn")}</div>
         <p className="mt-[10px] text-[30px] text-white/60">
           {scheduled > 0
-            ? `${scheduled} ${scheduled === 1 ? "racer" : "racers"} added to your race — head over when your heat is called.`
-            : "The front desk knows you're here."}
+            ? t("checkin.done.racersAdded", { count: scheduled })
+            : t("checkin.done.frontDeskKnows")}
         </p>
       </div>
 
       {complete?.scheduleUnlinked && complete.scheduleUnlinked.length > 0 && (
         <div className="k-glass border-[#f0b341]/40 p-[24px] text-[26px] text-[#f0b341]">
-          {complete.scheduleUnlinked.join(", ")} may need a hand at the desk — a team member has
-          been notified.
+          {t("checkin.done.needHand", { names: complete.scheduleUnlinked.join(", ") })}
         </div>
       )}
 
@@ -1246,6 +1242,9 @@ function DoneScreen(props: {
       {/* Racing — the SAME "what's next" panel + big red race-check-in button a
           race booking shows on the kiosk confirmation (owner 2026-07-25). */}
       {itinerary.activities.some((a) => a.kind === "racing") && (
+        // TODO(i18n): this intro carries inline <strong> emphasis (rich text); the
+        // plain-string formatMessage engine can't render ICU tags, so localize
+        // once rich text is supported or a native reviewer splits it. Kept English.
         <RacingWhatsNext
           intro={
             <>
@@ -1275,7 +1274,7 @@ function DoneScreen(props: {
         onClick={props.onFinish}
         className="k-btn-primary k-tap h-[104px] w-full text-[34px]"
       >
-        Done
+        {t("checkin.done.finish")}
       </button>
     </div>
   );
@@ -1289,6 +1288,7 @@ function LaneOpenPanel(props: {
   onBusyChange: (busy: boolean) => void;
 }) {
   const { neonReservationId, interactive } = props;
+  const t = useT();
   const [phase, setPhase] = useState<"idle" | "ready" | "opening" | "open" | "failed">("idle");
   const [laneLabel, setLaneLabel] = useState(props.laneLabel);
 
@@ -1352,56 +1352,66 @@ function LaneOpenPanel(props: {
     return (
       <div className="k-glass p-[24px] text-[26px] text-white/55">
         <IconClock size={26} className="mr-[10px] inline text-[#2dd4ea]" aria-hidden="true" />
-        Your lane opens about 30 minutes before your time — we&rsquo;ll get it ready.
+        {t("checkin.lane.idle")}
       </div>
     );
   }
   if (phase === "open") {
     return (
       <div className="k-glass border-[#46d68c]/40 p-[28px] text-[30px] text-[#a7e8c6]">
-        {laneLabel} is open — shoes are on the way. Have fun!
+        {t("checkin.lane.open", { lane: laneLabel })}
       </div>
     );
   }
   if (phase === "failed") {
     return (
       <div className="k-glass border-[#f0b341]/40 p-[28px] text-[28px] text-[#f0b341]">
-        We couldn&rsquo;t open {laneLabel} — please see the front desk and they&rsquo;ll get you
-        started.
+        {t("checkin.lane.failed", { lane: laneLabel })}
       </div>
     );
   }
   // ready | opening
   return (
     <div className="k-glass border-[#2dd4ea]/50 p-[32px]">
-      <div className="k-display text-[36px] text-[#2dd4ea]">{laneLabel} is ready</div>
-      <p className="mt-[8px] text-[26px] text-white/60">Open it now and head over to bowl.</p>
+      <div className="k-display text-[36px] text-[#2dd4ea]">
+        {t("checkin.lane.ready", { lane: laneLabel })}
+      </div>
+      <p className="mt-[8px] text-[26px] text-white/60">{t("checkin.lane.readyBody")}</p>
       <button
         type="button"
         onClick={openLane}
         disabled={phase === "opening"}
         className="k-btn-primary k-tap mt-[20px] h-[96px] w-full text-[32px] disabled:opacity-40"
       >
-        {phase === "opening" ? "Opening your lane…" : `Open ${laneLabel} now`}
+        {phase === "opening"
+          ? t("checkin.lane.opening")
+          : t("checkin.lane.openNow", { lane: laneLabel })}
       </button>
     </div>
   );
 }
 
 function ReadinessChip({ activity }: { activity: CheckinActivity }) {
+  const t = useT();
   if (activity.kind === "bowling") {
     return (
       <span className="mt-[16px] inline-flex items-center gap-[10px] rounded-2xl bg-white/5 px-[22px] py-[10px] text-[24px] text-white/60">
         <IconClock size={26} aria-hidden="true" />
-        Lane opens about 30 minutes before your time
+        {t("checkin.chip.laneOpens")}
       </span>
     );
   }
   const done = activity.readyCount >= activity.totalCount && activity.totalCount > 0;
   const label =
     activity.kind === "racing"
-      ? `${activity.readyCount} of ${activity.totalCount} racers ready`
-      : `${activity.readyCount} of ${activity.totalCount} waivers signed`;
+      ? t("checkin.chip.racersReady", {
+          ready: activity.readyCount,
+          total: activity.totalCount,
+        })
+      : t("checkin.chip.waiversSigned", {
+          ready: activity.readyCount,
+          total: activity.totalCount,
+        });
   return (
     <span
       className={`mt-[16px] inline-flex items-center gap-[10px] rounded-2xl px-[22px] py-[10px] text-[24px] ${

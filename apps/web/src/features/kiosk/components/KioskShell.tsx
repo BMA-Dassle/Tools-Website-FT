@@ -23,7 +23,7 @@
  */
 import { useEffect, useRef } from "react";
 import { KioskConfigProvider, useKioskConfig } from "../KioskConfigContext";
-import { LocaleProvider, LanguageSwitcher, useLocale, LOCALE_BCP47 } from "../i18n";
+import { LocaleProvider, useLocale, LOCALE_BCP47 } from "../i18n";
 import { captureKioskBootVersion, KIOSK_VERSION } from "../version";
 import { OnScreenKeyboardHost } from "./OnScreenKeyboard";
 import { KioskStage } from "./KioskStage";
@@ -157,10 +157,11 @@ function KioskChrome({ children }: { children: React.ReactNode }) {
     >
       <KioskStage className={brandClass}>
         {children}
-        {/* Guest language switcher — fixed top-right on every screen (flag-gated,
-            renders null when i18n is off). Anchored to the 1080×1920 canvas like
-            the version tag below. */}
-        <LanguageSwitcher />
+        {/* The language switcher is NOT global — it renders only on the attract
+            screen and the "What are we doing today?" category chooser (owner
+            2026-07-25: don't show it mid-flow where it overlaps content). It's
+            position:fixed, so those screens mount it into this same top-right
+            spot. */}
         <OnScreenKeyboardHost />
         {/* Version tag, every screen (owner 2026-07-20): staff confirm what a
             kiosk runs without opening admin. `fixed` anchors to the 1080×1920
