@@ -16,6 +16,7 @@ import {
   type LiveHeat,
 } from "~/features/reservations-admin/race-live-state.server";
 import { getReservation } from "@/lib/qamf-bowling";
+import { FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
 
 /** QAMF numeric center ids (mirrors bowling-lane-poll) — both center_code
  *  namespaces (combo bowling legs store the slug, not the Square ID). */
@@ -91,11 +92,15 @@ export async function GET(req: NextRequest) {
       reservations.map(async (r) => {
         if (r.shortCode) return r; // already stored — use as-is
 
-        // Legacy row — generate + persist so future reads don't regenerate
+        // Legacy row — generate + persist so future reads don't regenerate.
+        // FastTrax duckpin confirms on its own /book/bowling-confirmation route
+        // (fasttraxent.com), not the HeadPinz /hp path.
         const confirmBase =
           r.productKind === "kbf"
             ? "/hp/book/kids-bowl-free/confirmation"
-            : "/hp/book/bowling/confirmation";
+            : r.centerCode === FASTTRAX_CENTER_CODE
+              ? "/book/bowling-confirmation"
+              : "/hp/book/bowling/confirmation";
         try {
           const code = await shortenUrl(`${confirmBase}?neonId=${r.id}`);
           // Fire-and-forget persist to Neon

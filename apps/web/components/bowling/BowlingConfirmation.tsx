@@ -227,8 +227,12 @@ const KIND_CONFIG: Record<BowlingConfirmationKind, KindConfig> = {
     linesHeader: "Order",
     arrivalBullets: (displayRemaining, opts) => (
       <>
-        <li>Show this confirmation at the front desk.</li>
+        <li>
+          <span className="text-white font-semibold">Skip the line</span> — check in and open your
+          lane right from your phone.
+        </li>
         {opts?.hasShoes !== false && <li>Rental shoes are available at the front counter.</li>}
+        <li>Prefer a hand? Our front desk is happy to help.</li>
         <li>Your lane is held until 10 minutes after start time.</li>
         {displayRemaining > 0 && (
           <li>
