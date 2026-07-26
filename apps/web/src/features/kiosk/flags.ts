@@ -178,3 +178,23 @@ export function kioskI18nEnabled(): boolean {
 export function kioskPovCodesEnabled(): boolean {
   return process.env.KIOSK_POV_CODES !== "0";
 }
+
+/**
+ * Kiosk "Next available" EXPERIENCES fan-out — kill switch, defaults ON,
+ * server-side only (the cached availability compute is the sole consumer, so no
+ * NEXT_PUBLIC prefix / no rebuild needed — flip in Vercel + it takes effect on
+ * the next cache-miss compute).
+ *
+ * The Experiences legs — the VIP combo (race-bowl) feasible-chain probe and the
+ * Ultimate Qualifier package feasibility — are by far the heaviest vendor cost
+ * in computeExperienceAvailability: each fans out across many BMI heat-product
+ * availability calls (race legs + cross-tier occupancy unions, UQ variants ×
+ * races) plus a full-day QAMF bowling scan. When BMI/QAMF are under load, set
+ * KIOSK_EXPERIENCE_AVAIL=0 to shed those two legs instantly — their tiles fall
+ * back to open-with-no-line (available, no "Next available" text; they never
+ * false-lock). Every other tile (racing, attractions, bowling, KBF) is
+ * unaffected. Read at call time so tests can stub process.env.
+ */
+export function kioskExperienceAvailEnabled(): boolean {
+  return process.env.KIOSK_EXPERIENCE_AVAIL !== "0";
+}

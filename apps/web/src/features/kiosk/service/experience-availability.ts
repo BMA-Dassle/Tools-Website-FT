@@ -33,6 +33,7 @@ import {
   type LocationKey,
 } from "~/features/booking/service/attractions";
 import { getStaticProducts } from "@/app/book/race/data";
+import { kioskExperienceAvailEnabled } from "../flags";
 import type { FirstOpen } from "./first-available";
 import { FASTTRAX_QAMF_CENTER_ID } from "@/lib/qamf-centers";
 import { apiBase } from "@/lib/api-base";
@@ -410,6 +411,12 @@ export async function computeExperienceAvailability(
   // tiles never render there, and open can never false-lock anything.
   const OPEN_NO_COUNT: SlotAvailability = { open: true };
 
+  // The Experiences legs (VIP combo + Ultimate Qualifier) are the heaviest
+  // BMI/QAMF fan-out in this compute; a kill switch (default ON) sheds them
+  // instantly when the vendors are under load. Off → their tiles resolve
+  // open-with-no-line (available, no "Next available" text), never false-lock.
+  const experiencesOn = kioskExperienceAvailEnabled();
+
   // HeadPinz bowling/KBF QAMF center for this location (null → no line).
   const hpCenterId = qamfCenterIdForCode(center);
   // Every check runs concurrently — one barrier. Experiences (combo + Ultimate
@@ -418,8 +425,12 @@ export async function computeExperienceAvailability(
   // the Redis-cached /api/kiosk/availability compute (3m TTL, single-flight), so
   // the vendors are hit at most once per TTL per center.
   const [combo, uq, race, duckPin, gel, laser, shufFt, shufHp, bowling, kbf] = await Promise.all([
-    resolveSlotAvailability(comboFirstOpenToday(center, dateYmd)),
-    resolveSlotAvailability(uqFirstOpenToday(dateYmd)),
+    experiencesOn
+      ? resolveSlotAvailability(comboFirstOpenToday(center, dateYmd))
+      : Promise.resolve(OPEN_NO_COUNT),
+    experiencesOn
+      ? resolveSlotAvailability(uqFirstOpenToday(dateYmd))
+      : Promise.resolve(OPEN_NO_COUNT),
     fm ? resolveSlotAvailability(racingFirstOpenToday(dateYmd)) : Promise.resolve(OPEN_NO_COUNT),
     // Duckpin migrated to QAMF (FastTrax center 11542) — its old BMI page is
     // stale, so read availability from QAMF like the other lanes (time-only).
