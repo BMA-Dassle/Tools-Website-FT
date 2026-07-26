@@ -15,6 +15,12 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.8.1 — HOTFIX for the 1.8.0 rollout: the config-envelope version bump (v2→v3
+ *         for `locale`) was DISCARDING every older stored config on read, which
+ *         sent all already-provisioned kiosks back to the KIOSK SETUP screen.
+ *         readStorage now MIGRATES older envelopes forward (additive fields
+ *         backfill from resolveKioskConfig) and re-persists at the current
+ *         version, so a device keeps its venue + hardware across a shape bump.
  * 1.8.0 — SPANISH (guest i18n): the whole guest-facing kiosk speaks Spanish now,
  *         behind NEXT_PUBLIC_KIOSK_I18N. A flag switcher (US / ES) sits on the
  *         attract screen and the "what are we doing today?" chooser; the choice
@@ -113,7 +119,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.8.0";
+export const KIOSK_VERSION = "1.8.1";
 
 let bootVersion: string | null = null;
 let captured = false;

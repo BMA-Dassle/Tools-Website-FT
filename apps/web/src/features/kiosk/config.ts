@@ -157,10 +157,16 @@ export function kioskDeviceKey(cfg: Pick<KioskConfig, "center" | "brand" | "kios
 
 const STORAGE_KEY = "kiosk_config";
 
-/** Bump when the persisted SHAPE changes — older envelopes are discarded.
- *  v3 (2026-07-25): added `locale` (guest-language default). Discarding a v2
- *  envelope is harmless — the device re-provisions from Neon by kioskId on the
- *  next boot (see AttractScreen), same as the cloud-config rollout. */
+/** Current persisted-envelope version. Older envelopes are MIGRATED FORWARD, not
+ *  discarded (see readStorage): every field added across versions is additive with
+ *  a safe default in resolveKioskConfig, so an older config re-resolves cleanly and
+ *  the device keeps its venue.
+ *  v3 (2026-07-25): added `locale` (guest-language default).
+ *  ⚠ INCIDENT 2026-07-26: v2→v3 originally DISCARDED older envelopes on read,
+ *  which sent every already-provisioned kiosk (all 3 centers) back to the KIOSK
+ *  SETUP screen on the 1.8.0 rollout. Additive shape changes must migrate, never
+ *  wipe. If a FUTURE version makes a genuinely BREAKING change, gate that one
+ *  version explicitly rather than reintroducing a blanket discard. */
 const CONFIG_VERSION = 3;
 
 interface PersistedEnvelope {
@@ -322,12 +328,35 @@ function readStorage(): KioskConfig | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<PersistedEnvelope>;
-    if (parsed?.v !== CONFIG_VERSION || !parsed.config) {
+    // Discard only what we genuinely can't use: no config, a non-numeric version,
+    // or a FUTURE version this build doesn't understand. An OLDER version is
+    // migrated forward — resolveKioskConfig backfills every field added since with
+    // a safe default, so the device keeps its venue instead of dropping to KIOSK
+    // SETUP on a version bump (incident 2026-07-26 — the v2→v3 locale bump).
+    if (!parsed?.config || typeof parsed.v !== "number" || parsed.v > CONFIG_VERSION) {
       localStorage.removeItem(STORAGE_KEY);
       return null;
     }
     // Re-resolve so invariants (Naples→HeadPinz, defaults) self-heal.
-    return resolveKioskConfig(parsed.config);
+    const resolved = resolveKioskConfig(parsed.config);
+    if (!resolved) {
+      localStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+    // Persist the upgraded envelope so the migration is sticky (write the envelope
+    // directly — saveKioskConfig notifies listeners, which must not fire during a
+    // render-phase read).
+    if (parsed.v !== CONFIG_VERSION) {
+      try {
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ v: CONFIG_VERSION, config: resolved } satisfies PersistedEnvelope),
+        );
+      } catch {
+        /* storage disabled — still return the resolved config for this tab */
+      }
+    }
+    return resolved;
   } catch {
     return null;
   }

@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  __resetKioskConfigForTests,
   gameZoneCapability,
+  loadKioskConfig,
   mergeKioskConfig,
   parseKioskConfigFromSearchParams,
   resolveKioskConfig,
@@ -198,6 +200,78 @@ describe("locale (guest language default)", () => {
     expect(resolveKioskConfig(saved!)).toMatchObject({ locale: "es" });
     // A URL merge touching an unrelated field keeps the stored locale.
     expect(mergeKioskConfig(saved, { variant: "pitcrew" })).toMatchObject({ locale: "es" });
+  });
+});
+
+describe("readStorage envelope migration (loadKioskConfig)", () => {
+  const KEY = "kiosk_config";
+  let store: Map<string, string>;
+
+  beforeEach(() => {
+    store = new Map<string, string>();
+    const ls = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    };
+    vi.stubGlobal("window", { localStorage: ls });
+    vi.stubGlobal("localStorage", ls);
+    __resetKioskConfigForTests();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    __resetKioskConfigForTests();
+  });
+
+  it("migrates an OLDER (v2) envelope forward instead of wiping it — incident 2026-07-26", () => {
+    // A provisioned kiosk before the locale bump: full hardware config, no locale.
+    store.set(
+      KEY,
+      JSON.stringify({
+        v: 2,
+        config: {
+          center: "fort-myers",
+          brand: "fasttrax",
+          readerId: "R1",
+          dispenserId: "SN42",
+          cardReaderEnabled: true,
+          qrScannerEnabled: true,
+          qrScannerModel: "honeywell-3320g",
+        },
+      }),
+    );
+
+    const cfg = loadKioskConfig();
+    // The device KEEPS its venue + hardware — it must NOT drop to KIOSK SETUP.
+    expect(cfg).toMatchObject({
+      center: "fort-myers",
+      brand: "fasttrax",
+      readerId: "R1",
+      dispenserId: "SN42",
+      cardReaderEnabled: true,
+      qrScannerEnabled: true,
+      qrScannerModel: "honeywell-3320g",
+      locale: "en", // backfilled default
+    });
+    // And the upgraded envelope is persisted at the current version (sticky).
+    expect(JSON.parse(store.get(KEY)!)).toMatchObject({ v: 3 });
+  });
+
+  it("discards a FUTURE version it doesn't understand", () => {
+    store.set(KEY, JSON.stringify({ v: 99, config: { center: "fort-myers" } }));
+    expect(loadKioskConfig()).toBeNull();
+    expect(store.has(KEY)).toBe(false);
+  });
+
+  it("discards a structurally broken envelope (no config)", () => {
+    store.set(KEY, JSON.stringify({ v: 3 }));
+    expect(loadKioskConfig()).toBeNull();
+    expect(store.has(KEY)).toBe(false);
+  });
+
+  it("returns null (no wipe needed) when nothing is stored", () => {
+    expect(loadKioskConfig()).toBeNull();
   });
 });
 
