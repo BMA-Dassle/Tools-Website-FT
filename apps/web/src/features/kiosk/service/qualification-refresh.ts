@@ -34,6 +34,12 @@ export interface QualificationRefreshMember {
   id: string;
   /** BMI person id — 17-digit Office id or short Pandora id, raw digits. */
   bmiPersonId: string;
+  /** SHORT Pandora id when the session has resolved one. Waivers are SIGNED
+   *  against this id, so the waiver read must use it too — reading the
+   *  17-digit Office id can hit a different record (duplicates exist; the
+   *  Pandora create is not an upsert) and flip a freshly-signed member back
+   *  to "needs a waiver" (2026-07-25 Strachan incident). */
+  pandoraPersonId?: string;
 }
 
 export interface QualificationRow {
@@ -108,7 +114,9 @@ export async function gatherQualifications(
       const [person, deposits, waiver] = await Promise.all([
         fetchOfficePerson(m.bmiPersonId),
         fetchOfficeDepositHistory(m.bmiPersonId),
-        fetchWaiverStatus(m.bmiPersonId, locationKey),
+        // Waiver read on the id signatures land on (short Pandora id when
+        // resolved) — see QualificationRefreshMember.pandoraPersonId.
+        fetchWaiverStatus(m.pandoraPersonId || m.bmiPersonId, locationKey),
       ]);
       const row: QualificationRow = { id: m.id };
       if (person) row.memberships = membershipsFromPerson(person);

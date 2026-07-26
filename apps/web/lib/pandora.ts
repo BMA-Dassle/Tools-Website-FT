@@ -54,7 +54,10 @@ export interface PandoraWaiverTemplate {
   /** Used when signing the waiver */
   contentID: string;
   name: string;
-  /** Duration in days */
+  /** Duration in YEARS — BMI template semantics. All three locations return 1;
+   *  desk-signed waivers carry ~1-year expiries. (Live-verified 2026-07-25:
+   *  treating this as days stamped every web/kiosk waiver with a next-morning
+   *  expiry.) */
   duration: number;
   /** HTML body of the waiver text */
   body: string;
@@ -212,10 +215,19 @@ export function calculateAge(birthdate: string): number {
 /**
  * Calculate the waiver invalidation date from a template's duration.
  * Returns "YYYY-MM-DD" string.
+ *
+ * Template `duration` is in YEARS (BMI semantics — desk-signed waivers run
+ * ~1 year and the templates all carry duration:1). This used to add DAYS,
+ * which set every web/kiosk-signed waiver to expire the next morning at 9am
+ * ET — guests re-signed on every visit and the check-in "existing valid
+ * waiver" pull-in never matched (production incident 2026-07-25, Strachan
+ * family). Clamped to [1,10] years so a mis-configured template can never
+ * produce a decades-long or instantly-expired waiver.
  */
-export function calculateWaiverExpiry(durationDays: number): string {
+export function calculateWaiverExpiry(durationYears: number): string {
+  const years = durationYears >= 1 && durationYears <= 10 ? Math.floor(durationYears) : 1;
   const d = new Date();
-  d.setDate(d.getDate() + (durationDays || 365));
+  d.setFullYear(d.getFullYear() + years);
   return d.toISOString().split("T")[0];
 }
 

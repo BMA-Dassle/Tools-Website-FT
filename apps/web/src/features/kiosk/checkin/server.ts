@@ -42,6 +42,7 @@ import {
   upsertCheckinPerson,
   setCheckinPersonStatus,
 } from "../data/kiosk-checkins-db";
+import { heatsConflict } from "~/features/booking/service/conflict";
 import { scheduleCheckinRacers, heatStopFor, type ScheduleRacer } from "./schedule-racers";
 import { checkRacerWaivers } from "./waiver";
 import { getRaceProductById } from "~/features/booking/service/race-products";
@@ -69,7 +70,10 @@ import type {
 const REF_TTL = 900; // 15 min — a browse/scan handle
 const PROOF_TTL = 1800; // 30 min — a verified flow token (survives a big party)
 const OTP_COOLDOWN = 45; // per-reservation send throttle (anti-griefing)
-const BROWSE_WINDOW_MIN = 180; // ±3h around now
+// Browse shows the REST of today plus this far back (late arrivals). It used
+// to be a ±3h window, which silently hid late-evening reservations (an 11pm
+// race never showed until 8pm) — owner 2026-07-25: show the whole day ahead.
+const BROWSE_LOOKBACK_MIN = 180;
 const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
 
 export type CenterSlug = "fort-myers" | "naples";
@@ -508,7 +512,7 @@ export async function matchByPhone(
   return matches;
 }
 
-// ── browse (today at this center, ±3h) ───────────────────────────────────────
+// ── browse (today at this center — rest of the day, 3h lookback) ─────────────
 function kindsToActivitiesLabel(kinds: Set<string>): {
   label: string;
   kind: CheckinBrowseRow["kind"];
@@ -536,8 +540,9 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
     endDate: today,
     centerCodes: CENTER_CODES_FOR_SLUG[center],
   }).catch(() => []);
-  const lo = etMinuteOffset(-BROWSE_WINDOW_MIN);
-  const hi = etMinuteOffset(BROWSE_WINDOW_MIN);
+  // No forward cutoff — the query is already scoped to today's business date,
+  // so "everything from 3h ago on" IS the rest of the day (incl. 11pm+ slots).
+  const lo = etMinuteOffset(-BROWSE_LOOKBACK_MIN);
 
   // Group Neon rows by billId (a mixed cart / combo shares one bill → one row),
   // aggregating product kinds so the label reads "Racing + Bowling".
@@ -556,7 +561,7 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
     if (row.bookingSource === "kiosk") continue;
     const evt = row.eventAt || row.bookedAt || "";
     const key = timeKey(evt);
-    if (!key || key < lo || key > hi) continue;
+    if (!key || key < lo) continue;
     const billId = row.bmiBillId;
     if (!billId) continue; // no bill → cannot open/verify it; skip from browse
     const g = groups.get(billId);
@@ -1120,10 +1125,35 @@ export async function completeCheckin(args: {
       // the memo instead of being POSTed (review H1).
       const bound: { personRowId: number; personId: string }[] = [];
       const usedSlotKeys = new Set<string>();
-      const usedPersonRowIds = new Set<number>();
+      // A person may take SEVERAL slots (multi-race bookings — e.g. a red then
+      // a blue race), subject to web booking's per-racer heat-spacing rules
+      // (heatsConflict: same-track heats skip the adjacent slot, cross-track
+      // needs the 30-min walk buffer). Checked against BOTH the heats seated
+      // this call AND heats already filled at booking time that belong to the
+      // same person (matched on either id, mirroring findCrossBookingConflict).
+      const prefilled = heats.filter((h) => h.bmiPersonId && h.heatId);
+      const heatsByPerson = new Map<number, NeonHeat[]>();
+      const violatesSpacing = (p: (typeof people)[number], heat: NeonHeat): boolean => {
+        const ms = Date.parse(String(heat.heatId).replace(/Z$/, ""));
+        if (!Number.isFinite(ms)) return true;
+        const mine = [
+          ...(heatsByPerson.get(p.id) ?? []),
+          ...prefilled.filter(
+            (h) => h.bmiPersonId === p.personId || h.bmiPersonId === p.pandoraPersonId,
+          ),
+        ];
+        return mine.some((h) => {
+          const hMs = Date.parse(String(h.heatId).replace(/Z$/, ""));
+          return (
+            !Number.isFinite(hMs) || heatsConflict(hMs, h.track ?? null, ms, heat.track ?? null)
+          );
+        });
+      };
 
       // Place one person on one open heat: build the schedule row from the
       // slot's own product, and persist the binding (boundHeats) Neon-first.
+      // Multi-slot people upsert their FULL accumulated heat list each time
+      // (the upsert REPLACES bound_heats, so a partial list would drop heats).
       const assignToSlot = async (p: (typeof people)[number], heat: NeonHeat): Promise<void> => {
         const name = p.firstName || p.displayName || "Racer";
         if (!p.pandoraPersonId) {
@@ -1147,14 +1177,18 @@ export async function completeCheckin(args: {
           heatStart: heat.heatId as string,
           heatStop: heatStopFor(heat.heatId as string),
         });
-        bound.push({ personRowId: p.id, personId: p.pandoraPersonId });
-        usedPersonRowIds.add(p.id);
+        if (!bound.some((b) => b.personRowId === p.id)) {
+          bound.push({ personRowId: p.id, personId: p.pandoraPersonId });
+        }
+        const personHeats = heatsByPerson.get(p.id) ?? [];
+        personHeats.push(heat);
+        heatsByPerson.set(p.id, personHeats);
         if (event) {
           await upsertCheckinPerson({
             eventId: event.id,
             slotKey: p.slotKey,
             displayName: p.displayName,
-            boundHeats: [heat],
+            boundHeats: personHeats,
           });
         }
       };
@@ -1162,14 +1196,25 @@ export async function completeCheckin(args: {
       const assignments = (args.assignments ?? []).filter((a) => a?.slotKey && a?.personId);
       if (assignments.length > 0) {
         // Explicit guest choice, keyed by the seat-unique slotKey. First
-        // assignment per slot/person wins; a filled/unknown slot, an unknown
-        // person, or a double-booked person is skipped. Unassigned bound people
-        // are deliberately not racing.
+        // assignment per slot wins; a filled/unknown slot, an unknown person,
+        // or a heat too close to one the person already holds (the web
+        // spacing rules — the kiosk picker enforces the same) is skipped.
+        // Unassigned bound people are deliberately not racing.
         for (const a of assignments) {
           if (usedSlotKeys.has(a.slotKey)) continue;
           const heat = openBySlotKey.get(a.slotKey);
           const p = personByIdKey.get(a.personId);
-          if (!heat || !p || usedPersonRowIds.has(p.id)) continue;
+          if (!heat || !p) continue;
+          if (violatesSpacing(p, heat)) {
+            // The kiosk picker enforces the same rules, so this only fires on a
+            // stale/forged payload or a pre-filled-heat collision — flag for the
+            // desk rather than silently leaving the seat empty.
+            console.warn(
+              `[kiosk-checkin] ${billId}: assignment ${a.slotKey} skipped — violates heat spacing for ${p.displayName}`,
+            );
+            memoFailures.push(p.firstName || p.displayName || "Racer");
+            continue;
+          }
           // Class guard (defense in depth — the picker already filters by class):
           // a stated racer class must match the slot's class, else don't seat them.
           const prod = heat.productId ? getRaceProductById(heat.productId) : null;

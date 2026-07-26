@@ -34,6 +34,7 @@ import WaiverSigning from "@/components/pandora/WaiverSigning";
 import {
   pandoraOnboardGuest,
   pandoraFetchWaiverTemplate,
+  pandoraCheckWaiver,
   type PandoraWaiverTemplate,
 } from "@/lib/pandora";
 import {
@@ -437,15 +438,36 @@ export function KioskPartyManager({
             template: result.template,
           });
         }
+      } else if (member.pandoraPersonId || member.bmiPersonId.length <= 12) {
+        // A SHORT Pandora id is already on the member — NEVER create again.
+        // Pandora's create is NOT an upsert: a re-tap used to re-run the
+        // "upsert" below and mint a fresh duplicate person every time, so the
+        // new waiver landed on a record later checks never read (2026-07-25
+        // Strachan incident). Check the waiver on the id we have and sign
+        // against it.
+        const sid = member.pandoraPersonId ?? member.bmiPersonId;
+        const status = await pandoraCheckWaiver(sid, brandLocation);
+        onUpdateMember(member.id, {
+          waiverValid: status.valid,
+          isMinor: minor,
+          category: age < 13 ? "junior" : "adult",
+          guardianMemberId: minor ? gid : undefined,
+        });
+        resetForm();
+        if (!status.valid) {
+          const template = await pandoraFetchWaiverTemplate(age, brandLocation);
+          setWaiverFor({ memberId: member.id, personId: sid, template });
+        }
       } else {
         // Account exists (returning racer) — but the lookup's id is the
         // 17-digit OFFICE id, which Pandora's waiver-sign endpoint REJECTS
         // (live 2026-07-18: sign 500s; the "second time worked" because the
-        // upsert-style Pandora create resolved the same human to their SHORT
-        // id). Resolve the short id via that same upsert (known person → same
-        // personId, never a duplicate) using the member's OWN phone/email as
+        // Pandora create resolved the same human to their SHORT id). Resolve
+        // the short id via that create using the member's OWN phone/email as
         // the dedup identity, then sign against it. It also returns the REAL
         // waiver status — a regular with a current waiver skips signing.
+        // (Create is NOT a reliable upsert — the short-id guard above makes
+        // sure it runs at most ONCE per member.)
         const dedupPhone = member.phone?.trim() ?? "";
         const dedupEmail = member.email?.trim() ?? "";
         if (dedupPhone || dedupEmail) {

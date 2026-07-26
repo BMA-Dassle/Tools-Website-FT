@@ -66,7 +66,9 @@ export async function getWaiverTemplate(locationId: string, age = 35): Promise<W
       if (!t?.contentID) throw new Error("no waiver template contentID returned");
       const tmpl: WaiverTemplate = {
         contentID: String(t.contentID),
-        duration: t.duration ?? 365,
+        // Duration is in YEARS (BMI template semantics) — unused here (event
+        // waivers override with WAIVER_VALID_DAYS) but kept coherent.
+        duration: t.duration ?? 1,
         name: t.name || "",
       };
       templateCache.set(locationId, tmpl);
