@@ -19,8 +19,12 @@ import type { FirstOpen } from "../service/first-available";
 
 /** The endpoint is server-cached (~3 min TTL); a light 1-min client poll keeps
  *  the tiles fresh without adding vendor load — the poll only reads the cache,
- *  so the vendors are still hit at most once per TTL per center. */
-const POLL_MS = 60_000;
+ *  so the vendors are still hit at most once per TTL per center. Callers on a
+ *  low-urgency surface (the idle attract loop) pass a longer interval so they
+ *  don't keep the cache — and therefore the vendor recompute — warm 24/7 when
+ *  no guest is present. */
+const DEFAULT_POLL_MS = 60_000;
+export const ATTRACT_POLL_MS = 5 * 60_000;
 
 export interface KioskAvailability {
   /** True unless the server reports the item can't be booked today. */
@@ -30,9 +34,20 @@ export interface KioskAvailability {
   firstOpenFor: (id: string) => FirstOpen | undefined;
 }
 
-export function useKioskAvailability(center: CenterCode | null): KioskAvailability {
+export interface UseKioskAvailabilityOptions {
+  /** Poll interval in ms. Defaults to 60s; the attract loop passes
+   *  {@link ATTRACT_POLL_MS} so an idle kiosk doesn't keep the vendor recompute
+   *  warm around the clock. */
+  pollMs?: number;
+}
+
+export function useKioskAvailability(
+  center: CenterCode | null,
+  options?: UseKioskAvailabilityOptions,
+): KioskAvailability {
   const [items, setItems] = useState<Record<string, boolean>>({});
   const [firstOpen, setFirstOpen] = useState<Record<string, FirstOpen>>({});
+  const pollMs = options?.pollMs ?? DEFAULT_POLL_MS;
 
   useEffect(() => {
     if (!center) return;
@@ -51,12 +66,12 @@ export function useKioskAvailability(center: CenterCode | null): KioskAvailabili
       }
     };
     void tick();
-    const t = setInterval(() => void tick(), POLL_MS);
+    const t = setInterval(() => void tick(), pollMs);
     return () => {
       alive = false;
       clearInterval(t);
     };
-  }, [center]);
+  }, [center, pollMs]);
 
   return {
     available: (id: string) => items[id] ?? true,

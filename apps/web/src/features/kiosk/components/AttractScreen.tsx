@@ -31,7 +31,7 @@ import { useResilientImages } from "../hooks/useResilientImage";
 import { BrandLogo } from "./BrandLogo";
 import { BrandedLoader } from "./BrandedLoader";
 import { useKioskClock, syncGlowPhase } from "../hooks/useKioskClock";
-import { useKioskAvailability } from "../hooks/useKioskAvailability";
+import { ATTRACT_POLL_MS, useKioskAvailability } from "../hooks/useKioskAvailability";
 import { clarityEvent, clarityTag } from "~/lib/clarity";
 import { captureKioskBootVersion, kioskUpdateAvailable } from "../version";
 import { DeviceCheckCard } from "./DeviceCheckCard";
@@ -57,8 +57,12 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   const cornerTaps = useRef<number[]>([]);
   const rootRef = useRef<HTMLDivElement>(null);
   // Lock the VIP quick-chip when the combo can't actually be booked today
-  // (cached server-side; see useKioskAvailability).
-  const vipAvailable = useKioskAvailability(config?.center ?? null).available("race-bowl");
+  // (cached server-side; see useKioskAvailability). The attract loop runs 24/7
+  // on every idle kiosk, so it polls on the slow interval — enough to keep the
+  // chip honest without keeping the vendor recompute warm around the clock.
+  const vipAvailable = useKioskAvailability(config?.center ?? null, {
+    pollMs: ATTRACT_POLL_MS,
+  }).available("race-bowl");
   // Center-scoped rotation — Naples never advertises karting.
   const adSlides = kioskAdSlidesFor(config?.center ?? null);
 
