@@ -483,4 +483,10 @@ export const es: Record<CoreKey, string> = {
   "stepTitle.whosBowling": "¿Quién juega boliche?",
   "stepTitle.whosPlaying": "¿Quién juega?",
   "stepTitle.whosRacing": "¿Quién corre?",
+
+  // --- Bottom utility strip (KioskFlow) ---
+  "util.startOver": "Reiniciar",
+  "util.mainMenu": "Menú principal",
+  "util.guestAssistance": "Asistencia",
+  "util.cart": "Carrito",
 };

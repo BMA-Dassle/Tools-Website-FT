@@ -948,7 +948,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
           <path d="M3 3v5h5" />
         </svg>
-        Start over
+        {t("util.startOver")}
       </button>
       {/* Back to the category chooser (the kiosk "main page") — session and
           finished cart items are kept; an unfinished flow confirms first. Hidden
@@ -974,7 +974,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
             <path d="m3 10 9-7 9 7" />
             <path d="M5 9v11h5v-6h4v6h5V9" />
           </svg>
-          Main menu
+          {t("util.mainMenu")}
         </button>
       )}
       <button
@@ -983,20 +983,13 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           setAssistReason("help");
           setAssistActive(true);
         }}
-        className="k-util-btn k-tap"
+        className="k-util-btn k-tap mr-auto"
         style={{ borderColor: "rgba(239,68,68,0.5)", color: "#fca5a5" }}
       >
-        Guest assistance
+        {t("util.guestAssistance")}
       </button>
-      {/* Hint doubles as the flex spacer. It yields entirely when the cart
-          pill is up — sharing the row with every button squeezed it into a
-          skinny word-per-line column (owner 7/20), and it's redundant next
-          to the Guest assistance button anyway. Must NOT render at all then:
-          its 200px min-width floor overflowed the row and clipped the cart
-          pill at the canvas edge (owner 7/20); ml-auto pins the pill right. */}
-      {cartCount === 0 && (
-        <div className="k-util-help">A team member can help — tap Guest assistance</div>
-      )}
+      {/* Help hint removed (owner 2026-07-26) — redundant with the Guest
+          assistance button. `mr-auto` on that button now pins the cart pill right. */}
       {cartCount > 0 && (
         <button
           type="button"
@@ -1017,7 +1010,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
             <circle cx="18" cy="20" r="1.4" />
             <path d="M2 3h3l2.4 12.4a1.6 1.6 0 0 0 1.6 1.3h8.2a1.6 1.6 0 0 0 1.6-1.3L22 7H6" />
           </svg>
-          Cart
+          {t("util.cart")}
           <span className="k-cart-badge k-num">{cartCount}</span>
         </button>
       )}

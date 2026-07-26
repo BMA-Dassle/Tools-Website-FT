@@ -151,9 +151,10 @@ export function KioskCategories({
   if (cat === null) {
     return (
       <div className="relative flex h-full flex-col px-[64px] pb-[28px] pt-[72px]">
-        {/* Language switcher — "What are we doing today?" chooser only (fixed
-            top-right); hidden on the pick-experience / pick-attraction sub-views. */}
-        <LanguageSwitcher />
+        {/* Language switcher — "What are we doing today?" chooser only, pinned up
+            top-right ABOVE the tiles (owner 2026-07-26); hidden on the
+            pick-experience / pick-attraction sub-views. */}
+        <LanguageSwitcher posClass="right-[40px] top-[36px]" />
         {/* Hidden staff entry: 5 taps in the header area → admin. */}
         <AdminTapZone />
         <h1 className="k-display mb-[32px] text-[82px]">

@@ -19,11 +19,14 @@ export type WaiverVariant = "adult" | "minor";
 export type WaiverLang = "en" | "es";
 
 /** Bump on ANY change to the legal text below. Stamped on every signed record. */
-export const WAIVER_VERSION = "2026-07-26";
+export const WAIVER_VERSION = "2026-07-26.1";
 
-/** "valid indefinitely" (owner text) → a long horizon in days for the expiry the
- *  gating layer expects. The text lets the Company force a re-sign at any time. */
-export const WAIVER_DURATION_DAYS = 3650;
+/** Waiver validity in YEARS — matches BMI template semantics (all locations
+ *  return 1; treating it as days once stamped next-morning expiries). This is
+ *  only a FALLBACK: the /api/kiosk/waiver/template route returns BMI's own
+ *  duration so the sign path is byte-identical. Owner text says "valid
+ *  indefinitely," subject to a forced re-sign. */
+export const WAIVER_DURATION_YEARS = 1;
 
 export const WAIVER_META = {
   /** Flip true once an attorney has reviewed the Spanish body. Informational —
@@ -95,17 +98,17 @@ I have read this Agreement in its entirety, understand its terms, and sign it vo
 
 © HeadPinz Entertainment & FastTrax Entertainment – Florida<br>`;
 
-const EN_GUARDIAN_BOX = `<div style="border:2pt solid #000000; background:#ededed; padding:14px 16px; margin:0 0 16px;">
+const EN_GUARDIAN_BOX = `<div style="border:2pt solid #000000; background:#ededed; color:#111; padding:14px 16px; margin:0 0 16px;">
 <div style="text-align:center; font-size:18pt; font-weight:bold; line-height:1.3; margin-bottom:12px;">NOTICE TO THE MINOR CHILD’S NATURAL GUARDIAN</div>
 <div style="font-size:18pt; font-weight:bold; line-height:1.5;">READ THIS FORM COMPLETELY AND CAREFULLY. YOU ARE AGREEING TO LET YOUR MINOR CHILD ENGAGE IN A POTENTIALLY DANGEROUS ACTIVITY. YOU ARE AGREEING THAT, EVEN IF HeadPinz Entertainment, FastTrax Entertainment, and Bowling Management Associates USES REASONABLE CARE IN PROVIDING THIS ACTIVITY, THERE IS A CHANCE YOUR CHILD MAY BE SERIOUSLY INJURED OR KILLED BY PARTICIPATING IN THIS ACTIVITY BECAUSE THERE ARE CERTAIN DANGERS INHERENT IN THE ACTIVITY WHICH CANNOT BE AVOIDED OR ELIMINATED. BY SIGNING THIS FORM YOU ARE GIVING UP YOUR CHILD’S RIGHT AND YOUR RIGHT TO RECOVER FROM HeadPinz Entertainment, FastTrax Entertainment, and Bowling Management Associates IN A LAWSUIT FOR ANY PERSONAL INJURY, INCLUDING DEATH, TO YOUR CHILD OR ANY PROPERTY DAMAGE THAT RESULTS FROM THE RISKS THAT ARE A NATURAL PART OF THE ACTIVITY. YOU HAVE THE RIGHT TO REFUSE TO SIGN THIS FORM, AND HeadPinz Entertainment, FastTrax Entertainment, and Bowling Management Associates HAS THE RIGHT TO REFUSE TO LET YOUR CHILD PARTICIPATE IF YOU DO NOT SIGN THIS FORM.</div>
 </div>`;
 
 /* ── Spanish (first-pass AI translation — attorney review pending) ─────────── */
 
-/** Standard bilingual-waiver protection: the English version governs on conflict. */
-const ES_GOVERNING_NOTICE = `<div style="border:1pt solid #999; background:#f4f4f4; padding:10px 14px; margin:0 0 16px; font-size:11pt;">
-<b>AVISO / GOVERNING LANGUAGE:</b> Esta es una traducción de cortesía al español del acuerdo en inglés. En caso de cualquier discrepancia, ambigüedad o conflicto entre esta versión en español y la versión en inglés, <b>la versión en inglés prevalece y es la que rige legalmente</b>. Al firmar, usted acepta quedar obligado por los términos del acuerdo.
-</div>`;
+/** Standard bilingual-waiver protection: the English version governs on conflict.
+ *  Plain inline paragraph (NOT a light box) so it renders in the waiver's own
+ *  dark-theme text and doesn't create a blank block at the top (owner 2026-07-26). */
+const ES_GOVERNING_NOTICE = `<p style="margin:0 0 16px;"><b>AVISO / GOVERNING LANGUAGE:</b> Esta es una traducción de cortesía al español del acuerdo en inglés. En caso de cualquier discrepancia, ambigüedad o conflicto entre esta versión en español y la versión en inglés, <b>la versión en inglés prevalece y es la que rige legalmente</b>. Al firmar, usted acepta quedar obligado por los términos del acuerdo.</p>`;
 
 const ES_TITLE =
   "<b>LIBERACIÓN Y RENUNCIA DE RESPONSABILIDAD, INDEMNIZACIÓN, CONFIDENCIALIDAD Y ACUERDO SOBRE DISPUTAS DE TARJETA DE CRÉDITO</b><br><br>";
@@ -166,7 +169,7 @@ He leído este Acuerdo en su totalidad, entiendo sus términos y lo firmo volunt
 
 © HeadPinz Entertainment & FastTrax Entertainment – Florida<br>`;
 
-const ES_GUARDIAN_BOX = `<div style="border:2pt solid #000000; background:#ededed; padding:14px 16px; margin:0 0 16px;">
+const ES_GUARDIAN_BOX = `<div style="border:2pt solid #000000; background:#ededed; color:#111; padding:14px 16px; margin:0 0 16px;">
 <div style="text-align:center; font-size:18pt; font-weight:bold; line-height:1.3; margin-bottom:12px;">AVISO AL TUTOR NATURAL DEL MENOR</div>
 <div style="font-size:18pt; font-weight:bold; line-height:1.5;">LEA ESTE FORMULARIO COMPLETA Y CUIDADOSAMENTE. USTED ESTÁ ACEPTANDO PERMITIR QUE SU HIJO MENOR PARTICIPE EN UNA ACTIVIDAD POTENCIALMENTE PELIGROSA. USTED ESTÁ ACEPTANDO QUE, INCLUSO SI HeadPinz Entertainment, FastTrax Entertainment Y Bowling Management Associates ACTÚAN CON CUIDADO RAZONABLE AL PROPORCIONAR ESTA ACTIVIDAD, EXISTE LA POSIBILIDAD DE QUE SU HIJO SUFRA LESIONES GRAVES O LA MUERTE AL PARTICIPAR EN ESTA ACTIVIDAD, PORQUE HAY CIERTOS PELIGROS INHERENTES A LA ACTIVIDAD QUE NO PUEDEN EVITARSE NI ELIMINARSE. AL FIRMAR ESTE FORMULARIO USTED RENUNCIA AL DERECHO DE SU HIJO Y A SU PROPIO DERECHO DE RECUPERAR DE HeadPinz Entertainment, FastTrax Entertainment Y Bowling Management Associates EN UNA DEMANDA POR CUALQUIER LESIÓN PERSONAL, INCLUIDA LA MUERTE, DE SU HIJO, O POR CUALQUIER DAÑO A LA PROPIEDAD QUE RESULTE DE LOS RIESGOS QUE SON PARTE NATURAL DE LA ACTIVIDAD. USTED TIENE EL DERECHO DE NEGARSE A FIRMAR ESTE FORMULARIO, Y HeadPinz Entertainment, FastTrax Entertainment Y Bowling Management Associates TIENEN EL DERECHO DE NEGARSE A PERMITIR QUE SU HIJO PARTICIPE SI USTED NO FIRMA ESTE FORMULARIO.</div>
 </div>`;
@@ -203,7 +206,7 @@ export function inhouseWaiverTemplate(age: number, lang: WaiverLang): PandoraWai
     id: `inhouse:${variant}:${lang}:${WAIVER_VERSION}`,
     contentID: `inhouse:${variant}:${lang}:${WAIVER_VERSION}`,
     name: NAME[variant],
-    duration: WAIVER_DURATION_DAYS,
+    duration: WAIVER_DURATION_YEARS,
     body: body(variant, lang),
   };
 }

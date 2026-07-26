@@ -491,6 +491,12 @@ export const en = {
   "stepTitle.whosBowling": "Who’s bowling?",
   "stepTitle.whosPlaying": "Who’s playing?",
   "stepTitle.whosRacing": "Who’s racing?",
+
+  // --- Bottom utility strip (KioskFlow) ---
+  "util.startOver": "Start over",
+  "util.mainMenu": "Main menu",
+  "util.guestAssistance": "Guest assistance",
+  "util.cart": "Cart",
 } as const;
 
 /** Keys in this core catalog. The full `MessageKey` (core + per-screen fragment

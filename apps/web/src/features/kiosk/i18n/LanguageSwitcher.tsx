@@ -18,14 +18,21 @@ import { KIOSK_LOCALES, LOCALE_LABEL, LOCALE_SHORT, type KioskLocale } from "./l
 import { useLocale } from "./LocaleProvider";
 import { kioskI18nEnabled } from "../flags";
 
-export function LanguageSwitcher() {
+export function LanguageSwitcher({
+  /** Fixed-position classes (canvas px). Each screen that mounts the switcher
+   *  places it where it fits — attract in the welcome band, the category chooser
+   *  up top above the tiles. */
+  posClass = "right-[24px] top-[500px]",
+}: {
+  posClass?: string;
+} = {}) {
   const { locale, setLocale } = useLocale();
 
   if (!kioskI18nEnabled() || KIOSK_LOCALES.length < 2) return null;
 
   return (
     <div
-      className="fixed right-[24px] top-[500px] z-[260] flex items-center gap-[8px] rounded-full border border-white/15 bg-[#0a1730]/85 p-[8px] shadow-[0_8px_30px_rgba(0,0,0,0.45)] backdrop-blur"
+      className={`fixed ${posClass} z-[260] flex items-center gap-[8px] rounded-full border border-white/15 bg-[#0a1730]/85 p-[8px] shadow-[0_8px_30px_rgba(0,0,0,0.45)] backdrop-blur`}
       role="group"
       aria-label="Language"
     >
