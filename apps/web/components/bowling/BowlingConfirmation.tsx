@@ -1042,23 +1042,40 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
     if (!codeParam && !(legacyNeonId > 0)) return;
     let cancelled = false;
     (async () => {
-      try {
-        // Prefer shortCode lookup; fall back to legacy neonId
-        const url = codeParam
-          ? `/api/bowling/v2/reservations/by-code/${encodeURIComponent(codeParam)}`
-          : `/api/bowling/v2/reservations/${legacyNeonId}`;
-        const res = await fetch(url, { cache: "no-store" });
-        if (!res.ok) {
-          if (!cancelled) setFetchError(true);
-          return;
+      const fetchJson = async (url: string): Promise<ReservationWithLines | null> => {
+        try {
+          const res = await fetch(url, { cache: "no-store" });
+          if (!res.ok) return null;
+          return (await res.json()) as ReservationWithLines;
+        } catch {
+          return null;
         }
-        const json = (await res.json()) as ReservationWithLines;
-        if (cancelled) return;
+      };
+
+      // Prefer the shortCode lookup (keeps the sequential id out of the URL). The
+      // checkout also hands us &neonId= alongside ?code=; use it as a fallback.
+      // The short_code → row mapping is written right after the row is created,
+      // so a confirmation landing a few ms after reserve can race ahead of that
+      // write and 404 on by-code even though the booking saved fine. Falling back
+      // to the neonId resolves the row directly and keeps the false "we couldn't
+      // save the detail record" banner from firing on a good booking.
+      let json: ReservationWithLines | null = null;
+      if (codeParam) {
+        json = await fetchJson(
+          `/api/bowling/v2/reservations/by-code/${encodeURIComponent(codeParam)}`,
+        );
+      }
+      if (!json && legacyNeonId > 0) {
+        json = await fetchJson(`/api/bowling/v2/reservations/${legacyNeonId}`);
+      }
+      if (cancelled) return;
+
+      if (json) {
         setReservation(json);
         setNeonId(json.id);
 
-        // Legacy URL redirect: if user arrived via ?neonId=, swap to ?code=
-        // so the sequential ID disappears from the browser bar.
+        // Legacy URL redirect: if user arrived via ?neonId= (no code), swap to
+        // ?code= so the sequential ID disappears from the browser bar.
         if (!codeParam && json.shortCode) {
           const params = new URLSearchParams(window.location.search);
           params.delete("neonId");
@@ -1066,9 +1083,16 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
           const newUrl = `${window.location.pathname}?${params.toString()}`;
           router.replace(newUrl);
         }
-      } catch {
-        if (!cancelled) setFetchError(true);
+        return;
       }
+
+      // Both lookups failed. If the checkout gave us a neonId, the row WAS
+      // created — treat it as a transient load failure (soft "couldn't load your
+      // details" banner) rather than claiming the booking wasn't saved. Setting
+      // neonId also lets the lane-ready poll work off the id. Only with no id at
+      // all do we fall through to the "couldn't save the detail record" wording.
+      setFetchError(true);
+      if (legacyNeonId > 0) setNeonId(legacyNeonId);
     })();
     return () => {
       cancelled = true;

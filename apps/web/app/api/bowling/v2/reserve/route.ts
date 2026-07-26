@@ -1996,9 +1996,16 @@ export async function POST(req: NextRequest) {
     shortCode = await shortenUrl(`${confirmBase}?code=_TMP_`);
     // Re-store with the real code baked into the destination
     await shortenUrl(`${confirmBase}?code=${shortCode}`, shortCode);
-    // Persist to Neon for stable reuse (admin board, emails, SMS)
+    // Persist to Neon for stable reuse (admin board, emails, SMS).
+    // AWAIT this before returning: the confirmation page redirects the instant
+    // this response lands and immediately resolves the booking via
+    // /reservations/by-code/[code]. A fire-and-forget write here races that
+    // redirect and 404s, surfacing a false "we couldn't save the detail record"
+    // banner on a booking that saved perfectly. The write is a single indexed
+    // UPDATE (~tens of ms) and stays non-fatal — the client also falls back to
+    // the neonId we return below if the code mapping still isn't visible.
     if (neonId) {
-      updateBowlingReservationShortCode(neonId, shortCode).catch((err) =>
+      await updateBowlingReservationShortCode(neonId, shortCode).catch((err) =>
         console.error("[bowling/v2/reserve] failed to store short_code (non-fatal):", err),
       );
     }

@@ -700,9 +700,20 @@ export async function middleware(request: NextRequest) {
   // fallback. The `/v2` exclusion is REQUIRED: without it `/book/bowling/v2`
   // (the cutover's own destination) would be rewritten to `/hp/book/bowling/v2`
   // and 404 — the latent bug that hid v2 bowling/KBF on the headpinz.com domain.
+  // The prefix tests MUST carry a trailing slash (or match exactly). A bare
+  // `startsWith("/book/bowling")` also swallows `/book/bowling-confirmation` —
+  // the FastTrax duckpin confirmation, which lives at app/book/bowling-confirmation
+  // (bare, self-brands from centerCode) with NO app/hp/ twin — rewriting it to
+  // /hp/book/bowling-confirmation, where the [attraction] catch-all serves a
+  // "not found" (the exact symptom that broke duckpin confirmations opened on
+  // the headpinz.com host). Letting it fall through to the shared pass-through
+  // below serves the bare route on both domains.
   if (
     isHeadPinz &&
-    (pathname.startsWith("/book/bowling") || pathname.startsWith("/book/kids-bowl-free")) &&
+    (pathname === "/book/bowling" ||
+      pathname.startsWith("/book/bowling/") ||
+      pathname === "/book/kids-bowl-free" ||
+      pathname.startsWith("/book/kids-bowl-free/")) &&
     !/\/v2(?:\/|$)/.test(pathname)
   ) {
     const url = request.nextUrl.clone();
