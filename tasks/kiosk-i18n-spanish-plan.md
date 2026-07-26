@@ -181,3 +181,27 @@ BowlerDetails, BowlingOffer, BowlingPeople, Checkout, Upsell, Rewards, NewGuestF
 **Pattern reference:** 14 converted screens + the en.ts/es.ts catalogs are the template. es.ts is a
 first-pass AI translation — Phase 3 native-Spanish review + portrait layout QA still required before
 enabling NEXT_PUBLIC_KIOSK_I18N anywhere.
+
+### 2026-07-25 (final) — ALL guest-facing screens converted
+Caught up to main (twice; resolved the race-pack pollution from the earlier HEAD-drift, and a
+2nd merge for check-in/attract). Refactored the catalog into per-screen fragments
+(`messages/parts/*`) so the rest could be converted by 6 parallel agents + 1 for the reworked
+check-in. ~510 keys total.
+
+**Guest-facing kiosk is now fully translated** — every screen: attract, categories, all bowling +
+racing steps, people/party, checkout/upsell/rewards, confirmation, mobile-join, Game Zone,
+payment/card prompts, race packs, race-info hub, sign-in/VIP/booking/license/photo/waiver chrome,
+and main's reworked check-in.
+
+**Language switcher** is scoped to the attract screen + "What are we doing today?" chooser only
+(owner 2026-07-25 — was overlapping mid-flow content).
+
+**Verified green:** tsc 0 · eslint 0 errors · jsx-a11y 0 · 358 kiosk tests · production build 0.
+
+**Still English by design:** admin/staff surfaces, legal waiver BODY, reused shared-web cart
+components, a handful of module-scope validation/title strings + rich-text `<strong>` blocks
+(TODO(i18n) in-code — need a `t.rich()` helper or reviewer split).
+
+**Remaining before ship (owner):** native-Spanish review of the first-pass `es` catalog (one
+noted inconsistency: race-pack wording "Paquetes de carreras" vs "race pack" loanword) + portrait
+layout QA, then set `NEXT_PUBLIC_KIOSK_I18N=true` (Preview to test, then Production) and live smoke.
