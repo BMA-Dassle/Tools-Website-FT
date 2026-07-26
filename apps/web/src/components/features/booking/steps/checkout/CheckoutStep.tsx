@@ -48,7 +48,12 @@ import { kioskTerminalEnabled, kioskGzCartEnabled } from "~/features/kiosk/flags
 import { playNowActive } from "~/features/booking/flags";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { centerCodeFor } from "~/config/intercard-centers";
-import { qamfCenterCode, HEADPINZ_FM_CENTER_ID, HEADPINZ_FM_CENTER_CODE } from "@/lib/qamf-centers";
+import {
+  qamfCenterCode,
+  HEADPINZ_FM_CENTER_ID,
+  HEADPINZ_FM_CENTER_CODE,
+  isFastTraxDuckpinCenter,
+} from "@/lib/qamf-centers";
 import { stashGzFulfillment as stashKioskGameCards } from "~/features/kiosk/service/gz-fulfillment";
 import { stashRacePackConfirmation } from "~/features/kiosk/service/race-pack-confirmation";
 import { stashPovConfirmation } from "~/features/kiosk/service/pov-confirmation";
@@ -1392,15 +1397,23 @@ export function CheckoutStep({
           await saveBookingDetails(session, `bowl-${result.qamfReservationId}`, overview, contact);
           clearBookingSession(storageKey);
 
-          // Play Now (per-lane duckpin QR) lands on the FastTrax-branded
-          // confirmation with ?playNow=1 so it auto-opens the lane. Everything
-          // else keeps the existing HeadPinz confirmation route.
+          // Duckpin is a FastTrax product, so its confirmation lives on the
+          // FastTrax DOMAIN (owner 2026-07-26) — the page self-brands FastTrax
+          // and the route only exists at /book/bowling-confirmation. Booking
+          // happens on headpinz.com (Fort Myers), so we send an ABSOLUTE
+          // fasttraxent.com URL here; `go` uses window.location.href on web
+          // (cross-origin ok) and the kiosk shell only parses code/neonId out of
+          // this string, so an absolute URL is safe there too. Play Now (per-lane
+          // duckpin QR) is always duckpin → same route + ?playNow=1 auto-open.
           const playNow = playNowActive(session);
+          const isFtDuckpin =
+            bowlingItem.kind !== "kbf" &&
+            (playNow || isFastTraxDuckpinCenter(bowlingItem.qamfCenterId ?? null));
           const confirmBase =
             bowlingItem.kind === "kbf"
               ? "/hp/book/kids-bowl-free/confirmation"
-              : playNow
-                ? "/book/bowling-confirmation"
+              : isFtDuckpin
+                ? "https://fasttraxent.com/book/bowling-confirmation"
                 : "/hp/book/bowling/confirmation";
           const playNowQ = playNow ? "&playNow=1" : "";
           go(
