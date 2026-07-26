@@ -66,6 +66,8 @@ export const partyEn = {
   "party.form.emailMain": "Email (for your confirmation)",
   "party.form.emailOptional": "Email (optional)",
   "party.form.guardianPrompt": "Responsible guardian (a registered adult):",
+  "party.form.guardianLegalNote":
+    "Must be this minor’s parent or legal guardian. Under Florida Statute § 831.01, misrepresenting yourself as a minor’s guardian is a criminal offense.",
   "party.form.cancel": "Cancel",
   "party.form.settingUp": "Setting up…",
   "party.form.continueToWaiver": "Continue to waiver",
@@ -154,6 +156,8 @@ export const partyEs: Record<keyof typeof partyEn, string> = {
   "party.form.emailMain": "Correo electrónico (para tu confirmación)",
   "party.form.emailOptional": "Correo electrónico (opcional)",
   "party.form.guardianPrompt": "Tutor responsable (un adulto registrado):",
+  "party.form.guardianLegalNote":
+    "Debe ser el padre, la madre o el tutor legal de este menor. Conforme a la Ley de Florida § 831.01, declarar falsamente que usted es el tutor de un menor constituye un delito.",
   "party.form.cancel": "Cancelar",
   "party.form.settingUp": "Registrando…",
   "party.form.continueToWaiver": "Continuar a la exención",

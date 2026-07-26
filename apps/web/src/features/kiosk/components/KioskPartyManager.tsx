@@ -1223,8 +1223,11 @@ export function KioskPartyManager({
           {/* Guardian picker appears once we know they're a minor */}
           {ageFromDob(dob) !== null && (ageFromDob(dob) as number) < 18 && (
             <div>
-              <div className="mb-[10px] text-[22px] text-white/55">
+              <div className="mb-[6px] text-[22px] text-white/55">
                 {t("party.form.guardianPrompt")}
+              </div>
+              <div className="mb-[10px] text-[18px] leading-snug text-[#f0b341]/80">
+                {t("party.form.guardianLegalNote")}
               </div>
               {adults.filter((a) => form.mode !== "setup" || a.id !== form.member.id).length ===
               0 ? (

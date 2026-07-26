@@ -19,7 +19,7 @@ export type WaiverVariant = "adult" | "minor";
 export type WaiverLang = "en" | "es";
 
 /** Bump on ANY change to the legal text below. Stamped on every signed record. */
-export const WAIVER_VERSION = "2026-07-26.1";
+export const WAIVER_VERSION = "2026-07-26.2";
 
 /** Waiver validity in YEARS — matches BMI template semantics (all locations
  *  return 1; treating it as days once stamped next-morning expiries). This is
@@ -174,14 +174,33 @@ const ES_GUARDIAN_BOX = `<div style="border:2pt solid #000000; background:#edede
 <div style="font-size:18pt; font-weight:bold; line-height:1.5;">LEA ESTE FORMULARIO COMPLETA Y CUIDADOSAMENTE. USTED ESTÁ ACEPTANDO PERMITIR QUE SU HIJO MENOR PARTICIPE EN UNA ACTIVIDAD POTENCIALMENTE PELIGROSA. USTED ESTÁ ACEPTANDO QUE, INCLUSO SI HeadPinz Entertainment, FastTrax Entertainment Y Bowling Management Associates ACTÚAN CON CUIDADO RAZONABLE AL PROPORCIONAR ESTA ACTIVIDAD, EXISTE LA POSIBILIDAD DE QUE SU HIJO SUFRA LESIONES GRAVES O LA MUERTE AL PARTICIPAR EN ESTA ACTIVIDAD, PORQUE HAY CIERTOS PELIGROS INHERENTES A LA ACTIVIDAD QUE NO PUEDEN EVITARSE NI ELIMINARSE. AL FIRMAR ESTE FORMULARIO USTED RENUNCIA AL DERECHO DE SU HIJO Y A SU PROPIO DERECHO DE RECUPERAR DE HeadPinz Entertainment, FastTrax Entertainment Y Bowling Management Associates EN UNA DEMANDA POR CUALQUIER LESIÓN PERSONAL, INCLUIDA LA MUERTE, DE SU HIJO, O POR CUALQUIER DAÑO A LA PROPIEDAD QUE RESULTE DE LOS RIESGOS QUE SON PARTE NATURAL DE LA ACTIVIDAD. USTED TIENE EL DERECHO DE NEGARSE A FIRMAR ESTE FORMULARIO, Y HeadPinz Entertainment, FastTrax Entertainment Y Bowling Management Associates TIENEN EL DERECHO DE NEGARSE A PERMITIR QUE SU HIJO PARTICIPE SI USTED NO FIRMA ESTE FORMULARIO.</div>
 </div>`;
 
+/* ── Guardian-must-sign banner (minor variant only) ──────────────────────────
+ * A high-visibility red banner at the very TOP of the minor waiver so the person
+ * at the kiosk cannot miss that ONLY the child's parent/legal guardian may sign,
+ * with a smaller Florida Statute § 831.01 (forgery) note beneath it warning that
+ * misrepresenting guardianship or signing another's name is a crime (owner
+ * 2026-07-26). Uses an explicit light box + dark-red text so it stays legible
+ * over the waiver's dark theme (same reason the guardian box sets its own colors). */
+const EN_GUARDIAN_TOP_BANNER = `<div style="border:3pt solid #b00020; background:#ffffff; color:#b00020; padding:16px 18px; margin:0 0 20px; text-align:center;">
+<div style="font-size:26pt; font-weight:bold; line-height:1.25;">A PARENT OR LEGAL GUARDIAN MUST SIGN FOR THIS MINOR</div>
+<div style="color:#444; font-size:11pt; font-weight:normal; line-height:1.45; margin-top:12px;">Only this child’s parent or legal guardian may sign this waiver. Under <b>Florida Statute § 831.01</b>, falsely representing that you are the parent or legal guardian of a minor — or signing a name that is not your own — is forgery, a criminal offense under Florida law.</div>
+</div>`;
+
+const ES_GUARDIAN_TOP_BANNER = `<div style="border:3pt solid #b00020; background:#ffffff; color:#b00020; padding:16px 18px; margin:0 0 20px; text-align:center;">
+<div style="font-size:26pt; font-weight:bold; line-height:1.25;">UN PADRE, MADRE O TUTOR LEGAL DEBE FIRMAR POR ESTE MENOR</div>
+<div style="color:#444; font-size:11pt; font-weight:normal; line-height:1.45; margin-top:12px;">Solo el padre, la madre o el tutor legal de este menor puede firmar esta exención. Conforme a la <b>Ley de Florida (Florida Statute) § 831.01</b>, declarar falsamente que usted es el padre, la madre o el tutor legal de un menor — o firmar un nombre que no es el suyo — constituye falsificación, un delito conforme a la ley de Florida.</div>
+</div>`;
+
 /* ── Assembly ────────────────────────────────────────────────────────────── */
 
 function body(variant: WaiverVariant, lang: WaiverLang): string {
   const head = lang === "es" ? ES_HEAD : EN_HEAD;
   const tail = lang === "es" ? ES_TAIL : EN_TAIL;
   const box = lang === "es" ? ES_GUARDIAN_BOX : EN_GUARDIAN_BOX;
-  // Minor = adult text with the guardian-notice box between MINORS and LIMITATIONS.
-  return variant === "minor" ? `${head}${box}${tail}` : `${head}${tail}`;
+  const topBanner = lang === "es" ? ES_GUARDIAN_TOP_BANNER : EN_GUARDIAN_TOP_BANNER;
+  // Minor = the guardian-must-sign banner up top + adult text with the Florida
+  // 744.301 guardian-notice box between MINORS and LIMITATIONS.
+  return variant === "minor" ? `${topBanner}${head}${box}${tail}` : `${head}${tail}`;
 }
 
 const NAME: Record<WaiverVariant, string> = {

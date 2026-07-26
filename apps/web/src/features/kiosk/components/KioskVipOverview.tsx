@@ -18,7 +18,7 @@ import {
 } from "~/features/combos/combo-specials";
 import { todayYmd } from "../service/first-available";
 import { BrandLogo } from "./BrandLogo";
-import { useT, type Translate } from "../i18n";
+import { useT, useLocale, type Translate } from "../i18n";
 
 function attractionLabel(slug: string, t: Translate): string {
   switch (slug) {
@@ -73,9 +73,19 @@ export function KioskVipOverview({
   onBack: () => void;
 }) {
   const t = useT();
+  const { locale } = useLocale();
   const perPerson = comboPriceCentsForDate(combo, todayYmd());
   const minHead = comboMinHeadcount(combo);
-  const included = combo.includes ?? [];
+  // Combo marketing copy is data (combo-specials.ts); in Spanish, prefer the
+  // per-field `es` overrides, falling back to English per field.
+  const cEs = locale === "es" ? combo.es : undefined;
+  const included = cEs?.includes ?? combo.includes ?? [];
+  const durationLabel = cEs?.durationLabel ?? combo.durationLabel;
+  const description =
+    cEs?.longDescription ??
+    cEs?.shortDescription ??
+    combo.longDescription ??
+    combo.shortDescription;
 
   return (
     <>
@@ -84,9 +94,9 @@ export function KioskVipOverview({
           <span className="k-eyebrow" style={{ color: "#e8b14c" }}>
             {t("vip.eyebrow")}
           </span>
-          {combo.durationLabel ? (
+          {durationLabel ? (
             <span className="k-chip" style={{ height: 60, fontSize: 24 }}>
-              {combo.durationLabel}
+              {durationLabel}
             </span>
           ) : null}
         </div>
@@ -107,9 +117,7 @@ export function KioskVipOverview({
       </div>
 
       <div className="k-flow-body">
-        <p className="mb-[28px] text-[28px] text-white/60">
-          {combo.longDescription || combo.shortDescription}
-        </p>
+        <p className="mb-[28px] text-[28px] text-white/60">{description}</p>
         <p className="mb-[20px] text-[24px] text-white/45">{t("vip.stepByStep")}</p>
         <div className="relative space-y-[20px]">
           {combo.components.map((leg, i) => {
