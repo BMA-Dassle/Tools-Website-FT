@@ -1036,6 +1036,15 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
   const centerName = CENTER_NAME[centerCode] ?? "HeadPinz";
   const centerAddress = CENTER_ADDRESS[centerCode] ?? "";
   const qamfId = reservation?.qamfReservationId ?? "";
+  // Duckpin (FastTrax) confirms on fasttraxent.com and its check-in must stay on
+  // that domain. The HeadPinz check-in lives under /hp, which the middleware
+  // cross-domain-redirects off fasttraxent.com (and that redirect dropped the
+  // ?neonId=, producing "Invalid reservation link"). The bare
+  // /book/bowling-checkin route serves the SAME BowlingCheckin on both domains,
+  // so a relative link keeps duckpin on FastTrax with the id intact.
+  const checkinHref = isFastTrax
+    ? `/book/bowling-checkin?neonId=${neonId}`
+    : `/hp/book/bowling/checkin?neonId=${neonId}`;
 
   // ── Initial fetch: resolve code → reservation (or legacy neonId) ──
   useEffect(() => {
@@ -1259,7 +1268,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                 <button
                   type="button"
                   onClick={() => {
-                    window.location.href = `/hp/book/bowling/checkin?neonId=${neonId}`;
+                    window.location.href = checkinHref;
                   }}
                   className="w-full py-4 rounded-2xl font-body font-black uppercase tracking-wider text-white transition-all hover:scale-[1.02] active:scale-100"
                   style={{
@@ -1698,7 +1707,7 @@ function ConfirmationContent({ kind }: { kind: BowlingConfirmationKind }) {
                     <button
                       type="button"
                       onClick={() => {
-                        window.location.href = `/hp/book/bowling/checkin?neonId=${neonId}`;
+                        window.location.href = checkinHref;
                       }}
                       className="w-full py-4 rounded-2xl font-body font-black uppercase tracking-wider text-white transition-all hover:scale-[1.02] active:scale-100"
                       style={{

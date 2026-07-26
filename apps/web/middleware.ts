@@ -732,7 +732,9 @@ export async function middleware(request: NextRequest) {
   const isLocalhost = hostname.includes("localhost") || hostname.includes("127.0.0.1");
   if (pathname.startsWith("/hp") && !isHeadPinz && !isLocalhost) {
     const hpPath = pathname.replace(/^\/hp/, "") || "/";
-    return NextResponse.redirect(`https://headpinz.com${hpPath}`);
+    // Preserve the query string — dropping it here silently lost ?neonId= on
+    // the duckpin check-in link and produced "Invalid reservation link".
+    return NextResponse.redirect(`https://headpinz.com${hpPath}${request.nextUrl.search}`);
   }
 
   // Set brand header for /hp/ routes (dev access on localhost)

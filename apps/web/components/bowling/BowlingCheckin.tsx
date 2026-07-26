@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import HeadPinzNav from "@/components/headpinz/Nav";
+import BrandNav from "@/components/BrandNav";
 import type {
   BowlingReservation,
   BowlingReservationPlayer,
@@ -652,7 +652,7 @@ function CheckinContent() {
 
   return (
     <div style={{ backgroundColor: BG }} className="min-h-screen">
-      <HeadPinzNav />
+      <BrandNav />
 
       <main className="pt-32 sm:pt-36 pb-32 px-4 sm:px-6">
         <div className="max-w-lg mx-auto">
@@ -984,7 +984,7 @@ function CheckinContent() {
 function CheckinSkeleton() {
   return (
     <div style={{ backgroundColor: BG }} className="min-h-screen">
-      <HeadPinzNav />
+      <BrandNav />
       <main className="pt-28 pb-20 px-4">
         <div className="max-w-lg mx-auto animate-pulse space-y-6">
           <div className="h-8 bg-white/5 rounded-xl w-48 mx-auto" />
