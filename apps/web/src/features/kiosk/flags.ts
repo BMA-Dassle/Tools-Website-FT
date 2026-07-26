@@ -102,6 +102,21 @@ export function kioskWaiverBmiAttachEnabled(): boolean {
 }
 
 /**
+ * In-house waivers (owner 2026-07-26) — serve OUR OWN waiver template (adult/minor
+ * × en/es, versioned) and store the signed waiver in Neon, instead of fetching the
+ * template from and signing only into BMI/Pandora. Kill switch, **defaults ON**:
+ * set NEXT_PUBLIC_KIOSK_WAIVER_INHOUSE=false in Vercel + redeploy to revert to the
+ * BMI-only path (byte-identical to before). NEXT_PUBLIC because the decision is
+ * made both client-side (which template/sign route the pandora.ts wrappers hit)
+ * and server-side (the routes). Safety: while ON we STILL dual-write the signature
+ * to BMI so `waiverExpiry` keeps advancing and every waiverValid consumer + every
+ * returning-guest validity read is unaffected. Read at call time so tests can stub.
+ */
+export function kioskWaiverInhouseEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_WAIVER_INHOUSE !== "false";
+}
+
+/**
  * Mobile join — the people-step QR that lets guests sign in / register (and
  * sign their waiver) on their own phone and pop into the kiosk's player list.
  * Kill switch, defaults ON (owner 2026-07-20): set the literal "false" in
