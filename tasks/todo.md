@@ -125,13 +125,17 @@ as Pandora `sigPersonID` (plumbed through `/api/pandora/waiver` POST → `pandor
 excluded from products/heats/charges/BMI bill registration BY CONSTRUCTION; roster shows a
 dashed "Guardians — signed, not playing" chip with **Join the fun** (same id moves into party,
 minors' `guardianMemberId` refs stay valid). Receipt contact switches to the guardian when the
-Main person is a minor. BMI-level `guardianID` link is best-effort via re-upsert.
+Main person is a minor. ~~BMI-level `guardianID` link is best-effort via re-upsert.~~
+**RESOLVED 2026-07-25 (Strachan incident):** the "re-upsert" provably CREATED A DUPLICATE person
+per minor sign (Pandora create is NOT an upsert — see lessons.md § Pandora create is NOT an
+upsert). `linkMinorToGuardian` was removed; the waiver's `sigPersonID` is the guardian record.
 
 - [ ] **Live-verify on the kiosk dev flow** (see plan verification list): minor-first paths
       (valid-waiver / new-adult / lookup / expired-adult chain), guardian absent from charges +
       `registerProjectPerson`, log line `signer=<short id>`, two-minors-one-guardian, join-the-fun.
-- [ ] Confirm with one live call whether the Pandora upsert actually persists `guardianID` on an
-      existing person; if not, drop the best-effort re-upsert in `linkMinorToGuardian`.
+- [x] ~~Confirm whether the Pandora upsert persists `guardianID` on an existing person~~ —
+      confirmed 2026-07-25: it persists it on a fresh DUPLICATE person (guardian's `related`
+      pointed at two no-waiver orphans). `linkMinorToGuardian` dropped.
 
 ## Kiosk CRT-591 card reader/dispenser — DRIVER + TEST PANEL + GAME ZONE WIRED (branch `kiosk`)
 

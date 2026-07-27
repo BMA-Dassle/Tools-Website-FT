@@ -256,3 +256,25 @@ Four live-testing bugs, root causes confirmed in code before fixing:
    already today-scoped) with the 3h lookback kept. `BROWSE_WINDOW_MIN` →
    `BROWSE_LOOKBACK_MIN`; §12 supersedes the "±3h window" wording in the §
    "Owner decisions" list (lookback half unchanged).
+
+Two more from the same evening's live traffic (Strachan family, guardian
+56392934 + kids; fixed 2026-07-25 late, not yet live-verified):
+
+5. **Every kiosk-signed waiver expired the NEXT MORNING (9am ET).** The Pandora
+   waiver template's `duration: 1` means 1 YEAR (BMI semantics — desk-signed
+   records carry ~1-year expiries), but `calculateWaiverExpiry` added DAYS →
+   `invalidationDate = tomorrow`. Every waiver signed via `WaiverSigning`
+   (kiosk, check-in, group events, phone join) died overnight — which also
+   defeated the §"pull in existing valid waivers" feature. Fix: duration
+   treated as years (clamped 1–10) in `lib/pandora.ts`; `?? 365` fallbacks in
+   the waiver route + waiver-digital normalized to `?? 1`.
+6. **Second minor's waiver "never applied" — Pandora person create is NOT an
+   upsert.** One kid ended up with EIGHT person records (three holding waivers
+   from three sign attempts); the guardian's `related[]` pointed at no-waiver
+   duplicates minted by `linkMinorToGuardian`'s "re-upsert". Sign landed on one
+   record while readiness reads (`bmiPersonId` vs `pandoraPersonId`) hit
+   another → sign-then-revert loop. Fixes: `linkMinorToGuardian` removed;
+   `submitSetup` (people step + party manager) never re-creates a person that
+   already has a short id; qualification refresh reads waiver status on the
+   short id waivers are signed against. Full detail: lessons.md § "Pandora
+   create is NOT an upsert".

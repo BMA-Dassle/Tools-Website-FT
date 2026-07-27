@@ -2125,3 +2125,66 @@ card on file (Path A), accepting that the card was saved under a post-paid
 - **Never blanket-add `OR approved_at IS NOT NULL` to the balance-charge query** — a converted
   row with a saved card would hit Path A and auto-charge a card banked under `autoCharge:false`.
   Fix the stale flag upstream instead.
+
+## tsc "clean" is a lie while syntax errors exist anywhere (2026-07-26)
+
+**Incident:** the Game Zone cancellation fix shipped a semantic type error
+(`plan.ts` read `r.partial` off a variable whose explicit inline annotation
+lacked the field) and broke the Vercel build. Local `tsc --noEmit` before
+commit "passed" — its only output lines were `.next/dev/types/*` **syntax**
+errors, which were being grep-filtered as known noise.
+
+**Mechanism:** when the program contains parse/syntax errors (here: a corrupted
+`.next/dev/types/routes.d.ts` left behind by a dev-server crash), TypeScript
+skips/short-circuits semantic checking — so real type errors in source files
+are silently NOT reported. Filtering the syntax errors out of the output makes
+a fundamentally broken run look green. Vitest never catches these either
+(esbuild strips types without checking).
+
+**Rules:**
+- **A tsc run with ANY syntax error reports nothing trustworthy.** Never filter
+  known-noise errors out and treat the remainder as the verdict. Zero output
+  must mean zero errors of every kind.
+- **Fix the corruption first, then typecheck:** `rm -rf apps/web/.next/dev`
+  (safe when no dev server is running) and re-run.
+- **Before committing anything, gate on `npx next build`** (or a tsc run that
+  is verifiably syntax-clean) — it's what Vercel runs, and it caught in one
+  pass what the polluted tsc missed.
+- Also fixed: `let x: Array<{...inline...}>` annotations silently narrow away
+  fields added to the source type — annotate with the named type
+  (`TenderRefund[]`) so the compiler tracks evolution.
+
+## Pandora create is NOT an upsert + waiver template duration is YEARS (2026-07-25)
+
+**What happened (Strachan family, live kiosk traffic):** a guardian signed waivers for two
+kids; one kid worked, the other's waiver "never applied." Live Pandora reads showed the second
+kid had **EIGHT person records** (three holding waivers from three separate sign attempts, five
+orphans), the first kid two, the guardian two. Separately, every waiver signed through our
+`WaiverSigning` flow carried `waiverExpiry` = the NEXT MORNING 9am ET, while desk-signed records
+run ~1 year.
+
+**Root causes:**
+
+1. **`POST /v2/bmi/person` creates a duplicate whenever the field set differs from the original
+   create** (and possibly whenever it feels like it). Every comment claiming "known person
+   resolves to the same personId, never a duplicate" was wrong. The biggest minter was
+   `linkMinorToGuardian` re-creating the minor with `guardianID` after every guardian sign
+   (kid's own empty email vs `submitNew`'s session-contact email fallback → no match → new
+   person). Re-taps of "Sign waiver" re-ran the short-id "upsert" too — one new person per tap.
+   With duplicates in play, the waiver lands on one record while readiness checks read another
+   (`bmiPersonId` vs `pandoraPersonId`) → sign-then-revert loop → guest re-signs → another dup.
+2. **Pandora waiver template `duration: 1` means 1 YEAR** (BMI semantics; all three locations
+   return 1; desk records confirm ~1yr) — `calculateWaiverExpiry` treated it as DAYS.
+
+**Rules:**
+
+- NEVER call the Pandora person create for someone who already has a short Pandora id this
+  session. Resolve once, store `pandoraPersonId`, use it for BOTH signing and every later
+  readiness read. The create is a last resort for identity resolution, not a lookup.
+- Treat Pandora waiver template `duration` as YEARS (clamped 1–10 in `calculateWaiverExpiry`);
+  any `?? 365`-style fallback on that field is a bug.
+- When a "signed but shows unsigned" report comes in, suspect DUPLICATE PERSON RECORDS first:
+  `GET /bmi/person/search?lastName&birthday&filter=false` enumerates them; the guardian's
+  `related[]` reveals link-minted orphans.
+- Cleanup for affected guests: waivers may exist on multiple records; the record that raced
+  (has `lastVisit`) is the live one — merge/deactivate orphans at the desk.

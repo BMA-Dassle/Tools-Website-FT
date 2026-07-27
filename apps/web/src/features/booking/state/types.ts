@@ -68,8 +68,9 @@ export interface PartyMember {
    * SHORT Pandora/public person id — Pandora's waiver-sign and race-schedule
    * endpoints REJECT the 17-digit Office id a returning-racer lookup yields
    * (live 2026-07-18: waiver sign 500s), so the kiosk resolves this via the
-   * upsert-style Pandora create (known person → same id, never a duplicate)
-   * and prefers it for every Pandora call. New racers' bmiPersonId IS already
+   * Pandora create (which usually resolves a known person to the same id but
+   * is NOT a reliable upsert — 2026-07-25: it can mint a duplicate, so resolve
+   * AT MOST ONCE) and prefers it for every Pandora call. New racers' bmiPersonId IS already
    * this short id.
    */
   pandoraPersonId?: string;

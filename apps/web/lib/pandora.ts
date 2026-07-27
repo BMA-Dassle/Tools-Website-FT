@@ -115,10 +115,16 @@ export async function pandoraCreatePerson(
   input: PandoraPersonCreateInput,
 ): Promise<PandoraPersonCreateResult> {
   // Retry on cold-start: the Pandora API (Azure App Service) 5xx's / times out on
-  // the first request after idle. Create is upsert-style (a known person resolves
-  // to the same personId), so retrying a 5xx is safe and avoids the onboard
-  // throwing — which previously left the guest stuck on the name step, unable to
-  // advance to the booking screen. 4xx (real client error) is NOT retried.
+  // the first request after idle; without the retry the onboard threw and left
+  // the guest stuck on the name step. 4xx (real client error) is NOT retried.
+  //
+  // HONEST RISK NOTE (2026-07-25, Strachan incident): create is NOT a reliable
+  // upsert — Pandora can mint a DUPLICATE person (proven: 8 records for one
+  // kid). A write-then-5xx here means the retry itself may create a duplicate.
+  // We accept that rare case to keep cold-start onboarding alive; what is NOT
+  // acceptable is calling create again for someone who already has an id —
+  // callers must store the returned personId and never re-create (see the
+  // short-id guards in KioskPeopleStep/KioskPartyManager submitSetup).
   const attempts = 3;
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
@@ -254,11 +260,13 @@ export function calculateWaiverExpiry(durationYears: number): string {
  *   - `{ personId, waiverValid: true }` if waiver is already signed
  *   - `{ personId, waiverValid: false, template }` if waiver needs signing
  *
- * `birthdate` in the result is the REFRESHED one: the create is upsert-style, so
- * a returning guest resolves to their EXISTING BMI record, and the waiver check
- * returns that record's birthdate — which is authoritative for the waiver
- * template. A kiosk typo (or a missing local DOB) must never hand a minor the
- * adult waiver, so the template age prefers BMI's birthdate over the typed one.
+ * `birthdate` in the result is the REFRESHED one: the create USUALLY resolves a
+ * returning guest to their existing BMI record (but is NOT a reliable upsert —
+ * 2026-07-25: differing field sets mint a duplicate person; never call this for
+ * someone who already has an id), and the waiver check returns that record's
+ * birthdate — which is authoritative for the waiver template. A kiosk typo (or
+ * a missing local DOB) must never hand a minor the adult waiver, so the
+ * template age prefers BMI's birthdate over the typed one.
  * (2026-07-23: a 17-year-old got an adult waiver signature — Hayden Waln.)
  */
 export async function pandoraOnboardGuest(
@@ -271,7 +279,8 @@ export async function pandoraOnboardGuest(
   | { personId: string; waiverValid: true; template: null; birthdate: string }
   | { personId: string; waiverValid: false; template: PandoraWaiverTemplate; birthdate: string }
 > {
-  // 1. Create person (upsert — a known person resolves to their existing record)
+  // 1. Create person (usually resolves a known person to their existing record;
+  //    NOT a reliable upsert — see the risk note on pandoraCreatePerson)
   const { personId } = await pandoraCreatePerson({ ...input, location });
 
   // 2. Check if waiver already valid — the response carries the BMI record's

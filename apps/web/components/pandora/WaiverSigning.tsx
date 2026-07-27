@@ -22,6 +22,12 @@ export interface WaiverSigningProps {
   /** SHORT Pandora id of the person SIGNING when not personId themselves —
    *  a guardian signing a minor's waiver. Omitted = self-sign. */
   signerPersonId?: string;
+  /** Override the validity window as DAYS from today, instead of the
+   *  template's duration (YEARS — desk parity). Event-scoped surfaces pass 5
+   *  (owner decision 2026-06-18, mirrors waiver-digital's WAIVER_VALID_DAYS:
+   *  "we don't want a year-long waiver from a one-event acceptance").
+   *  Racing/kiosk/booking surfaces omit it. */
+  validDays?: number;
   /** Called after waiver is successfully signed. */
   onComplete: (waiverID: string | undefined) => void;
   /** Optional heading override (default: "Sign Your Waiver"). */
@@ -45,6 +51,7 @@ export default function WaiverSigning({
   template,
   location,
   signerPersonId,
+  validDays,
   onComplete,
   heading = "Sign Your Waiver",
   subheading = "Required before participating in any activity.",
@@ -68,7 +75,11 @@ export default function WaiverSigning({
 
     try {
       const signatureDataUrl = padRef.current.toDataURL();
-      const invalidationDate = calculateWaiverExpiry(template.duration);
+      // Event-scoped surfaces override with a short DAYS window; everything
+      // else gets the template duration in YEARS (desk parity).
+      const invalidationDate = validDays
+        ? new Date(Date.now() + validDays * 864e5).toISOString().split("T")[0]
+        : calculateWaiverExpiry(template.duration);
 
       const result = await pandoraSignWaiver({
         personID: personId,
@@ -86,7 +97,7 @@ export default function WaiverSigning({
     } finally {
       setLoading(false);
     }
-  }, [personId, template, location, signerPersonId, onComplete]);
+  }, [personId, template, location, signerPersonId, validDays, onComplete]);
 
   return (
     <div className={lg ? "space-y-8" : "space-y-6"}>
