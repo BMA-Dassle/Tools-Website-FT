@@ -6,6 +6,10 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BowlingReservation } from "@/lib/bowling-db";
+import {
+  SQUARE_TOKEN_CATALOG_ID,
+  SQUARE_ACTIVATION_FEE_CATALOG_ID,
+} from "~/features/game-cards/constants";
 import { mkRes } from "./guards.test";
 import { CancelGuardError, type CancelRequest } from "./types";
 
@@ -34,6 +38,7 @@ interface SquareWorld {
       total?: number;
       netDue?: number;
       tenders?: Array<{ paymentId: string; amount: number }>;
+      lineItems?: Array<{ uid?: string; name?: string; catalogObjectId?: string; total: number }>;
     }
   >;
   payments: Record<string, { amount: number; refunded: number; status?: string }>;
@@ -84,6 +89,16 @@ function mockSquare(world: SquareWorld) {
             payment_id: t.paymentId,
             amount_money: { amount: t.amount, currency: "USD" },
           })),
+          ...(o.lineItems
+            ? {
+                line_items: o.lineItems.map((li, i) => ({
+                  uid: li.uid ?? `li_${i}`,
+                  name: li.name ?? `Line ${i}`,
+                  ...(li.catalogObjectId ? { catalog_object_id: li.catalogObjectId } : {}),
+                  total_money: { amount: li.total, currency: "USD" },
+                })),
+              }
+            : {}),
         },
       });
     }
@@ -397,6 +412,69 @@ describe("mixed race+attraction cart (one bill, not a combo)", () => {
     expect(r.plan.steps.filter((s) => s.kind === "cancel_bmi_project")).toHaveLength(1);
     expect(r.plan.steps.filter((s) => s.kind === "mark_cancelled")).toHaveLength(2);
     expect(r.plan.steps.filter((s) => s.kind === "cancel_dayof_order")).toHaveLength(1);
+  });
+});
+
+// ── Kiosk booking with Game Zone cards riding the deposit order ─────────────
+
+describe("kiosk booking with Game Zone cards", () => {
+  // Reader payment 7410 = deposit 6710 (GC balance) + gz 700 (500 tokens +
+  // qty-1 activation fee 200). The gz lines live on the deposit order itself.
+  const GZ_LINES = [
+    { name: "Reservation Deposit", total: 6710 }, // no catalog id — never counted as gz
+    { name: "Game Zone — 50 Tokens", catalogObjectId: SQUARE_TOKEN_CATALOG_ID, total: 500 },
+    { name: "Card activation fee", catalogObjectId: SQUARE_ACTIVATION_FEE_CATALOG_ID, total: 200 },
+  ];
+  const gzWorld = (over: Partial<Parameters<typeof worldFor>[0]> = {}) => {
+    const w = worldFor({
+      balance: 6710,
+      tenders: [{ paymentId: "pay_1", amount: 7410 }],
+      orders: { day_bowl: { state: "OPEN", tenders: [] } },
+      ...over,
+    });
+    w.orders.dep_1.lineItems = GZ_LINES;
+    return w;
+  };
+
+  it("refund succeeds for the deposit only — the gz money stays with the guest", async () => {
+    setGroup([bowlingLeg()]);
+    mockSquare(gzWorld());
+    const r = await buildCancelPlan(req());
+    if (r.kind !== "plan") throw new Error("expected plan");
+    expect(r.plan.outcome).toBe("refund");
+    expect(r.plan.amountCents).toBe(6710);
+    const refunds = r.plan.steps.filter((s) => s.kind === "refund_tender");
+    expect(refunds).toHaveLength(1);
+    expect(refunds[0].amountCents).toBe(6710);
+    expect(refunds[0].detail).toMatch(/Game Zone/);
+    expect(r.plan.warnings.join(" ")).toMatch(/Game Zone cards \(\$7\.00\)/);
+  });
+
+  it("store credit succeeds at the GC balance, with the gz warning", async () => {
+    setGroup([bowlingLeg()]);
+    mockSquare(gzWorld());
+    const r = await buildCancelPlan(req({ outcome: "store_credit" }));
+    if (r.kind !== "plan") throw new Error("expected plan");
+    expect(r.plan.outcome).toBe("store_credit");
+    expect(r.plan.amountCents).toBe(6710);
+    expect(kinds(r.plan)).toContain("issue_store_credit");
+    expect(r.plan.warnings.join(" ")).toMatch(/Game Zone/);
+  });
+
+  it("refund resume: deposit already refunded, remainder is exactly the gz money → no refund steps", async () => {
+    setGroup([bowlingLeg()]);
+    mockSquare(gzWorld({ refunded: { pay_1: 6710 } }));
+    const r = await buildCancelPlan(req());
+    if (r.kind !== "plan") throw new Error("expected plan");
+    expect(r.plan.steps.filter((s) => s.kind === "refund_tender")).toHaveLength(0);
+    expect(r.plan.amountCents).toBe(6710);
+    expect(r.plan.warnings.join(" ")).toMatch(/already fully refunded/);
+  });
+
+  it("genuine partial redemption still blocks: gz-reduced total ≠ drained balance", async () => {
+    setGroup([bowlingLeg()]);
+    mockSquare(gzWorld({ balance: 6000 })); // card partially spent at the venue
+    await expectGuard(buildCancelPlan(req()), "amount_mismatch");
   });
 });
 

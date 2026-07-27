@@ -4,6 +4,10 @@
  * tasks/lessons.md; see comments on each function.
  */
 import type { BowlingReservation } from "@/lib/bowling-db";
+import {
+  SQUARE_TOKEN_CATALOG_ID,
+  SQUARE_ACTIVATION_FEE_CATALOG_ID,
+} from "~/features/game-cards/constants";
 import { CancelGuardError, type CancelActor, type GatheredFacts, type MoneyClass } from "./types";
 
 /** UTC instant → naive ET wall-clock ISO ("2026-07-03T14:00:00"). */
@@ -112,19 +116,55 @@ export function guardDayofOrder(order: {
   return "refuse";
 }
 
+/** The two Square catalog ids that mark Game Zone lines on a deposit order:
+ *  token packages and the per-card activation fee. The deposit line itself
+ *  carries NO catalog id, so detection can never touch it. */
+const GZ_CATALOG_IDS = new Set<string>([SQUARE_TOKEN_CATALOG_ID, SQUARE_ACTIVATION_FEE_CATALOG_ID]);
+
+/**
+ * Σ Game Zone lines (token packages + activation fees) riding a deposit order —
+ * kiosk bookings put card purchases on the deposit order as extra ITEM lines,
+ * so the reader payment exceeds the internal gift card by exactly this amount.
+ * Uses line total_money (quantity-inclusive; gz lines are untaxed, so exact).
+ * NEVER derive this from intercard_transactions — that ledger records the
+ * package price only and omits the $2/card activation fee.
+ */
+export function gameZoneCents(
+  lineItems: Array<{ catalogObjectId?: string; totalCents: number }> | undefined,
+): number {
+  return (lineItems ?? []).reduce(
+    (s, li) =>
+      s + (li.catalogObjectId && GZ_CATALOG_IDS.has(li.catalogObjectId) ? li.totalCents : 0),
+    0,
+  );
+}
+
 export interface TenderRefund {
   paymentId: string;
   amountCents: number;
+  /** True when the amount was capped below the payment's remainder (Game Zone
+   *  exclusion) — the executor must pass it to Square as a partial refund. */
+  partial?: boolean;
 }
 
 /**
  * Per-tender refunds still owed on the deposit order — the exactly-once core.
  * A payment's refunded_money already covers what prior attempts (or manual
  * staff refunds) issued, so a resume/re-run refunds only the remainder.
+ *
+ * Game Zone exclusion: card purchases riding the deposit order stay with the
+ * guest, so their total is subtracted from the refundable remainder — greedily,
+ * first-fit in tender order, but only from tenders that could have carried it:
+ * never an edit top-up (edits don't sell cards) and never a GIFT_CARD-funded
+ * payment (Square refuses partial refunds of those — live finding 2026-07-11;
+ * kiosk gz tenders are reader CARD payments, so in practice one tender absorbs
+ * it all). Any un-allocatable exclusion deliberately stays in the sum so
+ * guardRefundTotal trips and routes to the manual path — fail-closed.
  */
 export function tenderRefundsNeeded(facts: GatheredFacts): TenderRefund[] {
   const tenders = facts.depositOrder?.tenders ?? [];
   const out: TenderRefund[] = [];
+  let exclude = facts.depositOrder?.gameZoneCents ?? 0;
   for (const t of tenders) {
     const pay = facts.payments[t.paymentId];
     if (!pay) {
@@ -134,8 +174,20 @@ export function tenderRefundsNeeded(facts: GatheredFacts): TenderRefund[] {
         409,
       );
     }
-    const remaining = pay.amountCents - pay.refundedCents;
-    if (remaining > 0) out.push({ paymentId: t.paymentId, amountCents: remaining });
+    let remaining = pay.amountCents - pay.refundedCents;
+    let capped = false;
+    if (exclude > 0 && remaining > 0 && !t.editTopup && pay.sourceType !== "GIFT_CARD") {
+      const take = Math.min(exclude, remaining);
+      remaining -= take;
+      exclude -= take;
+      capped = remaining > 0;
+    }
+    if (remaining > 0)
+      out.push({
+        paymentId: t.paymentId,
+        amountCents: remaining,
+        ...(capped ? { partial: true } : {}),
+      });
   }
   return out;
 }

@@ -78,6 +78,7 @@ export async function fetchGiftCardFacts(
 export async function fetchOrderFacts(orderId: string): Promise<
   GatheredFacts["dayofOrders"][string] & {
     tenders: Array<{ paymentId: string; amountCents: number }>;
+    lineItems?: Array<{ uid: string; name: string; catalogObjectId?: string; totalCents: number }>;
   }
 > {
   const r = await sq("GET", `/orders/${orderId}`);
@@ -89,6 +90,21 @@ export async function fetchOrderFacts(orderId: string): Promise<
       amountCents: t.amount_money?.amount ?? 0,
     }))
     .filter((t: { paymentId: string }) => t.paymentId);
+  // Line items let the plan tell deposit money from rider lines (kiosk Game
+  // Zone cards) on the deposit order. total_money is quantity-inclusive.
+  const lineItems = (o.line_items ?? []).map(
+    (li: {
+      uid?: string;
+      name?: string;
+      catalog_object_id?: string;
+      total_money?: { amount?: number };
+    }) => ({
+      uid: li.uid ?? "",
+      name: li.name ?? "",
+      catalogObjectId: li.catalog_object_id ?? undefined,
+      totalCents: li.total_money?.amount ?? 0,
+    }),
+  );
   return {
     id: o.id,
     state: o.state ?? "?",
@@ -98,6 +114,7 @@ export async function fetchOrderFacts(orderId: string): Promise<
     netDueCents: o.net_amount_due_money?.amount ?? 0,
     totalCents: o.total_money?.amount ?? 0,
     tenders,
+    lineItems,
   };
 }
 
@@ -124,27 +141,32 @@ export async function fetchPaymentFacts(
 /**
  * Refund one deposit tender. Exactly-once: re-fetches the payment and refunds
  * only the still-unrefunded remainder (a replayed call becomes a no-op).
+ * `maxCents` caps the refund below the remainder — used when part of the
+ * payment must stay with the guest (kiosk Game Zone card lines riding the
+ * deposit order). Absent → full remainder, byte-identical to before.
  */
 export async function refundTender(p: {
   cascadeId: string;
   tenderIndex: number;
   paymentId: string;
   reason: string;
+  maxCents?: number;
 }): Promise<{ refundId?: string; refundedCents: number }> {
   const pay = await fetchPaymentFacts(p.paymentId);
   const remaining = pay.amountCents - pay.refundedCents;
-  if (remaining <= 0) {
+  const amount = Math.min(remaining, p.maxCents ?? remaining);
+  if (amount <= 0) {
     console.log(`[cancel/square] payment ${p.paymentId} already fully refunded — skip`);
     return { refundedCents: 0 };
   }
   const r = await sq("POST", "/refunds", {
     idempotency_key: `${p.cascadeId}-r${p.tenderIndex}`,
     payment_id: p.paymentId,
-    amount_money: { amount: remaining, currency: "USD" },
+    amount_money: { amount, currency: "USD" },
     reason: p.reason,
   });
   if (!r.ok || !r.json?.refund) throw squareErr(`refund of payment ${p.paymentId}`, r);
-  return { refundId: r.json.refund.id, refundedCents: remaining };
+  return { refundId: r.json.refund.id, refundedCents: amount };
 }
 
 /**

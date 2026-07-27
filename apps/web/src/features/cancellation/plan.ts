@@ -12,6 +12,7 @@ import {
 import { nextCancelAttempt } from "@/lib/reservation-cancel-log";
 import {
   classifyMoney,
+  gameZoneCents,
   guardActorOutcome,
   guardCustomerCutoff,
   guardDayofOrder,
@@ -101,6 +102,11 @@ export async function buildCancelPlan(req: CancelRequest): Promise<BuildPlanResu
       facts.depositOrder = {
         id: dep.id,
         tenders: [...dep.tenders].sort((a, b) => (a.paymentId < b.paymentId ? -1 : 1)),
+        // Kiosk Game Zone cards ride the deposit order as extra ITEM lines: the
+        // reader payment covers deposit + cards, but the internal gift card
+        // holds the deposit only. Their total is excluded from refunds — the
+        // guest keeps the cards (owner 2026-07-26).
+        gameZoneCents: gameZoneCents(dep.lineItems),
       };
       for (const t of facts.depositOrder.tenders) {
         facts.payments[t.paymentId] = await fetchPaymentFacts(t.paymentId);
@@ -133,7 +139,13 @@ export async function buildCancelPlan(req: CancelRequest): Promise<BuildPlanResu
             known.add(paymentId);
             const pay = await fetchPaymentFacts(paymentId);
             facts.payments[paymentId] = pay;
-            facts.depositOrder.tenders.push({ paymentId, amountCents: pay.amountCents });
+            // editTopup: edits never sell Game Zone cards, so the gz exclusion
+            // must not land on these tenders.
+            facts.depositOrder.tenders.push({
+              paymentId,
+              amountCents: pay.amountCents,
+              editTopup: true,
+            });
           }
         }
       } catch (err) {
@@ -147,6 +159,14 @@ export async function buildCancelPlan(req: CancelRequest): Promise<BuildPlanResu
     refundsNeeded = tenderRefundsNeeded(facts);
     const neededCents = refundsNeeded.reduce((s, r) => s + r.amountCents, 0);
     const priorRefundCents = Object.values(facts.payments).reduce((s, p) => s + p.refundedCents, 0);
+
+    const gzCents = facts.depositOrder?.gameZoneCents ?? 0;
+    if (gzCents > 0) {
+      warnings.push(
+        `Game Zone cards ($${(gzCents / 100).toFixed(2)}) purchased with this booking stay ` +
+          `with the guest — that amount is not refunded or credited.`,
+      );
+    }
 
     if (outcome === "refund") {
       if (neededCents > 0) {
@@ -238,7 +258,9 @@ export async function buildCancelPlan(req: CancelRequest): Promise<BuildPlanResu
         kind: "refund_tender",
         fatal: true,
         target: r.paymentId,
-        detail: `Refund ${D(r.amountCents)} to the original card (payment ${r.paymentId})`,
+        detail:
+          `Refund ${D(r.amountCents)} to the original card (payment ${r.paymentId})` +
+          (r.partial ? ` — Game Zone card purchase stays with the guest` : ""),
         amountCents: r.amountCents,
       });
     }
