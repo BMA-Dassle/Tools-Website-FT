@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { fallbackMessage } from "../i18n/messages";
 import {
   BILLBOARD_CYCLE_MS,
   BILLBOARD_SLIDES,
@@ -66,8 +67,18 @@ describe("billboardPhase", () => {
 
 describe("BILLBOARD_SLIDES", () => {
   it("Naples never advertises racing", () => {
+    // Check the RESOLVED English copy, not the key — every key contains
+    // "attract", which contains "rac".
     for (const slide of BILLBOARD_SLIDES.HPN) {
-      expect(slide.word.toLowerCase()).not.toContain("rac");
+      expect(fallbackMessage(slide.word).toLowerCase()).not.toContain("rac");
+    }
+  });
+
+  it("every slide's word key resolves in the catalog", () => {
+    for (const slides of Object.values(BILLBOARD_SLIDES)) {
+      for (const s of slides) {
+        expect(fallbackMessage(s.word)).toBeTruthy();
+      }
     }
   });
 
