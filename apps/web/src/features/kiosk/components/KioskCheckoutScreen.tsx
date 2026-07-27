@@ -22,6 +22,7 @@
 import type { Dispatch } from "react";
 import type { Action } from "~/features/booking/state/machine";
 import type { BookingSession } from "~/features/booking";
+import type { KioskPackSelection } from "~/features/booking/service/race-pack-kiosk";
 import {
   CartComboBanner,
   CartGameCardsBlock,
@@ -50,6 +51,7 @@ export function KioskCheckoutScreen({
   onRemoveGameCards,
   onAllActivities,
   onReviewAndPay,
+  onUpdateRacePacks,
 }: {
   session: BookingSession;
   dispatch: Dispatch<Action>;
@@ -62,6 +64,7 @@ export function KioskCheckoutScreen({
   onRemoveGameCards?: () => void;
   onAllActivities: () => void;
   onReviewAndPay: () => void;
+  onUpdateRacePacks?: (itemId: string, creditPacks: KioskPackSelection[] | undefined) => void;
 }) {
   const t = useT();
   const items = [...session.items].sort((a, b) => itemSortMs(a) - itemSortMs(b));
@@ -124,6 +127,7 @@ export function KioskCheckoutScreen({
                     onEdit={() => onEditItem(item.id)}
                     onRemove={() => onRemoveItem(item.id)}
                     onRemoveHeat={onRemoveHeat}
+                    onUpdateRacePacks={onUpdateRacePacks}
                   />
                 ))}
               </ul>

@@ -890,6 +890,21 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     openCart();
   };
 
+  /** The ACTIVE item already holds real vendor state (a booked BMI heat/slot
+   *  or a QAMF lane hold) — it's a live booking being revisited (e.g. the
+   *  cart's Edit button), NOT a discardable draft. The exit confirms below
+   *  must offer a KEEP path for it: before 2026-07-27 the only way from
+   *  mid-wizard to the cart was "Remove it & view cart", which released a
+   *  fully-booked race's heats on a guest who just wanted to see their cart
+   *  (manager report — the race-pack fix-up trap). */
+  const activeItemHasVendorHolds = (): boolean => {
+    if (!activeItem) return false;
+    if (activeItem.kind === "race") return activeItem.heats.some((h) => !!h.bmiLineId);
+    if (activeItem.kind === "attraction") return !!(activeItem as AttractionItem).bmiLineId;
+    if (activeItem.kind === "bowling") return !!(activeItem as BowlingItem).qamfReservationId;
+    return false; // kbf holds nothing until checkout
+  };
+
   /** Drop the unfinished draft (combo-aware — a combo leg takes the whole
    *  bundle; vendor releases run in the background, the reducer dispatches
    *  land first), and clear the package stamp so it can't re-seed the next
@@ -1091,6 +1106,13 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       !!session.gameCardPurchase?.cards.length &&
       !session.comboSpecialId &&
       session.items.length <= 1;
+    // A BOOKED item being revisited (heats/slot/lane already held with a
+    // vendor) is not a discardable draft: leaving keeps it — going to the cart
+    // must never cost the guest their reservation (manager report 2026-07-27:
+    // a guest returning to add race packs was offered only "Remove it & view
+    // cart", which released their booked race). Removal stays available, but
+    // demoted and named for what it does.
+    const booked = !isReset && activeItemHasVendorHolds();
     return (
       <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
         <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
@@ -1102,24 +1124,46 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
                 : "Back to the main page?"}
           </div>
           <div className="k-display text-[46px] leading-[1.05]">
-            {isReset ? "This clears your whole visit" : `Your ${draftLabel} isn't finished`}
+            {isReset
+              ? "This clears your whole visit"
+              : booked
+                ? `Your ${draftLabel} is booked — it stays in your cart`
+                : `Your ${draftLabel} isn't finished`}
           </div>
           <p className="text-[26px] leading-snug text-white/60">
             {isReset
               ? "We'll clear everyone's names, empty your cart, release any held times, and sign you out of this kiosk."
-              : `We'll remove the unfinished ${draftLabel} from your cart${dropsCards ? " (and the Game Zone cards riding with it)" : ""}. Everything else in your cart stays, and your group stays signed in.`}
+              : booked
+                ? `Your reserved times stay held and everything you've set up is kept — open the ${draftLabel} from the cart any time before you pay.${dropsCards ? " (Removing it instead would also remove the Game Zone cards riding with it.)" : ""}`
+                : `We'll remove the unfinished ${draftLabel} from your cart${dropsCards ? " (and the Game Zone cards riding with it)" : ""}. Everything else in your cart stays, and your group stays signed in.`}
           </p>
           <div className="flex flex-col gap-[16px] pt-[4px]">
             {/* Inline flex per the .kiosk-canvas cascade gotcha (see the
                 unracered sheet): k-btn-primary's flex:1 squashes its height in
                 a column layout. */}
+            {booked && (
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmExit(null);
+                  if (confirmExit === "cart") openCart();
+                  else goHome();
+                }}
+                className="k-btn-primary k-tap"
+                style={{ flex: "0 0 auto" }}
+              >
+                {confirmExit === "cart"
+                  ? `Keep my ${draftLabel} & view cart`
+                  : `Keep my ${draftLabel} & go to main page`}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setConfirmExit(null)}
-              className="k-btn-primary k-tap"
+              className={booked ? "k-btn-ghost k-tap" : "k-btn-primary k-tap"}
               style={{ flex: "0 0 auto" }}
             >
-              {isReset ? "Keep my visit" : "Keep working on it"}
+              {isReset ? "Keep my visit" : booked ? "Stay here" : "Keep working on it"}
             </button>
             <button
               type="button"
@@ -1140,13 +1184,19 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
                 }
               }}
               className="k-btn-ghost k-tap"
-              style={{ flex: "0 0 auto" }}
+              style={
+                booked
+                  ? { flex: "0 0 auto", color: "#fca5a5", borderColor: "rgba(248,113,113,0.45)" }
+                  : { flex: "0 0 auto" }
+              }
             >
               {isReset
                 ? "Yes — start over"
-                : confirmExit === "cart"
-                  ? "Remove it & view cart"
-                  : "Remove it & go to main page"}
+                : booked
+                  ? `Cancel my ${draftLabel} & remove it from the cart`
+                  : confirmExit === "cart"
+                    ? "Remove it & view cart"
+                    : "Remove it & go to main page"}
             </button>
           </div>
         </div>
@@ -1343,6 +1393,9 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
               ? () => dispatch({ type: "setGameCardPurchase", purchase: null })
               : undefined
           }
+          onUpdateRacePacks={(id, creditPacks) =>
+            dispatch({ type: "updateItem", id, patch: { creditPacks } as Partial<SessionItem> })
+          }
           onReviewAndPay={() => {
             // Upsell page (owner 2026-07-21): between Review & Pay and the pay
             // screen — BOWLING carts only for now (owner: "they need bowling
@@ -1428,6 +1481,9 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
             session.gameCardPurchase
               ? () => dispatch({ type: "setGameCardPurchase", purchase: null })
               : undefined
+          }
+          onUpdateRacePacks={(id, creditPacks) =>
+            dispatch({ type: "updateItem", id, patch: { creditPacks } as Partial<SessionItem> })
           }
         />
       </div>,

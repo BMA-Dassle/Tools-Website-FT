@@ -89,6 +89,25 @@ export interface KioskPackSelection {
   memberId: string;
 }
 
+/**
+ * Apply a multi-select pack pick: everyone in `memberIds` gets `slug` (replacing
+ * any other pack they held — one pack per racer), and anyone who previously held
+ * `slug` but is NOT in `memberIds` loses it (the picker seeds its checkboxes
+ * with the current holders, so an uncheck is an explicit removal). Members not
+ * involved keep their other-slug packs untouched. Returns undefined when the
+ * result is empty (the session stores no `creditPacks` key rather than `[]`).
+ */
+export function applyPackSelection(
+  picks: KioskPackSelection[],
+  slug: string,
+  memberIds: string[],
+): KioskPackSelection[] | undefined {
+  const ids = new Set(memberIds);
+  const next = picks.filter((p) => p.slug !== slug && !ids.has(p.memberId));
+  for (const memberId of memberIds) next.push({ slug, memberId });
+  return next.length > 0 ? next : undefined;
+}
+
 /** Server-resolved pack purchase line (per pack, per person). */
 export interface ResolvedKioskPack {
   slug: string;

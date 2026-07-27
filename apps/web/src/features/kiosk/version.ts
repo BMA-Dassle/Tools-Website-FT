@@ -15,6 +15,18 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.9.0 — race packs sell to the whole group + are cart-editable (manager
+ *         report 7/27: a 4-person party got a pack on only ONE racer, then got
+ *         trapped re-entering the wizard to fix it). (1) The "who's this pack
+ *         for?" prompt is a MULTI-SELECT — checkbox chips + Everyone + one
+ *         "Add N packs · $X" apply (was one name per tap). (2) The cart's race
+ *         card grows a "Race packs" block: assigned packs listed by name with
+ *         remove ×, "+ Add race pack" opens the same picker right in the cart
+ *         — no wizard re-entry; cart Est. total now includes pack lines and
+ *         their covered-today discount (mirrors the pay screen's math).
+ *         (3) Mid-wizard cart/main-menu exits on a BOOKED item (heats held)
+ *         now lead with "Keep my race & view cart" — before, the only path to
+ *         the cart was "Remove it & view cart", which released the booking.
  * 1.8.2 — RECOVERY for the 1.8.0 outage. (1) Config-envelope stamp reverted to 2
  *         and readStorage made VERSION-AGNOSTIC: it reads the stored config
  *         whatever the version (2, 3, anything), backfills new fields via
@@ -127,7 +139,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.8.2";
+export const KIOSK_VERSION = "1.9.0";
 
 let bootVersion: string | null = null;
 let captured = false;
