@@ -29,6 +29,7 @@ import {
   type KioskConfig,
   type KioskVariant,
 } from "../config";
+import { watchCameraPermission, type CameraPermission } from "../camera";
 import { KioskAdminCardReader } from "./KioskAdminCardReader";
 import { KioskAdminMsr } from "./KioskAdminMsr";
 import { KioskAdminQrScanner } from "./KioskAdminQrScanner";
@@ -763,6 +764,12 @@ function CameraPickers({
   const previewRef = useRef<HTMLVideoElement>(null);
   const [previewOn, setPreviewOn] = useState(false);
 
+  // Live permission state — updates the moment staff clicks Allow/Block in
+  // Edge's dialog. Anything but "granted" means the guest waiver photo
+  // auto-skips (guests are never shown the browser prompt), so surface it.
+  const [perm, setPerm] = useState<CameraPermission>("unknown");
+  useEffect(() => watchCameraPermission(setPerm), []);
+
   /**
    * Fire the browser's permission POPUP directly (owner 2026-07-18: a button
    * that makes Edge prompt Allow) and PROVE the camera with a 5s live preview.
@@ -904,6 +911,25 @@ function CameraPickers({
           </button>
         </div>
       </div>
+      {/* Permission at a glance — not-granted is exactly why kiosks silently
+          skip guest photos, so make it impossible to miss. */}
+      <p
+        className={`text-xs font-semibold ${
+          perm === "granted"
+            ? "text-[#46d68c]"
+            : perm === "unknown"
+              ? "text-white/45"
+              : "text-amber-300"
+        }`}
+      >
+        {perm === "granted"
+          ? "Camera permission: granted — guest photo capture is live."
+          : perm === "denied"
+            ? "Camera permission: BLOCKED — guest photos auto-skip. Unblock via the camera icon in the address bar (or edge://settings/content/camera), then tap “Prompt for permissions”."
+            : perm === "prompt"
+              ? "Camera permission: not granted yet — guest photos auto-skip. Tap “Prompt for permissions” and click Allow."
+              : "Camera permission: unknown (browser won't report it — use “Prompt for permissions” to test)."}
+      </p>
       {detectMsg && <p className="text-xs text-white/45">{detectMsg}</p>}
       {previewOn && (
         // Live 5-second proof the grant + camera actually work.
@@ -925,7 +951,9 @@ function CameraPickers({
       )}
       <p className="text-xs text-white/40">
         Photo is required for adults and optional for minors at waiver signing. No camera set →
-        capture is skipped and the front desk takes the photo at check-in.
+        capture is skipped and the front desk takes the photo at check-in. A camera that&apos;s
+        blocked, unplugged, or dead auto-skips the same way — guests are never shown the
+        browser&apos;s permission prompt.
       </p>
     </div>
   );

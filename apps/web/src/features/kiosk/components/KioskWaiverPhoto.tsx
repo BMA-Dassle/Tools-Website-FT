@@ -10,13 +10,25 @@
  * is a PNG kept under Pandora's 1MB cap by stepping the capture size down
  * until it fits. The parent uploads (persist-first route) — capture never
  * blocks the waiver on network.
+ *
+ * Broken-camera auto-skip (owner 2026-07-26): a camera that can't deliver a
+ * picture must never strand a guest. Three failure modes are detected —
+ * permission not granted (Edge would pop its own Allow dialog, which a guest
+ * must never see; staff grants it once in admin), getUserMedia rejecting
+ * (unplugged / held by another app), and a stream that "opens" but never
+ * produces frames (dead sensor). All three show a short notice, then advance
+ * via onSkip (the photo-at-check-in marker) automatically.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { clarityEvent, clarityTag } from "~/lib/clarity";
+import { cameraPermissionState } from "../camera";
 import { useKioskConfig } from "../KioskConfigContext";
 import { useT } from "../i18n";
 
 const SIZE_STEPS = [720, 560, 448, 360]; // capture widths tried until PNG ≤ cap
 const MAX_PNG_BYTES = 950_000; // margin under Pandora's 1MB
+const AUTO_SKIP_NOTICE_MS = 3000; // long enough to read "we'll photograph you at check-in"
+const NO_FRAMES_TIMEOUT_MS = 5000; // stream open but 0×0 video after this = dead camera
 
 export function KioskWaiverPhoto({
   memberName,
@@ -44,16 +56,51 @@ export function KioskWaiverPhoto({
     isMinor ? (lower ?? upper) : (upper ?? lower),
   );
   const [camError, setCamError] = useState<string | null>(null);
+  const [shotError, setShotError] = useState<string | null>(null); // snap failed — retryable
   const [countdown, setCountdown] = useState<number | null>(null);
   const [shot, setShot] = useState<string | null>(null); // data URL preview
+
+  // Camera proven broken → short notice, then advance without the photo. Fire
+  // once per mount; onSkip rides in a ref so parents' inline closures don't
+  // churn the open effect.
+  const [autoSkipping, setAutoSkipping] = useState(false);
+  const autoSkipFiredRef = useRef(false);
+  const onSkipRef = useRef(onSkip);
+  useEffect(() => {
+    onSkipRef.current = onSkip;
+  });
+  const beginAutoSkip = useCallback((reason: string) => {
+    if (autoSkipFiredRef.current) return;
+    autoSkipFiredRef.current = true;
+    // Breadcrumb for ops: which kiosks are quietly skipping guest photos.
+    clarityTag("kiosk_photo_autoskip", reason);
+    clarityEvent("kiosk:waiver:photo:autoskip");
+    setAutoSkipping(true);
+  }, []);
+  useEffect(() => {
+    if (!autoSkipping) return;
+    const timer = setTimeout(() => onSkipRef.current(), AUTO_SKIP_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [autoSkipping]);
 
   // Open (and re-open on switch) the camera stream; always stop the old one.
   useEffect(() => {
     let cancelled = false;
+    let noFramesTimer: ReturnType<typeof setTimeout> | undefined;
     const open = async () => {
       setCamError(null);
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+      // Guests never see the browser's own Allow dialog: unless permission is
+      // already granted (staff does that once in admin), skip the photo. On
+      // "unknown" (no Permissions API) fall through and let getUserMedia try.
+      const perm = await cameraPermissionState();
+      if (cancelled) return;
+      if (perm === "prompt" || perm === "denied") {
+        setCamError(t("waiverPhoto.err.notSetUp"));
+        beginAutoSkip(`permission:${perm}`);
+        return;
+      }
       try {
         let stream: MediaStream;
         try {
@@ -74,6 +121,15 @@ export function KioskWaiverPhoto({
           videoRef.current.srcObject = stream;
           void videoRef.current.play().catch(() => {});
         }
+        // Dead-sensor watchdog: the stream "opened" but frames never arrive
+        // (videoWidth stays 0). Only fires while the <video> is mounted — a
+        // successful snap swaps it for an <img> and nulls the ref.
+        noFramesTimer = setTimeout(() => {
+          if (!cancelled && videoRef.current && videoRef.current.videoWidth === 0) {
+            setCamError(t("waiverPhoto.err.noFrames"));
+            beginAutoSkip("no-frames");
+          }
+        }, NO_FRAMES_TIMEOUT_MS);
       } catch (err) {
         if (!cancelled) {
           const name = err instanceof DOMException ? err.name : "";
@@ -86,16 +142,18 @@ export function KioskWaiverPhoto({
                   ? t("waiverPhoto.err.unavailableMsg", { msg: err.message })
                   : t("waiverPhoto.err.unavailable"),
           );
+          beginAutoSkip(name || "getusermedia-error");
         }
       }
     };
     void open();
     return () => {
       cancelled = true;
+      clearTimeout(noFramesTimer);
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     };
-  }, [activeCam, t]);
+  }, [activeCam, t, beginAutoSkip]);
 
   /** Snap the current frame to a PNG data URL that fits the size cap. */
   const snap = useCallback((): string | null => {
@@ -122,13 +180,14 @@ export function KioskWaiverPhoto({
 
   const startCountdown = () => {
     if (countdown != null) return;
+    setShotError(null);
     setCountdown(3);
     const tick = (n: number) => {
       if (n === 0) {
         setCountdown(null);
         const dataUrl = snap();
         if (dataUrl) setShot(dataUrl);
-        else setCamError(t("waiverPhoto.err.snapFail"));
+        else setShotError(t("waiverPhoto.err.snapFail"));
         return;
       }
       setTimeout(() => {
@@ -144,6 +203,22 @@ export function KioskWaiverPhoto({
     const base64 = shot.slice(shot.indexOf(",") + 1);
     onCaptured(base64);
   };
+
+  // Broken camera → full-screen notice, then onSkip fires on its own. No
+  // buttons: there's nothing a guest can do about kiosk hardware.
+  if (autoSkipping) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-[900px] flex-col justify-center text-center">
+        <div className="k-display text-[52px]">{t("waiverPhoto.broken.title")}</div>
+        <p className="mt-[16px] text-[28px] text-white/70">
+          {isMinor
+            ? t("waiverPhoto.broken.minor", { name: memberName })
+            : t("waiverPhoto.broken.adult")}
+        </p>
+        {camError && <p className="mt-[12px] text-[20px] text-white/35">{camError}</p>}
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-[900px]">
@@ -176,9 +251,9 @@ export function KioskWaiverPhoto({
         )}
       </div>
 
-      {camError && (
+      {(camError || shotError) && (
         <div className="mt-[16px] rounded-2xl border border-amber-400/40 bg-amber-400/10 px-[24px] py-[16px] text-[24px] text-amber-100">
-          {camError}
+          {camError ?? shotError}
         </div>
       )}
 
