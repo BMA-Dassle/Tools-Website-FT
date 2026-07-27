@@ -34,9 +34,13 @@ import { VIP_CORE_PERKS } from "../../bowling/VipUpgradeModal";
 import type { AvailabilitySlot } from "./availability-client";
 
 // Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
-// seems negative"); FastTrax red stays on racing only. VIP keeps gold.
+// seems negative"); FastTrax red stays on racing only.
 const BLUE = "#00E2E5";
-const GOLD = "#FFD700";
+// VIP accent ON THIS STEP: premium violet, not the site-wide gold — owner
+// 2026-07-26 ("I don't like the yellow on VIP"). Matches the NeoVerse suite's
+// purple glow in the VIP video. Other surfaces (upsell modal, checkout) still
+// use gold; revisit globally if this look wins.
+const VIP_VIOLET = "#A78BFA";
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 
 // ── Tier switcher (owner mockup 2026-07-26) ─────────────────────────────────
@@ -193,12 +197,16 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     ...(regular.length > 0 ? (["classic"] as const) : []),
     ...(showPinboyz ? (["pinboyz"] as const) : []),
   ];
+  // VIP is the DEFAULT tab (owner 2026-07-26); a guest's explicit prior pick
+  // of a Classic package still brings them back to the Classic tab.
   const fallbackTab: TierTab | null =
-    item.tier === "vip" && vip.length > 0
-      ? "vip"
-      : regular.length > 0
-        ? "classic"
-        : (tierTabs[0] ?? null);
+    item.tier === "regular" && regular.length > 0
+      ? "classic"
+      : vip.length > 0
+        ? "vip"
+        : regular.length > 0
+          ? "classic"
+          : (tierTabs[0] ?? null);
   const tierTab: TierTab | null =
     tierTabPick && tierTabs.includes(tierTabPick) ? tierTabPick : fallbackTab;
 
@@ -280,7 +288,7 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
 
   function renderCard(exp: BowlingExperienceWithDetails) {
     const isVip = exp.isVip;
-    const accent = isVip ? GOLD : BLUE;
+    const accent = isVip ? VIP_VIOLET : BLUE;
     const primaryItem = exp.items.find((i) => i.sortOrder === 0);
     const priceCents = primaryItem?.priceCents ?? 0;
     const perLane = isPerLaneExperience(exp);
@@ -364,7 +372,7 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   ) => (
     <div
       className={`relative overflow-hidden rounded-2xl border border-white/10 ${
-        kiosk ? "h-[160px]" : "h-24 sm:h-28"
+        kiosk ? "h-[300px]" : "h-40 sm:h-48"
       }`}
     >
       {media.videoUrl ? (
@@ -463,7 +471,7 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
             className={`flex shrink-0 items-center justify-center rounded-full ${
               kiosk ? "h-[26px] w-[26px]" : "h-4 w-4"
             }`}
-            style={{ backgroundColor: `${GOLD}25`, color: GOLD }}
+            style={{ backgroundColor: `${VIP_VIOLET}25`, color: VIP_VIOLET }}
           >
             <IconCheck size={kiosk ? 18 : 11} stroke={3} aria-hidden />
           </span>
@@ -500,19 +508,12 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   );
 
   return (
-    <div className={`mx-auto space-y-8 ${kiosk ? "max-w-none" : "max-w-2xl"}`}>
-      <div className="text-center">
-        <h2
-          className={`font-display uppercase tracking-widest text-white ${
-            kiosk ? "text-[40px]" : "text-2xl"
-          }`}
-        >
-          Choose Your Experience
-        </h2>
-        <p className={`mt-1 text-white/40 ${kiosk ? "text-[24px]" : "text-sm"}`}>
-          Pick a package — you&apos;ll choose from real open lane times next
-        </p>
-      </div>
+    <div className={`mx-auto ${kiosk ? "max-w-none space-y-5" : "max-w-2xl space-y-5"}`}>
+      {/* No step title here — the flow shell already says EXPERIENCE (owner
+          2026-07-26: it read as "Experience twice" and ate banner space). */}
+      <p className={`text-center text-white/40 ${kiosk ? "text-[24px]" : "text-sm"}`}>
+        Pick a package — you&apos;ll choose from real open lane times next
+      </p>
 
       {experiences.length === 0 ? (
         <p className="py-8 text-center text-sm text-white/40">
@@ -534,7 +535,7 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
             >
               {tierTabs.map((tab) =>
                 tab === "vip"
-                  ? tierTabBtn("vip", "VIP", fromLabel(vip), GOLD)
+                  ? tierTabBtn("vip", "VIP", fromLabel(vip), VIP_VIOLET)
                   : tab === "classic"
                     ? tierTabBtn("classic", "Classic", fromLabel(regular), BLUE)
                     : tierTabBtn("pinboyz", "PinBoyz", "coming soon", PINBOYZ_BLUE),
@@ -544,7 +545,7 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
 
           {tierTab === "vip" && vip.length > 0 && (
             <section className="space-y-4">
-              {sectionBanner("VIP Suites", "The upgraded way to bowl", GOLD, {
+              {sectionBanner("VIP Suites", "The upgraded way to bowl", VIP_VIOLET, {
                 videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
               })}
               {vipPerks}
