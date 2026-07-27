@@ -195,6 +195,36 @@ export function kioskPovCodesEnabled(): boolean {
 }
 
 /**
+ * Attract-screen bank BILLBOARD (owner pick 2026-07-26) — HeadPinz kiosks
+ * only: every screen in the physical bank takes one activity (photo + neon
+ * word) lighting up down the row, then the whole bank lands "All right
+ * here." together. Clock-locked to the shared kiosk wall clock; per-venue
+ * physical order lives in attract/billboard.ts.
+ *
+ * Rollout (owner 2026-07-26): **ON by default at BOTH HeadPinz venues**
+ * (Fort Myers and Naples). Kill switch: set the literal "false" in Vercel +
+ * redeploy to turn it off everywhere. FastTrax never shows it (its picked
+ * events are the drive-by + relay wave, later PR). NEXT_PUBLIC_* values are
+ * build-baked. Read at call time so tests can stub process.env.
+ */
+export function kioskBillboardEnabled(venue: "FT" | "HPFM" | "HPN"): boolean {
+  if (process.env.NEXT_PUBLIC_KIOSK_BILLBOARD === "false") return false;
+  return venue !== "FT";
+}
+
+/**
+ * Rotating attract welcome line — "Let's play." / "Let's bowl." / "Let's
+ * party." (HeadPinz) and play/race/bowl (FastTrax), clock-synced 4s fade
+ * cycle (owner 2026-07-26: "we need to rotate lets play, lets bowl etc").
+ * Kill switch, defaults ON — set the literal "false" in Vercel + redeploy to
+ * pin the static "Let's play." Read at call time so tests can stub
+ * process.env.
+ */
+export function kioskWelcomeRotateEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_WELCOME_ROTATE !== "false";
+}
+
+/**
  * Kiosk "Next available" EXPERIENCES fan-out — kill switch, defaults ON,
  * server-side only (the cached availability compute is the sole consumer, so no
  * NEXT_PUBLIC prefix / no rebuild needed — flip in Vercel + it takes effect on

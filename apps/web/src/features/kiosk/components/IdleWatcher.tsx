@@ -25,6 +25,15 @@ export function IdleWatcher({
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const warningRef = useRef(false);
   warningRef.current = warning;
+  // Read onReset through a ref so the countdown effect depends ONLY on
+  // `warning`. Screens that poll while idle (the people-step mobile-join QR
+  // polls every ~2s) re-render their parent and hand down a NEW onReset
+  // closure each time; with onReset in the effect deps that re-render tore
+  // the interval down and reset the countdown to 20 — kiosks sat in a
+  // 20→18→20 loop forever and never released their held times
+  // (owner report 2026-07-26).
+  const onResetRef = useRef(onReset);
+  onResetRef.current = onReset;
 
   const armIdleTimer = useCallback(() => {
     if (idleTimer.current) clearTimeout(idleTimer.current);
@@ -52,7 +61,7 @@ export function IdleWatcher({
     };
   }, [paused, armIdleTimer]);
 
-  // Warning countdown.
+  // Warning countdown. Deps are [warning] ONLY — see onResetRef above.
   useEffect(() => {
     if (!warning) return;
     setSecondsLeft(WARNING_SECONDS);
@@ -61,14 +70,14 @@ export function IdleWatcher({
         if (s <= 1) {
           clearInterval(iv);
           setWarning(false);
-          onReset();
+          onResetRef.current();
           return 0;
         }
         return s - 1;
       });
     }, 1000);
     return () => clearInterval(iv);
-  }, [warning, onReset]);
+  }, [warning]);
 
   if (!warning) return null;
 
@@ -112,7 +121,15 @@ export function IdleWatcher({
         </p>
         <button
           type="button"
-          onClick={() => setWarning(false)}
+          onClick={() => {
+            // Re-arm explicitly: the dismissing tap's own pointerdown was
+            // swallowed by the warning guard above, so without this the idle
+            // timer stayed DISARMED after "I'm still here" — a guest who
+            // dismissed and walked away kept the session (and its holds)
+            // alive forever.
+            setWarning(false);
+            armIdleTimer();
+          }}
           className="font-heading h-16 w-full rounded-full bg-[#00e2e5] text-xl font-extrabold uppercase italic tracking-wide text-[#04252b]"
         >
           I&rsquo;m still here

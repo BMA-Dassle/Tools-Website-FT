@@ -12,7 +12,7 @@
  * the stored device config and persist. A kiosk with no config shows the
  * one-time setup card instead of the attract loop.
  */
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { IconFlag, IconSignature, IconUserCheck } from "@tabler/icons-react";
 import {
@@ -23,7 +23,15 @@ import {
   venueSlug,
   type KioskConfig,
 } from "../config";
-import { kioskGroupWaiverEnabled, kioskCheckinEnabled, kioskRaceInfoEnabled } from "../flags";
+import {
+  kioskGroupWaiverEnabled,
+  kioskCheckinEnabled,
+  kioskRaceInfoEnabled,
+  kioskBillboardEnabled,
+  kioskWelcomeRotateEnabled,
+} from "../flags";
+import { bankPosition } from "../attract/billboard";
+import { AttractBillboard } from "./AttractBillboard";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { useKioskConfig } from "../KioskConfigContext";
 import { useT, LanguageSwitcher } from "../i18n";
@@ -208,9 +216,15 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   // Modulo again: adIndex may have been computed against the other center's
   // slide count for one render right after the config resolves.
   const ad = adSlides[adIndex % adSlides.length];
-  // Car (and the banner-text rumble it causes) is STAGGERED per kioskNumber so
-  // the bank hands the crossing off screen-to-screen — see the car's comment.
-  const carPhaseMs = (((config.kioskNumber ?? 1) - 1) % 4) * 2000;
+  // Car / ball (and the banner-text rumble they cause) are STAGGERED by
+  // PHYSICAL bank position — not kioskNumber math — so the handoff travels
+  // down the actual row. FT is banked in number order (identity), but HPFM
+  // runs 3·2·6·1·4 and Naples 10·9·7·8 (owner 2026-07-26); see
+  // attract/billboard.ts. A kiosk missing from the map still gets a stable
+  // number-derived phase for its own banner crossing (the crossing is
+  // per-screen scenery, unlike the bank-wide billboard, which excludes it).
+  const bankPos = bankPosition(venueSlug(config), config.kioskNumber ?? 1);
+  const carPhaseMs = ((bankPos ?? (config.kioskNumber ?? 1) - 1) % 4) * 2000;
   const start = (goto?: string) => {
     // Kiosk funnel top: a guest engaged the attract screen. The entry tag says
     // which chip (or "all" for a plain touch) so conversions trace to it.
@@ -302,10 +316,9 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           {/* FastTrax: the text rattles while the car drives over it — same 8s
               cycle AND the same per-kiosk stagger as the car, so the rumble
               tracks this kiosk's own crossing, not the bank's. */}
-          <div
-            className={`k-display text-[42px]${config.brand === "fasttrax" ? " kiosk-ad-rumble" : ""}`}
-            data-glow-phase-ms={carPhaseMs}
-          >
+          {/* Both brands now run a banner crossing (FT car / HP ball), so the
+              rumble tracks this kiosk's own crossing on either brand. */}
+          <div className="k-display kiosk-ad-rumble text-[42px]" data-glow-phase-ms={carPhaseMs}>
             {t("attract.touchAnywhere")} <span style={{ color: ad.accent }}>{ad.bannerAction}</span>
           </div>
           <BannerDot accent={ad.accent} />
@@ -328,6 +341,18 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
             className="kiosk-racecar pointer-events-none absolute bottom-[8px] left-full h-[90px] w-auto max-w-none"
           />
         )}
+        {/* HeadPinz: the bowling ball rolls the banner — the brand's mirror of
+            the FastTrax car (owner 2026-07-26). Outer span translates on the
+            shared clock with the same per-kiosk stagger; inner sprite spins. */}
+        {config.brand === "headpinz" && (
+          <span
+            aria-hidden="true"
+            data-glow-phase-ms={carPhaseMs}
+            className="kiosk-bowlball pointer-events-none absolute bottom-[8px] left-full"
+          >
+            <span className="kiosk-bowlball-sprite" />
+          </span>
+        )}
       </button>
 
       {/* Welcome zone */}
@@ -343,9 +368,7 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           className="h-[220px] w-auto object-contain [filter:drop-shadow(0_0_34px_rgba(0,226,229,0.35))]"
           fallbackClassName="k-display text-[120px] leading-none text-white [filter:drop-shadow(0_0_34px_rgba(0,226,229,0.35))]"
         />
-        <div className="k-display bg-gradient-to-r from-[#f5ecee] from-55% to-[#00e2e5] bg-clip-text text-[150px] text-transparent">
-          {t("attract.letsPlay")}
-        </div>
+        <RotatingWelcome brand={config.brand} offset={offset} />
         <div className="max-w-[24ch] text-[34px] text-white/60">
           {config.center === "naples"
             ? t("attract.subtitle.bowling")
@@ -469,7 +492,86 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
         </span>
       </div>
 
+      {/* Bank billboard takeover — HeadPinz, clock-locked, defaults ON at
+          HPFM (owner 2026-07-26). pointer-events-none: taps fall through to
+          the welcome zone and start a session normally. Rendered BEFORE the
+          bottom strip so the brand gradient stays visible during the show. */}
+      {config.brand === "headpinz" && kioskBillboardEnabled(venueSlug(config)) && (
+        <AttractBillboard
+          venue={venueSlug(config)}
+          kioskNumber={config.kioskNumber ?? 1}
+          offset={offset}
+        />
+      )}
+
       <div className="absolute bottom-0 left-0 right-0 z-20 h-[10px] bg-gradient-to-r from-[#e53935] via-white/60 to-[#00e2e5]" />
+    </div>
+  );
+}
+
+const WELCOME_PERIOD_MS = 4000;
+const WELCOME_FADE_MS = 450;
+
+/**
+ * Rotating welcome line — "Let's play." / "Let's bowl." / "Let's party."
+ * (HeadPinz) and play/race/bowl (FastTrax), owner 2026-07-26. The index is
+ * derived from the SHARED wall clock (like the ad rotation), so the whole
+ * bank swaps words together; each swap fades out/in over 450ms. Kill switch
+ * pins the static "Let's play."
+ */
+function RotatingWelcome({ brand, offset }: { brand: KioskConfig["brand"]; offset: number }) {
+  const rotate = kioskWelcomeRotateEnabled();
+  const t = useT();
+  // t is useCallback'd on the locale, so a language switch re-derives the
+  // list (and re-schedules the timers) without churning every render.
+  const phrases = useMemo(
+    () =>
+      brand === "headpinz"
+        ? [t("attract.letsPlay"), t("attract.letsBowl"), t("attract.letsParty")]
+        : [t("attract.letsPlay"), t("attract.letsRace"), t("attract.letsBowl")],
+    [brand, t],
+  );
+  // Clock-aligned from the very first paint (lazy initializer, not an
+  // effect) — mount-time offset is the cached localStorage sync, which is
+  // plenty for a 4s cycle; ticks below re-derive from the live offset.
+  const [idx, setIdx] = useState(() =>
+    typeof window === "undefined"
+      ? 0
+      : Math.floor((Date.now() + offset) / WELCOME_PERIOD_MS) % phrases.length,
+  );
+  const [shown, setShown] = useState(true);
+
+  useEffect(() => {
+    if (!rotate) return;
+    let fade: number | undefined;
+    let timer: number | undefined;
+    const scheduleNext = (nowMs: number) =>
+      // +25ms lands safely past the boundary despite setTimeout clamp/rounding
+      // (same trick as the ad-rotation tick above).
+      window.setTimeout(tick, WELCOME_PERIOD_MS - (nowMs % WELCOME_PERIOD_MS) + 25);
+    function tick() {
+      const now = Date.now() + offset;
+      const next = Math.floor(now / WELCOME_PERIOD_MS) % phrases.length;
+      setShown(false);
+      fade = window.setTimeout(() => {
+        setIdx(next);
+        setShown(true);
+      }, WELCOME_FADE_MS);
+      timer = scheduleNext(now);
+    }
+    timer = scheduleNext(Date.now() + offset);
+    return () => {
+      window.clearTimeout(fade);
+      window.clearTimeout(timer);
+    };
+  }, [offset, rotate, phrases]);
+
+  return (
+    <div
+      className="k-display bg-gradient-to-r from-[#f5ecee] from-55% to-[#00e2e5] bg-clip-text text-[150px] text-transparent transition-opacity duration-[450ms]"
+      style={{ opacity: shown ? 1 : 0 }}
+    >
+      {rotate ? phrases[idx] : t("attract.letsPlay")}
     </div>
   );
 }
