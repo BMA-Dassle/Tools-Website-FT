@@ -14,7 +14,7 @@
  * strict-mode rule).
  */
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { qamfCenterIdForCode } from "~/features/booking";
 import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
 import type {
@@ -38,6 +38,35 @@ import type { AvailabilitySlot } from "./availability-client";
 const BLUE = "#00E2E5";
 const GOLD = "#FFD700";
 const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
+
+// ── Tier switcher (owner mockup 2026-07-26) ─────────────────────────────────
+// The stacked Classic/VIP sections become a segmented tier switcher: one tier
+// on screen at a time, VIP → Classic → PinBoyz order (owner). Video stays on
+// the VIP banner ONLY — Classic and PinBoyz banners are photos.
+//
+// PINBOYZ IS PREVIEW-ONLY on this branch: Old Time Lanes ("PinBoyz") is coming
+// to HeadPinz Fort Myers but has no experiences rows or QAMF offers yet, so
+// its tab renders a non-bookable teaser tier. Before GA this needs the
+// lane-type enum migration (is_vip boolean → classic|pinboyz|vip) + real
+// catalog rows; then the teaser becomes a real tier list like the other two.
+const PINBOYZ_PREVIEW = true;
+// PinBoyz accent stays in the bowling blues (owner 2026-07-26: "I like our
+// blues" — copper/rust rejected): a deeper electric blue beside Classic cyan.
+const PINBOYZ_BLUE = "#5D8BFF";
+const PINBOYZ_CREAM = "#F3E7CF";
+// Vintage display face for the PinBoyz tier (owner: "needs to look more
+// classic") — everything else keeps the site's font-display.
+const PINBOYZ_SERIF = 'Georgia, "Times New Roman", serif';
+// public/images/ is gitignored (blob-hosted) — promo/ is the committed spot.
+const PINBOYZ_PHOTO = "/promo/pinboyz-old-time-lanes.webp";
+// Classic banner photo — same shot the kiosk uses, routed through the
+// same-origin image optimizer (raw blob URLs can hit the firewall JS
+// challenge; see lesson 2026-07-24).
+const CLASSIC_PHOTO = `/_next/image?url=${encodeURIComponent(
+  `${BLOB}/images/headpinz/gallery-bowling.webp`,
+)}&w=1200&q=75`;
+
+type TierTab = "vip" | "classic" | "pinboyz";
 
 type BowlingLikeItem = BowlingItem | KbfItem;
 
@@ -149,6 +178,39 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
 
   const regular = bookable.filter((e) => !e.isVip);
   const vip = bookable.filter((e) => e.isVip);
+
+  // ── Tier switcher state ────────────────────────────────────────────────
+  // The guest's explicit tab pick; null until they tap one. The EFFECTIVE tab
+  // is derived per render so a tab that vanishes (tier sells out mid-session)
+  // falls back gracefully — selection state changes only in click handlers
+  // (React 19 strict-mode rule), never in effects.
+  const [tierTabPick, setTierTabPick] = useState<TierTab | null>(null);
+  // PinBoyz teaser: HeadPinz lanes only — never on FastTrax duckpin or KBF.
+  const showPinboyz = PINBOYZ_PREVIEW && !isDuckpin && kind !== "kbf";
+  // Owner order 2026-07-26: VIP → Classic → PinBoyz.
+  const tierTabs: TierTab[] = [
+    ...(vip.length > 0 ? (["vip"] as const) : []),
+    ...(regular.length > 0 ? (["classic"] as const) : []),
+    ...(showPinboyz ? (["pinboyz"] as const) : []),
+  ];
+  const fallbackTab: TierTab | null =
+    item.tier === "vip" && vip.length > 0
+      ? "vip"
+      : regular.length > 0
+        ? "classic"
+        : (tierTabs[0] ?? null);
+  const tierTab: TierTab | null =
+    tierTabPick && tierTabs.includes(tierTabPick) ? tierTabPick : fallbackTab;
+
+  /** "from $60.00" for a tier's cheapest primary item, or null (KBF is free). */
+  const fromLabel = (exps: BowlingExperienceWithDetails[]): string | null => {
+    if (kind === "kbf") return null;
+    const prices = exps
+      .map((e) => e.items.find((i) => i.sortOrder === 0)?.priceCents ?? 0)
+      .filter((c) => c > 0);
+    if (!prices.length) return null;
+    return `from ${centsToDollars(Math.min(...prices))}`;
+  };
 
   function firstSlotFor(exp: BowlingExperienceWithDetails, optionId: number | null): string | null {
     const slots = slotsByOffer.get(exp.qamfWebOfferId) ?? [];
@@ -288,22 +350,42 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     );
   }
 
-  // One video banner per SECTION (owner 2026-07-19: the cards don't all need
+  // One media banner per SECTION (owner 2026-07-19: the cards don't all need
   // video — put it under the section instead), with the section title overlaid.
-  const sectionBanner = (label: string, meta: string, accent: string, videoUrl: string) => (
+  // Owner 2026-07-26: video is VIP-ONLY — Classic and PinBoyz banners are
+  // photos. PinBoyz gets the vintage serif title and NO color overlay on the
+  // photo beyond the standard legibility gradient (owner: no blue tint).
+  const sectionBanner = (
+    label: string,
+    meta: string,
+    accent: string,
+    media: { videoUrl?: string; imageUrl?: string },
+    vintage = false,
+  ) => (
     <div
       className={`relative overflow-hidden rounded-2xl border border-white/10 ${
         kiosk ? "h-[160px]" : "h-24 sm:h-28"
       }`}
     >
-      <video
-        src={videoUrl}
-        autoPlay
-        loop
-        muted
-        playsInline
-        className="h-full w-full object-cover opacity-60"
-      />
+      {media.videoUrl ? (
+        <video
+          src={media.videoUrl}
+          autoPlay
+          loop
+          muted
+          playsInline
+          className="h-full w-full object-cover opacity-60"
+        />
+      ) : (
+        // Decorative banner; sized by the container, optimizer URL pre-built.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={media.imageUrl}
+          alt=""
+          aria-hidden
+          className="h-full w-full object-cover opacity-80"
+        />
+      )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/85 to-transparent" />
       <div
         className={`absolute inset-x-0 bottom-0 flex items-baseline justify-between gap-3 ${
@@ -311,8 +393,16 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         }`}
       >
         <h3
-          className={`font-display uppercase tracking-widest ${kiosk ? "text-[32px]" : "text-lg"}`}
-          style={{ color: accent }}
+          className={
+            vintage
+              ? `font-bold uppercase ${kiosk ? "text-[30px]" : "text-lg"}`
+              : `font-display uppercase tracking-widest ${kiosk ? "text-[32px]" : "text-lg"}`
+          }
+          style={
+            vintage
+              ? { color: accent, fontFamily: PINBOYZ_SERIF, letterSpacing: "0.12em" }
+              : { color: accent }
+          }
         >
           {label}
         </h3>
@@ -320,6 +410,42 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       </div>
     </div>
   );
+
+  /** Segmented tier switcher — VIP → Classic → PinBoyz (owner order). */
+  const tierTabBtn = (tab: TierTab, label: string, sub: string | null, accent: string) => {
+    const active = tierTab === tab;
+    const vintage = tab === "pinboyz";
+    return (
+      <button
+        key={tab}
+        type="button"
+        aria-pressed={active}
+        onClick={() => setTierTabPick(tab)}
+        className={`flex-1 rounded-xl text-center transition-colors ${
+          kiosk ? "k-tap px-[10px] py-[16px]" : "px-2 py-2.5"
+        }`}
+        style={active ? { backgroundColor: accent, color: "#0a1628" } : undefined}
+      >
+        <span
+          className={`block font-bold uppercase ${
+            vintage ? "" : "font-display tracking-widest"
+          } ${kiosk ? "text-[26px]" : "text-sm"} ${active ? "" : "text-white/60"}`}
+          style={vintage ? { fontFamily: PINBOYZ_SERIF, letterSpacing: "0.1em" } : undefined}
+        >
+          {label}
+        </span>
+        {sub && (
+          <span
+            className={`block ${kiosk ? "text-[18px]" : "text-[10px]"} ${
+              active ? "opacity-70" : "text-white/35"
+            }`}
+          >
+            {sub}
+          </span>
+        )}
+      </button>
+    );
+  };
 
   // VIP explanation (owner 2026-07-19: "VIP needs some explanation") — the
   // suite's amenities, shared with the upsell modal so the story stays one.
@@ -338,6 +464,32 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
               kiosk ? "h-[26px] w-[26px]" : "h-4 w-4"
             }`}
             style={{ backgroundColor: `${GOLD}25`, color: GOLD }}
+          >
+            <IconCheck size={kiosk ? 18 : 11} stroke={3} aria-hidden />
+          </span>
+          {perk}
+        </span>
+      ))}
+    </div>
+  );
+
+  // PinBoyz teaser perks — placeholder copy until the owner defines the
+  // offering (preview branch only).
+  const pinboyzPerks = (
+    <div
+      className={`flex flex-wrap ${kiosk ? "gap-x-[28px] gap-y-[14px]" : "gap-x-5 gap-y-2"}`}
+      aria-label="PinBoyz lane features"
+    >
+      {["Restored vintage wood lanes", "Retro scoring", "Old-time alley atmosphere"].map((perk) => (
+        <span
+          key={perk}
+          className={`flex items-center gap-1.5 text-white/70 ${kiosk ? "text-[24px]" : "text-xs"}`}
+        >
+          <span
+            className={`flex shrink-0 items-center justify-center rounded-full ${
+              kiosk ? "h-[26px] w-[26px]" : "h-4 w-4"
+            }`}
+            style={{ backgroundColor: `${PINBOYZ_BLUE}25`, color: PINBOYZ_BLUE }}
           >
             <IconCheck size={kiosk ? 18 : 11} stroke={3} aria-hidden />
           </span>
@@ -374,27 +526,81 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         </p>
       ) : (
         <>
-          {regular.length > 0 && (
-            <section className="space-y-4">
-              {sectionBanner(
-                "Classic Lanes",
-                "Classic HeadPinz bowling",
-                BLUE,
-                `${BLOB}/videos/headpinz-bowling.mp4`,
+          {tierTabs.length > 1 && (
+            <div
+              className={`flex rounded-2xl bg-white/[0.05] ${kiosk ? "gap-[10px] p-[10px]" : "gap-1.5 p-1.5"}`}
+              role="group"
+              aria-label="Lane type"
+            >
+              {tierTabs.map((tab) =>
+                tab === "vip"
+                  ? tierTabBtn("vip", "VIP", fromLabel(vip), GOLD)
+                  : tab === "classic"
+                    ? tierTabBtn("classic", "Classic", fromLabel(regular), BLUE)
+                    : tierTabBtn("pinboyz", "PinBoyz", "coming soon", PINBOYZ_BLUE),
               )}
+            </div>
+          )}
+
+          {tierTab === "vip" && vip.length > 0 && (
+            <section className="space-y-4">
+              {sectionBanner("VIP Suites", "The upgraded way to bowl", GOLD, {
+                videoUrl: `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
+              })}
+              {vipPerks}
+              <div className="space-y-4">{vip.map(renderCard)}</div>
+            </section>
+          )}
+
+          {tierTab === "classic" && regular.length > 0 && (
+            <section className="space-y-4">
+              {sectionBanner("Classic Lanes", "Classic HeadPinz bowling", BLUE, {
+                imageUrl: CLASSIC_PHOTO,
+              })}
               <div className="space-y-4">{regular.map(renderCard)}</div>
             </section>
           )}
-          {vip.length > 0 && (
+
+          {tierTab === "pinboyz" && showPinboyz && (
             <section className="space-y-4">
               {sectionBanner(
-                "VIP Suites",
-                "The upgraded way to bowl",
-                GOLD,
-                `${BLOB}/videos/headpinz-neoverse-v2.mp4`,
+                "PinBoyz — Old Time Lanes",
+                "Bowling the way it started",
+                PINBOYZ_CREAM,
+                { imageUrl: PINBOYZ_PHOTO },
+                true,
               )}
-              {vipPerks}
-              <div className="space-y-4">{vip.map(renderCard)}</div>
+              {pinboyzPerks}
+              {/* Non-bookable teaser — no experiences/QAMF offers exist yet.
+                  The guest continues by picking a Classic or VIP package. */}
+              <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
+                <div className={kiosk ? "p-[24px]" : "p-4"}>
+                  <h3
+                    className={`font-bold uppercase ${kiosk ? "text-[34px]" : "text-lg"}`}
+                    style={{
+                      color: PINBOYZ_CREAM,
+                      fontFamily: PINBOYZ_SERIF,
+                      letterSpacing: "0.1em",
+                    }}
+                  >
+                    PinBoyz Lanes
+                  </h3>
+                  <p className={`mt-0.5 text-white/50 ${kiosk ? "text-[22px]" : "text-xs"}`}>
+                    Reserve an old-time lane by the hour — bowling the way it used to be.
+                  </p>
+                  <div className="mt-3 flex items-center justify-between gap-3">
+                    <span className={`font-bold text-white ${kiosk ? "text-[26px]" : "text-base"}`}>
+                      Pricing coming soon
+                    </span>
+                    <span
+                      className={`font-semibold ${kiosk ? "text-[22px]" : "text-[11px]"}`}
+                      style={{ color: PINBOYZ_BLUE }}
+                    >
+                      Opening soon · HeadPinz Fort Myers
+                    </span>
+                  </div>
+                </div>
+              </div>
             </section>
           )}
         </>
