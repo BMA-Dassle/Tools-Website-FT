@@ -19,6 +19,7 @@ import {
   guardRefundTotal,
   legLabel,
   tenderRefundsNeeded,
+  type TenderRefund,
 } from "./guards";
 import { fetchGiftCardFacts, fetchOrderFacts, fetchPaymentFacts } from "./square-actions";
 import {
@@ -90,7 +91,7 @@ export async function buildCancelPlan(req: CancelRequest): Promise<BuildPlanResu
     outcome = (anchor.cancellationOutcome as CancelOutcome | undefined) ?? "none";
   }
   let amountCents = 0;
-  let refundsNeeded: Array<{ paymentId: string; amountCents: number }> = [];
+  let refundsNeeded: TenderRefund[] = [];
   let existingStoreCredit: CancelPlan["existingStoreCredit"];
 
   if (moneyClass === "funded" && moneyLeg?.squareGiftCardId) {
