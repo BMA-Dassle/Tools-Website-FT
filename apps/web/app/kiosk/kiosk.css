@@ -85,6 +85,51 @@
   animation: kiosk-racecar 8s linear infinite;
 }
 
+/* HeadPinz attract ad zone: the bowling ball rolls right→left along the
+   banner once per ad slide — the brand's mirror of the FastTrax race car
+   (owner 2026-07-26). Same anchor (left:100%) and same 8s cycle, so the
+   existing kiosk-ad-rumble text rattle lines up with the crossing. The
+   OUTER element translates (clock-synced, per-kiosk stagger via
+   data-glow-phase-ms); the INNER sprite spins so the ball visibly rolls. */
+@keyframes kiosk-bowlball {
+  0%,
+  75% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-1500px);
+  }
+}
+.kiosk-bowlball {
+  /* KIOSK_GLOW_PERIODS_MS: 8000 — locked to the 8s ad rotation, like the car */
+  animation: kiosk-bowlball 8s linear infinite;
+}
+@keyframes kiosk-bowlball-spin {
+  from {
+    transform: rotate(0);
+  }
+  to {
+    /* rolling leftward = counterclockwise; free-running, not in the sync
+       table — rotation phase is invisible across kiosks */
+    transform: rotate(-1800deg);
+  }
+}
+.kiosk-bowlball-sprite {
+  display: block;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 40% 24%, #020409 5.5%, transparent 6.5%),
+    radial-gradient(circle at 53% 30%, #020409 5.5%, transparent 6.5%),
+    radial-gradient(circle at 43% 39%, #020409 5.5%, transparent 6.5%),
+    radial-gradient(circle at 34% 28%, #55628f, #171f42 58%, #05070f 90%);
+  box-shadow:
+    0 10px 18px rgba(0, 0, 0, 0.55),
+    inset -6px -8px 18px rgba(0, 0, 0, 0.6);
+  animation: kiosk-bowlball-spin 8s linear infinite;
+}
+
 /* Attract ad zone v2 "doors" (2026-07-21): neon "<X> STARTS HERE" headline +
    "TOUCH ANYWHERE …" marquee banner. All four effects are clock-synced across
    the kiosk bank (KIOSK_GLOW_PERIODS_MS entries required — see header rule). */

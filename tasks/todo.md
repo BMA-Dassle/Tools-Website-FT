@@ -1,5 +1,29 @@
 # Open Tasks
 
+## Kiosk attract motion — HeadPinz first (2026-07-26, branch `feat/kiosk-hp-attract`)
+
+Owner-picked scope after the demo artifacts (claude.ai/code/artifact/4fc7ccbb + 290a6377).
+People walk past the kiosks; current attract motion is below peripheral-vision threshold.
+FastTrax picks (drive-by + relay wave) come in a LATER PR — this one is HeadPinz + shared plumbing.
+
+- [ ] `attract/billboard.ts` — per-venue bank position map (FT 1–7 in order; **HPFM physical
+      order 3,2,6,1,4**; fallback = kioskNumber order), billboard slide sets per venue, pure
+      clock-phase state fn + unit tests
+- [ ] `AttractBillboard.tsx` — bank-billboard overlay: activities light up screen-by-screen in
+      physical order (real activity photos + accent neon word), finale "All right here." on every
+      screen with the base welcome dimmed (owner: no text-on-text bleed); pointer-events-none;
+      clock-locked via useKioskClock so the bank performs in unison; OPT-IN flag
+      `NEXT_PUBLIC_KIOSK_BILLBOARD` (default OFF)
+- [ ] Rotating welcome line — "Let's play." / "Let's bowl." / "Let's party." (HP) and
+      play/race/bowl (FT), clock-synced 4s fade cycle; kill switch
+      `NEXT_PUBLIC_KIOSK_WELCOME_ROTATE` (default ON)
+- [ ] HeadPinz banner **bowling ball** crossing the ad-zone strip — exact mirror of the FastTrax
+      race car (same 8s slot, per-kiosk stagger via the position map, text rumble), CSS sprite
+      ball; also switch the CAR's stagger to the position map (identity at FT, fixes HPFM order)
+- [ ] kiosk.css keyframes + matching KIOSK_GLOW_PERIODS_MS entries (same-commit rule in that file)
+- [ ] tsc + eslint (react-hooks) + `node scripts/a11y-gate.mjs` on touched files; commit ONLY the
+      attract files (tree carries unrelated in-flight fixes from other sessions — do not commit)
+
 ## Bowling reservation flow redesign (single time pick + offer-accurate availability) — BUILT 2026-07-19, DARK
 
 Full plan: [tasks/bowling-reservation-flow-plan.md](bowling-reservation-flow-plan.md). **Built on

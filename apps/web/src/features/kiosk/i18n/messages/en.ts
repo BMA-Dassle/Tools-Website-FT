@@ -16,6 +16,18 @@
 export const en = {
   // --- Attract screen (Phase 0 spike) ---
   "attract.letsPlay": "Let’s play.",
+  "attract.letsBowl": "Let’s bowl.",
+  "attract.letsRace": "Let’s race.",
+  "attract.letsParty": "Let’s party.",
+  // Bank billboard (AttractBillboard) — \n is a hard line break on the big
+  // neon word (rendered whitespace-pre-line).
+  "attract.billboard.bowling": "Bowling",
+  "attract.billboard.gel": "Gel\nblasters",
+  "attract.billboard.duckpin": "Duckpin",
+  "attract.billboard.laser": "Laser\ntag",
+  "attract.billboard.gameZone": "Game\nZone",
+  "attract.billboard.andMore": "…and\nmore",
+  "attract.billboard.allRightHere": "All right\nhere.",
   "attract.subtitle.racing":
     "Book racing, bowling & attractions right here — takes about a minute.",
   "attract.subtitle.bowling":
