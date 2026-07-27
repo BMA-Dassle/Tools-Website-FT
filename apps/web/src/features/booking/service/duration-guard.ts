@@ -101,7 +101,10 @@ export async function assertBookable(input: AssertBookableInput): Promise<void> 
 
   let sharing;
   try {
-    const all = await getBowlingExperiences(centerCode);
+    // Pinboyz seam: include the inactive pinboyz-* rows so holds on
+    // offer 176 validate — without this the guard fail-closes with
+    // "unknown web offer 176" even though availability listed the slot.
+    const all = await getBowlingExperiences(centerCode, undefined, true);
     sharing = all.filter((e) => e.qamfWebOfferId === input.webOfferId);
   } catch (err) {
     console.warn(`${tag} duration guard config fetch failed (fail-open):`, err);

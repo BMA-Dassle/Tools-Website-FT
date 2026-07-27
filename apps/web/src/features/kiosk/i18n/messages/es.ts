@@ -19,6 +19,16 @@ import type { CoreKey } from "./en";
 
 export const es: Record<CoreKey, string> = {
   "attract.letsPlay": "¡A jugar!",
+  "attract.letsBowl": "¡Al boliche!",
+  "attract.letsRace": "¡A las carreras!",
+  "attract.letsParty": "¡A festejar!",
+  "attract.billboard.bowling": "Boliche",
+  "attract.billboard.gel": "Gel\nblasters",
+  "attract.billboard.duckpin": "Duckpin",
+  "attract.billboard.laser": "Láser\ntag",
+  "attract.billboard.gameZone": "Game\nZone",
+  "attract.billboard.andMore": "…y\nmás",
+  "attract.billboard.allRightHere": "Todo\naquí.",
   "attract.subtitle.racing":
     "Reserva carreras, boliche y atracciones aquí mismo — toma como un minuto.",
   "attract.subtitle.bowling":

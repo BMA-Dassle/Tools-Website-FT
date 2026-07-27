@@ -1,5 +1,29 @@
 # Open Tasks
 
+## Kiosk attract motion — HeadPinz first (2026-07-26, branch `feat/kiosk-hp-attract`)
+
+Owner-picked scope after the demo artifacts (claude.ai/code/artifact/4fc7ccbb + 290a6377).
+People walk past the kiosks; current attract motion is below peripheral-vision threshold.
+FastTrax picks (drive-by + relay wave) come in a LATER PR — this one is HeadPinz + shared plumbing.
+
+**BUILT + PUSHED 2026-07-26** — commit `5d2916cb` on `feat/kiosk-hp-attract`; 9 unit tests green,
+eslint + a11y-gate clean, tsc clean on touched files (pre-existing errors in the OTHER sessions'
+uncommitted ReturningRacerLookup work were left alone).
+
+- [x] `attract/billboard.ts` — bank position maps (FT 1–7 in order; **HPFM 3,2,6,1,4**;
+      **Naples 10,9,7,8**), slide sets per venue, pure clock-phase fn + unit tests. Kiosks NOT in
+      the map sit out of the choreography (owner call — no number-order fallback)
+- [x] `AttractBillboard.tsx` — billboard overlay, navy veil so the finale never bleeds into the
+      rotating welcome text; pointer-events-none; **default ON at BOTH HeadPinz venues** (owner),
+      kill = `NEXT_PUBLIC_KIOSK_BILLBOARD=false`
+- [x] Rotating welcome line, clock-synced 4s fade; kill = `NEXT_PUBLIC_KIOSK_WELCOME_ROTATE=false`
+- [x] HeadPinz banner bowling ball (CSS sprite, same 8s slot + stagger as the FT car); rumble on
+      both brands; car stagger moved to the position map (fixes HPFM handoff order)
+- [x] kiosk.css keyframes + KIOSK_GLOW_PERIODS_MS same-commit
+- [ ] **Owner: live smoke on a real HeadPinz kiosk bank** (billboard sync across screens, ball
+      crossing, welcome rotation, tap-through during the takeover) — then PR review + merge
+- [ ] Later PR: FastTrax full-screen drive-by + bank relay wave (picked; not started)
+
 ## Bowling reservation flow redesign (single time pick + offer-accurate availability) — BUILT 2026-07-19, DARK
 
 Full plan: [tasks/bowling-reservation-flow-plan.md](bowling-reservation-flow-plan.md). **Built on
