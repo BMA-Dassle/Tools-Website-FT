@@ -157,17 +157,18 @@ export function kioskDeviceKey(cfg: Pick<KioskConfig, "center" | "brand" | "kios
 
 const STORAGE_KEY = "kiosk_config";
 
-/** Current persisted-envelope version. Older envelopes are MIGRATED FORWARD, not
- *  discarded (see readStorage): every field added across versions is additive with
- *  a safe default in resolveKioskConfig, so an older config re-resolves cleanly and
- *  the device keeps its venue.
- *  v3 (2026-07-25): added `locale` (guest-language default).
- *  ⚠ INCIDENT 2026-07-26: v2→v3 originally DISCARDED older envelopes on read,
- *  which sent every already-provisioned kiosk (all 3 centers) back to the KIOSK
- *  SETUP screen on the 1.8.0 rollout. Additive shape changes must migrate, never
- *  wipe. If a FUTURE version makes a genuinely BREAKING change, gate that one
- *  version explicitly rather than reintroducing a blanket discard. */
-const CONFIG_VERSION = 3;
+/** Version STAMPED onto newly-written envelopes. It is purely cosmetic: readStorage
+ *  is version-AGNOSTIC and never uses this to gate a read (see below), so changing
+ *  it can never wipe a kiosk. Kept at 2 deliberately.
+ *  ⚠ INCIDENT 2026-07-26: the `locale` field was added and this was bumped 2→3,
+ *  AND readStorage discarded any envelope whose version didn't match — so every
+ *  already-provisioned kiosk (all 3 centers) threw away its saved config and
+ *  dropped to KIOSK SETUP on the 1.8.0 rollout, unable to take payments. `locale`
+ *  is additive with a safe default in resolveKioskConfig; it never needed a bump.
+ *  RULE: never bump this for an additive field, and never discard on version.
+ *  Some kiosks were re-saved at v3 during the incident, so the reader must accept
+ *  BOTH 2 and 3 (and anything else) — which the version-agnostic read below does. */
+const CONFIG_VERSION = 2;
 
 interface PersistedEnvelope {
   v: number;
@@ -328,24 +329,25 @@ function readStorage(): KioskConfig | null {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<PersistedEnvelope>;
-    // Discard only what we genuinely can't use: no config, a non-numeric version,
-    // or a FUTURE version this build doesn't understand. An OLDER version is
-    // migrated forward — resolveKioskConfig backfills every field added since with
-    // a safe default, so the device keeps its venue instead of dropping to KIOSK
-    // SETUP on a version bump (incident 2026-07-26 — the v2→v3 locale bump).
-    if (!parsed?.config || typeof parsed.v !== "number" || parsed.v > CONFIG_VERSION) {
+    // VERSION-AGNOSTIC read: the envelope version NEVER gates this. We read the
+    // stored config whatever its version (2, 3, anything) and let resolveKioskConfig
+    // backfill every field added since with a safe default. This is the whole
+    // lesson of the 2026-07-26 outage — an additive shape change must never wipe a
+    // kiosk. Reject ONLY a genuinely unusable envelope: no config object, or one
+    // that can't resolve (no center → nothing to run).
+    if (!parsed?.config) {
       localStorage.removeItem(STORAGE_KEY);
       return null;
     }
-    // Re-resolve so invariants (Naples→HeadPinz, defaults) self-heal.
+    // Re-resolve so invariants (Naples→HeadPinz, defaults) self-heal + new fields backfill.
     const resolved = resolveKioskConfig(parsed.config);
     if (!resolved) {
       localStorage.removeItem(STORAGE_KEY);
       return null;
     }
-    // Persist the upgraded envelope so the migration is sticky (write the envelope
-    // directly — saveKioskConfig notifies listeners, which must not fire during a
-    // render-phase read).
+    // Normalize the envelope to the current stamp (harmless; keeps storage tidy).
+    // Write directly — saveKioskConfig notifies listeners, which must not fire
+    // during a render-phase read.
     if (parsed.v !== CONFIG_VERSION) {
       try {
         localStorage.setItem(

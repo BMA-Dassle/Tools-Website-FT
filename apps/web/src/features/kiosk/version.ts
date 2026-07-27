@@ -15,6 +15,14 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.8.2 — RECOVERY for the 1.8.0 outage. (1) Config-envelope stamp reverted to 2
+ *         and readStorage made VERSION-AGNOSTIC: it reads the stored config
+ *         whatever the version (2, 3, anything), backfills new fields via
+ *         resolveKioskConfig, and only rejects a genuinely unusable envelope — so
+ *         no shape change can wipe a kiosk to KIOSK SETUP again, and kiosks
+ *         re-provisioned to v3 during the outage keep working. (2) useLocale no
+ *         longer throws without a provider (it falls back to the default locale),
+ *         fixing the /join/[code] phone page crash from the i18n rollout.
  * 1.8.1 — HOTFIX for the 1.8.0 rollout: the config-envelope version bump (v2→v3
  *         for `locale`) was DISCARDING every older stored config on read, which
  *         sent all already-provisioned kiosks back to the KIOSK SETUP screen.
@@ -119,7 +127,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.8.1";
+export const KIOSK_VERSION = "1.8.2";
 
 let bootVersion: string | null = null;
 let captured = false;

@@ -203,8 +203,9 @@ describe("locale (guest language default)", () => {
   });
 });
 
-describe("readStorage envelope migration (loadKioskConfig)", () => {
+describe("readStorage is version-agnostic (loadKioskConfig) — incident 2026-07-26", () => {
   const KEY = "kiosk_config";
+  const CURRENT_V = 2;
   let store: Map<string, string>;
 
   beforeEach(() => {
@@ -224,12 +225,12 @@ describe("readStorage envelope migration (loadKioskConfig)", () => {
     __resetKioskConfigForTests();
   });
 
-  it("migrates an OLDER (v2) envelope forward instead of wiping it — incident 2026-07-26", () => {
-    // A provisioned kiosk before the locale bump: full hardware config, no locale.
+  it("reads an OLDER envelope, keeps venue + hardware, backfills new fields", () => {
+    // A provisioned kiosk from before `locale` existed: full hardware, no locale.
     store.set(
       KEY,
       JSON.stringify({
-        v: 2,
+        v: 1,
         config: {
           center: "fort-myers",
           brand: "fasttrax",
@@ -254,18 +255,41 @@ describe("readStorage envelope migration (loadKioskConfig)", () => {
       qrScannerModel: "honeywell-3320g",
       locale: "en", // backfilled default
     });
-    // And the upgraded envelope is persisted at the current version (sticky).
-    expect(JSON.parse(store.get(KEY)!)).toMatchObject({ v: 3 });
+    // Normalized to the current stamp.
+    expect(JSON.parse(store.get(KEY)!)).toMatchObject({ v: CURRENT_V });
   });
 
-  it("discards a FUTURE version it doesn't understand", () => {
-    store.set(KEY, JSON.stringify({ v: 99, config: { center: "fort-myers" } }));
+  it("reads a NEWER (v3) envelope instead of discarding it — the re-provisioned-during-incident case", () => {
+    // Kiosks re-provisioned during the outage saved a v3 envelope. Rolling the
+    // stamp back to 2 must NOT wipe them — a version-agnostic read keeps them.
+    store.set(
+      KEY,
+      JSON.stringify({
+        v: 3,
+        config: { center: "naples", readerId: "R9", locale: "es" },
+      }),
+    );
+
+    const cfg = loadKioskConfig();
+    expect(cfg).toMatchObject({
+      center: "naples",
+      brand: "headpinz", // Naples invariant
+      readerId: "R9",
+      locale: "es",
+    });
+    // Normalized down to the current stamp; never removed.
+    expect(store.has(KEY)).toBe(true);
+    expect(JSON.parse(store.get(KEY)!)).toMatchObject({ v: CURRENT_V });
+  });
+
+  it("discards a structurally broken envelope (no config)", () => {
+    store.set(KEY, JSON.stringify({ v: 2 }));
     expect(loadKioskConfig()).toBeNull();
     expect(store.has(KEY)).toBe(false);
   });
 
-  it("discards a structurally broken envelope (no config)", () => {
-    store.set(KEY, JSON.stringify({ v: 3 }));
+  it("discards a config that can't resolve (no center)", () => {
+    store.set(KEY, JSON.stringify({ v: 2, config: { brand: "fasttrax" } }));
     expect(loadKioskConfig()).toBeNull();
     expect(store.has(KEY)).toBe(false);
   });

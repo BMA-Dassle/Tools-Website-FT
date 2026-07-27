@@ -70,9 +70,25 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
   return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;
 }
 
-/** Full locale context — language state + switcher controls. */
+/**
+ * Fallback used when a kiosk component renders OUTSIDE a LocaleProvider — the
+ * standalone `/join/[code]` phone page mounts kiosk components (JoinPhoneFlow)
+ * without the kiosk shell that provides the context. Rather than throw (which
+ * crashed the whole page — incident 2026-07-26, "useLocale must be used within
+ * <LocaleProvider>" on /join/[code]), fall back to the default locale so the
+ * component renders in English. Switcher controls are no-ops here.
+ */
+const FALLBACK_LOCALE_VALUE: LocaleContextValue = {
+  locale: DEFAULT_LOCALE,
+  defaultLocale: DEFAULT_LOCALE,
+  setLocale: () => {},
+  resetLocale: () => {},
+  t: (key, values) => formatMessage(DEFAULT_LOCALE, key, values),
+};
+
+/** Full locale context — language state + switcher controls. Falls back to the
+ *  default locale (never throws) when there is no provider, so a standalone page
+ *  that renders kiosk components can't crash on a missing context. */
 export function useLocale(): LocaleContextValue {
-  const ctx = useContext(LocaleContext);
-  if (!ctx) throw new Error("useLocale must be used within <LocaleProvider>");
-  return ctx;
+  return useContext(LocaleContext) ?? FALLBACK_LOCALE_VALUE;
 }
