@@ -2957,16 +2957,24 @@ async function fetchDurationOptions(
  * Returns active experiences for a center, with bundled items and the
  * center-specific QAMF web offer ID pre-joined.
  * Optionally filter by kind ('kbf' | 'open' | 'hourly').
+ *
+ * `includePreviewPinboyz` (PREVIEW BRANCH ONLY): additionally returns the
+ * INACTIVE `pinboyz-*` experiences. The PinBoyz rows are seeded with
+ * is_active = FALSE so the live site never lists them; the tier-switcher
+ * preview opts in explicitly. Remove this seam when the lane-type enum
+ * migration lands and the rows go active for real.
  */
 export async function getBowlingExperiences(
   centerCode: string,
   kind?: BowlingExperienceKind,
+  includePreviewPinboyz = false,
 ): Promise<BowlingExperienceWithDetails[]> {
   if (!isDbConfigured()) return [];
   await ensureBowlingSchema();
   const q = sql();
 
-  // 1. Fetch experience rows joined to the center's offer
+  // 1. Fetch experience rows joined to the center's offer. The active filter
+  //    widens to inactive pinboyz-* rows only when the preview opts in.
   const offerRows = kind
     ? await q`
         SELECT e.*, eo.qamf_web_offer_id, eo.qamf_option_type, eo.qamf_option_id, eo.duration_minutes
@@ -2975,7 +2983,9 @@ export async function getBowlingExperiences(
           ON eo.experience_id = e.id
          AND eo.center_code   = ${centerCode}
          AND eo.is_active      = TRUE
-        WHERE e.is_active = TRUE AND e.kind = ${kind}
+        WHERE (e.is_active = TRUE
+               OR (${includePreviewPinboyz} AND e.slug LIKE 'pinboyz-%'))
+          AND e.kind = ${kind}
         ORDER BY e.sort_order, e.id
       `
     : await q`
@@ -2985,7 +2995,8 @@ export async function getBowlingExperiences(
           ON eo.experience_id = e.id
          AND eo.center_code   = ${centerCode}
          AND eo.is_active      = TRUE
-        WHERE e.is_active = TRUE
+        WHERE (e.is_active = TRUE
+               OR (${includePreviewPinboyz} AND e.slug LIKE 'pinboyz-%'))
         ORDER BY e.sort_order, e.id
       `;
 

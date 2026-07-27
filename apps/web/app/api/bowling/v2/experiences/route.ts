@@ -41,8 +41,13 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // PREVIEW BRANCH ONLY: ?preview=pinboyz additionally returns the inactive
+  // pinboyz-* experiences (seeded is_active=false so the live flows never
+  // list them). Read-only widening — remove with the lane-type enum GA.
+  const includePreviewPinboyz = searchParams.get("preview") === "pinboyz";
+
   try {
-    const experiences = await getBowlingExperiences(centerCode, kind);
+    const experiences = await getBowlingExperiences(centerCode, kind, includePreviewPinboyz);
     return NextResponse.json(experiences);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "unknown error";

@@ -164,7 +164,9 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     // FastTrax duckpin offers 30/60/90 as first-class durations — the 1-hour
     // "kiosk-only fallback" rule below is HeadPinz-specific (1hr is a fallback
     // under 1.5/2hr there) and must never suppress a duckpin price point.
-    if (isDuckpin) return all;
+    // PinBoyz likewise sells 1hr first-class (owner 2026-07-26: offer 176
+    // "contains 1 hr, 1.5 hr and 2 hour").
+    if (isDuckpin || isPinboyz(exp)) return all;
     return all.filter((o) => {
       if (o.durationMinutes !== 60) return true;
       if (!kiosk || !scanSettled) return false;
@@ -180,7 +182,14 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   const bookable = scanSettled ? experiences.filter(expHasAnySlot) : experiences;
   const allSoldOut = scanSettled && experiences.length > 0 && bookable.length === 0;
 
-  const regular = bookable.filter((e) => !e.isVip);
+  // PinBoyz (Old Time Lanes) is its OWN tier, keyed by slug prefix until the
+  // lane-type enum migration lands (rows are seeded is_active=false and only
+  // the preview include returns them). Excluded from Classic explicitly —
+  // its is_vip is false like Classic's.
+  const isPinboyz = (e: BowlingExperienceWithDetails) => e.slug.startsWith("pinboyz-");
+  const pinboyzAll = experiences.filter(isPinboyz);
+  const pinboyz = bookable.filter(isPinboyz);
+  const regular = bookable.filter((e) => !e.isVip && !isPinboyz(e));
   const vip = bookable.filter((e) => e.isVip);
 
   // ── Tier switcher state ────────────────────────────────────────────────
@@ -189,8 +198,14 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   // falls back gracefully — selection state changes only in click handlers
   // (React 19 strict-mode rule), never in effects.
   const [tierTabPick, setTierTabPick] = useState<TierTab | null>(null);
-  // PinBoyz teaser: HeadPinz lanes only — never on FastTrax duckpin or KBF.
-  const showPinboyz = PINBOYZ_PREVIEW && !isDuckpin && kind !== "kbf";
+  // PinBoyz: real cards when the catalog rows exist for this center, else the
+  // teaser at Fort Myers only — never on FastTrax duckpin or KBF.
+  const FM_CENTER_CODE = "TXBSQN0FEKQ11";
+  const showPinboyz =
+    PINBOYZ_PREVIEW &&
+    !isDuckpin &&
+    kind !== "kbf" &&
+    (pinboyzAll.length > 0 || centerCode === FM_CENTER_CODE);
   // Owner order 2026-07-26: VIP → Classic → PinBoyz.
   const tierTabs: TierTab[] = [
     ...(vip.length > 0 ? (["vip"] as const) : []),
@@ -288,7 +303,8 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
 
   function renderCard(exp: BowlingExperienceWithDetails) {
     const isVip = exp.isVip;
-    const accent = isVip ? VIP_VIOLET : BLUE;
+    const vintage = isPinboyz(exp);
+    const accent = vintage ? PINBOYZ_BLUE : isVip ? VIP_VIOLET : BLUE;
     const primaryItem = exp.items.find((i) => i.sortOrder === 0);
     const priceCents = primaryItem?.priceCents ?? 0;
     const perLane = isPerLaneExperience(exp);
@@ -353,6 +369,7 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         durations={durations}
         hint={hint}
         hintLoading={dayAvail.isLoading}
+        vintage={vintage}
         onSelect={(durationOpt) => selectExperience(exp, durationOpt)}
       />
     );
@@ -538,7 +555,12 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
                   ? tierTabBtn("vip", "VIP", fromLabel(vip), VIP_VIOLET)
                   : tab === "classic"
                     ? tierTabBtn("classic", "Classic", fromLabel(regular), BLUE)
-                    : tierTabBtn("pinboyz", "PinBoyz", "coming soon", PINBOYZ_BLUE),
+                    : tierTabBtn(
+                        "pinboyz",
+                        "PinBoyz",
+                        pinboyzAll.length > 0 ? fromLabel(pinboyzAll) : "coming soon",
+                        PINBOYZ_BLUE,
+                      ),
               )}
             </div>
           )}
@@ -572,36 +594,49 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
                 true,
               )}
               {pinboyzPerks}
-              {/* Non-bookable teaser — no experiences/QAMF offers exist yet.
-                  The guest continues by picking a Classic or VIP package. */}
-              <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
-                <div className={kiosk ? "p-[24px]" : "p-4"}>
-                  <h3
-                    className={`font-bold uppercase ${kiosk ? "text-[34px]" : "text-lg"}`}
-                    style={{
-                      color: PINBOYZ_CREAM,
-                      fontFamily: PINBOYZ_SERIF,
-                      letterSpacing: "0.1em",
-                    }}
-                  >
-                    PinBoyz Lanes
-                  </h3>
-                  <p className={`mt-0.5 text-white/50 ${kiosk ? "text-[22px]" : "text-xs"}`}>
-                    Reserve an old-time lane by the hour — bowling the way it used to be.
-                  </p>
-                  <div className="mt-3 flex items-center justify-between gap-3">
-                    <span className={`font-bold text-white ${kiosk ? "text-[26px]" : "text-base"}`}>
-                      Pricing coming soon
-                    </span>
-                    <span
-                      className={`font-semibold ${kiosk ? "text-[22px]" : "text-[11px]"}`}
-                      style={{ color: PINBOYZ_BLUE }}
+              {pinboyz.length > 0 ? (
+                // Real bookable PinBoyz packages — QAMF web offer 176.
+                <div className="space-y-4">{pinboyz.map(renderCard)}</div>
+              ) : pinboyzAll.length > 0 ? (
+                // Catalog exists but nothing bookable today.
+                <p
+                  className={`py-6 text-center text-white/40 ${kiosk ? "text-[26px]" : "text-sm"}`}
+                >
+                  No Old Time Lanes left to book this day.
+                </p>
+              ) : (
+                // Non-bookable teaser — catalog rows not seeded at this center.
+                <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
+                  <div className={kiosk ? "p-[24px]" : "p-4"}>
+                    <h3
+                      className={`font-bold uppercase ${kiosk ? "text-[34px]" : "text-lg"}`}
+                      style={{
+                        color: PINBOYZ_CREAM,
+                        fontFamily: PINBOYZ_SERIF,
+                        letterSpacing: "0.1em",
+                      }}
                     >
-                      Opening soon · HeadPinz Fort Myers
-                    </span>
+                      PinBoyz Lanes
+                    </h3>
+                    <p className={`mt-0.5 text-white/50 ${kiosk ? "text-[22px]" : "text-xs"}`}>
+                      Reserve an old-time lane by the hour — bowling the way it used to be.
+                    </p>
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <span
+                        className={`font-bold text-white ${kiosk ? "text-[26px]" : "text-base"}`}
+                      >
+                        Pricing coming soon
+                      </span>
+                      <span
+                        className={`font-semibold ${kiosk ? "text-[22px]" : "text-[11px]"}`}
+                        style={{ color: PINBOYZ_BLUE }}
+                      >
+                        Opening soon · HeadPinz Fort Myers
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </section>
           )}
         </>
