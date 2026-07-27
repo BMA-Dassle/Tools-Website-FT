@@ -708,7 +708,16 @@ function RacePackCartBlock({
 
       {open ? (
         <div className="mt-3">
-          <RacePackPicker skus={skus} eligible={eligible} picks={picks} onChange={onChange} />
+          {/* autoOpen: land straight on the "who's this pack for?" checkboxes —
+              bare tiles with a collapsed selector read as a dead end here
+              (owner preview feedback 2026-07-27). */}
+          <RacePackPicker
+            skus={skus}
+            eligible={eligible}
+            picks={picks}
+            onChange={onChange}
+            autoOpen
+          />
         </div>
       ) : picks.length > 0 ? (
         <div className="mt-2 space-y-2">

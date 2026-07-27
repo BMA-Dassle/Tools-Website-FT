@@ -89,6 +89,7 @@ export function RacePackPicker({
   picks,
   onChange,
   showAssignments = true,
+  autoOpen = false,
 }: {
   /** The packs this surface offers right now (already day-filtered). */
   skus: RacePack[];
@@ -100,12 +101,24 @@ export function RacePackPicker({
   onChange: (next: KioskPackSelection[] | undefined) => void;
   /** The cart block renders its own summary rows — let it hide this copy. */
   showAssignments?: boolean;
+  /** Mount with the "who's this pack for?" panel ALREADY expanded (owner
+   *  preview feedback 2026-07-27: the cart's Add / edit landed on bare tiles
+   *  and the selector stayed collapsed until a second tap). Opens on the pack
+   *  that already has holders, else the first offered pack. */
+  autoOpen?: boolean;
 }) {
   // The tile whose "who's this for?" panel is open + the working set of
   // checked members. Seeded with the tile's CURRENT holders so the panel is
   // an edit surface: unchecking someone and applying removes their pack.
-  const [pendingSlug, setPendingSlug] = useState<string | null>(null);
-  const [pendingIds, setPendingIds] = useState<string[]>([]);
+  // (Mount-time only — cheap to recompute per render, useState ignores it.)
+  const initialSlug =
+    autoOpen && eligible.length > 1
+      ? (skus.find((s) => picks.some((p) => p.slug === s.slug))?.slug ?? skus[0]?.slug ?? null)
+      : null;
+  const [pendingSlug, setPendingSlug] = useState<string | null>(initialSlug);
+  const [pendingIds, setPendingIds] = useState<string[]>(
+    initialSlug ? picks.filter((p) => p.slug === initialSlug).map((p) => p.memberId) : [],
+  );
 
   const holdersOf = (slug: string) => picks.filter((p) => p.slug === slug).map((p) => p.memberId);
 
