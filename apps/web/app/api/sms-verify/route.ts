@@ -10,7 +10,10 @@ const VOX_FROM = process.env.VOX_FROM_NUMBER || "+12394819666";
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
 
-const CODE_TTL = 300; // 5 minutes
+const CODE_TTL = 300; // 5 minutes (SMS — texts land in seconds)
+const EMAIL_CODE_TTL = 600; // 10 minutes — email delivery is slower, and kiosk guests
+// have to pull out a phone and dig the message out of spam/Promotions first.
+const EMAIL_CODE_MAX_AGE_MS = 30 * 60_000; // hard cap on how long resends can keep one code alive
 const MAX_ATTEMPTS = 3;
 
 /** Normalize phone to digits only */
@@ -64,11 +67,11 @@ async function sendEmailOtp(to: string, code: string): Promise<boolean> {
       content: [
         {
           type: "text/plain",
-          value: `Your FastTrax verification code is: ${code}\n\nThis code expires in 5 minutes.`,
+          value: `Your FastTrax verification code is: ${code}\n\nThis code expires in 10 minutes.`,
         },
         {
           type: "text/html",
-          value: `<div style="font-family:Arial,sans-serif;max-width:400px;margin:0 auto;padding:20px"><h2 style="color:#000418">FastTrax Verification</h2><p>Your verification code is:</p><div style="background:#f0f0f0;border-radius:8px;padding:20px;text-align:center;font-size:32px;letter-spacing:8px;font-weight:bold;color:#000418">${code}</div><p style="color:#666;font-size:12px;margin-top:16px">This code expires in 5 minutes.</p></div>`,
+          value: `<div style="font-family:Arial,sans-serif;max-width:400px;margin:0 auto;padding:20px"><h2 style="color:#000418">FastTrax Verification</h2><p>Your verification code is:</p><div style="background:#f0f0f0;border-radius:8px;padding:20px;text-align:center;font-size:32px;letter-spacing:8px;font-weight:bold;color:#000418">${code}</div><p style="color:#666;font-size:12px;margin-top:16px">This code expires in 10 minutes.</p></div>`,
         },
       ],
     }),
@@ -94,7 +97,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Phone or email required" }, { status: 400 });
 
     // Generate unique 6-digit code
-    const code = String(randomInt(100000, 999999));
+    let code = String(randomInt(100000, 999999));
 
     if (phone) {
       // SMS flow
@@ -119,15 +122,37 @@ export async function POST(req: NextRequest) {
     } else {
       // Email flow
       const normalized = email.trim().toLowerCase();
-      await redis.set(
-        `smsverify:email:${normalized}`,
-        JSON.stringify({ code, attempts: 0, createdAt: new Date().toISOString() }),
-        "EX",
-        CODE_TTL,
-      );
+      const key = `smsverify:email:${normalized}`;
+      // Resend-safe: guests tap "Resend code" when the email is slow to land, and a
+      // fresh code would invalidate every email already in flight — the guest then
+      // types a code that WAS valid and is told "Incorrect code" (kiosk manager
+      // reports 2026-07-27; one guest requested 5 codes in 5 minutes). Reuse the
+      // outstanding code so every delivered email works. The attempt counter
+      // carries over so resending never resets brute-force protection, and
+      // EMAIL_CODE_MAX_AGE_MS stops repeated resends from keeping one code alive
+      // indefinitely.
+      let payload = { code, attempts: 0, createdAt: new Date().toISOString() };
+      let reused = false;
+      const existing = await redis.get(key).catch(() => null);
+      if (existing) {
+        try {
+          const prev = JSON.parse(existing);
+          const age = Date.now() - Date.parse(String(prev.createdAt ?? ""));
+          if (prev.code && (prev.attempts ?? 0) < MAX_ATTEMPTS && age < EMAIL_CODE_MAX_AGE_MS) {
+            code = String(prev.code);
+            payload = prev;
+            reused = true;
+          }
+        } catch {
+          // Unparseable stored value — fall through to the fresh code.
+        }
+      }
+      await redis.set(key, JSON.stringify(payload), "EX", EMAIL_CODE_TTL);
       const sent = await sendEmailOtp(normalized, code);
       if (!sent) return NextResponse.json({ error: "Failed to send email" }, { status: 500 });
-      console.log(`[sms-verify] Email code sent to ${normalized.slice(0, 3)}***`);
+      console.log(
+        `[sms-verify] Email code ${reused ? "re-sent" : "sent"} to ${normalized.slice(0, 3)}***`,
+      );
     }
 
     return NextResponse.json({ sent: true });
@@ -162,8 +187,15 @@ export async function PUT(req: NextRequest) {
     const redisKey = phone
       ? `smsverify:${normalizePhone(phone)}`
       : `smsverify:email:${email.trim().toLowerCase()}`;
+    // Masked identifier for logs — failed verifies were previously invisible,
+    // which hid the kiosk "invalid code" reports (2026-07-27) until managers
+    // escalated. Never log the full phone/email.
+    const idMask = phone
+      ? `${normalizePhone(phone).slice(0, 3)}***${normalizePhone(phone).slice(-4)}`
+      : `${email.trim().toLowerCase().slice(0, 3)}***`;
     const stored = await redis.get(redisKey);
     if (!stored) {
+      console.log(`[sms-verify] Verify failed for ${idMask}: no code outstanding (expired?)`);
       return NextResponse.json({
         verified: false,
         error: "Code expired. Please request a new one.",
@@ -174,6 +206,7 @@ export async function PUT(req: NextRequest) {
     const data = JSON.parse(stored);
     if (data.attempts >= MAX_ATTEMPTS) {
       await redis.del(redisKey);
+      console.log(`[sms-verify] Verify failed for ${idMask}: too many attempts`);
       return NextResponse.json({
         verified: false,
         error: "Too many attempts. Please request a new code.",
@@ -183,6 +216,7 @@ export async function PUT(req: NextRequest) {
 
     if (data.code === code.trim()) {
       await redis.del(redisKey);
+      console.log(`[sms-verify] Code verified for ${idMask}`);
 
       // Mark the identifier as verified (5 min TTL) so downstream APIs can
       // gate PII on it (/api/bmi-office reads both flags).
@@ -241,8 +275,16 @@ export async function PUT(req: NextRequest) {
     // Wrong code — increment attempts
     data.attempts += 1;
     const ttl = await redis.ttl(redisKey);
-    await redis.set(redisKey, JSON.stringify(data), "EX", ttl > 0 ? ttl : CODE_TTL);
+    await redis.set(
+      redisKey,
+      JSON.stringify(data),
+      "EX",
+      ttl > 0 ? ttl : phone ? CODE_TTL : EMAIL_CODE_TTL,
+    );
 
+    console.log(
+      `[sms-verify] Verify failed for ${idMask}: wrong code (${MAX_ATTEMPTS - data.attempts} attempts left)`,
+    );
     return NextResponse.json({
       verified: false,
       error: "Incorrect code",
