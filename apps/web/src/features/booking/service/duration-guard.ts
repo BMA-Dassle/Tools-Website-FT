@@ -101,7 +101,7 @@ export async function assertBookable(input: AssertBookableInput): Promise<void> 
 
   let sharing;
   try {
-    // PREVIEW BRANCH ONLY: include the inactive pinboyz-* rows so holds on
+    // Pinboyz seam: include the inactive pinboyz-* rows so holds on
     // offer 176 validate — without this the guard fail-closes with
     // "unknown web offer 176" even though availability listed the slot.
     const all = await getBowlingExperiences(centerCode, undefined, true);

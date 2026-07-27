@@ -48,11 +48,12 @@ const BLOB = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 // on screen at a time, VIP → Classic → PinBoyz order (owner). Video stays on
 // the VIP banner ONLY — Classic and PinBoyz banners are photos.
 //
-// PINBOYZ IS PREVIEW-ONLY on this branch: Old Time Lanes ("PinBoyz") is coming
-// to HeadPinz Fort Myers but has no experiences rows or QAMF offers yet, so
-// its tab renders a non-bookable teaser tier. Before GA this needs the
-// lane-type enum migration (is_vip boolean → classic|pinboyz|vip) + real
-// catalog rows; then the teaser becomes a real tier list like the other two.
+// PINBOYZ SEAM: Old Time Lanes ("PinBoyz", HeadPinz FM, QAMF web offer 176)
+// rides slug-prefixed experiences rows seeded IS_ACTIVE=FALSE, returned only
+// to v3 surfaces via the ?preview=pinboyz include — the classic flow never
+// lists them. Kill switch (no deploy): set the pinboyz-* rows'
+// bowling_experience_offers.is_active = false. Cleanup: replace this seam
+// with the lane-type enum migration (is_vip boolean → classic|pinboyz|vip).
 const PINBOYZ_PREVIEW = true;
 // PinBoyz accent stays in the bowling blues (owner 2026-07-26: "I like our
 // blues" — copper/rust rejected): a deeper electric blue beside Classic cyan.

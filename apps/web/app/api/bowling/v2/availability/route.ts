@@ -269,8 +269,8 @@ export async function GET(req: NextRequest) {
   // Get experiences valid for this day-of-week.
   // DB function only filters by a single kind, so for multi-kind requests we
   // fetch all and post-filter — cheaper than two separate DB round-trips.
-  // PREVIEW BRANCH ONLY: ?preview=pinboyz also scans the inactive pinboyz-*
-  // experiences so the tier-switcher preview gets real offer-176 slots.
+  // Pinboyz seam: ?preview=pinboyz also scans the inactive pinboyz-*
+  // experiences so v3 surfaces get real offer-176 slots.
   const dbKind = kinds.length === 1 ? kinds[0] : undefined;
   const includePreviewPinboyz = req.nextUrl.searchParams.get("preview") === "pinboyz";
   const allExperiences = await getBowlingExperiences(centerCode, dbKind, includePreviewPinboyz);

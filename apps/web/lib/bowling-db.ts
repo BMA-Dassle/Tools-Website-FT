@@ -2958,10 +2958,10 @@ async function fetchDurationOptions(
  * center-specific QAMF web offer ID pre-joined.
  * Optionally filter by kind ('kbf' | 'open' | 'hourly').
  *
- * `includePreviewPinboyz` (PREVIEW BRANCH ONLY): additionally returns the
+ * `includePreviewPinboyz` (pinboyz seam): additionally returns the
  * INACTIVE `pinboyz-*` experiences. The PinBoyz rows are seeded with
  * is_active = FALSE so the live site never lists them; the tier-switcher
- * preview opts in explicitly. Remove this seam when the lane-type enum
+ * v3 surfaces opt in explicitly. Remove this seam when the lane-type enum
  * migration lands and the rows go active for real.
  */
 export async function getBowlingExperiences(

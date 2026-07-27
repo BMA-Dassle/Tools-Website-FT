@@ -41,9 +41,9 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // PREVIEW BRANCH ONLY: ?preview=pinboyz additionally returns the inactive
+  // Pinboyz seam: ?preview=pinboyz additionally returns the inactive
   // pinboyz-* experiences (seeded is_active=false so the live flows never
-  // list them). Read-only widening — remove with the lane-type enum GA.
+  // list them). Read-only widening — remove with the lane-type enum migration.
   const includePreviewPinboyz = searchParams.get("preview") === "pinboyz";
 
   try {
