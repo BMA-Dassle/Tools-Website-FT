@@ -301,6 +301,11 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     category: "adult" | "junior";
     members: PartyMember[];
   } | null>(null);
+  // Solo-bowler guard (owner 2026-07-26): guests type the FIRST bowler, don't
+  // realize the roster wants everyone, and Continue with a party of one. A
+  // one-bowler Continue gets a confirm sheet — "add more" (safe, primary) or
+  // an explicit just-me continue.
+  const [soloBowlerPrompt, setSoloBowlerPrompt] = useState(false);
   const [reservationExpired, setReservationExpired] = useState(false);
   const [resetting, setResetting] = useState(false);
   // Guarded exits (owner 2026-07-18): Start over wipes the whole session; Main
@@ -1796,6 +1801,22 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       return;
     }
 
+    // Solo-bowler guard: exactly one bowler on the roster when Continue is
+    // tapped usually means "typed myself, didn't realize the rest go here
+    // too" — confirm before advancing. canAdvance already guarantees every
+    // row is named, so players.length IS the bowler count. The sheet's
+    // just-me path calls advanceToNextStep() directly (this step has no
+    // other advance-time work), so it can't re-prompt.
+    if (
+      currentStep.id === "kiosk-bowling-people" &&
+      activeItem.kind === "bowling" &&
+      ((activeItem as BowlingItem).players ?? []).length === 1
+    ) {
+      setSoloBowlerPrompt(true);
+      clarityEvent("kiosk:solo-bowler:prompt");
+      return;
+    }
+
     if (
       (currentStep.id === "race-heat-adult" || currentStep.id === "race-heat-junior") &&
       activeItem.kind === "race"
@@ -2046,6 +2067,57 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           </div>
         </div>
       )}
+
+      {/* Solo-bowler guard: one name on the roster at Continue is usually an
+          incomplete party, not a solo bowler — offer add-more (safe, primary)
+          before an explicit just-me continue. Same z-[80] sheet pattern. */}
+      {soloBowlerPrompt &&
+        (() => {
+          const soloName =
+            activeItem.kind === "bowling"
+              ? ((activeItem as BowlingItem).players?.[0]?.name ?? "").trim().split(/\s+/)[0]
+              : "";
+          return (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
+              <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
+                <div className="k-eyebrow text-[#f0b341]">{t("peopleUi.beforeYouContinue")}</div>
+                <div className="k-display text-[46px] leading-[1.05]">{t("soloBowler.title")}</div>
+                <p className="text-[26px] leading-snug text-white/60">
+                  {soloName ? t("soloBowler.bodyNamed", { name: soloName }) : t("soloBowler.body")}
+                </p>
+                <div className="flex flex-col gap-[16px] pt-[4px]">
+                  {/* Inline flex per the .kiosk-canvas cascade gotcha (see the
+                      unracered sheet above). */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSoloBowlerPrompt(false);
+                      clarityEvent("kiosk:solo-bowler:add-more");
+                    }}
+                    className="k-btn-primary k-tap"
+                    style={{ flex: "0 0 auto" }}
+                  >
+                    {t("soloBowler.addMore")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSoloBowlerPrompt(false);
+                      clarityEvent("kiosk:solo-bowler:continued");
+                      advanceToNextStep();
+                    }}
+                    className="k-btn-ghost k-tap"
+                    style={{ flex: "0 0 auto" }}
+                  >
+                    {soloName
+                      ? t("soloBowler.continueNamed", { name: soloName })
+                      : t("soloBowler.continue")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
       {/* Phone sign-in in progress — Continue cancels it, so confirm first
           (owner requirement). If every phone finishes while the sheet is up,

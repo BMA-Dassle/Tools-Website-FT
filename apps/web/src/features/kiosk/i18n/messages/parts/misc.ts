@@ -1,9 +1,10 @@
 /** Smaller guest-facing pieces — sign-in boxes (KioskSignInBoxes), VIP overview
  *  (KioskVipOverview), booking-as card (KioskBookingAsCard), license match picker
- *  (LicenseMatchPicker), waiver photo (KioskWaiverPhoto), and the group-waiver
- *  flow chrome (KioskWaiverFlow — legal body stays English). Add keys under the
- *  relevant namespaces (`signin.*`, `vip.*`, `bookingAs.*`, `license.*`,
- *  `waiverPhoto.*`, `waiverFlow.*`); mirror every key in es.
+ *  (LicenseMatchPicker), waiver photo (KioskWaiverPhoto), the group-waiver
+ *  flow chrome (KioskWaiverFlow — legal body stays English), and the
+ *  solo-bowler confirm sheet (KioskFlow). Add keys under the relevant
+ *  namespaces (`signin.*`, `vip.*`, `bookingAs.*`, `license.*`,
+ *  `waiverPhoto.*`, `waiverFlow.*`, `soloBowler.*`); mirror every key in es.
  *
  *  es values are a first-pass AI translation pending native-Spanish review.
  *  Locked glossary — NEVER translated: FastTrax, HeadPinz, Game Zone, Podium,
@@ -131,6 +132,19 @@ export const miscEn = {
     "{count, plural, one {# in this group still needs a waiver.} other {# in this group still need a waiver.}}",
   "waiverFlow.addYourself": "Add yourself or your group",
   "waiverFlow.done": "Done — back to start",
+
+  // --- Solo-bowler confirm sheet (KioskFlow) ---
+  // Shown when Continue is tapped on "Who's bowling?" with only ONE bowler on
+  // the roster — usually an incomplete party. `{name}` is the bowler's typed
+  // first name (data). The eyebrow reuses `peopleUi.beforeYouContinue`.
+  "soloBowler.title": "Just one bowler so far",
+  "soloBowler.bodyNamed":
+    "Only {name} is on the list — everyone bowling should be added here. Add the rest of your group, or continue if it’s really just one.",
+  "soloBowler.body":
+    "Only one person is on the list — everyone bowling should be added here. Add the rest of your group, or continue if it’s really just one.",
+  "soloBowler.addMore": "Add more bowlers",
+  "soloBowler.continueNamed": "Just {name} today — continue",
+  "soloBowler.continue": "Just 1 bowler — continue",
 } as const;
 
 export const miscEs: Record<keyof typeof miscEn, string> = {
@@ -248,4 +262,14 @@ export const miscEs: Record<keyof typeof miscEn, string> = {
     "{count, plural, one {# en este grupo todavía necesita una exención.} other {# en este grupo todavía necesitan una exención.}}",
   "waiverFlow.addYourself": "Agrégate a ti o a tu grupo",
   "waiverFlow.done": "Listo — volver al inicio",
+
+  // --- Solo-bowler confirm sheet (KioskFlow) ---
+  "soloBowler.title": "Solo un jugador hasta ahora",
+  "soloBowler.bodyNamed":
+    "Solo {name} está en la lista — todos los que van a jugar boliche deben agregarse aquí. Agrega al resto de tu grupo, o continúa si de verdad es solo uno.",
+  "soloBowler.body":
+    "Solo hay una persona en la lista — todos los que van a jugar boliche deben agregarse aquí. Agrega al resto de tu grupo, o continúa si de verdad es solo uno.",
+  "soloBowler.addMore": "Agregar más jugadores",
+  "soloBowler.continueNamed": "Solo {name} hoy — continuar",
+  "soloBowler.continue": "Solo 1 jugador — continuar",
 };
