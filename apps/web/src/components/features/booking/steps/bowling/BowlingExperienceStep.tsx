@@ -72,6 +72,14 @@ const CLASSIC_PHOTO = `/_next/image?url=${encodeURIComponent(
 
 type TierTab = "vip" | "classic" | "pinboyz";
 
+// PinBoyz experiences are keyed by slug prefix until the lane-type enum
+// migration lands. MODULE scope on purpose: component consts live in the
+// render body's temporal dead zone, and this is called from closures
+// (visibleDurations → bookable filter) that run before later consts init.
+function isPinboyz(e: BowlingExperienceWithDetails): boolean {
+  return e.slug.startsWith("pinboyz-");
+}
+
 type BowlingLikeItem = BowlingItem | KbfItem;
 
 function centsToDollars(cents: number): string {
@@ -182,11 +190,9 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   const bookable = scanSettled ? experiences.filter(expHasAnySlot) : experiences;
   const allSoldOut = scanSettled && experiences.length > 0 && bookable.length === 0;
 
-  // PinBoyz (Old Time Lanes) is its OWN tier, keyed by slug prefix until the
-  // lane-type enum migration lands (rows are seeded is_active=false and only
-  // the preview include returns them). Excluded from Classic explicitly —
-  // its is_vip is false like Classic's.
-  const isPinboyz = (e: BowlingExperienceWithDetails) => e.slug.startsWith("pinboyz-");
+  // PinBoyz (Old Time Lanes) is its OWN tier (rows are seeded is_active=false
+  // and only the preview include returns them). Excluded from Classic
+  // explicitly — its is_vip is false like Classic's.
   const pinboyzAll = experiences.filter(isPinboyz);
   const pinboyz = bookable.filter(isPinboyz);
   const regular = bookable.filter((e) => !e.isVip && !isPinboyz(e));
