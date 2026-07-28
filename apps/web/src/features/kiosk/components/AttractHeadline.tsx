@@ -121,6 +121,37 @@ export function AttractHeadline({
   // is exactly the collision this integration exists to avoid.
   const vehicle = onShow ? undefined : slide.vehicle;
 
+  /**
+   * Every clip is mounted ONCE for the life of the page and only PLAYED while
+   * its slide is up. This is a cost guard, not a style choice.
+   *
+   * Mounting the active clip conditionally (the obvious way to write this)
+   * unmounts it on every slide change, so the rotation re-fetches each clip
+   * roughly every 32s — forever, on a screen that runs 24/7 unattended. The
+   * kart reel is 31MB; that is the 2026-07-24 "717MB transfer spike" incident
+   * again, several orders of magnitude worse, and Fast Data Transfer is billed
+   * on every client egress.
+   *
+   * Mounted-but-paused costs one fetch per clip per page load and no decode:
+   * a paused <video> does not decode frames, so the CPU story is the same as
+   * one player. play() is best-effort — a rejected promise (autoplay policy,
+   * decoder busy) just leaves the poster still showing, which is a correct
+   * fallback rather than an error state.
+   */
+  const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
+  useEffect(() => {
+    videoRefs.current.forEach((el, i) => {
+      if (!el) return;
+      if (i === index && !onShow) {
+        void el.play().catch(() => {
+          /* poster stays up — never blank the backdrop over this */
+        });
+      } else if (!el.paused) {
+        el.pause();
+      }
+    });
+  }, [index, onShow]);
+
   return (
     <>
       {/* ── backdrop: one layer per slide, only the active one opaque ── */}
@@ -139,12 +170,13 @@ export function AttractHeadline({
               className={`absolute -inset-[6%] bg-cover bg-center ${s.video ? "" : "kiosk-kenburns"}`}
               style={{ backgroundImage: `url(${resolvePhoto(s.photo)})` }}
             />
-            {i === index && s.video && (
+            {s.video && (
               <video
-                key={s.video}
+                ref={(el) => {
+                  videoRefs.current[i] = el;
+                }}
                 src={KIOSK_VIDEOS[s.video]}
                 poster={resolvePhoto(s.photo)}
-                autoPlay
                 muted
                 loop
                 playsInline
