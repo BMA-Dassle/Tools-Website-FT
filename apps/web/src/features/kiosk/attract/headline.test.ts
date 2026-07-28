@@ -48,11 +48,24 @@ describe("ad slides carry everything the headline layout needs", () => {
     });
   }
 
-  it("gel blasters stay a still until the Nexus montage is on the blob", () => {
-    // Guards the note in KIOSK_VIDEOS: when the clip IS uploaded this test
-    // fails, which is the reminder to add the key rather than a silent gap.
-    const gel = kioskAdSlidesFor("fort-myers").find((s) => s.title.startsWith("Gel"));
-    expect(gel?.video).toBeUndefined();
+  it("every slide at both venues now runs a clip", () => {
+    // The whole rotation is video; a slide silently losing one would drop that
+    // activity back to a still while its neighbours move, which reads as broken
+    // rather than as a deliberate mix.
+    for (const center of VENUES) {
+      for (const s of kioskAdSlidesFor(center)) {
+        expect(s.video, `slide "${s.title}" (${center}) lost its clip`).toBeTruthy();
+      }
+    }
+  });
+
+  it("kiosk clips are kiosk-encoded, not marketing masters", () => {
+    // Chrome will not cache an entry over roughly 1/8 of its disk cache (~30-40MB
+    // here), so an oversized clip re-downloads on every attract re-mount, 24/7.
+    // The two reused masters are small; the two big ones have kiosk cuts.
+    expect(KIOSK_VIDEOS.race).toContain("ft-race-kiosk");
+    expect(KIOSK_VIDEOS.gel).toContain("nexus-gel-kiosk");
+    expect(KIOSK_VIDEOS.race).not.toContain("hero-video");
   });
 });
 

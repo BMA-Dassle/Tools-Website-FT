@@ -188,9 +188,18 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   // AND whenever the attract root can (re)mount — config null→set and
   // booting→false both change which tree is rendered, and a freshly mounted
   // root starts its animations at a random phase until seeked.
+  //
+  // adIndex is in here because of the HEADLINE layout: its vehicle is chosen by
+  // the SLIDE (car on racing, ball on bowling, nothing on gel/Game Zone), so a
+  // new element mounts mid-loop every rotation and would start at a random
+  // phase — the bank visibly falls out of step after the first crossing. The
+  // ad-zone layout mounted one vehicle per BRAND at root mount, so it never
+  // needed this. Seeking is idempotent (every target is derived from the same
+  // shared clock), so re-running it on a slide flip costs a querySelectorAll
+  // and cannot introduce a jump.
   useEffect(() => {
     syncGlowPhase(rootRef.current, offset);
-  }, [offset, config, booting]);
+  }, [offset, config, booting, adIndex]);
 
   // Self-update while IDLE: the between-guest reset check (version.ts) only
   // fires when a session ends, so a kiosk parked on attract overnight keeps
@@ -254,8 +263,14 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
 
   return (
     <div ref={rootRef} className="absolute inset-0 flex flex-col overflow-hidden bg-[#000418]">
-      {/* Language switcher — attract screen only (fixed top-right). */}
-      <LanguageSwitcher />
+      {/* Language switcher. Its default slot (top-[500px]) was tuned to sit just
+          BELOW the 480px ad zone — with that gone in the headline layout it
+          floated over the logo and read as debris, so there it moves into the
+          footer band instead, beside the venue name where the rest of the
+          chrome lives. The ad-zone layout keeps the original placement. */}
+      <LanguageSwitcher
+        posClass={attractLayout === "headline" ? "right-[32px] bottom-[34px]" : undefined}
+      />
       {/* Hidden staff entry — 5 taps top-left corner → admin (no visible affordance) */}
       <button
         type="button"

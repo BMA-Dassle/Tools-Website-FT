@@ -53,8 +53,40 @@ import { venueSlug, type KioskConfig } from "../config";
 import { kioskBillboardEnabled } from "../flags";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { useT } from "../i18n";
+import { syncGlowPhase } from "../hooks/useKioskClock";
 import { BrandLogo } from "./BrandLogo";
 import { clickableDivProps } from "@/lib/a11y";
+
+/** How often a playing clip is re-checked against the shared clock. */
+const DRIFT_CHECK_MS = 4000;
+/** Only correct drift a viewer could actually see — a seek is a visible hitch,
+ *  so nudging on every tick would stutter more than the drift it fixes. */
+const DRIFT_TOLERANCE_S = 0.25;
+
+/**
+ * Put a looping clip at the frame the SHARED clock says it should be on.
+ *
+ * Same principle as syncGlowPhase for CSS animations: position is derived, not
+ * remembered, so a kiosk that boots late, resyncs its clock, or re-mounts the
+ * screen lands on exactly the frame its neighbours are showing. Modulo the
+ * clip's own duration, so clips of different lengths each stay aligned to
+ * themselves across the bank.
+ *
+ * `tolerance` makes it a drift CORRECTION rather than an unconditional seek:
+ * pass it from the watchdog so an already-aligned clip is left alone.
+ */
+function seekToClock(el: HTMLVideoElement, offset: number, tolerance = 0): void {
+  const duration = el.duration;
+  // Metadata not in yet — the loadedmetadata pass will place it.
+  if (!Number.isFinite(duration) || duration <= 0) return;
+  const want = ((((Date.now() + offset) / 1000) % duration) + duration) % duration;
+  if (tolerance > 0 && Math.abs(el.currentTime - want) <= tolerance) return;
+  try {
+    el.currentTime = want;
+  } catch {
+    /* not seekable yet — the next tick gets it */
+  }
+}
 
 /** Headline base size; measured DOWN from here when a phrase is too wide. */
 const HEADLINE_PX = 150;
@@ -138,11 +170,29 @@ export function AttractHeadline({
    * decoder busy) just leaves the poster still showing, which is a correct
    * fallback rather than an error state.
    */
+  /**
+   * Re-seek the headline lane to the shared clock whenever its animated
+   * children change identity.
+   *
+   * AttractScreen seeks the whole root on [offset, config, booting, adIndex],
+   * which covers a slide flip — but NOT the billboard, which suppresses the
+   * vehicle for its ~11s and then brings it back with adIndex unchanged. A
+   * freshly mounted element starts its animation wherever the browser happens
+   * to be, so without this the bank falls out of step after every show at
+   * HeadPinz. Cheap and idempotent: every target derives from the same clock,
+   * so re-seeking an already-aligned animation is a no-op.
+   */
+  const laneRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    syncGlowPhase(laneRef.current, offset);
+  }, [offset, vehicle, index, onShow]);
+
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   useEffect(() => {
     videoRefs.current.forEach((el, i) => {
       if (!el) return;
       if (i === index && !onShow) {
+        seekToClock(el, offset);
         void el.play().catch(() => {
           /* poster stays up — never blank the backdrop over this */
         });
@@ -150,7 +200,31 @@ export function AttractHeadline({
         el.pause();
       }
     });
-  }, [index, onShow]);
+  }, [index, onShow, offset]);
+
+  /**
+   * Keep the PLAYING clip locked to the shared clock.
+   *
+   * syncGlowPhase only seeks CSS animations; a <video> just plays from wherever
+   * it happened to start, so two kiosks showing the same slide sit at different
+   * frames — the bank looks out of step even though the rotation is in step.
+   * seekToClock derives the frame from the same wall clock everything else
+   * uses, so every screen shows the SAME frame of the SAME clip.
+   *
+   * Decoders also drift (dropped frames, a stalled buffer, a resumed tab), so
+   * a seek at slide-change alone is not enough on a screen that runs for weeks.
+   * This watchdog re-checks while the clip is on and nudges it back only when
+   * it has drifted past a threshold a viewer could notice — correcting every
+   * tick would stutter, correcting never would slowly desynchronise the row.
+   */
+  useEffect(() => {
+    if (onShow) return;
+    const iv = setInterval(() => {
+      const el = videoRefs.current[index];
+      if (el && !el.paused) seekToClock(el, offset, DRIFT_TOLERANCE_S);
+    }, DRIFT_CHECK_MS);
+    return () => clearInterval(iv);
+  }, [index, onShow, offset]);
 
   return (
     <>
@@ -183,6 +257,9 @@ export function AttractHeadline({
                 preload="auto"
                 tabIndex={-1}
                 aria-hidden="true"
+                // Duration is unknown until metadata lands, so the activation
+                // seek above can be a no-op on a cold start. Place it here too.
+                onLoadedMetadata={(e) => seekToClock(e.currentTarget, offset)}
                 className="absolute inset-0 h-full w-full object-cover"
               />
             )}
@@ -262,7 +339,7 @@ export function AttractHeadline({
         {/* The vehicle crosses THROUGH the word, so the lane is the headline's
             own box. Parked at left:100% and clipped by the canvas, it is
             invisible except during its ~2s crossing. */}
-        <span className="relative grid w-full place-items-center">
+        <span ref={laneRef} className="relative grid w-full place-items-center">
           <span
             ref={headlineRef}
             data-glow-phase-ms={phaseMs}

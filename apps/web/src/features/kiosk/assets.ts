@@ -93,15 +93,25 @@ export const KIOSK_PHOTOS = {
  * A slide with no entry here falls back to its still `photo` with ken-burns,
  * which is a supported mix — the screen must never depend on a clip existing.
  *
- * ⚠ GEL: the Nexus montage (marketing drive, "Nexus Assets-June 2025 / Motion
- * Graphics / _11_30SecMontage_Edit1_v1.mp4") is already cut 1080×1920 — native
- * kiosk portrait — but is NOT on the blob yet. Upload it, add the key here, and
- * the gel slide picks it up with no other change. Until then gel runs its still.
+ * SIZE IS A CORRECTNESS CONCERN HERE, not just a cost one. Chrome refuses to
+ * store any single cache entry larger than roughly 1/8 of its disk cache, which
+ * lands around 30–40MB on these machines. A clip over that ceiling is evicted
+ * immediately and RE-DOWNLOADS every time a guest finishes and the attract
+ * screen re-mounts — on a screen that runs 24/7. So kiosk clips are encoded
+ * kiosk-sized (810×1440, silent, ~2–4MB) rather than reusing the marketing
+ * masters:
+ *   - race was the 31.9MB landscape home-page hero, centre-cropped by the
+ *     browser. Now a 2.5MB portrait cut framed on the karts.
+ *   - gel is the Nexus montage (marketing drive, "Nexus Assets-June 2025"),
+ *     trimmed before its "EXPERIENCE NEXUS TODAY!" end card, which would
+ *     otherwise collide with our own headline. 38MB source → 3.9MB.
+ * bowl and arcade are already small enough to use as-is.
  */
 export const KIOSK_VIDEOS = {
-  /** FastTrax kart reel — reused from the marketing home hero. */
-  race: `${BLOB_HOST}/images/hero/hero-video.mp4`,
+  /** Portrait kiosk cut of the FastTrax kart reel (from images/hero/hero-video.mp4). */
+  race: `${BLOB_HOST}/videos/ft-race-kiosk.mp4`,
   bowl: `${BLOB_HOST}/videos/headpinz-bowling.mp4`,
+  gel: `${BLOB_HOST}/videos/nexus-gel-kiosk.mp4`,
   arcade: `${BLOB_HOST}/videos/headpinz-arcade-v2.mp4`,
 } as const;
 
@@ -170,7 +180,7 @@ const FORT_MYERS_AD_SLIDES: KioskAdSlide[] = [
     accent: "#46d68c",
     photo: KIOSK_PHOTOS.gel,
     headline: "attract.letsBlast",
-    // no `video` — the Nexus montage isn't on the blob yet (see KIOSK_VIDEOS)
+    video: "gel",
   },
   {
     title: "Game Zone starts here",
@@ -200,6 +210,7 @@ const NAPLES_AD_SLIDES: KioskAdSlide[] = [
     accent: "#46d68c",
     photo: KIOSK_PHOTOS.gel,
     headline: "attract.letsBlast",
+    video: "gel",
   },
   {
     title: "Game Zone starts here",
