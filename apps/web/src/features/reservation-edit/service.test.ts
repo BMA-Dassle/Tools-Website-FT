@@ -29,6 +29,8 @@ vi.mock("@/lib/reservation-edit-log", () => ({
   markEditPendingPayment: vi.fn(async () => {}),
   listEditEventsByAnchors: vi.fn(async () => []),
   getLatestEditEvent: vi.fn(async () => null),
+  getOpenEditEvent: vi.fn(async () => null),
+  refundedCentsForPayment: vi.fn(async () => ({ cents: 0, refundIds: [] })),
 }));
 vi.mock("@/lib/reservation-cancel-log", () => ({
   getLatestCancelEvent: vi.fn(async () => null),
@@ -76,11 +78,13 @@ import redis from "@/lib/redis";
 import { getBowlingReservation, updateReservationAfterEdit } from "@/lib/bowling-db";
 import {
   finishEditEvent,
+  getOpenEditEvent,
   listEditEventsByAnchors,
   markEditPendingPayment,
   nextEditAttempt,
   recordEditPayment,
   recordEditRefund,
+  refundedCentsForPayment,
   startEditEvent,
 } from "@/lib/reservation-edit-log";
 import { loadGiftCard } from "@/lib/square-gift-card";
@@ -221,6 +225,9 @@ beforeEach(() => {
     tenders: [],
   } as never);
   vi.mocked(redis.set).mockResolvedValue("OK" as never);
+  // Defaults reset per test — mockResolvedValue persists past clearAllMocks.
+  vi.mocked(getOpenEditEvent).mockResolvedValue(null);
+  vi.mocked(refundedCentsForPayment).mockResolvedValue({ cents: 0, refundIds: [] });
 });
 
 afterEach(() => {
@@ -467,6 +474,40 @@ describe("executeEditCascade — PRE decrease", () => {
     expect(vi.mocked(recordEditRefund)).toHaveBeenCalledWith("edit-42-a1", "RF1");
   });
 
+  it("refuses a DIFFERENT edit while one is parked, but allows resuming that same id", async () => {
+    // §4.3: the plan-time open-event check is only a warning and the Redis
+    // lock open-fails; without this guard a second edit plans against stale
+    // money facts and re-refunds what the parked attempt already moved.
+    vi.mocked(getOpenEditEvent).mockResolvedValue({
+      editId: "edit-42-a7",
+      state: "started",
+    } as never);
+    depositFacts([{ paymentId: "PAY_DEP", amountCents: 5000 }]);
+
+    const code = await guardCode(() =>
+      executeEditCascade(
+        baseReq(mkPlan(DECREASE_STEPS, { diffCents: -500, settlement: "card_refund" })),
+      ),
+    );
+    expect(code).toBe("edit_in_progress");
+    expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
+    expect(vi.mocked(startEditEvent)).not.toHaveBeenCalled();
+
+    // Resuming THAT id replays the same idempotency namespace — allowed.
+    vi.mocked(fetchPaymentFacts).mockResolvedValue({
+      id: "PAY_DEP",
+      status: "COMPLETED",
+      amountCents: 5000,
+      refundedCents: 0,
+      sourceType: "CARD",
+    } as never);
+    await executeEditCascade({
+      ...baseReq(mkPlan(DECREASE_STEPS, { diffCents: -500, settlement: "card_refund" })),
+      resumeEditId: "edit-42-a7",
+    });
+    expect(vi.mocked(startEditEvent)).toHaveBeenCalled();
+  });
+
   it("a gift-card-funded deposit tender fails PRE-FLIGHT — before any money moves", async () => {
     depositFacts([{ paymentId: "PAY_GC_DEP", amountCents: 5000 }]);
     // Owed 500 < remaining 5000 → the refund would be PARTIAL → uncoverable.
@@ -523,5 +564,99 @@ describe("executeEditCascade — PRE decrease", () => {
     // stop netting it.
     expect(vi.mocked(recordEditRefund)).toHaveBeenCalledWith("edit-42-a2", "RF_OLD");
     expect(result.refundIds).toEqual(expect.arrayContaining(["RF_OLD", "RF2"]));
+  });
+});
+
+describe("executeEditCascade — day-of refund leg (post-day-of flow)", () => {
+  const DAYOF_STEPS: EditStep[] = [
+    { kind: "audit_start", fatal: true },
+    { kind: "refund_dayof_payment", fatal: true, amountCents: 1605 },
+    { kind: "neon_commit", fatal: true },
+  ];
+  const ROW_PAID = { ...ROW, dayofPaymentId: "PAY_DAYOF" };
+  const dayofPlan = () => mkPlan(DAYOF_STEPS, { diffCents: -1605, settlement: "card_refund" });
+
+  beforeEach(() => {
+    process.env.RESERVATION_EDIT_V2_MID_DECREASE = "true";
+    vi.mocked(getBowlingReservation).mockResolvedValue(ROW_PAID as never);
+  });
+  afterEach(() => {
+    delete process.env.RESERVATION_EDIT_V2_MID_DECREASE;
+  });
+
+  it("requires a staff-supplied reason before any money moves", async () => {
+    const code = await guardCode(() => executeEditCascade(baseReq(dayofPlan())));
+    expect(code).toBe("dayof_reason_required");
+    expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
+    expect(vi.mocked(startEditEvent)).not.toHaveBeenCalled();
+  });
+
+  it("refuses a day-of reason that reuses the deposit journal key", async () => {
+    // Owner rule: "Refund: Reservation Deposit" is the portal's journal key
+    // for the CASH leg. Reusing it here double-counts one economic event.
+    const code = await guardCode(() =>
+      executeEditCascade({
+        ...baseReq(dayofPlan()),
+        dayofRefundReason: "Refund: Reservation Deposit",
+      }),
+    );
+    expect(code).toBe("dayof_reason_reserved");
+    expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
+  });
+
+  it("passes the staff reason through to Square, not the deposit key", async () => {
+    vi.mocked(refundTenderPartial).mockResolvedValueOnce({
+      refundId: "RF_DAYOF",
+      refundedCents: 1605,
+    });
+    const result = await executeEditCascade({
+      ...baseReq(dayofPlan()),
+      dayofRefundReason: "Pizza returned unmade — lane 6",
+    });
+    expect(vi.mocked(refundTenderPartial)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paymentId: "PAY_DAYOF",
+        amountCents: 1605,
+        reason: "Pizza returned unmade — lane 6",
+      }),
+    );
+    expect(result.refundIds).toContain("RF_DAYOF");
+    expect(vi.mocked(recordEditRefund)).toHaveBeenCalledWith("edit-42-a1", "RF_DAYOF");
+  });
+
+  it("nets a prior attempt's day-of refund instead of refunding twice", async () => {
+    // The bug this closes: refundTenderPartial clamps to the PAYMENT's
+    // un-refunded remainder (still large after a partial), so a retry on a
+    // fresh idempotency namespace would refund the same items again.
+    vi.mocked(refundedCentsForPayment).mockResolvedValueOnce({
+      cents: 1605,
+      refundIds: ["RF_PRIOR"],
+    });
+    const result = await executeEditCascade({
+      ...baseReq(dayofPlan()),
+      dayofRefundReason: "Pizza returned unmade — lane 6",
+    });
+    expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
+    // The prior refund is absorbed into THIS event so it stays accounted for.
+    expect(vi.mocked(recordEditRefund)).toHaveBeenCalledWith("edit-42-a1", "RF_PRIOR");
+    expect(result.refundIds).toContain("RF_PRIOR");
+  });
+
+  it("refunds only the un-netted remainder when a prior attempt partly paid out", async () => {
+    vi.mocked(refundedCentsForPayment).mockResolvedValueOnce({
+      cents: 605,
+      refundIds: ["RF_PRIOR"],
+    });
+    vi.mocked(refundTenderPartial).mockResolvedValueOnce({
+      refundId: "RF_REST",
+      refundedCents: 1000,
+    });
+    await executeEditCascade({
+      ...baseReq(dayofPlan()),
+      dayofRefundReason: "Pizza returned unmade — lane 6",
+    });
+    expect(vi.mocked(refundTenderPartial)).toHaveBeenCalledWith(
+      expect.objectContaining({ amountCents: 1000 }),
+    );
   });
 });

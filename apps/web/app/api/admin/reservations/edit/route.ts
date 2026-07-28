@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
     planHash?: unknown;
     notifyGuest?: unknown;
     managerOverride?: unknown;
+    dayofRefundReason?: unknown;
   };
   try {
     body = await req.json();
@@ -115,6 +116,10 @@ export async function POST(req: NextRequest) {
       notifyGuest: body.notifyGuest !== false,
       actor: "admin",
       origin: req.nextUrl.origin,
+      // Staff-entered, recorded on the Square refund for the day-of leg. The
+      // executor rejects a missing/reserved value before any money moves.
+      dayofRefundReason:
+        typeof body.dayofRefundReason === "string" ? body.dayofRefundReason : undefined,
     });
     return NextResponse.json(result);
   } catch (err) {

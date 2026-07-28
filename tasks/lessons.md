@@ -167,6 +167,44 @@ operational model is: refund the guest's money on the CARD payment with reason e
 - Any NEW ledger that records refunds (e.g. `reservation_edit_events`) must be added to the
   refund-alerts sanctioned set (`recordedCascadeRefundIds`), or the system yells at its own
   refunds as Dashboard violations. Refund-alerts whitelists by refund ID, not reason.
+
+**UPDATE — OVERTURNED at the API level (2026-07-27, owner-authorized live probe
+`apps/web/scripts/gc-refund-probe.mts` + `-followup.mts`):** `POST /v2/refunds` **ACCEPTED a $1
+PARTIAL refund of a $2 gift-card-funded payment** (real chain: owner's VISA bought a $2 gift
+card → gift card paid a $2 order → $1 partial refund of that GC payment → accepted, completed,
+payment shows refunded_money=$2 after the remainder refund). The 7/11 "NO" was never an API
+attempt — it was a dashboard/ops-flow limitation recorded as if it were an API rule.
+Consequences:
+
+- The `skipGiftCardTender` hop in `refundTenderPartial` and the GIFT_CARD skip in the edit
+  allocator are OVER-conservative (safe, but partial GC refunds are in fact available).
+- `RESERVATION_EDIT_V2_MID_DECREASE` / `_POST` "must be redesigned" (§14 A1) should be
+  revisited — the original GC-tender-refund specs appear viable as written. Re-verify in the
+  exact production shape before flipping anything on.
+- Unlinked refunds: still **NOT enabled** as of 2026-07-27 — a validly-shaped request
+  (`unlinked: true`, `destination_id` = card on file, `customer_id` present) returns
+  `REFUND_ERROR/REFUND_DECLINED`. Note the request REQUIRES `customer_id` when destination is a
+  card on file (first attempt without it fails validation, which masks the entitlement answer).
+- Probe-sequencing lesson: NEVER `DEACTIVATE` a gift card while refunds to it are PENDING — the
+  refund credit lands asynchronously (payment showed refunded before any REFUND activity
+  appeared on the card). Verify the REFUND activity on the card before teardown.
+- Reason-string lesson (owner correction, 2026-07-27): EVERY real Square refund — probes and
+  one-off scripts included — carries the exact reason **"Refund: Reservation Deposit"**. The
+  portal's journal-entry pickup keys off it; an ad-hoc reason ("probe: …") means the refund is
+  invisible to the journal and needs manual accounting. The 7/27 probe created three such
+  refunds (2×$1 on the GC spend payment, 1×$2 on the VISA purchase payment); Square refund
+  reasons are immutable, so those three need manual journal entries.
+- Refund-reason SCOPE (owner, 2026-07-27): `"Refund: Reservation Deposit"` belongs to the
+  **deposit / cash-out leg only**. A refund of the DAY-OF Square payment (the GC-funded revenue
+  order) must NOT carry it — that would double-count one economic event in the portal journal.
+  The day-of leg carries its own **staff-supplied reason** entered in the admin portal at refund
+  time. Per-domain reasons are the norm, not an exception (group functions already use
+  `"Refund: Group Event Deposit"`).
+- Probe-location rule (owner, 2026-07-27): ALL live Square probes run against location
+  **`6MZJFTGAYD7TC`** — it does NOT track accounting. NEVER probe against a revenue location
+  (the 7/27 probes hit HeadPinz Fort Myers `TXBSQN0FEKQ11` and put probe sales/refunds into
+  that day's books). Every probe script's `LOCATION` constant uses `6MZJFTGAYD7TC`.
+
 ## Pandora heatNumber is CREATION-order, not schedule-order — never order heats by it (2026-07-11)
 
 **What happened:** Staff inserted an extra Blue session mid-day ("76 - Blue Junior Starter",

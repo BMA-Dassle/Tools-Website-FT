@@ -24,10 +24,12 @@ import {
 } from "@/lib/bowling-db";
 import {
   finishEditEvent,
+  getOpenEditEvent,
   markEditPendingPayment,
   nextEditAttempt,
   recordEditPayment,
   recordEditRefund,
+  refundedCentsForPayment,
   startEditEvent,
   listEditEventsByAnchors,
 } from "@/lib/reservation-edit-log";
@@ -76,6 +78,17 @@ export interface ExecuteEditRequest {
    * source is now real).
    */
   resumeEditId?: string;
+  /**
+   * Staff-entered reason for the DAY-OF Square refund (owner rule 2026-07-27).
+   *
+   * The day-of leg must NOT carry "Refund: Reservation Deposit" — that string
+   * is the accounting portal's journal key and belongs to the deposit/cash-out
+   * leg alone. One economic refund moves money twice (day-of GC-payment
+   * reversal + deposit card refund); if both carried the magic string the
+   * portal would journal the event twice. Required whenever the plan contains
+   * a day-of refund step.
+   */
+  dayofRefundReason?: string;
 }
 
 export interface EditResult {
@@ -94,6 +107,30 @@ export interface EditResult {
 
 const flag = (name: string): boolean => process.env[name] === "true";
 
+/**
+ * Edit-lock TTL. Long enough to outlive an await-the-gift-card-credit wait
+ * (Square posts refund credits asynchronously — observed 30-90s on 2026-07-27,
+ * and the wait step polls well past that before parking). The old 180s could
+ * expire mid-settlement, letting a second mutation in while the first was
+ * still holding un-decremented gift-card value. Refresh with `extendEditLock`
+ * around any long wait rather than raising this further.
+ */
+export const EDIT_LOCK_TTL_SECONDS = 600;
+
+/**
+ * Refresh the edit lock's TTL. Called around long waits so a slow Square
+ * settlement can't drop the mutual exclusion. Best-effort: a Redis failure
+ * leaves the deterministic idempotency keys as the money guard, same as the
+ * acquire path.
+ */
+export const extendEditLock = async (anchorId: number): Promise<void> => {
+  try {
+    await redis.set(`edit:lock:${anchorId}`, "1", "EX", EDIT_LOCK_TTL_SECONDS);
+  } catch {
+    /* Redis down — idempotency keys still protect money */
+  }
+};
+
 /** Sum of |amount| still to refund across a list, oldest-last allocation. */
 interface RefundTarget {
   paymentId: string;
@@ -110,7 +147,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
   const lockKey = `edit:lock:${anchorId}`;
   let lockHeld = false;
   try {
-    lockHeld = (await redis.set(lockKey, "1", "EX", 180, "NX")) === "OK";
+    lockHeld = (await redis.set(lockKey, "1", "EX", EDIT_LOCK_TTL_SECONDS, "NX")) === "OK";
   } catch {
     lockHeld = true; // Redis down — deterministic idempotency keys still protect money
   }
@@ -175,6 +212,41 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
       ? parseInt(req.resumeEditId.match(/-a(\d+)$/)?.[1] ?? "1", 10)
       : await nextEditAttempt(anchorId);
     const editId = req.resumeEditId ?? `edit-${anchorId}-a${attempt}`;
+
+    // ── Hard open-event guard ──────────────────────────────────────────
+    // The plan-time hasOpenEditEvent check is only a WARNING, and the Redis
+    // lock is per-process-window (and open-fails when Redis is down), so
+    // neither stops a SECOND edit from starting on top of an attempt that
+    // already moved money and parked. Resuming that same attempt is fine —
+    // it replays the identical idempotency keys — but any OTHER editId would
+    // plan against stale money facts and re-refund. Refuse it here, where we
+    // finally know both ids.
+    const openEvent = await getOpenEditEvent(plan.legIds);
+    if (openEvent && openEvent.editId !== editId) {
+      throw new EditGuardError(
+        "edit_in_progress",
+        `edit ${openEvent.editId} is ${openEvent.state} for this group — resume or fail it before starting another`,
+      );
+    }
+
+    // Owner rule (2026-07-27): the day-of refund carries a staff-supplied
+    // reason, never the deposit leg's journal key. Enforced before the audit
+    // row so a missing reason can never reach a money step.
+    const needsDayofReason = kinds.has("refund_dayof_payment") || kinds.has("refund_dayof_order");
+    const dayofRefundReason = req.dayofRefundReason?.trim();
+    if (needsDayofReason && !dayofRefundReason) {
+      throw new EditGuardError(
+        "dayof_reason_required",
+        "a refund reason for the day-of charge is required (it is recorded on the Square refund and shown to accounting)",
+      );
+    }
+    if (dayofRefundReason && /reservation deposit/i.test(dayofRefundReason)) {
+      throw new EditGuardError(
+        "dayof_reason_reserved",
+        '"Reservation Deposit" is reserved for the deposit refund — the portal journals off it. Describe the day-of refund instead.',
+      );
+    }
+
     await startEditEvent({
       editId,
       anchorReservationId: anchorId,
@@ -349,12 +421,40 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
 
           case "refund_dayof_payment": {
             if (!anchor.dayofPaymentId) throw new Error("no lane-open payment id on the row");
+            const asked = step.amountCents ?? -plan.diffCents;
+
+            // NET refunds prior attempts already issued against THIS payment.
+            // refundTenderPartial clamps only to the payment's un-refunded
+            // remainder, which stays large after a partial — so a retry that
+            // bumped to a fresh idempotency namespace would otherwise refund
+            // the same items twice. (The deposit leg has had this netting
+            // since 2026-07-11; the day-of leg never did.)
+            const prior = await refundedCentsForPayment(
+              plan.legIds,
+              anchor.dayofPaymentId,
+              fetchRefundFacts,
+            );
+            for (const rid of prior.refundIds) {
+              if (!refundIds.includes(rid)) refundIds.push(rid);
+              await recordEditRefund(editId, rid);
+            }
+            const owed = Math.max(0, asked - prior.cents);
+            if (owed === 0) {
+              stepLog.push({
+                step: step.kind,
+                ok: true,
+                detail: `already refunded (${prior.cents}¢ netted)`,
+              });
+              break;
+            }
+
             const r = await refundTenderPartial({
               editId,
               refundIndex: 90, // reserved namespace for the gift-card tender refund
               paymentId: anchor.dayofPaymentId,
-              amountCents: step.amountCents ?? -plan.diffCents,
-              reason: "Refund: Reservation Deposit",
+              amountCents: owed,
+              // Owner rule: staff-supplied, never the deposit journal key.
+              reason: dayofRefundReason!,
             });
             if (r.refundId) {
               refundIds.push(r.refundId);
@@ -405,7 +505,9 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
                 paymentId: tender.paymentId,
                 amountCents: tender.amountCents,
                 baseKey: `${editId}-t${n}`,
-                reason: "Refund: Reservation Deposit",
+                // Day-of leg: staff-supplied reason, never the deposit
+                // journal key (owner rule 2026-07-27).
+                reason: dayofRefundReason!,
               });
               refundIds.push(r.refundId);
               await recordEditRefund(editId, r.refundId);

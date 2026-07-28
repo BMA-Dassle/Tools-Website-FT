@@ -114,17 +114,32 @@ async function ensureSchema(): Promise<void> {
 
 /**
  * Attempt number for the next edit against this reservation: 1 + count of
- * FAILED prior attempts. 'started' and 'pending_payment' rows keep their key
- * namespace (resume/link-completion replays the same idempotency keys).
+ * TERMINAL prior attempts (failed OR completed). 'started' and
+ * 'pending_payment' rows are resumable and keep their key namespace, so they
+ * are deliberately NOT counted — a resume replays the same idempotency keys.
+ *
+ * Counting COMPLETED rows (not just failed) is what makes a SECOND, unrelated
+ * edit on the same reservation get a fresh namespace. Counting only failures
+ * (the pre-2026-07-27 behavior) meant edit #2 recomputed attempt=1, reused the
+ * completed edit's `edit-{id}-a1` namespace, and then: startEditEvent's upsert
+ * flipped the finished row back to 'started' (clobbering its spec/plan while
+ * keeping its refund_ids), `-r90` replayed with a different amount → Square
+ * rejected the idempotency reuse, `-dec` replayed the FIRST decrement's stored
+ * response instead of decrementing again, and the stranded-refund netting
+ * absorbed edit #1's refunds against edit #2's owed amount — refunding nothing
+ * while still editing order lines. Pair this with the open-event guard
+ * (getOpenEditEvent) so a crashed 'started' row is resumed, never collided
+ * with.
  */
 export async function nextEditAttempt(anchorReservationId: number): Promise<number> {
   await ensureSchema();
   const q = sql();
   const rows = await q`
-    SELECT COUNT(*)::int AS failed FROM reservation_edit_events
-    WHERE anchor_reservation_id = ${anchorReservationId} AND state = 'failed'
+    SELECT COUNT(*)::int AS terminal FROM reservation_edit_events
+    WHERE anchor_reservation_id = ${anchorReservationId}
+      AND state IN ('failed', 'completed')
   `;
-  return ((rows[0]?.failed as number) ?? 0) + 1;
+  return ((rows[0]?.terminal as number) ?? 0) + 1;
 }
 
 /**
@@ -325,19 +340,76 @@ export async function listEditEventsByAnchors(
 
 /** True when an edit attempt is currently in flight for any of these rows. */
 export async function hasOpenEditEvent(reservationIds: number[]): Promise<boolean> {
-  if (!isDbConfigured() || reservationIds.length === 0) return false;
+  return (await getOpenEditEvent(reservationIds)) !== null;
+}
+
+/**
+ * The in-flight (resumable) edit attempt for any of these rows, or null.
+ *
+ * Unlike `hasOpenEditEvent` (an advisory plan-time warning), this returns the
+ * ROW so the executor can hard-refuse a *different* edit while one is parked —
+ * and still allow the legitimate resume of that same editId. Without the row
+ * identity the executor cannot tell "resume my own crashed attempt" (safe,
+ * replays the same idempotency keys) from "start a second, different edit on
+ * top of one that already moved money" (double-refund).
+ *
+ * NOTE the 48h horizon is deliberate: it bounds how long an abandoned row can
+ * block edits. Any state added to the resumable set here MUST also be added to
+ * the executor's guard, or a parked attempt becomes invisible to it.
+ */
+export async function getOpenEditEvent(reservationIds: number[]): Promise<EditEventRow | null> {
+  if (!isDbConfigured() || reservationIds.length === 0) return null;
   try {
     await ensureSchema();
     const q = sql();
     const rows = await q`
-      SELECT 1 FROM reservation_edit_events
+      SELECT * FROM reservation_edit_events
       WHERE (anchor_reservation_id = ANY(${reservationIds}) OR leg_ids && ${reservationIds})
         AND state IN ('started', 'pending_payment')
         AND created_at > NOW() - INTERVAL '48 hours'
-      LIMIT 1
+      ORDER BY created_at DESC LIMIT 1
     `;
-    return rows.length > 0;
+    return rows.length ? rowToEvent(rows[0]) : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/**
+ * Cents already refunded against `paymentId` by edit attempts on this money
+ * group — the day-of twin of refundAcrossTenders' stranded-refund netting.
+ *
+ * Without this, a FAILED attempt that got as far as refunding the day-of
+ * payment double-refunds on retry: the new attempt bumps to a fresh
+ * idempotency namespace, and refundTenderPartial clamps only to the PAYMENT's
+ * un-refunded remainder (which is still large), so Square happily issues a
+ * second refund for the same items. Netting exists for deposit tenders
+ * (service.ts) but never covered day-of payments.
+ *
+ * FAILED/REJECTED refunds are ignored — that money never left.
+ */
+export async function refundedCentsForPayment(
+  reservationIds: number[],
+  paymentId: string,
+  fetchRefund: (
+    refundId: string,
+  ) => Promise<{ paymentId: string; amountCents: number; status: string }>,
+): Promise<{ cents: number; refundIds: string[] }> {
+  const events = await listEditEventsByAnchors(reservationIds);
+  const ids = [...new Set(events.flatMap((e) => e.refundIds ?? []))];
+  let cents = 0;
+  const matched: string[] = [];
+  for (const rid of ids) {
+    let f: { paymentId: string; amountCents: number; status: string };
+    try {
+      f = await fetchRefund(rid);
+    } catch {
+      continue; // unreadable refund — treated as not-ours rather than blocking
+    }
+    if (f.status === "FAILED" || f.status === "REJECTED") continue;
+    if (f.paymentId !== paymentId) continue;
+    cents += f.amountCents;
+    matched.push(rid);
+  }
+  return { cents, refundIds: matched };
 }

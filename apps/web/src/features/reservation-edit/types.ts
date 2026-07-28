@@ -104,6 +104,10 @@ export type EditGuardCode =
   | "heat_capacity"
   | "qamf_availability"
   | "payment_required"
+  // Day-of refund leg carries a staff-entered reason; "Reservation Deposit"
+  // is reserved for the deposit/cash leg (portal journal key).
+  | "dayof_reason_required"
+  | "dayof_reason_reserved"
   | "no_changes";
 
 /** Typed guard failure — routes map these to 409s with the code as reason. */

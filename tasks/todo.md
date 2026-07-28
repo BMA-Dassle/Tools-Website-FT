@@ -1,5 +1,41 @@
 # Open Tasks
 
+## Post-day-of refund flow — PLAN WRITTEN 2026-07-27, awaiting owner sign-off
+
+**Plan: [tasks/future/post-dayof-refund-plan.md](future/post-dayof-refund-plan.md)** — research
+complete (10-agent workflow: 4 subsystem readers, 68 scenarios across 5 lenses, adversarial
+critic) + 3 owner-authorized live Square probes. Blocked on three owner decisions (§5): the
+double-reason journal question, tender allocation policy, and whether arbitrary goodwill refunds
+are in v1.
+
+
+Owner requirement (2026-07-27): **the Payments tab and History tab in ManageReservationModal
+must reflect EVERYTHING we do to a reservation** — edits, partial/full refunds, store credit,
+gift-card adjustments, and the new post-day-of refund chain. Any money step that doesn't
+surface in those two tabs is unfinished. Full plan doc lands at
+tasks/future/post-dayof-refund-plan.md (research workflow in flight).
+
+Owner requirement (2026-07-27): **full testing is part of the plan** — unit tests per money
+step/allocator/guard, live API probes at the non-accounting location `6MZJFTGAYD7TC`, and an
+end-to-end seed+smoke of the real flow (book → pay deposit → check in → charge day-of →
+partial refund chain → verify Square + Neon + Payments/History tabs) before anything is
+called done. No flag flips without the smoke checklist passing.
+
+## KNOWN ISSUE (parked 2026-07-27): PRE-phase race edit — heat removal can't match order line
+
+Owner call: **park until the post-day-of refund flow ships, then return.** Repro (res 16924-era,
+Pedro Quinones fort-myers 7/27 9:36 PM, 3 heats): Edit Reservation → remove one "Starter Race
+Red" heat → PRICE panel shows `pricing_unresolvable`: "no order line matches removed heat
+'Starter Race Red' — the order money can't be derived safely; adjust this one manually in
+Square". Source: the exact-match guard in
+[apps/web/src/features/reservation-edit/plan.ts:846-861] — a removed heat must match a live
+order line by `catalogObjectId` OR exact `name`; this reservation's lines miss on both (screenshot
+shows the Overview lines as "Starter Race Red" ×3, so likely a catalog-id-vs-name divergence or a
+prefixed/noted line name). Guard is failing SAFE (no money moves), so no urgency. When resumed:
+diff the removed heat's label/catalogObjectId against the live order's line_items for that res
+class, then widen the matcher (e.g. normalize names, fall back to unit-price match) without
+weakening the pricing-unresolvable protection.
+
 ## Bowling reservation flow redesign (single time pick + offer-accurate availability) — BUILT 2026-07-19, DARK
 
 Full plan: [tasks/bowling-reservation-flow-plan.md](bowling-reservation-flow-plan.md). **Built on
