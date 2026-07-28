@@ -92,10 +92,12 @@ export async function GET(req: NextRequest) {
       productKinds,
     });
 
-    // HPFM board: drop the 'fort-myers' slug rows that belong to FastTrax
-    // (races, duck-pin) while keeping HeadPinz attractions like laser tag.
-    // Those attractions ALSO stay on the FastTrax embed (unchanged) — FastTrax
-    // kiosks legitimately sell them, so both boards showing the row is correct.
+    // HPFM board: drop the 'fort-myers' slug rows that are purely FastTrax
+    // (races without HeadPinz attraction legs, duck-pin) while keeping
+    // HeadPinz attractions like laser tag — including mixed race + attraction
+    // carts, whose single 'race' anchor row carries the attraction legs in
+    // booking_metadata. These rows ALSO stay on the FastTrax embed (unchanged)
+    // — FastTrax kiosks legitimately sell them, so both boards see the row.
     const reservations =
       center === "TXBSQN0FEKQ11" ? allRows.filter(belongsOnHeadpinzFmBoard) : allRows;
 

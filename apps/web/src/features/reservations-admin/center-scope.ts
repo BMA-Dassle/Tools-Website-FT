@@ -35,18 +35,28 @@ function attractionSlugs(row: ScopedRow): string[] {
     .filter((s): s is string => typeof s === "string" && s.length > 0);
 }
 
+/** At least one attraction leg on the row is HeadPinz-owned (not FastTrax). */
+function hasHeadpinzAttraction(row: ScopedRow): boolean {
+  return attractionSlugs(row).some((s) => !FASTTRAX_ATTRACTION_SLUGS.has(s));
+}
+
 /**
  * Whether a row fetched for the HeadPinz Fort Myers board (center
  * TXBSQN0FEKQ11, aliased to also fetch the 'fort-myers' slug) belongs on it:
  * - native rows (Square-ID center_code, i.e. bowling/KBF) — always
- * - 'fort-myers' slug races — no (FastTrax racing)
  * - 'fort-myers' slug attractions — yes unless every slug is FastTrax-owned
  *   (rows with no slug metadata stay visible: visible-but-extra beats invisible)
+ * - 'fort-myers' slug races — only when the cart also bought a HeadPinz
+ *   attraction: a mixed race + attraction cart writes ONE anchor row with
+ *   product_kind 'race' (unified-reserve), the attraction legs living in
+ *   booking_metadata.attractions. That laser tag / gel blaster session happens
+ *   AT HeadPinz, so its staff must see the row. Pure races stay FastTrax-only.
  */
 export function belongsOnHeadpinzFmBoard(row: ScopedRow): boolean {
   if (row.centerCode !== "fort-myers") return true;
-  if (row.productKind !== "attraction") return false;
-  const slugs = attractionSlugs(row);
-  if (slugs.length === 0) return true;
-  return slugs.some((s) => !FASTTRAX_ATTRACTION_SLUGS.has(s));
+  if (row.productKind === "attraction") {
+    return attractionSlugs(row).length === 0 || hasHeadpinzAttraction(row);
+  }
+  if (row.productKind === "race") return hasHeadpinzAttraction(row);
+  return false;
 }

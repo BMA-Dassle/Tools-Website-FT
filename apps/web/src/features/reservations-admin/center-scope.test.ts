@@ -12,12 +12,41 @@ describe("belongsOnHeadpinzFmBoard", () => {
     );
   });
 
-  it("drops 'fort-myers' slug race rows (FastTrax racing)", () => {
+  it("drops pure 'fort-myers' slug race rows (FastTrax racing)", () => {
     expect(
       belongsOnHeadpinzFmBoard({
         centerCode: "fort-myers",
         productKind: "race",
         bookingMetadata: { heats: [{ heatId: "2026-07-27T18:00:00" }] },
+      }),
+    ).toBe(false);
+    // No metadata at all — unlike attractions, a race with no attraction legs
+    // has nothing happening at HeadPinz.
+    expect(belongsOnHeadpinzFmBoard({ centerCode: "fort-myers", productKind: "race" })).toBe(false);
+  });
+
+  it("keeps mixed race + HeadPinz attraction anchor rows (race kind, laser tag leg)", () => {
+    expect(
+      belongsOnHeadpinzFmBoard({
+        centerCode: "fort-myers",
+        productKind: "race",
+        bookingMetadata: {
+          heats: [{ heatId: "2026-07-27T18:00:00" }],
+          attractions: [{ slug: "laser-tag", slot: "2026-07-27T19:00:00", qty: 4 }],
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("drops race rows whose only attraction legs are FastTrax-owned", () => {
+    expect(
+      belongsOnHeadpinzFmBoard({
+        centerCode: "fort-myers",
+        productKind: "race",
+        bookingMetadata: {
+          heats: [{ heatId: "2026-07-27T18:00:00" }],
+          attractions: [{ slug: "duck-pin", slot: "2026-07-27T19:00:00", qty: 2 }],
+        },
       }),
     ).toBe(false);
   });
