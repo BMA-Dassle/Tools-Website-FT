@@ -1568,7 +1568,6 @@ export function KioskFlow({
         {voucherRedeem && (
           <KioskVoucherSummary
             vouchers={appliedVouchers}
-            onClear={clearVoucher}
             onOpen={() => setVoucherSheetOpen(true)}
             variant="web"
           />
@@ -1811,7 +1810,6 @@ export function KioskFlow({
         appliedPromo={promoEnabled ? session.appliedPromo : null}
         onClearPromo={() => dispatch({ type: "applyPromo", promo: null })}
         appliedVouchers={voucherRedeem ? appliedVouchers : []}
-        onClearVoucher={clearVoucher}
         onOpenVoucherSheet={() => setVoucherSheetOpen(true)}
       />,
     );
