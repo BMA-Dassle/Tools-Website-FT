@@ -140,7 +140,24 @@ Both are first-class plan fields persisted in the ledger, not an error path. Asy
 
 The critic verified each against code. These are not polish items; each one bites in week one.
 
-### 4.1 The feature has no input surface (largest unbuilt piece)
+### 4.1 The feature has no input surface (largest unbuilt piece) — **CLOSED `a7b2c773` + `0bf54bd1`**
+
+Built as `spec.orderLines` (desired qty per live Square line uid) plus the modal's
+"Charges on the day-of order" stepper. Two follow-on findings from the 7/28 owner
+report on res 16426, both fixed in `0bf54bd1`:
+
+- **The stepper was rendered only for bowling rows**, so a settled RACE had no refund
+  control at all — even though the server's `editable` decision is kind-agnostic. It is
+  now its own kind-agnostic section.
+- **A race pack bills as ONE line** ("Rookie Pack" ×1 = $27.67), so heat removal cannot
+  price a race refund (`repriceRaceDelta` refuses removing every heat, and a partial pack
+  removal finds no matching line). Returning the pack line is the refund. This is why the
+  order-lines control is the primary refund surface for racing, not a food-only extra.
+
+There is also now an entry point: `refundActionable()` puts a **Refund** button on
+exactly the rows Cancel refuses (terminal status + a day-of payment), opening the same
+modal with `intent="refund"`.
+
 
 `EditSpec` (`reservation-edit/types.ts:54-88`) carries playerCount / laneCount / durationOptionId /
 shoes / players / kbf / racers / attractions. **There is no line-item field**, and
@@ -324,7 +341,9 @@ tests).
 | 3b | Two-amount plan fields (`guestOwedCents` vs `gcDecrementCents`, §3) for gap-comped rows; correct the stale A1 comments in `service.ts` / `square-actions.ts` | Unit tests | **DONE** `da6e8d9d` |
 | 4 | Item-removal spec field (`spec.orderLines`) + modal picker + day-of reason input (§4.1) | Unit tests | **DONE** `a7b2c773` |
 | 5 | Money-only COMPLETED variant, 100%-refund shapes, Payments/History surfacing (§7) | Tier-3 smoke | **DONE** `356f403b` |
-| 6 | Flag flip per the v2 cutover safety pattern — deploy alongside, ops sign-off, then default-on | Full §8 checklist | TODO — **the remaining work is §9 probes + the §8 Tier-3 smoke, not engineering** |
+| 5b | Itemized refund + deterministic `reconcile_gift_card` (replaces `wait_gc_credit`) | Tier-3 smoke 11/11 | **DONE** `f71831c2` |
+| 5c | **Staff entry point**: `Refund` action on settled rows + phase-keyed flag gate + honest flag-off preview | Unit tests + read-only dry-run of res 16426 | **DONE** `0bf54bd1` |
+| 6 | Flag flip per the v2 cutover safety pattern — deploy alongside, ops sign-off, then default-on | Full §8 checklist | TODO — **the only remaining gate is the owner's journal-entry mapping decision** |
 
 Everything through PR3 is behavior-neutral while `RESERVATION_EDIT_V2_MID_DECREASE` and
 `RESERVATION_EDIT_V2_POST` stay off.
@@ -341,3 +360,16 @@ Combos, multi-GC groups, group functions, and BMI race-line updates are **explic
 - First probe card `…1430`: $2 of refund credits never posted before deactivation — reconcile or
   raise with Square.
 - Parked, unrelated: PRE-phase race edit "no order line matches removed heat" (see `tasks/todo.md`).
+  Root cause is now understood — pack bookings bill one collapsed line, so per-heat removal has
+  nothing to match. Post-payment phases route around it via `spec.orderLines`; PRE still needs a
+  real fix (reprice against the pack, or refuse with the pack-aware message added in `0bf54bd1`).
+- **Flag naming is now load-bearing.** `RESERVATION_EDIT_V2_MID_DECREASE` gates phase `mid`,
+  `RESERVATION_EDIT_V2_POST` gates phase `post_complete`, one per phase via
+  `refundFlagForPhase()`. Turning on `_POST` alone is what enables refunds on completed
+  visits like res 16426; before `0bf54bd1` that flag governed only the rebuild path.
+- **Verified end state for res 16426** (read-only dry-run, `0bf54bd1`): phase `post_complete`,
+  diff −2767, guest owed 2767 back to AMEX …1016, itemized return of uid
+  `g4SdsoxQOHd23pLYhbg2` ("Rookie Pack" ×1), steps
+  `audit_start → refund_dayof_payment → refund_tender → reconcile_gift_card → neon_commit → notify`.
+  With `_POST` off the plan reports `executionBlocked: refund_not_enabled`; with it on,
+  `executionBlocked: null`. **The flag flip is the only remaining step.**

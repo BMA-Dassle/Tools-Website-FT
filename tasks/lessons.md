@@ -2195,3 +2195,61 @@ card on file (Path A), accepting that the card was saved under a post-paid
 - **Never blanket-add `OR approved_at IS NOT NULL` to the balance-charge query** — a converted
   row with a saved card would hit Path A and auto-charge a card banked under `autoCharge:false`.
   Fix the stale flag upstream instead.
+
+## A hidden action is a missing feature: settled reservations had no refund door (2026-07-28)
+
+**Report:** owner opened a completed race (res 16426, Fort Myers, "Debbie Collier",
+$27.67) in the manage modal and asked why there was no refund button. There wasn't
+one — and three independent things were each individually sufficient to hide it.
+
+**1. The only money action was Cancel, and Cancel correctly refuses these rows.**
+`cancelActionable()` returns false for `completed` / `arrived` / `no_show`, and also
+whenever `dayofPaymentId` is set. Both refusals are RIGHT: Cancel voids a booking, and
+a visit that already happened must not be voided; its cascade also won't touch a
+tendered day-of order. But Cancel was the header's only money door, so the rows that
+most need a refund had none. The fix is a SEPARATE gate (`refundActionable`) covering
+exactly Cancel's complement — never a loosened Cancel.
+
+**2. The only control that could actually price the refund was hidden by product kind.**
+The day-of order-lines stepper lived inside the bowling-only branch of the edit modal,
+even though the server computes `editable` per line and is completely kind-agnostic
+(`isEngineOwnedLine`, shared by the planner and `applyOrderLineSpec` — the comment
+already claimed "one rule, no drift"). It mattered exactly here: this race bills as a
+single **"Rookie Pack"** line, so heat removal cannot price it, while returning the
+pack line IS the refund. The client was hiding a capability the server had.
+
+**3. The flag gate was keyed on step KIND, so each phase got the wrong flag.**
+`refund_dayof_payment` is emitted by BOTH `mid` and `post_complete` (money-only is the
+preferred shape in each). Kind-keyed gating therefore meant `_MID_DECREASE` silently
+governed post-complete refunds while `_POST` governed only the rebuild path — enabling
+`_POST` alone did nothing for the post-complete refund we actually shipped, and
+enabling `_MID_DECREASE` alone opened a phase nobody had signed off.
+
+**Rules:**
+- **When a gate correctly refuses an action, ask what the row's remaining action IS.**
+  A guard that's right about "not this" still leaves a hole if nothing else covers the
+  case. Add the complement gate; don't widen the correct one.
+- **Never gate a UI control on product kind when the server already decides per item.**
+  If the server ships an `editable`/`allowed` flag, render exactly that. Kind checks on
+  the client silently amputate whole flows (here: every race refund).
+- **Gate flags on PHASE, not on step kind,** when one step kind spans phases. Keep the
+  mapping in ONE pure helper (`refundFlagForPhase`) used by the planner for preview and
+  re-checked by the executor as the real gate. Refuse the impossible combination
+  (`pre` + a paid-order refund step) loudly instead of falling back to a default flag.
+- **A flag-off environment must be visible in the PREVIEW, not at Execute.** The dry-run
+  now returns `executionBlocked`, so the button disables with the reason as soon as the
+  quote lands. Classify "flag off" as *blocked*, never as an ack prompt — no checkbox
+  unlocks an env var, so re-offering the manager checkbox is a dead end.
+- **Guard copy must never point at a button that isn't on the row.** Three separate
+  messages said "use Cancel instead" — all on rows where Cancel is hidden by design.
+  When you write remedial copy, check the affordance actually exists in that state.
+- **`refund_cents` is CANCELLATION-only. Never write it from an edit refund.** It feeds
+  guest-facing copy ("This booking has been cancelled — your $X refund is on its way")
+  and `booking-status`'s outcome, so an edit refund writing it would tell a live guest
+  their reservation was cancelled. Edit refunds live in the edit ledger, which already
+  feeds the Payments refunds node and History. *(Checked before changing it — the
+  obvious "make the row show the refund" fix would have been a guest-facing bug.)*
+- **Verify against the reported row, read-only, before claiming a fix.** `buildEditPlan`
+  only GETs and calls `orders/calculate`, so dry-running the real reservation proves the
+  plan (phase, cents, itemized return uid, blocked reason) without moving a cent. Doing
+  that is what surfaced the pack-line problem — the unit tests all passed without it.
