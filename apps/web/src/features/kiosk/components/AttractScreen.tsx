@@ -549,9 +549,16 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           className="h-[52px] opacity-90"
           fallbackClassName="k-display text-[28px] leading-none text-white/90"
         />
-        <span className="k-eyebrow text-white/45">
-          {config.center === "naples" ? "Naples" : "Fort Myers"}
-        </span>
+        {/* The venue name is dropped in the headline layout (owner 2026-07-28).
+            A guest standing at the kiosk knows which building they are in, so
+            it was the least useful thing on the screen — and it sat right where
+            the language switcher now lives, crowding the footer's right side.
+            The ad-zone layout keeps it: its switcher is still up top. */}
+        {attractLayout === "adzone" && (
+          <span className="k-eyebrow text-white/45">
+            {config.center === "naples" ? "Naples" : "Fort Myers"}
+          </span>
+        )}
       </div>
 
       {/* Bank billboard takeover — HeadPinz, clock-locked, defaults ON at

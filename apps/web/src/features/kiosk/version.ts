@@ -15,6 +15,11 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.10.1 — attract footer tidy: the venue name ("Fort Myers" / "Naples") is
+ *         gone from the headline layout — a guest at the kiosk knows which
+ *         building they are standing in, and it crowded the language switcher
+ *         that now sits in that footer band. Brand lockup stays centred, the
+ *         switcher owns the right side. Ad-zone layout keeps the venue line.
  * 1.10.0 — NEW ATTRACT SCREEN (attractLayout "headline", now the default; the
  *         old ad-zone layout is kept and selectable per device via the config
  *         field or ?attract=adzone). The 480px display-only ad zone is gone —
@@ -162,7 +167,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.10.0";
+export const KIOSK_VERSION = "1.10.1";
 
 let bootVersion: string | null = null;
 let captured = false;
