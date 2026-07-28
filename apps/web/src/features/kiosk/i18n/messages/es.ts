@@ -79,6 +79,9 @@ export const es: Record<CoreKey, string> = {
   "categories.qualifier.fromWeekend": "Desde {price}/persona vie–dom",
   "categories.qualifier.disabled":
     "No queda suficiente tiempo hoy para las dos carreras — vuelve más tarde o pregunta a un encargado.",
+  "categories.racePacks.blurb":
+    "Carreras prepagadas a mejor precio — úsalas hoy o en tu próxima visita.",
+  "categories.racePacks.priceLine": "Desde {price}",
   "categories.emptyShelf": "Hoy no hay experiencias combinadas disponibles en esta ubicación.",
   "categories.gameZone.unavailable.title":
     "Las tarjetas de Game Zone no están disponibles en este kiosco",

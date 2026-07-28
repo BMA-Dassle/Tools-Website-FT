@@ -107,10 +107,9 @@ export interface KioskCategoriesProps {
   onPickPackageExperience: (family: string) => void;
   onOpenCart: () => void;
   onOpenGameZone: () => void;
-  /** Jump straight to the VIP combo overview. Moved here from the attract
-   *  screen (owner 2026-07-28); omitted = the shortcut is not offered. */
-  onOpenVip?: () => void;
-  /** Jump straight to the standalone race-pack purchase flow. */
+  /** Open the standalone race-pack purchase flow. Race packs live on the
+   *  Experiences shelf (owner 2026-07-28) beside the VIP combo and the Ultimate
+   *  Qualifier; omitted = the product is not offered on this kiosk. */
   onOpenRacePacks?: () => void;
   /** Coupon/voucher entry (kioskPromoEnabled) — undefined hides the chip. */
   onOpenCodeEntry?: () => void;
@@ -136,7 +135,6 @@ export function KioskCategories({
   onPickCombo,
   onPickPackageExperience,
   onOpenGameZone,
-  onOpenVip,
   onOpenRacePacks,
   onOpenCodeEntry,
   appliedPromo,
@@ -158,13 +156,26 @@ export function KioskCategories({
   // Mon–Thu day. Same computed prices the picker/checkout use — display only.
   const qualifierFromWeekday = packageFamilyFromPrice("ultimate-qualifier", ["weekday", "mega"]);
   const qualifierFromWeekend = packageFamilyFromPrice("ultimate-qualifier", ["weekend"]);
+  // Race packs sell at BOTH Fort Myers venues (owner 2026-07-28) — FastTrax and
+  // HeadPinz FM share the campus and guests walk between them, so a pack is
+  // worth offering on either bank. Gated on `showQualifier` (does this kiosk
+  // offer racing at all) rather than on brand: that is the same condition, and
+  // it keeps Naples — which has no karting — out without naming venues. Behind
+  // the race-pack kill switch either way.
+  //
+  // It also has to feed the Experiences shelf's "is anything in here?" check
+  // below: a card that opens onto an empty shelf is the exact failure those
+  // checks exist to prevent.
+  const showRacePacks = !!onOpenRacePacks && kioskRacePacksEnabled() && showQualifier;
   const hasCart = session.items.length > 0;
   // Whether ANYTHING on the Experiences shelf is bookable right now. If every
   // tile inside is locked (VIP combo + Ultimate Qualifier both out of runway)
   // or the shelf is empty, the landing card itself locks — no tapping into a
   // screen of all-unavailable tiles (owner 2026-07-19).
   const anyExperienceAvailable =
-    combos.some((c) => c.id !== "race-bowl" || vipComboAvailable) || (showQualifier && uqAvailable);
+    combos.some((c) => c.id !== "race-bowl" || vipComboAvailable) ||
+    (showQualifier && uqAvailable) ||
+    showRacePacks;
   // The availability key for a tile: shuffly is per BUILDING (FT vs HP side,
   // separate BMI products), so it keys by the side this kiosk's brand books.
   const offeringKey = (o: ActivityOffering) =>
@@ -172,13 +183,6 @@ export function KioskCategories({
   // Same all-locked rule the Experiences card follows: when every attraction
   // tile inside is out of runway for the day, lock the landing card itself.
   const anyAttractionAvailable = offerings.some((o) => offeringAvailable(offeringKey(o)));
-  // Shortcut rows only appear when the destination is actually reachable: the
-  // VIP combo has to exist at this center AND fit today, and race packs are a
-  // FastTrax product behind their own kill switch. A shortcut to a locked
-  // screen is worse than no shortcut.
-  const showVipShortcut =
-    !!onOpenVip && vipComboAvailable && combos.some((c) => c.id === "race-bowl");
-  const showPackShortcut = !!onOpenRacePacks && kioskRacePacksEnabled() && brand === "fasttrax";
   // (The old "Your visit so far" strip is gone — KioskFlow's chrome now shows
   // the persistent signed-in + cart session banner on every screen instead.)
 
@@ -245,24 +249,14 @@ export function KioskCategories({
             />
           )}
         </div>
-        {/* Shortcuts, moved off the attract screen (owner 2026-07-28). They are
-            NOT categories — they jump straight into one specific thing — so
-            they sit under the three cards as a separate, shorter row rather
-            than as a fourth card competing with them. Equal widths via flex-1,
-            so one button spans the row on a venue that only has one. */}
-        {(showVipShortcut || showPackShortcut) && (
-          <div className="mt-[28px] flex shrink-0 gap-[20px]">
-            {showVipShortcut && (
-              <ShortcutButton label={t("attract.vipExperience")} onClick={() => onOpenVip?.()} />
-            )}
-            {showPackShortcut && (
-              <ShortcutButton
-                label={t("attract.racePacks", { price: "$49.99" })}
-                onClick={() => onOpenRacePacks?.()}
-              />
-            )}
-          </div>
-        )}
+
+        {/* No shortcut row here (owner 2026-07-28). VIP Experience is dropped —
+            the Experiences card already leads to it, so it was a second door
+            onto the same room. Race packs moved INTO the Experiences shelf,
+            beside the VIP combo and the Ultimate Qualifier, where a guest is
+            already comparing premium racing. The code/voucher strip below is
+            NOT a shortcut — it carries a code into whatever the guest picks
+            next — so it stays. */}
         {/* Coupon / voucher strip (kioskPromoEnabled) — the chip becomes the
             gold applied-code banner once a code lands, and several vouchers
             collapse into the summary chip. Sits BELOW the shortcuts: those
@@ -392,7 +386,24 @@ export function KioskCategories({
                   onClick={() => onPickPackageExperience("ultimate-qualifier")}
                 />
               )}
-              {combos.length === 0 && !showQualifier && (
+              {/* Standalone race packs — moved here from the attract screen
+                  (owner 2026-07-28) to sit with the other premium racing
+                  products a guest is already comparing, rather than as a
+                  shortcut button hanging off another screen. */}
+              {showRacePacks && (
+                <ShelfBanner
+                  photo={KIOSK_PHOTOS.raceAction}
+                  eyebrow={t("categories.eyebrow.premiumRacing")}
+                  accent="#e8b14c"
+                  // "Race packs" is the product name, kept untranslated like the
+                  // combo and Ultimate Qualifier names above it.
+                  title="Race Packs"
+                  blurb={t("categories.racePacks.blurb")}
+                  priceLine={t("categories.racePacks.priceLine", { price: "$49.99" })}
+                  onClick={() => onOpenRacePacks?.()}
+                />
+              )}
+              {combos.length === 0 && !showQualifier && !showRacePacks && (
                 <EmptyShelf note={t("categories.emptyShelf")} />
               )}
             </div>
@@ -426,24 +437,6 @@ export function KioskCategories({
         <div className="k-scroll-fade" />
       </div>
     </div>
-  );
-}
-
-/**
- * A shortcut under the category cards — deliberately NOT a fourth CategoryCard.
- * Cards are photo tiles that open a shelf of choices; these jump straight to
- * one product. Equal width (flex-1), gold like the VIP/pack products they lead
- * to, and short enough that the three cards above stay the main event.
- */
-function ShortcutButton({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="k-display k-tap flex h-[104px] flex-1 items-center justify-center rounded-[20px] border-2 border-[#e8b14c]/55 bg-[rgba(7,16,39,0.55)] px-[20px] text-center text-[30px] leading-tight text-[#e8b14c] backdrop-blur-[10px]"
-    >
-      {label}
-    </button>
   );
 }
 

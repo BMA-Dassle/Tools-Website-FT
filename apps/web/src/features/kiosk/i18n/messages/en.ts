@@ -83,6 +83,11 @@ export const en = {
   "categories.qualifier.fromWeekend": "From {price}/person Fri–Sun",
   "categories.qualifier.disabled":
     "Not enough time left today to fit both races — please check back or ask an attendant.",
+  // Race packs on the Experiences shelf. Never time-gated — a pack is credit to
+  // spend later, so it has no "next available" line and never locks out.
+  "categories.racePacks.blurb":
+    "Prepaid races at a better rate — use them today or on your next visit.",
+  "categories.racePacks.priceLine": "From {price}",
   "categories.emptyShelf": "No bundled experiences are running at this location today.",
   "categories.gameZone.unavailable.title": "Game Zone cards not available on this kiosk",
   "categories.gameZone.unavailable.note": "Please use another kiosk or see Guest Services",

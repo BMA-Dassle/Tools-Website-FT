@@ -15,6 +15,18 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.10.5 — the shortcut row is gone again (owner 2026-07-28). VIP Experience is
+ *         DROPPED outright — the Experiences card already leads there, so it was
+ *         a second door onto the same room. Race packs moved INTO the
+ *         Experiences shelf as a banner beside the VIP combo and the Ultimate
+ *         Qualifier, where a guest is already comparing premium racing, and they
+ *         now show at BOTH Fort Myers venues (FastTrax and HeadPinz FM share the
+ *         campus and guests walk between them). Gated on whether the kiosk
+ *         offers racing at all rather than on brand — the same condition, and it
+ *         keeps karting-less Naples out without naming venues. A pack is credit
+ *         to spend later, not a timed booking, so its banner carries no
+ *         availability line, never locks out, and counts toward the Experiences
+ *         card staying open when a pack is the only thing left on the shelf.
  * 1.10.4 — VIP + race-pack shortcuts move OFF the attract screen and onto the
  *         "What are we doing today?" chooser, as an even row of buttons under
  *         the Game Zone card (owner 2026-07-28). The attract screen is a poster
@@ -219,7 +231,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.10.4";
+export const KIOSK_VERSION = "1.10.5";
 
 let bootVersion: string | null = null;
 let captured = false;
