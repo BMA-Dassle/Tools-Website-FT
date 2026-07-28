@@ -1,6 +1,7 @@
 "use client";
 
 import type { StepDef } from "~/features/booking";
+import { useT } from "~/features/kiosk/i18n";
 
 /**
  * Contact info — a shared FIRST step across booking flows (race, attraction,
@@ -20,6 +21,12 @@ import type { StepDef } from "~/features/booking";
  *
  * v1 parity: same fields as the v1 ContactForm (app/book/checkout); the customer
  * attaches via registerContactPerson.
+ *
+ * i18n: this is the ATTRACTION flow's second step on the kiosk (race and bowling
+ * both replaced it with a kiosk-native people step, attractions never did), so
+ * its copy is keyed — a Spanish guest booking laser tag was reading an English
+ * form. `useT()` falls back to English outside a LocaleProvider, so the web
+ * wizard is unchanged.
  */
 
 const inputClass =
@@ -40,16 +47,17 @@ export function contactIsComplete(contact: {
 }
 
 const ContactStepComponent: StepDef["Component"] = ({ session, dispatch }) => {
+  const t = useT();
   const c = session.contact;
   const smsOptIn = c.smsOptIn ?? true;
 
   return (
     <div className="mx-auto max-w-lg space-y-6">
       <div className="text-center">
-        <h2 className="font-display text-2xl tracking-widest text-white uppercase">Your Info</h2>
-        <p className="mt-1 text-sm text-white/40">
-          We&apos;ll send your confirmation and check-in details here.
-        </p>
+        <h2 className="font-display text-2xl tracking-widest text-white uppercase">
+          {t("contact.title")}
+        </h2>
+        <p className="mt-1 text-sm text-white/40">{t("contact.sub")}</p>
       </div>
 
       <div className="space-y-4">
@@ -59,7 +67,7 @@ const ContactStepComponent: StepDef["Component"] = ({ session, dispatch }) => {
               htmlFor="contact-first"
               className="mb-1 block text-xs font-semibold text-white/50"
             >
-              First name
+              {t("contact.firstName")}
             </label>
             <input
               id="contact-first"
@@ -69,7 +77,7 @@ const ContactStepComponent: StepDef["Component"] = ({ session, dispatch }) => {
                 dispatch({ type: "setContact", patch: { firstName: e.target.value } })
               }
               className={inputClass}
-              placeholder="First name"
+              placeholder={t("contact.firstName")}
             />
           </div>
           <div>
@@ -77,7 +85,7 @@ const ContactStepComponent: StepDef["Component"] = ({ session, dispatch }) => {
               htmlFor="contact-last"
               className="mb-1 block text-xs font-semibold text-white/50"
             >
-              Last name
+              {t("contact.lastName")}
             </label>
             <input
               id="contact-last"
@@ -87,13 +95,13 @@ const ContactStepComponent: StepDef["Component"] = ({ session, dispatch }) => {
                 dispatch({ type: "setContact", patch: { lastName: e.target.value } })
               }
               className={inputClass}
-              placeholder="Last name"
+              placeholder={t("contact.lastName")}
             />
           </div>
         </div>
         <div>
           <label htmlFor="contact-email" className="mb-1 block text-xs font-semibold text-white/50">
-            Email
+            {t("contact.email")}
           </label>
           <input
             id="contact-email"
@@ -106,7 +114,7 @@ const ContactStepComponent: StepDef["Component"] = ({ session, dispatch }) => {
         </div>
         <div>
           <label htmlFor="contact-phone" className="mb-1 block text-xs font-semibold text-white/50">
-            Phone
+            {t("contact.phone")}
           </label>
           <input
             id="contact-phone"
@@ -126,9 +134,7 @@ const ContactStepComponent: StepDef["Component"] = ({ session, dispatch }) => {
             }
             className="h-4 w-4 rounded border-white/20 bg-white/5 accent-[#00E2E5]"
           />
-          <span className="text-xs text-white/50">
-            Send me a text confirmation &amp; check-in reminder
-          </span>
+          <span className="text-xs text-white/50">{t("contact.smsOptIn")}</span>
         </label>
       </div>
     </div>

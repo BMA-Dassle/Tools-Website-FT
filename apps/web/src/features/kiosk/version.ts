@@ -15,6 +15,28 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.10.10 — the attraction flow spoke English even in Spanish mode.
+ *         The i18n pass converted the screens that had kiosk-NATIVE components;
+ *         attractions are the one guest flow that still runs the web wizard's
+ *         steps, so a Spanish guest booking laser tag hit an English "Your Info"
+ *         form and an English attraction page (name, description, product cards,
+ *         "How many people?"). Both are keyed now — they are shared with the web
+ *         wizard, which is unaffected because useLocale() falls back to English
+ *         with no LocaleProvider above it.
+ *         The exit-confirm sheet — the one that pops up when you back out of an
+ *         attraction ("Remove it & go to main page") — was fully hardcoded, and
+ *         so was the rest of the flow SHELL around every step: the activity name
+ *         in the header, "Step 3 of 5", Back / Continue / Add to my visit, the
+ *         signed-in banner, the guest-assistance overlay, the unracered + phone
+ *         sign-in sheets, the vendor loaders, and every flow error. All keyed
+ *         (~110 new EN+ES strings), plus the reused-web step titles and the
+ *         "why Continue is blocked" hint lines via English→key lookup maps,
+ *         since module-scope StepDefs can't reach useT().
+ *         Attraction tile names/blurbs and per-attraction descriptions and
+ *         product names are DATA, so they got `es` blocks (activities-catalog +
+ *         lib/attractions-data) the way the combo marketing copy did.
+ *         Still English by decision: the race height/age modal's legal
+ *         disclaimers, which need the same attorney review as the ES waiver.
  * 1.10.9 — check-in: "Express lane" now means THIS reservation is express.
  *         The badge rendered on every racing row (it gated on kind === "racing",
  *         not on eligibility), so guests who genuinely had to check in were told
@@ -307,7 +329,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.10.9";
+export const KIOSK_VERSION = "1.10.10";
 
 let bootVersion: string | null = null;
 let captured = false;

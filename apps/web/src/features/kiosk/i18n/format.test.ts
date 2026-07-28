@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import IntlMessageFormat from "intl-messageformat";
 import { formatMessage } from "./format";
-import { normalizeLocale, isKioskLocale } from "./locales";
-import { getMessages, fallbackMessage } from "./messages";
+import { KIOSK_LOCALES, LOCALE_BCP47, normalizeLocale, isKioskLocale } from "./locales";
+import { getMessages, fallbackMessage, type MessageKey } from "./messages";
 
 describe("normalizeLocale", () => {
   it("maps supported inputs (incl. BCP-47 subtags + names) to a locale", () => {
@@ -50,6 +51,121 @@ describe("formatMessage", () => {
     // Sanity: fallbackMessage is always the English source string.
     expect(formatMessage("es", "attract.letsPlay")).not.toBe(fallbackMessage("attract.letsPlay"));
     expect(fallbackMessage("attract.letsPlay")).toBe("Let’s play.");
+  });
+});
+
+describe("catalog integrity", () => {
+  // formatMessage swallows a malformed ICU string and silently renders the raw
+  // ENGLISH source (see format.ts) — so a typo'd plural block in a Spanish value
+  // ships as a half-translated screen with no error anywhere. Compile every
+  // message in every locale so that can't happen quietly.
+  it("every message in every locale is valid ICU", () => {
+    const bad: string[] = [];
+    for (const locale of KIOSK_LOCALES) {
+      const messages = getMessages(locale);
+      for (const [key, message] of Object.entries(messages)) {
+        try {
+          new IntlMessageFormat(message, LOCALE_BCP47[locale]);
+        } catch (err) {
+          bad.push(`${locale} ${key}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+    expect(bad, `malformed ICU:\n${bad.join("\n")}`).toEqual([]);
+  });
+
+  it("no message is left as an empty string", () => {
+    for (const locale of KIOSK_LOCALES) {
+      const messages = getMessages(locale);
+      for (const [key, message] of Object.entries(messages)) {
+        expect(message.trim(), `empty ${locale} value for ${key}`).not.toBe("");
+      }
+    }
+  });
+});
+
+describe("flow catalog — the wizard shell (KioskFlow)", () => {
+  it("names the activity inside the exit-confirm copy, in both languages", () => {
+    expect(formatMessage("en", "flow.exit.title.unfinished", { activity: "Laser Tag" })).toBe(
+      "Your Laser Tag isn’t finished",
+    );
+    expect(formatMessage("es", "flow.exit.title.unfinished", { activity: "Laser Tag" })).toBe(
+      "Tu Laser Tag no está terminado",
+    );
+    expect(formatMessage("es", "flow.exit.removeAndHome")).toBe(
+      "Quitarlo e ir a la página principal",
+    );
+  });
+
+  it("keeps the Game-Zone-cards caveat as a whole sentence, not a spliced fragment", () => {
+    const plain = formatMessage("es", "flow.exit.body.unfinished", { activity: "Duckpin" });
+    const withCards = formatMessage("es", "flow.exit.body.unfinishedCards", {
+      activity: "Duckpin",
+    });
+    expect(plain).not.toContain("Game Zone");
+    expect(withCards).toContain("Game Zone");
+    // Both are complete Spanish sentences on their own.
+    expect(plain.endsWith(".")).toBe(true);
+    expect(withCards.endsWith(".")).toBe(true);
+  });
+
+  it("localizes the step counter and the blocked-Continue hints", () => {
+    expect(formatMessage("es", "flow.stepOf", { current: 3, total: 5 })).toBe("Paso 3 de 5");
+    expect(formatMessage("es", "stepReason.attractionProduct")).toBe(
+      "Elige una actividad para continuar.",
+    );
+    expect(formatMessage("es", "stepTitle.yourInfo")).toBe("Tus datos");
+  });
+
+  it("pluralizes the phone-sign-in and unracered sheets per locale", () => {
+    expect(formatMessage("en", "flow.mobileJoin.title", { count: 1 })).toBe(
+      "Someone’s still signing in on their phone",
+    );
+    expect(formatMessage("en", "flow.mobileJoin.title", { count: 3 })).toBe(
+      "3 people are still signing in on their phones",
+    );
+    expect(formatMessage("es", "flow.mobileJoin.title", { count: 3 })).toBe(
+      "3 personas todavía están iniciando sesión en sus teléfonos",
+    );
+    expect(formatMessage("es", "flow.unracered.title", { names: "Ana", count: 1 })).toBe(
+      "Ana todavía no está en una carrera",
+    );
+    expect(formatMessage("es", "flow.unracered.title", { names: "Ana & Luis", count: 2 })).toBe(
+      "Ana & Luis todavía no están en una carrera",
+    );
+  });
+
+  it("passes vendor error text through untranslated", () => {
+    expect(formatMessage("es", "flow.err.timeFailedMsg", { msg: "SLOT_TAKEN" })).toBe(
+      "No se pudo reservar esa hora: SLOT_TAKEN",
+    );
+  });
+
+  it("holds an activity-name key for every attraction slug the flow can seed", () => {
+    const keys: MessageKey[] = [
+      "flow.activity.gelBlaster",
+      "flow.activity.laserTag",
+      "flow.activity.duckpin",
+      "flow.activity.shuffleboard",
+      "flow.activity.generic",
+    ];
+    for (const key of keys) expect(formatMessage("es", key)).toBeTruthy();
+  });
+});
+
+describe("attraction catalog — the reused-web steps", () => {
+  it("localizes the contact form and the product page chrome", () => {
+    expect(formatMessage("es", "contact.title")).toBe("Tus datos");
+    expect(formatMessage("es", "attraction.howMany")).toBe("¿Cuántas personas?");
+    expect(formatMessage("es", "attraction.perPerson")).toBe("persona");
+  });
+
+  it("builds duration labels from the product's minutes", () => {
+    expect(formatMessage("en", "attraction.durationMinutes", { minutes: 30 })).toBe("30 min");
+    expect(formatMessage("en", "attraction.durationHours", { hours: 1 })).toBe("1 hour");
+    expect(formatMessage("es", "attraction.sessionMinutes", { minutes: 15 })).toBe(
+      "sesión de 15 min",
+    );
   });
 });
 

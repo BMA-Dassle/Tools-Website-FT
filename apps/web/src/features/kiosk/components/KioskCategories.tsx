@@ -37,7 +37,7 @@ import { AdminTapZone } from "./AdminTapZone";
 import { UTIL_TILE_BORDER_ALPHA, UTIL_TILE_CLASS, UtilityTile } from "./UtilityTile";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
-import { useT, LanguageSwitcher, type Translate } from "../i18n";
+import { useT, useLocale, LanguageSwitcher, type Translate } from "../i18n";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 
 type CategoryKey = "exp" | "attr";
@@ -762,7 +762,13 @@ function OfferingTile({
   onClick: () => void;
 }) {
   const accent = offering.accentColor ?? "#00e2e5";
-  const t = useT();
+  const { t, locale } = useLocale();
+  // Tile name + description are DATA (activities-catalog), so they localize from
+  // the offering's own `es` block rather than the message catalog — same pattern
+  // as the combo marketing copy. A missing `es` field keeps the English one
+  // (brand proper nouns: "Nexus Laser Tag", "Shuffle Showdown", "Kids Bowl Free").
+  const name = (locale === "es" ? offering.es?.displayName : null) ?? offering.displayName;
+  const blurb = (locale === "es" ? offering.es?.blurb : null) ?? offering.blurb;
   // Which building the guest walks to — same venue badge the web landing puts
   // on every attraction card (owner 2026-07-19).
   const venue = effectiveBrand(offering, brand);
@@ -776,7 +782,7 @@ function OfferingTile({
       type="button"
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
-      aria-label={offering.displayName}
+      aria-label={name}
       className={`k-ph k-tap relative overflow-hidden rounded-[28px] border border-white/10 text-left ${wide ? "col-span-2 h-[300px]" : "h-[340px]"} ${disabled ? "opacity-50" : ""}`}
       style={heroUrl ? ({ ["--k-img"]: `url(${heroUrl})` } as React.CSSProperties) : undefined}
     >
@@ -809,11 +815,11 @@ function OfferingTile({
             className="k-display line-clamp-2 break-words text-[36px] leading-[1.15]"
             style={{ textWrap: "normal" }}
           >
-            {offering.displayName}
+            {name}
           </span>
         </div>
         <div className="mt-[8px] line-clamp-2 h-[64px] break-words text-[24px] leading-[1.3] text-white/65">
-          {disabled && disabledNote ? disabledNote : offering.blurb}
+          {disabled && disabledNote ? disabledNote : blurb}
         </div>
       </div>
       {/* Availability line sits on the accent bar as a footer (owner 2026-07-25:
