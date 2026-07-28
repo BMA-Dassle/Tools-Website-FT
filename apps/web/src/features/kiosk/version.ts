@@ -15,6 +15,29 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.10.0 — NEW ATTRACT SCREEN (attractLayout "headline", now the default; the
+ *         old ad-zone layout is kept and selectable per device via the config
+ *         field or ?attract=adzone). The 480px display-only ad zone is gone —
+ *         it painted a second full-bleed photo over the backdrop photo, which
+ *         is why it needed its own heavier scrim, and the screen said "start"
+ *         three times (neon sign, marquee, cyan pill). Now: the slide drives
+ *         the screen's own backdrop + a "Let's race." / "Let's bowl." headline
+ *         (EN+ES, measured to one line), the cyan pill becomes a prompt because
+ *         a tap anywhere already starts, and VIP / race packs stay as the only
+ *         two real buttons. Backdrops are real footage, alternating video and
+ *         still by (cycle + index) parity so no two consecutive slides move and
+ *         each activity flips every lap. Vehicles are per-ACTIVITY now — the
+ *         car on racing, the ball on bowling — crossing THROUGH the headline on
+ *         the shared clock. The HeadPinz bank billboard is INTEGRATED rather
+ *         than overlaid: it swaps the backdrop and the headline for its ~11s
+ *         and leaves the prompt and buttons alone, so the 94% navy veil and the
+ *         text-on-text bleed it hid are both gone. Clips are kiosk-encoded
+ *         (31.9MB race hero → 2.5MB; 38MB Nexus montage → 3.9MB gel; arcade
+ *         trimmed before the axe-throwing segment) because Chrome will not
+ *         cache an entry over ~1/8 of its disk cache, and an evicted clip
+ *         re-downloads on every attract re-mount. Video playback position is
+ *         clock-locked like the CSS animations, so the whole bank shows the
+ *         same frame.
  * 1.9.0 — race packs sell to the whole group + are cart-editable (manager
  *         report 7/27: a 4-person party got a pack on only ONE racer, then got
  *         trapped re-entering the wizard to fix it). (1) The "who's this pack
@@ -139,7 +162,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.9.0";
+export const KIOSK_VERSION = "1.10.0";
 
 let bootVersion: string | null = null;
 let captured = false;

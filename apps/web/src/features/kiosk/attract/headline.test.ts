@@ -11,6 +11,7 @@ import { formatMessage } from "../i18n/format";
 import { fallbackMessage } from "../i18n/messages";
 import { parseKioskConfigFromSearchParams, resolveKioskConfig } from "../config";
 import { BILLBOARD_SLIDES, bankSize, billboardPhase } from "./billboard";
+import { slidePlaysVideo } from "./rotation";
 
 const VENUES = ["fort-myers", "naples"] as const;
 
@@ -66,6 +67,42 @@ describe("ad slides carry everything the headline layout needs", () => {
     expect(KIOSK_VIDEOS.race).toContain("ft-race-kiosk");
     expect(KIOSK_VIDEOS.gel).toContain("nexus-gel-kiosk");
     expect(KIOSK_VIDEOS.race).not.toContain("hero-video");
+  });
+});
+
+describe("video/still alternation", () => {
+  const FM = kioskAdSlidesFor("fort-myers"); // 4 slides, all with clips
+
+  it("no two consecutive slides move within a lap", () => {
+    for (let cycle = 0; cycle < 4; cycle++) {
+      for (let i = 0; i < FM.length - 1; i++) {
+        const a = slidePlaysVideo(cycle, i, !!FM[i].video);
+        const b = slidePlaysVideo(cycle, i + 1, !!FM[i + 1].video);
+        expect(a && b, `slides ${i} and ${i + 1} both play on lap ${cycle}`).toBe(false);
+      }
+    }
+  });
+
+  it("an activity flips every lap — video, then still, then video", () => {
+    // The whole point: cycle-only parity would freeze each slide on one side
+    // forever with an even slide count.
+    for (let i = 0; i < FM.length; i++) {
+      const seen = [0, 1, 2, 3].map((c) => slidePlaysVideo(c, i, true));
+      expect(seen, `slide ${i} did not alternate`).toEqual([seen[0], !seen[0], seen[0], !seen[0]]);
+    }
+  });
+
+  it("a slide with no clip never plays, whatever the parity says", () => {
+    for (let cycle = 0; cycle < 4; cycle++) {
+      expect(slidePlaysVideo(cycle, 0, false)).toBe(false);
+    }
+  });
+
+  it("survives a negative cycle from a badly-set device clock", () => {
+    expect(() => slidePlaysVideo(-3, 1, true)).not.toThrow();
+    expect(typeof slidePlaysVideo(-3, 1, true)).toBe("boolean");
+    // -3 + 1 = -2, even → plays. JS % would give -0 here; the guard normalises.
+    expect(slidePlaysVideo(-3, 1, true)).toBe(true);
   });
 });
 

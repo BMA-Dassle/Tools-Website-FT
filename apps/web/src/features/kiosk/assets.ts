@@ -112,7 +112,11 @@ export const KIOSK_VIDEOS = {
   race: `${BLOB_HOST}/videos/ft-race-kiosk.mp4`,
   bowl: `${BLOB_HOST}/videos/headpinz-bowling.mp4`,
   gel: `${BLOB_HOST}/videos/nexus-gel-kiosk.mp4`,
-  arcade: `${BLOB_HOST}/videos/headpinz-arcade-v2.mp4`,
+  /** Trimmed at 25.5s: the marketing reel moves to AXE THROWING at ~27s, which
+   *  is not Game Zone and read as a mistake behind "Let's play." (owner
+   *  2026-07-28). Portrait cut of a low-res 720x406 master, so it is soft by
+   *  origin — a sharper Game Zone clip would need new footage. */
+  arcade: `${BLOB_HOST}/videos/hp-arcade-kiosk.mp4`,
 } as const;
 
 /** Attract-screen ad rotation — v2 "doors" (owner 2026-07-21): every slide is

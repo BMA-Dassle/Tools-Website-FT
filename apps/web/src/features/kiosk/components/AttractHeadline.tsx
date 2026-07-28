@@ -48,6 +48,7 @@ import {
   billboardPhase,
   type BillboardPhase,
 } from "../attract/billboard";
+import { slidePlaysVideo } from "../attract/rotation";
 import { KIOSK_PHOTOS, KIOSK_VIDEOS, type KioskAdSlide } from "../assets";
 import { venueSlug, type KioskConfig } from "../config";
 import { kioskBillboardEnabled } from "../flags";
@@ -101,6 +102,8 @@ export interface AttractHeadlineProps {
   slides: KioskAdSlide[];
   /** Index of `slide` within `slides`. */
   index: number;
+  /** Which lap of the rotation we're on — drives video/still alternation. */
+  cycle: number;
   /** Shared-clock offset: corrected now = Date.now() + offset. */
   offset: number;
   /** False locks the VIP shortcut (no feasible combo left today). */
@@ -116,6 +119,7 @@ export function AttractHeadline({
   slide,
   slides,
   index,
+  cycle,
   offset,
   vipAvailable,
   resolvePhoto,
@@ -123,6 +127,9 @@ export function AttractHeadline({
 }: AttractHeadlineProps) {
   const t = useT();
   const venue = venueSlug(config);
+
+  /** Does slide `i` run its clip on THIS lap? See attract/rotation.ts. */
+  const playsVideo = (i: number) => slidePlaysVideo(cycle, i, !!slides[i]?.video);
 
   // Physical bank position drives the vehicle stagger, so a handoff follows
   // where a kiosk STANDS (HPFM runs 3·2·6·1·4) rather than its number.
@@ -191,16 +198,20 @@ export function AttractHeadline({
   useEffect(() => {
     videoRefs.current.forEach((el, i) => {
       if (!el) return;
-      if (i === index && !onShow) {
+      if (i === index && !onShow && playsVideo(i)) {
         seekToClock(el, offset);
         void el.play().catch(() => {
           /* poster stays up — never blank the backdrop over this */
         });
       } else if (!el.paused) {
+        // Includes a still lap: the clip stays mounted (so it is not re-fetched)
+        // but stops decoding entirely while its photo is showing.
         el.pause();
       }
     });
-  }, [index, onShow, offset]);
+    // playsVideo is derived from index/cycle/slides, all in the dep list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, cycle, onShow, offset, slides]);
 
   /**
    * Keep the PLAYING clip locked to the shared clock.
@@ -224,7 +235,7 @@ export function AttractHeadline({
       if (el && !el.paused) seekToClock(el, offset, DRIFT_TOLERANCE_S);
     }, DRIFT_CHECK_MS);
     return () => clearInterval(iv);
-  }, [index, onShow, offset]);
+  }, [index, cycle, onShow, offset]);
 
   return (
     <>
@@ -241,7 +252,7 @@ export function AttractHeadline({
                 when the video mounts, so a slow decode shows the photo, never
                 black. Ken-burns only when there is no clip — video moves. */}
             <div
-              className={`absolute -inset-[6%] bg-cover bg-center ${s.video ? "" : "kiosk-kenburns"}`}
+              className={`absolute -inset-[6%] bg-cover bg-center ${playsVideo(i) ? "" : "kiosk-kenburns"}`}
               style={{ backgroundImage: `url(${resolvePhoto(s.photo)})` }}
             />
             {s.video && (
@@ -260,20 +271,26 @@ export function AttractHeadline({
                 // Duration is unknown until metadata lands, so the activation
                 // seek above can be a no-op on a cold start. Place it here too.
                 onLoadedMetadata={(e) => seekToClock(e.currentTarget, offset)}
-                className="absolute inset-0 h-full w-full object-cover"
+                // Faded out rather than unmounted on a still lap — unmounting
+                // is what re-downloads the clip (see the play/pause effect).
+                // The still underneath is what shows through.
+                style={{ opacity: playsVideo(i) ? 1 : 0 }}
+                className="absolute inset-0 h-full w-full object-cover transition-opacity duration-700"
               />
             )}
           </div>
         ))}
         {/* Billboard backdrop — a STILL, deliberately: the show is a hard
             light-up per screen and a cut reads crisper than a moving image.
-            Dimmed under the finale so the shared line carries the row. */}
+            Solid through BOTH phases (owner 2026-07-28: "solid images behind")
+            — the shared scrim below already carries the text, so dimming the
+            finale only made the row look like it was fading out. */}
         {bbSlide && (
           <div
             className="absolute inset-0 bg-cover bg-center transition-opacity duration-500"
             style={{
               backgroundImage: `url(${resolvePhoto(bbSlide.photo)})`,
-              opacity: activity ? 1 : finale ? 0.38 : 0,
+              opacity: onShow ? 1 : 0,
             }}
           />
         )}
@@ -368,30 +385,42 @@ export function AttractHeadline({
           {vehicle === "car" && (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
-              src={resolvePhoto(KIOSK_PHOTOS.raceCar)}
+              // Fall back to the raw URL: useResilientImages returns undefined
+              // for anything it has not resolved yet, and src={undefined}
+              // renders nothing at all — the car would simply never appear.
+              src={resolvePhoto(KIOSK_PHOTOS.raceCar) ?? KIOSK_PHOTOS.raceCar}
               alt=""
               aria-hidden="true"
               draggable={false}
               data-glow-phase-ms={phaseMs}
-              className="kiosk-racecar pointer-events-none absolute left-full top-1/2 h-[96px] w-auto max-w-none -translate-y-1/2"
+              // Centred with top + marginTop, NOT -translate-y-1/2: the
+              // kiosk-racecar keyframes animate `transform`, which silently
+              // replaces any transform utility on the same element. With
+              // -translate-y-1/2 the car dropped half its height below the
+              // line and read as "the car isn't working".
+              style={{ marginTop: -48 }}
+              className="kiosk-racecar pointer-events-none absolute left-full top-1/2 h-[96px] w-auto max-w-none"
             />
           )}
           {vehicle === "ball" && (
             <span
               aria-hidden="true"
               data-glow-phase-ms={phaseMs}
-              className="kiosk-bowlball pointer-events-none absolute left-full top-1/2 -translate-y-1/2"
+              // Same transform collision as the car above (sprite is 84px).
+              style={{ marginTop: -42 }}
+              className="kiosk-bowlball pointer-events-none absolute left-full top-1/2"
             >
               <span className="kiosk-bowlball-sprite" />
             </span>
           )}
         </span>
 
-        {/* Replaces the cyan pill. The screen IS the button; this says so. */}
-        <span
-          className="grid justify-items-center gap-[14px] text-white/70 transition-opacity duration-500"
-          style={{ opacity: finale ? 0.35 : activity ? 0.6 : 1 }}
-        >
+        {/* Replaces the cyan pill. The screen IS the button; this says so.
+            Left at full strength through the billboard: the show swaps the
+            backdrop and the headline, nothing else (owner 2026-07-28). A guest
+            can still walk up and start mid-show, so the prompt that tells them
+            so must not fade out underneath them. */}
+        <span className="grid justify-items-center gap-[14px] text-white/70">
           <span className="k-display text-[38px] tracking-[0.22em]">
             {t("attract.touchAnywhereToStart")}
           </span>
@@ -405,11 +434,12 @@ export function AttractHeadline({
       </button>
 
       {/* ── the only real buttons: the two that go somewhere a tap doesn't ──
-          Faded during the show so the bank reads as one continuous sign. */}
-      <div
-        className="relative z-10 flex shrink-0 justify-center gap-[20px] px-[64px] pb-[24px] transition-opacity duration-500"
-        style={{ opacity: finale ? 0 : activity ? 0.25 : 1 }}
-      >
+          Untouched by the billboard (owner 2026-07-28): the show is just
+          another entry in the rotation, swapping the backdrop and the headline
+          and leaving the screen's furniture where it is. Fading these out made
+          the bank look like it was powering down, and hid two live shortcuts
+          from anyone standing in front of it. */}
+      <div className="relative z-10 flex shrink-0 justify-center gap-[20px] px-[64px] pb-[24px]">
         <QuietAction
           label={t("attract.vipExperience")}
           disabled={!vipAvailable}

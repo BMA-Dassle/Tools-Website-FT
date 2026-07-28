@@ -54,6 +54,9 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   const { config } = useKioskConfig();
   const t = useT();
   const [adIndex, setAdIndex] = useState(0);
+  /** Which lap of the slide rotation we're on — drives the headline layout's
+   *  video/still alternation. */
+  const [adCycle, setAdCycle] = useState(0);
   const [booting, setBooting] = useState(true);
   // Transient boot confirmation: when the kiosk loads via its provisioning URL
   // (slug + number), briefly show which venue/kiosk it resolved and the devices
@@ -175,7 +178,14 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
     let timer: number | undefined;
     const tick = () => {
       const now = Date.now() + offset;
-      setAdIndex(Math.floor(now / AD_ROTATE_MS) % adSlides.length);
+      const slot = Math.floor(now / AD_ROTATE_MS);
+      setAdIndex(slot % adSlides.length);
+      // Which lap of the rotation we're on. The headline layout alternates a
+      // slide between video and still by (cycle + index) parity, so an activity
+      // is a clip one time round and a photo the next — clock-derived, so the
+      // whole bank agrees on which it is (owner 2026-07-28: "almost too much
+      // video"). Wasted on the ad-zone layout, which has no clips.
+      setAdCycle(Math.floor(slot / adSlides.length));
       // +25ms lands safely past the boundary despite setTimeout clamp/rounding.
       timer = window.setTimeout(tick, AD_ROTATE_MS - (now % AD_ROTATE_MS) + 25);
     };
@@ -291,6 +301,7 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           slide={ad}
           slides={adSlides}
           index={adIndex % adSlides.length}
+          cycle={adCycle}
           offset={offset}
           vipAvailable={vipAvailable}
           resolvePhoto={resolvePhoto}
