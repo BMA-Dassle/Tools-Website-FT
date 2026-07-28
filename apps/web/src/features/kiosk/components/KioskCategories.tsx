@@ -258,7 +258,7 @@ export function KioskCategories({
               <button
                 type="button"
                 onClick={onOpenCodeEntry}
-                className="k-tap flex h-[84px] items-center gap-[16px] rounded-full border-[1.5px] border-[rgba(0,226,229,0.5)] px-[36px] font-[family-name:var(--font-heading)] text-[26px] font-bold uppercase tracking-[0.08em] text-[#00e2e5]"
+                className="k-tap flex h-[84px] shrink-0 items-center gap-[16px] whitespace-nowrap rounded-full border-[1.5px] border-[rgba(0,226,229,0.5)] px-[36px] font-[family-name:var(--font-heading)] text-[26px] font-bold uppercase tracking-[0.08em] text-[#00e2e5]"
               >
                 <TicketGlyph color="#00e2e5" />
                 {t("promo.chip")}

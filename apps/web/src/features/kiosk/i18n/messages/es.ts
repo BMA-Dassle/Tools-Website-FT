@@ -309,8 +309,11 @@ export const es: Record<CoreKey, string> = {
   "voucher.pill.pending": "{name} listo \u2014 se aplica al reservar",
   "voucher.pill.error": "Problema con el vale \u2014 visita Servicio al Cliente",
   "voucher.pill.remove": "Quitar vale",
-  "voucher.summary.many": "{count} vales en esta orden",
-  "voucher.summary.attention": "{count} vales \u2014 uno necesita atenci\u00f3n",
+  "voucher.chip.applied": "{name} aplicado",
+  "voucher.chip.pending": "{name} listo",
+  "voucher.chip.error": "El vale necesita ayuda",
+  "voucher.summary.many": "{count} vales",
+  "voucher.summary.attention": "Revisa {count} vales",
   "voucher.sheet.title": "Tus vales",
   "voucher.sheet.blurb":
     "Cada vale cubre una carrera o atracci\u00f3n \u2014 se descuentan autom\u00e1ticamente al pagar.",

@@ -80,29 +80,33 @@ export function KioskVoucherSummary({
   const hasError = vouchers.some((v) => v.error);
   const color = hasError ? "#ff8c7a" : "#46d68c";
   const single = vouchers.length === 1 ? vouchers[0] : null;
+  // SHORT labels: the chip sits beside "Coupon or voucher?" on one row —
+  // the long state sentences wrapped it onto its own line (owner 2026-07-28).
+  // Full wording lives on the banners inside the sheet.
   const label = single
     ? single.error
-      ? t("voucher.pill.error")
+      ? t("voucher.chip.error")
       : single.pending
-        ? t("voucher.pill.pending", { name: single.name ?? t("voucher.pill.fallbackName") })
-        : t("voucher.pill.applied", { name: single.name ?? t("voucher.pill.fallbackName") })
+        ? t("voucher.chip.pending", { name: single.name ?? t("voucher.pill.fallbackName") })
+        : t("voucher.chip.applied", { name: single.name ?? t("voucher.pill.fallbackName") })
     : hasError
       ? t("voucher.summary.attention", { count: vouchers.length })
       : t("voucher.summary.many", { count: vouchers.length });
 
   if (variant === "kiosk") {
-    // The TWIN of the categories "Coupon or voucher?" chip — identical
-    // geometry/type, only text + color differ (owner 2026-07-28). Details and
-    // removal live in the sheet this opens.
+    // The TWIN of the categories "Coupon or voucher?" chip: identical
+    // geometry/type, only text + color differ (owner 2026-07-28). Width-capped
+    // + truncating so a long comp name ("Complimentary 1 Hour Shuffly") can't
+    // wrap this chip onto its own row. Details/removal live in the sheet.
     return (
       <button
         type="button"
         onClick={onOpen}
-        className="k-tap flex h-[84px] items-center gap-[16px] rounded-full border-[1.5px] px-[36px] font-[family-name:var(--font-heading)] text-[26px] font-bold uppercase tracking-[0.08em]"
+        className="k-tap flex h-[84px] max-w-[460px] shrink-0 items-center gap-[16px] rounded-full border-[1.5px] px-[36px] font-[family-name:var(--font-heading)] text-[26px] font-bold uppercase tracking-[0.08em]"
         style={{ borderColor: `${color}80`, color }}
       >
         <TicketGlyphSmall color={color} />
-        {label}
+        <span className="min-w-0 truncate">{label}</span>
         <span aria-hidden="true">›</span>
       </button>
     );

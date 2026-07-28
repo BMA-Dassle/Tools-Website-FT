@@ -321,8 +321,11 @@ export const en = {
   "voucher.pill.pending": "{name} ready \u2014 applies when you book",
   "voucher.pill.error": "Voucher problem \u2014 see Guest Services",
   "voucher.pill.remove": "Remove voucher",
-  "voucher.summary.many": "{count} vouchers on this order",
-  "voucher.summary.attention": "{count} vouchers \u2014 one needs attention",
+  "voucher.chip.applied": "{name} applied",
+  "voucher.chip.pending": "{name} ready",
+  "voucher.chip.error": "Voucher needs help",
+  "voucher.summary.many": "{count} vouchers",
+  "voucher.summary.attention": "Check {count} vouchers",
   "voucher.sheet.title": "Your vouchers",
   "voucher.sheet.blurb":
     "Each voucher covers one race or attraction \u2014 they come off automatically at checkout.",
