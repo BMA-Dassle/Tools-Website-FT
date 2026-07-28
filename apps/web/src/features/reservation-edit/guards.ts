@@ -12,7 +12,7 @@
  * Anything else is a phase_conflict → manual handling, never money movement.
  */
 
-import { EditGuardError, type EditPhase } from "./types";
+import { EditGuardError, type EditPhase, type EditStepKind } from "./types";
 
 export type SquareOrderState = "DRAFT" | "OPEN" | "COMPLETED" | "CANCELED";
 
@@ -97,6 +97,47 @@ export const refundFlagForPhase = (phase: EditPhase): string | null =>
     : phase === "post_complete"
       ? "RESERVATION_EDIT_V2_POST"
       : null;
+
+/**
+ * Steps a REFUND-ONLY plan is allowed to contain. Deliberately an ALLOWLIST:
+ * anything not named here — a charge, an external sync, an order rebuild, a new
+ * step kind added later — makes the plan not-refund-only and therefore subject
+ * to the master switch. Denied by default is the only safe posture for a rule
+ * that decides whether money may move without the master flag.
+ */
+const REFUND_ONLY_STEPS: ReadonlySet<EditStepKind> = new Set<EditStepKind>([
+  "audit_start",
+  "refund_dayof_payment",
+  "refund_tender",
+  "issue_store_credit",
+  "adjust_gift_card_down",
+  "reconcile_gift_card",
+  "neon_commit",
+  "notify",
+]);
+
+/**
+ * True when this plan does nothing but hand money back for an already-paid
+ * day-of order — the shape the Refund action produces.
+ *
+ * Such a plan may execute on its PHASE flag alone (refundFlagForPhase) rather
+ * than requiring RESERVATION_EDIT_V2. The master switch also unlocks PRE-phase
+ * editing, whose QAMF player sync is blocked by a vendor bug, so coupling the
+ * two would mean shipping a known-broken editing surface just to refund a
+ * guest. Note `refund_dayof_order` is NOT in the allowlist: it only appears in
+ * the post-complete REBUILD path, which charges and rebuilds and therefore
+ * always needs the master flag.
+ */
+export const isRefundOnlyPlan = (plan: {
+  diffCents: number;
+  steps: ReadonlyArray<{ kind: EditStepKind }>;
+}): boolean =>
+  // Money strictly comes back...
+  plan.diffCents < 0 &&
+  // ...off a PAID day-of order (a pre-payment decrease is an ordinary edit)...
+  plan.steps.some((s) => s.kind === "refund_dayof_payment") &&
+  // ...and nothing else happens.
+  plan.steps.every((s) => REFUND_ONLY_STEPS.has(s.kind));
 
 /** Reservation kinds the engine edits. */
 export type EditableKind = "kbf" | "open" | "race" | "attraction";

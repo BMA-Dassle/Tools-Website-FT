@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildEditPlan } from "~/features/reservation-edit/plan";
+import { isRefundOnlyPlan } from "~/features/reservation-edit/guards";
 import { EditGuardError, type EditSettlement, type EditSpec } from "~/features/reservation-edit";
 
 // Live Square reads (order snapshots + orders/calculate per leg) can stack up
@@ -43,7 +44,10 @@ const CONFLICT_CODES = new Set([
  * }
  *
  * Auth: ADMIN_CAMERA_TOKEN query param (portal convention).
- * Execution is additionally gated by RESERVATION_EDIT_V2 (flag-off → 501).
+ *
+ * Execution gates (dry-run is always allowed, so the preview is never hidden):
+ *   - refund-only plans  → RESERVATION_EDIT_V2_MID_DECREASE / _POST by phase
+ *   - everything else    → RESERVATION_EDIT_V2 (master), flag-off → 501
  */
 export async function POST(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
@@ -95,9 +99,20 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Execute ────────────────────────────────────────────────────────
-    if (process.env.RESERVATION_EDIT_V2 !== "true") {
+    // The master switch unlocks the whole engine. A plan that ONLY hands money
+    // back for an already-paid day-of order is exempt: it rides its own phase
+    // flag (RESERVATION_EDIT_V2_MID_DECREASE / _POST, enforced in the service).
+    // Without that exemption, giving a guest their money back would require
+    // enabling PRE-phase editing too — whose QAMF player sync is blocked by a
+    // vendor bug — so the two are deliberately decoupled.
+    if (process.env.RESERVATION_EDIT_V2 !== "true" && !isRefundOnlyPlan(plan)) {
       return NextResponse.json(
-        { error: "not_enabled", detail: "RESERVATION_EDIT_V2 is off — dry-run only" },
+        {
+          error: "not_enabled",
+          detail:
+            "Changing a reservation is not enabled in this environment " +
+            "(RESERVATION_EDIT_V2) — only refunds are.",
+        },
         { status: 501 },
       );
     }

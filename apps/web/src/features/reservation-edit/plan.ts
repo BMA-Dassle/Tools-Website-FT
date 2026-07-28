@@ -34,7 +34,13 @@ import { isFridayYmd } from "~/features/booking/service/kbf-pricing";
 import { getChargeableCard } from "~/features/card-vault";
 
 import { loadExperiencesForCenter, matchExperienceForRow } from "./experience-resolve";
-import { assertEditable, refundFlagForPhase, selectPhase, type SquareOrderState } from "./guards";
+import {
+  assertEditable,
+  isRefundOnlyPlan,
+  refundFlagForPhase,
+  selectPhase,
+  type SquareOrderState,
+} from "./guards";
 import { planHash as hashPlan } from "./hash";
 import {
   repriceBowling,
@@ -1611,21 +1617,33 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
   if (noChanges) throw new EditGuardError("no_changes");
 
   // 7. Executability. The plan is honest either way — only whether it may RUN
-  // depends on the phase's refund flag, so report it instead of hiding it.
+  // depends on flags, so report that instead of letting staff fill the form out
+  // and hit a wall. Mirrors the route + executor gates exactly; every plan shape
+  // is covered, not just refunds.
   const movesPaidOrderMoney = steps.some(
     (s) => s.kind === "refund_dayof_payment" || s.kind === "refund_dayof_order",
   );
-  const requiredFlag = movesPaidOrderMoney ? refundFlagForPhase(phase) : null;
-  const executionBlocked =
-    requiredFlag && process.env[requiredFlag] !== "true"
-      ? {
-          code: "refund_not_enabled" as EditGuardCode,
-          message:
-            phase === "post_complete"
-              ? `Refunding a closed visit is not switched on yet (${requiredFlag}). The preview above is accurate — ask Eric to enable it.`
-              : `Refunding after check-in is not switched on yet (${requiredFlag}). The preview above is accurate — ask Eric to enable it.`,
-        }
-      : null;
+  const phaseFlag = movesPaidOrderMoney ? refundFlagForPhase(phase) : null;
+  const refundOnly = isRefundOnlyPlan({ diffCents, steps });
+  let executionBlocked: { code: EditGuardCode; message: string } | null = null;
+  if (phaseFlag && process.env[phaseFlag] !== "true") {
+    executionBlocked = {
+      code: "refund_not_enabled",
+      message:
+        phase === "post_complete"
+          ? `Refunding a closed visit is not switched on yet (${phaseFlag}). The preview above is accurate — ask Eric to enable it.`
+          : `Refunding after check-in is not switched on yet (${phaseFlag}). The preview above is accurate — ask Eric to enable it.`,
+    };
+  } else if (!refundOnly && process.env.RESERVATION_EDIT_V2 !== "true") {
+    // A pure refund rides its phase flag; anything that also charges, syncs
+    // QAMF/BMI, or rebuilds an order needs the master switch.
+    executionBlocked = {
+      code: "edit_not_enabled",
+      message:
+        "Changing a reservation is not switched on yet (RESERVATION_EDIT_V2) — only refunds are. " +
+        "The preview above is accurate.",
+    };
+  }
 
   // 8. Seal.
   const hash = hashPlan({
