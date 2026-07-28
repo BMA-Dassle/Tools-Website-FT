@@ -33,6 +33,7 @@ export async function GET(req: NextRequest) {
         roster: [],
         raceSlots: [],
         dueAtCenterCents: 0,
+        express: false,
         reason: "expired-proof",
       },
       { status: 401 },

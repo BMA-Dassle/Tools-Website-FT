@@ -15,6 +15,25 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.10.9 — check-in: "Express lane" now means THIS reservation is express.
+ *         The badge rendered on every racing row (it gated on kind === "racing",
+ *         not on eligibility), so guests who genuinely had to check in were told
+ *         to skip it — 8 of 25 Fort Myers reservations on 7/28, including the one
+ *         ops flagged. It now reads real per-reservation truth: the browse list
+ *         from the `fastLane` flag checkout wrote (one Redis GET, issued in the
+ *         same Promise.all as the existing ref mint, so no extra round trip), the
+ *         itinerary from the live per-racer Pandora waiver read it already does,
+ *         which also catches a waiver that lapsed since booking. Any racer with
+ *         no personId disqualifies the party, and a combo is never express
+ *         because its bowling lane still needs opening.
+ *         And express now REPLACES check-in rather than decorating it: tapping
+ *         an express row pops the message and stops — no last-4 gate, no OTP, no
+ *         itinerary — which is what the owner had asked for more than once. The
+ *         destination copy said "the pits"; it now says Race Check-In, 1st floor,
+ *         left of the Red Track, like the eTicket and the race-day email. Fully
+ *         EN + ES: the old body was stuck in English because its inline bold made
+ *         it rich text, so it is now split at SENTENCE boundaries where each key
+ *         is a whole translatable unit.
  * 1.10.8 — the chooser's utility boxes are ONE shape, in ONE grid.
  *         1.10.7 gave them a common height and called it done; they still had
  *         three border alphas, three type treatments and — the real problem —
@@ -288,7 +307,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.10.8";
+export const KIOSK_VERSION = "1.10.9";
 
 let bootVersion: string | null = null;
 let captured = false;

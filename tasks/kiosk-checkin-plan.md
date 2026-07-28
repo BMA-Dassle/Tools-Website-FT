@@ -30,19 +30,19 @@ attraction participants go uncollected. **Check-in is roster completion, not a n
 The kiosk identifies the humans, collects waivers, binds them to purchased slots, syncs both
 vendors, and flips the reservation to Arrived.
 
-| Need | Existing primitive |
-|---|---|
-| Standalone kiosk flow shell | `/kiosk/waiver` → `KioskWaiverFlow` |
-| Add people + waivers | `KioskAttractionPeopleStep.Component` StepDef (never fork) |
-| Party signs on phones | Mobile join + new `checkin` stepKind |
-| Attach person to existing BMI reservation | `registerProjectPersonServer` (gate `KIOSK_WAIVER_BMI_ATTACH`) |
-| Racer on the timing grid | Pandora `POST /bmi/schedule` (`kiosk-post-reserve.ts:341-453`) |
-| Bill-line personId can stay null | verified: no post-booking path reads it |
-| Bowling names/shoes | players PATCH route + `syncQamfPlayers` (compose both) |
-| Open the lane | `GET/POST /api/bowling/v2/reservations/{id}/checkin` |
-| Mark reservation | `setProjectState` → **-5 Arrived** (built-in) |
-| "What's next" model | v2 confirmation activity enumeration (extract) |
-| Lookup | `/s` deref, Office `search?token=W#`, phone → `getReservationsByContact` + booking-record indexes |
+| Need                                      | Existing primitive                                                                                |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Standalone kiosk flow shell               | `/kiosk/waiver` → `KioskWaiverFlow`                                                               |
+| Add people + waivers                      | `KioskAttractionPeopleStep.Component` StepDef (never fork)                                        |
+| Party signs on phones                     | Mobile join + new `checkin` stepKind                                                              |
+| Attach person to existing BMI reservation | `registerProjectPersonServer` (gate `KIOSK_WAIVER_BMI_ATTACH`)                                    |
+| Racer on the timing grid                  | Pandora `POST /bmi/schedule` (`kiosk-post-reserve.ts:341-453`)                                    |
+| Bill-line personId can stay null          | verified: no post-booking path reads it                                                           |
+| Bowling names/shoes                       | players PATCH route + `syncQamfPlayers` (compose both)                                            |
+| Open the lane                             | `GET/POST /api/bowling/v2/reservations/{id}/checkin`                                              |
+| Mark reservation                          | `setProjectState` → **-5 Arrived** (built-in)                                                     |
+| "What's next" model                       | v2 confirmation activity enumeration (extract)                                                    |
+| Lookup                                    | `/s` deref, Office `search?token=W#`, phone → `getReservationsByContact` + booking-record indexes |
 
 ## 1–4, 6–7 — see the execution plan file for full screen, pipeline, and edge-case detail.
 
@@ -157,7 +157,9 @@ custom state, which also RESOLVES the §8/§5 -5 early-settle consequence.)_
 
 Three owner answers, all confirmed against current code before writing this section.
 
-### A. Express lane = informational modal (client-only, no eligibility logic)
+### A. Express lane = informational modal (client-only, no eligibility logic) — ❌ SUPERSEDED 2026-07-28
+
+**This section shipped and was WRONG. See "A-revised" below. Do not re-implement it.**
 
 Owner: "If they click express lane just have a modal showing what express lane is and that
 they don't need to sign in here."
@@ -173,6 +175,52 @@ they don't need to sign in here."
   existing web `fastLane` express-lane copy ("skip Guest Services, go directly to Karting
   Check-In"). No `express` field added to the itinerary envelope; no server change for Part A.
 - Lowest risk in the feature — client-only, reads nothing, mutates nothing.
+
+### A-revised. Express lane = per-reservation eligibility, and express NEVER checks in (2026-07-28)
+
+Owner, on seeing the live list: _"Reservations showing everyone as express lane? Also I've said
+several times express lane doesn't need to check in on kiosk and it shouldn't send an OTP. It
+should just pop a message saying what to do. Tammy reservation is not but is showing express lane?"_
+
+The "purely informational, deliberately not gated" call above was a mistake on two counts:
+
+1. **It badged every racing row.** The pill rendered on `r.kind === "racing"`, so a guest who
+   genuinely had to check in was told to skip it. Measured on live FM data for 2026-07-28:
+   **8 of 25** racing reservations (32%) — including the flagged Tammy N. 6:00 PM — were
+   mislabelled express (`apps/web/scripts/kiosk-express-badge-check.mts`).
+2. **"Informational" isn't enough.** An express party must not be OTP'd or walked through
+   check-in at all. Tapping an express row now REPLACES check-in with the message.
+
+Implemented:
+
+- **`express: boolean` on `CheckinBrowseRow` + `CheckinItinerary`.** Two pure predicates in
+  [checkin/express.ts](../apps/web/src/features/kiosk/checkin/express.ts), unit-tested:
+  - `isExpressBooking` — browse list. Reads the `fastLane` flag checkout already wrote to
+    `bookingrecord:{billId}`, so it costs ONE Redis GET per row, issued in the same
+    `Promise.all` as the existing ref mint → no added round trip, no per-row Pandora call, no
+    waiver status leaked into the unauthenticated list. The "leaky + slow" objection above was
+    only ever true of the live-waiver approach.
+  - `isExpressRoster` — itinerary. Uses the per-racer Pandora waiver read `buildItinerary`
+    already performs, so it also catches a waiver that lapsed since booking.
+  - Both enforce the 2026-06-13 whole-party lesson: any racer with no `personId` disqualifies.
+  - Both hard-gate on **racing-only**: a combo still needs its bowling lane opened, so it is
+    never express.
+- **Express row → modal, full stop.** No last-4 gate, no OTP, no itinerary. The badge is now a
+  decorative `<span>` (the whole card is the single tap target), which also removed the
+  nested-button / `pointer-events` overlay hack.
+- **Express itinerary → the same message instead of "Continue ›"**, so the phone-lookup and
+  scanned-QR paths (where the code is already spent) end the same way.
+- **Destination copy fixed** to "Race Check-In — 1st floor, left of the Red Track" (was "the
+  pits"), matching the eTicket, the race-day email and `RacingWhatsNext`. One
+  `ExpressLaneBody` component feeds both surfaces so they can't drift.
+- **Fully localized EN + ES** per the kiosk i18n hard rule. The old body was left English with a
+  `TODO(i18n)` because its inline `<strong>` spans made it rich text the plain-string engine
+  can't render; splitting it into three WHOLE sentences + one standalone place name
+  (`checkin.express.bodyNothing` / `bodyWhere` / `bodyPlace` / `bodyWhen`) makes every key a
+  complete translatable unit with emphasis wrapping a whole key — so the TODO is now discharged
+  rather than inherited.
+- No find-screen affordance was added: an express guest taps "Find my booking", sees their own
+  badged row, and taps it.
 
 ### B. State change = "Confirmation Kiosk" custom state (NOT -5 Arrived)
 
@@ -204,7 +252,7 @@ Owner: "guest action." Replaces the PR3 index-order auto-assign
 
 - **Itinerary envelope** gains the purchased race slots: per slot
   `{ slotKey, productId, classLabel ("Starter Junior"), tier, category, track, timeLabel,
-  occupantName | null, open }` — derived from `booking_metadata.heats` + `getRaceProductById`.
+occupantName | null, open }` — derived from `booking_metadata.heats` + `getRaceProductById`.
 - **New "Who's racing?" screen** (racing only, before "Check everyone in"): one card per
   purchased slot. Guest taps an identified + waiver-valid party member (from `session.party`)
   into each OPEN slot. **Category correctness enforced**: a `junior` slot accepts only a

@@ -19,6 +19,11 @@ export interface CheckinBrowseRow {
   timeLabel: string; // "4:12 PM"
   activitiesLabel: string; // "Racing + Bowling"
   kind: "racing" | "bowling" | "attraction" | "mixed";
+  /** Express Lane — every racer is a resolved returning racer with a waiver
+   *  already on file, so this party needs NOTHING from the kiosk. The row shows
+   *  the badge and tapping it only explains where to go: no last-4 gate, no OTP,
+   *  no check-in (see `express.ts`). Racing-only; never a combo. */
+  express: boolean;
 }
 
 /** A PROVEN match (scan possession or phone-OTP) — opens directly. */
@@ -222,6 +227,11 @@ export interface CheckinItinerary {
   /** Purchased race slots (racing reservations only) — the "who is who"
    *  assignment surface. Empty for non-racing. */
   raceSlots: CheckinRaceSlot[];
+  /** Express Lane, judged on LIVE waiver truth (every racer identified + a
+   *  currently-valid Pandora waiver, racing-only). True = this party skips
+   *  check-in: the flow shows them where to go instead of continuing. Stricter
+   *  than the browse row's booking-time flag — it catches a lapsed waiver. */
+  express: boolean;
   /** Display-only balance banner (no money is collected at the kiosk). */
   dueAtCenterCents: number;
   error?: string;

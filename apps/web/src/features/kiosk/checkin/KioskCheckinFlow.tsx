@@ -130,8 +130,10 @@ export function KioskCheckinFlow() {
   const [stage, setStage] = useState<Stage>("find");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Express-lane info modal — racing (FastTrax / Fort Myers) only.
-  const [showExpress, setShowExpress] = useState(false);
+  // Express-lane info modal — set to the booking that was tapped. An express
+  // party needs nothing from the kiosk, so this REPLACES their check-in: no
+  // last-4 gate, no OTP, no itinerary (owner, repeatedly).
+  const [expressFor, setExpressFor] = useState<{ label: string; timeLabel: string } | null>(null);
   // True while the kiosk's serial QR scanner holds the port and hears scans.
   const [scanListening, setScanListening] = useState(false);
 
@@ -347,11 +349,17 @@ export function KioskCheckinFlow() {
     return () => clearTimeout(t);
   }, [stage, binding, goHome]);
 
-  // Tapping a browse row does NOT text anyone yet — first the guest proves the
-  // booking is theirs by entering the last 4 of the number on file, so a tap
+  // Opening a row. An EXPRESS row short-circuits to the info modal and stops
+  // there — that party has every racer resolved with a waiver on file, so they
+  // don't check in here and we must not text them a code. Everyone else proves
+  // the booking is theirs with the last 4 of the number on file first, so a tap
   // can't blind-OTP an arbitrary guest.
-  const tapBrowseRow = (row: CheckinBrowseRow) => {
+  const openRow = (row: CheckinBrowseRow) => {
     setError(null);
+    if (row.express) {
+      setExpressFor({ label: row.label, timeLabel: row.timeLabel });
+      return;
+    }
     setPendingRef(row.ref);
     setLast4("");
     setStage("browse-verify");
@@ -392,7 +400,7 @@ export function KioskCheckinFlow() {
       return;
     }
     if (res.ok && res.rows && res.rows[0]) {
-      void tapBrowseRow(res.rows[0]);
+      openRow(res.rows[0]);
       return;
     }
     setError(
@@ -632,7 +640,9 @@ export function KioskCheckinFlow() {
 
         {stage === "browse" && (
           <div className="space-y-[16px]">
-            <p className="text-[28px] text-white/55">{t("checkin.browse.prompt")}</p>
+            <p className="text-[28px] text-white/55">
+              {t("checkin.browse.prompt")} {t("checkin.browse.expressHint")}
+            </p>
             {rows.length === 0 ? (
               <div className="k-glass p-[48px] text-center">
                 <div className="k-display text-[40px]">{t("checkin.browse.emptyTitle")}</div>
@@ -642,57 +652,73 @@ export function KioskCheckinFlow() {
               </div>
             ) : (
               rows.map((r) => (
-                // Card is one big tap target (opens OTP); the Express pill is a
-                // sibling button on top (pointer-events-auto over the overlay) so
-                // there's no nested-button. Racing rows only.
-                <div key={r.ref} className="k-glass relative overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => tapBrowseRow(r)}
-                    aria-label={t("checkin.browse.openAria", { label: r.label, time: r.timeLabel })}
-                    className="k-tap absolute inset-0"
-                  />
-                  <div className="pointer-events-none relative flex items-center gap-[28px] p-[28px]">
-                    <div className="min-w-0 flex-1">
-                      <div className="k-display truncate text-[38px]">{r.label}</div>
-                      <div className="mt-[6px] flex items-center gap-[14px] text-[26px] text-white/55">
-                        <span>{r.activitiesLabel}</span>
-                        {r.kind === "racing" && (
-                          <button
-                            type="button"
-                            onClick={() => setShowExpress(true)}
-                            className="pointer-events-auto flex items-center gap-[8px] rounded-full border-2 border-[#46d68c]/60 bg-[#46d68c]/15 px-[18px] py-[6px] text-[22px] font-bold text-[#46d68c]"
-                          >
-                            <IconBolt size={22} aria-hidden="true" />
-                            {t("checkin.express.pill")}
-                          </button>
-                        )}
-                      </div>
+                // One tap target per card. The Express badge is DECORATIVE (a
+                // span, not a button) — it only marks reservations that really
+                // are express, and tapping anywhere on such a row opens the
+                // "you're already set" modal instead of starting check-in. No
+                // nested button, so no pointer-events overlay needed.
+                <button
+                  key={r.ref}
+                  type="button"
+                  onClick={() => openRow(r)}
+                  aria-label={
+                    r.express
+                      ? t("checkin.express.pillAria", { label: r.label, time: r.timeLabel })
+                      : t("checkin.browse.openAria", { label: r.label, time: r.timeLabel })
+                  }
+                  className="k-glass k-tap flex w-full items-center gap-[28px] p-[28px] text-left"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="k-display truncate text-[38px]">{r.label}</div>
+                    <div className="mt-[6px] flex items-center gap-[14px] text-[26px] text-white/55">
+                      <span>{r.activitiesLabel}</span>
+                      {r.express && (
+                        <span className="flex items-center gap-[8px] rounded-full border-2 border-[#46d68c]/60 bg-[#46d68c]/15 px-[18px] py-[6px] text-[22px] font-bold text-[#46d68c]">
+                          <IconBolt size={22} aria-hidden="true" />
+                          {t("checkin.express.pill")}
+                        </span>
+                      )}
                     </div>
-                    <div className="k-display text-[40px] text-[#00e2e5]">{r.timeLabel}</div>
-                    <IconChevronRight
-                      size={40}
-                      className="shrink-0 text-white/30"
-                      aria-hidden="true"
-                    />
                   </div>
-                </div>
+                  <div className="k-display text-[40px] text-[#00e2e5]">{r.timeLabel}</div>
+                  <IconChevronRight
+                    size={40}
+                    className="shrink-0 text-white/30"
+                    aria-hidden="true"
+                  />
+                </button>
               ))
             )}
           </div>
         )}
 
-        {/* Page 1 — the itinerary (no keyboard); "Continue" → the sign-in page. */}
+        {/* Page 1 — the itinerary (no keyboard); "Continue" → the sign-in page.
+            Express Lane (reached by phone lookup or a scanned QR, where the code
+            is already spent) ends here instead: nothing to check in, so show
+            where to go rather than walking them through the party panel. */}
         {stage === "itinerary" && itinerary && (
           <div className="space-y-[32px]">
             <ItineraryScreen itinerary={itinerary} />
-            <button
-              type="button"
-              onClick={() => setStage("party")}
-              className="k-btn-primary k-tap h-[112px] w-full text-[36px]"
-            >
-              {t("checkin.continue")}
-            </button>
+            {itinerary.express ? (
+              <div className="k-glass border-[#46d68c]/50 p-[40px] text-center">
+                <ExpressLaneBody />
+                <button
+                  type="button"
+                  onClick={goHome}
+                  className="k-btn-primary k-tap mt-[36px] h-[104px] w-full text-[34px]"
+                >
+                  {t("checkin.gotIt")}
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setStage("party")}
+                className="k-btn-primary k-tap h-[112px] w-full text-[36px]"
+              >
+                {t("checkin.continue")}
+              </button>
+            )}
           </div>
         )}
 
@@ -769,15 +795,51 @@ export function KioskCheckinFlow() {
         )}
       </div>
 
-      {showExpress && <ExpressLaneModal onClose={() => setShowExpress(false)} />}
+      {expressFor && <ExpressLaneModal booking={expressFor} onClose={() => setExpressFor(null)} />}
     </div>
   );
 }
 
-// ── Express-lane info modal ───────────────────────────────────────────────────
-/** Informational only — opened from the "Express lane" pill on a racing browse
- *  row: skip kiosk check-in, head to the pits. No lookup, no eligibility check. */
-function ExpressLaneModal(props: { onClose: () => void }) {
+// ── Express lane ─────────────────────────────────────────────────────────────
+/** The one copy of the express-lane message — shared by the browse-row modal and
+ *  the itinerary panel so they can never say different things. Destination is
+ *  Race Check-In (matching the eTicket, the race-day email and RacingWhatsNext),
+ *  NOT "the pits".
+ *
+ *  i18n note: the old single-paragraph body was left English because its inline
+ *  <strong> spans made it rich text the plain-string engine can't render. Split
+ *  into three WHOLE sentences plus one standalone place name, each key is a
+ *  complete translatable unit and the emphasis wraps a whole key — so EN and ES
+ *  are both fully localized with no half-translated paragraph. */
+function ExpressLaneBody(props: { titleId?: string }) {
+  const t = useT();
+  return (
+    <>
+      <div
+        className="mx-auto mb-[24px] flex h-[120px] w-[120px] items-center justify-center rounded-full border-[3px] border-[#46d68c] bg-[#46d68c]/15"
+        aria-hidden="true"
+      >
+        <IconBolt size={64} className="text-[#46d68c]" />
+      </div>
+      <div id={props.titleId} className="k-display text-[48px]">
+        {t("checkin.express.title")}
+      </div>
+      <p className="mt-[20px] text-[30px] leading-[1.4] text-white/70">
+        <span className="font-bold text-white">{t("checkin.express.bodyNothing")}</span>{" "}
+        {t("checkin.express.bodyWhere")}{" "}
+        <span className="font-bold text-white">{t("checkin.express.bodyPlace")}</span>.{" "}
+        {t("checkin.express.bodyWhen")}
+      </p>
+    </>
+  );
+}
+
+/** Express-lane modal — what a tapped EXPRESS browse row opens INSTEAD of the
+ *  last-4 gate and the OTP. Informational: no lookup, no text, no check-in. */
+function ExpressLaneModal(props: {
+  booking: { label: string; timeLabel: string };
+  onClose: () => void;
+}) {
   const t = useT();
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center p-[48px]">
@@ -793,27 +855,9 @@ function ExpressLaneModal(props: { onClose: () => void }) {
         aria-labelledby="express-title"
         className="k-glass relative z-10 max-w-[760px] p-[48px] text-center"
       >
-        <div
-          className="mx-auto mb-[24px] flex h-[120px] w-[120px] items-center justify-center rounded-full border-[3px] border-[#46d68c] bg-[#46d68c]/15"
-          aria-hidden="true"
-        >
-          <IconBolt size={64} className="text-[#46d68c]" />
-        </div>
-        <div id="express-title" className="k-display text-[48px]">
-          {t("checkin.express.title")}
-        </div>
-        {/* TODO(i18n): this body carries inline <strong> emphasis (rich text) and
-            reads as one instructional unit; the plain-string formatMessage engine
-            can't render ICU tags, so translating it piecemeal would leave a
-            half-Spanish paragraph. Localize once the engine supports rich text or
-            a native reviewer splits it safely. Kept English. */}
-        <p className="mt-[20px] text-[30px] leading-[1.4] text-white/70">
-          You&rsquo;re all set — no check-in needed. Express Lane{" "}
-          <span className="font-bold text-white">
-            skips the front desk and Guest Services check-in
-          </span>
-          . Head straight to <span className="font-bold text-white">the pits</span> and a team
-          member will get you on the grid.
+        <ExpressLaneBody titleId="express-title" />
+        <p className="mt-[20px] text-[28px] text-white/45">
+          {props.booking.label} · {props.booking.timeLabel}
         </p>
         <button
           type="button"

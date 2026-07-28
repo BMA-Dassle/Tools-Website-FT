@@ -13,6 +13,7 @@ import {
   sendContactOtp,
   confirmContactOtp,
 } from "~/features/kiosk/checkin/server";
+import { isExpressBooking } from "~/features/kiosk/checkin/express";
 import type {
   CheckinConfirmOtpResponse,
   CheckinLookupResponse,
@@ -137,8 +138,18 @@ export async function POST(req: NextRequest) {
         ],
       });
     }
-    // Unproven → hand back an OTP-gated row (client runs send-otp → confirm-otp).
+    // Unproven → hand back an OTP-gated row (client runs send-otp → confirm-otp),
+    // unless it's Express Lane: that party skips check-in entirely, so the row
+    // carries the flag and the client shows them where to go instead of texting
+    // a code. Same eligibility rule as the browse list.
     const ref = await mintRef({ billId: resolved.billId, center });
+    const kind = summary.activitiesLabel.includes("+")
+      ? "mixed"
+      : summary.activitiesLabel.startsWith("Racing")
+        ? "racing"
+        : summary.activitiesLabel.startsWith("Bowling")
+          ? "bowling"
+          : "attraction";
     return NextResponse.json<CheckinLookupResponse>({
       ok: true,
       reason: "needs-otp",
@@ -148,13 +159,8 @@ export async function POST(req: NextRequest) {
           label: summary.label,
           timeLabel: summary.timeLabel,
           activitiesLabel: summary.activitiesLabel,
-          kind: summary.activitiesLabel.includes("+")
-            ? "mixed"
-            : summary.activitiesLabel.startsWith("Racing")
-              ? "racing"
-              : summary.activitiesLabel.startsWith("Bowling")
-                ? "bowling"
-                : "attraction",
+          kind,
+          express: isExpressBooking({ record: summary.record, racingOnly: kind === "racing" }),
         },
       ],
     });
