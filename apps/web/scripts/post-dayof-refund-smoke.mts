@@ -279,10 +279,10 @@ try {
     plan.steps.some((s) => s.kind === "update_dayof_order") ? "emitted one" : "none emitted",
   );
   check(
-    "plan waits for the gift-card credit before decrementing",
-    plan.steps.findIndex((s) => s.kind === "wait_gc_credit") <
-      plan.steps.findIndex((s) => s.kind === "adjust_gift_card_down"),
-    "wait_gc_credit precedes adjust_gift_card_down",
+    "plan reconciles the gift card (no async wait)",
+    plan.steps.some((s) => s.kind === "reconcile_gift_card") &&
+      !plan.steps.some((s) => s.kind === "adjust_gift_card_down"),
+    plan.steps.map((s) => s.kind).join(" → "),
   );
   check(
     "plan identified the returned line",

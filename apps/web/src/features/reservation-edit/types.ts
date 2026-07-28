@@ -158,9 +158,10 @@ export type EditStepKind =
   | "charge_dayof_order"
   | "refund_dayof_payment"
   | "refund_dayof_order"
-  // Await the async gift-card credit from a day-of refund before any step
-  // reads the card's balance (Square posts it seconds after the refund).
-  | "wait_gc_credit"
+  // Post-payment: after the refunds, bring the internal gift card back to the
+  // value it should hold. Replaces the old wait-then-decrement pair — an
+  // itemized refund does not credit the card, so there is nothing to wait for.
+  | "reconcile_gift_card"
   | "rebuild_dayof_order"
   | "pay_dayof_order"
   | "complete_dayof_order"

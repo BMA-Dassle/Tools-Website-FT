@@ -1465,16 +1465,10 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         steps.push({ kind: "refund_tender", fatal: true, amountCents: guestOwedCents });
       }
       if (giftCard) {
-        // Square credits the day-of refund back to the internal card
-        // asynchronously — decrementing before it lands reads a stale balance,
-        // no-ops, and leaves the refunded value spendable (2026-07-27 probe).
-        steps.push({ kind: "wait_gc_credit", fatal: true, target: giftCard.id });
-        steps.push({
-          kind: "adjust_gift_card_down",
-          fatal: true,
-          target: giftCard.id,
-          amountCents: gcDecrementCents,
-        });
+        // The itemized refund does not credit the internal card, so there is
+        // nothing to wait for — just verify the card kept no refunded value
+        // and strip any excess. Deterministic, no async window.
+        steps.push({ kind: "reconcile_gift_card", fatal: true, target: giftCard.id });
       }
     }
     // NO update_dayof_order here. Square refuses ANY line change on an order
@@ -1558,14 +1552,8 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         steps.push({ kind: "refund_tender", fatal: true, amountCents: guestOwedCents });
       }
       if (giftCard) {
-        // The credit posts asynchronously — never decrement before it lands.
-        steps.push({ kind: "wait_gc_credit", fatal: true, target: giftCard.id });
-        steps.push({
-          kind: "adjust_gift_card_down",
-          fatal: true,
-          target: giftCard.id,
-          amountCents: gcDecrementCents,
-        });
+        // Same as MID: verify-and-strip rather than wait-then-decrement.
+        steps.push({ kind: "reconcile_gift_card", fatal: true, target: giftCard.id });
       }
       if (fullRefund) {
         // Refunding everything on a closed order. A zero-line rebuild is

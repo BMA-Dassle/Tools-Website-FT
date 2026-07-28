@@ -90,7 +90,11 @@ import {
   startEditEvent,
 } from "@/lib/reservation-edit-log";
 import { loadGiftCard } from "@/lib/square-gift-card";
-import { fetchOrderFacts, fetchPaymentFacts } from "~/features/cancellation/square-actions";
+import {
+  fetchGiftCardFacts,
+  fetchOrderFacts,
+  fetchPaymentFacts,
+} from "~/features/cancellation/square-actions";
 import {
   adjustGiftCardDown,
   createEditTopupOrderAndCharge,
@@ -662,12 +666,11 @@ describe("executeEditCascade — day-of refund leg (post-day-of flow)", () => {
         lines: [{ uid: "L2", quantity: 1 }],
       }),
     );
-    // The refund is deliberately NOT linked (returnOrderId omitted): a linked
-    // refund does not credit the gift-card tender, which would strand the
-    // money the deposit leg and the decrement both depend on. Probed
-    // 2026-07-28 — see the executor comment.
+    // LINKED to the return order → the refund is itemized in Square, matching
+    // how the POS records returns. It will not credit the card; the card side
+    // is handled by reconcile_gift_card instead of an async wait.
     expect(vi.mocked(refundTenderPartial)).toHaveBeenCalledWith(
-      expect.not.objectContaining({ returnOrderId: expect.anything() }),
+      expect.objectContaining({ returnOrderId: "RET1" }),
     );
   });
 
@@ -740,17 +743,16 @@ describe("executeEditCascade — day-of refund leg (post-day-of flow)", () => {
   });
 });
 
-describe("executeEditCascade — async gift-card credit (wait_gc_credit)", () => {
-  // The 2026-07-27 live finding: the refund credits the internal gift card
-  // ASYNCHRONOUSLY. Decrementing before it lands reads a stale $0 balance,
-  // no-ops while burning its key, and leaves the refunded value spendable —
-  // silent double value.
+describe("executeEditCascade — gift-card reconcile after a post-payment refund", () => {
+  // An ITEMIZED refund does not credit the internal card (probed 2026-07-28),
+  // so there is nothing to wait for. The card is verified against its
+  // pre-refund baseline and any excess stripped — deterministic, and with no
+  // async window nothing can be stranded.
   const WAIT_STEPS: EditStep[] = [
     { kind: "audit_start", fatal: true },
     { kind: "refund_dayof_payment", fatal: true, amountCents: 1605 },
     { kind: "refund_tender", fatal: true, amountCents: 1605 },
-    { kind: "wait_gc_credit", fatal: true, target: "GC1" },
-    { kind: "adjust_gift_card_down", fatal: true, target: "GC1", amountCents: 1605 },
+    { kind: "reconcile_gift_card", fatal: true, target: "GC1" },
     { kind: "neon_commit", fatal: true },
   ];
   const ROW_PAID = { ...ROW, dayofPaymentId: "PAY_DAYOF" };
@@ -778,46 +780,51 @@ describe("executeEditCascade — async gift-card credit (wait_gc_credit)", () =>
     } as never);
     vi.mocked(refundTenderPartial).mockResolvedValue({ refundId: "RF_X", refundedCents: 1605 });
     vi.mocked(adjustGiftCardDown).mockResolvedValue(1605);
-    // Defaults per test — mockResolvedValue survives clearAllMocks.
-    vi.mocked(waitForRefundCredit).mockResolvedValue({ settled: true, status: "COMPLETED" });
+    // Baseline and post-refund reads both 5000 unless a test overrides.
+    vi.mocked(fetchGiftCardFacts).mockResolvedValue({
+      id: "GC1",
+      gan: "WEBHPFM123",
+      state: "ACTIVE",
+      balanceCents: 5000,
+      locationId: "TXBSQN0FEKQ11",
+    } as never);
   });
   afterEach(() => {
     delete process.env.RESERVATION_EDIT_V2_MID_DECREASE;
   });
 
-  it("waits for the credit BEFORE decrementing the gift card", async () => {
-    const order: string[] = [];
-    vi.mocked(waitForRefundCredit).mockImplementation(async () => {
-      order.push("wait");
-      return { settled: true, status: "COMPLETED" };
-    });
-    vi.mocked(adjustGiftCardDown).mockImplementation(async () => {
-      order.push("decrement");
-      return 1605;
-    });
-
+  it("is a verified no-op when the itemized refund left the card untouched", async () => {
+    // The normal case: baseline and post-refund balance both read 5000, so
+    // the card kept no refunded value and nothing is stripped.
     const result = await executeEditCascade(req());
     expect(result.state).toBe("completed");
-    expect(order).toEqual(["wait", "decrement"]);
-  });
-
-  it("parks WITHOUT decrementing when the credit has not settled", async () => {
-    vi.mocked(waitForRefundCredit).mockResolvedValue({ settled: false, status: "PENDING" });
-
-    await expect(executeEditCascade(req())).rejects.toThrow(/has not credited the gift card/i);
     expect(vi.mocked(adjustGiftCardDown)).not.toHaveBeenCalled();
-    // Money that DID move is recorded, so a resume can finish the job.
-    expect(vi.mocked(recordEditRefund)).toHaveBeenCalled();
-    expect(vi.mocked(finishEditEvent)).toHaveBeenCalledWith(
-      "edit-42-a1",
-      expect.objectContaining({ state: "failed" }),
+    expect(result.stepLog.find((s) => s.step === "reconcile_gift_card")?.detail).toMatch(
+      /unchanged vs baseline/,
     );
   });
 
-  it("treats a short decrement as fatal, never a green step", async () => {
-    // adjustGiftCardDown returns 0 when the balance is still stale.
+  it("STRIPS the excess if a credit did post (behaviour-change safe)", async () => {
+    // Baseline read first (5000), then a higher balance after the refund —
+    // Square credited the card after all, so the surplus must come off.
+    vi.mocked(fetchGiftCardFacts)
+      .mockResolvedValueOnce({ balanceCents: 5000 } as never)
+      .mockResolvedValueOnce({ balanceCents: 6605 } as never);
+    vi.mocked(adjustGiftCardDown).mockResolvedValue(1605);
+
+    const result = await executeEditCascade(req());
+    expect(result.state).toBe("completed");
+    expect(vi.mocked(adjustGiftCardDown)).toHaveBeenCalledWith(
+      expect.objectContaining({ amountCents: 1605 }),
+    );
+  });
+
+  it("treats a SHORT strip as fatal — refunded value must never survive", async () => {
+    vi.mocked(fetchGiftCardFacts)
+      .mockResolvedValueOnce({ balanceCents: 5000 } as never)
+      .mockResolvedValueOnce({ balanceCents: 6605 } as never);
     vi.mocked(adjustGiftCardDown).mockResolvedValue(0);
-    await expect(executeEditCascade(req())).rejects.toThrow(/decremented 0¢ of 1605¢/);
+    await expect(executeEditCascade(req())).rejects.toThrow(/still holds refunded value/i);
   });
 
   it("refuses to decrement at all when gift-card facts are unavailable", async () => {

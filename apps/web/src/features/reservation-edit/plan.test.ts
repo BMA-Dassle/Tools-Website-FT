@@ -519,8 +519,9 @@ describe("buildEditPlan — phase gates", () => {
     expect(kinds).not.toContain("refund_dayof_order");
     expect(kinds).not.toContain("rebuild_dayof_order");
     expect(kinds).not.toContain("pay_dayof_order");
-    // The async credit is still waited on before the decrement.
-    expect(kinds.indexOf("wait_gc_credit")).toBeLessThan(kinds.indexOf("adjust_gift_card_down"));
+    // The card is reconciled instead of waited on + decremented.
+    expect(kinds).toContain("reconcile_gift_card");
+    expect(kinds).not.toContain("adjust_gift_card_down");
   });
 
   // NOTE: the whole-order-to-zero shapes (full_refund_use_cancel on MID, and

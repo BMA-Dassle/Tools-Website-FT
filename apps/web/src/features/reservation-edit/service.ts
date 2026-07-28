@@ -276,12 +276,6 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
 
     const paymentIds: string[] = [];
     const refundIds: string[] = [];
-    /**
-     * Refunds of gift-card-funded payments whose credit has not yet been
-     * confirmed on the card. Square posts these asynchronously, so the
-     * decrement must not run until this drains (see wait_gc_credit).
-     */
-    const pendingGcCreditRefundIds: string[] = [];
     /** Return orders created for itemized refunds — surfaced in the step log. */
     const returnOrderIds: string[] = [];
     /**
@@ -455,21 +449,13 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
             // we refund. Without this the returned item is invisible to
             // item-level sales reporting and to QBO categorization.
             //
-            // ⚠ UNRESOLVED (probed 2026-07-28,
-            // scripts/gc-credit-itemized-vs-plain-probe.mts): a refund LINKED
-            // to the return order (order_id set) does NOT credit the gift-card
-            // tender — the payment shows refunded but the card stayed at 0¢
-            // after 123s, while an identical PLAIN refund credited it in 10s.
-            // Linking would therefore strand the money exactly the way the
-            // 7/27 card ...1430 credit was destroyed, and the deposit leg +
-            // decrement both depend on that credit arriving.
-            //
-            // Until Square clarifies, the return order is still created (it
-            // carries the item-level record) but the refund is NOT linked to
-            // it, so the money actually moves. Whether the unlinked return
-            // order alone satisfies item-level reporting is NOT yet verified —
-            // do not enable the flags until that is settled. See
-            // tasks/future/post-dayof-refund-plan.md.
+            // An order-linked refund does NOT credit the gift-card tender
+            // (probed 2026-07-28, three arms, controlled: linked stayed at 0¢
+            // past 150s; identical unlinked credited in ~11s; destination_id
+            // made no difference). That is fine — the card side is handled
+            // deterministically by reconcile_gift_card instead of waiting on
+            // Square's credit, which removes the async window that stranded
+            // the 7/27 credit on card ...1430 altogether.
             const legWithReturn = plan.legs.find(
               (l) => l.dayofOrderId && l.returnedLines.length > 0,
             );
@@ -544,46 +530,64 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               amountCents: owed,
               // Owner rule: staff-supplied, never the deposit journal key.
               reason: dayofRefundReason!,
-              // NOT linked to the return order — see the block below.
+              // Linked to the return order → the refund is ITEMIZED, matching
+              // how the POS records returns. It will NOT credit the gift card;
+              // reconcile_gift_card handles the card side deterministically.
+              returnOrderId: ret.returnOrderId,
             });
             if (r.refundId) {
               refundIds.push(r.refundId);
               await recordEditRefund(editId, r.refundId);
-              // The gift-card credit posts ASYNCHRONOUSLY. Nothing downstream
-              // may read the card's balance until it lands, or the decrement
-              // no-ops and the refunded value survives on the card.
-              pendingGcCreditRefundIds.push(r.refundId);
             }
             stepLog.push({ step: step.kind, ok: true, detail: r.refundId });
             break;
           }
 
-          case "wait_gc_credit": {
-            if (pendingGcCreditRefundIds.length === 0) {
-              stepLog.push({ step: step.kind, ok: true, detail: "nothing pending" });
-              break;
+          case "reconcile_gift_card": {
+            // The internal card must end holding exactly what it held before
+            // the refund — the value being returned belongs to the guest, not
+            // to the card.
+            //
+            // An ITEMIZED refund does not credit the card, so in the normal
+            // case the balance is already correct and this is a verified
+            // no-op. But we do not ASSUME that: we compare against the
+            // baseline captured before the refund and decrement any excess.
+            // That keeps the step correct if Square ever starts crediting
+            // order-linked refunds, and it replaces the old
+            // wait-then-decrement pair — no async window, so nothing can be
+            // stranded the way the 7/27 credit on card ...1430 was.
+            if (!plan.giftCard) {
+              throw new Error(
+                "gift card facts unavailable — cannot verify the card holds no refunded value",
+              );
             }
-            // A long poll can outlive the original lock TTL — keep holding it.
-            await extendEditLock(anchorId);
-            for (const rid of pendingGcCreditRefundIds) {
-              const w = await waitForRefundCredit({
-                refundId: rid,
-                giftCardId: plan.giftCard?.id,
-                baselineBalanceCents: gcBaselineCents,
-                expectCreditCents: dayofRefundedCents,
+            const live = (await fetchGiftCardFacts(plan.giftCard.id)).balanceCents;
+            const baseline = gcBaselineCents ?? live;
+            const excess = live - baseline;
+            if (excess > 0) {
+              const dropped = await adjustGiftCardDown({
+                editId,
+                giftCardId: plan.giftCard.id,
+                amountCents: excess,
               });
-              if (!w.settled) {
-                // Park, do NOT decrement. The refunds are recorded, so a
-                // resume of THIS editId replays the same idempotency keys and
-                // picks up where we left off once Square settles.
+              if (dropped < excess) {
                 throw new Error(
-                  `refund ${rid} has not credited the gift card yet (status ${w.status}) — ` +
-                    `money already moved and is recorded; resume this edit to finish it`,
+                  `gift card ${plan.giftCard.id} still holds refunded value ` +
+                    `(dropped ${dropped}¢ of ${excess}¢) — resolve in Square before retrying`,
                 );
               }
+              stepLog.push({
+                step: step.kind,
+                ok: true,
+                detail: `-${dropped} (credit had posted)`,
+              });
+            } else {
+              stepLog.push({
+                step: step.kind,
+                ok: true,
+                detail: `balance ${live}¢ unchanged vs baseline — nothing to strip`,
+              });
             }
-            pendingGcCreditRefundIds.length = 0;
-            stepLog.push({ step: step.kind, ok: true, detail: "credit settled" });
             break;
           }
 
@@ -605,12 +609,6 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               throw new Error(
                 `gift card facts unavailable but ${want}¢ must be decremented — ` +
                   `verify the card in Square before retrying`,
-              );
-            }
-            if (pendingGcCreditRefundIds.length > 0) {
-              throw new Error(
-                `refusing to decrement before refund credit settles ` +
-                  `(${pendingGcCreditRefundIds.join(", ")} still pending)`,
               );
             }
             const adjusted = await adjustGiftCardDown({
@@ -659,11 +657,6 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               });
               refundIds.push(r.refundId);
               await recordEditRefund(editId, r.refundId);
-              // Gift-card tenders credit back asynchronously — gate the
-              // decrement (and the rebuild's repay) on wait_gc_credit.
-              if (tender.paymentId === anchor.dayofPaymentId || facts.tenders.length === 1) {
-                pendingGcCreditRefundIds.push(r.refundId);
-              }
               n++;
             }
             stepLog.push({ step: step.kind, ok: true, detail: `${n} tender(s) refunded` });
