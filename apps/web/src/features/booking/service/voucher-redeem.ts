@@ -7,50 +7,50 @@
  *
  *   - BMI `order/applyCode` puts the voucher's comp product on the bill as a
  *     $0 LINE ("Race Comp ×1", voucherCode-stamped). It does NOT discount the
- *     existing lines — BMI nets the comp against the matching race line when
- *     the order is PROCESSED (owner-confirmed POS behavior).
- *   - Codes are NOT locked at apply (the same code applied to a second un-paid
- *     order was accepted), and cancelling the bill releases it — so an
- *     abandoned kiosk session can't burn a guest's voucher.
+ *     existing lines — BMI nets the comp against the matching line when the
+ *     order is PROCESSED (owner-confirmed POS behavior).
+ *   - Codes are NOT locked at apply, and cancelling the bill releases them.
+ *   - A bill whose only line is the comp AUTO-CANCELS (probed live), so bills
+ *     stay lazily created; vouchers chase the session's current bill.
  *
- * OUR side must therefore charge as if one race is free: exactly like race
- * credits and kiosk race packs, the voucher-covered heat joins `excludedHeats`
- * so the same `buildRaceChargeLines` call prices the display AND the charge —
- * displayed can never drift from charged.
- *
- * Coverage rule (v1, deterministic): one comp line covers ONE single-race
- * heat assignment — the LOWEST-priced eligible one not already covered by
- * credits or packs (conservative until BMI confirms which line their netting
- * targets; the common voucher case is one racer / one race, where every rule
- * picks the same heat). Package and combo-pack heats are never covered — a
- * comp is a race, not a bundle.
+ * MULTIPLE vouchers are first-class (owner 2026-07-27): a party can scan one
+ * comp per racer. `planVoucherCoverage` allocates deterministically, in SCAN
+ * ORDER: each race-targeted voucher covers ONE single-race heat (cheapest
+ * eligible first; packages/combo-packs never); each attraction-targeted
+ * voucher covers ONE unit of the cheapest matching AttractionItem (stacking
+ * up to the item's qty). The SAME plan feeds the charge (unified-reserve) and
+ * every display — displayed can never drift from charged. Unknown comp names
+ * cover NOTHING (never guess with money).
  */
 
-import type { BookingSession, RaceHeatAssignment, RaceItem } from "../state/types";
+import type {
+  AppliedVoucherState,
+  AttractionItem,
+  BookingSession,
+  RaceHeatAssignment,
+  RaceItem,
+} from "../state/types";
 import { packageIdForCategory } from "../state/types";
 import { getRaceProductById } from "./race-products";
-import type { AttractionItem } from "../state/types";
 import { promoFactor } from "./promo-pricing";
+
+export type { AppliedVoucherState } from "../state/types";
 
 /**
  * BMI voucher number shape: 12 strictly-alternating letter/digit pairs.
  * Confirmed invariant across a 32-code production batch (2026-07-27): letters
  * from a lookalike-free set, digits 2-9 (never 0/1). Shared by the kiosk scan
- * classifier AND the web checkout promo input so both surfaces route voucher
- * codes identically.
+ * classifier AND the web checkout promo input.
  */
 export const BMI_VOUCHER_RE = /^(?:[A-Z][2-9]){12}$/;
 
 /**
  * Voucher redemption ENTRY flag — OPT-IN, defaults OFF. Gates only the entry
  * points (kiosk code-entry accept + web checkout promo-input branch); the
- * pricing/charge seams key on `session.appliedVoucher` existing, which only a
- * gated entry can set, so no seam needs its own flag. Preview opt-in without
- * env: /kiosk/flow?kioskPromo=1&kioskVoucher=1. Set the literal "true" in
- * Vercel + redeploy for real exposure (NEXT_PUBLIC_* is build-baked). MUST
- * stay dark until the paid live smoke proves BMI's netting at processing
- * (probe 2026-07-27: the comp does NOT zero the race line at apply — the
- * owner-confirmed netting happens at settle, unverified by API).
+ * pricing/charge seams key on session vouchers existing, which only a gated
+ * entry can set. Preview opt-in without env:
+ * /kiosk/flow?kioskPromo=1&kioskVoucher=1. MUST stay dark until the paid live
+ * smoke proves BMI's netting at processing.
  */
 export function voucherRedeemEnabled(): boolean {
   return process.env.NEXT_PUBLIC_VOUCHER_REDEEM === "true";
@@ -58,7 +58,7 @@ export function voucherRedeemEnabled(): boolean {
 
 /** Reserve-time hard fail: the session claims a voucher our server-side
  *  ledger never recorded for its bill. Never silently charge full price the
- *  guest didn't see — surface, let them retry or clear the voucher. */
+ *  guest didn't see. */
 export class VoucherNotVerifiedError extends Error {
   constructor(code: string) {
     super(`voucher ${code} is not verified for this order`);
@@ -66,23 +66,19 @@ export class VoucherNotVerifiedError extends Error {
   }
 }
 
-/** The session's scanned/applied voucher — defined in state/types (it lives
- *  on BookingSession); re-exported here so surfaces import one module. */
-export type { AppliedVoucherState } from "../state/types";
-import type { AppliedVoucherState } from "../state/types";
+/** The session's vouchers, scan order preserved. */
+export function sessionVouchers(session: BookingSession): AppliedVoucherState[] {
+  return session.appliedVouchers ?? [];
+}
 
-/** True once the voucher is actually ON a BMI bill (comp line exists). */
+/** True once a voucher is actually ON a BMI bill (comp line exists). */
 export function voucherIsApplied(v: AppliedVoucherState | null | undefined): boolean {
   return !!v && !v.pending && !v.error && !!v.billId && !!v.voucherOrderItemId;
 }
 
 /**
  * What a voucher's comp product pays for, parsed from its BMI line name
- * ("Race Comp", "Complimentary 1 Hour Shuffly", "Laser Comp", ...). The kind
- * decides which coverage rail runs: race → the excludedHeats rail below;
- * attraction → one unit off the matching AttractionItem. Unknown names cover
- * NOTHING (the guest pays what's displayed and the kiosk shows a "doesn't
- * match your cart" note) — never guess with money.
+ * ("Race Comp", "Complimentary 1 Hour Shuffly", "Laser Comp", ...).
  */
 export type VoucherTarget =
   | { kind: "race" }
@@ -99,65 +95,84 @@ export function voucherTarget(name: string | null | undefined): VoucherTarget {
   return { kind: "unknown" };
 }
 
-/**
- * One-unit attraction coverage: the item (and discounted unit price, in
- * cents) the session's voucher pays for. The SAME formula unified-reserve
- * charges with (promo price-key applied to the unit) — both sides subtract
- * this exact figure, so display can't drift from charge. Deterministic pick:
- * lowest discounted unit among matching items; tie → first in cart order.
- * Callers must skip combo mode (combos charge flat — voucher is a no-op there,
- * same as the race rail).
- */
-export function voucherAttractionCoverage(
-  session: BookingSession,
-): { itemId: string; cents: number } | null {
-  const v = session.appliedVoucher;
-  if (!voucherIsApplied(v)) return null;
-  const target = voucherTarget(v!.name);
-  if (target.kind !== "attraction") return null;
-
-  let best: { itemId: string; cents: number } | null = null;
-  for (const item of session.items) {
-    if (item.kind !== "attraction") continue;
-    const attr = item as AttractionItem;
-    if (!attr.slug || !target.slugs.includes(attr.slug)) continue;
-    if (!attr.productId || attr.qty < 1) continue;
-    const fullUnitCents = Math.round(attr.price * 100);
-    const factor = promoFactor(
-      { domain: "attractions", visitDate: attr.date ?? undefined, productSlug: attr.slug },
-      session.appliedPromo ?? null,
-    );
-    const cents = factor === 1 ? fullUnitCents : Math.round(fullUnitCents * factor);
-    if (cents <= 0) continue;
-    if (!best || cents < best.cents) best = { itemId: attr.id, cents };
-  }
-  return best;
+export interface VoucherPick {
+  code: string;
+  name?: string;
+  /** The single-race heat this voucher covers (race target). */
+  raceHeat?: RaceHeatAssignment;
+  /** The AttractionItem (+ discounted unit price) this voucher covers. */
+  attractionItemId?: string;
+  attractionUnitCents?: number;
 }
 
-/**
- * The heat assignments the session's voucher covers — mirror of
- * `redeemedHeatSet` (credits) and `computePackCoverage` (kiosk packs).
- * `excluded` = heats already covered by those two (they win first; a voucher
- * never doubles up on an already-$0 heat).
- *
- * Returns an empty set unless the voucher is APPLIED (pending/errored vouchers
- * price nothing — the guest sees full price until the comp line is real).
- */
-export function voucherCoveredHeatSet(
-  session: BookingSession,
-  excluded: ReadonlySet<RaceHeatAssignment>,
-): Set<RaceHeatAssignment> {
-  if (!voucherIsApplied(session.appliedVoucher)) return new Set();
-  if (voucherTarget(session.appliedVoucher!.name).kind !== "race") return new Set();
+export interface VoucherCoveragePlan {
+  /** Race heats to join excludedHeats (charge $0 — the credits/packs rail). */
+  raceHeats: Set<RaceHeatAssignment>;
+  /** AttractionItem id → covered unit count (Square quantity reduction). */
+  attractionUnits: Map<string, number>;
+  /** Per-voucher allocation, scan order — display lines + no-match notes. */
+  picks: VoucherPick[];
+}
 
+const EMPTY_PLAN: VoucherCoveragePlan = {
+  raceHeats: new Set(),
+  attractionUnits: new Map(),
+  picks: [],
+};
+
+/**
+ * Allocate every APPLIED voucher (pending/errored ones price nothing), in
+ * scan order, against the session's cart. `baseExcluded` = heats already
+ * covered by credits/packs — those win first; vouchers never double-cover.
+ * Deterministic: cheapest eligible pick per voucher, ties → earliest heat /
+ * first cart item.
+ */
+export function planVoucherCoverage(
+  session: BookingSession,
+  baseExcluded: ReadonlySet<RaceHeatAssignment>,
+): VoucherCoveragePlan {
+  const vouchers = sessionVouchers(session).filter(voucherIsApplied);
+  if (vouchers.length === 0) return EMPTY_PLAN;
+
+  const raceHeats = new Set<RaceHeatAssignment>();
+  const attractionUnits = new Map<string, number>();
+  const picks: VoucherPick[] = [];
+
+  for (const v of vouchers) {
+    const target = voucherTarget(v.name);
+    const pick: VoucherPick = { code: v.code, name: v.name };
+
+    if (target.kind === "race") {
+      const heat = cheapestUncoveredHeat(session, baseExcluded, raceHeats);
+      if (heat) {
+        raceHeats.add(heat);
+        pick.raceHeat = heat;
+      }
+    } else if (target.kind === "attraction") {
+      const found = cheapestUncoveredAttractionUnit(session, target.slugs, attractionUnits);
+      if (found) {
+        attractionUnits.set(found.itemId, (attractionUnits.get(found.itemId) ?? 0) + 1);
+        pick.attractionItemId = found.itemId;
+        pick.attractionUnitCents = found.cents;
+      }
+    }
+    picks.push(pick);
+  }
+  return { raceHeats, attractionUnits, picks };
+}
+
+function cheapestUncoveredHeat(
+  session: BookingSession,
+  baseExcluded: ReadonlySet<RaceHeatAssignment>,
+  alreadyPicked: ReadonlySet<RaceHeatAssignment>,
+): RaceHeatAssignment | null {
   let best: { heat: RaceHeatAssignment; price: number; start: string } | null = null;
   for (const item of session.items) {
     if (item.kind !== "race") continue;
     const race = item as RaceItem;
     for (const heat of race.heats) {
-      if (!heat.heatId || excluded.has(heat)) continue;
+      if (!heat.heatId || baseExcluded.has(heat) || alreadyPicked.has(heat)) continue;
       const category = heat.category ?? "adult";
-      // Bundles are never comp targets.
       if (packageIdForCategory(race, category)) continue;
       const pid =
         heat.productId ?? (category === "adult" ? race.productIdAdult : race.productIdJunior);
@@ -174,22 +189,58 @@ export function voucherCoveredHeatSet(
       }
     }
   }
-  return best ? new Set([best.heat]) : new Set();
+  return best?.heat ?? null;
+}
+
+function cheapestUncoveredAttractionUnit(
+  session: BookingSession,
+  slugs: string[],
+  covered: ReadonlyMap<string, number>,
+): { itemId: string; cents: number } | null {
+  let best: { itemId: string; cents: number } | null = null;
+  for (const item of session.items) {
+    if (item.kind !== "attraction") continue;
+    const attr = item as AttractionItem;
+    if (!attr.slug || !slugs.includes(attr.slug)) continue;
+    if (!attr.productId || attr.qty < 1) continue;
+    if ((covered.get(attr.id) ?? 0) >= attr.qty) continue; // fully covered already
+    const fullUnitCents = Math.round(attr.price * 100);
+    const factor = promoFactor(
+      { domain: "attractions", visitDate: attr.date ?? undefined, productSlug: attr.slug },
+      session.appliedPromo ?? null,
+    );
+    const cents = factor === 1 ? fullUnitCents : Math.round(fullUnitCents * factor);
+    if (cents <= 0) continue;
+    if (!best || cents < best.cents) best = { itemId: attr.id, cents };
+  }
+  return best;
 }
 
 /**
- * Dollar amount the voucher takes off, derived by DIFFERENCING the same
- * line-builder the charge uses (never priced independently — the race-pack
- * covered-line idiom). `sumLines` = a closure over buildRaceChargeLines or
- * raceItemChargeLines with/without the extra exclusions.
+ * Per-voucher review amounts — one negative line each, derived by
+ * DIFFERENCING the same race line-builder the charge uses (heats removed one
+ * pick at a time, in scan order) + the plan's attraction unit price. An
+ * amount of 0 = that voucher matched nothing in the cart.
  */
-export function voucherCoveredAmount(
-  covered: ReadonlySet<RaceHeatAssignment>,
-  excluded: ReadonlySet<RaceHeatAssignment>,
-  sumLines: (ex: Set<RaceHeatAssignment>) => number,
-): number {
-  if (covered.size === 0) return 0;
-  const without = sumLines(new Set(excluded));
-  const withCovered = sumLines(new Set([...excluded, ...covered]));
-  return Math.max(0, Math.round((without - withCovered) * 100) / 100);
+export function voucherReviewLines(
+  session: BookingSession,
+  baseExcluded: ReadonlySet<RaceHeatAssignment>,
+  sumRaceLines: (ex: Set<RaceHeatAssignment>) => number,
+): Array<{ code: string; name?: string; amount: number }> {
+  const plan = planVoucherCoverage(session, baseExcluded);
+  if (plan.picks.length === 0) return [];
+  const excluded = new Set(baseExcluded);
+  let before = plan.raceHeats.size > 0 ? sumRaceLines(excluded) : 0;
+  return plan.picks.map((p) => {
+    let amount = 0;
+    if (p.raceHeat) {
+      excluded.add(p.raceHeat);
+      const after = sumRaceLines(excluded);
+      amount = Math.round((before - after) * 100) / 100;
+      before = after;
+    } else if (p.attractionUnitCents) {
+      amount = p.attractionUnitCents / 100;
+    }
+    return { code: p.code, name: p.name, amount: Math.max(0, amount) };
+  });
 }

@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   BMI_VOUCHER_RE,
-  voucherAttractionCoverage,
-  voucherCoveredHeatSet,
+  planVoucherCoverage,
+  sessionVouchers,
   voucherIsApplied,
-  voucherCoveredAmount,
+  voucherReviewLines,
   voucherTarget,
 } from "./voucher-redeem";
-import type { BookingSession, RaceHeatAssignment, RaceItem } from "../state/types";
+import type { BookingSession, RaceHeatAssignment } from "../state/types";
 
 // Real production voucher codes (owner-shared 2026-07-27) — the shared regex
 // is also consumed by the kiosk classifier and the web promo input.
@@ -19,100 +19,6 @@ describe("BMI_VOUCHER_RE (shared)", () => {
   it("rejects 0/1 digits and wrong lengths", () => {
     expect(BMI_VOUCHER_RE.test("K1B7C3S7Q4Z9Q9Z3M9A9T7Z2")).toBe(false);
     expect(BMI_VOUCHER_RE.test("K5B7C3S7Q4Z9")).toBe(false);
-  });
-});
-
-const APPLIED = {
-  code: "K5B7C3S7Q4Z9Q9Z3M9A9T7Z2",
-  name: "Race Comp",
-  billId: "63000000006397110",
-  voucherOrderItemId: "63000000006397113",
-};
-
-function heat(heatId: string, productId: string, assignedTo = "m1"): RaceHeatAssignment {
-  return { heatId, productId, track: "Red", assignedTo, category: "adult" } as RaceHeatAssignment;
-}
-
-function raceSession(heats: RaceHeatAssignment[], voucher: unknown = APPLIED): BookingSession {
-  const item = {
-    id: "item1",
-    kind: "race",
-    heats,
-    // Starter Race Red (weekday) — real catalog product.
-    productIdAdult: "24960859",
-    productIdJunior: null,
-    packageIdAdult: null,
-    packageIdJunior: null,
-    addons: [],
-    povQuantity: 0,
-  } as unknown as RaceItem;
-  return {
-    items: [item],
-    party: [],
-    appliedVoucher: voucher,
-  } as unknown as BookingSession;
-}
-
-describe("voucherIsApplied", () => {
-  it("true only for a real applied voucher", () => {
-    expect(voucherIsApplied(APPLIED)).toBe(true);
-    expect(voucherIsApplied({ code: "X", pending: true })).toBe(false);
-    expect(voucherIsApplied({ code: "X", error: "unknown" })).toBe(false);
-    expect(voucherIsApplied(null)).toBe(false);
-    expect(voucherIsApplied(undefined)).toBe(false);
-  });
-});
-
-describe("voucherCoveredHeatSet", () => {
-  it("covers exactly ONE heat for an applied voucher", () => {
-    const h1 = heat("2026-07-29T18:00:00", "24960859");
-    const h2 = heat("2026-07-29T19:00:00", "24960859", "m2");
-    const covered = voucherCoveredHeatSet(raceSession([h1, h2]), new Set());
-    expect(covered.size).toBe(1);
-    // Equal prices → earliest heat wins (deterministic).
-    expect(covered.has(h1)).toBe(true);
-  });
-
-  it("covers nothing while the voucher is pending or errored", () => {
-    const h1 = heat("2026-07-29T18:00:00", "24960859");
-    expect(
-      voucherCoveredHeatSet(raceSession([h1], { code: "X", pending: true }), new Set()).size,
-    ).toBe(0);
-    expect(
-      voucherCoveredHeatSet(raceSession([h1], { code: "X", error: "unknown" }), new Set()).size,
-    ).toBe(0);
-    expect(voucherCoveredHeatSet(raceSession([h1], null), new Set()).size).toBe(0);
-  });
-
-  it("never doubles up on a heat credits/packs already cover", () => {
-    const h1 = heat("2026-07-29T18:00:00", "24960859");
-    const h2 = heat("2026-07-29T19:00:00", "24960859", "m2");
-    const covered = voucherCoveredHeatSet(raceSession([h1, h2]), new Set([h1]));
-    expect(covered.size).toBe(1);
-    expect(covered.has(h2)).toBe(true);
-  });
-
-  it("returns empty when every heat is already covered", () => {
-    const h1 = heat("2026-07-29T18:00:00", "24960859");
-    expect(voucherCoveredHeatSet(raceSession([h1]), new Set([h1])).size).toBe(0);
-  });
-
-  it("skips heats with no heatId (unbooked)", () => {
-    const h1 = { ...heat("", "24960859"), heatId: null } as unknown as RaceHeatAssignment;
-    expect(voucherCoveredHeatSet(raceSession([h1]), new Set()).size).toBe(0);
-  });
-});
-
-describe("voucherCoveredAmount", () => {
-  it("differences the same line-builder the charge uses", () => {
-    const h1 = heat("2026-07-29T18:00:00", "24960859");
-    const covered = new Set([h1]);
-    // sumLines stub: full = 41.98, with the covered heat excluded = 20.99.
-    const amount = voucherCoveredAmount(covered, new Set(), (ex) => (ex.has(h1) ? 20.99 : 41.98));
-    expect(amount).toBe(20.99);
-  });
-  it("is 0 for empty coverage", () => {
-    expect(voucherCoveredAmount(new Set(), new Set(), () => 100)).toBe(0);
   });
 });
 
@@ -135,40 +41,186 @@ describe("voucherTarget", () => {
   });
 });
 
-describe("voucherAttractionCoverage", () => {
-  const laserVoucher = { ...APPLIED, name: "Laser Comp" };
-  function attractionSession(items: unknown[], voucher: unknown = laserVoucher): BookingSession {
-    return { items, party: [], appliedVoucher: voucher } as unknown as BookingSession;
-  }
-  const laser = (id: string, price: number, qty = 2) => ({
-    id,
-    kind: "attraction",
-    slug: "laser-tag",
-    date: "2026-07-29",
-    qty,
-    productId: "111",
-    price,
+// ── Fixtures ────────────────────────────────────────────────────────────────
+
+const raceVoucher = (code: string) => ({
+  code,
+  name: "Race Comp",
+  billId: "63000000006397110",
+  voucherOrderItemId: `9${code.length}00`,
+});
+const laserVoucher = (code: string) => ({ ...raceVoucher(code), name: "Laser Comp" });
+
+function heat(heatId: string, assignedTo = "m1"): RaceHeatAssignment {
+  return {
+    heatId,
+    productId: "24960859", // Starter Race Red (weekday) — real catalog product
+    track: "Red",
+    assignedTo,
+    category: "adult",
+  } as RaceHeatAssignment;
+}
+
+function raceItem(heats: RaceHeatAssignment[]) {
+  return {
+    id: "item1",
+    kind: "race",
+    heats,
+    productIdAdult: "24960859",
+    productIdJunior: null,
+    packageIdAdult: null,
+    packageIdJunior: null,
+    addons: [],
+    povQuantity: 0,
+  };
+}
+
+const laserItem = (id: string, price: number, qty = 2) => ({
+  id,
+  kind: "attraction",
+  slug: "laser-tag",
+  date: "2026-07-29",
+  qty,
+  productId: "111",
+  price,
+});
+
+function makeSession(items: unknown[], vouchers: unknown[]): BookingSession {
+  return { items, party: [], appliedVouchers: vouchers } as unknown as BookingSession;
+}
+
+// ── Plan allocation ─────────────────────────────────────────────────────────
+
+describe("planVoucherCoverage", () => {
+  it("one race comp covers one heat; two cover two distinct heats", () => {
+    const h1 = heat("2026-07-29T18:00:00");
+    const h2 = heat("2026-07-29T19:00:00", "m2");
+    const one = planVoucherCoverage(
+      makeSession([raceItem([h1, h2])], [raceVoucher("A2A2A2A2A2A2A2A2A2A2A2A2")]),
+      new Set(),
+    );
+    expect(one.raceHeats.size).toBe(1);
+    expect(one.raceHeats.has(h1)).toBe(true); // equal price → earliest wins
+    const two = planVoucherCoverage(
+      makeSession(
+        [raceItem([h1, h2])],
+        [raceVoucher("A2A2A2A2A2A2A2A2A2A2A2A2"), raceVoucher("B3B3B3B3B3B3B3B3B3B3B3B3")],
+      ),
+      new Set(),
+    );
+    expect(two.raceHeats.size).toBe(2);
+    expect(two.picks.every((p) => p.raceHeat)).toBe(true);
   });
 
-  it("covers one discounted unit of the matched attraction", () => {
-    const cov = voucherAttractionCoverage(attractionSession([laser("a1", 12.5)]));
-    expect(cov).toEqual({ itemId: "a1", cents: 1250 });
-  });
-  it("picks the lowest-priced matching item", () => {
-    const cov = voucherAttractionCoverage(attractionSession([laser("a1", 15), laser("a2", 12.5)]));
-    expect(cov?.itemId).toBe("a2");
-  });
-  it("ignores non-matching slugs and race-target vouchers", () => {
-    expect(
-      voucherAttractionCoverage(attractionSession([{ ...laser("a1", 12.5), slug: "gel-blaster" }])),
-    ).toBeNull();
-    expect(voucherAttractionCoverage(attractionSession([laser("a1", 12.5)], APPLIED))).toBeNull();
-  });
-  it("covers nothing for pending/errored vouchers", () => {
-    expect(
-      voucherAttractionCoverage(
-        attractionSession([laser("a1", 12.5)], { code: "X", pending: true }),
+  it("more vouchers than heats: the extra pick covers nothing", () => {
+    const h1 = heat("2026-07-29T18:00:00");
+    const plan = planVoucherCoverage(
+      makeSession(
+        [raceItem([h1])],
+        [raceVoucher("A2A2A2A2A2A2A2A2A2A2A2A2"), raceVoucher("B3B3B3B3B3B3B3B3B3B3B3B3")],
       ),
-    ).toBeNull();
+      new Set(),
+    );
+    expect(plan.raceHeats.size).toBe(1);
+    expect(plan.picks[0].raceHeat).toBeDefined();
+    expect(plan.picks[1].raceHeat).toBeUndefined();
+  });
+
+  it("pending/errored vouchers allocate nothing", () => {
+    const h1 = heat("2026-07-29T18:00:00");
+    const plan = planVoucherCoverage(
+      makeSession(
+        [raceItem([h1])],
+        [
+          { code: "P2P2P2P2P2P2P2P2P2P2P2P2", pending: true },
+          { code: "E2E2E2E2E2E2E2E2E2E2E2E2", error: "unknown" },
+        ],
+      ),
+      new Set(),
+    );
+    expect(plan.raceHeats.size).toBe(0);
+    expect(plan.picks.length).toBe(0);
+  });
+
+  it("credits/packs win first — vouchers never double-cover", () => {
+    const h1 = heat("2026-07-29T18:00:00");
+    const h2 = heat("2026-07-29T19:00:00", "m2");
+    const plan = planVoucherCoverage(
+      makeSession([raceItem([h1, h2])], [raceVoucher("A2A2A2A2A2A2A2A2A2A2A2A2")]),
+      new Set([h1]),
+    );
+    expect(plan.raceHeats.has(h2)).toBe(true);
+    expect(plan.raceHeats.has(h1)).toBe(false);
+  });
+
+  it("attraction comps stack units on the matched item up to its qty", () => {
+    const plan = planVoucherCoverage(
+      makeSession(
+        [laserItem("a1", 12.5, 2)],
+        [
+          laserVoucher("A2A2A2A2A2A2A2A2A2A2A2A2"),
+          laserVoucher("B3B3B3B3B3B3B3B3B3B3B3B3"),
+          laserVoucher("C4C4C4C4C4C4C4C4C4C4C4C4"), // 3rd exceeds qty → no pick
+        ],
+      ),
+      new Set(),
+    );
+    expect(plan.attractionUnits.get("a1")).toBe(2);
+    expect(plan.picks.filter((p) => p.attractionItemId).length).toBe(2);
+  });
+
+  it("mixed race + laser vouchers allocate independently", () => {
+    const h1 = heat("2026-07-29T18:00:00");
+    const plan = planVoucherCoverage(
+      makeSession(
+        [raceItem([h1]), laserItem("a1", 12.5, 1)],
+        [raceVoucher("A2A2A2A2A2A2A2A2A2A2A2A2"), laserVoucher("B3B3B3B3B3B3B3B3B3B3B3B3")],
+      ),
+      new Set(),
+    );
+    expect(plan.raceHeats.size).toBe(1);
+    expect(plan.attractionUnits.get("a1")).toBe(1);
+  });
+});
+
+describe("voucherReviewLines", () => {
+  it("one negative line per voucher, sequential race deltas + attraction units", () => {
+    const h1 = heat("2026-07-29T18:00:00");
+    const h2 = heat("2026-07-29T19:00:00", "m2");
+    const session = makeSession(
+      [raceItem([h1, h2]), laserItem("a1", 12.5, 1)],
+      [
+        raceVoucher("A2A2A2A2A2A2A2A2A2A2A2A2"),
+        raceVoucher("B3B3B3B3B3B3B3B3B3B3B3B3"),
+        laserVoucher("C4C4C4C4C4C4C4C4C4C4C4C4"),
+      ],
+    );
+    // Fake race sum: $20.99 per uncovered heat of the two.
+    const sum = (ex: Set<RaceHeatAssignment>) => [h1, h2].filter((h) => !ex.has(h)).length * 20.99;
+    const lines = voucherReviewLines(session, new Set(), sum);
+    expect(lines.length).toBe(3);
+    expect(lines[0].amount).toBe(20.99);
+    expect(lines[1].amount).toBe(20.99);
+    expect(lines[2].amount).toBe(12.5);
+  });
+
+  it("a voucher matching nothing yields amount 0 (no-match note upstream)", () => {
+    const session = makeSession(
+      [laserItem("a1", 12.5, 1)],
+      [raceVoucher("A2A2A2A2A2A2A2A2A2A2A2A2")],
+    );
+    const lines = voucherReviewLines(session, new Set(), () => 0);
+    expect(lines.length).toBe(1);
+    expect(lines[0].amount).toBe(0);
+  });
+});
+
+describe("sessionVouchers / voucherIsApplied", () => {
+  it("defaults empty; applied requires bill + line id and no pending/error", () => {
+    expect(sessionVouchers({} as BookingSession)).toEqual([]);
+    expect(voucherIsApplied(raceVoucher("A2A2A2A2A2A2A2A2A2A2A2A2"))).toBe(true);
+    expect(voucherIsApplied({ code: "X", pending: true })).toBe(false);
+    expect(voucherIsApplied({ code: "X", error: "unknown" })).toBe(false);
+    expect(voucherIsApplied(null)).toBe(false);
   });
 });

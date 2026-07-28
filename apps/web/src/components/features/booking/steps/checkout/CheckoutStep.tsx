@@ -44,10 +44,9 @@ import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { LoyaltySection } from "./LoyaltySection";
 import { PromoCodeInput } from "./PromoCodeInput";
 import {
-  voucherAttractionCoverage,
-  voucherCoveredHeatSet,
-  voucherIsApplied,
+  sessionVouchers,
   voucherRedeemEnabled,
+  voucherReviewLines,
 } from "~/features/booking/service/voucher-redeem";
 import { contactIsComplete } from "../ContactStep";
 import { kioskTerminalEnabled, kioskGzCartEnabled } from "~/features/kiosk/flags";
@@ -487,14 +486,13 @@ export function CheckoutStep({
         }
       }
 
-      // BMI voucher — the comp-covered heat shows as ONE negative line,
-      // differenced from the same buildRaceChargeLines the reserve charges
-      // from (identical idiom to the race-pack coverage above; see
-      // voucher-redeem.ts for the redemption model).
-      if (voucherIsApplied(session.appliedVoucher)) {
+      // BMI vouchers — one negative line PER voucher, amounts from the same
+      // coverage plan + line-builder the reserve charges with (see
+      // voucher-redeem.ts voucherReviewLines).
+      if (sessionVouchers(session).length > 0 && !activeComboSpecial(session)) {
         try {
           let base = redeemedHeatSet(session);
-          if (session.context?.kiosk && kioskRacePacksEnabled() && !activeComboSpecial(session)) {
+          if (session.context?.kiosk && kioskRacePacksEnabled()) {
             const packSel = session.items.flatMap((i) =>
               i.kind === "race" ? (i.creditPacks ?? []) : [],
             );
@@ -504,26 +502,15 @@ export function CheckoutStep({
               if (cov.heats.size > 0) base = new Set([...base, ...cov.heats]);
             }
           }
-          const covered = voucherCoveredHeatSet(session, base);
-          let amount = 0;
-          if (covered.size > 0) {
-            const sumLines = (ex: Set<RaceHeatAssignment>) =>
-              buildRaceChargeLines(session, ex).reduce((s, l) => s + l.amount, 0);
-            amount =
-              Math.round((sumLines(base) - sumLines(new Set([...base, ...covered]))) * 100) / 100;
-          }
-          // Attraction-targeted voucher (Laser/Gel/Shuffly Comp) — one
-          // discounted unit of the matched item, same figure the reserve
-          // drops from the Square quantity.
-          if (amount === 0 && !activeComboSpecial(session)) {
-            const cov = voucherAttractionCoverage(session);
-            if (cov) amount = cov.cents / 100;
-          }
-          if (amount > 0) {
+          const vLines = voucherReviewLines(session, base, (ex) =>
+            buildRaceChargeLines(session, ex).reduce((s, l) => s + l.amount, 0),
+          );
+          for (const vl of vLines) {
+            if (vl.amount <= 0) continue;
             reviewLines.push({
-              name: `${session.appliedVoucher?.name ?? "Voucher"} — ${session.appliedVoucher?.code ?? ""}`,
+              name: `${vl.name ?? "Voucher"} — …${vl.code.slice(-4)}`,
               quantity: 1,
-              amount: -amount,
+              amount: -vl.amount,
             });
           }
         } catch {
@@ -1044,9 +1031,9 @@ export function CheckoutStep({
               ? {
                   billId: session.bmiBillId,
                   center: session.center ?? session.context?.center ?? null,
-                  applied: session.appliedVoucher ?? null,
+                  applied: sessionVouchers(session),
                   onApplied: (voucher) => dispatch({ type: "applyVoucher", voucher }),
-                  onCleared: () => dispatch({ type: "applyVoucher", voucher: null }),
+                  onCleared: (code) => dispatch({ type: "removeVoucher", code }),
                 }
               : undefined
           }

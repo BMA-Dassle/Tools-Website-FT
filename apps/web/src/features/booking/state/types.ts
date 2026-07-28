@@ -649,14 +649,16 @@ export interface BookingSession {
    */
   appliedPromo: AppliedPromo | null;
   /**
-   * BMI voucher captured at the kiosk code-entry screen or the web checkout
-   * promo input. Unlike `appliedPromo` (our Neon discount codes), a voucher is
-   * BMI's: redemption = `order/applyCode` puts the voucher's comp product on
-   * the bill as a $0 line and BMI nets it against the matching race line at
-   * processing; OUR charge excludes the covered heat (see
-   * service/voucher-redeem.ts). `pending` until a BMI bill exists to apply to.
+   * BMI vouchers captured at the kiosk code-entry screen or the web checkout
+   * promo input — a LIST, scan order preserved (owner 2026-07-27: a party
+   * scans one comp per racer). Unlike `appliedPromo` (our Neon discount
+   * codes), vouchers are BMI's: redemption = `order/applyCode` puts each
+   * voucher's comp product on the bill as a $0 line and BMI nets them at
+   * processing; OUR charge excludes the covered heats/units (see
+   * service/voucher-redeem.ts planVoucherCoverage). Entries are `pending`
+   * until a BMI bill exists to apply to.
    */
-  appliedVoucher?: AppliedVoucherState | null;
+  appliedVouchers?: AppliedVoucherState[];
   /**
    * Combo-special id (features/combos registry, e.g. "race-bowl") — stamped
    * ONCE at session creation by the /book/combo/[id]/v2 entry, like

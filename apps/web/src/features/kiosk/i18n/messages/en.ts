@@ -323,6 +323,8 @@ export const en = {
   "codeEntry.voucherOk.cta": "Start picking",
   "checkout.voucherCovers": "{name} voucher covers {amount}",
   "checkout.voucherFallbackName": "Your",
+  "checkout.vouchersCover": "{count} vouchers cover {amount}",
+  "codeEntry.err.duplicate": "That voucher is already on this order.",
   "checkout.voucherNoMatch":
     "Your {name} voucher doesn’t match anything in your cart — add it to your visit to use it.",
   "checkout.voucherError":

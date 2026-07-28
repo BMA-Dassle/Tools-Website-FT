@@ -311,6 +311,8 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.voucherOk.cta": "Empezar a elegir",
   "checkout.voucherCovers": "El vale {name} cubre {amount}",
   "checkout.voucherFallbackName": "tu",
+  "checkout.vouchersCover": "{count} vales cubren {amount}",
+  "codeEntry.err.duplicate": "Ese vale ya est\u00e1 en esta orden.",
   "checkout.voucherNoMatch":
     "Tu vale {name} no coincide con nada en tu carrito — agrégalo a tu visita para usarlo.",
   "checkout.voucherError":

@@ -16,11 +16,7 @@ import { getRaceProductById, type RaceProduct } from "~/features/booking/service
 import { LICENSE_PRICE, POV_PRICE } from "~/features/booking/service/race-pricing";
 import { getPackage } from "~/features/booking/service/packages";
 import { raceItemChargeLines } from "~/features/booking/service/checkout";
-import {
-  voucherAttractionCoverage,
-  voucherCoveredHeatSet,
-  voucherIsApplied,
-} from "~/features/booking/service/voucher-redeem";
+import { planVoucherCoverage, sessionVouchers } from "~/features/booking/service/voucher-redeem";
 import { applyPromoToBillLines, promoFactor } from "~/features/booking/service/promo-pricing";
 import {
   computePackCoverage,
@@ -1025,12 +1021,12 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
         /* unsellable slug / missing racer — reserve rejects the charge anyway */
       }
     }
-    // BMI voucher — the comp-covered heat comes off THIS item's estimate the
-    // same way (differenced from the identical line builder the charge uses;
-    // see voucher-redeem.ts). Credits + pack heats stay excluded first so a
-    // voucher never double-counts an already-$0 heat.
+    // BMI vouchers — the plan's comp-covered heats come off THIS item's
+    // estimate the same way (differenced from the identical line builder the
+    // charge uses; see voucher-redeem.ts). Credits + pack heats stay excluded
+    // first so vouchers never double-count an already-$0 heat.
     let voucherCoveredTotal = 0;
-    if (voucherIsApplied(session.appliedVoucher)) {
+    if (sessionVouchers(session).length > 0 && !session.comboSpecialId) {
       try {
         let base = redeemedHeatSet(session);
         if (
@@ -1042,7 +1038,7 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
           const cov = computePackCoverage(session, packs, base);
           if (cov.heats.size > 0) base = new Set([...base, ...cov.heats]);
         }
-        const covered = voucherCoveredHeatSet(session, base);
+        const covered = planVoucherCoverage(session, base).raceHeats;
         if (covered.size > 0) {
           const sumLines = (ex: Set<RaceHeatAssignment>) =>
             applyPromoToBillLines(raceItemChargeLines(item, ex), session.appliedPromo).reduce(
@@ -1069,11 +1065,17 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
   if (item.kind === "attraction") {
     const config = item.slug ? ATTRACTIONS[item.slug] : null;
     const base = config?.bookingMode === "per-person" ? item.price * item.qty : item.price;
-    // Attraction voucher — one discounted unit comes off the matched item
-    // (identical figure to the reserve's quantity-1 charge).
-    if (!session.comboSpecialId && voucherIsApplied(session.appliedVoucher)) {
-      const cov = voucherAttractionCoverage(session);
-      if (cov?.itemId === item.id) return Math.max(0, base - cov.cents / 100);
+    // Attraction vouchers — the plan's covered units come off the matched item
+    // (identical figures to the reserve's quantity reduction).
+    if (!session.comboSpecialId && sessionVouchers(session).length > 0) {
+      const plan = planVoucherCoverage(session, redeemedHeatSet(session));
+      const units = plan.attractionUnits.get(item.id) ?? 0;
+      if (units > 0) {
+        const cents = plan.picks
+          .filter((p) => p.attractionItemId === item.id)
+          .reduce((s, p) => s + (p.attractionUnitCents ?? 0), 0);
+        return Math.max(0, base - cents / 100);
+      }
     }
     return base;
   }

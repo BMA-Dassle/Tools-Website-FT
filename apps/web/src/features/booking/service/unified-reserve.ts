@@ -66,12 +66,12 @@ import {
   resolveAppliedPromo,
 } from "~/features/discount-codes";
 import {
-  voucherAttractionCoverage,
-  voucherCoveredHeatSet,
+  planVoucherCoverage,
+  sessionVouchers,
   voucherIsApplied,
   VoucherNotVerifiedError,
 } from "./voucher-redeem";
-import { getAppliedVoucherForBill, markVoucherCharged } from "../data/voucher-redemptions-db";
+import { getAppliedVouchersForBill, markVoucherCharged } from "../data/voucher-redemptions-db";
 import { activeComboSpecial, comboOrderGroups } from "~/features/combos/combo-pricing";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { wallClockMs } from "~/features/combos/combo-itinerary";
@@ -412,13 +412,18 @@ function buildCombinedLineItems(session: BookingSession): {
     packCoverage.heats.size > 0
       ? new Set([...redeemedHeats, ...packCoverage.heats])
       : redeemedHeats;
-  // BMI voucher — the comp-covered heat charges $0 exactly like a credit/pack
-  // heat (see voucher-redeem.ts: BMI nets the comp at processing; our charge
-  // must match what the guest was shown). unifiedReserveInner has already
-  // verified the session's voucher against the server-written ledger row.
-  const voucherHeats = voucherCoveredHeatSet(session, creditAndPackHeats);
+  // BMI vouchers — ONE coverage plan feeds the whole charge (and the same
+  // helper feeds every display): race comps join excludedHeats like
+  // credit/pack heats; attraction comps reduce Square quantities below.
+  // unifiedReserveInner has already ledger-verified every applied voucher.
+  // Combo carts: flat pricing — the plan is skipped (consistent no-op).
+  const voucherPlan = activeComboSpecial(session)
+    ? null
+    : planVoucherCoverage(session, creditAndPackHeats);
   const excludedHeats =
-    voucherHeats.size > 0 ? new Set([...creditAndPackHeats, ...voucherHeats]) : creditAndPackHeats;
+    voucherPlan && voucherPlan.raceHeats.size > 0
+      ? new Set([...creditAndPackHeats, ...voucherPlan.raceHeats])
+      : creditAndPackHeats;
 
   for (const bl of buildRaceChargeLines(session, excludedHeats)) {
     const totalCents = Math.round(bl.amount * 100);
@@ -446,7 +451,6 @@ function buildCombinedLineItems(session: BookingSession): {
   // counterpart; BMI nets at processing). Combo carts skip coverage (flat
   // pricing) — same rule as the race rail. voucherAttractionCoverage computes
   // the identical discounted unit the display subtracts.
-  const attractionVoucher = activeComboSpecial(session) ? null : voucherAttractionCoverage(session);
   for (const item of session.items) {
     if (item.kind !== "attraction") continue;
     const attr = item as AttractionItem;
@@ -460,7 +464,8 @@ function buildCombinedLineItems(session: BookingSession): {
       session.appliedPromo,
     );
     const unitCents = factor === 1 ? fullUnitCents : Math.round(fullUnitCents * factor);
-    const chargedQty = attractionVoucher?.itemId === attr.id ? Math.max(0, attr.qty - 1) : attr.qty;
+    const coveredUnits = voucherPlan?.attractionUnits.get(attr.id) ?? 0;
+    const chargedQty = Math.max(0, attr.qty - coveredUnits);
     const lineTotal = unitCents * chargedQty;
     totalPriceCents += lineTotal;
     totalDepositCents += lineTotal; // 100% deposit for attractions
@@ -790,17 +795,24 @@ async function unifiedReserveInner(
   // bill. Pending / errored vouchers never priced anything → drop silently.
   // A claimed-applied voucher the ledger can't verify HARD-FAILS the reserve
   // (displayed==charged: never silently charge more than the guest saw).
-  if (input.session.appliedVoucher) {
-    const v = input.session.appliedVoucher;
+  if ((input.session.appliedVouchers?.length ?? 0) > 0) {
     const billId = input.session.bmiBillId;
-    if (!voucherIsApplied(v) || !billId || v.billId !== billId) {
-      input = { ...input, session: { ...input.session, appliedVoucher: null } };
-    } else {
-      const row = await getAppliedVoucherForBill(billId).catch(() => null);
-      if (!row || row.code !== v.code || row.voucherOrderItemId !== v.voucherOrderItemId) {
-        throw new VoucherNotVerifiedError(v.code);
+    // Pending/errored/other-bill vouchers priced nothing — drop them from the
+    // charge session. Every APPLIED one must be backed by a ledger row WE
+    // wrote for THIS bill, else the reserve hard-fails.
+    const kept = sessionVouchers(input.session).filter(
+      (v) => voucherIsApplied(v) && !!billId && v.billId === billId,
+    );
+    if (kept.length > 0) {
+      const rows = await getAppliedVouchersForBill(billId!).catch(() => []);
+      for (const v of kept) {
+        const row = rows.find(
+          (r) => r.code === v.code && r.voucherOrderItemId === v.voucherOrderItemId,
+        );
+        if (!row) throw new VoucherNotVerifiedError(v.code);
       }
     }
+    input = { ...input, session: { ...input.session, appliedVouchers: kept } };
   }
   const { session, contact } = input;
   // Day-of order → the entity that OWNS the products (revenue split stays
@@ -1449,12 +1461,14 @@ async function unifiedReserveInner(
     }).catch((err) => console.error("[race-pack] markPackCharged failed (non-fatal):", err));
   }
 
-  // Voucher ledger → charged (audit; BMI consumes the code at its own
+  // Voucher ledger → charged (audit; BMI consumes codes at its own
   // processing — this is OUR trail, soft-fail like every post-capture stamp).
-  if (voucherIsApplied(session.appliedVoucher) && session.bmiBillId) {
-    await markVoucherCharged(session.bmiBillId, session.appliedVoucher!.code).catch((err) =>
-      console.error("[voucher] markVoucherCharged failed (non-fatal):", err),
-    );
+  if (session.bmiBillId) {
+    for (const v of sessionVouchers(session).filter(voucherIsApplied)) {
+      await markVoucherCharged(session.bmiBillId, v.code).catch((err) =>
+        console.error("[voucher] markVoucherCharged failed (non-fatal):", err),
+      );
+    }
   }
 
   // ── Record the USA250 redemption (idempotent, soft-fail) ──────────

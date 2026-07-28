@@ -97,7 +97,8 @@ export type Action =
    * not mutating mid-flow.
    */
   | { type: "applyPromo"; promo: AppliedPromo | null }
-  | { type: "applyVoucher"; voucher: AppliedVoucherState | null }
+  | { type: "applyVoucher"; voucher: AppliedVoucherState }
+  | { type: "removeVoucher"; code: string }
   /**
    * Stamp (or clear) the session's combo-special id. Intended to fire ONCE
    * at session creation by the /book/combo/[id]/v2 entry seeding — same
@@ -351,8 +352,21 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
     case "applyPromo":
       return { ...state, appliedPromo: action.promo };
 
-    case "applyVoucher":
-      return { ...state, appliedVoucher: action.voucher };
+    case "applyVoucher": {
+      // Upsert by code — re-scans and pending→applied transitions replace in
+      // place; new codes append (scan order preserved for coverage picks).
+      const list = state.appliedVouchers ?? [];
+      const i = list.findIndex((v) => v.code === action.voucher.code);
+      const appliedVouchers =
+        i >= 0 ? list.map((v, idx) => (idx === i ? action.voucher : v)) : [...list, action.voucher];
+      return { ...state, appliedVouchers };
+    }
+
+    case "removeVoucher":
+      return {
+        ...state,
+        appliedVouchers: (state.appliedVouchers ?? []).filter((v) => v.code !== action.code),
+      };
 
     case "setComboSpecial": {
       if (action.id == null) {

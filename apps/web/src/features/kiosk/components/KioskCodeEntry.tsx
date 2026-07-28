@@ -78,6 +78,7 @@ export function KioskCodeEntry({
   onBack,
   onOpenGameZone,
   voucherRedeem = false,
+  appliedVoucherCodes = [],
   onVoucherAccepted,
 }: {
   /** Valid promo → parent dispatches applyPromo; this screen shows the
@@ -89,6 +90,8 @@ export function KioskCodeEntry({
    *  scanned voucher is accepted into the session and auto-applies to the
    *  BMI bill at checkout. Off → the Guest Services guidance panel. */
   voucherRedeem?: boolean;
+  /** Codes already on the session — a re-scan gets "already added". */
+  appliedVoucherCodes?: string[];
   /** Parent dispatches the pending voucher into the session (name from the
    *  scan-time peek when BMI answered). */
   onVoucherAccepted?: (code: string, name?: string) => void;
@@ -108,6 +111,10 @@ export function KioskCodeEntry({
       setError(null);
       clarityEvent(`kiosk:code:${kind}`);
       if (kind === "bmi-voucher") {
+        if (voucherRedeem && appliedVoucherCodes.includes(code)) {
+          setError(t("codeEntry.err.duplicate"));
+          return;
+        }
         if (voucherRedeem && onVoucherAccepted) {
           // PEEK — real feedback at scan time (owner 2026-07-27: "we don't
           // get any feedback on what the voucher is?"): a throwaway BMI order
@@ -189,7 +196,7 @@ export function KioskCodeEntry({
         setChecking(false);
       }
     },
-    [config, onApplied, onVoucherAccepted, t, voucherRedeem],
+    [appliedVoucherCodes, config, onApplied, onVoucherAccepted, t, voucherRedeem],
   );
 
   const handleRaw = useCallback(

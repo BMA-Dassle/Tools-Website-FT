@@ -97,19 +97,17 @@ export async function recordVoucherApplied(args: {
   `;
 }
 
-/** The bill's live voucher row, if any (reserve-time verification read). */
-export async function getAppliedVoucherForBill(
-  billId: string,
-): Promise<VoucherRedemptionRow | null> {
-  if (!isDbConfigured()) return null;
+/** Every live voucher row on a bill (reserve-time verification read). */
+export async function getAppliedVouchersForBill(billId: string): Promise<VoucherRedemptionRow[]> {
+  if (!isDbConfigured()) return [];
   await ensureSchema();
   const q = sql();
   const rows = (await q`
     SELECT * FROM booking_voucher_redemptions
     WHERE bill_id = ${billId} AND state = 'applied'
-    ORDER BY created_at DESC LIMIT 1
+    ORDER BY created_at ASC
   `) as Record<string, unknown>[];
-  return rows.length ? decode(rows[0]) : null;
+  return rows.map(decode);
 }
 
 export async function markVoucherRemoved(billId: string, code: string): Promise<void> {
