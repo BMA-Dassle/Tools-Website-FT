@@ -11,10 +11,13 @@
  *     its own heavier scrim. The slide now drives the screen's OWN backdrop, so
  *     there is one photograph, one scrim, and 480px back in the reach band.
  *
- *  2. NO PRIMARY BUTTON. `start()` fires on a tap anywhere, so the big cyan
+ *  2. NO BUTTONS AT ALL. `start()` fires on a tap anywhere, so the big cyan
  *     "Touch to get started" pill was a label shaped like a control. It is a
- *     prompt now. The only real buttons left are the two that go somewhere
- *     DIFFERENT from a plain tap (VIP, race packs), and they get quiet.
+ *     prompt now. The VIP and race-pack shortcuts moved to the category
+ *     chooser, under the Game Zone card (owner 2026-07-28) — on a poster with
+ *     one instruction, a button both competes with "touch anywhere" and is the
+ *     one thing a tap anywhere does NOT do. The chooser is where a guest is
+ *     already deciding, so that is where a shortcut belongs.
  *
  *  3. ONE MESSAGE. The neon sign, the marquee banner and the pill all said
  *     "start". Now the headline names the activity and the prompt names the
@@ -52,7 +55,6 @@ import { slidePlaysVideo, vehiclePhaseMs } from "../attract/rotation";
 import { KIOSK_PHOTOS, KIOSK_VIDEOS, type KioskAdSlide } from "../assets";
 import { venueSlug, type KioskConfig } from "../config";
 import { kioskBillboardEnabled } from "../flags";
-import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { useT } from "../i18n";
 import { syncGlowPhase } from "../hooks/useKioskClock";
 import { BrandLogo } from "./BrandLogo";
@@ -126,8 +128,6 @@ export interface AttractHeadlineProps {
   cycle: number;
   /** Shared-clock offset: corrected now = Date.now() + offset. */
   offset: number;
-  /** False locks the VIP shortcut (no feasible combo left today). */
-  vipAvailable: boolean;
   /** Self-healed photo URL resolver from the parent's useResilientImages.
    *  Mirrors that hook's own signature (undefined in → undefined out). */
   resolvePhoto: (url: string | undefined) => string | undefined;
@@ -141,7 +141,6 @@ export function AttractHeadline({
   index,
   cycle,
   offset,
-  vipAvailable,
   resolvePhoto,
   onStart,
 }: AttractHeadlineProps) {
@@ -478,25 +477,12 @@ export function AttractHeadline({
         </span>
       </button>
 
-      {/* ── the only real buttons: the two that go somewhere a tap doesn't ──
-          Untouched by the billboard (owner 2026-07-28): the show is just
-          another entry in the rotation, swapping the backdrop and the headline
-          and leaving the screen's furniture where it is. Fading these out made
-          the bank look like it was powering down, and hid two live shortcuts
-          from anyone standing in front of it. */}
-      <div className="relative z-10 flex shrink-0 justify-center gap-[20px] px-[64px] pb-[24px]">
-        <QuietAction
-          label={t("attract.vipExperience")}
-          disabled={!vipAvailable}
-          onClick={() => onStart("vip")}
-        />
-        {kioskRacePacksEnabled() && config.brand === "fasttrax" && (
-          <QuietAction
-            label={t("attract.racePacks", { price: "$49.99" })}
-            onClick={() => onStart("packs")}
-          />
-        )}
-      </div>
+      {/* VIP and race packs USED to sit here as quiet shortcuts. They moved to
+          the category chooser, under the Game Zone card (owner 2026-07-28):
+          this screen is a poster with one instruction, and any button on it
+          competes with "touch anywhere" while being the one thing a tap
+          anywhere does NOT do. The chooser is where a guest is already
+          deciding, so that is where a shortcut belongs. */}
     </>
   );
 }
@@ -564,37 +550,6 @@ function useFitOneLine(text: string, base: number) {
     }
   }, [text, base]);
   return ref;
-}
-
-/**
- * A shortcut, not a primary action: no fill, thin rule, smaller type. These sit
- * OUTSIDE the hero button so a tap on one deep-links instead of starting the
- * generic flow.
- */
-function QuietAction({
-  label,
-  disabled,
-  onClick,
-}: {
-  label: string;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (!disabled) onClick();
-      }}
-      className={`k-display k-tap flex h-[96px] max-w-[420px] flex-1 items-center justify-center rounded-[18px] border-[1.5px] bg-[rgba(0,4,24,0.42)] px-[18px] text-center text-[27px] backdrop-blur-[8px] ${
-        disabled ? "border-white/10 text-white/25" : "border-[#e8b14c]/45 text-[#e8b14c]"
-      }`}
-    >
-      {label}
-    </button>
-  );
 }
 
 /** #rrggbb → rgba() at the given alpha (slide accents arrive as hex). */

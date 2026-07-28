@@ -306,7 +306,6 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           index={adIndex % adSlides.length}
           cycle={adCycle}
           offset={offset}
-          vipAvailable={vipAvailable}
           resolvePhoto={resolvePhoto}
           onStart={start}
         />

@@ -15,6 +15,18 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.10.4 — VIP + race-pack shortcuts move OFF the attract screen and onto the
+ *         "What are we doing today?" chooser, as an even row of buttons under
+ *         the Game Zone card (owner 2026-07-28). The attract screen is a poster
+ *         with one instruction: a button there both competes with "touch
+ *         anywhere" and is the one thing a tap anywhere does NOT do. The
+ *         chooser is where a guest is already deciding. Same destinations the
+ *         ?goto=vip / ?goto=packs deep links seed, so the entry points cannot
+ *         drift. Each is hidden unless it is actually reachable (VIP combo
+ *         enabled at this center and fits today; packs are FastTrax + kill
+ *         switch). The chooser's language switcher also moves bottom-right to
+ *         match the attract screen, so it stops jumping between the first two
+ *         screens a guest sees.
  * 1.10.3 — the 1.10.2 vehicle fix was itself broken, and took the Mega
  *         headline with it. (1) `left-[calc(100%+64px)]` emits
  *         `calc(100%+64px)`, and CSS requires whitespace around `+` inside
@@ -207,7 +219,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.10.3";
+export const KIOSK_VERSION = "1.10.4";
 
 let bootVersion: string | null = null;
 let captured = false;
