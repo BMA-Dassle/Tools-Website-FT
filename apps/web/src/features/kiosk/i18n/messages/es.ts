@@ -299,6 +299,14 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.giftcard.body":
     "Las tarjetas de regalo se aceptan como pago — pásala por el lector de tarjetas al pagar.",
   "codeEntry.giftcard.cta": "Entendido",
+  "codeEntry.voucherOk.title": "¡Vale aceptado!",
+  "codeEntry.voucherOk.body":
+    "Reserva tu actividad y este vale se descontará automáticamente al pagar.",
+  "codeEntry.voucherOk.cta": "Empezar a elegir",
+  "checkout.voucherCovers": "El vale {name} cubre {amount}",
+  "checkout.voucherFallbackName": "tu",
+  "checkout.voucherError":
+    "No pudimos aplicar el vale {code} — pagarás el precio completo aquí, o visita Servicio al Cliente.",
 
   // --- Checkout upsell (KioskCheckoutUpsell) — "Game Zone" stays untranslated ---
   "upsell.eyebrow": "Una cosa más…",

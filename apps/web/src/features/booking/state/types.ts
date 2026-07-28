@@ -41,6 +41,26 @@
  * the last KbfItem leaves the cart.
  */
 import type { AppliedPromo } from "~/features/discount-codes";
+
+/**
+ * The session's scanned/applied BMI voucher (shared by kiosk + web — see
+ * service/voucher-redeem.ts for the redemption model and coverage math).
+ */
+export interface AppliedVoucherState {
+  /** The voucher number, uppercased (24-char BMI format). */
+  code: string;
+  /** BMI comp line name (e.g. "Race Comp") — known once applied to the bill. */
+  name?: string;
+  /** Bill the comp line landed on — set once applied (not pending). */
+  billId?: string;
+  /** The comp line's OrderItemId on that bill (raw string — 17-digit). */
+  voucherOrderItemId?: string;
+  /** Scanned before any BMI bill existed — applied as soon as one is created. */
+  pending?: boolean;
+  /** Apply failed — surfaced to the guest at checkout, never silently dropped. */
+  error?: string;
+}
+
 import type { BmiProposal } from "../data/bmi";
 import type { Activity, Brand, CenterCode, ContactInfo } from "../types";
 import type { EntryContext } from "./entry-context";
@@ -628,6 +648,15 @@ export interface BookingSession {
    * memory: booking_v2_promo_integration.md.
    */
   appliedPromo: AppliedPromo | null;
+  /**
+   * BMI voucher captured at the kiosk code-entry screen or the web checkout
+   * promo input. Unlike `appliedPromo` (our Neon discount codes), a voucher is
+   * BMI's: redemption = `order/applyCode` puts the voucher's comp product on
+   * the bill as a $0 line and BMI nets it against the matching race line at
+   * processing; OUR charge excludes the covered heat (see
+   * service/voucher-redeem.ts). `pending` until a BMI bill exists to apply to.
+   */
+  appliedVoucher?: AppliedVoucherState | null;
   /**
    * Combo-special id (features/combos registry, e.g. "race-bowl") — stamped
    * ONCE at session creation by the /book/combo/[id]/v2 entry, like

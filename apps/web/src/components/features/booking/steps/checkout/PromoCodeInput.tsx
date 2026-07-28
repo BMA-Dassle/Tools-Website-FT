@@ -3,6 +3,20 @@
 import { useState } from "react";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
 import type { AppliedPromo } from "~/features/discount-codes";
+import { BMI_VOUCHER_RE } from "~/features/booking/service/voucher-redeem";
+import type { AppliedVoucherState } from "~/features/booking/state/types";
+
+/** Voucher support (flag-gated by the caller) — the SAME rail the kiosk code
+ *  entry uses (/api/booking/v2/voucher): a BMI voucher number typed into this
+ *  field applies to the session's live BMI bill instead of the promo path. */
+export interface PromoVoucherProps {
+  /** The session's BMI bill — vouchers need one to apply to. */
+  billId: string | null;
+  center: string | null;
+  applied: AppliedVoucherState | null;
+  onApplied: (voucher: AppliedVoucherState) => void;
+  onCleared: () => void;
+}
 
 interface PromoCodeInputProps {
   /** The currently-applied session promo code, if any. */
@@ -10,6 +24,8 @@ interface PromoCodeInputProps {
   /** Dispatch the resolved multi-domain promo to the session. */
   onApply: (promo: AppliedPromo) => void;
   onClear: () => void;
+  /** Present = this surface also accepts BMI voucher numbers. */
+  voucher?: PromoVoucherProps;
 }
 
 /**
@@ -21,14 +37,65 @@ interface PromoCodeInputProps {
  * The promo route is anti-enumeration (never says WHY a code is invalid), so
  * a failure shows a single generic message.
  */
-export function PromoCodeInput({ appliedCode, onApply, onClear }: PromoCodeInputProps) {
+export function PromoCodeInput({ appliedCode, onApply, onClear, voucher }: PromoCodeInputProps) {
   const [input, setInput] = useState("");
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleApply() {
-    const code = input.trim().toUpperCase();
+    const code = input.trim().toUpperCase().replace(/\s+/g, "");
     if (!code) return;
+    // BMI voucher number? Route it down the voucher rail instead (same
+    // endpoint + ledger the kiosk uses) — vouchers are BMI's, not our
+    // discount codes, and they apply to the live bill.
+    if (voucher && BMI_VOUCHER_RE.test(code)) {
+      if (!voucher.billId) {
+        setError("Pick your race time first, then apply your voucher here.");
+        return;
+      }
+      setChecking(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/booking/v2/voucher", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            action: "apply",
+            billId: voucher.billId,
+            code,
+            center: voucher.center ?? undefined,
+            source: "web",
+          }),
+        });
+        const data = await res.json().catch(() => null);
+        if (data?.ok && data.voucherOrderItemId) {
+          clarityEvent("voucher:applied");
+          voucher.onApplied({
+            code,
+            name: data.name,
+            billId: voucher.billId,
+            voucherOrderItemId: String(data.voucherOrderItemId),
+          });
+          setInput("");
+        } else {
+          clarityEvent("voucher:rejected");
+          setError(
+            data?.reason === "unknown"
+              ? "We couldn't find that voucher — double-check the code."
+              : data?.reason === "expired"
+                ? "That voucher has expired."
+                : data?.reason === "used"
+                  ? "That voucher has already been used."
+                  : "Couldn't apply that voucher. Try again or see the front desk.",
+          );
+        }
+      } catch {
+        setError("Couldn't apply that voucher. Try again.");
+      } finally {
+        setChecking(false);
+      }
+      return;
+    }
     setChecking(true);
     setError(null);
     try {
@@ -54,6 +121,46 @@ export function PromoCodeInput({ appliedCode, onApply, onClear }: PromoCodeInput
     } finally {
       setChecking(false);
     }
+  }
+
+  const appliedVoucher = voucher?.applied ?? null;
+
+  async function clearVoucher() {
+    if (!voucher || !appliedVoucher) return;
+    if (appliedVoucher.billId && appliedVoucher.voucherOrderItemId) {
+      await fetch("/api/booking/v2/voucher", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "remove",
+          billId: appliedVoucher.billId,
+          code: appliedVoucher.code,
+          voucherOrderItemId: appliedVoucher.voucherOrderItemId,
+          center: voucher.center ?? undefined,
+        }),
+      }).catch(() => {});
+    }
+    voucher.onCleared();
+  }
+
+  if (appliedVoucher && !appliedVoucher.pending && !appliedVoucher.error) {
+    return (
+      <div className="flex items-center justify-between rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-3">
+        <div className="text-sm">
+          <span className="font-semibold text-amber-300">
+            {appliedVoucher.name ?? "Voucher"} applied
+          </span>
+          <span className="ml-2 font-mono text-xs text-white/50">{appliedVoucher.code}</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => void clearVoucher()}
+          className="text-sm text-white/50 underline-offset-2 hover:text-white hover:underline"
+        >
+          Remove
+        </button>
+      </div>
+    );
   }
 
   if (appliedCode) {

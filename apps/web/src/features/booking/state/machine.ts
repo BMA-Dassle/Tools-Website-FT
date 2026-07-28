@@ -14,6 +14,7 @@
  * absent; removing the last KbfItem clears it.
  */
 import type { AppliedPromo } from "~/features/discount-codes";
+import type { AppliedVoucherState } from "./types";
 import { qamfCenterIdForCode, type CenterCode, type ContactInfo } from "../types";
 import { FASTTRAX_QAMF_CENTER_ID } from "@/lib/qamf-centers";
 import {
@@ -96,6 +97,7 @@ export type Action =
    * not mutating mid-flow.
    */
   | { type: "applyPromo"; promo: AppliedPromo | null }
+  | { type: "applyVoucher"; voucher: AppliedVoucherState | null }
   /**
    * Stamp (or clear) the session's combo-special id. Intended to fire ONCE
    * at session creation by the /book/combo/[id]/v2 entry seeding — same
@@ -348,6 +350,9 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
 
     case "applyPromo":
       return { ...state, appliedPromo: action.promo };
+
+    case "applyVoucher":
+      return { ...state, appliedVoucher: action.voucher };
 
     case "setComboSpecial": {
       if (action.id == null) {

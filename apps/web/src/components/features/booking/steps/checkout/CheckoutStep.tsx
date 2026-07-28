@@ -43,6 +43,11 @@ import type { SavedCard } from "@/components/square/SavedCardSelector";
 import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { LoyaltySection } from "./LoyaltySection";
 import { PromoCodeInput } from "./PromoCodeInput";
+import {
+  voucherCoveredHeatSet,
+  voucherIsApplied,
+  voucherRedeemEnabled,
+} from "~/features/booking/service/voucher-redeem";
 import { contactIsComplete } from "../ContactStep";
 import { kioskTerminalEnabled, kioskGzCartEnabled } from "~/features/kiosk/flags";
 import { playNowActive } from "~/features/booking/flags";
@@ -478,6 +483,42 @@ export function CheckoutStep({
           } catch {
             /* bad pointers → the reserve rejects the charge; review shows without packs */
           }
+        }
+      }
+
+      // BMI voucher — the comp-covered heat shows as ONE negative line,
+      // differenced from the same buildRaceChargeLines the reserve charges
+      // from (identical idiom to the race-pack coverage above; see
+      // voucher-redeem.ts for the redemption model).
+      if (voucherIsApplied(session.appliedVoucher)) {
+        try {
+          let base = redeemedHeatSet(session);
+          if (session.context?.kiosk && kioskRacePacksEnabled() && !activeComboSpecial(session)) {
+            const packSel = session.items.flatMap((i) =>
+              i.kind === "race" ? (i.creditPacks ?? []) : [],
+            );
+            if (packSel.length > 0) {
+              const packs = resolveKioskPacks(packSel, session.party);
+              const cov = computePackCoverage(session, packs, base);
+              if (cov.heats.size > 0) base = new Set([...base, ...cov.heats]);
+            }
+          }
+          const covered = voucherCoveredHeatSet(session, base);
+          if (covered.size > 0) {
+            const sumLines = (ex: Set<RaceHeatAssignment>) =>
+              buildRaceChargeLines(session, ex).reduce((s, l) => s + l.amount, 0);
+            const amount =
+              Math.round((sumLines(base) - sumLines(new Set([...base, ...covered]))) * 100) / 100;
+            if (amount > 0) {
+              reviewLines.push({
+                name: `${session.appliedVoucher?.name ?? "Voucher"} — ${session.appliedVoucher?.code ?? ""}`,
+                quantity: 1,
+                amount: -amount,
+              });
+            }
+          }
+        } catch {
+          /* voucher display is best-effort; the reserve verifies coverage */
         }
       }
 
@@ -986,6 +1027,20 @@ export function CheckoutStep({
           appliedCode={session.appliedPromo?.code ?? null}
           onApply={(promo) => dispatch({ type: "applyPromo", promo })}
           onClear={() => dispatch({ type: "applyPromo", promo: null })}
+          // BMI vouchers ride the same field (owner 2026-07-27: web must
+          // reutilize the kiosk's voucher rail). Flag-gated; a voucher-shaped
+          // code applies to the live bill via /api/booking/v2/voucher.
+          voucher={
+            voucherRedeemEnabled() || session.context?.voucherRedeem
+              ? {
+                  billId: session.bmiBillId,
+                  center: session.center ?? session.context?.center ?? null,
+                  applied: session.appliedVoucher ?? null,
+                  onApplied: (voucher) => dispatch({ type: "applyVoucher", voucher }),
+                  onCleared: () => dispatch({ type: "applyVoucher", voucher: null }),
+                }
+              : undefined
+          }
         />
 
         <div className="flex items-center justify-between pt-2">

@@ -16,6 +16,7 @@ import { getRaceProductById, type RaceProduct } from "~/features/booking/service
 import { LICENSE_PRICE, POV_PRICE } from "~/features/booking/service/race-pricing";
 import { getPackage } from "~/features/booking/service/packages";
 import { raceItemChargeLines } from "~/features/booking/service/checkout";
+import { voucherCoveredHeatSet, voucherIsApplied } from "~/features/booking/service/voucher-redeem";
 import { applyPromoToBillLines, promoFactor } from "~/features/booking/service/promo-pricing";
 import {
   computePackCoverage,
@@ -1020,7 +1021,46 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
         /* unsellable slug / missing racer — reserve rejects the charge anyway */
       }
     }
-    return raceLinesTotal + packsTotal - packCoveredTotal + licenseTotal + povTotal + addonsTotal;
+    // BMI voucher — the comp-covered heat comes off THIS item's estimate the
+    // same way (differenced from the identical line builder the charge uses;
+    // see voucher-redeem.ts). Credits + pack heats stay excluded first so a
+    // voucher never double-counts an already-$0 heat.
+    let voucherCoveredTotal = 0;
+    if (voucherIsApplied(session.appliedVoucher)) {
+      try {
+        let base = redeemedHeatSet(session);
+        if (
+          session.context?.kiosk &&
+          kioskRacePacksEnabled() &&
+          (item.creditPacks?.length ?? 0) > 0
+        ) {
+          const packs = resolveKioskPacks(item.creditPacks ?? [], session.party);
+          const cov = computePackCoverage(session, packs, base);
+          if (cov.heats.size > 0) base = new Set([...base, ...cov.heats]);
+        }
+        const covered = voucherCoveredHeatSet(session, base);
+        if (covered.size > 0) {
+          const sumLines = (ex: Set<RaceHeatAssignment>) =>
+            applyPromoToBillLines(raceItemChargeLines(item, ex), session.appliedPromo).reduce(
+              (s, l) => s + l.amount,
+              0,
+            );
+          voucherCoveredTotal =
+            Math.round((sumLines(base) - sumLines(new Set([...base, ...covered]))) * 100) / 100;
+        }
+      } catch {
+        /* same fail-open as packs — the reserve is the enforcement point */
+      }
+    }
+    return (
+      raceLinesTotal +
+      packsTotal -
+      packCoveredTotal -
+      voucherCoveredTotal +
+      licenseTotal +
+      povTotal +
+      addonsTotal
+    );
   }
   if (item.kind === "attraction") {
     const config = item.slug ? ATTRACTIONS[item.slug] : null;

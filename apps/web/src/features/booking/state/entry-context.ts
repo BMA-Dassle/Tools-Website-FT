@@ -81,6 +81,9 @@ export interface EntryContext {
    * env flag is still dark. See src/features/booking/flags.ts.
    */
   bowlingV3?: true;
+  /** Voucher-redemption preview opt-in (?kioskVoucher=1) — persisted on the
+   *  session like bowlingV3 so idle-reset/navigation can't drop it. */
+  voucherRedeem?: boolean;
   /**
    * Preview opt-in for FastTrax QAMF duckpin (`?ftDuckpin=1`) — routes the
    * duck-pin offering to QAMF center 11542 for this session while the env flag

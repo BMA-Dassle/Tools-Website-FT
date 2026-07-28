@@ -110,6 +110,16 @@ export function KioskCheckoutScreen({
       items.reduce((s, i) => s + estimateCartItemTotal(i, session), 0) + comboEstimate;
     return Math.max(0, undiscounted - discounted);
   })();
+  // BMI voucher — same with-vs-without differencing (the estimate builders
+  // already exclude the comp-covered heat via voucherCoveredHeatSet).
+  const voucher = session.appliedVoucher ?? null;
+  const voucherSavings = (() => {
+    if (!voucher || voucher.pending || voucher.error) return 0;
+    const bare = { ...session, appliedVoucher: null };
+    const without = items.reduce((s, i) => s + estimateCartItemTotal(i, bare), 0);
+    const withV = items.reduce((s, i) => s + estimateCartItemTotal(i, session), 0);
+    return Math.max(0, Math.round((without - withV) * 100) / 100);
+  })();
 
   const itemsReady = items.length > 0 && allItemsReady(session);
   const contactOk = contactIsComplete(session.contact);
@@ -180,6 +190,27 @@ export function KioskCheckoutScreen({
                   code: promo.code,
                   amount: `$${promoSavings.toFixed(2)}`,
                 })}
+              </span>
+            </div>
+          )}
+          {items.length > 0 &&
+            voucher &&
+            !voucher.pending &&
+            !voucher.error &&
+            voucherSavings > 0.004 && (
+              <div className="flex items-baseline justify-end pr-[8px]">
+                <span className="k-display text-[24px] text-[#46d68c]">
+                  {t("checkout.voucherCovers", {
+                    name: voucher.name ?? t("checkout.voucherFallbackName"),
+                    amount: `$${voucherSavings.toFixed(2)}`,
+                  })}
+                </span>
+              </div>
+            )}
+          {items.length > 0 && voucher?.error && (
+            <div className="flex items-baseline justify-end pr-[8px]">
+              <span className="text-[22px] text-[#ff8c7a]">
+                {t("checkout.voucherError", { code: voucher.code })}
               </span>
             </div>
           )}

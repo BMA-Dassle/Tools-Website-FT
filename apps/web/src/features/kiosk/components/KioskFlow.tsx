@@ -80,6 +80,7 @@ import {
 } from "../state/registry";
 import { KioskCategories } from "./KioskCategories";
 import { KioskCodeEntry } from "./KioskCodeEntry";
+import { voucherRedeemEnabled } from "~/features/booking/service/voucher-redeem";
 import { useKioskAvailability } from "../hooks/useKioskAvailability";
 import { KioskHoldBar } from "./KioskHoldBar";
 import { KioskVipOverview } from "./KioskVipOverview";
@@ -210,11 +211,14 @@ export function KioskFlow({
   goto,
   bowlingV3,
   kioskPromo,
+  kioskVoucher,
 }: {
   goto: string | null;
   bowlingV3?: boolean;
   /** ?kioskPromo=1 preview opt-in (same pattern as ?bowlingV3=1). */
   kioskPromo?: boolean;
+  /** ?kioskVoucher=1 — voucher REDEMPTION preview opt-in (dark flag). */
+  kioskVoucher?: boolean;
 }) {
   const router = useRouter();
   const { config } = useKioskConfig();
@@ -243,9 +247,10 @@ export function KioskFlow({
           ...(config ? { center: config.center } : {}),
           kiosk: true,
           ...(bowlingV3 ? { bowlingV3: true } : {}),
+          ...(kioskVoucher ? { voucherRedeem: true } : {}),
         },
       }),
-    [config, bowlingV3],
+    [config, bowlingV3, kioskVoucher],
   );
   const [session, dispatch, hydrated] = usePersistedReducer(initial, {
     storageKey: KIOSK_SESSION_STORAGE_KEY,
@@ -287,6 +292,67 @@ export function KioskFlow({
   // category chooser; ?kioskPromo=1 is the dark-flag preview opt-in.
   const [codeEntryOpen, setCodeEntryOpen] = useState(false);
   const promoEnabled = kioskPromoEnabled() || !!kioskPromo;
+  // Voucher REDEMPTION (dark until the paid live smoke — see voucher-redeem.ts).
+  const voucherRedeem =
+    voucherRedeemEnabled() || !!kioskVoucher || !!session.context?.voucherRedeem;
+  // Single-flight guard for the apply-at-bill effect below.
+  const voucherApplyBusy = useRef(false);
+
+  // A voucher scanned BEFORE anything was booked is 'pending' — apply it the
+  // moment the session has a BMI bill (eager heat/slot booking creates one).
+  // Server route writes the ledger row the reserve verifies against; failure
+  // marks the voucher errored (surfaced at checkout, never silently dropped).
+  const appliedVoucher = session.appliedVoucher;
+  const voucherBillId = session.bmiBillId;
+  useEffect(() => {
+    if (!voucherRedeem || !appliedVoucher?.pending || !voucherBillId) return;
+    if (voucherApplyBusy.current) return;
+    voucherApplyBusy.current = true;
+    const code = appliedVoucher.code;
+    void (async () => {
+      try {
+        const res = await fetch("/api/booking/v2/voucher", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            action: "apply",
+            billId: voucherBillId,
+            code,
+            center: config?.center,
+            source: "kiosk",
+          }),
+        });
+        const data = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          name?: string;
+          voucherOrderItemId?: string;
+          reason?: string;
+        } | null;
+        if (data?.ok && data.voucherOrderItemId) {
+          clarityEvent("kiosk:voucher:applied");
+          dispatch({
+            type: "applyVoucher",
+            voucher: {
+              code,
+              name: data.name,
+              billId: voucherBillId,
+              voucherOrderItemId: String(data.voucherOrderItemId),
+            },
+          });
+        } else {
+          clarityEvent("kiosk:voucher:apply-failed");
+          dispatch({
+            type: "applyVoucher",
+            voucher: { code, error: data?.reason ?? "generic" },
+          });
+        }
+      } catch {
+        dispatch({ type: "applyVoucher", voucher: { code, error: "generic" } });
+      } finally {
+        voucherApplyBusy.current = false;
+      }
+    })();
+  }, [voucherRedeem, appliedVoucher, voucherBillId, config?.center, dispatch]);
   // Standalone race-pack purchase (attract "Race Packs" chip) — a LOCKED
   // pack-only flow; its party is local until "Race today" adopts it here.
   const [packsOpen, setPacksOpen] = useState(false);
@@ -1604,6 +1670,10 @@ export function KioskFlow({
     return chrome(
       <KioskCodeEntry
         onApplied={(promo) => dispatch({ type: "applyPromo", promo })}
+        voucherRedeem={voucherRedeem}
+        onVoucherAccepted={(code) =>
+          dispatch({ type: "applyVoucher", voucher: { code, pending: true } })
+        }
         onBack={() => setCodeEntryOpen(false)}
         onOpenGameZone={() => {
           setCodeEntryOpen(false);

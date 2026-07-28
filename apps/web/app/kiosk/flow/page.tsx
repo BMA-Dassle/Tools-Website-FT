@@ -17,5 +17,14 @@ export default async function KioskFlowPage({
   const bowlingV3 = sp.bowlingV3 === "1";
   // Coupon/voucher code entry preview opt-in — /kiosk/flow?kioskPromo=1.
   const kioskPromo = sp.kioskPromo === "1";
-  return <KioskFlow goto={goto} bowlingV3={bowlingV3} kioskPromo={kioskPromo} />;
+  // Voucher redemption preview opt-in — /kiosk/flow?kioskPromo=1&kioskVoucher=1.
+  const kioskVoucher = sp.kioskVoucher === "1";
+  return (
+    <KioskFlow
+      goto={goto}
+      bowlingV3={bowlingV3}
+      kioskPromo={kioskPromo}
+      kioskVoucher={kioskVoucher}
+    />
+  );
 }

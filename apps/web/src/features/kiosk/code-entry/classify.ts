@@ -44,8 +44,9 @@ export interface ClassifiedCode {
   raw: string;
 }
 
-/** BMI voucher number: 12 letter/digit pairs (see header). */
-export const BMI_VOUCHER_RE = /^(?:[A-Z][2-9]){12}$/;
+/** BMI voucher number shape - single source in the shared booking layer. */
+export { BMI_VOUCHER_RE } from "~/features/booking/service/voucher-redeem";
+import { BMI_VOUCHER_RE } from "~/features/booking/service/voucher-redeem";
 
 /** Intercard card-number QR shortlink host (see game-cards/resolve-scan). */
 const ICARD_HOST_RE = /^https?:\/\/(?:www\.)?icardinc\.net\//i;

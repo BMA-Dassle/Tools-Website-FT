@@ -60,6 +60,7 @@ const ERR_KEY: Record<string, MessageKey> = {
 type Panel =
   | { kind: "applied"; promo: AppliedPromo }
   | { kind: "bmi-voucher"; code: string }
+  | { kind: "voucher-accepted"; code: string }
   | { kind: "game-card" }
   | { kind: "gift-card" };
 
@@ -67,12 +68,20 @@ export function KioskCodeEntry({
   onApplied,
   onBack,
   onOpenGameZone,
+  voucherRedeem = false,
+  onVoucherAccepted,
 }: {
   /** Valid promo → parent dispatches applyPromo; this screen shows the
    *  success panel and the CTA returns to the categories. */
   onApplied: (promo: AppliedPromo) => void;
   onBack: () => void;
   onOpenGameZone: () => void;
+  /** Voucher REDEMPTION live (voucherRedeemEnabled / ?kioskVoucher=1) — a
+   *  scanned voucher is accepted into the session and auto-applies to the
+   *  BMI bill at checkout. Off → the Guest Services guidance panel. */
+  voucherRedeem?: boolean;
+  /** Parent dispatches the pending voucher into the session. */
+  onVoucherAccepted?: (code: string) => void;
 }) {
   const t = useT();
   const { config } = useKioskConfig();
@@ -89,7 +98,12 @@ export function KioskCodeEntry({
       setError(null);
       clarityEvent(`kiosk:code:${kind}`);
       if (kind === "bmi-voucher") {
-        setPanel({ kind: "bmi-voucher", code });
+        if (voucherRedeem && onVoucherAccepted) {
+          onVoucherAccepted(code);
+          setPanel({ kind: "voucher-accepted", code });
+        } else {
+          setPanel({ kind: "bmi-voucher", code });
+        }
         return;
       }
       if (kind === "game-card") {
@@ -138,7 +152,7 @@ export function KioskCodeEntry({
         setChecking(false);
       }
     },
-    [config, onApplied, t],
+    [config, onApplied, onVoucherAccepted, t, voucherRedeem],
   );
 
   const handleRaw = useCallback(
@@ -192,32 +206,41 @@ export function KioskCodeEntry({
             detail: appliedSummary(t, panel.promo),
             onCta: onBack,
           }
-        : panel.kind === "bmi-voucher"
+        : panel.kind === "voucher-accepted"
           ? {
-              title: t("codeEntry.voucher.title"),
-              body: t("codeEntry.voucher.body"),
-              cta: t("codeEntry.voucher.cta"),
-              accent: "#e8b14c",
+              title: t("codeEntry.voucherOk.title"),
+              body: t("codeEntry.voucherOk.body"),
+              cta: t("codeEntry.voucherOk.cta"),
+              accent: "#46d68c",
               detail: panel.code,
               onCta: onBack,
             }
-          : panel.kind === "game-card"
+          : panel.kind === "bmi-voucher"
             ? {
-                title: t("codeEntry.gamecard.title"),
-                body: t("codeEntry.gamecard.body"),
-                cta: t("codeEntry.gamecard.cta"),
-                accent: "#f800c6",
-                detail: null,
-                onCta: onOpenGameZone,
-              }
-            : {
-                title: t("codeEntry.giftcard.title"),
-                body: t("codeEntry.giftcard.body"),
-                cta: t("codeEntry.giftcard.cta"),
-                accent: "#00e2e5",
-                detail: null,
+                title: t("codeEntry.voucher.title"),
+                body: t("codeEntry.voucher.body"),
+                cta: t("codeEntry.voucher.cta"),
+                accent: "#e8b14c",
+                detail: panel.code,
                 onCta: onBack,
-              };
+              }
+            : panel.kind === "game-card"
+              ? {
+                  title: t("codeEntry.gamecard.title"),
+                  body: t("codeEntry.gamecard.body"),
+                  cta: t("codeEntry.gamecard.cta"),
+                  accent: "#f800c6",
+                  detail: null,
+                  onCta: onOpenGameZone,
+                }
+              : {
+                  title: t("codeEntry.giftcard.title"),
+                  body: t("codeEntry.giftcard.body"),
+                  cta: t("codeEntry.giftcard.cta"),
+                  accent: "#00e2e5",
+                  detail: null,
+                  onCta: onBack,
+                };
     return (
       <div className="flex h-full flex-col px-[64px] pb-[40px] pt-[120px] text-center">
         <div className="k-eyebrow">{t("codeEntry.eyebrow")}</div>

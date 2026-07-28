@@ -310,6 +310,15 @@ export const en = {
   "codeEntry.giftcard.body":
     "Gift cards are accepted as payment — swipe it at the card reader when you pay.",
   "codeEntry.giftcard.cta": "Got it",
+  // Voucher redemption live (flag): accepted panel + checkout lines.
+  "codeEntry.voucherOk.title": "Voucher accepted!",
+  "codeEntry.voucherOk.body":
+    "Book your activity and this voucher comes off your total automatically at checkout.",
+  "codeEntry.voucherOk.cta": "Start picking",
+  "checkout.voucherCovers": "{name} voucher covers {amount}",
+  "checkout.voucherFallbackName": "Your",
+  "checkout.voucherError":
+    "We couldn’t apply voucher {code} — you’ll pay full price here, or see Guest Services.",
 
   // --- Checkout upsell (KioskCheckoutUpsell) — "Game Zone" stays untranslated ---
   "upsell.eyebrow": "One more thing…",
