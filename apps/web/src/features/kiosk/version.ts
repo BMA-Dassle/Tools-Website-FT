@@ -15,6 +15,25 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.10.6 — the attract screen finally has NOTHING on it but the poster. The
+ *         three "not booking" side doors (Race Reservation, View race grid,
+ *         Online & Group Waiver) move to the "What are we doing today?" chooser
+ *         as ONE even row — equal widths, one line each, so two or three read
+ *         as a deliberate row instead of the old full-width-bar-plus-two-halves.
+ *         1.10.4 only moved VIP and race packs; these were the buttons still
+ *         sitting on the poster (owner 2026-07-28). Flag + venue gating moved
+ *         into KioskFlow so it is not duplicated: a callback only reaches the
+ *         chooser when that door applies.
+ *         The waiver door hides once a voucher is applied — a LAYOUT rule to
+ *         give the row a slot back, NOT a legal one: a voucher is not a signed
+ *         waiver, and /kiosk/waiver plus the in-flow waiver are untouched.
+ *         Also: the chooser's language switcher was UNTAPPABLE. At
+ *         bottom-[34px] it sat underneath the flow's 140px util bar (Start Over
+ *         / Guest Assistance); the attract screen has no util bar, which is why
+ *         the same slot worked there. Lifted to bottom-[168px], still
+ *         bottom-right.
+ *         TRADE-OFF, flagged: check-in is now two taps from idle instead of
+ *         one, and it is the one time-sensitive door in that set.
  * 1.10.5 — the shortcut row is gone again (owner 2026-07-28). VIP Experience is
  *         DROPPED outright — the Experiences card already leads there, so it was
  *         a second door onto the same room. Race packs moved INTO the
@@ -231,7 +250,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.10.5";
+export const KIOSK_VERSION = "1.10.6";
 
 let bootVersion: string | null = null;
 let captured = false;

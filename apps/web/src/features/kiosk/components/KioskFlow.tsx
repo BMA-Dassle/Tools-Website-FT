@@ -65,8 +65,11 @@ import { gameZoneCapability } from "../config";
 import {
   kioskMergedCheckoutEnabled,
   kioskCheckoutUpsellEnabled,
+  kioskCheckinEnabled,
+  kioskGroupWaiverEnabled,
   kioskGzCartEnabled,
   kioskPromoEnabled,
+  kioskRaceInfoEnabled,
   kioskTerminalEnabled,
 } from "../flags";
 import { KioskCheckoutScreen } from "./KioskCheckoutScreen";
@@ -1807,6 +1810,33 @@ export function KioskFlow({
           clarityEvent("kiosk:packs:open");
           setPacksOpen(true);
         }}
+        // "Not booking" side doors, moved off the attract screen (owner
+        // 2026-07-28). Flag + venue gating lives HERE — a callback only arrives
+        // when the door applies — so KioskCategories stays presentational and
+        // the rules are not duplicated across two components. Check-in and the
+        // race grid are Fort-Myers-only: the two FM venues share the center
+        // code, and racing never advertises at Naples.
+        onOpenCheckin={
+          config.center === "fort-myers" && kioskCheckinEnabled()
+            ? () => router.push("/kiosk/checkin")
+            : undefined
+        }
+        onOpenRaceGrid={
+          config.center === "fort-myers" && kioskRaceInfoEnabled()
+            ? () => {
+                clarityEvent("kiosk:raceinfo:open");
+                router.push("/kiosk/race-info");
+              }
+            : undefined
+        }
+        onOpenWaiver={
+          kioskGroupWaiverEnabled()
+            ? () => {
+                clarityEvent("kiosk:waiver:open");
+                router.push("/kiosk/waiver");
+              }
+            : undefined
+        }
         onOpenCodeEntry={
           promoEnabled
             ? () => {

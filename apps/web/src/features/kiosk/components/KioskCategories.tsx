@@ -15,6 +15,7 @@
  * combo registry): anything enabled online is automatically on the kiosk.
  */
 import { useState } from "react";
+import { IconFlag, IconSignature, IconUserCheck } from "@tabler/icons-react";
 import {
   effectiveBrand,
   isOfferingInPromoScope,
@@ -111,6 +112,12 @@ export interface KioskCategoriesProps {
    *  Experiences shelf (owner 2026-07-28) beside the VIP combo and the Ultimate
    *  Qualifier; omitted = the product is not offered on this kiosk. */
   onOpenRacePacks?: () => void;
+  /** "Not booking" side doors, moved off the attract screen (owner 2026-07-28).
+   *  Undefined = that door is not offered here; the CALLER owns the flag and
+   *  venue gating so this component stays presentational. */
+  onOpenCheckin?: () => void;
+  onOpenRaceGrid?: () => void;
+  onOpenWaiver?: () => void;
   /** Coupon/voucher entry (kioskPromoEnabled) — undefined hides the chip. */
   onOpenCodeEntry?: () => void;
   /** The session's applied code — renders the gold banner + per-tile
@@ -136,6 +143,9 @@ export function KioskCategories({
   onPickPackageExperience,
   onOpenGameZone,
   onOpenRacePacks,
+  onOpenCheckin,
+  onOpenRaceGrid,
+  onOpenWaiver,
   onOpenCodeEntry,
   appliedPromo,
   onClearPromo,
@@ -167,6 +177,11 @@ export function KioskCategories({
   // below: a card that opens onto an empty shelf is the exact failure those
   // checks exist to prevent.
   const showRacePacks = !!onOpenRacePacks && kioskRacePacksEnabled() && showQualifier;
+  // Side doors. The caller owns flag/venue gating (a callback arrives only when
+  // the door applies), so all this decides is the waiver's voucher rule.
+  const showCheckin = !!onOpenCheckin;
+  const showRaceGrid = !!onOpenRaceGrid;
+  const showWaiver = !!onOpenWaiver && appliedVouchers.length === 0;
   const hasCart = session.items.length > 0;
   // Whether ANYTHING on the Experiences shelf is bookable right now. If every
   // tile inside is locked (VIP combo + Ultimate Qualifier both out of runway)
@@ -190,11 +205,13 @@ export function KioskCategories({
     return (
       <div className="relative flex h-full flex-col px-[64px] pb-[28px] pt-[72px]">
         {/* Language switcher — "What are we doing today?" chooser only; hidden
-            on the pick-experience / pick-attraction sub-views. Bottom-right,
-            the SAME slot it occupies on the attract screen (owner 2026-07-28),
-            so it does not appear to jump across the screen between the first
-            two things a guest sees. */}
-        <LanguageSwitcher posClass="right-[32px] bottom-[34px]" />
+            on the pick-experience / pick-attraction sub-views. Bottom-right to
+            echo the attract screen, but lifted CLEAR of the flow's 140px util
+            bar (.k-z-util — Start Over / Guest Assistance). At bottom-[34px] it
+            sat underneath that bar and could not be tapped at all; the attract
+            screen has no util bar, which is why the same slot works there
+            (owner 2026-07-28). */}
+        <LanguageSwitcher posClass="right-[40px] bottom-[168px]" />
         {/* Hidden staff entry: 5 taps in the header area → admin. */}
         <AdminTapZone />
         <h1 className="k-display mb-[32px] text-[82px]">
@@ -257,6 +274,45 @@ export function KioskCategories({
             already comparing premium racing. The code/voucher strip below is
             NOT a shortcut — it carries a code into whatever the guest picks
             next — so it stays. */}
+        {/* "Not booking" side doors, moved off the attract screen (owner
+            2026-07-28) — that screen is a poster with one instruction. Uniform
+            widths via flex-1 so two or three read as one deliberate row rather
+            than the old full-width-bar-plus-two-halves.
+
+            The waiver door hides once a voucher is applied (owner 2026-07-28):
+            a scanned voucher means someone has already been through the desk,
+            so the row can give that slot back. NOTE — this is a LAYOUT rule,
+            not a legal one: a voucher is not a signed waiver, and the waiver is
+            still reachable at /kiosk/waiver and inside the booking flow. */}
+        {(showCheckin || showRaceGrid || showWaiver) && (
+          <div className="mt-[24px] flex shrink-0 gap-[18px]">
+            {showCheckin && (
+              <SideDoor
+                icon={<IconUserCheck size={30} aria-hidden="true" />}
+                label={t("attract.raceReservation")}
+                color="#00e2e5"
+                onClick={() => onOpenCheckin?.()}
+              />
+            )}
+            {showRaceGrid && (
+              <SideDoor
+                icon={<IconFlag size={30} aria-hidden="true" />}
+                label={t("attract.raceGrid")}
+                color="#ff6b6b"
+                onClick={() => onOpenRaceGrid?.()}
+              />
+            )}
+            {showWaiver && (
+              <SideDoor
+                icon={<IconSignature size={30} aria-hidden="true" />}
+                label={t("attract.waiver")}
+                color="rgba(245,236,238,0.72)"
+                onClick={() => onOpenWaiver?.()}
+              />
+            )}
+          </div>
+        )}
+
         {/* Coupon / voucher strip (kioskPromoEnabled) — the chip becomes the
             gold applied-code banner once a code lands, and several vouchers
             collapse into the summary chip. Sits BELOW the shortcuts: those
@@ -437,6 +493,39 @@ export function KioskCategories({
         <div className="k-scroll-fade" />
       </div>
     </div>
+  );
+}
+
+/**
+ * A "not booking" side door — check-in, race grid, waiver.
+ *
+ * Deliberately uniform and quieter than a CategoryCard: same height, equal
+ * width via flex-1, single-line label, hairline border in its own accent. Two
+ * or three of them read as one row, which the attract screen's old
+ * full-width-bar-plus-two-halves arrangement never did. Sub-labels are dropped
+ * on purpose — at three across they wrapped, and the label already says it.
+ */
+function SideDoor({
+  icon,
+  label,
+  color,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  color: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{ borderColor: color, color }}
+      className="k-display k-tap flex h-[96px] flex-1 items-center justify-center gap-[12px] rounded-[18px] border-[1.5px] bg-[rgba(7,16,39,0.5)] px-[14px] text-center text-[24px] leading-tight backdrop-blur-[10px]"
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
 

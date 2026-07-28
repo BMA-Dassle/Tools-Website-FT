@@ -476,7 +476,7 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           affordance, so it sits OUTSIDE the welcome-zone start button. OPT-IN
           flag, default OFF (owner 2026-07-19) — set
           NEXT_PUBLIC_KIOSK_GROUP_WAIVER_ENABLED=true in Vercel to show. */}
-      {kioskGroupWaiverEnabled() && (
+      {attractLayout === "adzone" && kioskGroupWaiverEnabled() && (
         <button
           type="button"
           onClick={() => {
@@ -498,41 +498,43 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           to "true" in Vercel to show. BOTH are Fort-Myers-only (the two FM
           venues share center "fort-myers") — racing never advertises at Naples
           (owner 2026-07-25). */}
-      {config.center === "fort-myers" && (kioskCheckinEnabled() || kioskRaceInfoEnabled()) && (
-        <div className="relative z-10 mx-[64px] mb-[8px] flex shrink-0 gap-[16px]">
-          {kioskCheckinEnabled() && (
-            <button
-              type="button"
-              onClick={() => router.push("/kiosk/checkin")}
-              className="k-tap flex h-[92px] flex-1 flex-col items-center justify-center rounded-2xl border-2 border-[#00e2e5]/40 text-[#00e2e5]"
-            >
-              <span className="k-display flex items-center gap-[14px] text-[30px]">
-                <IconUserCheck size={30} aria-hidden="true" />
-                {t("attract.raceReservation")}
-              </span>
-              <span className="text-[19px] text-[#00e2e5]/70">
-                {t("attract.raceReservationSub")}
-              </span>
-            </button>
-          )}
-          {kioskRaceInfoEnabled() && config.center === "fort-myers" && (
-            <button
-              type="button"
-              onClick={() => {
-                clarityEvent("kiosk:raceinfo:open");
-                router.push("/kiosk/race-info");
-              }}
-              className="k-tap flex h-[92px] flex-1 flex-col items-center justify-center rounded-2xl border-2 border-[#e53935]/50 text-[#ff6b6b]"
-            >
-              <span className="k-display flex items-center gap-[14px] text-[30px]">
-                <IconFlag size={30} aria-hidden="true" />
-                {t("attract.raceGrid")}
-              </span>
-              <span className="text-[19px] text-[#ff6b6b]/70">{t("attract.raceGridSub")}</span>
-            </button>
-          )}
-        </div>
-      )}
+      {attractLayout === "adzone" &&
+        config.center === "fort-myers" &&
+        (kioskCheckinEnabled() || kioskRaceInfoEnabled()) && (
+          <div className="relative z-10 mx-[64px] mb-[8px] flex shrink-0 gap-[16px]">
+            {kioskCheckinEnabled() && (
+              <button
+                type="button"
+                onClick={() => router.push("/kiosk/checkin")}
+                className="k-tap flex h-[92px] flex-1 flex-col items-center justify-center rounded-2xl border-2 border-[#00e2e5]/40 text-[#00e2e5]"
+              >
+                <span className="k-display flex items-center gap-[14px] text-[30px]">
+                  <IconUserCheck size={30} aria-hidden="true" />
+                  {t("attract.raceReservation")}
+                </span>
+                <span className="text-[19px] text-[#00e2e5]/70">
+                  {t("attract.raceReservationSub")}
+                </span>
+              </button>
+            )}
+            {kioskRaceInfoEnabled() && config.center === "fort-myers" && (
+              <button
+                type="button"
+                onClick={() => {
+                  clarityEvent("kiosk:raceinfo:open");
+                  router.push("/kiosk/race-info");
+                }}
+                className="k-tap flex h-[92px] flex-1 flex-col items-center justify-center rounded-2xl border-2 border-[#e53935]/50 text-[#ff6b6b]"
+              >
+                <span className="k-display flex items-center gap-[14px] text-[30px]">
+                  <IconFlag size={30} aria-hidden="true" />
+                  {t("attract.raceGrid")}
+                </span>
+                <span className="text-[19px] text-[#ff6b6b]/70">{t("attract.raceGridSub")}</span>
+              </button>
+            )}
+          </div>
+        )}
 
       <div className="relative z-10 flex h-[130px] shrink-0 items-center justify-center gap-[32px] pb-[16px]">
         <BrandLogo
