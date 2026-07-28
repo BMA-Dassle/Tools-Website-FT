@@ -312,6 +312,12 @@ export const en = {
   "codeEntry.giftcard.cta": "Got it",
   // Voucher redemption live (flag): accepted panel + checkout lines.
   "codeEntry.voucherOk.title": "Voucher accepted!",
+  "codeEntry.voucherOk.titleNamed": "{name} accepted!",
+  "voucher.pill.fallbackName": "Voucher",
+  "voucher.pill.applied": "{name} applied \u2014 comes off at checkout",
+  "voucher.pill.pending": "{name} ready \u2014 applies when you book",
+  "voucher.pill.error": "Voucher problem \u2014 see Guest Services",
+  "voucher.pill.remove": "Remove voucher",
   "codeEntry.voucherOk.body":
     "Book your activity and this voucher comes off your total automatically at checkout.",
   "codeEntry.voucherOk.cta": "Start picking",

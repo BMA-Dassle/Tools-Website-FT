@@ -57,10 +57,19 @@ const ERR_KEY: Record<string, MessageKey> = {
   rate_limited: "codeEntry.err.rate_limited",
 };
 
+/** Voucher-route reasons → guest copy (reuses the promo error strings). */
+const VOUCHER_ERR_KEY: Record<string, MessageKey> = {
+  unknown: "codeEntry.err.unknown",
+  expired: "codeEntry.err.expired",
+  used: "codeEntry.err.exhausted",
+  rate_limited: "codeEntry.err.rate_limited",
+  generic: "codeEntry.err.generic",
+};
+
 type Panel =
   | { kind: "applied"; promo: AppliedPromo }
   | { kind: "bmi-voucher"; code: string }
-  | { kind: "voucher-accepted"; code: string }
+  | { kind: "voucher-accepted"; code: string; name?: string }
   | { kind: "game-card" }
   | { kind: "gift-card" };
 
@@ -80,8 +89,9 @@ export function KioskCodeEntry({
    *  scanned voucher is accepted into the session and auto-applies to the
    *  BMI bill at checkout. Off → the Guest Services guidance panel. */
   voucherRedeem?: boolean;
-  /** Parent dispatches the pending voucher into the session. */
-  onVoucherAccepted?: (code: string) => void;
+  /** Parent dispatches the pending voucher into the session (name from the
+   *  scan-time peek when BMI answered). */
+  onVoucherAccepted?: (code: string, name?: string) => void;
 }) {
   const t = useT();
   const { config } = useKioskConfig();
@@ -99,8 +109,35 @@ export function KioskCodeEntry({
       clarityEvent(`kiosk:code:${kind}`);
       if (kind === "bmi-voucher") {
         if (voucherRedeem && onVoucherAccepted) {
-          onVoucherAccepted(code);
-          setPanel({ kind: "voucher-accepted", code });
+          // PEEK — real feedback at scan time (owner 2026-07-27: "we don't
+          // get any feedback on what the voucher is?"): a throwaway BMI order
+          // learns the comp name and rejects dead codes right here. A BMI
+          // hiccup accepts blind (the checkout apply re-validates for real).
+          checkingRef.current = true;
+          setChecking(true);
+          try {
+            const res = await fetch("/api/booking/v2/voucher", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ action: "peek", code, center: config?.center }),
+            });
+            const data: { ok?: boolean; name?: string; reason?: string } = await res
+              .json()
+              .catch(() => ({}));
+            if (data.ok === false) {
+              setError(t(VOUCHER_ERR_KEY[data.reason ?? ""] ?? "codeEntry.err.generic"));
+              return;
+            }
+            clarityEvent("kiosk:voucher:accepted");
+            onVoucherAccepted(code, data.name);
+            setPanel({ kind: "voucher-accepted", code, name: data.name });
+          } catch {
+            onVoucherAccepted(code);
+            setPanel({ kind: "voucher-accepted", code });
+          } finally {
+            checkingRef.current = false;
+            setChecking(false);
+          }
         } else {
           setPanel({ kind: "bmi-voucher", code });
         }
@@ -208,7 +245,9 @@ export function KioskCodeEntry({
           }
         : panel.kind === "voucher-accepted"
           ? {
-              title: t("codeEntry.voucherOk.title"),
+              title: panel.name
+                ? t("codeEntry.voucherOk.titleNamed", { name: panel.name })
+                : t("codeEntry.voucherOk.title"),
               body: t("codeEntry.voucherOk.body"),
               cta: t("codeEntry.voucherOk.cta"),
               accent: "#46d68c",

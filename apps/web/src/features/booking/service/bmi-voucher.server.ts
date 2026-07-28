@@ -52,20 +52,21 @@ async function getToken(clientKey: string): Promise<string> {
   return token;
 }
 
-async function bmiPost(
+async function bmiCall(
   clientKey: string,
-  endpoint: "order/applyCode" | "order/removeCode",
-  body: string,
+  method: "POST" | "DELETE",
+  endpoint: string,
+  body?: string,
 ): Promise<{ status: number; data: Record<string, unknown> | null; raw: string }> {
   const token = await getToken(clientKey);
   const res = await fetch(`${BMI_API_URL}/public-booking/${clientKey}/${endpoint}`, {
-    method: "POST",
+    method,
     headers: {
       Authorization: `Bearer ${token}`,
       "BMI-Subscription-Key": BMI_SUB_KEY,
       "Content-Type": "application/json",
     },
-    body,
+    ...(body ? { body } : {}),
     cache: "no-store",
   });
   const raw = await res.text();
@@ -101,7 +102,7 @@ export async function applyVoucherToBill(args: {
 }): Promise<VoucherApplyResult> {
   const { clientKey, billId, code, source } = args;
   const body = stringifyWithRawIds({ Code: code }, { rawIds: { OrderId: billId } });
-  const res = await bmiPost(clientKey, "order/applyCode", body);
+  const res = await bmiCall(clientKey, "POST", "order/applyCode", body);
 
   if (res.status !== 200 || !res.data) {
     return { ok: false, errorMessage: `BMI ${res.status}` };
@@ -110,31 +111,13 @@ export async function applyVoucherToBill(args: {
     return { ok: false, errorMessage: String(res.data.errorMessage ?? "apply failed") };
   }
 
-  // The overview comes back inline (camelCase in practice). The comp line is
-  // the one stamped with OUR code; AppliedPromoCodes carries its line id.
-  const promos = (res.data.appliedPromoCodes ?? res.data.AppliedPromoCodes ?? []) as Array<
-    Record<string, unknown>
-  >;
-  const applied = promos.find((p) =>
-    String(p.name ?? p.Name ?? "")
-      .toUpperCase()
-      .includes(code),
-  );
-  const voucherOrderItemId = applied
-    ? String(applied.voucherOrderItemId ?? applied.VoucherOrderItemId ?? "")
-    : "";
-  if (!voucherOrderItemId) {
-    // 200 + no applied entry for our code — vendor success is not proof of
-    // effect (house rule); treat as failure.
+  // The overview comes back inline. 200 + no applied entry for our code =
+  // vendor success is not proof of effect (house rule) — treat as failure.
+  const found = extractApplied(res.data, code);
+  if (!found) {
     return { ok: false, errorMessage: "voucher did not attach to the order" };
   }
-  const lines = (res.data.lines ?? res.data.Lines ?? []) as Array<Record<string, unknown>>;
-  const compLine = lines.find(
-    (l) => String(l.voucherCode ?? l.VoucherCode ?? "").toUpperCase() === code,
-  );
-  const name = compLine
-    ? String(compLine.name ?? compLine.Name ?? "")
-    : String(applied?.name ?? applied?.Name ?? "").split(" - ")[0];
+  const { voucherOrderItemId, name } = found;
 
   try {
     await recordVoucherApplied({
@@ -166,8 +149,95 @@ export async function removeVoucherFromBill(args: {
     { DiscountId: null },
     { rawIds: { OrderId: billId, VoucherOrderItemId: voucherOrderItemId } },
   );
-  const res = await bmiPost(clientKey, "order/removeCode", body);
+  const res = await bmiCall(clientKey, "POST", "order/removeCode", body);
   const ok = res.status === 200 && res.data?.success !== false;
   if (ok) await markVoucherRemoved(billId, code).catch(() => {});
   return { ok };
+}
+
+/** Pull our code's AppliedPromoCodes entry + comp-line name off an inline
+ *  overview (camelCase in practice; Pascal tolerated). */
+function extractApplied(
+  data: Record<string, unknown>,
+  code: string,
+): { voucherOrderItemId: string; name: string } | null {
+  const promos = (data.appliedPromoCodes ?? data.AppliedPromoCodes ?? []) as Array<
+    Record<string, unknown>
+  >;
+  const applied = promos.find((p) =>
+    String(p.name ?? p.Name ?? "")
+      .toUpperCase()
+      .includes(code),
+  );
+  if (!applied) return null;
+  const voucherOrderItemId = String(applied.voucherOrderItemId ?? applied.VoucherOrderItemId ?? "");
+  if (!voucherOrderItemId) return null;
+  const lines = (data.lines ?? data.Lines ?? []) as Array<Record<string, unknown>>;
+  const compLine = lines.find(
+    (l) => String(l.voucherCode ?? l.VoucherCode ?? "").toUpperCase() === code,
+  );
+  const name = compLine
+    ? String(compLine.name ?? compLine.Name ?? "")
+    : String(applied.name ?? applied.Name ?? "").split(" - ")[0];
+  return { voucherOrderItemId, name };
+}
+
+/** The cheapest standalone BMI line — opens a throwaway order for the peek
+ *  (probe idiom; the FM server's license-fee product). */
+const PEEK_PRODUCT_ID = 43473520;
+
+/**
+ * PEEK: learn what a voucher IS (its comp name + validity) with no bill in
+ * the session yet. Probe-verified safe (2026-07-27): codes are NOT locked at
+ * apply and cancelling the bill releases them — and a bill whose only line is
+ * the comp AUTO-CANCELS (live-probed: removing the opener line killed the
+ * order even with the comp still on it), so the throwaway order can never be
+ * kept as the session bill. Sequence: sell opener → applyCode (capture name)
+ * → removeCode (hygiene) → cancel. Never touches the Neon ledger. Naples has
+ * no known opener product → peek is skipped there (blind accept, no name).
+ */
+export async function peekVoucher(args: {
+  clientKey: string;
+  code: string;
+}): Promise<VoucherApplyResult> {
+  const { clientKey, code } = args;
+  if (clientKey !== "headpinzftmyers") return { ok: true };
+
+  const sell = await bmiCall(
+    clientKey,
+    "POST",
+    "booking/sell",
+    `{"ProductId":${PEEK_PRODUCT_ID},"Quantity":1,"OrderId":null,"ParentOrderItemId":null,"DynamicLines":[]}`,
+  );
+  const orderId = String(sell.data?.orderId ?? sell.data?.OrderId ?? "");
+  if (sell.status !== 200 || !/^\d+$/.test(orderId)) {
+    // Can't open a probe order — accept blind rather than block the guest.
+    return { ok: true };
+  }
+  try {
+    const apply = await bmiCall(
+      clientKey,
+      "POST",
+      "order/applyCode",
+      stringifyWithRawIds({ Code: code }, { rawIds: { OrderId: orderId } }),
+    );
+    if (apply.status !== 200 || !apply.data) return { ok: true };
+    if (apply.data.success === false) {
+      return { ok: false, errorMessage: String(apply.data.errorMessage ?? "apply failed") };
+    }
+    const found = extractApplied(apply.data, code);
+    if (!found) return { ok: false, errorMessage: "voucher did not attach to the order" };
+    await bmiCall(
+      clientKey,
+      "POST",
+      "order/removeCode",
+      stringifyWithRawIds(
+        { DiscountId: null },
+        { rawIds: { OrderId: orderId, VoucherOrderItemId: found.voucherOrderItemId } },
+      ),
+    ).catch(() => {});
+    return { ok: true, name: found.name || undefined };
+  } finally {
+    await bmiCall(clientKey, "DELETE", `bill/${orderId}/cancel`).catch(() => {});
+  }
 }

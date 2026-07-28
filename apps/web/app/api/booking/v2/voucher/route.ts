@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   applyVoucherToBill,
+  peekVoucher,
   removeVoucherFromBill,
   voucherClientKeyForCenter,
 } from "~/features/booking/service/bmi-voucher.server";
@@ -33,7 +34,7 @@ const RATE_LIMIT_WINDOW_SEC = 300;
 const RATE_LIMIT_MAX = 30;
 
 interface VoucherBody {
-  action?: "apply" | "remove";
+  action?: "apply" | "remove" | "peek";
   billId?: string;
   code?: string;
   voucherOrderItemId?: string;
@@ -51,7 +52,11 @@ export async function POST(req: NextRequest) {
 
   const billId = (body.billId ?? "").trim();
   const code = (body.code ?? "").trim().toUpperCase();
-  if (!/^\d+$/.test(billId) || !BMI_VOUCHER_RE.test(code)) {
+  if (!BMI_VOUCHER_RE.test(code)) {
+    return NextResponse.json({ ok: false, reason: "bad_request" }, { status: 400 });
+  }
+  // peek needs no bill; apply/remove do.
+  if (body.action !== "peek" && !/^\d+$/.test(billId)) {
     return NextResponse.json({ ok: false, reason: "bad_request" }, { status: 400 });
   }
 
@@ -68,6 +73,24 @@ export async function POST(req: NextRequest) {
   }
 
   const clientKey = voucherClientKeyForCenter(body.center);
+
+  if (body.action === "peek") {
+    // Identity/validity feedback at SCAN time — a throwaway order learns the
+    // comp name, then is removed + cancelled (codes don't lock at apply).
+    const res = await peekVoucher({ clientKey, code });
+    if (!res.ok) {
+      const msg = (res.errorMessage ?? "").toLowerCase();
+      const reason = msg.includes("not found")
+        ? "unknown"
+        : msg.includes("expired")
+          ? "expired"
+          : msg.includes("used") || msg.includes("redeemed")
+            ? "used"
+            : "generic";
+      return NextResponse.json({ ok: false, reason });
+    }
+    return NextResponse.json({ ok: true, name: res.name });
+  }
 
   if (body.action === "remove") {
     const voucherOrderItemId = (body.voucherOrderItemId ?? "").trim();

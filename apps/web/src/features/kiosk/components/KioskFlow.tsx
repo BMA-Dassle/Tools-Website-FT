@@ -80,6 +80,7 @@ import {
 } from "../state/registry";
 import { KioskCategories } from "./KioskCategories";
 import { KioskCodeEntry } from "./KioskCodeEntry";
+import { KioskVoucherBanner } from "./KioskVoucherBanner";
 import { voucherRedeemEnabled } from "~/features/booking/service/voucher-redeem";
 import { useKioskAvailability } from "../hooks/useKioskAvailability";
 import { KioskHoldBar } from "./KioskHoldBar";
@@ -304,8 +305,35 @@ export function KioskFlow({
   // marks the voucher errored (surfaced at checkout, never silently dropped).
   const appliedVoucher = session.appliedVoucher;
   const voucherBillId = session.bmiBillId;
+  // Clear = remove the comp line from the BMI bill (when it's really on one)
+  // then drop the session state. Shared by the categories strip + cart banner.
+  const clearVoucher = useCallback(() => {
+    const v = session.appliedVoucher;
+    if (v && !v.pending && !v.error && v.billId && v.voucherOrderItemId) {
+      void fetch("/api/booking/v2/voucher", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "remove",
+          billId: v.billId,
+          code: v.code,
+          voucherOrderItemId: v.voucherOrderItemId,
+          center: config?.center,
+        }),
+      }).catch(() => {});
+    }
+    clarityEvent("kiosk:voucher:cleared");
+    dispatch({ type: "applyVoucher", voucher: null });
+  }, [session.appliedVoucher, config?.center, dispatch]);
   useEffect(() => {
-    if (!voucherRedeem || !appliedVoucher?.pending || !voucherBillId) return;
+    if (!voucherRedeem || !voucherBillId || !appliedVoucher) return;
+    // Fires for a PENDING voucher (scanned before a bill existed) and for a
+    // bill CHANGE — BMI silently opens a NEW order when booking against a
+    // dead one (live-probed 2026-07-27), so an applied voucher must chase the
+    // session's current bill or the reserve drops it.
+    const needsApply =
+      appliedVoucher.pending || (!appliedVoucher.error && appliedVoucher.billId !== voucherBillId);
+    if (!needsApply) return;
     if (voucherApplyBusy.current) return;
     voucherApplyBusy.current = true;
     const code = appliedVoucher.code;
@@ -334,7 +362,7 @@ export function KioskFlow({
             type: "applyVoucher",
             voucher: {
               code,
-              name: data.name,
+              name: data.name ?? appliedVoucher.name,
               billId: voucherBillId,
               voucherOrderItemId: String(data.voucherOrderItemId),
             },
@@ -1533,6 +1561,13 @@ export function KioskFlow({
     }
     return chrome(
       <div ref={contentRef} className="k-flow-body kiosk-step-content kiosk-zoom">
+        {voucherRedeem && session.appliedVoucher && (
+          <KioskVoucherBanner
+            voucher={session.appliedVoucher}
+            onClear={clearVoucher}
+            variant="web"
+          />
+        )}
         <CartView
           session={session}
           urlCode={null}
@@ -1671,8 +1706,8 @@ export function KioskFlow({
       <KioskCodeEntry
         onApplied={(promo) => dispatch({ type: "applyPromo", promo })}
         voucherRedeem={voucherRedeem}
-        onVoucherAccepted={(code) =>
-          dispatch({ type: "applyVoucher", voucher: { code, pending: true } })
+        onVoucherAccepted={(code, name) =>
+          dispatch({ type: "applyVoucher", voucher: { code, name, pending: true } })
         }
         onBack={() => setCodeEntryOpen(false)}
         onOpenGameZone={() => {
@@ -1754,6 +1789,8 @@ export function KioskFlow({
         }
         appliedPromo={promoEnabled ? session.appliedPromo : null}
         onClearPromo={() => dispatch({ type: "applyPromo", promo: null })}
+        appliedVoucher={voucherRedeem ? session.appliedVoucher : null}
+        onClearVoucher={clearVoucher}
       />,
     );
   }

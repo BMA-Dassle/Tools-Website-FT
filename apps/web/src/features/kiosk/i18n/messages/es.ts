@@ -300,6 +300,12 @@ export const es: Record<CoreKey, string> = {
     "Las tarjetas de regalo se aceptan como pago — pásala por el lector de tarjetas al pagar.",
   "codeEntry.giftcard.cta": "Entendido",
   "codeEntry.voucherOk.title": "¡Vale aceptado!",
+  "codeEntry.voucherOk.titleNamed": "\u00a1{name} aceptado!",
+  "voucher.pill.fallbackName": "Vale",
+  "voucher.pill.applied": "{name} aplicado \u2014 se descuenta al pagar",
+  "voucher.pill.pending": "{name} listo \u2014 se aplica al reservar",
+  "voucher.pill.error": "Problema con el vale \u2014 visita Servicio al Cliente",
+  "voucher.pill.remove": "Quitar vale",
   "codeEntry.voucherOk.body":
     "Reserva tu actividad y este vale se descontará automáticamente al pagar.",
   "codeEntry.voucherOk.cta": "Empezar a elegir",
