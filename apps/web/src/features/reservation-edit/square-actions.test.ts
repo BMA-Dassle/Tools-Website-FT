@@ -11,8 +11,8 @@ vi.mock("~/features/cancellation/square-actions", () => ({
   sq: vi.fn(),
 }));
 
-import { fetchPaymentFacts, sq } from "~/features/cancellation/square-actions";
-import { fetchRefundFacts, refundTenderPartial } from "./square-actions";
+import { fetchGiftCardFacts, fetchPaymentFacts, sq } from "~/features/cancellation/square-actions";
+import { fetchRefundFacts, refundTenderPartial, waitForRefundCredit } from "./square-actions";
 
 const payment = (over: Record<string, unknown> = {}) => ({
   id: "PAY1",
@@ -156,5 +156,62 @@ describe("fetchRefundFacts", () => {
   it("throws on a missing refund", async () => {
     vi.mocked(sq).mockResolvedValue({ ok: false, status: 404, json: {} } as never);
     await expect(fetchRefundFacts("RF_NOPE")).rejects.toThrow(/refund RF_NOPE fetch/);
+  });
+});
+
+describe("waitForRefundCredit", () => {
+  /** Instant sleep so the polling loop runs without real time passing. */
+  const noSleep = async () => {};
+  const refundStatus = (...statuses: string[]) => {
+    let i = 0;
+    vi.mocked(sq).mockImplementation(async () => {
+      const status = statuses[Math.min(i++, statuses.length - 1)];
+      return { ok: true, status: 200, json: { refund: { id: "RF1", status } } } as never;
+    });
+  };
+
+  it("returns settled as soon as the refund reaches COMPLETED", async () => {
+    refundStatus("COMPLETED");
+    const r = await waitForRefundCredit({ refundId: "RF1", sleep: noSleep });
+    expect(r).toEqual({ settled: true, status: "COMPLETED", balanceCents: undefined });
+    expect(vi.mocked(sq)).toHaveBeenCalledTimes(1);
+  });
+
+  it("polls through PENDING until the credit lands", async () => {
+    refundStatus("PENDING", "PENDING", "COMPLETED");
+    const r = await waitForRefundCredit({ refundId: "RF1", sleep: noSleep, pollMs: 1 });
+    expect(r.settled).toBe(true);
+    expect(vi.mocked(sq)).toHaveBeenCalledTimes(3);
+  });
+
+  it("reports the gift card's balance once settled (for the caller's invariant)", async () => {
+    refundStatus("COMPLETED");
+    vi.mocked(fetchGiftCardFacts).mockResolvedValue({ balanceCents: 1605 } as never);
+    const r = await waitForRefundCredit({ refundId: "RF1", giftCardId: "GC1", sleep: noSleep });
+    expect(r).toMatchObject({ settled: true, balanceCents: 1605 });
+  });
+
+  it("an unreadable balance does not undo a settled verdict (status is the gate)", async () => {
+    refundStatus("COMPLETED");
+    vi.mocked(fetchGiftCardFacts).mockRejectedValue(new Error("square down"));
+    const r = await waitForRefundCredit({ refundId: "RF1", giftCardId: "GC1", sleep: noSleep });
+    expect(r.settled).toBe(true);
+  });
+
+  it("returns unsettled on FAILED — the money never left, so never decrement", async () => {
+    refundStatus("FAILED");
+    const r = await waitForRefundCredit({ refundId: "RF1", sleep: noSleep });
+    expect(r).toMatchObject({ settled: false, status: "FAILED" });
+  });
+
+  it("returns unsettled (not an error) when it times out — the caller parks", async () => {
+    refundStatus("PENDING");
+    const r = await waitForRefundCredit({
+      refundId: "RF1",
+      sleep: noSleep,
+      timeoutMs: 0,
+      pollMs: 1,
+    });
+    expect(r).toMatchObject({ settled: false, status: "PENDING" });
   });
 });

@@ -36,6 +36,7 @@ import { AdminTapZone } from "./AdminTapZone";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
 import { useT, LanguageSwitcher, type Translate } from "../i18n";
+import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 
 type CategoryKey = "exp" | "attr";
 
@@ -106,6 +107,11 @@ export interface KioskCategoriesProps {
   onPickPackageExperience: (family: string) => void;
   onOpenCart: () => void;
   onOpenGameZone: () => void;
+  /** Jump straight to the VIP combo overview. Moved here from the attract
+   *  screen (owner 2026-07-28); omitted = the shortcut is not offered. */
+  onOpenVip?: () => void;
+  /** Jump straight to the standalone race-pack purchase flow. */
+  onOpenRacePacks?: () => void;
   /** Coupon/voucher entry (kioskPromoEnabled) — undefined hides the chip. */
   onOpenCodeEntry?: () => void;
   /** The session's applied code — renders the gold banner + per-tile
@@ -130,6 +136,8 @@ export function KioskCategories({
   onPickCombo,
   onPickPackageExperience,
   onOpenGameZone,
+  onOpenVip,
+  onOpenRacePacks,
   onOpenCodeEntry,
   appliedPromo,
   onClearPromo,
@@ -164,16 +172,25 @@ export function KioskCategories({
   // Same all-locked rule the Experiences card follows: when every attraction
   // tile inside is out of runway for the day, lock the landing card itself.
   const anyAttractionAvailable = offerings.some((o) => offeringAvailable(offeringKey(o)));
+  // Shortcut rows only appear when the destination is actually reachable: the
+  // VIP combo has to exist at this center AND fit today, and race packs are a
+  // FastTrax product behind their own kill switch. A shortcut to a locked
+  // screen is worse than no shortcut.
+  const showVipShortcut =
+    !!onOpenVip && vipComboAvailable && combos.some((c) => c.id === "race-bowl");
+  const showPackShortcut = !!onOpenRacePacks && kioskRacePacksEnabled() && brand === "fasttrax";
   // (The old "Your visit so far" strip is gone — KioskFlow's chrome now shows
   // the persistent signed-in + cart session banner on every screen instead.)
 
   if (cat === null) {
     return (
       <div className="relative flex h-full flex-col px-[64px] pb-[28px] pt-[72px]">
-        {/* Language switcher — "What are we doing today?" chooser only, pinned up
-            top-right ABOVE the tiles (owner 2026-07-26); hidden on the
-            pick-experience / pick-attraction sub-views. */}
-        <LanguageSwitcher posClass="right-[40px] top-[36px]" />
+        {/* Language switcher — "What are we doing today?" chooser only; hidden
+            on the pick-experience / pick-attraction sub-views. Bottom-right,
+            the SAME slot it occupies on the attract screen (owner 2026-07-28),
+            so it does not appear to jump across the screen between the first
+            two things a guest sees. */}
+        <LanguageSwitcher posClass="right-[32px] bottom-[34px]" />
         {/* Hidden staff entry: 5 taps in the header area → admin. */}
         <AdminTapZone />
         <h1 className="k-display mb-[32px] text-[82px]">
@@ -228,9 +245,28 @@ export function KioskCategories({
             />
           )}
         </div>
+        {/* Shortcuts, moved off the attract screen (owner 2026-07-28). They are
+            NOT categories — they jump straight into one specific thing — so
+            they sit under the three cards as a separate, shorter row rather
+            than as a fourth card competing with them. Equal widths via flex-1,
+            so one button spans the row on a venue that only has one. */}
+        {(showVipShortcut || showPackShortcut) && (
+          <div className="mt-[28px] flex shrink-0 gap-[20px]">
+            {showVipShortcut && (
+              <ShortcutButton label={t("attract.vipExperience")} onClick={() => onOpenVip?.()} />
+            )}
+            {showPackShortcut && (
+              <ShortcutButton
+                label={t("attract.racePacks", { price: "$49.99" })}
+                onClick={() => onOpenRacePacks?.()}
+              />
+            )}
+          </div>
+        )}
         {/* Coupon / voucher strip (kioskPromoEnabled) — the chip becomes the
-            gold applied-code banner once a code lands. Entry point mirrors the
-            website's attraction-selector promo form (owner 2026-07-27). */}
+            gold applied-code banner once a code lands, and several vouchers
+            collapse into the summary chip. Sits BELOW the shortcuts: those
+            start a booking, this one carries a code into whatever follows. */}
         {(onOpenCodeEntry || appliedPromo || appliedVouchers.length > 0) && (
           <div className="mt-[24px] flex min-h-[84px] flex-wrap items-center justify-center gap-[18px]">
             <KioskVoucherSummary
@@ -390,6 +426,24 @@ export function KioskCategories({
         <div className="k-scroll-fade" />
       </div>
     </div>
+  );
+}
+
+/**
+ * A shortcut under the category cards — deliberately NOT a fourth CategoryCard.
+ * Cards are photo tiles that open a shelf of choices; these jump straight to
+ * one product. Equal width (flex-1), gold like the VIP/pack products they lead
+ * to, and short enough that the three cards above stay the main event.
+ */
+function ShortcutButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="k-display k-tap flex h-[104px] flex-1 items-center justify-center rounded-[20px] border-2 border-[#e8b14c]/55 bg-[rgba(7,16,39,0.55)] px-[20px] text-center text-[30px] leading-tight text-[#e8b14c] backdrop-blur-[10px]"
+    >
+      {label}
+    </button>
   );
 }
 

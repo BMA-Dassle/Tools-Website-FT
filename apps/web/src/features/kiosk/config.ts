@@ -26,12 +26,29 @@ import { DEFAULT_LOCALE, normalizeLocale, type KioskLocale } from "./i18n/locale
 
 export type KioskVariant = "podium" | "pitcrew";
 
+/**
+ * Which attract screen this device shows.
+ *  - "headline" — DEFAULT (owner 2026-07-28). No 480px ad zone and no primary
+ *    button: the slide drives a full-bleed video backdrop plus the screen's own
+ *    "Let's race." headline, and the bank billboard drives that same headline
+ *    instead of overlaying the screen.
+ *  - "adzone"   — the previous layout, kept intact and selectable.
+ *
+ * Per-DEVICE rather than a build-baked NEXT_PUBLIC_* flag, deliberately: ops can
+ * put one kiosk back from the admin without a redeploy, and a bank can be rolled
+ * forward a screen at a time. Additive with a default in resolveKioskConfig —
+ * see the CONFIG_VERSION note below; this must NEVER bump it.
+ */
+export type KioskAttractLayout = "headline" | "adzone";
+
 export interface KioskConfig {
   center: CenterCode;
   brand: Brand;
   /** Square Terminal/reader device id for card-present checkouts (Devices API). */
   readerId: string | null;
   variant: KioskVariant;
+  /** Which attract screen this device shows. Defaults to "headline". */
+  attractLayout?: KioskAttractLayout;
   /**
    * Guest-facing language DEFAULT for this device (staff-set via `?lang=es` on
    * the provisioning URL). The between-guest default the flag switcher resets to;
@@ -214,6 +231,14 @@ function normalizeVariant(raw: string | undefined): KioskVariant | null {
   return null;
 }
 
+/** `?attract=headline|adzone` — the per-device attract-layout override. */
+function normalizeAttractLayout(raw: string | undefined): KioskAttractLayout | null {
+  if (!raw) return null;
+  const v = raw.trim().toLowerCase();
+  if (v === "headline" || v === "adzone") return v;
+  return null;
+}
+
 function first(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v[0] : v;
 }
@@ -233,6 +258,8 @@ export function parseKioskConfigFromSearchParams(
   if (brand) out.brand = brand;
   const variant = normalizeVariant(first(sp.variant));
   if (variant) out.variant = variant;
+  const attract = normalizeAttractLayout(first(sp.attract));
+  if (attract) out.attractLayout = attract;
   // Default guest language for this device (?lang=es|en). Ignored unless the
   // i18n flag is on; persisted so re-launches keep the venue's chosen default.
   const locale = normalizeLocale(first(sp.lang) ?? first(sp.locale));
@@ -262,6 +289,9 @@ export function resolveKioskConfig(partial: Partial<KioskConfig>): KioskConfig |
     brand,
     readerId: partial.readerId ?? null,
     variant: partial.variant ?? "podium",
+    // Additive with a default — an already-provisioned kiosk that has never
+    // heard of this field simply backfills to the new layout on next read.
+    attractLayout: partial.attractLayout ?? "headline",
     locale: partial.locale ?? DEFAULT_LOCALE,
     kioskNumber: partial.kioskNumber ?? 1,
     dispenserId: partial.dispenserId ?? null,

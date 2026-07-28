@@ -18,12 +18,14 @@ import {
   type BowlingReservation,
 } from "@/lib/bowling-db";
 import { listCancelEventsByAnchors, type CancelEventRow } from "@/lib/reservation-cancel-log";
+import { listEditEventsByAnchors, type EditEventRow } from "@/lib/reservation-edit-log";
 import { patchReservation } from "@/lib/qamf-bowling";
 import {
   fetchGiftCardFacts,
   fetchOrderFacts,
   fetchPaymentFacts,
 } from "~/features/cancellation/square-actions";
+import { fetchRefundFacts } from "~/features/reservation-edit/square-actions";
 import { resolveCenter } from "~/features/cancellation/centers";
 import { getCardStatusForReservation } from "~/features/card-vault";
 import { listAdminActions, recordAdminAction, type AdminActionRow } from "./audit";
@@ -60,7 +62,8 @@ export interface DetailLeg {
 
 export type HistoryEntry =
   | { source: "cancel"; at: string; event: CancelEventRow }
-  | { source: "action"; at: string; event: AdminActionRow };
+  | { source: "action"; at: string; event: AdminActionRow }
+  | { source: "edit"; at: string; event: EditEventRow };
 
 export interface ReservationDetail {
   reservation: BowlingReservation & { lines: unknown[] };
@@ -125,14 +128,19 @@ export async function getReservationDetail(query: {
   const group = await listCancelGroupReservations(anchor);
   const legIds = group.map((g) => g.id);
 
-  const [cancelEvents, actions] = await Promise.all([
+  const [cancelEvents, actions, editEvents] = await Promise.all([
     listCancelEventsByAnchors(legIds),
     listAdminActions(legIds),
+    // Edits carry their own money (top-up charges, refunds, store credit) and
+    // were previously invisible here — every mutation of a reservation has to
+    // be readable from this tab.
+    listEditEventsByAnchors(legIds),
   ]);
 
   const history: HistoryEntry[] = [
     ...cancelEvents.map((e): HistoryEntry => ({ source: "cancel", at: e.createdAt, event: e })),
     ...actions.map((e): HistoryEntry => ({ source: "action", at: e.createdAt, event: e })),
+    ...(editEvents ?? []).map((e): HistoryEntry => ({ source: "edit", at: e.createdAt, event: e })),
   ].sort((a, b) => String(b.at).localeCompare(String(a.at)));
 
   return {
@@ -157,7 +165,7 @@ export function firstOrderId(raw: string | null | undefined): string | null {
 }
 
 export interface TimelineNode {
-  kind: "deposit" | "funding_gift_card" | "dayof_order" | "store_credit";
+  kind: "deposit" | "funding_gift_card" | "dayof_order" | "store_credit" | "refunds";
   label: string;
   /** Which leg this node belongs to (day-of orders); absent for group-level nodes. */
   legId?: number;
@@ -176,6 +184,21 @@ export interface TimelineNode {
     }>;
   };
   giftCard?: { id: string; gan: string; state: string; balanceCents: number };
+  /**
+   * Every refund this money group has issued, from the cancel + edit ledgers,
+   * with live Square status. PENDING entries matter: a gift-card credit posts
+   * asynchronously, so staff need to see money that is in flight rather than
+   * assume a refund that has not landed is missing.
+   */
+  refunds?: Array<{
+    id: string;
+    amountCents: number;
+    status: string;
+    /** Payment the refund was issued against. */
+    paymentId: string;
+    /** "cancel" | "edit" — which cascade recorded it. */
+    source: string;
+  }>;
   /** Node-level failure — the rest of the timeline still renders. */
   error?: string;
 }
@@ -261,14 +284,79 @@ async function giftCardNode(
 }
 
 /**
+ * Every refund recorded for this money group, resolved against Square for its
+ * live status. Reads both ledgers because a reservation can be refunded by a
+ * cancellation OR by an edit (item refunds, decreases), and the tab has to
+ * show either.
+ */
+async function refundsNode(legIds: number[]): Promise<TimelineNode> {
+  const label = "Refunds";
+  try {
+    const [cancels, edits] = await Promise.all([
+      listCancelEventsByAnchors(legIds),
+      listEditEventsByAnchors(legIds),
+    ]);
+    const seen = new Set<string>();
+    const ids: Array<{ id: string; source: string }> = [];
+    for (const c of cancels ?? []) {
+      for (const id of c.refundIds ?? []) {
+        if (id && !seen.has(id)) {
+          seen.add(id);
+          ids.push({ id, source: "cancel" });
+        }
+      }
+    }
+    for (const e of edits ?? []) {
+      for (const id of e.refundIds ?? []) {
+        if (id && !seen.has(id)) {
+          seen.add(id);
+          ids.push({ id, source: "edit" });
+        }
+      }
+    }
+    if (ids.length === 0) return { kind: "refunds", label, refunds: [] };
+
+    const refunds = (
+      await Promise.all(
+        ids.map(async ({ id, source }) => {
+          try {
+            const f = await fetchRefundFacts(id);
+            return {
+              id,
+              amountCents: f.amountCents,
+              status: f.status,
+              paymentId: f.paymentId,
+              source,
+            };
+          } catch {
+            // An unreadable refund still gets a row — silently dropping money
+            // from this view is exactly the failure mode we are fixing.
+            return { id, amountCents: 0, status: "UNREADABLE", paymentId: "", source };
+          }
+        }),
+      )
+    ).sort((a, b) => a.id.localeCompare(b.id));
+
+    return { kind: "refunds", label, refunds };
+  } catch (err) {
+    return {
+      kind: "refunds",
+      label,
+      error: err instanceof Error ? err.message : "refund lookup failed",
+    };
+  }
+}
+
+/**
  * Live Square facts for the whole money group: deposit order (+ tender
- * payment statuses) → funding gift card → per-leg day-of order(s) →
- * store-credit outcome card. Each node fails independently.
+ * payment statuses) → funding gift card → per-leg day-of order(s) → refunds
+ * → store-credit outcome card. Each node fails independently.
  */
 export async function getPaymentTimeline(neonId: number): Promise<PaymentTimeline | null> {
   const anchor = await getBowlingReservation(neonId);
   if (!anchor) return null;
   const group = await listCancelGroupReservations(anchor);
+  const legIds = group.map((g) => g.id);
 
   const tasks: Promise<TimelineNode>[] = [];
 
@@ -301,7 +389,9 @@ export async function getPaymentTimeline(neonId: number): Promise<PaymentTimelin
         "dayof_order",
         group.length > 1 ? `Day-of order — ${kindLabel} leg` : "Day-of order",
         orderId,
-        { legId: leg.id },
+        // withPayments so a partially-refunded day-of tender shows its
+        // refunded amount, not just the original charge.
+        { legId: leg.id, withPayments: true },
       ),
     );
   }
@@ -318,6 +408,11 @@ export async function getPaymentTimeline(neonId: number): Promise<PaymentTimelin
     );
   }
 
+  // Refunds across BOTH ledgers, with live Square status. Without this the
+  // tab shows orders and cards but never the money going back — and a
+  // gift-card credit that is still PENDING looks like nothing happened.
+  tasks.push(refundsNode(legIds));
+
   // Card-vault status (silent capture provenance) — Neon-only read, keyed on
   // the group's deposit order. Failure never blanks the Square timeline.
   const savedCardRow = await getCardStatusForReservation(
@@ -325,8 +420,14 @@ export async function getPaymentTimeline(neonId: number): Promise<PaymentTimelin
     anchor.squareCustomerId ?? null,
   ).catch(() => null);
 
+  const nodes = (await Promise.all(tasks)).filter(
+    // Most reservations have never been refunded — don't add an empty row to
+    // every timeline. A lookup FAILURE still shows (that is information).
+    (n) => n.kind !== "refunds" || (n.refunds?.length ?? 0) > 0 || !!n.error,
+  );
+
   return {
-    nodes: await Promise.all(tasks),
+    nodes,
     savedCard: savedCardRow
       ? {
           brand: savedCardRow.cardBrand,

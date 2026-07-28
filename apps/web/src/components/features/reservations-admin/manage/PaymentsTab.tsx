@@ -17,7 +17,15 @@ const NODE_COLORS: Record<TimelineNode["kind"], string> = {
   funding_gift_card: "#d4af37",
   dayof_order: "#f59e0b",
   store_credit: "#ef4444",
+  refunds: "#ef4444",
 };
+
+/** PENDING is not a problem — gift-card credits post asynchronously. */
+function refundStatusColor(status: string): string {
+  if (status === "COMPLETED") return "#22c55e";
+  if (status === "PENDING") return "#f59e0b";
+  return "#ef4444";
+}
 
 // Square Dashboard transaction deep link (seller must be signed in; a stale
 // format just lands on the transactions list, never errors).
@@ -235,7 +243,52 @@ export default function PaymentsTab({
                         </span>
                       </>
                     )}
+                    {n.kind === "refunds" && (
+                      <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                        {n.refunds && n.refunds.length > 0
+                          ? `${dollars(n.refunds.reduce((s, r) => s + r.amountCents, 0))} across ${n.refunds.length}`
+                          : "none"}
+                      </span>
+                    )}
                   </div>
+                  {n.kind === "refunds" &&
+                    n.refunds?.map((r) => (
+                      <div
+                        key={r.id}
+                        style={{
+                          display: "flex",
+                          gap: 6,
+                          flexWrap: "wrap",
+                          alignItems: "center",
+                          marginTop: 4,
+                          fontSize: "0.72rem",
+                          color: "var(--ba-muted)",
+                        }}
+                      >
+                        <span style={{ color: "#ef4444", fontVariantNumeric: "tabular-nums" }}>
+                          {dollars(r.amountCents)}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "0.62rem",
+                            fontWeight: 700,
+                            padding: "1px 6px",
+                            borderRadius: 4,
+                            border: "1px solid var(--ba-border)",
+                            color: refundStatusColor(r.status),
+                          }}
+                          title={
+                            r.status === "PENDING"
+                              ? "Square has not settled this yet — gift-card credits post asynchronously"
+                              : undefined
+                          }
+                        >
+                          {r.status}
+                        </span>
+                        <span>via {r.source}</span>
+                        <CopyId value={r.id} label={`${r.id.slice(0, 8)}…`} onCopied={onCopied} />
+                      </div>
+                    ))}
                   <div
                     style={{
                       display: "flex",

@@ -26,7 +26,8 @@
  * `images.remotePatterns`. Static v1; a CMS/config layer can replace this later
  * without touching components.
  */
-import type { CenterCode } from "~/features/booking";
+import type { Brand, CenterCode } from "~/features/booking";
+import type { MessageKey } from "./i18n";
 
 const BLOB_HOST = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 const OPT_WIDTH = 1200;
@@ -81,6 +82,56 @@ export const KIOSK_PHOTOS = {
   raceCar: photo("/images/kiosk/ft-race-car.webp"),
 } as const;
 
+/**
+ * Attract backdrop CLIPS (headline layout only).
+ *
+ * Served as RAW blob URLs, not through `photo()` — `/_next/image` is an image
+ * optimizer and will not transcode video. That matches every other <video> on
+ * the site (home Hero, BowlingWizard, the attractions pages), so these inherit
+ * the same caching behaviour the marketing pages already rely on.
+ *
+ * A slide with no entry here falls back to its still `photo` with ken-burns,
+ * which is a supported mix — the screen must never depend on a clip existing.
+ *
+ * KEYFRAME DENSITY IS ALSO A CORRECTNESS CONCERN. Playback position is seeked
+ * to the shared clock (see AttractHeadline's seekToClock) so every screen in a
+ * bank shows the same frame. A seek can only land quickly if there is a
+ * keyframe near the target — the first race cut had a default ~10s GOP and NO
+ * keyframe at all in its first 8 seconds, so each browser decoded forward from
+ * frame 0 and arrived at its own pace. That is the "videos load a split second
+ * different" (owner 2026-07-28). Every kiosk clip is encoded with a keyframe
+ * every second: `-g 24 -keyint_min 24 -sc_threshold 0` at 24fps.
+ *
+ * SIZE IS A CORRECTNESS CONCERN HERE, not just a cost one. Chrome refuses to
+ * store any single cache entry larger than roughly 1/8 of its disk cache, which
+ * lands around 30–40MB on these machines. A clip over that ceiling is evicted
+ * immediately and RE-DOWNLOADS every time a guest finishes and the attract
+ * screen re-mounts — on a screen that runs 24/7. So kiosk clips are encoded
+ * kiosk-sized (810×1440, silent, ~2–4MB) rather than reusing the marketing
+ * masters:
+ *   - race was the 31.9MB landscape home-page hero, centre-cropped by the
+ *     browser. Now a 2.5MB portrait cut framed on the karts.
+ *   - gel is the Nexus montage (marketing drive, "Nexus Assets-June 2025"),
+ *     trimmed before its "EXPERIENCE NEXUS TODAY!" end card, which would
+ *     otherwise collide with our own headline. 38MB source → 3.9MB.
+ * bowl and arcade are already small enough to use as-is.
+ */
+export const KIOSK_VIDEOS = {
+  /** Portrait kiosk cut of the FastTrax kart reel (from images/hero/hero-video.mp4). */
+  race: `${BLOB_HOST}/videos/ft-race-kiosk.mp4`,
+  /** Cut from 6.2s of the marketing reel: earlier there is a lit HEADPINZ sign
+   *  on the wall, and this slide also runs on FASTTRAX kiosks as cross-promo —
+   *  a HeadPinz logo on a FastTrax screen (owner 2026-07-28). The window also
+   *  clears the food and service-robot segments further in. */
+  bowl: `${BLOB_HOST}/videos/hp-bowling-kiosk.mp4`,
+  gel: `${BLOB_HOST}/videos/nexus-gel-kiosk.mp4`,
+  /** Trimmed at 25.5s: the marketing reel moves to AXE THROWING at ~27s, which
+   *  is not Game Zone and read as a mistake behind "Let's play." (owner
+   *  2026-07-28). Portrait cut of a low-res 720x406 master, so it is soft by
+   *  origin — a sharper Game Zone clip would need new footage. */
+  arcade: `${BLOB_HOST}/videos/hp-arcade-kiosk.mp4`,
+} as const;
+
 /** Attract-screen ad rotation — v2 "doors" (owner 2026-07-21): every slide is
  *  a centered neon "<X> STARTS HERE" headline over the activity photo, with a
  *  "TOUCH ANYWHERE …" marquee banner riding the car lane. Replaced the v1
@@ -98,6 +149,24 @@ export interface KioskAdSlide {
   /** Optional RED standout line above the headline (owner 2026-07-21 — the
    *  Mega Tuesday junior rule). Always red regardless of the slide accent. */
   notice?: string;
+
+  /* ---- headline layout (config.attractLayout === "headline") -----------
+     There is no 480px ad zone in that layout, so the slide drives the
+     screen's OWN headline, backdrop and vehicle instead. Every field below
+     is ignored by the ad-zone layout, which is left unchanged. */
+
+  /** The "Let's …" line this slide puts in the headline slot, replacing the
+   *  free-running RotatingWelcome. An i18n key: Spanish lengths differ, so
+   *  the renderer measures the rendered string down to a single line. */
+  headline: MessageKey;
+  /** Backdrop clip key into KIOSK_VIDEOS. Absent = the still `photo` is used
+   *  with ken-burns, which is a supported mix (gel has no clip yet). */
+  video?: keyof typeof KIOSK_VIDEOS;
+  /** Which sprite crosses the headline on this slide, on the shared clock with
+   *  the same per-kiosk stagger the ad-zone banner uses. Only the activity's
+   *  OWN vehicle runs — the car races, the ball bowls, gel and Game Zone run
+   *  clean. (The ad zone instead runs one per BRAND on every slide.) */
+  vehicle?: "car" | "ball";
 }
 
 /** Fort Myers complex (FastTrax + HeadPinz share the campus). Gel is GREEN
@@ -109,24 +178,34 @@ const FORT_MYERS_AD_SLIDES: KioskAdSlide[] = [
     bannerAction: "to book",
     accent: "#e53935",
     photo: KIOSK_PHOTOS.race,
+    headline: "attract.letsRace",
+    video: "race",
+    vehicle: "car",
   },
   {
     title: "Bowling starts here",
     bannerAction: "to book",
     accent: "#00e2e5",
     photo: KIOSK_PHOTOS.bowl,
+    headline: "attract.letsBowl",
+    video: "bowl",
+    vehicle: "ball",
   },
   {
     title: "Gel blasters start here",
     bannerAction: "to book",
     accent: "#46d68c",
     photo: KIOSK_PHOTOS.gel,
+    headline: "attract.letsBlast",
+    video: "gel",
   },
   {
     title: "Game Zone starts here",
     bannerAction: "to get started",
     accent: "#f0b341",
     photo: KIOSK_PHOTOS.arcade,
+    headline: "attract.letsPlay",
+    video: "arcade",
   },
 ];
 
@@ -138,18 +217,25 @@ const NAPLES_AD_SLIDES: KioskAdSlide[] = [
     bannerAction: "to book",
     accent: "#00e2e5",
     photo: KIOSK_PHOTOS.bowl,
+    headline: "attract.letsBowl",
+    video: "bowl",
+    vehicle: "ball",
   },
   {
     title: "Gel blasters start here",
     bannerAction: "to book",
     accent: "#46d68c",
     photo: KIOSK_PHOTOS.gel,
+    headline: "attract.letsBlast",
+    video: "gel",
   },
   {
     title: "Game Zone starts here",
     bannerAction: "to get started",
     accent: "#f0b341",
     photo: KIOSK_PHOTOS.arcade,
+    headline: "attract.letsPlay",
+    video: "arcade",
   },
 ];
 
@@ -161,6 +247,11 @@ const MEGA_TUESDAY_SLIDE: KioskAdSlide = {
   accent: "#8652ff",
   photo: KIOSK_PHOTOS.race,
   notice: "No first-time Junior racers on Mega",
+  headline: "attract.letsGoMega",
+  // Reuses the kart reel: Mega IS racing, and it keeps the slide from being
+  // the only still one in an otherwise moving rotation.
+  video: "race",
+  vehicle: "car",
 };
 
 /** Center-local (America/New_York) Tuesday check — mirrors scheduleForDate's
@@ -177,10 +268,18 @@ export function isMegaTuesdayToday(): boolean {
 /** The attract rotation for this kiosk's center (null = not provisioned yet;
  *  the Fort Myers set is a harmless placeholder behind the setup card).
  *  Called per render, so the Tuesday slide appears/retires on the attract
- *  loop's own re-render cadence — no reload needed across midnight. */
-export function kioskAdSlidesFor(center: CenterCode | null): KioskAdSlide[] {
+ *  loop's own re-render cadence — no reload needed across midnight.
+ *
+ *  `brand` gates the Mega Tuesday slide to FASTTRAX kiosks. The rotation is
+ *  keyed by CENTER, and both FM venues share center "fort-myers", so HeadPinz
+ *  Fort Myers was picking up a racing-only promo — complete with the red
+ *  "No first-time Junior racers" rule — on the one bank that also runs the
+ *  billboard, and the two fought over the same screen (owner 2026-07-28:
+ *  "mega slide looks messed up"). The everyday racing slide stays on HeadPinz:
+ *  that is ordinary cross-campus promotion. A dated promo with an operational
+ *  rule attached is not. Omit `brand` and nothing changes. */
+export function kioskAdSlidesFor(center: CenterCode | null, brand?: Brand): KioskAdSlide[] {
   if (center === "naples") return NAPLES_AD_SLIDES;
-  return isMegaTuesdayToday()
-    ? [MEGA_TUESDAY_SLIDE, ...FORT_MYERS_AD_SLIDES]
-    : FORT_MYERS_AD_SLIDES;
+  const megaToday = isMegaTuesdayToday() && brand !== "headpinz";
+  return megaToday ? [MEGA_TUESDAY_SLIDE, ...FORT_MYERS_AD_SLIDES] : FORT_MYERS_AD_SLIDES;
 }

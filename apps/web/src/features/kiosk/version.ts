@@ -15,6 +15,86 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.10.4 — VIP + race-pack shortcuts move OFF the attract screen and onto the
+ *         "What are we doing today?" chooser, as an even row of buttons under
+ *         the Game Zone card (owner 2026-07-28). The attract screen is a poster
+ *         with one instruction: a button there both competes with "touch
+ *         anywhere" and is the one thing a tap anywhere does NOT do. The
+ *         chooser is where a guest is already deciding. Same destinations the
+ *         ?goto=vip / ?goto=packs deep links seed, so the entry points cannot
+ *         drift. Each is hidden unless it is actually reachable (VIP combo
+ *         enabled at this center and fits today; packs are FastTrax + kill
+ *         switch). The chooser's language switcher also moves bottom-right to
+ *         match the attract screen, so it stops jumping between the first two
+ *         screens a guest sees.
+ * 1.10.3 — the 1.10.2 vehicle fix was itself broken, and took the Mega
+ *         headline with it. (1) `left-[calc(100%+64px)]` emits
+ *         `calc(100%+64px)`, and CSS requires whitespace around `+` inside
+ *         calc() — so the browser dropped the declaration, `left` fell back to
+ *         `auto`, and the car and ball rendered at their STATIC position, parked
+ *         mid-lane in plain view. Worse than the 64px sliver it was meant to
+ *         fix. Now an inline style, where the spaces survive.
+ *         (2) The headline carried `whitespace-pre-line` AND
+ *         `[text-wrap:nowrap]`. `white-space: pre-line` is a shorthand that
+ *         also sets `text-wrap: wrap`, so the winner depended on stylesheet
+ *         order; when wrap won, "LET'S GO MEGA." broke onto a second line that
+ *         clipped. Whitespace is now set inline and per-case: pre-line only for
+ *         billboard words, which carry deliberate \n breaks.
+ *         (3) fitOneLine measured, then the style prop re-applied the base size
+ *         on the next render and wiped the result — five times a second during
+ *         a billboard poll. The hook owns fontSize outright now.
+ *         (4) "Videos load a split second different": the clips were encoded
+ *         with a default ~10s GOP — the race cut had NO keyframe in its first
+ *         8 seconds — so a clock-seek had to decode forward from frame 0 and
+ *         every machine arrived at its own pace. All four re-encoded with a
+ *         keyframe every second, which is what makes the shared-clock seek
+ *         land instantly and identically. Drift watchdog tightened 4s -> 2s
+ *         now that a correction is cheap.
+ *         (5) Bowling re-cut from 6.2s: earlier in the reel a lit HEADPINZ
+ *         sign is on the wall, and the bowling slide also runs on FASTTRAX
+ *         kiosks as cross-promo. Also clears the food and robot segments.
+ * 1.10.2 — attract fixes. (1) The car and ball sat 64px INTO view, parked at
+ *         the right edge, then lurched off — the lane lives inside the hero's
+ *         64px padding, so left:100% is x=1016 on a 1080 canvas. Parked at the
+ *         canvas edge now, so they are genuinely hidden until they cross.
+ *         (2) The billboard raised its curtain raggedly: each screen swapped
+ *         PICTURE on its own staggered beat, so five screens changed a second
+ *         apart and read as five glitches rather than one sign. Now every
+ *         screen cuts to its solid image TOGETHER and only the WORDS travel
+ *         down the row, one per second, before the shared closing line.
+ *         (3) Mega Tuesday no longer appears on HeadPinz Fort Myers: both FM
+ *         venues share one center code, so a racing-only dated promo (with an
+ *         operational junior-racer rule) was landing on the one bank that also
+ *         runs the billboard, and the two fought over the same screen.
+ *         Everyday racing cross-promo stays.
+ * 1.10.1 — attract footer tidy: the venue name ("Fort Myers" / "Naples") is
+ *         gone from the headline layout — a guest at the kiosk knows which
+ *         building they are standing in, and it crowded the language switcher
+ *         that now sits in that footer band. Brand lockup stays centred, the
+ *         switcher owns the right side. Ad-zone layout keeps the venue line.
+ * 1.10.0 — NEW ATTRACT SCREEN (attractLayout "headline", now the default; the
+ *         old ad-zone layout is kept and selectable per device via the config
+ *         field or ?attract=adzone). The 480px display-only ad zone is gone —
+ *         it painted a second full-bleed photo over the backdrop photo, which
+ *         is why it needed its own heavier scrim, and the screen said "start"
+ *         three times (neon sign, marquee, cyan pill). Now: the slide drives
+ *         the screen's own backdrop + a "Let's race." / "Let's bowl." headline
+ *         (EN+ES, measured to one line), the cyan pill becomes a prompt because
+ *         a tap anywhere already starts, and VIP / race packs stay as the only
+ *         two real buttons. Backdrops are real footage, alternating video and
+ *         still by (cycle + index) parity so no two consecutive slides move and
+ *         each activity flips every lap. Vehicles are per-ACTIVITY now — the
+ *         car on racing, the ball on bowling — crossing THROUGH the headline on
+ *         the shared clock. The HeadPinz bank billboard is INTEGRATED rather
+ *         than overlaid: it swaps the backdrop and the headline for its ~11s
+ *         and leaves the prompt and buttons alone, so the 94% navy veil and the
+ *         text-on-text bleed it hid are both gone. Clips are kiosk-encoded
+ *         (31.9MB race hero → 2.5MB; 38MB Nexus montage → 3.9MB gel; arcade
+ *         trimmed before the axe-throwing segment) because Chrome will not
+ *         cache an entry over ~1/8 of its disk cache, and an evicted clip
+ *         re-downloads on every attract re-mount. Video playback position is
+ *         clock-locked like the CSS animations, so the whole bank shows the
+ *         same frame.
  * 1.9.0 — race packs sell to the whole group + are cart-editable (manager
  *         report 7/27: a 4-person party got a pack on only ONE racer, then got
  *         trapped re-entering the wizard to fix it). (1) The "who's this pack
@@ -139,7 +219,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.9.0";
+export const KIOSK_VERSION = "1.10.4";
 
 let bootVersion: string | null = null;
 let captured = false;

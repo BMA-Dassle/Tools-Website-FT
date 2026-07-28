@@ -56,3 +56,24 @@ export function cancelActionable(r: Reservation): boolean {
   if (r.dayofPaymentId) return false; // already paid at the venue — manual path
   return true;
 }
+
+/**
+ * Refund is the money action for the rows Cancel deliberately refuses: the
+ * guest has ARRIVED or the visit is DONE, so the booking must NOT be voided —
+ * only money moves back. Cancel would rewrite history (and its cascade won't
+ * touch a tendered day-of order anyway); the edit engine's money-only path
+ * returns day-of order lines and walks the refund back to the guest's card.
+ *
+ * Row fields are a fast pre-filter only. The server's dry-run is authoritative
+ * (it reads the LIVE Square order to pick the phase), and `capabilities.refund`
+ * on the detail payload decides whether the button renders at all.
+ */
+export function refundActionable(r: Reservation): boolean {
+  // A cancelled row already settled through the cancel cascade.
+  if (r.status === "cancelled") return false;
+  // Pre-arrival rows belong to Cancel — it voids the booking AND settles money.
+  if (r.status !== "arrived" && r.status !== "completed" && r.status !== "no_show") return false;
+  // There must be a day-of charge to refund. Without one nothing was collected
+  // at the venue, so there is no paid order for an itemized return to target.
+  return !!r.dayofPaymentId;
+}

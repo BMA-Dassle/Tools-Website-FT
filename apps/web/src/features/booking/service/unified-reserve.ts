@@ -781,10 +781,19 @@ async function unifiedReserveInner(
   // a promo never survives on the client snapshot alone. Kiosk sessions make
   // this non-negotiable — the device is an unattended public surface.
   if (input.session.appliedPromo) {
-    const fresh = await resolveAppliedPromo(input.session.appliedPromo.code).catch(() => null);
+    const claimed = input.session.appliedPromo;
+    const fresh = await resolveAppliedPromo(claimed.code).catch(() => null);
     if (!fresh) {
-      console.warn(
-        `[unified-reserve] appliedPromo ${input.session.appliedPromo.code} no longer resolves — pricing without it`,
+      // The code stopped resolving between session start and charge (expired at
+      // midnight, hit max_uses, admin deactivated). We price WITHOUT it — the
+      // established behavior of the bowling reserve route — which means the
+      // guest can be charged more than the screen last showed. Rare, but it IS
+      // a displayed-vs-charged divergence, so make it loud and greppable
+      // instead of a quiet warn: ops can find + remediate the exact bill.
+      console.error(
+        `[unified-reserve] PROMO DROPPED AT CHARGE: ${claimed.code} no longer resolves ` +
+          `(bill ${input.session.bmiBillId ?? "n/a"}, order ${input.session.squareOrderId ?? "n/a"}) ` +
+          `— charging without the discount the guest may have seen`,
       );
     }
     input = { ...input, session: { ...input.session, appliedPromo: fresh } };

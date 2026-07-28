@@ -191,6 +191,34 @@ export async function buildCancelPlan(req: CancelRequest): Promise<BuildPlanResu
       }
     } else if (outcome === "store_credit") {
       const sc = legs.find((l) => l.storeCreditGiftCardId);
+
+      // An EDIT-issued store credit lives in the SAME store_credit_* columns
+      // this planner reads. Left unchecked, the branch below would treat an
+      // item refund's card as "the cancel's store credit, already issued" and
+      // report its (small) cents as the cancel amount — silently stranding the
+      // rest of the deposit. The two are not interchangeable: the edit's card
+      // settled a partial refund, while the cancel still owes the internal
+      // gift card's remaining balance. Refuse rather than under-credit;
+      // supporting it properly means computing state as
+      // (original − item refunds), which lands with the MID-decrease work.
+      if (sc?.storeCreditGiftCardId) {
+        const { listEditEventsByAnchors } = await import("@/lib/reservation-edit-log");
+        const editEvents = await listEditEventsByAnchors(legs.map((l) => l.id));
+        const editIssued = editEvents.some(
+          (e) => e.state === "completed" && e.storeCreditGiftCardId === sc.storeCreditGiftCardId,
+        );
+        if (editIssued) {
+          throw new CancelGuardError(
+            "amount_mismatch",
+            `Store credit card ${sc.storeCreditGiftCardGan ?? sc.storeCreditGiftCardId} was issued ` +
+              `by a reservation EDIT, not by a cancellation — reusing it here would credit only ` +
+              `that edit's amount and strand the rest of the deposit. Handle this cancel manually ` +
+              `in Square.`,
+            409,
+          );
+        }
+      }
+
       if (sc?.storeCreditGiftCardId && sc.storeCreditGiftCardGan) {
         existingStoreCredit = {
           giftCardId: sc.storeCreditGiftCardId,

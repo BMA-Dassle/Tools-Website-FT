@@ -167,6 +167,76 @@ operational model is: refund the guest's money on the CARD payment with reason e
 - Any NEW ledger that records refunds (e.g. `reservation_edit_events`) must be added to the
   refund-alerts sanctioned set (`recordedCascadeRefundIds`), or the system yells at its own
   refunds as Dashboard violations. Refund-alerts whitelists by refund ID, not reason.
+
+**UPDATE — OVERTURNED at the API level (2026-07-27, owner-authorized live probe
+`apps/web/scripts/gc-refund-probe.mts` + `-followup.mts`):** `POST /v2/refunds` **ACCEPTED a $1
+PARTIAL refund of a $2 gift-card-funded payment** (real chain: owner's VISA bought a $2 gift
+card → gift card paid a $2 order → $1 partial refund of that GC payment → accepted, completed,
+payment shows refunded_money=$2 after the remainder refund). The 7/11 "NO" was never an API
+attempt — it was a dashboard/ops-flow limitation recorded as if it were an API rule.
+Consequences:
+
+- The `skipGiftCardTender` hop in `refundTenderPartial` and the GIFT_CARD skip in the edit
+  allocator are OVER-conservative (safe, but partial GC refunds are in fact available).
+- `RESERVATION_EDIT_V2_MID_DECREASE` / `_POST` "must be redesigned" (§14 A1) should be
+  revisited — the original GC-tender-refund specs appear viable as written. Re-verify in the
+  exact production shape before flipping anything on.
+- Unlinked refunds: still **NOT enabled** as of 2026-07-27 — a validly-shaped request
+  (`unlinked: true`, `destination_id` = card on file, `customer_id` present) returns
+  `REFUND_ERROR/REFUND_DECLINED`. Note the request REQUIRES `customer_id` when destination is a
+  card on file (first attempt without it fails validation, which masks the entitlement answer).
+- Probe-sequencing lesson: NEVER `DEACTIVATE` a gift card while refunds to it are PENDING — the
+  refund credit lands asynchronously (payment showed refunded before any REFUND activity
+  appeared on the card). Verify the REFUND activity on the card before teardown.
+- Reason-string lesson (owner correction, 2026-07-27): EVERY real Square refund — probes and
+  one-off scripts included — carries the exact reason **"Refund: Reservation Deposit"**. The
+  portal's journal-entry pickup keys off it; an ad-hoc reason ("probe: …") means the refund is
+  invisible to the journal and needs manual accounting. The 7/27 probe created three such
+  refunds (2×$1 on the GC spend payment, 1×$2 on the VISA purchase payment); Square refund
+  reasons are immutable, so those three need manual journal entries.
+- Refund-reason SCOPE (owner, 2026-07-27): `"Refund: Reservation Deposit"` belongs to the
+  **deposit / cash-out leg only**. A refund of the DAY-OF Square payment (the GC-funded revenue
+  order) must NOT carry it — that would double-count one economic event in the portal journal.
+  The day-of leg carries its own **staff-supplied reason** entered in the admin portal at refund
+  time. Per-domain reasons are the norm, not an exception (group functions already use
+  `"Refund: Group Event Deposit"`).
+- **NEVER issue an amount-only refund** (owner rule, 2026-07-27). A bare `POST /v2/refunds`
+  (payment_id + amount) records a dollar figure and nothing else: the returned item never shows
+  in Square's item-level sales reporting and QBO cannot categorize it, so the books keep revenue
+  that was actually reversed. Refunds must be **ITEMIZED**: create a return order
+  (`POST /v2/orders` with `returns[].source_order_id` +
+  `return_line_items[].source_line_item_uid`, which does NOT mutate the immutable paid order),
+  then refund with `order_id` = that return order. **Square computes the tax-inclusive
+  `return_amounts.total_money` itself — use that figure, not local tax math.** Probed live
+  2026-07-27 (`apps/web/scripts/dayof-itemized-return-probe.mts`): both the return order and the
+  linked refund were accepted. If the returned lines cannot be identified, REFUSE the refund
+  rather than falling back to an amount. (The deposit/cash leg is a single funding line with no
+  item semantics and is the one exception.)
+- **A PAID Square order's line items are IMMUTABLE — forever** (probed 2026-07-27,
+  `apps/web/scripts/dayof-lines-after-refund-probe.mts`). `UpdateOrder` returns
+  `BAD_REQUEST "LineItems cannot be modified for finalized tenders"` on an order with finalized
+  tenders — before a refund, after a PARTIAL refund, and even after the tender is refunded in
+  FULL. There is no sequence that unlocks it. Consequences: any post-payment money flow is
+  **money-only** (the order keeps its original lines and the refund objects carry the story);
+  never plan an `update_dayof_order` step for a lane-open or completed order — it would fail
+  fatally *after* money moved. Only PRE-phase (zero-tender) orders accept line edits.
+- Related, same probe run: a partial refund does **NOT** reopen `net_amount_due_money` on the
+  source order (it stays 0 and the order stays OPEN). So the feared "strand trap" — a refunded
+  order stuck at balance-due and skipped forever by `bowling-order-complete` — does **not**
+  exist. Don't design around it, and don't treat a refund as a guard against the complete-cron.
+- Same run: `payment.refunded_money` **includes PENDING refunds**, so clamping against it during
+  the async settlement window is safe (a retry cannot over-refund).
+- Same run: refunding a payment on a **COMPLETED** order is accepted — the money-only
+  post-complete path is valid.
+- Same run, confirmed the hard way: the 7/27 card ending 1430 has **no REFUND activity at all**
+  — the credit never posted because the card was DEACTIVATED while its refunds were PENDING.
+  Deactivating a gift card with refunds in flight **destroys the money**. Always wait for the
+  credit before drain/deactivate.
+- Probe-location rule (owner, 2026-07-27): ALL live Square probes run against location
+  **`6MZJFTGAYD7TC`** — it does NOT track accounting. NEVER probe against a revenue location
+  (the 7/27 probes hit HeadPinz Fort Myers `TXBSQN0FEKQ11` and put probe sales/refunds into
+  that day's books). Every probe script's `LOCATION` constant uses `6MZJFTGAYD7TC`.
+
 ## Pandora heatNumber is CREATION-order, not schedule-order — never order heats by it (2026-07-11)
 
 **What happened:** Staff inserted an extra Blue session mid-day ("76 - Blue Junior Starter",
@@ -2188,3 +2258,106 @@ run ~1 year.
   `related[]` reveals link-minted orphans.
 - Cleanup for affected guests: waivers may exist on multiple records; the record that raced
   (has `lastVisit`) is the live one — merge/deactivate orphans at the desk.
+## A hidden action is a missing feature: settled reservations had no refund door (2026-07-28)
+
+**Report:** owner opened a completed race (res 16426, Fort Myers, "Debbie Collier",
+$27.67) in the manage modal and asked why there was no refund button. There wasn't
+one — and three independent things were each individually sufficient to hide it.
+
+**1. The only money action was Cancel, and Cancel correctly refuses these rows.**
+`cancelActionable()` returns false for `completed` / `arrived` / `no_show`, and also
+whenever `dayofPaymentId` is set. Both refusals are RIGHT: Cancel voids a booking, and
+a visit that already happened must not be voided; its cascade also won't touch a
+tendered day-of order. But Cancel was the header's only money door, so the rows that
+most need a refund had none. The fix is a SEPARATE gate (`refundActionable`) covering
+exactly Cancel's complement — never a loosened Cancel.
+
+**2. The only control that could actually price the refund was hidden by product kind.**
+The day-of order-lines stepper lived inside the bowling-only branch of the edit modal,
+even though the server computes `editable` per line and is completely kind-agnostic
+(`isEngineOwnedLine`, shared by the planner and `applyOrderLineSpec` — the comment
+already claimed "one rule, no drift"). It mattered exactly here: this race bills as a
+single **"Rookie Pack"** line, so heat removal cannot price it, while returning the
+pack line IS the refund. The client was hiding a capability the server had.
+
+**3. The flag gate was keyed on step KIND, so each phase got the wrong flag.**
+`refund_dayof_payment` is emitted by BOTH `mid` and `post_complete` (money-only is the
+preferred shape in each). Kind-keyed gating therefore meant `_MID_DECREASE` silently
+governed post-complete refunds while `_POST` governed only the rebuild path — enabling
+`_POST` alone did nothing for the post-complete refund we actually shipped, and
+enabling `_MID_DECREASE` alone opened a phase nobody had signed off.
+
+**Rules:**
+- **When a gate correctly refuses an action, ask what the row's remaining action IS.**
+  A guard that's right about "not this" still leaves a hole if nothing else covers the
+  case. Add the complement gate; don't widen the correct one.
+- **Never gate a UI control on product kind when the server already decides per item.**
+  If the server ships an `editable`/`allowed` flag, render exactly that. Kind checks on
+  the client silently amputate whole flows (here: every race refund).
+- **Gate flags on PHASE, not on step kind,** when one step kind spans phases. Keep the
+  mapping in ONE pure helper (`refundFlagForPhase`) used by the planner for preview and
+  re-checked by the executor as the real gate. Refuse the impossible combination
+  (`pre` + a paid-order refund step) loudly instead of falling back to a default flag.
+- **A flag-off environment must be visible in the PREVIEW, not at Execute.** The dry-run
+  now returns `executionBlocked`, so the button disables with the reason as soon as the
+  quote lands. Classify "flag off" as *blocked*, never as an ack prompt — no checkbox
+  unlocks an env var, so re-offering the manager checkbox is a dead end.
+- **Guard copy must never point at a button that isn't on the row.** Three separate
+  messages said "use Cancel instead" — all on rows where Cancel is hidden by design.
+  When you write remedial copy, check the affordance actually exists in that state.
+- **`refund_cents` is CANCELLATION-only. Never write it from an edit refund.** It feeds
+  guest-facing copy ("This booking has been cancelled — your $X refund is on its way")
+  and `booking-status`'s outcome, so an edit refund writing it would tell a live guest
+  their reservation was cancelled. Edit refunds live in the edit ledger, which already
+  feeds the Payments refunds node and History. *(Checked before changing it — the
+  obvious "make the row show the refund" fix would have been a guest-facing bug.)*
+- **Verify against the reported row, read-only, before claiming a fix.** `buildEditPlan`
+  only GETs and calls `orders/calculate`, so dry-running the real reservation proves the
+  plan (phase, cents, itemized return uid, blocked reason) without moving a cent. Doing
+  that is what surfaced the pack-line problem — the unit tests all passed without it.
+
+## A "master switch" that couples an unrelated broken feature to the one you need (2026-07-28)
+
+**Setup:** owner said "turn it all on." Refunds were proven, but
+`RESERVATION_EDIT_V2` is the master switch the edit route checks — so enabling refunds
+would ALSO have shipped PRE-phase bowling/KBF editing, whose QAMF player sync is blocked by
+a vendor bug (player-DELETE returns a bare 500 on every valid input, escalated, no API path
+exists) and whose own live-smoke items have never been run.
+
+**Fix:** exempt the narrow, proven capability. `isRefundOnlyPlan()` lets a refund-shaped
+plan execute on its own phase flag while everything else still needs the master switch.
+
+**Rules:**
+- **A capability flag should gate ONE capability.** When a master switch accumulates
+  unrelated features, "turn on X" silently ships Y. Split the flag before shipping, not after
+  someone reports Y broken.
+- **Exemptions from a safety gate must be ALLOWLISTS, not blocklists.** `isRefundOnlyPlan`
+  requires every step to be one of eight named kinds. A blocklist ("not a charge, not a
+  sync") silently widens the moment anyone adds a step kind — and the thing being widened is
+  "may move money without the master flag."
+- **When you add a second gate, re-check the PREVIEW covers both.** Adding the refund
+  exemption reintroduced the dishonest-preview bug for every non-refund plan: the planner
+  reported "runnable" while the route would 501. If `executionBlocked` mirrors the route,
+  it must mirror ALL of it.
+- **Never flip a flag before the corrected code is on the deployed branch.** Main still had
+  the pre-correction engine (no itemized returns, `update_dayof_order` still emitted on a
+  paid order). Setting the flags first would have enabled amount-only refunds — explicitly
+  banned — plus a step that fails fatally AFTER money moved. Verify with
+  `git show origin/main:<path> | grep <symbol>`, not from memory of what you built.
+- **Smoke the shape that PRODUCTION will run, not a convenient one.** The 11/11 run set
+  `RESERVATION_EDIT_V2=true` and used MID + a bowling row. Production is master-OFF, and the
+  reported reservation was POST + a collapsed race-pack line + full refund. Three different
+  axes untested. Deleting the master flag from the smoke and adding `--post` / `--race`
+  turned "probably fine" into 18/18, 18/18, 20/20.
+
+**Square fact (verified 3× live):** an ITEMIZED refund does **not** populate the SALE
+order's `refunds[]` — `refunded_money` and `net_amount_due_money` both read 0 there. The
+linkage lives entirely on the RETURN order (`refund.order_id` → return order carrying
+`return_line_items[].source_line_item_uid`). Debugging a refund by reading the sale order
+will show nothing. Same shape the POS produces for in-store returns.
+
+**Reconciliation trap (cost me a false alarm):** a gift-card-funded payment reports
+`source_type: "CARD"`. Summing by `source_type` counted internal gift-card spend as the
+owner's credit card and reported $59.20 outstanding when the real-card net was zero. The
+ONLY reliable tell is `card_details.card.card_brand === "SQUARE_GIFT_CARD"`. This is the
+same trap already recorded for refund routing — it bites reconciliation queries too.

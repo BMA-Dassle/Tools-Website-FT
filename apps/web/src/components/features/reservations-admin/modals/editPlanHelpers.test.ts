@@ -58,6 +58,7 @@ const makeLeg = (over: Partial<EditPlanLeg> = {}): EditPlanLeg => ({
   newLines: [line({ uid: "u1", quantity: 5, totalCents: 5000 })],
   oldTotalCents: 4000,
   newTotalCents: 5000,
+  returnedLines: [],
   newNeonLines: null,
   newPlayerCount: 5,
   newLaneCount: null,
@@ -86,6 +87,7 @@ const makeCurrent = (over: Partial<EditCurrentState> = {}): EditCurrentState => 
   durationOptions: [],
   durationMultiplier: null,
   attractions: [],
+  orderLines: [],
   ...over,
 });
 
@@ -97,12 +99,15 @@ const makePlan = (over: Partial<EditPlan> = {}): EditPlan => ({
   spec: { playerCount: 5 },
   legs: [makeLeg()],
   diffCents: 1000,
+  guestOwedCents: 0,
+  gcDecrementCents: 0,
   settlement: "charge",
   chargeCard: { cardId: "ccof:abc", brand: "VISA", last4: "4242" },
   giftCard: null,
   steps: [],
   warnings: [],
   current: makeCurrent(),
+  executionBlocked: null,
   planHash: "hash-1",
   ...over,
 });
@@ -166,10 +171,24 @@ describe("postEdit", () => {
     const out = await postEdit("t", { neonId: 1, spec: {}, dryRun: true });
     expect(out).toEqual({
       kind: "error",
-      error: { status: 409, code: "cancelled", detail: "cancelled" },
+      error: { status: 409, code: "cancelled", detail: "cancelled", data: null },
     });
     if (out.kind !== "error") throw new Error("expected error");
     expect(classifyMountOutcome(out)).toEqual({ kind: "blocked", message: "cancelled" });
+  });
+
+  it("carries the no_changes payload through so the form can hydrate on mount", async () => {
+    // The mount probe's healthy answer ships `current`. Dropping it here left a
+    // settled reservation with no day-of order lines rendered — which is the
+    // ONLY refund control it has, so the Refund button opened to nothing.
+    const current = { orderLines: [{ uid: "FOOD", name: "Soda", quantity: 1, editable: true }] };
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: "no_changes", data: { current } }, 400));
+    const out = await postEdit("t", { neonId: 1, spec: {}, dryRun: true });
+    if (out.kind !== "error") throw new Error("expected error");
+    expect(out.error.code).toBe("no_changes");
+    expect(out.error.data?.current).toEqual(current);
+    // Still classified as "editable" — the payload does not change the verdict.
+    expect(classifyMountOutcome(out)).toEqual({ kind: "edit" });
   });
 
   it("treats the mount probe's no_changes as 'editable, form from detail'", async () => {
@@ -277,6 +296,37 @@ describe("buildSpec", () => {
   it("player count change is included; same value is not", () => {
     expect(buildSpec(touch({ playerCount: 5 }), 4, null)).toEqual({ playerCount: 5 });
     expect(buildSpec(touch({ playerCount: 4 }), 4, null)).toEqual({});
+  });
+
+  it("order-line edits send only moved, server-editable lines", () => {
+    const current = makeCurrent({
+      orderLines: [
+        {
+          uid: "food1",
+          name: "Pizza",
+          quantity: 2,
+          unitPriceCents: 1499,
+          totalCents: 2998,
+          editable: true,
+        },
+        {
+          uid: "u1",
+          name: "Fun 4 All",
+          quantity: 2,
+          unitPriceCents: 1999,
+          totalCents: 3998,
+          editable: false,
+        },
+      ],
+    });
+    // Moved + editable → sent.
+    expect(buildSpec(touch({ orderLines: { food1: 0 } }), 4, current)).toEqual({
+      orderLines: { food1: 0 },
+    });
+    // Unchanged quantity → omitted.
+    expect(buildSpec(touch({ orderLines: { food1: 2 } }), 4, current)).toEqual({});
+    // Engine-owned line → never sent, even if the form somehow holds it.
+    expect(buildSpec(touch({ orderLines: { u1: 0 } }), 4, current)).toEqual({});
   });
 
   it("lane count compares against plan.current, not zero", () => {
@@ -411,6 +461,64 @@ describe("executeGate", () => {
   it("disabled without a plan or while repricing", () => {
     expect(gate(null).enabled).toBe(false);
     expect(gate(makePlan(), { planLoading: true }).enabled).toBe(false);
+  });
+
+  it("a day-of refund needs a staff reason before Execute unlocks", () => {
+    // The server refuses without one (the deposit journal key is reserved for
+    // the cash leg) — block here rather than 400ing after everything else.
+    const plan = makePlan({
+      diffCents: -1605,
+      steps: [{ kind: "refund_dayof_payment", fatal: true, amountCents: 1605 }],
+    });
+    const blocked = gate(plan, { refundDest: "card_refund" });
+    expect(blocked.enabled).toBe(false);
+    expect(blocked.reason).toMatch(/reason/i);
+
+    // Whitespace does not count.
+    expect(gate(plan, { refundDest: "card_refund", dayofRefundReason: "   " }).enabled).toBe(false);
+
+    expect(
+      gate(plan, { refundDest: "card_refund", dayofRefundReason: "Pizza returned" }).enabled,
+    ).toBe(true);
+  });
+
+  it("an environment refusal blocks Execute and shows the server's reason", () => {
+    // The dry-run still returns the whole priced preview — only running it is
+    // refused. Staff must learn that BEFORE filling in a destination + reason.
+    const plan = makePlan({
+      diffCents: -1605,
+      steps: [{ kind: "refund_dayof_payment", fatal: true, amountCents: 1605 }],
+      executionBlocked: {
+        code: "refund_not_enabled",
+        message: "Refunding a closed visit is not switched on yet (RESERVATION_EDIT_V2_POST).",
+      },
+    });
+    const blocked = gate(plan, {
+      refundDest: "card_refund",
+      dayofRefundReason: "Guest left early",
+    });
+    expect(blocked.enabled).toBe(false);
+    expect(blocked.reason).toMatch(/not switched on yet/i);
+    // It outranks the reason prompt — otherwise staff chase a field that
+    // cannot unblock anything.
+    expect(gate(plan, { refundDest: "card_refund" }).reason).toMatch(/not switched on yet/i);
+  });
+
+  it("classifies the server's flag refusal as blocked, never as an ack prompt", () => {
+    // No checkbox unlocks a flag, so this must not reuse the manager-ack path.
+    const action = classifyExecuteFailure(
+      { status: 409, code: "refund_not_enabled", detail: "refunds after the visit is closed…" },
+      -1605,
+    );
+    expect(action.kind).toBe("blocked");
+  });
+
+  it("plans without a day-of leg do not ask for a reason", () => {
+    const plan = makePlan({
+      diffCents: -500,
+      steps: [{ kind: "refund_tender", fatal: true, amountCents: 500 }],
+    });
+    expect(gate(plan, { refundDest: "card_refund" }).enabled).toBe(true);
   });
 
   it("delta > 0 with a card on file → charge_card, enabled", () => {

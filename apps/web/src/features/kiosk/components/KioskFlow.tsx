@@ -1799,6 +1799,21 @@ export function KioskFlow({
           clarityEvent("kiosk:gamezone:open");
           setGzOpen(true);
         }}
+        // VIP + race packs were quick chips on the attract screen; they moved
+        // here, under the Game Zone card (owner 2026-07-28). Deliberately the
+        // SAME destinations the ?goto= deep links seed, so the two entry points
+        // can never drift apart.
+        onOpenVip={() => {
+          const combo = getComboSpecial("race-bowl");
+          if (combo && combo.enabled && combo.center === config.center) {
+            clarityEvent("kiosk:vip:open");
+            setVipCombo(combo); // itinerary overview first, exactly as ?goto=vip
+          }
+        }}
+        onOpenRacePacks={() => {
+          clarityEvent("kiosk:packs:open");
+          setPacksOpen(true);
+        }}
         onOpenCodeEntry={
           promoEnabled
             ? () => {

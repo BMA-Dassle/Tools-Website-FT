@@ -88,6 +88,48 @@ const FINALE_MS = 3_800;
 
 export type BillboardPhase = "idle" | "activity" | "finale";
 
+/* ── integrated choreography (headline layout) ─────────────────────────
+   The OVERLAY below switches a screen's photo and its word at the same
+   staggered instant. That is fine when a 94% navy veil is covering the screen
+   anyway — but painted straight onto the live attract screen it reads as
+   ragged: five screens changing picture a second apart looks like five screens
+   glitching, not one billboard (owner 2026-07-28).
+
+   So the integrated version splits the two. Every screen cuts to its solid
+   billboard image TOGETHER — one clean simultaneous change across the row —
+   and only then do the words light up one at a time down the bank. The sweep
+   is the words; the picture change is the curtain going up. */
+
+/** Lead-in: every screen holds the solid image before any word appears. */
+export const BILLBOARD_LEAD_MS = 900;
+
+export interface BillboardStage {
+  /** This screen shows its solid billboard photo (all screens, together). */
+  image: boolean;
+  /** This screen's activity word is lit (staggered down the row). */
+  word: boolean;
+  /** Every screen is showing the shared closing line. */
+  finale: boolean;
+}
+
+/**
+ * Stage for the screen at `position` (of `count`) at shared-clock `nowMs`, for
+ * the INTEGRATED layout. Same cycle and the same building blocks as
+ * billboardPhase, re-cut so the picture change is simultaneous and only the
+ * words travel.
+ */
+export function billboardStage(nowMs: number, position: number, count: number): BillboardStage {
+  const t = ((nowMs % BILLBOARD_CYCLE_MS) + BILLBOARD_CYCLE_MS) % BILLBOARD_CYCLE_MS;
+  const wordStart = BILLBOARD_LEAD_MS + position * STEP_MS;
+  const allLit = BILLBOARD_LEAD_MS + count * STEP_MS;
+  const finaleStart = allLit + HOLD_MS;
+  const finaleEnd = finaleStart + FINALE_MS;
+  if (t >= finaleEnd) return { image: false, word: false, finale: false };
+  if (t >= finaleStart) return { image: true, word: false, finale: true };
+  // Curtain up everywhere at t=0; this screen's word joins at its own slot.
+  return { image: true, word: t >= wordStart, finale: false };
+}
+
 /** Phase for the screen at `position` (of `count` screens) at shared-clock `nowMs`. */
 export function billboardPhase(nowMs: number, position: number, count: number): BillboardPhase {
   const t = ((nowMs % BILLBOARD_CYCLE_MS) + BILLBOARD_CYCLE_MS) % BILLBOARD_CYCLE_MS;
