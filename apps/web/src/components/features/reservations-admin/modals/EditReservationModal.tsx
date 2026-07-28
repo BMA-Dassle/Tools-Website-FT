@@ -954,18 +954,31 @@ export default function EditReservationModal({
               </div>
               <div style={{ fontSize: "0.7rem", color: "var(--ba-muted)", marginBottom: 6 }}>
                 {intent === "refund"
-                  ? "These are the charges on this visit's day-of order. Lower a quantity to refund part of a line, or set it to 0 to refund the whole line."
+                  ? "Add the quantity you want to refund on each line, up to what the guest was charged for."
                   : "Set a quantity to 0 to return that line and refund it."}
               </div>
               {current.orderLines
                 .filter((l) => l.editable)
                 .map((l) => {
-                  const qty = form.orderLines?.[l.uid] ?? l.quantity;
-                  const setQty = (next: number) =>
+                  // The engine's contract is the DESIRED END STATE — how many of
+                  // this line survive. On a refund screen that reads backwards
+                  // ("set 2 to refund 1"), so refund intent counts UP from zero:
+                  // the number shown IS the quantity being refunded. Only the
+                  // display and the handler invert; the spec still carries the
+                  // remaining quantity, so buildSpec and the server are unchanged.
+                  const remaining = form.orderLines?.[l.uid] ?? l.quantity;
+                  const refunding = intent === "refund";
+                  const shown = refunding ? l.quantity - remaining : remaining;
+                  const setShown = (next: number) => {
+                    const clamped = Math.min(l.quantity, Math.max(0, next));
                     setForm((f) => ({
                       ...f,
-                      orderLines: { ...(f.orderLines ?? {}), [l.uid]: Math.max(0, next) },
+                      orderLines: {
+                        ...(f.orderLines ?? {}),
+                        [l.uid]: refunding ? l.quantity - clamped : clamped,
+                      },
                     }));
+                  };
                   return (
                     <div
                       key={l.uid}
@@ -973,10 +986,10 @@ export default function EditReservationModal({
                     >
                       <button
                         type="button"
-                        aria-label={`Decrease ${l.name}`}
+                        aria-label={refunding ? `Refund one fewer ${l.name}` : `Decrease ${l.name}`}
                         style={STEP_BTN}
-                        disabled={busy || qty <= 0}
-                        onClick={() => setQty(qty - 1)}
+                        disabled={busy || shown <= 0}
+                        onClick={() => setShown(shown - 1)}
                       >
                         −
                       </button>
@@ -986,16 +999,17 @@ export default function EditReservationModal({
                           fontSize: "0.95rem",
                           minWidth: 24,
                           textAlign: "center",
+                          color: refunding && shown > 0 ? "#ef4444" : undefined,
                         }}
                       >
-                        {qty}
+                        {shown}
                       </span>
                       <button
                         type="button"
-                        aria-label={`Increase ${l.name}`}
+                        aria-label={refunding ? `Refund one more ${l.name}` : `Increase ${l.name}`}
                         style={STEP_BTN}
-                        disabled={busy || qty >= l.quantity}
-                        onClick={() => setQty(qty + 1)}
+                        disabled={busy || shown >= l.quantity}
+                        onClick={() => setShown(shown + 1)}
                       >
                         +
                       </button>
@@ -1003,7 +1017,13 @@ export default function EditReservationModal({
                         {l.name}{" "}
                         <span style={{ color: "var(--ba-muted)" }}>
                           ${(l.unitPriceCents / 100).toFixed(2)} ea
-                          {qty === 0 ? " — will be returned" : ""}
+                          {refunding
+                            ? ` · ${l.quantity} on the bill${
+                                shown > 0 ? ` — refunding ${shown}` : ""
+                              }`
+                            : shown === 0
+                              ? " — will be returned"
+                              : ""}
                         </span>
                       </span>
                     </div>
