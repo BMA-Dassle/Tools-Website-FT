@@ -87,11 +87,18 @@ export default function EditReservationModal({
   token,
   onClose,
   onDone,
+  intent = "edit",
 }: {
   reservation: Reservation;
   token: string;
   onClose: () => void;
   onDone: (msg: string) => void;
+  /**
+   * Which door the operator came through. "refund" is the same engine and the
+   * same server contract — it only drops the grow-the-booking affordances,
+   * which on an already-paid order can't settle anywhere useful.
+   */
+  intent?: "edit" | "refund";
 }) {
   const [phase, setPhase] = useState<"loading" | "edit" | "busy" | "success" | "blocked" | "error">(
     "loading",
@@ -489,7 +496,11 @@ export default function EditReservationModal({
         }}
       >
         <h3 style={{ fontSize: "1rem", fontWeight: 700, color: ACCENT, margin: 0 }}>
-          {isCombo ? "Edit VIP Combo — racers" : "Edit Reservation"}
+          {intent === "refund"
+            ? "Refund Reservation"
+            : isCombo
+              ? "Edit VIP Combo — racers"
+              : "Edit Reservation"}
         </h3>
         <button
           type="button"
@@ -697,72 +708,6 @@ export default function EditReservationModal({
                 </>
               )}
 
-              {current && current.orderLines.some((l) => l.editable) && (
-                <>
-                  <div style={{ ...SECTION_TITLE, marginTop: 12 }}>Food &amp; other charges</div>
-                  <div style={{ fontSize: "0.7rem", color: "var(--ba-muted)", marginBottom: 6 }}>
-                    Rung up outside the booking — set a quantity to 0 to remove and refund it.
-                  </div>
-                  {current.orderLines
-                    .filter((l) => l.editable)
-                    .map((l) => {
-                      const qty = form.orderLines?.[l.uid] ?? l.quantity;
-                      const setQty = (next: number) =>
-                        setForm((f) => ({
-                          ...f,
-                          orderLines: { ...(f.orderLines ?? {}), [l.uid]: Math.max(0, next) },
-                        }));
-                      return (
-                        <div
-                          key={l.uid}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 10,
-                            marginBottom: 6,
-                          }}
-                        >
-                          <button
-                            type="button"
-                            aria-label={`Decrease ${l.name}`}
-                            style={STEP_BTN}
-                            disabled={busy || qty <= 0}
-                            onClick={() => setQty(qty - 1)}
-                          >
-                            −
-                          </button>
-                          <span
-                            style={{
-                              fontWeight: 700,
-                              fontSize: "0.95rem",
-                              minWidth: 24,
-                              textAlign: "center",
-                            }}
-                          >
-                            {qty}
-                          </span>
-                          <button
-                            type="button"
-                            aria-label={`Increase ${l.name}`}
-                            style={STEP_BTN}
-                            disabled={busy || qty >= l.quantity}
-                            onClick={() => setQty(qty + 1)}
-                          >
-                            +
-                          </button>
-                          <span style={{ fontSize: "0.75rem" }}>
-                            {l.name}{" "}
-                            <span style={{ color: "var(--ba-muted)" }}>
-                              ${(l.unitPriceCents / 100).toFixed(2)} ea
-                              {qty === 0 ? " — will be removed" : ""}
-                            </span>
-                          </span>
-                        </div>
-                      );
-                    })}
-                </>
-              )}
-
               {current && current.durationOptions.length > 0 && (
                 <>
                   <div style={{ ...SECTION_TITLE, marginTop: 12 }}>Lane time</div>
@@ -898,78 +843,154 @@ export default function EditReservationModal({
                   ))}
                 </>
               )}
-              <div style={{ ...SECTION_TITLE, marginTop: displayHeats.length > 0 ? 12 : 0 }}>
-                Add racers
-              </div>
-              {form.addRacers.map((row, i) => (
-                <div
-                  key={i}
-                  style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}
-                >
-                  <input
-                    value={row.firstName}
-                    placeholder="First name"
-                    disabled={busy}
-                    onChange={(e) => patchRacerRow(i, { firstName: e.target.value })}
-                    style={{ ...SMALL_INPUT, flex: 1, minWidth: 0 }}
-                  />
-                  <select
-                    value={row.category}
-                    disabled={busy}
-                    onChange={(e) =>
-                      patchRacerRow(i, {
-                        category: e.target.value === "junior" ? "junior" : "adult",
-                      })
-                    }
-                    style={{ ...SMALL_INPUT, width: 84 }}
-                  >
-                    <option value="adult">Adult</option>
-                    <option value="junior">Junior</option>
-                  </select>
-                  <label
-                    style={{
-                      display: "flex",
-                      gap: 4,
-                      alignItems: "center",
-                      fontSize: "0.68rem",
-                      color: "var(--ba-muted)",
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={row.isNew}
-                      disabled={busy}
-                      onChange={(e) => patchRacerRow(i, { isNew: e.target.checked })}
-                    />
-                    new racer
-                  </label>
+              {/* Growing the booking is an INCREASE — on a settled visit that
+                  means refunding and rebuilding a frozen order, which is not
+                  what "Refund" means. Hide it rather than let it 409. */}
+              {intent !== "refund" && (
+                <>
+                  <div style={{ ...SECTION_TITLE, marginTop: displayHeats.length > 0 ? 12 : 0 }}>
+                    Add racers
+                  </div>
+                  {form.addRacers.map((row, i) => (
+                    <div
+                      key={i}
+                      style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}
+                    >
+                      <input
+                        value={row.firstName}
+                        placeholder="First name"
+                        disabled={busy}
+                        onChange={(e) => patchRacerRow(i, { firstName: e.target.value })}
+                        style={{ ...SMALL_INPUT, flex: 1, minWidth: 0 }}
+                      />
+                      <select
+                        value={row.category}
+                        disabled={busy}
+                        onChange={(e) =>
+                          patchRacerRow(i, {
+                            category: e.target.value === "junior" ? "junior" : "adult",
+                          })
+                        }
+                        style={{ ...SMALL_INPUT, width: 84 }}
+                      >
+                        <option value="adult">Adult</option>
+                        <option value="junior">Junior</option>
+                      </select>
+                      <label
+                        style={{
+                          display: "flex",
+                          gap: 4,
+                          alignItems: "center",
+                          fontSize: "0.68rem",
+                          color: "var(--ba-muted)",
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={row.isNew}
+                          disabled={busy}
+                          onChange={(e) => patchRacerRow(i, { isNew: e.target.checked })}
+                        />
+                        new racer
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => dropRacerRow(i)}
+                        disabled={busy}
+                        aria-label="Remove row"
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "var(--ba-muted)",
+                          cursor: "pointer",
+                          fontSize: "1rem",
+                        }}
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  ))}
                   <button
                     type="button"
-                    onClick={() => dropRacerRow(i)}
+                    style={{ ...NAV_BTN, fontSize: "0.72rem" }}
                     disabled={busy}
-                    aria-label="Remove row"
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: "var(--ba-muted)",
-                      cursor: "pointer",
-                      fontSize: "1rem",
-                    }}
+                    onClick={addRacerRow}
                   >
-                    &times;
+                    + Add racer
                   </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                style={{ ...NAV_BTN, fontSize: "0.72rem" }}
-                disabled={busy}
-                onClick={addRacerRow}
-              >
-                + Add racer
-              </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── Day-of order lines ──
+               Kind-agnostic ON PURPOSE. The server decides per line what may
+               be touched (`editable`, one rule shared with applyOrderLineSpec),
+               so this renders wherever the live order has a returnable line —
+               food on a bowling order, a race pack on a racing order. Gating it
+               to bowling hid the ONLY refund control a settled race has: its
+               heats can't be repriced off a frozen order, but the pack line can
+               be returned, which is exactly what a refund is. */}
+          {current && current.orderLines.some((l) => l.editable) && (
+            <div style={SECTION}>
+              <div style={SECTION_TITLE}>Charges on the day-of order</div>
+              <div style={{ fontSize: "0.7rem", color: "var(--ba-muted)", marginBottom: 6 }}>
+                Set a quantity to 0 to return that line and refund it.
+              </div>
+              {current.orderLines
+                .filter((l) => l.editable)
+                .map((l) => {
+                  const qty = form.orderLines?.[l.uid] ?? l.quantity;
+                  const setQty = (next: number) =>
+                    setForm((f) => ({
+                      ...f,
+                      orderLines: { ...(f.orderLines ?? {}), [l.uid]: Math.max(0, next) },
+                    }));
+                  return (
+                    <div
+                      key={l.uid}
+                      style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}
+                    >
+                      <button
+                        type="button"
+                        aria-label={`Decrease ${l.name}`}
+                        style={STEP_BTN}
+                        disabled={busy || qty <= 0}
+                        onClick={() => setQty(qty - 1)}
+                      >
+                        −
+                      </button>
+                      <span
+                        style={{
+                          fontWeight: 700,
+                          fontSize: "0.95rem",
+                          minWidth: 24,
+                          textAlign: "center",
+                        }}
+                      >
+                        {qty}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label={`Increase ${l.name}`}
+                        style={STEP_BTN}
+                        disabled={busy || qty >= l.quantity}
+                        onClick={() => setQty(qty + 1)}
+                      >
+                        +
+                      </button>
+                      <span style={{ fontSize: "0.75rem" }}>
+                        {l.name}{" "}
+                        <span style={{ color: "var(--ba-muted)" }}>
+                          ${(l.unitPriceCents / 100).toFixed(2)} ea
+                          {qty === 0 ? " — will be returned" : ""}
+                        </span>
+                      </span>
+                    </div>
+                  );
+                })}
             </div>
           )}
 

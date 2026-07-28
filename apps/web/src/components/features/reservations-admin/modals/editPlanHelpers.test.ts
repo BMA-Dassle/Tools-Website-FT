@@ -107,6 +107,7 @@ const makePlan = (over: Partial<EditPlan> = {}): EditPlan => ({
   steps: [],
   warnings: [],
   current: makeCurrent(),
+  executionBlocked: null,
   planHash: "hash-1",
   ...over,
 });
@@ -465,6 +466,37 @@ describe("executeGate", () => {
     expect(
       gate(plan, { refundDest: "card_refund", dayofRefundReason: "Pizza returned" }).enabled,
     ).toBe(true);
+  });
+
+  it("an environment refusal blocks Execute and shows the server's reason", () => {
+    // The dry-run still returns the whole priced preview — only running it is
+    // refused. Staff must learn that BEFORE filling in a destination + reason.
+    const plan = makePlan({
+      diffCents: -1605,
+      steps: [{ kind: "refund_dayof_payment", fatal: true, amountCents: 1605 }],
+      executionBlocked: {
+        code: "refund_not_enabled",
+        message: "Refunding a closed visit is not switched on yet (RESERVATION_EDIT_V2_POST).",
+      },
+    });
+    const blocked = gate(plan, {
+      refundDest: "card_refund",
+      dayofRefundReason: "Guest left early",
+    });
+    expect(blocked.enabled).toBe(false);
+    expect(blocked.reason).toMatch(/not switched on yet/i);
+    // It outranks the reason prompt — otherwise staff chase a field that
+    // cannot unblock anything.
+    expect(gate(plan, { refundDest: "card_refund" }).reason).toMatch(/not switched on yet/i);
+  });
+
+  it("classifies the server's flag refusal as blocked, never as an ack prompt", () => {
+    // No checkbox unlocks a flag, so this must not reuse the manager-ack path.
+    const action = classifyExecuteFailure(
+      { status: 409, code: "refund_not_enabled", detail: "refunds after the visit is closed…" },
+      -1605,
+    );
+    expect(action.kind).toBe("blocked");
   });
 
   it("plans without a day-of leg do not ask for a reason", () => {

@@ -147,6 +147,16 @@ export const classifyExecuteFailure = (
       message: "Reservation editing is not enabled in this environment.",
     };
   }
+  // Phase flag off. NOT an acknowledgment problem — nothing the operator can
+  // tick unlocks it, so say so plainly instead of re-offering the checkbox.
+  if (error.code === "refund_not_enabled") {
+    return {
+      kind: "blocked",
+      message:
+        error.detail ||
+        "Refunding a reservation this far along is not enabled in this environment yet.",
+    };
+  }
   if (error.code === "payment_required") {
     return {
       kind: "error",
@@ -407,6 +417,11 @@ export const executeGate = (args: {
   const { plan } = args;
   if (!plan || args.planLoading) return { enabled: false, reason: null, mode: "confirm" };
   const mode = modeOf(plan);
+  // Environment refusal, not an operator mistake — surface it first so nobody
+  // fills the rest of the form out before learning the button can't fire.
+  if (plan.executionBlocked) {
+    return { enabled: false, reason: plan.executionBlocked.message, mode };
+  }
   if (args.needsManagerAck && !args.managerAcked) {
     return { enabled: false, reason: "Acknowledge the QAMF/BMI warning first", mode };
   }

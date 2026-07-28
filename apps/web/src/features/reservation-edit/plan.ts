@@ -34,7 +34,7 @@ import { isFridayYmd } from "~/features/booking/service/kbf-pricing";
 import { getChargeableCard } from "~/features/card-vault";
 
 import { loadExperiencesForCenter, matchExperienceForRow } from "./experience-resolve";
-import { assertEditable, selectPhase, type SquareOrderState } from "./guards";
+import { assertEditable, refundFlagForPhase, selectPhase, type SquareOrderState } from "./guards";
 import { planHash as hashPlan } from "./hash";
 import {
   repriceBowling,
@@ -50,6 +50,7 @@ import {
 import {
   EditGuardError,
   type BowlingBookedStamp,
+  type EditGuardCode,
   type EditPaymentSource,
   type EditPhase,
   type EditSettlement,
@@ -229,6 +230,14 @@ export interface EditPlan {
   steps: EditStep[];
   warnings: EditWarning[];
   current: EditCurrentState;
+  /**
+   * Set when this plan is complete and correct but MAY NOT execute in this
+   * environment (the phase's refund flag is off). The dry-run still returns the
+   * whole preview so staff can see exactly what the refund would be — the modal
+   * disables Execute and shows this reason instead of letting them fill the
+   * form out and hit a wall. The executor re-checks independently.
+   */
+  executionBlocked: { code: EditGuardCode; message: string } | null;
   planHash: string;
 }
 
@@ -947,8 +956,9 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       if (!hit) {
         throw new EditGuardError(
           "pricing_unresolvable",
-          `no order line matches removed heat "${removed.label}" — the order money can't be ` +
-            "derived safely; adjust this one manually in Square",
+          `no order line matches removed heat "${removed.label}" — the day-of order bills this ` +
+            "booking differently (a pack, or a renamed catalog item), so removing the heat " +
+            "can't be priced. Refund it from “Charges on the day-of order” below instead.",
         );
       }
       hit.quantity -= 1;
@@ -1444,10 +1454,16 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       // to cancel a tendered order. That end state has an owner — the cancel
       // cascade — so route there instead of stranding the order here.
       if (legs.every((l) => l.newTotalCents === 0)) {
+        // Cancel is NOT the answer here — its cascade refuses a tendered day-of
+        // order, and the action is hidden on rows this far along. The order has
+        // to close first; once it does, the post-complete path refunds the whole
+        // thing cleanly (the refunds attach to a COMPLETED order, nothing
+        // dangles). Say that instead of pointing at a button that isn't there.
         throw new EditGuardError(
           "full_refund_use_cancel",
-          "This refunds the entire visit. Use Cancel instead — it settles the money and closes " +
-            "the order properly; an edit would leave the day-of order open with a balance due.",
+          "This refunds the entire visit while the lane order is still open, which would leave " +
+            "it open with a balance due and never close. Refund all but one item now, or wait " +
+            "until the visit closes out and refund the whole thing then.",
         );
       }
       // The day-of leg reverses everything the order was paid — including any
@@ -1564,8 +1580,9 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
           severity: "warning",
           code: "full_refund_no_rebuild",
           message:
-            "Refunding the entire order. It stays closed with the refund attached and the " +
-            "reservation stays as-is — use Cancel instead if the booking should be voided.",
+            "Refunding the entire visit. The closed order keeps its items with the refund " +
+            "attached, and the reservation stays on the board as it happened — it is not " +
+            "cancelled, because the guest was here.",
         });
       }
     }
@@ -1593,7 +1610,24 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     !changesRaceHeats;
   if (noChanges) throw new EditGuardError("no_changes");
 
-  // 7. Seal.
+  // 7. Executability. The plan is honest either way — only whether it may RUN
+  // depends on the phase's refund flag, so report it instead of hiding it.
+  const movesPaidOrderMoney = steps.some(
+    (s) => s.kind === "refund_dayof_payment" || s.kind === "refund_dayof_order",
+  );
+  const requiredFlag = movesPaidOrderMoney ? refundFlagForPhase(phase) : null;
+  const executionBlocked =
+    requiredFlag && process.env[requiredFlag] !== "true"
+      ? {
+          code: "refund_not_enabled" as EditGuardCode,
+          message:
+            phase === "post_complete"
+              ? `Refunding a closed visit is not switched on yet (${requiredFlag}). The preview above is accurate — ask Eric to enable it.`
+              : `Refunding after check-in is not switched on yet (${requiredFlag}). The preview above is accurate — ask Eric to enable it.`,
+        }
+      : null;
+
+  // 8. Seal.
   const hash = hashPlan({
     anchorId: anchor.id,
     legIds,
@@ -1628,6 +1662,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     steps,
     warnings,
     current,
+    executionBlocked,
     planHash: hash,
   };
 };

@@ -117,6 +117,10 @@ export type EditGuardCode =
   | "cancel_in_progress"
   | "plan_stale"
   | "post_complete_ack_required"
+  // Money-back on an already-paid day-of order, with that phase's flag off.
+  // Distinct from post_complete_ack_required: no acknowledgment unlocks it,
+  // so the modal must NOT re-offer the manager checkbox.
+  | "refund_not_enabled"
   | "bmi_line_unavailable"
   | "heat_capacity"
   | "qamf_availability"

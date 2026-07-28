@@ -45,6 +45,7 @@ import {
 } from "~/features/cancellation/square-actions";
 import { resolveCenter } from "~/features/cancellation/centers";
 
+import { refundFlagForPhase } from "./guards";
 import type { EditPlan, EditPlanLeg, PlanLine } from "./plan";
 import {
   adjustGiftCardDown,
@@ -193,22 +194,37 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
       );
     }
     // A1 was OVERTURNED on 2026-07-27 by an owner-authorized live probe: the
-    // API DOES accept partial refunds of gift-card-funded payments, and the
-    // credit returns to the card automatically (asynchronously — see
-    // wait_gc_credit). Both paths below are viable as originally specced; the
-    // flags stay off until the §8 smoke checklist in
+    // API DOES accept partial refunds of gift-card-funded payments. The flags
+    // stay off until the §8 smoke checklist in
     // tasks/future/post-dayof-refund-plan.md passes.
-    if (kinds.has("refund_dayof_payment") && !flag("RESERVATION_EDIT_V2_MID_DECREASE")) {
-      throw new EditGuardError(
-        "mid_session_unsupported",
-        "mid-session decreases are not enabled yet (RESERVATION_EDIT_V2_MID_DECREASE)",
-      );
-    }
-    if (kinds.has("refund_dayof_order") && !flag("RESERVATION_EDIT_V2_POST")) {
-      throw new EditGuardError(
-        "post_complete_ack_required",
-        "post-complete edits are not enabled yet (RESERVATION_EDIT_V2_POST)",
-      );
+    //
+    // Gate on the PLAN'S PHASE, not on the step kind. refund_dayof_payment is
+    // emitted by BOTH mid and post_complete (money-only is the preferred shape
+    // in each), so keying off the kind mapped the wrong flag onto each phase:
+    // _MID_DECREASE silently governed post-complete refunds, and _POST governed
+    // only the rebuild path — meaning enabling _POST alone did nothing for the
+    // post-complete refund we actually build, while enabling _MID_DECREASE
+    // alone opened post-complete refunds nobody signed off on.
+    if (kinds.has("refund_dayof_payment") || kinds.has("refund_dayof_order")) {
+      const required = refundFlagForPhase(plan.phase);
+      if (!required) {
+        // Only mid/post_complete emit these steps. A pre-phase plan carrying one
+        // has nothing to refund (no tender on the day-of order yet), so this is
+        // a corrupted plan rather than a permission question — refuse it before
+        // it picks a flag by accident.
+        throw new EditGuardError(
+          "phase_conflict",
+          `plan is ${plan.phase} but carries a paid-order refund step — refusing to move money`,
+        );
+      }
+      if (!flag(required)) {
+        throw new EditGuardError(
+          "refund_not_enabled",
+          plan.phase === "post_complete"
+            ? `refunds after the visit is closed are not enabled yet (${required})`
+            : `refunds after check-in are not enabled yet (${required})`,
+        );
+      }
     }
 
     // ── Audit row (fatal) ──────────────────────────────────────────────
@@ -1185,9 +1201,12 @@ const commitNeon = async (
     });
   }
 
-  // Post-complete: swap the order pointer + re-stamp completion so the
-  // status-close cron stays away from the new order.
-  if (plan.phase === "post_complete") {
+  // Only a REBUILD moves the order pointer (rebuildDayofOrder reassigns
+  // leg.dayofOrderId). The money-only post-complete path leaves the original
+  // order in place carrying its refunds, so re-pointing it would write the same
+  // id back — a pointless statement that made a pure-refund edit depend on a
+  // Neon write it does not need. Swap only when something was actually rebuilt.
+  if (rebuiltOrders.length > 0) {
     const { sql } = await import("@/lib/db");
     const q = sql();
     for (const leg of plan.legs) {

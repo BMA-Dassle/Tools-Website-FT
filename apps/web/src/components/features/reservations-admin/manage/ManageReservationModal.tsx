@@ -18,6 +18,7 @@ import {
   bowlingActionable,
   cancelActionable,
   comboConfirmPath,
+  refundActionable,
 } from "~/features/reservations-admin/actionable";
 import { fmtClock, fmtDate } from "~/features/reservations-admin/format";
 import { centerLabel } from "~/features/reservations-admin/format";
@@ -69,7 +70,7 @@ export default function ManageReservationModal({
 }) {
   const [tab, setTab] = useState<Tab>("Overview");
   const [action, setAction] = useState<
-    "cancel" | "edit" | "reschedule" | "checkin" | "resend" | null
+    "cancel" | "edit" | "refund" | "reschedule" | "checkin" | "resend" | null
   >(null);
   const detailState = useReservationDetail(r.id, token);
   const { detail, detailError, detailLoading, refetch } = detailState;
@@ -81,13 +82,21 @@ export default function ManageReservationModal({
 
   const showCheckIn = notTerminal && !r.checkinMethod && bowlingActionable(r);
   const showResched = notTerminal && !!r.qamfReservationId && !r.comboSpecialId && !hasAttr;
-  const reschedHint = r.comboSpecialId
-    ? "Combos don't reschedule — cancel to a gift card and rebook."
-    : r.productKind === "race" || r.productKind === "attraction" || hasAttr
-      ? "Cancel to a gift card is the rebook path."
-      : null;
+  // Both hints send staff to Cancel, so only offer them while Cancel is still
+  // on this row. Past check-in the booking is history and cannot be rebooked
+  // away — Refund is the action, and pointing at a hidden button just confuses.
+  const reschedHint = !notTerminal
+    ? null
+    : r.comboSpecialId
+      ? "Combos don't reschedule — cancel to a gift card and rebook."
+      : r.productKind === "race" || r.productKind === "attraction" || hasAttr
+        ? "Cancel to a gift card is the rebook path."
+        : null;
   const showResend = notTerminal && !!(r.guestEmail || r.guestPhone);
   const showCancel = cancelActionable(r);
+  // Mutually exclusive with Cancel by construction: Cancel owns rows that have
+  // not started, Refund owns rows that have. So the red slot is never ambiguous.
+  const showRefund = refundActionable(r);
 
   function mutated(msg: string) {
     onToast(msg);
@@ -309,6 +318,20 @@ export default function ManageReservationModal({
               Edit
             </button>
           )}
+          {showRefund && (
+            <button
+              type="button"
+              onClick={() => setAction("refund")}
+              title="Refund part or all of what was charged at the venue — the booking stays as it happened"
+              style={{
+                ...ACTION_BTN,
+                border: "1px solid rgba(239,68,68,0.4)",
+                color: "#ef4444",
+              }}
+            >
+              Refund
+            </button>
+          )}
           {showCancel && (
             <button
               type="button"
@@ -408,10 +431,11 @@ export default function ManageReservationModal({
           onDone={mutated}
         />
       )}
-      {action === "edit" && (
+      {(action === "edit" || action === "refund") && (
         <EditReservationModal
           reservation={r}
           token={token}
+          intent={action === "refund" ? "refund" : "edit"}
           onClose={() => setAction(null)}
           onDone={mutated}
         />

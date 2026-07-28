@@ -80,6 +80,24 @@ export const selectPhase = (facts: PhaseFacts): EditPhase => {
   );
 };
 
+/**
+ * Env flag that must be on for money to come BACK off an already-paid day-of
+ * order in this phase, or null when the phase needs no such flag (pre-payment
+ * decreases settle against the deposit and ride the master switch).
+ *
+ * Single source of truth, deliberately keyed on the PHASE rather than on step
+ * kinds: refund_dayof_payment is emitted by both mid and post_complete, so
+ * kind-keyed gating maps the wrong flag onto each phase. The planner uses this
+ * to disable Execute with a reason before staff fill the form out; the executor
+ * re-checks it as the real gate (never trust a client-supplied plan).
+ */
+export const refundFlagForPhase = (phase: EditPhase): string | null =>
+  phase === "mid"
+    ? "RESERVATION_EDIT_V2_MID_DECREASE"
+    : phase === "post_complete"
+      ? "RESERVATION_EDIT_V2_POST"
+      : null;
+
 /** Reservation kinds the engine edits. */
 export type EditableKind = "kbf" | "open" | "race" | "attraction";
 

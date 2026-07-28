@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { EditGuardError } from "./types";
-import { assertEditable, selectPhase, type EditabilityFacts, type PhaseFacts } from "./guards";
+import {
+  assertEditable,
+  refundFlagForPhase,
+  selectPhase,
+  type EditabilityFacts,
+  type PhaseFacts,
+} from "./guards";
 
 const base: PhaseFacts = {
   status: "confirmed",
@@ -75,6 +81,25 @@ describe("selectPhase", () => {
 
   it("arrived-but-unpaid rows still read as pre (arrival ≠ lane-open)", () => {
     expect(selectPhase({ ...base, status: "arrived" })).toBe("pre");
+  });
+});
+
+describe("refundFlagForPhase", () => {
+  it("maps each post-payment phase to ITS OWN flag", () => {
+    // The bug this closes: gating on step kind instead of phase. Both phases
+    // emit refund_dayof_payment, so kind-keyed gating let _MID_DECREASE govern
+    // post-complete refunds while _POST governed nothing that ships.
+    expect(refundFlagForPhase("mid")).toBe("RESERVATION_EDIT_V2_MID_DECREASE");
+    expect(refundFlagForPhase("post_complete")).toBe("RESERVATION_EDIT_V2_POST");
+  });
+
+  it("returns null for pre — nothing is paid yet, so no refund flag applies", () => {
+    expect(refundFlagForPhase("pre")).toBeNull();
+  });
+
+  it("never maps two phases to the same flag", () => {
+    const flags = (["mid", "post_complete"] as const).map(refundFlagForPhase);
+    expect(new Set(flags).size).toBe(flags.length);
   });
 });
 

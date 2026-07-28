@@ -204,6 +204,7 @@ const mkPlan = (steps: EditStep[], over: Partial<EditPlan> = {}): EditPlan => ({
     attractions: [],
     orderLines: [],
   },
+  executionBlocked: null,
   planHash: "abc123",
   ...over,
 });
@@ -588,9 +589,18 @@ describe("executeEditCascade — day-of refund leg (post-day-of flow)", () => {
     { kind: "neon_commit", fatal: true },
   ];
   const ROW_PAID = { ...ROW, dayofPaymentId: "PAY_DAYOF" };
-  /** A leg whose lines actually shrank — required for an itemized return. */
+  /** A leg whose lines actually shrank — required for an itemized return.
+   *  Phase is MID on both the plan and the leg: these steps only exist once the
+   *  day-of order carries a tender, and the executor now refuses a pre-phase
+   *  plan that claims one. */
   const withReturn = (over: Partial<EditPlan> = {}) => {
-    const p = mkPlan(DAYOF_STEPS, { diffCents: -1605, settlement: "card_refund", ...over });
+    const p = mkPlan(DAYOF_STEPS, {
+      diffCents: -1605,
+      settlement: "card_refund",
+      phase: "mid",
+      ...over,
+    });
+    p.legs[0].phase = "mid";
     p.legs[0].returnedLines = [{ uid: "L2", name: "Pizza Bowl", quantity: 1 }];
     return p;
   };
@@ -613,6 +623,57 @@ describe("executeEditCascade — day-of refund leg (post-day-of flow)", () => {
     expect(code).toBe("dayof_reason_required");
     expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
     expect(vi.mocked(startEditEvent)).not.toHaveBeenCalled();
+  });
+
+  describe("phase-keyed flag gate", () => {
+    const reasoned = (plan: EditPlan) => ({
+      ...baseReq(plan),
+      dayofRefundReason: "Lane malfunction — comped 2 games",
+    });
+    const postPlan = () => {
+      const p = withReturn({ phase: "post_complete" });
+      p.legs[0].phase = "post_complete";
+      return p;
+    };
+
+    it("a MID refund is NOT unlocked by the post-complete flag", async () => {
+      delete process.env.RESERVATION_EDIT_V2_MID_DECREASE;
+      process.env.RESERVATION_EDIT_V2_POST = "true";
+      const code = await guardCode(() => executeEditCascade(reasoned(withReturn())));
+      expect(code).toBe("refund_not_enabled");
+      expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
+      delete process.env.RESERVATION_EDIT_V2_POST;
+    });
+
+    it("a POST-COMPLETE refund is NOT unlocked by the mid-session flag", async () => {
+      // Before the fix this passed on _MID_DECREASE alone — post-complete
+      // refunds rode a flag nobody had signed off for that phase.
+      process.env.RESERVATION_EDIT_V2_MID_DECREASE = "true";
+      const code = await guardCode(() => executeEditCascade(reasoned(postPlan())));
+      expect(code).toBe("refund_not_enabled");
+      expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
+    });
+
+    it("a POST-COMPLETE refund runs on its own flag", async () => {
+      process.env.RESERVATION_EDIT_V2_POST = "true";
+      vi.mocked(refundTenderPartial).mockResolvedValue({
+        refundId: "RF_POST",
+        refundedCents: 1605,
+      });
+      const result = await executeEditCascade(reasoned(postPlan()));
+      expect(result.refundIds).toContain("RF_POST");
+      delete process.env.RESERVATION_EDIT_V2_POST;
+    });
+
+    it("refuses a PRE plan that carries a paid-order refund step", async () => {
+      // Nothing has tendered the day-of order in pre, so such a plan is
+      // corrupted — it must not fall through to some default flag.
+      const p = withReturn({ phase: "pre" });
+      p.legs[0].phase = "pre";
+      const code = await guardCode(() => executeEditCascade(reasoned(p)));
+      expect(code).toBe("phase_conflict");
+      expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
+    });
   });
 
   it("refuses a day-of reason that reuses the deposit journal key", async () => {
@@ -696,7 +757,7 @@ describe("executeEditCascade — day-of refund leg (post-day-of flow)", () => {
 
   it("REFUSES to refund when no line items can be identified", async () => {
     // Rather than silently fall back to an amount-only refund.
-    const plan = mkPlan(DAYOF_STEPS, { diffCents: -1605, settlement: "card_refund" });
+    const plan = withReturn();
     plan.legs[0].returnedLines = [];
     await expect(
       executeEditCascade({ ...baseReq(plan), dayofRefundReason: "Pizza returned" }),
@@ -757,7 +818,13 @@ describe("executeEditCascade — gift-card reconcile after a post-payment refund
   ];
   const ROW_PAID = { ...ROW, dayofPaymentId: "PAY_DAYOF" };
   const waitPlan = (over: Partial<EditPlan> = {}) => {
-    const p = mkPlan(WAIT_STEPS, { diffCents: -1605, settlement: "card_refund", ...over });
+    const p = mkPlan(WAIT_STEPS, {
+      diffCents: -1605,
+      settlement: "card_refund",
+      phase: "mid",
+      ...over,
+    });
+    p.legs[0].phase = "mid";
     // Itemized refunds need identifiable returned lines.
     p.legs[0].returnedLines = [{ uid: "L2", name: "Pizza Bowl", quantity: 1 }];
     return p;
