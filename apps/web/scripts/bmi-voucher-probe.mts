@@ -42,10 +42,11 @@ const BMI_API_URL = process.env.BMI_API_URL || "https://api.bmileisure.com";
 const BMI_SUB_KEY = process.env.BMI_SUBSCRIPTION_KEY || "";
 const BMI_USERNAME = process.env.BMI_USERNAME || "";
 const BMI_PASSWORD = process.env.BMI_PASSWORD || "";
-const CLIENT_KEY = process.env.CLIENT_KEY || "fasttraxftmyers";
+const CLIENT_KEY = process.env.CLIENT_KEY || "headpinzftmyers";
 
 const SELL_PRODUCT_ID = process.env.SELL_PRODUCT_ID || "";
 const ORDER_PRODUCT_ID = process.env.ORDER_PRODUCT_ID || "";
+const PAGE_ID = process.env.PAGE_ID || ""; // booking/sell requires the product's PageId
 const CODE = (process.env.CODE || "").trim().toUpperCase();
 const KEEP = process.env.KEEP === "1";
 
@@ -116,13 +117,14 @@ function overviewSummary(o: any): void {
     console.log("   (no overview body)");
     return;
   }
-  console.log(`   Total: ${JSON.stringify(o.Total)}`);
-  console.log(`   TotalToDeposit: ${o.TotalToDeposit}  TotalPaid: ${o.TotalPaid}`);
-  console.log(`   AppliedPromoCodes: ${JSON.stringify(o.AppliedPromoCodes)}`);
-  for (const line of o.Lines ?? []) {
+  console.log(`   Total: ${JSON.stringify(field(o, "Total"))}`);
+  console.log(`   TotalToDeposit: ${field(o, "TotalToDeposit")}  TotalPaid: ${field(o, "TotalPaid")}`);
+  console.log(`   AppliedPromoCodes: ${JSON.stringify(field(o, "AppliedPromoCodes"))}`);
+  for (const line of field(o, "Lines") ?? []) {
     console.log(
-      `   line ${line.OrderItemId}: ${line.Name} ×${line.Quantity} kind=${line.Kind} ` +
-        `discount=${line.Discount} voucherCode=${line.VoucherCode ?? "-"}`,
+      `   line ${field(line, "OrderItemId")}: ${field(line, "Name")} ×${field(line, "Quantity")} ` +
+        `kind=${field(line, "Kind")} discount=${field(line, "Discount")} ` +
+        `voucherCode=${field(line, "VoucherCode") ?? "-"}`,
     );
   }
 }
@@ -137,8 +139,17 @@ const removeVoucher = (orderId: string, voucherOrderItemId: string) =>
     jsonWithRawIds({ DiscountId: null }, { OrderId: orderId, VoucherOrderItemId: voucherOrderItemId }),
   );
 
+// Proven sell body shape (app/api/test/product-probe): PageId is required.
 const sellProduct = (productId: string, path: "/booking/sell" | "/voucher/sell") =>
-  call(path === "/voucher/sell" ? "POST" : "POST", path, `{"ProductId":${productId},"Quantity":1}`);
+  call(
+    "POST",
+    path,
+    `{"ProductId":${productId}${PAGE_ID ? `,"PageId":${PAGE_ID}` : ""},"Quantity":1,"OrderId":null,"ParentOrderItemId":null,"DynamicLines":[]}`,
+  );
+
+/** BMI responses mix Pascal/camel case in practice — read both. */
+const field = (o: any, name: string) =>
+  o?.[name] ?? o?.[name[0].toLowerCase() + name.slice(1)];
 
 async function main() {
   console.log(`── BMI voucher probe · ${CLIENT_KEY} · ${BMI_API_URL} ──`);
@@ -169,15 +180,15 @@ async function main() {
     console.log(`\nSELL voucher product ${SELL_PRODUCT_ID} (qty 1, new order)…`);
     const sell = await sellProduct(SELL_PRODUCT_ID, "/voucher/sell");
     console.log(`voucher/sell → ${sell.status}: ${JSON.stringify(sell.data).slice(0, 500)}`);
-    const orderId = String(sell.data?.OrderId ?? "");
+    const orderId = String(field(sell.data, "OrderId") ?? "");
     if (orderId) {
-      const ov = await call("GET", `/order/${orderId}`);
+      const ov = await call("GET", `/bill/${orderId}/overview`);
       console.log(`order overview after sell → ${ov.status}`);
       overviewSummary(ov.data);
       if (KEEP) {
         console.log(`KEEP=1 — order ${orderId} left in place for Office inspection`);
       } else {
-        const del = await call("DELETE", `/order/${orderId}/cancel`);
+        const del = await call("DELETE", `/bill/${orderId}/cancel`);
         console.log(`order cancel → ${del.status}`);
       }
     }
@@ -188,7 +199,7 @@ async function main() {
     console.log(`\nBuilding throwaway order with product ${ORDER_PRODUCT_ID}…`);
     const sell = await sellProduct(ORDER_PRODUCT_ID, "/booking/sell");
     console.log(`booking/sell → ${sell.status}: ${JSON.stringify(sell.data).slice(0, 300)}`);
-    const orderId = String(sell.data?.OrderId ?? "");
+    const orderId = String(field(sell.data, "OrderId") ?? "");
     if (!orderId) {
       console.error("no OrderId — cannot continue");
       process.exit(1);
@@ -205,7 +216,7 @@ async function main() {
 
     // Q3 part 1: is the code locked at APPLY? Same code on a 2nd un-paid order.
     const sell2 = await sellProduct(ORDER_PRODUCT_ID, "/booking/sell");
-    const orderId2 = String(sell2.data?.OrderId ?? "");
+    const orderId2 = String(field(sell2.data, "OrderId") ?? "");
     if (orderId2) {
       const a2 = await applyCode(orderId2, CODE);
       console.log(
@@ -215,20 +226,21 @@ async function main() {
             : `: ${a2.raw.slice(0, 300)}`),
       );
       if (a2.status === 200) {
-        const vi2 = (a2.data?.AppliedPromoCodes ?? [])[0]?.VoucherOrderItemId;
+        const vi2 = field((field(a2.data, "AppliedPromoCodes") ?? [])[0], "VoucherOrderItemId");
         if (vi2 != null) {
           const rm2 = await removeVoucher(orderId2, String(vi2));
           console.log(`removeCode on order 2 → ${rm2.status}`);
         }
       }
-      const del2 = await call("DELETE", `/order/${orderId2}/cancel`);
+      const del2 = await call("DELETE", `/bill/${orderId2}/cancel`);
       console.log(`order 2 cancel → ${del2.status}`);
     }
 
     // removeCode on order 1, then re-apply: does remove RESTORE the code?
-    const applied = (a1.data?.AppliedPromoCodes ?? [])[0];
-    if (applied?.VoucherOrderItemId != null) {
-      const rm = await removeVoucher(orderId, String(applied.VoucherOrderItemId));
+    const applied = (field(a1.data, "AppliedPromoCodes") ?? [])[0];
+    const appliedVi = field(applied, "VoucherOrderItemId");
+    if (appliedVi != null) {
+      const rm = await removeVoucher(orderId, String(appliedVi));
       console.log(`\nremoveCode → ${rm.status}`);
       overviewSummary(rm.data);
       const re = await applyCode(orderId, CODE);
@@ -241,7 +253,7 @@ async function main() {
     if (KEEP) {
       console.log(`KEEP=1 — order ${orderId} left in place`);
     } else {
-      const del = await call("DELETE", `/order/${orderId}/cancel`);
+      const del = await call("DELETE", `/bill/${orderId}/cancel`);
       console.log(`\norder 1 cancel → ${del.status}`);
       console.log(
         `Verify in BMI Office that ${CODE} shows as un-used after the cancel — ` +
