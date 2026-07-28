@@ -77,13 +77,24 @@ newTotal`. **Never** client-side proportional tax math.
 ```
 P0  lock + plan  — Redis edit:lock:{anchorId}, no open cancel event, planHash freshness,
                    startEditEvent ledger row (FATAL: no money moves without the row)
-R1  refund the day-of GC payment by refundCents      → auto-credits internal GC (async)
-W   WAIT for that refund to reach COMPLETED / the REFUND activity to post   ← NEW STEP
+RET create a RETURN order naming the exact line uids coming off the paid order
+                   → Square computes the tax-inclusive return total (authoritative)
+R1  refund the day-of GC payment for that total, order_id = the return order
+                   → ITEMIZED (never amount-only); auto-credits internal GC (async)
+W   WAIT for that refund to reach COMPLETED / the REFUND activity to post
 R2  refund the deposit tender(s) by the guest-owed amount   → guest's card
 D   ADJUST_DECREMENT the internal GC by the credited amount → kills the surplus
-O   update day-of order lines (OPEN only; sparse PUT + fields_to_clear, hard-verify total)
 C   Neon commit + recordAdminAction + notification
 ```
+
+**No line-update step.** A paid order's lines are immutable (§9 Q2), so the day-of order keeps
+its original items permanently; the return order and refund carry the change. This is true for
+MID and POST alike — only PRE (zero-tender) orders accept line edits.
+
+**Never amount-only.** If the returned line uids cannot be identified, the cascade REFUSES rather
+than issuing a bare-amount refund, which would leave the item showing as sold in Square's
+item-level reporting and uncategorizable in QBO. The deposit/cash leg is the one exception — a
+single funding line with no item semantics.
 
 `W` is the single genuinely missing executor. Without it, `adjustGiftCardDown` reads a stale $0
 balance, returns 0 without posting, the executor logs the step green, the credit lands 30–90s
