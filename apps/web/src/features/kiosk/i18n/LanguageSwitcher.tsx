@@ -17,6 +17,7 @@
 import { KIOSK_LOCALES, LOCALE_LABEL, LOCALE_SHORT, type KioskLocale } from "./locales";
 import { useLocale } from "./LocaleProvider";
 import { kioskI18nEnabled } from "../flags";
+import { UTIL_TILE_CLASS } from "../components/UtilityTile";
 
 export function LanguageSwitcher({
   /** Fixed-position classes (canvas px). Each screen that mounts the switcher
@@ -44,9 +45,12 @@ export function LanguageSwitcher({
 
   return (
     <div
+      // Inline shares the utility-tile class string with the side doors, the
+      // code chip and the voucher chip, so the row cannot drift out of shape.
+      // k-tap is dropped: the tile is not itself tappable, its two options are.
       className={
         inline
-          ? "flex h-[96px] flex-1 items-center justify-center gap-[8px] rounded-[18px] border-[1.5px] border-white/20 bg-[rgba(7,16,39,0.5)] backdrop-blur-[10px]"
+          ? `${UTIL_TILE_CLASS.replace("k-tap ", "")} border-white/25`
           : `fixed ${posClass} z-[260] flex items-center gap-[8px] rounded-full border border-white/15 bg-[#0a1730]/85 p-[8px] shadow-[0_8px_30px_rgba(0,0,0,0.45)] backdrop-blur`
       }
       role="group"

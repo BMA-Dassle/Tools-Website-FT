@@ -34,6 +34,7 @@ import { KIOSK_LOGOS, KIOSK_PHOTOS, kioskImg } from "../assets";
 import { useResilientImage } from "../hooks/useResilientImage";
 import { slotLabel, type FirstOpen } from "../service/first-available";
 import { AdminTapZone } from "./AdminTapZone";
+import { UTIL_TILE_BORDER_ALPHA, UTIL_TILE_CLASS, UtilityTile } from "./UtilityTile";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
 import { useT, LanguageSwitcher, type Translate } from "../i18n";
@@ -189,11 +190,103 @@ export function KioskCategories({
   // decision on that, plus a live card-present smoke, so it is not something to
   // infer here. Reverted until that call is made.
   const showRacePacks = !!onOpenRacePacks && kioskRacePacksEnabled() && brand === "fasttrax";
-  // Side doors. The caller owns flag/venue gating (a callback arrives only when
-  // the door applies), so all this decides is the waiver's voucher rule.
-  const showCheckin = !!onOpenCheckin;
-  const showRaceGrid = !!onOpenRaceGrid;
-  const showWaiver = !!onOpenWaiver && appliedVouchers.length === 0;
+  // Every box in the bottom grid, in render order. Built as a list so the grid
+  // can span an odd last tile across both columns instead of leaving a hole —
+  // and so the two "hide once a voucher is scanned" rules are one place, not
+  // scattered through JSX. The caller owns flag/venue gating: a callback only
+  // arrives when that door applies at all.
+  const hasVoucher = appliedVouchers.length > 0;
+  const utilTiles: { key: string; node: React.ReactNode }[] = [];
+  if (onOpenCheckin) {
+    utilTiles.push({
+      key: "checkin",
+      node: (
+        <UtilityTile
+          icon={<IconUserCheck size={28} aria-hidden="true" />}
+          label={t("attract.raceReservation")}
+          color="#00e2e5"
+          onClick={onOpenCheckin}
+        />
+      ),
+    });
+  }
+  if (onOpenRaceGrid) {
+    utilTiles.push({
+      key: "racegrid",
+      node: (
+        <UtilityTile
+          icon={<IconFlag size={28} aria-hidden="true" />}
+          label={t("attract.raceGrid")}
+          color="#ff6b6b"
+          onClick={onOpenRaceGrid}
+        />
+      ),
+    });
+  }
+  // Waiver: hidden once a voucher is scanned. LAYOUT ONLY — see the grid comment.
+  if (onOpenWaiver && !hasVoucher) {
+    utilTiles.push({
+      key: "waiver",
+      node: (
+        <UtilityTile
+          icon={<IconSignature size={28} aria-hidden="true" />}
+          label={t("attract.waiver")}
+          color="#f5ecee"
+          onClick={onOpenWaiver}
+        />
+      ),
+    });
+  }
+  if (hasVoucher) {
+    // The voucher summary REPLACES the code tile: it opens the sheet, and the
+    // sheet is where more codes get added.
+    utilTiles.push({
+      key: "vouchers",
+      node: (
+        <KioskVoucherSummary
+          vouchers={appliedVouchers}
+          onOpen={() => onOpenVoucherSheet?.()}
+          variant="kiosk"
+        />
+      ),
+    });
+  } else if (appliedPromo) {
+    utilTiles.push({
+      key: "promo",
+      node: (
+        <div
+          className={UTIL_TILE_CLASS}
+          style={{ borderColor: `#e8b14c${UTIL_TILE_BORDER_ALPHA}`, color: "#e8b14c" }}
+        >
+          <TicketGlyph color="#e8b14c" />
+          <span className="min-w-0 truncate">{appliedPromo.code}</span>
+          {onClearPromo && (
+            <button
+              type="button"
+              onClick={onClearPromo}
+              aria-label={t("promo.banner.clear")}
+              className="k-tap shrink-0 px-[6px] text-[28px] leading-none text-white/45"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      ),
+    });
+  } else if (onOpenCodeEntry) {
+    utilTiles.push({
+      key: "code",
+      node: (
+        <UtilityTile
+          icon={<TicketGlyph color="#00e2e5" />}
+          label={t("promo.chip")}
+          color="#00e2e5"
+          onClick={onOpenCodeEntry}
+        />
+      ),
+    });
+  }
+  utilTiles.push({ key: "lang", node: <LanguageSwitcher inline /> });
   const hasCart = session.items.length > 0;
   // Whether ANYTHING on the Experiences shelf is bookable right now. If every
   // tile inside is locked (VIP combo + Ultimate Qualifier both out of runway)
@@ -283,95 +376,43 @@ export function KioskCategories({
             already comparing premium racing. The code/voucher strip below is
             NOT a shortcut — it carries a code into whatever the guest picks
             next — so it stays. */}
-        {/* "Not booking" side doors, moved off the attract screen (owner
-            2026-07-28) — that screen is a poster with one instruction. Uniform
-            widths via flex-1 so two or three read as one deliberate row rather
-            than the old full-width-bar-plus-two-halves.
+        {/* UTILITY ROWS — ONE grid, not two flex rows.
 
-            The waiver door hides once a voucher is applied (owner 2026-07-28):
-            a scanned voucher means someone has already been through the desk,
-            so the row can give that slot back. NOTE — this is a LAYOUT rule,
-            not a legal one: a voucher is not a signed waiver, and the waiver is
-            still reachable at /kiosk/waiver and inside the booking flow. */}
-        {(showCheckin || showRaceGrid || showWaiver) && (
-          <div className="mt-[24px] flex shrink-0 gap-[18px]">
-            {showCheckin && (
-              <SideDoor
-                icon={<IconUserCheck size={30} aria-hidden="true" />}
-                label={t("attract.raceReservation")}
-                color="#00e2e5"
-                onClick={() => onOpenCheckin?.()}
-              />
-            )}
-            {showRaceGrid && (
-              <SideDoor
-                icon={<IconFlag size={30} aria-hidden="true" />}
-                label={t("attract.raceGrid")}
-                color="#ff6b6b"
-                onClick={() => onOpenRaceGrid?.()}
-              />
-            )}
-            {showWaiver && (
-              <SideDoor
-                icon={<IconSignature size={30} aria-hidden="true" />}
-                label={t("attract.waiver")}
-                color="rgba(245,236,238,0.72)"
-                onClick={() => onOpenWaiver?.()}
-              />
-            )}
+            Every box here is the same UtilityTile shape (see UtilityTile.tsx):
+            same height, radius, border alpha and type, sharing a class string so
+            none can drift. They used to be four hand-rolled buttons with three
+            different border alphas and two radii, laid out as two separate flex
+            rows whose columns could never line up — which is exactly why they
+            read as unrelated controls (owner 2026-07-28).
+
+            Fixed 2 columns, so every tile is the same width and the rows align.
+            An odd last tile spans both columns rather than leaving a hole.
+
+            Contents in order: the "not booking" side doors moved off the attract
+            screen, then the code/voucher tile, then language.
+
+            Two hide rules (owner 2026-07-28), both about handing the grid a slot
+            back once a voucher is in play:
+              - the WAIVER door hides. LAYOUT ONLY — a voucher is not a signed
+                waiver, and /kiosk/waiver plus the in-flow waiver step are
+                untouched and still reachable.
+              - the "Coupon or voucher?" tile hides, because the voucher summary
+                tile replaces it and the sheet it opens is where further codes
+                get added. Two doors onto the same sheet is one too many. */}
+        {utilTiles.length > 0 && (
+          <div className="mt-[22px] grid shrink-0 grid-cols-2 gap-[18px]">
+            {utilTiles.map((tile, i) => (
+              <div
+                key={tile.key}
+                className={
+                  utilTiles.length % 2 === 1 && i === utilTiles.length - 1 ? "col-span-2" : ""
+                }
+              >
+                {tile.node}
+              </div>
+            ))}
           </div>
         )}
-
-        {/* Coupon / voucher strip (kioskPromoEnabled) — the chip becomes the
-            gold applied-code banner once a code lands, and several vouchers
-            collapse into the summary chip. Sits BELOW the shortcuts: those
-            start a booking, this one carries a code into whatever follows. */}
-        {/* UTILITY ROW — one shape for everything in it (owner 2026-07-28: "these
-            boxes/buttons should be alike"). Same 96px height, same 18px radius,
-            same 1.5px border and glass fill as the side doors above, each flex-1.
-            Pills of three different heights and radii read as three unrelated
-            controls; one shape reads as a row.
-
-            The language switcher is IN this row rather than fixed — see the note
-            up top: fixed positioning is clipped by the scrolling flow body. */}
-        <div className="mt-[20px] flex shrink-0 gap-[18px]">
-          {appliedVouchers.length > 0 && (
-            <KioskVoucherSummary
-              vouchers={appliedVouchers}
-              onOpen={() => onOpenVoucherSheet?.()}
-              variant="kiosk"
-            />
-          )}
-          {appliedPromo ? (
-            <div className="flex h-[96px] flex-1 items-center justify-center gap-[14px] rounded-[18px] border-[1.5px] border-[rgba(232,177,76,0.65)] bg-[rgba(232,177,76,0.10)] px-[20px]">
-              <TicketGlyph color="#e8b14c" />
-              <span className="k-display text-[26px] text-[#e8b14c]">{appliedPromo.code}</span>
-              <span className="text-[22px] text-white/75">{promoDealLine(t, appliedPromo)}</span>
-              {onClearPromo && (
-                <button
-                  type="button"
-                  onClick={onClearPromo}
-                  aria-label={t("promo.banner.clear")}
-                  className="k-tap ml-[4px] px-[8px] text-[30px] leading-none text-white/45"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          ) : (
-            onOpenCodeEntry && (
-              <button
-                type="button"
-                onClick={onOpenCodeEntry}
-                className="k-display k-tap flex h-[96px] flex-1 items-center justify-center gap-[12px] rounded-[18px] border-[1.5px] border-[rgba(0,226,229,0.5)] bg-[rgba(7,16,39,0.5)] px-[14px] text-center text-[24px] leading-tight text-[#00e2e5] backdrop-blur-[10px]"
-              >
-                <TicketGlyph color="#00e2e5" />
-                {t("promo.chip")}
-              </button>
-            )
-          )}
-          <LanguageSwitcher inline />
-        </div>
       </div>
     );
   }
@@ -513,39 +554,6 @@ export function KioskCategories({
         <div className="k-scroll-fade" />
       </div>
     </div>
-  );
-}
-
-/**
- * A "not booking" side door — check-in, race grid, waiver.
- *
- * Deliberately uniform and quieter than a CategoryCard: same height, equal
- * width via flex-1, single-line label, hairline border in its own accent. Two
- * or three of them read as one row, which the attract screen's old
- * full-width-bar-plus-two-halves arrangement never did. Sub-labels are dropped
- * on purpose — at three across they wrapped, and the label already says it.
- */
-function SideDoor({
-  icon,
-  label,
-  color,
-  onClick,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  color: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{ borderColor: color, color }}
-      className="k-display k-tap flex h-[96px] flex-1 items-center justify-center gap-[12px] rounded-[18px] border-[1.5px] bg-[rgba(7,16,39,0.5)] px-[14px] text-center text-[24px] leading-tight backdrop-blur-[10px]"
-    >
-      {icon}
-      {label}
-    </button>
   );
 }
 

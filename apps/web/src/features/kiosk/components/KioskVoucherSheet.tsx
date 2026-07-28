@@ -9,6 +9,7 @@
  */
 
 import type { AppliedVoucherState } from "~/features/booking/state/types";
+import { UTIL_TILE_BORDER_ALPHA, UTIL_TILE_CLASS } from "./UtilityTile";
 import { KioskVoucherBanner } from "./KioskVoucherBanner";
 import { voucherDisplayName } from "~/features/booking/service/voucher-redeem";
 import { useT } from "../i18n";
@@ -108,8 +109,8 @@ export function KioskVoucherSummary({
       <button
         type="button"
         onClick={onOpen}
-        className="k-tap flex h-[96px] min-w-0 flex-1 items-center justify-center gap-[12px] rounded-[18px] border-[1.5px] bg-[rgba(7,16,39,0.5)] px-[14px] font-[family-name:var(--font-heading)] text-[24px] font-bold uppercase leading-tight tracking-[0.06em] backdrop-blur-[10px]"
-        style={{ borderColor: `${color}80`, color }}
+        className={UTIL_TILE_CLASS}
+        style={{ borderColor: `${color}${UTIL_TILE_BORDER_ALPHA}`, color }}
       >
         <TicketGlyphSmall color={color} />
         <span className="min-w-0 truncate">{label}</span>

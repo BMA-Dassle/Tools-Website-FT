@@ -15,6 +15,19 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.10.8 — the chooser's utility boxes are ONE shape, in ONE grid.
+ *         1.10.7 gave them a common height and called it done; they still had
+ *         three border alphas, three type treatments and — the real problem —
+ *         sat in TWO separate flex rows, whose columns can never line up. Now a
+ *         single UtilityTile (components/UtilityTile.tsx) owns the shape and
+ *         EXPORTS its class string, so the voucher chip and the language
+ *         switcher style themselves from it and cannot drift again. Laid out as
+ *         one 2-column grid: every tile identical width, rows aligned, and an
+ *         odd last tile spans both columns instead of leaving a hole.
+ *         Also: the "Coupon or voucher?" tile now hides once a voucher is
+ *         scanned (owner 2026-07-28) — the voucher summary tile replaces it and
+ *         the sheet it opens is where further codes get added, so two doors onto
+ *         the same sheet was one too many.
  * 1.10.7 — REGRESSION FIX + the last of the attract cleanup.
  *         (1) RACE PACKS OPENED A BLANK SCREEN. 1.10.5 widened the banner to
  *         "any kiosk that offers racing" so HeadPinz FM could sell packs, but
@@ -275,7 +288,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.10.7";
+export const KIOSK_VERSION = "1.10.8";
 
 let bootVersion: string | null = null;
 let captured = false;
