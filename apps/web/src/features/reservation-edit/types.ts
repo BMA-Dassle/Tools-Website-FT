@@ -93,6 +93,8 @@ export type EditGuardCode =
   | "unsupported_kind"
   | "phase_conflict"
   | "combo_phase_split"
+  // Non-combo multi-leg money group whose legs are in different phases.
+  | "leg_phase_split"
   | "lane_change_mid_session"
   | "mid_session_unsupported"
   | "pricing_unresolvable"

@@ -11,6 +11,7 @@ const CONFLICT_CODES = new Set([
   "cancelled",
   "phase_conflict",
   "combo_phase_split",
+  "leg_phase_split",
   "lane_change_mid_session",
   "mid_session_unsupported",
   "edit_in_progress",

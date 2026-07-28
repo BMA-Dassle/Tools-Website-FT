@@ -102,11 +102,26 @@ export interface EditabilityFacts {
  * errors; returns void when the edit may proceed to planning.
  */
 export const assertEditable = (f: EditabilityFacts): void => {
-  // Combo legs must sit in the SAME phase — mixed-phase combos (race leg
-  // settled, bowling leg pre-open) settle money against instruments in
-  // different states and are v1-refused.
-  if (f.isCombo && new Set(f.legPhases).size > 1) {
-    throw new EditGuardError("combo_phase_split");
+  // Every leg of a money group must sit in the SAME phase. A mixed-phase
+  // group settles money against instruments in different states, and
+  // buildEditPlan collapses the group to phases[0] — so the plan silently
+  // describes one leg's world while the money touches a shared instrument.
+  //
+  // The concrete hazard is the shared internal gift card: an item refund on a
+  // CHARGED leg decrements it while an un-charged sibling still needs its
+  // share to pay its own day-of order. If the sibling's charge cron fires
+  // into that hole, the payment fails — and a failed payment still BURNS its
+  // deterministic idempotency key (lane-open / race-dayof-pay / no-show-close
+  // all key off the reservation id), leaving that leg permanently
+  // unchargeable. Refuse instead.
+  if (f.legPhases.length > 1 && new Set(f.legPhases).size > 1) {
+    throw new EditGuardError(
+      f.isCombo ? "combo_phase_split" : "leg_phase_split",
+      f.isCombo
+        ? undefined
+        : "this booking's legs are in different states (one is already charged, another is not) — " +
+            "edit them from the leg that is still un-charged, or handle it manually in Square",
+    );
   }
   // v1: combo edits only while every leg is un-tendered.
   if (f.isCombo && f.phase !== "pre") {

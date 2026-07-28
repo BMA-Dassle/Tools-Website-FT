@@ -16,9 +16,13 @@ vi.mock("@/lib/bowling-db", () => ({
 vi.mock("@/lib/reservation-cancel-log", () => ({
   nextCancelAttempt: vi.fn(async () => 1),
 }));
+vi.mock("@/lib/reservation-edit-log", () => ({
+  listEditEventsByAnchors: vi.fn(async () => []),
+}));
 
 import { getBowlingReservation, listCancelGroupReservations } from "@/lib/bowling-db";
 import { nextCancelAttempt } from "@/lib/reservation-cancel-log";
+import { listEditEventsByAnchors } from "@/lib/reservation-edit-log";
 import { buildCancelPlan } from "./plan";
 
 // ── Square fetch mock ────────────────────────────────────────────────────────
@@ -208,6 +212,9 @@ const kinds = (plan: { steps: Array<{ kind: string }> }) => plan.steps.map((s) =
 
 beforeEach(() => {
   vi.mocked(nextCancelAttempt).mockResolvedValue(1);
+  // plan.ts reads this ledger twice per build (edit-payment folding, then the
+  // store-credit ownership check) — a per-test default, not a -Once.
+  vi.mocked(listEditEventsByAnchors).mockResolvedValue([]);
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -252,6 +259,49 @@ describe("plain bowling — admin refund", () => {
     if (r.kind !== "plan") throw new Error("expected plan");
     expect(r.plan.steps.filter((s) => s.kind === "refund_tender")).toHaveLength(2);
     expect(r.plan.amountCents).toBe(10000);
+  });
+});
+
+describe("store credit issued by an EDIT is not the cancel's store credit", () => {
+  it("refuses rather than crediting only the edit's amount and stranding the deposit", async () => {
+    // Both paths write the same store_credit_* columns. Without the check the
+    // planner would report the item refund's small cents as the cancel amount.
+    setGroup([
+      bowlingLeg({
+        storeCreditGiftCardId: "gftc:edit_sc",
+        storeCreditGiftCardGan: "7788990011223344",
+        storeCreditCents: 1605,
+        storeCreditState: "issued",
+      }),
+    ]);
+    mockSquare(worldFor({ balance: 6710, orders: { day_bowl: { state: "OPEN", tenders: [] } } }));
+    vi.mocked(listEditEventsByAnchors).mockResolvedValue([
+      { state: "completed", storeCreditGiftCardId: "gftc:edit_sc", paymentIds: [], refundIds: [] },
+    ] as never);
+
+    await expectGuard(
+      buildCancelPlan(req({ neonId: 200, outcome: "store_credit" })),
+      "amount_mismatch",
+    );
+  });
+
+  it("a cancel-issued card is still reused, not re-minted", async () => {
+    setGroup([
+      bowlingLeg({
+        storeCreditGiftCardId: "gftc:cancel_sc",
+        storeCreditGiftCardGan: "7788990011223344",
+        storeCreditCents: 6710,
+        storeCreditState: "issued",
+      }),
+    ]);
+    mockSquare(worldFor({ balance: 6710, orders: { day_bowl: { state: "OPEN", tenders: [] } } }));
+    // No edit event owns this card → the existing reuse path applies.
+    vi.mocked(listEditEventsByAnchors).mockResolvedValue([]);
+
+    const r = await buildCancelPlan(req({ neonId: 200, outcome: "store_credit" }));
+    if (r.kind !== "plan") throw new Error("expected plan");
+    expect(r.plan.amountCents).toBe(6710);
+    expect(r.plan.existingStoreCredit?.giftCardId).toBe("gftc:cancel_sc");
   });
 });
 

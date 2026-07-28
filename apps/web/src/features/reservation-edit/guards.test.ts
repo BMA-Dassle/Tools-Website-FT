@@ -99,6 +99,22 @@ describe("assertEditable", () => {
     );
   });
 
+  it("NON-combo multi-leg groups in different phases are refused too", () => {
+    // A shared internal gift card + an un-charged sibling leg: decrementing
+    // for a refund on the charged leg can starve the sibling's own day-of
+    // charge, and a failed charge burns its deterministic idempotency key —
+    // leaving that leg permanently unchargeable.
+    expect(
+      code(() => assertEditable({ ...facts, isCombo: false, legPhases: ["mid", "pre"] })),
+    ).toBe("leg_phase_split");
+  });
+
+  it("multi-leg groups all in the SAME phase still pass", () => {
+    expect(() =>
+      assertEditable({ ...facts, isCombo: false, legPhases: ["pre", "pre"] }),
+    ).not.toThrow();
+  });
+
   it("combo edits after lane-open are refused (v1)", () => {
     expect(
       code(() => assertEditable({ ...facts, isCombo: true, phase: "mid", legPhases: ["mid"] })),
