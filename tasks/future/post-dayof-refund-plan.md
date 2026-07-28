@@ -267,15 +267,19 @@ tests).
 
 ## 10. Proposed PR sequence
 
-| PR | Contents | Gate |
-| -- | -------- | ---- |
-| 0 | Probe matrix §9 + owner decisions §5 recorded in `lessons.md` | Owner sign-off on the reason-string convention |
-| 1 | Prerequisites: event identity (§4.2), hard open-event guard + lock extension (§4.3), day-of refund netting, refund-alerts matching extension | Unit tests |
-| 2 | Cross-system guards: QAMF webhook open-refund guard, un-charged sibling refusal, store-credit record separation, `/api/square/bowling-refund` auth | Unit tests |
-| 3 | The `W` wait-for-credit executor + two-amount plan fields + fatal-on-missing-GC; correct the stale A1 comments | Unit tests |
-| 4 | Item-removal spec field + modal picker (§4.1) | Unit tests |
-| 5 | MID-decrease enable path: money-only COMPLETED variant, 100%-refund conditional omission, Payments/History surfacing (§7) | Tier-3 smoke |
-| 6 | Flag flip per the v2 cutover safety pattern — deploy alongside, ops sign-off, then default-on | Full §8 checklist |
+| PR | Contents | Gate | Status |
+| -- | -------- | ---- | ------ |
+| 0 | Probe matrix §9 + owner decisions §5 recorded in `lessons.md` | Owner sign-off on the reason-string convention | **DONE** (decisions answered 2026-07-27; §9 probes still open) |
+| 1 | Prerequisites: event identity (§4.2), hard open-event guard + lock extension (§4.3), day-of refund netting, refund-alerts matching extension | Unit tests | **DONE** `8096cc51` |
+| 2 | Cross-system guards: QAMF webhook open-refund guard, un-charged sibling refusal, store-credit record separation, `/api/square/bowling-refund` auth | Unit tests | **DONE** `35955009` |
+| 3 | The `W` wait-for-credit executor + fatal-on-missing-GC + fatal short decrement | Unit tests | **DONE** `d9686933` |
+| 3b | Two-amount plan fields (`guestOwedCents` vs `gcDecrementCents`, §3) for gap-comped rows; correct the stale A1 comments in `service.ts` / `square-actions.ts` | Unit tests | TODO |
+| 4 | Item-removal spec field + modal picker (§4.1) | Unit tests | TODO — largest unbuilt piece |
+| 5 | MID-decrease enable path: money-only COMPLETED variant, 100%-refund conditional omission, Payments/History surfacing (§7) | Tier-3 smoke | TODO |
+| 6 | Flag flip per the v2 cutover safety pattern — deploy alongside, ops sign-off, then default-on | Full §8 checklist | TODO |
+
+Everything through PR3 is behavior-neutral while `RESERVATION_EDIT_V2_MID_DECREASE` and
+`RESERVATION_EDIT_V2_POST` stay off.
 
 Combos, multi-GC groups, group functions, and BMI race-line updates are **explicitly out of scope**
 — listed here so nobody "quick-fixes" a guard into allowing them.
