@@ -1281,6 +1281,10 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         steps.push({ kind: "refund_tender", fatal: true, amountCents: -diffCents });
       }
       if (giftCard) {
+        // Square credits the day-of refund back to the internal card
+        // asynchronously — decrementing before it lands reads a stale balance,
+        // no-ops, and leaves the refunded value spendable (2026-07-27 probe).
+        steps.push({ kind: "wait_gc_credit", fatal: true, target: giftCard.id });
         steps.push({
           kind: "adjust_gift_card_down",
           fatal: true,
@@ -1333,6 +1337,9 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         steps.push({ kind: "refund_tender", fatal: true, amountCents: -diffCents });
       }
       if (giftCard) {
+        // refund_dayof_order above returned the full day-of tenders to this
+        // card asynchronously — wait for the credit before decrementing.
+        steps.push({ kind: "wait_gc_credit", fatal: true, target: giftCard.id });
         steps.push({
           kind: "adjust_gift_card_down",
           fatal: true,

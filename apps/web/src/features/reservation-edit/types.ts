@@ -141,6 +141,9 @@ export type EditStepKind =
   | "charge_dayof_order"
   | "refund_dayof_payment"
   | "refund_dayof_order"
+  // Await the async gift-card credit from a day-of refund before any step
+  // reads the card's balance (Square posts it seconds after the refund).
+  | "wait_gc_credit"
   | "rebuild_dayof_order"
   | "pay_dayof_order"
   | "complete_dayof_order"

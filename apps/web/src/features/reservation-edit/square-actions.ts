@@ -130,6 +130,79 @@ export const fetchRefundFacts = async (
   };
 };
 
+/* ── Wait for a refund's credit to land on the gift card ─────────────── */
+
+export interface RefundCreditWait {
+  /** True once the refund reached a terminal SUCCESS state. */
+  settled: boolean;
+  /** Square's last-seen refund status (COMPLETED / PENDING / FAILED / …). */
+  status: string;
+  /** Gift-card balance observed on the final poll, when readable. */
+  balanceCents?: number;
+}
+
+/**
+ * Poll until a refund of a gift-card-funded payment has actually CREDITED the
+ * gift card, or until `timeoutMs` elapses.
+ *
+ * Why this exists (live finding 2026-07-27): Square returns these refunds as
+ * PENDING and posts the credit to the card ASYNCHRONOUSLY — the payment showed
+ * `refunded_money` before any REFUND activity appeared on the card. Every
+ * downstream step that reads the card's balance is therefore wrong if it runs
+ * immediately:
+ *
+ *   - `adjustGiftCardDown` reads balance 0, returns 0 WITHOUT posting, and its
+ *     idempotency key is spent → the credit lands seconds later and stays on
+ *     the card forever, while the guest also keeps the deposit refund. That is
+ *     silent double value, once per occurrence.
+ *   - draining/deactivating the card in this window strands the credit (it
+ *     happened to probe card …1430 on 2026-07-27).
+ *
+ * Verification is by REFUND STATUS first (authoritative, and immune to a
+ * concurrent spend moving the balance), with the observed balance returned for
+ * the caller's invariant check. A timeout is NOT an error here: the caller
+ * parks the attempt as resumable rather than guessing.
+ */
+export const waitForRefundCredit = async (params: {
+  refundId: string;
+  giftCardId?: string;
+  timeoutMs?: number;
+  pollMs?: number;
+  /** Injectable for tests. */
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<RefundCreditWait> => {
+  const timeoutMs = params.timeoutMs ?? 120_000;
+  const pollMs = params.pollMs ?? 5_000;
+  const sleep = params.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  const deadline = Date.now() + timeoutMs;
+
+  let status = "UNKNOWN";
+  let balanceCents: number | undefined;
+
+  for (;;) {
+    const r = await sq("GET", `/refunds/${params.refundId}`);
+    status = r.json?.refund?.status ?? status;
+
+    if (status === "FAILED" || status === "REJECTED") {
+      // The money never left; treat as terminal-unsettled so the caller can
+      // fail loudly instead of decrementing against a credit that isn't coming.
+      return { settled: false, status, balanceCents };
+    }
+    if (status === "COMPLETED") {
+      if (params.giftCardId) {
+        try {
+          balanceCents = (await fetchGiftCardFacts(params.giftCardId)).balanceCents;
+        } catch {
+          /* balance is advisory — status is the gate */
+        }
+      }
+      return { settled: true, status, balanceCents };
+    }
+    if (Date.now() >= deadline) return { settled: false, status, balanceCents };
+    await sleep(Math.min(pollMs, Math.max(0, deadline - Date.now())));
+  }
+};
+
 /* ── Gift-card exact adjust-down ──────────────────────────────────────── */
 
 /**
@@ -144,6 +217,10 @@ export const adjustGiftCardDown = async (params: {
   amountCents: number;
 }): Promise<number> => {
   const gc = await fetchGiftCardFacts(params.giftCardId);
+  // Returning 0 here is NOT success — it means the credit this decrement was
+  // meant to cancel has not landed (or the card is unusable). The caller must
+  // treat a short return as fatal: silently completing leaves the refunded
+  // value sitting on the card while the guest also keeps their card refund.
   if (gc.state !== "ACTIVE" || gc.balanceCents <= 0) return 0;
   if (!gc.locationId) throw new Error(`gift card ${params.giftCardId} has no activity location_id`);
   const amount = Math.min(params.amountCents, gc.balanceCents);

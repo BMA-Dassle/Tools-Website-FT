@@ -53,6 +53,7 @@ import {
   fetchRefundFacts,
   refundTenderPartial,
   updateDayofOrderLines,
+  waitForRefundCredit,
 } from "./square-actions";
 import { playersToQamfRoster, rebookQamfForLaneChange, syncQamfPlayers } from "./qamf-sync";
 import {
@@ -272,6 +273,12 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
 
     const paymentIds: string[] = [];
     const refundIds: string[] = [];
+    /**
+     * Refunds of gift-card-funded payments whose credit has not yet been
+     * confirmed on the card. Square posts these asynchronously, so the
+     * decrement must not run until this drains (see wait_gc_credit).
+     */
+    const pendingGcCreditRefundIds: string[] = [];
     const rebuiltOrders: Array<{ oldOrderId: string; newOrderId: string }> = [];
     let storeCreditGan: string | undefined;
     let newQamfReservationId: string | undefined;
@@ -459,8 +466,39 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
             if (r.refundId) {
               refundIds.push(r.refundId);
               await recordEditRefund(editId, r.refundId);
+              // The gift-card credit posts ASYNCHRONOUSLY. Nothing downstream
+              // may read the card's balance until it lands, or the decrement
+              // no-ops and the refunded value survives on the card.
+              pendingGcCreditRefundIds.push(r.refundId);
             }
             stepLog.push({ step: step.kind, ok: true, detail: r.refundId });
+            break;
+          }
+
+          case "wait_gc_credit": {
+            if (pendingGcCreditRefundIds.length === 0) {
+              stepLog.push({ step: step.kind, ok: true, detail: "nothing pending" });
+              break;
+            }
+            // A long poll can outlive the original lock TTL — keep holding it.
+            await extendEditLock(anchorId);
+            for (const rid of pendingGcCreditRefundIds) {
+              const w = await waitForRefundCredit({
+                refundId: rid,
+                giftCardId: plan.giftCard?.id,
+              });
+              if (!w.settled) {
+                // Park, do NOT decrement. The refunds are recorded, so a
+                // resume of THIS editId replays the same idempotency keys and
+                // picks up where we left off once Square settles.
+                throw new Error(
+                  `refund ${rid} has not credited the gift card yet (status ${w.status}) — ` +
+                    `money already moved and is recorded; resume this edit to finish it`,
+                );
+              }
+            }
+            pendingGcCreditRefundIds.length = 0;
+            stepLog.push({ step: step.kind, ok: true, detail: "credit settled" });
             break;
           }
 
@@ -472,12 +510,36 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
           }
 
           case "adjust_gift_card_down": {
-            if (!plan.giftCard) break;
+            const want = step.amountCents ?? -plan.diffCents;
+            if (!plan.giftCard) {
+              // The plan builder only WARNS when gift-card facts are
+              // unreadable and drops this step. For a post-payment refund
+              // that is a silent double-payout: the guest keeps the card
+              // refund AND the value stays spendable on the internal card.
+              throw new Error(
+                `gift card facts unavailable but ${want}¢ must be decremented — ` +
+                  `verify the card in Square before retrying`,
+              );
+            }
+            if (pendingGcCreditRefundIds.length > 0) {
+              throw new Error(
+                `refusing to decrement before refund credit settles ` +
+                  `(${pendingGcCreditRefundIds.join(", ")} still pending)`,
+              );
+            }
             const adjusted = await adjustGiftCardDown({
               editId,
               giftCardId: plan.giftCard.id,
-              amountCents: step.amountCents ?? -plan.diffCents,
+              amountCents: want,
             });
+            // A short/zero decrement means the credit is not on the card — a
+            // green step here would leave refunded value spendable.
+            if (adjusted < want) {
+              throw new Error(
+                `gift card ${plan.giftCard.id} decremented ${adjusted}¢ of ${want}¢ — ` +
+                  `the refund credit has not landed; re-run this edit to finish it`,
+              );
+            }
             stepLog.push({ step: step.kind, ok: true, detail: `-${adjusted}` });
             break;
           }
@@ -511,6 +573,11 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               });
               refundIds.push(r.refundId);
               await recordEditRefund(editId, r.refundId);
+              // Gift-card tenders credit back asynchronously — gate the
+              // decrement (and the rebuild's repay) on wait_gc_credit.
+              if (tender.paymentId === anchor.dayofPaymentId || facts.tenders.length === 1) {
+                pendingGcCreditRefundIds.push(r.refundId);
+              }
               n++;
             }
             stepLog.push({ step: step.kind, ok: true, detail: `${n} tender(s) refunded` });

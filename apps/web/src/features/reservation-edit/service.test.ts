@@ -62,6 +62,7 @@ vi.mock("./square-actions", () => ({
   adjustGiftCardDown: vi.fn(async () => 500),
   updateDayofOrderLines: vi.fn(async () => ({ totalCents: 9999, version: 4 })),
   chargeDayofOrder: vi.fn(async () => ({ paymentId: "PAY_MID" })),
+  waitForRefundCredit: vi.fn(async () => ({ settled: true, status: "COMPLETED" })),
 }));
 vi.mock("./qamf-sync", () => ({
   syncQamfPlayers: vi.fn(async () => ({ lanesUpdated: 1 })),
@@ -90,10 +91,12 @@ import {
 import { loadGiftCard } from "@/lib/square-gift-card";
 import { fetchOrderFacts, fetchPaymentFacts } from "~/features/cancellation/square-actions";
 import {
+  adjustGiftCardDown,
   createEditTopupOrderAndCharge,
   fetchRefundFacts,
   refundTenderPartial,
   updateDayofOrderLines,
+  waitForRefundCredit,
 } from "./square-actions";
 import { syncBmiRaceEdit } from "./bmi-sync";
 
@@ -410,33 +413,34 @@ describe("executeEditCascade — locks and gates", () => {
   });
 });
 
-describe("executeEditCascade — PRE decrease", () => {
-  const depositFacts = (tenders: Array<{ paymentId: string; amountCents: number }>) => {
-    vi.mocked(fetchOrderFacts).mockImplementation(async (orderId: string) =>
-      orderId === "DEP1"
-        ? ({
-            id: "DEP1",
-            state: "COMPLETED",
-            version: 1,
-            locationId: "TXBSQN0FEKQ11",
-            tenderCount: tenders.length,
-            netDueCents: 0,
-            totalCents: 5000,
-            tenders,
-          } as never)
-        : ({
-            id: "O1",
-            state: "OPEN",
-            version: 3,
-            locationId: "TXBSQN0FEKQ11",
-            tenderCount: 0,
-            netDueCents: 5000,
-            totalCents: 5000,
-            tenders: [],
-          } as never),
-    );
-  };
+/** Point fetchOrderFacts at a deposit order with the given tenders. */
+const depositFacts = (tenders: Array<{ paymentId: string; amountCents: number }>) => {
+  vi.mocked(fetchOrderFacts).mockImplementation(async (orderId: string) =>
+    orderId === "DEP1"
+      ? ({
+          id: "DEP1",
+          state: "COMPLETED",
+          version: 1,
+          locationId: "TXBSQN0FEKQ11",
+          tenderCount: tenders.length,
+          netDueCents: 0,
+          totalCents: 5000,
+          tenders,
+        } as never)
+      : ({
+          id: "O1",
+          state: "OPEN",
+          version: 3,
+          locationId: "TXBSQN0FEKQ11",
+          tenderCount: 0,
+          netDueCents: 5000,
+          totalCents: 5000,
+          tenders: [],
+        } as never),
+  );
+};
 
+describe("executeEditCascade — PRE decrease", () => {
   const DECREASE_STEPS: EditStep[] = [
     { kind: "audit_start", fatal: true },
     { kind: "refund_tender", fatal: true, amountCents: 500 },
@@ -658,5 +662,94 @@ describe("executeEditCascade — day-of refund leg (post-day-of flow)", () => {
     expect(vi.mocked(refundTenderPartial)).toHaveBeenCalledWith(
       expect.objectContaining({ amountCents: 1000 }),
     );
+  });
+});
+
+describe("executeEditCascade — async gift-card credit (wait_gc_credit)", () => {
+  // The 2026-07-27 live finding: the refund credits the internal gift card
+  // ASYNCHRONOUSLY. Decrementing before it lands reads a stale $0 balance,
+  // no-ops while burning its key, and leaves the refunded value spendable —
+  // silent double value.
+  const WAIT_STEPS: EditStep[] = [
+    { kind: "audit_start", fatal: true },
+    { kind: "refund_dayof_payment", fatal: true, amountCents: 1605 },
+    { kind: "refund_tender", fatal: true, amountCents: 1605 },
+    { kind: "wait_gc_credit", fatal: true, target: "GC1" },
+    { kind: "adjust_gift_card_down", fatal: true, target: "GC1", amountCents: 1605 },
+    { kind: "neon_commit", fatal: true },
+  ];
+  const ROW_PAID = { ...ROW, dayofPaymentId: "PAY_DAYOF" };
+  const waitPlan = () => mkPlan(WAIT_STEPS, { diffCents: -1605, settlement: "card_refund" });
+  const req = () => ({
+    ...baseReq(waitPlan()),
+    dayofRefundReason: "Lane malfunction — comped 2 games",
+  });
+
+  beforeEach(() => {
+    process.env.RESERVATION_EDIT_V2_MID_DECREASE = "true";
+    vi.mocked(getBowlingReservation).mockResolvedValue(ROW_PAID as never);
+    depositFacts([{ paymentId: "PAY_DEP", amountCents: 20000 }]);
+    vi.mocked(fetchPaymentFacts).mockResolvedValue({
+      id: "PAY_DEP",
+      status: "COMPLETED",
+      amountCents: 20000,
+      refundedCents: 0,
+      sourceType: "CARD",
+    } as never);
+    vi.mocked(refundTenderPartial).mockResolvedValue({ refundId: "RF_X", refundedCents: 1605 });
+    vi.mocked(adjustGiftCardDown).mockResolvedValue(1605);
+    // Defaults per test — mockResolvedValue survives clearAllMocks.
+    vi.mocked(waitForRefundCredit).mockResolvedValue({ settled: true, status: "COMPLETED" });
+  });
+  afterEach(() => {
+    delete process.env.RESERVATION_EDIT_V2_MID_DECREASE;
+  });
+
+  it("waits for the credit BEFORE decrementing the gift card", async () => {
+    const order: string[] = [];
+    vi.mocked(waitForRefundCredit).mockImplementation(async () => {
+      order.push("wait");
+      return { settled: true, status: "COMPLETED" };
+    });
+    vi.mocked(adjustGiftCardDown).mockImplementation(async () => {
+      order.push("decrement");
+      return 1605;
+    });
+
+    const result = await executeEditCascade(req());
+    expect(result.state).toBe("completed");
+    expect(order).toEqual(["wait", "decrement"]);
+  });
+
+  it("parks WITHOUT decrementing when the credit has not settled", async () => {
+    vi.mocked(waitForRefundCredit).mockResolvedValue({ settled: false, status: "PENDING" });
+
+    await expect(executeEditCascade(req())).rejects.toThrow(/has not credited the gift card/i);
+    expect(vi.mocked(adjustGiftCardDown)).not.toHaveBeenCalled();
+    // Money that DID move is recorded, so a resume can finish the job.
+    expect(vi.mocked(recordEditRefund)).toHaveBeenCalled();
+    expect(vi.mocked(finishEditEvent)).toHaveBeenCalledWith(
+      "edit-42-a1",
+      expect.objectContaining({ state: "failed" }),
+    );
+  });
+
+  it("treats a short decrement as fatal, never a green step", async () => {
+    // adjustGiftCardDown returns 0 when the balance is still stale.
+    vi.mocked(adjustGiftCardDown).mockResolvedValue(0);
+    await expect(executeEditCascade(req())).rejects.toThrow(/decremented 0¢ of 1605¢/);
+  });
+
+  it("refuses to decrement at all when gift-card facts are unavailable", async () => {
+    // The planner only WARNS and drops the step when the card is unreadable —
+    // for a post-payment refund that is a silent double payout.
+    const plan = mkPlan(WAIT_STEPS, {
+      diffCents: -1605,
+      settlement: "card_refund",
+      giftCard: null,
+    });
+    await expect(
+      executeEditCascade({ ...baseReq(plan), dayofRefundReason: "Lane malfunction" }),
+    ).rejects.toThrow(/gift card facts unavailable/i);
   });
 });
