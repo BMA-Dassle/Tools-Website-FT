@@ -26,7 +26,7 @@
  * `images.remotePatterns`. Static v1; a CMS/config layer can replace this later
  * without touching components.
  */
-import type { CenterCode } from "~/features/booking";
+import type { Brand, CenterCode } from "~/features/booking";
 import type { MessageKey } from "./i18n";
 
 const BLOB_HOST = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
@@ -255,10 +255,18 @@ export function isMegaTuesdayToday(): boolean {
 /** The attract rotation for this kiosk's center (null = not provisioned yet;
  *  the Fort Myers set is a harmless placeholder behind the setup card).
  *  Called per render, so the Tuesday slide appears/retires on the attract
- *  loop's own re-render cadence — no reload needed across midnight. */
-export function kioskAdSlidesFor(center: CenterCode | null): KioskAdSlide[] {
+ *  loop's own re-render cadence — no reload needed across midnight.
+ *
+ *  `brand` gates the Mega Tuesday slide to FASTTRAX kiosks. The rotation is
+ *  keyed by CENTER, and both FM venues share center "fort-myers", so HeadPinz
+ *  Fort Myers was picking up a racing-only promo — complete with the red
+ *  "No first-time Junior racers" rule — on the one bank that also runs the
+ *  billboard, and the two fought over the same screen (owner 2026-07-28:
+ *  "mega slide looks messed up"). The everyday racing slide stays on HeadPinz:
+ *  that is ordinary cross-campus promotion. A dated promo with an operational
+ *  rule attached is not. Omit `brand` and nothing changes. */
+export function kioskAdSlidesFor(center: CenterCode | null, brand?: Brand): KioskAdSlide[] {
   if (center === "naples") return NAPLES_AD_SLIDES;
-  return isMegaTuesdayToday()
-    ? [MEGA_TUESDAY_SLIDE, ...FORT_MYERS_AD_SLIDES]
-    : FORT_MYERS_AD_SLIDES;
+  const megaToday = isMegaTuesdayToday() && brand !== "headpinz";
+  return megaToday ? [MEGA_TUESDAY_SLIDE, ...FORT_MYERS_AD_SLIDES] : FORT_MYERS_AD_SLIDES;
 }

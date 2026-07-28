@@ -10,7 +10,13 @@ import { kioskAdSlidesFor, KIOSK_VIDEOS } from "../assets";
 import { formatMessage } from "../i18n/format";
 import { fallbackMessage } from "../i18n/messages";
 import { parseKioskConfigFromSearchParams, resolveKioskConfig } from "../config";
-import { BILLBOARD_SLIDES, bankSize, billboardPhase } from "./billboard";
+import {
+  BILLBOARD_LEAD_MS,
+  BILLBOARD_SLIDES,
+  bankSize,
+  billboardPhase,
+  billboardStage,
+} from "./billboard";
 import { AD_ROTATE_MS, slidePlaysVideo, vehiclePhaseMs } from "./rotation";
 
 const VENUES = ["fort-myers", "naples"] as const;
@@ -158,6 +164,83 @@ describe("attract layout is per-device and defaults to headline", () => {
 
   it("an unknown value is ignored rather than blanking the screen", () => {
     expect(parseKioskConfigFromSearchParams({ attract: "banana" }).attractLayout).toBeUndefined();
+  });
+});
+
+describe("Mega Tuesday is a FastTrax promo, not a HeadPinz one", () => {
+  // Both FM venues share center "fort-myers", so a center-keyed rotation put a
+  // racing-only dated promo (with an operational junior-racer rule) on the
+  // HeadPinz bank — the one bank that also runs the billboard.
+  const isMega = kioskAdSlidesFor("fort-myers").some((s) => s.title.includes("Mega"));
+
+  it("HeadPinz Fort Myers never gets the Mega slide", () => {
+    expect(kioskAdSlidesFor("fort-myers", "headpinz").some((s) => s.title.includes("Mega"))).toBe(
+      false,
+    );
+  });
+
+  it("FastTrax still gets it, exactly as before", () => {
+    expect(kioskAdSlidesFor("fort-myers", "fasttrax").some((s) => s.title.includes("Mega"))).toBe(
+      isMega,
+    );
+    // Omitting brand must not change today's behaviour for existing callers.
+    expect(kioskAdSlidesFor("fort-myers").length).toBe(
+      kioskAdSlidesFor("fort-myers", "fasttrax").length,
+    );
+  });
+
+  it("everyday racing cross-promo stays on HeadPinz", () => {
+    // Only the DATED promo is gated; "Racing starts here" is fine on the
+    // shared campus and must not disappear with it.
+    expect(
+      kioskAdSlidesFor("fort-myers", "headpinz").some((s) => s.title.startsWith("Racing")),
+    ).toBe(true);
+  });
+});
+
+describe("billboard: curtain up together, words one by one", () => {
+  const count = bankSize("HPFM");
+  const at = (t: number, p: number) => billboardStage(t, p, count);
+
+  it("every screen cuts to its image at the same instant", () => {
+    // The ragged look came from each screen changing picture a second apart.
+    for (let p = 0; p < count; p++) {
+      expect(at(0, p).image, `screen ${p} did not raise the curtain at t=0`).toBe(true);
+      expect(at(0, p).word, `screen ${p} lit its word during the lead-in`).toBe(false);
+    }
+  });
+
+  it("words then light one at a time, left to right", () => {
+    for (let p = 0; p < count; p++) {
+      const mine = BILLBOARD_LEAD_MS + p * 1000;
+      expect(at(mine, p).word, `screen ${p} missed its slot`).toBe(true);
+      if (p > 0) expect(at(mine - 1, p).word, `screen ${p} lit early`).toBe(false);
+      // ...and a screen further right has not lit yet at this instant.
+      if (p + 1 < count) expect(at(mine, p + 1).word).toBe(false);
+    }
+  });
+
+  it("the image is up the whole time the show runs", () => {
+    const finaleEnd = BILLBOARD_LEAD_MS + count * 1000 + 2200 + 3800;
+    for (let t = 0; t < finaleEnd; t += 250) {
+      for (let p = 0; p < count; p++) expect(at(t, p).image, `gap at t=${t}`).toBe(true);
+    }
+  });
+
+  it("the bank shares the finale, then the curtain drops everywhere at once", () => {
+    const finaleStart = BILLBOARD_LEAD_MS + count * 1000 + 2200;
+    const finaleEnd = finaleStart + 3800;
+    for (let p = 0; p < count; p++) {
+      expect(at(finaleStart, p).finale).toBe(true);
+      expect(at(finaleStart, p).word).toBe(false); // activity words clear first
+      expect(at(finaleEnd, p)).toEqual({ image: false, word: false, finale: false });
+    }
+  });
+
+  it("the whole show fits inside one cycle, with quiet after it", () => {
+    const finaleEnd = BILLBOARD_LEAD_MS + count * 1000 + 2200 + 3800;
+    expect(finaleEnd).toBeLessThan(40_000);
+    expect(at(finaleEnd + 1000, 0).image).toBe(false);
   });
 });
 

@@ -77,7 +77,7 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
     pollMs: ATTRACT_POLL_MS,
   }).available("race-bowl");
   // Center-scoped rotation — Naples never advertises karting.
-  const adSlides = kioskAdSlidesFor(config?.center ?? null);
+  const adSlides = kioskAdSlidesFor(config?.center ?? null, config?.brand);
 
   // Self-heal the attract photos (backdrop + rotating ad slides) if a flaky-WiFi
   // fetch fails — they're CSS background-images, which never retry on their own,

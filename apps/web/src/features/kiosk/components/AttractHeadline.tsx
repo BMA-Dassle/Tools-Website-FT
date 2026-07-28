@@ -45,8 +45,8 @@ import {
   BILLBOARD_SLIDES,
   bankPosition,
   bankSize,
-  billboardPhase,
-  type BillboardPhase,
+  billboardStage,
+  type BillboardStage,
 } from "../attract/billboard";
 import { slidePlaysVideo, vehiclePhaseMs } from "../attract/rotation";
 import { KIOSK_PHOTOS, KIOSK_VIDEOS, type KioskAdSlide } from "../assets";
@@ -137,23 +137,29 @@ export function AttractHeadline({
   const position = bankPosition(venue, config.kioskNumber ?? 1);
   const phaseMs = vehiclePhaseMs(position, bankSize(venue), config.kioskNumber ?? 1);
 
-  const phase = useBillboardPhase(config, position, offset);
+  const stage = useBillboardStage(config, position, offset);
   const bbSlides = BILLBOARD_SLIDES[venue];
   const bbSlide =
     position != null && bbSlides.length ? bbSlides[Math.min(position, bbSlides.length - 1)] : null;
-  const showing: BillboardPhase = bbSlide ? phase : "idle";
-  const finale = showing === "finale";
-  const activity = showing === "activity";
-  const onShow = activity || finale;
+  // The curtain is up on this screen (solid billboard image, all screens
+  // together); the word may or may not have arrived yet.
+  const onShow = !!bbSlide && stage.image;
+  const finale = !!bbSlide && stage.finale;
+  const wordUp = !!bbSlide && stage.word;
 
   // The headline slot is shared: the rotation owns it when idle, the billboard
   // owns it during the show. One element either way — that is the whole point.
+  // During the lead-in the slot is EMPTY: the image has changed but this
+  // screen's word has not lit yet, and leaving "Let's bowl." sitting on a
+  // billboard photo is exactly the mismatch the show is meant to avoid.
   const headline = finale
     ? t("attract.billboard.allRightHere")
-    : activity && bbSlide
+    : wordUp && bbSlide
       ? t(bbSlide.word)
-      : t(slide.headline);
-  const accent = finale ? "#00e2e5" : activity && bbSlide ? bbSlide.accent : slide.accent;
+      : onShow
+        ? ""
+        : t(slide.headline);
+  const accent = finale ? "#00e2e5" : wordUp && bbSlide ? bbSlide.accent : slide.accent;
 
   const headlineRef = useFitOneLine(headline);
 
@@ -355,8 +361,13 @@ export function AttractHeadline({
         />
 
         {/* The vehicle crosses THROUGH the word, so the lane is the headline's
-            own box. Parked at left:100% and clipped by the canvas, it is
-            invisible except during its ~2s crossing. */}
+            own box.
+            PARKED AT calc(100% + 64px), NOT left-full: the lane lives inside
+            the hero's 64px side padding, so left:100% is x=1016 on a 1080
+            canvas — 64px of the vehicle sat permanently visible at the right
+            edge, then lurched into motion. The extra 64px pushes the park
+            position out to the canvas edge so it is genuinely hidden until it
+            crosses. */}
         <span ref={laneRef} className="relative grid w-full place-items-center">
           <span
             ref={headlineRef}
@@ -400,7 +411,7 @@ export function AttractHeadline({
               // -translate-y-1/2 the car dropped half its height below the
               // line and read as "the car isn't working".
               style={{ marginTop: -48 }}
-              className="kiosk-racecar pointer-events-none absolute left-full top-1/2 h-[96px] w-auto max-w-none"
+              className="kiosk-racecar pointer-events-none absolute left-[calc(100%+64px)] top-1/2 h-[96px] w-auto max-w-none"
             />
           )}
           {vehicle === "ball" && (
@@ -409,7 +420,7 @@ export function AttractHeadline({
               data-glow-phase-ms={phaseMs}
               // Same transform collision as the car above (sprite is 84px).
               style={{ marginTop: -42 }}
-              className="kiosk-bowlball pointer-events-none absolute left-full top-1/2"
+              className="kiosk-bowlball pointer-events-none absolute left-[calc(100%+64px)] top-1/2"
             >
               <span className="kiosk-bowlball-sprite" />
             </span>
@@ -463,31 +474,33 @@ export function AttractHeadline({
  * here at all — wrong brand, flag off, or a kiosk that isn't in the bank map
  * (owner 2026-07-26: unmapped kiosks sit the choreography out).
  */
-function useBillboardPhase(
+function useBillboardStage(
   config: KioskConfig,
   position: number | null,
   offset: number,
-): BillboardPhase {
+): BillboardStage {
   const venue = venueSlug(config);
   const enabled = config.brand === "headpinz" && kioskBillboardEnabled(venue) && position != null;
   const count = bankSize(venue);
-  const [phase, setPhase] = useState<BillboardPhase>("idle");
+  const [stage, setStage] = useState<BillboardStage>(OFF_STAGE);
 
   useEffect(() => {
-    // No setState on the disabled path — the return below DERIVES idle instead,
-    // so a kiosk that leaves the bank can never be stranded mid-show by a
-    // phase we forgot to clear (and no cascading render on mount).
+    // No setState on the disabled path — the return below DERIVES the off
+    // state instead, so a kiosk that leaves the bank can never be stranded
+    // mid-show by a stage we forgot to clear (and no cascading render).
     if (!enabled || position == null) return;
-    const tick = () => setPhase(billboardPhase(Date.now() + offset, position, count));
+    const tick = () => setStage(billboardStage(Date.now() + offset, position, count));
     tick();
-    // 200ms poll keeps the phase honest across clock resyncs; the CSS
+    // 200ms poll keeps the stage honest across clock resyncs; the CSS
     // transitions smooth the edges, so cadence jitter is invisible.
     const iv = setInterval(tick, 200);
     return () => clearInterval(iv);
   }, [enabled, position, count, offset]);
 
-  return enabled ? phase : "idle";
+  return enabled ? stage : OFF_STAGE;
 }
+
+const OFF_STAGE: BillboardStage = { image: false, word: false, finale: false };
 
 /**
  * Force the headline onto ONE line by measuring, not by trusting the copy.

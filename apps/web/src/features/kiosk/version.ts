@@ -15,6 +15,20 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.10.2 — attract fixes. (1) The car and ball sat 64px INTO view, parked at
+ *         the right edge, then lurched off — the lane lives inside the hero's
+ *         64px padding, so left:100% is x=1016 on a 1080 canvas. Parked at the
+ *         canvas edge now, so they are genuinely hidden until they cross.
+ *         (2) The billboard raised its curtain raggedly: each screen swapped
+ *         PICTURE on its own staggered beat, so five screens changed a second
+ *         apart and read as five glitches rather than one sign. Now every
+ *         screen cuts to its solid image TOGETHER and only the WORDS travel
+ *         down the row, one per second, before the shared closing line.
+ *         (3) Mega Tuesday no longer appears on HeadPinz Fort Myers: both FM
+ *         venues share one center code, so a racing-only dated promo (with an
+ *         operational junior-racer rule) was landing on the one bank that also
+ *         runs the billboard, and the two fought over the same screen.
+ *         Everyday racing cross-promo stays.
  * 1.10.1 — attract footer tidy: the venue name ("Fort Myers" / "Naples") is
  *         gone from the headline layout — a guest at the kiosk knows which
  *         building they are standing in, and it crowded the language switcher
@@ -167,7 +181,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.10.1";
+export const KIOSK_VERSION = "1.10.2";
 
 let bootVersion: string | null = null;
 let captured = false;
