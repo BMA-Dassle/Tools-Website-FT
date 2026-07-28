@@ -19,6 +19,15 @@ export const en = {
   "attract.letsBowl": "Let’s bowl.",
   "attract.letsRace": "Let’s race.",
   "attract.letsParty": "Let’s party.",
+  // Headline layout only: the "Let's …" line is driven by the AD SLIDE, so it
+  // needs one phrase per slide rather than the free-running welcome rotation.
+  // Rendered at 150px and measured down to one line — a long translation
+  // shrinks rather than wrapping (see fitOneLine in AttractHeadline).
+  "attract.letsBlast": "Let’s blast.",
+  "attract.letsGoMega": "Let’s go Mega.",
+  // Replaces the "Touch to get started" pill. The whole screen is the tap
+  // target, so this labels the gesture instead of faking a control.
+  "attract.touchAnywhereToStart": "Touch anywhere to start",
   // Bank billboard (AttractBillboard) — \n is a hard line break on the big
   // neon word (rendered whitespace-pre-line).
   "attract.billboard.bowling": "Bowling",

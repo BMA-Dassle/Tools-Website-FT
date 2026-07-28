@@ -30,8 +30,9 @@ import {
   kioskBillboardEnabled,
   kioskWelcomeRotateEnabled,
 } from "../flags";
-import { bankPosition } from "../attract/billboard";
+import { bankPosition, BILLBOARD_SLIDES } from "../attract/billboard";
 import { AttractBillboard } from "./AttractBillboard";
+import { AttractHeadline } from "./AttractHeadline";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { useKioskConfig } from "../KioskConfigContext";
 import { useT, LanguageSwitcher } from "../i18n";
@@ -84,6 +85,11 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
     KIOSK_PHOTOS.bowl,
     KIOSK_PHOTOS.race,
     ...adSlides.map((s) => s.photo),
+    // The race car is an <img> in the headline layout (it crosses the word),
+    // and the billboard photos are rendered by AttractHeadline rather than by
+    // AttractBillboard there — so both need healing from THIS list too.
+    KIOSK_PHOTOS.raceCar,
+    ...(config ? BILLBOARD_SLIDES[venueSlug(config)].map((s) => s.photo) : []),
   ]);
 
   // Boot source-of-truth rule (owner 2026-07-21): NEON is authoritative
@@ -225,6 +231,9 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   // per-screen scenery, unlike the bank-wide billboard, which excludes it).
   const bankPos = bankPosition(venueSlug(config), config.kioskNumber ?? 1);
   const carPhaseMs = ((bankPos ?? (config.kioskNumber ?? 1) - 1) % 4) * 2000;
+  // Per-device attract layout; "headline" is the default for a config that
+  // predates the field (resolveKioskConfig backfills it on read).
+  const attractLayout = config.attractLayout ?? "headline";
   const start = (goto?: string) => {
     // Kiosk funnel top: a guest engaged the attract screen. The entry tag says
     // which chip (or "all" for a plain touch) so conversions trace to it.
@@ -256,159 +265,183 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
         className="absolute left-0 top-0 z-30 h-[120px] w-[120px] opacity-0"
       />
       {bootInfo && <BootInfoOverlay config={bootInfo} onDismiss={() => setBootInfo(null)} />}
-      {/* Cinematic backdrop — photo + navy scrim + red glow + light sweep */}
-      <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
-        {/* HeadPinz is a bowling brand (FM + Naples) — its attract backdrop is
-            the lanes; FastTrax leads with the track. */}
-        <div
-          className="kiosk-kenburns absolute -inset-[6%] bg-cover bg-center"
-          style={{
-            backgroundImage: `url(${resolvePhoto(config.brand === "headpinz" ? KIOSK_PHOTOS.bowl : KIOSK_PHOTOS.race)})`,
-          }}
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#000418] from-[8%] via-[#020a22]/80 to-[#040e2c]/60" />
-        <div className="absolute inset-0 bg-[radial-gradient(60%_40%_at_78%_22%,rgba(229,57,53,0.28),transparent_65%),radial-gradient(55%_42%_at_18%_80%,rgba(0,226,229,0.22),transparent_62%)]" />
-        <div className="kiosk-sweep absolute inset-0" />
-      </div>
 
-      {/* Ad zone — top 480px, display only (a tap anywhere still starts).
+      {/* Attract layout (per-device, owner 2026-07-28). "headline" is the
+          default: no ad zone, no primary button, video backdrop, and the
+          billboard drives the headline instead of overlaying the screen.
+          "adzone" is the previous layout, kept verbatim below. */}
+      {attractLayout === "headline" ? (
+        <AttractHeadline
+          config={config}
+          slide={ad}
+          slides={adSlides}
+          index={adIndex % adSlides.length}
+          offset={offset}
+          vipAvailable={vipAvailable}
+          resolvePhoto={resolvePhoto}
+          onStart={start}
+        />
+      ) : (
+        <>
+          {/* Cinematic backdrop — photo + navy scrim + red glow + light sweep */}
+          <div className="absolute inset-0 overflow-hidden" aria-hidden="true">
+            {/* HeadPinz is a bowling brand (FM + Naples) — its attract backdrop is
+            the lanes; FastTrax leads with the track. */}
+            <div
+              className="kiosk-kenburns absolute -inset-[6%] bg-cover bg-center"
+              style={{
+                backgroundImage: `url(${resolvePhoto(config.brand === "headpinz" ? KIOSK_PHOTOS.bowl : KIOSK_PHOTOS.race)})`,
+              }}
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#000418] from-[8%] via-[#020a22]/80 to-[#040e2c]/60" />
+            <div className="absolute inset-0 bg-[radial-gradient(60%_40%_at_78%_22%,rgba(229,57,53,0.28),transparent_65%),radial-gradient(55%_42%_at_18%_80%,rgba(0,226,229,0.22),transparent_62%)]" />
+            <div className="kiosk-sweep absolute inset-0" />
+          </div>
+
+          {/* Ad zone — top 480px, display only (a tap anywhere still starts).
           v2 "doors" (owner 2026-07-21): centered neon "<X> STARTS HERE"
           headline + "TOUCH ANYWHERE …" marquee banner riding the car lane.
           The slide accent drives the tube glow, banner border, beacon dots,
           and accent text. No pips, no sub-copy — sign + banner make one
           sentence. */}
-      <button
-        type="button"
-        onClick={() => start()}
-        className="relative z-10 h-[480px] w-full shrink-0 cursor-pointer overflow-hidden border-b border-white/10 text-left"
-        aria-label="Start booking"
-      >
-        <div
-          className="absolute inset-0 bg-cover bg-center opacity-90 [filter:saturate(0.78)_brightness(0.82)]"
-          style={{ backgroundImage: `url(${resolvePhoto(ad.photo)})` }}
-        />
-        {/* Darker scrim than v1 — the neon headline needs the extra ground. */}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#000418]/95 via-[#020a1e]/80 to-[#040a24]/70" />
-        <NeonAdTitle title={ad.title} accent={ad.accent} />
-        {/* Red standout line above the headline (Mega Tuesday junior rule) —
+          <button
+            type="button"
+            onClick={() => start()}
+            className="relative z-10 h-[480px] w-full shrink-0 cursor-pointer overflow-hidden border-b border-white/10 text-left"
+            aria-label="Start booking"
+          >
+            <div
+              className="absolute inset-0 bg-cover bg-center opacity-90 [filter:saturate(0.78)_brightness(0.82)]"
+              style={{ backgroundImage: `url(${resolvePhoto(ad.photo)})` }}
+            />
+            {/* Darker scrim than v1 — the neon headline needs the extra ground. */}
+            <div className="absolute inset-0 bg-gradient-to-t from-[#000418]/95 via-[#020a1e]/80 to-[#040a24]/70" />
+            <NeonAdTitle title={ad.title} accent={ad.accent} />
+            {/* Red standout line above the headline (Mega Tuesday junior rule) —
             always red, independent of the slide accent. bottom-[310px] clears
             the headline, which renders TWO lines tall in practice (title top
             ≈ 272px from the zone bottom) despite NeonAdTitle's nowrap intent —
             228px overlapped it (owner screenshot 2026-07-21). */}
-        {ad.notice && (
-          <div className="absolute bottom-[310px] left-1/2 -translate-x-1/2">
-            <div className="whitespace-nowrap rounded-full border-2 border-[#e53935] bg-[rgba(0,4,24,0.82)] px-[30px] py-[12px] text-[30px] font-bold text-[#ff5a52] shadow-[0_0_28px_rgba(229,57,53,0.45)]">
-              {ad.notice}
-            </div>
-          </div>
-        )}
-        {/* Marquee banner on the bottom 100px — the strip the car crosses. */}
-        <div
-          className="absolute inset-x-0 bottom-0 flex h-[100px] items-center justify-center gap-[26px] overflow-hidden border-t-[3px] shadow-[0_-12px_44px_rgba(0,0,0,0.45)]"
-          style={{
-            borderColor: ad.accent,
-            backgroundImage: `linear-gradient(90deg, ${withAlpha(ad.accent, 0.16)}, rgba(0,4,24,0.88) 45%, rgba(0,4,24,0.88) 55%, ${withAlpha(ad.accent, 0.16)})`,
-            backgroundColor: "rgba(0,4,24,0.82)",
-          }}
-        >
-          <span className="kiosk-ad-sheen absolute inset-0" aria-hidden="true" />
-          <BannerDot accent={ad.accent} />
-          {/* FastTrax: the text rattles while the car drives over it — same 8s
+            {ad.notice && (
+              <div className="absolute bottom-[310px] left-1/2 -translate-x-1/2">
+                <div className="whitespace-nowrap rounded-full border-2 border-[#e53935] bg-[rgba(0,4,24,0.82)] px-[30px] py-[12px] text-[30px] font-bold text-[#ff5a52] shadow-[0_0_28px_rgba(229,57,53,0.45)]">
+                  {ad.notice}
+                </div>
+              </div>
+            )}
+            {/* Marquee banner on the bottom 100px — the strip the car crosses. */}
+            <div
+              className="absolute inset-x-0 bottom-0 flex h-[100px] items-center justify-center gap-[26px] overflow-hidden border-t-[3px] shadow-[0_-12px_44px_rgba(0,0,0,0.45)]"
+              style={{
+                borderColor: ad.accent,
+                backgroundImage: `linear-gradient(90deg, ${withAlpha(ad.accent, 0.16)}, rgba(0,4,24,0.88) 45%, rgba(0,4,24,0.88) 55%, ${withAlpha(ad.accent, 0.16)})`,
+                backgroundColor: "rgba(0,4,24,0.82)",
+              }}
+            >
+              <span className="kiosk-ad-sheen absolute inset-0" aria-hidden="true" />
+              <BannerDot accent={ad.accent} />
+              {/* FastTrax: the text rattles while the car drives over it — same 8s
               cycle AND the same per-kiosk stagger as the car, so the rumble
               tracks this kiosk's own crossing, not the bank's. */}
-          {/* Both brands now run a banner crossing (FT car / HP ball), so the
+              {/* Both brands now run a banner crossing (FT car / HP ball), so the
               rumble tracks this kiosk's own crossing on either brand. */}
-          <div className="k-display kiosk-ad-rumble text-[42px]" data-glow-phase-ms={carPhaseMs}>
-            {t("attract.touchAnywhere")} <span style={{ color: ad.accent }}>{ad.bannerAction}</span>
-          </div>
-          <BannerDot accent={ad.accent} />
-        </div>
-        {/* FastTrax only: the race car drives ALONG the banner (rendered after
+              <div
+                className="k-display kiosk-ad-rumble text-[42px]"
+                data-glow-phase-ms={carPhaseMs}
+              >
+                {t("attract.touchAnywhere")}{" "}
+                <span style={{ color: ad.accent }}>{ad.bannerAction}</span>
+              </div>
+              <BannerDot accent={ad.accent} />
+            </div>
+            {/* FastTrax only: the race car drives ALONG the banner (rendered after
             it → on top, like it's the road) once per slide. Clock-locked like
             the other glow fx, but STAGGERED per kioskNumber so the bank of
             kiosks hands the car off screen-to-screen, highest number → lowest
             (right to left, matching the physical lineup): each kiosk starts
             its 2s crossing 2s after the next-higher one. 4 crossings fill the
             8s cycle, so numbers wrap mod 4 if there are ever >4. */}
-        {config.brand === "fasttrax" && (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
-            src={KIOSK_PHOTOS.raceCar}
-            alt=""
-            aria-hidden="true"
-            draggable={false}
-            data-glow-phase-ms={carPhaseMs}
-            className="kiosk-racecar pointer-events-none absolute bottom-[8px] left-full h-[90px] w-auto max-w-none"
-          />
-        )}
-        {/* HeadPinz: the bowling ball rolls the banner — the brand's mirror of
+            {config.brand === "fasttrax" && (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={KIOSK_PHOTOS.raceCar}
+                alt=""
+                aria-hidden="true"
+                draggable={false}
+                data-glow-phase-ms={carPhaseMs}
+                className="kiosk-racecar pointer-events-none absolute bottom-[8px] left-full h-[90px] w-auto max-w-none"
+              />
+            )}
+            {/* HeadPinz: the bowling ball rolls the banner — the brand's mirror of
             the FastTrax car (owner 2026-07-26). Outer span translates on the
             shared clock with the same per-kiosk stagger; inner sprite spins. */}
-        {config.brand === "headpinz" && (
-          <span
-            aria-hidden="true"
-            data-glow-phase-ms={carPhaseMs}
-            className="kiosk-bowlball pointer-events-none absolute bottom-[8px] left-full"
-          >
-            <span className="kiosk-bowlball-sprite" />
-          </span>
-        )}
-      </button>
+            {config.brand === "headpinz" && (
+              <span
+                aria-hidden="true"
+                data-glow-phase-ms={carPhaseMs}
+                className="kiosk-bowlball pointer-events-none absolute bottom-[8px] left-full"
+              >
+                <span className="kiosk-bowlball-sprite" />
+              </span>
+            )}
+          </button>
 
-      {/* Welcome zone */}
-      <button
-        type="button"
-        onClick={() => start()}
-        className="relative z-10 flex flex-1 cursor-pointer flex-col items-center justify-center gap-[56px] px-[64px] text-center"
-        aria-label="Touch to get started"
-      >
-        <BrandLogo
-          brand={config.brand}
-          alt={config.brand === "headpinz" ? "HeadPinz" : "FastTrax"}
-          className="h-[220px] w-auto object-contain [filter:drop-shadow(0_0_34px_rgba(0,226,229,0.35))]"
-          fallbackClassName="k-display text-[120px] leading-none text-white [filter:drop-shadow(0_0_34px_rgba(0,226,229,0.35))]"
-        />
-        <RotatingWelcome brand={config.brand} offset={offset} />
-        <div className="max-w-[24ch] text-[34px] text-white/60">
-          {config.center === "naples"
-            ? t("attract.subtitle.bowling")
-            : t("attract.subtitle.racing")}
-        </div>
-        <span className="kiosk-pulse k-display grid h-[150px] w-full max-w-[80%] place-items-center rounded-full bg-[#00e2e5] text-[44px] tracking-wide text-[#04252b]">
-          {t("attract.touchToStart")}
-        </span>
-        {/* 2-col grid kept for the hidden "Race now" / "Bowl now" pair; the
+          {/* Welcome zone */}
+          <button
+            type="button"
+            onClick={() => start()}
+            className="relative z-10 flex flex-1 cursor-pointer flex-col items-center justify-center gap-[56px] px-[64px] text-center"
+            aria-label="Touch to get started"
+          >
+            <BrandLogo
+              brand={config.brand}
+              alt={config.brand === "headpinz" ? "HeadPinz" : "FastTrax"}
+              className="h-[220px] w-auto object-contain [filter:drop-shadow(0_0_34px_rgba(0,226,229,0.35))]"
+              fallbackClassName="k-display text-[120px] leading-none text-white [filter:drop-shadow(0_0_34px_rgba(0,226,229,0.35))]"
+            />
+            <RotatingWelcome brand={config.brand} offset={offset} />
+            <div className="max-w-[24ch] text-[34px] text-white/60">
+              {config.center === "naples"
+                ? t("attract.subtitle.bowling")
+                : t("attract.subtitle.racing")}
+            </div>
+            <span className="kiosk-pulse k-display grid h-[150px] w-full max-w-[80%] place-items-center rounded-full bg-[#00e2e5] text-[44px] tracking-wide text-[#04252b]">
+              {t("attract.touchToStart")}
+            </span>
+            {/* 2-col grid kept for the hidden "Race now" / "Bowl now" pair; the
             remaining chips span both columns so nothing sits orphaned at
             half-width. */}
-        <span className="grid w-full max-w-[720px] grid-cols-2 gap-[16px]">
-          {/* "Race now" / "Bowl now" HIDDEN for now (owner 2026-07-18: "just
+            <span className="grid w-full max-w-[720px] grid-cols-2 gap-[16px]">
+              {/* "Race now" / "Bowl now" HIDDEN for now (owner 2026-07-18: "just
               hide, might come back later") — restore by uncommenting:
           <QuickChip label="Race now" onClick={() => start("race")} />
           <QuickChip label="Bowl now" onClick={() => start("bowl")} /> */}
-          {/* "See everything" REMOVED (owner 2026-07-19) — the category chooser
+              {/* "See everything" REMOVED (owner 2026-07-19) — the category chooser
               is still reachable via "Touch to get started" / any tap. */}
-          <span className="col-span-2">
-            <QuickChip
-              label={t("attract.vipExperience")}
-              gold
-              disabled={!vipAvailable}
-              onClick={() => start("vip")}
-            />
-          </span>
-          {/* Standalone race packs (owner 2026-07-18) — FastTrax kiosks, a
+              <span className="col-span-2">
+                <QuickChip
+                  label={t("attract.vipExperience")}
+                  gold
+                  disabled={!vipAvailable}
+                  onClick={() => start("vip")}
+                />
+              </span>
+              {/* Standalone race packs (owner 2026-07-18) — FastTrax kiosks, a
               LOCKED pack-only purchase flow (KioskRacePackFlow). Full-width so
               the 2×2 grid never orphans a chip. Kill switch aware. */}
-          {kioskRacePacksEnabled() && config.brand === "fasttrax" && (
-            <span className="col-span-2">
-              <QuickChip
-                label={t("attract.racePacks", { price: "$49.99" })}
-                gold
-                onClick={() => start("packs")}
-              />
+              {kioskRacePacksEnabled() && config.brand === "fasttrax" && (
+                <span className="col-span-2">
+                  <QuickChip
+                    label={t("attract.racePacks", { price: "$49.99" })}
+                    gold
+                    onClick={() => start("packs")}
+                  />
+                </span>
+              )}
             </span>
-          )}
-        </span>
-      </button>
+          </button>
+        </>
+      )}
 
       {/* Online & group waiver entry — full-width bar above the footer band
           ("bottom of this screen", owner 2026-07-18). A "not booking"
@@ -496,13 +529,19 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           HPFM (owner 2026-07-26). pointer-events-none: taps fall through to
           the welcome zone and start a session normally. Rendered BEFORE the
           bottom strip so the brand gradient stays visible during the show. */}
-      {config.brand === "headpinz" && kioskBillboardEnabled(venueSlug(config)) && (
-        <AttractBillboard
-          venue={venueSlug(config)}
-          kioskNumber={config.kioskNumber ?? 1}
-          offset={offset}
-        />
-      )}
+      {/* AD-ZONE LAYOUT ONLY. The headline layout integrates the same
+          choreography directly (AttractHeadline drives its own headline and
+          backdrop off billboardPhase), so mounting this on top of it would
+          re-introduce the veil and the text-on-text bleed it exists to hide. */}
+      {attractLayout === "adzone" &&
+        config.brand === "headpinz" &&
+        kioskBillboardEnabled(venueSlug(config)) && (
+          <AttractBillboard
+            venue={venueSlug(config)}
+            kioskNumber={config.kioskNumber ?? 1}
+            offset={offset}
+          />
+        )}
 
       <div className="absolute bottom-0 left-0 right-0 z-20 h-[10px] bg-gradient-to-r from-[#e53935] via-white/60 to-[#00e2e5]" />
     </div>

@@ -250,6 +250,27 @@
   animation: kiosk-ad-rumble 8s linear infinite;
 }
 
+/* Headline attract layout (AttractHeadline): the drifting chevron under
+   "TOUCH ANYWHERE TO START". That layout has no cyan pill, so this is the only
+   affordance telling a guest the screen is live. Deliberately NOT added to
+   KIOSK_GLOW_PERIODS_MS — a breathing hint does not need to be frame-identical
+   across the bank, and leaving it free-running is one less duration to keep in
+   step with the sync table. */
+@keyframes kiosk-attract-chev {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.55;
+  }
+  50% {
+    transform: translateY(16px);
+    opacity: 1;
+  }
+}
+.kiosk-attract-chev {
+  animation: kiosk-attract-chev 2.4s ease-in-out infinite;
+}
+
 @keyframes kiosk-pulse {
   0%,
   100% {
@@ -364,6 +385,7 @@
   .kiosk-ad-sheen,
   .kiosk-ad-blink,
   .kiosk-ad-rumble,
+  .kiosk-attract-chev,
   .k-slot-card,
   .k-slot-glow {
     animation: none;

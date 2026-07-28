@@ -27,6 +27,7 @@
  * without touching components.
  */
 import type { CenterCode } from "~/features/booking";
+import type { MessageKey } from "./i18n";
 
 const BLOB_HOST = "https://wuce3at4k1appcmf.public.blob.vercel-storage.com";
 const OPT_WIDTH = 1200;
@@ -81,6 +82,29 @@ export const KIOSK_PHOTOS = {
   raceCar: photo("/images/kiosk/ft-race-car.webp"),
 } as const;
 
+/**
+ * Attract backdrop CLIPS (headline layout only).
+ *
+ * Served as RAW blob URLs, not through `photo()` — `/_next/image` is an image
+ * optimizer and will not transcode video. That matches every other <video> on
+ * the site (home Hero, BowlingWizard, the attractions pages), so these inherit
+ * the same caching behaviour the marketing pages already rely on.
+ *
+ * A slide with no entry here falls back to its still `photo` with ken-burns,
+ * which is a supported mix — the screen must never depend on a clip existing.
+ *
+ * ⚠ GEL: the Nexus montage (marketing drive, "Nexus Assets-June 2025 / Motion
+ * Graphics / _11_30SecMontage_Edit1_v1.mp4") is already cut 1080×1920 — native
+ * kiosk portrait — but is NOT on the blob yet. Upload it, add the key here, and
+ * the gel slide picks it up with no other change. Until then gel runs its still.
+ */
+export const KIOSK_VIDEOS = {
+  /** FastTrax kart reel — reused from the marketing home hero. */
+  race: `${BLOB_HOST}/images/hero/hero-video.mp4`,
+  bowl: `${BLOB_HOST}/videos/headpinz-bowling.mp4`,
+  arcade: `${BLOB_HOST}/videos/headpinz-arcade-v2.mp4`,
+} as const;
+
 /** Attract-screen ad rotation — v2 "doors" (owner 2026-07-21): every slide is
  *  a centered neon "<X> STARTS HERE" headline over the activity photo, with a
  *  "TOUCH ANYWHERE …" marquee banner riding the car lane. Replaced the v1
@@ -98,6 +122,24 @@ export interface KioskAdSlide {
   /** Optional RED standout line above the headline (owner 2026-07-21 — the
    *  Mega Tuesday junior rule). Always red regardless of the slide accent. */
   notice?: string;
+
+  /* ---- headline layout (config.attractLayout === "headline") -----------
+     There is no 480px ad zone in that layout, so the slide drives the
+     screen's OWN headline, backdrop and vehicle instead. Every field below
+     is ignored by the ad-zone layout, which is left unchanged. */
+
+  /** The "Let's …" line this slide puts in the headline slot, replacing the
+   *  free-running RotatingWelcome. An i18n key: Spanish lengths differ, so
+   *  the renderer measures the rendered string down to a single line. */
+  headline: MessageKey;
+  /** Backdrop clip key into KIOSK_VIDEOS. Absent = the still `photo` is used
+   *  with ken-burns, which is a supported mix (gel has no clip yet). */
+  video?: keyof typeof KIOSK_VIDEOS;
+  /** Which sprite crosses the headline on this slide, on the shared clock with
+   *  the same per-kiosk stagger the ad-zone banner uses. Only the activity's
+   *  OWN vehicle runs — the car races, the ball bowls, gel and Game Zone run
+   *  clean. (The ad zone instead runs one per BRAND on every slide.) */
+  vehicle?: "car" | "ball";
 }
 
 /** Fort Myers complex (FastTrax + HeadPinz share the campus). Gel is GREEN
@@ -109,24 +151,34 @@ const FORT_MYERS_AD_SLIDES: KioskAdSlide[] = [
     bannerAction: "to book",
     accent: "#e53935",
     photo: KIOSK_PHOTOS.race,
+    headline: "attract.letsRace",
+    video: "race",
+    vehicle: "car",
   },
   {
     title: "Bowling starts here",
     bannerAction: "to book",
     accent: "#00e2e5",
     photo: KIOSK_PHOTOS.bowl,
+    headline: "attract.letsBowl",
+    video: "bowl",
+    vehicle: "ball",
   },
   {
     title: "Gel blasters start here",
     bannerAction: "to book",
     accent: "#46d68c",
     photo: KIOSK_PHOTOS.gel,
+    headline: "attract.letsBlast",
+    // no `video` — the Nexus montage isn't on the blob yet (see KIOSK_VIDEOS)
   },
   {
     title: "Game Zone starts here",
     bannerAction: "to get started",
     accent: "#f0b341",
     photo: KIOSK_PHOTOS.arcade,
+    headline: "attract.letsPlay",
+    video: "arcade",
   },
 ];
 
@@ -138,18 +190,24 @@ const NAPLES_AD_SLIDES: KioskAdSlide[] = [
     bannerAction: "to book",
     accent: "#00e2e5",
     photo: KIOSK_PHOTOS.bowl,
+    headline: "attract.letsBowl",
+    video: "bowl",
+    vehicle: "ball",
   },
   {
     title: "Gel blasters start here",
     bannerAction: "to book",
     accent: "#46d68c",
     photo: KIOSK_PHOTOS.gel,
+    headline: "attract.letsBlast",
   },
   {
     title: "Game Zone starts here",
     bannerAction: "to get started",
     accent: "#f0b341",
     photo: KIOSK_PHOTOS.arcade,
+    headline: "attract.letsPlay",
+    video: "arcade",
   },
 ];
 
@@ -161,6 +219,11 @@ const MEGA_TUESDAY_SLIDE: KioskAdSlide = {
   accent: "#8652ff",
   photo: KIOSK_PHOTOS.race,
   notice: "No first-time Junior racers on Mega",
+  headline: "attract.letsGoMega",
+  // Reuses the kart reel: Mega IS racing, and it keeps the slide from being
+  // the only still one in an otherwise moving rotation.
+  video: "race",
+  vehicle: "car",
 };
 
 /** Center-local (America/New_York) Tuesday check — mirrors scheduleForDate's
