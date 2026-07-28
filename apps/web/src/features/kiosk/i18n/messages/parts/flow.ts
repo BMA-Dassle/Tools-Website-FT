@@ -3,7 +3,8 @@
  *  Continue, the signed-in banner, the exit-confirm sheet ("Remove it & go to
  *  main page"), the unracered + phone-sign-in sheets, the guest-assistance
  *  overlay, and the vendor-call loaders. Also the reused-web-step titles and
- *  `canAdvance` hint lines the shell renders on the step's behalf.
+ *  `canAdvance` hint lines the shell renders on the step's behalf, and the
+ *  height/age safety confirm the shell puts up before the race time picker.
  *
  *  Keys live under `flow.*` (plus `stepTitle.*` / `stepReason.*` for the two
  *  English→key lookup maps in KioskFlow — the core catalog owns the bowling
@@ -110,6 +111,34 @@ export const flowEn = {
   "flow.assist.help.body":
     "Stay right here — a team member is coming to assist you. Your booking is held exactly where you left it.",
   "flow.assist.clear": "All set — clear",
+
+  // --- Height & age safety confirm (HeightAgeConfirmModal) ---
+  // Shared with the web wizard, which supplies its own date-flow wording via the
+  // `subheading` / `confirmLabel` props; the kiosk passes the *Kiosk keys below
+  // (walk-up = always today, so it says "pick a time", not "pick a date").
+  //
+  // The requirement CLAUSES are one whole sentence per plural branch rather than
+  // a stem plus a spliced verb — Spanish has to agree across "tiene/tienen" and
+  // "mide/miden", which a shared stem can't express. The inch figures are the
+  // enforced rule and stay; the Spanish adds a metric restatement in the
+  // parenthetical the way the English restates 59" as 4'11".
+  "heightAge.aria": "Height and age confirmation",
+  "heightAge.title": "Confirm Height & Age",
+  "heightAge.subheading": "Please confirm each requirement below before picking a date.",
+  "heightAge.confirmDate": "Confirm & Pick a Date →",
+  "heightAge.subheadingKiosk":
+    "Quick safety check — confirm each requirement, then pick your race time.",
+  "heightAge.confirmContinue": "Confirm & continue →",
+  "heightAge.adults":
+    "{count, plural, one {I have 1 adult racer who is at least 13 years old and at least 59″ tall (4′11″)} other {I have # adult racers who are each at least 13 years old and at least 59″ tall (4′11″)}}",
+  "heightAge.juniors":
+    "{count, plural, one {I have 1 junior racer who is between ages 7–13 and between 49″ and 70″ tall} other {I have # junior racers who are each between ages 7–13 and between 49″ and 70″ tall}}",
+  "heightAge.notPermitted":
+    "I understand that racers who do not meet height or age requirements will not be permitted to race",
+  "heightAge.strictRules":
+    "FastTrax has strict age and height requirements, some enforceable by state regulations. Misrepresenting age may result in removal from the facility.",
+  "heightAge.checkAll": "Please check all boxes above to continue",
+  "heightAge.changeParty": "Change Party Size",
 
   // --- Live progress under a vendor call ---
   "flow.progress.reservingHeats": "Reserving your heats…",
@@ -279,6 +308,25 @@ export const flowEs: Record<keyof typeof flowEn, string> = {
   "flow.assist.help.body":
     "Quédate aquí — un miembro del equipo viene a ayudarte. Tu reservación queda exactamente donde la dejaste.",
   "flow.assist.clear": "Todo listo — cerrar",
+
+  // --- Height & age safety confirm ---
+  "heightAge.aria": "Confirmación de estatura y edad",
+  "heightAge.title": "Confirma estatura y edad",
+  "heightAge.subheading": "Confirma cada requisito de abajo antes de elegir una fecha.",
+  "heightAge.confirmDate": "Confirmar y elegir una fecha →",
+  "heightAge.subheadingKiosk":
+    "Chequeo rápido de seguridad — confirma cada requisito y luego elige tu hora de carrera.",
+  "heightAge.confirmContinue": "Confirmar y continuar →",
+  "heightAge.adults":
+    "{count, plural, one {Tengo 1 corredor adulto que tiene al menos 13 años y mide al menos 59 pulgadas (1.50 m)} other {Tengo # corredores adultos que tienen al menos 13 años y miden al menos 59 pulgadas (1.50 m)}}",
+  "heightAge.juniors":
+    "{count, plural, one {Tengo 1 corredor junior que tiene entre 7 y 13 años y mide entre 49 y 70 pulgadas (1.24 m y 1.78 m)} other {Tengo # corredores junior que tienen entre 7 y 13 años y miden entre 49 y 70 pulgadas (1.24 m y 1.78 m)}}",
+  "heightAge.notPermitted":
+    "Entiendo que los corredores que no cumplan con los requisitos de estatura o edad no podrán correr",
+  "heightAge.strictRules":
+    "FastTrax tiene requisitos estrictos de edad y estatura, algunos exigidos por regulaciones estatales. Declarar una edad falsa puede resultar en la expulsión de las instalaciones.",
+  "heightAge.checkAll": "Marca todas las casillas de arriba para continuar",
+  "heightAge.changeParty": "Cambiar el tamaño del grupo",
 
   // --- Live progress under a vendor call ---
   "flow.progress.reservingHeats": "Reservando tus mangas…",

@@ -2360,8 +2360,8 @@ export function KioskFlow({
           }
           juniors={session.party.filter((m) => m.category === "junior" && m.isNewRacer).length}
           // Kiosk = walk-up, always today — confirm requirements, then pick a TIME.
-          subheading="Quick safety check — confirm each requirement, then pick your race time."
-          confirmLabel="Confirm & continue →"
+          subheading={t("heightAge.subheadingKiosk")}
+          confirmLabel={t("heightAge.confirmContinue")}
           onConfirm={() => {
             setShowHeightConfirm(false);
             advanceToNextStep();

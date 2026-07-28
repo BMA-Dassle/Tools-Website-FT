@@ -15,6 +15,25 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.10.11 — the height & age safety confirm now speaks Spanish too.
+ *         1.10.10 left it English on purpose, reading its four disclaimers as
+ *         legal text needing the same attorney review as the ES waiver body.
+ *         Owner overruled that: it needs Spanish and does not need a lawyer. And
+ *         the call was right — it is the one screen where not understanding the
+ *         words is a safety problem, not an inconvenience: a Spanish-speaking
+ *         parent was ticking four English boxes attesting to their kids' age and
+ *         height.
+ *         The enforced FIGURES are untouched and a test now pins them in every
+ *         locale, so a future translation can't drift 13 / 59 / 7-13 / 49 / 70.
+ *         Spanish restates them in meters inside the same parenthetical the
+ *         English uses to restate 59" as 4'11".
+ *         Each requirement is one whole sentence PER PLURAL BRANCH, not a stem
+ *         plus a spliced verb — Spanish has to agree across tiene/tienen AND
+ *         mide/miden at once, which a shared stem can't express.
+ *         The inch/foot marks in the English are now true primes rather than an
+ *         ASCII apostrophe and quote: a bare ' is ICU's own escape character, so
+ *         `4'11"` risked swallowing the rest of the branch as a quoted literal.
+ *         Renders the same; a test asserts the glyphs survive formatting.
  * 1.10.10 — the attraction flow spoke English even in Spanish mode.
  *         The i18n pass converted the screens that had kiosk-NATIVE components;
  *         attractions are the one guest flow that still runs the web wizard's
@@ -329,7 +348,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.10.10";
+export const KIOSK_VERSION = "1.10.11";
 
 let bootVersion: string | null = null;
 let captured = false;

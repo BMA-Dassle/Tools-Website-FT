@@ -153,6 +153,52 @@ describe("flow catalog — the wizard shell (KioskFlow)", () => {
   });
 });
 
+describe("height & age safety confirm (HeightAgeConfirmModal)", () => {
+  it("agrees the verb with the racer count in both languages", () => {
+    expect(formatMessage("en", "heightAge.adults", { count: 1 })).toContain("1 adult racer who is");
+    expect(formatMessage("en", "heightAge.adults", { count: 2 })).toContain(
+      "2 adult racers who are each",
+    );
+    // Spanish has to agree across BOTH verbs (tiene/tienen + mide/miden), which
+    // is why each plural branch carries a whole sentence.
+    expect(formatMessage("es", "heightAge.adults", { count: 1 })).toContain("que tiene");
+    expect(formatMessage("es", "heightAge.adults", { count: 1 })).toContain("mide al menos");
+    expect(formatMessage("es", "heightAge.adults", { count: 3 })).toContain("que tienen");
+    expect(formatMessage("es", "heightAge.adults", { count: 3 })).toContain("miden al menos");
+  });
+
+  it("carries the SAME enforced figures in every locale — a translation must not drift them", () => {
+    for (const locale of KIOSK_LOCALES) {
+      const adults = formatMessage(locale, "heightAge.adults", { count: 2 });
+      expect(adults, `${locale} adult age`).toContain("13");
+      expect(adults, `${locale} adult height`).toContain("59");
+
+      const juniors = formatMessage(locale, "heightAge.juniors", { count: 2 });
+      expect(juniors, `${locale} junior ages`).toMatch(/7/);
+      expect(juniors, `${locale} junior min height`).toContain("49");
+      expect(juniors, `${locale} junior max height`).toContain("70");
+    }
+  });
+
+  it("renders the prime marks literally — ICU must not eat them as quotes", () => {
+    // 4′11″ uses PRIME characters, not an ASCII apostrophe: a bare ' is
+    // ICU's escape character, so `4'11"` risked swallowing the rest as a quoted
+    // literal. Assert the glyphs survive formatting.
+    const adults = formatMessage("en", "heightAge.adults", { count: 1 });
+    expect(adults).toContain("59″");
+    expect(adults).toContain("(4′11″)");
+    expect(adults).not.toContain("{");
+  });
+
+  it("localizes the modal chrome, including both CTA variants", () => {
+    expect(formatMessage("es", "heightAge.title")).toBe("Confirma estatura y edad");
+    expect(formatMessage("es", "heightAge.changeParty")).toBe("Cambiar el tamaño del grupo");
+    // Web (date flow) vs kiosk (walk-up, always today).
+    expect(formatMessage("es", "heightAge.confirmDate")).toContain("fecha");
+    expect(formatMessage("es", "heightAge.subheadingKiosk")).toContain("hora de carrera");
+  });
+});
+
 describe("attraction catalog — the reused-web steps", () => {
   it("localizes the contact form and the product page chrome", () => {
     expect(formatMessage("es", "contact.title")).toBe("Tus datos");

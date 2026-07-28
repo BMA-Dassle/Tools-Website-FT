@@ -2,14 +2,30 @@
 
 import { useEffect, useRef, useState } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
+import { useT } from "~/features/kiosk/i18n";
 
+/**
+ * The pre-race height/age safety confirm.
+ *
+ * Fully localized (owner 2026-07-28: this needs Spanish, and does NOT need the
+ * attorney review the waiver body is waiting on) — a Spanish-speaking guest was
+ * being asked to tick four English boxes attesting to their kids’ age and
+ * height, which is the one screen where not understanding the words is a safety
+ * problem rather than an inconvenience.
+ *
+ * Shared with the web wizard: `useT()` falls back to the default English locale
+ * when there is no LocaleProvider above it, so web renders exactly as before.
+ * The requirement figures are unchanged; the Spanish restates them in meters in
+ * the same parenthetical the English uses to restate 59″ as 4′11″.
+ */
 interface HeightAgeConfirmModalProps {
   adults: number;
   juniors: number;
   onConfirm: () => void;
   onChangeParty: () => void;
   /** Kiosk overrides the copy — it has no date step (always today), so it says
-   *  "pick a time" not "pick a date". Web keeps its defaults. */
+   *  "pick a time" not "pick a date" (`heightAge.subheadingKiosk` /
+   *  `heightAge.confirmContinue`). Omitted = the web date-flow defaults. */
   subheading?: string;
   confirmLabel?: string;
 }
@@ -19,26 +35,20 @@ export function HeightAgeConfirmModal({
   juniors,
   onConfirm,
   onChangeParty,
-  subheading = "Please confirm each requirement below before picking a date.",
-  confirmLabel = "Confirm & Pick a Date →",
+  subheading,
+  confirmLabel,
 }: HeightAgeConfirmModalProps) {
+  const t = useT();
+  // Resolved in the body, not as a default parameter — `t` doesn’t exist yet
+  // when default params are evaluated.
+  const subheadingText = subheading ?? t("heightAge.subheading");
+  const confirmText = confirmLabel ?? t("heightAge.confirmDate");
+
   const disclaimers: string[] = [];
-  if (adults > 0) {
-    disclaimers.push(
-      `I have ${adults} adult racer${adults !== 1 ? "s" : ""} who ${adults !== 1 ? "are each" : "is"} at least 13 years old and at least 59" tall (4'11")`,
-    );
-  }
-  if (juniors > 0) {
-    disclaimers.push(
-      `I have ${juniors} junior racer${juniors !== 1 ? "s" : ""} who ${juniors !== 1 ? "are each" : "is"} between ages 7–13 and between 49" and 70" tall`,
-    );
-  }
-  disclaimers.push(
-    "I understand that racers who do not meet height or age requirements will not be permitted to race",
-  );
-  disclaimers.push(
-    "FastTrax has strict age and height requirements, some enforceable by state regulations. Misrepresenting age may result in removal from the facility.",
-  );
+  if (adults > 0) disclaimers.push(t("heightAge.adults", { count: adults }));
+  if (juniors > 0) disclaimers.push(t("heightAge.juniors", { count: juniors }));
+  disclaimers.push(t("heightAge.notPermitted"));
+  disclaimers.push(t("heightAge.strictRules"));
 
   const [acks, setAcks] = useState<boolean[]>(() => disclaimers.map(() => false));
   const [showWarning, setShowWarning] = useState(false);
@@ -68,7 +78,7 @@ export function HeightAgeConfirmModal({
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
-      aria-label="Height and age confirmation"
+      aria-label={t("heightAge.aria")}
     >
       <div
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
@@ -77,8 +87,8 @@ export function HeightAgeConfirmModal({
 
       <div className="relative max-h-[80vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/15 bg-[#0a1628] shadow-2xl">
         <div className="p-5 sm:p-6">
-          <h2 className="mb-1 text-lg font-bold text-white">Confirm Height &amp; Age</h2>
-          <p className="mb-5 text-xs text-white/50">{subheading}</p>
+          <h2 className="mb-1 text-lg font-bold text-white">{t("heightAge.title")}</h2>
+          <p className="mb-5 text-xs text-white/50">{subheadingText}</p>
 
           <div className="space-y-3">
             {disclaimers.map((text, i) => (
@@ -130,7 +140,7 @@ export function HeightAgeConfirmModal({
               ref={warnRef}
               className="mt-3 animate-pulse text-center text-xs font-semibold text-red-400"
             >
-              Please check all boxes above to continue
+              {t("heightAge.checkAll")}
             </p>
           )}
 
@@ -140,14 +150,14 @@ export function HeightAgeConfirmModal({
               onClick={handleConfirm}
               className="flex-1 rounded-xl bg-[#00E2E5] px-6 py-3 text-sm font-bold text-[#000418] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {confirmLabel}
+              {confirmText}
             </button>
             <button
               type="button"
               onClick={onChangeParty}
               className="rounded-xl border border-white/15 px-6 py-3 text-sm font-semibold text-white/60 transition-colors hover:border-white/30 hover:text-white"
             >
-              Change Party Size
+              {t("heightAge.changeParty")}
             </button>
           </div>
         </div>
