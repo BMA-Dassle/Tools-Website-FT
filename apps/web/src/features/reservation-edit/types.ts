@@ -125,6 +125,8 @@ export type EditGuardCode =
   // is reserved for the deposit/cash leg (portal journal key).
   | "dayof_reason_required"
   | "dayof_reason_reserved"
+  // Whole-visit refund on a lane-open order — belongs to the cancel cascade.
+  | "full_refund_use_cancel"
   | "no_changes";
 
 /** Typed guard failure — routes map these to 409s with the code as reason. */

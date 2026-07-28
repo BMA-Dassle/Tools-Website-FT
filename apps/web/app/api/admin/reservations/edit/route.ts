@@ -18,6 +18,7 @@ const CONFLICT_CODES = new Set([
   "cancel_in_progress",
   "plan_stale",
   "post_complete_ack_required",
+  "full_refund_use_cancel",
 ]);
 
 /**

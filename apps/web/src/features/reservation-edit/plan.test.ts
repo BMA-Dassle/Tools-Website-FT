@@ -496,6 +496,42 @@ describe("buildEditPlan — phase gates", () => {
     expect(kinds).not.toContain("qamf_set_players"); // QAMF never touched post-complete
   });
 
+  it("post-complete DECREASE is money-only — no rebuild, no order-id swap", async () => {
+    // A frozen order's lines cannot change, so refunding an item does not need
+    // a replacement order. Rebuilding would swap square_dayof_order_id (which
+    // breaks the QBO race-catalog mapping), re-issue loyalty/discounts, and
+    // add refund noise for no gain.
+    world.order.state = "COMPLETED";
+    world.order.tenders = [{ paymentId: "PAY_GC", amount: 5000 }];
+    const row = mkRow({ status: "completed", dayofOrderSentAt: "2026-08-01T13:00:00Z" });
+    vi.mocked(getBowlingReservation).mockResolvedValue(row as never);
+    vi.mocked(listCancelGroupReservations).mockResolvedValue([row] as never);
+
+    const plan = await buildEditPlan({
+      neonId: 42,
+      spec: { playerCount: 1 },
+      managerOverride: true,
+    });
+    expect(plan.diffCents).toBeLessThan(0);
+    const kinds = plan.steps.map((s) => s.kind);
+    expect(kinds).toContain("refund_dayof_payment");
+    expect(kinds).toContain("refund_tender");
+    expect(kinds).not.toContain("refund_dayof_order");
+    expect(kinds).not.toContain("rebuild_dayof_order");
+    expect(kinds).not.toContain("pay_dayof_order");
+    // The async credit is still waited on before the decrement.
+    expect(kinds.indexOf("wait_gc_credit")).toBeLessThan(kinds.indexOf("adjust_gift_card_down"));
+  });
+
+  // NOTE: the whole-order-to-zero shapes (full_refund_use_cancel on MID, and
+  // the post-complete no-rebuild branch) are DEFENSIVE. A bowling row cannot
+  // reach newTotalCents === 0 through today's spec surface — the repricer
+  // requires a primary lane line, and that line is engine-owned so
+  // spec.orderLines cannot remove it. They are left in place because the
+  // branch is cheap and the failure mode (an OPEN order stranded at
+  // balance-due, invisible to bowling-order-complete forever) is expensive.
+  // Cover them for real when a product shape can actually produce a $0 order.
+
   it("mid-session (paid OPEN order) allows player edits but blocks lane changes", async () => {
     world.order.tenders = [{ paymentId: "PAY_GC", amount: 5000 }];
     const row = mkRow({ dayofOrderSentAt: "2026-08-01T13:00:00Z", status: "arrived" });

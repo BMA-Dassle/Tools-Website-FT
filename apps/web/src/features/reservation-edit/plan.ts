@@ -1420,6 +1420,18 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         amountCents: diffCents,
       });
     } else if (diffCents < 0) {
+      // Refunding the WHOLE of a lane-open order leaves it OPEN with a balance
+      // due: bowling-order-complete skips balance-due orders, so it would
+      // never close and never reach QuickBooks, and the cancel cascade refuses
+      // to cancel a tendered order. That end state has an owner — the cancel
+      // cascade — so route there instead of stranding the order here.
+      if (legs.every((l) => l.newTotalCents === 0)) {
+        throw new EditGuardError(
+          "full_refund_use_cancel",
+          "This refunds the entire visit. Use Cancel instead — it settles the money and closes " +
+            "the order properly; an edit would leave the day-of order open with a balance due.",
+        );
+      }
       // The day-of leg reverses everything the order was paid — including any
       // lane-open comp — so it moves gcDecrementCents.
       steps.push({
@@ -1469,12 +1481,29 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       message:
         "Day-of order already closed — QAMF and BMI will NOT be updated. Adjust Conqueror/BMI manually.",
     });
-    for (const leg of legs) {
-      if (leg.dayofOrderId) {
-        steps.push({ kind: "refund_dayof_order", fatal: true, target: leg.dayofOrderId });
+    // A COMPLETED order's lines are frozen, so a pure price DECREASE has two
+    // possible shapes:
+    //
+    //   money-only  — partial-refund the day-of payment, settle the guest,
+    //                 decrement the card. The order keeps its lines and the
+    //                 refund objects tell the story.
+    //   rebuild     — refund every tender in full, build a replacement order,
+    //                 repay it from the gift card, complete it.
+    //
+    // Money-only is preferred for item refunds: no order-id swap (which breaks
+    // the QBO race-catalog mapping), no re-issued loyalty/discounts, far less
+    // accounting noise, and the refund is visible on the original payment. The
+    // rebuild only earns its cost when the LINES genuinely have to change,
+    // which for a frozen order means an increase.
+    const linesMustChange = diffCents > 0;
+    const fullRefund = diffCents < 0 && legs.every((l) => l.newTotalCents === 0);
+
+    if (linesMustChange) {
+      for (const leg of legs) {
+        if (leg.dayofOrderId) {
+          steps.push({ kind: "refund_dayof_order", fatal: true, target: leg.dayofOrderId });
+        }
       }
-    }
-    if (diffCents > 0) {
       steps.push({ kind: "charge_topup", fatal: true, amountCents: diffCents });
       if (giftCard) {
         steps.push({
@@ -1484,15 +1513,27 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
           amountCents: diffCents,
         });
       }
+      for (const leg of legs) {
+        steps.push({ kind: "rebuild_dayof_order", fatal: true, amountCents: leg.newTotalCents });
+        steps.push({ kind: "pay_dayof_order", fatal: true, amountCents: leg.newTotalCents });
+        steps.push({ kind: "complete_dayof_order", fatal: true });
+      }
     } else if (diffCents < 0) {
+      // Money-only. Reverse the guest's share of the day-of payment rather
+      // than every tender, so nothing has to be rebuilt or repaid.
+      steps.push({
+        kind: "refund_dayof_payment",
+        fatal: true,
+        target: anchor.dayofPaymentId ?? undefined,
+        amountCents: gcDecrementCents,
+      });
       if (settlement === "store_credit") {
         steps.push({ kind: "issue_store_credit", fatal: true, amountCents: guestOwedCents });
       } else {
         steps.push({ kind: "refund_tender", fatal: true, amountCents: guestOwedCents });
       }
       if (giftCard) {
-        // refund_dayof_order above returned the full day-of tenders to this
-        // card asynchronously — wait for the credit before decrementing.
+        // The credit posts asynchronously — never decrement before it lands.
         steps.push({ kind: "wait_gc_credit", fatal: true, target: giftCard.id });
         steps.push({
           kind: "adjust_gift_card_down",
@@ -1501,11 +1542,19 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
           amountCents: gcDecrementCents,
         });
       }
-    }
-    for (const leg of legs) {
-      steps.push({ kind: "rebuild_dayof_order", fatal: true, amountCents: leg.newTotalCents });
-      steps.push({ kind: "pay_dayof_order", fatal: true, amountCents: leg.newTotalCents });
-      steps.push({ kind: "complete_dayof_order", fatal: true });
+      if (fullRefund) {
+        // Refunding everything on a closed order. A zero-line rebuild is
+        // meaningless, so emit no rebuild at all — the order stays COMPLETED
+        // carrying its refunds. The row must NOT become 'cancelled': the guest
+        // was here and the visit happened.
+        warnings.push({
+          severity: "warning",
+          code: "full_refund_no_rebuild",
+          message:
+            "Refunding the entire order. It stays closed with the refund attached and the " +
+            "reservation stays as-is — use Cancel instead if the booking should be voided.",
+        });
+      }
     }
     steps.push({ kind: "neon_commit", fatal: true });
     steps.push({ kind: "notify", fatal: false, detail: "teams_manager_alert" });
