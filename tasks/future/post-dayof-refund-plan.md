@@ -275,8 +275,8 @@ tests).
 | 3 | The `W` wait-for-credit executor + fatal-on-missing-GC + fatal short decrement | Unit tests | **DONE** `d9686933` |
 | 3b | Two-amount plan fields (`guestOwedCents` vs `gcDecrementCents`, §3) for gap-comped rows; correct the stale A1 comments in `service.ts` / `square-actions.ts` | Unit tests | **DONE** `da6e8d9d` |
 | 4 | Item-removal spec field (`spec.orderLines`) + modal picker + day-of reason input (§4.1) | Unit tests | **DONE** `a7b2c773` |
-| 5 | MID-decrease enable path: money-only COMPLETED variant, 100%-refund conditional omission, Payments/History surfacing (§7) | Tier-3 smoke | TODO |
-| 6 | Flag flip per the v2 cutover safety pattern — deploy alongside, ops sign-off, then default-on | Full §8 checklist | TODO |
+| 5 | Money-only COMPLETED variant, 100%-refund shapes, Payments/History surfacing (§7) | Tier-3 smoke | **DONE** `356f403b` |
+| 6 | Flag flip per the v2 cutover safety pattern — deploy alongside, ops sign-off, then default-on | Full §8 checklist | TODO — **the remaining work is §9 probes + the §8 Tier-3 smoke, not engineering** |
 
 Everything through PR3 is behavior-neutral while `RESERVATION_EDIT_V2_MID_DECREASE` and
 `RESERVATION_EDIT_V2_POST` stay off.
