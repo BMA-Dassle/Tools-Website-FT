@@ -177,6 +177,8 @@ const mkPlan = (steps: EditStep[], over: Partial<EditPlan> = {}): EditPlan => ({
     },
   ],
   diffCents: 4999,
+  guestOwedCents: 0,
+  gcDecrementCents: 0,
   settlement: "charge",
   chargeCard: { cardId: "ccof:CARD1", brand: "VISA", last4: "4242" },
   giftCard: { id: "GC1", gan: "WEBHPFM123", balanceCents: 5000, state: "ACTIVE" },

@@ -20,7 +20,12 @@ import {
   type BowlingSquareProduct,
 } from "@/lib/bowling-db";
 import { hasOpenEditEvent } from "@/lib/reservation-edit-log";
-import { fetchGiftCardFacts, sq } from "~/features/cancellation/square-actions";
+import {
+  fetchGiftCardFacts,
+  fetchOrderFacts,
+  fetchPaymentFacts,
+  sq,
+} from "~/features/cancellation/square-actions";
 import { resolveCenter } from "~/features/cancellation/centers";
 import { getComboSpecial, type ComboSpecial } from "~/features/combos/combo-specials";
 import { getRaceProductById, _allRaceProducts } from "~/features/booking/service/race-products";
@@ -158,6 +163,15 @@ export interface EditCurrentState {
   }>;
 }
 
+/**
+ * Largest gap lane-open will auto-comp onto the internal gift card when a
+ * pre-tax deposit falls short of the tax-inclusive day-of total. Mirrors
+ * GAP_GUARD_CENTS in lib/bowling-lane-open.ts — a refund may exceed the
+ * deposit's refundable capacity by at most this much before it stops being
+ * explainable as that comp coming back.
+ */
+const GAP_COMP_MAX_CENTS = 200;
+
 export interface EditPlan {
   anchorId: number;
   legIds: number[];
@@ -167,6 +181,18 @@ export interface EditPlan {
   legs: EditPlanLeg[];
   /** Σ new − Σ old across the money group (tax-inclusive, cents). */
   diffCents: number;
+  /**
+   * Cents the GUEST actually gets back — capped at the deposit tenders'
+   * un-refunded capacity. Equals |diffCents| except on gap-comped rows, where
+   * the house's lane-open courtesy has no card to return to.
+   */
+  guestOwedCents: number;
+  /**
+   * Cents to strip off the internal gift card — everything the day-of refund
+   * credits back to it, guest share AND comp share. Never less than
+   * guestOwedCents; a shortfall would leave spendable value behind.
+   */
+  gcDecrementCents: number;
   settlement: "charge" | EditSettlement | "none";
   /** Card that will be charged for an increase (null = none on file). */
   chargeCard: { cardId: string; brand: string; last4: string } | null;
@@ -1147,6 +1173,63 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     }
   }
 
+  // Two amounts, not one — they diverge legitimately on gap-comped rows.
+  //
+  // At lane-open, a deposit computed pre-tax can fall a few cents short of the
+  // tax-inclusive day-of total; processLaneOpen auto-comps that gap onto the
+  // internal gift card (ADJUST_INCREMENT / COMPLIMENTARY, bounded to 200¢ —
+  // lib/bowling-lane-open.ts). The day-of payment therefore exceeds what the
+  // guest's deposit tenders can ever take back.
+  //
+  //   gcDecrementCents — everything the day-of refund credits back to the
+  //                      internal card. ALL of it must die, or the comp share
+  //                      survives as spendable value.
+  //   guestOwedCents   — capped at the deposit tenders' un-refunded capacity.
+  //                      The comp share has no guest destination (unlinked
+  //                      refunds are not enabled), so it returns to the house.
+  //
+  // An asymmetry larger than the gap-comp bound means unknown manual activity:
+  // refuse rather than guess.
+  let guestOwedCents = diffCents < 0 ? -diffCents : 0;
+  let gcDecrementCents = guestOwedCents;
+  if (diffCents < 0 && anchor.squareDepositOrderId) {
+    try {
+      const deposit = await fetchOrderFacts(anchor.squareDepositOrderId);
+      let capacity = 0;
+      for (const t of deposit.tenders) {
+        const pay = await fetchPaymentFacts(t.paymentId);
+        capacity += Math.max(0, pay.amountCents - pay.refundedCents);
+      }
+      if (capacity < gcDecrementCents) {
+        const shortfall = gcDecrementCents - capacity;
+        if (shortfall > GAP_COMP_MAX_CENTS) {
+          throw new EditGuardError(
+            "pricing_unresolvable",
+            `refund of ${gcDecrementCents}¢ exceeds refundable deposit capacity (${capacity}¢) by ` +
+              `${shortfall}¢ — more than the ${GAP_COMP_MAX_CENTS}¢ lane-open comp allowance, so ` +
+              `something else moved this money. Reconcile in Square first.`,
+          );
+        }
+        guestOwedCents = capacity;
+        warnings.push({
+          severity: "warning",
+          code: "gap_comp_reversal",
+          message:
+            `${shortfall}¢ of this refund was a lane-open courtesy comp and has no card to return ` +
+            `to — the guest receives ${guestOwedCents}¢ and the gift card is cleared of all ` +
+            `${gcDecrementCents}¢.`,
+        });
+      }
+    } catch (err) {
+      if (err instanceof EditGuardError) throw err;
+      warnings.push({
+        severity: "warning",
+        code: "deposit_capacity_unknown",
+        message: "deposit tenders could not be read — refund capacity unverified",
+      });
+    }
+  }
+
   let chargeCard: EditPlan["chargeCard"] = null;
   if (diffCents > 0 && anchor.squareCustomerId) {
     try {
@@ -1228,17 +1311,20 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         });
       }
     } else if (diffCents < 0) {
+      // Same two-amount split as the post-payment phases. In PRE these are
+      // normally equal (nothing has been comped onto the card yet); they can
+      // still diverge when a prior refund ate the deposit's capacity.
       if (settlement === "store_credit") {
-        steps.push({ kind: "issue_store_credit", fatal: true, amountCents: -diffCents });
+        steps.push({ kind: "issue_store_credit", fatal: true, amountCents: guestOwedCents });
       } else {
-        steps.push({ kind: "refund_tender", fatal: true, amountCents: -diffCents });
+        steps.push({ kind: "refund_tender", fatal: true, amountCents: guestOwedCents });
       }
       if (giftCard) {
         steps.push({
           kind: "adjust_gift_card_down",
           fatal: true,
           target: giftCard.id,
-          amountCents: -diffCents,
+          amountCents: gcDecrementCents,
         });
       }
     }
@@ -1269,16 +1355,19 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         amountCents: diffCents,
       });
     } else if (diffCents < 0) {
+      // The day-of leg reverses everything the order was paid — including any
+      // lane-open comp — so it moves gcDecrementCents.
       steps.push({
         kind: "refund_dayof_payment",
         fatal: true,
         target: anchor.dayofPaymentId ?? undefined,
-        amountCents: -diffCents,
+        amountCents: gcDecrementCents,
       });
+      // The guest leg is capped at what their tenders can take back.
       if (settlement === "store_credit") {
-        steps.push({ kind: "issue_store_credit", fatal: true, amountCents: -diffCents });
+        steps.push({ kind: "issue_store_credit", fatal: true, amountCents: guestOwedCents });
       } else {
-        steps.push({ kind: "refund_tender", fatal: true, amountCents: -diffCents });
+        steps.push({ kind: "refund_tender", fatal: true, amountCents: guestOwedCents });
       }
       if (giftCard) {
         // Square credits the day-of refund back to the internal card
@@ -1289,7 +1378,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
           kind: "adjust_gift_card_down",
           fatal: true,
           target: giftCard.id,
-          amountCents: -diffCents,
+          amountCents: gcDecrementCents,
         });
       }
     }
@@ -1332,9 +1421,9 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       }
     } else if (diffCents < 0) {
       if (settlement === "store_credit") {
-        steps.push({ kind: "issue_store_credit", fatal: true, amountCents: -diffCents });
+        steps.push({ kind: "issue_store_credit", fatal: true, amountCents: guestOwedCents });
       } else {
-        steps.push({ kind: "refund_tender", fatal: true, amountCents: -diffCents });
+        steps.push({ kind: "refund_tender", fatal: true, amountCents: guestOwedCents });
       }
       if (giftCard) {
         // refund_dayof_order above returned the full day-of tenders to this
@@ -1344,7 +1433,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
           kind: "adjust_gift_card_down",
           fatal: true,
           target: giftCard.id,
-          amountCents: -diffCents,
+          amountCents: gcDecrementCents,
         });
       }
     }
@@ -1404,6 +1493,8 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     spec,
     legs,
     diffCents,
+    guestOwedCents,
+    gcDecrementCents,
     settlement,
     chargeCard,
     giftCard,

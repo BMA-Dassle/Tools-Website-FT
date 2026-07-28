@@ -191,20 +191,22 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
         "BMI-touching edits are not enabled yet (RESERVATION_EDIT_V2_RACE)",
       );
     }
-    // A1 ANSWERED NO (owner live finding 2026-07-11): Square refuses partial
-    // refunds of gift-card-funded payments. Both paths below refund the
-    // internal-GC day-of tender and need a redesign (refund the guest's card
-    // directly + manual ADJUST_DECREMENT) before their flags may EVER turn on.
+    // A1 was OVERTURNED on 2026-07-27 by an owner-authorized live probe: the
+    // API DOES accept partial refunds of gift-card-funded payments, and the
+    // credit returns to the card automatically (asynchronously — see
+    // wait_gc_credit). Both paths below are viable as originally specced; the
+    // flags stay off until the §8 smoke checklist in
+    // tasks/future/post-dayof-refund-plan.md passes.
     if (kinds.has("refund_dayof_payment") && !flag("RESERVATION_EDIT_V2_MID_DECREASE")) {
       throw new EditGuardError(
         "mid_session_unsupported",
-        "mid-session decreases need a redesign (Square can't partially refund gift-card tenders)",
+        "mid-session decreases are not enabled yet (RESERVATION_EDIT_V2_MID_DECREASE)",
       );
     }
     if (kinds.has("refund_dayof_order") && !flag("RESERVATION_EDIT_V2_POST")) {
       throw new EditGuardError(
         "post_complete_ack_required",
-        "post-complete edits need a redesign (Square can't refund gift-card tenders)",
+        "post-complete edits are not enabled yet (RESERVATION_EDIT_V2_POST)",
       );
     }
 
@@ -428,7 +430,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
 
           case "refund_dayof_payment": {
             if (!anchor.dayofPaymentId) throw new Error("no lane-open payment id on the row");
-            const asked = step.amountCents ?? -plan.diffCents;
+            const asked = step.amountCents ?? plan.gcDecrementCents;
 
             // NET refunds prior attempts already issued against THIS payment.
             // refundTenderPartial clamps only to the payment's un-refunded
@@ -510,7 +512,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
           }
 
           case "adjust_gift_card_down": {
-            const want = step.amountCents ?? -plan.diffCents;
+            const want = step.amountCents ?? plan.gcDecrementCents;
             if (!plan.giftCard) {
               // The plan builder only WARNS when gift-card facts are
               // unreadable and drops this step. For a post-payment refund

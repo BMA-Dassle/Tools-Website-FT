@@ -97,6 +97,8 @@ const makePlan = (over: Partial<EditPlan> = {}): EditPlan => ({
   spec: { playerCount: 5 },
   legs: [makeLeg()],
   diffCents: 1000,
+  guestOwedCents: 0,
+  gcDecrementCents: 0,
   settlement: "charge",
   chargeCard: { cardId: "ccof:abc", brand: "VISA", last4: "4242" },
   giftCard: null,

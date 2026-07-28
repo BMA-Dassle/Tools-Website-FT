@@ -75,11 +75,17 @@ export const createEditTopupOrderAndCharge = async (params: {
  * replayed call refunds only what's still owed (or no-ops). Returns what was
  * actually refunded this call.
  *
- * `skipGiftCardTender`: Square refuses PARTIAL refunds of gift-card-funded
- * payments (live finding 2026-07-11) — full refunds are fine. Allocators set
- * this to hop over a GC tender when the ask would be partial, instead of
- * failing mid-cascade; the caller settles the shortfall elsewhere (store
- * credit) or fails loudly.
+ * `skipGiftCardTender`: hops over a gift-card tender when the ask would be a
+ * PARTIAL refund of it, leaving the caller to settle elsewhere (store credit)
+ * or fail loudly.
+ *
+ * NOTE this is now over-conservative, not a Square limit. It was added for the
+ * 2026-07-11 finding "Square refuses partial refunds of gift-card-funded
+ * payments", which an owner-authorized live probe OVERTURNED on 2026-07-27 —
+ * the API accepts them (reproduced twice, real card → gift card → order
+ * chain). Kept opt-in so existing allocators behave identically; item-refund
+ * allocators should pass `false` so a guest's own gift-card tender can take
+ * its share back. See tasks/lessons.md and tasks/future/post-dayof-refund-plan.md.
  */
 export const refundTenderPartial = async (params: {
   editId: string;
