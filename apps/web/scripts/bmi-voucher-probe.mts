@@ -262,6 +262,97 @@ async function main() {
     }
   }
 
+  // -- 4. Optional: voucher onto a bill with a REAL BOOKED HEAT --
+  // Owner expectation (2026-07-27): the comp line should ZERO OUT the race
+  // line at/by processing. Books the LAST proposal of DATE (least contested),
+  // applies CODE, prints the overview, removes, cancels. env:
+  //   RACE_PRODUCT_ID=24960859 RACE_PAGE_ID=24961568 CODE=... [DATE=YYYY-MM-DD]
+  const RACE_PRODUCT_ID = process.env.RACE_PRODUCT_ID || "";
+  const RACE_PAGE_ID = process.env.RACE_PAGE_ID || "";
+  if (RACE_PRODUCT_ID && RACE_PAGE_ID && CODE) {
+    const date =
+      process.env.DATE ||
+      new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(
+        new Date(Date.now() + 24 * 3600 * 1000),
+      );
+    console.log(`\nAvailability for race product ${RACE_PRODUCT_ID} on ${date}...`);
+    const avail = await fetch(
+      `${BMI_API_URL}/public-booking/${CLIENT_KEY}/availability?date=${date}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${TOKEN}`,
+          "BMI-Subscription-Key": BMI_SUB_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ProductId: Number(RACE_PRODUCT_ID),
+          PageId: Number(RACE_PAGE_ID),
+          Quantity: 1,
+          OrderId: null,
+          PersonId: null,
+          DynamicLines: [],
+        }),
+      },
+    );
+    const availText = await avail.text();
+    let proposals: any[] = [];
+    try {
+      proposals = JSON.parse(availText)?.proposals ?? [];
+    } catch {
+      /* fallthrough */
+    }
+    console.log(`availability -> ${avail.status}, ${proposals.length} proposals`);
+    if (proposals.length === 0) {
+      console.log(`   no proposals - body head: ${availText.slice(0, 200)}`);
+    } else {
+      const proposal = proposals[proposals.length - 1];
+      const start = proposal?.blocks?.[0]?.block?.start;
+      console.log(`booking LAST heat: ${start}`);
+      const bookBody = JSON.stringify({
+        productId: RACE_PRODUCT_ID,
+        quantity: 1,
+        resourceId: Number(proposal.blocks[0]?.block?.resourceId) || -1,
+        proposal: {
+          blocks: proposal.blocks,
+          productLineId: proposal.productLineId ?? null,
+        },
+      });
+      const book = await call("POST", "/booking/book", bookBody);
+      const raceOrderId = String(field(book.data, "OrderId") ?? "");
+      console.log(
+        `booking/book -> ${book.status} orderId=${raceOrderId || "NONE"} ` +
+          `${raceOrderId ? "" : book.raw.slice(0, 200)}`,
+      );
+      if (raceOrderId) {
+        const before = await call("GET", `/bill/${raceOrderId}/overview`);
+        console.log(`\noverview BEFORE applyCode:`);
+        overviewSummary(before.data);
+
+        const ap = await applyCode(raceOrderId, CODE);
+        console.log(`\napplyCode ${CODE} -> ${ap.status}`);
+        overviewSummary(ap.data);
+
+        const after = await call("GET", `/bill/${raceOrderId}/overview`);
+        console.log(`\noverview AFTER applyCode (re-read):`);
+        overviewSummary(after.data);
+
+        const appliedRace = (field(ap.data, "AppliedPromoCodes") ?? [])[0];
+        const raceVi = field(appliedRace, "VoucherOrderItemId");
+        if (raceVi != null) {
+          const rm = await removeVoucher(raceOrderId, String(raceVi));
+          console.log(`\nremoveCode -> ${rm.status}`);
+        }
+        if (KEEP) {
+          console.log(`KEEP=1 - race order ${raceOrderId} left in place`);
+        } else {
+          const del = await call("DELETE", `/bill/${raceOrderId}/cancel`);
+          console.log(`race order cancel -> ${del.status}`);
+        }
+      }
+    }
+  }
+
   console.log("\nDone. Record findings in tasks/future/kiosk-coupons-vouchers.md §4.");
 }
 
