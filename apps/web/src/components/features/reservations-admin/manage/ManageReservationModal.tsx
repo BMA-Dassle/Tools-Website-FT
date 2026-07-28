@@ -306,7 +306,7 @@ export default function ManageReservationModal({
                 color: "#f59e0b",
               }}
             >
-              Edit…
+              Edit
             </button>
           )}
           {showCancel && (
@@ -324,7 +324,7 @@ export default function ManageReservationModal({
                 color: "#ef4444",
               }}
             >
-              Cancel…
+              Cancel
             </button>
           )}
         </div>
