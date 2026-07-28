@@ -86,6 +86,7 @@ const makeCurrent = (over: Partial<EditCurrentState> = {}): EditCurrentState => 
   durationOptions: [],
   durationMultiplier: null,
   attractions: [],
+  orderLines: [],
   ...over,
 });
 
@@ -281,6 +282,37 @@ describe("buildSpec", () => {
     expect(buildSpec(touch({ playerCount: 4 }), 4, null)).toEqual({});
   });
 
+  it("order-line edits send only moved, server-editable lines", () => {
+    const current = makeCurrent({
+      orderLines: [
+        {
+          uid: "food1",
+          name: "Pizza",
+          quantity: 2,
+          unitPriceCents: 1499,
+          totalCents: 2998,
+          editable: true,
+        },
+        {
+          uid: "u1",
+          name: "Fun 4 All",
+          quantity: 2,
+          unitPriceCents: 1999,
+          totalCents: 3998,
+          editable: false,
+        },
+      ],
+    });
+    // Moved + editable → sent.
+    expect(buildSpec(touch({ orderLines: { food1: 0 } }), 4, current)).toEqual({
+      orderLines: { food1: 0 },
+    });
+    // Unchanged quantity → omitted.
+    expect(buildSpec(touch({ orderLines: { food1: 2 } }), 4, current)).toEqual({});
+    // Engine-owned line → never sent, even if the form somehow holds it.
+    expect(buildSpec(touch({ orderLines: { u1: 0 } }), 4, current)).toEqual({});
+  });
+
   it("lane count compares against plan.current, not zero", () => {
     const current = makeCurrent({ laneCount: 2 });
     expect(buildSpec(touch({ laneCount: 2 }), 4, current)).toEqual({});
@@ -413,6 +445,33 @@ describe("executeGate", () => {
   it("disabled without a plan or while repricing", () => {
     expect(gate(null).enabled).toBe(false);
     expect(gate(makePlan(), { planLoading: true }).enabled).toBe(false);
+  });
+
+  it("a day-of refund needs a staff reason before Execute unlocks", () => {
+    // The server refuses without one (the deposit journal key is reserved for
+    // the cash leg) — block here rather than 400ing after everything else.
+    const plan = makePlan({
+      diffCents: -1605,
+      steps: [{ kind: "refund_dayof_payment", fatal: true, amountCents: 1605 }],
+    });
+    const blocked = gate(plan, { refundDest: "card_refund" });
+    expect(blocked.enabled).toBe(false);
+    expect(blocked.reason).toMatch(/reason/i);
+
+    // Whitespace does not count.
+    expect(gate(plan, { refundDest: "card_refund", dayofRefundReason: "   " }).enabled).toBe(false);
+
+    expect(
+      gate(plan, { refundDest: "card_refund", dayofRefundReason: "Pizza returned" }).enabled,
+    ).toBe(true);
+  });
+
+  it("plans without a day-of leg do not ask for a reason", () => {
+    const plan = makePlan({
+      diffCents: -500,
+      steps: [{ kind: "refund_tender", fatal: true, amountCents: 500 }],
+    });
+    expect(gate(plan, { refundDest: "card_refund" }).enabled).toBe(true);
   });
 
   it("delta > 0 with a card on file → charge_card, enabled", () => {

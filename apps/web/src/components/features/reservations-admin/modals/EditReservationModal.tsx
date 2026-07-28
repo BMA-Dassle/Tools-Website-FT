@@ -99,6 +99,12 @@ export default function EditReservationModal({
   const [form, setForm] = useState<EditFormState>(emptyForm);
   const [current, setCurrent] = useState<EditCurrentState | null>(null);
   const [refundDest, setRefundDest] = useState<EditSettlement | null>(null);
+  /**
+   * Reason recorded on the DAY-OF Square refund. Deliberately NOT the deposit
+   * leg's "Refund: Reservation Deposit" — that string is the accounting
+   * portal's journal key, and one economic refund moves money twice.
+   */
+  const [dayofRefundReason, setDayofRefundReason] = useState("");
   const [notifyGuest, setNotifyGuest] = useState(true);
   /** Post-complete: the mount probe demanded a manager acknowledgment. */
   const [ackRequired, setAckRequired] = useState(false);
@@ -267,6 +273,7 @@ export default function EditReservationModal({
         managerOverride,
         planHash: hash,
         notifyGuest,
+        dayofRefundReason: dayofRefundReason.trim() || undefined,
       });
       if (res.kind === "result") {
         setResult(res.result);
@@ -282,6 +289,7 @@ export default function EditReservationModal({
       acked,
       spec,
       notifyGuest,
+      dayofRefundReason,
       requestQuote,
       execute,
       handleExecuteFailure,
@@ -352,8 +360,15 @@ export default function EditReservationModal({
     refundDest,
     needsManagerAck: needsAck,
     managerAcked: acked,
+    dayofRefundReason,
   });
   const busy = phase === "busy";
+  // The day-of leg only exists once the order is paid. Its refund carries a
+  // staff-written reason (the deposit journal key is reserved for the cash
+  // leg), and the server refuses without one — so ask for it here.
+  const needsDayofReason = (plan?.steps ?? []).some(
+    (s) => s.kind === "refund_dayof_payment" || s.kind === "refund_dayof_order",
+  );
   const managerWarnings = (plan?.warnings ?? []).filter((w) => w.severity === "manager");
   const otherWarnings = (plan?.warnings ?? []).filter((w) => w.severity !== "manager");
   const displayHeats: Array<{ index: number; label: string }> = current
@@ -679,6 +694,72 @@ export default function EditReservationModal({
                       </div>
                     );
                   })}
+                </>
+              )}
+
+              {current && current.orderLines.some((l) => l.editable) && (
+                <>
+                  <div style={{ ...SECTION_TITLE, marginTop: 12 }}>Food &amp; other charges</div>
+                  <div style={{ fontSize: "0.7rem", color: "var(--ba-muted)", marginBottom: 6 }}>
+                    Rung up outside the booking — set a quantity to 0 to remove and refund it.
+                  </div>
+                  {current.orderLines
+                    .filter((l) => l.editable)
+                    .map((l) => {
+                      const qty = form.orderLines?.[l.uid] ?? l.quantity;
+                      const setQty = (next: number) =>
+                        setForm((f) => ({
+                          ...f,
+                          orderLines: { ...(f.orderLines ?? {}), [l.uid]: Math.max(0, next) },
+                        }));
+                      return (
+                        <div
+                          key={l.uid}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                            marginBottom: 6,
+                          }}
+                        >
+                          <button
+                            type="button"
+                            aria-label={`Decrease ${l.name}`}
+                            style={STEP_BTN}
+                            disabled={busy || qty <= 0}
+                            onClick={() => setQty(qty - 1)}
+                          >
+                            −
+                          </button>
+                          <span
+                            style={{
+                              fontWeight: 700,
+                              fontSize: "0.95rem",
+                              minWidth: 24,
+                              textAlign: "center",
+                            }}
+                          >
+                            {qty}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={`Increase ${l.name}`}
+                            style={STEP_BTN}
+                            disabled={busy || qty >= l.quantity}
+                            onClick={() => setQty(qty + 1)}
+                          >
+                            +
+                          </button>
+                          <span style={{ fontSize: "0.75rem" }}>
+                            {l.name}{" "}
+                            <span style={{ color: "var(--ba-muted)" }}>
+                              ${(l.unitPriceCents / 100).toFixed(2)} ea
+                              {qty === 0 ? " — will be removed" : ""}
+                            </span>
+                          </span>
+                        </div>
+                      );
+                    })}
                 </>
               )}
 
@@ -1112,6 +1193,42 @@ export default function EditReservationModal({
                       "HeadPinz FastTrax Gift Card",
                       `Issue a ${dollars(-plan.diffCents)} HeadPinz FastTrax Gift Card the guest can spend online or in center.`,
                       "#22c55e",
+                    )}
+
+                    {needsDayofReason && (
+                      <div style={{ marginTop: 10 }}>
+                        <label
+                          htmlFor="dayof-refund-reason"
+                          style={{
+                            display: "block",
+                            fontSize: "0.75rem",
+                            fontWeight: 700,
+                            marginBottom: 4,
+                          }}
+                        >
+                          Why is this being refunded?
+                        </label>
+                        <input
+                          id="dayof-refund-reason"
+                          type="text"
+                          value={dayofRefundReason}
+                          disabled={busy}
+                          maxLength={120}
+                          placeholder="e.g. Pizza returned unmade — lane 6"
+                          onChange={(e) => setDayofRefundReason(e.target.value)}
+                          style={{ ...SMALL_INPUT, width: "100%" }}
+                        />
+                        <div
+                          style={{
+                            fontSize: "0.68rem",
+                            color: "var(--ba-muted)",
+                            marginTop: 4,
+                          }}
+                        >
+                          Recorded on the Square refund for the day-of charge and read by
+                          accounting. Required.
+                        </div>
+                      </div>
                     )}
                   </>
                 )}

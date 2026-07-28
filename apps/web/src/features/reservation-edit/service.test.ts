@@ -195,6 +195,7 @@ const mkPlan = (steps: EditStep[], over: Partial<EditPlan> = {}): EditPlan => ({
     durationOptions: [],
     durationMultiplier: null,
     attractions: [],
+    orderLines: [],
   },
   planHash: "abc123",
   ...over,

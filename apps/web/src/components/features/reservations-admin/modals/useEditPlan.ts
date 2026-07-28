@@ -35,6 +35,8 @@ export interface ExecuteOpts {
   managerOverride?: boolean;
   planHash: string;
   notifyGuest: boolean;
+  /** Staff reason for the DAY-OF refund leg (required once the order is paid). */
+  dayofRefundReason?: string;
 }
 
 export type RequestPlanResult =
@@ -152,6 +154,7 @@ export function useEditPlan(neonId: number, token: string): UseEditPlan {
         ...(opts.settlement ? { settlement: opts.settlement } : {}),
         ...(opts.paymentSource ? { paymentSource: opts.paymentSource } : {}),
         ...(opts.managerOverride ? { managerOverride: true } : {}),
+        ...(opts.dayofRefundReason ? { dayofRefundReason: opts.dayofRefundReason } : {}),
       });
     },
     [neonId, token, supersede],

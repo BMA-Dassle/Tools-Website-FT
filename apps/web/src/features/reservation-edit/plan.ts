@@ -161,6 +161,20 @@ export interface EditCurrentState {
     /** BMI line ids present → editable; missing → display-only. */
     editable: boolean;
   }>;
+  /**
+   * LIVE day-of order lines, uid-addressed for spec.orderLines. `editable`
+   * marks the ones the booking engine does NOT own (food, POS add-ons) —
+   * those are the only ones staff may change here; everything else has to move
+   * through its typed field so the booking follows the money.
+   */
+  orderLines: Array<{
+    uid: string;
+    name: string;
+    quantity: number;
+    unitPriceCents: number;
+    totalCents: number;
+    editable: boolean;
+  }>;
 }
 
 /**
@@ -511,6 +525,22 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
   });
 
   const heatsMeta = heatsFromMetadata(anchor);
+  // Lines the booking model owns on the ANCHOR's order: everything stored as
+  // a reservation line (experience, shoes, fees), every attraction add-on, and
+  // every race product. Anything else on the order came from outside the
+  // engine (food route, POS) and is the only thing spec.orderLines may touch.
+  const anchorEngineLines: EngineOwnedLine[] = [
+    ...anchorStoredLines.map((l) => ({
+      squareCatalogObjectId: l.squareCatalogObjectId,
+      label: l.label,
+    })),
+    ...(anchor.attractionBookings ?? []).map((a) => ({
+      squareCatalogObjectId: a.squareCatalogObjectId ?? null,
+      label: a.name,
+    })),
+    ..._allRaceProducts().map((p) => ({ squareCatalogObjectId: null, label: p.name })),
+  ];
+
   const current: EditCurrentState = {
     playerCount: anchor.playerCount ?? players.length,
     laneCount: null,
@@ -553,6 +583,17 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       unitPriceCents: a.quantity > 0 ? Math.round((a.totalPriceDollars * 100) / a.quantity) : 0,
       timeLabel: a.timeLabel,
       editable: !!(a.bmiOrderId && a.bmiBillLineId),
+    })),
+    orderLines: (legSnapshots.get(anchor.id)?.lines ?? []).map((l) => ({
+      uid: l.uid ?? "",
+      name: l.name,
+      quantity: l.quantity,
+      unitPriceCents: l.unitPriceCents,
+      totalCents: l.totalCents,
+      // Editable only when nothing in the booking model claims this line —
+      // the same rule applyOrderLineSpec enforces server-side, so the UI never
+      // offers a control the engine would reject.
+      editable: !!l.uid && !isEngineOwnedLine(l, anchorEngineLines),
     })),
   };
 
@@ -798,6 +839,15 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       if (attractionChanges.length === 0) attractionChanges = null;
     }
 
+    // Free-form day-of line edits (food, POS add-ons) by live order uid.
+    newLines = applyOrderLineSpec(newLines, spec.orderLines, leg.id === anchor.id, [
+      ...anchorEngineLines,
+      ...repricedLines.map((l) => ({
+        squareCatalogObjectId: l.squareCatalogObjectId,
+        label: l.label,
+      })),
+    ]);
+
     const newTotal = snap
       ? await calculateOrderTotal(snap.locationId, newLines, snap.taxes, snap.discounts)
       : newLines.reduce((s, l) => s + l.totalCents, 0);
@@ -904,9 +954,24 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       }
     }
 
+    // Free-form day-of line edits (food, POS add-ons) by live order uid. Every
+    // race product name is engine-owned so the helper refuses uid edits on
+    // them — racer changes must go through spec.racers, which drives BMI too.
+    const finalLines = applyOrderLineSpec(survivors, spec.orderLines, leg.id === anchor.id, [
+      ...anchorEngineLines,
+      ...delta.addedLines.map((l) => ({
+        squareCatalogObjectId: l.squareCatalogObjectId,
+        label: l.label,
+      })),
+      ...delta.removedHeats.map((h) => ({
+        squareCatalogObjectId: h.catalogObjectId,
+        label: h.label,
+      })),
+    ]);
+
     const newTotal = snap
-      ? await calculateOrderTotal(snap.locationId, survivors, snap.taxes, snap.discounts)
-      : survivors.reduce((s, l) => s + l.totalCents, 0);
+      ? await calculateOrderTotal(snap.locationId, finalLines, snap.taxes, snap.discounts)
+      : finalLines.reduce((s, l) => s + l.totalCents, 0);
 
     return {
       reservationId: leg.id,
@@ -917,7 +982,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       orderLocationId: snap?.locationId ?? null,
       phase: legPhase(leg),
       oldLines: snap?.lines ?? [],
-      newLines: survivors,
+      newLines: finalLines,
       oldTotalCents: snap?.totalCents ?? 0,
       newTotalCents: newTotal,
       newNeonLines: null,
@@ -1191,7 +1256,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
   // An asymmetry larger than the gap-comp bound means unknown manual activity:
   // refuse rather than guess.
   let guestOwedCents = diffCents < 0 ? -diffCents : 0;
-  let gcDecrementCents = guestOwedCents;
+  const gcDecrementCents = guestOwedCents;
   if (diffCents < 0 && anchor.squareDepositOrderId) {
     try {
       const deposit = await fetchOrderFacts(anchor.squareDepositOrderId);
@@ -1503,6 +1568,82 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     current,
     planHash: hash,
   };
+};
+
+/** A line the booking model owns, matched by catalog id or exact name. */
+interface EngineOwnedLine {
+  squareCatalogObjectId?: string | null;
+  label: string;
+}
+
+/**
+ * True when a live order line belongs to the booking itself (experience,
+ * shoes, fees, attraction add-ons, race products) rather than to something
+ * rung up outside the engine. Shared by the planner's `current.orderLines`
+ * (so the UI only offers valid controls) and applyOrderLineSpec (the actual
+ * enforcement) — one rule, no drift between what staff see and what executes.
+ */
+const isEngineOwnedLine = (
+  line: { catalogObjectId?: string | null; name: string },
+  engineLines: EngineOwnedLine[],
+): boolean =>
+  engineLines.some(
+    (e) =>
+      (!!line.catalogObjectId && e.squareCatalogObjectId === line.catalogObjectId) ||
+      e.label === line.name,
+  );
+
+/**
+ * Apply `spec.orderLines` (desired quantity per LIVE order line uid) to a
+ * leg's merged line set. Quantity 0 removes the line.
+ *
+ * This is the only way to touch lines the booking engine does not model —
+ * food from the day-of route, POS add-ons — which is exactly what a
+ * post-check-in refund is usually about ("they returned the pizza").
+ *
+ * Engine-owned lines are refused: the primary experience, shoes, and race
+ * products carry roster / QAMF / BMI meaning, so editing them by uid would
+ * move the money without moving the booking. Those go through playerCount,
+ * shoes, racers, durationOptionId instead.
+ */
+const applyOrderLineSpec = (
+  lines: PlanLine[],
+  wanted: Record<string, number> | undefined,
+  isAnchorLeg: boolean,
+  engineLines: EngineOwnedLine[],
+): PlanLine[] => {
+  if (!wanted || Object.keys(wanted).length === 0 || !isAnchorLeg) return lines;
+
+  let out = lines;
+
+  for (const [uid, qty] of Object.entries(wanted)) {
+    if (!Number.isInteger(qty) || qty < 0) {
+      throw new EditGuardError("pricing_unresolvable", `invalid quantity for order line ${uid}`);
+    }
+    const hit = out.find((l) => l.uid === uid);
+    if (!hit) {
+      // The uid came from the dry-run's snapshot of the live order; missing it
+      // means the order moved underneath us.
+      throw new EditGuardError(
+        "plan_stale",
+        `order line ${uid} is no longer on the day-of order — re-open the editor`,
+      );
+    }
+    if (isEngineOwnedLine(hit, engineLines)) {
+      throw new EditGuardError(
+        "pricing_unresolvable",
+        `"${hit.name}" is part of the booking itself — change it with the players, shoes, or ` +
+          `racers fields so the reservation and the money stay in step`,
+      );
+    }
+    if (qty === 0) {
+      out = out.filter((l) => l !== hit);
+    } else {
+      hit.quantity = qty;
+      hit.totalCents = hit.unitPriceCents * qty;
+    }
+  }
+  return out;
 };
 
 const legLinesChanged = (leg: EditPlanLeg): boolean => {

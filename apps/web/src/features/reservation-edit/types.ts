@@ -85,6 +85,21 @@ export interface EditSpec {
    * BMI replaces the booked line (removeItem + re-book at the new quantity).
    */
   attractions?: Array<{ index: number; quantity: number }>;
+  /**
+   * Desired quantities for ARBITRARY day-of order lines, keyed by the LIVE
+   * Square line-item `uid`. Quantity 0 removes the line outright.
+   *
+   * This is the input surface for refunding things the structured fields
+   * cannot express — a returned pizza, a mis-rung soda, a shoe pair the guest
+   * never took. Those lines are added to the order outside the booking engine
+   * (food route, POS), so they have no reservation-level concept to edit; the
+   * uid is the only stable handle.
+   *
+   * Engine-owned lines (the primary experience, shoes, race products) are
+   * REJECTED here — they must move through their own typed fields so the
+   * roster, QAMF, and BMI stay consistent with the money.
+   */
+  orderLines?: Record<string, number>;
 }
 
 export type EditGuardCode =

@@ -339,6 +339,67 @@ describe("buildEditPlan — bowling PRE", () => {
   });
 });
 
+describe("buildEditPlan — free-form order line edits (spec.orderLines)", () => {
+  beforeEach(() => {
+    // A food line added outside the booking engine (day-of route / POS) —
+    // exactly what a post-check-in refund is usually about.
+    world.order.lines.push({ uid: "food1", name: "Pizza Bowl", qty: 1, unit: 1499 });
+  });
+
+  it("removes a food line at quantity 0 and prices the reduction", async () => {
+    const before = taxed(2 * 1999 + 2 * 500 + 299 + 1499);
+    const after = taxed(2 * 1999 + 2 * 500 + 299);
+    const plan = await buildEditPlan({ neonId: 42, spec: { orderLines: { food1: 0 } } });
+
+    expect(plan.diffCents).toBe(after - before);
+    expect(plan.legs[0].newLines.some((l) => l.uid === "food1")).toBe(false);
+    expect(plan.steps.map((s) => s.kind)).toContain("update_dayof_order");
+  });
+
+  it("reduces quantity without removing the line", async () => {
+    world.order.lines.find((l) => l.uid === "food1")!.qty = 3;
+    const before = taxed(2 * 1999 + 2 * 500 + 299 + 3 * 1499);
+    const after = taxed(2 * 1999 + 2 * 500 + 299 + 1 * 1499);
+    const plan = await buildEditPlan({ neonId: 42, spec: { orderLines: { food1: 1 } } });
+
+    expect(plan.diffCents).toBe(after - before);
+    const line = plan.legs[0].newLines.find((l) => l.uid === "food1")!;
+    expect(line.quantity).toBe(1);
+    expect(line.totalCents).toBe(1499);
+  });
+
+  it("REFUSES a line the booking engine owns (money would desync from the booking)", async () => {
+    // u2 is the shoe line — it must move through spec.shoes so the roster,
+    // QAMF, and the money stay in step.
+    expect(
+      await guardCode(() => buildEditPlan({ neonId: 42, spec: { orderLines: { u2: 0 } } })),
+    ).toBe("pricing_unresolvable");
+  });
+
+  it("REFUSES a uid that is no longer on the live order (plan_stale)", async () => {
+    expect(
+      await guardCode(() => buildEditPlan({ neonId: 42, spec: { orderLines: { ghost: 0 } } })),
+    ).toBe("plan_stale");
+  });
+
+  it("REFUSES a negative or fractional quantity", async () => {
+    expect(
+      await guardCode(() => buildEditPlan({ neonId: 42, spec: { orderLines: { food1: -1 } } })),
+    ).toBe("pricing_unresolvable");
+    expect(
+      await guardCode(() => buildEditPlan({ neonId: 42, spec: { orderLines: { food1: 1.5 } } })),
+    ).toBe("pricing_unresolvable");
+  });
+
+  it("a spec that restates the live quantity is refused as no_changes", async () => {
+    // food1 is already qty 1 — nothing to move, so the editor should not open
+    // a money cascade (and burn an idempotency namespace) over it.
+    expect(
+      await guardCode(() => buildEditPlan({ neonId: 42, spec: { orderLines: { food1: 1 } } })),
+    ).toBe("no_changes");
+  });
+});
+
 describe("buildEditPlan — guest-owed vs gift-card-decrement amounts", () => {
   it("the two amounts match when the deposit can cover the whole refund", async () => {
     const plan = await buildEditPlan({ neonId: 42, spec: { playerCount: 1 } });
