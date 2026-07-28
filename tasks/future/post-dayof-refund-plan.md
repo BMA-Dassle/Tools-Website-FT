@@ -343,7 +343,39 @@ tests).
 | 5 | Money-only COMPLETED variant, 100%-refund shapes, Payments/History surfacing (§7) | Tier-3 smoke | **DONE** `356f403b` |
 | 5b | Itemized refund + deterministic `reconcile_gift_card` (replaces `wait_gc_credit`) | Tier-3 smoke 11/11 | **DONE** `f71831c2` |
 | 5c | **Staff entry point**: `Refund` action on settled rows + phase-keyed flag gate + honest flag-off preview | Unit tests + read-only dry-run of res 16426 | **DONE** `0bf54bd1` |
-| 6 | Flag flip per the v2 cutover safety pattern — deploy alongside, ops sign-off, then default-on | Full §8 checklist | TODO — **the only remaining gate is the owner's journal-entry mapping decision** |
+| 5d | Decouple refunds from the master switch (`isRefundOnlyPlan`) + `--post` / `--race` smoke modes | 3 live smoke runs, master OFF | **DONE** `9f658ec0` |
+| 6 | Flag flip per the v2 cutover safety pattern — land on main flag-off, deploy, then set the two phase flags | §8 complete (below) | **READY** — needs the branch merged + deployed first |
+
+### §8 Tier-3 smoke — COMPLETE (2026-07-28)
+
+All three phase/product shapes run live against real Square objects and a real Neon row,
+self-cleaning, at probe location `6MZJFTGAYD7TC`, with **`RESERVATION_EDIT_V2` deliberately
+OFF** so each run proves the refund path needs only its phase flag:
+
+| command | shape | result |
+| ------- | ----- | ------ |
+| `npx tsx scripts/post-dayof-refund-smoke.mts --live` | MID — order OPEN, partial refund | **18/18** |
+| `… --live --post` | POST — order COMPLETED, partial refund | **18/18** |
+| `… --live --post --race` | POST — ONE collapsed pack line, FULL refund (**res 16426's exact shape**) | **20/20** |
+
+Owner's card net zero across all runs (33369¢ charged / 33369¢ refunded).
+
+### Flag flip — exact steps (do them in this order)
+
+1. **Merge `feat/post-dayof-refund` → `main`.** Nothing changes behaviour: every path is
+   flag-gated. Do NOT set the flags before this lands — main still carries the
+   pre-correction engine (no `createReturnOrder`, and `update_dayof_order` still emitted on
+   a paid order), so flipping first would enable **amount-only refunds** and a
+   fatal-after-money step.
+2. **Deploy production** (Vercel env changes need a redeploy to take effect).
+3. **Set two production env vars** — and only these two:
+   - `RESERVATION_EDIT_V2_MID_DECREASE=true` → refunds after check-in (order still OPEN)
+   - `RESERVATION_EDIT_V2_POST=true` → refunds after the visit closed (res 16426)
+4. **Leave `RESERVATION_EDIT_V2` (master) OFF.** It unlocks PRE-phase editing, whose QAMF
+   player sync is blocked by a vendor bug (player-DELETE bare 500 on every valid input) and
+   whose own §13 smoke items 5–8 have never been run. Refunds are exempt from it by design
+   (`isRefundOnlyPlan`) — that is what `5d` bought.
+5. **Redeploy** after setting them, then smoke one real refund from the portal.
 
 Everything through PR3 is behavior-neutral while `RESERVATION_EDIT_V2_MID_DECREASE` and
 `RESERVATION_EDIT_V2_POST` stay off.

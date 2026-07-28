@@ -2253,3 +2253,49 @@ enabling `_MID_DECREASE` alone opened a phase nobody had signed off.
   only GETs and calls `orders/calculate`, so dry-running the real reservation proves the
   plan (phase, cents, itemized return uid, blocked reason) without moving a cent. Doing
   that is what surfaced the pack-line problem — the unit tests all passed without it.
+
+## A "master switch" that couples an unrelated broken feature to the one you need (2026-07-28)
+
+**Setup:** owner said "turn it all on." Refunds were proven, but
+`RESERVATION_EDIT_V2` is the master switch the edit route checks — so enabling refunds
+would ALSO have shipped PRE-phase bowling/KBF editing, whose QAMF player sync is blocked by
+a vendor bug (player-DELETE returns a bare 500 on every valid input, escalated, no API path
+exists) and whose own live-smoke items have never been run.
+
+**Fix:** exempt the narrow, proven capability. `isRefundOnlyPlan()` lets a refund-shaped
+plan execute on its own phase flag while everything else still needs the master switch.
+
+**Rules:**
+- **A capability flag should gate ONE capability.** When a master switch accumulates
+  unrelated features, "turn on X" silently ships Y. Split the flag before shipping, not after
+  someone reports Y broken.
+- **Exemptions from a safety gate must be ALLOWLISTS, not blocklists.** `isRefundOnlyPlan`
+  requires every step to be one of eight named kinds. A blocklist ("not a charge, not a
+  sync") silently widens the moment anyone adds a step kind — and the thing being widened is
+  "may move money without the master flag."
+- **When you add a second gate, re-check the PREVIEW covers both.** Adding the refund
+  exemption reintroduced the dishonest-preview bug for every non-refund plan: the planner
+  reported "runnable" while the route would 501. If `executionBlocked` mirrors the route,
+  it must mirror ALL of it.
+- **Never flip a flag before the corrected code is on the deployed branch.** Main still had
+  the pre-correction engine (no itemized returns, `update_dayof_order` still emitted on a
+  paid order). Setting the flags first would have enabled amount-only refunds — explicitly
+  banned — plus a step that fails fatally AFTER money moved. Verify with
+  `git show origin/main:<path> | grep <symbol>`, not from memory of what you built.
+- **Smoke the shape that PRODUCTION will run, not a convenient one.** The 11/11 run set
+  `RESERVATION_EDIT_V2=true` and used MID + a bowling row. Production is master-OFF, and the
+  reported reservation was POST + a collapsed race-pack line + full refund. Three different
+  axes untested. Deleting the master flag from the smoke and adding `--post` / `--race`
+  turned "probably fine" into 18/18, 18/18, 20/20.
+
+**Square fact (verified 3× live):** an ITEMIZED refund does **not** populate the SALE
+order's `refunds[]` — `refunded_money` and `net_amount_due_money` both read 0 there. The
+linkage lives entirely on the RETURN order (`refund.order_id` → return order carrying
+`return_line_items[].source_line_item_uid`). Debugging a refund by reading the sale order
+will show nothing. Same shape the POS produces for in-store returns.
+
+**Reconciliation trap (cost me a false alarm):** a gift-card-funded payment reports
+`source_type: "CARD"`. Summing by `source_type` counted internal gift-card spend as the
+owner's credit card and reported $59.20 outstanding when the real-card net was zero. The
+ONLY reliable tell is `card_details.card.card_brand === "SQUARE_GIFT_CARD"`. This is the
+same trap already recorded for refund routing — it bites reconciliation queries too.
