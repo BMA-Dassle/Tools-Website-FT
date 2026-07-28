@@ -25,10 +25,23 @@ back.
 | G4 | Refunding the deposit payment does **NOT** auto-remove value from the gift card | The surplus must die by explicit `ADJUST_DECREMENT` or it is double value. This is the one non-automatic step. |
 | G5 | Unlinked refunds are **NOT enabled** (`REFUND_ERROR/REFUND_DECLINED` with a fully valid request incl. required `customer_id`) | No refunds to arbitrary cards. Every refund stays payment-linked and capped at what that tender was charged. Square rep Kaitlin Kendall (kkendall@squareup.com) still working it as of 7/24. |
 
-**Not yet probed** (load-bearing, see §9 probe matrix): whether a partial refund raises the source
-order's `net_amount_due_money`; whether `UpdateOrder` works on a tendered OPEN order; whether
-refunds behave the same on a COMPLETED order (the probe's order stayed OPEN — quick-pay orders
-never auto-complete).
+### §9 probe matrix — RUN 2026-07-27, all answered
+
+At `6MZJFTGAYD7TC` via `dayof-refund-matrix-probe.mts`, `dayof-open-order-probe.mts`, and
+`dayof-lines-after-refund-probe.mts`.
+
+| # | Question | Answer | Effect on the design |
+| - | -------- | ------ | -------------------- |
+| Q1 | Does a partial refund reopen `net_amount_due` on the source order? | **No** — stays 0, order stays OPEN | The "strand trap" **does not exist**. No watchdog needed; a refund is *not* a guard against the complete-cron. |
+| Q2 | Can `UpdateOrder` change lines on a **tendered** order? | **No — never.** `"LineItems cannot be modified for finalized tenders"` before a refund, after a partial, and after a FULL refund | **Design change:** MID must be money-only too. The `update_dayof_order` step was removed from the MID plan — it would have failed fatally *after* money moved. Only PRE (zero-tender) orders accept line edits. |
+| Q3 | Can a payment on a **COMPLETED** order be refunded? | **Yes** | The money-only post-complete path is valid. |
+| Q4 | Does `payment.refunded_money` include a **PENDING** refund? | **Yes** | Clamping during the async window is safe; a retry cannot over-refund. |
+| Q5 | Partial refund, internal **custom-GAN** card + **taxed** order (production shape)? | **Accepted** | The overturned A1 holds in the real shape, not just the 7/27 simplified one. |
+| Q6 | Did the 7/27 stranded credit ever post to card …1430? | **No — zero REFUND activities** | Deactivating a card with refunds in flight **destroys the money**. The `wait_gc_credit` step is not belt-and-braces; it is load-bearing. |
+
+**Net effect:** every post-payment refund shape (MID and POST alike) is now **money-only** — the
+day-of order permanently keeps its original lines, and the refund objects on the payment carry
+the story. Staff see a `dayof_lines_frozen` warning explaining why.
 
 ---
 

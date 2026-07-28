@@ -200,6 +200,26 @@ Consequences:
   The day-of leg carries its own **staff-supplied reason** entered in the admin portal at refund
   time. Per-domain reasons are the norm, not an exception (group functions already use
   `"Refund: Group Event Deposit"`).
+- **A PAID Square order's line items are IMMUTABLE — forever** (probed 2026-07-27,
+  `apps/web/scripts/dayof-lines-after-refund-probe.mts`). `UpdateOrder` returns
+  `BAD_REQUEST "LineItems cannot be modified for finalized tenders"` on an order with finalized
+  tenders — before a refund, after a PARTIAL refund, and even after the tender is refunded in
+  FULL. There is no sequence that unlocks it. Consequences: any post-payment money flow is
+  **money-only** (the order keeps its original lines and the refund objects carry the story);
+  never plan an `update_dayof_order` step for a lane-open or completed order — it would fail
+  fatally *after* money moved. Only PRE-phase (zero-tender) orders accept line edits.
+- Related, same probe run: a partial refund does **NOT** reopen `net_amount_due_money` on the
+  source order (it stays 0 and the order stays OPEN). So the feared "strand trap" — a refunded
+  order stuck at balance-due and skipped forever by `bowling-order-complete` — does **not**
+  exist. Don't design around it, and don't treat a refund as a guard against the complete-cron.
+- Same run: `payment.refunded_money` **includes PENDING refunds**, so clamping against it during
+  the async settlement window is safe (a retry cannot over-refund).
+- Same run: refunding a payment on a **COMPLETED** order is accepted — the money-only
+  post-complete path is valid.
+- Same run, confirmed the hard way: the 7/27 card ending 1430 has **no REFUND activity at all**
+  — the credit never posted because the card was DEACTIVATED while its refunds were PENDING.
+  Deactivating a gift card with refunds in flight **destroys the money**. Always wait for the
+  credit before drain/deactivate.
 - Probe-location rule (owner, 2026-07-27): ALL live Square probes run against location
   **`6MZJFTGAYD7TC`** — it does NOT track accounting. NEVER probe against a revenue location
   (the 7/27 probes hit HeadPinz Fort Myers `TXBSQN0FEKQ11` and put probe sales/refunds into

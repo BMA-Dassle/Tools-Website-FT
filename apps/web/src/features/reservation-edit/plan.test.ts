@@ -532,6 +532,24 @@ describe("buildEditPlan — phase gates", () => {
   // balance-due, invisible to bowling-order-complete forever) is expensive.
   // Cover them for real when a product shape can actually produce a $0 order.
 
+  it("mid-session NEVER emits a line update — a tendered order's lines are frozen", async () => {
+    // Probed 2026-07-27: Square refuses any line change on an order with
+    // finalized tenders, before OR after a refund, in full or in part
+    // ("LineItems cannot be modified for finalized tenders"). Emitting the
+    // step would guarantee a fatal mid-cascade failure after money moved.
+    world.order.tenders = [{ paymentId: "PAY_GC", amount: 5000 }];
+    const row = mkRow({ dayofOrderSentAt: "2026-08-01T13:00:00Z", status: "arrived" });
+    vi.mocked(getBowlingReservation).mockResolvedValue(row as never);
+    vi.mocked(listCancelGroupReservations).mockResolvedValue([row] as never);
+
+    const plan = await buildEditPlan({ neonId: 42, spec: { playerCount: 1 } });
+    expect(plan.phase).toBe("mid");
+    expect(plan.diffCents).toBeLessThan(0);
+    expect(plan.steps.map((s) => s.kind)).not.toContain("update_dayof_order");
+    // Staff are told why the order still lists the original items.
+    expect(plan.warnings.some((w) => w.code === "dayof_lines_frozen")).toBe(true);
+  });
+
   it("mid-session (paid OPEN order) allows player edits but blocks lane changes", async () => {
     world.order.tenders = [{ paymentId: "PAY_GC", amount: 5000 }];
     const row = mkRow({ dayofOrderSentAt: "2026-08-01T13:00:00Z", status: "arrived" });

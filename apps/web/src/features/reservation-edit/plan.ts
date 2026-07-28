@@ -1459,15 +1459,22 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         });
       }
     }
-    for (const leg of legs) {
-      if (leg.dayofOrderId && legLinesChanged(leg)) {
-        steps.push({
-          kind: "update_dayof_order",
-          fatal: true,
-          target: leg.dayofOrderId,
-          amountCents: leg.newTotalCents - leg.oldTotalCents,
-        });
-      }
+    // NO update_dayof_order here. Square refuses ANY line change on an order
+    // with finalized tenders — "LineItems cannot be modified for finalized
+    // tenders" — and that holds before a refund, after a partial refund, and
+    // even after the tender is refunded in full (probed 2026-07-27,
+    // scripts/dayof-lines-after-refund-probe.mts). A lane-open order's lines
+    // are frozen for good, so MID is money-only exactly like post-complete:
+    // the order keeps its lines and the refund objects carry the story.
+    if (legs.some(legLinesChanged)) {
+      warnings.push({
+        severity: "warning",
+        code: "dayof_lines_frozen",
+        message:
+          "The day-of order was already paid, so Square will not let its line items change. " +
+          "The refund is attached to the payment instead — the order still shows the original " +
+          "items.",
+      });
     }
     steps.push({ kind: "neon_commit", fatal: true });
     if (playersChanged && anchor.qamfReservationId) {
