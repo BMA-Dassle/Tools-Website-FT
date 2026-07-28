@@ -620,16 +620,25 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       quantity: l.quantity,
       unitPriceCents: l.unitPriceCents,
       totalCents: l.totalCents,
-      // Editable only when nothing in the booking model claims this line —
-      // the same rule applyOrderLineSpec enforces server-side, so the UI never
-      // offers a control the engine would reject.
+      // Mirrors applyOrderLineSpec exactly, so the UI never offers a control
+      // the engine would reject.
       //
-      // $0 lines are excluded: KBF and bowling orders carry per-bowler shoe-size
-      // markers ("Male Size 11") priced at zero for the desk/KDS. Returning one
-      // moves no money, and because the diff stays 0 it is not a refund-only
-      // plan either — so it would fail the master-switch gate. Offering it is
-      // pure noise on a screen whose entire purpose is money.
-      editable: !!l.uid && l.unitPriceCents > 0 && !isEngineOwnedLine(l, anchorEngineLines),
+      // $0 lines are excluded: bowling orders carry per-bowler shoe-size markers
+      // ("Male Size 11") priced at zero for the desk/KDS. Returning one moves no
+      // money, and since the diff stays 0 it is not a refund-only plan either —
+      // it would fail the master-switch gate. Noise on a money screen.
+      //
+      // Engine-owned lines (the experience, shoes, race products) are protected
+      // in PRE only. That rule exists because changing them by uid would move
+      // money without moving the BOOKING — but once the day-of order is paid the
+      // booking cannot move: its lines are frozen and QAMF/BMI are explicitly
+      // not synced (that is what the manager acknowledgment says). So after
+      // payment every priced line is returnable, which is also what makes the
+      // refund screen a single list instead of shoes-here / fees-there.
+      editable:
+        !!l.uid &&
+        l.unitPriceCents > 0 &&
+        (phase !== "pre" || !isEngineOwnedLine(l, anchorEngineLines)),
     })),
   };
 
@@ -953,14 +962,22 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       if (attractionChanges.length === 0) attractionChanges = null;
     }
 
-    // Free-form day-of line edits (food, POS add-ons) by live order uid.
-    newLines = applyOrderLineSpec(newLines, spec.orderLines, leg.id === anchor.id, [
-      ...anchorEngineLines,
-      ...repricedLines.map((l) => ({
-        squareCatalogObjectId: l.squareCatalogObjectId,
-        label: l.label,
-      })),
-    ]);
+    // Day-of line edits by live order uid. In PRE this is limited to lines the
+    // booking model does not own (food, POS add-ons); after payment ANY priced
+    // line may be returned this way — see applyOrderLineSpec.
+    newLines = applyOrderLineSpec(
+      newLines,
+      spec.orderLines,
+      leg.id === anchor.id,
+      [
+        ...anchorEngineLines,
+        ...repricedLines.map((l) => ({
+          squareCatalogObjectId: l.squareCatalogObjectId,
+          label: l.label,
+        })),
+      ],
+      phase !== "pre",
+    );
 
     const newTotal = snap
       ? await calculateOrderTotal(snap.locationId, newLines, snap.taxes, snap.discounts)
@@ -1075,17 +1092,23 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     // Free-form day-of line edits (food, POS add-ons) by live order uid. Every
     // race product name is engine-owned so the helper refuses uid edits on
     // them — racer changes must go through spec.racers, which drives BMI too.
-    const finalLines = applyOrderLineSpec(survivors, spec.orderLines, leg.id === anchor.id, [
-      ...anchorEngineLines,
-      ...delta.addedLines.map((l) => ({
-        squareCatalogObjectId: l.squareCatalogObjectId,
-        label: l.label,
-      })),
-      ...delta.removedHeats.map((h) => ({
-        squareCatalogObjectId: h.catalogObjectId,
-        label: h.label,
-      })),
-    ]);
+    const finalLines = applyOrderLineSpec(
+      survivors,
+      spec.orderLines,
+      leg.id === anchor.id,
+      [
+        ...anchorEngineLines,
+        ...delta.addedLines.map((l) => ({
+          squareCatalogObjectId: l.squareCatalogObjectId,
+          label: l.label,
+        })),
+        ...delta.removedHeats.map((h) => ({
+          squareCatalogObjectId: h.catalogObjectId,
+          label: h.label,
+        })),
+      ],
+      phase !== "pre",
+    );
 
     const newTotal = snap
       ? await calculateOrderTotal(snap.locationId, finalLines, snap.taxes, snap.discounts)
@@ -1836,6 +1859,13 @@ const applyOrderLineSpec = (
   wanted: Record<string, number> | undefined,
   isAnchorLeg: boolean,
   engineLines: EngineOwnedLine[],
+  /**
+   * PRE protects engine-owned lines; mid/post_complete do not. After payment the
+   * order's lines are frozen and QAMF/BMI are not synced, so "the money moved
+   * but the booking didn't" is the acknowledged state rather than a hazard —
+   * and returning a line by uid becomes the ONE way to refund anything.
+   */
+  allowEngineOwned = false,
 ): PlanLine[] => {
   if (!wanted || Object.keys(wanted).length === 0 || !isAnchorLeg) return lines;
 
@@ -1854,7 +1884,7 @@ const applyOrderLineSpec = (
         `order line ${uid} is no longer on the day-of order — re-open the editor`,
       );
     }
-    if (isEngineOwnedLine(hit, engineLines)) {
+    if (!allowEngineOwned && isEngineOwnedLine(hit, engineLines)) {
       throw new EditGuardError(
         "pricing_unresolvable",
         `"${hit.name}" is part of the booking itself — change it with the players, shoes, or ` +

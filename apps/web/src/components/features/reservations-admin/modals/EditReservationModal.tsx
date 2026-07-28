@@ -137,8 +137,17 @@ export default function EditReservationModal({
 
   const isCombo = !!reservation.comboSpecialId;
   const isRace = reservation.productKind === "race" || reservation.productKind === "attraction";
-  const bowlingEditable = !isCombo && !isRace;
-  const racersEditable = isRace || isCombo;
+  /**
+   * Refunding a settled visit is NOT editing it. The guest was here — the
+   * roster, lane count and heats are history and cannot change (QAMF/BMI are
+   * not synced and the paid order's lines are frozen). Showing player and shoe
+   * steppers invites staff to "fix" a booking that already happened, and it
+   * split one action across two controls: shoes via the Shoes stepper, fees via
+   * the day-of list. So refund intent renders exactly one thing — the day-of
+   * order's own lines with quantities, which is what the guest was charged from.
+   */
+  const bowlingEditable = intent !== "refund" && !isCombo && !isRace;
+  const racersEditable = intent !== "refund" && (isRace || isCombo);
 
   const basePlayerCount = current?.playerCount ?? reservation.playerCount ?? 1;
   const effPlayerCount = form.playerCount ?? basePlayerCount;
@@ -850,85 +859,83 @@ export default function EditReservationModal({
                   ))}
                 </>
               )}
-              {/* Growing the booking is an INCREASE — on a settled visit that
-                  means refunding and rebuilding a frozen order, which is not
-                  what "Refund" means. Hide it rather than let it 409. */}
-              {intent !== "refund" && (
-                <>
-                  <div style={{ ...SECTION_TITLE, marginTop: displayHeats.length > 0 ? 12 : 0 }}>
-                    Add racers
-                  </div>
-                  {form.addRacers.map((row, i) => (
-                    <div
-                      key={i}
-                      style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}
+              {/* Refund intent hides this whole block (racersEditable), so no
+                  extra guard here — growing a settled booking is an INCREASE,
+                  which means rebuilding a frozen order, not a refund. */}
+              <>
+                <div style={{ ...SECTION_TITLE, marginTop: displayHeats.length > 0 ? 12 : 0 }}>
+                  Add racers
+                </div>
+                {form.addRacers.map((row, i) => (
+                  <div
+                    key={i}
+                    style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}
+                  >
+                    <input
+                      value={row.firstName}
+                      placeholder="First name"
+                      disabled={busy}
+                      onChange={(e) => patchRacerRow(i, { firstName: e.target.value })}
+                      style={{ ...SMALL_INPUT, flex: 1, minWidth: 0 }}
+                    />
+                    <select
+                      value={row.category}
+                      disabled={busy}
+                      onChange={(e) =>
+                        patchRacerRow(i, {
+                          category: e.target.value === "junior" ? "junior" : "adult",
+                        })
+                      }
+                      style={{ ...SMALL_INPUT, width: 84 }}
+                    >
+                      <option value="adult">Adult</option>
+                      <option value="junior">Junior</option>
+                    </select>
+                    <label
+                      style={{
+                        display: "flex",
+                        gap: 4,
+                        alignItems: "center",
+                        fontSize: "0.68rem",
+                        color: "var(--ba-muted)",
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
                     >
                       <input
-                        value={row.firstName}
-                        placeholder="First name"
+                        type="checkbox"
+                        checked={row.isNew}
                         disabled={busy}
-                        onChange={(e) => patchRacerRow(i, { firstName: e.target.value })}
-                        style={{ ...SMALL_INPUT, flex: 1, minWidth: 0 }}
+                        onChange={(e) => patchRacerRow(i, { isNew: e.target.checked })}
                       />
-                      <select
-                        value={row.category}
-                        disabled={busy}
-                        onChange={(e) =>
-                          patchRacerRow(i, {
-                            category: e.target.value === "junior" ? "junior" : "adult",
-                          })
-                        }
-                        style={{ ...SMALL_INPUT, width: 84 }}
-                      >
-                        <option value="adult">Adult</option>
-                        <option value="junior">Junior</option>
-                      </select>
-                      <label
-                        style={{
-                          display: "flex",
-                          gap: 4,
-                          alignItems: "center",
-                          fontSize: "0.68rem",
-                          color: "var(--ba-muted)",
-                          cursor: "pointer",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={row.isNew}
-                          disabled={busy}
-                          onChange={(e) => patchRacerRow(i, { isNew: e.target.checked })}
-                        />
-                        new racer
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => dropRacerRow(i)}
-                        disabled={busy}
-                        aria-label="Remove row"
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: "var(--ba-muted)",
-                          cursor: "pointer",
-                          fontSize: "1rem",
-                        }}
-                      >
-                        &times;
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    style={{ ...NAV_BTN, fontSize: "0.72rem" }}
-                    disabled={busy}
-                    onClick={addRacerRow}
-                  >
-                    + Add racer
-                  </button>
-                </>
-              )}
+                      new racer
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => dropRacerRow(i)}
+                      disabled={busy}
+                      aria-label="Remove row"
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "var(--ba-muted)",
+                        cursor: "pointer",
+                        fontSize: "1rem",
+                      }}
+                    >
+                      &times;
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  style={{ ...NAV_BTN, fontSize: "0.72rem" }}
+                  disabled={busy}
+                  onClick={addRacerRow}
+                >
+                  + Add racer
+                </button>
+              </>
             </div>
           )}
 
@@ -942,9 +949,13 @@ export default function EditReservationModal({
                be returned, which is exactly what a refund is. */}
           {current && current.orderLines.some((l) => l.editable) && (
             <div style={SECTION}>
-              <div style={SECTION_TITLE}>Charges on the day-of order</div>
+              <div style={SECTION_TITLE}>
+                {intent === "refund" ? "What are you refunding?" : "Charges on the day-of order"}
+              </div>
               <div style={{ fontSize: "0.7rem", color: "var(--ba-muted)", marginBottom: 6 }}>
-                Set a quantity to 0 to return that line and refund it.
+                {intent === "refund"
+                  ? "These are the charges on this visit's day-of order. Lower a quantity to refund part of a line, or set it to 0 to refund the whole line."
+                  : "Set a quantity to 0 to return that line and refund it."}
               </div>
               {current.orderLines
                 .filter((l) => l.editable)
@@ -998,6 +1009,21 @@ export default function EditReservationModal({
                     </div>
                   );
                 })}
+            </div>
+          )}
+
+          {/* Refund intent renders only the list above, so say something when it
+              is empty rather than showing a modal with nothing in it. */}
+          {intent === "refund" && current && !current.orderLines.some((l) => l.editable) && (
+            <div style={{ ...SECTION, fontSize: "0.78rem", lineHeight: 1.6 }}>
+              <div style={SECTION_TITLE}>What are you refunding?</div>
+              <div style={{ color: "var(--ba-muted)" }}>
+                Nothing on this visit&rsquo;s day-of order can be refunded from here
+                {current.orderLines.length > 0
+                  ? " — every line on it is $0.00 (shoe-size markers and comped items carry no money)."
+                  : " — the order has no line items."}{" "}
+                Refund it in Square directly.
+              </div>
             </div>
           )}
 
