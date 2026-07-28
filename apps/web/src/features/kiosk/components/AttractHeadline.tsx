@@ -54,6 +54,7 @@ import { kioskBillboardEnabled } from "../flags";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 import { useT } from "../i18n";
 import { BrandLogo } from "./BrandLogo";
+import { clickableDivProps } from "@/lib/a11y";
 
 /** Headline base size; measured DOWN from here when a phrase is too wide. */
 const HEADLINE_PX = 150;
@@ -179,8 +180,13 @@ export function AttractHeadline({
 
       {/* ── promo ribbon — only on a slide that carries a real offer ──
           Height changes between a promo day and a normal one, so everything
-          below it is flex, never absolute against the top. */}
+          below it is flex, never absolute against the top.
+          It STARTS a session like the rest of the screen: the prompt below
+          promises "touch anywhere", so 132px of dead strip on Mega Tuesdays
+          would quietly make that a lie. (A div, not a button — it sits outside
+          the hero button and buttons cannot nest.) */}
       <div
+        {...clickableDivProps(() => onStart(), t("attract.touchAnywhereToStart"))}
         className="relative z-10 flex shrink-0 items-center justify-center gap-[26px] overflow-hidden bg-[rgba(0,4,24,0.92)] transition-[height,border-bottom-width] duration-500"
         style={{
           height: slide.notice && !onShow ? 132 : 0,
