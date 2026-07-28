@@ -66,13 +66,18 @@ describe("ad slides carry everything the headline layout needs", () => {
     }
   });
 
-  it("kiosk clips are kiosk-encoded, not marketing masters", () => {
-    // Chrome will not cache an entry over roughly 1/8 of its disk cache (~30-40MB
-    // here), so an oversized clip re-downloads on every attract re-mount, 24/7.
-    // The two reused masters are small; the two big ones have kiosk cuts.
-    expect(KIOSK_VIDEOS.race).toContain("ft-race-kiosk");
-    expect(KIOSK_VIDEOS.gel).toContain("nexus-gel-kiosk");
+  it("every clip is a kiosk cut, never a marketing master", () => {
+    // Masters fail this screen three ways: too big to stay in Chrome's disk
+    // cache (so they re-download on every attract re-mount), sparse keyframes
+    // (so clock-seeks land at different times per machine), and content we do
+    // not want behind a headline — axe throwing under "Let's play.", a HeadPinz
+    // sign on a FastTrax kiosk.
+    for (const [key, url] of Object.entries(KIOSK_VIDEOS)) {
+      expect(url, `${key} is not a kiosk cut`).toMatch(/-kiosk\.mp4$/);
+    }
     expect(KIOSK_VIDEOS.race).not.toContain("hero-video");
+    expect(KIOSK_VIDEOS.bowl).not.toContain("headpinz-bowling");
+    expect(KIOSK_VIDEOS.arcade).not.toContain("headpinz-arcade-v2");
   });
 });
 

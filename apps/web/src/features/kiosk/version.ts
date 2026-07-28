@@ -15,6 +15,32 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.10.3 — the 1.10.2 vehicle fix was itself broken, and took the Mega
+ *         headline with it. (1) `left-[calc(100%+64px)]` emits
+ *         `calc(100%+64px)`, and CSS requires whitespace around `+` inside
+ *         calc() — so the browser dropped the declaration, `left` fell back to
+ *         `auto`, and the car and ball rendered at their STATIC position, parked
+ *         mid-lane in plain view. Worse than the 64px sliver it was meant to
+ *         fix. Now an inline style, where the spaces survive.
+ *         (2) The headline carried `whitespace-pre-line` AND
+ *         `[text-wrap:nowrap]`. `white-space: pre-line` is a shorthand that
+ *         also sets `text-wrap: wrap`, so the winner depended on stylesheet
+ *         order; when wrap won, "LET'S GO MEGA." broke onto a second line that
+ *         clipped. Whitespace is now set inline and per-case: pre-line only for
+ *         billboard words, which carry deliberate \n breaks.
+ *         (3) fitOneLine measured, then the style prop re-applied the base size
+ *         on the next render and wiped the result — five times a second during
+ *         a billboard poll. The hook owns fontSize outright now.
+ *         (4) "Videos load a split second different": the clips were encoded
+ *         with a default ~10s GOP — the race cut had NO keyframe in its first
+ *         8 seconds — so a clock-seek had to decode forward from frame 0 and
+ *         every machine arrived at its own pace. All four re-encoded with a
+ *         keyframe every second, which is what makes the shared-clock seek
+ *         land instantly and identically. Drift watchdog tightened 4s -> 2s
+ *         now that a correction is cheap.
+ *         (5) Bowling re-cut from 6.2s: earlier in the reel a lit HEADPINZ
+ *         sign is on the wall, and the bowling slide also runs on FASTTRAX
+ *         kiosks as cross-promo. Also clears the food and robot segments.
  * 1.10.2 — attract fixes. (1) The car and ball sat 64px INTO view, parked at
  *         the right edge, then lurched off — the lane lives inside the hero's
  *         64px padding, so left:100% is x=1016 on a 1080 canvas. Parked at the
@@ -181,7 +207,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.10.2";
+export const KIOSK_VERSION = "1.10.3";
 
 let bootVersion: string | null = null;
 let captured = false;

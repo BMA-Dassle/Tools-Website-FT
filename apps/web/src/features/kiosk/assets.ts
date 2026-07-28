@@ -93,6 +93,15 @@ export const KIOSK_PHOTOS = {
  * A slide with no entry here falls back to its still `photo` with ken-burns,
  * which is a supported mix — the screen must never depend on a clip existing.
  *
+ * KEYFRAME DENSITY IS ALSO A CORRECTNESS CONCERN. Playback position is seeked
+ * to the shared clock (see AttractHeadline's seekToClock) so every screen in a
+ * bank shows the same frame. A seek can only land quickly if there is a
+ * keyframe near the target — the first race cut had a default ~10s GOP and NO
+ * keyframe at all in its first 8 seconds, so each browser decoded forward from
+ * frame 0 and arrived at its own pace. That is the "videos load a split second
+ * different" (owner 2026-07-28). Every kiosk clip is encoded with a keyframe
+ * every second: `-g 24 -keyint_min 24 -sc_threshold 0` at 24fps.
+ *
  * SIZE IS A CORRECTNESS CONCERN HERE, not just a cost one. Chrome refuses to
  * store any single cache entry larger than roughly 1/8 of its disk cache, which
  * lands around 30–40MB on these machines. A clip over that ceiling is evicted
@@ -110,7 +119,11 @@ export const KIOSK_PHOTOS = {
 export const KIOSK_VIDEOS = {
   /** Portrait kiosk cut of the FastTrax kart reel (from images/hero/hero-video.mp4). */
   race: `${BLOB_HOST}/videos/ft-race-kiosk.mp4`,
-  bowl: `${BLOB_HOST}/videos/headpinz-bowling.mp4`,
+  /** Cut from 6.2s of the marketing reel: earlier there is a lit HEADPINZ sign
+   *  on the wall, and this slide also runs on FASTTRAX kiosks as cross-promo —
+   *  a HeadPinz logo on a FastTrax screen (owner 2026-07-28). The window also
+   *  clears the food and service-robot segments further in. */
+  bowl: `${BLOB_HOST}/videos/hp-bowling-kiosk.mp4`,
   gel: `${BLOB_HOST}/videos/nexus-gel-kiosk.mp4`,
   /** Trimmed at 25.5s: the marketing reel moves to AXE THROWING at ~27s, which
    *  is not Game Zone and read as a mistake behind "Let's play." (owner

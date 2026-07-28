@@ -58,8 +58,10 @@ import { syncGlowPhase } from "../hooks/useKioskClock";
 import { BrandLogo } from "./BrandLogo";
 import { clickableDivProps } from "@/lib/a11y";
 
-/** How often a playing clip is re-checked against the shared clock. */
-const DRIFT_CHECK_MS = 4000;
+/** How often a playing clip is re-checked against the shared clock. Kiosk cuts
+ *  carry a keyframe every second, so a correction is cheap and near-instant —
+ *  worth checking often enough that a stall converges within a slide. */
+const DRIFT_CHECK_MS = 2000;
 /** Only correct drift a viewer could actually see — a seek is a visible hitch,
  *  so nudging on every tick would stutter more than the drift it fixes. */
 const DRIFT_TOLERANCE_S = 0.25;
@@ -88,6 +90,24 @@ function seekToClock(el: HTMLVideoElement, offset: number, tolerance = 0): void 
     /* not seekable yet — the next tick gets it */
   }
 }
+
+/**
+ * Where a vehicle waits between crossings.
+ *
+ * The ad zone parks at plain `left: 100%` and gets away with it because its
+ * container is the FULL canvas width and carries `overflow-hidden`. The
+ * headline lane is narrower — it sits inside the hero's 64px side padding — so
+ * left:100% is x=1016 on a 1080 canvas and 64px of the vehicle sits in view.
+ * Hence the extra 64px, which puts the park position back on the canvas edge.
+ *
+ * An INLINE STYLE, not a Tailwind arbitrary value: `left-[calc(100%+64px)]`
+ * emits `calc(100%+64px)`, and CSS requires whitespace around `+` inside
+ * calc(). The browser drops the whole declaration, `left` falls back to `auto`,
+ * and the vehicle renders at its static position — parked in the MIDDLE of the
+ * lane, permanently visible. Tailwind would need `calc(100%_+_64px)`; an inline
+ * style just keeps the spaces and cannot be got wrong the same way.
+ */
+const PARK_LEFT = "calc(100% + 64px)";
 
 /** Headline base size; measured DOWN from here when a phrase is too wide. */
 const HEADLINE_PX = 150;
@@ -161,7 +181,9 @@ export function AttractHeadline({
         : t(slide.headline);
   const accent = finale ? "#00e2e5" : wordUp && bbSlide ? bbSlide.accent : slide.accent;
 
-  const headlineRef = useFitOneLine(headline);
+  // The finale line is set a touch smaller than an activity word, matching the
+  // overlay it replaces.
+  const headlineRef = useFitOneLine(headline, finale ? 132 : HEADLINE_PX);
 
   // Vehicles never run during a bank event — a car driving through the finale
   // is exactly the collision this integration exists to avoid.
@@ -372,19 +394,30 @@ export function AttractHeadline({
           <span
             ref={headlineRef}
             data-glow-phase-ms={phaseMs}
-            className={`k-display block whitespace-pre-line [text-wrap:nowrap] ${
-              vehicle ? "kiosk-ad-rumble" : ""
-            }`}
+            className={`k-display block ${vehicle ? "kiosk-ad-rumble" : ""}`}
             style={
               onShow
                 ? {
-                    fontSize: finale ? 132 : HEADLINE_PX,
+                    // Billboard words carry deliberate \n breaks ("Gel\nblasters"),
+                    // so this is the one case that WANTS to wrap.
+                    whiteSpace: "pre-line",
+                    // fontSize is owned by useFitOneLine — see there.
                     color: "#fff",
                     lineHeight: 0.95,
                     textShadow: `0 0 10px rgba(255,255,255,0.88), 0 0 64px ${accent}`,
                   }
                 : {
-                    fontSize: HEADLINE_PX,
+                    // Rotation headlines are ALWAYS one line. Set INLINE, not as
+                    // a utility class: `white-space: pre-line` is a shorthand
+                    // that also sets `text-wrap: wrap`, so pairing it with a
+                    // `[text-wrap:nowrap]` class made the winner depend on
+                    // stylesheet order. When wrap won, "LET'S GO MEGA." broke
+                    // over two lines — and fitOneLine measures scrollWidth,
+                    // which on a WRAPPED element equals the container, so it
+                    // never shrank and the second line was clipped. Inline
+                    // beats both the utility and .k-display's text-wrap:balance.
+                    whiteSpace: "nowrap",
+                    // fontSize is owned by useFitOneLine — see there.
                     backgroundImage: `linear-gradient(90deg, #f5ecee 52%, ${accent})`,
                     WebkitBackgroundClip: "text",
                     backgroundClip: "text",
@@ -410,8 +443,8 @@ export function AttractHeadline({
               // replaces any transform utility on the same element. With
               // -translate-y-1/2 the car dropped half its height below the
               // line and read as "the car isn't working".
-              style={{ marginTop: -48 }}
-              className="kiosk-racecar pointer-events-none absolute left-[calc(100%+64px)] top-1/2 h-[96px] w-auto max-w-none"
+              style={{ marginTop: -48, left: PARK_LEFT }}
+              className="kiosk-racecar pointer-events-none absolute top-1/2 h-[96px] w-auto max-w-none"
             />
           )}
           {vehicle === "ball" && (
@@ -419,8 +452,8 @@ export function AttractHeadline({
               aria-hidden="true"
               data-glow-phase-ms={phaseMs}
               // Same transform collision as the car above (sprite is 84px).
-              style={{ marginTop: -42 }}
-              className="kiosk-bowlball pointer-events-none absolute left-[calc(100%+64px)] top-1/2"
+              style={{ marginTop: -42, left: PARK_LEFT }}
+              className="kiosk-bowlball pointer-events-none absolute top-1/2"
             >
               <span className="kiosk-bowlball-sprite" />
             </span>
@@ -510,19 +543,26 @@ const OFF_STAGE: BillboardStage = { image: false, word: false, finale: false };
  * documents. "Let's blast." overflowed and wrapped at 150px; Spanish is longer
  * again. So: nowrap forced in the class list, then shrink until it fits.
  */
-function useFitOneLine(text: string) {
+function useFitOneLine(text: string, base: number) {
   const ref = useRef<HTMLSpanElement>(null);
   // Layout effect so the size lands before paint — a long phrase never flashes
   // oversized on the slide flip.
+  //
+  // This hook OWNS fontSize; the style prop deliberately does not set it. When
+  // both did, every re-render re-applied the base size from the prop and wiped
+  // the measured shrink — and the effect would not re-run, because the text had
+  // not changed. On HeadPinz that is a 200ms billboard poll re-inflating the
+  // headline five times a second, so a phrase that needed shrinking simply
+  // overflowed instead.
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.style.fontSize = `${HEADLINE_PX}px`;
+    el.style.fontSize = `${base}px`;
     const w = el.scrollWidth;
     if (w > HEADLINE_MAX_W) {
-      el.style.fontSize = `${Math.floor((HEADLINE_PX * HEADLINE_MAX_W) / w)}px`;
+      el.style.fontSize = `${Math.floor((base * HEADLINE_MAX_W) / w)}px`;
     }
-  }, [text]);
+  }, [text, base]);
   return ref;
 }
 
