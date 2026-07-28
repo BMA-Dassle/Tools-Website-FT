@@ -60,7 +60,11 @@ import { raceUsesZeroBmiModel, computeRaceItemPovQty } from "./race";
 import { buildRaceChargeLines, raceHeatsMetadata, racerNamesFromHeats } from "./checkout";
 import { bowlingBookedPricingStamp } from "./bowling-booked-pricing";
 import { promoFactor } from "./promo-pricing";
-import { recordRedemption, getDiscountCodeByCode } from "~/features/discount-codes";
+import {
+  recordRedemption,
+  getDiscountCodeByCode,
+  resolveAppliedPromo,
+} from "~/features/discount-codes";
 import { activeComboSpecial, comboOrderGroups } from "~/features/combos/combo-pricing";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { wallClockMs } from "~/features/combos/combo-itinerary";
@@ -741,6 +745,23 @@ async function unifiedReserveInner(
   seedSource: string | null,
   prepareOnly = false,
 ): Promise<UnifiedReserveResult | PrepareDepositResult> {
+  // ── 0a. Server-authoritative promo ─────────────────────────────────
+  // `session.appliedPromo` is a CLIENT snapshot — its amounts/scopes/windows
+  // are display hints, never charge inputs (the bowling reserve route has
+  // enforced this since USA250; this path predated the rule). Re-resolve the
+  // code from Neon so every price derivation below runs on the store of
+  // record; a code that no longer resolves prices as no-promo. Fail-closed:
+  // a promo never survives on the client snapshot alone. Kiosk sessions make
+  // this non-negotiable — the device is an unattended public surface.
+  if (input.session.appliedPromo) {
+    const fresh = await resolveAppliedPromo(input.session.appliedPromo.code).catch(() => null);
+    if (!fresh) {
+      console.warn(
+        `[unified-reserve] appliedPromo ${input.session.appliedPromo.code} no longer resolves — pricing without it`,
+      );
+    }
+    input = { ...input, session: { ...input.session, appliedPromo: fresh } };
+  }
   const { session, contact } = input;
   // Day-of order → the entity that OWNS the products (revenue split stays
   // exact). Deposit/gift-card/payment → the KIOSK's own location when this is a

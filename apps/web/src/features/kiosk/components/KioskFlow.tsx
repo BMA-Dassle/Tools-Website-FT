@@ -66,6 +66,7 @@ import {
   kioskMergedCheckoutEnabled,
   kioskCheckoutUpsellEnabled,
   kioskGzCartEnabled,
+  kioskPromoEnabled,
   kioskTerminalEnabled,
 } from "../flags";
 import { KioskCheckoutScreen } from "./KioskCheckoutScreen";
@@ -78,6 +79,7 @@ import {
   KIOSK_STEP_REGISTRY,
 } from "../state/registry";
 import { KioskCategories } from "./KioskCategories";
+import { KioskCodeEntry } from "./KioskCodeEntry";
 import { useKioskAvailability } from "../hooks/useKioskAvailability";
 import { KioskHoldBar } from "./KioskHoldBar";
 import { KioskVipOverview } from "./KioskVipOverview";
@@ -204,7 +206,16 @@ const STEP_TITLE_KEYS: Record<string, MessageKey> = {
   "Who's racing?": "stepTitle.whosRacing",
 };
 
-export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?: boolean }) {
+export function KioskFlow({
+  goto,
+  bowlingV3,
+  kioskPromo,
+}: {
+  goto: string | null;
+  bowlingV3?: boolean;
+  /** ?kioskPromo=1 preview opt-in (same pattern as ?bowlingV3=1). */
+  kioskPromo?: boolean;
+}) {
   const router = useRouter();
   const { config } = useKioskConfig();
   // Reset the guest's language override on Start-Over — the LocaleProvider is
@@ -272,6 +283,10 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   const [upsellActive, setUpsellActive] = useState(false);
   const upsellSeenRef = useRef(false);
   const [gzOpen, setGzOpen] = useState(false);
+  // Coupon / voucher code entry (owner 2026-07-27) — flag-gated screen off the
+  // category chooser; ?kioskPromo=1 is the dark-flag preview opt-in.
+  const [codeEntryOpen, setCodeEntryOpen] = useState(false);
+  const promoEnabled = kioskPromoEnabled() || !!kioskPromo;
   // Standalone race-pack purchase (attract "Race Packs" chip) — a LOCKED
   // pack-only flow; its party is local until "Race today" adopts it here.
   const [packsOpen, setPacksOpen] = useState(false);
@@ -1584,6 +1599,21 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     );
   }
 
+  // ── Coupon / voucher code entry ──
+  if (codeEntryOpen) {
+    return chrome(
+      <KioskCodeEntry
+        onApplied={(promo) => dispatch({ type: "applyPromo", promo })}
+        onBack={() => setCodeEntryOpen(false)}
+        onOpenGameZone={() => {
+          setCodeEntryOpen(false);
+          clarityEvent("kiosk:gamezone:open");
+          setGzOpen(true);
+        }}
+      />,
+    );
+  }
+
   // ── Game Zone (multi-card token reload — its own money rail, not booking) ──
   if (gzOpen) {
     return chrome(
@@ -1644,6 +1674,16 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           clarityEvent("kiosk:gamezone:open");
           setGzOpen(true);
         }}
+        onOpenCodeEntry={
+          promoEnabled
+            ? () => {
+                clarityEvent("kiosk:code:open");
+                setCodeEntryOpen(true);
+              }
+            : undefined
+        }
+        appliedPromo={promoEnabled ? session.appliedPromo : null}
+        onClearPromo={() => dispatch({ type: "applyPromo", promo: null })}
       />,
     );
   }

@@ -93,6 +93,23 @@ export function KioskCheckoutScreen({
       (gz?.totalCents ?? 0) / 100 -
       rewardDiscount,
   );
+  // Coupon savings — the estimate builders above already price WITH the
+  // applied code (promoFactor runs inside them), so the guest-visible saving
+  // is the same math re-run WITHOUT the code, minus the discounted figure.
+  // Display-only; the charge derives its own numbers server-side.
+  const promo = session.appliedPromo ?? null;
+  const promoSavings = (() => {
+    if (!promo) return 0;
+    const bare = { ...session, appliedPromo: null };
+    const undiscounted =
+      items.reduce((s, i) => s + estimateCartItemTotal(i, bare), 0) +
+      (activeComboSpecial(bare)
+        ? (comboChargeLines(bare) ?? []).reduce((s, l) => s + l.amount, 0)
+        : 0);
+    const discounted =
+      items.reduce((s, i) => s + estimateCartItemTotal(i, session), 0) + comboEstimate;
+    return Math.max(0, undiscounted - discounted);
+  })();
 
   const itemsReady = items.length > 0 && allItemsReady(session);
   const contactOk = contactIsComplete(session.contact);
@@ -156,6 +173,16 @@ export function KioskCheckoutScreen({
           full-width no-wrap CTA under it. */}
       <div className="k-z-actions">
         <div className="flex w-full flex-col gap-[16px]">
+          {items.length > 0 && promo && promoSavings > 0.004 && (
+            <div className="flex items-baseline justify-end pr-[8px]">
+              <span className="k-display text-[24px] text-[#e8b14c]">
+                {t("checkout.codeSavings", {
+                  code: promo.code,
+                  amount: `$${promoSavings.toFixed(2)}`,
+                })}
+              </span>
+            </div>
+          )}
           {items.length > 0 && (
             <div className="flex items-baseline justify-end gap-[14px] pr-[8px]">
               <span className="text-[23px] font-bold uppercase tracking-[0.16em] text-white/45">

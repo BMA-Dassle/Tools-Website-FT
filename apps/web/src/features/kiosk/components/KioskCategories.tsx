@@ -17,12 +17,14 @@
 import { useState } from "react";
 import {
   effectiveBrand,
+  isOfferingInPromoScope,
   landingOfferingsFor,
   type ActivityOffering,
   type BookingSession,
   type Brand,
   type CenterCode,
 } from "~/features/booking";
+import type { AppliedPromo } from "~/features/discount-codes";
 import { enabledCombos, type ComboSpecial } from "~/features/combos";
 import { packageFamilyFromPrice } from "~/features/booking/service/packages";
 import { KIOSK_LOGOS, KIOSK_PHOTOS, kioskImg } from "../assets";
@@ -102,6 +104,12 @@ export interface KioskCategoriesProps {
   onPickPackageExperience: (family: string) => void;
   onOpenCart: () => void;
   onOpenGameZone: () => void;
+  /** Coupon/voucher entry (kioskPromoEnabled) — undefined hides the chip. */
+  onOpenCodeEntry?: () => void;
+  /** The session's applied code — renders the gold banner + per-tile
+   *  "Code applies" badges (same isOfferingInPromoScope the web landing uses). */
+  appliedPromo?: AppliedPromo | null;
+  onClearPromo?: () => void;
 }
 
 export function KioskCategories({
@@ -116,6 +124,9 @@ export function KioskCategories({
   onPickCombo,
   onPickPackageExperience,
   onOpenGameZone,
+  onOpenCodeEntry,
+  appliedPromo,
+  onClearPromo,
 }: KioskCategoriesProps) {
   const [cat, setCat] = useState<CategoryKey | null>(null);
   const { config } = useKioskConfig();
@@ -209,6 +220,39 @@ export function KioskCategories({
             />
           )}
         </div>
+        {/* Coupon / voucher strip (kioskPromoEnabled) — the chip becomes the
+            gold applied-code banner once a code lands. Entry point mirrors the
+            website's attraction-selector promo form (owner 2026-07-27). */}
+        {(onOpenCodeEntry || appliedPromo) && (
+          <div className="mt-[24px] flex min-h-[84px] items-center justify-center">
+            {appliedPromo ? (
+              <div className="flex h-[84px] items-center gap-[18px] rounded-full border-[1.5px] border-[rgba(232,177,76,0.65)] bg-[rgba(232,177,76,0.10)] px-[34px]">
+                <TicketGlyph color="#e8b14c" />
+                <span className="k-display text-[28px] text-[#e8b14c]">{appliedPromo.code}</span>
+                <span className="text-[26px] text-white/75">{promoDealLine(t, appliedPromo)}</span>
+                {onClearPromo && (
+                  <button
+                    type="button"
+                    onClick={onClearPromo}
+                    aria-label={t("promo.banner.clear")}
+                    className="k-tap ml-[6px] px-[8px] text-[30px] leading-none text-white/45"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={onOpenCodeEntry}
+                className="k-tap flex h-[84px] items-center gap-[16px] rounded-full border-[1.5px] border-[rgba(0,226,229,0.5)] px-[36px] font-[family-name:var(--font-heading)] text-[26px] font-bold uppercase tracking-[0.08em] text-[#00e2e5]"
+              >
+                <TicketGlyph color="#00e2e5" />
+                {t("promo.chip")}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -321,6 +365,9 @@ export function KioskCategories({
                   disabled={!offeringAvailable(offeringKey(o))}
                   disabledNote={t("categories.disabled.attraction")}
                   firstOpen={offeringFirstOpen(offeringKey(o))}
+                  // Gold "Code applies" badge — same scope predicate the web
+                  // landing badges with.
+                  promoApplies={!!appliedPromo && isOfferingInPromoScope(o, appliedPromo)}
                   onClick={() => onPickOffering(o)}
                 />
               ))}
@@ -519,6 +566,7 @@ function OfferingTile({
   disabled,
   disabledNote,
   firstOpen,
+  promoApplies,
   onClick,
 }: {
   offering: ActivityOffering;
@@ -532,6 +580,8 @@ function OfferingTile({
   disabledNote?: string;
   /** Soonest bookable slot → the "3 lanes · 9:30 PM" line above the title. */
   firstOpen?: FirstOpen;
+  /** The applied coupon covers this tile → gold "Code applies" badge. */
+  promoApplies?: boolean;
   onClick: () => void;
 }) {
   const accent = offering.accentColor ?? "#00e2e5";
@@ -553,6 +603,12 @@ function OfferingTile({
       className={`k-ph k-tap relative overflow-hidden rounded-[28px] border border-white/10 text-left ${wide ? "col-span-2 h-[300px]" : "h-[340px]"} ${disabled ? "opacity-50" : ""}`}
       style={heroUrl ? ({ ["--k-img"]: `url(${heroUrl})` } as React.CSSProperties) : undefined}
     >
+      {/* Gold coupon badge — top-left (venue chip owns top-right). */}
+      {promoApplies && !disabled && (
+        <div className="k-display absolute left-[20px] top-[20px] rounded-full bg-[#e8b14c] px-[22px] py-[10px] text-[22px] text-[#2a1c02] shadow-[0_10px_34px_rgba(232,177,76,0.45)]">
+          {t("promo.badge")}
+        </div>
+      )}
       {/* Venue chip — which building this attraction lives in. */}
       <div className="k-glass absolute right-[20px] top-[20px] flex items-center px-[20px] py-[12px]">
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -603,5 +659,39 @@ function OfferingTile({
         <div className="h-[8px]" style={{ background: disabled ? "#555" : accent }} />
       </div>
     </button>
+  );
+}
+
+/** "15% off today" / "$5.00 off today" tail for the applied-code banner. */
+function promoDealLine(t: Translate, promo: AppliedPromo): string {
+  if (promo.mechanic === "percent" && promo.amountPct != null) {
+    return t("promo.banner.percent", { pct: promo.amountPct });
+  }
+  if (promo.amountCents != null) {
+    return t("promo.banner.fixed", { amount: `$${(promo.amountCents / 100).toFixed(2)}` });
+  }
+  return "";
+}
+
+/** Ticket outline glyph (house rule: icons, never emoji). */
+function TicketGlyph({ color }: { color: string }) {
+  return (
+    <svg
+      width="34"
+      height="34"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="shrink-0"
+    >
+      <path d="M15 5v2" />
+      <path d="M15 11v2" />
+      <path d="M15 17v2" />
+      <path d="M5 5h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4V7a2 2 0 0 1 2-2" />
+    </svg>
   );
 }
