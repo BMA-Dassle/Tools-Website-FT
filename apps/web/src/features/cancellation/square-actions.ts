@@ -129,9 +129,10 @@ export async function fetchPaymentFacts(
     status: p.status ?? "?",
     amountCents: p.amount_money?.amount ?? 0,
     refundedCents: p.refunded_money?.amount ?? 0,
-    // "CARD" | "GIFT_CARD" | "WALLET" | … — gift-card tenders can't be
-    // partially refunded (live finding 2026-07-11), so refund allocators
-    // must know what funded the payment.
+    // "CARD" | "GIFT_CARD" | "WALLET" | … — refund allocators branch on what
+    // funded the payment. (The 2026-07-11 claim that gift-card tenders cannot
+    // be partially refunded was overturned by live probe on 2026-07-27; the
+    // remaining skips are conservative policy, not a Square limit.)
     sourceType: p.source_type ?? undefined,
   };
 }

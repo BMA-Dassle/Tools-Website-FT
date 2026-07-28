@@ -24,10 +24,12 @@ import {
 } from "@/lib/bowling-db";
 import {
   finishEditEvent,
+  getOpenEditEvent,
   markEditPendingPayment,
   nextEditAttempt,
   recordEditPayment,
   recordEditRefund,
+  refundedCentsForPayment,
   startEditEvent,
   listEditEventsByAnchors,
 } from "@/lib/reservation-edit-log";
@@ -43,14 +45,17 @@ import {
 } from "~/features/cancellation/square-actions";
 import { resolveCenter } from "~/features/cancellation/centers";
 
+import { refundFlagForPhase } from "./guards";
 import type { EditPlan, EditPlanLeg, PlanLine } from "./plan";
 import {
   adjustGiftCardDown,
   chargeDayofOrder,
   createEditTopupOrderAndCharge,
+  createReturnOrder,
   fetchRefundFacts,
   refundTenderPartial,
   updateDayofOrderLines,
+  waitForRefundCredit,
 } from "./square-actions";
 import { playersToQamfRoster, rebookQamfForLaneChange, syncQamfPlayers } from "./qamf-sync";
 import {
@@ -76,6 +81,17 @@ export interface ExecuteEditRequest {
    * source is now real).
    */
   resumeEditId?: string;
+  /**
+   * Staff-entered reason for the DAY-OF Square refund (owner rule 2026-07-27).
+   *
+   * The day-of leg must NOT carry "Refund: Reservation Deposit" — that string
+   * is the accounting portal's journal key and belongs to the deposit/cash-out
+   * leg alone. One economic refund moves money twice (day-of GC-payment
+   * reversal + deposit card refund); if both carried the magic string the
+   * portal would journal the event twice. Required whenever the plan contains
+   * a day-of refund step.
+   */
+  dayofRefundReason?: string;
 }
 
 export interface EditResult {
@@ -94,6 +110,30 @@ export interface EditResult {
 
 const flag = (name: string): boolean => process.env[name] === "true";
 
+/**
+ * Edit-lock TTL. Long enough to outlive an await-the-gift-card-credit wait
+ * (Square posts refund credits asynchronously — observed 30-90s on 2026-07-27,
+ * and the wait step polls well past that before parking). The old 180s could
+ * expire mid-settlement, letting a second mutation in while the first was
+ * still holding un-decremented gift-card value. Refresh with `extendEditLock`
+ * around any long wait rather than raising this further.
+ */
+export const EDIT_LOCK_TTL_SECONDS = 600;
+
+/**
+ * Refresh the edit lock's TTL. Called around long waits so a slow Square
+ * settlement can't drop the mutual exclusion. Best-effort: a Redis failure
+ * leaves the deterministic idempotency keys as the money guard, same as the
+ * acquire path.
+ */
+export const extendEditLock = async (anchorId: number): Promise<void> => {
+  try {
+    await redis.set(`edit:lock:${anchorId}`, "1", "EX", EDIT_LOCK_TTL_SECONDS);
+  } catch {
+    /* Redis down — idempotency keys still protect money */
+  }
+};
+
 /** Sum of |amount| still to refund across a list, oldest-last allocation. */
 interface RefundTarget {
   paymentId: string;
@@ -110,7 +150,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
   const lockKey = `edit:lock:${anchorId}`;
   let lockHeld = false;
   try {
-    lockHeld = (await redis.set(lockKey, "1", "EX", 180, "NX")) === "OK";
+    lockHeld = (await redis.set(lockKey, "1", "EX", EDIT_LOCK_TTL_SECONDS, "NX")) === "OK";
   } catch {
     lockHeld = true; // Redis down — deterministic idempotency keys still protect money
   }
@@ -153,21 +193,38 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
         "BMI-touching edits are not enabled yet (RESERVATION_EDIT_V2_RACE)",
       );
     }
-    // A1 ANSWERED NO (owner live finding 2026-07-11): Square refuses partial
-    // refunds of gift-card-funded payments. Both paths below refund the
-    // internal-GC day-of tender and need a redesign (refund the guest's card
-    // directly + manual ADJUST_DECREMENT) before their flags may EVER turn on.
-    if (kinds.has("refund_dayof_payment") && !flag("RESERVATION_EDIT_V2_MID_DECREASE")) {
-      throw new EditGuardError(
-        "mid_session_unsupported",
-        "mid-session decreases need a redesign (Square can't partially refund gift-card tenders)",
-      );
-    }
-    if (kinds.has("refund_dayof_order") && !flag("RESERVATION_EDIT_V2_POST")) {
-      throw new EditGuardError(
-        "post_complete_ack_required",
-        "post-complete edits need a redesign (Square can't refund gift-card tenders)",
-      );
+    // A1 was OVERTURNED on 2026-07-27 by an owner-authorized live probe: the
+    // API DOES accept partial refunds of gift-card-funded payments. The flags
+    // stay off until the §8 smoke checklist in
+    // tasks/future/post-dayof-refund-plan.md passes.
+    //
+    // Gate on the PLAN'S PHASE, not on the step kind. refund_dayof_payment is
+    // emitted by BOTH mid and post_complete (money-only is the preferred shape
+    // in each), so keying off the kind mapped the wrong flag onto each phase:
+    // _MID_DECREASE silently governed post-complete refunds, and _POST governed
+    // only the rebuild path — meaning enabling _POST alone did nothing for the
+    // post-complete refund we actually build, while enabling _MID_DECREASE
+    // alone opened post-complete refunds nobody signed off on.
+    if (kinds.has("refund_dayof_payment") || kinds.has("refund_dayof_order")) {
+      const required = refundFlagForPhase(plan.phase);
+      if (!required) {
+        // Only mid/post_complete emit these steps. A pre-phase plan carrying one
+        // has nothing to refund (no tender on the day-of order yet), so this is
+        // a corrupted plan rather than a permission question — refuse it before
+        // it picks a flag by accident.
+        throw new EditGuardError(
+          "phase_conflict",
+          `plan is ${plan.phase} but carries a paid-order refund step — refusing to move money`,
+        );
+      }
+      if (!flag(required)) {
+        throw new EditGuardError(
+          "refund_not_enabled",
+          plan.phase === "post_complete"
+            ? `refunds after the visit is closed are not enabled yet (${required})`
+            : `refunds after check-in are not enabled yet (${required})`,
+        );
+      }
     }
 
     // ── Audit row (fatal) ──────────────────────────────────────────────
@@ -175,6 +232,41 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
       ? parseInt(req.resumeEditId.match(/-a(\d+)$/)?.[1] ?? "1", 10)
       : await nextEditAttempt(anchorId);
     const editId = req.resumeEditId ?? `edit-${anchorId}-a${attempt}`;
+
+    // ── Hard open-event guard ──────────────────────────────────────────
+    // The plan-time hasOpenEditEvent check is only a WARNING, and the Redis
+    // lock is per-process-window (and open-fails when Redis is down), so
+    // neither stops a SECOND edit from starting on top of an attempt that
+    // already moved money and parked. Resuming that same attempt is fine —
+    // it replays the identical idempotency keys — but any OTHER editId would
+    // plan against stale money facts and re-refund. Refuse it here, where we
+    // finally know both ids.
+    const openEvent = await getOpenEditEvent(plan.legIds);
+    if (openEvent && openEvent.editId !== editId) {
+      throw new EditGuardError(
+        "edit_in_progress",
+        `edit ${openEvent.editId} is ${openEvent.state} for this group — resume or fail it before starting another`,
+      );
+    }
+
+    // Owner rule (2026-07-27): the day-of refund carries a staff-supplied
+    // reason, never the deposit leg's journal key. Enforced before the audit
+    // row so a missing reason can never reach a money step.
+    const needsDayofReason = kinds.has("refund_dayof_payment") || kinds.has("refund_dayof_order");
+    const dayofRefundReason = req.dayofRefundReason?.trim();
+    if (needsDayofReason && !dayofRefundReason) {
+      throw new EditGuardError(
+        "dayof_reason_required",
+        "a refund reason for the day-of charge is required (it is recorded on the Square refund and shown to accounting)",
+      );
+    }
+    if (dayofRefundReason && /reservation deposit/i.test(dayofRefundReason)) {
+      throw new EditGuardError(
+        "dayof_reason_reserved",
+        '"Reservation Deposit" is reserved for the deposit refund — the portal journals off it. Describe the day-of refund instead.',
+      );
+    }
+
     await startEditEvent({
       editId,
       anchorReservationId: anchorId,
@@ -200,6 +292,16 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
 
     const paymentIds: string[] = [];
     const refundIds: string[] = [];
+    /** Return orders created for itemized refunds — surfaced in the step log. */
+    const returnOrderIds: string[] = [];
+    /**
+     * What the day-of leg ACTUALLY returned, per Square's itemized return
+     * total. Once set it overrides the planner's figures for the guest refund
+     * and the gift-card decrement so all three legs move the same money.
+     */
+    let dayofRefundedCents: number | undefined;
+    /** Gift-card balance immediately BEFORE the day-of refund was issued. */
+    let gcBaselineCents: number | undefined;
     const rebuiltOrders: Array<{ oldOrderId: string; newOrderId: string }> = [];
     let storeCreditGan: string | undefined;
     let newQamfReservationId: string | undefined;
@@ -333,7 +435,14 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
           }
 
           case "refund_tender": {
-            const owed = step.amountCents ?? -plan.diffCents;
+            // When a day-of leg already ran, the amount SQUARE returned is the
+            // truth — not the planner's estimate. The itemized return makes
+            // Square compute the tax-inclusive figure, and it can differ from
+            // local math (a live smoke on 2026-07-27 had the planner at 866¢
+            // and Square at 642¢). Refunding the planner's number here while
+            // the card only got Square's would over-refund the guest by the
+            // difference, and leave the gift-card decrement inconsistent too.
+            const owed = dayofRefundedCents ?? step.amountCents ?? -plan.diffCents;
             // Capacity shortfalls throw INSIDE refundAcrossTenders before any
             // money moves; landing here under-refunded means a clamp race —
             // issued refunds are recorded, so a re-run nets them and heals.
@@ -349,18 +458,152 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
 
           case "refund_dayof_payment": {
             if (!anchor.dayofPaymentId) throw new Error("no lane-open payment id on the row");
+
+            // ITEMIZED, never amount-only (owner rule 2026-07-27). Build a
+            // return order naming the exact lines coming off the paid order;
+            // Square computes the tax-inclusive total, and that figure is what
+            // we refund. Without this the returned item is invisible to
+            // item-level sales reporting and to QBO categorization.
+            //
+            // An order-linked refund does NOT credit the gift-card tender
+            // (probed 2026-07-28, three arms, controlled: linked stayed at 0¢
+            // past 150s; identical unlinked credited in ~11s; destination_id
+            // made no difference). That is fine — the card side is handled
+            // deterministically by reconcile_gift_card instead of waiting on
+            // Square's credit, which removes the async window that stranded
+            // the 7/27 credit on card ...1430 altogether.
+            const legWithReturn = plan.legs.find(
+              (l) => l.dayofOrderId && l.returnedLines.length > 0,
+            );
+            if (!legWithReturn?.dayofOrderId || !legWithReturn.orderLocationId) {
+              throw new Error(
+                "cannot identify which line items are being refunded — a day-of refund must be " +
+                  "itemized against the paid order, never issued as a bare amount",
+              );
+            }
+            // Snapshot the card BEFORE the refund so the wait step can tell
+            // when the credit has actually landed (refund status lags).
+            if (plan.giftCard) {
+              try {
+                gcBaselineCents = (await fetchGiftCardFacts(plan.giftCard.id)).balanceCents;
+              } catch {
+                gcBaselineCents = undefined; // wait falls back to the status signal
+              }
+            }
+            const ret = await createReturnOrder({
+              editId,
+              sourceOrderId: legWithReturn.dayofOrderId,
+              locationId: legWithReturn.orderLocationId,
+              lines: legWithReturn.returnedLines.map((l) => ({
+                uid: l.uid,
+                quantity: l.quantity,
+              })),
+            });
+            returnOrderIds.push(ret.returnOrderId);
+            // Square's own tax-inclusive figure wins over the planner's, and
+            // becomes the amount every later leg uses.
+            const asked = ret.returnTotalCents;
+            dayofRefundedCents = asked;
+            if (step.amountCents != null && step.amountCents !== asked) {
+              stepLog.push({
+                step: "return_order",
+                ok: true,
+                detail: `${ret.returnOrderId} — Square priced the return at ${asked}¢ (plan said ${step.amountCents}¢)`,
+              });
+            } else {
+              stepLog.push({ step: "return_order", ok: true, detail: ret.returnOrderId });
+            }
+
+            // NET refunds prior attempts already issued against THIS payment.
+            // refundTenderPartial clamps only to the payment's un-refunded
+            // remainder, which stays large after a partial — so a retry that
+            // bumped to a fresh idempotency namespace would otherwise refund
+            // the same items twice. (The deposit leg has had this netting
+            // since 2026-07-11; the day-of leg never did.)
+            const prior = await refundedCentsForPayment(
+              plan.legIds,
+              anchor.dayofPaymentId,
+              fetchRefundFacts,
+            );
+            for (const rid of prior.refundIds) {
+              if (!refundIds.includes(rid)) refundIds.push(rid);
+              await recordEditRefund(editId, rid);
+            }
+            const owed = Math.max(0, asked - prior.cents);
+            if (owed === 0) {
+              stepLog.push({
+                step: step.kind,
+                ok: true,
+                detail: `already refunded (${prior.cents}¢ netted)`,
+              });
+              break;
+            }
+
             const r = await refundTenderPartial({
               editId,
               refundIndex: 90, // reserved namespace for the gift-card tender refund
               paymentId: anchor.dayofPaymentId,
-              amountCents: step.amountCents ?? -plan.diffCents,
-              reason: "Refund: Reservation Deposit",
+              amountCents: owed,
+              // Owner rule: staff-supplied, never the deposit journal key.
+              reason: dayofRefundReason!,
+              // Linked to the return order → the refund is ITEMIZED, matching
+              // how the POS records returns. It will NOT credit the gift card;
+              // reconcile_gift_card handles the card side deterministically.
+              returnOrderId: ret.returnOrderId,
             });
             if (r.refundId) {
               refundIds.push(r.refundId);
               await recordEditRefund(editId, r.refundId);
             }
             stepLog.push({ step: step.kind, ok: true, detail: r.refundId });
+            break;
+          }
+
+          case "reconcile_gift_card": {
+            // The internal card must end holding exactly what it held before
+            // the refund — the value being returned belongs to the guest, not
+            // to the card.
+            //
+            // An ITEMIZED refund does not credit the card, so in the normal
+            // case the balance is already correct and this is a verified
+            // no-op. But we do not ASSUME that: we compare against the
+            // baseline captured before the refund and decrement any excess.
+            // That keeps the step correct if Square ever starts crediting
+            // order-linked refunds, and it replaces the old
+            // wait-then-decrement pair — no async window, so nothing can be
+            // stranded the way the 7/27 credit on card ...1430 was.
+            if (!plan.giftCard) {
+              throw new Error(
+                "gift card facts unavailable — cannot verify the card holds no refunded value",
+              );
+            }
+            const live = (await fetchGiftCardFacts(plan.giftCard.id)).balanceCents;
+            const baseline = gcBaselineCents ?? live;
+            const excess = live - baseline;
+            if (excess > 0) {
+              const dropped = await adjustGiftCardDown({
+                editId,
+                giftCardId: plan.giftCard.id,
+                amountCents: excess,
+              });
+              if (dropped < excess) {
+                throw new Error(
+                  `gift card ${plan.giftCard.id} still holds refunded value ` +
+                    `(dropped ${dropped}¢ of ${excess}¢) — resolve in Square before retrying`,
+                );
+              }
+              stepLog.push({
+                step: step.kind,
+                ok: true,
+                detail: `-${dropped} (credit had posted)`,
+              });
+            } else {
+              stepLog.push({
+                step: step.kind,
+                ok: true,
+                detail: `balance ${live}¢ unchanged vs baseline — nothing to strip`,
+              });
+            }
             break;
           }
 
@@ -372,12 +615,31 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
           }
 
           case "adjust_gift_card_down": {
-            if (!plan.giftCard) break;
+            // Same rule as refund_tender: strip exactly what came back.
+            const want = dayofRefundedCents ?? step.amountCents ?? plan.gcDecrementCents;
+            if (!plan.giftCard) {
+              // The plan builder only WARNS when gift-card facts are
+              // unreadable and drops this step. For a post-payment refund
+              // that is a silent double-payout: the guest keeps the card
+              // refund AND the value stays spendable on the internal card.
+              throw new Error(
+                `gift card facts unavailable but ${want}¢ must be decremented — ` +
+                  `verify the card in Square before retrying`,
+              );
+            }
             const adjusted = await adjustGiftCardDown({
               editId,
               giftCardId: plan.giftCard.id,
-              amountCents: step.amountCents ?? -plan.diffCents,
+              amountCents: want,
             });
+            // A short/zero decrement means the credit is not on the card — a
+            // green step here would leave refunded value spendable.
+            if (adjusted < want) {
+              throw new Error(
+                `gift card ${plan.giftCard.id} decremented ${adjusted}¢ of ${want}¢ — ` +
+                  `the refund credit has not landed; re-run this edit to finish it`,
+              );
+            }
             stepLog.push({ step: step.kind, ok: true, detail: `-${adjusted}` });
             break;
           }
@@ -405,7 +667,9 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
                 paymentId: tender.paymentId,
                 amountCents: tender.amountCents,
                 baseKey: `${editId}-t${n}`,
-                reason: "Refund: Reservation Deposit",
+                // Day-of leg: staff-supplied reason, never the deposit
+                // journal key (owner rule 2026-07-27).
+                reason: dayofRefundReason!,
               });
               refundIds.push(r.refundId);
               await recordEditRefund(editId, r.refundId);
@@ -937,9 +1201,12 @@ const commitNeon = async (
     });
   }
 
-  // Post-complete: swap the order pointer + re-stamp completion so the
-  // status-close cron stays away from the new order.
-  if (plan.phase === "post_complete") {
+  // Only a REBUILD moves the order pointer (rebuildDayofOrder reassigns
+  // leg.dayofOrderId). The money-only post-complete path leaves the original
+  // order in place carrying its refunds, so re-pointing it would write the same
+  // id back — a pointless statement that made a pure-refund edit depend on a
+  // Neon write it does not need. Swap only when something was actually rebuilt.
+  if (rebuiltOrders.length > 0) {
     const { sql } = await import("@/lib/db");
     const q = sql();
     for (const leg of plan.legs) {

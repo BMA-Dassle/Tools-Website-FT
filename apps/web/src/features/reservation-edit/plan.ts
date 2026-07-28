@@ -20,7 +20,12 @@ import {
   type BowlingSquareProduct,
 } from "@/lib/bowling-db";
 import { hasOpenEditEvent } from "@/lib/reservation-edit-log";
-import { fetchGiftCardFacts, sq } from "~/features/cancellation/square-actions";
+import {
+  fetchGiftCardFacts,
+  fetchOrderFacts,
+  fetchPaymentFacts,
+  sq,
+} from "~/features/cancellation/square-actions";
 import { resolveCenter } from "~/features/cancellation/centers";
 import { getComboSpecial, type ComboSpecial } from "~/features/combos/combo-specials";
 import { getRaceProductById, _allRaceProducts } from "~/features/booking/service/race-products";
@@ -29,7 +34,13 @@ import { isFridayYmd } from "~/features/booking/service/kbf-pricing";
 import { getChargeableCard } from "~/features/card-vault";
 
 import { loadExperiencesForCenter, matchExperienceForRow } from "./experience-resolve";
-import { assertEditable, selectPhase, type SquareOrderState } from "./guards";
+import {
+  assertEditable,
+  isRefundOnlyPlan,
+  refundFlagForPhase,
+  selectPhase,
+  type SquareOrderState,
+} from "./guards";
 import { planHash as hashPlan } from "./hash";
 import {
   repriceBowling,
@@ -45,6 +56,7 @@ import {
 import {
   EditGuardError,
   type BowlingBookedStamp,
+  type EditGuardCode,
   type EditPaymentSource,
   type EditPhase,
   type EditSettlement,
@@ -96,6 +108,21 @@ export interface EditPlanLeg {
    * their booking_metadata.bowling on the first successful edit.
    */
   resolvedStamp: BowlingBookedStamp | null;
+  /**
+   * Lines coming OFF the paid day-of order, addressed by their LIVE Square
+   * uid — the input for an ITEMIZED return order.
+   *
+   * Owner rule (2026-07-27): a refund is never amount-only. Square attributes
+   * a bare `POST /refunds` to a dollar figure and nothing else, so the item
+   * never shows as returned in item-level sales reporting and QBO cannot
+   * categorize it. Instead we create a return order
+   * (`returns[].source_order_id` + `return_line_items[].source_line_item_uid`)
+   * and refund AGAINST it — Square then computes the tax-inclusive return
+   * total itself and the refund is linked to the actual items.
+   *
+   * Empty on increases and on legs whose lines did not shrink.
+   */
+  returnedLines: Array<{ uid: string; name: string; quantity: number }>;
   /** Race legs: metadata heats removed / racers added (execution inputs). */
   removedHeats: Array<{ index: number; bmiLineId: string | null; label: string }> | null;
   /**
@@ -156,7 +183,30 @@ export interface EditCurrentState {
     /** BMI line ids present → editable; missing → display-only. */
     editable: boolean;
   }>;
+  /**
+   * LIVE day-of order lines, uid-addressed for spec.orderLines. `editable`
+   * marks the ones the booking engine does NOT own (food, POS add-ons) —
+   * those are the only ones staff may change here; everything else has to move
+   * through its typed field so the booking follows the money.
+   */
+  orderLines: Array<{
+    uid: string;
+    name: string;
+    quantity: number;
+    unitPriceCents: number;
+    totalCents: number;
+    editable: boolean;
+  }>;
 }
+
+/**
+ * Largest gap lane-open will auto-comp onto the internal gift card when a
+ * pre-tax deposit falls short of the tax-inclusive day-of total. Mirrors
+ * GAP_GUARD_CENTS in lib/bowling-lane-open.ts — a refund may exceed the
+ * deposit's refundable capacity by at most this much before it stops being
+ * explainable as that comp coming back.
+ */
+const GAP_COMP_MAX_CENTS = 200;
 
 export interface EditPlan {
   anchorId: number;
@@ -167,6 +217,18 @@ export interface EditPlan {
   legs: EditPlanLeg[];
   /** Σ new − Σ old across the money group (tax-inclusive, cents). */
   diffCents: number;
+  /**
+   * Cents the GUEST actually gets back — capped at the deposit tenders'
+   * un-refunded capacity. Equals |diffCents| except on gap-comped rows, where
+   * the house's lane-open courtesy has no card to return to.
+   */
+  guestOwedCents: number;
+  /**
+   * Cents to strip off the internal gift card — everything the day-of refund
+   * credits back to it, guest share AND comp share. Never less than
+   * guestOwedCents; a shortfall would leave spendable value behind.
+   */
+  gcDecrementCents: number;
   settlement: "charge" | EditSettlement | "none";
   /** Card that will be charged for an increase (null = none on file). */
   chargeCard: { cardId: string; brand: string; last4: string } | null;
@@ -174,6 +236,14 @@ export interface EditPlan {
   steps: EditStep[];
   warnings: EditWarning[];
   current: EditCurrentState;
+  /**
+   * Set when this plan is complete and correct but MAY NOT execute in this
+   * environment (the phase's refund flag is off). The dry-run still returns the
+   * whole preview so staff can see exactly what the refund would be — the modal
+   * disables Execute and shows this reason instead of letting them fill the
+   * form out and hit a wall. The executor re-checks independently.
+   */
+  executionBlocked: { code: EditGuardCode; message: string } | null;
   planHash: string;
 }
 
@@ -485,6 +555,22 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
   });
 
   const heatsMeta = heatsFromMetadata(anchor);
+  // Lines the booking model owns on the ANCHOR's order: everything stored as
+  // a reservation line (experience, shoes, fees), every attraction add-on, and
+  // every race product. Anything else on the order came from outside the
+  // engine (food route, POS) and is the only thing spec.orderLines may touch.
+  const anchorEngineLines: EngineOwnedLine[] = [
+    ...anchorStoredLines.map((l) => ({
+      squareCatalogObjectId: l.squareCatalogObjectId,
+      label: l.label,
+    })),
+    ...(anchor.attractionBookings ?? []).map((a) => ({
+      squareCatalogObjectId: a.squareCatalogObjectId ?? null,
+      label: a.name,
+    })),
+    ..._allRaceProducts().map((p) => ({ squareCatalogObjectId: null, label: p.name })),
+  ];
+
   const current: EditCurrentState = {
     playerCount: anchor.playerCount ?? players.length,
     laneCount: null,
@@ -527,6 +613,17 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       unitPriceCents: a.quantity > 0 ? Math.round((a.totalPriceDollars * 100) / a.quantity) : 0,
       timeLabel: a.timeLabel,
       editable: !!(a.bmiOrderId && a.bmiBillLineId),
+    })),
+    orderLines: (legSnapshots.get(anchor.id)?.lines ?? []).map((l) => ({
+      uid: l.uid ?? "",
+      name: l.name,
+      quantity: l.quantity,
+      unitPriceCents: l.unitPriceCents,
+      totalCents: l.totalCents,
+      // Editable only when nothing in the booking model claims this line —
+      // the same rule applyOrderLineSpec enforces server-side, so the UI never
+      // offers a control the engine would reject.
+      editable: !!l.uid && !isEngineOwnedLine(l, anchorEngineLines),
     })),
   };
 
@@ -772,6 +869,15 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       if (attractionChanges.length === 0) attractionChanges = null;
     }
 
+    // Free-form day-of line edits (food, POS add-ons) by live order uid.
+    newLines = applyOrderLineSpec(newLines, spec.orderLines, leg.id === anchor.id, [
+      ...anchorEngineLines,
+      ...repricedLines.map((l) => ({
+        squareCatalogObjectId: l.squareCatalogObjectId,
+        label: l.label,
+      })),
+    ]);
+
     const newTotal = snap
       ? await calculateOrderTotal(snap.locationId, newLines, snap.taxes, snap.discounts)
       : newLines.reduce((s, l) => s + l.totalCents, 0);
@@ -788,6 +894,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       newLines,
       oldTotalCents: snap?.totalCents ?? 0,
       newTotalCents: newTotal,
+      returnedLines: computeReturnedLines(snap?.lines ?? [], newLines),
       newNeonLines: repricedLines,
       newPlayerCount: reprice.newPlayerCount,
       newLaneCount: reprice.newLaneCount,
@@ -855,8 +962,9 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       if (!hit) {
         throw new EditGuardError(
           "pricing_unresolvable",
-          `no order line matches removed heat "${removed.label}" — the order money can't be ` +
-            "derived safely; adjust this one manually in Square",
+          `no order line matches removed heat "${removed.label}" — the day-of order bills this ` +
+            "booking differently (a pack, or a renamed catalog item), so removing the heat " +
+            "can't be priced. Refund it from “Charges on the day-of order” below instead.",
         );
       }
       hit.quantity -= 1;
@@ -878,9 +986,24 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       }
     }
 
+    // Free-form day-of line edits (food, POS add-ons) by live order uid. Every
+    // race product name is engine-owned so the helper refuses uid edits on
+    // them — racer changes must go through spec.racers, which drives BMI too.
+    const finalLines = applyOrderLineSpec(survivors, spec.orderLines, leg.id === anchor.id, [
+      ...anchorEngineLines,
+      ...delta.addedLines.map((l) => ({
+        squareCatalogObjectId: l.squareCatalogObjectId,
+        label: l.label,
+      })),
+      ...delta.removedHeats.map((h) => ({
+        squareCatalogObjectId: h.catalogObjectId,
+        label: h.label,
+      })),
+    ]);
+
     const newTotal = snap
-      ? await calculateOrderTotal(snap.locationId, survivors, snap.taxes, snap.discounts)
-      : survivors.reduce((s, l) => s + l.totalCents, 0);
+      ? await calculateOrderTotal(snap.locationId, finalLines, snap.taxes, snap.discounts)
+      : finalLines.reduce((s, l) => s + l.totalCents, 0);
 
     return {
       reservationId: leg.id,
@@ -891,9 +1014,10 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       orderLocationId: snap?.locationId ?? null,
       phase: legPhase(leg),
       oldLines: snap?.lines ?? [],
-      newLines: survivors,
+      newLines: finalLines,
       oldTotalCents: snap?.totalCents ?? 0,
       newTotalCents: newTotal,
+      returnedLines: computeReturnedLines(snap?.lines ?? [], finalLines),
       newNeonLines: null,
       newPlayerCount: null,
       newLaneCount: null,
@@ -1114,6 +1238,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         newLines: survivors,
         oldTotalCents: snap?.totalCents ?? 0,
         newTotalCents: newTotal,
+        returnedLines: computeReturnedLines(snap?.lines ?? [], survivors),
         newNeonLines: null,
         newPlayerCount: null,
         newLaneCount: null,
@@ -1143,6 +1268,63 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         severity: "warning",
         code: "gift_card_unreadable",
         message: "deposit gift card could not be fetched — verify before executing",
+      });
+    }
+  }
+
+  // Two amounts, not one — they diverge legitimately on gap-comped rows.
+  //
+  // At lane-open, a deposit computed pre-tax can fall a few cents short of the
+  // tax-inclusive day-of total; processLaneOpen auto-comps that gap onto the
+  // internal gift card (ADJUST_INCREMENT / COMPLIMENTARY, bounded to 200¢ —
+  // lib/bowling-lane-open.ts). The day-of payment therefore exceeds what the
+  // guest's deposit tenders can ever take back.
+  //
+  //   gcDecrementCents — everything the day-of refund credits back to the
+  //                      internal card. ALL of it must die, or the comp share
+  //                      survives as spendable value.
+  //   guestOwedCents   — capped at the deposit tenders' un-refunded capacity.
+  //                      The comp share has no guest destination (unlinked
+  //                      refunds are not enabled), so it returns to the house.
+  //
+  // An asymmetry larger than the gap-comp bound means unknown manual activity:
+  // refuse rather than guess.
+  let guestOwedCents = diffCents < 0 ? -diffCents : 0;
+  const gcDecrementCents = guestOwedCents;
+  if (diffCents < 0 && anchor.squareDepositOrderId) {
+    try {
+      const deposit = await fetchOrderFacts(anchor.squareDepositOrderId);
+      let capacity = 0;
+      for (const t of deposit.tenders) {
+        const pay = await fetchPaymentFacts(t.paymentId);
+        capacity += Math.max(0, pay.amountCents - pay.refundedCents);
+      }
+      if (capacity < gcDecrementCents) {
+        const shortfall = gcDecrementCents - capacity;
+        if (shortfall > GAP_COMP_MAX_CENTS) {
+          throw new EditGuardError(
+            "pricing_unresolvable",
+            `refund of ${gcDecrementCents}¢ exceeds refundable deposit capacity (${capacity}¢) by ` +
+              `${shortfall}¢ — more than the ${GAP_COMP_MAX_CENTS}¢ lane-open comp allowance, so ` +
+              `something else moved this money. Reconcile in Square first.`,
+          );
+        }
+        guestOwedCents = capacity;
+        warnings.push({
+          severity: "warning",
+          code: "gap_comp_reversal",
+          message:
+            `${shortfall}¢ of this refund was a lane-open courtesy comp and has no card to return ` +
+            `to — the guest receives ${guestOwedCents}¢ and the gift card is cleared of all ` +
+            `${gcDecrementCents}¢.`,
+        });
+      }
+    } catch (err) {
+      if (err instanceof EditGuardError) throw err;
+      warnings.push({
+        severity: "warning",
+        code: "deposit_capacity_unknown",
+        message: "deposit tenders could not be read — refund capacity unverified",
       });
     }
   }
@@ -1228,17 +1410,20 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         });
       }
     } else if (diffCents < 0) {
+      // Same two-amount split as the post-payment phases. In PRE these are
+      // normally equal (nothing has been comped onto the card yet); they can
+      // still diverge when a prior refund ate the deposit's capacity.
       if (settlement === "store_credit") {
-        steps.push({ kind: "issue_store_credit", fatal: true, amountCents: -diffCents });
+        steps.push({ kind: "issue_store_credit", fatal: true, amountCents: guestOwedCents });
       } else {
-        steps.push({ kind: "refund_tender", fatal: true, amountCents: -diffCents });
+        steps.push({ kind: "refund_tender", fatal: true, amountCents: guestOwedCents });
       }
       if (giftCard) {
         steps.push({
           kind: "adjust_gift_card_down",
           fatal: true,
           target: giftCard.id,
-          amountCents: -diffCents,
+          amountCents: gcDecrementCents,
         });
       }
     }
@@ -1269,35 +1454,61 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         amountCents: diffCents,
       });
     } else if (diffCents < 0) {
+      // Refunding the WHOLE of a lane-open order leaves it OPEN with a balance
+      // due: bowling-order-complete skips balance-due orders, so it would
+      // never close and never reach QuickBooks, and the cancel cascade refuses
+      // to cancel a tendered order. That end state has an owner — the cancel
+      // cascade — so route there instead of stranding the order here.
+      if (legs.every((l) => l.newTotalCents === 0)) {
+        // Cancel is NOT the answer here — its cascade refuses a tendered day-of
+        // order, and the action is hidden on rows this far along. The order has
+        // to close first; once it does, the post-complete path refunds the whole
+        // thing cleanly (the refunds attach to a COMPLETED order, nothing
+        // dangles). Say that instead of pointing at a button that isn't there.
+        throw new EditGuardError(
+          "full_refund_use_cancel",
+          "This refunds the entire visit while the lane order is still open, which would leave " +
+            "it open with a balance due and never close. Refund all but one item now, or wait " +
+            "until the visit closes out and refund the whole thing then.",
+        );
+      }
+      // The day-of leg reverses everything the order was paid — including any
+      // lane-open comp — so it moves gcDecrementCents.
       steps.push({
         kind: "refund_dayof_payment",
         fatal: true,
         target: anchor.dayofPaymentId ?? undefined,
-        amountCents: -diffCents,
+        amountCents: gcDecrementCents,
       });
+      // The guest leg is capped at what their tenders can take back.
       if (settlement === "store_credit") {
-        steps.push({ kind: "issue_store_credit", fatal: true, amountCents: -diffCents });
+        steps.push({ kind: "issue_store_credit", fatal: true, amountCents: guestOwedCents });
       } else {
-        steps.push({ kind: "refund_tender", fatal: true, amountCents: -diffCents });
+        steps.push({ kind: "refund_tender", fatal: true, amountCents: guestOwedCents });
       }
       if (giftCard) {
-        steps.push({
-          kind: "adjust_gift_card_down",
-          fatal: true,
-          target: giftCard.id,
-          amountCents: -diffCents,
-        });
+        // The itemized refund does not credit the internal card, so there is
+        // nothing to wait for — just verify the card kept no refunded value
+        // and strip any excess. Deterministic, no async window.
+        steps.push({ kind: "reconcile_gift_card", fatal: true, target: giftCard.id });
       }
     }
-    for (const leg of legs) {
-      if (leg.dayofOrderId && legLinesChanged(leg)) {
-        steps.push({
-          kind: "update_dayof_order",
-          fatal: true,
-          target: leg.dayofOrderId,
-          amountCents: leg.newTotalCents - leg.oldTotalCents,
-        });
-      }
+    // NO update_dayof_order here. Square refuses ANY line change on an order
+    // with finalized tenders — "LineItems cannot be modified for finalized
+    // tenders" — and that holds before a refund, after a partial refund, and
+    // even after the tender is refunded in full (probed 2026-07-27,
+    // scripts/dayof-lines-after-refund-probe.mts). A lane-open order's lines
+    // are frozen for good, so MID is money-only exactly like post-complete:
+    // the order keeps its lines and the refund objects carry the story.
+    if (legs.some(legLinesChanged)) {
+      warnings.push({
+        severity: "warning",
+        code: "dayof_lines_frozen",
+        message:
+          "The day-of order was already paid, so Square will not let its line items change. " +
+          "The refund is attached to the payment instead — the order still shows the original " +
+          "items.",
+      });
     }
     steps.push({ kind: "neon_commit", fatal: true });
     if (playersChanged && anchor.qamfReservationId) {
@@ -1311,12 +1522,29 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       message:
         "Day-of order already closed — QAMF and BMI will NOT be updated. Adjust Conqueror/BMI manually.",
     });
-    for (const leg of legs) {
-      if (leg.dayofOrderId) {
-        steps.push({ kind: "refund_dayof_order", fatal: true, target: leg.dayofOrderId });
+    // A COMPLETED order's lines are frozen, so a pure price DECREASE has two
+    // possible shapes:
+    //
+    //   money-only  — partial-refund the day-of payment, settle the guest,
+    //                 decrement the card. The order keeps its lines and the
+    //                 refund objects tell the story.
+    //   rebuild     — refund every tender in full, build a replacement order,
+    //                 repay it from the gift card, complete it.
+    //
+    // Money-only is preferred for item refunds: no order-id swap (which breaks
+    // the QBO race-catalog mapping), no re-issued loyalty/discounts, far less
+    // accounting noise, and the refund is visible on the original payment. The
+    // rebuild only earns its cost when the LINES genuinely have to change,
+    // which for a frozen order means an increase.
+    const linesMustChange = diffCents > 0;
+    const fullRefund = diffCents < 0 && legs.every((l) => l.newTotalCents === 0);
+
+    if (linesMustChange) {
+      for (const leg of legs) {
+        if (leg.dayofOrderId) {
+          steps.push({ kind: "refund_dayof_order", fatal: true, target: leg.dayofOrderId });
+        }
       }
-    }
-    if (diffCents > 0) {
       steps.push({ kind: "charge_topup", fatal: true, amountCents: diffCents });
       if (giftCard) {
         steps.push({
@@ -1326,25 +1554,43 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
           amountCents: diffCents,
         });
       }
+      for (const leg of legs) {
+        steps.push({ kind: "rebuild_dayof_order", fatal: true, amountCents: leg.newTotalCents });
+        steps.push({ kind: "pay_dayof_order", fatal: true, amountCents: leg.newTotalCents });
+        steps.push({ kind: "complete_dayof_order", fatal: true });
+      }
     } else if (diffCents < 0) {
+      // Money-only. Reverse the guest's share of the day-of payment rather
+      // than every tender, so nothing has to be rebuilt or repaid.
+      steps.push({
+        kind: "refund_dayof_payment",
+        fatal: true,
+        target: anchor.dayofPaymentId ?? undefined,
+        amountCents: gcDecrementCents,
+      });
       if (settlement === "store_credit") {
-        steps.push({ kind: "issue_store_credit", fatal: true, amountCents: -diffCents });
+        steps.push({ kind: "issue_store_credit", fatal: true, amountCents: guestOwedCents });
       } else {
-        steps.push({ kind: "refund_tender", fatal: true, amountCents: -diffCents });
+        steps.push({ kind: "refund_tender", fatal: true, amountCents: guestOwedCents });
       }
       if (giftCard) {
-        steps.push({
-          kind: "adjust_gift_card_down",
-          fatal: true,
-          target: giftCard.id,
-          amountCents: -diffCents,
+        // Same as MID: verify-and-strip rather than wait-then-decrement.
+        steps.push({ kind: "reconcile_gift_card", fatal: true, target: giftCard.id });
+      }
+      if (fullRefund) {
+        // Refunding everything on a closed order. A zero-line rebuild is
+        // meaningless, so emit no rebuild at all — the order stays COMPLETED
+        // carrying its refunds. The row must NOT become 'cancelled': the guest
+        // was here and the visit happened.
+        warnings.push({
+          severity: "warning",
+          code: "full_refund_no_rebuild",
+          message:
+            "Refunding the entire visit. The closed order keeps its items with the refund " +
+            "attached, and the reservation stays on the board as it happened — it is not " +
+            "cancelled, because the guest was here.",
         });
       }
-    }
-    for (const leg of legs) {
-      steps.push({ kind: "rebuild_dayof_order", fatal: true, amountCents: leg.newTotalCents });
-      steps.push({ kind: "pay_dayof_order", fatal: true, amountCents: leg.newTotalCents });
-      steps.push({ kind: "complete_dayof_order", fatal: true });
     }
     steps.push({ kind: "neon_commit", fatal: true });
     steps.push({ kind: "notify", fatal: false, detail: "teams_manager_alert" });
@@ -1370,7 +1616,36 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     !changesRaceHeats;
   if (noChanges) throw new EditGuardError("no_changes");
 
-  // 7. Seal.
+  // 7. Executability. The plan is honest either way — only whether it may RUN
+  // depends on flags, so report that instead of letting staff fill the form out
+  // and hit a wall. Mirrors the route + executor gates exactly; every plan shape
+  // is covered, not just refunds.
+  const movesPaidOrderMoney = steps.some(
+    (s) => s.kind === "refund_dayof_payment" || s.kind === "refund_dayof_order",
+  );
+  const phaseFlag = movesPaidOrderMoney ? refundFlagForPhase(phase) : null;
+  const refundOnly = isRefundOnlyPlan({ diffCents, steps });
+  let executionBlocked: { code: EditGuardCode; message: string } | null = null;
+  if (phaseFlag && process.env[phaseFlag] !== "true") {
+    executionBlocked = {
+      code: "refund_not_enabled",
+      message:
+        phase === "post_complete"
+          ? `Refunding a closed visit is not switched on yet (${phaseFlag}). The preview above is accurate — ask Eric to enable it.`
+          : `Refunding after check-in is not switched on yet (${phaseFlag}). The preview above is accurate — ask Eric to enable it.`,
+    };
+  } else if (!refundOnly && process.env.RESERVATION_EDIT_V2 !== "true") {
+    // A pure refund rides its phase flag; anything that also charges, syncs
+    // QAMF/BMI, or rebuilds an order needs the master switch.
+    executionBlocked = {
+      code: "edit_not_enabled",
+      message:
+        "Changing a reservation is not switched on yet (RESERVATION_EDIT_V2) — only refunds are. " +
+        "The preview above is accurate.",
+    };
+  }
+
+  // 8. Seal.
   const hash = hashPlan({
     anchorId: anchor.id,
     legIds,
@@ -1397,14 +1672,115 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     spec,
     legs,
     diffCents,
+    guestOwedCents,
+    gcDecrementCents,
     settlement,
     chargeCard,
     giftCard,
     steps,
     warnings,
     current,
+    executionBlocked,
     planHash: hash,
   };
+};
+
+/**
+ * Quantity each LIVE order line loses in this edit, addressed by its Square
+ * uid — the input for an itemized return order.
+ *
+ * Only uid-bearing lines can be returned: a return references
+ * `source_line_item_uid` on the paid order, so a line the plan invented (uid
+ * null) has nothing to point at. Lines that grew or held steady are skipped.
+ */
+const computeReturnedLines = (
+  oldLines: PlanLine[],
+  newLines: PlanLine[],
+): Array<{ uid: string; name: string; quantity: number }> => {
+  const out: Array<{ uid: string; name: string; quantity: number }> = [];
+  for (const before of oldLines) {
+    if (!before.uid) continue;
+    const after = newLines.find((l) => l.uid === before.uid);
+    const lost = before.quantity - (after?.quantity ?? 0);
+    if (lost > 0) out.push({ uid: before.uid, name: before.name, quantity: lost });
+  }
+  return out;
+};
+
+/** A line the booking model owns, matched by catalog id or exact name. */
+interface EngineOwnedLine {
+  squareCatalogObjectId?: string | null;
+  label: string;
+}
+
+/**
+ * True when a live order line belongs to the booking itself (experience,
+ * shoes, fees, attraction add-ons, race products) rather than to something
+ * rung up outside the engine. Shared by the planner's `current.orderLines`
+ * (so the UI only offers valid controls) and applyOrderLineSpec (the actual
+ * enforcement) — one rule, no drift between what staff see and what executes.
+ */
+const isEngineOwnedLine = (
+  line: { catalogObjectId?: string | null; name: string },
+  engineLines: EngineOwnedLine[],
+): boolean =>
+  engineLines.some(
+    (e) =>
+      (!!line.catalogObjectId && e.squareCatalogObjectId === line.catalogObjectId) ||
+      e.label === line.name,
+  );
+
+/**
+ * Apply `spec.orderLines` (desired quantity per LIVE order line uid) to a
+ * leg's merged line set. Quantity 0 removes the line.
+ *
+ * This is the only way to touch lines the booking engine does not model —
+ * food from the day-of route, POS add-ons — which is exactly what a
+ * post-check-in refund is usually about ("they returned the pizza").
+ *
+ * Engine-owned lines are refused: the primary experience, shoes, and race
+ * products carry roster / QAMF / BMI meaning, so editing them by uid would
+ * move the money without moving the booking. Those go through playerCount,
+ * shoes, racers, durationOptionId instead.
+ */
+const applyOrderLineSpec = (
+  lines: PlanLine[],
+  wanted: Record<string, number> | undefined,
+  isAnchorLeg: boolean,
+  engineLines: EngineOwnedLine[],
+): PlanLine[] => {
+  if (!wanted || Object.keys(wanted).length === 0 || !isAnchorLeg) return lines;
+
+  let out = lines;
+
+  for (const [uid, qty] of Object.entries(wanted)) {
+    if (!Number.isInteger(qty) || qty < 0) {
+      throw new EditGuardError("pricing_unresolvable", `invalid quantity for order line ${uid}`);
+    }
+    const hit = out.find((l) => l.uid === uid);
+    if (!hit) {
+      // The uid came from the dry-run's snapshot of the live order; missing it
+      // means the order moved underneath us.
+      throw new EditGuardError(
+        "plan_stale",
+        `order line ${uid} is no longer on the day-of order — re-open the editor`,
+      );
+    }
+    if (isEngineOwnedLine(hit, engineLines)) {
+      throw new EditGuardError(
+        "pricing_unresolvable",
+        `"${hit.name}" is part of the booking itself — change it with the players, shoes, or ` +
+          `racers fields so the reservation and the money stay in step`,
+      );
+    }
+    if (qty === 0) {
+      out = out.filter((l) => l !== hit);
+    } else {
+      hit.quantity = qty;
+      hit.totalCents = hit.unitPriceCents * qty;
+    }
+  }
+  return out;
 };
 
 const legLinesChanged = (leg: EditPlanLeg): boolean => {

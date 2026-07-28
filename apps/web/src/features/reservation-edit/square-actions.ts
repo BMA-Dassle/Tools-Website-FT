@@ -75,11 +75,17 @@ export const createEditTopupOrderAndCharge = async (params: {
  * replayed call refunds only what's still owed (or no-ops). Returns what was
  * actually refunded this call.
  *
- * `skipGiftCardTender`: Square refuses PARTIAL refunds of gift-card-funded
- * payments (live finding 2026-07-11) — full refunds are fine. Allocators set
- * this to hop over a GC tender when the ask would be partial, instead of
- * failing mid-cascade; the caller settles the shortfall elsewhere (store
- * credit) or fails loudly.
+ * `skipGiftCardTender`: hops over a gift-card tender when the ask would be a
+ * PARTIAL refund of it, leaving the caller to settle elsewhere (store credit)
+ * or fail loudly.
+ *
+ * NOTE this is now over-conservative, not a Square limit. It was added for the
+ * 2026-07-11 finding "Square refuses partial refunds of gift-card-funded
+ * payments", which an owner-authorized live probe OVERTURNED on 2026-07-27 —
+ * the API accepts them (reproduced twice, real card → gift card → order
+ * chain). Kept opt-in so existing allocators behave identically; item-refund
+ * allocators should pass `false` so a guest's own gift-card tender can take
+ * its share back. See tasks/lessons.md and tasks/future/post-dayof-refund-plan.md.
  */
 export const refundTenderPartial = async (params: {
   editId: string;
@@ -88,6 +94,12 @@ export const refundTenderPartial = async (params: {
   amountCents: number;
   reason: string;
   skipGiftCardTender?: boolean;
+  /**
+   * Return order this refund is attributed to. Set for the DAY-OF leg so the
+   * refunded items show as returned in Square's item-level reporting; the
+   * deposit/cash leg has no itemizable lines (one funding line) and omits it.
+   */
+  returnOrderId?: string;
 }): Promise<{ refundId?: string; refundedCents: number; skippedGiftCard?: boolean }> => {
   const pay = await fetchPaymentFacts(params.paymentId);
   const remaining = pay.amountCents - pay.refundedCents;
@@ -106,6 +118,7 @@ export const refundTenderPartial = async (params: {
     idempotency_key: `${params.editId}-r${params.refundIndex}`,
     payment_id: params.paymentId,
     amount_money: { amount, currency: "USD" },
+    ...(params.returnOrderId ? { order_id: params.returnOrderId } : {}),
     reason: params.reason,
   });
   if (!r.ok || !r.json?.refund) throw err(`partial refund of ${params.paymentId}`, r);
@@ -130,6 +143,158 @@ export const fetchRefundFacts = async (
   };
 };
 
+/* ── Itemized returns ─────────────────────────────────────────────────── */
+
+/**
+ * Create a RETURN order for specific line items of a paid order, then refund
+ * the payment AGAINST it — the only way a refund is allowed to be issued
+ * (owner rule 2026-07-27: never amount-only).
+ *
+ * A bare `POST /v2/refunds` records a dollar figure and nothing else: the
+ * returned item never appears in Square's item-level sales reporting and QBO
+ * cannot categorize it, so the books show revenue that was actually reversed.
+ * Square models this properly as a separate order carrying
+ * `returns[].source_order_id` + `return_line_items[].source_line_item_uid`,
+ * which does NOT mutate the original (whose lines are immutable once tendered
+ * — see tasks/lessons.md). Probed live 2026-07-27.
+ *
+ * Square computes the tax-inclusive return total itself
+ * (`return_amounts.total_money`), so that figure — not our own tax math — is
+ * the authoritative amount to refund.
+ */
+export const createReturnOrder = async (params: {
+  editId: string;
+  /** The PAID order the items are coming off. */
+  sourceOrderId: string;
+  locationId: string;
+  lines: Array<{ uid: string; quantity: number }>;
+  /** Disambiguates the idempotency key when a plan returns more than once. */
+  seq?: number;
+}): Promise<{ returnOrderId: string; returnTotalCents: number }> => {
+  if (params.lines.length === 0) {
+    throw new Error(
+      `no line items identified to return from order ${params.sourceOrderId} — refunds must be ` +
+        `itemized, never amount-only`,
+    );
+  }
+  const r = await sq("POST", "/orders", {
+    idempotency_key: `${params.editId}-ret${params.seq ?? 0}`,
+    order: {
+      location_id: params.locationId,
+      returns: [
+        {
+          source_order_id: params.sourceOrderId,
+          return_line_items: params.lines.map((l, i) => ({
+            uid: `R${i}`,
+            source_line_item_uid: l.uid,
+            quantity: String(l.quantity),
+          })),
+        },
+      ],
+    },
+  });
+  if (!r.ok || !r.json?.order?.id) throw err(`return order for ${params.sourceOrderId}`, r);
+  const returnTotalCents = r.json.order.return_amounts?.total_money?.amount ?? 0;
+  if (returnTotalCents <= 0) {
+    throw new Error(
+      `return order ${r.json.order.id} computed a ${returnTotalCents}¢ total — refusing to refund ` +
+        `against an empty return`,
+    );
+  }
+  return { returnOrderId: r.json.order.id, returnTotalCents };
+};
+
+/* ── Wait for a refund's credit to land on the gift card ─────────────── */
+
+export interface RefundCreditWait {
+  /** True once the refund reached a terminal SUCCESS state. */
+  settled: boolean;
+  /** Square's last-seen refund status (COMPLETED / PENDING / FAILED / …). */
+  status: string;
+  /** Gift-card balance observed on the final poll, when readable. */
+  balanceCents?: number;
+}
+
+/**
+ * Poll until a refund of a gift-card-funded payment has actually CREDITED the
+ * gift card, or until `timeoutMs` elapses.
+ *
+ * Why this exists (live finding 2026-07-27): Square returns these refunds as
+ * PENDING and posts the credit to the card ASYNCHRONOUSLY — the payment showed
+ * `refunded_money` before any REFUND activity appeared on the card. Every
+ * downstream step that reads the card's balance is therefore wrong if it runs
+ * immediately:
+ *
+ *   - `adjustGiftCardDown` reads balance 0, returns 0 WITHOUT posting, and its
+ *     idempotency key is spent → the credit lands seconds later and stays on
+ *     the card forever, while the guest also keeps the deposit refund. That is
+ *     silent double value, once per occurrence.
+ *   - draining/deactivating the card in this window strands the credit (it
+ *     happened to probe card …1430 on 2026-07-27).
+ *
+ * WHAT COUNTS AS SETTLED. Not the refund's status. A live smoke on 2026-07-27
+ * showed a gift-card refund sitting at PENDING while the money was already
+ * back on the card — Square settles these in batch, so status can lag the
+ * actual credit by a long way. Gating on COMPLETED therefore parks a flow
+ * whose money has in fact landed. We gate on the CARD instead: the balance
+ * reaching the expected figure is the thing the decrement depends on.
+ * FAILED/REJECTED is still terminal — that money is not coming.
+ *
+ * A timeout is NOT an error here: the caller parks the attempt as resumable
+ * rather than guessing.
+ */
+export const waitForRefundCredit = async (params: {
+  refundId: string;
+  giftCardId?: string;
+  /** Balance on the card BEFORE the refund was issued. */
+  baselineBalanceCents?: number;
+  /** Credit expected to land (the refunded amount). */
+  expectCreditCents?: number;
+  timeoutMs?: number;
+  pollMs?: number;
+  /** Injectable for tests. */
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<RefundCreditWait> => {
+  const timeoutMs = params.timeoutMs ?? 120_000;
+  const pollMs = params.pollMs ?? 5_000;
+  const sleep = params.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  const deadline = Date.now() + timeoutMs;
+  const target =
+    params.baselineBalanceCents != null && params.expectCreditCents != null
+      ? params.baselineBalanceCents + params.expectCreditCents
+      : null;
+
+  let status = "UNKNOWN";
+  let balanceCents: number | undefined;
+
+  for (;;) {
+    const r = await sq("GET", `/refunds/${params.refundId}`);
+    status = r.json?.refund?.status ?? status;
+    if (status === "FAILED" || status === "REJECTED") {
+      return { settled: false, status, balanceCents };
+    }
+
+    if (params.giftCardId) {
+      try {
+        balanceCents = (await fetchGiftCardFacts(params.giftCardId)).balanceCents;
+      } catch {
+        /* transient — keep polling */
+      }
+    }
+    // The credit is on the card: that is what the decrement needs.
+    if (target != null && balanceCents != null && balanceCents >= target) {
+      return { settled: true, status, balanceCents };
+    }
+    // No baseline to compare against (caller could not read it) — fall back to
+    // the status signal so the flow can still complete.
+    if (target == null && status === "COMPLETED") {
+      return { settled: true, status, balanceCents };
+    }
+    if (Date.now() >= deadline) return { settled: false, status, balanceCents };
+    await sleep(Math.min(pollMs, Math.max(0, deadline - Date.now())));
+  }
+};
+
 /* ── Gift-card exact adjust-down ──────────────────────────────────────── */
 
 /**
@@ -144,6 +309,10 @@ export const adjustGiftCardDown = async (params: {
   amountCents: number;
 }): Promise<number> => {
   const gc = await fetchGiftCardFacts(params.giftCardId);
+  // Returning 0 here is NOT success — it means the credit this decrement was
+  // meant to cancel has not landed (or the card is unusable). The caller must
+  // treat a short return as fatal: silently completing leaves the refunded
+  // value sitting on the card while the guest also keeps their card refund.
   if (gc.state !== "ACTIVE" || gc.balanceCents <= 0) return 0;
   if (!gc.locationId) throw new Error(`gift card ${params.giftCardId} has no activity location_id`);
   const amount = Math.min(params.amountCents, gc.balanceCents);

@@ -47,6 +47,8 @@ export interface EditPostBody {
   planHash?: string;
   notifyGuest?: boolean;
   managerOverride?: boolean;
+  /** Staff reason for the DAY-OF refund leg (required once the order is paid). */
+  dayofRefundReason?: string;
 }
 
 /** POST /api/admin/reservations/edit — dry-run returns {plan}, execute returns EditResult. */
@@ -145,6 +147,16 @@ export const classifyExecuteFailure = (
       message: "Reservation editing is not enabled in this environment.",
     };
   }
+  // Phase flag off. NOT an acknowledgment problem — nothing the operator can
+  // tick unlocks it, so say so plainly instead of re-offering the checkbox.
+  if (error.code === "refund_not_enabled") {
+    return {
+      kind: "blocked",
+      message:
+        error.detail ||
+        "Refunding a reservation this far along is not enabled in this environment yet.",
+    };
+  }
   if (error.code === "payment_required") {
     return {
       kind: "error",
@@ -197,6 +209,11 @@ export interface EditFormState {
   addRacers: AddRacerRow[];
   /** Attraction add-on qty overrides keyed by attraction_bookings index. */
   attractions: Record<number, number> | null;
+  /**
+   * Desired quantities for non-engine day-of order lines (food, POS add-ons),
+   * keyed by live Square line uid. 0 removes the line.
+   */
+  orderLines: Record<string, number> | null;
 }
 
 export const emptyForm = (): EditFormState => ({
@@ -209,6 +226,7 @@ export const emptyForm = (): EditFormState => ({
   removeHeatIndexes: [],
   addRacers: [],
   attractions: null,
+  orderLines: null,
 });
 
 /**
@@ -247,6 +265,17 @@ export const buildSpec = (
         return cur != null && cur.editable && c.quantity !== cur.quantity;
       });
     if (changes.length > 0) spec.attractions = changes;
+  }
+
+  if (form.orderLines && current) {
+    // Only send lines that actually moved, and only ones the server marked
+    // editable — a non-editable line would be a typed refusal at plan time.
+    const changed: Record<string, number> = {};
+    for (const [uid, qty] of Object.entries(form.orderLines)) {
+      const cur = current.orderLines.find((l) => l.uid === uid);
+      if (cur?.editable && qty !== cur.quantity) changed[uid] = qty;
+    }
+    if (Object.keys(changed).length > 0) spec.orderLines = changed;
   }
 
   if (form.shoes && current) {
@@ -382,15 +411,30 @@ export const executeGate = (args: {
   refundDest: EditSettlement | null;
   needsManagerAck: boolean;
   managerAcked: boolean;
+  /** Text entered for the day-of refund leg, when the plan has one. */
+  dayofRefundReason?: string;
 }): ExecuteGate => {
   const { plan } = args;
   if (!plan || args.planLoading) return { enabled: false, reason: null, mode: "confirm" };
   const mode = modeOf(plan);
+  // Environment refusal, not an operator mistake — surface it first so nobody
+  // fills the rest of the form out before learning the button can't fire.
+  if (plan.executionBlocked) {
+    return { enabled: false, reason: plan.executionBlocked.message, mode };
+  }
   if (args.needsManagerAck && !args.managerAcked) {
     return { enabled: false, reason: "Acknowledge the QAMF/BMI warning first", mode };
   }
   if (plan.diffCents < 0 && !args.refundDest) {
     return { enabled: false, reason: "Pick where the refund goes", mode };
+  }
+  // The server refuses a day-of refund without a staff reason — catch it here
+  // rather than letting the operator hit a 400 after picking everything else.
+  const needsDayofReason = plan.steps.some(
+    (s) => s.kind === "refund_dayof_payment" || s.kind === "refund_dayof_order",
+  );
+  if (needsDayofReason && !(args.dayofRefundReason ?? "").trim()) {
+    return { enabled: false, reason: "Add a reason for the refund", mode };
   }
   return { enabled: true, reason: null, mode };
 };

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildEditPlan } from "~/features/reservation-edit/plan";
+import { isRefundOnlyPlan } from "~/features/reservation-edit/guards";
 import { EditGuardError, type EditSettlement, type EditSpec } from "~/features/reservation-edit";
 
 // Live Square reads (order snapshots + orders/calculate per leg) can stack up
@@ -11,12 +12,15 @@ const CONFLICT_CODES = new Set([
   "cancelled",
   "phase_conflict",
   "combo_phase_split",
+  "leg_phase_split",
   "lane_change_mid_session",
   "mid_session_unsupported",
   "edit_in_progress",
   "cancel_in_progress",
   "plan_stale",
   "post_complete_ack_required",
+  "refund_not_enabled",
+  "full_refund_use_cancel",
 ]);
 
 /**
@@ -40,7 +44,10 @@ const CONFLICT_CODES = new Set([
  * }
  *
  * Auth: ADMIN_CAMERA_TOKEN query param (portal convention).
- * Execution is additionally gated by RESERVATION_EDIT_V2 (flag-off → 501).
+ *
+ * Execution gates (dry-run is always allowed, so the preview is never hidden):
+ *   - refund-only plans  → RESERVATION_EDIT_V2_MID_DECREASE / _POST by phase
+ *   - everything else    → RESERVATION_EDIT_V2 (master), flag-off → 501
  */
 export async function POST(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
@@ -58,6 +65,7 @@ export async function POST(req: NextRequest) {
     planHash?: unknown;
     notifyGuest?: unknown;
     managerOverride?: unknown;
+    dayofRefundReason?: unknown;
   };
   try {
     body = await req.json();
@@ -91,9 +99,20 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Execute ────────────────────────────────────────────────────────
-    if (process.env.RESERVATION_EDIT_V2 !== "true") {
+    // The master switch unlocks the whole engine. A plan that ONLY hands money
+    // back for an already-paid day-of order is exempt: it rides its own phase
+    // flag (RESERVATION_EDIT_V2_MID_DECREASE / _POST, enforced in the service).
+    // Without that exemption, giving a guest their money back would require
+    // enabling PRE-phase editing too — whose QAMF player sync is blocked by a
+    // vendor bug — so the two are deliberately decoupled.
+    if (process.env.RESERVATION_EDIT_V2 !== "true" && !isRefundOnlyPlan(plan)) {
       return NextResponse.json(
-        { error: "not_enabled", detail: "RESERVATION_EDIT_V2 is off — dry-run only" },
+        {
+          error: "not_enabled",
+          detail:
+            "Changing a reservation is not enabled in this environment " +
+            "(RESERVATION_EDIT_V2) — only refunds are.",
+        },
         { status: 501 },
       );
     }
@@ -115,6 +134,10 @@ export async function POST(req: NextRequest) {
       notifyGuest: body.notifyGuest !== false,
       actor: "admin",
       origin: req.nextUrl.origin,
+      // Staff-entered, recorded on the Square refund for the day-of leg. The
+      // executor rejects a missing/reserved value before any money moves.
+      dayofRefundReason:
+        typeof body.dayofRefundReason === "string" ? body.dayofRefundReason : undefined,
     });
     return NextResponse.json(result);
   } catch (err) {

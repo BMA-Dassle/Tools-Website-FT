@@ -85,6 +85,21 @@ export interface EditSpec {
    * BMI replaces the booked line (removeItem + re-book at the new quantity).
    */
   attractions?: Array<{ index: number; quantity: number }>;
+  /**
+   * Desired quantities for ARBITRARY day-of order lines, keyed by the LIVE
+   * Square line-item `uid`. Quantity 0 removes the line outright.
+   *
+   * This is the input surface for refunding things the structured fields
+   * cannot express — a returned pizza, a mis-rung soda, a shoe pair the guest
+   * never took. Those lines are added to the order outside the booking engine
+   * (food route, POS), so they have no reservation-level concept to edit; the
+   * uid is the only stable handle.
+   *
+   * Engine-owned lines (the primary experience, shoes, race products) are
+   * REJECTED here — they must move through their own typed fields so the
+   * roster, QAMF, and BMI stay consistent with the money.
+   */
+  orderLines?: Record<string, number>;
 }
 
 export type EditGuardCode =
@@ -93,6 +108,8 @@ export type EditGuardCode =
   | "unsupported_kind"
   | "phase_conflict"
   | "combo_phase_split"
+  // Non-combo multi-leg money group whose legs are in different phases.
+  | "leg_phase_split"
   | "lane_change_mid_session"
   | "mid_session_unsupported"
   | "pricing_unresolvable"
@@ -100,10 +117,23 @@ export type EditGuardCode =
   | "cancel_in_progress"
   | "plan_stale"
   | "post_complete_ack_required"
+  // Money-back on an already-paid day-of order, with that phase's flag off.
+  // Distinct from post_complete_ack_required: no acknowledgment unlocks it,
+  // so the modal must NOT re-offer the manager checkbox.
+  | "refund_not_enabled"
+  // Plan does more than hand money back (a charge, an external sync, a rebuild)
+  // and the master switch RESERVATION_EDIT_V2 is off.
+  | "edit_not_enabled"
   | "bmi_line_unavailable"
   | "heat_capacity"
   | "qamf_availability"
   | "payment_required"
+  // Day-of refund leg carries a staff-entered reason; "Reservation Deposit"
+  // is reserved for the deposit/cash leg (portal journal key).
+  | "dayof_reason_required"
+  | "dayof_reason_reserved"
+  // Whole-visit refund on a lane-open order — belongs to the cancel cascade.
+  | "full_refund_use_cancel"
   | "no_changes";
 
 /** Typed guard failure — routes map these to 409s with the code as reason. */
@@ -135,6 +165,10 @@ export type EditStepKind =
   | "charge_dayof_order"
   | "refund_dayof_payment"
   | "refund_dayof_order"
+  // Post-payment: after the refunds, bring the internal gift card back to the
+  // value it should hold. Replaces the old wait-then-decrement pair — an
+  // itemized refund does not credit the card, so there is nothing to wait for.
+  | "reconcile_gift_card"
   | "rebuild_dayof_order"
   | "pay_dayof_order"
   | "complete_dayof_order"

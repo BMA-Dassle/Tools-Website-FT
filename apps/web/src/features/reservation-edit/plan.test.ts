@@ -67,8 +67,13 @@ interface OrderWorld {
   lines: Array<{ uid: string; catalogObjectId?: string; name: string; qty: number; unit: number }>;
 }
 
-const world: { order: OrderWorld } = {
+const world: {
+  order: OrderWorld;
+  /** Deposit-order tenders + how much of each is still refundable. */
+  deposit: Array<{ paymentId: string; amount: number; refunded: number }>;
+} = {
   order: { state: "OPEN", tenders: [], lines: [] },
+  deposit: [{ paymentId: "PAY_DEP", amount: 100_000, refunded: 0 }],
 };
 
 const orderJson = (o: OrderWorld) => {
@@ -110,6 +115,37 @@ const installFetchMock = () => {
         });
 
       if (/\/v2\/orders\/O1$/.test(url)) return json(orderJson(world.order));
+      if (/\/v2\/orders\/DEP1$/.test(url)) {
+        const total = world.deposit.reduce((s, t) => s + t.amount, 0);
+        return json({
+          order: {
+            id: "DEP1",
+            state: "COMPLETED",
+            version: 1,
+            location_id: "TXBSQN0FEKQ11",
+            total_money: { amount: total, currency: "USD" },
+            net_amount_due_money: { amount: 0, currency: "USD" },
+            tenders: world.deposit.map((t) => ({
+              payment_id: t.paymentId,
+              amount_money: { amount: t.amount, currency: "USD" },
+            })),
+          },
+        });
+      }
+      const payMatch = url.match(/\/v2\/payments\/([^/?]+)$/);
+      if (payMatch) {
+        const t = world.deposit.find((d) => d.paymentId === payMatch[1]);
+        if (!t) return json({ errors: [{ code: "NOT_FOUND" }] }, 404);
+        return json({
+          payment: {
+            id: t.paymentId,
+            status: "COMPLETED",
+            source_type: "CARD",
+            amount_money: { amount: t.amount, currency: "USD" },
+            refunded_money: { amount: t.refunded, currency: "USD" },
+          },
+        });
+      }
       if (/\/v2\/orders\/calculate$/.test(url)) {
         const body = JSON.parse(String(init?.body ?? "{}")) as {
           order: { line_items: Array<{ quantity: string; base_price_money: { amount: number } }> };
@@ -194,6 +230,8 @@ const mkRow = (over: Partial<BowlingReservation> = {}): BowlingReservation =>
   }) as BowlingReservation & { lines: unknown[] };
 
 beforeEach(() => {
+  // Ample deposit capacity by default — gap-comp cases override it.
+  world.deposit = [{ paymentId: "PAY_DEP", amount: 100_000, refunded: 0 }];
   world.order = {
     state: "OPEN",
     tenders: [],
@@ -301,6 +339,127 @@ describe("buildEditPlan — bowling PRE", () => {
   });
 });
 
+describe("buildEditPlan — free-form order line edits (spec.orderLines)", () => {
+  beforeEach(() => {
+    // A food line added outside the booking engine (day-of route / POS) —
+    // exactly what a post-check-in refund is usually about.
+    world.order.lines.push({ uid: "food1", name: "Pizza Bowl", qty: 1, unit: 1499 });
+  });
+
+  it("removes a food line at quantity 0 and prices the reduction", async () => {
+    const before = taxed(2 * 1999 + 2 * 500 + 299 + 1499);
+    const after = taxed(2 * 1999 + 2 * 500 + 299);
+    const plan = await buildEditPlan({ neonId: 42, spec: { orderLines: { food1: 0 } } });
+
+    expect(plan.diffCents).toBe(after - before);
+    expect(plan.legs[0].newLines.some((l) => l.uid === "food1")).toBe(false);
+    expect(plan.steps.map((s) => s.kind)).toContain("update_dayof_order");
+  });
+
+  it("reduces quantity without removing the line", async () => {
+    world.order.lines.find((l) => l.uid === "food1")!.qty = 3;
+    const before = taxed(2 * 1999 + 2 * 500 + 299 + 3 * 1499);
+    const after = taxed(2 * 1999 + 2 * 500 + 299 + 1 * 1499);
+    const plan = await buildEditPlan({ neonId: 42, spec: { orderLines: { food1: 1 } } });
+
+    expect(plan.diffCents).toBe(after - before);
+    const line = plan.legs[0].newLines.find((l) => l.uid === "food1")!;
+    expect(line.quantity).toBe(1);
+    expect(line.totalCents).toBe(1499);
+  });
+
+  it("REFUSES a line the booking engine owns (money would desync from the booking)", async () => {
+    // u2 is the shoe line — it must move through spec.shoes so the roster,
+    // QAMF, and the money stay in step.
+    expect(
+      await guardCode(() => buildEditPlan({ neonId: 42, spec: { orderLines: { u2: 0 } } })),
+    ).toBe("pricing_unresolvable");
+  });
+
+  it("REFUSES a uid that is no longer on the live order (plan_stale)", async () => {
+    expect(
+      await guardCode(() => buildEditPlan({ neonId: 42, spec: { orderLines: { ghost: 0 } } })),
+    ).toBe("plan_stale");
+  });
+
+  it("REFUSES a negative or fractional quantity", async () => {
+    expect(
+      await guardCode(() => buildEditPlan({ neonId: 42, spec: { orderLines: { food1: -1 } } })),
+    ).toBe("pricing_unresolvable");
+    expect(
+      await guardCode(() => buildEditPlan({ neonId: 42, spec: { orderLines: { food1: 1.5 } } })),
+    ).toBe("pricing_unresolvable");
+  });
+
+  it("a spec that restates the live quantity is refused as no_changes", async () => {
+    // food1 is already qty 1 — nothing to move, so the editor should not open
+    // a money cascade (and burn an idempotency namespace) over it.
+    expect(
+      await guardCode(() => buildEditPlan({ neonId: 42, spec: { orderLines: { food1: 1 } } })),
+    ).toBe("no_changes");
+  });
+});
+
+describe("buildEditPlan — guest-owed vs gift-card-decrement amounts", () => {
+  it("the two amounts match when the deposit can cover the whole refund", async () => {
+    const plan = await buildEditPlan({ neonId: 42, spec: { playerCount: 1 } });
+    expect(plan.guestOwedCents).toBe(-plan.diffCents);
+    expect(plan.gcDecrementCents).toBe(-plan.diffCents);
+    expect(plan.warnings.some((w) => w.code === "gap_comp_reversal")).toBe(false);
+  });
+
+  it("caps the guest's refund at deposit capacity but still clears the whole card", async () => {
+    // Lane-open auto-comped part of this order onto the internal gift card, so
+    // the refund exceeds what the guest's own tenders can take back. The comp
+    // share has no card destination (unlinked refunds are disabled) — it must
+    // still be stripped off the card or it stays spendable.
+    const plan0 = await buildEditPlan({ neonId: 42, spec: { playerCount: 1 } });
+    const owed = -plan0.diffCents;
+    world.deposit = [{ paymentId: "PAY_DEP", amount: owed - 150, refunded: 0 }];
+
+    const plan = await buildEditPlan({ neonId: 42, spec: { playerCount: 1 } });
+    expect(plan.gcDecrementCents).toBe(owed);
+    expect(plan.guestOwedCents).toBe(owed - 150);
+    expect(plan.warnings.some((w) => w.code === "gap_comp_reversal")).toBe(true);
+
+    // Steps carry the right amount each: guest leg capped, card leg full.
+    const refund = plan.steps.find((s) => s.kind === "refund_tender")!;
+    const decrement = plan.steps.find((s) => s.kind === "adjust_gift_card_down")!;
+    expect(refund.amountCents).toBe(owed - 150);
+    expect(decrement.amountCents).toBe(owed);
+  });
+
+  it("refuses when the shortfall exceeds the lane-open comp allowance", async () => {
+    // Beyond 200¢ this is not a comp coming back — something else moved money.
+    const plan0 = await buildEditPlan({ neonId: 42, spec: { playerCount: 1 } });
+    world.deposit = [{ paymentId: "PAY_DEP", amount: -plan0.diffCents - 500, refunded: 0 }];
+    expect(await guardCode(() => buildEditPlan({ neonId: 42, spec: { playerCount: 1 } }))).toBe(
+      "pricing_unresolvable",
+    );
+  });
+
+  it("counts already-refunded cents against capacity", async () => {
+    const plan0 = await buildEditPlan({ neonId: 42, spec: { playerCount: 1 } });
+    const owed = -plan0.diffCents;
+    // Tender is large, but most of it has already been refunded.
+    world.deposit = [{ paymentId: "PAY_DEP", amount: 100_000, refunded: 100_000 - (owed - 100) }];
+
+    const plan = await buildEditPlan({ neonId: 42, spec: { playerCount: 1 } });
+    expect(plan.guestOwedCents).toBe(owed - 100);
+    expect(plan.gcDecrementCents).toBe(owed);
+  });
+
+  it("warns (not throws) when the deposit order cannot be read", async () => {
+    const row = mkRow({ squareDepositOrderId: "MISSING" });
+    vi.mocked(getBowlingReservation).mockResolvedValue(row as never);
+    vi.mocked(listCancelGroupReservations).mockResolvedValue([row] as never);
+
+    const plan = await buildEditPlan({ neonId: 42, spec: { playerCount: 1 } });
+    expect(plan.warnings.some((w) => w.code === "deposit_capacity_unknown")).toBe(true);
+    expect(plan.guestOwedCents).toBe(-plan.diffCents);
+  });
+});
+
 describe("buildEditPlan — phase gates", () => {
   it("sent_at without tenders is a phase_conflict", async () => {
     const row = mkRow({ dayofOrderSentAt: "2026-08-01T13:00:00Z" });
@@ -335,6 +494,61 @@ describe("buildEditPlan — phase gates", () => {
     expect(kinds).toContain("pay_dayof_order");
     expect(kinds).toContain("complete_dayof_order");
     expect(kinds).not.toContain("qamf_set_players"); // QAMF never touched post-complete
+  });
+
+  it("post-complete DECREASE is money-only — no rebuild, no order-id swap", async () => {
+    // A frozen order's lines cannot change, so refunding an item does not need
+    // a replacement order. Rebuilding would swap square_dayof_order_id (which
+    // breaks the QBO race-catalog mapping), re-issue loyalty/discounts, and
+    // add refund noise for no gain.
+    world.order.state = "COMPLETED";
+    world.order.tenders = [{ paymentId: "PAY_GC", amount: 5000 }];
+    const row = mkRow({ status: "completed", dayofOrderSentAt: "2026-08-01T13:00:00Z" });
+    vi.mocked(getBowlingReservation).mockResolvedValue(row as never);
+    vi.mocked(listCancelGroupReservations).mockResolvedValue([row] as never);
+
+    const plan = await buildEditPlan({
+      neonId: 42,
+      spec: { playerCount: 1 },
+      managerOverride: true,
+    });
+    expect(plan.diffCents).toBeLessThan(0);
+    const kinds = plan.steps.map((s) => s.kind);
+    expect(kinds).toContain("refund_dayof_payment");
+    expect(kinds).toContain("refund_tender");
+    expect(kinds).not.toContain("refund_dayof_order");
+    expect(kinds).not.toContain("rebuild_dayof_order");
+    expect(kinds).not.toContain("pay_dayof_order");
+    // The card is reconciled instead of waited on + decremented.
+    expect(kinds).toContain("reconcile_gift_card");
+    expect(kinds).not.toContain("adjust_gift_card_down");
+  });
+
+  // NOTE: the whole-order-to-zero shapes (full_refund_use_cancel on MID, and
+  // the post-complete no-rebuild branch) are DEFENSIVE. A bowling row cannot
+  // reach newTotalCents === 0 through today's spec surface — the repricer
+  // requires a primary lane line, and that line is engine-owned so
+  // spec.orderLines cannot remove it. They are left in place because the
+  // branch is cheap and the failure mode (an OPEN order stranded at
+  // balance-due, invisible to bowling-order-complete forever) is expensive.
+  // Cover them for real when a product shape can actually produce a $0 order.
+
+  it("mid-session NEVER emits a line update — a tendered order's lines are frozen", async () => {
+    // Probed 2026-07-27: Square refuses any line change on an order with
+    // finalized tenders, before OR after a refund, in full or in part
+    // ("LineItems cannot be modified for finalized tenders"). Emitting the
+    // step would guarantee a fatal mid-cascade failure after money moved.
+    world.order.tenders = [{ paymentId: "PAY_GC", amount: 5000 }];
+    const row = mkRow({ dayofOrderSentAt: "2026-08-01T13:00:00Z", status: "arrived" });
+    vi.mocked(getBowlingReservation).mockResolvedValue(row as never);
+    vi.mocked(listCancelGroupReservations).mockResolvedValue([row] as never);
+
+    const plan = await buildEditPlan({ neonId: 42, spec: { playerCount: 1 } });
+    expect(plan.phase).toBe("mid");
+    expect(plan.diffCents).toBeLessThan(0);
+    expect(plan.steps.map((s) => s.kind)).not.toContain("update_dayof_order");
+    // Staff are told why the order still lists the original items.
+    expect(plan.warnings.some((w) => w.code === "dayof_lines_frozen")).toBe(true);
   });
 
   it("mid-session (paid OPEN order) allows player edits but blocks lane changes", async () => {

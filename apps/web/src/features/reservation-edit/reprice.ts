@@ -485,11 +485,14 @@ export const repriceRaceDelta = (params: {
   }
 
   // Removing EVERY heat with nothing added is a cancellation, not an edit —
-  // the cancel cascade owns refunds/teardown for that.
+  // the cancel cascade owns refunds/teardown for that. Name BOTH doors: Cancel
+  // is hidden once the venue charge lands, so on a settled visit the money
+  // comes back through the day-of line control instead.
   if (removeSet.size > 0 && removeSet.size >= heatsMeta.length && add.length === 0) {
     throw new EditGuardError(
       "unsupported_kind",
-      "removing every heat empties the reservation — use the Cancel action instead",
+      "removing every heat empties the reservation — use Cancel if the race has not happened, " +
+        "or refund it from “Charges on the day-of order” if it has",
     );
   }
 
