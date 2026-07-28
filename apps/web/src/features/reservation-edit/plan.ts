@@ -101,6 +101,21 @@ export interface EditPlanLeg {
    * their booking_metadata.bowling on the first successful edit.
    */
   resolvedStamp: BowlingBookedStamp | null;
+  /**
+   * Lines coming OFF the paid day-of order, addressed by their LIVE Square
+   * uid — the input for an ITEMIZED return order.
+   *
+   * Owner rule (2026-07-27): a refund is never amount-only. Square attributes
+   * a bare `POST /refunds` to a dollar figure and nothing else, so the item
+   * never shows as returned in item-level sales reporting and QBO cannot
+   * categorize it. Instead we create a return order
+   * (`returns[].source_order_id` + `return_line_items[].source_line_item_uid`)
+   * and refund AGAINST it — Square then computes the tax-inclusive return
+   * total itself and the refund is linked to the actual items.
+   *
+   * Empty on increases and on legs whose lines did not shrink.
+   */
+  returnedLines: Array<{ uid: string; name: string; quantity: number }>;
   /** Race legs: metadata heats removed / racers added (execution inputs). */
   removedHeats: Array<{ index: number; bmiLineId: string | null; label: string }> | null;
   /**
@@ -864,6 +879,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       newLines,
       oldTotalCents: snap?.totalCents ?? 0,
       newTotalCents: newTotal,
+      returnedLines: computeReturnedLines(snap?.lines ?? [], newLines),
       newNeonLines: repricedLines,
       newPlayerCount: reprice.newPlayerCount,
       newLaneCount: reprice.newLaneCount,
@@ -985,6 +1001,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       newLines: finalLines,
       oldTotalCents: snap?.totalCents ?? 0,
       newTotalCents: newTotal,
+      returnedLines: computeReturnedLines(snap?.lines ?? [], finalLines),
       newNeonLines: null,
       newPlayerCount: null,
       newLaneCount: null,
@@ -1205,6 +1222,7 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
         newLines: survivors,
         oldTotalCents: snap?.totalCents ?? 0,
         newTotalCents: newTotal,
+        returnedLines: computeReturnedLines(snap?.lines ?? [], survivors),
         newNeonLines: null,
         newPlayerCount: null,
         newLaneCount: null,
@@ -1624,6 +1642,28 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     current,
     planHash: hash,
   };
+};
+
+/**
+ * Quantity each LIVE order line loses in this edit, addressed by its Square
+ * uid — the input for an itemized return order.
+ *
+ * Only uid-bearing lines can be returned: a return references
+ * `source_line_item_uid` on the paid order, so a line the plan invented (uid
+ * null) has nothing to point at. Lines that grew or held steady are skipped.
+ */
+const computeReturnedLines = (
+  oldLines: PlanLine[],
+  newLines: PlanLine[],
+): Array<{ uid: string; name: string; quantity: number }> => {
+  const out: Array<{ uid: string; name: string; quantity: number }> = [];
+  for (const before of oldLines) {
+    if (!before.uid) continue;
+    const after = newLines.find((l) => l.uid === before.uid);
+    const lost = before.quantity - (after?.quantity ?? 0);
+    if (lost > 0) out.push({ uid: before.uid, name: before.name, quantity: lost });
+  }
+  return out;
 };
 
 /** A line the booking model owns, matched by catalog id or exact name. */

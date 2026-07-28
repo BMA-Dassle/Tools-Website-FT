@@ -200,6 +200,18 @@ Consequences:
   The day-of leg carries its own **staff-supplied reason** entered in the admin portal at refund
   time. Per-domain reasons are the norm, not an exception (group functions already use
   `"Refund: Group Event Deposit"`).
+- **NEVER issue an amount-only refund** (owner rule, 2026-07-27). A bare `POST /v2/refunds`
+  (payment_id + amount) records a dollar figure and nothing else: the returned item never shows
+  in Square's item-level sales reporting and QBO cannot categorize it, so the books keep revenue
+  that was actually reversed. Refunds must be **ITEMIZED**: create a return order
+  (`POST /v2/orders` with `returns[].source_order_id` +
+  `return_line_items[].source_line_item_uid`, which does NOT mutate the immutable paid order),
+  then refund with `order_id` = that return order. **Square computes the tax-inclusive
+  `return_amounts.total_money` itself — use that figure, not local tax math.** Probed live
+  2026-07-27 (`apps/web/scripts/dayof-itemized-return-probe.mts`): both the return order and the
+  linked refund were accepted. If the returned lines cannot be identified, REFUSE the refund
+  rather than falling back to an amount. (The deposit/cash leg is a single funding line with no
+  item semantics and is the one exception.)
 - **A PAID Square order's line items are IMMUTABLE — forever** (probed 2026-07-27,
   `apps/web/scripts/dayof-lines-after-refund-probe.mts`). `UpdateOrder` returns
   `BAD_REQUEST "LineItems cannot be modified for finalized tenders"` on an order with finalized

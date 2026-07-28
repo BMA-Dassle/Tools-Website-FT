@@ -63,6 +63,7 @@ vi.mock("./square-actions", () => ({
   updateDayofOrderLines: vi.fn(async () => ({ totalCents: 9999, version: 4 })),
   chargeDayofOrder: vi.fn(async () => ({ paymentId: "PAY_MID" })),
   waitForRefundCredit: vi.fn(async () => ({ settled: true, status: "COMPLETED" })),
+  createReturnOrder: vi.fn(async () => ({ returnOrderId: "RET1", returnTotalCents: 1605 })),
 }));
 vi.mock("./qamf-sync", () => ({
   syncQamfPlayers: vi.fn(async () => ({ lanesUpdated: 1 })),
@@ -93,6 +94,7 @@ import { fetchOrderFacts, fetchPaymentFacts } from "~/features/cancellation/squa
 import {
   adjustGiftCardDown,
   createEditTopupOrderAndCharge,
+  createReturnOrder,
   fetchRefundFacts,
   refundTenderPartial,
   updateDayofOrderLines,
@@ -157,6 +159,7 @@ const mkPlan = (steps: EditStep[], over: Partial<EditPlan> = {}): EditPlan => ({
       newLines: [],
       oldTotalCents: 5000,
       newTotalCents: 9999,
+      returnedLines: [],
       newNeonLines: [
         {
           squareProductId: 1,
@@ -581,11 +584,21 @@ describe("executeEditCascade — day-of refund leg (post-day-of flow)", () => {
     { kind: "neon_commit", fatal: true },
   ];
   const ROW_PAID = { ...ROW, dayofPaymentId: "PAY_DAYOF" };
-  const dayofPlan = () => mkPlan(DAYOF_STEPS, { diffCents: -1605, settlement: "card_refund" });
+  /** A leg whose lines actually shrank — required for an itemized return. */
+  const withReturn = (over: Partial<EditPlan> = {}) => {
+    const p = mkPlan(DAYOF_STEPS, { diffCents: -1605, settlement: "card_refund", ...over });
+    p.legs[0].returnedLines = [{ uid: "L2", name: "Pizza Bowl", quantity: 1 }];
+    return p;
+  };
+  const dayofPlan = withReturn;
 
   beforeEach(() => {
     process.env.RESERVATION_EDIT_V2_MID_DECREASE = "true";
     vi.mocked(getBowlingReservation).mockResolvedValue(ROW_PAID as never);
+    vi.mocked(createReturnOrder).mockResolvedValue({
+      returnOrderId: "RET1",
+      returnTotalCents: 1605,
+    });
   });
   afterEach(() => {
     delete process.env.RESERVATION_EDIT_V2_MID_DECREASE;
@@ -629,6 +642,61 @@ describe("executeEditCascade — day-of refund leg (post-day-of flow)", () => {
     );
     expect(result.refundIds).toContain("RF_DAYOF");
     expect(vi.mocked(recordEditRefund)).toHaveBeenCalledWith("edit-42-a1", "RF_DAYOF");
+  });
+
+  it("ITEMIZES the refund — builds a return order and attributes the refund to it", async () => {
+    // Owner rule: never amount-only. A bare refund records a dollar figure and
+    // nothing else, so the returned item never appears in item-level sales
+    // reporting and QBO cannot categorize it.
+    vi.mocked(refundTenderPartial).mockResolvedValueOnce({
+      refundId: "RF_DAYOF",
+      refundedCents: 1605,
+    });
+    await executeEditCascade({
+      ...baseReq(dayofPlan()),
+      dayofRefundReason: "Pizza returned unmade — lane 6",
+    });
+    expect(vi.mocked(createReturnOrder)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceOrderId: "O1",
+        lines: [{ uid: "L2", quantity: 1 }],
+      }),
+    );
+    expect(vi.mocked(refundTenderPartial)).toHaveBeenCalledWith(
+      expect.objectContaining({ returnOrderId: "RET1" }),
+    );
+  });
+
+  it("uses SQUARE's return total, not the planner's, as the refund amount", async () => {
+    // Square computes the tax-inclusive return itself; that figure is
+    // authoritative over our own tax math.
+    vi.mocked(createReturnOrder).mockResolvedValue({
+      returnOrderId: "RET1",
+      returnTotalCents: 1610, // Square rounded tax differently
+    });
+    vi.mocked(refundTenderPartial).mockResolvedValueOnce({
+      refundId: "RF_DAYOF",
+      refundedCents: 1610,
+    });
+    await executeEditCascade({
+      ...baseReq(dayofPlan()),
+      dayofRefundReason: "Pizza returned unmade",
+    });
+    expect(vi.mocked(refundTenderPartial)).toHaveBeenCalledWith(
+      expect.objectContaining({ amountCents: 1610 }),
+    );
+  });
+
+  it("REFUSES to refund when no line items can be identified", async () => {
+    // Rather than silently fall back to an amount-only refund.
+    const plan = mkPlan(DAYOF_STEPS, { diffCents: -1605, settlement: "card_refund" });
+    plan.legs[0].returnedLines = [];
+    await expect(
+      executeEditCascade({ ...baseReq(plan), dayofRefundReason: "Pizza returned" }),
+    ).rejects.toThrow(
+      /must be itemized, never issued as a bare amount|cannot identify which line/i,
+    );
+    expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
   });
 
   it("nets a prior attempt's day-of refund instead of refunding twice", async () => {
@@ -682,7 +750,12 @@ describe("executeEditCascade — async gift-card credit (wait_gc_credit)", () =>
     { kind: "neon_commit", fatal: true },
   ];
   const ROW_PAID = { ...ROW, dayofPaymentId: "PAY_DAYOF" };
-  const waitPlan = () => mkPlan(WAIT_STEPS, { diffCents: -1605, settlement: "card_refund" });
+  const waitPlan = (over: Partial<EditPlan> = {}) => {
+    const p = mkPlan(WAIT_STEPS, { diffCents: -1605, settlement: "card_refund", ...over });
+    // Itemized refunds need identifiable returned lines.
+    p.legs[0].returnedLines = [{ uid: "L2", name: "Pizza Bowl", quantity: 1 }];
+    return p;
+  };
   const req = () => ({
     ...baseReq(waitPlan()),
     dayofRefundReason: "Lane malfunction — comped 2 games",
@@ -746,11 +819,7 @@ describe("executeEditCascade — async gift-card credit (wait_gc_credit)", () =>
   it("refuses to decrement at all when gift-card facts are unavailable", async () => {
     // The planner only WARNS and drops the step when the card is unreadable —
     // for a post-payment refund that is a silent double payout.
-    const plan = mkPlan(WAIT_STEPS, {
-      diffCents: -1605,
-      settlement: "card_refund",
-      giftCard: null,
-    });
+    const plan = waitPlan({ giftCard: null });
     await expect(
       executeEditCascade({ ...baseReq(plan), dayofRefundReason: "Lane malfunction" }),
     ).rejects.toThrow(/gift card facts unavailable/i);

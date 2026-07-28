@@ -94,6 +94,12 @@ export const refundTenderPartial = async (params: {
   amountCents: number;
   reason: string;
   skipGiftCardTender?: boolean;
+  /**
+   * Return order this refund is attributed to. Set for the DAY-OF leg so the
+   * refunded items show as returned in Square's item-level reporting; the
+   * deposit/cash leg has no itemizable lines (one funding line) and omits it.
+   */
+  returnOrderId?: string;
 }): Promise<{ refundId?: string; refundedCents: number; skippedGiftCard?: boolean }> => {
   const pay = await fetchPaymentFacts(params.paymentId);
   const remaining = pay.amountCents - pay.refundedCents;
@@ -112,6 +118,7 @@ export const refundTenderPartial = async (params: {
     idempotency_key: `${params.editId}-r${params.refundIndex}`,
     payment_id: params.paymentId,
     amount_money: { amount, currency: "USD" },
+    ...(params.returnOrderId ? { order_id: params.returnOrderId } : {}),
     reason: params.reason,
   });
   if (!r.ok || !r.json?.refund) throw err(`partial refund of ${params.paymentId}`, r);
@@ -134,6 +141,67 @@ export const fetchRefundFacts = async (
     amountCents: refund.amount_money?.amount ?? 0,
     status: refund.status ?? "?",
   };
+};
+
+/* ── Itemized returns ─────────────────────────────────────────────────── */
+
+/**
+ * Create a RETURN order for specific line items of a paid order, then refund
+ * the payment AGAINST it — the only way a refund is allowed to be issued
+ * (owner rule 2026-07-27: never amount-only).
+ *
+ * A bare `POST /v2/refunds` records a dollar figure and nothing else: the
+ * returned item never appears in Square's item-level sales reporting and QBO
+ * cannot categorize it, so the books show revenue that was actually reversed.
+ * Square models this properly as a separate order carrying
+ * `returns[].source_order_id` + `return_line_items[].source_line_item_uid`,
+ * which does NOT mutate the original (whose lines are immutable once tendered
+ * — see tasks/lessons.md). Probed live 2026-07-27.
+ *
+ * Square computes the tax-inclusive return total itself
+ * (`return_amounts.total_money`), so that figure — not our own tax math — is
+ * the authoritative amount to refund.
+ */
+export const createReturnOrder = async (params: {
+  editId: string;
+  /** The PAID order the items are coming off. */
+  sourceOrderId: string;
+  locationId: string;
+  lines: Array<{ uid: string; quantity: number }>;
+  /** Disambiguates the idempotency key when a plan returns more than once. */
+  seq?: number;
+}): Promise<{ returnOrderId: string; returnTotalCents: number }> => {
+  if (params.lines.length === 0) {
+    throw new Error(
+      `no line items identified to return from order ${params.sourceOrderId} — refunds must be ` +
+        `itemized, never amount-only`,
+    );
+  }
+  const r = await sq("POST", "/orders", {
+    idempotency_key: `${params.editId}-ret${params.seq ?? 0}`,
+    order: {
+      location_id: params.locationId,
+      returns: [
+        {
+          source_order_id: params.sourceOrderId,
+          return_line_items: params.lines.map((l, i) => ({
+            uid: `R${i}`,
+            source_line_item_uid: l.uid,
+            quantity: String(l.quantity),
+          })),
+        },
+      ],
+    },
+  });
+  if (!r.ok || !r.json?.order?.id) throw err(`return order for ${params.sourceOrderId}`, r);
+  const returnTotalCents = r.json.order.return_amounts?.total_money?.amount ?? 0;
+  if (returnTotalCents <= 0) {
+    throw new Error(
+      `return order ${r.json.order.id} computed a ${returnTotalCents}¢ total — refusing to refund ` +
+        `against an empty return`,
+    );
+  }
+  return { returnOrderId: r.json.order.id, returnTotalCents };
 };
 
 /* ── Wait for a refund's credit to land on the gift card ─────────────── */

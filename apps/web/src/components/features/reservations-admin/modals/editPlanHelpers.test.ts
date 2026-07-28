@@ -58,6 +58,7 @@ const makeLeg = (over: Partial<EditPlanLeg> = {}): EditPlanLeg => ({
   newLines: [line({ uid: "u1", quantity: 5, totalCents: 5000 })],
   oldTotalCents: 4000,
   newTotalCents: 5000,
+  returnedLines: [],
   newNeonLines: null,
   newPlayerCount: 5,
   newLaneCount: null,

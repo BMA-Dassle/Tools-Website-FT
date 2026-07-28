@@ -50,6 +50,7 @@ import {
   adjustGiftCardDown,
   chargeDayofOrder,
   createEditTopupOrderAndCharge,
+  createReturnOrder,
   fetchRefundFacts,
   refundTenderPartial,
   updateDayofOrderLines,
@@ -281,6 +282,8 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
      * decrement must not run until this drains (see wait_gc_credit).
      */
     const pendingGcCreditRefundIds: string[] = [];
+    /** Return orders created for itemized refunds — surfaced in the step log. */
+    const returnOrderIds: string[] = [];
     const rebuiltOrders: Array<{ oldOrderId: string; newOrderId: string }> = [];
     let storeCreditGan: string | undefined;
     let newQamfReservationId: string | undefined;
@@ -430,7 +433,42 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
 
           case "refund_dayof_payment": {
             if (!anchor.dayofPaymentId) throw new Error("no lane-open payment id on the row");
-            const asked = step.amountCents ?? plan.gcDecrementCents;
+
+            // ITEMIZED, never amount-only (owner rule 2026-07-27). Build a
+            // return order naming the exact lines coming off the paid order;
+            // Square computes the tax-inclusive total, and that figure is what
+            // we refund. Without this the returned item is invisible to
+            // item-level sales reporting and to QBO categorization.
+            const legWithReturn = plan.legs.find(
+              (l) => l.dayofOrderId && l.returnedLines.length > 0,
+            );
+            if (!legWithReturn?.dayofOrderId || !legWithReturn.orderLocationId) {
+              throw new Error(
+                "cannot identify which line items are being refunded — a day-of refund must be " +
+                  "itemized against the paid order, never issued as a bare amount",
+              );
+            }
+            const ret = await createReturnOrder({
+              editId,
+              sourceOrderId: legWithReturn.dayofOrderId,
+              locationId: legWithReturn.orderLocationId,
+              lines: legWithReturn.returnedLines.map((l) => ({
+                uid: l.uid,
+                quantity: l.quantity,
+              })),
+            });
+            returnOrderIds.push(ret.returnOrderId);
+            // Square's own tax-inclusive figure wins over the planner's.
+            const asked = ret.returnTotalCents;
+            if (step.amountCents != null && step.amountCents !== asked) {
+              stepLog.push({
+                step: "return_order",
+                ok: true,
+                detail: `${ret.returnOrderId} — Square priced the return at ${asked}¢ (plan said ${step.amountCents}¢)`,
+              });
+            } else {
+              stepLog.push({ step: "return_order", ok: true, detail: ret.returnOrderId });
+            }
 
             // NET refunds prior attempts already issued against THIS payment.
             // refundTenderPartial clamps only to the payment's un-refunded
@@ -464,6 +502,8 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               amountCents: owed,
               // Owner rule: staff-supplied, never the deposit journal key.
               reason: dayofRefundReason!,
+              // Attributes the refund to the returned items in Square.
+              returnOrderId: ret.returnOrderId,
             });
             if (r.refundId) {
               refundIds.push(r.refundId);
