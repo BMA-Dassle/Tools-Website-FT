@@ -232,14 +232,24 @@ export interface RefundCreditWait {
  *   - draining/deactivating the card in this window strands the credit (it
  *     happened to probe card …1430 on 2026-07-27).
  *
- * Verification is by REFUND STATUS first (authoritative, and immune to a
- * concurrent spend moving the balance), with the observed balance returned for
- * the caller's invariant check. A timeout is NOT an error here: the caller
- * parks the attempt as resumable rather than guessing.
+ * WHAT COUNTS AS SETTLED. Not the refund's status. A live smoke on 2026-07-27
+ * showed a gift-card refund sitting at PENDING while the money was already
+ * back on the card — Square settles these in batch, so status can lag the
+ * actual credit by a long way. Gating on COMPLETED therefore parks a flow
+ * whose money has in fact landed. We gate on the CARD instead: the balance
+ * reaching the expected figure is the thing the decrement depends on.
+ * FAILED/REJECTED is still terminal — that money is not coming.
+ *
+ * A timeout is NOT an error here: the caller parks the attempt as resumable
+ * rather than guessing.
  */
 export const waitForRefundCredit = async (params: {
   refundId: string;
   giftCardId?: string;
+  /** Balance on the card BEFORE the refund was issued. */
+  baselineBalanceCents?: number;
+  /** Credit expected to land (the refunded amount). */
+  expectCreditCents?: number;
   timeoutMs?: number;
   pollMs?: number;
   /** Injectable for tests. */
@@ -249,6 +259,10 @@ export const waitForRefundCredit = async (params: {
   const pollMs = params.pollMs ?? 5_000;
   const sleep = params.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
   const deadline = Date.now() + timeoutMs;
+  const target =
+    params.baselineBalanceCents != null && params.expectCreditCents != null
+      ? params.baselineBalanceCents + params.expectCreditCents
+      : null;
 
   let status = "UNKNOWN";
   let balanceCents: number | undefined;
@@ -256,20 +270,24 @@ export const waitForRefundCredit = async (params: {
   for (;;) {
     const r = await sq("GET", `/refunds/${params.refundId}`);
     status = r.json?.refund?.status ?? status;
-
     if (status === "FAILED" || status === "REJECTED") {
-      // The money never left; treat as terminal-unsettled so the caller can
-      // fail loudly instead of decrementing against a credit that isn't coming.
       return { settled: false, status, balanceCents };
     }
-    if (status === "COMPLETED") {
-      if (params.giftCardId) {
-        try {
-          balanceCents = (await fetchGiftCardFacts(params.giftCardId)).balanceCents;
-        } catch {
-          /* balance is advisory — status is the gate */
-        }
+
+    if (params.giftCardId) {
+      try {
+        balanceCents = (await fetchGiftCardFacts(params.giftCardId)).balanceCents;
+      } catch {
+        /* transient — keep polling */
       }
+    }
+    // The credit is on the card: that is what the decrement needs.
+    if (target != null && balanceCents != null && balanceCents >= target) {
+      return { settled: true, status, balanceCents };
+    }
+    // No baseline to compare against (caller could not read it) — fall back to
+    // the status signal so the flow can still complete.
+    if (target == null && status === "COMPLETED") {
       return { settled: true, status, balanceCents };
     }
     if (Date.now() >= deadline) return { settled: false, status, balanceCents };

@@ -662,8 +662,12 @@ describe("executeEditCascade — day-of refund leg (post-day-of flow)", () => {
         lines: [{ uid: "L2", quantity: 1 }],
       }),
     );
+    // The refund is deliberately NOT linked (returnOrderId omitted): a linked
+    // refund does not credit the gift-card tender, which would strand the
+    // money the deposit leg and the decrement both depend on. Probed
+    // 2026-07-28 — see the executor comment.
     expect(vi.mocked(refundTenderPartial)).toHaveBeenCalledWith(
-      expect.objectContaining({ returnOrderId: "RET1" }),
+      expect.not.objectContaining({ returnOrderId: expect.anything() }),
     );
   });
 

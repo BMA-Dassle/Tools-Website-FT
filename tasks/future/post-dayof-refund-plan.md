@@ -1,5 +1,29 @@
 # Post-Day-Of Refund Flow — Plan
 
+> ## ⛔ BLOCKER — do not enable the flags
+>
+> **A refund linked to a return order does not credit the gift-card tender.**
+> Probed 2026-07-28 (`apps/web/scripts/gc-credit-itemized-vs-plain-probe.mts`), same card, same
+> payment, same amount, clean 0¢ baseline:
+>
+> | Refund | Card credited? |
+> | ------ | -------------- |
+> | ITEMIZED (`order_id` = return order) | **No** — still 0¢ after 123s, though `refunded_money` rose |
+> | PLAIN (no `order_id`) | **Yes** — +642¢ in 10s |
+>
+> The money leaves the payment and does not arrive on the tender — the same limbo that destroyed
+> the 7/27 credit on card …1430. This puts two requirements in direct conflict:
+>
+> - the owner rule that refunds are never amount-only (needs the link), and
+> - the money chain, where the deposit refund and the gift-card decrement both depend on that
+>   credit landing (needs no link).
+>
+> **Interim state in code:** the return order is still created (item-level record) but the refund
+> is NOT linked to it, so the money moves. **Unverified:** whether an unlinked return order alone
+> satisfies item-level sales reporting / QBO categorization. Needs an owner decision and probably
+> a question to Square before anything ships.
+
+
 **Status:** Research complete (2026-07-27), no implementation started. Not yet owner-approved.
 **Research basis:** 10-agent workflow — 4 subsystem readers (cancellation, reservation-edit,
 day-of charging, refund surfaces), 5 scenario lenses (68 scenarios), 1 adversarial completeness

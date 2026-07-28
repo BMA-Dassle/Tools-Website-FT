@@ -284,6 +284,14 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
     const pendingGcCreditRefundIds: string[] = [];
     /** Return orders created for itemized refunds — surfaced in the step log. */
     const returnOrderIds: string[] = [];
+    /**
+     * What the day-of leg ACTUALLY returned, per Square's itemized return
+     * total. Once set it overrides the planner's figures for the guest refund
+     * and the gift-card decrement so all three legs move the same money.
+     */
+    let dayofRefundedCents: number | undefined;
+    /** Gift-card balance immediately BEFORE the day-of refund was issued. */
+    let gcBaselineCents: number | undefined;
     const rebuiltOrders: Array<{ oldOrderId: string; newOrderId: string }> = [];
     let storeCreditGan: string | undefined;
     let newQamfReservationId: string | undefined;
@@ -417,7 +425,14 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
           }
 
           case "refund_tender": {
-            const owed = step.amountCents ?? -plan.diffCents;
+            // When a day-of leg already ran, the amount SQUARE returned is the
+            // truth — not the planner's estimate. The itemized return makes
+            // Square compute the tax-inclusive figure, and it can differ from
+            // local math (a live smoke on 2026-07-27 had the planner at 866¢
+            // and Square at 642¢). Refunding the planner's number here while
+            // the card only got Square's would over-refund the guest by the
+            // difference, and leave the gift-card decrement inconsistent too.
+            const owed = dayofRefundedCents ?? step.amountCents ?? -plan.diffCents;
             // Capacity shortfalls throw INSIDE refundAcrossTenders before any
             // money moves; landing here under-refunded means a clamp race —
             // issued refunds are recorded, so a re-run nets them and heals.
@@ -439,6 +454,22 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
             // Square computes the tax-inclusive total, and that figure is what
             // we refund. Without this the returned item is invisible to
             // item-level sales reporting and to QBO categorization.
+            //
+            // ⚠ UNRESOLVED (probed 2026-07-28,
+            // scripts/gc-credit-itemized-vs-plain-probe.mts): a refund LINKED
+            // to the return order (order_id set) does NOT credit the gift-card
+            // tender — the payment shows refunded but the card stayed at 0¢
+            // after 123s, while an identical PLAIN refund credited it in 10s.
+            // Linking would therefore strand the money exactly the way the
+            // 7/27 card ...1430 credit was destroyed, and the deposit leg +
+            // decrement both depend on that credit arriving.
+            //
+            // Until Square clarifies, the return order is still created (it
+            // carries the item-level record) but the refund is NOT linked to
+            // it, so the money actually moves. Whether the unlinked return
+            // order alone satisfies item-level reporting is NOT yet verified —
+            // do not enable the flags until that is settled. See
+            // tasks/future/post-dayof-refund-plan.md.
             const legWithReturn = plan.legs.find(
               (l) => l.dayofOrderId && l.returnedLines.length > 0,
             );
@@ -447,6 +478,15 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
                 "cannot identify which line items are being refunded — a day-of refund must be " +
                   "itemized against the paid order, never issued as a bare amount",
               );
+            }
+            // Snapshot the card BEFORE the refund so the wait step can tell
+            // when the credit has actually landed (refund status lags).
+            if (plan.giftCard) {
+              try {
+                gcBaselineCents = (await fetchGiftCardFacts(plan.giftCard.id)).balanceCents;
+              } catch {
+                gcBaselineCents = undefined; // wait falls back to the status signal
+              }
             }
             const ret = await createReturnOrder({
               editId,
@@ -458,8 +498,10 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               })),
             });
             returnOrderIds.push(ret.returnOrderId);
-            // Square's own tax-inclusive figure wins over the planner's.
+            // Square's own tax-inclusive figure wins over the planner's, and
+            // becomes the amount every later leg uses.
             const asked = ret.returnTotalCents;
+            dayofRefundedCents = asked;
             if (step.amountCents != null && step.amountCents !== asked) {
               stepLog.push({
                 step: "return_order",
@@ -502,8 +544,7 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               amountCents: owed,
               // Owner rule: staff-supplied, never the deposit journal key.
               reason: dayofRefundReason!,
-              // Attributes the refund to the returned items in Square.
-              returnOrderId: ret.returnOrderId,
+              // NOT linked to the return order — see the block below.
             });
             if (r.refundId) {
               refundIds.push(r.refundId);
@@ -528,6 +569,8 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
               const w = await waitForRefundCredit({
                 refundId: rid,
                 giftCardId: plan.giftCard?.id,
+                baselineBalanceCents: gcBaselineCents,
+                expectCreditCents: dayofRefundedCents,
               });
               if (!w.settled) {
                 // Park, do NOT decrement. The refunds are recorded, so a
@@ -552,7 +595,8 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
           }
 
           case "adjust_gift_card_down": {
-            const want = step.amountCents ?? plan.gcDecrementCents;
+            // Same rule as refund_tender: strip exactly what came back.
+            const want = dayofRefundedCents ?? step.amountCents ?? plan.gcDecrementCents;
             if (!plan.giftCard) {
               // The plan builder only WARNS when gift-card facts are
               // unreadable and drops this step. For a post-payment refund
