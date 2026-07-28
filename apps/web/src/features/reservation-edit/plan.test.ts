@@ -302,9 +302,33 @@ describe("buildEditPlan — bowling PRE", () => {
 
   it("hash moves when the live order moves", async () => {
     const a = await buildEditPlan({ neonId: 42, spec: { playerCount: 4 } });
-    world.order.lines[0].qty = 3; // someone else edited the order
+    // Someone rang up an extra item at the POS. Not an engine line, so Neon and
+    // the order still agree about the BOOKING — the plan reprices, and its hash
+    // moves because the order it was built against did.
+    world.order.lines.push({ uid: "pos1", name: "Nachos", qty: 1, unit: 899 });
     const b = await buildEditPlan({ neonId: 42, spec: { playerCount: 4 } });
     expect(a.planHash).not.toBe(b.planHash);
+  });
+
+  it("refuses a quantity change when Neon and the order disagree about the booking", async () => {
+    // Someone changed the BOOKING's own line in Square (4 → 3) while Neon still
+    // says 4. Repricing from Neon would then price against a sale that no longer
+    // exists — on a real KBF row this shape refunded $1.07 for a $5.35 shoe,
+    // because a phantom line cancelled most of it. Refuse instead.
+    world.order.lines[0].qty = 3;
+    await expect(buildEditPlan({ neonId: 42, spec: { playerCount: 4 } })).rejects.toThrow(
+      /don't reconcile with its day-of order/i,
+    );
+  });
+
+  it("still previews a uid-addressed refund on an unreconciled row", async () => {
+    // The refund path addresses ORDER lines directly, so it never depends on
+    // Neon reconciling — it must keep working where a quantity change cannot.
+    world.order.lines[0].qty = 3;
+    world.order.lines.push({ uid: "pos1", name: "Nachos", qty: 1, unit: 899 });
+    const plan = await buildEditPlan({ neonId: 42, spec: { orderLines: { pos1: 0 } } });
+    expect(plan.diffCents).toBeLessThan(0);
+    expect(plan.legs[0].returnedLines.map((r) => r.uid)).toEqual(["pos1"]);
   });
 
   it("decrease defaults to card refund with the settlement steps", async () => {

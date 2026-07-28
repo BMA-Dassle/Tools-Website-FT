@@ -162,6 +162,13 @@ export default function EditReservationModal({
     ) => {
       const r = await requestPlan(quoteSpec, opts);
       if (r.kind === "plan") setCurrent(r.plan.current);
+      // no_changes is the healthy "editable, nothing changed yet" answer and it
+      // carries `current` — hydrate from it so the form (and on a settled
+      // reservation, the day-of order lines that ARE the refund control) is
+      // populated the moment the modal opens.
+      else if (r.kind === "error" && r.error.code === "no_changes" && r.error.data?.current) {
+        setCurrent(r.error.data.current);
+      }
       return r;
     },
     [requestPlan],

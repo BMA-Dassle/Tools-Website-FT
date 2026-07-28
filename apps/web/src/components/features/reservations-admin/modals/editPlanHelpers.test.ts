@@ -171,10 +171,24 @@ describe("postEdit", () => {
     const out = await postEdit("t", { neonId: 1, spec: {}, dryRun: true });
     expect(out).toEqual({
       kind: "error",
-      error: { status: 409, code: "cancelled", detail: "cancelled" },
+      error: { status: 409, code: "cancelled", detail: "cancelled", data: null },
     });
     if (out.kind !== "error") throw new Error("expected error");
     expect(classifyMountOutcome(out)).toEqual({ kind: "blocked", message: "cancelled" });
+  });
+
+  it("carries the no_changes payload through so the form can hydrate on mount", async () => {
+    // The mount probe's healthy answer ships `current`. Dropping it here left a
+    // settled reservation with no day-of order lines rendered — which is the
+    // ONLY refund control it has, so the Refund button opened to nothing.
+    const current = { orderLines: [{ uid: "FOOD", name: "Soda", quantity: 1, editable: true }] };
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: "no_changes", data: { current } }, 400));
+    const out = await postEdit("t", { neonId: 1, spec: {}, dryRun: true });
+    if (out.kind !== "error") throw new Error("expected error");
+    expect(out.error.code).toBe("no_changes");
+    expect(out.error.data?.current).toEqual(current);
+    // Still classified as "editable" — the payload does not change the verdict.
+    expect(classifyMountOutcome(out)).toEqual({ kind: "edit" });
   });
 
   it("treats the mount probe's no_changes as 'editable, form from detail'", async () => {

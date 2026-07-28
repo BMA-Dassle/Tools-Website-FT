@@ -139,10 +139,22 @@ export type EditGuardCode =
 /** Typed guard failure — routes map these to 409s with the code as reason. */
 export class EditGuardError extends Error {
   readonly code: EditGuardCode;
-  constructor(code: EditGuardCode, message?: string) {
+  /**
+   * Optional structured payload the route echoes back alongside the error.
+   *
+   * Used by `no_changes`, which is the HEALTHY answer to the modal's mount
+   * probe ("editable, nothing changed yet") — it carries the `current` block so
+   * the form can hydrate on open. Without it the modal has no roster, no shoe
+   * catalog, and crucially no day-of order lines until the operator changes
+   * something else, which on a settled reservation means the refund control
+   * never appears at all.
+   */
+  readonly data?: unknown;
+  constructor(code: EditGuardCode, message?: string, data?: unknown) {
     super(message ?? code);
     this.name = "EditGuardError";
     this.code = code;
+    this.data = data;
   }
 }
 

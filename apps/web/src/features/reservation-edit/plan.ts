@@ -623,7 +623,13 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       // Editable only when nothing in the booking model claims this line —
       // the same rule applyOrderLineSpec enforces server-side, so the UI never
       // offers a control the engine would reject.
-      editable: !!l.uid && !isEngineOwnedLine(l, anchorEngineLines),
+      //
+      // $0 lines are excluded: KBF and bowling orders carry per-bowler shoe-size
+      // markers ("Male Size 11") priced at zero for the desk/KDS. Returning one
+      // moves no money, and because the diff stays 0 it is not a refund-only
+      // plan either — so it would fail the master-switch gate. Offering it is
+      // pure noise on a screen whose entire purpose is money.
+      editable: !!l.uid && l.unitPriceCents > 0 && !isEngineOwnedLine(l, anchorEngineLines),
     })),
   };
 
@@ -770,6 +776,11 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       durationOption,
       desiredPrimary,
       carryPrimary,
+      // Only police the lane line's shape when this edit scales it. A refund of
+      // a shoe rental, a booking fee, or a POS item must not be blocked by how
+      // many lane lines the booking happens to carry — or by carrying none
+      // (KBF is free bowling) — since none of that arithmetic runs.
+      primaryRequired: scalesPrimary,
     });
     warnings.push(...reprice.warnings);
 
@@ -796,12 +807,85 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     const neonLabels = new Set(repricedLines.map((l) => l.label));
     const storedCatalogIds = new Set(stored.map((l) => l.squareCatalogObjectId).filter(Boolean));
     const storedLabels = new Set(stored.map((l) => l.label));
-    let newLines = mergeDesiredWithOrder(repricedLines, snap, (line) => {
+    const isEngineLine = (line: PlanLine) => {
       const byCatalog = line.catalogObjectId
         ? neonCatalogIds.has(line.catalogObjectId) || storedCatalogIds.has(line.catalogObjectId)
         : false;
       return byCatalog || neonLabels.has(line.name) || storedLabels.has(line.name);
-    });
+    };
+    let newLines = mergeDesiredWithOrder(repricedLines, snap, isEngineLine);
+
+    // ── Do Neon's lines actually reconcile with this order? ──────────────
+    // Laying repriced Neon lines back over the day-of order assumes the two
+    // describe the same sale. On some rows they don't: KBF sells order-only
+    // extras under DIFFERENT products than Neon records ("Kids Bowl Free VIP
+    // (2)" on the order vs "Kids Bowl Free VIP" stored), so the merge keeps one
+    // and adds the other — a phantom line the guest never bought.
+    //
+    // It is not cosmetic. On res 16857 it inflated an untouched order by $4.26,
+    // and dropping one $5.00 shoe refunded $1.07 instead of $5.35 because the
+    // phantom line cancelled most of the refund. Silent money loss.
+    let neonLinesOut: RepricedLine[] | null = repricedLines;
+    const specTouchesNeonLines =
+      spec.playerCount != null ||
+      spec.laneCount != null ||
+      spec.durationOptionId != null ||
+      spec.shoes != null ||
+      spec.kbf != null;
+
+    if (snap && !specTouchesNeonLines) {
+      // Nothing the repricer models changed, so the merge MUST be a no-op.
+      // Cheap structural check — no extra Square round-trip on every keystroke.
+      const key = (l: PlanLine) =>
+        `${l.catalogObjectId ?? l.name}|${l.quantity}|${l.unitPriceCents}`;
+      if (snap.lines.map(key).sort().join("~") !== newLines.map(key).sort().join("~")) {
+        newLines = snap.lines.map((l) => ({ ...l }));
+        neonLinesOut = null;
+        warnings.push({
+          severity: "info",
+          code: "lines_carried",
+          message:
+            "This booking's stored lines don't map onto its day-of order, so both are left " +
+            "as they are — only the day-of charges you change below move.",
+        });
+      }
+    } else if (snap) {
+      // The spec DOES change a modelled quantity, so we are about to trust the
+      // merge for money. Prove it first: repricing at the BOOKED quantities and
+      // merging must reprice to the order's own total. One extra
+      // orders/calculate, only on a deliberate quantity change — never on the
+      // mount probe or a uid-addressed refund.
+      const baseline = mergeDesiredWithOrder(
+        repriceBowling({
+          booked,
+          currentPlayerCount: legPlayers,
+          lines: stored,
+          spec: {},
+          shoeCatalog,
+          durationOption: null,
+          desiredPrimary: null,
+          carryPrimary,
+          primaryRequired: false,
+        }).lines,
+        snap,
+        isEngineLine,
+      );
+      const baselineTotal = await calculateOrderTotal(
+        snap.locationId,
+        baseline,
+        snap.taxes,
+        snap.discounts,
+      );
+      if (baselineTotal !== snap.totalCents) {
+        throw new EditGuardError(
+          "pricing_unresolvable",
+          `this booking's stored lines don't reconcile with its day-of order ` +
+            `(they price to ${baselineTotal}¢ against the order's ${snap.totalCents}¢), so a ` +
+            `player, lane, shoe, or duration change here cannot be priced safely. Refund a ` +
+            `day-of charge instead, or adjust it directly in Square.`,
+        );
+      }
+    }
 
     // Attraction add-on qty changes: the lines live only on the ORDER (the
     // Neon record is the attraction_bookings JSONB), so they're adjusted on
@@ -895,7 +979,9 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       oldTotalCents: snap?.totalCents ?? 0,
       newTotalCents: newTotal,
       returnedLines: computeReturnedLines(snap?.lines ?? [], newLines),
-      newNeonLines: repricedLines,
+      // null when the merge self-check found Neon's lines don't correspond to
+      // the order — commitNeon then leaves this leg's lines untouched.
+      newNeonLines: neonLinesOut,
       newPlayerCount: reprice.newPlayerCount,
       newLaneCount: reprice.newLaneCount,
       newDuration:
@@ -1614,7 +1700,9 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
     !durationChanged &&
     !attractionsChanged &&
     !changesRaceHeats;
-  if (noChanges) throw new EditGuardError("no_changes");
+  // Carry `current` back with it: this is the modal's mount-probe answer, and
+  // the form (roster, shoe catalog, day-of order lines) hydrates from it.
+  if (noChanges) throw new EditGuardError("no_changes", undefined, { current });
 
   // 7. Executability. The plan is honest either way — only whether it may RUN
   // depends on flags, so report that instead of letting staff fill the form out

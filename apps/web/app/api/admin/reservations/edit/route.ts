@@ -143,7 +143,16 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     if (err instanceof EditGuardError) {
       const status = err.code === "not_found" ? 404 : CONFLICT_CODES.has(err.code) ? 409 : 400;
-      return NextResponse.json({ error: err.code, detail: err.message }, { status });
+      return NextResponse.json(
+        {
+          error: err.code,
+          detail: err.message,
+          // no_changes ships the `current` block so the modal can hydrate its
+          // form on open (see EditGuardError.data).
+          ...(err.data !== undefined ? { data: err.data } : {}),
+        },
+        { status },
+      );
     }
     const msg = err instanceof Error ? err.message : "unknown error";
     console.error(`[admin/reservations/edit] neonId=${neonId} failed:`, msg);

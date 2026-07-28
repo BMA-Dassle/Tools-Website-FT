@@ -31,6 +31,13 @@ export interface EditApiError {
   /** Route error code ("cancelled", "no_changes", "plan_stale", …). */
   code: string;
   detail: string | null;
+  /**
+   * Structured payload some codes carry. `no_changes` — the healthy mount-probe
+   * answer — ships `current` so the form hydrates on open; without it a settled
+   * reservation shows no day-of order lines and the refund control never
+   * appears.
+   */
+  data?: { current?: EditCurrentState } | null;
 }
 
 export type EditPostOutcome =
@@ -83,6 +90,7 @@ export const postEdit = async (token: string, body: EditPostBody): Promise<EditP
         status: res.status,
         code: typeof json.error === "string" ? json.error : `http_${res.status}`,
         detail: typeof json.detail === "string" ? json.detail : null,
+        data: (json.data as EditApiError["data"]) ?? null,
       },
     };
   }
