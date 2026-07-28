@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
 import type { AppliedPromo } from "~/features/discount-codes";
-import { BMI_VOUCHER_RE } from "~/features/booking/service/voucher-redeem";
+import { BMI_VOUCHER_RE, voucherDisplayName } from "~/features/booking/service/voucher-redeem";
 import type { AppliedVoucherState } from "~/features/booking/state/types";
 
 /** Voucher support (flag-gated by the caller) — the SAME rail the kiosk code
@@ -158,7 +158,7 @@ export function PromoCodeInput({ appliedCode, onApply, onClear, voucher }: Promo
           >
             <div className="text-sm">
               <span className="font-semibold text-amber-300">
-                {v.name ?? "Voucher"}
+                {voucherDisplayName(v.name)}
                 {v.pending ? " (applies at booking)" : v.error ? " — could not apply" : " applied"}
               </span>
               <span className="ml-2 font-mono text-xs text-white/50">…{v.code.slice(-4)}</span>

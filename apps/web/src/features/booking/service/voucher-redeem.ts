@@ -95,6 +95,35 @@ export function voucherTarget(name: string | null | undefined): VoucherTarget {
   return { kind: "unknown" };
 }
 
+/**
+ * Short, consistent label for a comp — BMI's line "name" is whatever the
+ * voucher SETUP is called, and in production that ranges from a tidy
+ * "Race Comp" to a full instruction sentence ("Complimentary Gel Blasters.
+ * Redeem on a kiosk or at guest services." — live 2026-07-28). Never render
+ * the raw string in chips/lines; derive from the matched target instead, and
+ * fall back to the first clause (capped) for names we can't map.
+ *
+ * These are product labels, not UI copy — untranslated, same rule as combo /
+ * product proper nouns elsewhere in the kiosk.
+ */
+const ATTRACTION_COMP_LABEL: Record<string, string> = {
+  "gel-blaster": "Gel Blaster comp",
+  "laser-tag": "Laser Tag comp",
+  shuffly: "Shuffly comp",
+  "duck-pin": "Duckpin comp",
+};
+
+export function voucherDisplayName(name: string | null | undefined): string {
+  const target = voucherTarget(name);
+  if (target.kind === "race") return "Race comp";
+  if (target.kind === "attraction") {
+    return ATTRACTION_COMP_LABEL[target.slugs[0]] ?? "Comp";
+  }
+  const first = (name ?? "").split(/[.!\r\n]/)[0].trim();
+  if (!first) return "Voucher";
+  return first.length > 26 ? `${first.slice(0, 25).trimEnd()}…` : first;
+}
+
 export interface VoucherPick {
   code: string;
   name?: string;

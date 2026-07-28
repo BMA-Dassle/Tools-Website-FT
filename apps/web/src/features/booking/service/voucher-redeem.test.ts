@@ -5,6 +5,7 @@ import {
   sessionVouchers,
   voucherIsApplied,
   voucherReviewLines,
+  voucherDisplayName,
   voucherTarget,
 } from "./voucher-redeem";
 import type { BookingSession, RaceHeatAssignment } from "../state/types";
@@ -222,5 +223,31 @@ describe("sessionVouchers / voucherIsApplied", () => {
     expect(voucherIsApplied({ code: "X", pending: true })).toBe(false);
     expect(voucherIsApplied({ code: "X", error: "unknown" })).toBe(false);
     expect(voucherIsApplied(null)).toBe(false);
+  });
+});
+
+describe("voucherDisplayName (real BMI comp names, live 2026-07-28)", () => {
+  it("shortens the gel-blaster instruction sentence to a label", () => {
+    expect(
+      voucherDisplayName("Complimentary Gel Blasters. Redeem on a kiosk or at guest services."),
+    ).toBe("Gel Blaster comp");
+  });
+  it("keeps race tidy", () => {
+    expect(voucherDisplayName("Race Comp")).toBe("Race comp");
+    expect(voucherDisplayName("Race Comp - X7P7C2D8Z4M7G9X4M2A3M4S7")).toBe("Race comp");
+  });
+  it("labels the other attraction families", () => {
+    expect(voucherDisplayName("Complimentary 1 Hour Shuffly")).toBe("Shuffly comp");
+    expect(voucherDisplayName("Complimentary Laser Tag. Redeem at a kiosk.")).toBe(
+      "Laser Tag comp",
+    );
+    expect(voucherDisplayName("Duckpin comp hour")).toBe("Duckpin comp");
+  });
+  it("falls back to the first clause, capped, for unmapped names", () => {
+    expect(voucherDisplayName("Mystery Prize. Ask an attendant.")).toBe("Mystery Prize");
+    expect(voucherDisplayName("A very long unmapped comp product name that never ends")).toBe(
+      "A very long unmapped comp…",
+    );
+    expect(voucherDisplayName(undefined)).toBe("Voucher");
   });
 });

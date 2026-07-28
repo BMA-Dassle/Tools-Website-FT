@@ -35,6 +35,7 @@ import { kioskDeviceKey } from "../config";
 import { useQrScanner } from "../qr-scanner/useQrScanner";
 import { useWedgeScan } from "../checkin/wedge-scan";
 import { classifyKioskCode, type KioskCodeKind } from "../code-entry/classify";
+import { voucherDisplayName } from "~/features/booking/service/voucher-redeem";
 import { clarityEvent } from "~/lib/clarity";
 import { useT, type Translate } from "../i18n";
 
@@ -255,7 +256,7 @@ export function KioskCodeEntry({
         : panel.kind === "voucher-accepted"
           ? {
               title: panel.name
-                ? t("codeEntry.voucherOk.titleNamed", { name: panel.name })
+                ? t("codeEntry.voucherOk.titleNamed", { name: voucherDisplayName(panel.name) })
                 : t("codeEntry.voucherOk.title"),
               body: t("codeEntry.voucherOk.body"),
               cta: t("codeEntry.voucherOk.cta"),

@@ -10,6 +10,7 @@
 
 import type { AppliedVoucherState } from "~/features/booking/state/types";
 import { KioskVoucherBanner } from "./KioskVoucherBanner";
+import { voucherDisplayName } from "~/features/booking/service/voucher-redeem";
 import { useT } from "../i18n";
 
 export function KioskVoucherSheet({
@@ -33,12 +34,13 @@ export function KioskVoucherSheet({
       <div className="kiosk-scroll mt-[36px] min-h-0 flex-1">
         <div className="flex flex-col items-stretch gap-[20px] pb-[24px]">
           {vouchers.map((v) => (
-            <KioskVoucherBanner
-              key={v.code}
-              voucher={v}
-              onClear={() => onClear(v)}
-              variant="kiosk"
-            />
+            <div key={v.code} className="flex flex-col gap-[8px]">
+              <KioskVoucherBanner voucher={v} onClear={() => onClear(v)} variant="kiosk" />
+              {/* BMI's raw setup text — often carries the redemption note. */}
+              {v.name && (
+                <span className="px-[34px] text-[22px] leading-[1.3] text-white/45">{v.name}</span>
+              )}
+            </div>
           ))}
           {vouchers.length === 0 && (
             <div className="k-glass px-[40px] py-[64px] text-center text-[28px] text-white/55">
@@ -87,8 +89,8 @@ export function KioskVoucherSummary({
     ? single.error
       ? t("voucher.chip.error")
       : single.pending
-        ? t("voucher.chip.pending", { name: single.name ?? t("voucher.pill.fallbackName") })
-        : t("voucher.chip.applied", { name: single.name ?? t("voucher.pill.fallbackName") })
+        ? t("voucher.chip.pending", { name: voucherDisplayName(single.name) })
+        : t("voucher.chip.applied", { name: voucherDisplayName(single.name) })
     : hasError
       ? t("voucher.summary.attention", { count: vouchers.length })
       : t("voucher.summary.many", { count: vouchers.length });

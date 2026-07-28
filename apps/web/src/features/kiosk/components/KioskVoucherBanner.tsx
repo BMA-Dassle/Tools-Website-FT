@@ -15,6 +15,7 @@
  */
 
 import type { AppliedVoucherState } from "~/features/booking/state/types";
+import { voucherDisplayName } from "~/features/booking/service/voucher-redeem";
 import { useT } from "../i18n";
 
 export function KioskVoucherBanner({
@@ -28,7 +29,7 @@ export function KioskVoucherBanner({
   variant: "kiosk" | "web";
 }) {
   const t = useT();
-  const name = voucher.name ?? t("voucher.pill.fallbackName");
+  const name = voucher.name ? voucherDisplayName(voucher.name) : t("voucher.pill.fallbackName");
   const state = voucher.error ? "error" : voucher.pending ? "pending" : "applied";
   const text =
     state === "error"

@@ -38,6 +38,7 @@ import { KioskBookingAsCard } from "./KioskBookingAsCard";
 import { KioskRewardsSection } from "./KioskRewardsSection";
 import { BrandLogo } from "./BrandLogo";
 import { useT } from "../i18n";
+import { voucherDisplayName } from "~/features/booking/service/voucher-redeem";
 
 export function KioskCheckoutScreen({
   session,
@@ -124,7 +125,7 @@ export function KioskCheckoutScreen({
   })();
   const voucherLabel =
     appliedCount === 1
-      ? (vouchers.find((v) => !v.pending && !v.error)?.name ?? "")
+      ? voucherDisplayName(vouchers.find((v) => !v.pending && !v.error)?.name)
       : String(appliedCount);
 
   const itemsReady = items.length > 0 && allItemsReady(session);

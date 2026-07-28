@@ -45,6 +45,7 @@ import { LoyaltySection } from "./LoyaltySection";
 import { PromoCodeInput } from "./PromoCodeInput";
 import {
   sessionVouchers,
+  voucherDisplayName,
   voucherRedeemEnabled,
   voucherReviewLines,
 } from "~/features/booking/service/voucher-redeem";
@@ -508,7 +509,7 @@ export function CheckoutStep({
           for (const vl of vLines) {
             if (vl.amount <= 0) continue;
             reviewLines.push({
-              name: `${vl.name ?? "Voucher"} — …${vl.code.slice(-4)}`,
+              name: `${voucherDisplayName(vl.name)} — …${vl.code.slice(-4)}`,
               quantity: 1,
               amount: -vl.amount,
             });
