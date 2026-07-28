@@ -93,19 +93,31 @@ export function KioskVoucherSummary({
   const label = hasError
     ? t("voucher.summary.attention", { count: vouchers.length })
     : t("voucher.summary.many", { count: vouchers.length });
+  // Kind breakdown ("Race Comp x2 - Gel Comp") — the mix is visible without
+  // tapping in (owner 2026-07-27: "if I have gel blaster and race do you just
+  // show as x2?").
+  const byName = new Map<string, number>();
+  for (const v of vouchers) {
+    const n = v.name ?? t("voucher.pill.fallbackName");
+    byName.set(n, (byName.get(n) ?? 0) + 1);
+  }
+  const breakdown = [...byName.entries()].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n)).join(" · ");
 
   if (variant === "kiosk") {
     return (
       <button
         type="button"
         onClick={onOpen}
-        className="k-tap flex h-[84px] items-center gap-[18px] rounded-full border-[1.5px] px-[34px]"
+        className="k-tap flex min-h-[96px] items-center gap-[22px] rounded-[28px] border-[1.5px] px-[34px] py-[14px] text-left"
         style={{ borderColor: `${color}a6`, background: `${color}1a` }}
       >
-        <span className="k-display text-[26px]" style={{ color }}>
-          {label}
-        </span>
-        <span className="k-display text-[30px]" style={{ color }}>
+        <div className="min-w-0">
+          <div className="k-display text-[26px]" style={{ color }}>
+            {label}
+          </div>
+          <div className="mt-[4px] line-clamp-1 text-[22px] text-white/60">{breakdown}</div>
+        </div>
+        <span className="k-display ml-auto text-[34px]" style={{ color }}>
           ›
         </span>
       </button>
@@ -118,8 +130,11 @@ export function KioskVoucherSummary({
       className="mb-3 flex w-full items-center justify-between rounded-lg border px-4 py-3"
       style={{ borderColor: `${color}66`, background: `${color}14` }}
     >
-      <span className="text-sm font-semibold" style={{ color }}>
-        {label}
+      <span className="min-w-0 text-left text-sm">
+        <span className="font-semibold" style={{ color }}>
+          {label}
+        </span>
+        <span className="ml-2 text-xs text-white/50">{breakdown}</span>
       </span>
       <span className="text-lg leading-none" style={{ color }}>
         ›
