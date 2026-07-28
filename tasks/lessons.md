@@ -1,5 +1,70 @@
 # Lessons Learned
 
+## A validator that exists in the repo is not a validator that runs — and normalizing named fields one incident at a time guarantees the next incident (2026-07-28)
+
+**What happened:** A guest booking a race+bowl combo online typed her email as
+`natalietorres1732@gmail.com@` — her address plus one stray `@` from the iPhone `type="email"`
+keyboard. We captured **$346.12** on her VISA debit, then QAMF refused the bowling leg with
+`400 {"Customer.Guest.Email":["Value is not a valid Email."]}` and the whole paid booking died.
+BMI was never confirmed, so its bill auto-cancelled to statusId −4 and stripped its products. She
+pressed Pay again 52 seconds later; that attempt raised a second $346.12 authorization which Square
+then voided against the already-paid deposit order (`DepositPaymentError: The order is already
+paid.`), so she was staring at two holds in her bank app while being told the booking failed. The
+owner had to drain the orphaned deposit gift card (`ADJUST_DECREMENT … reason=SUPPORT_ISSUE`) and
+move the value onto a fresh card to rebook her by hand.
+
+**Four gates, four no-ops — every one of them ours:**
+
+1. `<input type="email">` with **no `<form>` ancestor**. HTML5 constraint validation only runs on
+   form submit or an explicit `checkValidity()`. With no form the browser never validates; on iOS
+   `type="email"` does exactly one thing — change the keyboard. It is not a validator, it is a
+   keyboard hint.
+2. The Pay gate asked **`email.includes("@")`**. Two `@`s satisfy it. So does a bare `"@"`.
+3. The reserve route asked **`!body.contact?.email`** — truthiness. Presence is not validity.
+4. `ContactInfoSchema` with a correct `z.string().email()` **already existed** in
+   `src/features/booking/schemas.ts`, and its header claimed "Every `/api/booking/v2/*` route parses
+   its request body through one of these." Neither charging route imported it. Two more correct
+   regexes existed in `src/features/account/contact.ts` and `lib/group-function-alert.ts`. Three
+   working validators in the repo; the money path used none of them.
+
+**The deeper miss:** 665cbbec had shipped **three hours earlier** to fix this exact shape — a
+vendor field rejection after capture. It added a QAMF outbound choke point that normalized
+`BookedAt` and `PhoneNumber`: precisely the two rules that had already burned us. `Email` was the
+third field of the same `Guest` object, spread through untouched. Its deposit-replay guard matched
+`"must not be activated"` but not `"the order is already paid"`, so the retry still dead-ended.
+**Patching the named fields you have been burned by is not a fix, it is a queue.** The `Guest`
+object had three fields and we hardened two.
+
+**Rules:**
+
+- **Validate to the STRICTEST downstream vendor's standard, and do it BEFORE the charge.** QAMF is
+  the only party in the chain that validates email — and it validates at `createReservation`, which
+  runs after capture. Anything we accept that a vendor will reject is a post-capture orphan by
+  construction. `isDeliverableEmail` in `src/lib/helpers/email.ts` is the single predicate; the zod
+  schema, the UI gate and the pre-charge guard in `unifiedReserve` all call it, so they cannot
+  drift.
+- **`includes("@")` is never validation.** It is a routing heuristic ("is this query an email or a
+  phone?"). Do not let it stand in front of money. As of this commit the charging paths use
+  `isDeliverableEmail`; ~15 other `includes("@")` sites remain in lookup/heuristic flows and in
+  kiosk client gates (kiosk client-side copy needs EN+ES, so those follow separately — the
+  server-side guard already protects them from losing money).
+- **`type="email"` outside a `<form>` validates nothing.** If a component has no form, it has no
+  browser validation, whatever the input type says.
+- **Never let a schema's docstring stand as proof a route is validated.** Check the route's imports.
+  A comment claiming universal coverage is worse than no comment: it stops the next person looking.
+- **When a vendor rejects one field of a payload, harden the whole payload at the choke point** —
+  not that field. `withNormalizedGuest` now cleans `Name`, `PhoneNumber` and `Email` together.
+- **A guest-facing failure screen must not be the first place a caught bug surfaces.**
+  `listCapturedUnreserved()` would have found this $346.12 on its own, but alerting was deferred and
+  the paid-unconfirmed screen still says "our team has been notified" while notifying nobody. The
+  guest had to phone us. Deferring the alert is what turned a caught bug into a guest-facing one.
+
+**What worked:** `reserve_attempts` (shipped that morning) held the full untruncated vendor body,
+the cart snapshot, `failed_step` and the deposit ids stamped at capture. Diagnosis took minutes of
+SQL instead of a Vercel log dig. One gap: attempt #41 logged `deposit_payment = null` while a real
+$346.12 authorization had touched her card, because the auth was voided, never captured — so the
+money-at-risk query is blind to voided authorizations.
+
 ## A readiness gate that covers 3 of 4 item kinds is a hole, not a gate — and a $0 cart leg still calls a vendor (2026-07-28)
 
 **What happened:** A FastTrax kiosk captured **$234.21** (race + 4 race packs, BMI bill

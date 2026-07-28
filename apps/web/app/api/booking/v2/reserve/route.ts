@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { buildGanPrefix } from "@/lib/gan";
+import { isDeliverableEmail } from "~/lib/helpers/email";
 import { createDepositAndCharge, DepositPaymentError } from "~/features/booking/service/deposit";
 import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
 import { bmiBillIsLive } from "~/features/booking/service/bmi-confirm";
@@ -234,6 +235,15 @@ export async function POST(req: NextRequest) {
     }
     if (!body.contact?.firstName || !body.contact?.email) {
       return NextResponse.json({ error: "contact info required" }, { status: 400 });
+    }
+    // Presence is not validity — see ~/lib/helpers/email. A stray trailing `@`
+    // cleared the check above on 2026-07-28 and was refused by QAMF only after
+    // the card had been captured.
+    if (!isDeliverableEmail(body.contact.email)) {
+      return NextResponse.json(
+        { error: "Enter a valid email address.", code: "INVALID_CONTACT" },
+        { status: 400 },
+      );
     }
     if (!body.cartItems?.length) {
       return NextResponse.json({ error: "cartItems required" }, { status: 400 });

@@ -1,4 +1,5 @@
 import { qamfAuthedFetch } from "@/lib/qamf-bowling-auth";
+import { emailRejection, isDeliverableEmail } from "~/lib/helpers/email";
 
 /**
  * Typed client for the QubicaAMF Internal API (Bowling Reservations).
@@ -146,13 +147,43 @@ export function normalizeGuestPhone(phone: string | null | undefined): string {
   return digits;
 }
 
-/** Apply normalizeGuestPhone to a Customer payload, leaving everything else. */
-function withNormalizedGuestPhone<
+/**
+ * Clean the WHOLE Guest payload before QAMF sees it — not one field at a time.
+ *
+ * This used to normalize PhoneNumber only, because PhoneNumber and BookedAt were
+ * the two rules that had bitten us. Email was the third field of the same object,
+ * passed through untouched, and on 2026-07-28 it cost $346.12: a stray trailing
+ * `@` reached `createReservation`, which 400'd with
+ * `Customer.Guest.Email: "Value is not a valid Email."` after the capture.
+ * Patching named fields one incident at a time guarantees a next incident, so
+ * every field of Guest is handled here now.
+ *
+ * Whitespace is the part this layer can safely fix (a trailing space alone fails
+ * .NET's email validator). A structurally invalid address is NOT repaired or
+ * dropped here: `Email` is non-optional in QAMF's schema and we have not probed
+ * what it does with an empty string, so silently substituting could trade one
+ * post-capture failure for another. Correctness belongs to the pre-charge guard
+ * in unifiedReserve (`isDeliverableEmail`); this logs loudly so that if anything
+ * ever reaches the vendor invalid, the reserve_attempts row names the reason
+ * instead of leaving a bare 400.
+ */
+export function withNormalizedGuest<
   T extends { Guest: { Name: string; PhoneNumber: string; Email: string } },
 >(customer: T): T {
+  const email = (customer.Guest.Email ?? "").trim().toLowerCase();
+  if (email && !isDeliverableEmail(email)) {
+    console.error(
+      `[qamf-bowling] guest email ${JSON.stringify(email)} (${emailRejection(email)}) will likely be refused by QAMF — it should have been caught pre-charge`,
+    );
+  }
   return {
     ...customer,
-    Guest: { ...customer.Guest, PhoneNumber: normalizeGuestPhone(customer.Guest.PhoneNumber) },
+    Guest: {
+      ...customer.Guest,
+      Name: (customer.Guest.Name ?? "").replace(/\s+/g, " ").trim(),
+      PhoneNumber: normalizeGuestPhone(customer.Guest.PhoneNumber),
+      Email: email,
+    },
   };
 }
 
@@ -317,7 +348,7 @@ export async function createReservation(
     body: {
       ...input,
       BookedAt: normalizeBookedAt(input.BookedAt),
-      ...(input.Customer ? { Customer: withNormalizedGuestPhone(input.Customer) } : {}),
+      ...(input.Customer ? { Customer: withNormalizedGuest(input.Customer) } : {}),
     },
     errLabel: `createReservation(${centerId})`,
     centerId,
@@ -360,7 +391,7 @@ export async function setReservationCustomer(
   await call({
     method: "PUT",
     path: `/centers/${centerId}/reservations/${reservationId}/customer`,
-    body: { Customer: withNormalizedGuestPhone(customer) },
+    body: { Customer: withNormalizedGuest(customer) },
     errLabel: `setReservationCustomer(${reservationId})`,
     centerId,
   });

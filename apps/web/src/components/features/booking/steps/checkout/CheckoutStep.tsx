@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Dispatch } from "react";
 import { clarityEvent, clarityTag } from "~/lib/clarity";
+import { isDeliverableEmail } from "~/lib/helpers/email";
 import type { Action } from "~/features/booking/state/machine";
 import type { BookingSession, BowlingItem, KbfItem, RaceItem } from "~/features/booking";
 import type { ContactInfo } from "~/features/booking/types";
@@ -333,10 +334,14 @@ export function CheckoutStep({
     );
   });
 
+  // `email.includes("@")` used to stand here. It said yes to
+  // `natalietorres1732@gmail.com@` on 2026-07-28 — and to a bare "@" — which QAMF
+  // then refused after $346.12 had been captured. isDeliverableEmail is the same
+  // predicate the reserve route and the pre-charge guard use.
   const isValidContact =
     firstName.trim().length > 0 &&
     lastName.trim().length > 0 &&
-    email.includes("@") &&
+    isDeliverableEmail(email) &&
     phone.replace(/\D/g, "").length >= 10;
 
   // ── Contact phase ─────────────────────────────────────────────

@@ -2,6 +2,7 @@
 
 import type { StepDef } from "~/features/booking";
 import { useT } from "~/features/kiosk/i18n";
+import { isDeliverableEmail } from "~/lib/helpers/email";
 
 /**
  * Contact info — a shared FIRST step across booking flows (race, attraction,
@@ -41,7 +42,8 @@ export function contactIsComplete(contact: {
   return (
     !!contact.firstName?.trim() &&
     !!contact.lastName?.trim() &&
-    !!contact.email?.includes("@") &&
+    // Not `includes("@")` — see ~/lib/helpers/email for the $346.12 reason why.
+    isDeliverableEmail(contact.email) &&
     (contact.phone ?? "").replace(/\D/g, "").length >= 10
   );
 }

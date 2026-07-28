@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { normalizeBookedAt, normalizeGuestPhone } from "../qamf-bowling";
+import { describe, expect, it, vi } from "vitest";
+import { normalizeBookedAt, normalizeGuestPhone, withNormalizedGuest } from "../qamf-bowling";
 
 describe("normalizeBookedAt", () => {
   it("zeroes the seconds and milliseconds QAMF rejects", () => {
@@ -56,5 +56,52 @@ describe("normalizeGuestPhone", () => {
     expect(normalizeGuestPhone(null)).toBe("");
     expect(normalizeGuestPhone(undefined)).toBe("");
     expect(normalizeGuestPhone("")).toBe("");
+  });
+});
+
+describe("withNormalizedGuest", () => {
+  const guest = (over: Partial<{ Name: string; PhoneNumber: string; Email: string }> = {}) => ({
+    ExternalId: "person-1",
+    Guest: { Name: "Natalie Torres", PhoneNumber: "9414674710", Email: "a@b.com", ...over },
+  });
+
+  it("cleans every field of Guest, not just the phone", () => {
+    const out = withNormalizedGuest(
+      guest({ Name: "  Natalie   Torres ", PhoneNumber: "(941) 467-4710", Email: " A@B.COM " }),
+    );
+    expect(out.Guest).toEqual({
+      Name: "Natalie Torres",
+      PhoneNumber: "9414674710",
+      Email: "a@b.com",
+    });
+  });
+
+  it("preserves fields outside Guest", () => {
+    expect(withNormalizedGuest(guest()).ExternalId).toBe("person-1");
+  });
+
+  it("warns loudly when an address that QAMF will refuse reaches the vendor", () => {
+    // The 2026-07-28 orphan's address. This layer cannot repair it — the
+    // pre-charge guard is what prevents it — but the log must name the reason so
+    // the reserve_attempts row is not just a bare vendor 400.
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const out = withNormalizedGuest(guest({ Email: "natalietorres1732@gmail.com@" }));
+    expect(out.Guest.Email).toBe("natalietorres1732@gmail.com@");
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("not-one-at"));
+    spy.mockRestore();
+  });
+
+  it("stays quiet for a good address", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    withNormalizedGuest(guest({ Email: "natalietorres1732@gmail.com" }));
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("does not warn on an empty email — absence is not a malformed address", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(withNormalizedGuest(guest({ Email: "" })).Guest.Email).toBe("");
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 });

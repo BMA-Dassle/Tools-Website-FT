@@ -34,6 +34,7 @@ import { grantKioskRacePacks } from "./race-pack-grant.server";
 import { upsertPackPurchases, markPackCharged } from "../data/race-pack-purchases-db";
 import { SQUARE_RACE_PACK_CATALOG_ID } from "../data/packs";
 import { centerCodeFor } from "~/config/intercard-centers";
+import { emailRejection, isDeliverableEmail } from "~/lib/helpers/email";
 import { formatPersonName } from "~/lib/helpers/name-format";
 import { after } from "next/server";
 import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
@@ -646,6 +647,26 @@ export class BillExpiredError extends Error {
 }
 
 /**
+ * Thrown when the contact details we would hand to a vendor are ones the vendor
+ * will refuse. Raised BEFORE any Square write, so nothing was charged.
+ *
+ * The 2026-07-28 orphan: a guest's email carried a stray trailing `@`. Our gates
+ * all asked `includes("@")`, BMI stored it verbatim, Square never looked — and
+ * QAMF rejected it at `createReservation` with
+ * `Customer.Guest.Email: "Value is not a valid Email."` AFTER we had captured
+ * $346.12, taking the whole paid booking down with it. Validating what the
+ * strictest vendor accepts, before the charge, is the only version of this that
+ * cannot lose a guest's money.
+ */
+export class InvalidContactError extends Error {
+  code = "INVALID_CONTACT";
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidContactError";
+  }
+}
+
+/**
  * Thrown when a cart heat is too close to a heat the SAME racer already holds
  * in another reservation (cross-reservation spacing — see conflict.ts). Raised
  * BEFORE any Square write, so nothing was charged.
@@ -926,7 +947,27 @@ async function unifiedReserveInner(
     comboSpecialId: session.comboSpecialId ?? null,
   };
 
-  // ── 0. Guard: never charge against an auto-cancelled BMI bill ──────
+  // ── 0. Guard: contact details every vendor downstream will accept ──
+  // Cheapest guard, so it runs first: no I/O, and it refuses before the deposit
+  // order even exists. QAMF is the strictest validator in the chain and the only
+  // one that checks email at all — but it checks at `createReservation`, which
+  // runs AFTER capture. So we apply its standard here instead, where a rejection
+  // costs the guest a corrected keystroke rather than a captured $346.12.
+  //
+  // Email only, deliberately. It is the one contact field with a proven vendor
+  // rejection; phone is already normalized at the QAMF client choke point
+  // (normalizeGuestPhone), and inventing unproven name/phone rules here would
+  // block real bookings to fix a bug we do not have.
+  if (!isDeliverableEmail(contact.email)) {
+    console.error(
+      `[unifiedReserve] INVALID_CONTACT — email ${JSON.stringify(contact.email)} (${emailRejection(contact.email)}) would be refused downstream; refusing to charge`,
+    );
+    throw new InvalidContactError(
+      "That email address isn't valid — please check it and try again. You have not been charged.",
+    );
+  }
+
+  // ── 0a. Guard: never charge against an auto-cancelled BMI bill ──────
   // BMI auto-cancels a Pending-Online hold after the center's timeout, stripping
   // the bill's products. If that happened during the customer's dwell, charging
   // here would take money for a reservation that no longer exists (BMI then

@@ -6,7 +6,9 @@ import {
   BillExpiredError,
   ExistingBookingConflictError,
   CrossCategoryHeatCollisionError,
+  InvalidContactError,
 } from "~/features/booking/service/unified-reserve";
+import { isDeliverableEmail } from "~/lib/helpers/email";
 import {
   DepositPaymentError,
   TerminalPaymentUnverifiedError,
@@ -56,6 +58,16 @@ export async function POST(req: NextRequest) {
     if (!body.contact?.firstName || !body.contact?.email) {
       return NextResponse.json({ error: "Contact info required" }, { status: 400 });
     }
+    // Presence is not validity. `natalietorres1732@gmail.com@` passed the check
+    // above on 2026-07-28 and was refused by QAMF only AFTER $346.12 had been
+    // captured. unifiedReserve re-asserts this before the charge — this is the
+    // early, cheap 400 so the guest is corrected at the keyboard.
+    if (!isDeliverableEmail(body.contact.email)) {
+      return NextResponse.json(
+        { error: "Enter a valid email address.", code: "INVALID_CONTACT" },
+        { status: 400 },
+      );
+    }
 
     // Fail-closed: an externalPayment (kiosk reader charge) is only honored when
     // the terminal flag is on. With the flag off the seam is dormant, so a stale
@@ -94,6 +106,11 @@ export async function POST(req: NextRequest) {
     if (err instanceof BillExpiredError) {
       // 409 Conflict — the held bill lapsed before payment. No charge happened.
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+    }
+    if (err instanceof InvalidContactError) {
+      // 400 — contact details a vendor would refuse. Raised before any Square
+      // write; nothing charged.
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 400 });
     }
     if (err instanceof ExistingBookingConflictError) {
       // 409 — a cart heat is too close to one the same racer already booked in
