@@ -5,7 +5,7 @@ import {
   removeVoucherFromBill,
   voucherClientKeyForCenter,
 } from "~/features/booking/service/bmi-voucher.server";
-import { BMI_VOUCHER_RE } from "~/features/booking/service/voucher-redeem";
+import { BMI_VOUCHER_RE, voucherTarget } from "~/features/booking/service/voucher-redeem";
 import { getClientIp } from "@/lib/admin-auth";
 import redis from "@/lib/redis";
 
@@ -89,6 +89,7 @@ export async function POST(req: NextRequest) {
             : "generic";
       return NextResponse.json({ ok: false, reason });
     }
+    warnUnknownComp(res.name, code, "peek");
     return NextResponse.json({ ok: true, name: res.name });
   }
 
@@ -121,9 +122,26 @@ export async function POST(req: NextRequest) {
           : "generic";
     return NextResponse.json({ ok: false, reason });
   }
+  warnUnknownComp(res.name, code, "apply");
   return NextResponse.json({
     ok: true,
     name: res.name,
     voucherOrderItemId: res.voucherOrderItemId,
   });
+}
+
+/**
+ * A comp product whose NAME we can't map to a race/attraction covers NOTHING
+ * (fail-safe — we never guess with money). That's correct behavior but silent,
+ * so shout it into the logs: the fix is one line in voucherTarget() once we
+ * know the real name. Only "Race Comp" is live-verified (2026-07-27); every
+ * other family is inferred until a real voucher of that kind is scanned.
+ */
+function warnUnknownComp(name: string | undefined, code: string, phase: string) {
+  if (voucherTarget(name).kind === "unknown") {
+    console.warn(
+      `[voucher] UNMAPPED comp name ${JSON.stringify(name)} (code ${code}, ${phase}) — ` +
+        `covers nothing until voucherTarget() learns it`,
+    );
+  }
 }
