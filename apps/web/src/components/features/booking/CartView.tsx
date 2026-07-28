@@ -16,7 +16,11 @@ import { getRaceProductById, type RaceProduct } from "~/features/booking/service
 import { LICENSE_PRICE, POV_PRICE } from "~/features/booking/service/race-pricing";
 import { getPackage } from "~/features/booking/service/packages";
 import { raceItemChargeLines } from "~/features/booking/service/checkout";
-import { voucherCoveredHeatSet, voucherIsApplied } from "~/features/booking/service/voucher-redeem";
+import {
+  voucherAttractionCoverage,
+  voucherCoveredHeatSet,
+  voucherIsApplied,
+} from "~/features/booking/service/voucher-redeem";
 import { applyPromoToBillLines, promoFactor } from "~/features/booking/service/promo-pricing";
 import {
   computePackCoverage,
@@ -1064,7 +1068,14 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
   }
   if (item.kind === "attraction") {
     const config = item.slug ? ATTRACTIONS[item.slug] : null;
-    return config?.bookingMode === "per-person" ? item.price * item.qty : item.price;
+    const base = config?.bookingMode === "per-person" ? item.price * item.qty : item.price;
+    // Attraction voucher — one discounted unit comes off the matched item
+    // (identical figure to the reserve's quantity-1 charge).
+    if (!session.comboSpecialId && voucherIsApplied(session.appliedVoucher)) {
+      const cov = voucherAttractionCoverage(session);
+      if (cov?.itemId === item.id) return Math.max(0, base - cov.cents / 100);
+    }
+    return base;
   }
   // bowling / kbf — combo bowling is charged inside the flat combo line.
   if (session.comboSpecialId && item.kind === "bowling") return 0;

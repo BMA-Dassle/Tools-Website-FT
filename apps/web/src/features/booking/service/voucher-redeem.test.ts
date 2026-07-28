@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   BMI_VOUCHER_RE,
+  voucherAttractionCoverage,
   voucherCoveredHeatSet,
   voucherIsApplied,
   voucherCoveredAmount,
+  voucherTarget,
 } from "./voucher-redeem";
 import type { BookingSession, RaceHeatAssignment, RaceItem } from "../state/types";
 
@@ -111,5 +113,62 @@ describe("voucherCoveredAmount", () => {
   });
   it("is 0 for empty coverage", () => {
     expect(voucherCoveredAmount(new Set(), new Set(), () => 100)).toBe(0);
+  });
+});
+
+describe("voucherTarget", () => {
+  it("parses the known comp families", () => {
+    expect(voucherTarget("Race Comp").kind).toBe("race");
+    expect(voucherTarget("Laser Comp")).toEqual({ kind: "attraction", slugs: ["laser-tag"] });
+    expect(voucherTarget("Gel Blaster Comp")).toEqual({
+      kind: "attraction",
+      slugs: ["gel-blaster"],
+    });
+    expect(voucherTarget("Complimentary 1 Hour Shuffly")).toEqual({
+      kind: "attraction",
+      slugs: ["shuffly"],
+    });
+  });
+  it("unknown names cover nothing (never guess with money)", () => {
+    expect(voucherTarget("Comp Admission").kind).toBe("unknown");
+    expect(voucherTarget(undefined).kind).toBe("unknown");
+  });
+});
+
+describe("voucherAttractionCoverage", () => {
+  const laserVoucher = { ...APPLIED, name: "Laser Comp" };
+  function attractionSession(items: unknown[], voucher: unknown = laserVoucher): BookingSession {
+    return { items, party: [], appliedVoucher: voucher } as unknown as BookingSession;
+  }
+  const laser = (id: string, price: number, qty = 2) => ({
+    id,
+    kind: "attraction",
+    slug: "laser-tag",
+    date: "2026-07-29",
+    qty,
+    productId: "111",
+    price,
+  });
+
+  it("covers one discounted unit of the matched attraction", () => {
+    const cov = voucherAttractionCoverage(attractionSession([laser("a1", 12.5)]));
+    expect(cov).toEqual({ itemId: "a1", cents: 1250 });
+  });
+  it("picks the lowest-priced matching item", () => {
+    const cov = voucherAttractionCoverage(attractionSession([laser("a1", 15), laser("a2", 12.5)]));
+    expect(cov?.itemId).toBe("a2");
+  });
+  it("ignores non-matching slugs and race-target vouchers", () => {
+    expect(
+      voucherAttractionCoverage(attractionSession([{ ...laser("a1", 12.5), slug: "gel-blaster" }])),
+    ).toBeNull();
+    expect(voucherAttractionCoverage(attractionSession([laser("a1", 12.5)], APPLIED))).toBeNull();
+  });
+  it("covers nothing for pending/errored vouchers", () => {
+    expect(
+      voucherAttractionCoverage(
+        attractionSession([laser("a1", 12.5)], { code: "X", pending: true }),
+      ),
+    ).toBeNull();
   });
 });

@@ -29,6 +29,8 @@
 import type { BookingSession, RaceHeatAssignment, RaceItem } from "../state/types";
 import { packageIdForCategory } from "../state/types";
 import { getRaceProductById } from "./race-products";
+import type { AttractionItem } from "../state/types";
+import { promoFactor } from "./promo-pricing";
 
 /**
  * BMI voucher number shape: 12 strictly-alternating letter/digit pairs.
@@ -75,6 +77,64 @@ export function voucherIsApplied(v: AppliedVoucherState | null | undefined): boo
 }
 
 /**
+ * What a voucher's comp product pays for, parsed from its BMI line name
+ * ("Race Comp", "Complimentary 1 Hour Shuffly", "Laser Comp", ...). The kind
+ * decides which coverage rail runs: race → the excludedHeats rail below;
+ * attraction → one unit off the matching AttractionItem. Unknown names cover
+ * NOTHING (the guest pays what's displayed and the kiosk shows a "doesn't
+ * match your cart" note) — never guess with money.
+ */
+export type VoucherTarget =
+  | { kind: "race" }
+  | { kind: "attraction"; slugs: string[] }
+  | { kind: "unknown" };
+
+export function voucherTarget(name: string | null | undefined): VoucherTarget {
+  const n = (name ?? "").toLowerCase();
+  if (n.includes("race")) return { kind: "race" };
+  if (n.includes("laser")) return { kind: "attraction", slugs: ["laser-tag"] };
+  if (n.includes("gel")) return { kind: "attraction", slugs: ["gel-blaster"] };
+  if (n.includes("shuf")) return { kind: "attraction", slugs: ["shuffly"] };
+  if (n.includes("duck")) return { kind: "attraction", slugs: ["duck-pin"] };
+  return { kind: "unknown" };
+}
+
+/**
+ * One-unit attraction coverage: the item (and discounted unit price, in
+ * cents) the session's voucher pays for. The SAME formula unified-reserve
+ * charges with (promo price-key applied to the unit) — both sides subtract
+ * this exact figure, so display can't drift from charge. Deterministic pick:
+ * lowest discounted unit among matching items; tie → first in cart order.
+ * Callers must skip combo mode (combos charge flat — voucher is a no-op there,
+ * same as the race rail).
+ */
+export function voucherAttractionCoverage(
+  session: BookingSession,
+): { itemId: string; cents: number } | null {
+  const v = session.appliedVoucher;
+  if (!voucherIsApplied(v)) return null;
+  const target = voucherTarget(v!.name);
+  if (target.kind !== "attraction") return null;
+
+  let best: { itemId: string; cents: number } | null = null;
+  for (const item of session.items) {
+    if (item.kind !== "attraction") continue;
+    const attr = item as AttractionItem;
+    if (!attr.slug || !target.slugs.includes(attr.slug)) continue;
+    if (!attr.productId || attr.qty < 1) continue;
+    const fullUnitCents = Math.round(attr.price * 100);
+    const factor = promoFactor(
+      { domain: "attractions", visitDate: attr.date ?? undefined, productSlug: attr.slug },
+      session.appliedPromo ?? null,
+    );
+    const cents = factor === 1 ? fullUnitCents : Math.round(fullUnitCents * factor);
+    if (cents <= 0) continue;
+    if (!best || cents < best.cents) best = { itemId: attr.id, cents };
+  }
+  return best;
+}
+
+/**
  * The heat assignments the session's voucher covers — mirror of
  * `redeemedHeatSet` (credits) and `computePackCoverage` (kiosk packs).
  * `excluded` = heats already covered by those two (they win first; a voucher
@@ -88,6 +148,7 @@ export function voucherCoveredHeatSet(
   excluded: ReadonlySet<RaceHeatAssignment>,
 ): Set<RaceHeatAssignment> {
   if (!voucherIsApplied(session.appliedVoucher)) return new Set();
+  if (voucherTarget(session.appliedVoucher!.name).kind !== "race") return new Set();
 
   let best: { heat: RaceHeatAssignment; price: number; start: string } | null = null;
   for (const item of session.items) {

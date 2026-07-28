@@ -317,6 +317,8 @@ export const en = {
   "codeEntry.voucherOk.cta": "Start picking",
   "checkout.voucherCovers": "{name} voucher covers {amount}",
   "checkout.voucherFallbackName": "Your",
+  "checkout.voucherNoMatch":
+    "Your {name} voucher doesn’t match anything in your cart — add it to your visit to use it.",
   "checkout.voucherError":
     "We couldn’t apply voucher {code} — you’ll pay full price here, or see Guest Services.",
 

@@ -207,6 +207,19 @@ export function KioskCheckoutScreen({
                 </span>
               </div>
             )}
+          {items.length > 0 &&
+            voucher &&
+            !voucher.pending &&
+            !voucher.error &&
+            voucherSavings <= 0.004 && (
+              <div className="flex items-baseline justify-end pr-[8px]">
+                <span className="text-[22px] text-[#f0b341]">
+                  {t("checkout.voucherNoMatch", {
+                    name: voucher.name ?? t("checkout.voucherFallbackName"),
+                  })}
+                </span>
+              </div>
+            )}
           {items.length > 0 && voucher?.error && (
             <div className="flex items-baseline justify-end pr-[8px]">
               <span className="text-[22px] text-[#ff8c7a]">

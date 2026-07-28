@@ -65,7 +65,12 @@ import {
   getDiscountCodeByCode,
   resolveAppliedPromo,
 } from "~/features/discount-codes";
-import { voucherCoveredHeatSet, voucherIsApplied, VoucherNotVerifiedError } from "./voucher-redeem";
+import {
+  voucherAttractionCoverage,
+  voucherCoveredHeatSet,
+  voucherIsApplied,
+  VoucherNotVerifiedError,
+} from "./voucher-redeem";
 import { getAppliedVoucherForBill, markVoucherCharged } from "../data/voucher-redemptions-db";
 import { activeComboSpecial, comboOrderGroups } from "~/features/combos/combo-pricing";
 import { getComboSpecial } from "~/features/combos/combo-specials";
@@ -435,7 +440,13 @@ function buildCombinedLineItems(session: BookingSession): {
     });
   }
 
-  // Attraction items
+  // Attraction items. A voucher whose comp targets an attraction (Laser/Gel/
+  // Shuffly Comp) covers ONE unit of the matched item — quantity drops by one
+  // on the Square line (the comp line on the BMI bill is the vendor-side
+  // counterpart; BMI nets at processing). Combo carts skip coverage (flat
+  // pricing) — same rule as the race rail. voucherAttractionCoverage computes
+  // the identical discounted unit the display subtracts.
+  const attractionVoucher = activeComboSpecial(session) ? null : voucherAttractionCoverage(session);
   for (const item of session.items) {
     if (item.kind !== "attraction") continue;
     const attr = item as AttractionItem;
@@ -449,14 +460,16 @@ function buildCombinedLineItems(session: BookingSession): {
       session.appliedPromo,
     );
     const unitCents = factor === 1 ? fullUnitCents : Math.round(fullUnitCents * factor);
-    const lineTotal = unitCents * attr.qty;
+    const chargedQty = attractionVoucher?.itemId === attr.id ? Math.max(0, attr.qty - 1) : attr.qty;
+    const lineTotal = unitCents * chargedQty;
     totalPriceCents += lineTotal;
     totalDepositCents += lineTotal; // 100% deposit for attractions
-    promoSavingsCents += (fullUnitCents - unitCents) * attr.qty;
+    promoSavingsCents += (fullUnitCents - unitCents) * chargedQty;
+    if (chargedQty === 0) continue; // fully voucher-covered — no Square line
 
     sqLineItems.push({
       name: attr.slug ?? "Attraction",
-      quantity: String(attr.qty),
+      quantity: String(chargedQty),
       ...(catalogId
         ? { catalogObjectId: catalogId, basePriceMoney: { amount: unitCents, currency: "USD" } }
         : { basePriceMoney: { amount: unitCents, currency: "USD" } }),

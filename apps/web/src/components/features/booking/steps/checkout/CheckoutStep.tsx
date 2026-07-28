@@ -44,6 +44,7 @@ import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { LoyaltySection } from "./LoyaltySection";
 import { PromoCodeInput } from "./PromoCodeInput";
 import {
+  voucherAttractionCoverage,
   voucherCoveredHeatSet,
   voucherIsApplied,
   voucherRedeemEnabled,
@@ -504,18 +505,26 @@ export function CheckoutStep({
             }
           }
           const covered = voucherCoveredHeatSet(session, base);
+          let amount = 0;
           if (covered.size > 0) {
             const sumLines = (ex: Set<RaceHeatAssignment>) =>
               buildRaceChargeLines(session, ex).reduce((s, l) => s + l.amount, 0);
-            const amount =
+            amount =
               Math.round((sumLines(base) - sumLines(new Set([...base, ...covered]))) * 100) / 100;
-            if (amount > 0) {
-              reviewLines.push({
-                name: `${session.appliedVoucher?.name ?? "Voucher"} — ${session.appliedVoucher?.code ?? ""}`,
-                quantity: 1,
-                amount: -amount,
-              });
-            }
+          }
+          // Attraction-targeted voucher (Laser/Gel/Shuffly Comp) — one
+          // discounted unit of the matched item, same figure the reserve
+          // drops from the Square quantity.
+          if (amount === 0 && !activeComboSpecial(session)) {
+            const cov = voucherAttractionCoverage(session);
+            if (cov) amount = cov.cents / 100;
+          }
+          if (amount > 0) {
+            reviewLines.push({
+              name: `${session.appliedVoucher?.name ?? "Voucher"} — ${session.appliedVoucher?.code ?? ""}`,
+              quantity: 1,
+              amount: -amount,
+            });
           }
         } catch {
           /* voucher display is best-effort; the reserve verifies coverage */
