@@ -11,7 +11,7 @@ import { formatMessage } from "../i18n/format";
 import { fallbackMessage } from "../i18n/messages";
 import { parseKioskConfigFromSearchParams, resolveKioskConfig } from "../config";
 import { BILLBOARD_SLIDES, bankSize, billboardPhase } from "./billboard";
-import { slidePlaysVideo } from "./rotation";
+import { AD_ROTATE_MS, slidePlaysVideo, vehiclePhaseMs } from "./rotation";
 
 const VENUES = ["fort-myers", "naples"] as const;
 
@@ -103,6 +103,44 @@ describe("video/still alternation", () => {
     expect(typeof slidePlaysVideo(-3, 1, true)).toBe("boolean");
     // -3 + 1 = -2, even → plays. JS % would give -0 here; the guard normalises.
     expect(slidePlaysVideo(-3, 1, true)).toBe(true);
+  });
+});
+
+describe("vehicle relay hands off across the bank", () => {
+  // The bug this replaces: a fixed `(position % 4) * 2000` gave FastTrax's
+  // SEVEN kiosks only four phases, so 1&5, 2&6 and 3&7 crossed simultaneously
+  // and the row looked like it fired in unison.
+  it("every screen in a bank gets its own slot", () => {
+    for (const count of [4, 5, 7]) {
+      const phases = Array.from({ length: count }, (_, p) => vehiclePhaseMs(p, count, p + 1));
+      expect(new Set(phases).size, `bank of ${count} reused a phase`).toBe(count);
+    }
+  });
+
+  it("phases march evenly across one slide, never past it", () => {
+    const count = 7; // FastTrax
+    const phases = Array.from({ length: count }, (_, p) => vehiclePhaseMs(p, count, p + 1));
+    expect(phases[0]).toBe(0);
+    for (const ph of phases) expect(ph).toBeLessThan(AD_ROTATE_MS);
+    // Even spacing — the wave should not bunch up at one end of the row.
+    const gaps = phases.slice(1).map((ph, i) => ph - phases[i]);
+    for (const g of gaps) expect(Math.abs(g - AD_ROTATE_MS / count)).toBeLessThanOrEqual(1);
+  });
+
+  it("the rightmost screen fires first, so the wave travels right to left", () => {
+    // syncGlowPhase seeks to (now + phase), so a BIGGER phase is further along
+    // and therefore earlier. Position 0 is leftmost and must be last.
+    const count = 5; // HPFM
+    const phases = Array.from({ length: count }, (_, p) => vehiclePhaseMs(p, count, p + 1));
+    expect(Math.max(...phases)).toBe(phases[count - 1]);
+    expect(Math.min(...phases)).toBe(phases[0]);
+  });
+
+  it("a kiosk outside the bank map still animates, off the choreography", () => {
+    const ph = vehiclePhaseMs(null, 5, 9);
+    expect(Number.isFinite(ph)).toBe(true);
+    expect(ph).toBeGreaterThanOrEqual(0);
+    expect(ph).toBeLessThan(AD_ROTATE_MS);
   });
 });
 

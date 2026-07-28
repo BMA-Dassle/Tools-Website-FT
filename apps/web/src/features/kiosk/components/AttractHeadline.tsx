@@ -48,7 +48,7 @@ import {
   billboardPhase,
   type BillboardPhase,
 } from "../attract/billboard";
-import { slidePlaysVideo } from "../attract/rotation";
+import { slidePlaysVideo, vehiclePhaseMs } from "../attract/rotation";
 import { KIOSK_PHOTOS, KIOSK_VIDEOS, type KioskAdSlide } from "../assets";
 import { venueSlug, type KioskConfig } from "../config";
 import { kioskBillboardEnabled } from "../flags";
@@ -131,10 +131,11 @@ export function AttractHeadline({
   /** Does slide `i` run its clip on THIS lap? See attract/rotation.ts. */
   const playsVideo = (i: number) => slidePlaysVideo(cycle, i, !!slides[i]?.video);
 
-  // Physical bank position drives the vehicle stagger, so a handoff follows
-  // where a kiosk STANDS (HPFM runs 3·2·6·1·4) rather than its number.
+  // Physical bank position drives the vehicle stagger, so the handoff follows
+  // where a kiosk STANDS (HPFM runs 3·2·6·1·4) rather than its number, and the
+  // phase is spread across the REAL bank size — see vehiclePhaseMs.
   const position = bankPosition(venue, config.kioskNumber ?? 1);
-  const phaseMs = ((position ?? (config.kioskNumber ?? 1) - 1) % 4) * 2000;
+  const phaseMs = vehiclePhaseMs(position, bankSize(venue), config.kioskNumber ?? 1);
 
   const phase = useBillboardPhase(config, position, offset);
   const bbSlides = BILLBOARD_SLIDES[venue];

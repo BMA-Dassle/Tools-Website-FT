@@ -30,7 +30,8 @@ import {
   kioskBillboardEnabled,
   kioskWelcomeRotateEnabled,
 } from "../flags";
-import { bankPosition, BILLBOARD_SLIDES } from "../attract/billboard";
+import { bankPosition, bankSize, BILLBOARD_SLIDES } from "../attract/billboard";
+import { AD_ROTATE_MS, vehiclePhaseMs } from "../attract/rotation";
 import { AttractBillboard } from "./AttractBillboard";
 import { AttractHeadline } from "./AttractHeadline";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
@@ -46,8 +47,6 @@ import { clarityEvent, clarityTag } from "~/lib/clarity";
 import { captureKioskBootVersion, kioskUpdateAvailable } from "../version";
 import { DeviceCheckCard } from "./DeviceCheckCard";
 import { clickableDivProps } from "@/lib/a11y";
-
-const AD_ROTATE_MS = 8000;
 
 export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }) {
   const router = useRouter();
@@ -249,7 +248,11 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   // number-derived phase for its own banner crossing (the crossing is
   // per-screen scenery, unlike the bank-wide billboard, which excludes it).
   const bankPos = bankPosition(venueSlug(config), config.kioskNumber ?? 1);
-  const carPhaseMs = ((bankPos ?? (config.kioskNumber ?? 1) - 1) % 4) * 2000;
+  // Spread over the REAL bank size. The old fixed `% 4` predates FastTrax
+  // having seven kiosks and handed out only four distinct phases, so 1&5, 2&6
+  // and 3&7 crossed together — the bank looked like it fired in unison rather
+  // than handing the vehicle along. Same bug in both layouts, same fix.
+  const carPhaseMs = vehiclePhaseMs(bankPos, bankSize(venueSlug(config)), config.kioskNumber ?? 1);
   // Per-device attract layout; "headline" is the default for a config that
   // predates the field (resolveKioskConfig backfills it on read).
   const attractLayout = config.attractLayout ?? "headline";
