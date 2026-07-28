@@ -1,5 +1,63 @@
 # Lessons Learned
 
+## A readiness gate that covers 3 of 4 item kinds is a hole, not a gate — and a $0 cart leg still calls a vendor (2026-07-28)
+
+**What happened:** A FastTrax kiosk captured **$234.21** (race + 4 race packs, BMI bill
+63000000006468566) and then threw. The guest got the "Payment received — do NOT pay again" screen;
+the center set the reservation up by hand.
+
+**Root cause chain — four things had to line up, and every one of them was ours:**
+
+1. The guest tapped the **Duck Pin** tile, pressed **Back** on the first step, and booked racing
+   instead. Back-at-step-0 deliberately keeps the draft in the cart (KioskFlow.tsx: "Main menu
+   offers removing it"), so a completely untouched bowling item stayed behind — `bookedAt: null`,
+   `webOfferId: null`, no hold, `playerCount: 2`/`laneCount: 1` still at `newItem()` defaults.
+2. `allItemsReady()` in CartView gated `race` (needs a heat) and `attraction` (needs product AND
+   slot) — then returned a hardcoded **`true`** for `bowling`/`kbf`. Bowling was the one kind that
+   could reach the pay screen unconfigured.
+3. Duckpin prices through QAMF/Square, not the BMI bill, so a leg with no offer contributed **$0**
+   and was invisible in the cart total. Nobody — guest or code — could see it in the money.
+4. `unified-reserve` still iterated it and called QAMF with `webOfferId: 0` and
+   `BookedAt: new Date().toISOString()` → **400 `{"BookedAt":["Millisecond must be 0."],
+   "Customer.Guest.PhoneNumber"…}`** AFTER capture, taking the PAID race booking down with it.
+
+Then two things stopped anyone from recovering or even noticing:
+
+- The client's 3-attempt retry could never work. Attempt 1 activated the deposit gift card and
+  failed at QAMF; attempts 2-3 failed **earlier**, at `BAD_REQUEST: Gift card must not be
+  activated.` Square does not replay that off the idempotency key — it rejects on card state.
+- `qamf-bowling-auth.ts` truncated the vendor body to **200 chars**, cutting the PhoneNumber rule
+  mid-field. The single most valuable line in the failure was destroyed by our own logging.
+
+**Fix (`fix/phantom-bowling-leg`):** `service/bookable.ts` — one pure predicate, a leg is bookable
+with a hold OR (`bookedAt` AND `webOfferId`); `allItemsReady` uses it (bowling gated at last) and an
+unfinished item turns the pay button into "Finish setting up X →" instead of a dead greyed-out
+button; Back-at-step-0 drops an untouched draft; `unified-reserve` partitions unbookable legs out
+before pricing, charge and confirm, and records each drop; the `bookedAt` fallback is
+`nowRounded5EtIso()`; `createReservation`/`setReservationCustomer` normalize `BookedAt` (seconds and
+ms to zero) and `PhoneNumber` (digits) at the client choke point; already-activated gift cards
+verify balance and replay as success; vendor bodies keep 1200 chars. Plus
+`lib/reserve-attempt-log.ts` — a durable Neon `reserve_attempts` row per attempt.
+
+**Guardrails:**
+
+- **A readiness/validation switch over a union MUST justify every arm.** `return true` for a kind is
+  a decision, not a default — write down why, or gate it. Three arms guarded and one waved through
+  is worse than no gate, because everyone downstream trusts it.
+- **$0 is not the same as absent.** A cart leg that prices to nothing can still make vendor calls and
+  fail a paid transaction. Reason about legs by whether they can BE BOOKED, never by what they cost.
+- **Drop, don't throw, after the money lands.** When a leg cannot possibly succeed and carries no
+  money, skipping it (loudly, durably logged) beats failing a captured booking.
+- **Never truncate a 4xx validation body.** 200 chars is shorter than one vendor error list.
+- **"Already in the target state" is success, not failure** — activation, confirmation, cancellation.
+  A retry that dies EARLIER than the original failure is the signature of a non-idempotent step.
+- **A screen that says "our team has been notified" must actually notify someone.** Ours didn't; the
+  guest at the counter was the alert. (Alerting deferred by owner 2026-07-28 — the durable log
+  lands first.)
+- **Our own log, or it didn't happen.** Vercel runtime-log queries time out past ~3 minutes of
+  window, retention is short, and there is no "what happened to bill X". Every money fan-out gets a
+  Neon audit row with the FULL error, written before the charge and closed either way.
+
 ## A deterministic Square idempotency key locks a customer out after a card DECLINE (2026-07-25)
 
 **What happened:** A customer booking a 6pm VIP experience (3 adults + 1 junior) hit

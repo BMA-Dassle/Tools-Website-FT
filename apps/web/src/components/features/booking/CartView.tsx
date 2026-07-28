@@ -16,6 +16,7 @@ import { getRaceProductById, type RaceProduct } from "~/features/booking/service
 import { LICENSE_PRICE, POV_PRICE } from "~/features/booking/service/race-pricing";
 import { getPackage } from "~/features/booking/service/packages";
 import { raceItemChargeLines } from "~/features/booking/service/checkout";
+import { isBookableBowlingLeg } from "~/features/booking/service/bookable";
 import { planVoucherCoverage, sessionVouchers } from "~/features/booking/service/voucher-redeem";
 import { applyPromoToBillLines, promoFactor } from "~/features/booking/service/promo-pricing";
 import {
@@ -102,6 +103,7 @@ export function CartView({
   const backToLandingHref = backCode ? `/book/v2?code=${encodeURIComponent(backCode)}` : "/book/v2";
 
   const hasItems = session.items.length > 0;
+  const unreadyItem = firstUnreadyItem(session);
   const [leaveConfirm, setLeaveConfirm] = useState(false);
 
   return (
@@ -167,17 +169,26 @@ export function CartView({
 
       {hasItems && (
         <div className="mt-8 flex justify-end">
-          <button
-            type="button"
-            onClick={onCheckout}
-            disabled={!allItemsReady(session)}
-            title={
-              !allItemsReady(session) ? "Finish configuring all items before checkout" : undefined
-            }
-            className="rounded-xl bg-[#00E2E5] px-8 py-3 text-sm font-bold text-[#000418] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Checkout →
-          </button>
+          {/* An unfinished item doesn't dead-end the guest on a greyed-out
+              button (a title tooltip is invisible on a kiosk touchscreen) — the
+              button becomes the way BACK to the step that's missing. */}
+          {unreadyItem ? (
+            <button
+              type="button"
+              onClick={() => onEditItem(unreadyItem.id)}
+              className="rounded-xl bg-[#00E2E5] px-8 py-3 text-sm font-bold text-[#000418] transition-colors hover:bg-white"
+            >
+              Finish setting up {otherItemTitle(unreadyItem)} →
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onCheckout}
+              className="rounded-xl bg-[#00E2E5] px-8 py-3 text-sm font-bold text-[#000418] transition-colors hover:bg-white"
+            >
+              Checkout →
+            </button>
+          )}
         </div>
       )}
 
@@ -1108,14 +1119,32 @@ export function allItemsReady(session: BookingSession): boolean {
         return !!item.productId && !!item.slot;
       case "bowling":
       case "kbf":
-        return true;
+        // A lane hold, or a picked slot (bookedAt + webOfferId). This used to be
+        // a hardcoded `true` while race and attraction were both gated — so an
+        // unconfigured bowling leg was the ONE thing that could reach the pay
+        // screen. On 2026-07-28 one did: a duckpin draft with no time and no
+        // offer priced at $0 (invisible in the cart total), passed this gate,
+        // and 400'd QAMF *after* $234.21 was captured, taking a paid race
+        // booking down with it.
+        return isBookableBowlingLeg(item);
     }
   });
+}
+
+/** The first cart item that isn't ready — what the pay button should send the
+ *  guest back to finish. Null when everything is ready. */
+export function firstUnreadyItem(session: BookingSession): SessionItem | null {
+  return session.items.find((item) => !allItemsReady({ ...session, items: [item] })) ?? null;
 }
 
 function otherItemTitle(item: SessionItem): string {
   if (item.kind === "attraction" && item.slug) {
     return findOffering(item.slug)?.displayName ?? item.slug;
+  }
+  // FastTrax duckpin is a bowling item (QAMF 11542) but the guest tapped a tile
+  // labelled "Duck Pin" — name it back the way they chose it.
+  if (item.kind === "bowling" && item.isDuckpin) {
+    return findOffering("duck-pin")?.displayName ?? "Duck Pin";
   }
   return findOffering(item.kind)?.displayName ?? item.kind;
 }

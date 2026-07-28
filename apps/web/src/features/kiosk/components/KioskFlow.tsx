@@ -182,6 +182,31 @@ const NATIVE_STEP_IDS = new Set([
   "kiosk-bowling-people",
 ]);
 
+/**
+ * A bowling/KBF draft the guest never shaped: no slot, no offer, no hold, and
+ * nothing else typed into it either. Back-at-step-0 drops one of these instead
+ * of parking it in the cart (see the Back handler) — nothing is lost, and a
+ * parked one used to ride to checkout as a $0 invisible leg that failed the whole
+ * reserve at QAMF (2026-07-28 orphan).
+ *
+ * Deliberately narrow: ANY guest-entered detail (a typed bowler, a shoe pick, an
+ * experience, an add-on, a pizza modifier) makes it a real draft that stays put,
+ * because the guest would notice it disappearing. Module scope, not a render-body
+ * const — the Back handler closes over it before the render body's consts
+ * initialize (TDZ lesson 2026-07-xx).
+ */
+function isUntouchedBowlingDraft(item: SessionItem): boolean {
+  if (item.kind !== "bowling" && item.kind !== "kbf") return false;
+  if (item.qamfReservationId || item.bookedAt || item.webOfferId) return false;
+  if (item.experienceId || item.experienceSlug || item.optionId || item.tier) return false;
+  if (item.players && item.players.length > 0) return false;
+  if (Object.keys(item.shoeSelections ?? {}).length > 0) return false;
+  if (item.attractionAddons?.length > 0) return false;
+  if (item.pizzaModifierSelections?.some((lane) => Object.keys(lane).length > 0)) return false;
+  if (item.kind === "kbf" && (item.passId || item.bowlers.length > 0)) return false;
+  return true;
+}
+
 /** ?goto= deep links from the attract screen's quick chips. */
 function seedForGoto(
   goto: string,
@@ -2243,9 +2268,19 @@ export function KioskFlow({
             if (stepIndex === 0) {
               // First step → back to the category chooser ("all activities"),
               // NOT a full Start Over (owner: couldn't get back to activities).
-              // The draft item stays in the cart; Main menu (util strip) offers
-              // removing it, Start over resets — both confirm first.
-              dispatch({ type: "setActiveItem", id: null });
+              // A draft the guest actually shaped stays in the cart (Main menu
+              // and Start over both offer removing it, with a confirm) — but an
+              // UNTOUCHED bowling draft is dropped right here. Leaving one behind
+              // is what produced the 2026-07-28 orphan: tap Duck Pin → Back →
+              // book racing → the $0, invisible, unconfigured leg rode to
+              // checkout and 400'd QAMF after the card was captured. Nothing is
+              // lost by dropping it (no time, no offer, no hold, no money), so
+              // there is nothing to confirm.
+              if (activeItem && isUntouchedBowlingDraft(activeItem)) {
+                void handleRemoveItem(activeItem.id);
+              } else {
+                dispatch({ type: "setActiveItem", id: null });
+              }
             } else {
               dispatch({ type: "back" });
             }

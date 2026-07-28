@@ -39,6 +39,14 @@ import { after } from "next/server";
 import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
 import { confirmBmiPayment, bmiBillIsLive } from "./bmi-confirm";
 import { reserveBaseKey } from "./reserve-idempotency";
+import { describeDroppedLeg, partitionBookableLegs } from "./bookable";
+import { nowRounded5EtIso } from "./bowl-now";
+import {
+  startReserveAttempt,
+  recordReserveCapture,
+  finishReserveAttempt,
+  type ReserveCartSnapshot,
+} from "@/lib/reserve-attempt-log";
 import {
   createReservation,
   getReservation,
@@ -718,10 +726,35 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
     }
   }
 
+  // Durable audit handle — the inner fan-out opens the row (it owns baseKey and
+  // the charge amount); this wrapper closes it either way, so a throw anywhere
+  // below leaves a queryable record instead of only a Vercel log line.
+  const audit: ReserveAudit = { id: null, step: "pre-charge" };
   try {
     // The full path never sets prepareOnly, so the result is always a
     // UnifiedReserveResult (prepareUnifiedDeposit is the only prepareOnly caller).
-    return (await unifiedReserveInner(input, seedSource)) as UnifiedReserveResult;
+    const result = (await unifiedReserveInner(
+      input,
+      seedSource,
+      false,
+      audit,
+    )) as UnifiedReserveResult;
+    await finishReserveAttempt(audit.id, {
+      state: "completed",
+      neonIds: result.neonIds,
+      qamfReservationIds: result.qamfReservationIds,
+      bmiReservationNumber: result.bmiReservationNumber,
+    });
+    return result;
+  } catch (err) {
+    await finishReserveAttempt(audit.id, {
+      state: "failed",
+      failedStep: audit.step,
+      // FULL text — a truncated vendor body is exactly what cost us the phone
+      // rule on 2026-07-28.
+      error: err instanceof Error ? `${err.name}: ${err.message}\n${err.stack ?? ""}` : String(err),
+    });
+    throw err;
   } finally {
     if (lockKey && lockHeld) {
       await redis.del(lockKey).catch(() => {});
@@ -767,10 +800,22 @@ export async function prepareUnifiedDeposit(
   }
 }
 
+/**
+ * Mutable handle so the public wrapper can close out the durable audit row that
+ * the inner fan-out opened (the row id and the step it reached are only knowable
+ * in here, the terminal state only out there).
+ */
+interface ReserveAudit {
+  id: number | null;
+  /** Last milestone entered — becomes reserve_attempts.failed_step on a throw. */
+  step: string;
+}
+
 async function unifiedReserveInner(
   input: UnifiedReserveInput,
   seedSource: string | null,
   prepareOnly = false,
+  audit: ReserveAudit = { id: null, step: "pre-charge" },
 ): Promise<UnifiedReserveResult | PrepareDepositResult> {
   // ── 0a. Server-authoritative promo ─────────────────────────────────
   // `session.appliedPromo` is a CLIENT snapshot — its amounts/scopes/windows
@@ -836,10 +881,50 @@ async function unifiedReserveInner(
   // every retry, so all 7 keys replay the SAME order / payment / gift card.
   const baseKey = seedSource ? reserveBaseKey(seedSource) : randomBytes(8).toString("hex");
 
-  const bowlingItems = session.items.filter(isBowlingLike);
+  // ── Bookability guard: drop legs QAMF could never accept ───────────
+  // A bowling/KBF leg needs a lane hold OR a picked slot (bookedAt + webOfferId).
+  // A leg with neither is a draft the guest abandoned — priced at $0 (pricing
+  // hangs off the offer, so nothing was charged for it) and invisible in the cart
+  // total, yet the pre-guard code still called createReservation with
+  // `webOfferId: 0` and a `new Date()` BookedAt. QAMF 400'd and took a PAID race
+  // booking down with it (2026-07-28, $234.21 captured, FastTrax kiosk). Dropping
+  // is the money-safe direction: never fail a captured booking over a leg that
+  // has no time, no offer, no hold, and no money against it. Every drop is logged
+  // and lands in reserve_attempts.dropped_legs.
+  const { bowlable: bowlingItems, droppedLegLines } = (() => {
+    const { bookable, dropped } = partitionBookableLegs(session.items.filter(isBowlingLike));
+    const lines = dropped.map(({ item, reason }) => describeDroppedLeg(item, reason));
+    for (const line of lines) {
+      console.error(`[unified-reserve] DROPPED unbookable leg — ${line}`);
+    }
+    return { bowlable: bookable, droppedLegLines: lines };
+  })();
   const raceItems = session.items.filter((i): i is RaceItem => i.kind === "race");
   const attractionItems = session.items.filter((i): i is AttractionItem => i.kind === "attraction");
   const hasBmi = raceItems.length > 0 || attractionItems.length > 0;
+
+  // ── Durable audit row (our own log, not Vercel's) ─────────────────
+  // Opened BEFORE any money moves so a failure anywhere below is queryable by
+  // bill id afterwards. Never throws — see lib/reserve-attempt-log.ts.
+  const cartSnapshot: ReserveCartSnapshot = {
+    items: session.items.map((i) => ({
+      kind: i.kind,
+      id: i.id,
+      date: i.date,
+      ...(isBowlingLike(i)
+        ? {
+            bookedAt: i.bookedAt,
+            webOfferId: i.webOfferId,
+            qamfReservationId: i.qamfReservationId,
+            qamfCenterId: i.qamfCenterId,
+            isDuckpin: i.kind === "bowling" ? i.isDuckpin : undefined,
+          }
+        : {}),
+      ...(i.kind === "race" ? { heatCount: i.heats.length } : {}),
+      ...(i.kind === "attraction" ? { slug: i.slug } : {}),
+    })),
+    comboSpecialId: session.comboSpecialId ?? null,
+  };
 
   // ── 0. Guard: never charge against an auto-cancelled BMI bill ──────
   // BMI auto-cancels a Pending-Online hold after the center's timeout, stripping
@@ -1197,6 +1282,28 @@ async function unifiedReserveInner(
 
   const useTerminal = kioskTerminalEnabled() && !!input.externalPayment;
 
+  // Open the durable audit row BEFORE the charge (prepare runs its own pass and
+  // doesn't need one — its failures cost nothing). Soft-fails to a null id.
+  if (!prepareOnly) {
+    audit.id = await startReserveAttempt({
+      baseKey,
+      billId: session.bmiBillId ?? null,
+      surface: session.context?.kiosk ? "kiosk" : "web",
+      center: session.center ?? null,
+      locationId,
+      paymentSource: useTerminal
+        ? "terminal"
+        : input.externalPayment
+          ? "external"
+          : depositCents === 0
+            ? "credit"
+            : (input.sourceKind ?? "card"),
+      chargeCents: depositCents,
+      cart: cartSnapshot,
+      droppedLegs: droppedLegLines.length > 0 ? droppedLegLines : undefined,
+    });
+  }
+
   // ── KIOSK Game Zone cards riding this cart (owner 2026-07-18) ────────
   // Resolved server-side from TOKEN_PACKAGES — the session carries pointers
   // only, never prices. The card lines ride the DEPOSIT order (never day-of);
@@ -1461,6 +1568,14 @@ async function unifiedReserveInner(
     };
   }
 
+  // Money (if any) is captured — stamp the ids on the audit row IMMEDIATELY, so
+  // a crash on any line below still leaves the payment queryable by bill id.
+  audit.step = "post-capture";
+  await recordReserveCapture(audit.id, {
+    depositOrderId: depositResult.depositOrderId,
+    depositPaymentId: depositResult.depositPaymentId,
+  });
+
   // Race packs: the deposit (which includes the full pack price) is captured —
   // stamp the ledger rows charged with the order/payment ids (audit + recovery).
   if (kioskPacks.length > 0) {
@@ -1518,8 +1633,10 @@ async function unifiedReserveInner(
   };
 
   log(
-    `[unified-reserve] bowlingItems=${bowlingItems.length} raceItems=${raceItems.length} attractionItems=${attractionItems.length}`,
+    `[unified-reserve] bowlingItems=${bowlingItems.length} raceItems=${raceItems.length} ` +
+      `attractionItems=${attractionItems.length} droppedLegs=${droppedLegLines.length}`,
   );
+  if (bowlingItems.length > 0) audit.step = "qamf-confirm";
 
   // Per-row coupon attribution for the admin board: bowling rows record their
   // own lines' savings; the race/attraction anchor row records the remainder
@@ -1568,7 +1685,13 @@ async function unifiedReserveInner(
       phone: contact.phone ?? "",
       email: contact.email ?? "",
     };
-    const bookedAt = item.bookedAt ?? new Date().toISOString();
+    // QAMF rejects BookedAt with a non-zero millisecond (and reads the instant as
+    // CENTER-LOCAL wall clock, so a UTC `toISOString()` also lands hours off).
+    // nowRounded5EtIso floors to a :05 multiple with the true ET offset — the
+    // shape the Bowl Now path has always sent. The bookability guard above means
+    // this fallback now only serves hold-first legs (whose hold carries the real
+    // time), never an unconfigured draft.
+    const bookedAt = item.bookedAt || nowRounded5EtIso();
     const webOfferId = item.webOfferId ?? 0;
     const optionId = item.optionId;
     const optionType = item.optionType ?? "Game";
@@ -2132,6 +2255,7 @@ async function unifiedReserveInner(
       throw new Error("Could not persist reservation. Please retry.");
     }
 
+    audit.step = "bmi-confirm";
     try {
       const bmiResult = await confirmBmiPayment({
         clientKey,
