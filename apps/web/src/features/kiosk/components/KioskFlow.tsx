@@ -80,7 +80,7 @@ import {
 } from "../state/registry";
 import { KioskCategories } from "./KioskCategories";
 import { KioskCodeEntry } from "./KioskCodeEntry";
-import { KioskVoucherBanner } from "./KioskVoucherBanner";
+import { KioskVoucherSheet, KioskVoucherSummary } from "./KioskVoucherSheet";
 import { sessionVouchers, voucherRedeemEnabled } from "~/features/booking/service/voucher-redeem";
 import type { AppliedVoucherState } from "~/features/booking/state/types";
 import { useKioskAvailability } from "../hooks/useKioskAvailability";
@@ -293,6 +293,7 @@ export function KioskFlow({
   // Coupon / voucher code entry (owner 2026-07-27) — flag-gated screen off the
   // category chooser; ?kioskPromo=1 is the dark-flag preview opt-in.
   const [codeEntryOpen, setCodeEntryOpen] = useState(false);
+  const [voucherSheetOpen, setVoucherSheetOpen] = useState(false);
   const promoEnabled = kioskPromoEnabled() || !!kioskPromo;
   // Voucher REDEMPTION (dark until the paid live smoke — see voucher-redeem.ts).
   const voucherRedeem =
@@ -1564,15 +1565,14 @@ export function KioskFlow({
     }
     return chrome(
       <div ref={contentRef} className="k-flow-body kiosk-step-content kiosk-zoom">
-        {voucherRedeem &&
-          appliedVouchers.map((v) => (
-            <KioskVoucherBanner
-              key={v.code}
-              voucher={v}
-              onClear={() => clearVoucher(v)}
-              variant="web"
-            />
-          ))}
+        {voucherRedeem && (
+          <KioskVoucherSummary
+            vouchers={appliedVouchers}
+            onClear={clearVoucher}
+            onOpen={() => setVoucherSheetOpen(true)}
+            variant="web"
+          />
+        )}
         <CartView
           session={session}
           urlCode={null}
@@ -1705,6 +1705,21 @@ export function KioskFlow({
     );
   }
 
+  // ── Voucher manager (summary pill → full list w/ remove) ──
+  if (voucherSheetOpen) {
+    return chrome(
+      <KioskVoucherSheet
+        vouchers={appliedVouchers}
+        onClear={clearVoucher}
+        onScanAnother={() => {
+          setVoucherSheetOpen(false);
+          setCodeEntryOpen(true);
+        }}
+        onBack={() => setVoucherSheetOpen(false)}
+      />,
+    );
+  }
+
   // ── Coupon / voucher code entry ──
   if (codeEntryOpen) {
     return chrome(
@@ -1797,6 +1812,7 @@ export function KioskFlow({
         onClearPromo={() => dispatch({ type: "applyPromo", promo: null })}
         appliedVouchers={voucherRedeem ? appliedVouchers : []}
         onClearVoucher={clearVoucher}
+        onOpenVoucherSheet={() => setVoucherSheetOpen(true)}
       />,
     );
   }

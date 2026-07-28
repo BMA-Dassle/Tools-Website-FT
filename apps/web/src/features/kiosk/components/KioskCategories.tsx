@@ -26,7 +26,7 @@ import {
 } from "~/features/booking";
 import type { AppliedPromo } from "~/features/discount-codes";
 import type { AppliedVoucherState } from "~/features/booking/state/types";
-import { KioskVoucherBanner } from "./KioskVoucherBanner";
+import { KioskVoucherSummary } from "./KioskVoucherSheet";
 import { enabledCombos, type ComboSpecial } from "~/features/combos";
 import { packageFamilyFromPrice } from "~/features/booking/service/packages";
 import { KIOSK_LOGOS, KIOSK_PHOTOS, kioskImg } from "../assets";
@@ -112,9 +112,11 @@ export interface KioskCategoriesProps {
    *  "Code applies" badges (same isOfferingInPromoScope the web landing uses). */
   appliedPromo?: AppliedPromo | null;
   onClearPromo?: () => void;
-  /** The session's vouchers (voucherRedeem live) — one banner each. */
+  /** The session's vouchers (voucherRedeem live): one → inline banner,
+   *  many → count pill opening the voucher sheet. */
   appliedVouchers?: AppliedVoucherState[];
   onClearVoucher?: (voucher: AppliedVoucherState) => void;
+  onOpenVoucherSheet?: () => void;
 }
 
 export function KioskCategories({
@@ -134,6 +136,7 @@ export function KioskCategories({
   onClearPromo,
   appliedVouchers = [],
   onClearVoucher,
+  onOpenVoucherSheet,
 }: KioskCategoriesProps) {
   const [cat, setCat] = useState<CategoryKey | null>(null);
   const { config } = useKioskConfig();
@@ -232,15 +235,14 @@ export function KioskCategories({
             website's attraction-selector promo form (owner 2026-07-27). */}
         {(onOpenCodeEntry || appliedPromo || appliedVouchers.length > 0) && (
           <div className="mt-[24px] flex min-h-[84px] flex-wrap items-center justify-center gap-[18px]">
-            {onClearVoucher &&
-              appliedVouchers.map((v) => (
-                <KioskVoucherBanner
-                  key={v.code}
-                  voucher={v}
-                  onClear={() => onClearVoucher(v)}
-                  variant="kiosk"
-                />
-              ))}
+            {onClearVoucher && (
+              <KioskVoucherSummary
+                vouchers={appliedVouchers}
+                onClear={onClearVoucher}
+                onOpen={() => onOpenVoucherSheet?.()}
+                variant="kiosk"
+              />
+            )}
             {appliedPromo ? (
               <div className="flex h-[84px] items-center gap-[18px] rounded-full border-[1.5px] border-[rgba(232,177,76,0.65)] bg-[rgba(232,177,76,0.10)] px-[34px]">
                 <TicketGlyph color="#e8b14c" />

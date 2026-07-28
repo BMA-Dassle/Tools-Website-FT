@@ -98,6 +98,8 @@ export function KioskCodeEntry({
 }) {
   const t = useT();
   const { config } = useKioskConfig();
+  // SCAN is the primary action (owner 2026-07-27) — typing is the fallback.
+  const [mode, setMode] = useState<"scan" | "type">("scan");
   const [value, setValue] = useState("");
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -314,6 +316,58 @@ export function KioskCodeEntry({
   }
 
   // ── Entry ──
+  const statusLine = (
+    <div
+      className="min-h-[44px] text-center text-[28px] leading-[1.35] text-[#ff8c7a]"
+      role="alert"
+      aria-live="polite"
+    >
+      {checking ? <span className="text-white/55">{t("codeEntry.checking")}</span> : (error ?? "")}
+    </div>
+  );
+
+  if (mode === "scan") {
+    return (
+      <div className="flex h-full flex-col items-center px-[64px] pb-[40px] pt-[96px] text-center">
+        <div className="k-eyebrow">{t("codeEntry.eyebrow")}</div>
+        <h1 className="k-display mt-[24px] text-[84px]">{t("codeEntry.scanTitle")}</h1>
+        <p className="mt-[20px] max-w-[24ch] text-[30px] leading-[1.4] text-white/70">
+          {t("codeEntry.scanHint.body")}
+        </p>
+
+        {/* The scan target — dead center. The kiosk's scanner sits below the
+            screen; the pulsing frame is the "present it here" affordance. */}
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          <div className="relative h-[460px] w-[460px]">
+            <span className="absolute left-0 top-0 h-[88px] w-[88px] rounded-tl-[28px] border-l-[10px] border-t-[10px] border-[#00e2e5]" />
+            <span className="absolute right-0 top-0 h-[88px] w-[88px] rounded-tr-[28px] border-r-[10px] border-t-[10px] border-[#00e2e5]" />
+            <span className="absolute bottom-0 left-0 h-[88px] w-[88px] rounded-bl-[28px] border-b-[10px] border-l-[10px] border-[#00e2e5]" />
+            <span className="absolute bottom-0 right-0 h-[88px] w-[88px] rounded-br-[28px] border-b-[10px] border-r-[10px] border-[#00e2e5]" />
+            <div className="absolute inset-[28px] flex items-center justify-center rounded-[20px] border border-dashed border-[rgba(0,226,229,0.3)]">
+              <ScanGlyph size={200} />
+            </div>
+            <div className="absolute inset-x-[36px] top-1/2 h-[6px] rounded-full bg-[#00e2e5] shadow-[0_0_30px_rgba(0,226,229,0.9)] motion-safe:animate-pulse" />
+          </div>
+        </div>
+
+        {statusLine}
+
+        <div className="mt-[20px] flex w-full gap-[24px]">
+          <button type="button" onClick={onBack} className="k-btn-ghost k-tap">
+            {t("codeEntry.back")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("type")}
+            className="k-btn-ghost k-tap flex-1 text-white/80"
+          >
+            {t("codeEntry.typeInstead")}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col px-[64px] pb-[40px] pt-[104px]">
       <div className="k-eyebrow">{t("codeEntry.eyebrow")}</div>
@@ -337,29 +391,11 @@ export function KioskCodeEntry({
         spellCheck={false}
         className="k-num mt-[44px] h-[130px] w-full rounded-[24px] border-2 border-[rgba(0,226,229,0.55)] bg-[#040d24] px-[40px] font-mono text-[52px] uppercase tracking-[0.12em] text-white placeholder:text-white/30 focus:outline-none"
       />
-      <div
-        className="mt-[20px] min-h-[44px] text-[28px] leading-[1.35] text-[#ff8c7a]"
-        role="alert"
-        aria-live="polite"
-      >
-        {checking ? (
-          <span className="text-white/55">{t("codeEntry.checking")}</span>
-        ) : (
-          (error ?? "")
-        )}
-      </div>
-
-      <div className="mt-[28px] flex items-center gap-[28px]">
-        <ScanGlyph />
-        <p className="text-[28px] leading-[1.4] text-white/70">
-          <span className="font-bold text-[#00e2e5]">{t("codeEntry.scanHint.lead")}</span> —{" "}
-          {t("codeEntry.scanHint.body")}
-        </p>
-      </div>
+      <div className="mt-[20px]">{statusLine}</div>
 
       <div className="mt-auto flex gap-[24px]">
-        <button type="button" onClick={onBack} className="k-btn-ghost k-tap">
-          {t("codeEntry.back")}
+        <button type="button" onClick={() => setMode("scan")} className="k-btn-ghost k-tap">
+          {t("codeEntry.scanInstead")}
         </button>
         <button
           type="button"
@@ -385,12 +421,12 @@ function appliedSummary(t: Translate, promo: AppliedPromo): string {
   return deal ? `${promo.code} · ${deal}` : promo.code;
 }
 
-/** Small QR-corners glyph pointing at the under-screen scanner. */
-function ScanGlyph() {
+/** QR-corners glyph pointing at the under-screen scanner. */
+function ScanGlyph({ size = 88 }: { size?: number }) {
   return (
     <svg
-      width="88"
-      height="88"
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="none"
       stroke="#00e2e5"

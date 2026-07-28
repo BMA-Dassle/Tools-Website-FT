@@ -274,6 +274,9 @@ export const en = {
   "promo.banner.clear": "Remove code",
   "codeEntry.eyebrow": "Coupon or voucher",
   "codeEntry.title": "Enter your code",
+  "codeEntry.scanTitle": "Scan your code",
+  "codeEntry.typeInstead": "Type the code instead",
+  "codeEntry.scanInstead": "\u2039 Scan instead",
   "codeEntry.inputLabel": "Coupon or voucher code",
   "codeEntry.placeholder": "Tap here to type it",
   "codeEntry.scanHint.lead": "Or scan it",
@@ -318,6 +321,13 @@ export const en = {
   "voucher.pill.pending": "{name} ready \u2014 applies when you book",
   "voucher.pill.error": "Voucher problem \u2014 see Guest Services",
   "voucher.pill.remove": "Remove voucher",
+  "voucher.summary.many": "{count} vouchers on this order",
+  "voucher.summary.attention": "{count} vouchers \u2014 one needs attention",
+  "voucher.sheet.title": "Your vouchers",
+  "voucher.sheet.blurb":
+    "Each voucher covers one race or attraction \u2014 they come off automatically at checkout.",
+  "voucher.sheet.empty": "No vouchers on this order yet.",
+  "voucher.sheet.scanAnother": "Scan another",
   "codeEntry.voucherOk.body":
     "Book your activity and this voucher comes off your total automatically at checkout.",
   "codeEntry.voucherOk.cta": "Start picking",

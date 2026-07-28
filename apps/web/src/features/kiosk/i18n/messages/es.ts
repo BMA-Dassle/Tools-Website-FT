@@ -266,6 +266,9 @@ export const es: Record<CoreKey, string> = {
   "promo.banner.clear": "Quitar código",
   "codeEntry.eyebrow": "Cupón o vale",
   "codeEntry.title": "Ingresa tu código",
+  "codeEntry.scanTitle": "Escanea tu c\u00f3digo",
+  "codeEntry.typeInstead": "Escribir el c\u00f3digo",
+  "codeEntry.scanInstead": "\u2039 Escanear mejor",
   "codeEntry.inputLabel": "Código de cupón o vale",
   "codeEntry.placeholder": "Toca aquí para escribirlo",
   "codeEntry.scanHint.lead": "O escanéalo",
@@ -306,6 +309,13 @@ export const es: Record<CoreKey, string> = {
   "voucher.pill.pending": "{name} listo \u2014 se aplica al reservar",
   "voucher.pill.error": "Problema con el vale \u2014 visita Servicio al Cliente",
   "voucher.pill.remove": "Quitar vale",
+  "voucher.summary.many": "{count} vales en esta orden",
+  "voucher.summary.attention": "{count} vales \u2014 uno necesita atenci\u00f3n",
+  "voucher.sheet.title": "Tus vales",
+  "voucher.sheet.blurb":
+    "Cada vale cubre una carrera o atracci\u00f3n \u2014 se descuentan autom\u00e1ticamente al pagar.",
+  "voucher.sheet.empty": "A\u00fan no hay vales en esta orden.",
+  "voucher.sheet.scanAnother": "Escanear otro",
   "codeEntry.voucherOk.body":
     "Reserva tu actividad y este vale se descontará automáticamente al pagar.",
   "codeEntry.voucherOk.cta": "Empezar a elegir",
