@@ -176,7 +176,19 @@ export function KioskCategories({
   // It also has to feed the Experiences shelf's "is anything in here?" check
   // below: a card that opens onto an empty shelf is the exact failure those
   // checks exist to prevent.
-  const showRacePacks = !!onOpenRacePacks && kioskRacePacksEnabled() && showQualifier;
+  // FASTTRAX ONLY — must match KioskRacePackFlow's own guard exactly.
+  //
+  // 1.10.5 widened this to "any kiosk that offers racing", which put the banner
+  // on HeadPinz FM (owner asked for it) — but KioskRacePackFlow still returns
+  // null for a non-FastTrax brand, so tapping it opened a BLANK SCREEN.
+  //
+  // Selling packs from the HeadPinz bank is not a display change: the flow hands
+  // `brand` to KioskPartyManager as `brandLocation`, which drives
+  // pandoraFetchWaiverTemplate / pandoraCheckWaiver — i.e. WHICH WAIVER the
+  // guest signs. A racing product sold at a HeadPinz kiosk needs an explicit
+  // decision on that, plus a live card-present smoke, so it is not something to
+  // infer here. Reverted until that call is made.
+  const showRacePacks = !!onOpenRacePacks && kioskRacePacksEnabled() && brand === "fasttrax";
   // Side doors. The caller owns flag/venue gating (a callback arrives only when
   // the door applies), so all this decides is the waiver's voucher rule.
   const showCheckin = !!onOpenCheckin;
@@ -204,14 +216,11 @@ export function KioskCategories({
   if (cat === null) {
     return (
       <div className="relative flex h-full flex-col px-[64px] pb-[28px] pt-[72px]">
-        {/* Language switcher — "What are we doing today?" chooser only; hidden
-            on the pick-experience / pick-attraction sub-views. Bottom-right to
-            echo the attract screen, but lifted CLEAR of the flow's 140px util
-            bar (.k-z-util — Start Over / Guest Assistance). At bottom-[34px] it
-            sat underneath that bar and could not be tapped at all; the attract
-            screen has no util bar, which is why the same slot works there
-            (owner 2026-07-28). */}
-        <LanguageSwitcher posClass="right-[40px] bottom-[168px]" />
+        {/* The language switcher is rendered IN FLOW, in the utility row near the
+            bottom — see that row. Fixed positioning does not work here: the
+            canvas is transformed (so fixed resolves against it) and .k-flow-body
+            scrolls, so a fixed switcher gets clipped at the body edge and landed
+            under the util bar, untappable (owner 2026-07-28). */}
         {/* Hidden staff entry: 5 taps in the header area → admin. */}
         <AdminTapZone />
         <h1 className="k-display mb-[32px] text-[82px]">
@@ -317,41 +326,52 @@ export function KioskCategories({
             gold applied-code banner once a code lands, and several vouchers
             collapse into the summary chip. Sits BELOW the shortcuts: those
             start a booking, this one carries a code into whatever follows. */}
-        {(onOpenCodeEntry || appliedPromo || appliedVouchers.length > 0) && (
-          <div className="mt-[24px] flex min-h-[84px] flex-wrap items-center justify-center gap-[18px]">
+        {/* UTILITY ROW — one shape for everything in it (owner 2026-07-28: "these
+            boxes/buttons should be alike"). Same 96px height, same 18px radius,
+            same 1.5px border and glass fill as the side doors above, each flex-1.
+            Pills of three different heights and radii read as three unrelated
+            controls; one shape reads as a row.
+
+            The language switcher is IN this row rather than fixed — see the note
+            up top: fixed positioning is clipped by the scrolling flow body. */}
+        <div className="mt-[20px] flex shrink-0 gap-[18px]">
+          {appliedVouchers.length > 0 && (
             <KioskVoucherSummary
               vouchers={appliedVouchers}
               onOpen={() => onOpenVoucherSheet?.()}
               variant="kiosk"
             />
-            {appliedPromo ? (
-              <div className="flex h-[84px] items-center gap-[18px] rounded-full border-[1.5px] border-[rgba(232,177,76,0.65)] bg-[rgba(232,177,76,0.10)] px-[34px]">
-                <TicketGlyph color="#e8b14c" />
-                <span className="k-display text-[28px] text-[#e8b14c]">{appliedPromo.code}</span>
-                <span className="text-[26px] text-white/75">{promoDealLine(t, appliedPromo)}</span>
-                {onClearPromo && (
-                  <button
-                    type="button"
-                    onClick={onClearPromo}
-                    aria-label={t("promo.banner.clear")}
-                    className="k-tap ml-[6px] px-[8px] text-[30px] leading-none text-white/45"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            ) : (
+          )}
+          {appliedPromo ? (
+            <div className="flex h-[96px] flex-1 items-center justify-center gap-[14px] rounded-[18px] border-[1.5px] border-[rgba(232,177,76,0.65)] bg-[rgba(232,177,76,0.10)] px-[20px]">
+              <TicketGlyph color="#e8b14c" />
+              <span className="k-display text-[26px] text-[#e8b14c]">{appliedPromo.code}</span>
+              <span className="text-[22px] text-white/75">{promoDealLine(t, appliedPromo)}</span>
+              {onClearPromo && (
+                <button
+                  type="button"
+                  onClick={onClearPromo}
+                  aria-label={t("promo.banner.clear")}
+                  className="k-tap ml-[4px] px-[8px] text-[30px] leading-none text-white/45"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          ) : (
+            onOpenCodeEntry && (
               <button
                 type="button"
                 onClick={onOpenCodeEntry}
-                className="k-tap flex h-[84px] shrink-0 items-center gap-[16px] whitespace-nowrap rounded-full border-[1.5px] border-[rgba(0,226,229,0.5)] px-[36px] font-[family-name:var(--font-heading)] text-[26px] font-bold uppercase tracking-[0.08em] text-[#00e2e5]"
+                className="k-display k-tap flex h-[96px] flex-1 items-center justify-center gap-[12px] rounded-[18px] border-[1.5px] border-[rgba(0,226,229,0.5)] bg-[rgba(7,16,39,0.5)] px-[14px] text-center text-[24px] leading-tight text-[#00e2e5] backdrop-blur-[10px]"
               >
                 <TicketGlyph color="#00e2e5" />
                 {t("promo.chip")}
               </button>
-            )}
-          </div>
-        )}
+            )
+          )}
+          <LanguageSwitcher inline />
+        </div>
       </div>
     );
   }

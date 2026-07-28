@@ -97,14 +97,18 @@ export function KioskVoucherSummary({
 
   if (variant === "kiosk") {
     // The TWIN of the categories "Coupon or voucher?" chip: identical
-    // geometry/type, only text + color differ (owner 2026-07-28). Width-capped
-    // + truncating so a long comp name ("Complimentary 1 Hour Shuffly") can't
-    // wrap this chip onto its own row. Details/removal live in the sheet.
+    // geometry/type, only text + color differ (owner 2026-07-28). Now a TILE,
+    // not a pill — it shares the chooser's utility row with the code chip and
+    // the language switcher, and that row only reads as a row when every box is
+    // the same height, radius and border weight. flex-1 instead of a fixed
+    // max-width so the row divides evenly however many boxes are in it. Still
+    // truncating: a long comp name ("Complimentary 1 Hour Shuffly") must not
+    // wrap this tile taller than its neighbours.
     return (
       <button
         type="button"
         onClick={onOpen}
-        className="k-tap flex h-[84px] max-w-[460px] shrink-0 items-center gap-[16px] rounded-full border-[1.5px] px-[36px] font-[family-name:var(--font-heading)] text-[26px] font-bold uppercase tracking-[0.08em]"
+        className="k-tap flex h-[96px] min-w-0 flex-1 items-center justify-center gap-[12px] rounded-[18px] border-[1.5px] bg-[rgba(7,16,39,0.5)] px-[14px] font-[family-name:var(--font-heading)] text-[24px] font-bold uppercase leading-tight tracking-[0.06em] backdrop-blur-[10px]"
         style={{ borderColor: `${color}80`, color }}
       >
         <TicketGlyphSmall color={color} />

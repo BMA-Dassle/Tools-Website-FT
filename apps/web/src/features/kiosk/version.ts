@@ -15,6 +15,31 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.10.7 — REGRESSION FIX + the last of the attract cleanup.
+ *         (1) RACE PACKS OPENED A BLANK SCREEN. 1.10.5 widened the banner to
+ *         "any kiosk that offers racing" so HeadPinz FM could sell packs, but
+ *         KioskRacePackFlow still returns null for a non-FastTrax brand — so the
+ *         tap swapped the screen for nothing. Reverted to FastTrax-only, and the
+ *         banner gate now MATCHES the flow's own guard so they cannot diverge
+ *         again. Selling packs from the HeadPinz bank is not a display change:
+ *         the flow passes `brand` to KioskPartyManager as `brandLocation`, which
+ *         drives pandoraFetchWaiverTemplate / pandoraCheckWaiver — i.e. WHICH
+ *         WAIVER the guest signs. That needs an explicit decision plus a live
+ *         card-present smoke, so it is not inferred here.
+ *         (2) The attract screen drops the footer logo band and the language
+ *         switcher: the venue's own logo is already the biggest thing on that
+ *         screen, so a second smaller pair of both logos was the same
+ *         information twice, and the switcher belongs where a guest stops to
+ *         read. That is another 130px back in the reach band.
+ *         (3) The chooser's bottom boxes are now ONE shape — side doors, code
+ *         chip, voucher chip and language switcher all 96px tall, 18px radius,
+ *         1.5px border, flex-1. Three different heights and radii read as three
+ *         unrelated controls.
+ *         (4) The language switcher renders IN FLOW there rather than fixed.
+ *         1.10.6 only moved it; the real bug is that `.kiosk-canvas` is
+ *         transformed (so `fixed` resolves against it) and `.k-flow-body`
+ *         scrolls, so a fixed switcher is CLIPPED at the body edge — no offset
+ *         could have fixed it.
  * 1.10.6 — the attract screen finally has NOTHING on it but the poster. The
  *         three "not booking" side doors (Race Reservation, View race grid,
  *         Online & Group Waiver) move to the "What are we doing today?" chooser
@@ -250,7 +275,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.10.6";
+export const KIOSK_VERSION = "1.10.7";
 
 let bootVersion: string | null = null;
 let captured = false;

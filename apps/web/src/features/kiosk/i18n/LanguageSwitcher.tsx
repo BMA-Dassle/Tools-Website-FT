@@ -21,10 +21,22 @@ import { kioskI18nEnabled } from "../flags";
 export function LanguageSwitcher({
   /** Fixed-position classes (canvas px). Each screen that mounts the switcher
    *  places it where it fits — attract in the welcome band, the category chooser
-   *  up top above the tiles. */
+   *  up top above the tiles. Ignored when `inline` is set. */
   posClass = "right-[24px] top-[500px]",
+  /**
+   * Render IN FLOW instead of fixed.
+   *
+   * Fixed positioning is a trap inside the booking flow: `.kiosk-canvas` is
+   * `transform`ed, which makes it the containing block for fixed children, and
+   * `.k-flow-body` scrolls — so a fixed switcher is CLIPPED at the body's edge
+   * rather than pinned to the screen. On the category chooser it disappeared
+   * under the util bar and could not be tapped at all (owner 2026-07-28).
+   * Inline sizes it as a normal flex child so it can sit in a row of tiles.
+   */
+  inline = false,
 }: {
   posClass?: string;
+  inline?: boolean;
 } = {}) {
   const { locale, setLocale } = useLocale();
 
@@ -32,7 +44,11 @@ export function LanguageSwitcher({
 
   return (
     <div
-      className={`fixed ${posClass} z-[260] flex items-center gap-[8px] rounded-full border border-white/15 bg-[#0a1730]/85 p-[8px] shadow-[0_8px_30px_rgba(0,0,0,0.45)] backdrop-blur`}
+      className={
+        inline
+          ? "flex h-[96px] flex-1 items-center justify-center gap-[8px] rounded-[18px] border-[1.5px] border-white/20 bg-[rgba(7,16,39,0.5)] backdrop-blur-[10px]"
+          : `fixed ${posClass} z-[260] flex items-center gap-[8px] rounded-full border border-white/15 bg-[#0a1730]/85 p-[8px] shadow-[0_8px_30px_rgba(0,0,0,0.45)] backdrop-blur`
+      }
       role="group"
       aria-label="Language"
     >

@@ -281,9 +281,11 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           floated over the logo and read as debris, so there it moves into the
           footer band instead, beside the venue name where the rest of the
           chrome lives. The ad-zone layout keeps the original placement. */}
-      <LanguageSwitcher
-        posClass={attractLayout === "headline" ? "right-[32px] bottom-[34px]" : undefined}
-      />
+      {/* Ad-zone layout only. The headline layout is a poster with one
+          instruction, so the switcher lives on the chooser instead — one tap
+          away, and the chooser is where a guest stops to read anyway
+          (owner 2026-07-28). */}
+      {attractLayout === "adzone" && <LanguageSwitcher />}
       {/* Hidden staff entry — 5 taps top-left corner → admin (no visible affordance) */}
       <button
         type="button"
@@ -536,31 +538,32 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           </div>
         )}
 
-      <div className="relative z-10 flex h-[130px] shrink-0 items-center justify-center gap-[32px] pb-[16px]">
-        <BrandLogo
-          brand="fasttrax"
-          alt="FastTrax"
-          className="h-[56px] opacity-90"
-          fallbackClassName="k-display text-[28px] leading-none text-white/90"
-        />
-        <span className="text-[28px] text-white/40">&times;</span>
-        <BrandLogo
-          brand="headpinz"
-          alt="HeadPinz"
-          className="h-[52px] opacity-90"
-          fallbackClassName="k-display text-[28px] leading-none text-white/90"
-        />
-        {/* The venue name is dropped in the headline layout (owner 2026-07-28).
-            A guest standing at the kiosk knows which building they are in, so
-            it was the least useful thing on the screen — and it sat right where
-            the language switcher now lives, crowding the footer's right side.
-            The ad-zone layout keeps it: its switcher is still up top. */}
-        {attractLayout === "adzone" && (
+      {/* Footer band — AD-ZONE LAYOUT ONLY. The headline layout drops it
+          (owner 2026-07-28): the venue's own brand logo is already the largest
+          thing on that screen, so a second, smaller pair of both logos at the
+          bottom was the same information twice. Dropping it also hands the
+          reach band another 130px. The 10px brand rule below still closes the
+          screen off. */}
+      {attractLayout === "adzone" && (
+        <div className="relative z-10 flex h-[130px] shrink-0 items-center justify-center gap-[32px] pb-[16px]">
+          <BrandLogo
+            brand="fasttrax"
+            alt="FastTrax"
+            className="h-[56px] opacity-90"
+            fallbackClassName="k-display text-[28px] leading-none text-white/90"
+          />
+          <span className="text-[28px] text-white/40">&times;</span>
+          <BrandLogo
+            brand="headpinz"
+            alt="HeadPinz"
+            className="h-[52px] opacity-90"
+            fallbackClassName="k-display text-[28px] leading-none text-white/90"
+          />
           <span className="k-eyebrow text-white/45">
             {config.center === "naples" ? "Naples" : "Fort Myers"}
           </span>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Bank billboard takeover — HeadPinz, clock-locked, defaults ON at
           HPFM (owner 2026-07-26). pointer-events-none: taps fall through to
