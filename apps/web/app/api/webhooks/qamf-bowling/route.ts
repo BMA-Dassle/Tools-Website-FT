@@ -208,6 +208,32 @@ async function handleCancellation(
     return { refunded: false, error: false };
   }
 
+  // ── Post-payment guard ────────────────────────────────────────────────
+  // Once the day-of order is charged, this legacy auto-refund is unsafe on
+  // two counts, so a Conqueror deletion must NOT drive money or status here:
+  //
+  //  1. DOUBLE REFUND. processSquareBowlingRefund treats the internal gift
+  //     card's live BALANCE as the amount to refund. A post-day-of item
+  //     refund credits that card asynchronously, so the balance is transiently
+  //     non-zero again. The tender-sum cross-check normally catches the
+  //     mismatch — but it sits inside a try/catch that FALLS BACK to refunding
+  //     the full balance against the deposit payment when the order fetch
+  //     fails transiently, re-refunding money the item refund already returned.
+  //  2. STATUS CORRUPTION. The mark-cancelled below runs even when the refund
+  //     throws, flipping a checked-in/completed row to 'cancelled' and
+  //     corrupting settle + board semantics.
+  //
+  // Staff resolve these through the cancellation cascade, which knows about
+  // the day-of order and the edit ledger.
+  if (reservation.dayofPaymentId) {
+    console.error(
+      `[qamf-bowling] neonId=${reservation.id} deleted in Conqueror but the day-of order is ` +
+        `already CHARGED (dayof_payment_id=${reservation.dayofPaymentId}) — refusing to ` +
+        `auto-refund or auto-cancel. Handle via the cancellation cascade / admin portal.`,
+    );
+    return { refunded: false, error: true };
+  }
+
   let squareRefundId: string | undefined;
   let refundCents = 0;
   let refunded = false;

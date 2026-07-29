@@ -20,6 +20,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BrandedLoader } from "./BrandedLoader";
+import { useT } from "../i18n";
 import { KioskReaderCheckout } from "./KioskReaderCheckout";
 import type { Brand, BookingSession } from "~/features/booking";
 import type { ContactInfo } from "~/features/booking/types";
@@ -67,6 +68,7 @@ export function KioskTerminalCheckoutGate({
   }) => void;
   onCancel: () => void;
 }) {
+  const t = useT();
   const [phase, setPhase] = useState<"preparing" | "ready" | "error">("preparing");
   const [error, setError] = useState<string | null>(null);
   const [prepared, setPrepared] = useState<Prepared | null>(null);
@@ -77,7 +79,16 @@ export function KioskTerminalCheckoutGate({
     setError(null);
     setPhase("preparing");
     try {
-      let data: { seed?: string; depositOrderId?: string; depositCents?: number; error?: string };
+      let data: {
+        seed?: string;
+        depositOrderId?: string;
+        depositCents?: number;
+        error?: string;
+        /** Deposit order was already captured (reader tapped, reserve never ran):
+         *  resume the booking with this payment instead of arming the reader. */
+        alreadyPaid?: boolean;
+        paymentId?: string;
+      };
       if (prepareFn) {
         // Bowling-only cart: create the deposit order via the bowling rail.
         try {
@@ -86,7 +97,7 @@ export function KioskTerminalCheckoutGate({
           data = { error: e instanceof Error ? e.message : "prepare failed" };
         }
       } else if (!session || !contact) {
-        setError("Couldn't start the payment. Please see the front desk.");
+        setError(t("pay.err.startPaymentDesk"));
         setPhase("error");
         return;
       } else {
@@ -108,14 +119,29 @@ export function KioskTerminalCheckoutGate({
         if (!res.ok && !data.error) data.error = `prepare failed (${res.status})`;
       }
       console.log(
-        `[kiosk-terminal] prepare → depositCents=${data.depositCents} shown=${depositCentsExpected} order=${data.depositOrderId} seed=${data.seed} err=${data.error ?? ""}`,
+        `[kiosk-terminal] prepare → depositCents=${data.depositCents} shown=${depositCentsExpected} order=${data.depositOrderId} seed=${data.seed} alreadyPaid=${data.alreadyPaid ?? false} err=${data.error ?? ""}`,
       );
+      // Resume: the reader already captured this session's deposit on a prior
+      // attempt but reserve never ran. Skip the reader entirely and hand the
+      // captured payment up — CheckoutStep's idempotent externalPayment path
+      // finishes the booking (or lands on the paid-unconfirmed screen if the
+      // bill has since been cancelled). Never re-arm a COMPLETED order.
+      if (data.alreadyPaid && data.paymentId && data.depositOrderId) {
+        console.log("[kiosk-terminal] gate resume — order already paid, skipping reader");
+        onCaptured({
+          paymentId: data.paymentId,
+          depositOrderId: data.depositOrderId,
+          amountCents: data.depositCents ?? depositCentsExpected,
+          seed: data.seed ?? "",
+        });
+        return;
+      }
       if (
         data.error ||
         !data.depositOrderId ||
         !(data.depositCents != null && data.depositCents > 0)
       ) {
-        setError(data.error || "Couldn't start the payment. Please see the front desk.");
+        setError(data.error || t("pay.err.startPaymentDesk"));
         setPhase("error");
         return;
       }
@@ -133,7 +159,7 @@ export function KioskTerminalCheckoutGate({
       // Sanity backstop: a wildly-off amount ($25+ from the estimate) signals a
       // real computation bug, not rounding — refuse to arm the reader.
       if (drift > 2500) {
-        setError("The price didn't add up — please see the front desk.");
+        setError(t("pay.err.priceMismatch"));
         setPhase("error");
         return;
       }
@@ -144,10 +170,10 @@ export function KioskTerminalCheckoutGate({
       });
       setPhase("ready");
     } catch {
-      setError("Couldn't start the payment. Please try again or see the front desk.");
+      setError(t("pay.err.startPaymentRetry"));
       setPhase("error");
     }
-  }, [session, contact, depositCentsExpected, prepareFn]);
+  }, [session, contact, depositCentsExpected, prepareFn, onCaptured, t]);
 
   useEffect(() => {
     if (preparedOnce.current) return;
@@ -158,7 +184,11 @@ export function KioskTerminalCheckoutGate({
   if (phase === "preparing") {
     return (
       <div className="py-8">
-        <BrandedLoader brand={brand} label="Getting the reader ready…" sublabel="One moment" />
+        <BrandedLoader
+          brand={brand}
+          label={t("pay.gate.gettingReady")}
+          sublabel={t("pay.gate.oneMoment")}
+        />
       </div>
     );
   }
@@ -178,14 +208,14 @@ export function KioskTerminalCheckoutGate({
             }}
             className="font-heading rounded-full bg-[#00e2e5] px-8 py-3 text-lg font-extrabold uppercase italic text-[#04252b]"
           >
-            Try again
+            {t("pay.tryAgain")}
           </button>
           <button
             type="button"
             onClick={onCancel}
             className="font-heading rounded-full border-2 border-white/15 px-8 py-3 text-lg font-bold uppercase tracking-widest text-white/60"
           >
-            Back
+            {t("pay.back")}
           </button>
         </div>
       </div>

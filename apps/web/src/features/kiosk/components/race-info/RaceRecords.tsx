@@ -19,16 +19,13 @@ import {
   type RecordCategory,
   type RecordTimeRange,
 } from "~/lib/constants/race-records";
+import { useT } from "../../i18n";
 
 type RecordClass = "adult" | "junior";
 type RecordTier = "starter" | "intermediate" | "pro";
 
-const RANGES: Array<{ key: RecordTimeRange; label: string }> = [
-  { key: "alltime", label: "All-Time" },
-  { key: "year", label: "This Year" },
-  { key: "month", label: "This Month" },
-];
-
+// Tier names (Starter / Intermediate / Pro) are racing proper nouns — kept
+// untranslated to match the racing license + the racing-content constants.
 const TIERS: Array<{ key: RecordTier; label: string }> = [
   { key: "starter", label: "Starter" },
   { key: "intermediate", label: "Intermediate" },
@@ -80,9 +77,16 @@ function chipRow<T extends string>(
 }
 
 export function RaceRecords() {
+  const t = useT();
   const [range, setRange] = useState<RecordTimeRange>("alltime");
   const [cls, setCls] = useState<RecordClass>("adult");
   const [tier, setTier] = useState<RecordTier>("pro");
+
+  const ranges: Array<{ key: RecordTimeRange; label: string }> = [
+    { key: "alltime", label: t("raceInfo.range.alltime") },
+    { key: "year", label: t("raceInfo.range.year") },
+    { key: "month", label: t("raceInfo.range.month") },
+  ];
 
   const panels = RECORD_TRACKS.map((track) => ({
     track,
@@ -130,11 +134,11 @@ export function RaceRecords() {
 
   return (
     <div className="flex flex-col gap-[28px] pb-[48px]">
-      {chipRow(RANGES, range, setRange)}
+      {chipRow(ranges, range, setRange)}
       {chipRow(
         [
-          { key: "adult" as RecordClass, label: "Adult" },
-          { key: "junior" as RecordClass, label: "Junior" },
+          { key: "adult" as RecordClass, label: t("raceInfo.class.adult") },
+          { key: "junior" as RecordClass, label: t("raceInfo.class.junior") },
         ],
         cls,
         setCls,
@@ -145,7 +149,9 @@ export function RaceRecords() {
         <div className="flex items-center gap-[32px] rounded-[28px] border border-[#e8b14c]/40 bg-gradient-to-b from-[#e8b14c]/10 to-transparent p-[32px]">
           <IconTrophy size={72} className="shrink-0 text-[#e8b14c]" aria-hidden="true" />
           <div>
-            <div className="k-eyebrow text-[#e8b14c]">Track Record · {heroPanel.trackLabel}</div>
+            <div className="k-eyebrow text-[#e8b14c]">
+              {t("raceInfo.records.trackRecord", { track: heroPanel.trackLabel })}
+            </div>
             <div className="k-display k-num mt-[6px] text-[72px]">
               {formatRecordTime(heroPanel.record.score)}
             </div>
@@ -165,7 +171,9 @@ export function RaceRecords() {
             style={{ borderLeft: `8px solid ${track.accent}` }}
           >
             <div className="flex items-center justify-between px-[32px] pt-[24px]">
-              <span className="k-display text-[34px]">{track.label} — Top 5</span>
+              <span className="k-display text-[34px]">
+                {t("raceInfo.records.topN", { track: track.label })}
+              </span>
               <span
                 className="rounded-full px-[18px] py-[6px] text-[20px] font-bold uppercase tracking-wide"
                 style={{ background: `${category.color}26`, color: category.color }}
@@ -176,7 +184,7 @@ export function RaceRecords() {
             <div className="flex flex-col gap-[14px] px-[32px] pb-[28px] pt-[18px]">
               {records.length === 0 ? (
                 <div className="py-[12px] text-[24px] text-white/40">
-                  {isLoading ? "Loading…" : "No times posted yet — go set one."}
+                  {isLoading ? t("raceInfo.loading") : t("raceInfo.records.empty")}
                 </div>
               ) : (
                 records.map((r) => (

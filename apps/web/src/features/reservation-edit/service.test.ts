@@ -29,6 +29,8 @@ vi.mock("@/lib/reservation-edit-log", () => ({
   markEditPendingPayment: vi.fn(async () => {}),
   listEditEventsByAnchors: vi.fn(async () => []),
   getLatestEditEvent: vi.fn(async () => null),
+  getOpenEditEvent: vi.fn(async () => null),
+  refundedCentsForPayment: vi.fn(async () => ({ cents: 0, refundIds: [] })),
 }));
 vi.mock("@/lib/reservation-cancel-log", () => ({
   getLatestCancelEvent: vi.fn(async () => null),
@@ -60,6 +62,8 @@ vi.mock("./square-actions", () => ({
   adjustGiftCardDown: vi.fn(async () => 500),
   updateDayofOrderLines: vi.fn(async () => ({ totalCents: 9999, version: 4 })),
   chargeDayofOrder: vi.fn(async () => ({ paymentId: "PAY_MID" })),
+  waitForRefundCredit: vi.fn(async () => ({ settled: true, status: "COMPLETED" })),
+  createReturnOrder: vi.fn(async () => ({ returnOrderId: "RET1", returnTotalCents: 1605 })),
 }));
 vi.mock("./qamf-sync", () => ({
   syncQamfPlayers: vi.fn(async () => ({ lanesUpdated: 1 })),
@@ -76,20 +80,29 @@ import redis from "@/lib/redis";
 import { getBowlingReservation, updateReservationAfterEdit } from "@/lib/bowling-db";
 import {
   finishEditEvent,
+  getOpenEditEvent,
   listEditEventsByAnchors,
   markEditPendingPayment,
   nextEditAttempt,
   recordEditPayment,
   recordEditRefund,
+  refundedCentsForPayment,
   startEditEvent,
 } from "@/lib/reservation-edit-log";
 import { loadGiftCard } from "@/lib/square-gift-card";
-import { fetchOrderFacts, fetchPaymentFacts } from "~/features/cancellation/square-actions";
 import {
+  fetchGiftCardFacts,
+  fetchOrderFacts,
+  fetchPaymentFacts,
+} from "~/features/cancellation/square-actions";
+import {
+  adjustGiftCardDown,
   createEditTopupOrderAndCharge,
+  createReturnOrder,
   fetchRefundFacts,
   refundTenderPartial,
   updateDayofOrderLines,
+  waitForRefundCredit,
 } from "./square-actions";
 import { syncBmiRaceEdit } from "./bmi-sync";
 
@@ -150,6 +163,7 @@ const mkPlan = (steps: EditStep[], over: Partial<EditPlan> = {}): EditPlan => ({
       newLines: [],
       oldTotalCents: 5000,
       newTotalCents: 9999,
+      returnedLines: [],
       newNeonLines: [
         {
           squareProductId: 1,
@@ -170,6 +184,8 @@ const mkPlan = (steps: EditStep[], over: Partial<EditPlan> = {}): EditPlan => ({
     },
   ],
   diffCents: 4999,
+  guestOwedCents: 0,
+  gcDecrementCents: 0,
   settlement: "charge",
   chargeCard: { cardId: "ccof:CARD1", brand: "VISA", last4: "4242" },
   giftCard: { id: "GC1", gan: "WEBHPFM123", balanceCents: 5000, state: "ACTIVE" },
@@ -186,7 +202,9 @@ const mkPlan = (steps: EditStep[], over: Partial<EditPlan> = {}): EditPlan => ({
     durationOptions: [],
     durationMultiplier: null,
     attractions: [],
+    orderLines: [],
   },
+  executionBlocked: null,
   planHash: "abc123",
   ...over,
 });
@@ -221,6 +239,9 @@ beforeEach(() => {
     tenders: [],
   } as never);
   vi.mocked(redis.set).mockResolvedValue("OK" as never);
+  // Defaults reset per test — mockResolvedValue persists past clearAllMocks.
+  vi.mocked(getOpenEditEvent).mockResolvedValue(null);
+  vi.mocked(refundedCentsForPayment).mockResolvedValue({ cents: 0, refundIds: [] });
 });
 
 afterEach(() => {
@@ -403,33 +424,34 @@ describe("executeEditCascade — locks and gates", () => {
   });
 });
 
-describe("executeEditCascade — PRE decrease", () => {
-  const depositFacts = (tenders: Array<{ paymentId: string; amountCents: number }>) => {
-    vi.mocked(fetchOrderFacts).mockImplementation(async (orderId: string) =>
-      orderId === "DEP1"
-        ? ({
-            id: "DEP1",
-            state: "COMPLETED",
-            version: 1,
-            locationId: "TXBSQN0FEKQ11",
-            tenderCount: tenders.length,
-            netDueCents: 0,
-            totalCents: 5000,
-            tenders,
-          } as never)
-        : ({
-            id: "O1",
-            state: "OPEN",
-            version: 3,
-            locationId: "TXBSQN0FEKQ11",
-            tenderCount: 0,
-            netDueCents: 5000,
-            totalCents: 5000,
-            tenders: [],
-          } as never),
-    );
-  };
+/** Point fetchOrderFacts at a deposit order with the given tenders. */
+const depositFacts = (tenders: Array<{ paymentId: string; amountCents: number }>) => {
+  vi.mocked(fetchOrderFacts).mockImplementation(async (orderId: string) =>
+    orderId === "DEP1"
+      ? ({
+          id: "DEP1",
+          state: "COMPLETED",
+          version: 1,
+          locationId: "TXBSQN0FEKQ11",
+          tenderCount: tenders.length,
+          netDueCents: 0,
+          totalCents: 5000,
+          tenders,
+        } as never)
+      : ({
+          id: "O1",
+          state: "OPEN",
+          version: 3,
+          locationId: "TXBSQN0FEKQ11",
+          tenderCount: 0,
+          netDueCents: 5000,
+          totalCents: 5000,
+          tenders: [],
+        } as never),
+  );
+};
 
+describe("executeEditCascade — PRE decrease", () => {
   const DECREASE_STEPS: EditStep[] = [
     { kind: "audit_start", fatal: true },
     { kind: "refund_tender", fatal: true, amountCents: 500 },
@@ -465,6 +487,40 @@ describe("executeEditCascade — PRE decrease", () => {
     );
     // Forward recovery: the refund id was persisted the moment it landed.
     expect(vi.mocked(recordEditRefund)).toHaveBeenCalledWith("edit-42-a1", "RF1");
+  });
+
+  it("refuses a DIFFERENT edit while one is parked, but allows resuming that same id", async () => {
+    // §4.3: the plan-time open-event check is only a warning and the Redis
+    // lock open-fails; without this guard a second edit plans against stale
+    // money facts and re-refunds what the parked attempt already moved.
+    vi.mocked(getOpenEditEvent).mockResolvedValue({
+      editId: "edit-42-a7",
+      state: "started",
+    } as never);
+    depositFacts([{ paymentId: "PAY_DEP", amountCents: 5000 }]);
+
+    const code = await guardCode(() =>
+      executeEditCascade(
+        baseReq(mkPlan(DECREASE_STEPS, { diffCents: -500, settlement: "card_refund" })),
+      ),
+    );
+    expect(code).toBe("edit_in_progress");
+    expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
+    expect(vi.mocked(startEditEvent)).not.toHaveBeenCalled();
+
+    // Resuming THAT id replays the same idempotency namespace — allowed.
+    vi.mocked(fetchPaymentFacts).mockResolvedValue({
+      id: "PAY_DEP",
+      status: "COMPLETED",
+      amountCents: 5000,
+      refundedCents: 0,
+      sourceType: "CARD",
+    } as never);
+    await executeEditCascade({
+      ...baseReq(mkPlan(DECREASE_STEPS, { diffCents: -500, settlement: "card_refund" })),
+      resumeEditId: "edit-42-a7",
+    });
+    expect(vi.mocked(startEditEvent)).toHaveBeenCalled();
   });
 
   it("a gift-card-funded deposit tender fails PRE-FLIGHT — before any money moves", async () => {
@@ -523,5 +579,327 @@ describe("executeEditCascade — PRE decrease", () => {
     // stop netting it.
     expect(vi.mocked(recordEditRefund)).toHaveBeenCalledWith("edit-42-a2", "RF_OLD");
     expect(result.refundIds).toEqual(expect.arrayContaining(["RF_OLD", "RF2"]));
+  });
+});
+
+describe("executeEditCascade — day-of refund leg (post-day-of flow)", () => {
+  const DAYOF_STEPS: EditStep[] = [
+    { kind: "audit_start", fatal: true },
+    { kind: "refund_dayof_payment", fatal: true, amountCents: 1605 },
+    { kind: "neon_commit", fatal: true },
+  ];
+  const ROW_PAID = { ...ROW, dayofPaymentId: "PAY_DAYOF" };
+  /** A leg whose lines actually shrank — required for an itemized return.
+   *  Phase is MID on both the plan and the leg: these steps only exist once the
+   *  day-of order carries a tender, and the executor now refuses a pre-phase
+   *  plan that claims one. */
+  const withReturn = (over: Partial<EditPlan> = {}) => {
+    const p = mkPlan(DAYOF_STEPS, {
+      diffCents: -1605,
+      settlement: "card_refund",
+      phase: "mid",
+      ...over,
+    });
+    p.legs[0].phase = "mid";
+    p.legs[0].returnedLines = [{ uid: "L2", name: "Pizza Bowl", quantity: 1 }];
+    return p;
+  };
+  const dayofPlan = withReturn;
+
+  beforeEach(() => {
+    process.env.RESERVATION_EDIT_V2_MID_DECREASE = "true";
+    vi.mocked(getBowlingReservation).mockResolvedValue(ROW_PAID as never);
+    vi.mocked(createReturnOrder).mockResolvedValue({
+      returnOrderId: "RET1",
+      returnTotalCents: 1605,
+    });
+  });
+  afterEach(() => {
+    delete process.env.RESERVATION_EDIT_V2_MID_DECREASE;
+  });
+
+  it("requires a staff-supplied reason before any money moves", async () => {
+    const code = await guardCode(() => executeEditCascade(baseReq(dayofPlan())));
+    expect(code).toBe("dayof_reason_required");
+    expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
+    expect(vi.mocked(startEditEvent)).not.toHaveBeenCalled();
+  });
+
+  describe("phase-keyed flag gate", () => {
+    const reasoned = (plan: EditPlan) => ({
+      ...baseReq(plan),
+      dayofRefundReason: "Lane malfunction — comped 2 games",
+    });
+    const postPlan = () => {
+      const p = withReturn({ phase: "post_complete" });
+      p.legs[0].phase = "post_complete";
+      return p;
+    };
+
+    it("a MID refund is NOT unlocked by the post-complete flag", async () => {
+      delete process.env.RESERVATION_EDIT_V2_MID_DECREASE;
+      process.env.RESERVATION_EDIT_V2_POST = "true";
+      const code = await guardCode(() => executeEditCascade(reasoned(withReturn())));
+      expect(code).toBe("refund_not_enabled");
+      expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
+      delete process.env.RESERVATION_EDIT_V2_POST;
+    });
+
+    it("a POST-COMPLETE refund is NOT unlocked by the mid-session flag", async () => {
+      // Before the fix this passed on _MID_DECREASE alone — post-complete
+      // refunds rode a flag nobody had signed off for that phase.
+      process.env.RESERVATION_EDIT_V2_MID_DECREASE = "true";
+      const code = await guardCode(() => executeEditCascade(reasoned(postPlan())));
+      expect(code).toBe("refund_not_enabled");
+      expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
+    });
+
+    it("a POST-COMPLETE refund runs on its own flag", async () => {
+      process.env.RESERVATION_EDIT_V2_POST = "true";
+      vi.mocked(refundTenderPartial).mockResolvedValue({
+        refundId: "RF_POST",
+        refundedCents: 1605,
+      });
+      const result = await executeEditCascade(reasoned(postPlan()));
+      expect(result.refundIds).toContain("RF_POST");
+      delete process.env.RESERVATION_EDIT_V2_POST;
+    });
+
+    it("refuses a PRE plan that carries a paid-order refund step", async () => {
+      // Nothing has tendered the day-of order in pre, so such a plan is
+      // corrupted — it must not fall through to some default flag.
+      const p = withReturn({ phase: "pre" });
+      p.legs[0].phase = "pre";
+      const code = await guardCode(() => executeEditCascade(reasoned(p)));
+      expect(code).toBe("phase_conflict");
+      expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
+    });
+  });
+
+  it("refuses a day-of reason that reuses the deposit journal key", async () => {
+    // Owner rule: "Refund: Reservation Deposit" is the portal's journal key
+    // for the CASH leg. Reusing it here double-counts one economic event.
+    const code = await guardCode(() =>
+      executeEditCascade({
+        ...baseReq(dayofPlan()),
+        dayofRefundReason: "Refund: Reservation Deposit",
+      }),
+    );
+    expect(code).toBe("dayof_reason_reserved");
+    expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
+  });
+
+  it("passes the staff reason through to Square, not the deposit key", async () => {
+    vi.mocked(refundTenderPartial).mockResolvedValueOnce({
+      refundId: "RF_DAYOF",
+      refundedCents: 1605,
+    });
+    const result = await executeEditCascade({
+      ...baseReq(dayofPlan()),
+      dayofRefundReason: "Pizza returned unmade — lane 6",
+    });
+    expect(vi.mocked(refundTenderPartial)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paymentId: "PAY_DAYOF",
+        amountCents: 1605,
+        reason: "Pizza returned unmade — lane 6",
+      }),
+    );
+    expect(result.refundIds).toContain("RF_DAYOF");
+    expect(vi.mocked(recordEditRefund)).toHaveBeenCalledWith("edit-42-a1", "RF_DAYOF");
+  });
+
+  it("ITEMIZES the refund — builds a return order and attributes the refund to it", async () => {
+    // Owner rule: never amount-only. A bare refund records a dollar figure and
+    // nothing else, so the returned item never appears in item-level sales
+    // reporting and QBO cannot categorize it.
+    vi.mocked(refundTenderPartial).mockResolvedValueOnce({
+      refundId: "RF_DAYOF",
+      refundedCents: 1605,
+    });
+    await executeEditCascade({
+      ...baseReq(dayofPlan()),
+      dayofRefundReason: "Pizza returned unmade — lane 6",
+    });
+    expect(vi.mocked(createReturnOrder)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceOrderId: "O1",
+        lines: [{ uid: "L2", quantity: 1 }],
+      }),
+    );
+    // LINKED to the return order → the refund is itemized in Square, matching
+    // how the POS records returns. It will not credit the card; the card side
+    // is handled by reconcile_gift_card instead of an async wait.
+    expect(vi.mocked(refundTenderPartial)).toHaveBeenCalledWith(
+      expect.objectContaining({ returnOrderId: "RET1" }),
+    );
+  });
+
+  it("uses SQUARE's return total, not the planner's, as the refund amount", async () => {
+    // Square computes the tax-inclusive return itself; that figure is
+    // authoritative over our own tax math.
+    vi.mocked(createReturnOrder).mockResolvedValue({
+      returnOrderId: "RET1",
+      returnTotalCents: 1610, // Square rounded tax differently
+    });
+    vi.mocked(refundTenderPartial).mockResolvedValueOnce({
+      refundId: "RF_DAYOF",
+      refundedCents: 1610,
+    });
+    await executeEditCascade({
+      ...baseReq(dayofPlan()),
+      dayofRefundReason: "Pizza returned unmade",
+    });
+    expect(vi.mocked(refundTenderPartial)).toHaveBeenCalledWith(
+      expect.objectContaining({ amountCents: 1610 }),
+    );
+  });
+
+  it("REFUSES to refund when no line items can be identified", async () => {
+    // Rather than silently fall back to an amount-only refund.
+    const plan = withReturn();
+    plan.legs[0].returnedLines = [];
+    await expect(
+      executeEditCascade({ ...baseReq(plan), dayofRefundReason: "Pizza returned" }),
+    ).rejects.toThrow(
+      /must be itemized, never issued as a bare amount|cannot identify which line/i,
+    );
+    expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
+  });
+
+  it("nets a prior attempt's day-of refund instead of refunding twice", async () => {
+    // The bug this closes: refundTenderPartial clamps to the PAYMENT's
+    // un-refunded remainder (still large after a partial), so a retry on a
+    // fresh idempotency namespace would refund the same items again.
+    vi.mocked(refundedCentsForPayment).mockResolvedValueOnce({
+      cents: 1605,
+      refundIds: ["RF_PRIOR"],
+    });
+    const result = await executeEditCascade({
+      ...baseReq(dayofPlan()),
+      dayofRefundReason: "Pizza returned unmade — lane 6",
+    });
+    expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
+    // The prior refund is absorbed into THIS event so it stays accounted for.
+    expect(vi.mocked(recordEditRefund)).toHaveBeenCalledWith("edit-42-a1", "RF_PRIOR");
+    expect(result.refundIds).toContain("RF_PRIOR");
+  });
+
+  it("refunds only the un-netted remainder when a prior attempt partly paid out", async () => {
+    vi.mocked(refundedCentsForPayment).mockResolvedValueOnce({
+      cents: 605,
+      refundIds: ["RF_PRIOR"],
+    });
+    vi.mocked(refundTenderPartial).mockResolvedValueOnce({
+      refundId: "RF_REST",
+      refundedCents: 1000,
+    });
+    await executeEditCascade({
+      ...baseReq(dayofPlan()),
+      dayofRefundReason: "Pizza returned unmade — lane 6",
+    });
+    expect(vi.mocked(refundTenderPartial)).toHaveBeenCalledWith(
+      expect.objectContaining({ amountCents: 1000 }),
+    );
+  });
+});
+
+describe("executeEditCascade — gift-card reconcile after a post-payment refund", () => {
+  // An ITEMIZED refund does not credit the internal card (probed 2026-07-28),
+  // so there is nothing to wait for. The card is verified against its
+  // pre-refund baseline and any excess stripped — deterministic, and with no
+  // async window nothing can be stranded.
+  const WAIT_STEPS: EditStep[] = [
+    { kind: "audit_start", fatal: true },
+    { kind: "refund_dayof_payment", fatal: true, amountCents: 1605 },
+    { kind: "refund_tender", fatal: true, amountCents: 1605 },
+    { kind: "reconcile_gift_card", fatal: true, target: "GC1" },
+    { kind: "neon_commit", fatal: true },
+  ];
+  const ROW_PAID = { ...ROW, dayofPaymentId: "PAY_DAYOF" };
+  const waitPlan = (over: Partial<EditPlan> = {}) => {
+    const p = mkPlan(WAIT_STEPS, {
+      diffCents: -1605,
+      settlement: "card_refund",
+      phase: "mid",
+      ...over,
+    });
+    p.legs[0].phase = "mid";
+    // Itemized refunds need identifiable returned lines.
+    p.legs[0].returnedLines = [{ uid: "L2", name: "Pizza Bowl", quantity: 1 }];
+    return p;
+  };
+  const req = () => ({
+    ...baseReq(waitPlan()),
+    dayofRefundReason: "Lane malfunction — comped 2 games",
+  });
+
+  beforeEach(() => {
+    process.env.RESERVATION_EDIT_V2_MID_DECREASE = "true";
+    vi.mocked(getBowlingReservation).mockResolvedValue(ROW_PAID as never);
+    depositFacts([{ paymentId: "PAY_DEP", amountCents: 20000 }]);
+    vi.mocked(fetchPaymentFacts).mockResolvedValue({
+      id: "PAY_DEP",
+      status: "COMPLETED",
+      amountCents: 20000,
+      refundedCents: 0,
+      sourceType: "CARD",
+    } as never);
+    vi.mocked(refundTenderPartial).mockResolvedValue({ refundId: "RF_X", refundedCents: 1605 });
+    vi.mocked(adjustGiftCardDown).mockResolvedValue(1605);
+    // Baseline and post-refund reads both 5000 unless a test overrides.
+    vi.mocked(fetchGiftCardFacts).mockResolvedValue({
+      id: "GC1",
+      gan: "WEBHPFM123",
+      state: "ACTIVE",
+      balanceCents: 5000,
+      locationId: "TXBSQN0FEKQ11",
+    } as never);
+  });
+  afterEach(() => {
+    delete process.env.RESERVATION_EDIT_V2_MID_DECREASE;
+  });
+
+  it("is a verified no-op when the itemized refund left the card untouched", async () => {
+    // The normal case: baseline and post-refund balance both read 5000, so
+    // the card kept no refunded value and nothing is stripped.
+    const result = await executeEditCascade(req());
+    expect(result.state).toBe("completed");
+    expect(vi.mocked(adjustGiftCardDown)).not.toHaveBeenCalled();
+    expect(result.stepLog.find((s) => s.step === "reconcile_gift_card")?.detail).toMatch(
+      /unchanged vs baseline/,
+    );
+  });
+
+  it("STRIPS the excess if a credit did post (behaviour-change safe)", async () => {
+    // Baseline read first (5000), then a higher balance after the refund —
+    // Square credited the card after all, so the surplus must come off.
+    vi.mocked(fetchGiftCardFacts)
+      .mockResolvedValueOnce({ balanceCents: 5000 } as never)
+      .mockResolvedValueOnce({ balanceCents: 6605 } as never);
+    vi.mocked(adjustGiftCardDown).mockResolvedValue(1605);
+
+    const result = await executeEditCascade(req());
+    expect(result.state).toBe("completed");
+    expect(vi.mocked(adjustGiftCardDown)).toHaveBeenCalledWith(
+      expect.objectContaining({ amountCents: 1605 }),
+    );
+  });
+
+  it("treats a SHORT strip as fatal — refunded value must never survive", async () => {
+    vi.mocked(fetchGiftCardFacts)
+      .mockResolvedValueOnce({ balanceCents: 5000 } as never)
+      .mockResolvedValueOnce({ balanceCents: 6605 } as never);
+    vi.mocked(adjustGiftCardDown).mockResolvedValue(0);
+    await expect(executeEditCascade(req())).rejects.toThrow(/still holds refunded value/i);
+  });
+
+  it("refuses to decrement at all when gift-card facts are unavailable", async () => {
+    // The planner only WARNS and drops the step when the card is unreadable —
+    // for a post-payment refund that is a silent double payout.
+    const plan = waitPlan({ giftCard: null });
+    await expect(
+      executeEditCascade({ ...baseReq(plan), dayofRefundReason: "Lane malfunction" }),
+    ).rejects.toThrow(/gift card facts unavailable/i);
   });
 });

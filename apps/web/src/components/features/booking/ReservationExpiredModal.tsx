@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useT } from "~/features/kiosk/i18n";
 
 interface Props {
   onExtend: () => Promise<boolean>;
@@ -8,6 +9,10 @@ interface Props {
 }
 
 export function ReservationExpiredModal({ onExtend, onStartOver }: Props) {
+  // Keyed for the kiosk (this modal fires on any flow holding a vendor slot,
+  // attractions included). `useT()` falls back to English outside a
+  // LocaleProvider, so the web wizard renders exactly as before.
+  const t = useT();
   const [extending, setExtending] = useState(false);
   const [error, setError] = useState(false);
 
@@ -34,7 +39,7 @@ export function ReservationExpiredModal({ onExtend, onStartOver }: Props) {
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label="Reservation expired"
+      aria-label={t("flow.expired.aria")}
     >
       <div
         className="w-full max-w-md rounded-2xl border border-white/10 p-6"
@@ -54,20 +59,13 @@ export function ReservationExpiredModal({ onExtend, onStartOver }: Props) {
             </svg>
           </div>
           <h3 className="font-display text-xl tracking-widest text-white uppercase">
-            Reservation Expired
+            {t("flow.expired.title")}
           </h3>
         </div>
 
-        <p className="text-sm text-white/60">
-          Your 10-minute hold has ended. Extend your time to keep your selected heats, or start a
-          new booking.
-        </p>
+        <p className="text-sm text-white/60">{t("flow.expired.body")}</p>
 
-        {error && (
-          <p className="mt-2 text-xs text-red-400">
-            Could not extend your reservation. Please try again or start over.
-          </p>
-        )}
+        {error && <p className="mt-2 text-xs text-red-400">{t("flow.expired.error")}</p>}
 
         <div className="mt-5 flex gap-3">
           <button
@@ -76,7 +74,7 @@ export function ReservationExpiredModal({ onExtend, onStartOver }: Props) {
             disabled={extending}
             className="flex-1 rounded-xl border border-white/20 px-4 py-2.5 text-sm font-semibold text-white/70 transition-colors hover:border-white/40 hover:text-white disabled:opacity-40"
           >
-            Start Over
+            {t("flow.expired.startOver")}
           </button>
           <button
             type="button"
@@ -87,10 +85,10 @@ export function ReservationExpiredModal({ onExtend, onStartOver }: Props) {
             {extending ? (
               <span className="inline-flex items-center gap-2">
                 <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#000418]/20 border-t-[#000418]" />
-                Extending…
+                {t("flow.expired.extending")}
               </span>
             ) : (
-              "Extend Time"
+              t("flow.expired.extend")
             )}
           </button>
         </div>

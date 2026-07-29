@@ -151,6 +151,9 @@ export async function cancelReservationCascade(req: CancelRequest): Promise<Canc
           tenderIndex: tenderIndex >= 0 ? tenderIndex : 0,
           paymentId: step.target,
           reason: "Refund: Reservation Deposit",
+          // Planned cap, never the live remainder: Game Zone card money riding
+          // the deposit payment stays with the guest.
+          maxCents: step.amountCents,
         });
         if (r.refundId) refundIds.push(r.refundId);
         refundedCents += r.refundedCents;

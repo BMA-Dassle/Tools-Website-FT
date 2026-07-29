@@ -22,12 +22,28 @@ export interface WaiverSigningProps {
   /** SHORT Pandora id of the person SIGNING when not personId themselves —
    *  a guardian signing a minor's waiver. Omitted = self-sign. */
   signerPersonId?: string;
+  /** Override the validity window as DAYS from today, instead of the
+   *  template's duration (YEARS — desk parity). Event-scoped surfaces pass 5
+   *  (owner decision 2026-06-18, mirrors waiver-digital's WAIVER_VALID_DAYS:
+   *  "we don't want a year-long waiver from a one-event acceptance").
+   *  Racing/kiosk/booking surfaces omit it. */
+  validDays?: number;
   /** Called after waiver is successfully signed. */
   onComplete: (waiverID: string | undefined) => void;
   /** Optional heading override (default: "Sign Your Waiver"). */
   heading?: string;
   /** Optional subheading. */
   subheading?: string;
+  /** "sm" = default (mobile/event page); "lg" = kiosk — bigger body area, larger
+   *  text, more of the screen used (owner 2026-07-26). */
+  size?: "sm" | "lg";
+  /** Localized chrome — default English so non-kiosk callers are unaffected; the
+   *  kiosk passes translated values (repo rule: all guest-facing copy is i18n). */
+  submitLabel?: string;
+  submittingLabel?: string;
+  agreementNote?: string;
+  signLabel?: string;
+  clearLabel?: string;
 }
 
 export default function WaiverSigning({
@@ -35,10 +51,18 @@ export default function WaiverSigning({
   template,
   location,
   signerPersonId,
+  validDays,
   onComplete,
   heading = "Sign Your Waiver",
   subheading = "Required before participating in any activity.",
+  size = "sm",
+  submitLabel = "I Agree & Sign Waiver",
+  submittingLabel = "Submitting...",
+  agreementNote = "By signing, you agree to the terms of the waiver above.",
+  signLabel = "Sign below",
+  clearLabel = "Clear",
 }: WaiverSigningProps) {
+  const lg = size === "lg";
   const padRef = useRef<SignaturePadRef | null>(null);
   const [hasSigned, setHasSigned] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -51,7 +75,11 @@ export default function WaiverSigning({
 
     try {
       const signatureDataUrl = padRef.current.toDataURL();
-      const invalidationDate = calculateWaiverExpiry(template.duration);
+      // Event-scoped surfaces override with a short DAYS window; everything
+      // else gets the template duration in YEARS (desk parity).
+      const invalidationDate = validDays
+        ? new Date(Date.now() + validDays * 864e5).toISOString().split("T")[0]
+        : calculateWaiverExpiry(template.duration);
 
       const result = await pandoraSignWaiver({
         personID: personId,
@@ -69,21 +97,31 @@ export default function WaiverSigning({
     } finally {
       setLoading(false);
     }
-  }, [personId, template, location, signerPersonId, onComplete]);
+  }, [personId, template, location, signerPersonId, validDays, onComplete]);
 
   return (
-    <div className="space-y-6">
+    <div className={lg ? "space-y-8" : "space-y-6"}>
       <div className="text-center">
-        <h2 className="text-xl font-display text-white uppercase tracking-widest mb-2">
+        <h2
+          className={`font-display text-white uppercase tracking-widest mb-2 ${
+            lg ? "text-[40px]" : "text-xl"
+          }`}
+        >
           {heading}
         </h2>
-        <p className="text-white/50 text-sm">{subheading}</p>
+        <p className={`text-white/50 ${lg ? "text-[24px]" : "text-sm"}`}>{subheading}</p>
       </div>
 
-      {/* Waiver text */}
-      <div className="rounded-xl border border-white/10 bg-white/3 p-4 max-h-64 overflow-y-auto">
+      {/* Waiver text — kiosk uses far more of the tall portrait screen. */}
+      <div
+        className={`rounded-xl border border-white/10 bg-white/3 overflow-y-auto ${
+          lg ? "p-8 max-h-[58vh]" : "p-4 max-h-64"
+        }`}
+      >
         <div
-          className="text-white/60 text-xs leading-relaxed prose prose-invert prose-xs max-w-none"
+          className={`text-white/70 leading-relaxed prose prose-invert max-w-none ${
+            lg ? "text-[22px]" : "text-xs prose-xs text-white/60"
+          }`}
           dangerouslySetInnerHTML={{ __html: template.body }}
         />
       </div>
@@ -93,27 +131,34 @@ export default function WaiverSigning({
         padRef={padRef}
         onSign={() => setHasSigned(true)}
         onClear={() => setHasSigned(false)}
+        height={lg ? 200 : 140}
+        signLabel={signLabel}
+        clearLabel={clearLabel}
       />
 
-      {error && <p className="text-red-400 text-xs text-center">{error}</p>}
+      {error && (
+        <p className={`text-red-400 text-center ${lg ? "text-[22px]" : "text-xs"}`}>{error}</p>
+      )}
 
       <button
         onClick={handleSubmit}
         disabled={!hasSigned || loading}
-        className="w-full py-3.5 rounded-xl font-bold text-sm bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        className={`w-full rounded-xl font-bold bg-[#00E2E5] text-[#000418] hover:bg-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+          lg ? "py-6 text-[30px]" : "py-3.5 text-sm"
+        }`}
       >
         {loading ? (
           <span className="flex items-center justify-center gap-2">
             <span className="w-4 h-4 border-2 border-[#000418]/30 border-t-[#000418] rounded-full animate-spin" />
-            Submitting...
+            {submittingLabel}
           </span>
         ) : (
-          "I Agree & Sign Waiver"
+          submitLabel
         )}
       </button>
 
-      <p className="text-white/30 text-[11px] text-center">
-        By signing, you agree to the terms of the waiver above.
+      <p className={`text-white/30 text-center ${lg ? "text-[20px]" : "text-[11px]"}`}>
+        {agreementNote}
       </p>
     </div>
   );

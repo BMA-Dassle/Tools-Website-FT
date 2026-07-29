@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  __resetKioskConfigForTests,
   gameZoneCapability,
+  loadKioskConfig,
   mergeKioskConfig,
   parseKioskConfigFromSearchParams,
   resolveKioskConfig,
@@ -163,6 +165,137 @@ describe("resolveKioskConfig", () => {
       cardReaderEnabled: true,
       cardReaderBaud: 38400,
     });
+  });
+});
+
+describe("locale (guest language default)", () => {
+  it("parses ?lang= to a supported locale, ignoring junk", () => {
+    expect(parseKioskConfigFromSearchParams({ center: "fasttrax", lang: "es" })).toMatchObject({
+      center: "fort-myers",
+      locale: "es",
+    });
+    expect(parseKioskConfigFromSearchParams({ center: "fasttrax", lang: "english" })).toMatchObject(
+      {
+        locale: "en",
+      },
+    );
+    // Unsupported → no locale key (resolve defaults it to "en").
+    expect(parseKioskConfigFromSearchParams({ center: "fasttrax", lang: "fr" })).toEqual({
+      center: "fort-myers",
+      brand: "fasttrax",
+    });
+  });
+
+  it("also accepts ?locale= and a BCP-47 subtag", () => {
+    expect(parseKioskConfigFromSearchParams({ center: "naples", locale: "es-US" })).toMatchObject({
+      locale: "es",
+    });
+  });
+
+  it("defaults to English and survives resolve + merge round-trips", () => {
+    expect(resolveKioskConfig({ center: "fort-myers" })).toMatchObject({ locale: "en" });
+    const saved = resolveKioskConfig({ center: "fort-myers", locale: "es" });
+    expect(saved).toMatchObject({ locale: "es" });
+    // readStorage re-resolves on boot — the field must not be stripped.
+    expect(resolveKioskConfig(saved!)).toMatchObject({ locale: "es" });
+    // A URL merge touching an unrelated field keeps the stored locale.
+    expect(mergeKioskConfig(saved, { variant: "pitcrew" })).toMatchObject({ locale: "es" });
+  });
+});
+
+describe("readStorage is version-agnostic (loadKioskConfig) — incident 2026-07-26", () => {
+  const KEY = "kiosk_config";
+  const CURRENT_V = 2;
+  let store: Map<string, string>;
+
+  beforeEach(() => {
+    store = new Map<string, string>();
+    const ls = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    };
+    vi.stubGlobal("window", { localStorage: ls });
+    vi.stubGlobal("localStorage", ls);
+    __resetKioskConfigForTests();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    __resetKioskConfigForTests();
+  });
+
+  it("reads an OLDER envelope, keeps venue + hardware, backfills new fields", () => {
+    // A provisioned kiosk from before `locale` existed: full hardware, no locale.
+    store.set(
+      KEY,
+      JSON.stringify({
+        v: 1,
+        config: {
+          center: "fort-myers",
+          brand: "fasttrax",
+          readerId: "R1",
+          dispenserId: "SN42",
+          cardReaderEnabled: true,
+          qrScannerEnabled: true,
+          qrScannerModel: "honeywell-3320g",
+        },
+      }),
+    );
+
+    const cfg = loadKioskConfig();
+    // The device KEEPS its venue + hardware — it must NOT drop to KIOSK SETUP.
+    expect(cfg).toMatchObject({
+      center: "fort-myers",
+      brand: "fasttrax",
+      readerId: "R1",
+      dispenserId: "SN42",
+      cardReaderEnabled: true,
+      qrScannerEnabled: true,
+      qrScannerModel: "honeywell-3320g",
+      locale: "en", // backfilled default
+    });
+    // Normalized to the current stamp.
+    expect(JSON.parse(store.get(KEY)!)).toMatchObject({ v: CURRENT_V });
+  });
+
+  it("reads a NEWER (v3) envelope instead of discarding it — the re-provisioned-during-incident case", () => {
+    // Kiosks re-provisioned during the outage saved a v3 envelope. Rolling the
+    // stamp back to 2 must NOT wipe them — a version-agnostic read keeps them.
+    store.set(
+      KEY,
+      JSON.stringify({
+        v: 3,
+        config: { center: "naples", readerId: "R9", locale: "es" },
+      }),
+    );
+
+    const cfg = loadKioskConfig();
+    expect(cfg).toMatchObject({
+      center: "naples",
+      brand: "headpinz", // Naples invariant
+      readerId: "R9",
+      locale: "es",
+    });
+    // Normalized down to the current stamp; never removed.
+    expect(store.has(KEY)).toBe(true);
+    expect(JSON.parse(store.get(KEY)!)).toMatchObject({ v: CURRENT_V });
+  });
+
+  it("discards a structurally broken envelope (no config)", () => {
+    store.set(KEY, JSON.stringify({ v: 2 }));
+    expect(loadKioskConfig()).toBeNull();
+    expect(store.has(KEY)).toBe(false);
+  });
+
+  it("discards a config that can't resolve (no center)", () => {
+    store.set(KEY, JSON.stringify({ v: 2, config: { brand: "fasttrax" } }));
+    expect(loadKioskConfig()).toBeNull();
+    expect(store.has(KEY)).toBe(false);
+  });
+
+  it("returns null (no wipe needed) when nothing is stored", () => {
+    expect(loadKioskConfig()).toBeNull();
   });
 });
 

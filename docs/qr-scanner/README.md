@@ -2,13 +2,16 @@
 
 Serial-line QR/barcode scanners driven **in the browser over Web Serial** by
 `apps/web/src/features/kiosk/qr-scanner/`. First unit: **Honeywell 3320g** in USB serial
-(CDC) mode. Staff surface: **/kiosk/admin → QR scanner tab** (PIN-gated) — model + baud
-selects, port grant, live scan feed.
+(CDC) mode. Second unit: **Opticon 2D imaging scanner** (registry id `opticon-2d`,
+added 2026-07-24, brand corrected from Posiflex the same day — everything about it is
+unconfirmed until a unit is provisioned; see its checklist below). Staff surface:
+**/kiosk/admin → QR scanner tab** (PIN-gated) — model + baud selects, port grant, live
+scan feed.
 
 This is a SEPARATE device concept from the keyboard-wedge "QR / barcode scanner" toggle
-(`scannerEnabled`, types into focused fields) — that path is untouched. **What a scan
-MEANS (check-in, lookup, …) is deliberately not built here** — consumers get raw payloads
-via `useQrScanner`'s `onScan` / scan feed.
+(`scannerEnabled`, types into focused fields) — that path is untouched. The transport
+layer stays semantics-free (`useQrScanner` hands consumers raw payloads); the first
+semantic consumer is the **driver's-license scan** (below).
 
 ## How the device behaves on the wire
 
@@ -29,6 +32,35 @@ via `useQrScanner`'s `onScan` / scan feed.
       they differ) in `qr-scanner/models.ts` and check this box with the values.
 - [ ] Suffix: 990D0A programmed (each scan arrives exactly once, no run-ons).
 
+## Opticon 2D imaging scanner — FILL IN on first provisioning (nothing confirmed)
+
+Registry entry `opticon-2d` was seeded 2026-07-24 **ahead of hardware** (initially
+mislabeled Posiflex; brand corrected same day) — no unit has been tested. Select it in
+the panel's Model dropdown and use the same feed/baud-stepping flow. To confirm on the
+unit:
+
+- [ ] Mode: program the unit to **USB Virtual COM (USB-COM)** via its programming
+      barcode. If it types into text fields, it's in keyboard mode. Confirm a COM port
+      appears in Device Manager → Ports (COM & LPT).
+- [ ] Suffix: program a **CR and/or LF** suffix so each scan arrives as one line (the
+      accumulator accepts CR, LF, or CR LF). No suffix = bytes arrive but nothing
+      decodes (the panel's wrong-baud warning also covers this case).
+- [ ] Baud rate: registry default **9600** (the near-universal scanner serial default) —
+      pure guess. Step the baud select until the feed decodes; record the working rate
+      here and correct `defaultBaudRate` if it isn't 9600. (A true USB-CDC unit may
+      ignore the rate entirely.)
+- [ ] USB VID:PID: expected VID **0x065A** (Opticon, Inc.'s registered VID) — also a
+      guess; some scanner lines enumerate under a USB-serial bridge VID instead (FTDI
+      0403 / CH340 1a86 / CP210x 10c4). The panel's Port row shows the real ids and
+      flags a mismatch. Record them in `expectedUsbIds`, flip `usbIdsConfirmed: true`,
+      and note the values here.
+- [ ] Scan payload shape: unknown. Copy a few test scans from the feed (Copy button) and
+      check the semantic consumers — an AAMVA license scan must regroup through
+      `AamvaBurst` and an SMS-Timing member QR must parse via `parseMemberQr` exactly as
+      they do on the 3320g. If the Opticon frames them differently (e.g. different
+      intra-payload separators), record the raw feed output here before changing any
+      parser.
+
 ## Architecture
 
 ```
@@ -37,6 +69,8 @@ src/features/kiosk/qr-scanner/
   line-accumulator.ts pure bytes→payload framing (streaming UTF-8, buffer cap; tested)
   port-matching.ts    pure silent-reopen rule (strict; tested)
   useQrScanner.ts     React hook — mirror of card-reader/useSerialMsr.ts (listen-only)
+  aamva.ts            AAMVA license parser + burst regrouping (pure; tested)
+  useLicenseScan.ts   guest-flow consumer hook (burst → parsed license)
 components/KioskAdminQrScanner.tsx   the staff setup/test panel
 ```
 
@@ -45,11 +79,12 @@ saved via the admin `persist()` → localStorage + Neon. **Any new field must be
 `resolveKioskConfig`'s literal in `config.ts` or boot-time re-resolve strips it**
 (`config.test.ts` has the strip-guard case).
 
-### Adding scanner model #2
+### Adding another scanner model
 
 - **Another serial-line model** (different baud/framing): one new data literal in
   `models.ts` (`kind: "serial-line"`, its own `defaultBaudRate`/`baudCandidates`/
-  `lineSettings`/`expectedUsbIds`). Zero code changes.
+  `lineSettings`/`expectedUsbIds`). Zero code changes — the Opticon entry
+  (2026-07-24) was exactly this.
 - **A non-serial model** (HID/keyboard-wedge/other): add a new `kind` member to the
   `ScannerModel` union — TypeScript then flags the `switch`/branch sites in
   `useQrScanner.ts` and the panel that must handle it.
@@ -113,11 +148,41 @@ policy, spent gesture). The panel's grant button names the blocking layer via
 | Chooser never opens                     | Policy/permission/gesture layer    | The grant button's message names the layer; see crt-591 README   |
 | Reload doesn't reconnect                | No USB ids saved, or grant revoked | Re-pick the port; check the saved-for-reconnect line             |
 
+## License scans (first semantic consumer, 2026-07-23)
+
+A US driver's license / state ID carries an AAMVA PDF417 barcode the 3320g reads.
+**Transport fact:** the AAMVA payload separates elements with LF, so ONE physical scan
+arrives as ~35 separate `onScan` lines inside the same millisecond (verified on a real FL
+license) — `AamvaBurst` regroups them and a 350 ms quiet gap ends the burst
+(`useLicenseScan`).
+
+- `aamva.ts` extracts **name + DOB only** (owner privacy stance: address, sex, license
+  number, document dates are never extracted, stored, transmitted, or logged).
+- Consumers (`KioskPeopleStep`, `KioskPartyManager`, `KioskBowlingPeopleStep`): a scan on
+  the roster looks the guest up by last name + DOB — `POST /api/kiosk/license-lookup`,
+  backed by the **BMI Office token search with a combined `"LastName M/D/YYYY"` token**
+  (no leading zeros; raw `https.get` — the endpoint 500s under undici; ~1 s live, vs
+  ~8.5 s for Pandora's person search) — and signs a match in through the existing
+  `handleVerified` rail. EVERY record of the guest is returned (duplicates included):
+  one → direct sign-in, several → the returning-racer account cards via
+  `LicenseMatchPicker`; no match → the new-player form opens prefilled. Waiver status
+  resolves right after sign-in via importLinked ("Checking waiver…"), exactly like the
+  phone OTP path. An already-open form is just filled. Bowling adds a name-only row.
+- **SMS-Timing member QR** (2026-07-24): the app's personal QR scans as ONE line —
+  `https://smstim.in?["<clientKey>","<code>"]` (`member-qr.ts`). The code as an Office
+  search token returns exactly the member's record (~1 s) → same sign-in rail, no
+  name/DOB confirmation (possession of the QR = the member's app). Foreign clientKeys
+  yield no matches.
+- The physical ID / personal QR is the identity proof; `phoneVerified` is never set by
+  these paths — OTP-gated flows (rewards) still re-verify.
+- Port exclusivity: only ONE surface mounts `useLicenseScan` at a time (the kiosk shows
+  one step/screen at once; `/kiosk/admin` is a separate route). The reconnect backoff
+  covers the close/open race when surfaces hand the port off.
+
 ## What's deliberately NOT here yet
 
-- Scan semantics (what a payload triggers) — the consumer's job, later PRs.
-- Kiosk guest-flow wiring (`enabled` + `onScan` consumer à la `useGameCardDispenser`).
 - Check-in station migration (`app/admin/[token]/checkin/CheckInClient.tsx` has its own
   inline reader; `useQrScanner` covers its needs — baud override, `allowLoneGrantFallback`,
   `onScan` — when that migration is scheduled).
-- Scanner model #2 (unknown hardware; see "Adding scanner model #2").
+- Opticon hardware confirmation (the registry entry exists; every line setting awaits a
+  real unit — see its checklist above).

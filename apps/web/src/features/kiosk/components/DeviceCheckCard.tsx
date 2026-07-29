@@ -3,9 +3,10 @@
 /**
  * Shared device boot-check — the tests staff can run from the attract screen
  * AND the admin PIN gate (no auth needed; all client-side). Live-probes the
- * Game Zone reload path (LOCAL on-prem bridge vs CLOUD queue), the CRT-591
- * serial grant, and cameras; the Square reader / scanner / swipe can't be
- * live-probed here (admin token / passive HID) so they show configured state.
+ * Game Zone reload path (LOCAL on-prem bridge vs CLOUD queue), the serial
+ * grants (attributed to the CRT-591 and the COM QR scanner by saved VID/PID),
+ * and cameras; the Square reader / USB swipe can't be live-probed here
+ * (admin token / passive HID) so they show configured state.
  *
  * Renders the header + result grid only (no border/positioning) — the caller
  * supplies the container (the attract overlay wraps it with dismiss + auto-hide;
@@ -14,14 +15,17 @@
  */
 import { useEffect, useState } from "react";
 import { bridgeHealth } from "../service/game-card-bridge";
+import { cameraPermissionState, type CameraPermission } from "../camera";
 import { venueSlug, type KioskConfig } from "../config";
+import { deriveScannerCheck, getScannerModel, type SerialGrantProbe } from "../qr-scanner";
 
 type Tone = "ok" | "warn" | "dim" | "test";
 
 export function DeviceCheckCard({ config }: { config: KioskConfig | null }) {
   const [gameZone, setGameZone] = useState<"testing" | "local" | "cloud">("testing");
-  const [serial, setSerial] = useState<"testing" | "granted" | "none" | "unsupported">("testing");
+  const [serialGrants, setSerialGrants] = useState<SerialGrantProbe>("testing");
   const [cams, setCams] = useState<"testing" | number>("testing");
+  const [camPerm, setCamPerm] = useState<CameraPermission>("unknown");
 
   useEffect(() => {
     let alive = true;
@@ -38,18 +42,25 @@ export function DeviceCheckCard({ config }: { config: KioskConfig | null }) {
       }
       if (alive) setGameZone("cloud");
     })();
-    // CRT-591: a persisted serial grant needs no prompt — presence = likely wired.
+    // Serial grants: persisted grants need no prompt — presence = likely wired.
+    // Store each port's getInfo() so the CRT-591 row AND the QR-scanner row
+    // attribute grants at render time (config never enters this effect).
     void (async () => {
-      const nav = navigator as Navigator & { serial?: { getPorts(): Promise<unknown[]> } };
-      if (!nav.serial) return alive && setSerial("unsupported");
+      const nav = navigator as Navigator & {
+        serial?: { getPorts(): Promise<Array<{ getInfo(): SerialPortInfo }>> };
+      };
+      if (!nav.serial) return alive && setSerialGrants("unsupported");
       const ports = await nav.serial.getPorts().catch(() => []);
-      if (alive) setSerial(ports.length > 0 ? "granted" : "none");
+      if (alive) setSerialGrants(ports.map((p) => p.getInfo()));
     })();
-    // Cameras: count video inputs (no permission needed to count).
+    // Cameras: count video inputs (no permission needed to count) + the
+    // permission grant itself — not-granted means the guest waiver photo
+    // auto-skips, which staff should see here before a guest hits it.
     void navigator.mediaDevices
       ?.enumerateDevices()
       .then((d) => alive && setCams(d.filter((x) => x.kind === "videoinput").length))
       .catch(() => alive && setCams(0));
+    void cameraPermissionState().then((p) => alive && setCamPerm(p));
     return () => {
       alive = false;
     };
@@ -74,6 +85,22 @@ export function DeviceCheckCard({ config }: { config: KioskConfig | null }) {
       ? "MSR (reload only)"
       : "none";
   const gzConfigured = !!(config?.cardReaderEnabled || config?.msrEnabled);
+
+  // Card-device flags, derived from the shared grant probe (any grant counts —
+  // the CRT row predates per-device attribution and keeps its behavior).
+  const serial =
+    serialGrants === "testing"
+      ? "testing"
+      : serialGrants === "unsupported"
+        ? "unsupported"
+        : serialGrants.length > 0
+          ? "granted"
+          : "none";
+
+  const scannerCheck = deriveScannerCheck(config, serialGrants);
+  // Friendly model hint; an id saved by a newer build degrades to itself.
+  const scannerModel =
+    getScannerModel(config?.qrScannerModel)?.label ?? config?.qrScannerModel ?? "QR scanner";
 
   const rows: Array<{ label: string; value: string; tone: Tone }> = [
     {
@@ -115,20 +142,57 @@ export function DeviceCheckCard({ config }: { config: KioskConfig | null }) {
               ? "ok"
               : "warn",
     },
-    {
-      label: "Cameras",
-      value: cams === "testing" ? "checking…" : cams > 0 ? `${cams} detected` : "none detected",
-      tone: cams === "testing" ? "test" : cams > 0 ? "ok" : "dim",
-    },
+    (() => {
+      // A guest-photo camera is CONFIGURED but missing or not permitted →
+      // warn: the waiver photo will silently auto-skip on this kiosk.
+      const camConfigured = !!(config?.cameraUpperId || config?.cameraLowerId);
+      const permNote =
+        camPerm === "granted"
+          ? " · permission OK"
+          : camPerm === "denied"
+            ? " · BLOCKED in browser"
+            : camPerm === "prompt"
+              ? " · permission not granted"
+              : "";
+      const broken = camConfigured && (cams === 0 || camPerm === "denied" || camPerm === "prompt");
+      return {
+        label: "Cameras",
+        value:
+          cams === "testing"
+            ? "checking…"
+            : cams > 0
+              ? `${cams} detected${permNote}${broken ? " (guest photo will skip)" : ""}`
+              : `none detected${camConfigured ? " (guest photo will skip)" : ""}`,
+        tone: (cams === "testing" ? "test" : broken ? "warn" : cams > 0 ? "ok" : "dim") as Tone,
+      };
+    })(),
     {
       label: "Square reader",
       value: config?.readerId ?? "none",
       tone: config?.readerId ? "ok" : "dim",
     },
     {
-      label: "QR / barcode scanner",
-      value: config?.scannerEnabled ? "enabled (test in flow)" : "off",
-      tone: config?.scannerEnabled ? "ok" : "dim",
+      label: "QR scanner (COM)",
+      value:
+        scannerCheck === "off"
+          ? "off"
+          : scannerCheck === "testing"
+            ? "checking…"
+            : scannerCheck === "unsupported"
+              ? `${scannerModel} — no Web Serial`
+              : scannerCheck === "no-saved-port"
+                ? `${scannerModel} — no saved port yet (set up in admin)`
+                : scannerCheck === "no-match"
+                  ? `${scannerModel} — granted port not found (replug / re-grant)`
+                  : `${scannerModel} — port OK @ ${config?.qrScannerBaud ?? "default"}`,
+      tone:
+        scannerCheck === "off"
+          ? "dim"
+          : scannerCheck === "testing"
+            ? "test"
+            : scannerCheck === "matched"
+              ? "ok"
+              : "warn",
     },
     {
       label: "USB card swipe",

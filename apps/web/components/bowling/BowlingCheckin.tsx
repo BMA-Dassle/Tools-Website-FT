@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import HeadPinzNav from "@/components/headpinz/Nav";
+import BrandNav from "@/components/BrandNav";
 import type {
   BowlingReservation,
   BowlingReservationPlayer,
@@ -110,6 +110,15 @@ function formatTime(iso: string): string {
 
 // ── Mobile-optimized bowler card ─────────────────────────────────────
 
+/** Human shoe label from the stored "Category Size" string (e.g. "Male 10"). */
+function shoeLabel(shoeSize: string | null | undefined): string | null {
+  if (!shoeSize) return null;
+  const [cat, num] = shoeSize.split(" ");
+  const label =
+    cat === "Male" ? "Men's" : cat === "Female" ? "Women's" : cat === "Toddler" ? "Toddler" : cat;
+  return num ? `${label} ${num}` : label;
+}
+
 function BowlerCard({
   player,
   index,
@@ -149,11 +158,36 @@ function BowlerCard({
   const currentNum = player.shoeSize?.split(" ")[1] ?? null;
   const canPickShoes = !!player.shoeSize || shoeSizesAssigned < shoePairsAllowed;
 
+  // ── Completion + collapse ──────────────────────────────────────────
+  // A bowler is "done" once they have a name AND a bumper choice — plus a
+  // resolved shoe decision when shoes are on offer (duckpin has none, so it's
+  // just name + bumpers). Done cards collapse to a compact green-railed summary
+  // (like the sign-in step) so a big party is a short, scannable list. We only
+  // auto-collapse on the deliberate taps (bumpers / shoes), never on name
+  // keystrokes — collapsing mid-type would eat the input.
+  const nameFilled = !!(player.name && !player.name.startsWith("Bowler "));
+  const shoeResolved = shoePairsAllowed === 0 || !wantsShoes || !!player.shoeSize;
+  const complete = nameFilled && player.bumpers !== null && shoeResolved;
+  const [expanded, setExpanded] = useState(!complete);
+
+  const collapseIfReady = (over: {
+    bumpers?: boolean | null;
+    shoeSize?: string | null;
+    wantsShoes?: boolean;
+  }) => {
+    const b = over.bumpers !== undefined ? over.bumpers : player.bumpers;
+    const ws = over.wantsShoes !== undefined ? over.wantsShoes : wantsShoes;
+    const ss = over.shoeSize !== undefined ? over.shoeSize : player.shoeSize;
+    const resolved = shoePairsAllowed === 0 || !ws || !!ss;
+    if (nameFilled && b !== null && resolved) setExpanded(false);
+  };
+
   function toggleShoes(wants: boolean) {
     setWantsShoes(wants);
     if (!wants) {
       setActiveCat(null);
       onUpdate({ shoeSize: null });
+      collapseIfReady({ wantsShoes: false, shoeSize: null });
     }
   }
 
@@ -164,18 +198,62 @@ function BowlerCard({
 
   function selectSize(num: string) {
     if (!activeCat) return;
-    onUpdate({ shoeSize: `${activeCat} ${num}` });
+    const value = `${activeCat} ${num}`;
+    onUpdate({ shoeSize: value });
+    collapseIfReady({ shoeSize: value });
+  }
+
+  // ── Collapsed summary (done) ───────────────────────────────────────
+  if (complete && !expanded) {
+    const shoe = shoeLabel(player.shoeSize);
+    const detail = `Bumpers ${player.bumpers ? "On" : "Off"}${
+      shoe ? ` · ${shoe}` : shoePairsAllowed > 0 ? " · No shoes" : ""
+    }`;
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        aria-label={`Edit Bowler ${index + 1}`}
+        className="w-full rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-left flex items-center gap-3 transition-colors hover:bg-white/[0.05]"
+        style={{ borderLeft: "6px solid #4ade80" }}
+      >
+        <span
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-base font-bold"
+          style={{ backgroundColor: "rgba(74,222,128,0.15)", color: "#4ade80" }}
+          aria-hidden="true"
+        >
+          ✓
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-white font-semibold truncate">{player.name}</span>
+          <span className="block text-white/45 text-xs mt-0.5">{detail}</span>
+        </span>
+        <span className="shrink-0 text-white/35 text-xs font-bold uppercase tracking-widest">
+          Edit
+        </span>
+      </button>
+    );
   }
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5 space-y-4">
+    <div
+      className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5 space-y-4"
+      style={complete ? { borderLeft: "6px solid #4ade80" } : undefined}
+    >
       {/* Header */}
       <div className="flex items-center justify-between">
         <span className="text-white/40 text-xs font-bold uppercase tracking-widest">
           Bowler {index + 1}
         </span>
-        {player.name && !player.name.startsWith("Bowler ") && player.shoeSize && (
-          <span className="w-2.5 h-2.5 rounded-full bg-green-400 flex-shrink-0" />
+        {complete && (
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            className="text-xs font-bold uppercase tracking-widest"
+            style={{ color: "#4ade80" }}
+          >
+            Done ✓
+          </button>
         )}
       </div>
 
@@ -197,7 +275,10 @@ function BowlerCard({
             <button
               key={String(val)}
               type="button"
-              onClick={() => onUpdate({ bumpers: val })}
+              onClick={() => {
+                onUpdate({ bumpers: val });
+                collapseIfReady({ bumpers: val });
+              }}
               className="px-5 py-2.5 text-sm font-body font-semibold transition-colors min-w-[60px]"
               style={{
                 backgroundColor:
@@ -571,7 +652,7 @@ function CheckinContent() {
 
   return (
     <div style={{ backgroundColor: BG }} className="min-h-screen">
-      <HeadPinzNav />
+      <BrandNav />
 
       <main className="pt-32 sm:pt-36 pb-32 px-4 sm:px-6">
         <div className="max-w-lg mx-auto">
@@ -857,9 +938,9 @@ function CheckinContent() {
       {/* ── Sticky bottom bar — Open Lane button ── */}
       {(stage === "express" || stage === "opening") && (
         <div
-          className="fixed bottom-0 inset-x-0 p-4 pb-6"
+          className="fixed bottom-0 inset-x-0 z-50 p-4 pb-6"
           style={{
-            background: "linear-gradient(to top, #0a1628 60%, transparent)",
+            background: "linear-gradient(to top, #0a1628 78%, transparent)",
           }}
         >
           <div className="max-w-lg mx-auto">
@@ -903,7 +984,7 @@ function CheckinContent() {
 function CheckinSkeleton() {
   return (
     <div style={{ backgroundColor: BG }} className="min-h-screen">
-      <HeadPinzNav />
+      <BrandNav />
       <main className="pt-28 pb-20 px-4">
         <div className="max-w-lg mx-auto animate-pulse space-y-6">
           <div className="h-8 bg-white/5 rounded-xl w-48 mx-auto" />

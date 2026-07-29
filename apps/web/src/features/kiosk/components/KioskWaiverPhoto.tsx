@@ -10,12 +10,25 @@
  * is a PNG kept under Pandora's 1MB cap by stepping the capture size down
  * until it fits. The parent uploads (persist-first route) — capture never
  * blocks the waiver on network.
+ *
+ * Broken-camera auto-skip (owner 2026-07-26): a camera that can't deliver a
+ * picture must never strand a guest. Three failure modes are detected —
+ * permission not granted (Edge would pop its own Allow dialog, which a guest
+ * must never see; staff grants it once in admin), getUserMedia rejecting
+ * (unplugged / held by another app), and a stream that "opens" but never
+ * produces frames (dead sensor). All three show a short notice, then advance
+ * via onSkip (the photo-at-check-in marker) automatically.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { clarityEvent, clarityTag } from "~/lib/clarity";
+import { cameraPermissionState } from "../camera";
 import { useKioskConfig } from "../KioskConfigContext";
+import { useT } from "../i18n";
 
 const SIZE_STEPS = [720, 560, 448, 360]; // capture widths tried until PNG ≤ cap
 const MAX_PNG_BYTES = 950_000; // margin under Pandora's 1MB
+const AUTO_SKIP_NOTICE_MS = 3000; // long enough to read "we'll photograph you at check-in"
+const NO_FRAMES_TIMEOUT_MS = 5000; // stream open but 0×0 video after this = dead camera
 
 export function KioskWaiverPhoto({
   memberName,
@@ -30,6 +43,7 @@ export function KioskWaiverPhoto({
   /** Minors: "Skip photo". Adults: the broken-camera escape (labeled so). */
   onSkip: () => void;
 }) {
+  const t = useT();
   const { config } = useKioskConfig();
   const upper = config?.cameraUpperId ?? null;
   const lower = config?.cameraLowerId ?? null;
@@ -42,16 +56,51 @@ export function KioskWaiverPhoto({
     isMinor ? (lower ?? upper) : (upper ?? lower),
   );
   const [camError, setCamError] = useState<string | null>(null);
+  const [shotError, setShotError] = useState<string | null>(null); // snap failed — retryable
   const [countdown, setCountdown] = useState<number | null>(null);
   const [shot, setShot] = useState<string | null>(null); // data URL preview
+
+  // Camera proven broken → short notice, then advance without the photo. Fire
+  // once per mount; onSkip rides in a ref so parents' inline closures don't
+  // churn the open effect.
+  const [autoSkipping, setAutoSkipping] = useState(false);
+  const autoSkipFiredRef = useRef(false);
+  const onSkipRef = useRef(onSkip);
+  useEffect(() => {
+    onSkipRef.current = onSkip;
+  });
+  const beginAutoSkip = useCallback((reason: string) => {
+    if (autoSkipFiredRef.current) return;
+    autoSkipFiredRef.current = true;
+    // Breadcrumb for ops: which kiosks are quietly skipping guest photos.
+    clarityTag("kiosk_photo_autoskip", reason);
+    clarityEvent("kiosk:waiver:photo:autoskip");
+    setAutoSkipping(true);
+  }, []);
+  useEffect(() => {
+    if (!autoSkipping) return;
+    const timer = setTimeout(() => onSkipRef.current(), AUTO_SKIP_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [autoSkipping]);
 
   // Open (and re-open on switch) the camera stream; always stop the old one.
   useEffect(() => {
     let cancelled = false;
+    let noFramesTimer: ReturnType<typeof setTimeout> | undefined;
     const open = async () => {
       setCamError(null);
-      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+      // Guests never see the browser's own Allow dialog: unless permission is
+      // already granted (staff does that once in admin), skip the photo. On
+      // "unknown" (no Permissions API) fall through and let getUserMedia try.
+      const perm = await cameraPermissionState();
+      if (cancelled) return;
+      if (perm === "prompt" || perm === "denied") {
+        setCamError(t("waiverPhoto.err.notSetUp"));
+        beginAutoSkip(`permission:${perm}`);
+        return;
+      }
       try {
         let stream: MediaStream;
         try {
@@ -64,7 +113,7 @@ export function KioskWaiverPhoto({
           stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         }
         if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
+          stream.getTracks().forEach((track) => track.stop());
           return;
         }
         streamRef.current = stream;
@@ -72,28 +121,39 @@ export function KioskWaiverPhoto({
           videoRef.current.srcObject = stream;
           void videoRef.current.play().catch(() => {});
         }
+        // Dead-sensor watchdog: the stream "opened" but frames never arrive
+        // (videoWidth stays 0). Only fires while the <video> is mounted — a
+        // successful snap swaps it for an <img> and nulls the ref.
+        noFramesTimer = setTimeout(() => {
+          if (!cancelled && videoRef.current && videoRef.current.videoWidth === 0) {
+            setCamError(t("waiverPhoto.err.noFrames"));
+            beginAutoSkip("no-frames");
+          }
+        }, NO_FRAMES_TIMEOUT_MS);
       } catch (err) {
         if (!cancelled) {
           const name = err instanceof DOMException ? err.name : "";
           setCamError(
             name === "NotAllowedError"
-              ? "Camera blocked — Windows privacy settings must allow desktop apps to use the camera."
+              ? t("waiverPhoto.err.blocked")
               : name === "NotReadableError"
-                ? "The camera is in use by another app."
+                ? t("waiverPhoto.err.inUse")
                 : err instanceof Error
-                  ? `Camera unavailable: ${err.message}`
-                  : "Camera unavailable.",
+                  ? t("waiverPhoto.err.unavailableMsg", { msg: err.message })
+                  : t("waiverPhoto.err.unavailable"),
           );
+          beginAutoSkip(name || "getusermedia-error");
         }
       }
     };
     void open();
     return () => {
       cancelled = true;
-      streamRef.current?.getTracks().forEach((t) => t.stop());
+      clearTimeout(noFramesTimer);
+      streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     };
-  }, [activeCam]);
+  }, [activeCam, t, beginAutoSkip]);
 
   /** Snap the current frame to a PNG data URL that fits the size cap. */
   const snap = useCallback((): string | null => {
@@ -120,13 +180,14 @@ export function KioskWaiverPhoto({
 
   const startCountdown = () => {
     if (countdown != null) return;
+    setShotError(null);
     setCountdown(3);
     const tick = (n: number) => {
       if (n === 0) {
         setCountdown(null);
         const dataUrl = snap();
         if (dataUrl) setShot(dataUrl);
-        else setCamError("Couldn't take the photo — try again.");
+        else setShotError(t("waiverPhoto.err.snapFail"));
         return;
       }
       setTimeout(() => {
@@ -143,20 +204,36 @@ export function KioskWaiverPhoto({
     onCaptured(base64);
   };
 
+  // Broken camera → full-screen notice, then onSkip fires on its own. No
+  // buttons: there's nothing a guest can do about kiosk hardware.
+  if (autoSkipping) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-[900px] flex-col justify-center text-center">
+        <div className="k-display text-[52px]">{t("waiverPhoto.broken.title")}</div>
+        <p className="mt-[16px] text-[28px] text-white/70">
+          {isMinor
+            ? t("waiverPhoto.broken.minor", { name: memberName })
+            : t("waiverPhoto.broken.adult")}
+        </p>
+        {camError && <p className="mt-[12px] text-[20px] text-white/35">{camError}</p>}
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-[900px]">
-      <div className="k-display text-[52px]">Quick photo for check-in</div>
+      <div className="k-display text-[52px]">{t("waiverPhoto.title")}</div>
       <p className="mt-[10px] text-[26px] text-white/60">
         {isMinor
-          ? `A photo for ${memberName} is optional — it speeds up check-in.`
-          : `${memberName}, look at the camera — this photo verifies you at check-in.`}
+          ? t("waiverPhoto.sub.minor", { name: memberName })
+          : t("waiverPhoto.sub.adult", { name: memberName })}
       </p>
 
       <div className="relative mt-[24px] overflow-hidden rounded-[28px] border-2 border-white/15 bg-black">
         {/* Live preview (mirrored — guests expect a mirror) or the captured shot */}
         {shot ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={shot} alt="How you'll appear at check-in" className="block w-full" />
+          <img src={shot} alt={t("waiverPhoto.previewAlt")} className="block w-full" />
         ) : (
           <video
             ref={videoRef}
@@ -174,9 +251,9 @@ export function KioskWaiverPhoto({
         )}
       </div>
 
-      {camError && (
+      {(camError || shotError) && (
         <div className="mt-[16px] rounded-2xl border border-amber-400/40 bg-amber-400/10 px-[24px] py-[16px] text-[24px] text-amber-100">
-          {camError}
+          {camError ?? shotError}
         </div>
       )}
 
@@ -189,7 +266,7 @@ export function KioskWaiverPhoto({
               className="k-btn-primary k-tap"
               style={{ flex: "0 0 auto" }}
             >
-              Use this photo
+              {t("waiverPhoto.use")}
             </button>
             <button
               type="button"
@@ -197,7 +274,7 @@ export function KioskWaiverPhoto({
               className="k-btn-ghost k-tap"
               style={{ flex: "0 0 auto" }}
             >
-              Retake
+              {t("waiverPhoto.retake")}
             </button>
           </>
         ) : (
@@ -209,7 +286,7 @@ export function KioskWaiverPhoto({
               className="k-btn-primary k-tap"
               style={{ flex: "0 0 auto" }}
             >
-              Take photo
+              {t("waiverPhoto.take")}
             </button>
             {hasBoth && (
               <button
@@ -218,7 +295,7 @@ export function KioskWaiverPhoto({
                 className="k-btn-ghost k-tap"
                 style={{ flex: "0 0 auto" }}
               >
-                Switch camera (higher / lower)
+                {t("waiverPhoto.switch")}
               </button>
             )}
           </>
@@ -230,7 +307,7 @@ export function KioskWaiverPhoto({
           onClick={onSkip}
           className="mx-auto mt-[4px] text-[22px] text-white/40 underline-offset-4 hover:underline"
         >
-          {isMinor ? "Skip the photo" : "Camera isn't working — take my photo at check-in"}
+          {isMinor ? t("waiverPhoto.skip.minor") : t("waiverPhoto.skip.adult")}
         </button>
       </div>
     </div>

@@ -12,12 +12,14 @@ import {
 import { nextCancelAttempt } from "@/lib/reservation-cancel-log";
 import {
   classifyMoney,
+  gameZoneCents,
   guardActorOutcome,
   guardCustomerCutoff,
   guardDayofOrder,
   guardRefundTotal,
   legLabel,
   tenderRefundsNeeded,
+  type TenderRefund,
 } from "./guards";
 import { fetchGiftCardFacts, fetchOrderFacts, fetchPaymentFacts } from "./square-actions";
 import {
@@ -89,7 +91,7 @@ export async function buildCancelPlan(req: CancelRequest): Promise<BuildPlanResu
     outcome = (anchor.cancellationOutcome as CancelOutcome | undefined) ?? "none";
   }
   let amountCents = 0;
-  let refundsNeeded: Array<{ paymentId: string; amountCents: number }> = [];
+  let refundsNeeded: TenderRefund[] = [];
   let existingStoreCredit: CancelPlan["existingStoreCredit"];
 
   if (moneyClass === "funded" && moneyLeg?.squareGiftCardId) {
@@ -101,6 +103,11 @@ export async function buildCancelPlan(req: CancelRequest): Promise<BuildPlanResu
       facts.depositOrder = {
         id: dep.id,
         tenders: [...dep.tenders].sort((a, b) => (a.paymentId < b.paymentId ? -1 : 1)),
+        // Kiosk Game Zone cards ride the deposit order as extra ITEM lines: the
+        // reader payment covers deposit + cards, but the internal gift card
+        // holds the deposit only. Their total is excluded from refunds — the
+        // guest keeps the cards (owner 2026-07-26).
+        gameZoneCents: gameZoneCents(dep.lineItems),
       };
       for (const t of facts.depositOrder.tenders) {
         facts.payments[t.paymentId] = await fetchPaymentFacts(t.paymentId);
@@ -133,7 +140,13 @@ export async function buildCancelPlan(req: CancelRequest): Promise<BuildPlanResu
             known.add(paymentId);
             const pay = await fetchPaymentFacts(paymentId);
             facts.payments[paymentId] = pay;
-            facts.depositOrder.tenders.push({ paymentId, amountCents: pay.amountCents });
+            // editTopup: edits never sell Game Zone cards, so the gz exclusion
+            // must not land on these tenders.
+            facts.depositOrder.tenders.push({
+              paymentId,
+              amountCents: pay.amountCents,
+              editTopup: true,
+            });
           }
         }
       } catch (err) {
@@ -147,6 +160,14 @@ export async function buildCancelPlan(req: CancelRequest): Promise<BuildPlanResu
     refundsNeeded = tenderRefundsNeeded(facts);
     const neededCents = refundsNeeded.reduce((s, r) => s + r.amountCents, 0);
     const priorRefundCents = Object.values(facts.payments).reduce((s, p) => s + p.refundedCents, 0);
+
+    const gzCents = facts.depositOrder?.gameZoneCents ?? 0;
+    if (gzCents > 0) {
+      warnings.push(
+        `Game Zone cards ($${(gzCents / 100).toFixed(2)}) purchased with this booking stay ` +
+          `with the guest — that amount is not refunded or credited.`,
+      );
+    }
 
     if (outcome === "refund") {
       if (neededCents > 0) {
@@ -170,6 +191,34 @@ export async function buildCancelPlan(req: CancelRequest): Promise<BuildPlanResu
       }
     } else if (outcome === "store_credit") {
       const sc = legs.find((l) => l.storeCreditGiftCardId);
+
+      // An EDIT-issued store credit lives in the SAME store_credit_* columns
+      // this planner reads. Left unchecked, the branch below would treat an
+      // item refund's card as "the cancel's store credit, already issued" and
+      // report its (small) cents as the cancel amount — silently stranding the
+      // rest of the deposit. The two are not interchangeable: the edit's card
+      // settled a partial refund, while the cancel still owes the internal
+      // gift card's remaining balance. Refuse rather than under-credit;
+      // supporting it properly means computing state as
+      // (original − item refunds), which lands with the MID-decrease work.
+      if (sc?.storeCreditGiftCardId) {
+        const { listEditEventsByAnchors } = await import("@/lib/reservation-edit-log");
+        const editEvents = await listEditEventsByAnchors(legs.map((l) => l.id));
+        const editIssued = editEvents.some(
+          (e) => e.state === "completed" && e.storeCreditGiftCardId === sc.storeCreditGiftCardId,
+        );
+        if (editIssued) {
+          throw new CancelGuardError(
+            "amount_mismatch",
+            `Store credit card ${sc.storeCreditGiftCardGan ?? sc.storeCreditGiftCardId} was issued ` +
+              `by a reservation EDIT, not by a cancellation — reusing it here would credit only ` +
+              `that edit's amount and strand the rest of the deposit. Handle this cancel manually ` +
+              `in Square.`,
+            409,
+          );
+        }
+      }
+
       if (sc?.storeCreditGiftCardId && sc.storeCreditGiftCardGan) {
         existingStoreCredit = {
           giftCardId: sc.storeCreditGiftCardId,
@@ -238,7 +287,9 @@ export async function buildCancelPlan(req: CancelRequest): Promise<BuildPlanResu
         kind: "refund_tender",
         fatal: true,
         target: r.paymentId,
-        detail: `Refund ${D(r.amountCents)} to the original card (payment ${r.paymentId})`,
+        detail:
+          `Refund ${D(r.amountCents)} to the original card (payment ${r.paymentId})` +
+          (r.partial ? ` — Game Zone card purchase stays with the guest` : ""),
         amountCents: r.amountCents,
       });
     }

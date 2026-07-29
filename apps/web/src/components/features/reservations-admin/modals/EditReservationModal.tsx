@@ -87,11 +87,18 @@ export default function EditReservationModal({
   token,
   onClose,
   onDone,
+  intent = "edit",
 }: {
   reservation: Reservation;
   token: string;
   onClose: () => void;
   onDone: (msg: string) => void;
+  /**
+   * Which door the operator came through. "refund" is the same engine and the
+   * same server contract — it only drops the grow-the-booking affordances,
+   * which on an already-paid order can't settle anywhere useful.
+   */
+  intent?: "edit" | "refund";
 }) {
   const [phase, setPhase] = useState<"loading" | "edit" | "busy" | "success" | "blocked" | "error">(
     "loading",
@@ -99,6 +106,12 @@ export default function EditReservationModal({
   const [form, setForm] = useState<EditFormState>(emptyForm);
   const [current, setCurrent] = useState<EditCurrentState | null>(null);
   const [refundDest, setRefundDest] = useState<EditSettlement | null>(null);
+  /**
+   * Reason recorded on the DAY-OF Square refund. Deliberately NOT the deposit
+   * leg's "Refund: Reservation Deposit" — that string is the accounting
+   * portal's journal key, and one economic refund moves money twice.
+   */
+  const [dayofRefundReason, setDayofRefundReason] = useState("");
   const [notifyGuest, setNotifyGuest] = useState(true);
   /** Post-complete: the mount probe demanded a manager acknowledgment. */
   const [ackRequired, setAckRequired] = useState(false);
@@ -124,8 +137,17 @@ export default function EditReservationModal({
 
   const isCombo = !!reservation.comboSpecialId;
   const isRace = reservation.productKind === "race" || reservation.productKind === "attraction";
-  const bowlingEditable = !isCombo && !isRace;
-  const racersEditable = isRace || isCombo;
+  /**
+   * Refunding a settled visit is NOT editing it. The guest was here — the
+   * roster, lane count and heats are history and cannot change (QAMF/BMI are
+   * not synced and the paid order's lines are frozen). Showing player and shoe
+   * steppers invites staff to "fix" a booking that already happened, and it
+   * split one action across two controls: shoes via the Shoes stepper, fees via
+   * the day-of list. So refund intent renders exactly one thing — the day-of
+   * order's own lines with quantities, which is what the guest was charged from.
+   */
+  const bowlingEditable = intent !== "refund" && !isCombo && !isRace;
+  const racersEditable = intent !== "refund" && (isRace || isCombo);
 
   const basePlayerCount = current?.playerCount ?? reservation.playerCount ?? 1;
   const effPlayerCount = form.playerCount ?? basePlayerCount;
@@ -149,6 +171,13 @@ export default function EditReservationModal({
     ) => {
       const r = await requestPlan(quoteSpec, opts);
       if (r.kind === "plan") setCurrent(r.plan.current);
+      // no_changes is the healthy "editable, nothing changed yet" answer and it
+      // carries `current` — hydrate from it so the form (and on a settled
+      // reservation, the day-of order lines that ARE the refund control) is
+      // populated the moment the modal opens.
+      else if (r.kind === "error" && r.error.code === "no_changes" && r.error.data?.current) {
+        setCurrent(r.error.data.current);
+      }
       return r;
     },
     [requestPlan],
@@ -267,6 +296,7 @@ export default function EditReservationModal({
         managerOverride,
         planHash: hash,
         notifyGuest,
+        dayofRefundReason: dayofRefundReason.trim() || undefined,
       });
       if (res.kind === "result") {
         setResult(res.result);
@@ -282,6 +312,7 @@ export default function EditReservationModal({
       acked,
       spec,
       notifyGuest,
+      dayofRefundReason,
       requestQuote,
       execute,
       handleExecuteFailure,
@@ -352,8 +383,15 @@ export default function EditReservationModal({
     refundDest,
     needsManagerAck: needsAck,
     managerAcked: acked,
+    dayofRefundReason,
   });
   const busy = phase === "busy";
+  // The day-of leg only exists once the order is paid. Its refund carries a
+  // staff-written reason (the deposit journal key is reserved for the cash
+  // leg), and the server refuses without one — so ask for it here.
+  const needsDayofReason = (plan?.steps ?? []).some(
+    (s) => s.kind === "refund_dayof_payment" || s.kind === "refund_dayof_order",
+  );
   const managerWarnings = (plan?.warnings ?? []).filter((w) => w.severity === "manager");
   const otherWarnings = (plan?.warnings ?? []).filter((w) => w.severity !== "manager");
   const displayHeats: Array<{ index: number; label: string }> = current
@@ -474,7 +512,11 @@ export default function EditReservationModal({
         }}
       >
         <h3 style={{ fontSize: "1rem", fontWeight: 700, color: ACCENT, margin: 0 }}>
-          {isCombo ? "Edit VIP Combo — racers" : "Edit Reservation"}
+          {intent === "refund"
+            ? "Refund Reservation"
+            : isCombo
+              ? "Edit VIP Combo — racers"
+              : "Edit Reservation"}
         </h3>
         <button
           type="button"
@@ -817,78 +859,191 @@ export default function EditReservationModal({
                   ))}
                 </>
               )}
-              <div style={{ ...SECTION_TITLE, marginTop: displayHeats.length > 0 ? 12 : 0 }}>
-                Add racers
-              </div>
-              {form.addRacers.map((row, i) => (
-                <div
-                  key={i}
-                  style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}
-                >
-                  <input
-                    value={row.firstName}
-                    placeholder="First name"
-                    disabled={busy}
-                    onChange={(e) => patchRacerRow(i, { firstName: e.target.value })}
-                    style={{ ...SMALL_INPUT, flex: 1, minWidth: 0 }}
-                  />
-                  <select
-                    value={row.category}
-                    disabled={busy}
-                    onChange={(e) =>
-                      patchRacerRow(i, {
-                        category: e.target.value === "junior" ? "junior" : "adult",
-                      })
-                    }
-                    style={{ ...SMALL_INPUT, width: 84 }}
-                  >
-                    <option value="adult">Adult</option>
-                    <option value="junior">Junior</option>
-                  </select>
-                  <label
-                    style={{
-                      display: "flex",
-                      gap: 4,
-                      alignItems: "center",
-                      fontSize: "0.68rem",
-                      color: "var(--ba-muted)",
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
-                    }}
+              {/* Refund intent hides this whole block (racersEditable), so no
+                  extra guard here — growing a settled booking is an INCREASE,
+                  which means rebuilding a frozen order, not a refund. */}
+              <>
+                <div style={{ ...SECTION_TITLE, marginTop: displayHeats.length > 0 ? 12 : 0 }}>
+                  Add racers
+                </div>
+                {form.addRacers.map((row, i) => (
+                  <div
+                    key={i}
+                    style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}
                   >
                     <input
-                      type="checkbox"
-                      checked={row.isNew}
+                      value={row.firstName}
+                      placeholder="First name"
                       disabled={busy}
-                      onChange={(e) => patchRacerRow(i, { isNew: e.target.checked })}
+                      onChange={(e) => patchRacerRow(i, { firstName: e.target.value })}
+                      style={{ ...SMALL_INPUT, flex: 1, minWidth: 0 }}
                     />
-                    new racer
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => dropRacerRow(i)}
-                    disabled={busy}
-                    aria-label="Remove row"
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: "var(--ba-muted)",
-                      cursor: "pointer",
-                      fontSize: "1rem",
-                    }}
-                  >
-                    &times;
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                style={{ ...NAV_BTN, fontSize: "0.72rem" }}
-                disabled={busy}
-                onClick={addRacerRow}
-              >
-                + Add racer
-              </button>
+                    <select
+                      value={row.category}
+                      disabled={busy}
+                      onChange={(e) =>
+                        patchRacerRow(i, {
+                          category: e.target.value === "junior" ? "junior" : "adult",
+                        })
+                      }
+                      style={{ ...SMALL_INPUT, width: 84 }}
+                    >
+                      <option value="adult">Adult</option>
+                      <option value="junior">Junior</option>
+                    </select>
+                    <label
+                      style={{
+                        display: "flex",
+                        gap: 4,
+                        alignItems: "center",
+                        fontSize: "0.68rem",
+                        color: "var(--ba-muted)",
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={row.isNew}
+                        disabled={busy}
+                        onChange={(e) => patchRacerRow(i, { isNew: e.target.checked })}
+                      />
+                      new racer
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => dropRacerRow(i)}
+                      disabled={busy}
+                      aria-label="Remove row"
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "var(--ba-muted)",
+                        cursor: "pointer",
+                        fontSize: "1rem",
+                      }}
+                    >
+                      &times;
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  style={{ ...NAV_BTN, fontSize: "0.72rem" }}
+                  disabled={busy}
+                  onClick={addRacerRow}
+                >
+                  + Add racer
+                </button>
+              </>
+            </div>
+          )}
+
+          {/* ── Day-of order lines ──
+               Kind-agnostic ON PURPOSE. The server decides per line what may
+               be touched (`editable`, one rule shared with applyOrderLineSpec),
+               so this renders wherever the live order has a returnable line —
+               food on a bowling order, a race pack on a racing order. Gating it
+               to bowling hid the ONLY refund control a settled race has: its
+               heats can't be repriced off a frozen order, but the pack line can
+               be returned, which is exactly what a refund is. */}
+          {current && current.orderLines.some((l) => l.editable) && (
+            <div style={SECTION}>
+              <div style={SECTION_TITLE}>
+                {intent === "refund" ? "What are you refunding?" : "Charges on the day-of order"}
+              </div>
+              <div style={{ fontSize: "0.7rem", color: "var(--ba-muted)", marginBottom: 6 }}>
+                {intent === "refund"
+                  ? "Add the quantity you want to refund on each line, up to what the guest was charged for."
+                  : "Set a quantity to 0 to return that line and refund it."}
+              </div>
+              {current.orderLines
+                .filter((l) => l.editable)
+                .map((l) => {
+                  // The engine's contract is the DESIRED END STATE — how many of
+                  // this line survive. On a refund screen that reads backwards
+                  // ("set 2 to refund 1"), so refund intent counts UP from zero:
+                  // the number shown IS the quantity being refunded. Only the
+                  // display and the handler invert; the spec still carries the
+                  // remaining quantity, so buildSpec and the server are unchanged.
+                  const remaining = form.orderLines?.[l.uid] ?? l.quantity;
+                  const refunding = intent === "refund";
+                  const shown = refunding ? l.quantity - remaining : remaining;
+                  const setShown = (next: number) => {
+                    const clamped = Math.min(l.quantity, Math.max(0, next));
+                    setForm((f) => ({
+                      ...f,
+                      orderLines: {
+                        ...(f.orderLines ?? {}),
+                        [l.uid]: refunding ? l.quantity - clamped : clamped,
+                      },
+                    }));
+                  };
+                  return (
+                    <div
+                      key={l.uid}
+                      style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}
+                    >
+                      <button
+                        type="button"
+                        aria-label={refunding ? `Refund one fewer ${l.name}` : `Decrease ${l.name}`}
+                        style={STEP_BTN}
+                        disabled={busy || shown <= 0}
+                        onClick={() => setShown(shown - 1)}
+                      >
+                        −
+                      </button>
+                      <span
+                        style={{
+                          fontWeight: 700,
+                          fontSize: "0.95rem",
+                          minWidth: 24,
+                          textAlign: "center",
+                          color: refunding && shown > 0 ? "#ef4444" : undefined,
+                        }}
+                      >
+                        {shown}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label={refunding ? `Refund one more ${l.name}` : `Increase ${l.name}`}
+                        style={STEP_BTN}
+                        disabled={busy || shown >= l.quantity}
+                        onClick={() => setShown(shown + 1)}
+                      >
+                        +
+                      </button>
+                      <span style={{ fontSize: "0.75rem" }}>
+                        {l.name}{" "}
+                        <span style={{ color: "var(--ba-muted)" }}>
+                          ${(l.unitPriceCents / 100).toFixed(2)} ea
+                          {refunding
+                            ? ` · ${l.quantity} on the bill${
+                                shown > 0 ? ` — refunding ${shown}` : ""
+                              }`
+                            : shown === 0
+                              ? " — will be returned"
+                              : ""}
+                        </span>
+                      </span>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+
+          {/* Refund intent renders only the list above, so say something when it
+              is empty rather than showing a modal with nothing in it. */}
+          {intent === "refund" && current && !current.orderLines.some((l) => l.editable) && (
+            <div style={{ ...SECTION, fontSize: "0.78rem", lineHeight: 1.6 }}>
+              <div style={SECTION_TITLE}>What are you refunding?</div>
+              <div style={{ color: "var(--ba-muted)" }}>
+                Nothing on this visit&rsquo;s day-of order can be refunded from here
+                {current.orderLines.length > 0
+                  ? " — every line on it is $0.00 (shoe-size markers and comped items carry no money)."
+                  : " — the order has no line items."}{" "}
+                Refund it in Square directly.
+              </div>
             </div>
           )}
 
@@ -1112,6 +1267,42 @@ export default function EditReservationModal({
                       "HeadPinz FastTrax Gift Card",
                       `Issue a ${dollars(-plan.diffCents)} HeadPinz FastTrax Gift Card the guest can spend online or in center.`,
                       "#22c55e",
+                    )}
+
+                    {needsDayofReason && (
+                      <div style={{ marginTop: 10 }}>
+                        <label
+                          htmlFor="dayof-refund-reason"
+                          style={{
+                            display: "block",
+                            fontSize: "0.75rem",
+                            fontWeight: 700,
+                            marginBottom: 4,
+                          }}
+                        >
+                          Why is this being refunded?
+                        </label>
+                        <input
+                          id="dayof-refund-reason"
+                          type="text"
+                          value={dayofRefundReason}
+                          disabled={busy}
+                          maxLength={120}
+                          placeholder="e.g. Pizza returned unmade — lane 6"
+                          onChange={(e) => setDayofRefundReason(e.target.value)}
+                          style={{ ...SMALL_INPUT, width: "100%" }}
+                        />
+                        <div
+                          style={{
+                            fontSize: "0.68rem",
+                            color: "var(--ba-muted)",
+                            marginTop: 4,
+                          }}
+                        >
+                          Recorded on the Square refund for the day-of charge and read by
+                          accounting. Required.
+                        </div>
+                      </div>
                     )}
                   </>
                 )}

@@ -8,6 +8,7 @@
  */
 import { useState } from "react";
 import { ageFromDob, formatDobInput, formatPhoneInput, toIsoDob } from "./join-helpers";
+import { useT } from "../../i18n";
 
 export interface NewGuestFields {
   firstName: string;
@@ -29,6 +30,7 @@ const inputClass =
 const labelClass = "mb-1 block text-sm font-semibold text-white/70";
 
 export function NewGuestForm({ busy, onSubmit, onMinor, onBack }: Props) {
+  const t = useT();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [dob, setDob] = useState("");
@@ -39,12 +41,12 @@ export function NewGuestForm({ busy, onSubmit, onMinor, onBack }: Props) {
   const submit = () => {
     if (busy) return;
     if (!firstName.trim() || !lastName.trim()) {
-      setError("Enter your first and last name.");
+      setError(t("join.err.name"));
       return;
     }
     const age = ageFromDob(dob);
     if (age === null) {
-      setError("Enter your birthday as MM/DD/YYYY.");
+      setError(t("join.err.dob"));
       return;
     }
     if (age < 18) {
@@ -53,11 +55,11 @@ export function NewGuestForm({ busy, onSubmit, onMinor, onBack }: Props) {
     }
     const digits = phone.replace(/\D/g, "");
     if (digits.length < 10) {
-      setError("Enter your mobile phone number.");
+      setError(t("join.err.phone"));
       return;
     }
     if (email.trim() && !email.includes("@")) {
-      setError("That email doesn't look right — or leave it blank.");
+      setError(t("join.err.email"));
       return;
     }
     setError(null);
@@ -82,7 +84,7 @@ export function NewGuestForm({ busy, onSubmit, onMinor, onBack }: Props) {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label htmlFor="join-first" className={labelClass}>
-            First name
+            {t("join.firstName")}
           </label>
           <input
             id="join-first"
@@ -96,7 +98,7 @@ export function NewGuestForm({ busy, onSubmit, onMinor, onBack }: Props) {
         </div>
         <div>
           <label htmlFor="join-last" className={labelClass}>
-            Last name
+            {t("join.lastName")}
           </label>
           <input
             id="join-last"
@@ -111,7 +113,7 @@ export function NewGuestForm({ busy, onSubmit, onMinor, onBack }: Props) {
       </div>
       <div>
         <label htmlFor="join-dob" className={labelClass}>
-          Birthday
+          {t("join.birthday")}
         </label>
         <input
           id="join-dob"
@@ -126,7 +128,7 @@ export function NewGuestForm({ busy, onSubmit, onMinor, onBack }: Props) {
       </div>
       <div>
         <label htmlFor="join-phone" className={labelClass}>
-          Mobile phone
+          {t("join.mobilePhone")}
         </label>
         <input
           id="join-phone"
@@ -142,7 +144,7 @@ export function NewGuestForm({ busy, onSubmit, onMinor, onBack }: Props) {
       </div>
       <div>
         <label htmlFor="join-email" className={labelClass}>
-          Email <span className="font-normal text-white/40">(optional)</span>
+          {t("join.email")} <span className="font-normal text-white/40">{t("join.optional")}</span>
         </label>
         <input
           id="join-email"
@@ -166,7 +168,7 @@ export function NewGuestForm({ busy, onSubmit, onMinor, onBack }: Props) {
         disabled={busy}
         className="w-full rounded-xl bg-[var(--accent)] px-4 py-3 text-base font-bold text-[#04252b] disabled:opacity-50"
       >
-        {busy ? "Setting you up…" : "Continue to waiver"}
+        {busy ? t("join.settingUp") : t("join.continueToWaiver")}
       </button>
       <button
         type="button"
@@ -174,7 +176,7 @@ export function NewGuestForm({ busy, onSubmit, onMinor, onBack }: Props) {
         disabled={busy}
         className="w-full py-2 text-center text-sm text-white/40"
       >
-        ← Back
+        ← {t("join.back")}
       </button>
     </form>
   );

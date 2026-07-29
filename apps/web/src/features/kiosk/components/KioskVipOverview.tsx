@@ -9,6 +9,7 @@
  * Authored to the fixed 1080×1920 canvas. KioskFlow wraps this in its chrome
  * with the VIP photo backdrop.
  */
+import type { Brand } from "~/features/booking";
 import type { ComboLeg, ComboSpecial } from "~/features/combos";
 import {
   comboPriceCentsForDate,
@@ -16,35 +17,47 @@ import {
   comboStartHoursLabel,
 } from "~/features/combos/combo-specials";
 import { todayYmd } from "../service/first-available";
-import { KIOSK_LOGOS } from "../assets";
+import { BrandLogo } from "./BrandLogo";
+import { useT, useLocale, type Translate } from "../i18n";
 
-const ATTRACTION_LABEL: Record<string, string> = {
-  "gel-blaster": "Gel Blaster",
-  "laser-tag": "Laser Tag",
-  "duck-pin": "Duckpin Bowling",
-  shuffly: "Shuffleboard",
-};
+function attractionLabel(slug: string, t: Translate): string {
+  switch (slug) {
+    case "gel-blaster":
+      return t("vip.attraction.gelBlaster");
+    case "laser-tag":
+      return t("vip.attraction.laserTag");
+    case "duck-pin":
+      return t("vip.attraction.duckpin");
+    case "shuffly":
+      return t("vip.attraction.shuffleboard");
+    default:
+      return t("vip.attraction.generic");
+  }
+}
 
-function legLabel(leg: ComboLeg): { title: string; sub: string } {
+function legLabel(leg: ComboLeg, t: Translate): { title: string; sub: string } {
   if (leg.kind === "race") {
+    // `tier` is a data value (Starter/Pro/…) and stays as returned.
     const tier = leg.tier.charAt(0).toUpperCase() + leg.tier.slice(1);
-    return { title: `${tier} Race`, sub: "Suit up, helmet on, hit the track" };
+    return { title: t("vip.leg.race.title", { tier }), sub: t("vip.leg.race.sub") };
   }
   if (leg.kind === "bowling") {
     return {
-      title: `${leg.durationMinutes}-Min ${leg.vip ? "VIP " : ""}Bowling`,
-      sub: leg.vip ? "Your own semi-private suite" : "Lanes reserved for your group",
+      title: t(leg.vip ? "vip.leg.bowling.titleVip" : "vip.leg.bowling.title", {
+        min: leg.durationMinutes,
+      }),
+      sub: t(leg.vip ? "vip.leg.bowling.subVip" : "vip.leg.bowling.sub"),
     };
   }
-  return { title: ATTRACTION_LABEL[leg.slug] ?? "Attraction", sub: "Included in your experience" };
+  return { title: attractionLabel(leg.slug, t), sub: t("vip.leg.attraction.sub") };
 }
 
 /** Which venue (brand) each leg happens at — racing is FastTrax, bowling +
  *  attractions are HeadPinz. Shown as a logo on the leg so guests know where to
  *  walk for each step (owner 2026-07-19). */
-function legVenue(leg: ComboLeg): { logo: string; name: string } {
-  if (leg.kind === "race") return { logo: KIOSK_LOGOS.fasttrax, name: "FastTrax" };
-  return { logo: KIOSK_LOGOS.headpinz, name: "HeadPinz" };
+function legVenue(leg: ComboLeg): { brand: Brand; name: string } {
+  if (leg.kind === "race") return { brand: "fasttrax", name: "FastTrax" };
+  return { brand: "headpinz", name: "HeadPinz" };
 }
 
 export function KioskVipOverview({
@@ -59,48 +72,56 @@ export function KioskVipOverview({
   onStart: () => void;
   onBack: () => void;
 }) {
+  const t = useT();
+  const { locale } = useLocale();
   const perPerson = comboPriceCentsForDate(combo, todayYmd());
   const minHead = comboMinHeadcount(combo);
-  const included = combo.includes ?? [];
+  // Combo marketing copy is data (combo-specials.ts); in Spanish, prefer the
+  // per-field `es` overrides, falling back to English per field.
+  const cEs = locale === "es" ? combo.es : undefined;
+  const included = cEs?.includes ?? combo.includes ?? [];
+  const durationLabel = cEs?.durationLabel ?? combo.durationLabel;
+  const description =
+    cEs?.longDescription ??
+    cEs?.shortDescription ??
+    combo.longDescription ??
+    combo.shortDescription;
 
   return (
     <>
       <div className="k-flow-head">
         <div className="k-fh-top">
           <span className="k-eyebrow" style={{ color: "#e8b14c" }}>
-            Experience
+            {t("vip.eyebrow")}
           </span>
-          {combo.durationLabel ? (
+          {durationLabel ? (
             <span className="k-chip" style={{ height: 60, fontSize: 24 }}>
-              {combo.durationLabel}
+              {durationLabel}
             </span>
           ) : null}
         </div>
         <h1 className="k-display k-fh-title mt-[16px]">{combo.name}</h1>
         <div className="mt-[12px] text-[26px] font-semibold text-white/70 tabular-nums">
-          ${(combo.price.weekday / 100).toFixed(0)}/person Mon–Thu · $
-          {(combo.price.weekend / 100).toFixed(0)}/person Fri–Sun
+          {t("vip.priceLine", {
+            weekday: `$${(combo.price.weekday / 100).toFixed(0)}`,
+            weekend: `$${(combo.price.weekend / 100).toFixed(0)}`,
+          })}
         </div>
         {/* Estimated start times (owner 2026-07-18) — registry-driven, so a
             future combo with different hours self-updates. */}
         {combo.startHours?.length ? (
           <div className="mt-[8px] text-[26px] font-semibold text-[#e8b14c] tabular-nums">
-            Estimated start times: {comboStartHoursLabel(combo)}
+            {t("vip.startTimes", { times: comboStartHoursLabel(combo) })}
           </div>
         ) : null}
       </div>
 
       <div className="k-flow-body">
-        <p className="mb-[28px] text-[28px] text-white/60">
-          {combo.longDescription || combo.shortDescription}
-        </p>
-        <p className="mb-[20px] text-[24px] text-white/45">
-          Your afternoon, step by step — the logo shows where each part happens. Racer accounts
-          &amp; waivers are set up right here.
-        </p>
+        <p className="mb-[28px] text-[28px] text-white/60">{description}</p>
+        <p className="mb-[20px] text-[24px] text-white/45">{t("vip.stepByStep")}</p>
         <div className="relative space-y-[20px]">
           {combo.components.map((leg, i) => {
-            const { title, sub } = legLabel(leg);
+            const { title, sub } = legLabel(leg, t);
             const venue = legVenue(leg);
             return (
               <div key={i} className="flex items-stretch gap-[24px]">
@@ -118,14 +139,14 @@ export function KioskVipOverview({
                     <div className="mt-[6px] text-[26px] text-white/55">{sub}</div>
                   </div>
                   <div className="flex shrink-0 flex-col items-center gap-[6px]">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={venue.logo}
+                    <BrandLogo
+                      brand={venue.brand}
                       alt={venue.name}
                       className="h-[52px] w-[104px] object-contain"
+                      fallbackClassName="k-display text-[24px] leading-none text-white/90"
                     />
                     <span className="text-[18px] uppercase tracking-widest text-white/40">
-                      at {venue.name}
+                      {t("vip.atVenue", { venue: venue.name })}
                     </span>
                   </div>
                 </div>
@@ -136,7 +157,7 @@ export function KioskVipOverview({
 
         {included.length > 0 && (
           <div className="k-glass mt-[28px] p-[28px]">
-            <div className="k-eyebrow mb-[16px] text-[#46d68c]">All included in the price</div>
+            <div className="k-eyebrow mb-[16px] text-[#46d68c]">{t("vip.allIncluded")}</div>
             <div className="grid grid-cols-2 gap-x-[24px] gap-y-[12px]">
               {included.map((inc, i) => (
                 <div key={i} className="flex items-start gap-[12px] text-[24px] text-white/75">
@@ -150,14 +171,14 @@ export function KioskVipOverview({
 
         {minHead > 1 && (
           <p className="mt-[24px] text-center text-[24px] text-[#e8b14c]/80">
-            This experience is for {minHead}+ guests.
+            {t("vip.minGuests", { count: minHead })}
           </p>
         )}
       </div>
 
       <div className="k-z-actions">
         <button type="button" onClick={onBack} className="k-btn-ghost k-tap">
-          Back
+          {t("vip.back")}
         </button>
         <button
           type="button"
@@ -167,11 +188,11 @@ export function KioskVipOverview({
         >
           {available ? (
             <>
-              <span className="k-num">${(perPerson / 100).toFixed(0)}</span>/person · Let&rsquo;s
-              set it up
+              <span className="k-num">${(perPerson / 100).toFixed(0)}</span>
+              {t("vip.perPersonSetUp")}
             </>
           ) : (
-            "Not available right now"
+            t("vip.notAvailable")
           )}
         </button>
       </div>

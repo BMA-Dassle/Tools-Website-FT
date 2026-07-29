@@ -11,6 +11,7 @@
  */
 
 import type { PandoraCenterKey } from "@/lib/pandora-locations";
+import { getWaiverLang } from "@/lib/waiver-lang";
 
 // ── Person types ─────────────────────────────────────────────────────────────
 
@@ -35,6 +36,10 @@ export interface PandoraWaiverStatus {
   personId: string;
   firstName?: string;
   lastName?: string;
+  /** Contact on file — the GET route returns these; used to resolve a short id
+   *  for a returning racer added with no local phone/email. */
+  email?: string | null;
+  phone?: string | null;
   birthdate?: string | null;
   waiverExpiry?: string | null;
   lastVisit?: string | null;
@@ -50,7 +55,10 @@ export interface PandoraWaiverTemplate {
   /** Used when signing the waiver */
   contentID: string;
   name: string;
-  /** Duration in days */
+  /** Duration in YEARS — BMI template semantics. All three locations return 1;
+   *  desk-signed waivers carry ~1-year expiries. (Live-verified 2026-07-25:
+   *  treating this as days stamped every web/kiosk waiver with a next-morning
+   *  expiry.) */
   duration: number;
   /** HTML body of the waiver text */
   body: string;
@@ -107,10 +115,16 @@ export async function pandoraCreatePerson(
   input: PandoraPersonCreateInput,
 ): Promise<PandoraPersonCreateResult> {
   // Retry on cold-start: the Pandora API (Azure App Service) 5xx's / times out on
-  // the first request after idle. Create is upsert-style (a known person resolves
-  // to the same personId), so retrying a 5xx is safe and avoids the onboard
-  // throwing — which previously left the guest stuck on the name step, unable to
-  // advance to the booking screen. 4xx (real client error) is NOT retried.
+  // the first request after idle; without the retry the onboard threw and left
+  // the guest stuck on the name step. 4xx (real client error) is NOT retried.
+  //
+  // HONEST RISK NOTE (2026-07-25, Strachan incident): create is NOT a reliable
+  // upsert — Pandora can mint a DUPLICATE person (proven: 8 records for one
+  // kid). A write-then-5xx here means the retry itself may create a duplicate.
+  // We accept that rare case to keep cold-start onboarding alive; what is NOT
+  // acceptable is calling create again for someone who already has an id —
+  // callers must store the returned personId and never re-create (see the
+  // short-id guards in KioskPeopleStep/KioskPartyManager submitSetup).
   const attempts = 3;
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
@@ -156,10 +170,25 @@ export async function pandoraCheckWaiver(
 export async function pandoraFetchWaiverTemplate(
   age: number,
   location?: string,
+  /** Waiver display language. In-house path only; BMI path is English-only.
+   *  Defaults to the ambient kiosk locale (set by LocaleProvider). */
+  lang: "en" | "es" = getWaiverLang(),
 ): Promise<PandoraWaiverTemplate> {
+  // In-house waivers (kioskWaiverInhouseEnabled, NEXT_PUBLIC, default ON) — serve
+  // OUR translatable body via the kiosk template route (which keeps BMI's real
+  // contentID so the sign path is unchanged). Set NEXT_PUBLIC_KIOSK_WAIVER_INHOUSE
+  // =false to revert to the BMI template. Env read inline to avoid a lib→features
+  // import; keep in sync with src/features/kiosk/flags.ts.
+  const inhouse = process.env.NEXT_PUBLIC_KIOSK_WAIVER_INHOUSE !== "false";
   const params = new URLSearchParams({ age: String(age) });
   if (location) params.set("location", location);
-  const res = await getWithRetry(`/api/pandora/waiver?${params}`);
+  let path = `/api/pandora/waiver?${params}`;
+  if (inhouse) {
+    const p = new URLSearchParams({ age: String(age), lang });
+    if (location) p.set("location", location);
+    path = `/api/kiosk/waiver/template?${p}`;
+  }
+  const res = await getWithRetry(path);
   if (!res.ok) {
     const data = await res.json().catch(() => null);
     throw new Error(data?.error || "Could not load waiver template");
@@ -208,10 +237,19 @@ export function calculateAge(birthdate: string): number {
 /**
  * Calculate the waiver invalidation date from a template's duration.
  * Returns "YYYY-MM-DD" string.
+ *
+ * Template `duration` is in YEARS (BMI semantics — desk-signed waivers run
+ * ~1 year and the templates all carry duration:1). This used to add DAYS,
+ * which set every web/kiosk-signed waiver to expire the next morning at 9am
+ * ET — guests re-signed on every visit and the check-in "existing valid
+ * waiver" pull-in never matched (production incident 2026-07-25, Strachan
+ * family). Clamped to [1,10] years so a mis-configured template can never
+ * produce a decades-long or instantly-expired waiver.
  */
-export function calculateWaiverExpiry(durationDays: number): string {
+export function calculateWaiverExpiry(durationYears: number): string {
+  const years = durationYears >= 1 && durationYears <= 10 ? Math.floor(durationYears) : 1;
   const d = new Date();
-  d.setDate(d.getDate() + (durationDays || 365));
+  d.setFullYear(d.getFullYear() + years);
   return d.toISOString().split("T")[0];
 }
 
@@ -221,25 +259,40 @@ export function calculateWaiverExpiry(durationDays: number): string {
  * Returns either:
  *   - `{ personId, waiverValid: true }` if waiver is already signed
  *   - `{ personId, waiverValid: false, template }` if waiver needs signing
+ *
+ * `birthdate` in the result is the REFRESHED one: the create USUALLY resolves a
+ * returning guest to their existing BMI record (but is NOT a reliable upsert —
+ * 2026-07-25: differing field sets mint a duplicate person; never call this for
+ * someone who already has an id), and the waiver check returns that record's
+ * birthdate — which is authoritative for the waiver template. A kiosk typo (or
+ * a missing local DOB) must never hand a minor the adult waiver, so the
+ * template age prefers BMI's birthdate over the typed one.
+ * (2026-07-23: a 17-year-old got an adult waiver signature — Hayden Waln.)
  */
 export async function pandoraOnboardGuest(
   input: PandoraPersonCreateInput & { birthdate: string },
   location?: string,
+  /** Waiver display language for the in-house template. Defaults to the ambient
+   *  kiosk locale (set by LocaleProvider); callers need not pass it. */
+  lang: "en" | "es" = getWaiverLang(),
 ): Promise<
-  | { personId: string; waiverValid: true; template: null }
-  | { personId: string; waiverValid: false; template: PandoraWaiverTemplate }
+  | { personId: string; waiverValid: true; template: null; birthdate: string }
+  | { personId: string; waiverValid: false; template: PandoraWaiverTemplate; birthdate: string }
 > {
-  // 1. Create person
+  // 1. Create person (usually resolves a known person to their existing record;
+  //    NOT a reliable upsert — see the risk note on pandoraCreatePerson)
   const { personId } = await pandoraCreatePerson({ ...input, location });
 
-  // 2. Check if waiver already valid
+  // 2. Check if waiver already valid — the response carries the BMI record's
+  //    birthdate (membership refresh: BMI wins over what was typed).
   const status = await pandoraCheckWaiver(personId, location);
+  const birthdate = status.birthdate ? String(status.birthdate).slice(0, 10) : input.birthdate;
   if (status.valid) {
-    return { personId, waiverValid: true, template: null };
+    return { personId, waiverValid: true, template: null, birthdate };
   }
 
-  // 3. Fetch age-appropriate waiver template
-  const age = calculateAge(input.birthdate);
-  const template = await pandoraFetchWaiverTemplate(age, location);
-  return { personId, waiverValid: false, template };
+  // 3. Fetch age-appropriate waiver template from the refreshed birthdate
+  const age = calculateAge(birthdate);
+  const template = await pandoraFetchWaiverTemplate(age, location, lang);
+  return { personId, waiverValid: false, template, birthdate };
 }

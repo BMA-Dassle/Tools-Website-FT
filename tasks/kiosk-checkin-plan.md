@@ -30,19 +30,19 @@ attraction participants go uncollected. **Check-in is roster completion, not a n
 The kiosk identifies the humans, collects waivers, binds them to purchased slots, syncs both
 vendors, and flips the reservation to Arrived.
 
-| Need | Existing primitive |
-|---|---|
-| Standalone kiosk flow shell | `/kiosk/waiver` → `KioskWaiverFlow` |
-| Add people + waivers | `KioskAttractionPeopleStep.Component` StepDef (never fork) |
-| Party signs on phones | Mobile join + new `checkin` stepKind |
-| Attach person to existing BMI reservation | `registerProjectPersonServer` (gate `KIOSK_WAIVER_BMI_ATTACH`) |
-| Racer on the timing grid | Pandora `POST /bmi/schedule` (`kiosk-post-reserve.ts:341-453`) |
-| Bill-line personId can stay null | verified: no post-booking path reads it |
-| Bowling names/shoes | players PATCH route + `syncQamfPlayers` (compose both) |
-| Open the lane | `GET/POST /api/bowling/v2/reservations/{id}/checkin` |
-| Mark reservation | `setProjectState` → **-5 Arrived** (built-in) |
-| "What's next" model | v2 confirmation activity enumeration (extract) |
-| Lookup | `/s` deref, Office `search?token=W#`, phone → `getReservationsByContact` + booking-record indexes |
+| Need                                      | Existing primitive                                                                                |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Standalone kiosk flow shell               | `/kiosk/waiver` → `KioskWaiverFlow`                                                               |
+| Add people + waivers                      | `KioskAttractionPeopleStep.Component` StepDef (never fork)                                        |
+| Party signs on phones                     | Mobile join + new `checkin` stepKind                                                              |
+| Attach person to existing BMI reservation | `registerProjectPersonServer` (gate `KIOSK_WAIVER_BMI_ATTACH`)                                    |
+| Racer on the timing grid                  | Pandora `POST /bmi/schedule` (`kiosk-post-reserve.ts:341-453`)                                    |
+| Bill-line personId can stay null          | verified: no post-booking path reads it                                                           |
+| Bowling names/shoes                       | players PATCH route + `syncQamfPlayers` (compose both)                                            |
+| Open the lane                             | `GET/POST /api/bowling/v2/reservations/{id}/checkin`                                              |
+| Mark reservation                          | `setProjectState` → **-5 Arrived** (built-in)                                                     |
+| "What's next" model                       | v2 confirmation activity enumeration (extract)                                                    |
+| Lookup                                    | `/s` deref, Office `search?token=W#`, phone → `getReservationsByContact` + booking-record indexes |
 
 ## 1–4, 6–7 — see the execution plan file for full screen, pipeline, and edge-case detail.
 
@@ -149,3 +149,180 @@ the front desk"); group/daily-events waivers keep using `/kiosk/waiver`.
 
 _(Answered 2026-07-20: BMI mark = -5 Arrived · browse list = yes, with OTP · party grew =
 new booking · no money at kiosk.)_
+
+_(Superseded 2026-07-24 — see §11: BMI mark changed from -5 Arrived → "Confirmation Kiosk"
+custom state, which also RESOLVES the §8/§5 -5 early-settle consequence.)_
+
+## 11. PR4 — Express lane + who-is-who race assignment (owner decisions 2026-07-24)
+
+Three owner answers, all confirmed against current code before writing this section.
+
+### A. Express lane = informational modal (client-only, no eligibility logic) — ❌ SUPERSEDED 2026-07-28
+
+**This section shipped and was WRONG. See "A-revised" below. Do not re-implement it.**
+
+Owner: "If they click express lane just have a modal showing what express lane is and that
+they don't need to sign in here."
+
+- On the FIND screen / today's-reservation list (`KioskCheckinFlow` FindScreen + browse rows),
+  add an **"Express lane?"** affordance. Tapping opens a **modal only** — no reservation
+  lookup, no waiver check, no server call:
+  > **Express Lane** — Returning racers whose waivers are already signed can skip check-in.
+  > **Head straight to Karting Check-In (1st floor)** — no need to sign in here.
+- Deliberately NOT gated on real express eligibility. The browse list is PII-lean and does no
+  Pandora waiver check ([server.ts:460](../apps/web/src/features/kiosk/checkin/server.ts)), and
+  computing `fastLane`-per-row would be leaky + slow. Purely informational, matching the
+  existing web `fastLane` express-lane copy ("skip Guest Services, go directly to Karting
+  Check-In"). No `express` field added to the itinerary envelope; no server change for Part A.
+- Lowest risk in the feature — client-only, reads nothing, mutates nothing.
+
+### A-revised. Express lane = per-reservation eligibility, and express NEVER checks in (2026-07-28)
+
+Owner, on seeing the live list: _"Reservations showing everyone as express lane? Also I've said
+several times express lane doesn't need to check in on kiosk and it shouldn't send an OTP. It
+should just pop a message saying what to do. Tammy reservation is not but is showing express lane?"_
+
+The "purely informational, deliberately not gated" call above was a mistake on two counts:
+
+1. **It badged every racing row.** The pill rendered on `r.kind === "racing"`, so a guest who
+   genuinely had to check in was told to skip it. Measured on live FM data for 2026-07-28:
+   **8 of 25** racing reservations (32%) — including the flagged Tammy N. 6:00 PM — were
+   mislabelled express (`apps/web/scripts/kiosk-express-badge-check.mts`).
+2. **"Informational" isn't enough.** An express party must not be OTP'd or walked through
+   check-in at all. Tapping an express row now REPLACES check-in with the message.
+
+Implemented:
+
+- **`express: boolean` on `CheckinBrowseRow` + `CheckinItinerary`.** Two pure predicates in
+  [checkin/express.ts](../apps/web/src/features/kiosk/checkin/express.ts), unit-tested:
+  - `isExpressBooking` — browse list. Reads the `fastLane` flag checkout already wrote to
+    `bookingrecord:{billId}`, so it costs ONE Redis GET per row, issued in the same
+    `Promise.all` as the existing ref mint → no added round trip, no per-row Pandora call, no
+    waiver status leaked into the unauthenticated list. The "leaky + slow" objection above was
+    only ever true of the live-waiver approach.
+  - `isExpressRoster` — itinerary. Uses the per-racer Pandora waiver read `buildItinerary`
+    already performs, so it also catches a waiver that lapsed since booking.
+  - Both enforce the 2026-06-13 whole-party lesson: any racer with no `personId` disqualifies.
+  - Both hard-gate on **racing-only**: a combo still needs its bowling lane opened, so it is
+    never express.
+- **Express row → modal, full stop.** No last-4 gate, no OTP, no itinerary. The badge is now a
+  decorative `<span>` (the whole card is the single tap target), which also removed the
+  nested-button / `pointer-events` overlay hack.
+- **Express itinerary → the same message instead of "Continue ›"**, so the phone-lookup and
+  scanned-QR paths (where the code is already spent) end the same way.
+- **Destination copy fixed** to "Race Check-In — 1st floor, left of the Red Track" (was "the
+  pits"), matching the eTicket, the race-day email and `RacingWhatsNext`. One
+  `ExpressLaneBody` component feeds both surfaces so they can't drift.
+- **Fully localized EN + ES** per the kiosk i18n hard rule. The old body was left English with a
+  `TODO(i18n)` because its inline `<strong>` spans made it rich text the plain-string engine
+  can't render; splitting it into three WHOLE sentences + one standalone place name
+  (`checkin.express.bodyNothing` / `bodyWhere` / `bodyPlace` / `bodyWhen`) makes every key a
+  complete translatable unit with emphasis wrapping a whole key — so the TODO is now discharged
+  rather than inherited.
+- No find-screen affordance was added: an express guest taps "Find my booking", sees their own
+  badged row, and taps it.
+
+### B. State change = "Confirmation Kiosk" custom state (NOT -5 Arrived)
+
+Owner: "Change to confirmation kiosk." This SUPERSEDES §5 and the §8 locked -5 decision.
+
+- `completeCheckin` ([server.ts:1009](../apps/web/src/features/kiosk/checkin/server.ts)) stops
+  stamping `stateId:"-5"` and instead uses **`KIOSK_CONFIRMATION_STATE_IDS[stateCenterCode]`**
+  ([bmi-office-actions.ts:174](../apps/web/lib/bmi-office-actions.ts) — FM/fasttrax `55397028`,
+  Naples `8489113`), the SAME per-location custom state the kiosk post-reserve rail and
+  express-lane web bookings already land in.
+- **Why this is better, not just different:** the custom state is NOT an arrival state, so it
+  does **not** trigger `race-dayof-pay` to settle the day-of order at check-in. That was the
+  §8 ⚠ M4 open blocker for enabling `-5`; changing to Confirmation Kiosk **removes it entirely**
+  — no early-settle, and staff already work bookings from this exact state.
+- Implementation note (already handled by `setProjectState`): a custom id (no leading `-`) is
+  `isCustomState`, so it goes **Office-API-first** — Pandora returns 200 but silently no-ops
+  custom states (documented W52109 pathology). The verify-by-reread + Office-PUT escalation the
+  PR4 hardening list already calls for is what makes this land reliably.
+- Launch gate §9.3 changes: "-5 state probe" → **"Confirmation Kiosk state probe"** — flip a
+  throwaway FM racing project to `55397028` via the pipeline, reread shows the custom state
+  (guard the 200-and-no-op path), confirm no unexpected automation reacts. The `-5`-specific
+  early-settle sub-check is dropped (no longer applicable).
+
+### C. Who-is-who assignment = guest action at the kiosk
+
+Owner: "guest action." Replaces the PR3 index-order auto-assign
+([server.ts:942-1005](../apps/web/src/features/kiosk/checkin/server.ts)) — which fills
+`openSlots[i]` by list order with **no class matching** (a junior can land in an adult slot).
+
+- **Itinerary envelope** gains the purchased race slots: per slot
+  `{ slotKey, productId, classLabel ("Starter Junior"), tier, category, track, timeLabel,
+occupantName | null, open }` — derived from `booking_metadata.heats` + `getRaceProductById`.
+- **New "Who's racing?" screen** (racing only, before "Check everyone in"): one card per
+  purchased slot. Guest taps an identified + waiver-valid party member (from `session.party`)
+  into each OPEN slot. **Category correctness enforced**: a `junior` slot accepts only a
+  junior-age member and vice-versa (age known from the minor/guardian + DOB the people monolith
+  already captures) — inline block on mismatch. Already-filled slots show the occupant locked
+  (reassign is out of scope unless owner wants it). Surplus people (party > slots) are shown as
+  "not racing — Start a new booking" (the §7 locked path), never silently index-dropped.
+- **`completeCheckin`** consumes the explicit person→slot map instead of `openSlots[i]`, builds
+  `ScheduleRacer[]` from each slot's real product, calls the existing `scheduleCheckinRacers`
+  (Pandora `POST /bmi/schedule`), then stamps **Confirmation Kiosk** (Part B) + the memo. Fold
+  in the PR4 item **write `bmiPersonId` back to `booking_metadata.heats`** so the assignment is
+  durable (spacing-guard truth) and re-entry shows slots filled.
+- Persistence: extend `kiosk_checkin_people` with the assigned `slot_key`/`product_id` (persist
+  the map to Neon FIRST, house rule, before the Pandora write).
+
+### Proposed staging (Part 4 scope — OWNER TO CONFIRM)
+
+- **PR4a — express-lane modal** (Part A): client-only, zero risk, ship immediately, no probe.
+- **PR4b — assignment + Confirmation Kiosk state** (Parts B+C): mutating, still dark behind
+  `KIOSK_CHECKIN_BMI_ATTACH`. Gates: A3 attach probe, schedule-bind probe, the new Confirmation
+  Kiosk state probe, owner live smoke. The M4 early-settle gate is now GONE (Part B).
+
+## 12. Bug batch (owner smoke, 2026-07-25) — all fixed same day
+
+Four live-testing bugs, root causes confirmed in code before fixing:
+
+1. **QR scan found nothing.** The kiosk QR reader is a SERIAL (COM-port) device
+   (`useQrScanner` rail) — it never types keystrokes, so the find screen's
+   keyboard-wedge hook heard nothing. Fix: `CheckinScanListener` in
+   `KioskCheckinFlow` mounts `useQrScanner` (same saved model/baud/port plumbing
+   as the license scanner) on the find/matches/browse stages ONLY — the party
+   stage's people monolith needs the exclusive port for its license listener.
+   One-line bursts → `lookupByScan`; multi-line bursts (a license) → a friendly
+   "scan your confirmation QR" error. Wedge hook kept as fallback.
+2. **"Next: who's racing" tappable mid-lookup.** The party-stage buttons only
+   gated on `partyNeedsSetup`; a sign-in lookup in flight (empty/complete party)
+   left them enabled. Both buttons now also gate on `peopleBusy`.
+3. **One person couldn't take two races.** The assign step force-swapped a
+   member out of their other race ("already in another race"). Now a member may
+   hold SEVERAL slots under the SAME web-booking heat-spacing rules
+   (`heatsConflict`: same-track skip-adjacent 13 min, cross-track 30 min walk) —
+   client (`raceSlotsConflict` releases only a too-close slot; picker labels
+   "moves from their X race" vs "also in another race") AND server
+   (`violatesSpacing` in completeCheckin, which also checks heats pre-filled at
+   booking time by personId, mirroring findCrossBookingConflict; boundHeats now
+   accumulates per person since the upsert replaces).
+4. **Browse list hid 11pm+ reservations.** The ±3h window's forward edge cut
+   anything more than 3h out. Now the list shows the REST of today (query is
+   already today-scoped) with the 3h lookback kept. `BROWSE_WINDOW_MIN` →
+   `BROWSE_LOOKBACK_MIN`; §12 supersedes the "±3h window" wording in the §
+   "Owner decisions" list (lookback half unchanged).
+
+Two more from the same evening's live traffic (Strachan family, guardian
+56392934 + kids; fixed 2026-07-25 late, not yet live-verified):
+
+5. **Every kiosk-signed waiver expired the NEXT MORNING (9am ET).** The Pandora
+   waiver template's `duration: 1` means 1 YEAR (BMI semantics — desk-signed
+   records carry ~1-year expiries), but `calculateWaiverExpiry` added DAYS →
+   `invalidationDate = tomorrow`. Every waiver signed via `WaiverSigning`
+   (kiosk, check-in, group events, phone join) died overnight — which also
+   defeated the §"pull in existing valid waivers" feature. Fix: duration
+   treated as years (clamped 1–10) in `lib/pandora.ts`; `?? 365` fallbacks in
+   the waiver route + waiver-digital normalized to `?? 1`.
+6. **Second minor's waiver "never applied" — Pandora person create is NOT an
+   upsert.** One kid ended up with EIGHT person records (three holding waivers
+   from three sign attempts); the guardian's `related[]` pointed at no-waiver
+   duplicates minted by `linkMinorToGuardian`'s "re-upsert". Sign landed on one
+   record while readiness reads (`bmiPersonId` vs `pandoraPersonId`) hit
+   another → sign-then-revert loop. Fixes: `linkMinorToGuardian` removed;
+   `submitSetup` (people step + party manager) never re-creates a person that
+   already has a short id; qualification refresh reads waiver status on the
+   short id waivers are signed against. Full detail: lessons.md § "Pandora
+   create is NOT an upsert".

@@ -383,6 +383,60 @@ export async function recordProjectPayment(params: {
   return { paymentReference: data.paymentReference || "" };
 }
 
+// ── Per-person qualification reads (kiosk mid-session refresh) ──────
+// Same office endpoints the sign-in lookup proxies (/api/bmi-office
+// action=person / action=deposits), callable server-side with internal
+// credentials — the kiosk's verified-session cookie only lives 15 min, so a
+// mid-session refresh can't ride the client-side auth.
+
+const LOOKUP_CLIENT_KEY = process.env.BMI_CLIENT_KEY || "headpinzftmyers";
+
+/** Raw office person record by id (memberships[], tags[], birthDate, …), or
+ *  null on any failure. personId is a raw digit string — never Number() it. */
+export async function fetchOfficePerson(
+  personId: string,
+  clientKey: string = LOOKUP_CLIENT_KEY,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const token = await getOfficeToken(clientKey);
+    const res = await httpsRequest(
+      "GET",
+      `/api/${clientKey}/person/${personId}`,
+      apiHeaders(token, clientKey),
+    );
+    if (res.status >= 400) return null;
+    return JSON.parse(res.body);
+  } catch {
+    return null;
+  }
+}
+
+/** Office deposit/history rows for a person (2-year lookback — the same window
+ *  the sign-in lookup uses), or null on any failure. */
+export async function fetchOfficeDepositHistory(
+  personId: string,
+  clientKey: string = LOOKUP_CLIENT_KEY,
+): Promise<Array<{ depositKind?: string | null; balance?: number | null }> | null> {
+  try {
+    const token = await getOfficeToken(clientKey);
+    const now = new Date();
+    const from = new Date(now.getFullYear() - 2, now.getMonth(), now.getDate())
+      .toISOString()
+      .split(".")[0];
+    const until = now.toISOString().split(".")[0];
+    const res = await httpsRequest(
+      "GET",
+      `/api/${clientKey}/deposit/history?personId=${personId}&from=${encodeURIComponent(from)}&until=${encodeURIComponent(until)}`,
+      apiHeaders(token, clientKey),
+    );
+    if (res.status >= 400) return null;
+    const rows = JSON.parse(res.body);
+    return Array.isArray(rows) ? rows : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Batch person lookup ─────────────────────────────────────────────
 
 export interface PersonInfo {

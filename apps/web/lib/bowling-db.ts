@@ -1238,6 +1238,35 @@ export async function getRaceReservationsAwaitingDayofPay(): Promise<BowlingRese
 }
 
 /**
+ * Confirmed RACE reservations whose racers may still need checking into their
+ * Pandora race session — the candidate set for the race-session-assign-sweep
+ * cron. Bounded to near-term heats (booked_at within a wide day-of window) so
+ * the re-POST is cheap and self-terminating: once a heat ages past the window
+ * the row drops out. Only rows carrying a reservation number + persisted heat
+ * metadata are returnable (the sweep rebuilds racers from booking_metadata.heats
+ * and posts to /bmi/schedule by reservation number). The sweep further skips any
+ * reservation already flagged done in Redis, so a healthy booking is re-checked
+ * at most once.
+ */
+export async function getRecentConfirmedRaceReservationsForAssign(): Promise<BowlingReservation[]> {
+  if (!isDbConfigured()) return [];
+  await ensureBowlingSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT r.* FROM bowling_reservations r
+    WHERE r.product_kind = 'race'
+      AND r.status = 'confirmed'
+      AND r.bmi_reservation_number IS NOT NULL
+      AND r.booking_metadata IS NOT NULL
+      AND r.booked_at > NOW() - INTERVAL '6 hours'
+      AND r.booked_at < NOW() + INTERVAL '18 hours'
+    ORDER BY r.booked_at ASC
+    LIMIT 500
+  `;
+  return rows.map((r) => rowToReservation(r as Record<string, unknown>));
+}
+
+/**
  * Standalone-attraction reservations awaiting day-of settlement: confirmed,
  * unpaid, with a gift card + open day-of order, AND with NO bowling/KBF
  * reservation sharing the same day-of order. When bowling IS in the session the
@@ -2928,16 +2957,24 @@ async function fetchDurationOptions(
  * Returns active experiences for a center, with bundled items and the
  * center-specific QAMF web offer ID pre-joined.
  * Optionally filter by kind ('kbf' | 'open' | 'hourly').
+ *
+ * `includePreviewPinboyz` (pinboyz seam): additionally returns the
+ * INACTIVE `pinboyz-*` experiences. The PinBoyz rows are seeded with
+ * is_active = FALSE so the live site never lists them; the tier-switcher
+ * v3 surfaces opt in explicitly. Remove this seam when the lane-type enum
+ * migration lands and the rows go active for real.
  */
 export async function getBowlingExperiences(
   centerCode: string,
   kind?: BowlingExperienceKind,
+  includePreviewPinboyz = false,
 ): Promise<BowlingExperienceWithDetails[]> {
   if (!isDbConfigured()) return [];
   await ensureBowlingSchema();
   const q = sql();
 
-  // 1. Fetch experience rows joined to the center's offer
+  // 1. Fetch experience rows joined to the center's offer. The active filter
+  //    widens to inactive pinboyz-* rows only when the preview opts in.
   const offerRows = kind
     ? await q`
         SELECT e.*, eo.qamf_web_offer_id, eo.qamf_option_type, eo.qamf_option_id, eo.duration_minutes
@@ -2946,7 +2983,9 @@ export async function getBowlingExperiences(
           ON eo.experience_id = e.id
          AND eo.center_code   = ${centerCode}
          AND eo.is_active      = TRUE
-        WHERE e.is_active = TRUE AND e.kind = ${kind}
+        WHERE (e.is_active = TRUE
+               OR (${includePreviewPinboyz} AND e.slug LIKE 'pinboyz-%'))
+          AND e.kind = ${kind}
         ORDER BY e.sort_order, e.id
       `
     : await q`
@@ -2956,7 +2995,8 @@ export async function getBowlingExperiences(
           ON eo.experience_id = e.id
          AND eo.center_code   = ${centerCode}
          AND eo.is_active      = TRUE
-        WHERE e.is_active = TRUE
+        WHERE (e.is_active = TRUE
+               OR (${includePreviewPinboyz} AND e.slug LIKE 'pinboyz-%'))
         ORDER BY e.sort_order, e.id
       `;
 

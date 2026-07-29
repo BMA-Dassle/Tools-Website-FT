@@ -1,6 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isCenterSlug, readProof, completeCheckin } from "~/features/kiosk/checkin/server";
-import type { CheckinCompleteResponse } from "~/features/kiosk/checkin/types";
+import type {
+  CheckinCompleteResponse,
+  CheckinSlotAssignment,
+} from "~/features/kiosk/checkin/types";
+
+/** Sanitize the person→slot map: keep only well-shaped {heatId, personId}. */
+function parseAssignments(raw: unknown): CheckinSlotAssignment[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CheckinSlotAssignment[] = [];
+  for (const a of raw) {
+    if (a && typeof a === "object") {
+      const slotKey = (a as { slotKey?: unknown }).slotKey;
+      const personId = (a as { personId?: unknown }).personId;
+      const category = (a as { category?: unknown }).category;
+      if (typeof slotKey === "string" && typeof personId === "string" && slotKey && personId) {
+        out.push({
+          slotKey,
+          personId,
+          category: category === "adult" || category === "junior" ? category : null,
+        });
+      }
+    }
+  }
+  return out;
+}
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,7 +37,7 @@ export const runtime = "nodejs";
  * (bill, business day) via the check-in event; single-flight-locked per bill.
  */
 export async function POST(req: NextRequest) {
-  let body: { center?: string; proofToken?: string; kioskId?: string };
+  let body: { center?: string; proofToken?: string; kioskId?: string; assignments?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -45,6 +69,7 @@ export async function POST(req: NextRequest) {
       center,
       kioskId: typeof body.kioskId === "string" ? body.kioskId : null,
       verifiedVia: proof.verifiedVia ?? "otp",
+      assignments: parseAssignments(body.assignments),
     });
     const status = result.reason === "busy" ? 409 : 200;
     return NextResponse.json<CheckinCompleteResponse>(result, { status });

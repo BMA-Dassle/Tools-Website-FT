@@ -23,6 +23,18 @@ export interface CandidateSlot {
   freeSpots: number;
 }
 
+/** The "soonest opening" a tile can advertise: when the earliest bookable block
+ *  today starts and, when the vendor gives it, how many are left. `freeSpots`
+ *  reads as remaining lanes/tables for per-slot attractions, or seats for
+ *  per-person ones; it is ABSENT for QAMF bowling/KBF, whose availability probe
+ *  returns bookable times but no lane count — those tiles show a time-only line. */
+export interface FirstOpen {
+  /** Block start — zone-less ET wall-clock (BMI already returns this; QAMF's
+   *  offset is stripped to match); render with {@link slotLabel} on the ET kiosk. */
+  start: string;
+  freeSpots?: number;
+}
+
 export interface PickFirstSlotOptions {
   /** Current time in ms (caller supplies — keeps this pure/testable). */
   nowMs: number;

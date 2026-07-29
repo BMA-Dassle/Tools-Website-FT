@@ -16,9 +16,22 @@ import { getRaceProductById, type RaceProduct } from "~/features/booking/service
 import { LICENSE_PRICE, POV_PRICE } from "~/features/booking/service/race-pricing";
 import { getPackage } from "~/features/booking/service/packages";
 import { raceItemChargeLines } from "~/features/booking/service/checkout";
+import { isBookableBowlingLeg } from "~/features/booking/service/bookable";
+import { planVoucherCoverage, sessionVouchers } from "~/features/booking/service/voucher-redeem";
 import { applyPromoToBillLines, promoFactor } from "~/features/booking/service/promo-pricing";
+import {
+  computePackCoverage,
+  kioskPackSkus,
+  kioskPacksTotalCents,
+  kioskRacePacksEnabled,
+  resolveKioskPacks,
+  type KioskPackSelection,
+} from "~/features/booking/service/race-pack-kiosk";
+import { redeemedHeatSet } from "~/features/booking/data/race-credits";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
+import { racePackTeaserVisible } from "./steps/race/RacePackTeaser";
+import { PackAssignmentList, RacePackPicker } from "./steps/race/RacePackPicker";
 import { modalBackdropProps } from "@/lib/a11y";
 /**
  * Session-level cart view.
@@ -60,6 +73,14 @@ export interface CartViewProps {
   onAllActivities?: () => void;
   /** KIOSK: remove the Game Zone cards riding this cart (session.gameCardPurchase). */
   onRemoveGameCards?: () => void;
+  /**
+   * KIOSK: edit a race item's credit-pack selections (`item.creditPacks`) from
+   * the cart — add packs for racers who don't have one / remove one — without
+   * re-entering the wizard (packs are session pointers; money re-derives
+   * server-side at charge, so this is pure state — no vendor calls). Absent =
+   * web behavior unchanged (the block never renders).
+   */
+  onUpdateRacePacks?: (itemId: string, creditPacks: KioskPackSelection[] | undefined) => void;
 }
 
 export function CartView({
@@ -73,6 +94,7 @@ export function CartView({
   onRemoveCombo,
   onAllActivities,
   onRemoveGameCards,
+  onUpdateRacePacks,
 }: CartViewProps) {
   // Back-to-landing prefers the validated `appliedPromo.code` (set when the
   // code resolved + matched scope), falls back to the raw `?code=` from
@@ -81,6 +103,7 @@ export function CartView({
   const backToLandingHref = backCode ? `/book/v2?code=${encodeURIComponent(backCode)}` : "/book/v2";
 
   const hasItems = session.items.length > 0;
+  const unreadyItem = firstUnreadyItem(session);
   const [leaveConfirm, setLeaveConfirm] = useState(false);
 
   return (
@@ -138,6 +161,7 @@ export function CartView({
                 onEdit={() => onEditItem(item.id)}
                 onRemove={() => onRemoveItem(item.id)}
                 onRemoveHeat={onRemoveHeat}
+                onUpdateRacePacks={onUpdateRacePacks}
               />
             ))}
         </ul>
@@ -145,17 +169,26 @@ export function CartView({
 
       {hasItems && (
         <div className="mt-8 flex justify-end">
-          <button
-            type="button"
-            onClick={onCheckout}
-            disabled={!allItemsReady(session)}
-            title={
-              !allItemsReady(session) ? "Finish configuring all items before checkout" : undefined
-            }
-            className="rounded-xl bg-[#00E2E5] px-8 py-3 text-sm font-bold text-[#000418] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Checkout →
-          </button>
+          {/* An unfinished item doesn't dead-end the guest on a greyed-out
+              button (a title tooltip is invisible on a kiosk touchscreen) — the
+              button becomes the way BACK to the step that's missing. */}
+          {unreadyItem ? (
+            <button
+              type="button"
+              onClick={() => onEditItem(unreadyItem.id)}
+              className="rounded-xl bg-[#00E2E5] px-8 py-3 text-sm font-bold text-[#000418] transition-colors hover:bg-white"
+            >
+              Finish setting up {otherItemTitle(unreadyItem)} →
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onCheckout}
+              className="rounded-xl bg-[#00E2E5] px-8 py-3 text-sm font-bold text-[#000418] transition-colors hover:bg-white"
+            >
+              Checkout →
+            </button>
+          )}
         </div>
       )}
 
@@ -368,12 +401,14 @@ export function CartItemCard({
   onEdit,
   onRemove,
   onRemoveHeat,
+  onUpdateRacePacks,
 }: {
   item: SessionItem;
   session: BookingSession;
   onEdit: () => void;
   onRemove: () => void;
   onRemoveHeat?: (itemId: string, productId: string, heatId: string) => void;
+  onUpdateRacePacks?: (itemId: string, creditPacks: KioskPackSelection[] | undefined) => void;
 }) {
   if (item.kind === "race") {
     return (
@@ -383,6 +418,7 @@ export function CartItemCard({
         onEdit={onEdit}
         onRemove={onRemove}
         onRemoveHeat={onRemoveHeat}
+        onUpdateRacePacks={onUpdateRacePacks}
       />
     );
   }
@@ -439,12 +475,14 @@ function RaceCartCard({
   onEdit,
   onRemove,
   onRemoveHeat,
+  onUpdateRacePacks,
 }: {
   item: RaceItem;
   session: BookingSession;
   onEdit: () => void;
   onRemove: () => void;
   onRemoveHeat?: (itemId: string, productId: string, heatId: string) => void;
+  onUpdateRacePacks?: (itemId: string, creditPacks: KioskPackSelection[] | undefined) => void;
 }) {
   // Per-category packages (adult/junior variants are separate ids); `pkg` is
   // the shared display handle — every real family shares its display name +
@@ -613,6 +651,18 @@ function RaceCartCard({
         </div>
       ) : null}
 
+      {/* KIOSK race packs on this booking — visible AND editable right here, so
+          "the pack only landed on one racer" is a two-tap cart fix instead of a
+          wizard re-entry (manager report 2026-07-27). Same gates as the product
+          step's teaser; never on web (the host doesn't pass the callback). */}
+      {onUpdateRacePacks && !combo && racePackTeaserVisible(session) && (
+        <RacePackCartBlock
+          item={item}
+          session={session}
+          onChange={(packs) => onUpdateRacePacks(item.id, packs)}
+        />
+      )}
+
       {/* Estimated total */}
       {estimated > 0 && (
         <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-3 text-sm">
@@ -628,6 +678,76 @@ function RaceCartCard({
         </p>
       )}
     </li>
+  );
+}
+
+/**
+ * KIOSK-only "Race packs" block on the cart's race card. Collapsed: the
+ * assigned packs by name (with remove ×) + an add/edit button that names who's
+ * still without one. Open: the same shared RacePackPicker the product step's
+ * teaser uses (tiles + multi-select "who's this pack for?"). Pure session
+ * state — the charge re-derives everything from the slugs at pay time.
+ */
+function RacePackCartBlock({
+  item,
+  session,
+  onChange,
+}: {
+  item: RaceItem;
+  session: BookingSession;
+  onChange: (packs: KioskPackSelection[] | undefined) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const picks = item.creditPacks ?? [];
+  const skus = kioskPackSkus();
+  const eligible = session.party.filter((m) => !!m.bmiPersonId);
+  const missing = eligible.filter((m) => !picks.some((p) => p.memberId === m.id));
+  const missingNames = missing.map((m) => m.firstName).join(" & ");
+
+  return (
+    <div className="mt-3 border-t border-white/10 pt-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[10px] font-bold tracking-wider uppercase text-amber-400">Race packs</p>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="rounded-lg border border-amber-400/40 px-3 py-1.5 text-xs font-semibold text-amber-300 transition-colors hover:bg-amber-400/10"
+        >
+          {open ? "Done" : picks.length > 0 ? "Add / edit" : "+ Add race pack"}
+        </button>
+      </div>
+
+      {open ? (
+        <div className="mt-3">
+          {/* autoOpen: land straight on the "who's this pack for?" checkboxes —
+              bare tiles with a collapsed selector read as a dead end here
+              (owner preview feedback 2026-07-27). */}
+          <RacePackPicker
+            skus={skus}
+            eligible={eligible}
+            picks={picks}
+            onChange={onChange}
+            autoOpen
+          />
+        </div>
+      ) : picks.length > 0 ? (
+        <div className="mt-2 space-y-2">
+          <PackAssignmentList picks={picks} eligible={eligible} onChange={onChange} />
+          {missing.length > 0 && (
+            <p className="text-xs text-amber-300/80">
+              {missingNames} {missing.length === 1 ? "doesn't" : "don't"} have a pack yet — tap{" "}
+              <strong>Add / edit</strong> to add one.
+            </p>
+          )}
+        </div>
+      ) : (
+        <p className="mt-2 text-xs text-white/45">
+          Prepay 3 races at a discount — today&rsquo;s race is covered, the rest bank to their
+          account and never expire.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -888,11 +1008,87 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
       raceItemChargeLines(item),
       session.appliedPromo,
     ).reduce((s, l) => s + l.amount, 0);
-    return raceLinesTotal + licenseTotal + povTotal + addonsTotal;
+    // KIOSK credit packs riding this item: the pack price joins the estimate
+    // and the heats it covers today come OFF it — mirroring CheckoutStep's
+    // review lines (pack line + negative covered line) so the cart's Est.
+    // total can't drift from the pay screen. Bad pointers → estimate shows
+    // without packs, same as the review's fail-open.
+    let packsTotal = 0;
+    let packCoveredTotal = 0;
+    if (session.context?.kiosk && kioskRacePacksEnabled() && (item.creditPacks?.length ?? 0) > 0) {
+      try {
+        const packs = resolveKioskPacks(item.creditPacks ?? [], session.party);
+        packsTotal = kioskPacksTotalCents(packs) / 100;
+        const coverage = computePackCoverage(session, packs, redeemedHeatSet(session));
+        if (coverage.heats.size > 0) {
+          const sumLines = (ex?: Set<RaceHeatAssignment>) =>
+            applyPromoToBillLines(raceItemChargeLines(item, ex), session.appliedPromo).reduce(
+              (s, l) => s + l.amount,
+              0,
+            );
+          packCoveredTotal = Math.round((sumLines() - sumLines(coverage.heats)) * 100) / 100;
+        }
+      } catch {
+        /* unsellable slug / missing racer — reserve rejects the charge anyway */
+      }
+    }
+    // BMI vouchers — the plan's comp-covered heats come off THIS item's
+    // estimate the same way (differenced from the identical line builder the
+    // charge uses; see voucher-redeem.ts). Credits + pack heats stay excluded
+    // first so vouchers never double-count an already-$0 heat.
+    let voucherCoveredTotal = 0;
+    if (sessionVouchers(session).length > 0 && !session.comboSpecialId) {
+      try {
+        let base = redeemedHeatSet(session);
+        if (
+          session.context?.kiosk &&
+          kioskRacePacksEnabled() &&
+          (item.creditPacks?.length ?? 0) > 0
+        ) {
+          const packs = resolveKioskPacks(item.creditPacks ?? [], session.party);
+          const cov = computePackCoverage(session, packs, base);
+          if (cov.heats.size > 0) base = new Set([...base, ...cov.heats]);
+        }
+        const covered = planVoucherCoverage(session, base).raceHeats;
+        if (covered.size > 0) {
+          const sumLines = (ex: Set<RaceHeatAssignment>) =>
+            applyPromoToBillLines(raceItemChargeLines(item, ex), session.appliedPromo).reduce(
+              (s, l) => s + l.amount,
+              0,
+            );
+          voucherCoveredTotal =
+            Math.round((sumLines(base) - sumLines(new Set([...base, ...covered]))) * 100) / 100;
+        }
+      } catch {
+        /* same fail-open as packs — the reserve is the enforcement point */
+      }
+    }
+    return (
+      raceLinesTotal +
+      packsTotal -
+      packCoveredTotal -
+      voucherCoveredTotal +
+      licenseTotal +
+      povTotal +
+      addonsTotal
+    );
   }
   if (item.kind === "attraction") {
     const config = item.slug ? ATTRACTIONS[item.slug] : null;
-    return config?.bookingMode === "per-person" ? item.price * item.qty : item.price;
+    const base = config?.bookingMode === "per-person" ? item.price * item.qty : item.price;
+    // Attraction vouchers — the plan's covered units come off the matched item
+    // (identical figures to the reserve's quantity reduction).
+    if (!session.comboSpecialId && sessionVouchers(session).length > 0) {
+      const plan = planVoucherCoverage(session, redeemedHeatSet(session));
+      const units = plan.attractionUnits.get(item.id) ?? 0;
+      if (units > 0) {
+        const cents = plan.picks
+          .filter((p) => p.attractionItemId === item.id)
+          .reduce((s, p) => s + (p.attractionUnitCents ?? 0), 0);
+        return Math.max(0, base - cents / 100);
+      }
+    }
+    return base;
   }
   // bowling / kbf — combo bowling is charged inside the flat combo line.
   if (session.comboSpecialId && item.kind === "bowling") return 0;
@@ -923,14 +1119,32 @@ export function allItemsReady(session: BookingSession): boolean {
         return !!item.productId && !!item.slot;
       case "bowling":
       case "kbf":
-        return true;
+        // A lane hold, or a picked slot (bookedAt + webOfferId). This used to be
+        // a hardcoded `true` while race and attraction were both gated — so an
+        // unconfigured bowling leg was the ONE thing that could reach the pay
+        // screen. On 2026-07-28 one did: a duckpin draft with no time and no
+        // offer priced at $0 (invisible in the cart total), passed this gate,
+        // and 400'd QAMF *after* $234.21 was captured, taking a paid race
+        // booking down with it.
+        return isBookableBowlingLeg(item);
     }
   });
+}
+
+/** The first cart item that isn't ready — what the pay button should send the
+ *  guest back to finish. Null when everything is ready. */
+export function firstUnreadyItem(session: BookingSession): SessionItem | null {
+  return session.items.find((item) => !allItemsReady({ ...session, items: [item] })) ?? null;
 }
 
 function otherItemTitle(item: SessionItem): string {
   if (item.kind === "attraction" && item.slug) {
     return findOffering(item.slug)?.displayName ?? item.slug;
+  }
+  // FastTrax duckpin is a bowling item (QAMF 11542) but the guest tapped a tile
+  // labelled "Duck Pin" — name it back the way they chose it.
+  if (item.kind === "bowling" && item.isDuckpin) {
+    return findOffering("duck-pin")?.displayName ?? "Duck Pin";
   }
   return findOffering(item.kind)?.displayName ?? item.kind;
 }

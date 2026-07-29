@@ -135,6 +135,28 @@ function isTodayEt(ymd: string): boolean {
   return ymd === new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 }
 
+/**
+ * "Now" expressed as ET wall-clock ms in the SAME frame `wallClockMs` uses, so
+ * it is directly comparable to heat/lane `startMs` regardless of the runtime's
+ * timezone. BMI heats are wall-clock-in-Z ("…T21:00:00Z" = 9 PM ET), and
+ * `wallClockMs` parses the naive part in the RUNTIME's local zone. A bare
+ * `Date.now()` (absolute epoch) only lines up with that in an ET runtime (the
+ * kiosk browser); on a UTC Vercel lambda — where the cached kiosk-availability
+ * endpoint computes combo feasibility server-side — it sits ~4–5h ahead of the
+ * naive-parsed heats and wrongly drops every ET-evening heat, false-locking the
+ * VIP experience. Round-tripping "now" through ET wall clock + `wallClockMs`
+ * makes the comparison correct in ANY runtime timezone (DST-correct via IANA).
+ */
+function nowWallClockMsEt(): number {
+  const now = new Date();
+  const ymd = now.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  // en-GB 24h → "HH:MM:SS"; normalize the rare midnight "24:..." to "00:...".
+  const hms = now
+    .toLocaleTimeString("en-GB", { timeZone: "America/New_York", hour12: false })
+    .replace(/^24/, "00");
+  return wallClockMs(`${ymd}T${hms}`);
+}
+
 /* ───────────────────────── race leg candidates ──────────────────────── */
 
 /**
@@ -430,9 +452,12 @@ export async function fetchRaceLegCandidates(args: {
   }
 
   const anyNewRacer = party.some((m) => m.isNewRacer);
+  // ET wall-clock now (NOT Date.now()) — must share the frame of the heats'
+  // `wallClockMs` startMs, or a UTC lambda drops every ET-evening heat. See
+  // nowWallClockMsEt.
+  const nowMs = nowWallClockMsEt();
   const leadCutoffMs =
-    anyNewRacer && isTodayEt(dateYmd) ? Date.now() + NEW_RACER_LEAD_MINUTES * 60_000 : null;
-  const nowMs = Date.now();
+    anyNewRacer && isTodayEt(dateYmd) ? nowMs + NEW_RACER_LEAD_MINUTES * 60_000 : null;
 
   // Primary category drives the (start, track) cards; secondaries must match
   // the start with capacity on their best track. Every candidate slot —

@@ -43,7 +43,9 @@ import {
 } from "~/features/booking/hooks/useBowlingOffers";
 import { formatHourLabel } from "~/components/features/booking/steps/bowling/availability-client";
 import { KIOSK_PHOTOS } from "../assets";
+import { useResilientImages } from "../hooks/useResilientImage";
 import { BrandedLoader } from "../components/BrandedLoader";
+import { useT, type MessageKey } from "../i18n";
 
 type BowlingLikeItem = BowlingItem | KbfItem;
 
@@ -81,10 +83,11 @@ function totalCentsFor(
   return unitCents * (isPerLaneExperience(exp) ? laneCount : playerCount);
 }
 
-/** "/lane per hour" · "/lane" · "/person" — matches the tier step's phrasing. */
-function unitSuffix(exp: BowlingExperienceWithDetails): string {
-  if (!isPerLaneExperience(exp)) return "/person";
-  return exp.kind === "hourly" ? "/lane per hour" : "/lane";
+/** "/lane per hour" · "/lane" · "/person" — matches the tier step's phrasing.
+ *  Returns a message key so the suffix localizes at render. */
+function unitSuffixKey(exp: BowlingExperienceWithDetails): MessageKey {
+  if (!isPerLaneExperience(exp)) return "offer.perPerson";
+  return exp.kind === "hourly" ? "offer.perLaneHour" : "offer.perLane";
 }
 
 const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
@@ -95,6 +98,7 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   setBusy,
   requestAdvance,
 }) => {
+  const t = useT();
   const {
     kind,
     playerCount,
@@ -119,10 +123,16 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   // The time chip the guest tapped but hasn't reserved yet (per expanded card).
   const [pendingBookedAt, setPendingBookedAt] = useState<string | null>(null);
 
+  // Self-heal the hero photos if a flaky-WiFi fetch fails (they're CSS
+  // background-images, which never retry on their own). `hero` is a render
+  // closure inside a .map, so it can't call a hook itself — resolve the whole
+  // set up here (before any early return) and look each URL up below.
+  const resolvePhoto = useResilientImages(visibleExperiences.map((e) => photoFor(e, kind)));
+
   if (loading) {
     return (
       <div className="flex justify-center py-[48px]">
-        <BrandedLoader brand="headpinz" size={160} label="Checking lane availability…" />
+        <BrandedLoader brand="headpinz" size={160} label={t("offer.loading")} />
       </div>
     );
   }
@@ -215,13 +225,13 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       <div className="space-y-[36px] bg-[#071027] px-[40px] pb-[40px] pt-[32px]">
         {isNearClosingOnly(exp, expSlots) && (
           <div className="rounded-[14px] border border-[#f0b341]/40 bg-[#f0b341]/10 px-[24px] py-[16px] text-[24px] text-[#f0b341]">
-            Only 1 hour available this close to closing.
+            {t("offer.nearClosing")}
           </div>
         )}
 
         {hasDurations && (
           <div>
-            <div className="k-eyebrow mb-[16px]">How long?</div>
+            <div className="k-eyebrow mb-[16px]">{t("offer.howLong")}</div>
             <div className="flex flex-wrap gap-[18px]">
               {allDurations.map((opt) => {
                 const valid = validIds.has(opt.id);
@@ -267,8 +277,8 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
                       }}
                     >
                       {valid
-                        ? `${centsToDollars(optUnitCents)}${isPerLaneExperience(exp) ? "/lane" : "/person"}`
-                        : "Past closing"}
+                        ? `${centsToDollars(optUnitCents)}${t(isPerLaneExperience(exp) ? "offer.perLane" : "offer.perPerson")}`
+                        : t("offer.pastClosing")}
                     </div>
                   </button>
                 );
@@ -278,11 +288,9 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         )}
 
         <div>
-          <div className="k-eyebrow mb-[16px]">Start time</div>
+          <div className="k-eyebrow mb-[16px]">{t("offer.startTime")}</div>
           {expSlots.length === 0 ? (
-            <div className="text-[26px] text-white/50">
-              No lanes open at this time — go back and pick another time.
-            </div>
+            <div className="text-[26px] text-white/50">{t("offer.noLanesAtTime")}</div>
           ) : (
             <div className="flex flex-wrap gap-[18px]">
               {expSlots.map((slot) => (
@@ -301,7 +309,7 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
             </div>
           )}
           {needsDuration && expSlots.length > 0 && (
-            <p className="mt-[14px] text-[23px] text-white/40">Pick a duration first.</p>
+            <p className="mt-[14px] text-[23px] text-white/40">{t("offer.pickDurationFirst")}</p>
           )}
         </div>
 
@@ -309,8 +317,8 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
           <div className="flex items-baseline justify-between px-[8px] text-[26px] text-white/55">
             <span>
               {isPerLaneExperience(exp)
-                ? `${laneCount} lane${laneCount === 1 ? "" : "s"}`
-                : `${playerCount} bowler${playerCount === 1 ? "" : "s"}`}
+                ? t("offer.summary.lanes", { count: laneCount })
+                : t("offer.summary.bowlers", { count: playerCount })}
               {durationSel ? ` · ${durationSel.label}` : ""}
               {exp.isVip ? " · VIP" : ""}
             </span>
@@ -335,17 +343,15 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
           }
         >
           {reservingAt != null
-            ? "Holding your lanes…"
+            ? t("offer.cta.holding")
             : isReservedAsChosen
-              ? `✓ Reserved for ${formatBookedTime(item.bookedAt!)}`
+              ? `✓ ${t("offer.cta.reservedFor", { time: formatBookedTime(item.bookedAt!) })}`
               : chosenSlot
-                ? `Reserve ${formatBookedTime(chosenSlot.bookedAt)}`
-                : "No times available"}
+                ? t("offer.cta.reserve", { time: formatBookedTime(chosenSlot.bookedAt) })
+                : t("offer.cta.noTimes")}
         </button>
         {isReservedAsChosen && (
-          <p className="text-center text-[24px] text-white/50">
-            Lanes held — hit Continue below to keep going.
-          </p>
+          <p className="text-center text-[24px] text-white/50">{t("offer.heldNote")}</p>
         )}
       </div>
     );
@@ -359,7 +365,7 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     return (
       <div
         className={`k-ph relative flex ${tall ? "h-[360px]" : "h-[260px]"} flex-col justify-end`}
-        style={{ ["--k-img"]: `url(${photoFor(exp, kind)})` } as React.CSSProperties}
+        style={{ ["--k-img"]: `url(${resolvePhoto(photoFor(exp, kind))})` } as React.CSSProperties}
       >
         <div className="relative z-[1] flex items-end justify-between gap-[24px] p-[36px]">
           <div className="min-w-0">
@@ -377,25 +383,25 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
             {expSlots.length > 0 && !widened && (
               <div className="k-avail mt-[14px]">
                 <span className="dot" />
-                Open at {formatBookedTime(expSlots[0].bookedAt)}
+                {t("offer.openAt", { time: formatBookedTime(expSlots[0].bookedAt) })}
               </div>
             )}
           </div>
           <div className="shrink-0 text-right">
             {kind === "kbf" && !exp.isVip ? (
-              <div className="text-[40px] font-extrabold">Free</div>
+              <div className="text-[40px] font-extrabold">{t("offer.free")}</div>
             ) : kind === "kbf" && exp.isVip ? (
               <div className="text-[36px] font-extrabold tabular-nums">
                 {centsToDollars(KBF_VIP_LANE_UPCHARGE_PER_PERSON_CENTS)}
                 <span className="block text-[22px] font-semibold text-white/55">
-                  /person · VIP lane
+                  {t("offer.perPersonVipLane")}
                 </span>
               </div>
             ) : (
               <div className="text-[40px] font-extrabold tabular-nums">
                 {centsToDollars(primary?.priceCents ?? 0)}
                 <span className="block text-[22px] font-semibold text-white/55">
-                  {unitSuffix(exp)}
+                  {t(unitSuffixKey(exp))}
                 </span>
               </div>
             )}
@@ -409,12 +415,14 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     <div className="space-y-[28px]">
       <p className="text-[26px] text-white/55">
         {widened && selectedHour !== null
-          ? `Nothing open at ${formatHourLabel(selectedHour)} — the next open times are below.`
+          ? t("offer.intro.widened", { time: formatHourLabel(selectedHour) })
           : selectedHour !== null
-            ? `Around ${formatHourLabel(selectedHour)} · ${playerCount} bowler${
-                playerCount === 1 ? "" : "s"
-              } on ${laneCount} lane${laneCount === 1 ? "" : "s"}.`
-            : "Set up your lanes."}
+            ? t("offer.intro.around", {
+                time: formatHourLabel(selectedHour),
+                players: playerCount,
+                lanes: laneCount,
+              })
+            : t("offer.intro.setup")}
       </p>
 
       {error && (
@@ -425,7 +433,7 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
 
       {widened && selectedHour !== null && (
         <div className="rounded-[18px] border border-[#f0b341]/40 bg-[#f0b341]/10 px-[28px] py-[20px] text-[26px] text-[#f0b341]">
-          Your picked time just filled up. Choosing one of the times below changes your start time.
+          {t("offer.widenedNote")}
         </div>
       )}
 
@@ -443,29 +451,30 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         >
           <div className="min-w-0">
             <div className="k-display text-[34px]" style={{ color: VIP_GOLD }}>
-              Make it VIP
+              {t("offer.makeVip")}
             </div>
             <div className="mt-[6px] text-[23px] text-white/55">
               {kind === "kbf"
-                ? `HyperBowling glow lanes · +${centsToDollars(KBF_VIP_LANE_UPCHARGE_PER_PERSON_CENTS)}/person`
+                ? t("offer.vip.kbf", {
+                    price: centsToDollars(KBF_VIP_LANE_UPCHARGE_PER_PERSON_CENTS),
+                  })
                 : vipDeltaCents != null
-                  ? `Private suite seating, lounge service · +${centsToDollars(vipDeltaCents)} /lane per hour`
-                  : "Private suite seating, lounge service to your lane"}
+                  ? t("offer.vip.delta", { price: centsToDollars(vipDeltaCents) })
+                  : t("offer.vip.noDelta")}
             </div>
           </div>
           <div
             className="k-display shrink-0 rounded-full border-2 px-[30px] py-[16px] text-[26px]"
             style={{ color: VIP_GOLD, borderColor: "rgba(232,177,76,0.55)" }}
           >
-            See VIP ›
+            {t("offer.seeVip")} ›
           </div>
         </button>
       )}
 
       {visibleExperiences.length === 0 ? (
         <div className="k-glass p-[36px] text-center text-[28px] text-white/55">
-          No lanes open around this time today — go back and pick another time, or the front desk
-          can help with walk-ins.
+          {t("offer.noLanesToday")}
         </div>
       ) : solo ? (
         // ── Configurator: one package for this tier — hero + big decisions ──
@@ -518,6 +527,9 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
 
 export const KioskBowlingOfferStep: StepDef<BowlingLikeItem> = {
   id: "bowling-offer", // keep the web id: downstream steps + cursors align
+  // TODO(i18n): module-scope `title` + `canAdvance` reason run outside React and
+  // can't reach useT() — English until step titles/validation reasons are locale-
+  // threaded (tracked in tasks/kiosk-i18n-spanish-plan.md).
   title: "Package",
   Component: KioskBowlingOfferStepComponent,
   isVisible: () => true,

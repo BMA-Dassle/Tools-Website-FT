@@ -43,17 +43,18 @@ export function kioskGroupWaiverEnabled(): boolean {
 }
 
 /**
- * Kiosk self-service CHECK-IN flow — OPT-IN, defaults OFF. A guest with an
- * existing reservation finds it at the kiosk, sees a "what's next" itinerary,
- * finishes the party's waivers, binds people to purchased slots, and the whole
- * party checks in at once (BMI marked -5 Arrived, bowling lane-open offered).
- * Gates only the attract-screen entry button; the /kiosk/checkin page stays
- * reachable by typed URL for staff testing. Set the literal "true" in Vercel +
- * redeploy to show the button (NEXT_PUBLIC_* values are build-baked). Read at
- * call time (never module scope) so tests can stub process.env.
+ * Kiosk self-service CHECK-IN flow — LIVE, kill switch, defaults ON (owner
+ * 2026-07-25, after the racer-scheduling smoke passed). A guest with an existing
+ * reservation finds it at the kiosk, sees a "what's next" itinerary, finishes
+ * the party's waivers, binds people to purchased slots, and the whole party
+ * checks in at once (BMI marked "Confirmation Kiosk", racers scheduled onto the
+ * session, bowling lane-open offered). Gates the attract-screen entry button
+ * (which is also Fort-Myers-only in AttractScreen — racing venue). Set the
+ * literal "false" in Vercel + redeploy to hide it. Read at call time (never
+ * module scope) so tests can stub process.env.
  */
 export function kioskCheckinEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_KIOSK_CHECKIN_ENABLED === "true";
+  return process.env.NEXT_PUBLIC_KIOSK_CHECKIN_ENABLED !== "false";
 }
 
 /**
@@ -72,18 +73,16 @@ export function kioskRaceInfoEnabled(): boolean {
 }
 
 /**
- * BMI registerProjectPerson attach for kiosk CHECK-IN party binds — OPT-IN,
- * defaults OFF, server-side only. Deliberately SEPARATE from the group-waiver's
- * KIOSK_WAIVER_BMI_ATTACH (which is live + default-ON): check-in ships dark, and
- * the billId-vs-projectId attach semantics against an existing confirmed
- * reservation are still A3-probe-gated. Until this is set to "1" (after the A3
- * APPLY run + owner sign-off), a check-in bind persists to Neon
- * (kiosk_checkin_people) but performs NO BMI write — so a staff tester reaching
- * /kiosk/checkin by typed URL never mutates a real reservation. Read at call
- * time so tests can stub process.env.
+ * BMI writes for kiosk CHECK-IN (registerProjectPerson attach, racer schedule,
+ * "Confirmation Kiosk" state stamp, staff memo, interactive lane-open) — kill
+ * switch, defaults ON (owner 2026-07-25, after the live smoke: register → attach
+ * → schedule linked 2/2 → state stamped, on W54518). Server-side only. Set
+ * KIOSK_CHECKIN_BMI_ATTACH=0 in Vercel to make check-in dark again (persists to
+ * Neon only, no BMI writes) without a redeploy. Read at call time so tests can
+ * stub process.env.
  */
 export function kioskCheckinAttachEnabled(): boolean {
-  return process.env.KIOSK_CHECKIN_BMI_ATTACH === "1";
+  return process.env.KIOSK_CHECKIN_BMI_ATTACH !== "0";
 }
 
 /**
@@ -100,6 +99,21 @@ export function kioskCheckinAttachEnabled(): boolean {
  */
 export function kioskWaiverBmiAttachEnabled(): boolean {
   return process.env.KIOSK_WAIVER_BMI_ATTACH !== "0";
+}
+
+/**
+ * In-house waivers (owner 2026-07-26) — serve OUR OWN waiver template (adult/minor
+ * × en/es, versioned) and store the signed waiver in Neon, instead of fetching the
+ * template from and signing only into BMI/Pandora. Kill switch, **defaults ON**:
+ * set NEXT_PUBLIC_KIOSK_WAIVER_INHOUSE=false in Vercel + redeploy to revert to the
+ * BMI-only path (byte-identical to before). NEXT_PUBLIC because the decision is
+ * made both client-side (which template/sign route the pandora.ts wrappers hit)
+ * and server-side (the routes). Safety: while ON we STILL dual-write the signature
+ * to BMI so `waiverExpiry` keeps advancing and every waiverValid consumer + every
+ * returning-guest validity read is unaffected. Read at call time so tests can stub.
+ */
+export function kioskWaiverInhouseEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_WAIVER_INHOUSE !== "false";
 }
 
 /**
@@ -153,6 +167,20 @@ export function kioskCheckoutUpsellEnabled(): boolean {
 }
 
 /**
+ * Guest-facing multi-language (i18n) on the kiosk — OPT-IN, defaults OFF. Gates
+ * the top-right flag LanguageSwitcher and any locale-aware copy fallback; with
+ * it off, the kiosk is English-only exactly as before (the switcher renders
+ * null and every screen keeps its default-locale text). Set the literal "true"
+ * in Vercel + redeploy to expose the language switcher (NEXT_PUBLIC_* values are
+ * build-baked — scope it to Preview too or preview builds bake it off). Read at
+ * call time (never module scope) so tests can stub process.env. See
+ * tasks/kiosk-i18n-spanish-plan.md.
+ */
+export function kioskI18nEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_I18N === "true";
+}
+
+/**
  * Kiosk POV code claiming — kill switch, defaults ON, server-side only
  * (unified-reserve + kiosk-post-reserve are the sole consumers, so no
  * NEXT_PUBLIC prefix / no rebuild needed). Set KIOSK_POV_CODES=0 in Vercel to
@@ -164,4 +192,71 @@ export function kioskCheckoutUpsellEnabled(): boolean {
  */
 export function kioskPovCodesEnabled(): boolean {
   return process.env.KIOSK_POV_CODES !== "0";
+}
+
+/**
+ * Attract-screen bank BILLBOARD (owner pick 2026-07-26) — HeadPinz kiosks
+ * only: every screen in the physical bank takes one activity (photo + neon
+ * word) lighting up down the row, then the whole bank lands "All right
+ * here." together. Clock-locked to the shared kiosk wall clock; per-venue
+ * physical order lives in attract/billboard.ts.
+ *
+ * Rollout (owner 2026-07-26): **ON by default at BOTH HeadPinz venues**
+ * (Fort Myers and Naples). Kill switch: set the literal "false" in Vercel +
+ * redeploy to turn it off everywhere. FastTrax never shows it (its picked
+ * events are the drive-by + relay wave, later PR). NEXT_PUBLIC_* values are
+ * build-baked. Read at call time so tests can stub process.env.
+ */
+export function kioskBillboardEnabled(venue: "FT" | "HPFM" | "HPN"): boolean {
+  if (process.env.NEXT_PUBLIC_KIOSK_BILLBOARD === "false") return false;
+  return venue !== "FT";
+}
+
+/**
+ * Rotating attract welcome line — "Let's play." / "Let's bowl." / "Let's
+ * party." (HeadPinz) and play/race/bowl (FastTrax), clock-synced 4s fade
+ * cycle (owner 2026-07-26: "we need to rotate lets play, lets bowl etc").
+ * Kill switch, defaults ON — set the literal "false" in Vercel + redeploy to
+ * pin the static "Let's play." Read at call time so tests can stub
+ * process.env.
+ */
+export function kioskWelcomeRotateEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_WELCOME_ROTATE !== "false";
+}
+
+/**
+ * Coupon / promo codes on the kiosk (owner 2026-07-27, reversing the 2026-07-21
+ * "no promo input" call — entry moved to the CATEGORY screen, mirroring the
+ * website's /book/v2 attraction selector) — OPT-IN, defaults OFF. Gates the
+ * "Coupon or voucher?" chip on KioskCategories and the code-entry screen. The
+ * pricing seams have been live the whole time (the kiosk cart runs
+ * promoFactor/applyPromoToBillLines transitively), so enabling this only adds
+ * the ENTRY point. Set the literal "true" in Vercel + redeploy to show it
+ * (NEXT_PUBLIC_* values are build-baked — scope the var to Preview too or
+ * preview builds bake it off). Preview opt-in without env changes:
+ * /kiosk/flow?kioskPromo=1 (same pattern as ?bowlingV3=1). Read at call time
+ * (never module scope) so tests can stub process.env.
+ */
+export function kioskPromoEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_PROMO === "true";
+}
+
+/**
+ * Kiosk "Next available" EXPERIENCES fan-out — kill switch, defaults ON,
+ * server-side only (the cached availability compute is the sole consumer, so no
+ * NEXT_PUBLIC prefix / no rebuild needed — flip in Vercel + it takes effect on
+ * the next cache-miss compute).
+ *
+ * The Experiences legs — the VIP combo (race-bowl) feasible-chain probe and the
+ * Ultimate Qualifier package feasibility — are by far the heaviest vendor cost
+ * in computeExperienceAvailability: each fans out across many BMI heat-product
+ * availability calls (race legs + cross-tier occupancy unions, UQ variants ×
+ * races) plus a full-day QAMF bowling scan. When BMI/QAMF are under load, set
+ * KIOSK_EXPERIENCE_AVAIL=0 to shed those two legs instantly — their tiles fall
+ * back to open-with-no-line (available, no "Next available" text; they never
+ * false-lock). Every other tile (racing, attractions, bowling, KBF) is
+ * unaffected. Read at call time so tests can stub process.env.
+ */
+export function kioskExperienceAvailEnabled(): boolean {
+  return process.env.KIOSK_EXPERIENCE_AVAIL !== "0";
 }

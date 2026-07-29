@@ -12,6 +12,7 @@
  * With prefers-reduced-motion the card rests below the glowing slot and the
  * diagram still reads as a static "insert here" figure.
  */
+import { useT } from "../i18n";
 
 /** Standard no-entry mark (circle + slash) over a wrong slot. */
 function NoEntry({ cx, cy }: { cx: number; cy: number }) {
@@ -42,12 +43,13 @@ export function CardSlotGuide({
   sublabel?: string;
   width?: number;
 }) {
+  const t = useT();
   return (
     <div className="flex flex-col items-center gap-8 text-center" role="status" aria-live="polite">
       <svg
         viewBox="0 0 560 356"
         style={{ width, maxWidth: "100%" }}
-        aria-label="Insert your game card into the glowing green slot on the left side of the panel"
+        aria-label={t("pay.slotGuide.aria")}
       >
         <defs>
           <linearGradient id="ksg-panel" x1="0" y1="0" x2="0" y2="1">

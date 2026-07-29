@@ -26,7 +26,7 @@
  *   - NEW racers are Starter-only (badge); RETURNING racers show their
  *     earned tier + credits (race mode).
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CenterCode, PartyMember } from "~/features/booking";
 import { newPartyMember } from "~/features/booking";
 import { tierFromMemberships } from "~/features/booking/service/race-products";
@@ -43,8 +43,24 @@ import {
   type PersonData,
 } from "~/components/features/booking/steps/race/ReturningRacerLookup";
 import { useKioskConfig } from "../KioskConfigContext";
-import { kioskHasCamera } from "../config";
+import { useT } from "../i18n";
+import { kioskHasCamera, kioskId } from "../config";
+import { useMobileJoin } from "../hooks/useMobileJoin";
+import { ageFromIso } from "../join/phone/join-helpers";
+import { mergeJoinedGuests } from "../join/merge";
+import { kioskMobileJoinEnabled } from "../flags";
+import { KioskSignInBoxes } from "./KioskSignInBoxes";
 import { KioskWaiverPhoto } from "./KioskWaiverPhoto";
+import { formatPersonName } from "~/lib/helpers/name-format";
+import { useLicenseScan, type AamvaLicense, type MemberQr } from "../qr-scanner";
+import {
+  fetchLicenseMatches,
+  fetchMemberMatches,
+  personDataFromMatch,
+  prewarmLicenseLookup,
+} from "../license/lookup-client";
+import type { LicenseMatch } from "../license/types";
+import { LicenseMatchPicker } from "./LicenseMatchPicker";
 
 export type PartyManagerMode = "race" | "attraction" | "waiver";
 
@@ -144,7 +160,10 @@ export function shortPandoraId(m: PartyMember): string | null {
 }
 
 /** canAdvance shared logic: at least one participant, everyone set up + waivered,
- *  every minor has a guardian. `ids` = the participating member ids. */
+ *  every minor has a guardian. `ids` = the participating member ids.
+ *  TODO(i18n): module-scope + shared with canAdvance and checkin/server.ts, so it
+ *  can't reach useT() — the `reason` strings stay English until validation copy is
+ *  locale-threaded (see tasks/kiosk-i18n-spanish-plan.md). */
 export function peopleReady(party: PartyMember[], ids: string[]): true | { reason: string } {
   if (ids.length === 0 || party.length === 0) {
     return { reason: "Add at least one player — everyone needs an account and waiver." };
@@ -195,6 +214,7 @@ export function KioskPartyManager({
   onWaiverSigned,
   renderPhoto,
 }: KioskPartyManagerProps) {
+  const t = useT();
   const isRace = mode === "race";
 
   // Racing races the whole party; an attraction toggles who's in THIS one.
@@ -215,7 +235,8 @@ export function KioskPartyManager({
     personId: string;
     template: PandoraWaiverTemplate;
     /** Guardian signing a MINOR's waiver: the guardian's SHORT Pandora id +
-     *  display name (rides Pandora's sigPersonID). Absent = self-sign. */
+     *  display name (rides Pandora's sigPersonID). Absent = self-sign (adults;
+     *  legacy paths where guardianID rode the person create instead). */
     signerPersonId?: string;
     signerName?: string;
   } | null>(null);
@@ -231,6 +252,16 @@ export function KioskPartyManager({
   } | null>(null);
   // Linked family are OPT-IN suggestions — tap to add, never auto-pulled in.
   const [linked, setLinked] = useState<LinkedSuggestion[]>([]);
+  // Driver's-license scan flow (handlers live below, after handleVerified):
+  // in-flight lookup / multi-match picker / one-line outcome note.
+  const [licenseBusy, setLicenseBusy] = useState(false);
+  // license is null when the picker came from an SMS-Timing member QR (no
+  // scanned name/DOB to prefill a form with).
+  const [licenseMatches, setLicenseMatches] = useState<{
+    license: AamvaLicense | null;
+    matches: LicenseMatch[];
+  } | null>(null);
+  const [scanNote, setScanNote] = useState<string | null>(null);
   // Members whose Pandora waiver status is still being fetched — a returning racer
   // lands with waiverValid unknown, so without this the card flashes "Waiver
   // needed" before the check resolves (owner 2026-07-19). Shown as "Checking
@@ -263,9 +294,17 @@ export function KioskPartyManager({
   // Continue) advances PAST the OTP step without verifying (owner: entering the
   // phone jumped to the next page). Finish or cancel the lookup to continue.
   useEffect(() => {
-    setBusy?.(lookupOpen || form !== null || busy || checkingIds.size > 0);
+    setBusy?.(
+      lookupOpen ||
+        form !== null ||
+        busy ||
+        checkingIds.size > 0 ||
+        // License scan mid-flight / match picker open — same "mid-task" rule.
+        licenseBusy ||
+        licenseMatches !== null,
+    );
     return () => setBusy?.(false);
-  }, [lookupOpen, form, busy, setBusy, checkingIds]);
+  }, [lookupOpen, form, busy, setBusy, checkingIds, licenseBusy, licenseMatches]);
 
   const setIncluded = (ids: Set<string>) => {
     if (isRace) return;
@@ -442,11 +481,11 @@ export function KioskPartyManager({
     const age = ageFromDob(dob);
     const isMain = !!onSetContact && party.length === 0;
     if (!firstName.trim() || !lastName.trim()) {
-      setFormError("Enter a first and last name.");
+      setFormError(t("party.err.name"));
       return;
     }
     if (age === null) {
-      setFormError("Enter the birthday as MM/DD/YYYY.");
+      setFormError(t("party.err.dob"));
       return;
     }
     // HARD racing age floor (venue rule: juniors are ages 7–13). The safety
@@ -454,29 +493,27 @@ export function KioskPartyManager({
     // it at capture instead of letting a family book a 5-year-old and get
     // turned away at the track (owner 2026-07-18 age-check ask).
     if (isRace && age < 7) {
-      setFormError(
-        `${firstName.trim() || "This racer"} is under 7 — too young to race. Kids under 7 are welcome trackside, or check out Duckpin bowling.`,
-      );
+      setFormError(t("party.err.tooYoung", { name: firstName.trim() || t("party.thisRacer") }));
       return;
     }
     // Every new player gives a mobile number (owner rule); the main person also
     // gives an email so their contact is complete and no YOUR INFO step is needed.
     const digits = phone.replace(/\D/g, "");
     if (digits.length < 10) {
-      setFormError("Enter a mobile phone number.");
+      setFormError(t("party.err.phone"));
       return;
     }
     if (isMain && !email.includes("@")) {
-      setFormError("The main person needs an email for the confirmation.");
+      setFormError(t("party.err.emailMain"));
       return;
     }
     const minor = age < 18;
     if (minor && adults.length === 0) {
-      setFormError("Add an adult to the group first — a minor needs a guardian.");
+      setFormError(t("party.err.needAdult"));
       return;
     }
     if (minor && !guardianId) {
-      setFormError("Pick this minor's guardian.");
+      setFormError(t("party.err.pickGuardian"));
       return;
     }
     setBusyAll(true);
@@ -519,8 +556,8 @@ export function KioskPartyManager({
     } catch (err) {
       setFormError(
         err instanceof Error
-          ? `Couldn't set that person up: ${err.message}`
-          : "Couldn't set that person up. Please try again or see the front desk.",
+          ? t("party.err.setupFailMsg", { msg: err.message })
+          : t("party.err.setupFail"),
       );
     } finally {
       setBusyAll(false);
@@ -531,25 +568,23 @@ export function KioskPartyManager({
   const submitSetup = async (member: PartyMember) => {
     const age = ageFromDob(dob);
     if (age === null) {
-      setFormError("Enter the birthday as MM/DD/YYYY.");
+      setFormError(t("party.err.dob"));
       return;
     }
     // Same hard racing floor as submitNew — a "Set up" on an existing roster
     // member is still the moment we learn their real DOB.
     if (isRace && age < 7) {
-      setFormError(
-        `${member.firstName} is under 7 — too young to race. Kids under 7 are welcome trackside, or check out Duckpin bowling.`,
-      );
+      setFormError(t("party.err.tooYoung", { name: member.firstName }));
       return;
     }
     const minor = age < 18;
     const gid = member.guardianMemberId || guardianId;
     if (minor && adults.filter((a) => a.id !== member.id).length === 0) {
-      setFormError("Add an adult to the group first — a minor needs a guardian.");
+      setFormError(t("party.err.needAdult"));
       return;
     }
     if (minor && !gid) {
-      setFormError("Pick this minor's guardian.");
+      setFormError(t("party.err.pickGuardian"));
       return;
     }
     setBusyAll(true);
@@ -588,15 +623,71 @@ export function KioskPartyManager({
             result.template,
           );
         }
+      } else if (member.pandoraPersonId || member.bmiPersonId.length <= 12) {
+        // A SHORT Pandora id is already on the member — NEVER create again.
+        // Pandora's create is NOT an upsert: a re-tap used to re-run the
+        // "upsert" below and mint a fresh duplicate person every time, so the
+        // new waiver landed on a record later checks never read (2026-07-25
+        // Strachan incident). Check the waiver on the id we have and sign
+        // against it.
+        const sid = member.pandoraPersonId ?? member.bmiPersonId;
+        const status = await pandoraCheckWaiver(sid, brandLocation);
+        // MEMBERSHIP REFRESH: BMI's birthdate beats the typed DOB for minor
+        // routing + the template age (2026-07-23 adult-waiver-on-a-17yo class
+        // — mirrors the KioskPeopleStep twin branch).
+        const refreshedIso = status.birthdate
+          ? String(status.birthdate).slice(0, 10)
+          : toIsoDob(dob);
+        const rAge = ageFromIso(refreshedIso) ?? age;
+        const rMinor = rAge < 18;
+        const rGid = member.guardianMemberId || guardianId;
+        if (rMinor && !rGid) {
+          // The typed DOB said adult so the top-of-function guardian gate
+          // never fired — re-gate on the refreshed age (form stays open).
+          setFormError(t("party.err.pickGuardian"));
+          return;
+        }
+        // Template BEFORE resetForm — a fetch failure must surface in the
+        // still-open form (formError renders inside it), not vanish with it.
+        const template = status.valid
+          ? null
+          : await pandoraFetchWaiverTemplate(rAge, brandLocation);
+        onUpdateMember(member.id, {
+          waiverValid: status.valid,
+          isMinor: rMinor,
+          category: rAge < 13 ? "junior" : "adult",
+          dobIso: refreshedIso,
+          guardianMemberId: rMinor ? rGid : undefined,
+        });
+        resetForm();
+        if (template) {
+          // A minor never self-signs. This branch has no create to attach
+          // guardianID to (that was the duplicate-minting path), so the
+          // guardian rides the WAIVER instead as Pandora sigPersonID — same
+          // record KioskPeopleStep's guardian flow writes.
+          const guardian = rMinor ? party.find((m) => m.id === rGid) : undefined;
+          const guardianSid =
+            guardian?.pandoraPersonId ??
+            (guardian?.bmiPersonId && guardian.bmiPersonId.length <= 12
+              ? guardian.bmiPersonId
+              : undefined);
+          setWaiverFor({
+            memberId: member.id,
+            personId: sid,
+            template,
+            ...(guardianSid ? { signerPersonId: guardianSid } : {}),
+          });
+        }
       } else {
         // Account exists (returning racer) — but the lookup's id is the
         // 17-digit OFFICE id, which Pandora's waiver-sign endpoint REJECTS
         // (live 2026-07-18: sign 500s; the "second time worked" because the
-        // upsert-style Pandora create resolved the same human to their SHORT
-        // id). Resolve the short id via that same upsert (known person → same
-        // personId, never a duplicate) using the member's OWN phone/email as
+        // Pandora create resolved the same human to their SHORT id). Resolve
+        // the short id via that create using the member's OWN phone/email as
         // the dedup identity, then sign against it. It also returns the REAL
         // waiver status — a regular with a current waiver skips signing.
+        // (Create is NOT a reliable upsert — the short-id guard above makes
+        // sure it runs at most ONCE per member.)
         const dedupPhone = member.phone?.trim() ?? "";
         const dedupEmail = member.email?.trim() ?? "";
         if (dedupPhone || dedupEmail) {
@@ -652,8 +743,8 @@ export function KioskPartyManager({
     } catch (err) {
       setFormError(
         err instanceof Error
-          ? `Couldn't finish setup: ${err.message}`
-          : "Couldn't finish setup. Please try again or see the front desk.",
+          ? t("party.err.finishFailMsg", { msg: err.message })
+          : t("party.err.finishFail"),
       );
     } finally {
       setBusyAll(false);
@@ -849,9 +940,167 @@ export function KioskPartyManager({
     setFormError(null);
   };
 
+  /* ── driver's-license scan (hardware QR scanner) ─────────────────────────
+     Same routing as KioskPeopleStep: roster view → account lookup by last
+     name + DOB (physical ID = identity proof, owner 2026-07-23) → sign in /
+     prefilled new-player form; an OPEN form just gets filled. State lives up
+     with the other hooks (the setBusy effect reads it). */
+  const isoToMmDdYyyy = (iso: string) => {
+    const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[2]}/${m[3]}/${m[1]}` : "";
+  };
+
+  const fillNewForm = (lic: AamvaLicense) => {
+    setFirstName(formatPersonName(lic.firstName));
+    setLastName(formatPersonName(lic.lastName));
+    setDob(isoToMmDdYyyy(lic.dobIso));
+    setFormError(null);
+  };
+
+  const openNewFormFromLicense = (lic: AamvaLicense) => {
+    resetForm();
+    setForm({ mode: "new" });
+    fillNewForm(lic);
+  };
+
+  /** Sign a matched account in through the SAME rail as the OTP lookup. */
+  const signInLicenseMatch = (m: LicenseMatch) => {
+    const already = party.find(
+      (x) => x.bmiPersonId === m.personId || x.pandoraPersonId === m.personId,
+    );
+    if (already) {
+      setScanNote(t("party.err.alreadySignedIn", { name: already.firstName }));
+      return;
+    }
+    handleVerified(personDataFromMatch(m));
+    setScanNote(null);
+  };
+
+  const runLicenseLookup = async (lic: AamvaLicense) => {
+    setLicenseBusy(true);
+    setScanNote(null);
+    setLookupOpen(false); // a scan at the OTP screen IS the sign-in
+    try {
+      // CENTER FIRST (same rule as the photo upload below): Naples routes to
+      // the Naples Pandora location regardless of brand.
+      const matches = await fetchLicenseMatches(
+        lic,
+        center === "naples" ? "naples" : brandLocation,
+      );
+      if (matches === null) {
+        setScanNote(t("party.license.checkFail"));
+        openNewFormFromLicense(lic);
+      } else if (matches.length === 0) {
+        setScanNote(null);
+        openNewFormFromLicense(lic);
+      } else if (matches.length === 1) {
+        signInLicenseMatch(matches[0]);
+      } else {
+        setLicenseMatches({ license: lic, matches });
+      }
+    } finally {
+      setLicenseBusy(false);
+    }
+  };
+
+  const handleLicense = (lic: AamvaLicense) => {
+    if (waiverFor || busy || licenseBusy || licenseMatches) return;
+    if (form?.mode === "new") {
+      fillNewForm(lic);
+      return;
+    }
+    if (form?.mode === "setup") {
+      // Only take the DOB when the license plausibly belongs to THIS member —
+      // a parent scanning their own ID must not stamp their DOB on the kid.
+      if (form.member.firstName.trim().toLowerCase() === lic.firstName.trim().toLowerCase()) {
+        setDob(isoToMmDdYyyy(lic.dobIso));
+        setFormError(null);
+      } else {
+        setFormError(t("party.err.licenseMismatch", { name: form.member.firstName }));
+      }
+      return;
+    }
+    void runLicenseLookup(lic);
+  };
+
+  /** SMS-Timing member QR — straight to lookup (the code IS the identity;
+   *  no scanned name to prefill on a miss). */
+  const runMemberLookup = async (qr: MemberQr) => {
+    setLicenseBusy(true);
+    setScanNote(null);
+    setLookupOpen(false);
+    try {
+      const matches = await fetchMemberMatches(qr);
+      if (matches === null) {
+        setScanNote(t("party.member.checkCodeFail"));
+      } else if (matches.length === 0) {
+        setScanNote(t("party.member.codeNotFound"));
+      } else if (matches.length === 1) {
+        signInLicenseMatch(matches[0]);
+      } else {
+        setLicenseMatches({ license: null, matches });
+      }
+    } finally {
+      setLicenseBusy(false);
+    }
+  };
+
+  const handleMemberQr = (qr: MemberQr) => {
+    if (waiverFor || busy || licenseBusy || licenseMatches || form) return;
+    void runMemberLookup(qr);
+  };
+
+  const licenseScan = useLicenseScan({
+    config: kioskCfg,
+    enabled: true, // the hook itself no-ops unless this kiosk has the scanner
+    onLicense: handleLicense,
+    onMemberQr: handleMemberQr,
+  });
+
+  // Absorb Pandora's Azure cold start BEFORE anyone scans (one shot per
+  // mount) — otherwise the first scan after idle pays the spin-up.
+  const prewarmedRef = useRef(false);
+  useEffect(() => {
+    if (!prewarmedRef.current && kioskCfg?.qrScannerEnabled) {
+      prewarmedRef.current = true;
+      prewarmLicenseLookup(center === "naples" ? "naples" : brandLocation);
+    }
+  }, [kioskCfg, center, brandLocation]);
+
+  // Mobile join (flag-gated, default on): the same phone-QR sign-in the race /
+  // attraction people step uses, reused here so the standalone flows (race
+  // packs) get "sign in from your phone" too. The join session is fully
+  // decoupled from the booking session — itemId is an opaque client key that
+  // never reaches the server. Joined guests merge into the LOCAL roster through
+  // the same onAddMember / onUpdateMember callbacks the rest of this component
+  // uses; there's no separate guardians list here, so pass []. stepKind only
+  // labels the phone page (no "race-pack" value exists — race maps to "race").
+  const mobileJoin = useMobileJoin({
+    enabled: kioskMobileJoinEnabled() && !!kioskCfg && mode !== "waiver",
+    itemId: `party-manager:${mode}`,
+    kioskId: kioskCfg ? kioskId(kioskCfg) : null,
+    center: kioskCfg?.center ?? null,
+    brand: kioskCfg?.brand ?? null,
+    stepKind: isRace ? "race" : "attraction",
+    onGuests: (guests) => {
+      const { toAdd, alreadyPresent } = mergeJoinedGuests(party, [], guests);
+      for (const member of toAdd) onAddMember(member);
+      // Someone already on the roster re-verified by phone — silent success:
+      // waiver now signed + the short Pandora id (NEVER touch bmiPersonId) + the
+      // OTP-proven phone.
+      for (const hit of alreadyPresent) {
+        onUpdateMember(hit.memberId, {
+          waiverValid: true,
+          ...(hit.pandoraPersonId ? { pandoraPersonId: hit.pandoraPersonId } : {}),
+          ...(hit.phone && hit.phoneVerified ? { phone: hit.phone, phoneVerified: true } : {}),
+        });
+      }
+    },
+  });
+
   const badgeFor = (m: PartyMember) => {
     if (isRace) {
-      if (m.isNewRacer) return { label: "Starter only", cls: "text-[#00e2e5]" };
+      if (m.isNewRacer) return { label: t("party.badge.starterOnly"), cls: "text-[#00e2e5]" };
       const tier = tierFromMemberships(m.memberships ?? []);
       return {
         label: tier,
@@ -877,6 +1126,8 @@ export function KioskPartyManager({
     form === null &&
     !lookupOpen &&
     !waiverFor &&
+    !licenseBusy &&
+    !licenseMatches &&
     readyState !== true
       ? readyState.reason
       : null;
@@ -884,9 +1135,7 @@ export function KioskPartyManager({
   return (
     <div className={theme === "mobile" ? "wp-mobile space-y-4" : "space-y-[24px]"}>
       <p className="text-[26px] text-white/55">
-        {party.length > 0
-          ? "Your group is signed in — everyone here needs an account and a signed waiver."
-          : "Add everyone playing. Each person gets an account and signs the waiver right here — so check-in is the Express Lane, not a line."}
+        {party.length > 0 ? t("party.intro.signedIn") : t("party.intro.empty")}
       </p>
 
       {blockReason && (
@@ -898,9 +1147,24 @@ export function KioskPartyManager({
             !
           </span>
           <div>
-            <div className="k-eyebrow text-[#f0b341]">Before you continue</div>
+            <div className="k-eyebrow text-[#f0b341]">{t("party.beforeContinue")}</div>
             <div className="mt-[4px] text-[28px] font-bold text-[#f5d38a]">{blockReason}</div>
           </div>
+        </div>
+      )}
+
+      {/* license-scan progress + outcome (hardware scanner kiosks only) */}
+      {licenseBusy && (
+        <div className="flex items-center gap-[16px] rounded-2xl border-2 border-[#00e2e5]/40 bg-[#00e2e5]/10 px-[28px] py-[22px]">
+          <span className="h-[28px] w-[28px] shrink-0 animate-spin rounded-full border-2 border-[#00e2e5]/30 border-t-[#00e2e5]" />
+          <span className="text-[26px] font-bold text-[#7ff3f4]">
+            {t("party.license.checking")}
+          </span>
+        </div>
+      )}
+      {scanNote && !licenseBusy && (
+        <div className="rounded-2xl border border-white/12 bg-white/5 px-[24px] py-[16px] text-[22px] text-white/60">
+          {scanNote}
         </div>
       )}
 
@@ -932,8 +1196,8 @@ export function KioskPartyManager({
                     aria-pressed={isIn}
                     aria-label={
                       isIn
-                        ? `Remove ${m.firstName} from this activity`
-                        : `Add ${m.firstName} to this activity`
+                        ? t("party.member.aria.removeFromActivity", { name: m.firstName })
+                        : t("party.member.aria.addToActivity", { name: m.firstName })
                     }
                     className={`grid h-[64px] w-[64px] shrink-0 place-items-center rounded-2xl border-2 text-[32px] font-bold ${
                       isIn
@@ -951,12 +1215,12 @@ export function KioskPartyManager({
                     </span>
                     {m.isBillingCustomer && (
                       <span className="k-eyebrow rounded-full bg-[#00e2e5]/15 px-[14px] py-[4px] text-[18px] text-[#00e2e5]">
-                        Main
+                        {t("party.badge.main")}
                       </span>
                     )}
                     {m.isMinor && (
                       <span className="rounded-full bg-white/10 px-[14px] py-[4px] text-[20px] font-bold text-white/70">
-                        Minor
+                        {t("party.badge.minor")}
                       </span>
                     )}
                     {badge && (
@@ -964,27 +1228,33 @@ export function KioskPartyManager({
                     )}
                     {m.creditBalances && m.creditBalances.length > 0 && (
                       <span className="text-[22px] font-semibold text-[#46d68c]">
-                        {m.creditBalances.reduce((s, c) => s + c.balance, 0)} credits
+                        {t("party.credits", {
+                          n: m.creditBalances.reduce((s, c) => s + c.balance, 0),
+                        })}
                       </span>
                     )}
                   </div>
                   <div className="mt-[8px] flex flex-wrap items-center gap-x-[24px] gap-y-[6px] text-[22px]">
                     {ready ? (
                       <span className="font-semibold text-[#46d68c]">
-                        ✓ Account &amp; waiver ready
+                        ✓ {t("party.status.ready")}
                       </span>
                     ) : checking ? (
                       <span className="flex items-center gap-[10px] font-semibold text-[#00e2e5]">
                         <span className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-[#00e2e5]/30 border-t-[#00e2e5]" />
-                        Checking waiver…
+                        {t("party.status.checkingWaiver")}
                       </span>
                     ) : (
                       <span className="font-semibold text-[#f0b341]">
-                        {m.bmiPersonId ? "Waiver needed" : "Account + waiver needed"}
+                        {m.bmiPersonId
+                          ? t("party.status.waiverNeeded")
+                          : t("party.status.accountWaiverNeeded")}
                       </span>
                     )}
                     {guardian && (
-                      <span className="text-white/45">Guardian: {guardian.firstName}</span>
+                      <span className="text-white/45">
+                        {t("party.guardianLabel", { name: guardian.firstName })}
+                      </span>
                     )}
                     {onSetContact && !m.isBillingCustomer && (
                       <button
@@ -992,7 +1262,7 @@ export function KioskPartyManager({
                         onClick={() => markMain(m.id)}
                         className="text-[#00e2e5]/80 underline-offset-4 hover:underline"
                       >
-                        Make main
+                        {t("party.makeMain")}
                       </button>
                     )}
                   </div>
@@ -1004,24 +1274,24 @@ export function KioskPartyManager({
                       onClick={() => openSetup(m)}
                       className="rounded-2xl border-2 border-[#f0b341]/55 px-[24px] py-[12px] text-[24px] font-bold text-[#f0b341]"
                     >
-                      {m.bmiPersonId ? "Sign waiver" : "Set up"}
+                      {m.bmiPersonId ? t("party.signWaiver") : t("party.setUp")}
                     </button>
                   )}
                   {isGuardianForSomeone(m) ? (
                     <span
                       className="text-[20px] font-semibold text-white/30"
-                      title="Guardian for a minor in your group — remove the minor first"
+                      title={t("party.guardianBadge.title")}
                     >
-                      Guardian
+                      {t("party.guardianBadge")}
                     </span>
                   ) : (
                     <button
                       type="button"
                       onClick={() => removeMember(m.id)}
-                      aria-label={`Remove ${m.firstName}`}
+                      aria-label={t("party.aria.remove", { name: m.firstName })}
                       className="text-[22px] text-white/40"
                     >
-                      Remove
+                      {t("party.remove")}
                     </button>
                   )}
                 </div>
@@ -1042,22 +1312,34 @@ export function KioskPartyManager({
             }}
             className="k-tap rounded-[28px] border-2 border-dashed border-[#00e2e5]/45 px-[24px] py-[28px] text-[28px] font-bold text-[#00e2e5]"
           >
-            + Add a new player
+            + {t("party.addNewPlayer")}
           </button>
           <button
             type="button"
             onClick={() => setLookupOpen(true)}
             className="k-tap rounded-[28px] border-2 border-[#00e2e5]/45 bg-[#00e2e5]/10 px-[24px] py-[28px] text-[28px] font-bold text-white"
           >
-            Sign in — find my people
+            {t("party.signInFindPeople")}
           </button>
         </div>
+      )}
+
+      {/* Faster ways to sign in — phone QR + driver's-license + FastTrax
+          license, side by side. Phone box hides while the join flag is off /
+          idle; the scan boxes show only while the COM scanner is listening;
+          once someone's on the roster the trio folds into a slim bar. */}
+      {form === null && !lookupOpen && (
+        <KioskSignInBoxes
+          phone={mobileJoin}
+          scanListening={licenseScan.listening}
+          collapsed={party.length > 0}
+        />
       )}
 
       {/* Linked family — OPT-IN suggestions (tap to add), never auto-added */}
       {linked.length > 0 && form === null && !lookupOpen && (
         <div>
-          <div className="k-eyebrow mb-[12px] text-white/40">On this account — tap to add</div>
+          <div className="k-eyebrow mb-[12px] text-white/40">{t("party.linked.heading")}</div>
           <div className="flex flex-wrap gap-[12px]">
             {linked.map((lp) => {
               // Racing hard floor (7+): a linked kid under 7 can't be added to
@@ -1079,12 +1361,14 @@ export function KioskPartyManager({
                     + {lp.firstName} {lp.lastName}
                   </div>
                   <div className="text-[20px] text-white/50">
-                    {lp.age !== null ? `Age ${lp.age}` : "Family"}
+                    {lp.age !== null
+                      ? t("party.linked.age", { age: lp.age })
+                      : t("party.linked.family")}
                     {tooYoung
-                      ? " · under 7 — too young to race"
+                      ? t("party.linked.tooYoung")
                       : lp.waiverValid
-                        ? " · waiver on file"
-                        : " · needs waiver"}
+                        ? t("party.linked.waiverOnFile")
+                        : t("party.linked.needsWaiver")}
                   </div>
                 </button>
               );
@@ -1097,7 +1381,9 @@ export function KioskPartyManager({
       {form !== null && (
         <div className="k-glass space-y-[20px] p-[28px]">
           <div className="k-display text-[32px]">
-            {form.mode === "new" ? "New player" : `Set up ${form.member.firstName}`}
+            {form.mode === "new"
+              ? t("party.form.newPlayer")
+              : t("party.form.setUpName", { name: form.member.firstName })}
           </div>
           {form.mode === "new" && (
             <div className="grid grid-cols-2 gap-[16px]">
@@ -1105,14 +1391,14 @@ export function KioskPartyManager({
                 type="text"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
-                placeholder="First name"
+                placeholder={t("party.form.firstName")}
                 className="rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
               />
               <input
                 type="text"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
-                placeholder="Last name"
+                placeholder={t("party.form.lastName")}
                 className="rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
               />
             </div>
@@ -1129,7 +1415,7 @@ export function KioskPartyManager({
               );
               setDob(parts.join("/"));
             }}
-            placeholder="Birthday MM/DD/YYYY"
+            placeholder={t("party.form.birthday")}
             className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
           />
           {/* Every new player gives a mobile number; the main person (first added)
@@ -1142,7 +1428,7 @@ export function KioskPartyManager({
                 data-osk-layout="phone"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="Mobile phone"
+                placeholder={t("party.form.mobilePhone")}
                 className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
               />
               <input
@@ -1151,21 +1437,30 @@ export function KioskPartyManager({
                 data-osk-layout="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder={isMainDefault ? "Email (for your confirmation)" : "Email (optional)"}
+                placeholder={
+                  isMainDefault ? t("party.form.emailMain") : t("party.form.emailOptional")
+                }
                 className="w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[20px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
               />
             </>
           )}
+          {/* Scanner shortcut inside the form too. */}
+          {licenseScan.listening && form.mode === "new" && (
+            <p className="text-[20px] text-white/35">{t("party.license.tip")}</p>
+          )}
           {/* Guardian picker appears once we know they're a minor */}
           {ageFromDob(dob) !== null && (ageFromDob(dob) as number) < 18 && (
             <div>
-              <div className="mb-[10px] text-[22px] text-white/55">
-                Responsible guardian (a registered adult):
+              <div className="mb-[6px] text-[22px] text-white/55">
+                {t("party.form.guardianPrompt")}
+              </div>
+              <div className="mb-[10px] text-[18px] leading-snug text-[#f0b341]/80">
+                {t("party.form.guardianLegalNote")}
               </div>
               {adults.filter((a) => form.mode !== "setup" || a.id !== form.member.id).length ===
               0 ? (
                 <div className="rounded-2xl border border-[#f0b341]/40 bg-[#f0b341]/10 px-[20px] py-[16px] text-[22px] text-[#f0b341]">
-                  Add an adult to the group first — a minor needs a guardian.
+                  {t("party.err.needAdult")}
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-[12px]">
@@ -1196,7 +1491,7 @@ export function KioskPartyManager({
               onClick={resetForm}
               className="rounded-2xl border border-white/15 px-[28px] py-[18px] text-[24px] font-semibold text-white/60"
             >
-              Cancel
+              {t("party.form.cancel")}
             </button>
             <button
               type="button"
@@ -1206,7 +1501,7 @@ export function KioskPartyManager({
               }
               className="k-btn-primary k-tap h-[80px] flex-1 text-[28px]"
             >
-              {busy ? "Setting up…" : "Continue to waiver"}
+              {busy ? t("party.form.settingUp") : t("party.form.continueToWaiver")}
             </button>
           </div>
         </div>
@@ -1216,13 +1511,13 @@ export function KioskPartyManager({
       {lookupOpen && (
         <div className="k-glass p-[28px]">
           <div className="mb-[16px] flex items-center justify-between">
-            <div className="k-display text-[32px]">Sign in</div>
+            <div className="k-display text-[32px]">{t("party.lookup.title")}</div>
             <button
               type="button"
               onClick={() => setLookupOpen(false)}
               className="text-[24px] font-semibold text-white/50"
             >
-              Close
+              {t("party.lookup.close")}
             </button>
           </div>
           <ReturningRacerLookup
@@ -1238,6 +1533,33 @@ export function KioskPartyManager({
         </div>
       )}
 
+      {/* License matched several accounts (duplicates / twins) — the guest
+          picks theirs on the existing account cards. */}
+      {licenseMatches && (
+        <LicenseMatchPicker
+          firstName={
+            licenseMatches.license ? formatPersonName(licenseMatches.license.firstName) : ""
+          }
+          matches={licenseMatches.matches}
+          onPick={(m) => {
+            setLicenseMatches(null);
+            signInLicenseMatch(m);
+          }}
+          onNewInstead={() => {
+            const lic = licenseMatches.license;
+            setLicenseMatches(null);
+            if (lic) {
+              openNewFormFromLicense(lic);
+            } else {
+              // Member QR path — no scanned name/DOB to prefill; blank form.
+              resetForm();
+              setForm({ mode: "new" });
+            }
+          }}
+          onCancel={() => setLicenseMatches(null)}
+        />
+      )}
+
       {/* the REAL waiver: photo first (required adults / optional minors), then
           Pandora template + touch signature → signWaiverDigital. One overlay =
           "the same page" (owner 2026-07-18); no camera configured → straight to
@@ -1248,7 +1570,7 @@ export function KioskPartyManager({
           const needPhoto =
             photoStep !== "off" && hasCameraResolved && photoDoneFor !== waiverFor.memberId;
           const photoArgs = {
-            memberName: signer?.firstName ?? "Guest",
+            memberName: signer?.firstName ?? t("party.guest"),
             isMinor: !!signer?.isMinor,
             onCaptured: (pngBase64: string) => {
               // Fire-and-forget: the route persists to Neon FIRST and the sweep
@@ -1279,13 +1601,18 @@ export function KioskPartyManager({
                   <WaiverSigning
                     personId={waiverFor.personId}
                     template={waiverFor.template}
-                    location={brandLocation}
                     signerPersonId={waiverFor.signerPersonId}
-                    heading={isRace ? "Racing Waiver" : "Activity Waiver"}
+                    location={brandLocation}
+                    heading={
+                      isRace ? t("party.waiver.headingRace") : t("party.waiver.headingActivity")
+                    }
                     subheading={
                       waiverFor.signerName
-                        ? `${waiverFor.signerName} — sign below for ${signer?.firstName ?? "the minor"}. It stays on file for the whole visit.`
-                        : "Read and sign below — it stays on file for your whole visit."
+                        ? t("party.waiver.subheadingGuardian", {
+                            signer: waiverFor.signerName,
+                            minor: signer?.firstName ?? t("party.waiver.theMinor"),
+                          })
+                        : t("party.waiver.subheading")
                     }
                     onComplete={(waiverId) => {
                       // Guardian just signed their OWN waiver → audit it, mark it,
@@ -1330,7 +1657,7 @@ export function KioskPartyManager({
                     onClick={() => setWaiverFor(null)}
                     className="mt-[24px] w-full rounded-2xl border border-white/15 px-[28px] py-[18px] text-[24px] font-semibold text-white/60"
                   >
-                    Cancel — sign later
+                    {t("party.waiver.cancelLater")}
                   </button>
                 </div>
               )}

@@ -100,6 +100,7 @@ export async function processSquareBowlingRefund(opts: {
   //
   // Single-tender bookings (legacy: card-only) fall through to one refund.
   let refunds: TenderRefund[] = [{ paymentId: depositPaymentId, amountCents: totalRefundCents }];
+  let tendersVerified = false;
 
   if (depositOrderId) {
     try {
@@ -136,6 +137,7 @@ export async function processSquareBowlingRefund(opts: {
             );
           }
           refunds = tenderRefunds;
+          tendersVerified = true;
         }
       }
     } catch (err) {
@@ -143,6 +145,20 @@ export async function processSquareBowlingRefund(opts: {
       // safely auto-refunded). Otherwise fall back to legacy single-payment.
       if (err instanceof Error && err.message.startsWith("Refund mismatch:")) throw err;
       console.warn("[square-bowling-refund] order tender fetch failed, falling back:", err);
+    }
+
+    // A deposit order was named but its tenders could not be read, so the
+    // tender-sum cross-check above never ran. Refusing here (rather than
+    // blind-refunding the gift card's whole balance against the deposit
+    // payment) is what stops a transient Square blip from re-refunding money
+    // a post-day-of item refund already credited back to that card: the item
+    // refund makes the balance non-zero again, and the un-verified fallback
+    // would happily return it a second time. Fails safe and is retryable.
+    if (!tendersVerified) {
+      throw new Error(
+        `Deposit order ${depositOrderId} tenders could not be verified — refusing to refund ` +
+          `the gift card balance (${totalRefundCents} cents) unchecked. Retry, or refund manually.`,
+      );
     }
   }
 

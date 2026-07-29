@@ -39,6 +39,9 @@ export interface ExperienceCardProps {
    * cards don't all need video; the SECTION carries one video banner instead.
    */
   videoUrl?: string;
+  /** PinBoyz (Old Time Lanes) vintage treatment: serif title instead of the
+   *  site display face (owner 2026-07-26: "needs to look more classic"). */
+  vintage?: boolean;
   onSelect: (durationOpt: BowlingExperienceDurationOption | null) => void;
 }
 
@@ -54,6 +57,7 @@ export function ExperienceCard(props: ExperienceCardProps) {
     hint,
     hintLoading,
     videoUrl,
+    vintage,
     onSelect,
   } = props;
   const kiosk = variant === "kiosk";
@@ -109,8 +113,20 @@ export function ExperienceCard(props: ExperienceCardProps) {
           }
         >
           <h3
-            className={`font-display uppercase tracking-widest ${kiosk ? "text-[34px]" : "text-lg"}`}
-            style={{ color: accent }}
+            className={
+              vintage
+                ? `font-bold uppercase ${kiosk ? "text-[34px]" : "text-lg"}`
+                : `font-display uppercase tracking-widest ${kiosk ? "text-[34px]" : "text-lg"}`
+            }
+            style={
+              vintage
+                ? {
+                    color: accent,
+                    fontFamily: 'Georgia, "Times New Roman", serif',
+                    letterSpacing: "0.1em",
+                  }
+                : { color: accent }
+            }
           >
             {exp.label}
           </h3>

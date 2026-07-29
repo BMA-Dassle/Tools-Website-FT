@@ -7,8 +7,10 @@
  */
 import { IconBolt } from "@tabler/icons-react";
 import { TRACK_LAYOUTS, KART_CLASS_CARDS, KART_SPECS } from "~/lib/constants/racing-content";
+import { useT } from "../../i18n";
 
 export function TheTracks() {
+  const t = useT();
   return (
     <div className="flex flex-col gap-[28px] pb-[48px]">
       {TRACK_LAYOUTS.map((track) => (
@@ -33,7 +35,7 @@ export function TheTracks() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={track.gif}
-              alt={`${track.name} layout animation`}
+              alt={t("raceInfo.tracks.layoutAlt", { track: track.name })}
               className="max-h-[420px] max-w-full rounded-[18px]"
               draggable={false}
             />
@@ -63,6 +65,11 @@ export function TheTracks() {
 
       <div className="flex items-center gap-[24px] rounded-[28px] border border-white/10 bg-[#0d1a36] p-[28px]">
         <IconBolt size={56} className="shrink-0 text-[#00e2e5]" aria-hidden="true" />
+        {/* TODO(i18n): composed entirely from KART_SPECS constants (model/motor/
+            safety/structure) with inline <strong> + English connectives. The
+            spec data stays English (racing-content constants, outside this pass),
+            so this line stays English with it — mirrors the KioskConfirmation
+            rich-text precedent. */}
         <div className="text-[24px] leading-snug text-white/75">
           <span className="font-bold text-white">{KART_SPECS.model}</span> — {KART_SPECS.motor}.{" "}
           {KART_SPECS.safety}, on a {KART_SPECS.structure}.

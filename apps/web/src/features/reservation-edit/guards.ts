@@ -12,7 +12,7 @@
  * Anything else is a phase_conflict → manual handling, never money movement.
  */
 
-import { EditGuardError, type EditPhase } from "./types";
+import { EditGuardError, type EditPhase, type EditStepKind } from "./types";
 
 export type SquareOrderState = "DRAFT" | "OPEN" | "COMPLETED" | "CANCELED";
 
@@ -80,6 +80,65 @@ export const selectPhase = (facts: PhaseFacts): EditPhase => {
   );
 };
 
+/**
+ * Env flag that must be on for money to come BACK off an already-paid day-of
+ * order in this phase, or null when the phase needs no such flag (pre-payment
+ * decreases settle against the deposit and ride the master switch).
+ *
+ * Single source of truth, deliberately keyed on the PHASE rather than on step
+ * kinds: refund_dayof_payment is emitted by both mid and post_complete, so
+ * kind-keyed gating maps the wrong flag onto each phase. The planner uses this
+ * to disable Execute with a reason before staff fill the form out; the executor
+ * re-checks it as the real gate (never trust a client-supplied plan).
+ */
+export const refundFlagForPhase = (phase: EditPhase): string | null =>
+  phase === "mid"
+    ? "RESERVATION_EDIT_V2_MID_DECREASE"
+    : phase === "post_complete"
+      ? "RESERVATION_EDIT_V2_POST"
+      : null;
+
+/**
+ * Steps a REFUND-ONLY plan is allowed to contain. Deliberately an ALLOWLIST:
+ * anything not named here — a charge, an external sync, an order rebuild, a new
+ * step kind added later — makes the plan not-refund-only and therefore subject
+ * to the master switch. Denied by default is the only safe posture for a rule
+ * that decides whether money may move without the master flag.
+ */
+const REFUND_ONLY_STEPS: ReadonlySet<EditStepKind> = new Set<EditStepKind>([
+  "audit_start",
+  "refund_dayof_payment",
+  "refund_tender",
+  "issue_store_credit",
+  "adjust_gift_card_down",
+  "reconcile_gift_card",
+  "neon_commit",
+  "notify",
+]);
+
+/**
+ * True when this plan does nothing but hand money back for an already-paid
+ * day-of order — the shape the Refund action produces.
+ *
+ * Such a plan may execute on its PHASE flag alone (refundFlagForPhase) rather
+ * than requiring RESERVATION_EDIT_V2. The master switch also unlocks PRE-phase
+ * editing, whose QAMF player sync is blocked by a vendor bug, so coupling the
+ * two would mean shipping a known-broken editing surface just to refund a
+ * guest. Note `refund_dayof_order` is NOT in the allowlist: it only appears in
+ * the post-complete REBUILD path, which charges and rebuilds and therefore
+ * always needs the master flag.
+ */
+export const isRefundOnlyPlan = (plan: {
+  diffCents: number;
+  steps: ReadonlyArray<{ kind: EditStepKind }>;
+}): boolean =>
+  // Money strictly comes back...
+  plan.diffCents < 0 &&
+  // ...off a PAID day-of order (a pre-payment decrease is an ordinary edit)...
+  plan.steps.some((s) => s.kind === "refund_dayof_payment") &&
+  // ...and nothing else happens.
+  plan.steps.every((s) => REFUND_ONLY_STEPS.has(s.kind));
+
 /** Reservation kinds the engine edits. */
 export type EditableKind = "kbf" | "open" | "race" | "attraction";
 
@@ -102,11 +161,26 @@ export interface EditabilityFacts {
  * errors; returns void when the edit may proceed to planning.
  */
 export const assertEditable = (f: EditabilityFacts): void => {
-  // Combo legs must sit in the SAME phase — mixed-phase combos (race leg
-  // settled, bowling leg pre-open) settle money against instruments in
-  // different states and are v1-refused.
-  if (f.isCombo && new Set(f.legPhases).size > 1) {
-    throw new EditGuardError("combo_phase_split");
+  // Every leg of a money group must sit in the SAME phase. A mixed-phase
+  // group settles money against instruments in different states, and
+  // buildEditPlan collapses the group to phases[0] — so the plan silently
+  // describes one leg's world while the money touches a shared instrument.
+  //
+  // The concrete hazard is the shared internal gift card: an item refund on a
+  // CHARGED leg decrements it while an un-charged sibling still needs its
+  // share to pay its own day-of order. If the sibling's charge cron fires
+  // into that hole, the payment fails — and a failed payment still BURNS its
+  // deterministic idempotency key (lane-open / race-dayof-pay / no-show-close
+  // all key off the reservation id), leaving that leg permanently
+  // unchargeable. Refuse instead.
+  if (f.legPhases.length > 1 && new Set(f.legPhases).size > 1) {
+    throw new EditGuardError(
+      f.isCombo ? "combo_phase_split" : "leg_phase_split",
+      f.isCombo
+        ? undefined
+        : "this booking's legs are in different states (one is already charged, another is not) — " +
+            "edit them from the leg that is still un-charged, or handle it manually in Square",
+    );
   }
   // v1: combo edits only while every leg is un-tendered.
   if (f.isCombo && f.phase !== "pre") {

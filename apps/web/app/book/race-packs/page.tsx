@@ -47,6 +47,21 @@ const PAGE_ID = "42960253";
 const RACE_PACK_VIA_DEPOSIT =
   (process.env.NEXT_PUBLIC_RACE_PACK_VIA_DEPOSIT || "true").toLowerCase() !== "false";
 
+// FastTrax-license-on-pack-purchase (owner 2026-07-25): a NEW / unlicensed racer
+// buying a pack also needs a $4.99 FastTrax License, registered on their BMI
+// account so they're cleared to race. Default ON (kill switch = set the env to
+// "false"); only active on the via-deposit path (the live Square path that
+// /api/square/pay's license hook runs on). Still verify BMI registration live.
+const RACE_PACK_LICENSE_ENABLED =
+  process.env.NEXT_PUBLIC_RACE_PACK_LICENSE !== "false" && RACE_PACK_VIA_DEPOSIT;
+const LICENSE_FEE = 4.99;
+
+/** Does this account lack an active FastTrax license? (memberships already
+ *  filtered to the relevant set — an active "license" name means they're set). */
+function accountNeedsLicense(memberships: string[]): boolean {
+  return !memberships.some((m) => m.toLowerCase().includes("licen"));
+}
+
 // Single Square catalog product, shared by every pack variant. We
 // override the line-item name on each order so receipts read e.g.
 // "5-Race Pack (Mon-Thu)" instead of the generic catalog name.
@@ -154,6 +169,8 @@ export default function RacePacksPage() {
   // RACE_PACK_VIA_DEPOSIT is on.
   const [checkoutPersonId, setCheckoutPersonId] = useState("");
   const [checkoutIsNewRacer, setCheckoutIsNewRacer] = useState(false);
+  // A $4.99 FastTrax License rides this purchase (new / unlicensed racer).
+  const [needsLicense, setNeedsLicense] = useState(false);
   const emailRef = useRef<HTMLInputElement>(null);
 
   /** Update step state AND push to URL. Mirrors /book/race's
@@ -229,6 +246,7 @@ export default function RacePacksPage() {
   function handleBackToSelect() {
     setSelectedPack(null);
     setPerson(null);
+    setNeedsLicense(false);
     setError("");
     setSearchResults([]);
     setNewPerson({ firstName: "", lastName: "", email: "", phone: "", dob: "" });
@@ -251,6 +269,7 @@ export default function RacePacksPage() {
     trackBookingStep("Race Pack Selected", { pack: pack.name, type: pack.type, price: pack.price });
     setSelectedPack(pack);
     setPerson(null);
+    setNeedsLicense(false);
     setEmailInput("");
     setCodeInput("");
     setError("");
@@ -433,6 +452,7 @@ export default function RacePacksPage() {
       phone: lookupMode === "phone" ? lookupPhone : undefined,
       loginCode: account.loginCode,
     });
+    setNeedsLicense(RACE_PACK_LICENSE_ENABLED && accountNeedsLicense(account.memberships));
     setDisclaimersAccepted(
       selectedPack!.type === "weekday" ? [false, false, false] : [false, false],
     );
@@ -447,6 +467,14 @@ export default function RacePacksPage() {
       const fullName = `${p.firstName || ""} ${p.name || ""}`.trim();
       const email = p.addresses?.[0]?.email || "";
       setPerson({ personId: String(p.id), fullName, email });
+      const activeLicense = (p.memberships || []).some(
+        (m: { name?: string; stops?: string | null }) =>
+          (!m.stops || new Date(m.stops) > new Date()) &&
+          String(m.name || "")
+            .toLowerCase()
+            .includes("licen"),
+      );
+      setNeedsLicense(RACE_PACK_LICENSE_ENABLED && !activeLicense);
       setDisclaimersAccepted(
         selectedPack!.type === "weekday" ? [false, false, false] : [false, false],
       );
@@ -567,6 +595,7 @@ export default function RacePacksPage() {
       email: newPerson.email,
       phone: newPerson.phone,
     });
+    setNeedsLicense(RACE_PACK_LICENSE_ENABLED); // brand-new racer → always needs a license
     setDisclaimersAccepted(
       selectedPack!.type === "weekday" ? [false, false, false] : [false, false],
     );
@@ -644,7 +673,7 @@ export default function RacePacksPage() {
         setPayingStatus("Preparing your race pack...");
 
         const billId = syntheticBillId();
-        const total = calculateTotal(selectedPack.price);
+        const total = calculateTotal(selectedPack.price + (needsLicense ? LICENSE_FEE : 0));
         const packLabel = `${selectedPack.name} (${selectedPack.type === "weekday" ? "Mon-Thu" : "Anytime"})`;
 
         // Stash booking details so the confirmation page can read
@@ -793,8 +822,9 @@ export default function RacePacksPage() {
     }
   }
 
-  const tax = selectedPack ? calculateTax(selectedPack.price) : 0;
-  const total = selectedPack ? calculateTotal(selectedPack.price) : 0;
+  const licenseFee = needsLicense ? LICENSE_FEE : 0;
+  const tax = selectedPack ? calculateTax(selectedPack.price + licenseFee) : 0;
+  const total = selectedPack ? calculateTotal(selectedPack.price + licenseFee) : 0;
   const packLabel = selectedPack
     ? `${selectedPack.raceCount}-Race Pack (${selectedPack.type === "weekday" ? "Mon-Thu" : "Anytime"})`
     : "";
@@ -1273,6 +1303,12 @@ export default function RacePacksPage() {
                       </span>
                       <span className="text-white">${selectedPack.price.toFixed(2)}</span>
                     </div>
+                    {needsLicense && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-white/60">FastTrax License (1 yr)</span>
+                        <span className="text-white">${LICENSE_FEE.toFixed(2)}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between text-sm">
                       <span className="text-white/60">Tax</span>
                       <span className="text-white">${tax.toFixed(2)}</span>
@@ -1282,6 +1318,21 @@ export default function RacePacksPage() {
                       <span className="text-[#00E2E5] text-lg">${total.toFixed(2)}</span>
                     </div>
                   </div>
+
+                  {/* License explainer — new / unlicensed racer */}
+                  {needsLicense && (
+                    <div className="rounded-xl border border-[#00E2E5]/25 bg-[#00E2E5]/[0.06] p-4">
+                      <p className="text-[#00E2E5] font-bold text-xs uppercase tracking-wider">
+                        FastTrax License included
+                      </p>
+                      <p className="text-white/70 text-xs mt-1.5 leading-relaxed">
+                        A FastTrax Racing License is required to get on track. We&rsquo;ve added the
+                        one-time <span className="text-white font-semibold">$4.99</span> license —
+                        good for a full year and includes use of our helmets &amp; safety gear — so
+                        you&rsquo;re cleared to race as soon as you arrive.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Disclaimers */}
                   <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-3">
@@ -1379,6 +1430,20 @@ export default function RacePacksPage() {
                           packLabel,
                           raceCount: selectedPack.raceCount,
                           isNewRacer: checkoutIsNewRacer,
+                          // New / unlicensed racer → register the $4.99 FastTrax
+                          // License (already folded into the charged amount)
+                          // after the charge. Server re-verifies + is idempotent.
+                          ...(needsLicense && checkoutPersonId
+                            ? {
+                                license: {
+                                  personId: checkoutPersonId,
+                                  firstName: person.fullName.split(" ")[0] || "",
+                                  lastName: person.fullName.split(" ").slice(1).join(" ") || "",
+                                  email: person.email,
+                                  phone: person.phone || newPerson.phone || "",
+                                },
+                              }
+                            : {}),
                         }
                       : undefined
                   }

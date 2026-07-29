@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { BowlingReservation } from "@/lib/bowling-db";
 import {
+  SQUARE_TOKEN_CATALOG_ID,
+  SQUARE_ACTIVATION_FEE_CATALOG_ID,
+} from "~/features/game-cards/constants";
+import {
   classifyMoney,
   eventStartEt,
   formatGan,
+  gameZoneCents,
   guardActorOutcome,
   guardCustomerCutoff,
   guardDayofOrder,
@@ -217,6 +222,140 @@ describe("tenderRefundsNeeded", () => {
     const f = facts({});
     f.depositOrder!.tenders = [{ paymentId: "pay_missing", amountCents: 100 }];
     expect(code(() => tenderRefundsNeeded(f))).toBe("amount_mismatch");
+  });
+
+  describe("Game Zone exclusion", () => {
+    it("caps the single reader tender by the gz total (deposit stays refundable)", () => {
+      const f = facts({
+        pay_1: {
+          id: "pay_1",
+          status: "COMPLETED",
+          amountCents: 7410,
+          refundedCents: 0,
+          sourceType: "CARD",
+        },
+      });
+      f.depositOrder!.gameZoneCents = 700;
+      expect(tenderRefundsNeeded(f)).toEqual([
+        { paymentId: "pay_1", amountCents: 6710, partial: true },
+      ]);
+    });
+
+    it("drops the tender entirely when the exclusion covers the whole remainder (resume after refund)", () => {
+      // Prior attempt refunded the deposit; the remainder IS the gz money.
+      const f = facts({
+        pay_1: {
+          id: "pay_1",
+          status: "COMPLETED",
+          amountCents: 7410,
+          refundedCents: 6710,
+          sourceType: "CARD",
+        },
+      });
+      f.depositOrder!.gameZoneCents = 700;
+      expect(tenderRefundsNeeded(f)).toEqual([]);
+    });
+
+    it("never lands the exclusion on a GIFT_CARD-funded or edit-topup tender", () => {
+      const f: GatheredFacts = {
+        dayofOrders: {},
+        payments: {
+          pay_gc: {
+            id: "pay_gc",
+            status: "COMPLETED",
+            amountCents: 2000,
+            refundedCents: 0,
+            sourceType: "GIFT_CARD",
+          },
+          pay_card: {
+            id: "pay_card",
+            status: "COMPLETED",
+            amountCents: 5410,
+            refundedCents: 0,
+            sourceType: "CARD",
+          },
+          pay_edit: {
+            id: "pay_edit",
+            status: "COMPLETED",
+            amountCents: 1000,
+            refundedCents: 0,
+            sourceType: "CARD",
+          },
+        },
+        depositOrder: {
+          id: "dep_1",
+          gameZoneCents: 700,
+          tenders: [
+            { paymentId: "pay_gc", amountCents: 2000 },
+            { paymentId: "pay_card", amountCents: 5410 },
+            { paymentId: "pay_edit", amountCents: 1000, editTopup: true },
+          ],
+        },
+      };
+      expect(tenderRefundsNeeded(f)).toEqual([
+        { paymentId: "pay_gc", amountCents: 2000 },
+        { paymentId: "pay_card", amountCents: 4710, partial: true },
+        { paymentId: "pay_edit", amountCents: 1000 },
+      ]);
+    });
+
+    it("leaves un-allocatable exclusion in the sum (fail-closed via guardRefundTotal)", () => {
+      // Only a GIFT_CARD tender is available — the exclusion cannot land, so
+      // the refundable total stays gz-inflated and the balance guard trips.
+      const f = facts({
+        pay_gc: {
+          id: "pay_gc",
+          status: "COMPLETED",
+          amountCents: 7410,
+          refundedCents: 0,
+          sourceType: "GIFT_CARD",
+        },
+      });
+      f.depositOrder!.gameZoneCents = 700;
+      const needed = tenderRefundsNeeded(f);
+      expect(needed).toEqual([{ paymentId: "pay_gc", amountCents: 7410 }]);
+      const neededCents = needed.reduce((s, r) => s + r.amountCents, 0);
+      expect(
+        code(() => guardRefundTotal({ refundsNeededCents: neededCents, gcBalanceCents: 6710 })),
+      ).toBe("amount_mismatch");
+    });
+
+    it("genuine partial redemption still trips the balance guard after gz exclusion", () => {
+      const f = facts({
+        pay_1: {
+          id: "pay_1",
+          status: "COMPLETED",
+          amountCents: 7410,
+          refundedCents: 0,
+          sourceType: "CARD",
+        },
+      });
+      f.depositOrder!.gameZoneCents = 700;
+      const neededCents = tenderRefundsNeeded(f).reduce((s, r) => s + r.amountCents, 0);
+      // Card was partially spent at the venue: balance 6000 ≠ refundable 6710.
+      expect(
+        code(() => guardRefundTotal({ refundsNeededCents: neededCents, gcBalanceCents: 6000 })),
+      ).toBe("amount_mismatch");
+    });
+  });
+});
+
+describe("gameZoneCents", () => {
+  it("sums token + activation-fee lines by catalog id (totals are quantity-inclusive)", () => {
+    expect(
+      gameZoneCents([
+        { totalCents: 6710 }, // the deposit line — no catalog id, never counted
+        { catalogObjectId: SQUARE_TOKEN_CATALOG_ID, totalCents: 500 },
+        { catalogObjectId: SQUARE_TOKEN_CATALOG_ID, totalCents: 1000 },
+        { catalogObjectId: SQUARE_ACTIVATION_FEE_CATALOG_ID, totalCents: 400 }, // qty 2 × $2
+      ]),
+    ).toBe(1900);
+  });
+
+  it("ignores unrelated catalog ids and missing input", () => {
+    expect(gameZoneCents([{ catalogObjectId: "SOMETHING_ELSE", totalCents: 999 }])).toBe(0);
+    expect(gameZoneCents([])).toBe(0);
+    expect(gameZoneCents(undefined)).toBe(0);
   });
 });
 

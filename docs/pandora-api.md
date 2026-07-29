@@ -45,6 +45,40 @@ Fetches full customer details from BMI Firebird database including contact infor
 - `pic` — Base64 encoded profile picture (omit with `?picture=false` to reduce payload).
 - `lastVisit` — Last time they raced.
 
+### GET /bmi/person/search
+
+Searches BMI Firebird customer records by **last name + birthdate**, ordered by last visit
+(most recent first). Purpose-built for check-in/kiosk lookups — this is the search behind the
+kiosk driver's-license sign-in ([lookup.server.ts](../apps/web/src/features/kiosk/license/lookup.server.ts)).
+The Office API's `search/person` token search does NOT do names (bare name tokens 500) — use this.
+
+**Parameters (query):**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| location | string | yes | Square location ID (e.g. `LAB52GY480CJF` FastTrax FM) |
+| lastName | string | yes | Case-insensitive last name |
+| birthday | string | yes | ISO date, e.g. `1990-01-01` |
+| limit | integer | no | Max results, 1–100, default 10 |
+| filter | string | no | Default `true` = exclude expired waivers. Pass `false` to include them (kiosk does — lapsed guests still sign in and re-sign). |
+
+**Response (200):** `{ success, data: [{ id, firstName, lastName, birthdate, waiverExpiry, lastVisit }] }`
+— `firstName` can be `null` on legacy duplicates; `id` comes in BOTH forms (17-digit modern and
+legacy short like `553343`), and both forms work against Office `person/{id}` (verified 2026-07-23).
+**404** = no customers matched (also seen as `200 {success:true,data:[]}`). Parse with
+`parseWithRawIds` — 17-digit ids.
+
+**Cold start:** the Azure app 502s the first request(s) after idle — retry 5xx (the same reason
+`pandoraCreatePerson` retries). Verified live 2026-07-23: three 502s then clean 200s.
+
+**Latency (measured 2026-07-23, warm):** the search call itself takes **~7–9 s** consistently
+(8.5/8.9/8.5 s same name; 6.8 s different name) — the cost is inside this endpoint's Firebird
+query, independent of `limit` (an index/computed column on `UPPER(lastname) + birthdate` would
+fix it). For comparison, `GET /bmi/person/{loc}/{id}` runs ~3 s and the Office `person/{id}`
+~0.4 s. **Because of this, the kiosk license lookup does NOT use this endpoint** — it uses the
+BMI Office token search with a combined `"LastName M/D/YYYY"` token (~1 s; no-leading-zeros
+format, raw `https.get` required — see office-search.ts). This endpoint remains documented for
+when the query gets optimized.
+
 ### GET /bmi/race/next/{locationID}/{person|participant}/{id}
 
 Returns a racer's **next upcoming race** at a location. Used by the race check-in scanner

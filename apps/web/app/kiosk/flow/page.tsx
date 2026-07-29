@@ -15,5 +15,16 @@ export default async function KioskFlowPage({
   // Single-time-pick bowling flow preview opt-in (dark-flag testing on the
   // kiosk without env changes) — /kiosk/flow?bowlingV3=1.
   const bowlingV3 = sp.bowlingV3 === "1";
-  return <KioskFlow goto={goto} bowlingV3={bowlingV3} />;
+  // Coupon/voucher code entry preview opt-in — /kiosk/flow?kioskPromo=1.
+  const kioskPromo = sp.kioskPromo === "1";
+  // Voucher redemption preview opt-in — /kiosk/flow?kioskPromo=1&kioskVoucher=1.
+  const kioskVoucher = sp.kioskVoucher === "1";
+  return (
+    <KioskFlow
+      goto={goto}
+      bowlingV3={bowlingV3}
+      kioskPromo={kioskPromo}
+      kioskVoucher={kioskVoucher}
+    />
+  );
 }

@@ -10,12 +10,14 @@ import { shortenUrl } from "@/lib/short-url";
 import { confirmationShortUrl } from "@/lib/booking-confirmation-link";
 import { sql } from "@/lib/db";
 import { getComboSpecial } from "~/features/combos/combo-specials";
+import { belongsOnHeadpinzFmBoard } from "~/features/reservations-admin/center-scope";
 import {
   attachRaceLiveState,
   fetchLiveHeats,
   type LiveHeat,
 } from "~/features/reservations-admin/race-live-state.server";
 import { getReservation } from "@/lib/qamf-bowling";
+import { FASTTRAX_CENTER_CODE } from "@/lib/qamf-centers";
 
 /** QAMF numeric center ids (mirrors bowling-lane-poll) — both center_code
  *  namespaces (combo bowling legs store the slug, not the Square ID). */
@@ -71,31 +73,48 @@ export async function GET(req: NextRequest) {
   // requested location to every center_code its rows live under, so the board
   // (esp. the FastTrax embed, which is racing) isn't empty. Remove once
   // center_code is normalized — see tasks/future/center-code-normalization.md.
+  //
+  // The 'fort-myers' slug is claimed by TWO physical centers: FastTrax racing
+  // AND HeadPinz FM attractions (laser tag / gel blaster / shuffly). Both
+  // embeds fetch it; belongsOnHeadpinzFmBoard splits the rows per board below.
   const CENTER_CODE_ALIASES: Record<string, string[]> = {
-    TXBSQN0FEKQ11: ["TXBSQN0FEKQ11"], // HeadPinz Fort Myers — bowling only
+    TXBSQN0FEKQ11: ["TXBSQN0FEKQ11", "fort-myers"], // HeadPinz Fort Myers — bowling + HP attractions (filtered below)
     PPTR5G2N0QXF7: ["PPTR5G2N0QXF7", "naples"], // HeadPinz Naples — bowling + slug attractions
     LAB52GY480CJF: ["LAB52GY480CJF", "fort-myers"], // FastTrax — racing/attractions under the fort-myers slug
   };
   const centerCodes = center ? (CENTER_CODE_ALIASES[center] ?? [center]) : undefined;
 
   try {
-    const reservations = await listBowlingReservations({
+    const allRows = await listBowlingReservations({
       startDate: date,
       endDate: date,
       centerCodes,
       productKinds,
     });
 
+    // HPFM board: drop the 'fort-myers' slug rows that are purely FastTrax
+    // (races without HeadPinz attraction legs, duck-pin) while keeping
+    // HeadPinz attractions like laser tag — including mixed race + attraction
+    // carts, whose single 'race' anchor row carries the attraction legs in
+    // booking_metadata. These rows ALSO stay on the FastTrax embed (unchanged)
+    // — FastTrax kiosks legitimately sell them, so both boards see the row.
+    const reservations =
+      center === "TXBSQN0FEKQ11" ? allRows.filter(belongsOnHeadpinzFmBoard) : allRows;
+
     // Backfill short codes for legacy rows that don't have one stored yet
     const withCodes = await Promise.all(
       reservations.map(async (r) => {
         if (r.shortCode) return r; // already stored — use as-is
 
-        // Legacy row — generate + persist so future reads don't regenerate
+        // Legacy row — generate + persist so future reads don't regenerate.
+        // FastTrax duckpin confirms on its own /book/bowling-confirmation route
+        // (fasttraxent.com), not the HeadPinz /hp path.
         const confirmBase =
           r.productKind === "kbf"
             ? "/hp/book/kids-bowl-free/confirmation"
-            : "/hp/book/bowling/confirmation";
+            : r.centerCode === FASTTRAX_CENTER_CODE
+              ? "/book/bowling-confirmation"
+              : "/hp/book/bowling/confirmation";
         try {
           const code = await shortenUrl(`${confirmBase}?neonId=${r.id}`);
           // Fire-and-forget persist to Neon

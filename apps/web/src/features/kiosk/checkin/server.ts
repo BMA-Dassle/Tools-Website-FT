@@ -28,7 +28,11 @@ import {
 } from "@/lib/bowling-db";
 import { ATTRACTIONS } from "@/lib/attractions-data";
 import { registerProjectPersonServer } from "~/features/kiosk/waiver/bmi-attach";
-import { setProjectState, appendProjectPrivateNote } from "@/lib/bmi-office-actions";
+import {
+  setProjectState,
+  appendProjectPrivateNote,
+  KIOSK_CONFIRMATION_STATE_IDS,
+} from "@/lib/bmi-office-actions";
 import { kioskCheckinAttachEnabled } from "../flags";
 import {
   openCheckinEvent,
@@ -38,7 +42,10 @@ import {
   upsertCheckinPerson,
   setCheckinPersonStatus,
 } from "../data/kiosk-checkins-db";
+import { heatsConflict } from "~/features/booking/service/conflict";
 import { scheduleCheckinRacers, heatStopFor, type ScheduleRacer } from "./schedule-racers";
+import { checkRacerWaivers } from "./waiver";
+import { isExpressBooking, isExpressRoster } from "./express";
 import { getRaceProductById } from "~/features/booking/service/race-products";
 import {
   assembleItinerary,
@@ -54,7 +61,9 @@ import type {
   CheckinBrowseRow,
   CheckinItinerary,
   CheckinLookupMatch,
+  CheckinRaceSlot,
   CheckinRosterPerson,
+  CheckinSlotAssignment,
   CheckinVerifiedVia,
 } from "./types";
 
@@ -62,7 +71,10 @@ import type {
 const REF_TTL = 900; // 15 min — a browse/scan handle
 const PROOF_TTL = 1800; // 30 min — a verified flow token (survives a big party)
 const OTP_COOLDOWN = 45; // per-reservation send throttle (anti-griefing)
-const BROWSE_WINDOW_MIN = 180; // ±3h around now
+// Browse shows the REST of today plus this far back (late arrivals). It used
+// to be a ±3h window, which silently hid late-evening reservations (an 11pm
+// race never showed until 8pm) — owner 2026-07-25: show the whole day ahead.
+const BROWSE_LOOKBACK_MIN = 180;
 const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
 
 export type CenterSlug = "fort-myers" | "naples";
@@ -89,7 +101,7 @@ interface BookingRecordRacer {
   heatStart?: string;
   heatName?: string;
 }
-interface BookingRecord {
+export interface BookingRecord {
   billId?: string;
   contact?: { firstName?: string; lastName?: string; email?: string; phone?: string };
   primaryPersonId?: string;
@@ -205,15 +217,23 @@ export async function resolveScanToBillId(
         const billId = billIdFromSignedUrl(url);
         if (billId) return { billId, proven: true };
       }
-      // Ambiguous token that wasn't a signed short link → try the code index,
-      // unproven (OTP-gated).
+      // Not a signed short link → the code index. A hit here is a genuine
+      // reservationCode (the emailed QR payload; the enumerable r{billId}
+      // fallback classifies as "code", never "shortcode"), so scanning the QR is
+      // proof and it opens directly — no OTP (owner 2026-07-25).
       const byCode = await redis.get(`bookingrecord:code:${c.value}`).catch(() => null);
-      if (byCode) return { billId: byCode, proven: false };
+      if (byCode) return { billId: byCode, proven: true };
       return { reason: "not-found" };
     }
     case "code": {
       const byCode = await redis.get(`bookingrecord:code:${c.value}`).catch(() => null);
-      if (byCode) return { billId: byCode, proven: false };
+      if (byCode) {
+        // A genuine reservationCode (the emailed QR) opens directly — scanning
+        // the QR is proof of possession (owner 2026-07-25, QR not OTP-gated).
+        // The `r{billId}` fallback IS the billId (enumerable), so it stays gated.
+        const enumerableFallback = /^r\d{15,19}$/i.test(c.value);
+        return { billId: byCode, proven: !enumerableFallback };
+      }
       return { reason: "not-found" };
     }
     case "wnumber": {
@@ -290,6 +310,63 @@ function raceHeatStartsFromNeon(group: BowlingReservation[]): string[] {
   return neonHeats(group)
     .map((h) => h.heatId ?? "")
     .filter(Boolean);
+}
+
+function titleCase(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+interface RaceSlotEntry {
+  slot: CheckinRaceSlot;
+  heat: NeonHeat;
+}
+
+/**
+ * Purchased race slots from the Neon race rows' `booking_metadata.heats` — the
+ * "who is who" assignment surface, paired with their source heat. Two racers in
+ * the SAME heat share a `heatId`, so each seat gets a stable UNIQUE `slotKey`
+ * (`heatId|productId|occurrence`) — the key the client assigns against and the
+ * server re-resolves. Deterministically sorted (by start, then product) so the
+ * slotKeys match between the itinerary GET and the complete POST, which both
+ * call this. Built only from Neon heats (the authoritative per-slot record with
+ * category/productId); a record-only fallback yields no slots.
+ */
+function buildRaceSlotEntries(group: BowlingReservation[]): RaceSlotEntry[] {
+  const heats = neonHeats(group).filter((h) => h.heatId);
+  const sorted = [...heats].sort(
+    (a, b) =>
+      timeKey(a.heatId).localeCompare(timeKey(b.heatId)) ||
+      String(a.productId ?? "").localeCompare(String(b.productId ?? "")),
+  );
+  const seen = new Map<string, number>();
+  return sorted.map((h) => {
+    const base = `${h.heatId}|${h.productId ?? ""}`;
+    const occ = seen.get(base) ?? 0;
+    seen.set(base, occ + 1);
+    const product = h.productId ? getRaceProductById(h.productId) : null;
+    const tier = h.tier || product?.tier || "starter";
+    const category = (h.category || product?.category || "adult") as "adult" | "junior";
+    const track = h.track ?? product?.track ?? null;
+    return {
+      heat: h,
+      slot: {
+        slotKey: `${base}|${occ}`,
+        heatId: h.heatId as string,
+        productId: h.productId ?? null,
+        classLabel: `${titleCase(tier)} ${titleCase(category)}` + (track ? ` · ${track}` : ""),
+        tier,
+        category,
+        track,
+        timeLabel: fmtTime12(h.heatId),
+        occupantName: h.bmiPersonId ? (h.racer ? displayNameFromFull(h.racer) : "Racer") : null,
+        open: !h.bmiPersonId,
+      },
+    };
+  });
+}
+
+function buildRaceSlots(group: BowlingReservation[]): CheckinRaceSlot[] {
+  return buildRaceSlotEntries(group).map((e) => e.slot);
 }
 
 // ── reservation summary (label / center / cancelled) ─────────────────────────
@@ -436,7 +513,7 @@ export async function matchByPhone(
   return matches;
 }
 
-// ── browse (today at this center, ±3h) ───────────────────────────────────────
+// ── browse (today at this center — rest of the day, 3h lookback) ─────────────
 function kindsToActivitiesLabel(kinds: Set<string>): {
   label: string;
   kind: CheckinBrowseRow["kind"];
@@ -464,8 +541,9 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
     endDate: today,
     centerCodes: CENTER_CODES_FOR_SLUG[center],
   }).catch(() => []);
-  const lo = etMinuteOffset(-BROWSE_WINDOW_MIN);
-  const hi = etMinuteOffset(BROWSE_WINDOW_MIN);
+  // No forward cutoff — the query is already scoped to today's business date,
+  // so "everything from 3h ago on" IS the rest of the day (incl. 11pm+ slots).
+  const lo = etMinuteOffset(-BROWSE_LOOKBACK_MIN);
 
   // Group Neon rows by billId (a mixed cart / combo shares one bill → one row),
   // aggregating product kinds so the label reads "Racing + Bowling".
@@ -478,9 +556,13 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
   const groups = new Map<string, Grp>();
   for (const row of rows) {
     if (row.status === "cancelled" || row.status === "no_show") continue;
+    // Skip kiosk-booked reservations — that guest is already in-center (they
+    // just booked AT the kiosk), so they never need to find themselves here to
+    // check in (owner 2026-07-25).
+    if (row.bookingSource === "kiosk") continue;
     const evt = row.eventAt || row.bookedAt || "";
     const key = timeKey(evt);
-    if (!key || key < lo || key > hi) continue;
+    if (!key || key < lo) continue;
     const billId = row.bmiBillId;
     if (!billId) continue; // no bill → cannot open/verify it; skip from browse
     const g = groups.get(billId);
@@ -503,14 +585,26 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
   );
   const out: CheckinBrowseRow[] = [];
   for (const g of ordered) {
+    // Racing check-in only — a reservation with no race leg never appears in
+    // this list (a race + bowling combo still shows; owner 2026-07-25).
+    if (!g.kinds.has("race")) continue;
     const { label: activitiesLabel, kind } = kindsToActivitiesLabel(g.kinds);
-    const ref = await mintRef({ billId: g.billId, center });
+    // Express Lane is per-RESERVATION truth, not "is this a race" — badging
+    // every racing row (the pre-fix behaviour) told guests who DO need to check
+    // in to skip it. The booking record carries the flag checkout wrote; read it
+    // alongside the ref mint so this costs no extra round trip. Only a
+    // racing-ONLY row can be express (a combo still needs its lane opened).
+    const [record, ref] = await Promise.all([
+      kind === "racing" ? readBookingRecord(g.billId) : Promise.resolve(null),
+      mintRef({ billId: g.billId, center }),
+    ]);
     out.push({
       ref,
       label: g.guestName ? displayNameFromFull(g.guestName) : "Guest",
       timeLabel: fmtTime12(g.earliest),
       activitiesLabel,
       kind,
+      express: isExpressBooking({ record, racingOnly: kind === "racing" }),
     });
   }
   return out;
@@ -532,9 +626,20 @@ export function maskPhone(phone: string): string {
 
 export async function sendContactOtp(
   billId: string,
-): Promise<{ ok: boolean; mask?: string; reason?: "no-contact" | "rate-limited" }> {
+  last4?: string,
+): Promise<{ ok: boolean; mask?: string; reason?: "no-contact" | "rate-limited" | "mismatch" }> {
   const phone = await resolveContactPhone(billId);
   if (!phone) return { ok: false, reason: "no-contact" };
+  // Ownership gate (owner 2026-07-25): the tapper must know the last 4 digits of
+  // the number on file before any text goes out — so a browse tap can't
+  // blind-OTP an arbitrary guest. Only a match/no-match is revealed, never the
+  // number, and it's checked BEFORE the cooldown so a wrong guess never burns
+  // the real owner's send window.
+  const digits = phone.replace(/\D/g, "");
+  const given = (last4 ?? "").replace(/\D/g, "").slice(-4);
+  if (given.length < 4 || digits.slice(-4) !== given) {
+    return { ok: false, reason: "mismatch" };
+  }
   // Per-reservation cooldown (anti-griefing against every booking's contact).
   const cd = await redis
     .set(`checkin:otp:cd:${billId}`, "1", "EX", OTP_COOLDOWN, "NX")
@@ -617,11 +722,16 @@ export async function buildItinerary(
   const record = summary.record;
   const group = summary.moneyGroup;
 
-  // Racing — one activity at the earliest heat; readiness = personId present.
-  // Prefer the Redis booking record (carries racer names + personIds); fall
-  // back to the Neon race row's booking_metadata.heats when that record is
-  // gone (eviction / failed checkout POST) so the race never silently drops.
-  type RacerRow = { name: string; identified: boolean };
+  // Racing — one activity at the earliest heat. Prefer the Redis booking record
+  // (carries racer names + personIds); fall back to the Neon race row's
+  // booking_metadata.heats when that record is gone (eviction / failed checkout
+  // POST) so the race never silently drops.
+  type RacerRow = {
+    name: string;
+    identified: boolean;
+    personId: string | null;
+    waiverValid: boolean;
+  };
   let racing = null as null | { startIso: string; title: string; racers: RacerRow[] };
   const recRacers = record?.racers ?? [];
   if (recRacers.length > 0) {
@@ -636,6 +746,8 @@ export async function buildItinerary(
       racers: recRacers.map((r) => ({
         name: r.racerName ? displayNameFromFull(r.racerName) : "Racer",
         identified: !!r.personId,
+        personId: r.personId ?? null,
+        waiverValid: false,
       })),
     };
   } else {
@@ -650,8 +762,44 @@ export async function buildItinerary(
         racers: heats.map((h) => ({
           name: h.racer ? displayNameFromFull(h.racer) : "Racer",
           identified: !!h.bmiPersonId,
+          personId: h.bmiPersonId ?? null,
+          waiverValid: false,
         })),
       };
+    }
+  }
+
+  // Main contact — BMI adds the booker to the project, so show them on the
+  // roster too (with their waiver status) even when they aren't on a heat, so
+  // they can just sign if their waiver's lapsed (owner 2026-07-25). Racing only
+  // (the waiver check is at the racing location); deduped against the racers.
+  const racerIds = new Set(
+    (racing?.racers ?? []).map((r) => r.personId).filter((x): x is string => !!x),
+  );
+  const mainContact =
+    racing &&
+    record?.contact?.firstName &&
+    record.primaryPersonId &&
+    !racerIds.has(record.primaryPersonId)
+      ? {
+          name: displayNameFromFull(
+            `${record.contact.firstName} ${record.contact.lastName ?? ""}`.trim(),
+          ),
+          personId: record.primaryPersonId,
+        }
+      : null;
+
+  // Pull in existing valid waivers from the project (owner 2026-07-25): an
+  // identified racer (or the main contact) whose Pandora waiver is still current
+  // is ready and needs no re-sign. Best-effort + parallel; a failed/unknown
+  // lookup leaves them as "needs a waiver" (the safe default, no regression).
+  const waiverBy = await checkRacerWaivers([
+    ...(racing?.racers ?? []).map((r) => r.personId),
+    mainContact?.personId ?? null,
+  ]);
+  if (racing) {
+    for (const r of racing.racers) {
+      r.waiverValid = r.personId ? (waiverBy.get(r.personId) ?? false) : false;
     }
   }
 
@@ -686,16 +834,33 @@ export async function buildItinerary(
   const depositCents = live.reduce((s, r) => s + (r.depositCents || 0), 0);
   const dueAtCenterCents = Math.max(0, totalCents - depositCents);
 
-  // Read-only party panel (PR2 makes it interactive + waiver-accurate). Sourced
-  // from whatever the racing activity was built from, so it survives an evicted
-  // Redis record.
-  const roster: CheckinRosterPerson[] = (racing?.racers ?? []).map((r) => ({
-    personId: null,
-    pandoraPersonId: null,
-    displayName: r.name,
-    waiverValid: false, // PR2 resolves waiver truth via Pandora
-    boundTo: ["Racing"],
-  }));
+  // Read-only party panel: the main contact (booker) first, then the IDENTIFIED
+  // racers. Unfilled slots carry category PLACEHOLDER names ("Adult 1",
+  // "Junior 1") that must never render as roster members — they're handled by
+  // the "Who's racing?" assignment step. waiverValid is pulled from the
+  // project's Pandora waivers so a lapsed waiver shows as still-needed.
+  const roster: CheckinRosterPerson[] = [
+    ...(mainContact
+      ? [
+          {
+            personId: null,
+            pandoraPersonId: null,
+            displayName: mainContact.name,
+            waiverValid: waiverBy.get(mainContact.personId) ?? false,
+            boundTo: ["Main contact"],
+          },
+        ]
+      : []),
+    ...(racing?.racers ?? [])
+      .filter((r) => r.identified)
+      .map((r) => ({
+        personId: null,
+        pandoraPersonId: null,
+        displayName: r.name,
+        waiverValid: r.waiverValid,
+        boundTo: ["Racing"],
+      })),
+  ];
 
   const firstName = record?.contact?.firstName || (summary.label.split(" ")[0] ?? "there");
 
@@ -710,7 +875,16 @@ export async function buildItinerary(
     activities,
     firstStop,
     roster,
+    raceSlots: buildRaceSlots(group),
     dueAtCenterCents,
+    // Live express truth — we've already paid for the per-racer Pandora waiver
+    // read above, so this is stricter than the browse list's booking-time flag
+    // and catches a waiver that lapsed since booking. True → the flow shows the
+    // guest where to go instead of walking them through check-in.
+    express: isExpressRoster({
+      racers: racing?.racers ?? [],
+      racingOnly: !!racing && bowling.length === 0 && attractions.length === 0,
+    }),
   };
 }
 
@@ -723,7 +897,9 @@ function emptyItinerary(center: CenterSlug, reason: CheckinItinerary["reason"]):
     activities: [],
     firstStop: null,
     roster: [],
+    raceSlots: [],
     dueAtCenterCents: 0,
+    express: false,
     reason,
   };
 }
@@ -868,18 +1044,23 @@ export interface CompleteResult {
 }
 
 /**
- * Finalize check-in for the whole party. Assigns the people added in PR2 to the
- * reservation's open heat slots, schedules them onto the Pandora session, stamps
- * the BMI project -5 "Arrived", and writes the staff memo. All external writes
- * (schedule / -5 / memo) are gated behind KIOSK_CHECKIN_ATTACH (default OFF) so
- * the finalize is dark-safe; the local event/record stamps always run.
- * Idempotent: a completed event returns alreadyComplete without re-writing.
+ * Finalize check-in for the whole party. Assigns the added people to the
+ * reservation's open heat slots — by the guest's explicit person→slot choice
+ * (`assignments`, class-validated client-side) when provided, else the legacy
+ * earliest-first positional auto-assign — schedules them onto the Pandora
+ * session, stamps the BMI project to the "Confirmation Kiosk" custom state, and
+ * writes the staff memo. All external writes (schedule / state / memo) are gated
+ * behind KIOSK_CHECKIN_ATTACH (default OFF) so the finalize is dark-safe; the
+ * local event/record stamps always run. Idempotent: a completed event returns
+ * alreadyComplete without re-writing.
  */
 export async function completeCheckin(args: {
   billId: string;
   center: CenterSlug;
   kioskId?: string | null;
   verifiedVia: CheckinVerifiedVia;
+  /** Guest's person→slot choices (racing). Empty → legacy auto-assign. */
+  assignments?: CheckinSlotAssignment[];
 }): Promise<CompleteResult> {
   const { billId, center } = args;
   const businessDate = todayET();
@@ -940,58 +1121,158 @@ export async function completeCheckin(args: {
     let stateStamped = false;
 
     if (attachEnabled && hasRacing) {
-      // Assign the added people to open heat slots (no bmiPersonId), earliest
-      // heat first, and schedule them onto the session. Auto-assign in heat
-      // order — a per-person tap-to-assign picker is a follow-up (PR4).
-      const openSlots = heats
-        .filter((h) => !h.bmiPersonId && h.heatId)
-        .sort((a, b) => timeKey(a.heatId).localeCompare(timeKey(b.heatId)));
+      // Assign the added people to open heat slots (no bmiPersonId). The guest's
+      // explicit person→slot choices (class-validated at the kiosk) win; without
+      // them we fall back to the legacy earliest-first positional auto-assign.
+      const openHeats = heats.filter((h) => !h.bmiPersonId && h.heatId);
+      // Seat-unique slotKey → heat (two racers in one heat are distinct slots).
+      const openBySlotKey = new Map(
+        buildRaceSlotEntries(group)
+          .filter((e) => !e.heat.bmiPersonId)
+          .map((e) => [e.slot.slotKey, e.heat]),
+      );
+      // Match an assignment's personId against either id the person row carries.
+      const personByIdKey = new Map<string, (typeof people)[number]>();
+      for (const p of people) {
+        if (p.pandoraPersonId) personByIdKey.set(p.pandoraPersonId, p);
+        if (p.personId) personByIdKey.set(p.personId, p);
+      }
+
       const racers: ScheduleRacer[] = [];
       // personId here is the SHORT Pandora id ONLY — a 17-digit Office id 500s
       // the whole batch, so anyone without a resolved short id is isolated to
       // the memo instead of being POSTed (review H1).
       const bound: { personRowId: number; personId: string }[] = [];
-      people.forEach((p, i) => {
-        const slot = openSlots[i];
+      const usedSlotKeys = new Set<string>();
+      // A person may take SEVERAL slots (multi-race bookings — e.g. a red then
+      // a blue race), subject to web booking's per-racer heat-spacing rules
+      // (heatsConflict: same-track heats skip the adjacent slot, cross-track
+      // needs the 30-min walk buffer). Checked against BOTH the heats seated
+      // this call AND heats already filled at booking time that belong to the
+      // same person (matched on either id, mirroring findCrossBookingConflict).
+      const prefilled = heats.filter((h) => h.bmiPersonId && h.heatId);
+      const heatsByPerson = new Map<number, NeonHeat[]>();
+      const violatesSpacing = (p: (typeof people)[number], heat: NeonHeat): boolean => {
+        const ms = Date.parse(String(heat.heatId).replace(/Z$/, ""));
+        if (!Number.isFinite(ms)) return true;
+        const mine = [
+          ...(heatsByPerson.get(p.id) ?? []),
+          ...prefilled.filter(
+            (h) => h.bmiPersonId === p.personId || h.bmiPersonId === p.pandoraPersonId,
+          ),
+        ];
+        return mine.some((h) => {
+          const hMs = Date.parse(String(h.heatId).replace(/Z$/, ""));
+          return (
+            !Number.isFinite(hMs) || heatsConflict(hMs, h.track ?? null, ms, heat.track ?? null)
+          );
+        });
+      };
+
+      // Place one person on one open heat: build the schedule row from the
+      // slot's own product, and persist the binding (boundHeats) Neon-first.
+      // Multi-slot people upsert their FULL accumulated heat list each time
+      // (the upsert REPLACES bound_heats, so a partial list would drop heats).
+      const assignToSlot = async (p: (typeof people)[number], heat: NeonHeat): Promise<void> => {
         const name = p.firstName || p.displayName || "Racer";
-        if (!slot) {
-          // More added people than open heat slots — party grew.
-          unplaced.push(name);
-          return;
-        }
         if (!p.pandoraPersonId) {
           // No short id resolved (e.g. a returning racer whose lookup didn't
           // upsert) — can't schedule; flag for the desk, don't poison the batch.
           memoFailures.push(name);
-          void setCheckinPersonStatus(p.id, { scheduleStatus: "failed" });
+          await setCheckinPersonStatus(p.id, { scheduleStatus: "failed" });
           return;
         }
-        const productId = slot.productId ?? null;
+        const productId = heat.productId ?? null;
         const product = productId ? getRaceProductById(productId) : null;
         racers.push({
           racerName: name,
           personId: p.pandoraPersonId,
           product: product?.name ?? "Race",
           productId,
-          tier: slot.tier || product?.tier || "starter",
-          track: (slot.track as ScheduleRacer["track"]) ?? null,
-          category: slot.category || product?.category || "adult",
+          tier: heat.tier || product?.tier || "starter",
+          track: (heat.track as ScheduleRacer["track"]) ?? null,
+          category: heat.category || product?.category || "adult",
           heatName: product?.name ?? "Race",
-          heatStart: slot.heatId as string,
-          heatStop: heatStopFor(slot.heatId as string),
+          heatStart: heat.heatId as string,
+          heatStop: heatStopFor(heat.heatId as string),
         });
-        bound.push({ personRowId: p.id, personId: p.pandoraPersonId });
-      });
+        if (!bound.some((b) => b.personRowId === p.id)) {
+          bound.push({ personRowId: p.id, personId: p.pandoraPersonId });
+        }
+        const personHeats = heatsByPerson.get(p.id) ?? [];
+        personHeats.push(heat);
+        heatsByPerson.set(p.id, personHeats);
+        if (event) {
+          await upsertCheckinPerson({
+            eventId: event.id,
+            slotKey: p.slotKey,
+            displayName: p.displayName,
+            boundHeats: personHeats,
+          });
+        }
+      };
+
+      const assignments = (args.assignments ?? []).filter((a) => a?.slotKey && a?.personId);
+      if (assignments.length > 0) {
+        // Explicit guest choice, keyed by the seat-unique slotKey. First
+        // assignment per slot wins; a filled/unknown slot, an unknown person,
+        // or a heat too close to one the person already holds (the web
+        // spacing rules — the kiosk picker enforces the same) is skipped.
+        // Unassigned bound people are deliberately not racing.
+        for (const a of assignments) {
+          if (usedSlotKeys.has(a.slotKey)) continue;
+          const heat = openBySlotKey.get(a.slotKey);
+          const p = personByIdKey.get(a.personId);
+          if (!heat || !p) continue;
+          if (violatesSpacing(p, heat)) {
+            // The kiosk picker enforces the same rules, so this only fires on a
+            // stale/forged payload or a pre-filled-heat collision — flag for the
+            // desk rather than silently leaving the seat empty.
+            console.warn(
+              `[kiosk-checkin] ${billId}: assignment ${a.slotKey} skipped — violates heat spacing for ${p.displayName}`,
+            );
+            memoFailures.push(p.firstName || p.displayName || "Racer");
+            continue;
+          }
+          // Class guard (defense in depth — the picker already filters by class):
+          // a stated racer class must match the slot's class, else don't seat them.
+          const prod = heat.productId ? getRaceProductById(heat.productId) : null;
+          const slotCat = heat.category || prod?.category || "adult";
+          if (a.category && a.category !== slotCat) {
+            memoFailures.push(p.firstName || p.displayName || "Racer");
+            continue;
+          }
+          usedSlotKeys.add(a.slotKey);
+          await assignToSlot(p, heat);
+        }
+      } else {
+        // Legacy fallback: earliest-heat-first, positional (person i → slot i),
+        // no class match — preserved for callers that don't send assignments.
+        const openSlots = [...openHeats].sort((a, b) =>
+          timeKey(a.heatId).localeCompare(timeKey(b.heatId)),
+        );
+        for (let i = 0; i < people.length; i++) {
+          const slot = openSlots[i];
+          if (!slot) {
+            unplaced.push(people[i].firstName || people[i].displayName || "Racer");
+            continue;
+          }
+          await assignToSlot(people[i], slot);
+        }
+      }
+
+      const reservationNumber =
+        record?.reservationNumber ??
+        group.find((r) => r.bmiReservationNumber)?.bmiReservationNumber ??
+        "";
 
       if (racers.length > 0) {
-        const res = await scheduleCheckinRacers({
-          reservationNumber:
-            record?.reservationNumber ??
-            group.find((r) => r.bmiReservationNumber)?.bmiReservationNumber ??
-            "",
-          racers,
-        });
+        const res = await scheduleCheckinRacers({ reservationNumber, racers });
         scheduled = res.linked;
+        console.log(
+          `[kiosk-checkin] ${reservationNumber}: scheduled ${res.linked}/${racers.length}` +
+            (res.unlinked.length > 0 ? ` — unlinked: ${res.unlinked.join(", ")}` : ""),
+        );
         // Per-person status matched by personId (never by name — duplicate first
         // names would collide, review L6).
         const failedIds = new Set(res.unlinkedPersonIds);
@@ -1004,19 +1285,24 @@ export async function completeCheckin(args: {
       }
     }
 
-    // -5 "Arrived" — the staff-visible "party is here and ready" signal. Only
-    // for reservations that actually have a BMI project (racing/attraction).
-    if (attachEnabled && hasRacing && officeProjectId) {
+    // "Confirmation Kiosk" custom state — the staff-visible "party is here and
+    // checked in" signal, the SAME state the kiosk post-reserve rail and
+    // express-lane web bookings land in (owner 2026-07-24, superseding -5).
+    // Unlike -5 "Arrived", this is NOT an arrival state, so it does not trigger
+    // race-dayof-pay to settle the day-of order early. Custom ids (no leading
+    // "-") go Office-API-first in setProjectState; Pandora 200-no-ops them.
+    const kioskStateId = KIOSK_CONFIRMATION_STATE_IDS[stateCenterCode];
+    if (attachEnabled && hasRacing && officeProjectId && kioskStateId) {
       try {
         await setProjectState({
           centerCode: stateCenterCode,
           projectId: officeProjectId,
-          stateId: "-5",
-          label: "Arrived",
+          stateId: kioskStateId,
+          label: "Confirmation Kiosk (check-in)",
         });
         stateStamped = true;
       } catch (err) {
-        console.error("[kiosk-checkin] -5 Arrived stamp failed (non-fatal):", err);
+        console.error("[kiosk-checkin] Confirmation Kiosk stamp failed (non-fatal):", err);
       }
     }
 

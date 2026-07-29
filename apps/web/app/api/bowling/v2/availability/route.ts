@@ -246,6 +246,11 @@ export async function GET(req: NextRequest) {
   // window — sound rejection; unprobed instants fail open). Opt-in so legacy
   // consumers see zero behavior change.
   const accurate = searchParams.get("optionCheck") === "accurate";
+  // firstOnly=1 (2026-07-25): the caller only needs the EARLIEST bookable slot
+  // (kiosk tile "Next lane · TIME"), so stop probing at the first bookable
+  // batch instead of scanning the whole day — ~3–4 probes vs ~30. Opt-in;
+  // ignored in accurate mode (which needs every probe for its window map).
+  const firstOnly = searchParams.get("firstOnly") === "1";
 
   if (isNaN(centerId) || isNaN(players) || players < 1) {
     console.log(`[avail] EXIT: invalid centerId or players`);
@@ -264,8 +269,11 @@ export async function GET(req: NextRequest) {
   // Get experiences valid for this day-of-week.
   // DB function only filters by a single kind, so for multi-kind requests we
   // fetch all and post-filter — cheaper than two separate DB round-trips.
+  // Pinboyz seam: ?preview=pinboyz also scans the inactive pinboyz-*
+  // experiences so v3 surfaces get real offer-176 slots.
   const dbKind = kinds.length === 1 ? kinds[0] : undefined;
-  const allExperiences = await getBowlingExperiences(centerCode, dbKind);
+  const includePreviewPinboyz = req.nextUrl.searchParams.get("preview") === "pinboyz";
+  const allExperiences = await getBowlingExperiences(centerCode, dbKind, includePreviewPinboyz);
   let validExperiences = allExperiences.filter(
     (e) => !e.daysOfWeek.length || e.daysOfWeek.includes(dow),
   );
@@ -425,11 +433,34 @@ export async function GET(req: NextRequest) {
         }
       }
     }
+    // firstOnly (opt-in, kiosk tile line): probeTimes are ascending open→close,
+    // and the caller only wants the EARLIEST bookable slot — so probe in small
+    // batches and STOP at the first batch that yields a valid, fits-before-close
+    // availability, instead of scanning the whole day. Typical: the next hour or
+    // two (~3–4 probes) instead of ~30. Never early-exits in accurate mode (it
+    // needs every probe for the window map) and keeps probing through errors
+    // (no hit yet → not "sold out"). Default off → full-day scan unchanged.
+    const fitsClose = (a: { BookedAt: string; WebOffer: { Options?: unknown } }): boolean => {
+      if (durationMinOver) return !slotExceedsClose(a.BookedAt, durationMinOver, closeHour);
+      const timeOpts = (a.WebOffer?.Options as { Time?: Array<{ Minutes?: number }> })?.Time;
+      if (!timeOpts?.length) return true;
+      return timeOpts.some(
+        (t) => !t.Minutes || t.Minutes <= 0 || !slotExceedsClose(a.BookedAt, t.Minutes, closeHour),
+      );
+    };
+    const hasBookable = (o: ProbeOutcome): boolean =>
+      o.ok &&
+      (o.data.Availabilities ?? []).some(
+        (a) => validOfferIds.has(Number(a.WebOffer.Id)) && fitsClose(a),
+      );
+
     const allSlots = [...probeTimes, ...extraProbeTimes];
+    const batchSize = firstOnly && !accurate ? 4 : 8;
     const outcomes: ProbeOutcome[] = [];
-    for (let i = 0; i < allSlots.length; i += 8) {
-      const batch = allSlots.slice(i, i + 8);
+    for (let i = 0; i < allSlots.length; i += batchSize) {
+      const batch = allSlots.slice(i, i + batchSize);
       outcomes.push(...(await Promise.all(batch.map(probeOne))));
+      if (firstOnly && !accurate && outcomes.some(hasBookable)) break;
     }
     const displayOutcomes = outcomes.slice(0, probeTimes.length);
     const probeErrors = displayOutcomes.filter((o) => !o.ok).length;
@@ -567,6 +598,8 @@ export async function GET(req: NextRequest) {
       meta: {
         optionAccuracy: accurate ? "windowed" : "optimistic",
         probeCount: allSlots.length,
+        // Actual QAMF probes made — < probeCount when firstOnly early-exited.
+        probed: outcomes.length,
         probeErrors,
       },
     });

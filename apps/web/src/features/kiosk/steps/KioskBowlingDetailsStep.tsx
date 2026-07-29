@@ -15,10 +15,26 @@
  * male/female/toddler). "Own shoes" records "" (normalized to null at reserve);
  * the CHOICE is required for everyone, a rental SIZE only for renters.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { BowlingItem, KbfItem, StepDef } from "~/features/booking";
+import type { BowlingSquareProduct } from "@/lib/bowling-db";
 import { formatPersonName } from "~/lib/helpers/name-format";
-import { centerHasShoeRental } from "@/lib/qamf-centers";
+import {
+  centerHasShoeRental,
+  FASTTRAX_QAMF_CENTER_ID,
+  FASTTRAX_CENTER_CODE,
+} from "@/lib/qamf-centers";
+import { useT, type MessageKey } from "../i18n";
+
+const QAMF_CENTER_CODES: Record<number, string> = {
+  9172: "TXBSQN0FEKQ11",
+  3148: "PPTR5G2N0QXF7",
+  [FASTTRAX_QAMF_CENTER_ID]: FASTTRAX_CENTER_CODE,
+};
+
+/** Experiences where shoes are bundled in the price — never charge separately
+ *  (mirrors BowlingShoesStep). Sizes are still collected for lane setup. */
+const SHOES_INCLUDED_SLUGS = ["fun-4-all", "fun-4-all-vip", "pizza-bowl", "pizza-bowl-vip"];
 
 type RosterPlayer = {
   name: string;
@@ -92,11 +108,11 @@ const SHOE_SIZES: Record<string, string[]> = {
   ],
 };
 
-/** Family-friendly labels over the canonical stored values. */
-const SHOE_CATEGORIES: Array<{ value: keyof typeof SHOE_SIZES; label: string }> = [
-  { value: "Toddler", label: "Toddler" },
-  { value: "Male", label: "Men's" },
-  { value: "Female", label: "Women's" },
+/** Family-friendly labels over the canonical stored values (translated at render). */
+const SHOE_CATEGORIES: Array<{ value: keyof typeof SHOE_SIZES; labelKey: MessageKey }> = [
+  { value: "Toddler", labelKey: "bowlingDetails.cat.toddler" },
+  { value: "Male", labelKey: "bowlingDetails.cat.mens" },
+  { value: "Female", labelKey: "bowlingDetails.cat.womens" },
 ];
 
 /** "Own shoes" sentinel — an explicit answer that isn't a rental size.
@@ -138,29 +154,112 @@ function playerComplete(p: RosterPlayer, hasShoes: boolean): boolean {
 }
 
 const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item, onChange }) => {
+  const t = useT();
   const roster = rosterOf(item);
   // FastTrax duckpin (center 11542) has no shoes — collect name + bumpers only.
   const hasShoes = centerHasShoeRental(item.qamfCenterId);
+  const shoesIncluded = SHOES_INCLUDED_SLUGS.includes((item as BowlingItem).experienceSlug ?? "");
+  // Shoes are CHARGED (not just collected) when the center rents them and this
+  // experience doesn't bundle them into the price.
+  const chargeShoes = hasShoes && !shoesIncluded;
+  const centerCode = QAMF_CENTER_CODES[item.qamfCenterId ?? 9172] ?? "TXBSQN0FEKQ11";
   // Which shoe category is expanded per bowler. Undefined → derive from the
   // stored size (so a saved "Male 9" reopens on Men's with 9 selected).
   const [openCat, setOpenCat] = useState<Record<number, string>>({});
-  const update = (index: number, patch: Partial<RosterPlayer>) => {
-    const next = roster.map((p, i) => (i === index ? { ...p, ...patch } : p));
-    onChange({ players: next } as Partial<BowlItem>);
+  const [shoeProducts, setShoeProducts] = useState<BowlingSquareProduct[]>([]);
+  const shoeProduct = shoeProducts[0] ?? null;
+
+  // Fetch the rental-shoe product (id + price) so the shoe line items can be
+  // DERIVED from the sizes people pick — no separate "how many pairs" step.
+  useEffect(() => {
+    if (!chargeShoes) {
+      setShoeProducts([]);
+      return;
+    }
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/bowling/v2/square-products?centerCode=${centerCode}&kind=addon_shoe`,
+        );
+        const data = await res.json();
+        if (alive) setShoeProducts(Array.isArray(data) ? data : []);
+      } catch {
+        if (alive) setShoeProducts([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [centerCode, chargeShoes]);
+
+  // One rental pair per bowler who picked a rental SIZE (own-shoes "" and
+  // unanswered null don't count) — the count can never disagree with the sizes.
+  const rentalCountFor = (r: RosterPlayer[]) =>
+    r.filter((p) => p.shoeSize !== null && p.shoeSize !== OWN_SHOES).length;
+
+  const shoePatchFor = (nextRoster: RosterPlayer[]): Partial<BowlItem> => {
+    // Idempotent recompute: strip any prior shoe line items, then re-add.
+    const nonShoe = item.lineItems.filter(
+      (li) => !shoeProducts.some((p) => p.id === li.squareProductId),
+    );
+    const count = rentalCountFor(nextRoster);
+    if (!shoeProduct || count === 0) {
+      return {
+        lineItems: nonShoe,
+        shoeSelections: {},
+        shoeProducts: undefined,
+      } as Partial<BowlItem>;
+    }
+    return {
+      shoeSelections: { [shoeProduct.id]: count },
+      shoeProducts: [
+        {
+          id: shoeProduct.id,
+          label: shoeProduct.label,
+          priceCents: shoeProduct.priceCents,
+          depositPct: shoeProduct.depositPct,
+          squareCatalogObjectId: shoeProduct.squareCatalogObjectId,
+        },
+      ],
+      lineItems: [
+        ...nonShoe,
+        {
+          squareProductId: shoeProduct.id,
+          quantity: count,
+          label: shoeProduct.label,
+          priceCents: shoeProduct.priceCents,
+          depositPct: shoeProduct.depositPct,
+          squareCatalogObjectId: shoeProduct.squareCatalogObjectId,
+        },
+      ],
+    } as Partial<BowlItem>;
   };
 
+  const update = (index: number, patch: Partial<RosterPlayer>) => {
+    const next = roster.map((p, i) => (i === index ? { ...p, ...patch } : p));
+    onChange({ players: next, ...(chargeShoes ? shoePatchFor(next) : {}) } as Partial<BowlItem>);
+  };
+
+  // Once the shoe product loads, reconcile the line items to the current sizes
+  // (0 pairs until someone picks a rental size; back-nav keeps prior picks).
+  useEffect(() => {
+    if (chargeShoes && shoeProducts.length > 0) onChange(shoePatchFor(roster));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shoeProducts.length]);
+
   const readyCount = roster.filter((p) => playerComplete(p, hasShoes)).length;
+  const rentalCount = rentalCountFor(roster);
+  const shoeTotalCents = shoeProduct ? rentalCount * shoeProduct.priceCents : 0;
 
   return (
     <div className="space-y-[24px]">
       <div className="flex items-center justify-between gap-[16px]">
         <p className="text-[26px] text-white/55">
-          {hasShoes
-            ? "Names, shoes and bumpers — so your lane is ready the moment you are."
-            : "Names and bumpers — so your lane is ready the moment you are."}
+          {t(hasShoes ? "bowlingDetails.intro.shoes" : "bowlingDetails.intro.noShoes")}
         </p>
         <span className="k-eyebrow shrink-0 text-[#00e2e5] tabular-nums">
-          {readyCount} of {roster.length} ready
+          {t("bowlingDetails.readyCount", { ready: readyCount, total: roster.length })}
         </span>
       </div>
 
@@ -174,15 +273,19 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
               style={{ borderLeft: `8px solid ${complete ? "#46d68c" : "rgba(255,255,255,0.15)"}` }}
             >
               <div className="mb-[16px] flex items-center justify-between">
-                <span className="k-display text-[34px]">Bowler {i + 1}</span>
-                {complete && <span className="k-eyebrow text-[#46d68c]">Ready</span>}
+                <span className="k-display text-[34px]">
+                  {t("bowlingDetails.bowlerN", { num: i + 1 })}
+                </span>
+                {complete && (
+                  <span className="k-eyebrow text-[#46d68c]">{t("bowlingDetails.ready")}</span>
+                )}
               </div>
 
               <label
                 htmlFor={`kiosk-bowler-name-${i}`}
                 className="mb-[8px] block text-[22px] font-semibold uppercase tracking-widest text-white/40"
               >
-                Name
+                {t("bowlingDetails.name")}
               </label>
               <input
                 id={`kiosk-bowler-name-${i}`}
@@ -193,14 +296,21 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
                 // stream reads as mixed case two chars in and gets preserved —
                 // "SaRA"); the reserve payload formats once more as backstop.
                 onBlur={(e) => update(i, { name: formatPersonName(e.target.value) })}
-                placeholder={`Bowler ${i + 1}`}
+                placeholder={t("bowlingDetails.bowlerN", { num: i + 1 })}
                 autoComplete="off"
                 className="mb-[20px] w-full rounded-2xl border border-white/15 bg-white/5 px-[24px] py-[18px] text-[30px] text-white placeholder-white/25 focus:border-[#00E2E5] focus:outline-none"
               />
 
               {hasShoes && (
                 <span className="mb-[8px] block text-[22px] font-semibold uppercase tracking-widest text-white/40">
-                  Shoe size
+                  {t("bowlingDetails.shoeSize")}
+                  {chargeShoes && shoeProduct && (
+                    <span className="ml-[10px] normal-case tracking-normal text-[#46d68c]">
+                      {t("bowlingDetails.shoeRentalNote", {
+                        price: `$${(shoeProduct.priceCents / 100).toFixed(2)}`,
+                      })}
+                    </span>
+                  )}
                 </span>
               )}
               {/* Category first (Own shoes / Toddler / Men's / Women's), then a
@@ -224,7 +334,7 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
                               : "border-white/10 text-white/50"
                           }`}
                         >
-                          Own shoes
+                          {t("bowlingDetails.ownShoes")}
                         </button>
                         {SHOE_CATEGORIES.map((cat) => (
                           <button
@@ -242,7 +352,7 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
                                 : "border-white/10 text-white/50"
                             }`}
                           >
-                            {cat.label}
+                            {t(cat.labelKey)}
                           </button>
                         ))}
                       </div>
@@ -273,7 +383,7 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
 
               <div className="flex items-center gap-[20px]">
                 <span className="text-[22px] font-semibold uppercase tracking-widest text-white/40">
-                  Bumpers
+                  {t("bowlingDetails.bumpers")}
                 </span>
                 <div className="inline-flex overflow-hidden rounded-2xl border-2 border-white/15">
                   {([true, false] as const).map((v) => (
@@ -285,7 +395,7 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
                         p.bumpers === v ? "bg-[#00E2E5] text-[#04252b]" : "text-white/55"
                       }`}
                     >
-                      {v ? "Yes" : "No"}
+                      {t(v ? "bowlingDetails.yes" : "bowlingDetails.no")}
                     </button>
                   ))}
                 </div>
@@ -294,12 +404,32 @@ const KioskBowlingDetailsStepComponent: StepDef<BowlItem>["Component"] = ({ item
           );
         })}
       </div>
+
+      {/* Rental total DERIVED from the sizes picked — no separate count to get
+          out of sync. Own-shoes bowlers add nothing. */}
+      {chargeShoes && shoeProduct && rentalCount > 0 && (
+        <div className="k-glass flex items-center justify-between px-[28px] py-[20px]">
+          <span className="text-[24px] text-white/70">
+            {t("bowlingDetails.rentalSummary", {
+              count: rentalCount,
+              price: `$${(shoeProduct.priceCents / 100).toFixed(2)}`,
+            })}
+          </span>
+          <span className="k-display text-[32px] tabular-nums text-[#46d68c]">
+            ${(shoeTotalCents / 100).toFixed(2)}
+          </span>
+        </div>
+      )}
     </div>
   );
 };
 
 export const KioskBowlingDetailsStep: StepDef<BowlItem> = {
   id: "kiosk-bowling-details",
+  // TODO(i18n): `title` and the `canAdvance` reasons below run at module scope
+  // (outside React) so they can't reach useT(). They stay English until step
+  // titles + validation reasons are threaded through the active locale — a
+  // cross-cutting change tracked in tasks/kiosk-i18n-spanish-plan.md.
   title: "Bowlers",
   Component: KioskBowlingDetailsStepComponent,
   isVisible: () => true,

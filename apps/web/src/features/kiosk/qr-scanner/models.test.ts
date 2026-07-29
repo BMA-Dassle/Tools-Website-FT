@@ -31,4 +31,17 @@ describe("scanner model registry", () => {
     expect(m.defaultBaudRate).toBe(115200);
     expect(m.expectedUsbIds[0]?.usbVendorId).toBe(0x0c2e);
   });
+
+  it("opticon-2d: seeded ahead of hardware — 9600 default, Opticon VID, unconfirmed", () => {
+    const m = getScannerModel("opticon-2d")!;
+    expect(m.defaultBaudRate).toBe(9600);
+    expect(m.expectedUsbIds[0]?.usbVendorId).toBe(0x065a);
+    // Nothing about this unit is verified yet — the flag keeps the panel
+    // asking staff to confirm ids/baud until a real unit is provisioned.
+    expect(m.usbIdsConfirmed).toBe(false);
+  });
+
+  it("the default model stays the Honeywell (existing kiosks save no model id)", () => {
+    expect(DEFAULT_SCANNER_MODEL_ID).toBe("honeywell-3320g");
+  });
 });

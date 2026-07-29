@@ -43,12 +43,23 @@ import type { SavedCard } from "@/components/square/SavedCardSelector";
 import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { LoyaltySection } from "./LoyaltySection";
 import { PromoCodeInput } from "./PromoCodeInput";
+import {
+  sessionVouchers,
+  voucherDisplayName,
+  voucherRedeemEnabled,
+  voucherReviewLines,
+} from "~/features/booking/service/voucher-redeem";
 import { contactIsComplete } from "../ContactStep";
 import { kioskTerminalEnabled, kioskGzCartEnabled } from "~/features/kiosk/flags";
 import { playNowActive } from "~/features/booking/flags";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { centerCodeFor } from "~/config/intercard-centers";
-import { qamfCenterCode, HEADPINZ_FM_CENTER_ID, HEADPINZ_FM_CENTER_CODE } from "@/lib/qamf-centers";
+import {
+  qamfCenterCode,
+  HEADPINZ_FM_CENTER_ID,
+  HEADPINZ_FM_CENTER_CODE,
+  isFastTraxDuckpinCenter,
+} from "@/lib/qamf-centers";
 import { stashGzFulfillment as stashKioskGameCards } from "~/features/kiosk/service/gz-fulfillment";
 import { stashRacePackConfirmation } from "~/features/kiosk/service/race-pack-confirmation";
 import { stashPovConfirmation } from "~/features/kiosk/service/pov-confirmation";
@@ -473,6 +484,38 @@ export function CheckoutStep({
           } catch {
             /* bad pointers → the reserve rejects the charge; review shows without packs */
           }
+        }
+      }
+
+      // BMI vouchers — one negative line PER voucher, amounts from the same
+      // coverage plan + line-builder the reserve charges with (see
+      // voucher-redeem.ts voucherReviewLines).
+      if (sessionVouchers(session).length > 0 && !activeComboSpecial(session)) {
+        try {
+          let base = redeemedHeatSet(session);
+          if (session.context?.kiosk && kioskRacePacksEnabled()) {
+            const packSel = session.items.flatMap((i) =>
+              i.kind === "race" ? (i.creditPacks ?? []) : [],
+            );
+            if (packSel.length > 0) {
+              const packs = resolveKioskPacks(packSel, session.party);
+              const cov = computePackCoverage(session, packs, base);
+              if (cov.heats.size > 0) base = new Set([...base, ...cov.heats]);
+            }
+          }
+          const vLines = voucherReviewLines(session, base, (ex) =>
+            buildRaceChargeLines(session, ex).reduce((s, l) => s + l.amount, 0),
+          );
+          for (const vl of vLines) {
+            if (vl.amount <= 0) continue;
+            reviewLines.push({
+              name: `${voucherDisplayName(vl.name)} — …${vl.code.slice(-4)}`,
+              quantity: 1,
+              amount: -vl.amount,
+            });
+          }
+        } catch {
+          /* voucher display is best-effort; the reserve verifies coverage */
         }
       }
 
@@ -981,6 +1024,20 @@ export function CheckoutStep({
           appliedCode={session.appliedPromo?.code ?? null}
           onApply={(promo) => dispatch({ type: "applyPromo", promo })}
           onClear={() => dispatch({ type: "applyPromo", promo: null })}
+          // BMI vouchers ride the same field (owner 2026-07-27: web must
+          // reutilize the kiosk's voucher rail). Flag-gated; a voucher-shaped
+          // code applies to the live bill via /api/booking/v2/voucher.
+          voucher={
+            voucherRedeemEnabled() || session.context?.voucherRedeem
+              ? {
+                  billId: session.bmiBillId,
+                  center: session.center ?? session.context?.center ?? null,
+                  applied: sessionVouchers(session),
+                  onApplied: (voucher) => dispatch({ type: "applyVoucher", voucher }),
+                  onCleared: (code) => dispatch({ type: "removeVoucher", code }),
+                }
+              : undefined
+          }
         />
 
         <div className="flex items-center justify-between pt-2">
@@ -1392,15 +1449,23 @@ export function CheckoutStep({
           await saveBookingDetails(session, `bowl-${result.qamfReservationId}`, overview, contact);
           clearBookingSession(storageKey);
 
-          // Play Now (per-lane duckpin QR) lands on the FastTrax-branded
-          // confirmation with ?playNow=1 so it auto-opens the lane. Everything
-          // else keeps the existing HeadPinz confirmation route.
+          // Duckpin is a FastTrax product, so its confirmation lives on the
+          // FastTrax DOMAIN (owner 2026-07-26) — the page self-brands FastTrax
+          // and the route only exists at /book/bowling-confirmation. Booking
+          // happens on headpinz.com (Fort Myers), so we send an ABSOLUTE
+          // fasttraxent.com URL here; `go` uses window.location.href on web
+          // (cross-origin ok) and the kiosk shell only parses code/neonId out of
+          // this string, so an absolute URL is safe there too. Play Now (per-lane
+          // duckpin QR) is always duckpin → same route + ?playNow=1 auto-open.
           const playNow = playNowActive(session);
+          const isFtDuckpin =
+            bowlingItem.kind !== "kbf" &&
+            (playNow || isFastTraxDuckpinCenter(bowlingItem.qamfCenterId ?? null));
           const confirmBase =
             bowlingItem.kind === "kbf"
               ? "/hp/book/kids-bowl-free/confirmation"
-              : playNow
-                ? "/book/bowling-confirmation"
+              : isFtDuckpin
+                ? "https://fasttraxent.com/book/bowling-confirmation"
                 : "/hp/book/bowling/confirmation";
           const playNowQ = playNow ? "&playNow=1" : "";
           go(

@@ -2,8 +2,10 @@
 
 /**
  * Kiosk Experience availability, read from the CACHED server endpoint
- * (/api/kiosk/availability). Returns a predicate `available(id)` — true unless
- * the server reports an item can't be booked today.
+ * (/api/kiosk/availability). Returns `available(id)` — true unless the server
+ * reports an item can't be booked today — plus `firstOpenFor(id)`, the soonest
+ * bookable slot for that tile's "3 lanes · 9:30 PM" line (undefined when the
+ * server has no count, e.g. bowling/KBF or a vendor blip).
  *
  * The expensive BMI/QAMF feasibility runs server-side and is Redis-cached, so
  * this poll is cheap no matter how many kiosks run it (they all share the cache
@@ -13,13 +15,39 @@
  */
 import { useEffect, useState } from "react";
 import type { CenterCode } from "~/features/booking";
+import type { FirstOpen } from "../service/first-available";
 
-/** The endpoint is server-cached (~5 min TTL); a light 2-min client poll keeps
- *  the kiosk fresh without adding vendor load. */
-const POLL_MS = 2 * 60_000;
+/** The endpoint is server-cached (~3 min TTL); a light 1-min client poll keeps
+ *  the tiles fresh without adding vendor load — the poll only reads the cache,
+ *  so the vendors are still hit at most once per TTL per center. Callers on a
+ *  low-urgency surface (the idle attract loop) pass a longer interval so they
+ *  don't keep the cache — and therefore the vendor recompute — warm 24/7 when
+ *  no guest is present. */
+const DEFAULT_POLL_MS = 60_000;
+export const ATTRACT_POLL_MS = 5 * 60_000;
 
-export function useKioskAvailability(center: CenterCode | null): (id: string) => boolean {
+export interface KioskAvailability {
+  /** True unless the server reports the item can't be booked today. */
+  available: (id: string) => boolean;
+  /** The soonest bookable slot for the tile's availability line, or undefined
+   *  when the server carries no count for it. */
+  firstOpenFor: (id: string) => FirstOpen | undefined;
+}
+
+export interface UseKioskAvailabilityOptions {
+  /** Poll interval in ms. Defaults to 60s; the attract loop passes
+   *  {@link ATTRACT_POLL_MS} so an idle kiosk doesn't keep the vendor recompute
+   *  warm around the clock. */
+  pollMs?: number;
+}
+
+export function useKioskAvailability(
+  center: CenterCode | null,
+  options?: UseKioskAvailabilityOptions,
+): KioskAvailability {
   const [items, setItems] = useState<Record<string, boolean>>({});
+  const [firstOpen, setFirstOpen] = useState<Record<string, FirstOpen>>({});
+  const pollMs = options?.pollMs ?? DEFAULT_POLL_MS;
 
   useEffect(() => {
     if (!center) return;
@@ -29,18 +57,24 @@ export function useKioskAvailability(center: CenterCode | null): (id: string) =>
         const res = await fetch(`/api/kiosk/availability?center=${center}`);
         if (!res.ok) return;
         const data = await res.json();
-        if (alive && data?.items && typeof data.items === "object") setItems(data.items);
+        if (!alive) return;
+        if (data?.items && typeof data.items === "object") setItems(data.items);
+        // firstOpen is optional — a payload without it just leaves lines off.
+        if (data?.firstOpen && typeof data.firstOpen === "object") setFirstOpen(data.firstOpen);
       } catch {
         /* keep last known value — never false-lock on a fetch blip */
       }
     };
     void tick();
-    const t = setInterval(() => void tick(), POLL_MS);
+    const t = setInterval(() => void tick(), pollMs);
     return () => {
       alive = false;
       clearInterval(t);
     };
-  }, [center]);
+  }, [center, pollMs]);
 
-  return (id: string) => items[id] ?? true;
+  return {
+    available: (id: string) => items[id] ?? true,
+    firstOpenFor: (id: string) => firstOpen[id],
+  };
 }

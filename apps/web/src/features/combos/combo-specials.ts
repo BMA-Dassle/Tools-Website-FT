@@ -89,6 +89,16 @@ export interface ComboSpecial {
   longDescription: string;
   /** Display bullets, e.g. ["1 Starter Race", "1.5 Hours of Bowling", …]. */
   includes: string[];
+  /** Optional Spanish overrides for the guest-facing marketing copy (kiosk ES
+   *  locale). Web + emails keep the English fields; the kiosk falls back to
+   *  English per-field when an es value is absent. First-pass translation. */
+  es?: {
+    shortDescription?: string;
+    longDescription?: string;
+    durationLabel?: string;
+    includes?: string[];
+    qualifyFallbackNote?: string;
+  };
   heroImage: string;
   accentColor: string;
   /** Physical complex. Racing is Fort Myers-only. */
@@ -236,6 +246,28 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
       "Intermediate Race",
       "Racing License + POV Video",
     ],
+    es: {
+      shortDescription:
+        "Una experiencia completa de 3 horas: carrera Starter, 1.5 horas de boliche VIP y luego " +
+        "una carrera Intermediate — licencia, video POV y beneficios de pista VIP incluidos. Un " +
+        "precio, una reservación.",
+      longDescription:
+        "Tres horas de la noche premium completa de FastTrax + HeadPinz: califica en una carrera " +
+        "Starter, toma una pista VIP semiprivada para 1.5 horas de boliche y luego regresa más " +
+        "rápido en una carrera Intermediate. La licencia de carreras, el video POV y los " +
+        "beneficios de pista VIP (muro de video NeoVerse, chips y salsa, glow premium) están todos " +
+        "incluidos. Elige una hora de inicio — 2, 4, 6, 8 o 10 PM — y nosotros programamos el resto.",
+      durationLabel: "≈ Experiencia de 3 horas",
+      qualifyFallbackNote:
+        "¿No calificaste? No hay problema — convertimos tu carrera Intermediate en una segunda " +
+        "carrera Starter, o te damos un crédito de carrera.",
+      includes: [
+        "Carrera Starter",
+        "1.5 horas de boliche VIP",
+        "Carrera Intermediate",
+        "Licencia de carreras + video POV",
+      ],
+    },
     perks: [
       "Semi-private 8-lane VIP area",
       "NeoVerse video wall",

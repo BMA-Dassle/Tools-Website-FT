@@ -135,7 +135,11 @@ export async function qamfAuthedFetch(
   }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`qamf-bowling ${errLabel} failed: ${res.status} ${body.slice(0, 200)}`);
+    // 200 chars used to cut QAMF's validation list mid-field: the 2026-07-28
+    // orphan logged `{"BookedAt":["Millisecond must be 0."],"Customer.Guest.
+    // PhoneNumber` and the phone rule itself was gone. A 4xx validation body is
+    // the single most valuable line in the whole failure — keep it.
+    throw new Error(`qamf-bowling ${errLabel} failed: ${res.status} ${body.slice(0, 1200)}`);
   }
   return res;
 }

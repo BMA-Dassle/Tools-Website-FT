@@ -19,6 +19,11 @@ export interface CheckinBrowseRow {
   timeLabel: string; // "4:12 PM"
   activitiesLabel: string; // "Racing + Bowling"
   kind: "racing" | "bowling" | "attraction" | "mixed";
+  /** Express Lane — every racer is a resolved returning racer with a waiver
+   *  already on file, so this party needs NOTHING from the kiosk. The row shows
+   *  the badge and tapping it only explains where to go: no last-4 gate, no OTP,
+   *  no check-in (see `express.ts`). Racing-only; never a combo. */
+  express: boolean;
 }
 
 /** A PROVEN match (scan possession or phone-OTP) — opens directly. */
@@ -49,17 +54,20 @@ export interface CheckinLookupResponse {
   reason?: "not-found" | "cancelled" | "needs-otp" | "invalid" | "rate-limited";
 }
 
-/** POST /api/kiosk/checkin/lookup?action=send-otp — text the booking contact. */
+/** POST /api/kiosk/checkin/lookup?action=send-otp — text the booking contact.
+ *  `last4` gates the send: the tapper must know the last 4 digits of the number
+ *  on file, so a browse tap can't blind-text an arbitrary guest. */
 export interface CheckinSendOtpRequest {
   center: string;
   ref: string;
+  last4: string;
 }
 export interface CheckinSendOtpResponse {
   ok: boolean;
   /** Masked destination shown to the guest: "(239) •••-••12". */
   mask?: string;
   error?: string;
-  reason?: "not-found" | "no-contact" | "rate-limited";
+  reason?: "not-found" | "no-contact" | "rate-limited" | "mismatch";
 }
 
 /** POST /api/kiosk/checkin/lookup?action=confirm-otp — verify the texted code. */
@@ -167,6 +175,39 @@ export interface CheckinRosterPerson {
   boundTo: string[];
 }
 
+/** One purchased race slot on the reservation — the unit the guest assigns a
+ *  person to at check-in ("who is who"). `slotKey` is a stable UNIQUE id per
+ *  seat (two racers in the same heat share a `heatId` but never a `slotKey`);
+ *  `heatId` is the naive-ET block start, used only for scheduling. */
+export interface CheckinRaceSlot {
+  slotKey: string;
+  heatId: string;
+  productId: string | null;
+  /** Human label for the picker: "Starter Junior · Blue". */
+  classLabel: string;
+  tier: string;
+  /** The class this slot is FOR — a junior slot only accepts a junior. */
+  category: "adult" | "junior";
+  track: string | null;
+  timeLabel: string;
+  /** Name already bound to this slot (booker / web-identified racer), else null. */
+  occupantName: string | null;
+  /** True when no bmiPersonId is bound yet — assignable at the kiosk. */
+  open: boolean;
+}
+
+/** A guest's person→slot choice sent to /complete. */
+export interface CheckinSlotAssignment {
+  /** Unique seat id (matches CheckinRaceSlot.slotKey), NOT the shared heatId. */
+  slotKey: string;
+  /** SHORT Pandora id preferred, else the 17-digit Office id — matched to the
+   *  bound person row server-side. */
+  personId: string;
+  /** The racer's resolved class — the server rejects the assignment if it
+   *  doesn't match the slot's class (defense in depth; null = unknown, allowed). */
+  category?: "adult" | "junior" | null;
+}
+
 export interface CheckinItinerary {
   ok: boolean;
   // NOTE: the raw billId / officeProjectId are deliberately NOT returned to the
@@ -183,6 +224,14 @@ export interface CheckinItinerary {
     arriveByLabel: string | null;
   } | null;
   roster: CheckinRosterPerson[];
+  /** Purchased race slots (racing reservations only) — the "who is who"
+   *  assignment surface. Empty for non-racing. */
+  raceSlots: CheckinRaceSlot[];
+  /** Express Lane, judged on LIVE waiver truth (every racer identified + a
+   *  currently-valid Pandora waiver, racing-only). True = this party skips
+   *  check-in: the flow shows them where to go instead of continuing. Stricter
+   *  than the browse row's booking-time flag — it catches a lapsed waiver. */
+  express: boolean;
   /** Display-only balance banner (no money is collected at the kiosk). */
   dueAtCenterCents: number;
   error?: string;

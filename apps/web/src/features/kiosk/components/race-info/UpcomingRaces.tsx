@@ -22,6 +22,7 @@ import {
   type DisplayHeat,
   type DisplayTrack,
 } from "../../hooks/useRaceGridDisplay";
+import { useT } from "../../i18n";
 
 const TRACK_ACCENT: Record<DisplayTrack, string> = {
   Red: "#e53935",
@@ -37,12 +38,16 @@ const TRACK_BADGE: Record<DisplayTrack, string> = {
   Mega: "bg-purple-500/20 text-purple-300",
 };
 
+// Tier names are racing proper nouns — kept untranslated across the hub.
 const TIER_LABEL: Record<DisplayHeat["tier"], string> = {
   starter: "Starter",
   intermediate: "Intermediate",
   pro: "Pro",
 };
 
+// TODO(i18n): module-scope helper (can't reach useT). Builds "{raceType} Heat
+// #{n} · {time}"; raceType is server data that stays English, so the "Heat #"
+// label stays English with it until this is threaded through a component.
 function checkinLabel(race: CurrentRace): string {
   let time = "";
   try {
@@ -59,6 +64,7 @@ function checkinLabel(race: CurrentRace): string {
 
 /** Live status band — kiosk-scaled port of components/home/TrackStatus. */
 function StatusBand() {
+  const t = useT();
   const result = useTrackStatus();
   if (!result) return null;
   const { trackStatus, currentRaces } = result;
@@ -72,7 +78,7 @@ function StatusBand() {
         <div className="mb-[20px] flex flex-col gap-[6px]">
           <div className="k-display flex items-center gap-[12px] text-[20px] tracking-wide text-[#f0b341]/70">
             <span className="h-[12px] w-[12px] animate-pulse rounded-full bg-[#f0b341]" />
-            Now Checking In
+            {t("raceInfo.upcoming.nowCheckingIn")}
           </div>
           {races.map((race) => (
             <div key={race.sessionId} className="k-display text-[30px] text-[#f0b341]">
@@ -82,25 +88,39 @@ function StatusBand() {
         </div>
       )}
       <div className="flex gap-[20px]">
-        {trackStatus.tracks.map((t) => (
+        {trackStatus.tracks.map((track) => (
           <div
-            key={t.trackName}
+            key={track.trackName}
             className="flex flex-1 items-center gap-[16px] rounded-[18px] border px-[24px] py-[16px]"
-            style={{ borderColor: `${t.colors.trackIdentity}55`, background: "rgba(0,0,0,0.25)" }}
+            style={{
+              borderColor: `${track.colors.trackIdentity}55`,
+              background: "rgba(0,0,0,0.25)",
+            }}
           >
             <span
               className="h-[16px] w-[16px] shrink-0 rounded-full"
               style={{
                 background:
-                  t.status === "ok" ? "#46d68c" : t.status === "delayed" ? "#f0b341" : "#e53935",
+                  track.status === "ok"
+                    ? "#46d68c"
+                    : track.status === "delayed"
+                      ? "#f0b341"
+                      : "#e53935",
                 boxShadow: `0 0 14px ${
-                  t.status === "ok" ? "#46d68c" : t.status === "delayed" ? "#f0b341" : "#e53935"
+                  track.status === "ok"
+                    ? "#46d68c"
+                    : track.status === "delayed"
+                      ? "#f0b341"
+                      : "#e53935"
                 }`,
               }}
             />
-            <span className="flex-1 text-[28px] font-semibold text-white">{t.trackName}</span>
-            <span className="k-num text-[26px] font-bold" style={{ color: t.colors.trackIdentity }}>
-              {t.delayFormatted || "On Time"}
+            <span className="flex-1 text-[28px] font-semibold text-white">{track.trackName}</span>
+            <span
+              className="k-num text-[26px] font-bold"
+              style={{ color: track.colors.trackIdentity }}
+            >
+              {track.delayFormatted || t("raceInfo.upcoming.onTime")}
             </span>
           </div>
         ))}
@@ -111,6 +131,7 @@ function StatusBand() {
 
 /** One heat — the booking picker's card language at kiosk-canvas scale. */
 function HeatCard({ heat }: { heat: DisplayHeat }) {
+  const t = useT();
   const greyed = heat.status !== "open" && heat.status !== "low";
   const pct = heat.capacity > 0 ? heat.freeSpots / heat.capacity : 0;
 
@@ -122,9 +143,10 @@ function HeatCard({ heat }: { heat: DisplayHeat }) {
         : greyed
           ? "text-white/50"
           : "text-emerald-400";
+  // greyed heats show the server-supplied statusLabel (data) as-is.
   const spotsLabel = greyed
     ? heat.statusLabel
-    : `${heat.freeSpots} spot${heat.freeSpots === 1 ? "" : "s"} left`;
+    : t("raceInfo.upcoming.spotsLeft", { count: heat.freeSpots });
 
   return (
     <div
@@ -157,6 +179,7 @@ function HeatCard({ heat }: { heat: DisplayHeat }) {
 }
 
 export function UpcomingRaces() {
+  const t = useT();
   const { config } = useKioskConfig();
   const { heats, tracks, schedule, isLoading, isError } = useRaceGridDisplay(
     config?.center ?? "fort-myers",
@@ -188,17 +211,17 @@ export function UpcomingRaces() {
               className={`k-chip k-tap flex-1 ${activeTrack === null ? "sel" : ""}`}
               onClick={() => setTrackFilter(null)}
             >
-              All
+              {t("raceInfo.filter.all")}
             </button>
-            {tracks.map((t) => (
+            {tracks.map((trk) => (
               <button
-                key={t}
+                key={trk}
                 type="button"
-                className={`k-chip k-tap flex-1 ${activeTrack === t ? "sel" : ""}`}
-                style={activeTrack === t ? { borderColor: TRACK_ACCENT[t] } : undefined}
-                onClick={() => setTrackFilter((cur) => (cur === t ? null : t))}
+                className={`k-chip k-tap flex-1 ${activeTrack === trk ? "sel" : ""}`}
+                style={activeTrack === trk ? { borderColor: TRACK_ACCENT[trk] } : undefined}
+                onClick={() => setTrackFilter((cur) => (cur === trk ? null : trk))}
               >
-                <span style={{ color: TRACK_ACCENT[t] }}>{t}</span>
+                <span style={{ color: TRACK_ACCENT[trk] }}>{trk}</span>
               </button>
             ))}
             <span className="mx-[8px] w-px self-stretch bg-white/10" aria-hidden="true" />
@@ -209,40 +232,39 @@ export function UpcomingRaces() {
           className={`k-chip k-tap flex-1 ${classFilter === "adult" ? "sel" : ""}`}
           onClick={() => setClassFilter("adult")}
         >
-          Adult
+          {t("raceInfo.class.adult")}
         </button>
         <button
           type="button"
           className={`k-chip k-tap flex-1 ${classFilter === "junior" ? "sel" : ""}`}
           onClick={() => setClassFilter("junior")}
         >
-          Junior
+          {t("raceInfo.class.junior")}
         </button>
       </div>
 
       {isLoading && heats.length === 0 ? (
         <div className="py-[80px] text-center text-[30px] text-white/50">
-          Loading today&rsquo;s races…
+          {t("raceInfo.upcoming.loading")}
         </div>
       ) : isError ? (
         <div className="py-[80px] text-center text-[30px] text-white/50">
-          Race times aren&rsquo;t loading right now — our crew at the front desk has the full
-          schedule.
+          {t("raceInfo.upcoming.error")}
         </div>
       ) : showMegaNoJunior ? (
         // Mega day + Junior filter: the board is empty by design — explain why.
         <div className="flex flex-col items-center gap-[16px] rounded-[24px] border border-[#e53935]/40 bg-[#e53935]/10 px-[32px] py-[56px] text-center">
           <IconAlertTriangle size={48} className="text-[#ff5a52]" aria-hidden="true" />
           <div className="text-[32px] font-bold text-[#ff5a52]">
-            No Junior races on the Mega Track
+            {t("raceInfo.upcoming.megaNoJunior.title")}
           </div>
           <div className="max-w-[520px] text-[22px] leading-snug text-white/50">
-            The Mega Track runs adults only. Check back on a Red &amp; Blue day for Junior heats.
+            {t("raceInfo.upcoming.megaNoJunior.body")}
           </div>
         </div>
       ) : visible.length === 0 ? (
         <div className="py-[80px] text-center text-[30px] text-white/50">
-          No more {classFilter} races on the board today.
+          {t("raceInfo.upcoming.empty", { cls: classFilter })}
         </div>
       ) : (
         <>
@@ -252,8 +274,7 @@ export function UpcomingRaces() {
             ))}
           </div>
           <div className="text-center text-[22px] text-white/40">
-            Intermediate &amp; Pro require a qualifying lap time — everyone starts in Starter. Tap
-            Book Now on the previous screen to grab a seat.
+            {t("raceInfo.upcoming.ladderNote")}
           </div>
         </>
       )}

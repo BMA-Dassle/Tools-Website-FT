@@ -14,6 +14,7 @@
  * KioskTerminalCheckoutGate's error screen + IdleWatcher's blocking overlay.
  */
 import { useEffect, useState } from "react";
+import { useT } from "../i18n";
 import type { CrtStatus } from "../card-reader";
 
 /** PIN a staff member enters to resume a held dispense (stops a guest from
@@ -40,6 +41,7 @@ export function KioskDispenserHold({
   onResume: () => void;
   onSeeAttendant: () => void;
 }) {
+  const t = useT();
   // No predicate → the fault has no sensor signal; let staff resume immediately.
   // (One hold is active at a time and it unmounts between faults, so this
   // initial value is always correct for the current fault.)
@@ -88,9 +90,7 @@ export function KioskDispenserHold({
         <p className="mt-4 text-lg text-white/70">{fault.message}</p>
         {fault.hint && <p className="mt-2 text-sm text-white/45">{fault.hint}</p>}
 
-        <p className="mt-6 text-sm text-white/55">
-          Your payment is safe — the transaction will pick up right where it left off.
-        </p>
+        <p className="mt-6 text-sm text-white/55">{t("pay.dispenser.paymentSafe")}</p>
 
         {!askingPin ? (
           <>
@@ -100,12 +100,10 @@ export function KioskDispenserHold({
               onClick={() => setAskingPin(true)}
               className="font-heading mt-8 h-16 w-full rounded-full bg-[#00e2e5] text-xl font-extrabold uppercase italic text-[#04252b] disabled:opacity-40"
             >
-              {ready ? "Resume" : "Waiting until it’s cleared…"}
+              {ready ? t("pay.dispenser.resume") : t("pay.dispenser.waitingCleared")}
             </button>
             {!ready && (
-              <p className="mt-2 text-xs text-white/40">
-                Resume unlocks automatically once the dispenser reports it’s clear.
-              </p>
+              <p className="mt-2 text-xs text-white/40">{t("pay.dispenser.resumeUnlocks")}</p>
             )}
           </>
         ) : (
@@ -153,7 +151,7 @@ export function KioskDispenserHold({
           onClick={onSeeAttendant}
           className="mt-5 text-sm font-semibold text-white/45 underline"
         >
-          See an attendant
+          {t("pay.dispenser.seeAttendant")}
         </button>
       </div>
     </div>

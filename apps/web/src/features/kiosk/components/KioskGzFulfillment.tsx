@@ -20,9 +20,12 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useKioskConfig } from "../KioskConfigContext";
-import { useGameCardDispenser } from "../card-reader";
+import { useGameCardDispenser, type FaultBehavior } from "../card-reader";
 import { creditTokensViaBridge } from "../service/game-card-bridge";
 import { clearGzFulfillment, type GzFulfillmentPayload } from "../service/gz-fulfillment";
+import { KioskDispenserHold } from "./KioskDispenserHold";
+
+type HoldFault = Extract<FaultBehavior, { kind: "hold" }>;
 
 /** Mag reads pad the account with leading zeros; guests know the printed
  *  (unpadded) form. Display-only — API calls keep the raw value. */
@@ -72,6 +75,33 @@ export function KioskGzFulfillment({
   const startedRef = useRef(false);
   // Mirror of startedRef for render use (reading a ref during render is unsafe).
   const [started, setStarted] = useState(false);
+
+  // Recoverable-fault hold — SAME machinery as the standalone Game Zone screen
+  // (2026-07-23: out-of-cards mid-fulfillment dead-ended the whole basket with
+  // "see an attendant"; since the checkout upsell most card purchases dispense
+  // HERE, so staff lost the refill-and-Resume path they had on the GZ screen).
+  // The dispense loop awaits `holdUntilResolved`: staff Resume retries the SAME
+  // card; "See an attendant" fails the row (recover-forward, money safe).
+  const [holdFault, setHoldFault] = useState<HoldFault | null>(null);
+  const holdRef = useRef<{ resolve: (resume: boolean) => void; reinit: boolean } | null>(null);
+  const holdUntilResolved = (fault: HoldFault): Promise<boolean> =>
+    new Promise<boolean>((resolve) => {
+      holdRef.current = { resolve, reinit: fault.reinitOnResume };
+      setHoldFault(fault);
+    });
+  const onHoldResume = async () => {
+    const h = holdRef.current;
+    holdRef.current = null;
+    setHoldFault(null);
+    if (h?.reinit) await dispenser.reinit(); // device lost its card position
+    h?.resolve(true);
+  };
+  const onHoldAttendant = () => {
+    const h = holdRef.current;
+    holdRef.current = null;
+    setHoldFault(null);
+    h?.resolve(false);
+  };
 
   const setRow = (i: number, patch: Partial<CardRow>) =>
     setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -128,6 +158,21 @@ export function KioskGzFulfillment({
           }
         } else {
           const SAFE = "Your payment is safe — please see an attendant.";
+          // Bin a held card WITHOUT ever forcing it into a full bin (owner hard
+          // rule): capture() refuses on full and returns the bin-full hold —
+          // pause for staff, then finish the capture (GZ-screen captureSafely).
+          const captureSafely = async (): Promise<boolean> => {
+            for (;;) {
+              const cr = await dispenser.capture();
+              if (cr.ok) return true;
+              if (cr.fault.kind === "hold") {
+                const resumed = await holdUntilResolved(cr.fault);
+                if (!resumed) return false;
+                continue;
+              }
+              return false;
+            }
+          };
           // Every dispensed blank has a UNIQUE pre-encoded account; a repeat means
           // the reader handed back a stale read (the "same number on N cards" bug) —
           // bin it and re-dispense rather than credit the same account twice.
@@ -138,13 +183,25 @@ export function KioskGzFulfillment({
             setRow(i, { status: "dispensing" });
             const r = await dispenser.dispenseAndRead();
             if (!r.ok) {
+              // Hold-class fault (out of cards / bin full / jam): pause on the
+              // full-screen hold until staff fix it and Resume, then retry THIS
+              // card — same recovery the standalone GZ screen has. Only a
+              // "See an attendant" bail dead-ends the basket (recover forward,
+              // the guest is already paid).
+              if (r.fault.kind === "hold") {
+                const resumed = await holdUntilResolved(r.fault);
+                if (resumed) {
+                  i--;
+                  continue;
+                }
+                setRow(i, { status: "failed" });
+                setNote(`${r.info.message} ${SAFE}`);
+                return;
+              }
               // Clear whatever's at the gate, then decide. A bad-blank read
-              // (card-retry) tries the next blank, bounded; anything else — a
-              // hold (out of cards / bin full / jam), an abort (reader gone), or
-              // too many bad blanks — fails this row. No hold overlay on the
-              // confirmation screen: the row recovers forward (reconcile cron /
-              // attendant finishes it), the guest is already paid.
-              await dispenser.capture();
+              // (card-retry) tries the next blank, bounded; anything else — an
+              // abort (reader gone) or too many bad blanks — fails this row.
+              await captureSafely();
               if (r.fault.kind === "card-retry" && ++blanksBad <= 3) {
                 i--;
                 continue;
@@ -157,7 +214,11 @@ export function KioskGzFulfillment({
             // Stale/duplicate read guard — bin + re-dispense (bounded) rather than
             // load an account we already credited this run.
             if (usedAccounts.has(account)) {
-              await dispenser.capture();
+              if (!(await captureSafely())) {
+                setRow(i, { status: "failed" });
+                setNote(SAFE);
+                return;
+              }
               if (++blanksBad > 3) {
                 setRow(i, { status: "failed" });
                 setNote(`We couldn't get a clean read from the dispenser. ${SAFE}`);
@@ -177,7 +238,7 @@ export function KioskGzFulfillment({
             );
             if (!loaded) {
               // Never hand over an unloaded blank — bin it; the row recovers forward.
-              await dispenser.capture();
+              await captureSafely();
               setRow(i, { status: "failed" });
               setNote(
                 "A card couldn't be loaded and was retained. Your payment is safe — please see an attendant.",
@@ -203,6 +264,18 @@ export function KioskGzFulfillment({
 
   return (
     <div className="relative w-full max-w-[860px] rounded-[24px] border border-[#f800c6]/40 bg-white/[0.04] p-[32px] text-left">
+      {/* Recoverable dispenser fault — full-screen hold (fixed: this card is not
+          a full-screen ancestor) until staff fix it and Resume. */}
+      {holdFault && (
+        <div className="fixed inset-0 z-[90]">
+          <KioskDispenserHold
+            fault={holdFault}
+            getStatusNow={dispenser.getStatusNow}
+            onResume={() => void onHoldResume()}
+            onSeeAttendant={onHoldAttendant}
+          />
+        </div>
+      )}
       <div className="k-eyebrow text-[#f800c6]">
         {payload.mode === "new_card" ? "Your Game Zone cards" : "Loading your Game Zone cards"}
       </div>

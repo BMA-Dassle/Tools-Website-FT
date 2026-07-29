@@ -20,6 +20,7 @@ import {
   kioskGzCartEnabled,
   kioskPovCodesEnabled,
 } from "~/features/kiosk/flags";
+import { getOrderPaymentInfo } from "~/features/kiosk/service/square-terminal";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { startTxn, markCharged, markLoadState } from "~/features/game-cards/data/transactions-log";
 import {
@@ -38,6 +39,14 @@ import { after } from "next/server";
 import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
 import { confirmBmiPayment, bmiBillIsLive } from "./bmi-confirm";
 import { reserveBaseKey } from "./reserve-idempotency";
+import { describeDroppedLeg, partitionBookableLegs } from "./bookable";
+import { nowRounded5EtIso } from "./bowl-now";
+import {
+  startReserveAttempt,
+  recordReserveCapture,
+  finishReserveAttempt,
+  type ReserveCartSnapshot,
+} from "@/lib/reserve-attempt-log";
 import {
   createReservation,
   getReservation,
@@ -59,7 +68,18 @@ import { raceUsesZeroBmiModel, computeRaceItemPovQty } from "./race";
 import { buildRaceChargeLines, raceHeatsMetadata, racerNamesFromHeats } from "./checkout";
 import { bowlingBookedPricingStamp } from "./bowling-booked-pricing";
 import { promoFactor } from "./promo-pricing";
-import { recordRedemption, getDiscountCodeByCode } from "~/features/discount-codes";
+import {
+  recordRedemption,
+  getDiscountCodeByCode,
+  resolveAppliedPromo,
+} from "~/features/discount-codes";
+import {
+  planVoucherCoverage,
+  sessionVouchers,
+  voucherIsApplied,
+  VoucherNotVerifiedError,
+} from "./voucher-redeem";
+import { getAppliedVouchersForBill, markVoucherCharged } from "../data/voucher-redemptions-db";
 import { activeComboSpecial, comboOrderGroups } from "~/features/combos/combo-pricing";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { wallClockMs } from "~/features/combos/combo-itinerary";
@@ -97,6 +117,7 @@ import {
   heatClockLabel,
 } from "./conflict";
 import { shortenUrl } from "@/lib/short-url";
+import { syncShoeKdsLineItems, type ShoeKdsPlayer } from "@/lib/bowling-shoe-kds";
 import type {
   BookingSession,
   BowlingItem,
@@ -158,6 +179,15 @@ export interface PrepareDepositResult {
   depositOrderId: string;
   depositCents: number;
   locationId: string;
+  /**
+   * Set when this session's deposit order was ALREADY captured on the reader but
+   * reserve never ran (client dropped between tap and reserve, then re-entered).
+   * The client must NOT arm the reader again — it resumes the booking with
+   * `paymentId` via the idempotent reserve-all path. See tasks/kiosk-terminal-resume-plan.md.
+   */
+  alreadyPaid?: boolean;
+  /** The captured reader paymentId, present only when alreadyPaid. */
+  paymentId?: string;
 }
 
 /**
@@ -386,10 +416,22 @@ function buildCombinedLineItems(session: BookingSession): {
         )
       : [];
   const packCoverage: PackCoverage = computePackCoverage(session, kioskPacks, redeemedHeats);
-  const excludedHeats =
+  const creditAndPackHeats =
     packCoverage.heats.size > 0
       ? new Set([...redeemedHeats, ...packCoverage.heats])
       : redeemedHeats;
+  // BMI vouchers — ONE coverage plan feeds the whole charge (and the same
+  // helper feeds every display): race comps join excludedHeats like
+  // credit/pack heats; attraction comps reduce Square quantities below.
+  // unifiedReserveInner has already ledger-verified every applied voucher.
+  // Combo carts: flat pricing — the plan is skipped (consistent no-op).
+  const voucherPlan = activeComboSpecial(session)
+    ? null
+    : planVoucherCoverage(session, creditAndPackHeats);
+  const excludedHeats =
+    voucherPlan && voucherPlan.raceHeats.size > 0
+      ? new Set([...creditAndPackHeats, ...voucherPlan.raceHeats])
+      : creditAndPackHeats;
 
   for (const bl of buildRaceChargeLines(session, excludedHeats)) {
     const totalCents = Math.round(bl.amount * 100);
@@ -411,7 +453,12 @@ function buildCombinedLineItems(session: BookingSession): {
     });
   }
 
-  // Attraction items
+  // Attraction items. A voucher whose comp targets an attraction (Laser/Gel/
+  // Shuffly Comp) covers ONE unit of the matched item — quantity drops by one
+  // on the Square line (the comp line on the BMI bill is the vendor-side
+  // counterpart; BMI nets at processing). Combo carts skip coverage (flat
+  // pricing) — same rule as the race rail. voucherAttractionCoverage computes
+  // the identical discounted unit the display subtracts.
   for (const item of session.items) {
     if (item.kind !== "attraction") continue;
     const attr = item as AttractionItem;
@@ -425,14 +472,17 @@ function buildCombinedLineItems(session: BookingSession): {
       session.appliedPromo,
     );
     const unitCents = factor === 1 ? fullUnitCents : Math.round(fullUnitCents * factor);
-    const lineTotal = unitCents * attr.qty;
+    const coveredUnits = voucherPlan?.attractionUnits.get(attr.id) ?? 0;
+    const chargedQty = Math.max(0, attr.qty - coveredUnits);
+    const lineTotal = unitCents * chargedQty;
     totalPriceCents += lineTotal;
     totalDepositCents += lineTotal; // 100% deposit for attractions
-    promoSavingsCents += (fullUnitCents - unitCents) * attr.qty;
+    promoSavingsCents += (fullUnitCents - unitCents) * chargedQty;
+    if (chargedQty === 0) continue; // fully voucher-covered — no Square line
 
     sqLineItems.push({
       name: attr.slug ?? "Attraction",
-      quantity: String(attr.qty),
+      quantity: String(chargedQty),
       ...(catalogId
         ? { catalogObjectId: catalogId, basePriceMoney: { amount: unitCents, currency: "USD" } }
         : { basePriceMoney: { amount: unitCents, currency: "USD" } }),
@@ -676,10 +726,35 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
     }
   }
 
+  // Durable audit handle — the inner fan-out opens the row (it owns baseKey and
+  // the charge amount); this wrapper closes it either way, so a throw anywhere
+  // below leaves a queryable record instead of only a Vercel log line.
+  const audit: ReserveAudit = { id: null, step: "pre-charge" };
   try {
     // The full path never sets prepareOnly, so the result is always a
     // UnifiedReserveResult (prepareUnifiedDeposit is the only prepareOnly caller).
-    return (await unifiedReserveInner(input, seedSource)) as UnifiedReserveResult;
+    const result = (await unifiedReserveInner(
+      input,
+      seedSource,
+      false,
+      audit,
+    )) as UnifiedReserveResult;
+    await finishReserveAttempt(audit.id, {
+      state: "completed",
+      neonIds: result.neonIds,
+      qamfReservationIds: result.qamfReservationIds,
+      bmiReservationNumber: result.bmiReservationNumber,
+    });
+    return result;
+  } catch (err) {
+    await finishReserveAttempt(audit.id, {
+      state: "failed",
+      failedStep: audit.step,
+      // FULL text — a truncated vendor body is exactly what cost us the phone
+      // rule on 2026-07-28.
+      error: err instanceof Error ? `${err.name}: ${err.message}\n${err.stack ?? ""}` : String(err),
+    });
+    throw err;
   } finally {
     if (lockKey && lockHeld) {
       await redis.del(lockKey).catch(() => {});
@@ -725,11 +800,74 @@ export async function prepareUnifiedDeposit(
   }
 }
 
+/**
+ * Mutable handle so the public wrapper can close out the durable audit row that
+ * the inner fan-out opened (the row id and the step it reached are only knowable
+ * in here, the terminal state only out there).
+ */
+interface ReserveAudit {
+  id: number | null;
+  /** Last milestone entered — becomes reserve_attempts.failed_step on a throw. */
+  step: string;
+}
+
 async function unifiedReserveInner(
   input: UnifiedReserveInput,
   seedSource: string | null,
   prepareOnly = false,
+  audit: ReserveAudit = { id: null, step: "pre-charge" },
 ): Promise<UnifiedReserveResult | PrepareDepositResult> {
+  // ── 0a. Server-authoritative promo ─────────────────────────────────
+  // `session.appliedPromo` is a CLIENT snapshot — its amounts/scopes/windows
+  // are display hints, never charge inputs (the bowling reserve route has
+  // enforced this since USA250; this path predated the rule). Re-resolve the
+  // code from Neon so every price derivation below runs on the store of
+  // record; a code that no longer resolves prices as no-promo. Fail-closed:
+  // a promo never survives on the client snapshot alone. Kiosk sessions make
+  // this non-negotiable — the device is an unattended public surface.
+  if (input.session.appliedPromo) {
+    const claimed = input.session.appliedPromo;
+    const fresh = await resolveAppliedPromo(claimed.code).catch(() => null);
+    if (!fresh) {
+      // The code stopped resolving between session start and charge (expired at
+      // midnight, hit max_uses, admin deactivated). We price WITHOUT it — the
+      // established behavior of the bowling reserve route — which means the
+      // guest can be charged more than the screen last showed. Rare, but it IS
+      // a displayed-vs-charged divergence, so make it loud and greppable
+      // instead of a quiet warn: ops can find + remediate the exact bill.
+      console.error(
+        `[unified-reserve] PROMO DROPPED AT CHARGE: ${claimed.code} no longer resolves ` +
+          `(bill ${input.session.bmiBillId ?? "n/a"}, order ${input.session.squareOrderId ?? "n/a"}) ` +
+          `— charging without the discount the guest may have seen`,
+      );
+    }
+    input = { ...input, session: { ...input.session, appliedPromo: fresh } };
+  }
+  // ── 0b. Server-authoritative VOUCHER verification ────────────────────
+  // A voucher only reduces the charge when OUR ledger (written server-side by
+  // /api/booking/v2/voucher at apply time) backs the session's claim for THIS
+  // bill. Pending / errored vouchers never priced anything → drop silently.
+  // A claimed-applied voucher the ledger can't verify HARD-FAILS the reserve
+  // (displayed==charged: never silently charge more than the guest saw).
+  if ((input.session.appliedVouchers?.length ?? 0) > 0) {
+    const billId = input.session.bmiBillId;
+    // Pending/errored/other-bill vouchers priced nothing — drop them from the
+    // charge session. Every APPLIED one must be backed by a ledger row WE
+    // wrote for THIS bill, else the reserve hard-fails.
+    const kept = sessionVouchers(input.session).filter(
+      (v) => voucherIsApplied(v) && !!billId && v.billId === billId,
+    );
+    if (kept.length > 0) {
+      const rows = await getAppliedVouchersForBill(billId!).catch(() => []);
+      for (const v of kept) {
+        const row = rows.find(
+          (r) => r.code === v.code && r.voucherOrderItemId === v.voucherOrderItemId,
+        );
+        if (!row) throw new VoucherNotVerifiedError(v.code);
+      }
+    }
+    input = { ...input, session: { ...input.session, appliedVouchers: kept } };
+  }
   const { session, contact } = input;
   // Day-of order → the entity that OWNS the products (revenue split stays
   // exact). Deposit/gift-card/payment → the KIOSK's own location when this is a
@@ -743,10 +881,50 @@ async function unifiedReserveInner(
   // every retry, so all 7 keys replay the SAME order / payment / gift card.
   const baseKey = seedSource ? reserveBaseKey(seedSource) : randomBytes(8).toString("hex");
 
-  const bowlingItems = session.items.filter(isBowlingLike);
+  // ── Bookability guard: drop legs QAMF could never accept ───────────
+  // A bowling/KBF leg needs a lane hold OR a picked slot (bookedAt + webOfferId).
+  // A leg with neither is a draft the guest abandoned — priced at $0 (pricing
+  // hangs off the offer, so nothing was charged for it) and invisible in the cart
+  // total, yet the pre-guard code still called createReservation with
+  // `webOfferId: 0` and a `new Date()` BookedAt. QAMF 400'd and took a PAID race
+  // booking down with it (2026-07-28, $234.21 captured, FastTrax kiosk). Dropping
+  // is the money-safe direction: never fail a captured booking over a leg that
+  // has no time, no offer, no hold, and no money against it. Every drop is logged
+  // and lands in reserve_attempts.dropped_legs.
+  const { bowlable: bowlingItems, droppedLegLines } = (() => {
+    const { bookable, dropped } = partitionBookableLegs(session.items.filter(isBowlingLike));
+    const lines = dropped.map(({ item, reason }) => describeDroppedLeg(item, reason));
+    for (const line of lines) {
+      console.error(`[unified-reserve] DROPPED unbookable leg — ${line}`);
+    }
+    return { bowlable: bookable, droppedLegLines: lines };
+  })();
   const raceItems = session.items.filter((i): i is RaceItem => i.kind === "race");
   const attractionItems = session.items.filter((i): i is AttractionItem => i.kind === "attraction");
   const hasBmi = raceItems.length > 0 || attractionItems.length > 0;
+
+  // ── Durable audit row (our own log, not Vercel's) ─────────────────
+  // Opened BEFORE any money moves so a failure anywhere below is queryable by
+  // bill id afterwards. Never throws — see lib/reserve-attempt-log.ts.
+  const cartSnapshot: ReserveCartSnapshot = {
+    items: session.items.map((i) => ({
+      kind: i.kind,
+      id: i.id,
+      date: i.date,
+      ...(isBowlingLike(i)
+        ? {
+            bookedAt: i.bookedAt,
+            webOfferId: i.webOfferId,
+            qamfReservationId: i.qamfReservationId,
+            qamfCenterId: i.qamfCenterId,
+            isDuckpin: i.kind === "bowling" ? i.isDuckpin : undefined,
+          }
+        : {}),
+      ...(i.kind === "race" ? { heatCount: i.heats.length } : {}),
+      ...(i.kind === "attraction" ? { slug: i.slug } : {}),
+    })),
+    comboSpecialId: session.comboSpecialId ?? null,
+  };
 
   // ── 0. Guard: never charge against an auto-cancelled BMI bill ──────
   // BMI auto-cancels a Pending-Online hold after the center's timeout, stripping
@@ -1104,6 +1282,28 @@ async function unifiedReserveInner(
 
   const useTerminal = kioskTerminalEnabled() && !!input.externalPayment;
 
+  // Open the durable audit row BEFORE the charge (prepare runs its own pass and
+  // doesn't need one — its failures cost nothing). Soft-fails to a null id.
+  if (!prepareOnly) {
+    audit.id = await startReserveAttempt({
+      baseKey,
+      billId: session.bmiBillId ?? null,
+      surface: session.context?.kiosk ? "kiosk" : "web",
+      center: session.center ?? null,
+      locationId,
+      paymentSource: useTerminal
+        ? "terminal"
+        : input.externalPayment
+          ? "external"
+          : depositCents === 0
+            ? "credit"
+            : (input.sourceKind ?? "card"),
+      chargeCents: depositCents,
+      cart: cartSnapshot,
+      droppedLegs: droppedLegLines.length > 0 ? droppedLegLines : undefined,
+    });
+  }
+
   // ── KIOSK Game Zone cards riding this cart (owner 2026-07-18) ────────
   // Resolved server-side from TOKEN_PACKAGES — the session carries pointers
   // only, never prices. The card lines ride the DEPOSIT order (never day-of);
@@ -1158,6 +1358,36 @@ async function unifiedReserveInner(
     // once the reader has captured the card. All fallible guards above already
     // ran, so no money moves after a step that can still fail (H3074 rule). ──
     if (prepareOnly) {
+      // ── Resume guard ─────────────────────────────────────────────────
+      // If a PRIOR prepare already created this session's deposit order and the
+      // reader has since CAPTURED it (COMPLETED) — but reserve never ran because
+      // the client dropped between the tap and reserve, then re-entered checkout
+      // — do NOT create a new order or re-arm the reader. Recover the captured
+      // paymentId from Square (source of truth even when the poll never stamped
+      // the anchor) and hand it back so the client resumes the booking via the
+      // idempotent reserve-all path, instead of hitting the "order must be OPEN"
+      // dead-end. Best-effort: any lookup error falls through to a normal prepare.
+      const priorAnchor = await readTerminalAnchor(seedSource ?? baseKey).catch(() => null);
+      if (priorAnchor?.depositOrderId) {
+        const info = await getOrderPaymentInfo(priorAnchor.depositOrderId).catch(() => null);
+        const resumePaymentId = info?.paymentId ?? priorAnchor.paymentId ?? null;
+        if (info?.state === "COMPLETED" && resumePaymentId) {
+          console.log(
+            `[kiosk-terminal] PREPARE resume — order ${priorAnchor.depositOrderId} already COMPLETED, paymentId=${resumePaymentId} seed=${seedSource ?? baseKey} (skipping reader)`,
+          );
+          return {
+            __prepare: true,
+            alreadyPaid: true,
+            seed: seedSource ?? baseKey,
+            depositOrderId: priorAnchor.depositOrderId,
+            // The reader charged booking deposit + card lines; mirror the normal
+            // prepare's total so the client's display/amount stays consistent.
+            depositCents: priorAnchor.depositCents + (priorAnchor.gameCards?.totalCents ?? 0),
+            paymentId: resumePaymentId,
+            locationId: priorAnchor.locationId,
+          };
+        }
+      }
       console.log(
         `[kiosk-terminal] PREPARE dayofTotalCents=${dayofTotalCents} depositPct=${depositPct} → depositCents=${depositCents} gzCents=${gzCents} loc=${locationId} seed=${seedSource ?? baseKey}`,
       );
@@ -1338,6 +1568,14 @@ async function unifiedReserveInner(
     };
   }
 
+  // Money (if any) is captured — stamp the ids on the audit row IMMEDIATELY, so
+  // a crash on any line below still leaves the payment queryable by bill id.
+  audit.step = "post-capture";
+  await recordReserveCapture(audit.id, {
+    depositOrderId: depositResult.depositOrderId,
+    depositPaymentId: depositResult.depositPaymentId,
+  });
+
   // Race packs: the deposit (which includes the full pack price) is captured —
   // stamp the ledger rows charged with the order/payment ids (audit + recovery).
   if (kioskPacks.length > 0) {
@@ -1345,6 +1583,16 @@ async function unifiedReserveInner(
       squareOrderId: squareDayofOrderId,
       squarePaymentId: depositResult.depositPaymentId,
     }).catch((err) => console.error("[race-pack] markPackCharged failed (non-fatal):", err));
+  }
+
+  // Voucher ledger → charged (audit; BMI consumes codes at its own
+  // processing — this is OUR trail, soft-fail like every post-capture stamp).
+  if (session.bmiBillId) {
+    for (const v of sessionVouchers(session).filter(voucherIsApplied)) {
+      await markVoucherCharged(session.bmiBillId, v.code).catch((err) =>
+        console.error("[voucher] markVoucherCharged failed (non-fatal):", err),
+      );
+    }
   }
 
   // ── Record the USA250 redemption (idempotent, soft-fail) ──────────
@@ -1385,13 +1633,20 @@ async function unifiedReserveInner(
   };
 
   log(
-    `[unified-reserve] bowlingItems=${bowlingItems.length} raceItems=${raceItems.length} attractionItems=${attractionItems.length}`,
+    `[unified-reserve] bowlingItems=${bowlingItems.length} raceItems=${raceItems.length} ` +
+      `attractionItems=${attractionItems.length} droppedLegs=${droppedLegLines.length}`,
   );
+  if (bowlingItems.length > 0) audit.step = "qamf-confirm";
 
   // Per-row coupon attribution for the admin board: bowling rows record their
   // own lines' savings; the race/attraction anchor row records the remainder
   // of the cart-wide total (races, attractions, combo lines).
   let bowlingPromoSavingsCents = 0;
+
+  // Kiosk rosters carry shoe sizes UP FRONT; accumulate them across bowling
+  // items (a combo shares ONE bowling day-of order) so we sync the $0 shoe-KDS
+  // line items ONCE after the loop, never clobbering earlier items.
+  const shoeKdsPlayers: ShoeKdsPlayer[] = [];
 
   for (const item of bowlingItems) {
     const centerId = item.qamfCenterId ?? 9172;
@@ -1419,12 +1674,24 @@ async function unifiedReserveInner(
             bumpers: null as boolean | null,
           }));
 
+    // Only real (kiosk) rosters carry shoe sizes; placeholder rosters are all
+    // null and contribute nothing (the helper filters sizeless players).
+    if (rosterPlayers && rosterPlayers.length > 0) {
+      shoeKdsPlayers.push(...players.map((p) => ({ name: p.name, shoeSize: p.shoeSize })));
+    }
+
     const guest = {
       name: `${contact.firstName} ${contact.lastName}`.trim(),
       phone: contact.phone ?? "",
       email: contact.email ?? "",
     };
-    const bookedAt = item.bookedAt ?? new Date().toISOString();
+    // QAMF rejects BookedAt with a non-zero millisecond (and reads the instant as
+    // CENTER-LOCAL wall clock, so a UTC `toISOString()` also lands hours off).
+    // nowRounded5EtIso floors to a :05 multiple with the true ET offset — the
+    // shape the Bowl Now path has always sent. The bookability guard above means
+    // this fallback now only serves hold-first legs (whose hold carries the real
+    // time), never an unconfigured draft.
+    const bookedAt = item.bookedAt || nowRounded5EtIso();
     const webOfferId = item.webOfferId ?? 0;
     const optionId = item.optionId;
     const optionType = item.optionType ?? "Game";
@@ -1830,6 +2097,22 @@ async function unifiedReserveInner(
     }
   }
 
+  // ── Sync shoe-size KDS items onto the bowling day-of order ─────────
+  // Kiosk collects shoe sizes UP FRONT, so — unlike the web flow (which syncs
+  // them post-booking via the confirmation-page players PATCH) — they must be
+  // pushed onto the day-of Square order here, or the shoe-desk/KDS view of that
+  // order is blank for kiosk bookings. Web placeholder rosters reach here with
+  // no sizes, so this is a no-op for them. Best-effort — the deposit is already
+  // captured and shoe-KDS items never gate the booking.
+  if (shoeKdsPlayers.length > 0 && bowlingDayofOrderId) {
+    await syncShoeKdsLineItems({
+      orderId: bowlingDayofOrderId,
+      players: shoeKdsPlayers,
+      idempotencyKey: `shoe-kds-${baseKey}-${Date.now()}`,
+      logLabel: "unified-reserve",
+    });
+  }
+
   // Persist QAMF logs to Redis for debugging (avoids Vercel log truncation)
   if (logEntries.length > 0) {
     redis.set(logKey, JSON.stringify(logEntries), "EX", 86400).catch(() => {});
@@ -1972,6 +2255,7 @@ async function unifiedReserveInner(
       throw new Error("Could not persist reservation. Please retry.");
     }
 
+    audit.step = "bmi-confirm";
     try {
       const bmiResult = await confirmBmiPayment({
         clientKey,

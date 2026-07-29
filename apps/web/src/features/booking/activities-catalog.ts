@@ -55,6 +55,22 @@ export interface ActivityOffering {
   /** Cross-sell tile copy. */
   displayName: string;
   blurb: string;
+  /**
+   * Spanish tile copy for the KIOSK (repo rule: guest-facing copy ships EN + ES
+   * in the same commit, data-borne copy included). The kiosk's attraction shelf
+   * picks these when `locale === "es"` (KioskCategories → OfferingTile); the web
+   * landing is English-only and ignores them.
+   *
+   * Omit a field to keep the English one — brand/product proper nouns
+   * (FastTrax, HeadPinz, Nexus Gel Blaster, Kids Bowl Free, Shuffle Showdown)
+   * stay English per the locked glossary, so most entries only translate the
+   * descriptive `blurb` + `durationLabel`.
+   */
+  es?: {
+    displayName?: string;
+    blurb?: string;
+    durationLabel?: string;
+  };
   /** Tile display fields — used by `/book/v2` landing + future cards. Values mirror v1 `lib/attractions-data.ts` so the visual stays consistent across v1 / v2 surfaces. */
   heroImage?: string;
   accentColor?: string;
@@ -69,6 +85,11 @@ const CATALOG: ActivityOffering[] = [
     centers: ["fort-myers"],
     displayName: "High-Speed Electric Racing",
     blurb: "Florida's largest indoor go-kart racing on 3 unique tracks.",
+    es: {
+      displayName: "Carreras eléctricas de alta velocidad",
+      blurb: "Las carreras de go-karts bajo techo más grandes de Florida, en 3 pistas únicas.",
+      durationLabel: "Carreras sueltas y paquetes",
+    },
     heroImage:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-kiosk.webp",
     accentColor: "#E41C1D",
@@ -82,6 +103,11 @@ const CATALOG: ActivityOffering[] = [
     centers: ["fort-myers"],
     displayName: "FastTrax Duckpin Bowling",
     blurb: "Modern duckpin — smaller pins, lighter balls, nonstop fun.",
+    es: {
+      displayName: "Duckpin en FastTrax",
+      blurb: "Duckpin moderno — pinos más pequeños, bolas más ligeras, diversión sin parar.",
+      durationLabel: "30 min o 1 hora",
+    },
     heroImage:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/duckpin-bowling-R8vkBZc68YfiqmN7yP2SP2hElvWOCX.webp",
     accentColor: "#F59E0B",
@@ -95,6 +121,10 @@ const CATALOG: ActivityOffering[] = [
     centers: ["fort-myers"],
     displayName: "Shuffle Showdown",
     blurb: "AR-powered shuffleboard with dynamic LED lighting and automatic scoring.",
+    es: {
+      blurb: "Shuffleboard con realidad aumentada, luces LED dinámicas y puntuación automática.",
+      durationLabel: "30 min o 1 hora",
+    },
     heroImage:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg",
     accentColor: "#10B981",
@@ -107,6 +137,11 @@ const CATALOG: ActivityOffering[] = [
     centers: ["fort-myers", "naples"],
     displayName: "HeadPinz Bowling",
     blurb: "Classic & VIP bowling with NeoVerse and HyperBowling.",
+    es: {
+      displayName: "Boliche en HeadPinz",
+      blurb: "Boliche Classic y VIP con NeoVerse y HyperBowling.",
+      durationLabel: "1–2 horas",
+    },
     heroImage:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
     accentColor: "#fd5b56",
@@ -119,6 +154,10 @@ const CATALOG: ActivityOffering[] = [
     centers: ["fort-myers", "naples"],
     displayName: "Kids Bowl Free",
     blurb: "Free bowling for registered kids — Mon–Fri.",
+    es: {
+      blurb: "Boliche gratis para niños registrados — lun a vie.",
+      durationLabel: "Solo lun–vie",
+    },
     heroImage:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-girl-bowling.jpg",
     accentColor: "#FFD700",
@@ -132,6 +171,10 @@ const CATALOG: ActivityOffering[] = [
     centers: ["fort-myers", "naples"],
     displayName: "Nexus Gel Blaster",
     blurb: "High-tech gel blaster battles in an immersive glowing arena.",
+    es: {
+      blurb: "Batallas de gel blaster de alta tecnología en una arena luminosa e inmersiva.",
+      durationLabel: "Sesión de 15 min",
+    },
     heroImage:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
     accentColor: "#00E2E5",
@@ -145,6 +188,10 @@ const CATALOG: ActivityOffering[] = [
     centers: ["fort-myers", "naples"],
     displayName: "Nexus Laser Tag",
     blurb: "Multi-level laser tag with haptic vests and immersive lighting.",
+    es: {
+      blurb: "Laser tag de varios niveles con chalecos hápticos e iluminación inmersiva.",
+      durationLabel: "Sesión de 15 min",
+    },
     heroImage:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
     accentColor: "#8652FF",

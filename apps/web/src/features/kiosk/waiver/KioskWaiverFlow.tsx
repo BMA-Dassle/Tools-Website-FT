@@ -47,6 +47,7 @@ import { useKioskConfig } from "../KioskConfigContext";
 import { kioskId } from "../config";
 import { resetToKiosk } from "../version";
 import { BrandedLoader } from "../components/BrandedLoader";
+import { useT } from "../i18n";
 import type { KioskWaiverReservationItem, KioskWaiverRosterPayload } from "./types";
 
 const IDLE_MS = 120_000;
@@ -84,6 +85,7 @@ function useHydrated(): boolean {
 }
 
 export function KioskWaiverFlow() {
+  const t = useT();
   const router = useRouter();
   const { config } = useKioskConfig();
   const hydrated = useHydrated();
@@ -190,7 +192,7 @@ export function KioskWaiverFlow() {
   if (!hydrated || !config) {
     return (
       <div className="absolute inset-0 flex items-center justify-center bg-[#000418]">
-        <BrandedLoader brand="fasttrax" label="Loading…" />
+        <BrandedLoader brand="fasttrax" label={t("waiverFlow.loading")} />
       </div>
     );
   }
@@ -214,12 +216,12 @@ export function KioskWaiverFlow() {
           className="k-tap flex h-[88px] items-center gap-[8px] rounded-2xl border-2 border-white/15 px-[28px] text-[28px] font-bold text-white/70"
         >
           <IconChevronLeft size={36} aria-hidden="true" />
-          Back
+          {t("waiverFlow.back")}
         </button>
         <div className="min-w-0 flex-1">
-          <div className="k-eyebrow text-[#00e2e5]">Online &amp; group waivers</div>
+          <div className="k-eyebrow text-[#00e2e5]">{t("waiverFlow.eyebrow")}</div>
           <div className="k-display truncate text-[52px]">
-            {selected ? selected.label : "Find your reservation"}
+            {selected ? selected.label : t("waiverFlow.findReservation")}
           </div>
         </div>
         <IconSignature size={56} className="shrink-0 text-white/25" aria-hidden="true" />
@@ -230,34 +232,29 @@ export function KioskWaiverFlow() {
         {!selected ? (
           <div className="space-y-[24px]">
             <div className="flex items-center justify-between gap-[24px]">
-              <p className="text-[28px] text-white/55">
-                Racing or celebrating with a group in the next two hours? Tap your reservation to
-                sign waivers before you play.
-              </p>
+              <p className="text-[28px] text-white/55">{t("waiverFlow.pickerPrompt")}</p>
               <button
                 type="button"
-                onClick={() => setRefreshTick((t) => t + 1)}
+                onClick={() => setRefreshTick((n) => n + 1)}
                 className="k-tap flex h-[76px] shrink-0 items-center gap-[10px] rounded-2xl border-2 border-white/15 px-[24px] text-[24px] font-semibold text-white/60"
               >
                 <IconRefresh size={30} aria-hidden="true" />
-                Refresh
+                {t("waiverFlow.refresh")}
               </button>
             </div>
 
             {reservations === null ? (
               <div className="flex justify-center py-[120px]">
-                <BrandedLoader brand={config.brand} label="Checking today's reservations…" />
+                <BrandedLoader brand={config.brand} label={t("waiverFlow.checkingReservations")} />
               </div>
             ) : reservations.length === 0 ? (
               <div className="k-glass p-[48px] text-center">
                 <IconUsersGroup size={72} className="mx-auto text-white/25" aria-hidden="true" />
                 <div className="k-display mt-[20px] text-[40px]">
-                  {resError ? "Couldn't load reservations" : "Nothing in the next two hours"}
+                  {resError ? t("waiverFlow.empty.errorTitle") : t("waiverFlow.empty.title")}
                 </div>
                 <p className="mx-auto mt-[12px] max-w-[34ch] text-[26px] text-white/50">
-                  {resError
-                    ? "Please try again in a moment, or see the front desk."
-                    : "Reservations show here starting two hours before their time. The front desk can always help sooner."}
+                  {resError ? t("waiverFlow.empty.errorBody") : t("waiverFlow.empty.body")}
                 </p>
               </div>
             ) : (
@@ -273,15 +270,19 @@ export function KioskWaiverFlow() {
                       <div className="w-[190px] shrink-0">
                         <div className="k-display text-[40px] text-[#00e2e5]">{r.timeLabel}</div>
                         <div className="k-eyebrow mt-[4px] text-white/40">
-                          {r.kind === "online" ? "Online booking" : "Group event"}
+                          {r.kind === "online"
+                            ? t("waiverFlow.kind.online")
+                            : t("waiverFlow.kind.group")}
                         </div>
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="k-display truncate text-[38px]">{r.label}</div>
                         <div className="mt-[6px] text-[24px] text-white/50">
-                          {r.persons > 0 ? `${r.persons} guests` : "Group"}
+                          {r.persons > 0
+                            ? t("waiverFlow.guests", { count: r.persons })
+                            : t("waiverFlow.group")}
                           {r.registeredPersons !== null &&
-                            ` · ${r.registeredPersons} signed up so far`}
+                            ` · ${t("waiverFlow.signedUpSoFar", { count: r.registeredPersons })}`}
                         </div>
                       </div>
                       <IconChevronLeft
@@ -299,15 +300,11 @@ export function KioskWaiverFlow() {
           <div className="space-y-[36px]">
             {/* Who's already set */}
             <div>
-              <div className="k-eyebrow mb-[14px] text-white/40">
-                Signed &amp; ready on this reservation
-              </div>
+              <div className="k-eyebrow mb-[14px] text-white/40">{t("waiverFlow.signedReady")}</div>
               {roster === null ? (
-                <div className="text-[26px] text-white/40">Checking who&rsquo;s signed…</div>
+                <div className="text-[26px] text-white/40">{t("waiverFlow.checkingSigned")}</div>
               ) : roster.people.length === 0 ? (
-                <div className="text-[26px] text-white/40">
-                  No one yet — be the first to get signed in below.
-                </div>
+                <div className="text-[26px] text-white/40">{t("waiverFlow.noneSigned")}</div>
               ) : (
                 <div className="flex flex-wrap gap-[12px]">
                   {roster.people.map((p) => (
@@ -323,8 +320,7 @@ export function KioskWaiverFlow() {
               )}
               {roster !== null && roster.counts.pending > 0 && (
                 <div className="mt-[12px] text-[24px] text-[#f0b341]">
-                  {roster.counts.pending} in this group still{" "}
-                  {roster.counts.pending === 1 ? "needs" : "need"} a waiver.
+                  {t("waiverFlow.pending", { count: roster.counts.pending })}
                 </div>
               )}
             </div>
@@ -332,7 +328,7 @@ export function KioskWaiverFlow() {
             {/* Add people — the exact race-flow people screens, on a local
                 booking-reducer session scoped to this waiver visit */}
             <div>
-              <div className="k-eyebrow mb-[14px] text-white/40">Add yourself or your group</div>
+              <div className="k-eyebrow mb-[14px] text-white/40">{t("waiverFlow.addYourself")}</div>
               <PeopleScreens
                 item={item}
                 session={session}
@@ -347,7 +343,7 @@ export function KioskWaiverFlow() {
               onClick={goHome}
               className="k-btn-primary k-tap h-[96px] w-full text-[32px]"
             >
-              Done — back to start
+              {t("waiverFlow.done")}
             </button>
           </div>
         )}

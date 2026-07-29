@@ -55,12 +55,21 @@ import {
 import { comboBowlingComponent, getComboSpecial, type ComboSpecial } from "~/features/combos";
 import { getPackage } from "@/lib/packages";
 import { resolvePreselectPatch } from "../service/package-preselect";
+import {
+  refreshQualifications,
+  type QualificationPatch,
+} from "../service/qualification-refresh-client";
 import { useKioskConfig } from "../KioskConfigContext";
+import { useLocale, type MessageKey, type Translate } from "../i18n";
 import { gameZoneCapability } from "../config";
 import {
   kioskMergedCheckoutEnabled,
   kioskCheckoutUpsellEnabled,
+  kioskCheckinEnabled,
+  kioskGroupWaiverEnabled,
   kioskGzCartEnabled,
+  kioskPromoEnabled,
+  kioskRaceInfoEnabled,
   kioskTerminalEnabled,
 } from "../flags";
 import { KioskCheckoutScreen } from "./KioskCheckoutScreen";
@@ -73,6 +82,10 @@ import {
   KIOSK_STEP_REGISTRY,
 } from "../state/registry";
 import { KioskCategories } from "./KioskCategories";
+import { KioskCodeEntry } from "./KioskCodeEntry";
+import { KioskVoucherSheet, KioskVoucherSummary } from "./KioskVoucherSheet";
+import { sessionVouchers, voucherRedeemEnabled } from "~/features/booking/service/voucher-redeem";
+import type { AppliedVoucherState } from "~/features/booking/state/types";
 import { useKioskAvailability } from "../hooks/useKioskAvailability";
 import { KioskHoldBar } from "./KioskHoldBar";
 import { KioskVipOverview } from "./KioskVipOverview";
@@ -84,7 +97,23 @@ import { useMobileJoinStatus } from "../hooks/useMobileJoin";
 import { closeMobileJoin } from "../join/kiosk-client";
 import { BrandedLoader, BrandedLoaderOverlay } from "./BrandedLoader";
 import { todayYmd } from "../service/first-available";
-import { KIOSK_PHOTOS, KIOSK_LOGOS } from "../assets";
+import { KIOSK_PHOTOS } from "../assets";
+import { useResilientImages } from "../hooks/useResilientImage";
+import { BrandLogo } from "./BrandLogo";
+
+/** Every full-bleed backdrop photo `chrome`/`backdropPhoto` can show — preloaded
+ *  and self-healed together so a flaky-WiFi failure never blanks a step. */
+const KIOSK_BACKDROP_PHOTOS = [
+  KIOSK_PHOTOS.race,
+  KIOSK_PHOTOS.bowl,
+  KIOSK_PHOTOS.kbf,
+  KIOSK_PHOTOS.gel,
+  KIOSK_PHOTOS.laser,
+  KIOSK_PHOTOS.duck,
+  KIOSK_PHOTOS.shuf,
+  KIOSK_PHOTOS.vip,
+  KIOSK_PHOTOS.arcade,
+];
 
 /** Walk-up device: every dated item starts on today's OPERATING day (todayYmd
  *  rolls at 2 AM ET, so a post-midnight session stays on its date). Bowling/KBF
@@ -102,30 +131,34 @@ function stampToday(item: SessionItem): SessionItem {
   return item;
 }
 
-/** Short cart labels for the session banner. */
-function itemLabel(kind: string): string {
-  if (kind === "race") return "Racing";
-  if (kind === "bowling") return "Bowling";
-  if (kind === "kbf") return "Kids Bowl Free";
-  return "Attraction";
+/** Per-attraction activity-name keys. Brand nouns (Gel Blaster, Laser Tag,
+ *  Duckpin) read the same in both languages; the catalog still owns them so a
+ *  future locale can differ. */
+const ATTRACTION_LABEL_KEYS: Record<string, MessageKey> = {
+  "gel-blaster": "flow.activity.gelBlaster",
+  "laser-tag": "flow.activity.laserTag",
+  "duck-pin": "flow.activity.duckpin",
+  shuffly: "flow.activity.shuffleboard",
+};
+
+/** Short cart labels for the session banner. Module scope (not a render-body
+ *  const) so an earlier closure can never hit it in its TDZ — see
+ *  tasks/lessons.md; `t` is threaded in instead of reaching for the hook. */
+function itemLabel(t: Translate, kind: string): string {
+  if (kind === "race") return t("flow.activity.racing");
+  if (kind === "bowling") return t("flow.activity.bowling");
+  if (kind === "kbf") return t("flow.activity.kbf");
+  return t("flow.activity.generic");
 }
 
 /** Guest-facing activity name for an item — wizard header + exit-confirm copy. */
-function activityLabelFor(item: SessionItem): string {
-  if (item.kind === "race") return "Racing";
-  if (item.kind === "bowling") return "Bowling";
-  if (item.kind === "kbf") return "Kids Bowl Free";
+function activityLabelFor(t: Translate, item: SessionItem): string {
+  if (item.kind === "race") return t("flow.activity.racing");
+  if (item.kind === "bowling") return t("flow.activity.bowling");
+  if (item.kind === "kbf") return t("flow.activity.kbf");
   const slug = (item as AttractionItem).slug ?? "";
-  return (
-    (
-      {
-        "gel-blaster": "Gel Blaster",
-        "laser-tag": "Laser Tag",
-        "duck-pin": "Duckpin",
-        shuffly: "Shuffleboard",
-      } as Record<string, string>
-    )[slug] ?? "Attraction"
-  );
+  const key = ATTRACTION_LABEL_KEYS[slug];
+  return key ? t(key) : t("flow.activity.generic");
 }
 
 const IDLE_FLOW_MS = 120_000;
@@ -153,6 +186,31 @@ const NATIVE_STEP_IDS = new Set([
   "kiosk-bowling-people",
 ]);
 
+/**
+ * A bowling/KBF draft the guest never shaped: no slot, no offer, no hold, and
+ * nothing else typed into it either. Back-at-step-0 drops one of these instead
+ * of parking it in the cart (see the Back handler) — nothing is lost, and a
+ * parked one used to ride to checkout as a $0 invisible leg that failed the whole
+ * reserve at QAMF (2026-07-28 orphan).
+ *
+ * Deliberately narrow: ANY guest-entered detail (a typed bowler, a shoe pick, an
+ * experience, an add-on, a pizza modifier) makes it a real draft that stays put,
+ * because the guest would notice it disappearing. Module scope, not a render-body
+ * const — the Back handler closes over it before the render body's consts
+ * initialize (TDZ lesson 2026-07-xx).
+ */
+function isUntouchedBowlingDraft(item: SessionItem): boolean {
+  if (item.kind !== "bowling" && item.kind !== "kbf") return false;
+  if (item.qamfReservationId || item.bookedAt || item.webOfferId) return false;
+  if (item.experienceId || item.experienceSlug || item.optionId || item.tier) return false;
+  if (item.players && item.players.length > 0) return false;
+  if (Object.keys(item.shoeSelections ?? {}).length > 0) return false;
+  if (item.attractionAddons?.length > 0) return false;
+  if (item.pizzaModifierSelections?.some((lane) => Object.keys(lane).length > 0)) return false;
+  if (item.kind === "kbf" && (item.passId || item.bowlers.length > 0)) return false;
+  return true;
+}
+
 /** ?goto= deep links from the attract screen's quick chips. */
 function seedForGoto(
   goto: string,
@@ -171,15 +229,87 @@ function seedForGoto(
   return null;
 }
 
-export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?: boolean }) {
+/** Module-scope StepDef titles can't reach useT(); map the English title to a
+ *  message key at the render site (unmapped titles fall back to raw English). */
+const STEP_TITLE_KEYS: Record<string, MessageKey> = {
+  Lanes: "stepTitle.lanes",
+  Time: "stepTitle.time",
+  Bowlers: "stepTitle.bowlers",
+  Package: "stepTitle.package",
+  "Who's bowling?": "stepTitle.whosBowling",
+  "Who's playing?": "stepTitle.whosPlaying",
+  "Who's racing?": "stepTitle.whosRacing",
+  // The attraction flow's two reused-web steps (no kiosk-native replacement).
+  "Your Info": "stepTitle.yourInfo",
+  Activity: "stepTitle.activity",
+};
+
+/** Same trick for the "why Continue is blocked" hint the shell renders under a
+ *  step: `canAdvance` is a module-scope StepDef function that can't reach useT(),
+ *  so map its English reason to a message key here. Unmapped reasons (the few
+ *  that interpolate a guest's name) fall through as raw English. */
+const STEP_REASON_KEYS: Record<string, MessageKey> = {
+  "Enter your contact info to continue.": "stepReason.contact",
+  "Choose an activity to continue.": "stepReason.attractionProduct",
+  "Pick a date to continue.": "stepReason.attractionDate",
+  "Pick a time slot to continue.": "stepReason.attractionSlot",
+  "Pick a time to continue.": "stepReason.kioskSlot",
+  "Add at least one player — everyone needs an account and waiver.": "stepReason.addPlayer",
+  "Add at least one bowler first.": "stepReason.addBowler",
+  "Reserve a lane time": "stepReason.reserveLane",
+  "Pick Classic or VIP.": "stepReason.pickClassicOrVip",
+  "Choose Regular or VIP": "stepReason.pickRegularOrVip",
+  "Pick a date": "stepReason.pickDate",
+  "Pick a time": "stepReason.pickTime",
+  "Pick a package": "stepReason.pickPackage",
+  "Select a time slot": "stepReason.selectTimeSlot",
+  "Select at least 1 bowler": "stepReason.selectBowler",
+  "Select at least one bowler": "stepReason.selectBowlerKbf",
+  "Tap a time to hold your lane": "stepReason.holdLane",
+  "Verify your KBF pass first": "stepReason.verifyKbf",
+  "Pick your match to hold a VIP lane": "stepReason.worldCupMatch",
+  "Pick a start time": "stepReason.comboStart",
+  "Choose new or returning racer to continue.": "stepReason.raceEntryMode",
+  "Add at least one racer to continue.": "stepReason.addRacer",
+  "Every party member needs a first name.": "stepReason.racerFirstName",
+  "Pick a race day to continue.": "stepReason.raceDay",
+  "First-time juniors can’t race on Mega Tuesdays.": "stepReason.megaTuesday",
+  "Race pack added — now pick which race to run today.": "stepReason.racePackAdded",
+  "Pick an adult race to continue.": "stepReason.pickAdultRace",
+  "Pick a junior race to continue.": "stepReason.pickJuniorRace",
+};
+
+export function KioskFlow({
+  goto,
+  bowlingV3,
+  kioskPromo,
+  kioskVoucher,
+}: {
+  goto: string | null;
+  bowlingV3?: boolean;
+  /** ?kioskPromo=1 preview opt-in (same pattern as ?bowlingV3=1). */
+  kioskPromo?: boolean;
+  /** ?kioskVoucher=1 — voucher REDEMPTION preview opt-in (dark flag). */
+  kioskVoucher?: boolean;
+}) {
   const router = useRouter();
   const { config } = useKioskConfig();
+  // Reset the guest's language override on Start-Over — the LocaleProvider is
+  // mounted in KioskShell (survives the soft-nav to /kiosk), so without this the
+  // next guest would inherit the previous guest's chosen language.
+  const { t, resetLocale } = useLocale();
   // Bookable-today availability for the Experiences (VIP combo + Ultimate
   // Qualifier), from the cached server endpoint — locks their entry points when
   // nothing fits today.
-  const availableFor = useKioskAvailability(config?.center ?? null);
+  const { available: availableFor, firstOpenFor } = useKioskAvailability(config?.center ?? null);
   const vipAvailable = availableFor("race-bowl");
   const uqAvailable = availableFor("ultimate-qualifier");
+
+  // Self-heal the full-bleed step backdrops if a flaky-WiFi fetch fails — they
+  // paint as CSS background-images (see `chrome`), which never retry on their
+  // own, so on an unattended kiosk one failed load otherwise leaves the flow
+  // photo-less until a reload. Every backdrop `chrome` can use is healed here.
+  const resolveBackdrop = useResilientImages(KIOSK_BACKDROP_PHOTOS);
 
   const initial = useMemo(
     () =>
@@ -189,9 +319,10 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           ...(config ? { center: config.center } : {}),
           kiosk: true,
           ...(bowlingV3 ? { bowlingV3: true } : {}),
+          ...(kioskVoucher ? { voucherRedeem: true } : {}),
         },
       }),
-    [config, bowlingV3],
+    [config, bowlingV3, kioskVoucher],
   );
   const [session, dispatch, hydrated] = usePersistedReducer(initial, {
     storageKey: KIOSK_SESSION_STORAGE_KEY,
@@ -229,6 +360,101 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   const [upsellActive, setUpsellActive] = useState(false);
   const upsellSeenRef = useRef(false);
   const [gzOpen, setGzOpen] = useState(false);
+  // Coupon / voucher code entry (owner 2026-07-27) — flag-gated screen off the
+  // category chooser; ?kioskPromo=1 is the dark-flag preview opt-in.
+  const [codeEntryOpen, setCodeEntryOpen] = useState(false);
+  const [voucherSheetOpen, setVoucherSheetOpen] = useState(false);
+  const promoEnabled = kioskPromoEnabled() || !!kioskPromo;
+  // Voucher REDEMPTION (dark until the paid live smoke — see voucher-redeem.ts).
+  const voucherRedeem =
+    voucherRedeemEnabled() || !!kioskVoucher || !!session.context?.voucherRedeem;
+  // Single-flight guard for the apply-at-bill effect below.
+  const voucherApplyBusy = useRef(false);
+
+  // A voucher scanned BEFORE anything was booked is 'pending' — apply it the
+  // moment the session has a BMI bill (eager heat/slot booking creates one).
+  // Server route writes the ledger row the reserve verifies against; failure
+  // marks the voucher errored (surfaced at checkout, never silently dropped).
+  const appliedVouchers = sessionVouchers(session);
+  const voucherBillId = session.bmiBillId;
+  // Clear = remove the comp line from the BMI bill (when it's really on one)
+  // then drop the session state. Shared by the categories strip + cart banner.
+  const clearVoucher = useCallback(
+    (v: AppliedVoucherState) => {
+      if (!v.pending && !v.error && v.billId && v.voucherOrderItemId) {
+        void fetch("/api/booking/v2/voucher", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            action: "remove",
+            billId: v.billId,
+            code: v.code,
+            voucherOrderItemId: v.voucherOrderItemId,
+            center: config?.center,
+          }),
+        }).catch(() => {});
+      }
+      clarityEvent("kiosk:voucher:cleared");
+      dispatch({ type: "removeVoucher", code: v.code });
+    },
+    [config?.center, dispatch],
+  );
+  useEffect(() => {
+    if (!voucherRedeem || !voucherBillId || appliedVouchers.length === 0) return;
+    // Fires for PENDING vouchers (scanned before a bill existed) and for a
+    // bill CHANGE — BMI silently opens a NEW order when booking against a
+    // dead one (live-probed 2026-07-27), so applied vouchers must chase the
+    // session's current bill or the reserve drops them. One voucher per pass;
+    // the dispatch re-runs the effect until every voucher is settled.
+    const next = appliedVouchers.find((v) => v.pending || (!v.error && v.billId !== voucherBillId));
+    if (!next) return;
+    if (voucherApplyBusy.current) return;
+    voucherApplyBusy.current = true;
+    const code = next.code;
+    void (async () => {
+      try {
+        const res = await fetch("/api/booking/v2/voucher", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            action: "apply",
+            billId: voucherBillId,
+            code,
+            center: config?.center,
+            source: "kiosk",
+          }),
+        });
+        const data = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          name?: string;
+          voucherOrderItemId?: string;
+          reason?: string;
+        } | null;
+        if (data?.ok && data.voucherOrderItemId) {
+          clarityEvent("kiosk:voucher:applied");
+          dispatch({
+            type: "applyVoucher",
+            voucher: {
+              code,
+              name: data.name ?? next.name,
+              billId: voucherBillId,
+              voucherOrderItemId: String(data.voucherOrderItemId),
+            },
+          });
+        } else {
+          clarityEvent("kiosk:voucher:apply-failed");
+          dispatch({
+            type: "applyVoucher",
+            voucher: { code, error: data?.reason ?? "generic" },
+          });
+        }
+      } catch {
+        dispatch({ type: "applyVoucher", voucher: { code, error: "generic" } });
+      } finally {
+        voucherApplyBusy.current = false;
+      }
+    })();
+  }, [voucherRedeem, appliedVouchers, voucherBillId, config?.center, dispatch]);
   // Standalone race-pack purchase (attract "Race Packs" chip) — a LOCKED
   // pack-only flow; its party is local until "Race today" adopts it here.
   const [packsOpen, setPacksOpen] = useState(false);
@@ -258,6 +484,11 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     category: "adult" | "junior";
     members: PartyMember[];
   } | null>(null);
+  // Solo-bowler guard (owner 2026-07-26): guests type the FIRST bowler, don't
+  // realize the roster wants everyone, and Continue with a party of one. A
+  // one-bowler Continue gets a confirm sheet — "add more" (safe, primary) or
+  // an explicit just-me continue.
+  const [soloBowlerPrompt, setSoloBowlerPrompt] = useState(false);
   const [reservationExpired, setReservationExpired] = useState(false);
   const [resetting, setResetting] = useState(false);
   // Guarded exits (owner 2026-07-18): Start over wipes the whole session; Main
@@ -310,6 +541,27 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     const timer = setInterval(send, 30_000);
     return () => clearInterval(timer);
   }, [assistActive, assistReason, config]);
+
+  // Silent qualification refresh for the review→pay boundary (the last stop
+  // before money): fire-and-forget — the live memberships/credits/waiver
+  // patches land within a couple of seconds, before the pay tap builds charge
+  // lines, so discounts and credit offers price off current data. Fail-open by
+  // construction (refreshQualifications never throws). The people-step exit
+  // does the BLOCKING variant inside handleNextInner.
+  const refreshPartyQualificationsSilently = () => {
+    if (session.party.length === 0) return;
+    const brandLocation =
+      session.center === "naples"
+        ? "naples"
+        : session.entryBrand === "headpinz"
+          ? "headpinz"
+          : "fasttrax";
+    void refreshQualifications(session.party, brandLocation).then((fresh) => {
+      for (const [id, patch] of fresh) {
+        dispatch({ type: "updatePartyMember", id, patch });
+      }
+    });
+  };
 
   // Post-hydration seeding: center from device config; ?goto= deep link.
   useEffect(() => {
@@ -375,6 +627,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     // End any live phone sign-in session FIRST — phones show "session ended"
     // within one poll instead of spinning against a dead code.
     closeMobileJoin("start-over");
+    resetLocale();
     setResetting(true);
     // abandonBooking retries + verifies the BMI cancel (7/19 incident: silent
     // cancel failures stacked abandoned holds onto live heats). false = BMI's
@@ -386,7 +639,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     // it (fullscreen re-engages on the first attract tap); otherwise soft-nav so
     // the engaged fullscreen survives. Owner 2026-07-19: no more close+reopen.
     await resetToKiosk(() => router.replace("/kiosk"));
-  }, [session, router]);
+  }, [session, router, resetLocale]);
 
   const handleReservationExpired = useCallback(() => {
     setReservationExpired(true);
@@ -526,7 +779,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   if (!hydrated || !config) {
     return (
       <div className="absolute inset-0 flex items-center justify-center bg-[#000418]">
-        <BrandedLoader brand={config?.brand ?? "fasttrax"} label="Warming up…" />
+        <BrandedLoader brand={config?.brand ?? "fasttrax"} label={t("flow.loader.warmingUp")} />
       </div>
     );
   }
@@ -601,9 +854,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
         dispatch({ type: "addItem", item: stampToday(newItem("race")) });
         return;
       }
-      setKioskError(
-        "Your Ultimate VIP experience already includes racing — it's all in one price.",
-      );
+      setKioskError(t("flow.err.comboIncludesRacing"));
       return;
     }
     if (session.comboSpecialId && (offering.kind === "bowling" || offering.kind === "kbf")) {
@@ -612,16 +863,22 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
         dispatch({ type: "addItem", item: stampToday(newItem(offering.kind)) });
         return;
       }
-      setKioskError(
-        "Your Ultimate VIP includes a VIP lane. To add a separate lane for extra guests, finish this checkout first, then book bowling as its own order — takes under a minute.",
-      );
+      setKioskError(t("flow.err.comboIncludesVipLane"));
       return;
     }
-    const existing = session.items.find(
-      (i) =>
-        i.kind === offering.kind &&
-        (offering.kind !== "attraction" || (i as AttractionItem).slug === offering.attractionSlug),
-    );
+    const existing = session.items.find((i) => {
+      if (i.kind !== offering.kind) return false;
+      if (offering.kind === "attraction") {
+        return (i as AttractionItem).slug === offering.attractionSlug;
+      }
+      // HeadPinz bowling and FastTrax duckpin are BOTH kind:"bowling". The
+      // duck-pin tile returns via the isDuckpin branch above, so reaching here
+      // with kind "bowling" is always the HeadPinz Bowling tile — it must NOT
+      // re-open a duckpin item left in the cart, or tapping "HeadPinz Bowling"
+      // brings up duckpin (owner 2026-07-25, FastTrax kiosks).
+      if (i.kind === "bowling") return !(i as BowlingItem).isDuckpin;
+      return true;
+    });
     if (existing) {
       dispatch({ type: "setActiveItem", id: existing.id });
       return;
@@ -649,9 +906,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     }
     if (session.items.length > 0) {
       if (cartHasVendorHolds()) {
-        setKioskError(
-          "Finish or remove your current activities before starting a premium racing experience.",
-        );
+        setKioskError(t("flow.err.finishBeforePremium"));
         return;
       }
       // Drafts only — clear the leftovers and proceed (owner 2026-07-18).
@@ -677,9 +932,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     }
     if (session.items.length > 0) {
       if (cartHasVendorHolds()) {
-        setKioskError(
-          "Finish or remove your current activities before adding a bundled experience.",
-        );
+        setKioskError(t("flow.err.finishBeforeBundle"));
         return;
       }
       // Drafts only — clear the leftovers and proceed (owner 2026-07-18).
@@ -812,6 +1065,21 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     openCart();
   };
 
+  /** The ACTIVE item already holds real vendor state (a booked BMI heat/slot
+   *  or a QAMF lane hold) — it's a live booking being revisited (e.g. the
+   *  cart's Edit button), NOT a discardable draft. The exit confirms below
+   *  must offer a KEEP path for it: before 2026-07-27 the only way from
+   *  mid-wizard to the cart was "Remove it & view cart", which released a
+   *  fully-booked race's heats on a guest who just wanted to see their cart
+   *  (manager report — the race-pack fix-up trap). */
+  const activeItemHasVendorHolds = (): boolean => {
+    if (!activeItem) return false;
+    if (activeItem.kind === "race") return activeItem.heats.some((h) => !!h.bmiLineId);
+    if (activeItem.kind === "attraction") return !!(activeItem as AttractionItem).bmiLineId;
+    if (activeItem.kind === "bowling") return !!(activeItem as BowlingItem).qamfReservationId;
+    return false; // kbf holds nothing until checkout
+  };
+
   /** Drop the unfinished draft (combo-aware — a combo leg takes the whole
    *  bundle; vendor releases run in the background, the reducer dispatches
    *  land first), and clear the package stamp so it can't re-seed the next
@@ -875,7 +1143,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
           <path d="M3 3v5h5" />
         </svg>
-        Start over
+        {t("util.startOver")}
       </button>
       {/* Back to the category chooser (the kiosk "main page") — session and
           finished cart items are kept; an unfinished flow confirms first. Hidden
@@ -901,7 +1169,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
             <path d="m3 10 9-7 9 7" />
             <path d="M5 9v11h5v-6h4v6h5V9" />
           </svg>
-          Main menu
+          {t("util.mainMenu")}
         </button>
       )}
       <button
@@ -910,20 +1178,13 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           setAssistReason("help");
           setAssistActive(true);
         }}
-        className="k-util-btn k-tap"
+        className="k-util-btn k-tap mr-auto"
         style={{ borderColor: "rgba(239,68,68,0.5)", color: "#fca5a5" }}
       >
-        Guest assistance
+        {t("util.guestAssistance")}
       </button>
-      {/* Hint doubles as the flex spacer. It yields entirely when the cart
-          pill is up — sharing the row with every button squeezed it into a
-          skinny word-per-line column (owner 7/20), and it's redundant next
-          to the Guest assistance button anyway. Must NOT render at all then:
-          its 200px min-width floor overflowed the row and clipped the cart
-          pill at the canvas edge (owner 7/20); ml-auto pins the pill right. */}
-      {cartCount === 0 && (
-        <div className="k-util-help">A team member can help — tap Guest assistance</div>
-      )}
+      {/* Help hint removed (owner 2026-07-26) — redundant with the Guest
+          assistance button. `mr-auto` on that button now pins the cart pill right. */}
       {cartCount > 0 && (
         <button
           type="button"
@@ -944,7 +1205,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
             <circle cx="18" cy="20" r="1.4" />
             <path d="M2 3h3l2.4 12.4a1.6 1.6 0 0 0 1.6 1.3h8.2a1.6 1.6 0 0 0 1.6-1.3L22 7H6" />
           </svg>
-          Cart
+          {t("util.cart")}
           <span className="k-cart-badge k-num">{cartCount}</span>
         </button>
       )}
@@ -976,22 +1237,23 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           />
           {mainGuest ? (
             <span className="truncate">
-              Signed in · <strong className="text-white">{mainGuest.firstName}</strong>
+              {t("flow.banner.signedIn")}{" "}
+              <strong className="text-white">{mainGuest.firstName}</strong>
               {session.party.length > 1
-                ? ` + ${session.party.length - 1} guest${session.party.length > 2 ? "s" : ""}`
+                ? ` ${t("flow.banner.plusGuests", { count: session.party.length - 1 })}`
                 : ""}
             </span>
           ) : (
-            <span className="truncate">Visit in progress</span>
+            <span className="truncate">{t("flow.banner.visitInProgress")}</span>
           )}
         </span>
         {(cartCount > 0 || hasGameCards) && (
           <span className="shrink-0 text-[24px] font-bold text-[#00e2e5]">
             {[
-              ...session.items.map((i) => itemLabel(i.kind)),
-              ...(hasGameCards ? ["Game cards"] : []),
+              ...session.items.map((i) => itemLabel(t, i.kind)),
+              ...(hasGameCards ? [t("flow.banner.gameCards")] : []),
             ].join(" · ")}{" "}
-            · View cart ›
+            · {t("flow.banner.viewCart")}
           </span>
         )}
       </button>
@@ -1012,7 +1274,8 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       (activeItem.kind === "race" || activeItem.kind === "bowling")
         ? (getComboSpecial(session.comboSpecialId)?.name ?? null)
         : null;
-    const draftLabel = comboName ?? (activeItem ? activityLabelFor(activeItem) : "activity");
+    const draftLabel =
+      comboName ?? (activeItem ? activityLabelFor(t, activeItem) : t("flow.activity.fallback"));
     // Removing the LAST cart item also drops Game Zone cards riding it (cards
     // can't pay without a booking deposit — see handleRemoveItem) — say so.
     const dropsCards =
@@ -1020,35 +1283,75 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       !!session.gameCardPurchase?.cards.length &&
       !session.comboSpecialId &&
       session.items.length <= 1;
+    // A BOOKED item being revisited (heats/slot/lane already held with a
+    // vendor) is not a discardable draft: leaving keeps it — going to the cart
+    // must never cost the guest their reservation (manager report 2026-07-27:
+    // a guest returning to add race packs was offered only "Remove it & view
+    // cart", which released their booked race). Removal stays available, but
+    // demoted and named for what it does.
+    const booked = !isReset && activeItemHasVendorHolds();
     return (
       <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
         <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
           <div className="k-eyebrow text-[#f0b341]">
             {isReset
-              ? "Start over?"
+              ? t("flow.exit.eyebrow.startOver")
               : confirmExit === "cart"
-                ? "Go to your cart?"
-                : "Back to the main page?"}
+                ? t("flow.exit.eyebrow.cart")
+                : t("flow.exit.eyebrow.home")}
           </div>
           <div className="k-display text-[46px] leading-[1.05]">
-            {isReset ? "This clears your whole visit" : `Your ${draftLabel} isn't finished`}
+            {isReset
+              ? t("flow.exit.title.startOver")
+              : booked
+                ? t("flow.exit.title.booked", { activity: draftLabel })
+                : t("flow.exit.title.unfinished", { activity: draftLabel })}
           </div>
+          {/* The Game-Zone-cards caveat is its own WHOLE sentence variant rather
+              than a spliced fragment — a mid-sentence insert can’t be translated
+              (the express-badge lesson, 2026-07-28). */}
           <p className="text-[26px] leading-snug text-white/60">
             {isReset
-              ? "We'll clear everyone's names, empty your cart, release any held times, and sign you out of this kiosk."
-              : `We'll remove the unfinished ${draftLabel} from your cart${dropsCards ? " (and the Game Zone cards riding with it)" : ""}. Everything else in your cart stays, and your group stays signed in.`}
+              ? t("flow.exit.body.startOver")
+              : booked
+                ? t(dropsCards ? "flow.exit.body.bookedCards" : "flow.exit.body.booked", {
+                    activity: draftLabel,
+                  })
+                : t(dropsCards ? "flow.exit.body.unfinishedCards" : "flow.exit.body.unfinished", {
+                    activity: draftLabel,
+                  })}
           </p>
           <div className="flex flex-col gap-[16px] pt-[4px]">
             {/* Inline flex per the .kiosk-canvas cascade gotcha (see the
                 unracered sheet): k-btn-primary's flex:1 squashes its height in
                 a column layout. */}
+            {booked && (
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmExit(null);
+                  if (confirmExit === "cart") openCart();
+                  else goHome();
+                }}
+                className="k-btn-primary k-tap"
+                style={{ flex: "0 0 auto" }}
+              >
+                {confirmExit === "cart"
+                  ? t("flow.exit.keepAndCart", { activity: draftLabel })
+                  : t("flow.exit.keepAndHome", { activity: draftLabel })}
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setConfirmExit(null)}
-              className="k-btn-primary k-tap"
+              className={booked ? "k-btn-ghost k-tap" : "k-btn-primary k-tap"}
               style={{ flex: "0 0 auto" }}
             >
-              {isReset ? "Keep my visit" : "Keep working on it"}
+              {isReset
+                ? t("flow.exit.keepVisit")
+                : booked
+                  ? t("flow.exit.stayHere")
+                  : t("flow.exit.keepWorking")}
             </button>
             <button
               type="button"
@@ -1069,13 +1372,19 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
                 }
               }}
               className="k-btn-ghost k-tap"
-              style={{ flex: "0 0 auto" }}
+              style={
+                booked
+                  ? { flex: "0 0 auto", color: "#fca5a5", borderColor: "rgba(248,113,113,0.45)" }
+                  : { flex: "0 0 auto" }
+              }
             >
               {isReset
-                ? "Yes — start over"
-                : confirmExit === "cart"
-                  ? "Remove it & view cart"
-                  : "Remove it & go to main page"}
+                ? t("flow.exit.yesStartOver")
+                : booked
+                  ? t("flow.exit.cancelBooked", { activity: draftLabel })
+                  : confirmExit === "cart"
+                    ? t("flow.exit.removeAndCart")
+                    : t("flow.exit.removeAndHome")}
             </button>
           </div>
         </div>
@@ -1093,7 +1402,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           // cards) stay readable over the activity photo — the photo reads as a
           // faint texture; bright photography lives in the cards/heroes.
           className="k-flow-bg k-ph wizard"
-          style={{ ["--k-img"]: `url(${bg})` } as React.CSSProperties}
+          style={{ ["--k-img"]: `url(${resolveBackdrop(bg)})` } as React.CSSProperties}
           aria-hidden="true"
         />
       ) : null}
@@ -1142,23 +1451,25 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       {assistActive && (
         <div className="k-assist-overlay">
           <div className="k-display text-[110px] leading-none text-white">
-            {assistReason === "card-error" ? "Card error" : "Help is on the way"}
+            {assistReason === "card-error"
+              ? t("flow.assist.cardError.title")
+              : t("flow.assist.help.title")}
           </div>
           <p className="max-w-[26ch] text-[34px] font-semibold text-white/90">
             {assistReason === "card-error"
-              ? "There's a problem with the card dispenser — a team member will be right with you. Stay right here."
-              : "Stay right here — a team member is coming to assist you. Your booking is held exactly where you left it."}
+              ? t("flow.assist.cardError.body")
+              : t("flow.assist.help.body")}
           </p>
           <button
             type="button"
             onClick={() => setAssistActive(false)}
             className="k-tap h-[112px] rounded-full border-4 border-white bg-white/10 px-[72px] text-[36px] font-extrabold uppercase tracking-widest text-white"
           >
-            All set — clear
+            {t("flow.assist.clear")}
           </button>
         </div>
       )}
-      {resetting && <BrandedLoaderOverlay brand={config.brand} label="Clearing this session…" />}
+      {resetting && <BrandedLoaderOverlay brand={config.brand} label={t("flow.loader.clearing")} />}
       {reservationExpired && hasActiveHold && (
         <ReservationExpiredModal onExtend={handleExtendReservation} onStartOver={handleStartOver} />
       )}
@@ -1272,6 +1583,9 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
               ? () => dispatch({ type: "setGameCardPurchase", purchase: null })
               : undefined
           }
+          onUpdateRacePacks={(id, creditPacks) =>
+            dispatch({ type: "updateItem", id, patch: { creditPacks } as Partial<SessionItem> })
+          }
           onReviewAndPay={() => {
             // Upsell page (owner 2026-07-21): between Review & Pay and the pay
             // screen — BOWLING carts only for now (owner: "they need bowling
@@ -1288,6 +1602,8 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
             // required in the cart); accepting still rides the real rails —
             // a readerless checkout fails closed at pay time, so this never
             // risks a broken sale (staff-typed URL only).
+            // Live qualifications for the pay screen (discounts/credit offers).
+            refreshPartyQualificationsSilently();
             const upsellPreview =
               typeof window !== "undefined" &&
               new URLSearchParams(window.location.search).get("upsellPreview") === "1";
@@ -1326,6 +1642,13 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     }
     return chrome(
       <div ref={contentRef} className="k-flow-body kiosk-step-content kiosk-zoom">
+        {voucherRedeem && (
+          <KioskVoucherSummary
+            vouchers={appliedVouchers}
+            onOpen={() => setVoucherSheetOpen(true)}
+            variant="web"
+          />
+        )}
         <CartView
           session={session}
           urlCode={null}
@@ -1343,6 +1666,8 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           onRemoveItem={handleRemoveItem}
           onRemoveHeat={handleRemoveHeat}
           onCheckout={() => {
+            // Live qualifications for the pay screen (discounts/credit offers).
+            refreshPartyQualificationsSilently();
             clarityEvent("kiosk:checkout:start");
             setCartActive(false);
             setCheckoutActive(true);
@@ -1353,6 +1678,9 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
             session.gameCardPurchase
               ? () => dispatch({ type: "setGameCardPurchase", purchase: null })
               : undefined
+          }
+          onUpdateRacePacks={(id, creditPacks) =>
+            dispatch({ type: "updateItem", id, patch: { creditPacks } as Partial<SessionItem> })
           }
         />
       </div>,
@@ -1453,6 +1781,41 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     );
   }
 
+  // ── Voucher manager (summary pill → full list w/ remove) ──
+  if (voucherSheetOpen) {
+    return chrome(
+      <KioskVoucherSheet
+        vouchers={appliedVouchers}
+        onClear={clearVoucher}
+        onScanAnother={() => {
+          setVoucherSheetOpen(false);
+          setCodeEntryOpen(true);
+        }}
+        onBack={() => setVoucherSheetOpen(false)}
+      />,
+    );
+  }
+
+  // ── Coupon / voucher code entry ──
+  if (codeEntryOpen) {
+    return chrome(
+      <KioskCodeEntry
+        onApplied={(promo) => dispatch({ type: "applyPromo", promo })}
+        voucherRedeem={voucherRedeem}
+        appliedVoucherCodes={appliedVouchers.map((v) => v.code)}
+        onVoucherAccepted={(code, name) =>
+          dispatch({ type: "applyVoucher", voucher: { code, name, pending: true } })
+        }
+        onBack={() => setCodeEntryOpen(false)}
+        onOpenGameZone={() => {
+          setCodeEntryOpen(false);
+          clarityEvent("kiosk:gamezone:open");
+          setGzOpen(true);
+        }}
+      />,
+    );
+  }
+
   // ── Game Zone (multi-card token reload — its own money rail, not booking) ──
   if (gzOpen) {
     return chrome(
@@ -1504,6 +1867,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
         vipComboAvailable={vipAvailable}
         uqAvailable={uqAvailable}
         offeringAvailable={availableFor}
+        offeringFirstOpen={firstOpenFor}
         onPickOffering={pickOffering}
         onPickCombo={pickCombo}
         onPickPackageExperience={pickPackageExperience}
@@ -1512,6 +1876,53 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           clarityEvent("kiosk:gamezone:open");
           setGzOpen(true);
         }}
+        // Race packs were a quick chip on the attract screen; they now sit on
+        // the Experiences shelf beside the VIP combo and the Ultimate Qualifier
+        // (owner 2026-07-28). Deliberately the SAME destination ?goto=packs
+        // seeds, so the two entry points cannot drift apart.
+        onOpenRacePacks={() => {
+          clarityEvent("kiosk:packs:open");
+          setPacksOpen(true);
+        }}
+        // "Not booking" side doors, moved off the attract screen (owner
+        // 2026-07-28). Flag + venue gating lives HERE — a callback only arrives
+        // when the door applies — so KioskCategories stays presentational and
+        // the rules are not duplicated across two components. Check-in and the
+        // race grid are Fort-Myers-only: the two FM venues share the center
+        // code, and racing never advertises at Naples.
+        onOpenCheckin={
+          config.center === "fort-myers" && kioskCheckinEnabled()
+            ? () => router.push("/kiosk/checkin")
+            : undefined
+        }
+        onOpenRaceGrid={
+          config.center === "fort-myers" && kioskRaceInfoEnabled()
+            ? () => {
+                clarityEvent("kiosk:raceinfo:open");
+                router.push("/kiosk/race-info");
+              }
+            : undefined
+        }
+        onOpenWaiver={
+          kioskGroupWaiverEnabled()
+            ? () => {
+                clarityEvent("kiosk:waiver:open");
+                router.push("/kiosk/waiver");
+              }
+            : undefined
+        }
+        onOpenCodeEntry={
+          promoEnabled
+            ? () => {
+                clarityEvent("kiosk:code:open");
+                setCodeEntryOpen(true);
+              }
+            : undefined
+        }
+        appliedPromo={promoEnabled ? session.appliedPromo : null}
+        onClearPromo={() => dispatch({ type: "applyPromo", promo: null })}
+        appliedVouchers={voucherRedeem ? appliedVouchers : []}
+        onOpenVoucherSheet={() => setVoucherSheetOpen(true)}
       />,
     );
   }
@@ -1576,7 +1987,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   const bookHeatsAndAdvance = async (raceItem: RaceItem) => {
     const hasUnbooked = raceItem.heats.some((h) => h.heatId && !h.bmiLineId);
     if (hasUnbooked) {
-      setBookingHeatsProgress("Reserving your heats…");
+      setBookingHeatsProgress(t("flow.progress.reservingHeats"));
       setBookingHeats(true);
     }
     try {
@@ -1590,8 +2001,8 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     } catch (err) {
       setKioskError(
         err instanceof Error
-          ? `Couldn't reserve those heats: ${err.message}`
-          : "Couldn't reserve those heats. Please try again.",
+          ? t("flow.err.heatsFailedMsg", { msg: err.message })
+          : t("flow.err.heatsFailed"),
       );
     } finally {
       setBookingHeats(false);
@@ -1672,12 +2083,73 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
   const handleNextInner = async () => {
     setKioskError(null);
 
+    // QUALIFICATION REFRESH (owner 2026-07-23): a member's tier/memberships,
+    // waiver, and credits can change WHILE the party stands at the kiosk (a
+    // license bought at the desk, a waiver signed on a phone, a credit granted
+    // or spent). Re-pull the live values at the people-step exit so the
+    // product/heat steps gate on current data, not the sign-in snapshot.
+    // Field-scoped patches only (safe alongside the mobile-join poll); a
+    // refresh hiccup returns an empty map — the flow proceeds on the snapshot.
+    if (currentStep.id === "race-party" || currentStep.id === "kiosk-who") {
+      let fresh: Map<string, QualificationPatch> = new Map();
+      setBookingHeatsProgress(t("flow.progress.checkingInfo"));
+      setBookingHeats(true);
+      try {
+        const brandLocation =
+          session.center === "naples"
+            ? "naples"
+            : session.entryBrand === "headpinz"
+              ? "headpinz"
+              : "fasttrax";
+        fresh = await refreshQualifications(session.party, brandLocation);
+      } finally {
+        setBookingHeats(false);
+      }
+      for (const [id, patch] of fresh) {
+        dispatch({ type: "updatePartyMember", id, patch });
+      }
+      // Gate on the RETURNED values — the dispatches above aren't visible in
+      // this closure. A racer whose waiver just came back INVALID (revoked /
+      // expired since sign-in) must re-sign before the race flow advances; the
+      // patched member card shows the "waiver needed" setup path.
+      if (activeItem.kind === "race") {
+        const downgraded = session.party.filter(
+          (m) => m.waiverValid && fresh.get(m.id)?.waiverValid === false,
+        );
+        if (downgraded.length > 0) {
+          setKioskError(
+            t("flow.err.waiverInvalid", {
+              names: downgraded.map((m) => m.firstName).join(", "),
+              count: downgraded.length,
+            }),
+          );
+          return;
+        }
+      }
+    }
+
     if (
       currentStep.id === "race-party" &&
       activeItem.kind === "race" &&
       session.party.some((m) => m.isNewRacer)
     ) {
       setShowHeightConfirm(true);
+      return;
+    }
+
+    // Solo-bowler guard: exactly one bowler on the roster when Continue is
+    // tapped usually means "typed myself, didn't realize the rest go here
+    // too" — confirm before advancing. canAdvance already guarantees every
+    // row is named, so players.length IS the bowler count. The sheet's
+    // just-me path calls advanceToNextStep() directly (this step has no
+    // other advance-time work), so it can't re-prompt.
+    if (
+      currentStep.id === "kiosk-bowling-people" &&
+      activeItem.kind === "bowling" &&
+      ((activeItem as BowlingItem).players ?? []).length === 1
+    ) {
+      setSoloBowlerPrompt(true);
+      clarityEvent("kiosk:solo-bowler:prompt");
       return;
     }
 
@@ -1718,7 +2190,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     if (currentStep.id === "attraction-slot" && activeItem.kind === "attraction") {
       const attractionItem = activeItem as AttractionItem;
       if (attractionItem.slotProposal && !attractionItem.bmiLineId) {
-        setBookingHeatsProgress("Reserving your slot…");
+        setBookingHeatsProgress(t("flow.progress.reservingSlot"));
         setBookingHeats(true);
         try {
           await bookAttractionOnAdvance(session, attractionItem, dispatch);
@@ -1727,8 +2199,8 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
         } catch (err) {
           setKioskError(
             err instanceof Error
-              ? `Couldn't reserve that time: ${err.message}`
-              : "Couldn't reserve that time. Please try again.",
+              ? t("flow.err.timeFailedMsg", { msg: err.message })
+              : t("flow.err.timeFailed"),
           );
         } finally {
           setBookingHeats(false);
@@ -1776,18 +2248,16 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
     return KIOSK_PHOTOS.race;
   })();
 
-  const activityLabel = activityLabelFor(activeItem);
+  const activityLabel = activityLabelFor(t, activeItem);
 
-  const logo = KIOSK_LOGOS[config.brand === "headpinz" ? "headpinz" : "fasttrax"];
-  const ctaLabel = isLastStep ? "Add to my visit" : "Continue";
+  const ctaLabel = isLastStep ? t("flow.addToVisit") : t("flow.continue");
 
   return chrome(
     <>
       {/* header zone: logo · activity · hold timer · progress · big title */}
       <div className="k-flow-head">
         <div className="k-fh-top">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={logo} alt="" className="h-[60px] w-auto" />
+          <BrandLogo brand={config.brand} className="h-[60px] w-auto" />
           <div className="flex items-center gap-5">
             <span className="k-fh-activity">{activityLabel}</span>
           </div>
@@ -1798,9 +2268,13 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           ))}
         </div>
         <div className="k-prog-label k-num">
-          Step {stepIndex + 1} of {steps.length}
+          {t("flow.stepOf", { current: stepIndex + 1, total: steps.length })}
         </div>
-        <h1 className="k-display k-fh-title">{currentStep.title}</h1>
+        <h1 className="k-display k-fh-title">
+          {STEP_TITLE_KEYS[currentStep.title]
+            ? t(STEP_TITLE_KEYS[currentStep.title])
+            : currentStep.title}
+        </h1>
       </div>
 
       {/* body scroll zone */}
@@ -1832,7 +2306,11 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
         )}
 
         {!advanceOk && typeof canAdvance === "object" && (
-          <p className="mt-6 text-center text-[24px] text-white/45">{canAdvance.reason}</p>
+          <p className="mt-6 text-center text-[24px] text-white/45">
+            {STEP_REASON_KEYS[canAdvance.reason]
+              ? t(STEP_REASON_KEYS[canAdvance.reason])
+              : canAdvance.reason}
+          </p>
         )}
       </div>
 
@@ -1844,16 +2322,26 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
             if (stepIndex === 0) {
               // First step → back to the category chooser ("all activities"),
               // NOT a full Start Over (owner: couldn't get back to activities).
-              // The draft item stays in the cart; Main menu (util strip) offers
-              // removing it, Start over resets — both confirm first.
-              dispatch({ type: "setActiveItem", id: null });
+              // A draft the guest actually shaped stays in the cart (Main menu
+              // and Start over both offer removing it, with a confirm) — but an
+              // UNTOUCHED bowling draft is dropped right here. Leaving one behind
+              // is what produced the 2026-07-28 orphan: tap Duck Pin → Back →
+              // book racing → the $0, invisible, unconfigured leg rode to
+              // checkout and 400'd QAMF after the card was captured. Nothing is
+              // lost by dropping it (no time, no offer, no hold, no money), so
+              // there is nothing to confirm.
+              if (activeItem && isUntouchedBowlingDraft(activeItem)) {
+                void handleRemoveItem(activeItem.id);
+              } else {
+                dispatch({ type: "setActiveItem", id: null });
+              }
             } else {
               dispatch({ type: "back" });
             }
           }}
           className="k-btn-ghost k-tap"
         >
-          Back
+          {t("flow.back")}
         </button>
         <button
           type="button"
@@ -1872,8 +2360,8 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           }
           juniors={session.party.filter((m) => m.category === "junior" && m.isNewRacer).length}
           // Kiosk = walk-up, always today — confirm requirements, then pick a TIME.
-          subheading="Quick safety check — confirm each requirement, then pick your race time."
-          confirmLabel="Confirm & continue →"
+          subheading={t("heightAge.subheadingKiosk")}
+          confirmLabel={t("heightAge.confirmContinue")}
           onConfirm={() => {
             setShowHeightConfirm(false);
             advanceToNextStep();
@@ -1889,15 +2377,17 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       {unraceredPrompt && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
           <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
-            <div className="k-eyebrow text-[#f0b341]">Before you continue</div>
+            <div className="k-eyebrow text-[#f0b341]">{t("peopleUi.beforeYouContinue")}</div>
             <div className="k-display text-[46px] leading-[1.05]">
-              {unraceredPrompt.members.map((m) => m.firstName).join(" & ")}{" "}
-              {unraceredPrompt.members.length === 1 ? "isn't" : "aren't"} in a race yet
+              {t("flow.unracered.title", {
+                names: unraceredPrompt.members.map((m) => m.firstName).join(" & "),
+                count: unraceredPrompt.members.length,
+              })}
             </div>
             <p className="text-[26px] leading-snug text-white/60">
               {unraceredPkg
-                ? `They weren't included in the ${unraceredPkg.name}. Add them to the same heats, or continue without racing them.`
-                : "This race is above their level or they weren't added to a heat. Add a race that fits them — your picked heats are saved — or continue without racing them."}
+                ? t("flow.unracered.bodyPackage", { package: unraceredPkg.name })
+                : t("flow.unracered.body")}
             </p>
             <div className="flex flex-col gap-[16px] pt-[4px]">
               {/* k-btn-primary's flex:1 squashes its height in this column
@@ -1914,8 +2404,13 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
                 style={{ flex: "0 0 auto" }}
               >
                 {unraceredPkg
-                  ? `Add ${unraceredPrompt.members.map((m) => m.firstName).join(" & ")} to the ${unraceredPkg.name}`
-                  : `Add a race for ${unraceredPrompt.members.map((m) => m.firstName).join(" & ")}`}
+                  ? t("flow.unracered.addToPackage", {
+                      names: unraceredPrompt.members.map((m) => m.firstName).join(" & "),
+                      package: unraceredPkg.name,
+                    })
+                  : t("flow.unracered.addRace", {
+                      names: unraceredPrompt.members.map((m) => m.firstName).join(" & "),
+                    })}
               </button>
               <button
                 type="button"
@@ -1923,12 +2418,63 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
                 className="k-btn-ghost k-tap"
                 style={{ flex: "0 0 auto" }}
               >
-                Not racing today — continue
+                {t("flow.unracered.notRacing")}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Solo-bowler guard: one name on the roster at Continue is usually an
+          incomplete party, not a solo bowler — offer add-more (safe, primary)
+          before an explicit just-me continue. Same z-[80] sheet pattern. */}
+      {soloBowlerPrompt &&
+        (() => {
+          const soloName =
+            activeItem.kind === "bowling"
+              ? ((activeItem as BowlingItem).players?.[0]?.name ?? "").trim().split(/\s+/)[0]
+              : "";
+          return (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
+              <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
+                <div className="k-eyebrow text-[#f0b341]">{t("peopleUi.beforeYouContinue")}</div>
+                <div className="k-display text-[46px] leading-[1.05]">{t("soloBowler.title")}</div>
+                <p className="text-[26px] leading-snug text-white/60">
+                  {soloName ? t("soloBowler.bodyNamed", { name: soloName }) : t("soloBowler.body")}
+                </p>
+                <div className="flex flex-col gap-[16px] pt-[4px]">
+                  {/* Inline flex per the .kiosk-canvas cascade gotcha (see the
+                      unracered sheet above). */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSoloBowlerPrompt(false);
+                      clarityEvent("kiosk:solo-bowler:add-more");
+                    }}
+                    className="k-btn-primary k-tap"
+                    style={{ flex: "0 0 auto" }}
+                  >
+                    {t("soloBowler.addMore")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSoloBowlerPrompt(false);
+                      clarityEvent("kiosk:solo-bowler:continued");
+                      advanceToNextStep();
+                    }}
+                    className="k-btn-ghost k-tap"
+                    style={{ flex: "0 0 auto" }}
+                  >
+                    {soloName
+                      ? t("soloBowler.continueNamed", { name: soloName })
+                      : t("soloBowler.continue")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
       {/* Phone sign-in in progress — Continue cancels it, so confirm first
           (owner requirement). If every phone finishes while the sheet is up,
@@ -1938,17 +2484,12 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
         (mobileJoin.inProgressClients > 0 ? (
           <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
             <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
-              <div className="k-eyebrow text-[#f0b341]">Phone sign-in in progress</div>
+              <div className="k-eyebrow text-[#f0b341]">{t("flow.mobileJoin.eyebrow")}</div>
               <div className="k-display text-[46px] leading-[1.05]">
-                {mobileJoin.inProgressClients === 1
-                  ? "Someone's still signing in on their phone"
-                  : `${mobileJoin.inProgressClients} people are still signing in on their phones`}
+                {t("flow.mobileJoin.title", { count: mobileJoin.inProgressClients })}
               </div>
               <p className="text-[26px] leading-snug text-white/60">
-                Continuing now cancels{" "}
-                {mobileJoin.inProgressClients === 1 ? "that sign-in" : "those sign-ins"} —
-                they&rsquo;d need to be added here at the kiosk instead. Anyone who already finished
-                is on your list.
+                {t("flow.mobileJoin.body", { count: mobileJoin.inProgressClients })}
               </p>
               <div className="flex flex-col gap-[16px] pt-[4px]">
                 {/* Inline flex per the .kiosk-canvas cascade gotcha (see the
@@ -1959,7 +2500,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
                   className="k-btn-primary k-tap"
                   style={{ flex: "0 0 auto" }}
                 >
-                  Wait for them to finish
+                  {t("flow.mobileJoin.wait")}
                 </button>
                 <button
                   type="button"
@@ -1971,7 +2512,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
                   className="k-btn-ghost k-tap"
                   style={{ flex: "0 0 auto" }}
                 >
-                  Continue anyway — cancel phone sign-in
+                  {t("flow.mobileJoin.continueAnyway")}
                 </button>
               </div>
             </div>
@@ -1979,12 +2520,12 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
         ) : (
           <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-[48px] backdrop-blur-sm">
             <div className="k-glass w-full max-w-[860px] space-y-[24px] p-[44px]">
-              <div className="k-eyebrow text-[#46d68c]">All set</div>
+              <div className="k-eyebrow text-[#46d68c]">{t("flow.mobileJoin.done.eyebrow")}</div>
               <div className="k-display text-[46px] leading-[1.05]">
-                They finished — everyone&rsquo;s on your list
+                {t("flow.mobileJoin.done.title")}
               </div>
               <p className="text-[26px] leading-snug text-white/60">
-                The phone sign-in wrapped up while you waited. You&rsquo;re good to continue.
+                {t("flow.mobileJoin.done.body")}
               </p>
               <div className="flex flex-col gap-[16px] pt-[4px]">
                 <button
@@ -1996,7 +2537,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
                   className="k-btn-primary k-tap"
                   style={{ flex: "0 0 auto" }}
                 >
-                  Continue
+                  {t("flow.mobileJoin.done.continue")}
                 </button>
                 <button
                   type="button"
@@ -2004,7 +2545,7 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
                   className="k-btn-ghost k-tap"
                   style={{ flex: "0 0 auto" }}
                 >
-                  Stay on this step
+                  {t("flow.mobileJoin.done.stay")}
                 </button>
               </div>
             </div>
@@ -2018,8 +2559,8 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
       {currentStep.id === "combo-start" && stepBusy && (
         <BrandedLoaderOverlay
           brand={config.brand}
-          label="Booking your experience"
-          sublabel="Reserving your races and holding your lane…"
+          label={t("flow.loader.comboBooking")}
+          sublabel={t("flow.loader.comboBookingSub")}
         />
       )}
 
@@ -2035,8 +2576,12 @@ export function KioskFlow({ goto, bowlingV3 }: { goto: string | null; bowlingV3?
           currentStep.id === "attraction-slot") && (
           <BrandedLoaderOverlay
             brand={config.brand}
-            label={activeItem.kind === "race" ? "Locking in your races" : "Reserving your time"}
-            sublabel={bookingHeatsProgress || "One moment…"}
+            label={
+              activeItem.kind === "race"
+                ? t("flow.loader.lockingRaces")
+                : t("flow.loader.reservingTime")
+            }
+            sublabel={bookingHeatsProgress || t("flow.loader.oneMoment")}
           />
         )}
     </>,

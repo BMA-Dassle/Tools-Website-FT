@@ -199,10 +199,14 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
       "bowling-offer",
       hiddenInCombo(hiddenForWorldCup(classicOnly(KioskBowlingOfferStep as StepDef))),
     );
-    steps = insertAfter(steps, "bowling-shoes", hiddenInCombo(KioskBowlingDetailsStep as StepDef));
+    // REPLACE the shoe-quantity step (BowlingShoesStep) with the per-bowler
+    // details step: the kiosk should never ask "how many shoes" AND then per-
+    // player sizes — the rental count is DERIVED from who picks a rental size
+    // (owner 2026-07-25). Details owns the shoe line items now.
+    steps = replaceStep(steps, "bowling-shoes", hiddenInCombo(KioskBowlingDetailsStep as StepDef));
     return [hiddenInCombo(KioskBowlingPeopleStep as StepDef), ...steps];
   })(),
-  kbf: insertAfter(
+  kbf: replaceStep(
     replaceStep(
       replaceStep(
         [...STEP_REGISTRY.kbf],
@@ -212,6 +216,8 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
       "bowling-offer",
       classicOnly(KioskBowlingOfferStep as StepDef),
     ),
+    // Same as bowling: details step REPLACES the shoe-quantity step (count is
+    // derived from the per-bowler size picks).
     "bowling-shoes",
     KioskBowlingDetailsStep as StepDef,
   ),

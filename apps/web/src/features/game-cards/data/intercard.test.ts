@@ -90,6 +90,55 @@ describe("intercard SOAP client — creditTokens envelope", () => {
   });
 });
 
+describe("intercard clearAccount — TPI_ClearAccount envelope", () => {
+  let captured: { url: string; body: string; headers: Record<string, string> } | null = null;
+
+  beforeEach(() => {
+    captured = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit) => {
+        captured = {
+          url: String(url),
+          body: String(init.body),
+          headers: init.headers as Record<string, string>,
+        };
+        return {
+          ok: true,
+          status: 200,
+          text: async () =>
+            `<TPI_ClearAccountResponse xmlns="http://tempuri.org/">` +
+            `<TPI_ClearAccountResult>0</TPI_ClearAccountResult></TPI_ClearAccountResponse>`,
+        } as unknown as Response;
+      }),
+    );
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("wraps account numbers in <long> (int64), NOT <string> — the silent-no-op trap", async () => {
+    const { clearAccount } = await import("./intercard");
+    const res = await clearAccount({ locationCode: 12, accountNumbers: ["1062056"] });
+
+    expect(res.code).toBe(0);
+    const body = captured!.body;
+    expect(captured!.headers.SOAPAction).toBe('"http://tempuri.org/TPI_ClearAccount"');
+    // The account array item MUST be <long> — a <string> item deserializes to an
+    // empty long[] server-side and the clear no-ops while still returning 0.
+    expect(body).toContain("<Account><long>1062056</long></Account>");
+    expect(body).not.toContain("<Account><string>1062056</string></Account>");
+    // MAC_ID items stay <string> (they genuinely are strings) — don't regress that.
+    expect(body).toContain("<MAC_ID><string>TESTMAC123</string></MAC_ID>");
+    expect(body).toContain("<LocID>12</LocID>");
+  });
+
+  it("wraps multiple accounts each in its own <long>", async () => {
+    const { clearAccount } = await import("./intercard");
+    await clearAccount({ locationCode: 13, accountNumbers: ["1062056", "1038010"] });
+    expect(captured!.body).toContain("<long>1062056</long><long>1038010</long>");
+  });
+});
+
 describe("intercard verifyAccount — balance + history parse", () => {
   afterEach(() => vi.unstubAllGlobals());
 

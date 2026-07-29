@@ -38,6 +38,10 @@ export interface SignaturePadProps {
   strokeWidth?: number;
   /** Additional class names on the outer wrapper. */
   className?: string;
+  /** "Sign below" prompt label. Default English; kiosk passes a localized value. */
+  signLabel?: string;
+  /** "Clear" button label. Default English; kiosk passes a localized value. */
+  clearLabel?: string;
 }
 
 /**
@@ -83,6 +87,8 @@ function SignaturePadInner({
   strokeColor = "#ffffff",
   strokeWidth = 2,
   className = "",
+  signLabel = "Sign below",
+  clearLabel = "Clear",
   padRef,
 }: SignaturePadProps & { padRef?: React.MutableRefObject<SignaturePadRef | null> }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -198,14 +204,14 @@ function SignaturePadInner({
   return (
     <div className={className}>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-white/40 text-xs">Sign below</span>
+        <span className="text-white/40 text-xs">{signLabel}</span>
         {hasDrawn && (
           <button
             type="button"
             onClick={() => padRef?.current?.clear()}
             className="text-xs text-white/30 hover:text-white/60 transition-colors"
           >
-            Clear
+            {clearLabel}
           </button>
         )}
       </div>

@@ -51,6 +51,10 @@ export function normalizeLocationSlug(raw: string | null | undefined): LocationK
 export interface AttractionProductDef {
   productId: string;
   name: string;
+  /** Spanish product name for the KIOSK (repo rule: guest-facing copy ships
+   *  EN + ES in the same commit, data-borne copy included). Omit to keep the
+   *  English name. */
+  es?: { name?: string };
   price: number;
   location: LocationKey;
   durationMin: number;
@@ -73,6 +77,11 @@ export interface AttractionConfig {
   heroImage: string;
   color: string;
   description: string;
+  /** Spanish name + description for the KIOSK attraction step. The web pages
+   *  that read this config are English-only and ignore it. Omit `name` to keep
+   *  the English one — brand proper nouns ("Nexus Laser Tag", "Shuffle
+   *  Showdown", "Kids Bowl Free") stay English per the locked glossary. */
+  es?: { name?: string; description?: string };
   /** Building name for display */
   building: string;
   /** Duration label */
@@ -98,12 +107,16 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
     color: "#00E2E5",
     description: "High-tech gel blaster battles in an immersive glowing arena",
+    es: {
+      description: "Batallas de gel blaster de alta tecnología en una arena luminosa e inmersiva",
+    },
     building: "HeadPinz",
     durationLabel: "15 min session",
     products: [
       {
         productId: "8976680",
         name: "Gel Blaster Session",
+        es: { name: "Sesión de Gel Blaster" },
         price: 12,
         location: "headpinz",
         durationMin: 15,
@@ -113,6 +126,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       {
         productId: "7565025",
         name: "Gel Blaster Session",
+        es: { name: "Sesión de Gel Blaster" },
         price: 12,
         location: "naples",
         durationMin: 15,
@@ -135,12 +149,16 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
     color: "#8652FF",
     description: "Multi-level laser tag with haptic vests and immersive lighting",
+    es: {
+      description: "Laser tag de varios niveles con chalecos hápticos e iluminación inmersiva",
+    },
     building: "HeadPinz",
     durationLabel: "15 min session",
     products: [
       {
         productId: "8976685",
         name: "Laser Tag Session",
+        es: { name: "Sesión de Laser Tag" },
         price: 10,
         location: "headpinz",
         durationMin: 15,
@@ -150,6 +168,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       {
         productId: "7565567",
         name: "Laser Tag Session",
+        es: { name: "Sesión de Laser Tag" },
         price: 10,
         location: "naples",
         durationMin: 15,
@@ -171,12 +190,18 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/duckpin-bowling-R8vkBZc68YfiqmN7yP2SP2hElvWOCX.webp",
     color: "#F59E0B",
     description: "Modern duckpin bowling — smaller pins, lighter balls, nonstop fun",
+    es: {
+      name: "Duckpin en FastTrax",
+      description:
+        "Boliche duckpin moderno — pinos más pequeños, bolas más ligeras, diversión sin parar",
+    },
     building: "FastTrax Fort Myers",
     durationLabel: "30 min or 1 hour",
     products: [
       {
         productId: "24711034",
         name: "Duck Pin - 30 Minutes",
+        es: { name: "Duckpin — 30 minutos" },
         price: 17.5,
         location: "fasttrax",
         durationMin: 30,
@@ -186,6 +211,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       {
         productId: "23345635",
         name: "Duck Pin - 1 Hour",
+        es: { name: "Duckpin — 1 hora" },
         price: 35,
         location: "fasttrax",
         durationMin: 60,
@@ -207,12 +233,17 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/shuffly-tables-Nlc3Y5cuNU6C5WrFIhGvHN42pYMfVK.jpg",
     color: "#10B981",
     description: "AR-powered shuffleboard with dynamic LED lighting and automatic scoring",
+    es: {
+      description:
+        "Shuffleboard con realidad aumentada, luces LED dinámicas y puntuación automática",
+    },
     building: "FastTrax & HeadPinz",
     durationLabel: "30 min or 1 hour",
     products: [
       {
         productId: "24709515",
         name: "Shuffly - 30 Minutes",
+        es: { name: "Shuffly — 30 minutos" },
         price: 17.5,
         location: "fasttrax",
         durationMin: 30,
@@ -222,6 +253,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       {
         productId: "23345625",
         name: "Shuffly - 1 Hour",
+        es: { name: "Shuffly — 1 hora" },
         price: 35,
         location: "fasttrax",
         durationMin: 60,
@@ -231,6 +263,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       {
         productId: "24731238",
         name: "Shuffly 1HR + Beer Bucket",
+        es: { name: "Shuffly 1 h + cubeta de cervezas" },
         price: 40,
         location: "fasttrax",
         durationMin: 60,
@@ -240,6 +273,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       {
         productId: "25769498",
         name: "Shuffly 1HR + Pizza",
+        es: { name: "Shuffly 1 h + pizza" },
         price: 40,
         location: "fasttrax",
         durationMin: 60,
@@ -249,6 +283,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       {
         productId: "24709632",
         name: "Shuffly - 30 Minutes",
+        es: { name: "Shuffly — 30 minutos" },
         price: 17.5,
         location: "headpinz",
         durationMin: 30,
@@ -258,6 +293,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       {
         productId: "24408105",
         name: "Shuffly - 1 Hour",
+        es: { name: "Shuffly — 1 hora" },
         price: 35,
         location: "headpinz",
         durationMin: 60,
@@ -267,6 +303,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       {
         productId: "25609182",
         name: "Shuffly 1HR + Beer Bucket",
+        es: { name: "Shuffly 1 h + cubeta de cervezas" },
         price: 40,
         location: "headpinz",
         durationMin: 60,
@@ -276,6 +313,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       {
         productId: "25769534",
         name: "Shuffly 1HR + Pizza",
+        es: { name: "Shuffly 1 h + pizza" },
         price: 40,
         location: "headpinz",
         durationMin: 60,
@@ -297,6 +335,10 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/tracks/blue-track-kiosk.webp",
     color: "#E41C1D",
     description: "Florida's largest indoor go-kart racing on 3 unique tracks",
+    es: {
+      name: "Carreras eléctricas de alta velocidad",
+      description: "Las carreras de go-karts bajo techo más grandes de Florida, en 3 pistas únicas",
+    },
     building: "FastTrax Fort Myers",
     durationLabel: "Single races & packs",
     products: [],
@@ -314,12 +356,17 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/gallery-bowling.webp",
     color: "#fd5b56",
     description: "Classic & VIP bowling with NeoVerse and HyperBowling",
+    es: {
+      name: "Boliche en HeadPinz",
+      description: "Boliche Classic y VIP con NeoVerse y HyperBowling",
+    },
     building: "HeadPinz",
     durationLabel: "1-2 hours",
     products: [
       {
         productId: "qamf-9172",
         name: "Bowling",
+        es: { name: "Boliche" },
         price: 0,
         location: "headpinz",
         durationMin: 60,
@@ -329,6 +376,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       {
         productId: "qamf-3148",
         name: "Bowling",
+        es: { name: "Boliche" },
         price: 0,
         location: "naples",
         durationMin: 60,
@@ -356,6 +404,9 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/headpinz/birthday-girl-bowling.jpg",
     color: "#FFD700",
     description: "Free bowling for registered kids — Mon–Fri",
+    es: {
+      description: "Boliche gratis para niños registrados — lun a vie",
+    },
     building: "HeadPinz",
     durationLabel: "Mon–Fri only",
     // Placeholder per-location products so the hub's

@@ -20,19 +20,26 @@
 import { randomBytes } from "crypto";
 import {
   kioskRacePacksEnabled,
+  racePackLicenseEnabled,
   resolveKioskPacks,
   kioskPacksTotalCents,
   type ResolvedKioskPack,
 } from "./race-pack-kiosk";
 import { getRacePack, racePackLabel, SQUARE_RACE_PACK_CATALOG_ID } from "../data/packs";
-import { LOCATION_TAX, SQUARE_LOCATIONS } from "../data/square-catalog-map";
+import { LOCATION_TAX, SQUARE_LOCATIONS, SQUARE_CATALOG_IDS } from "../data/square-catalog-map";
 import {
   upsertPackPurchases,
   stampPackOrder,
   getPackPurchases,
   markPackCharged,
 } from "../data/race-pack-purchases-db";
+import {
+  upsertLicenseObligations,
+  getLicenseObligations,
+  type LicenseObligationInput,
+} from "../data/race-license-grants-db";
 import { grantKioskRacePacks, type PackGrantOutcome } from "./race-pack-grant.server";
+import { personNeedsLicense, grantLicenses, LICENSE_PRICE_CENTS } from "./race-pack-license.server";
 import { readSquarePaymentSettled } from "~/features/game-cards/data/square-order";
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
@@ -57,6 +64,13 @@ export interface StandalonePackInput {
   /** Raw BMI person id string — NEVER Number() it. */
   personId: string;
   memberName: string;
+  /** Client hint: this racer was created fresh at the kiosk (no BMI license).
+   *  Only a hint — the server re-verifies via personNeedsLicense before charging
+   *  a license. */
+  isNewRacer?: boolean;
+  /** Carried onto the license bill's contact registration. */
+  email?: string;
+  phone?: string;
 }
 
 /** v1: FastTrax kiosks only (race packs are FastTrax revenue; the order must
@@ -105,6 +119,31 @@ export async function prepareStandalonePackPurchase(
   // Persist BEFORE the order exists (throws if the DB is down → no money moves).
   await upsertPackPurchases({ purchaseKey, surface: "standalone", packs: resolved });
 
+  // FastTrax licenses for new / unlicensed racers (flag-gated). One pack per
+  // person here (resolveKioskPacks enforces it), so `resolved` already spans the
+  // unique assignees. The server re-verifies each racer's license status —
+  // NEVER trusting the client's new-racer hint to charge — and persists a
+  // license obligation per needy racer BEFORE the order exists.
+  const hintByPerson = new Map(packs.map((p) => [p.personId, p]));
+  const licenseObligations: LicenseObligationInput[] = [];
+  if (racePackLicenseEnabled()) {
+    for (const p of resolved) {
+      const hint = hintByPerson.get(p.personId);
+      const needs = await personNeedsLicense(p.personId, hint?.isNewRacer === true);
+      if (!needs) continue;
+      licenseObligations.push({
+        personId: p.personId,
+        memberName: p.memberName,
+        email: hint?.email ?? null,
+        phone: hint?.phone ?? null,
+        priceCents: LICENSE_PRICE_CENTS,
+      });
+    }
+    if (licenseObligations.length > 0) {
+      await upsertLicenseObligations(purchaseKey, "standalone", licenseObligations);
+    }
+  }
+
   const taxId = LOCATION_TAX[PACK_SQUARE_LOCATION];
   const res = await fetch(`${SQUARE_BASE}/orders`, {
     method: "POST",
@@ -114,12 +153,20 @@ export async function prepareStandalonePackPurchase(
       order: {
         location_id: PACK_SQUARE_LOCATION,
         reference_id: purchaseKey.slice(0, 40),
-        line_items: resolved.map((p) => ({
-          name: `Race Pack — ${p.label} · ${p.memberName}`,
-          quantity: "1",
-          catalog_object_id: SQUARE_RACE_PACK_CATALOG_ID,
-          base_price_money: { amount: p.priceCents, currency: "USD" },
-        })),
+        line_items: [
+          ...resolved.map((p) => ({
+            name: `Race Pack — ${p.label} · ${p.memberName}`,
+            quantity: "1",
+            catalog_object_id: SQUARE_RACE_PACK_CATALOG_ID,
+            base_price_money: { amount: p.priceCents, currency: "USD" },
+          })),
+          ...licenseObligations.map((o) => ({
+            name: `FastTrax License · ${o.memberName}`,
+            quantity: "1",
+            catalog_object_id: SQUARE_CATALOG_IDS.LICENSE,
+            base_price_money: { amount: o.priceCents, currency: "USD" },
+          })),
+        ],
         // Same order-scope county tax as every other order at this location —
         // web race-pack sales are taxed, kiosk parity.
         ...(taxId ? { taxes: [{ catalog_object_id: taxId, scope: "ORDER" }] } : {}),
@@ -151,6 +198,10 @@ export interface StandaloneFinalizeResult {
     raceCount: number;
     granted: boolean;
   }>;
+  /** FastTrax licenses registered on this order (flag-gated; empty when off or
+   *  no new racers). `registered: false` = the sale failed post-charge and a
+   *  reconcile row is waiting — the guest still paid exactly once. */
+  licenses: Array<{ memberName: string; registered: boolean }>;
 }
 
 export async function finalizeStandalonePackPurchase(input: {
@@ -226,6 +277,32 @@ export async function finalizeStandalonePackPurchase(input: {
     packs: resolved,
   });
 
+  // Register FastTrax licenses (flag-gated) for the persisted obligations —
+  // server-authoritative (read from OUR ledger, never the client). Runs AFTER
+  // the money is verified; never throws (a failed sale is a reconcile row).
+  let licenses: Array<{ memberName: string; registered: boolean }> = [];
+  if (racePackLicenseEnabled()) {
+    const obligations = (await getLicenseObligations(input.purchaseKey)).filter(
+      (o) => o.status !== "registered",
+    );
+    if (obligations.length > 0) {
+      const licOutcomes = await grantLicenses({
+        sourceKey: input.purchaseKey,
+        obligations: obligations.map((o) => ({
+          personId: o.personId,
+          memberName: o.memberName ?? "Racer",
+          email: o.email,
+          phone: o.phone,
+        })),
+        squareRef: storedOrderId,
+      });
+      licenses = licOutcomes.map((o) => ({
+        memberName: o.memberName,
+        registered: o.registered,
+      }));
+    }
+  }
+
   return {
     ok: true,
     packs: resolved.map((p) => ({
@@ -234,5 +311,6 @@ export async function finalizeStandalonePackPurchase(input: {
       raceCount: p.pack.raceCount,
       granted: outcomes.find((o) => o.memberId === p.memberId)?.granted ?? false,
     })),
+    licenses,
   };
 }

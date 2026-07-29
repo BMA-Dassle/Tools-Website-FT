@@ -73,6 +73,19 @@ const nextConfig: NextConfig = {
       source: "/tax-exempt/:path*",
       destination: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/tax-exempt/:path*",
     },
+    // Kiosk image proxy — the kiosk paints its photos as CSS backgrounds /
+    // plain <img> (not next/image), so serve them through OUR origin instead
+    // of the blob host directly. The blob host is fronted by a Vercel firewall
+    // challenge that trips per source-IP under bursty traffic (a NATed venue
+    // loading many tiles at once) and returns a JS "Security Checkpoint" that a
+    // background/img request can't solve → blank tiles (HeadPinz-Fort-Myers,
+    // 2026-07-24). Same-origin requests are never challenged; the server-side
+    // proxy fetch isn't rate-flagged (same mechanism as /documents). Kiosk
+    // asset URLs are built off this prefix in features/kiosk/assets.ts.
+    {
+      source: "/kimg/:path*",
+      destination: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/:path*",
+    },
   ],
   headers: async () => [
     // Admin embed pages — allow portal.headpinz.com to iframe them.
@@ -152,6 +165,27 @@ const nextConfig: NextConfig = {
             "frame-ancestors 'self' https://booking.bmileisure.com https://portal.headpinz.com",
           ].join("; "),
         },
+      ],
+    },
+    // Kiosk image caching — MUST come LAST. Next applies matching header rules
+    // in order and a later same-key value overrides an earlier one, so these
+    // override the catch-all's no-store (above) for kiosk assets only. Without a
+    // real TTL the kiosk re-downloads every tile on each screen change — one
+    // attraction photo is ~10 MB — over venue WiFi. The catch-all's other
+    // security headers (CSP/HSTS/nosniff) still apply, per-key; nosniff is
+    // re-asserted defensively.
+    {
+      source: "/kimg/:path*",
+      headers: [
+        { key: "Cache-Control", value: "public, max-age=3600, stale-while-revalidate=604800" },
+        { key: "X-Content-Type-Options", value: "nosniff" },
+      ],
+    },
+    {
+      source: "/brand/:path*",
+      headers: [
+        { key: "Cache-Control", value: "public, max-age=86400" },
+        { key: "X-Content-Type-Options", value: "nosniff" },
       ],
     },
   ],

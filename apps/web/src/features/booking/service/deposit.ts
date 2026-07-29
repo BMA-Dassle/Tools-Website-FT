@@ -526,6 +526,40 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
  * Used by createDepositAndCharge (happy path) AND race-confirm-reconcile (to
  * fund a gift card whose creation failed after capture).
  */
+/**
+ * Does this Square error mean "the card is already live"? Matched on the detail
+ * text as well as the code because Square returns a generic BAD_REQUEST for it
+ * ("Gift card must not be activated.").
+ */
+function isAlreadyActivated(sqErr: { code?: string; detail?: string } | undefined): boolean {
+  if (!sqErr) return false;
+  const detail = (sqErr.detail ?? "").toLowerCase();
+  return (
+    detail.includes("must not be activated") ||
+    detail.includes("already activated") ||
+    sqErr.code === "GIFT_CARD_ALREADY_ACTIVATED"
+  );
+}
+
+/**
+ * Read a gift card and confirm it is ACTIVE with at least the amount we meant to
+ * load. Guards the already-activated replay above: we only call an activation
+ * failure a success when the money is provably on the card. Any read error =
+ * false (fall through to the original throw).
+ */
+async function giftCardIsFunded(giftCardId: string, expectedCents: number): Promise<boolean> {
+  try {
+    const res = await fetch(`${SQUARE_BASE}/gift-cards/${giftCardId}`, { headers: sqHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.errors?.length) return false;
+    const card = data.gift_card ?? {};
+    const balance: number = card.balance_money?.amount ?? 0;
+    return card.state === "ACTIVE" && balance >= expectedCents;
+  } catch {
+    return false;
+  }
+}
+
 export async function activateGiftCardForDeposit(params: {
   baseKey: string;
   locationId: string;
@@ -601,6 +635,23 @@ export async function activateGiftCardForDeposit(params: {
   // replay of a prior failure), so checking `!ok` alone misses those.
   if (!activateRes.ok || activateData.errors?.length) {
     const sqErr = activateData.errors?.[0];
+    // ALREADY ACTIVATED — the card was funded by an earlier attempt whose
+    // activation succeeded and whose LATER step failed. Square does not replay
+    // this one off the idempotency key; it rejects on card state, so a retry
+    // used to die HERE, earlier than the original failure, and could never
+    // recover (2026-07-28: attempt 1 failed at QAMF with the card already live,
+    // attempts 2-3 both failed at activation → guest stranded on the
+    // paid-unconfirmed screen). Verify the live card really holds the money and
+    // treat it as the success it is.
+    if (isAlreadyActivated(sqErr)) {
+      const funded = await giftCardIsFunded(giftCardId, params.amountCents);
+      if (funded) {
+        console.log(
+          `[deposit] gift card ${giftCardId} was already activated — replaying as success (retry-safe)`,
+        );
+        return { giftCardId, giftCardGan };
+      }
+    }
     throw new Error(
       `gift card activation failed: ${sqErr ? `${sqErr.code}: ${sqErr.detail}` : JSON.stringify(activateData)}`,
     );

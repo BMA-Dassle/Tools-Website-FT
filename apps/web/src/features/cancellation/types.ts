@@ -98,7 +98,12 @@ export interface GatheredFacts {
   };
   depositOrder?: {
     id: string;
-    tenders: Array<{ paymentId: string; amountCents: number }>;
+    /** editTopup marks tenders folded in from edit-increase payments — they
+     *  never carry Game Zone money, so the gz exclusion skips them. */
+    tenders: Array<{ paymentId: string; amountCents: number; editTopup?: boolean }>;
+    /** Σ Game Zone card/token lines riding the deposit order (kiosk bookings) —
+     *  money the guest keeps; excluded from refunds. Absent/0 everywhere else. */
+    gameZoneCents?: number;
   };
   /** Keyed by payment id. */
   payments: Record<

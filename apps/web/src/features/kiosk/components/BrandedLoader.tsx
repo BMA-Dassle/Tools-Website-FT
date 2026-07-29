@@ -7,8 +7,8 @@
  *
  * Pure CSS/SVG animation (keyframes in app/kiosk/kiosk.css); no JS timers.
  */
-import { KIOSK_LOGOS } from "../assets";
 import type { Brand } from "~/features/booking";
+import { BrandLogo } from "./BrandLogo";
 
 export function BrandedLoader({
   brand = "fasttrax",
@@ -48,13 +48,7 @@ export function BrandedLoader({
           className="grid place-items-center rounded-full border border-white/10 bg-[#0d1a36] p-8"
           style={{ width: badge, height: badge }}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element -- Blob asset, fixed box, no next/image sizing needed */}
-          <img
-            src={KIOSK_LOGOS[brand]}
-            alt=""
-            className="max-h-full max-w-full object-contain"
-            draggable={false}
-          />
+          <BrandLogo brand={brand} className="max-h-full max-w-full object-contain" />
         </div>
       </div>
       {label ? (

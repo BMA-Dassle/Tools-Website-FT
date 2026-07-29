@@ -126,6 +126,51 @@ export interface NewReservationInput {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Outbound field normalizers (last stop before the vendor)          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Strip a guest phone down to digits before QAMF sees it.
+ *
+ * Our surfaces store what the guest typed, and the kiosk formats for display —
+ * `(973) 518-4297`. QAMF's createReservation validated PhoneNumber and rejected
+ * that shape on 2026-07-28 (alongside the BookedAt millisecond error; its exact
+ * rule text was lost to a 200-char truncation, since fixed). Digits are what the
+ * paths that have always worked send, so normalize here rather than at each of
+ * the ~6 call sites. A leading US country code is dropped: QAMF centers are all
+ * domestic and an 11-digit "1…" is the same subscriber number.
+ */
+export function normalizeGuestPhone(phone: string | null | undefined): string {
+  const digits = (phone ?? "").replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) return digits.slice(1);
+  return digits;
+}
+
+/** Apply normalizeGuestPhone to a Customer payload, leaving everything else. */
+function withNormalizedGuestPhone<
+  T extends { Guest: { Name: string; PhoneNumber: string; Email: string } },
+>(customer: T): T {
+  return {
+    ...customer,
+    Guest: { ...customer.Guest, PhoneNumber: normalizeGuestPhone(customer.Guest.PhoneNumber) },
+  };
+}
+
+/**
+ * QAMF requires BookedAt seconds AND milliseconds to be zero (it 400s with
+ * "Millisecond must be 0."). Truncate any sub-minute precision while preserving
+ * the offset exactly as the caller sent it — the offset is what QAMF reads as
+ * center-local wall clock, so it must never be rewritten here. A value we can't
+ * parse is passed through untouched for the vendor to judge.
+ */
+export function normalizeBookedAt(bookedAt: string): string {
+  // 2026-07-28T17:15:38.230Z / …-04:00 → 2026-07-28T17:15:00.230Z-less form.
+  const m = bookedAt.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?(.*)$/);
+  if (!m) return bookedAt;
+  return `${m[1]}:00${m[2]}`;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Internal request helper                                           */
 /* ------------------------------------------------------------------ */
 
@@ -269,7 +314,11 @@ export async function createReservation(
   return call({
     method: "POST",
     path: `/centers/${centerId}/reservations`,
-    body: input,
+    body: {
+      ...input,
+      BookedAt: normalizeBookedAt(input.BookedAt),
+      ...(input.Customer ? { Customer: withNormalizedGuestPhone(input.Customer) } : {}),
+    },
     errLabel: `createReservation(${centerId})`,
     centerId,
   });
@@ -311,7 +360,7 @@ export async function setReservationCustomer(
   await call({
     method: "PUT",
     path: `/centers/${centerId}/reservations/${reservationId}/customer`,
-    body: { Customer: customer },
+    body: { Customer: withNormalizedGuestPhone(customer) },
     errLabel: `setReservationCustomer(${reservationId})`,
     centerId,
   });

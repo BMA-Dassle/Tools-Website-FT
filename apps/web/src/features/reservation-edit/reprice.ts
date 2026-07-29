@@ -169,9 +169,37 @@ export const repriceBowling = (params: {
    * that never scale the lane line.
    */
   carryPrimary?: boolean;
+  /**
+   * Whether this edit needs the lane line's shape to be well-formed — true
+   * only when something scales it (players / lanes / duration). Default true.
+   *
+   * The primary-line guards below exist to protect that ARITHMETIC. When
+   * nothing scales the lane, its shape is irrelevant and policing it blocks
+   * edits that are perfectly safe — a refund of a shoe rental or a booking fee
+   * must not care whether the booking has one lane line, two, or none. Real
+   * rows that hit this: KBF (bowling is free, so there is NO paid lane line at
+   * all) and any row whose lane line has a NULL square_product_id, so its kind
+   * cannot be resolved from the catalog.
+   */
+  primaryRequired?: boolean;
 }): BowlingRepriceResult => {
-  const { booked, lines, spec, shoeCatalog, durationOption, desiredPrimary, carryPrimary } = params;
+  const { booked, lines, spec, shoeCatalog, durationOption, desiredPrimary } = params;
   const warnings: EditWarning[] = [];
+  const primaryRequired = params.primaryRequired !== false;
+  /** Pass the lane line through untouched — explicitly, or because no part of
+   *  this edit scales it. */
+  const carryPrimary = params.carryPrimary || !primaryRequired;
+
+  // Which lines claim to BE the lane. A $0 line only counts when nothing PAID
+  // claims that role: VIP packages ship a comped extra ("VIP Chips & Salsa")
+  // catalogued as a bowling product, and it must not shadow the real lane and
+  // trip "multiple primary lane lines". A genuinely comped booking still
+  // resolves, because then the $0 line is the only candidate.
+  const primaryCandidates = lines.filter(
+    (l) => l.productKind != null && PRIMARY_KINDS.has(l.productKind),
+  );
+  const paidPrimaries = primaryCandidates.filter((l) => l.unitPriceCents > 0);
+  const primarySet = new Set(paidPrimaries.length > 0 ? paidPrimaries : primaryCandidates);
 
   if (durationOption && booked.pricingMode !== "per_lane") {
     throw new EditGuardError(
@@ -200,8 +228,8 @@ export const repriceBowling = (params: {
 
   for (const l of lines) {
     const kind = l.productKind;
-    if (kind != null && PRIMARY_KINDS.has(kind)) {
-      if (sawPrimary) {
+    if (primarySet.has(l)) {
+      if (sawPrimary && primaryRequired) {
         throw new EditGuardError("pricing_unresolvable", "multiple primary lane lines");
       }
       sawPrimary = true;
@@ -292,6 +320,19 @@ export const repriceBowling = (params: {
 
   if (!sawPrimary && !carryPrimary) {
     throw new EditGuardError("pricing_unresolvable", "no primary lane line on the reservation");
+  }
+  if (!sawPrimary) {
+    // Reached on rows that legitimately have no priced lane line — KBF (the
+    // bowling is free, only shoes/fees were sold) or a lane line whose
+    // square_product_id is NULL. Nothing here scales it, so the edit proceeds
+    // on the add-on and order lines; say so rather than leaving it implicit.
+    warnings.push({
+      severity: "info",
+      code: "no_primary_line",
+      message:
+        "This booking has no priced lane line (free bowling, or a line booked without a " +
+        "catalog id) — only add-ons, fees, and other day-of charges can change.",
+    });
   }
 
   // ── Shoes: desired quantities win wholesale ─────────────────────────
@@ -485,11 +526,14 @@ export const repriceRaceDelta = (params: {
   }
 
   // Removing EVERY heat with nothing added is a cancellation, not an edit —
-  // the cancel cascade owns refunds/teardown for that.
+  // the cancel cascade owns refunds/teardown for that. Name BOTH doors: Cancel
+  // is hidden once the venue charge lands, so on a settled visit the money
+  // comes back through the day-of line control instead.
   if (removeSet.size > 0 && removeSet.size >= heatsMeta.length && add.length === 0) {
     throw new EditGuardError(
       "unsupported_kind",
-      "removing every heat empties the reservation — use the Cancel action instead",
+      "removing every heat empties the reservation — use Cancel if the race has not happened, " +
+        "or refund it from “Charges on the day-of order” if it has",
     );
   }
 

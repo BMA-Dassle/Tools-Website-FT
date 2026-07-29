@@ -27,8 +27,10 @@ export function useBowlingExperiences(centerCode: string | null, kbf: boolean) {
     staleTime: 5 * 60_000,
     queryFn: async () => {
       const kindParam = kbf ? "&kind=kbf" : "";
+      // Pinboyz seam: include the inactive pinboyz-* experiences
+      // (is_active=false) so v3 surfaces can book Old Time Lanes.
       const data = await fetchJsonWithRetry<BowlingExperienceWithDetails[]>(
-        `/api/bowling/v2/experiences?centerCode=${centerCode}${kindParam}`,
+        `/api/bowling/v2/experiences?centerCode=${centerCode}${kindParam}&preview=pinboyz`,
       );
       return Array.isArray(data) ? data : [];
     },
@@ -63,9 +65,11 @@ export function useDayAvailability(input: DayAvailabilityInput) {
     staleTime: 30_000,
     retry: false, // fetchJsonWithRetry handles the 502 cold-start backoff
     queryFn: async () => {
+      // Pinboyz seam: &preview=pinboyz adds the inactive pinboyz-*
+      // offers to the day scan so their cards get real "Next lane" hints.
       const raw = await fetchJsonWithRetry<RawAvailability>(
         `/api/bowling/v2/availability?centerId=${centerId}&players=${players}&startDate=${date}` +
-          `&kind=${kind}&stepMinutes=30&leadMinutes=${leadMinutes}&optionCheck=accurate`,
+          `&kind=${kind}&stepMinutes=30&leadMinutes=${leadMinutes}&optionCheck=accurate&preview=pinboyz`,
       );
       return dropBeforeReopen(parseAvailabilities(raw), date);
     },
@@ -107,10 +111,12 @@ export function useOfferSlots(input: OfferSlotsInput) {
     retry: false,
     queryFn: async () => {
       const durParam = durationMinutes ? `&durationMinutes=${durationMinutes}` : "";
+      // Pinboyz seam: &preview=pinboyz keeps the Time step's per-offer
+      // grid working for the inactive pinboyz-* offer (176).
       const raw = await fetchJsonWithRetry<RawAvailability>(
         `/api/bowling/v2/availability?centerId=${centerId}&players=${players}&startDate=${date}` +
           `&kind=${kind}&webOfferId=${webOfferId}${durParam}&stepMinutes=15` +
-          `&leadMinutes=${leadMinutes}&optionCheck=accurate`,
+          `&leadMinutes=${leadMinutes}&optionCheck=accurate&preview=pinboyz`,
       );
       return dropBeforeReopen(
         parseAvailabilities(raw).filter((s) => s.webOfferId === webOfferId),

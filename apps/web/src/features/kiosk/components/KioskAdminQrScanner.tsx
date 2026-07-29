@@ -3,9 +3,10 @@
 /**
  * Hardware QR scanner setup/test panel — a tab inside the PIN-gated kiosk
  * admin, mirroring the CRT-591 tab's provisioning flow and the MSR card's
- * grant UX. The scanner (Honeywell 3320g, USB serial) is read-only: scans
- * stream in as CR/LF-terminated lines, so the test surface is a live scan
- * feed — there are no commands to send and no TX log.
+ * grant UX. The scanner (registry model — Honeywell 3320g or Opticon 2D
+ * imager, USB serial) is read-only: scans stream in as CR/LF-terminated
+ * lines, so the test surface is a live scan feed — there are no commands to
+ * send and no TX log.
  *
  * The unit's real baud isn't confirmed (guide says 115200 8-N-1) and a
  * read-only device can't be probed — wrong baud shows up as bytes that never
@@ -309,7 +310,7 @@ function ConnectionCard({
     if (!model.usbIdsConfirmed) {
       return {
         tone: "info" as const,
-        text: "USB ids match the expected Honeywell VID — once scans decode, flip usbIdsConfirmed in qr-scanner/models.ts and note it in docs/qr-scanner/README.md.",
+        text: `USB ids match the registry's expected VID for the ${model.label} — once scans decode, flip usbIdsConfirmed in qr-scanner/models.ts and note it in docs/qr-scanner/README.md.`,
       };
     }
     return null;
@@ -401,9 +402,10 @@ function ConnectionCard({
                 </button>
               </div>
               <p className="text-xs text-white/40">
-                No chooser needed with the “allow all serial” policy. The Honeywell shows as USB
-                0c2e; ports already saved by the card reader or MSR are the OTHER devices — don’t
-                pick those.
+                No chooser needed with the “allow all serial” policy. The {model.label} is expected
+                as USB {model.expectedUsbIds.map((e) => hex4(e.usbVendorId)).join("/")}
+                {model.usbIdsConfirmed ? "" : " (not yet confirmed on hardware)"}; ports already
+                saved by the card reader or MSR are the OTHER devices — don’t pick those.
               </p>
             </div>
           )}

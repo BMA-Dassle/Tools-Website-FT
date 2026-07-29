@@ -53,16 +53,21 @@ export function buildBowlingQuoteLineItems(
     const out: QuoteLineItem = {
       name: li.label ?? `Item ${li.squareProductId}`,
       quantity: String(li.quantity),
+      // ALWAYS send the price as base_price_money — even on a catalog-linked
+      // line with no promo. FastTrax duckpin's Square item (SQ.DUCKPIN) is
+      // VARIABLY priced, so Square 400s the quote order ("is variably priced
+      // and requires a value for base_price_money") when we send only
+      // catalogObjectId. Square honors base_price_money as a price-key override
+      // on fixed-price catalog items too, so this is safe for HeadPinz — and it
+      // matches the reserve day-of order, which already always sends
+      // unitPriceCents (route.ts sqLineItems), keeping the quote byte-identical
+      // to the charge. A failed quote is invisible on the card path
+      // (bowlingReserve silently falls back to server-side order building) but
+      // FATAL on the kiosk reader path (bowlingTerminalPrepare hard-requires the
+      // pre-created quote order → "Bowling quote missing").
+      basePriceMoney: { amount: priceCents, currency: "USD" },
     };
-    if (li.squareCatalogObjectId && factor === 1) {
-      out.catalogObjectId = li.squareCatalogObjectId;
-    } else if (li.squareCatalogObjectId) {
-      // Discounted catalog line: keep the catalog link, override the price key.
-      out.catalogObjectId = li.squareCatalogObjectId;
-      out.basePriceMoney = { amount: priceCents, currency: "USD" };
-    } else {
-      out.basePriceMoney = { amount: priceCents, currency: "USD" };
-    }
+    if (li.squareCatalogObjectId) out.catalogObjectId = li.squareCatalogObjectId;
     return out;
   });
 

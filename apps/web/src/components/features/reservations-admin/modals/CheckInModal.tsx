@@ -15,6 +15,7 @@ import {
 } from "~/features/reservations-admin/constants";
 import { fmtDate, fmtTime } from "~/features/reservations-admin/format";
 import type { Reservation, ShoeCategory } from "~/features/reservations-admin/types";
+import { CENTER_CODE_TO_QAMF_ID, isFastTraxDuckpinCenter } from "@/lib/qamf-centers";
 import ModalShell from "../ModalShell";
 import { INPUT_STYLE, NAV_BTN } from "../theme";
 
@@ -31,6 +32,7 @@ export default function CheckInModal({
 }) {
   const [phase, setPhase] = useState<string>("loading");
   const [laneLabel, setLaneLabel] = useState("");
+  const [laneNumbers, setLaneNumbers] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [savingShoes, setSavingShoes] = useState(false);
@@ -72,6 +74,7 @@ export default function CheckInModal({
           const pd = await phaseRes.json();
           setPhase(pd.phase || "not_ready");
           setLaneLabel(pd.laneLabel || "");
+          setLaneNumbers(pd.laneNumbers || []);
         } else {
           setPhase("error");
         }
@@ -119,6 +122,7 @@ export default function CheckInModal({
           const pd = await res.json();
           setPhase(pd.phase || "not_ready");
           setLaneLabel(pd.laneLabel || "");
+          setLaneNumbers(pd.laneNumbers || []);
         }
       } catch {
         /* ignore */
@@ -236,7 +240,23 @@ export default function CheckInModal({
       text: "Failed to load lane status",
     },
   };
-  const banner = bannerStyle[phase] || bannerStyle.error;
+  // Duckpin (FastTrax 11542) booked lanes sit at QAMF "Confirmed" and never
+  // reach "Ready" — there's no Conqueror front-desk step like HeadPinz. So the
+  // check-in GET only flips to phase="ready" via the 30-min self-service gate.
+  // For staff, that window is wrong: they must be able to open an assigned lane
+  // on demand (early walk-up, or a multi-lane party where one lane is still
+  // busy). When lanes ARE assigned we treat not_ready as staff-openable.
+  const isDuckpin = isFastTraxDuckpinCenter(CENTER_CODE_TO_QAMF_ID[reservation.centerCode]);
+  const lanesAssigned = laneNumbers.length > 0 || laneLabel.length > 0;
+  const staffCanOpen = phase === "ready" || (isDuckpin && phase === "not_ready" && lanesAssigned);
+
+  const banner = { ...(bannerStyle[phase] || bannerStyle.error) };
+  // Don't mislabel an assigned-but-not-started lane as "not yet assigned".
+  if (phase === "not_ready" && lanesAssigned) {
+    banner.text = isDuckpin
+      ? `${laneLabel || "Lane"} assigned — ready to open`
+      : `${laneLabel || "Lane"} assigned — waiting on lane setup…`;
+  }
 
   return (
     <ModalShell onClose={onClose} maxWidth={500}>
@@ -317,8 +337,10 @@ export default function CheckInModal({
         {banner.text}
       </div>
 
-      {/* Shoe size picker */}
-      {phase !== "loading" && phase !== "completed" && phase !== "cancelled" && (
+      {/* Shoe size picker — FastTrax duckpin has NO rental shoes, so staff never
+          see the picker for it (owner 2026-07-26). The guest express check-in
+          already hides shoes for duckpin via shoePairsAllowed=0. */}
+      {!isDuckpin && phase !== "loading" && phase !== "completed" && phase !== "cancelled" && (
         <div style={{ marginBottom: "1rem" }}>
           <span
             style={{
@@ -468,27 +490,30 @@ export default function CheckInModal({
         <button type="button" onClick={onClose} style={{ ...NAV_BTN, fontSize: "0.8rem" }}>
           Close
         </button>
-        {(phase === "not_ready" || phase === "running" || phase === "error") && (
-          <button
-            type="button"
-            onClick={handleSaveShoesOnly}
-            disabled={savingShoes}
-            style={{
-              padding: "0.5rem 1.25rem",
-              borderRadius: 8,
-              fontSize: "0.8rem",
-              fontWeight: 700,
-              cursor: savingShoes ? "not-allowed" : "pointer",
-              border: "none",
-              backgroundColor: savingShoes ? "rgba(0,226,229,0.2)" : "rgba(0,226,229,0.9)",
-              color: savingShoes ? "rgba(0,226,229,0.5)" : "#000418",
-              opacity: savingShoes ? 0.6 : 1,
-            }}
-          >
-            {savingShoes ? "Saving…" : "Save Shoes"}
-          </button>
-        )}
-        {phase === "ready" && (
+        {!isDuckpin &&
+          ((phase === "not_ready" && !staffCanOpen) ||
+            phase === "running" ||
+            phase === "error") && (
+            <button
+              type="button"
+              onClick={handleSaveShoesOnly}
+              disabled={savingShoes}
+              style={{
+                padding: "0.5rem 1.25rem",
+                borderRadius: 8,
+                fontSize: "0.8rem",
+                fontWeight: 700,
+                cursor: savingShoes ? "not-allowed" : "pointer",
+                border: "none",
+                backgroundColor: savingShoes ? "rgba(0,226,229,0.2)" : "rgba(0,226,229,0.9)",
+                color: savingShoes ? "rgba(0,226,229,0.5)" : "#000418",
+                opacity: savingShoes ? 0.6 : 1,
+              }}
+            >
+              {savingShoes ? "Saving…" : "Save Shoes"}
+            </button>
+          )}
+        {staffCanOpen && (
           <button
             type="button"
             onClick={handleCheckin}
