@@ -21,7 +21,21 @@ the probe so the normalization rules are tested against real payloads.
 
 ## Findings (fill in as probes run)
 
-- [ ] **#1 terminal-split:** VERDICT __________ (date, output pasted)
+- [x] **#1 terminal-split: GO** (2026-07-29, owner-run at FastTrax FM, device 436CS149B8003019).
+      Two $1.00 checkouts against a $2.00 order both ACCEPTED with `amount_money` honored
+      exactly (no coercion to net due); payments APPROVED at 100¢ each; `PayOrder` with both
+      ids (no order_version) → order COMPLETED. **Kiosk multi-card ships as designed.**
+      Extra API facts learned (fold into PR-2/PR-6 + the sweep design):
+      1. **Post-PayOrder, payments CANNOT be canceled** — Square 400s with "Payment is attached
+         to the order and guaranteed to complete." Reversal after capture is refund-only.
+      2. **Payment status lags order state**: immediately after PayOrder the order reads
+         COMPLETED while the payments still read APPROVED for a short window. The ORDER state
+         is authoritative — capture-verification and cleanup must key off it (probe cleanup
+         patched accordingly; original run's auto-refund missed, order was canceled from the
+         dashboard which auto-refunded both payments — reason "Canceled order").
+      3. Terminal `autocomplete:false` auths carry `delay_action=CANCEL, delayed_until≈+36h` —
+         Square self-voids abandoned reader auths in ~1.5 days (not 6); our sweep still wants
+         minutes-scale release, but the backstop is shorter than assumed.
 - [ ] **#2 gc-id-tender:** VERDICT __________
 - [ ] **#3 payorder-cap:** auth-time limit ____, PayOrder cap ____, capture-at-cap ____
 - [ ] **#4 from-gan:** physical → __________; eGift → __________; eGift QR payload shape → __________; MSR track shape / IIN prefix → __________

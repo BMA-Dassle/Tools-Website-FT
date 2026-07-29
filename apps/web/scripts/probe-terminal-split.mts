@@ -259,6 +259,12 @@ let orderId: string | null = null;
 let verdict: "go" | "no-go" | "inconclusive" = "inconclusive";
 let verdictNote = "";
 let exitCode = 2;
+// Set the moment PayOrder reports the order COMPLETED. From then on the
+// payments are "attached to the order and guaranteed to complete" — Square
+// REFUSES /payments/{id}/cancel on them (live 2026-07-29), and their status
+// can read APPROVED for a short lag window after capture. Cleanup must
+// poll-to-COMPLETED and REFUND, never void.
+let orderCaptured = false;
 
 // Last-known payment status by id (recorded during the payment sweep) so the
 // order-cancel step can tell CAPTURED tenders from voided ones.
@@ -332,7 +338,36 @@ async function doCleanup(): Promise<void> {
           continue;
         }
         paymentStatus.set(p.id, pay.status);
-        if (pay.status === "APPROVED") {
+        // Post-capture, a payment can briefly still READ as APPROVED while the
+        // order is already COMPLETED (live 2026-07-29: cancel then fails with
+        // "attached to the order and guaranteed to complete"). Key the branch
+        // off orderCaptured, not the read-back status: poll to COMPLETED, then
+        // refund.
+        if (pay.status === "APPROVED" && orderCaptured) {
+          let status = pay.status;
+          for (let i = 0; i < 5 && status !== "COMPLETED"; i++) {
+            await sleep(1500);
+            const re = await sq("GET", `/payments/${p.id}`);
+            status = re.json?.payment?.status ?? status;
+          }
+          paymentStatus.set(p.id, status);
+          const amount = pay.amount_money?.amount ?? HALF;
+          const r = await sq("POST", "/refunds", {
+            idempotency_key: `${KEY}-refund-${p.id.slice(-6)}`,
+            payment_id: p.id,
+            amount_money: { amount, currency: "USD" },
+            reason: "Terminal split probe cleanup",
+          });
+          console.log(
+            `  ${p.label} captured (read ${status}) → refund ${amount}¢ → ${
+              r.ok ? `ok refund=${r.json.refund?.id} status=${r.json.refund?.status}` : "FAILED " + errStr(r.json)
+            }`,
+          );
+          if (!r.ok)
+            console.log(
+              `  MANUAL ACTION: payment ${p.id} — captured ${amount}¢ did not refund; REFUND it manually (cancel is impossible post-capture)`,
+            );
+        } else if (pay.status === "APPROVED") {
           const r = await sq("POST", `/payments/${p.id}/cancel`, {
             idempotency_key: `${KEY}-cancel-${p.id.slice(-6)}`,
           });
@@ -538,6 +573,7 @@ try {
   const finalState = payOrderRes.json.order?.state;
   console.log(`   PayOrder ok — order state=${finalState}`);
   if (finalState === "COMPLETED") {
+    orderCaptured = true; // cleanup must REFUND, never void, from here on
     verdict = "go";
     verdictNote = "two partial Terminal checkouts + atomic PayOrder capture work end-to-end";
     exitCode = 0;
