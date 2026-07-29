@@ -101,6 +101,13 @@ export const miscEn = {
   "waiverPhoto.err.unavailableMsg": "Camera unavailable: {msg}",
   "waiverPhoto.err.unavailable": "Camera unavailable.",
   "waiverPhoto.err.snapFail": "Couldn’t take the photo — try again.",
+  "waiverPhoto.err.notSetUp": "The camera isn’t set up on this kiosk.",
+  "waiverPhoto.err.noFrames": "The camera isn’t sending a picture.",
+  "waiverPhoto.broken.title": "The camera isn’t working",
+  "waiverPhoto.broken.adult":
+    "No problem — the front desk will take your photo at check-in. Moving on…",
+  "waiverPhoto.broken.minor":
+    "No problem — the front desk will take {name}’s photo at check-in. Moving on…",
 
   // --- Group/online waiver flow CHROME (KioskWaiverFlow) ---
   // Legal waiver BODY text lives in the reused people/signature step and stays
@@ -235,6 +242,13 @@ export const miscEs: Record<keyof typeof miscEn, string> = {
   "waiverPhoto.err.unavailableMsg": "Cámara no disponible: {msg}",
   "waiverPhoto.err.unavailable": "Cámara no disponible.",
   "waiverPhoto.err.snapFail": "No se pudo tomar la foto — inténtalo de nuevo.",
+  "waiverPhoto.err.notSetUp": "La cámara no está configurada en este quiosco.",
+  "waiverPhoto.err.noFrames": "La cámara no está enviando imagen.",
+  "waiverPhoto.broken.title": "La cámara no funciona",
+  "waiverPhoto.broken.adult":
+    "No hay problema — el mostrador tomará tu foto al registrarte. Continuando…",
+  "waiverPhoto.broken.minor":
+    "No hay problema — el mostrador tomará la foto de {name} al registrarte. Continuando…",
 
   // --- Group/online waiver flow CHROME (KioskWaiverFlow) ---
   "waiverFlow.loading": "Cargando…",

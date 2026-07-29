@@ -15,6 +15,7 @@
  */
 import { useEffect, useState } from "react";
 import { bridgeHealth } from "../service/game-card-bridge";
+import { cameraPermissionState, type CameraPermission } from "../camera";
 import { venueSlug, type KioskConfig } from "../config";
 import { deriveScannerCheck, getScannerModel, type SerialGrantProbe } from "../qr-scanner";
 
@@ -24,6 +25,7 @@ export function DeviceCheckCard({ config }: { config: KioskConfig | null }) {
   const [gameZone, setGameZone] = useState<"testing" | "local" | "cloud">("testing");
   const [serialGrants, setSerialGrants] = useState<SerialGrantProbe>("testing");
   const [cams, setCams] = useState<"testing" | number>("testing");
+  const [camPerm, setCamPerm] = useState<CameraPermission>("unknown");
 
   useEffect(() => {
     let alive = true;
@@ -51,11 +53,14 @@ export function DeviceCheckCard({ config }: { config: KioskConfig | null }) {
       const ports = await nav.serial.getPorts().catch(() => []);
       if (alive) setSerialGrants(ports.map((p) => p.getInfo()));
     })();
-    // Cameras: count video inputs (no permission needed to count).
+    // Cameras: count video inputs (no permission needed to count) + the
+    // permission grant itself — not-granted means the guest waiver photo
+    // auto-skips, which staff should see here before a guest hits it.
     void navigator.mediaDevices
       ?.enumerateDevices()
       .then((d) => alive && setCams(d.filter((x) => x.kind === "videoinput").length))
       .catch(() => alive && setCams(0));
+    void cameraPermissionState().then((p) => alive && setCamPerm(p));
     return () => {
       alive = false;
     };
@@ -137,11 +142,30 @@ export function DeviceCheckCard({ config }: { config: KioskConfig | null }) {
               ? "ok"
               : "warn",
     },
-    {
-      label: "Cameras",
-      value: cams === "testing" ? "checking…" : cams > 0 ? `${cams} detected` : "none detected",
-      tone: cams === "testing" ? "test" : cams > 0 ? "ok" : "dim",
-    },
+    (() => {
+      // A guest-photo camera is CONFIGURED but missing or not permitted →
+      // warn: the waiver photo will silently auto-skip on this kiosk.
+      const camConfigured = !!(config?.cameraUpperId || config?.cameraLowerId);
+      const permNote =
+        camPerm === "granted"
+          ? " · permission OK"
+          : camPerm === "denied"
+            ? " · BLOCKED in browser"
+            : camPerm === "prompt"
+              ? " · permission not granted"
+              : "";
+      const broken = camConfigured && (cams === 0 || camPerm === "denied" || camPerm === "prompt");
+      return {
+        label: "Cameras",
+        value:
+          cams === "testing"
+            ? "checking…"
+            : cams > 0
+              ? `${cams} detected${permNote}${broken ? " (guest photo will skip)" : ""}`
+              : `none detected${camConfigured ? " (guest photo will skip)" : ""}`,
+        tone: (cams === "testing" ? "test" : broken ? "warn" : cams > 0 ? "ok" : "dim") as Tone,
+      };
+    })(),
     {
       label: "Square reader",
       value: config?.readerId ?? "none",

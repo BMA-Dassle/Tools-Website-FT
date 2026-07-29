@@ -41,6 +41,26 @@
  * the last KbfItem leaves the cart.
  */
 import type { AppliedPromo } from "~/features/discount-codes";
+
+/**
+ * The session's scanned/applied BMI voucher (shared by kiosk + web — see
+ * service/voucher-redeem.ts for the redemption model and coverage math).
+ */
+export interface AppliedVoucherState {
+  /** The voucher number, uppercased (24-char BMI format). */
+  code: string;
+  /** BMI comp line name (e.g. "Race Comp") — known once applied to the bill. */
+  name?: string;
+  /** Bill the comp line landed on — set once applied (not pending). */
+  billId?: string;
+  /** The comp line's OrderItemId on that bill (raw string — 17-digit). */
+  voucherOrderItemId?: string;
+  /** Scanned before any BMI bill existed — applied as soon as one is created. */
+  pending?: boolean;
+  /** Apply failed — surfaced to the guest at checkout, never silently dropped. */
+  error?: string;
+}
+
 import type { BmiProposal } from "../data/bmi";
 import type { Activity, Brand, CenterCode, ContactInfo } from "../types";
 import type { EntryContext } from "./entry-context";
@@ -68,8 +88,9 @@ export interface PartyMember {
    * SHORT Pandora/public person id — Pandora's waiver-sign and race-schedule
    * endpoints REJECT the 17-digit Office id a returning-racer lookup yields
    * (live 2026-07-18: waiver sign 500s), so the kiosk resolves this via the
-   * upsert-style Pandora create (known person → same id, never a duplicate)
-   * and prefers it for every Pandora call. New racers' bmiPersonId IS already
+   * Pandora create (which usually resolves a known person to the same id but
+   * is NOT a reliable upsert — 2026-07-25: it can mint a duplicate, so resolve
+   * AT MOST ONCE) and prefers it for every Pandora call. New racers' bmiPersonId IS already
    * this short id.
    */
   pandoraPersonId?: string;
@@ -627,6 +648,17 @@ export interface BookingSession {
    * memory: booking_v2_promo_integration.md.
    */
   appliedPromo: AppliedPromo | null;
+  /**
+   * BMI vouchers captured at the kiosk code-entry screen or the web checkout
+   * promo input — a LIST, scan order preserved (owner 2026-07-27: a party
+   * scans one comp per racer). Unlike `appliedPromo` (our Neon discount
+   * codes), vouchers are BMI's: redemption = `order/applyCode` puts each
+   * voucher's comp product on the bill as a $0 line and BMI nets them at
+   * processing; OUR charge excludes the covered heats/units (see
+   * service/voucher-redeem.ts planVoucherCoverage). Entries are `pending`
+   * until a BMI bill exists to apply to.
+   */
+  appliedVouchers?: AppliedVoucherState[];
   /**
    * Combo-special id (features/combos registry, e.g. "race-bowl") — stamped
    * ONCE at session creation by the /book/combo/[id]/v2 entry, like

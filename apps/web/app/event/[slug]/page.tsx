@@ -2068,6 +2068,10 @@ export default function GroupEventPage() {
                   personId={personId}
                   template={waiverTemplate}
                   location={event.pandoraLocation ?? "headpinz"}
+                  // Event-scoped validity (owner 2026-06-18): a one-event
+                  // signature must not become a year-long waiver — match the
+                  // checkbox path's WAIVER_VALID_DAYS (waiver-digital.tsx).
+                  validDays={5}
                   onComplete={() => {
                     setWaiverValid(true);
                     setStep("dashboard");

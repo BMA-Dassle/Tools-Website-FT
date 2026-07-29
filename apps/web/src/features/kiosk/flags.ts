@@ -225,6 +225,23 @@ export function kioskWelcomeRotateEnabled(): boolean {
 }
 
 /**
+ * Coupon / promo codes on the kiosk (owner 2026-07-27, reversing the 2026-07-21
+ * "no promo input" call — entry moved to the CATEGORY screen, mirroring the
+ * website's /book/v2 attraction selector) — OPT-IN, defaults OFF. Gates the
+ * "Coupon or voucher?" chip on KioskCategories and the code-entry screen. The
+ * pricing seams have been live the whole time (the kiosk cart runs
+ * promoFactor/applyPromoToBillLines transitively), so enabling this only adds
+ * the ENTRY point. Set the literal "true" in Vercel + redeploy to show it
+ * (NEXT_PUBLIC_* values are build-baked — scope the var to Preview too or
+ * preview builds bake it off). Preview opt-in without env changes:
+ * /kiosk/flow?kioskPromo=1 (same pattern as ?bowlingV3=1). Read at call time
+ * (never module scope) so tests can stub process.env.
+ */
+export function kioskPromoEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_PROMO === "true";
+}
+
+/**
  * Kiosk "Next available" EXPERIENCES fan-out — kill switch, defaults ON,
  * server-side only (the cached availability compute is the sole consumer, so no
  * NEXT_PUBLIC prefix / no rebuild needed — flip in Vercel + it takes effect on

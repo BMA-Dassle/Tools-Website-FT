@@ -322,7 +322,14 @@ Rollout per v2 cutover pattern: deploy flag-off → enable for one ops user → 
 
 ## 14. Assumptions to verify (before the dependent PR merges)
 
-- **A1: ANSWERED NO (owner live finding, 2026-07-11).** Square does NOT allow partial refunds of gift-card-funded payments (and gift-card refunds are heavily restricted generally). Consequences, all implemented: (a) refunds of reservation money carry the exact reason **"Reservation Deposit"** and the internal GC is always decremented manually (`ADJUST_DECREMENT`) — never via a GC-tender refund; (b) the PRE-decrease allocator skips gift-card-funded deposit tenders (guests can part-pay deposits with their own gift card) and fails loudly toward store-credit settlement when card tenders can't cover the owed amount; (c) the MID-decrease and POST-COMPLETE designs (both refund the internal-GC day-of tender) are INVALID as specced — `RESERVATION_EDIT_V2_MID_DECREASE` / `_POST` must stay OFF until redesigned to refund the guest's card directly + adjust the GC.
+- **A1: OVERTURNED 2026-07-27 — the API ACCEPTS partial refunds of gift-card-funded payments**
+  (owner-authorized live probe `apps/web/scripts/gc-refund-probe.mts`: real card→GC→order chain,
+  $1 partial refund of the $2 GC payment accepted and completed). The 7/11 "NO" was a
+  dashboard/ops observation, not an API result. MID_DECREASE / POST may be viable as originally
+  specced — re-run the probe in the exact production payment shape (internal WEBHPFM-GAN card
+  paying a day-of order) before enabling either flag. Original 7/11 record kept below for the
+  history of what the current code (skip-GC-tender allocator, store-credit fallback) was built
+  against. _Original:_ **ANSWERED NO (owner live finding, 2026-07-11).** Square does NOT allow partial refunds of gift-card-funded payments (and gift-card refunds are heavily restricted generally). Consequences, all implemented: (a) refunds of reservation money carry the exact reason **"Reservation Deposit"** and the internal GC is always decremented manually (`ADJUST_DECREMENT`) — never via a GC-tender refund; (b) the PRE-decrease allocator skips gift-card-funded deposit tenders (guests can part-pay deposits with their own gift card) and fails loudly toward store-credit settlement when card tenders can't cover the owed amount; (c) the MID-decrease and POST-COMPLETE designs (both refund the internal-GC day-of tender) are INVALID as specced — `RESERVATION_EDIT_V2_MID_DECREASE` / `_POST` must stay OFF until redesigned to refund the guest's card directly + adjust the GC.
 - **A2:** `Card.fingerprint` populated at Square-Version 2024-12-18 (else brand+last4+exp dedupe; worst case = duplicate card the sweep deletes anyway).
 - **A3:** `orders/calculate` tax math matches order-create exactly under our `LOCATION_TAX` scope.
 - **A4:** QAMF `setLanePlayers` doesn't reset lane pricing/state in Conqueror when lists change (staging probe; if it does, player-count changes also take the rebook path).

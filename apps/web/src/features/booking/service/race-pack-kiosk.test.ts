@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyPackSelection,
   computePackCoverage,
   coveredMembersPreview,
   resolveKioskPacks,
@@ -182,5 +183,45 @@ describe("resolveKioskPacks", () => {
     expect(() =>
       resolveKioskPacks([{ slug: "3-race-weekday", memberId: "m1" }], party, saturday),
     ).toThrow(/isn't available/);
+  });
+});
+
+describe("applyPackSelection", () => {
+  const WD = "3-race-weekday";
+  const ANY = "3-race-anytime";
+
+  it("adds the slug for every checked member in one apply", () => {
+    const next = applyPackSelection([], WD, ["m1", "m2", "m3"]);
+    expect(next).toEqual([
+      { slug: WD, memberId: "m1" },
+      { slug: WD, memberId: "m2" },
+      { slug: WD, memberId: "m3" },
+    ]);
+  });
+
+  it("replaces a checked member's other pack (one pack per racer)", () => {
+    const next = applyPackSelection([{ slug: ANY, memberId: "m1" }], WD, ["m1", "m2"]);
+    expect(next).toEqual([
+      { slug: WD, memberId: "m1" },
+      { slug: WD, memberId: "m2" },
+    ]);
+  });
+
+  it("unchecking a current holder removes their pack; other slugs untouched", () => {
+    const picks = [
+      { slug: WD, memberId: "m1" },
+      { slug: WD, memberId: "m2" },
+      { slug: ANY, memberId: "m3" },
+    ];
+    // m2 unchecked from the weekday pack's panel — m3's any-day pack survives.
+    const next = applyPackSelection(picks, WD, ["m1"]);
+    expect(next).toEqual([
+      { slug: ANY, memberId: "m3" },
+      { slug: WD, memberId: "m1" },
+    ]);
+  });
+
+  it("returns undefined when the result is empty (session stores no key)", () => {
+    expect(applyPackSelection([{ slug: WD, memberId: "m1" }], WD, [])).toBeUndefined();
   });
 });

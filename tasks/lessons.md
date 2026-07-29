@@ -1,5 +1,63 @@
 # Lessons Learned
 
+## A readiness gate that covers 3 of 4 item kinds is a hole, not a gate — and a $0 cart leg still calls a vendor (2026-07-28)
+
+**What happened:** A FastTrax kiosk captured **$234.21** (race + 4 race packs, BMI bill
+63000000006468566) and then threw. The guest got the "Payment received — do NOT pay again" screen;
+the center set the reservation up by hand.
+
+**Root cause chain — four things had to line up, and every one of them was ours:**
+
+1. The guest tapped the **Duck Pin** tile, pressed **Back** on the first step, and booked racing
+   instead. Back-at-step-0 deliberately keeps the draft in the cart (KioskFlow.tsx: "Main menu
+   offers removing it"), so a completely untouched bowling item stayed behind — `bookedAt: null`,
+   `webOfferId: null`, no hold, `playerCount: 2`/`laneCount: 1` still at `newItem()` defaults.
+2. `allItemsReady()` in CartView gated `race` (needs a heat) and `attraction` (needs product AND
+   slot) — then returned a hardcoded **`true`** for `bowling`/`kbf`. Bowling was the one kind that
+   could reach the pay screen unconfigured.
+3. Duckpin prices through QAMF/Square, not the BMI bill, so a leg with no offer contributed **$0**
+   and was invisible in the cart total. Nobody — guest or code — could see it in the money.
+4. `unified-reserve` still iterated it and called QAMF with `webOfferId: 0` and
+   `BookedAt: new Date().toISOString()` → **400 `{"BookedAt":["Millisecond must be 0."],
+   "Customer.Guest.PhoneNumber"…}`** AFTER capture, taking the PAID race booking down with it.
+
+Then two things stopped anyone from recovering or even noticing:
+
+- The client's 3-attempt retry could never work. Attempt 1 activated the deposit gift card and
+  failed at QAMF; attempts 2-3 failed **earlier**, at `BAD_REQUEST: Gift card must not be
+  activated.` Square does not replay that off the idempotency key — it rejects on card state.
+- `qamf-bowling-auth.ts` truncated the vendor body to **200 chars**, cutting the PhoneNumber rule
+  mid-field. The single most valuable line in the failure was destroyed by our own logging.
+
+**Fix (`fix/phantom-bowling-leg`):** `service/bookable.ts` — one pure predicate, a leg is bookable
+with a hold OR (`bookedAt` AND `webOfferId`); `allItemsReady` uses it (bowling gated at last) and an
+unfinished item turns the pay button into "Finish setting up X →" instead of a dead greyed-out
+button; Back-at-step-0 drops an untouched draft; `unified-reserve` partitions unbookable legs out
+before pricing, charge and confirm, and records each drop; the `bookedAt` fallback is
+`nowRounded5EtIso()`; `createReservation`/`setReservationCustomer` normalize `BookedAt` (seconds and
+ms to zero) and `PhoneNumber` (digits) at the client choke point; already-activated gift cards
+verify balance and replay as success; vendor bodies keep 1200 chars. Plus
+`lib/reserve-attempt-log.ts` — a durable Neon `reserve_attempts` row per attempt.
+
+**Guardrails:**
+
+- **A readiness/validation switch over a union MUST justify every arm.** `return true` for a kind is
+  a decision, not a default — write down why, or gate it. Three arms guarded and one waved through
+  is worse than no gate, because everyone downstream trusts it.
+- **$0 is not the same as absent.** A cart leg that prices to nothing can still make vendor calls and
+  fail a paid transaction. Reason about legs by whether they can BE BOOKED, never by what they cost.
+- **Drop, don't throw, after the money lands.** When a leg cannot possibly succeed and carries no
+  money, skipping it (loudly, durably logged) beats failing a captured booking.
+- **Never truncate a 4xx validation body.** 200 chars is shorter than one vendor error list.
+- **"Already in the target state" is success, not failure** — activation, confirmation, cancellation.
+  A retry that dies EARLIER than the original failure is the signature of a non-idempotent step.
+- **A screen that says "our team has been notified" must actually notify someone.** Ours didn't; the
+  guest at the counter was the alert. (Alerting deferred by owner 2026-07-28 — the durable log
+  lands first.)
+- **Our own log, or it didn't happen.** Vercel runtime-log queries time out past ~3 minutes of
+  window, retention is short, and there is no "what happened to bill X". Every money fan-out gets a
+  Neon audit row with the FULL error, written before the charge and closed either way.
+
 ## A deterministic Square idempotency key locks a customer out after a card DECLINE (2026-07-25)
 
 **What happened:** A customer booking a 6pm VIP experience (3 adults + 1 junior) hit
@@ -24,6 +82,7 @@ rejects a second full authorization against an already-covered order. Vaulted-ca
 (card-vault-sweep) pass a stable reusable token, so replay-safety there is preserved.
 
 **Guardrails:**
+
 - A payment idempotency key must be unique **per attempt**, not per order/bill. Key it off the
   single-use payment token (nonce), never off a stable business id alone.
 - Prevent double-charge with a **stable ORDER** (one deposit order per bill) + Square's order-balance
@@ -46,7 +105,7 @@ cleared the card for real (verifyAccount then returned `exists:false`).
 array arrives **empty** — the op clears zero accounts and returns 0. A green result code proved
 nothing.
 
-**Also learned (same dry-run):** `TPI_ClearAccount` *de-registers the account entirely* ("so the
+**Also learned (same dry-run):** `TPI_ClearAccount` _de-registers the account entirely_ ("so the
 cards can be re-issued" — spec), it does NOT just zero the balance. A `creditTokens` on the same
 number afterward RE-MATERIALIZES the account clean. So the clear→credit "clear-on-encode" sequence
 is sound — but only once the item tag is correct.
@@ -167,6 +226,76 @@ operational model is: refund the guest's money on the CARD payment with reason e
 - Any NEW ledger that records refunds (e.g. `reservation_edit_events`) must be added to the
   refund-alerts sanctioned set (`recordedCascadeRefundIds`), or the system yells at its own
   refunds as Dashboard violations. Refund-alerts whitelists by refund ID, not reason.
+
+**UPDATE — OVERTURNED at the API level (2026-07-27, owner-authorized live probe
+`apps/web/scripts/gc-refund-probe.mts` + `-followup.mts`):** `POST /v2/refunds` **ACCEPTED a $1
+PARTIAL refund of a $2 gift-card-funded payment** (real chain: owner's VISA bought a $2 gift
+card → gift card paid a $2 order → $1 partial refund of that GC payment → accepted, completed,
+payment shows refunded_money=$2 after the remainder refund). The 7/11 "NO" was never an API
+attempt — it was a dashboard/ops-flow limitation recorded as if it were an API rule.
+Consequences:
+
+- The `skipGiftCardTender` hop in `refundTenderPartial` and the GIFT_CARD skip in the edit
+  allocator are OVER-conservative (safe, but partial GC refunds are in fact available).
+- `RESERVATION_EDIT_V2_MID_DECREASE` / `_POST` "must be redesigned" (§14 A1) should be
+  revisited — the original GC-tender-refund specs appear viable as written. Re-verify in the
+  exact production shape before flipping anything on.
+- Unlinked refunds: still **NOT enabled** as of 2026-07-27 — a validly-shaped request
+  (`unlinked: true`, `destination_id` = card on file, `customer_id` present) returns
+  `REFUND_ERROR/REFUND_DECLINED`. Note the request REQUIRES `customer_id` when destination is a
+  card on file (first attempt without it fails validation, which masks the entitlement answer).
+- Probe-sequencing lesson: NEVER `DEACTIVATE` a gift card while refunds to it are PENDING — the
+  refund credit lands asynchronously (payment showed refunded before any REFUND activity
+  appeared on the card). Verify the REFUND activity on the card before teardown.
+- Reason-string lesson (owner correction, 2026-07-27): EVERY real Square refund — probes and
+  one-off scripts included — carries the exact reason **"Refund: Reservation Deposit"**. The
+  portal's journal-entry pickup keys off it; an ad-hoc reason ("probe: …") means the refund is
+  invisible to the journal and needs manual accounting. The 7/27 probe created three such
+  refunds (2×$1 on the GC spend payment, 1×$2 on the VISA purchase payment); Square refund
+  reasons are immutable, so those three need manual journal entries.
+- Refund-reason SCOPE (owner, 2026-07-27): `"Refund: Reservation Deposit"` belongs to the
+  **deposit / cash-out leg only**. A refund of the DAY-OF Square payment (the GC-funded revenue
+  order) must NOT carry it — that would double-count one economic event in the portal journal.
+  The day-of leg carries its own **staff-supplied reason** entered in the admin portal at refund
+  time. Per-domain reasons are the norm, not an exception (group functions already use
+  `"Refund: Group Event Deposit"`).
+- **NEVER issue an amount-only refund** (owner rule, 2026-07-27). A bare `POST /v2/refunds`
+  (payment_id + amount) records a dollar figure and nothing else: the returned item never shows
+  in Square's item-level sales reporting and QBO cannot categorize it, so the books keep revenue
+  that was actually reversed. Refunds must be **ITEMIZED**: create a return order
+  (`POST /v2/orders` with `returns[].source_order_id` +
+  `return_line_items[].source_line_item_uid`, which does NOT mutate the immutable paid order),
+  then refund with `order_id` = that return order. **Square computes the tax-inclusive
+  `return_amounts.total_money` itself — use that figure, not local tax math.** Probed live
+  2026-07-27 (`apps/web/scripts/dayof-itemized-return-probe.mts`): both the return order and the
+  linked refund were accepted. If the returned lines cannot be identified, REFUSE the refund
+  rather than falling back to an amount. (The deposit/cash leg is a single funding line with no
+  item semantics and is the one exception.)
+- **A PAID Square order's line items are IMMUTABLE — forever** (probed 2026-07-27,
+  `apps/web/scripts/dayof-lines-after-refund-probe.mts`). `UpdateOrder` returns
+  `BAD_REQUEST "LineItems cannot be modified for finalized tenders"` on an order with finalized
+  tenders — before a refund, after a PARTIAL refund, and even after the tender is refunded in
+  FULL. There is no sequence that unlocks it. Consequences: any post-payment money flow is
+  **money-only** (the order keeps its original lines and the refund objects carry the story);
+  never plan an `update_dayof_order` step for a lane-open or completed order — it would fail
+  fatally _after_ money moved. Only PRE-phase (zero-tender) orders accept line edits.
+- Related, same probe run: a partial refund does **NOT** reopen `net_amount_due_money` on the
+  source order (it stays 0 and the order stays OPEN). So the feared "strand trap" — a refunded
+  order stuck at balance-due and skipped forever by `bowling-order-complete` — does **not**
+  exist. Don't design around it, and don't treat a refund as a guard against the complete-cron.
+- Same run: `payment.refunded_money` **includes PENDING refunds**, so clamping against it during
+  the async settlement window is safe (a retry cannot over-refund).
+- Same run: refunding a payment on a **COMPLETED** order is accepted — the money-only
+  post-complete path is valid.
+- Same run, confirmed the hard way: the 7/27 card ending 1430 has **no REFUND activity at all**
+  — the credit never posted because the card was DEACTIVATED while its refunds were PENDING.
+  Deactivating a gift card with refunds in flight **destroys the money**. Always wait for the
+  credit before drain/deactivate.
+- Probe-location rule (owner, 2026-07-27): ALL live Square probes run against location
+  **`6MZJFTGAYD7TC`** — it does NOT track accounting. NEVER probe against a revenue location
+  (the 7/27 probes hit HeadPinz Fort Myers `TXBSQN0FEKQ11` and put probe sales/refunds into
+  that day's books). Every probe script's `LOCATION` constant uses `6MZJFTGAYD7TC`.
+
 ## Pandora heatNumber is CREATION-order, not schedule-order — never order heats by it (2026-07-11)
 
 **What happened:** Staff inserted an extra Blue session mid-day ("76 - Blue Junior Starter",
@@ -261,9 +390,10 @@ public-booking `DELETE bill/{orderId}/cancel` returned `true` on CONFIRMED bills
 cancel — but it only deletes the BILL record. The real Office PROJECT (id = billId+1, resolved
 via `search?token={W} → kind===2 → localId`) stays Confirmation and keeps holding the heat
 capacity. The old 2026-05-11 lesson ("delete only works pre-confirm") was half right: it
-doesn't *fail* post-confirm, it half-succeeds, which is worse.
+doesn't _fail_ post-confirm, it half-succeeds, which is worse.
 
 Rules:
+
 - **The Office project state (-4 via setProjectState) is the ONLY real cancel for a booked
   BMI reservation.** The public bill delete is bill-record cleanup afterwards, or the primary
   only when NO project resolves (never-confirmed bills). Never treat its `true` as done.
@@ -316,22 +446,25 @@ $1298.24, day-of order $2192.30 correctly reconciled, balance $894.06 on a saved
 event crossed the 96h line, so `group-quote-dispatch` (`fullPaymentRequired`) flipped `deposit_due_cents`
 to the **full total**, and `lib/portal-format.ts` computed **"deposit paid" = `deposit_due_cents`**. A data
 fix to `deposit_due_cents` does NOT stick — the dispatch cron rewrites it every pass (route.ts ~L441).
+
 - **Fix:** `depositPaidCents(q) = q.deposit_paid_at ? Math.min(q.deposit_due_cents, q.collected_cents) : 0`
   — "deposit paid" / balance-payment amounts now derive from real collected money, capped so they can never
-  exceed what was actually paid. `deposit_due_cents` is a mutable *due* amount, never a *paid* amount.
+  exceed what was actually paid. `deposit_due_cents` is a mutable _due_ amount, never a _paid_ amount.
 
 **Symptom 2 — re-sign didn't re-confirm BMI.** A price change after deposit sets the quote to
 `resign_required` and resets the BMI project to "Pending Signed Contract" (FM stateId **48952154**). The
 guest re-signed, but `app/api/group-function/resign-settle/route.ts` never called `updateProjectStatus(-3)`
-— only the *deposit* route confirmed BMI. So the project sat stuck at "Pending Signed Contract" with the
+— only the _deposit_ route confirmed BMI. So the project sat stuck at "Pending Signed Contract" with the
 balance correctly recorded.
+
 - **Fix:** `resign-settle` now calls a non-fatal `reconfirmBmi(quote)` (mirrors the deposit route's BMI
   block) on **every** settle branch — deposit-only, reprice-charged, refund-owed, no-change.
 
 **How to apply / general rules:**
+
 - "Paid" displays are derived from `collected_cents` (real money in), never from `deposit_due_cents`/
-  `deposit_due` (a *due* amount the dispatch cron mutates to full total within 96h). `amount_due = total -
-  collected` is the only safe identity.
+  `deposit_due` (a _due_ amount the dispatch cron mutates to full total within 96h). `amount_due = total -
+collected` is the only safe identity.
 - Any GF flow that lands a contract in a signed/settled state (deposit, re-sign, post-paid sign) MUST
   re-confirm the BMI project (`updateProjectStatus`, stateId -3). Adding a new signed-terminal path? Wire
   in the BMI confirm or the event stays at "Pending Signed Contract."
@@ -356,6 +489,7 @@ relying on the API call**. Our DB is the source of truth; the API is a downstrea
 row stays recoverable + retryable.
 
 **How to apply:**
+
 - Persist guest selections (food/toppings/drinks, player names, shoe sizes, waiver answers, contact info,
   anything typed/chosen) to Neon as the first guaranteed step, then sync to the API.
 - Do NOT write persistence as "best-effort after the API call" — that's exactly how this data was lost.
@@ -373,10 +507,10 @@ greater than 45 length"** on the **payment idempotency_key**.
 
 Square's idempotency_key limits differ per endpoint: **CreatePayment = 45**, **CreateCard = 45**,
 gift-card activities = 128, **CreateOrder = 192**. The reprice path built its keys by prefixing a baseKey
-that *itself* began with `gf-reprice-`:
+that _itself_ began with `gf-reprice-`:
 
 ```js
-const baseKey = `gf-reprice-${quote.id}-${hash16}`;            // e.g. gf-reprice-143-26ad0266ecd84a73
+const baseKey = `gf-reprice-${quote.id}-${hash16}`; // e.g. gf-reprice-143-26ad0266ecd84a73
 // derived: `gf-reprice-pay-${baseKey}`  → "gf-reprice-pay-gf-reprice-143-…" = 46 chars  ✗ (>45)
 //          `gf-reprice-card-${baseKey}` → 47 chars  ✗
 ```
@@ -386,24 +520,28 @@ dependent**: it fit for 1–2-digit ids (≤45), so it passed every low-id sandb
 quote 143 was the first 3-digit paid-in-full reprice to hit it. The CreateOrder key (limit 192) was fine,
 so an OPEN order got created but the payment **always** failed before any Payment object existed (zero
 payments, order stuck OPEN). The card was valid the whole time. (A first attempt to "encode the amount in
-the key" made it *worse* — longer — confirming the constraint is length, not collision.)
+the key" made it _worse_ — longer — confirming the constraint is length, not collision.)
 
 **Fix:** a FIXED-length hash, so the key can't grow with id/total magnitude, still keyed on the fields
 that make the charge unique (quote + target total + card source):
+
 ```js
 const baseKey = createHash("sha256")
   .update(`gf-reprice:${quote.id}:${quote.total_cents}:${sourceId}`)
-  .digest("hex").slice(0, 24);   // pay=39, card=40, order=41 chars — all ≤45 forever
+  .digest("hex")
+  .slice(0, 24); // pay=39, card=40, order=41 chars — all ≤45 forever
 ```
+
 Keying on `total_cents` also keeps the re-price collision-safe (new total ⇒ fresh order/payment; a
 double-submit at the same total dedupes; after a successful settle `collected_cents == total_cents` and
 only ever rises, so a charge-succeeded-but-DB-failed retry replays the same payment, never double-charges).
 
 **Guardrails:**
+
 - Square payment/card idempotency keys are capped at **45 chars**. Don't build them by prefixing a
   baseKey that already carries a prefix — and don't let any key length depend on variable-width content
   (ids, amounts). Prefer a **fixed-length hash**; audit each derived key against its endpoint's limit.
-- An idempotency key whose length grows with content fails silently for *large* inputs only — it will
+- An idempotency key whose length grows with content fails silently for _large_ inputs only — it will
   pass every small-input test. Test with realistic production-scale ids/amounts.
 - When a money endpoint returns a hard error, **write the provider error code + detail to the audit log**
   before returning. resign-settle logged nothing on failure, which forced live Square archaeology and a
@@ -426,7 +564,7 @@ token-reuse fragility.
 
 **Guardrail:** when saving a card on file from a fresh tokenize(), prefer a single `CreateCard`
 call. If you genuinely need a pre-charge verification, tokenize with `intent: "CHARGE_AND_STORE"`
-or capture the *payment id* (not the nonce) and pass that as CreateCard `source_id` — never reuse
+or capture the _payment id_ (not the nonce) and pass that as CreateCard `source_id` — never reuse
 the raw nonce across two Square calls.
 
 ## Pandora-created person must finish syncing to the cloud before booking a race/activity (2026-06-17)
@@ -446,6 +584,7 @@ This is the same shared code path for **both** `xmas-in-july` and `healthnet-202
 "schedule your activities" CTA that funnels entry-only guests into booking inherits the bug.
 
 **Guardrails:**
+
 - After creating a person via Pandora, **gate race/activity selection on a readiness check** — poll
   until the person is visible to the booking backend (reuse the `getWithRetry` cold-start pattern in
   `lib/pandora.ts`), then enable booking. A blind fixed delay is a fallback, not the fix; prefer
@@ -459,7 +598,7 @@ This is the same shared code path for **both** `xmas-in-july` and `healthnet-202
 For 5½ weeks (since the v2 day-of order flow launched 2026-05-09), **1,498 bowling/KBF day-of
 Square orders — $133,005.63 — sat in state OPEN despite being fully paid.** They never imported
 into QuickBooks because the Square→QuickBooks sync (and item-level Sales reporting) only pull
-*completed* sales. No money was lost (payments captured on the right days; orders were visible in
+_completed_ sales. No money was lost (payments captured on the right days; orders were visible in
 Square the whole time) — purely a reporting/import gap. Full write-up:
 `docs/postmortems/2026-06-16-bowling-day-of-orders-left-open.md`.
 
@@ -478,10 +617,11 @@ a cron backstop for missed events. All paths share a `dayof_order_completed_at` 
 no-shows stay on `bowling-no-show-close`.
 
 **Guardrails:**
+
 - If a flow offloads a finalizing step to humans (close on POS, bump a ticket), it is **not done**
   without an automated fallback that runs if the human step doesn't happen — plus an alert when the
   unfinished state piles up ("paid orders OPEN with $0 due > N hours").
-- **Reconcile order *state*, not just payments.** Payment-based reports looked correct the entire
+- **Reconcile order _state_, not just payments.** Payment-based reports looked correct the entire
   time while the orders that feed item-sales/QBO were never closed.
 - **Diff against the working sibling.** When one flow works (GF/racing complete-on-payment) and a
   parallel one doesn't (bowling), compare them first — the fix is usually "do what the sibling does."
@@ -507,11 +647,12 @@ with **`personId: null`** — no BMI person, no waiver on file. They still got e
 who needs to sign at Guest Services was waved through.
 
 Root cause — the eligibility check **filtered the party down to members that already had a
-personId, then asked "are all of *those* waivers valid?"** A personId-less second racer was
+personId, then asked "are all of _those_ waivers valid?"** A personId-less second racer was
 silently dropped from the decision instead of disqualifying the party. "1 returning + 1
 unregistered" → express.
 
 This existed in **three** places, all with the same shape:
+
 - `apps/web/src/features/booking/service/checkout.ts` — `party.filter(m => m.bmiPersonId)` then
   `.every(waiverValid)` → wrote the `fastLane` flag to the booking record.
 - `apps/web/app/book/confirmation/v2/page.tsx` — `racers.map(r => r.personId).filter(Boolean)`
@@ -523,15 +664,17 @@ This existed in **three** places, all with the same shape:
   to be fixed too.
 
 **Fix:** express requires that EVERY racer is a resolved returning racer with a valid waiver.
+
 - checkout: `party.length > 0 && party.every(m => !!m.bmiPersonId && !m.isNewRacer && m.waiverValid === true)`.
 - both confirmation pages: gate on `allRacersResolved = racers.length > 0 && racers.every(r => !!r.personId)`
   BEFORE trusting `fastLane` or running the per-personId waiver check. Any null personId → express dropped.
 
 **Guardrails:**
+
 - An eligibility/all-clear check over a party must iterate the FULL roster. `.filter(hasId)` before
   `.every(valid)` is a silent bug: the members you dropped are exactly the ones that should block.
 - A racer with no `bmiPersonId` / `personId` has no waiver on record by definition — treat "missing
-  id" as *disqualifying* (or as "needs registration"), never as "skip this one."
+  id" as _disqualifying_ (or as "needs registration"), never as "skip this one."
 - Separate concern, not yet built: when a second racer genuinely signed in / is a real returning
   racer, the flow should resolve them to a personId and link them to the reservation
   (`/api/pandora/schedule` also filters on `r.personId`, so unresolved racers aren't even scheduled).
@@ -549,6 +692,7 @@ The hard part was NOT the split — it was making the two new orders reconcile t
 the gift card, which holds exactly the original (post-discount, fee-inclusive, taxed) total.
 
 Guardrails (these WILL recur on any future cross-center split — attractions, etc.):
+
 - **The gift card holds the ACTUAL net, not your idealized price.** Before splitting, fetch the
   real order: it may carry a flat **Booking Fee** line (catalog `7VKAFU3HDPRSKY7ZB6CKXTRW`, $2.99,
   taxed) and/or a **promo discount** (one combo had `$25.00 off`). An idealized "$65/$75 × ppl"
@@ -582,7 +726,7 @@ click **Checkout** → instead of the checkout page, the customer is dropped at 
 race**, with the fully-booked combo gone. Impossible to pay.
 
 Root cause: `BookingFlow`'s seeding effect had a guard `if (session.comboSpecialId) { … release
-combo + seed fresh activity … }` added by commit 4ddfcfc to stop a *stale* combo from hijacking
+combo + seed fresh activity … }` added by commit 4ddfcfc to stop a _stale_ combo from hijacking
 a normal race-tile click with the Ultimate VIP wizard steps. But the landing cart bar's
 **Checkout** (`?checkout=1`) and **View Cart** links both route through the combo's first item
 (always a race) → `/book/race/v2`, which is byte-identical to the Karting tile's URL. So a CART
@@ -596,6 +740,7 @@ effect falls through harmlessly (the requested race is already in the cart, so n
 `activeItem` is null → Checkout renders `CheckoutStep`, View Cart renders `CartView`.
 
 Guardrails:
+
 - **A destructive "this session is stale" heuristic MUST key off explicit intent, never a URL
   shape that two different intents share.** Checkout/View-Cart and a fresh tile click all hit
   `/book/<cartSlug>/v2`; only an explicit query flag distinguishes them.
@@ -659,15 +804,15 @@ while the customer had **already paid the link two days earlier**. Two independe
    have no fulfillment, so Square leaves them `state=OPEN` forever — fully tendered, `$0` due,
    payment `COMPLETED/CAPTURED`. The reconcile cron's paid test was `order.state === "COMPLETED"`,
    so it polled a fully-paid order every 15 minutes and called it unpaid. Paid-detection must treat
-   *fully tendered* as paid (`tenders.length > 0 && net_amount_due === 0`, then verify the tender's
+   _fully tendered_ as paid (`tenders.length > 0 && net_amount_due === 0`, then verify the tender's
    payment is `COMPLETED`). Same trap exists anywhere else we poll an order for payment.
 2. **Square's $2,000 gift-card cap applies to the card's BALANCE, not the load amount.**
    `loadBalanceOntoGiftCards` topped up existing cards with `min(remaining, $2k)` — but a card
    already holding the 50% deposit only has `$2k − balance` headroom, so EVERY event totaling
    > $2,000 threw at balance-load time. Fix: fetch current balance, load into headroom, overflow
-   onto new cards. Corollary: **callers must persist overflow card ids/gans onto the quote**
-   (`updateGfGiftCardList`) or day-of payout never sees the funds — all three callers ignored the
-   loader's return value.
+   > onto new cards. Corollary: **callers must persist overflow card ids/gans onto the quote**
+   > (`updateGfGiftCardList`) or day-of payout never sees the funds — all three callers ignored the
+   > loader's return value.
 
 Also fixed: `Promise.allSettled` summaries that count `errors++` without logging `r.reason` hide
 the only copy of the failure — the $2k bug was invisible until a log line was added.
@@ -713,7 +858,7 @@ Bonus wound: the fallback's `locationId` came from hostname (headpinz → HP **F
 KBF login wasn't populating kids/adults. I traced `/hp/book/kids-bowl-free/page.tsx` → it renders
 `<BowlingWizard kind="kbf" />`, found the multi-pass bug there (`data.passes[0]` only — dropped a
 parent's second pass), fixed it, proved it against real data, and reported done. **Wrong file.**
-A screenshot showed the user was on `/book/kbf/v2` — a *different* implementation (the
+A screenshot showed the user was on `/book/kbf/v2` — a _different_ implementation (the
 `src/features/booking` step machine: `KbfIdentityStep` → `KbfBowlersStep`), and `middleware.ts`
 `bookingV2Target()` **unconditionally 307-redirects** `/book/kids-bowl-free` AND (after stripping
 `/hp`) `/hp/book/kids-bowl-free` → `/book/kbf/v2`. So `BowlingWizard kind="kbf"` is dead code that
@@ -738,7 +883,7 @@ old one looks load-bearing but isn't.
 
 ## "Send Contract" is the only contract trigger — retired `group-quote-sync`'s auto-resign (2026-06-08)
 
-The 2026-06-07 emergency guard (below) only stopped *past* events. The same loop hit an *upcoming*
+The 2026-06-07 emergency guard (below) only stopped _past_ events. The same loop hit an _upcoming_
 event: **Emmanuel Lutheran Church** (HeadPinz Naples, event #1355, Jun 17 7 PM) — signed + deposit
 paid at 16:32, then blasted "Contract Updated" every 5 minutes from 16:40 onward. The planner sent
 nothing; the cron did.
@@ -768,6 +913,7 @@ remain. The contract page keys its re-sign prompt off `status === "resign_requir
 `deposit_paid` row renders the confirmed view — the guest is NOT asked to sign again.
 
 **Guardrails:**
+
 - **One customer-facing trigger per action.** A background poller and a planner-action handler must
   not both be able to send/resign the same contract. If the planner's "Send Contract" is the intended
   gate, the poller must never emit the same customer-facing effect — at most it does silent, internal
@@ -778,7 +924,7 @@ remain. The contract page keys its re-sign prompt off `status === "resign_requir
   the display column looks fine. (Latent elsewhere — dispatch ingests dates that already carry tz, so
   it stored correctly; sync's `project.date` did not.)
 - A "corrected value" write that doesn't round-trip equal on the next read is an infinite trigger.
-  Removing the *acting* is more robust than chasing convergence on a value you can't control.
+  Removing the _acting_ is more robust than chasing convergence on a value you can't control.
 
 ## `group-quote-sync` re-emailed "Contract Updated" every 5 min for a past, signed event (2026-06-07)
 
@@ -792,7 +938,7 @@ over. Three things compounded:
    true for `deposit_paid`/`balance_charged`/`resign_required`. When any change is detected, the
    cron archives the PDF, flips status → `resign_required`, and fires `notifyContractUpdated`.
 3. **The diff never converges.** The Hermes product comparison reported a "products changed" delta
-   on *every* run, so step 2 repeated indefinitely. (Suspect: stored `line_items` carry the
+   on _every_ run, so step 2 repeated indefinitely. (Suspect: stored `line_items` carry the
    service-charge-corrected total while Hermes returns the raw amount, or a float `total` / ordering
    mismatch — each run re-detects the same "change.")
 
@@ -805,23 +951,24 @@ left intact (it runs before the guard). Uses the live BMI `project.date` so a re
 future resumes sync.
 
 **Guardrails:**
+
 - Any cron that emails/charges/re-signs a customer must gate on "is this event still in the future?"
   A past-dated row is almost never a valid target for a customer-facing, pre-event action.
-- A change-detection loop that *acts* on every detected change MUST converge: after writing the
+- A change-detection loop that _acts_ on every detected change MUST converge: after writing the
   "corrected" value, the next read has to compare equal. If the source (Hermes) and the persisted
   store can never match (because we mutate before persisting), you have an infinite trigger. Verify
   convergence, not just "did it detect a change."
 - `status !== "contract_sent"` is a fragile proxy for "signed." `resign_required` is unsigned but
   trips it — re-arming the very loop that set the status. Prefer an explicit signed marker
   (`contract_signed_at`) when gating destructive/customer-facing transitions.
-- TODO follow-up: fix the non-converging product diff so an *upcoming* event can't loop the same way
+- TODO follow-up: fix the non-converging product diff so an _upcoming_ event can't loop the same way
   before its date. The past-event guard only covers events that have already happened.
 
 ## Two crons sharing one trigger raced — `dayof-close` stranded `dayof-pay` (2026-06-05)
 
 Quote #3286 (LSI Companies, $2,649.09) showed Deposit ✓ / Balance ✓ in admin but its Square
 day-of order sat OPEN, unpaid. Gift cards were fully funded and untouched. Root cause: a
-read-modify race between two crons that gate on the *identical* trigger
+read-modify race between two crons that gate on the _identical_ trigger
 `status = 'balance_charged' AND event_date <= NOW()`:
 
 - `group-dayof-pay` (`*/5`) applies the gift card to the day-of order, sets `dayof_paid_at`. Does
@@ -838,9 +985,10 @@ Square. Fix: gate close on `(square_dayof_order_id IS NULL OR dayof_paid_at IS N
 pay-before-close.
 
 **Guardrails:**
+
 - Two crons gating on the same status is a latent race whenever one is a precondition of the other.
-  Don't just check they both *select* the right rows (the 2026-06-03 lesson) — check their *relative
-  ordering* when they fire in the same tick. The dependent cron (close) must gate on the producer's
+  Don't just check they both _select_ the right rows (the 2026-06-03 lesson) — check their _relative
+  ordering_ when they fire in the same tick. The dependent cron (close) must gate on the producer's
   completion marker (`dayof_paid_at`), not on the shared upstream status alone.
 - A transition cron that has nothing to do must STILL be ordered behind the work it depends on.
   "Mark it done" must verify "is it actually done," never just "did the upstream status flip."
@@ -864,7 +1012,7 @@ vs. raced transition).
 
 What actually happened: #3286's day-of order rang three "GF Race Blue Starter Fri-Sun"
 lines at **$26.99** instead of the quoted **$399.99**, under-charging by **$1,464.53**.
-The real root cause was the *earlier* bug (see the 2026-06-03 lesson below): #3286's order
+The real root cause was the _earlier_ bug (see the 2026-06-03 lesson below): #3286's order
 was created **before** `base_price_money` was added to catalog lines (2026-06-03), so it
 carried only `catalog_object_id` and Square used the catalog default. The 2026-06-03 fix
 (always send `base_price_money`) was correct and complete.
@@ -875,19 +1023,21 @@ That changed nothing about pricing correctness (base_price_money already guarant
 **destroyed Square item-sales attribution** for every override-priced line — race starters,
 birthday packages, extra pizzas, well drinks. By 2026-06-08, 17 line items across live
 day-of orders were ad-hoc purely because of this branch, plus 7 older orders that had gone
-*fully* ad-hoc via the all-or-nothing fallback.
+_fully_ ad-hoc via the all-or-nothing fallback.
 
 Corrected fix (2026-06-08): `buildSquareLineItem` keeps the catalog link whenever a PLU is
 present and always sends `base_price_money`. No catalog pre-fetch, no price comparison.
 Square honors the override AND preserves reporting. `fetchCatalogPriceInfo` /
 `CatalogPriceInfo` deleted. Audited/remediated via `apps/web/scripts/audit-dayof-adhoc-*.mjs`
-+ `remediate-dayof-relink.mjs` (5 OPEN orders relinked; 6 completed/paid orders left as-is).
+
+- `remediate-dayof-relink.mjs` (5 OPEN orders relinked; 6 completed/paid orders left as-is).
 
 **Lesson about the lesson:** before "fixing" a pricing bug by removing a code path, prove the
 hypothesis against `/orders/calculate` (a free, side-effect-free validator). The original
 diagnosis was never tested in isolation — link+override was assumed broken, never measured.
 
 **Guardrails:**
+
 - A `: string`-typed price field that "looks sent" can still be ignored by the upstream API.
   When an external system has its own source of truth (catalog price), verify it actually USED
   your value — diff the created resource against what you sent, don't assume the POST honored it.
@@ -896,7 +1046,7 @@ diagnosis was never tested in isolation — link+override was assumed broken, ne
   with catalog links just means no override existed, not that the path is safe.
 - Remediating a completed, mispriced Square order = refund the gift-card payment, rebuild the
   order ad-hoc with override prices, then **multi-tender capture via PayOrder** (`POST
-  /orders/{id}/pay` with all `payment_ids`). `autocomplete:true` on a partial gift-card payment
+/orders/{id}/pay` with all `payment_ids`). `autocomplete:true` on a partial gift-card payment
   fails "payment total does not match order total"; create each payment `autocomplete:false`
   then PayOrder them together. A failed payment STILL burns its idempotency key.
 - Separate "never attempted" (null/null) from "attempted, ignored" (price present but order
@@ -951,7 +1101,7 @@ permanently orphaned: gift card fully funded, day-of order OPEN and never paid. 
 
 **2. Day-of order catalog creation always failed; the lone ad-hoc fallback had no retry.**
 `buildSquareLineItem` sent `catalog_object_id` + `quantity` but no `base_price_money`. Group
-catalog variations are *variably priced*, so Square hard-rejected every catalog attempt:
+catalog variations are _variably priced_, so Square hard-rejected every catalog attempt:
 `"variably priced and requires a value for base_price_money"`. The system limped on the ad-hoc
 fallback, but a single transient failure of that one attempt at deposit time orphaned the
 day-of order with no retry (10 events had accumulated a NULL `square_dayof_order_id`). Fixes:
@@ -960,6 +1110,7 @@ backfills any deposit-paid event missing its day-of order, via a shared `createD
 `lib/group-function-dayof.ts` (single source of truth; was previously duplicated 3×).
 
 **Guardrails:**
+
 - A payment state machine MUST handle the $0 / already-funded edge explicitly. A short-circuit
   `return` that skips the state transition is a silent trap — the "nothing to do" branch still
   has to advance state.
@@ -1014,6 +1165,7 @@ bug was duplicated in two places, so it was extracted into one helper:
 (`subtotalCents`, `taxCents`) — used by `bmi-scan`, both group-quote crons, and the backfill.
 
 Two coupled gotchas the tax bug had masked (tax was ≈$0, so nobody noticed):
+
 - **`total_cents` is the tax-INCLUSIVE grand total** everywhere (contract page, signed PDF,
   Square deposit/day-of orders: deposit = total/2, balance = total − deposit). The dispatch
   cron's normal path stored a tax-EXCLUSIVE total; now `+ taxCents`.
@@ -1064,7 +1216,7 @@ specially — it consumes `::type` as a parameter type hint (setting the OID)
 and strips it from the SQL text sent to Postgres. This means:
 
 ```typescript
-q`WHERE col >= ${date}::date AT TIME ZONE 'America/New_York'`
+q`WHERE col >= ${date}::date AT TIME ZONE 'America/New_York'`;
 ```
 
 Does NOT produce `$1::date AT TIME ZONE 'America/New_York'`. Instead the
@@ -1073,8 +1225,9 @@ where `$1` is a text parameter. The result is silently wrong — no error,
 just incorrect boundaries.
 
 **Fix:** Apply `AT TIME ZONE` on the column side instead:
+
 ```typescript
-q`WHERE (col AT TIME ZONE 'America/New_York')::date >= ${date}::date`
+q`WHERE (col AT TIME ZONE 'America/New_York')::date >= ${date}::date`;
 ```
 
 This is unambiguous: Postgres casts the column to ET, extracts the date,
@@ -1102,6 +1255,7 @@ on a 5-min boundary. Test at 6:00 PM → fine. Test at 6:36 PM → total failure
 Future dates never hit this because `openHour * 60` is always clean.
 
 **Why it was hard to find:** Three compounding issues:
+
 1. `.catch(() => ({ Availabilities: [] }))` silently swallowed every 400 error
 2. Vercel was serving stale serverless functions — console.log statements from
    new deployments weren't appearing in runtime logs
@@ -1112,6 +1266,7 @@ Future dates never hit this because `openHour * 60` is always clean.
 clean quarter-hour.
 
 ### Rules for future QAMF integration:
+
 - **ALWAYS snap probe times to 15-min boundaries** (or at minimum 5-min)
 - **NEVER silently swallow QAMF errors** — log the first few, include error
   count in the summary line
@@ -1178,7 +1333,7 @@ package-manager-agnostic.
 ### Lessons that survive
 
 **Rule 1:** When a workspace-level lockfile appears at the repo root for the
-first time, treat it as a deploy-tooling change *regardless* of where the deploy
+first time, treat it as a deploy-tooling change _regardless_ of where the deploy
 provider's project root points. Vercel walks up; so does most CI. Verify with a
 preview deploy BEFORE asserting "no deploy impact" in any PR description or plan.
 
@@ -1252,7 +1407,7 @@ consumed pool inventory. Made the claim path scan `pov:used` for
 existing billId entries and return them when found, with
 `cached: true` in the response. Cost: one HSCAN per call (1-2 round
 trips for the current pool size). **Rule:** any endpoint that
-*consumes* shared inventory (codes, lane-holds, vouchers) must dedup
+_consumes_ shared inventory (codes, lane-holds, vouchers) must dedup
 by the request's owning resource id (billId, sessionId, personId)
 before allocating new resources from the pool.
 
@@ -1265,6 +1420,7 @@ BMI IDs like `63000000000021716` exceed JavaScript's `Number.MAX_SAFE_INTEGER` (
 FK constraint violations or wrong person lookups in BMI.
 
 **Rule:** Always inject BMI IDs as raw text in JSON payloads using string concatenation:
+
 ```ts
 // BAD — precision loss
 const body = JSON.stringify({ personId: Number(pid), orderId: Number(billId) });
@@ -1276,6 +1432,7 @@ body = body.slice(0, -1) + `,"personId":${pid}}`;
 ```
 
 **Affected endpoints:**
+
 - `booking/book` — orderId and personId
 - `person/registerContactPerson` — orderId and personId
 - `person/registerProjectPerson` — orderId and personId
@@ -1302,12 +1459,12 @@ lie. Don't trust the type — control the parse.
 The instinct was to point at the obvious id sites, but live prod probing refuted every one. Don't
 repeat these dead ends — each id space has a different width:
 
-| Path | 17-digit `63…`? | Wire form | How we read it | Verdict |
-| --- | --- | --- | --- | --- |
-| Race/attraction booking `orderId`/`billId`/`orderItemId` (public-booking API) | **yes** | unquoted number | `res.text()` + regex (`extractRawOrderId`) | **safe** |
-| BMI **Office** project entity `id`/`personId`/`number` (`office-api22…`) | no — 7–8 digit | **quoted string** (`"id":"8031234"`) | `JSON.parse` | **safe** |
-| **Pandora** person `personID` (`docs/pandora-api.md`) | no — 6-digit Firebird | quoted string (`"id":"713365"`) | `res.json()` | **safe** |
-| QAMF bowling reservation ids / both Node bridges | no | string / n/a | — | **safe** |
+| Path                                                                          | 17-digit `63…`?       | Wire form                            | How we read it                             | Verdict  |
+| ----------------------------------------------------------------------------- | --------------------- | ------------------------------------ | ------------------------------------------ | -------- |
+| Race/attraction booking `orderId`/`billId`/`orderItemId` (public-booking API) | **yes**               | unquoted number                      | `res.text()` + regex (`extractRawOrderId`) | **safe** |
+| BMI **Office** project entity `id`/`personId`/`number` (`office-api22…`)      | no — 7–8 digit        | **quoted string** (`"id":"8031234"`) | `JSON.parse`                               | **safe** |
+| **Pandora** person `personID` (`docs/pandora-api.md`)                         | no — 6-digit Firebird | quoted string (`"id":"713365"`)      | `res.json()`                               | **safe** |
+| QAMF bowling reservation ids / both Node bridges                              | no                    | string / n/a                         | —                                          | **safe** |
 
 So in OUR code, the 17-digit numbers exist only in the **public-booking** API, and that path
 already reads them as raw text + regex. **A `: string` TS annotation doesn't guarantee runtime
@@ -1344,6 +1501,7 @@ refunds. `parseWithRawIds`/`serializeWithRawIds` remain in `@ft/db` as the docum
 were reverted (those Office ids are small quoted strings — no precision loss there).
 
 **Rule:** never `res.json()` / `JSON.parse` a BMI or Pandora response that carries ids. Use one of:
+
 - `parseWithRawIds(await res.text())` (`@ft/db`) — quotes id fields before parsing so they come
   back as full-precision strings. The inbound counterpart to `stringifyWithRawIds`.
 - For GET→mutate→PUT round-trips, pair it with `serializeWithRawIds(obj)` — re-emits ids as the
@@ -1371,12 +1529,16 @@ commit:**
 ```ts
 // apps/web/middleware.ts
 const isSharedTopLevelRoute =
-  pathname === "/accessibility" || pathname.startsWith("/accessibility/") ||
-  pathname === "/cancellation-policy" || pathname.startsWith("/cancellation-policy/") ||
-  pathname === "/your-new-route" || pathname.startsWith("/your-new-route/");
+  pathname === "/accessibility" ||
+  pathname.startsWith("/accessibility/") ||
+  pathname === "/cancellation-policy" ||
+  pathname.startsWith("/cancellation-policy/") ||
+  pathname === "/your-new-route" ||
+  pathname.startsWith("/your-new-route/");
 ```
 
 **Required pairing for any new shared page:**
+
 1. `app/<route>/page.tsx` — uses `headers()` to detect `host` and renders the brand-aware version
 2. `middleware.ts` — add `<route>` to `isSharedTopLevelRoute`
 3. Test on BOTH domains before committing — fasttraxent.com AND headpinz.com
@@ -1432,7 +1594,9 @@ The bowling-orders flow already accounts for this:
 
 ```ts
 const data = await actRes.json();
-if (!actRes.ok || data.errors) { /* surface the error */ }
+if (!actRes.ok || data.errors) {
+  /* surface the error */
+}
 ```
 
 Our reward path was only checking `!actRes.ok` and silently passing through
@@ -1452,13 +1616,14 @@ balance and Apple Wallet URLs expect the hex only:
 ```ts
 const giftCardIdShort = giftCardId.replace(/^gftc:/, "");
 const balanceUrl = `https://squareup.com/gift/balance/${giftCardIdShort}`;
-const walletUrl  = `https://squareup.com/apass/gc/download/personalized/${giftCardIdShort}?source=egift`;
+const walletUrl = `https://squareup.com/apass/gc/download/personalized/${giftCardIdShort}?source=egift`;
 ```
 
 Verified by curl on a known-ACTIVE $5 card:
-- `/apass/.../{stripped}`     → `HTTP 200 application/vnd.apple.pkpass` ✅
-- `/apass/.../gftc:{full}`    → `HTTP 404` ❌
-- `/gift/balance/{stripped}`  → real balance page (SPA-rendered) ✅
+
+- `/apass/.../{stripped}` → `HTTP 200 application/vnd.apple.pkpass` ✅
+- `/apass/.../gftc:{full}` → `HTTP 404` ❌
+- `/gift/balance/{stripped}` → real balance page (SPA-rendered) ✅
 - `/gift/balance/gftc:{full}` → Square's generic eGift landing page (looks like "invalid") ❌
 
 Same convention Pandora_API uses (`cardID.split(":")[1]` before building URLs).
@@ -1473,6 +1638,7 @@ that just activated may not appear in the list filter even though
 state by direct retrieve, never by absence from the LIST filter.
 
 ### Where to look
+
 - [apps/web/lib/square-gift-card.ts](apps/web/lib/square-gift-card.ts) `mintDigitalGiftCard()` — canonical mint flow with defensive checks
 - [apps/web/app/api/square/bowling-orders/route.ts](apps/web/app/api/square/bowling-orders/route.ts) — pre-existing working flow that already had the `data.errors` check
 - `Pandora_API/src/utils/square.utils.ts` / `controllers/squareV2.controllers.ts.ts` — reference implementation for both mint and URL construction
@@ -1589,6 +1755,7 @@ reservations were affected; the admin board showed `ERR WEBHOOK` with `$paid / $
 paid = orderTotal ÷ 1.0(6/65).
 
 **Two compounding traps found during remediation:**
+
 1. A **non-transient** lane-open error sets `dayof_order_sent_at = NOW()` (bowling-db.ts
    `updateBowlingReservationLaneOpen`), which trips the guard in `processLaneOpen` — so the
    lane-poll cron will NEVER retry it. Remediation must clear `dayof_order_sent_at` (+ the error)
@@ -1632,8 +1799,9 @@ cash for, and the cash path (`unifiedReserve` → `buildRaceChargeLines` + `rede
 with the same helper, so displayed == charged on every path (full redeem, partial, none).
 
 **Guardrails for next time:**
+
 - When you split a charge line by an attribute (discount %, racer, category), any downstream logic
-  that *matches* lines (credit redemption, reward redemption, tax) must match on the SAME composite
+  that _matches_ lines (credit redemption, reward redemption, tax) must match on the SAME composite
   key — never on a sub-key (productId alone) that two split lines now share.
 - A blunt "skip lines with property X" guard is a smell. If you're skipping a line to avoid
   double-counting, the real fix is usually a more precise key, not exclusion.
@@ -1656,13 +1824,14 @@ but the BMI bill/reservation is EMPTY — no products, no schedule, `payments:[]
 BMI's **auto-cancel-pending** setting (was 10 min). BMI auto-cancels the reservation AND strips the
 bill's products/schedule. When the Square payment is then initiated, BMI returns **status 4
 "BillNotFound"** — the BMI payment is never recorded — **but our Square card charge still completes.**
-The `bmi-cancel-sweep` later flips the *project* to `-3` (Confirmation) but cannot re-add stripped
+The `bmi-cancel-sweep` later flips the _project_ to `-3` (Confirmation) but cannot re-add stripped
 products → confirmed-on-paper, empty-in-reality.
 
 **The defect on our side:** we charge the card on Square and only THEN tell BMI, without verifying
 BMI can still accept the payment, and we don't void the Square charge when BMI returns BillNotFound.
 
 **Guardrails:**
+
 - **Never charge a card before confirming the downstream booking is still live.** Re-fetch the BMI
   reservation/bill overview IMMEDIATELY before initiating the Square charge; if it has no
   products/schedules/settle-total (auto-cancelled), abort and restart the booking — do not charge.
@@ -1673,7 +1842,6 @@ BMI can still accept the payment, and we don't void the Square charge when BMI r
 - A COMPLETED Square charge does NOT imply the BMI booking exists. Verify both sides when auditing
   "did the customer actually get what they paid for."
 - Latest BMI API specs (2026-06): https://bmileisure.atlassian.net/wiki/external/YTYwMTA3YjAyNWVkNDAzMmJhNDkxZWE5OWZiYTc5YmM
-
 
 ## Square: paying an ORDER with gift cards — the four rules (2026-06-12)
 
@@ -1701,7 +1869,6 @@ by the first one alone. The group-dayof-pay cron now encodes all four.
 Also: gift cards cap at $2,000 balance, so any event over $2k is ALWAYS multi-card — the
 multi-tender path is the norm for big events, not the exception.
 
-
 ## Group contracts: balance_cents must derive from collected_cents, never deposit_due_cents (2026-06-12)
 
 H2925 (Tracie Thomas, HPFM 6/14): guest paid the original $746.56 in full (deposit 5/28 +
@@ -1713,6 +1880,7 @@ resend re-enters the same cron. A sweep found one more victim (H1136, completed,
 showed $449.51 due). Both rows repaired in place.
 
 **Guardrails:**
+
 - The schema's universal rule (`collected_cents` comment in group-function-db.ts) is the ONLY
   valid derivation: `amount_due = total_cents - collected_cents`. `deposit_due_cents` is a
   point-in-time quote of the FIRST payment, not a record of money received - it is even
@@ -1723,8 +1891,8 @@ showed $449.51 due). Both rows repaired in place.
   balance_cents is ever stale again (same principle as the Statsig displayed-vs-charged rule).
 - Data-repair sweep for this corruption class:
   `SELECT id FROM group_function_quotes WHERE deposit_paid_at IS NOT NULL AND collected_cents > 0
-   AND balance_cents <> GREATEST(0, total_cents - collected_cents)
-   AND status IN ('deposit_paid','resign_required','balance_charged','balance_link_sent','completed')`
+ AND balance_cents <> GREATEST(0, total_cents - collected_cents)
+ AND status IN ('deposit_paid','resign_required','balance_charged','balance_link_sent','completed')`
 - Money was never at risk here: resign-settle, the 72h cron (status-gated), and /pay
   (balance_paid_at-gated) all guard correctly. The blast radius was display + stored balance only.
 
@@ -1733,6 +1901,7 @@ showed $449.51 due). Both rows repaired in place.
 Reviewing reservations, I re-ran `audit-orphan-cart-payments.mjs`, saw 25 "NO BOOKING FOUND"
 Apple Pay orphans + 2 `confirm_failed` bowling charges, and reported them as open remediation.
 Wrong on every count:
+
 - The audit reports **whether a booking exists**, NOT **whether the charge was refunded**. Checking
   Square refund status showed 23 of 25 were already refunded on 6-10.
 - The 2 that remained (Barton $61.47, Courtney.e.brake $13.83) are on the owner's explicit
@@ -1747,10 +1916,11 @@ I nearly fired 2 refunds to customers the owner had decided to keep charged; the
 real-money block stopped it.
 
 **Guardrails:**
+
 - Before flagging ANY charge as "refund owed," check THREE things, not one: (1) does a booking
   exist, (2) `GetPayment.refunded_money` / status REFUNDED, (3) the owner-held list in the relevant
   incident memory. A charge is only open if all three say so.
-- "NO BOOKING FOUND" from an email+date match is a *lead*, not a verdict — value can be delivered
+- "NO BOOKING FOUND" from an email+date match is a _lead_, not a verdict — value can be delivered
   under a different email, a manual reservation in another system (Conqueror/QAMF), or a separate
   later payment.
 - For `confirm_failed` bowling rows, join sibling rows for the same guest/day: a successful retry
@@ -1778,12 +1948,13 @@ Two causes, both producing Square line items with **no `catalog_object_id`** (an
    even though an `SQ.POV` catalog variation existed → every POV upsell sold ad-hoc.
 
 Fix (categorization only — does NOT touch price): `lookupCatalogId` now resolves `m:` ids via any
-component track id (all components of a tier map to the same item, so juniors stay JR_*, adults stay
+component track id (all components of a tier map to the same item, so juniors stay JR\_\*, adults stay
 KARTING — verified by a parametrized test over every real combined card). Added `"43746981": SQ.POV`
 and a `"POV Race Video"` name fallback. Both day-of order builders (reserve/route.ts and
 unified-reserve.ts) route through `lookupCatalogId`, so the single change fixes all future orders.
 
 **Guardrails:**
+
 - When you introduce a **synthetic, merged, or otherwise derived product/line id** (anything that
   isn't a raw upstream id), audit EVERY consumer that keys off the raw id — `SQUARE_CATALOG_MAP`,
   tax maps, build-key resolution, credit attribution. A new id format silently falls through
@@ -1801,7 +1972,7 @@ unified-reserve.ts) route through `lookupCatalogId`, so the single change fixes 
 ## Fixed-duration open packages: never trust `slot.optionId` (2026-06-16)
 
 **Symptom:** Pizza Bowl (should be 2hr) and Fun 4 All (should be 1.5hr) lanes booked at **1 hour**.
-Staff called Fun 4 All "Have-A-Ball"; the actual Have-A-Ball *league* is a Square-subscription
+Staff called Fun 4 All "Have-A-Ball"; the actual Have-A-Ball _league_ is a Square-subscription
 signup that books **no** QAMF lane (zero "have a ball" reservation labels in 60 days — confirmed
 before touching anything).
 
@@ -1811,7 +1982,7 @@ before touching anything).
 packages (Pizza Bowl, Fun 4 All) have **no duration buttons**, so `selectSlot` fell back to that
 `slot.optionId` and **ignored the known-correct offer option** stored on the experience
 (`bowling_experience_offers.qamf_option_id`). Identical to the earlier Fun 4 All incident that
-`/api/admin/bowling/fix-f4a-duration` only *remediated* — the forward cause was never fixed, so it
+`/api/admin/bowling/fix-f4a-duration` only _remediated_ — the forward cause was never fixed, so it
 re-broke (and Pizza Bowl inherited it once it was remapped onto the Fri-Sun offers 158/124).
 
 **Fix (forward):** `BowlingOfferStep.selectSlot` option precedence is now
@@ -1825,6 +1996,7 @@ reads the correct option from the DB per experience+center and reschedules any f
 non-cancelled/completed reservation whose live QAMF Time option is wrong. `?dryRun=true` first.
 
 **Guardrails:**
+
 - The DB `duration_minutes` / option metadata is **display + pricing** only. The lane length the guest
   actually gets is **whichever QAMF Time option Id we send** — its `Minutes` lives in QAMF/Conqueror.
 - **Never trust the availability response's derived `optionId` for a fixed-duration package.** QAMF's
@@ -1850,7 +2022,7 @@ must too.
 API — `QAMF_BOWLING_CLIENT_ID`/`_SECRET` ARE in local `.env.local`, so scripts hitting
 `@/lib/qamf-bowling` (getReservation/patchReservation) run fine from a dev machine.
 
-**Context:** owner asked to prefix every Ultimate VIP combo *bowling* leg's QAMF
+**Context:** owner asked to prefix every Ultimate VIP combo _bowling_ leg's QAMF
 Title with `VIP Exp.` so HeadPinz staff spot the VIP package in the Conqueror list.
 Forward fix: `unified-reserve.ts` finalTitle now prefixes `VIP Exp. ` when the leg has
 a `comboSpecialId`. Existing today/future legs remediated via
@@ -1895,6 +2067,7 @@ captured money with no DB record (violates persist-first); deterministic externa
 (custom GANs) collide across retries/re-signs and must have a recovery path.
 
 **How to apply (now enforced in the GF payment routes - keep these invariants):**
+
 1. Idempotency keys derive from (quote id, attempt counter), never randomBytes, so a
    double-click or replay dedups to the SAME payment.
 2. Everything fallible that does not need the payment happens BEFORE the charge (gift
@@ -1962,7 +2135,7 @@ center 9172:
   now probe-verified.
 - **PATCH /lanes with inline Players is a SILENT NO-OP for count** — 200 but the lane keeps
   its 3 players. Never use it to change player count and think it worked.
-- **Player ids are UNSTABLE** — they regenerated across GETs even after a *409'd* PUT
+- **Player ids are UNSTABLE** — they regenerated across GETs even after a _409'd_ PUT
   (baseline [4050149-51] → [4050152-54] after a failed V1). Any future player-DELETE caller
   must GET-then-DELETE atomically; never persist QAMF player ids.
 
@@ -2072,6 +2245,7 @@ the API error surfaced as a bare "see attendant," and the reader looped 30-secon
    holding the guest's card during a 30s×2 socket timeout.
 
 **Rules:**
+
 - **Never invent a vendor envelope or transport.** Cloud Intercard = the ONE SOAP
   host (`intercard.swflpassport.com`) all verified calls use; fetch the live
   `?WSDL` for any new op (element names, ORDER, array item types — `<long>` vs
@@ -2089,7 +2263,7 @@ the API error surfaced as a bare "see attendant," and the reader looped 30-secon
 **Incident:** Owner asked why contract `c675998f` (H1091 "Welcome Boys and Girls
 Club", Naples, $1,116) wasn't charging inside the 72h window. My first answer —
 "it's a post-paid account, working as designed, invoice-only" — was **wrong**, and
-the owner corrected me. It *had been* post-paid, but the `"GF Post Paid Account"`
+the owner corrected me. It _had been_ post-paid, but the `"GF Post Paid Account"`
 BMI line was later removed, converting it to a normal within-96h full-payment event.
 
 **Root cause:** `isPostPaid` is derived LIVE from BMI products every dispatch pass,
@@ -2103,6 +2277,7 @@ auto-charge silently skipped a now-normal, card-on-file event. It also can't rea
 implies someone intended post-paid to settle) never fires either — dead zone.
 
 **The flag means TWO things** (disambiguate ONLY by `approved_at`):
+
 - post-paid marker: `approval_required=TRUE` + `approved_at` NOT NULL (went through /approve)
 - manual auto-charge HOLD (h1174 pattern): `approval_required=TRUE` + `approved_at` NULL, on a NORMAL event
 
@@ -2117,6 +2292,7 @@ card on file (Path A), accepting that the card was saved under a post-paid
 `autoCharge:false` contract.
 
 **Rules:**
+
 - **Any flag derived from BMI product state must be reconciled every pass, not written once.**
   If `isPostPaid` can flip, everything gated on it (amounts AND `approval_required`) must re-derive.
 - **Don't declare "working as designed" on a payment gap until you've checked whether the
@@ -2125,3 +2301,235 @@ card on file (Path A), accepting that the card was saved under a post-paid
 - **Never blanket-add `OR approved_at IS NOT NULL` to the balance-charge query** — a converted
   row with a saved card would hit Path A and auto-charge a card banked under `autoCharge:false`.
   Fix the stale flag upstream instead.
+
+## tsc "clean" is a lie while syntax errors exist anywhere (2026-07-26)
+
+**Incident:** the Game Zone cancellation fix shipped a semantic type error
+(`plan.ts` read `r.partial` off a variable whose explicit inline annotation
+lacked the field) and broke the Vercel build. Local `tsc --noEmit` before
+commit "passed" — its only output lines were `.next/dev/types/*` **syntax**
+errors, which were being grep-filtered as known noise.
+
+**Mechanism:** when the program contains parse/syntax errors (here: a corrupted
+`.next/dev/types/routes.d.ts` left behind by a dev-server crash), TypeScript
+skips/short-circuits semantic checking — so real type errors in source files
+are silently NOT reported. Filtering the syntax errors out of the output makes
+a fundamentally broken run look green. Vitest never catches these either
+(esbuild strips types without checking).
+
+**Rules:**
+
+- **A tsc run with ANY syntax error reports nothing trustworthy.** Never filter
+  known-noise errors out and treat the remainder as the verdict. Zero output
+  must mean zero errors of every kind.
+- **Fix the corruption first, then typecheck:** `rm -rf apps/web/.next/dev`
+  (safe when no dev server is running) and re-run.
+- **Before committing anything, gate on `npx next build`** (or a tsc run that
+  is verifiably syntax-clean) — it's what Vercel runs, and it caught in one
+  pass what the polluted tsc missed.
+- Also fixed: `let x: Array<{...inline...}>` annotations silently narrow away
+  fields added to the source type — annotate with the named type
+  (`TenderRefund[]`) so the compiler tracks evolution.
+
+## Pandora create is NOT an upsert + waiver template duration is YEARS (2026-07-25)
+
+**What happened (Strachan family, live kiosk traffic):** a guardian signed waivers for two
+kids; one kid worked, the other's waiver "never applied." Live Pandora reads showed the second
+kid had **EIGHT person records** (three holding waivers from three separate sign attempts, five
+orphans), the first kid two, the guardian two. Separately, every waiver signed through our
+`WaiverSigning` flow carried `waiverExpiry` = the NEXT MORNING 9am ET, while desk-signed records
+run ~1 year.
+
+**Root causes:**
+
+1. **`POST /v2/bmi/person` creates a duplicate whenever the field set differs from the original
+   create** (and possibly whenever it feels like it). Every comment claiming "known person
+   resolves to the same personId, never a duplicate" was wrong. The biggest minter was
+   `linkMinorToGuardian` re-creating the minor with `guardianID` after every guardian sign
+   (kid's own empty email vs `submitNew`'s session-contact email fallback → no match → new
+   person). Re-taps of "Sign waiver" re-ran the short-id "upsert" too — one new person per tap.
+   With duplicates in play, the waiver lands on one record while readiness checks read another
+   (`bmiPersonId` vs `pandoraPersonId`) → sign-then-revert loop → guest re-signs → another dup.
+2. **Pandora waiver template `duration: 1` means 1 YEAR** (BMI semantics; all three locations
+   return 1; desk records confirm ~1yr) — `calculateWaiverExpiry` treated it as DAYS.
+
+**Rules:**
+
+- NEVER call the Pandora person create for someone who already has a short Pandora id this
+  session. Resolve once, store `pandoraPersonId`, use it for BOTH signing and every later
+  readiness read. The create is a last resort for identity resolution, not a lookup.
+- Treat Pandora waiver template `duration` as YEARS (clamped 1–10 in `calculateWaiverExpiry`);
+  any `?? 365`-style fallback on that field is a bug.
+- When a "signed but shows unsigned" report comes in, suspect DUPLICATE PERSON RECORDS first:
+  `GET /bmi/person/search?lastName&birthday&filter=false` enumerates them; the guardian's
+  `related[]` reveals link-minted orphans.
+- Cleanup for affected guests: waivers may exist on multiple records; the record that raced
+  (has `lastVisit`) is the live one — merge/deactivate orphans at the desk.
+
+## A hidden action is a missing feature: settled reservations had no refund door (2026-07-28)
+
+**Report:** owner opened a completed race (res 16426, Fort Myers, "Debbie Collier",
+$27.67) in the manage modal and asked why there was no refund button. There wasn't
+one — and three independent things were each individually sufficient to hide it.
+
+**1. The only money action was Cancel, and Cancel correctly refuses these rows.**
+`cancelActionable()` returns false for `completed` / `arrived` / `no_show`, and also
+whenever `dayofPaymentId` is set. Both refusals are RIGHT: Cancel voids a booking, and
+a visit that already happened must not be voided; its cascade also won't touch a
+tendered day-of order. But Cancel was the header's only money door, so the rows that
+most need a refund had none. The fix is a SEPARATE gate (`refundActionable`) covering
+exactly Cancel's complement — never a loosened Cancel.
+
+**2. The only control that could actually price the refund was hidden by product kind.**
+The day-of order-lines stepper lived inside the bowling-only branch of the edit modal,
+even though the server computes `editable` per line and is completely kind-agnostic
+(`isEngineOwnedLine`, shared by the planner and `applyOrderLineSpec` — the comment
+already claimed "one rule, no drift"). It mattered exactly here: this race bills as a
+single **"Rookie Pack"** line, so heat removal cannot price it, while returning the
+pack line IS the refund. The client was hiding a capability the server had.
+
+**3. The flag gate was keyed on step KIND, so each phase got the wrong flag.**
+`refund_dayof_payment` is emitted by BOTH `mid` and `post_complete` (money-only is the
+preferred shape in each). Kind-keyed gating therefore meant `_MID_DECREASE` silently
+governed post-complete refunds while `_POST` governed only the rebuild path — enabling
+`_POST` alone did nothing for the post-complete refund we actually shipped, and
+enabling `_MID_DECREASE` alone opened a phase nobody had signed off.
+
+**Rules:**
+
+- **When a gate correctly refuses an action, ask what the row's remaining action IS.**
+  A guard that's right about "not this" still leaves a hole if nothing else covers the
+  case. Add the complement gate; don't widen the correct one.
+- **Never gate a UI control on product kind when the server already decides per item.**
+  If the server ships an `editable`/`allowed` flag, render exactly that. Kind checks on
+  the client silently amputate whole flows (here: every race refund).
+- **Gate flags on PHASE, not on step kind,** when one step kind spans phases. Keep the
+  mapping in ONE pure helper (`refundFlagForPhase`) used by the planner for preview and
+  re-checked by the executor as the real gate. Refuse the impossible combination
+  (`pre` + a paid-order refund step) loudly instead of falling back to a default flag.
+- **A flag-off environment must be visible in the PREVIEW, not at Execute.** The dry-run
+  now returns `executionBlocked`, so the button disables with the reason as soon as the
+  quote lands. Classify "flag off" as _blocked_, never as an ack prompt — no checkbox
+  unlocks an env var, so re-offering the manager checkbox is a dead end.
+- **Guard copy must never point at a button that isn't on the row.** Three separate
+  messages said "use Cancel instead" — all on rows where Cancel is hidden by design.
+  When you write remedial copy, check the affordance actually exists in that state.
+- **`refund_cents` is CANCELLATION-only. Never write it from an edit refund.** It feeds
+  guest-facing copy ("This booking has been cancelled — your $X refund is on its way")
+  and `booking-status`'s outcome, so an edit refund writing it would tell a live guest
+  their reservation was cancelled. Edit refunds live in the edit ledger, which already
+  feeds the Payments refunds node and History. _(Checked before changing it — the
+  obvious "make the row show the refund" fix would have been a guest-facing bug.)_
+- **Verify against the reported row, read-only, before claiming a fix.** `buildEditPlan`
+  only GETs and calls `orders/calculate`, so dry-running the real reservation proves the
+  plan (phase, cents, itemized return uid, blocked reason) without moving a cent. Doing
+  that is what surfaced the pack-line problem — the unit tests all passed without it.
+
+## A "master switch" that couples an unrelated broken feature to the one you need (2026-07-28)
+
+**Setup:** owner said "turn it all on." Refunds were proven, but
+`RESERVATION_EDIT_V2` is the master switch the edit route checks — so enabling refunds
+would ALSO have shipped PRE-phase bowling/KBF editing, whose QAMF player sync is blocked by
+a vendor bug (player-DELETE returns a bare 500 on every valid input, escalated, no API path
+exists) and whose own live-smoke items have never been run.
+
+**Fix:** exempt the narrow, proven capability. `isRefundOnlyPlan()` lets a refund-shaped
+plan execute on its own phase flag while everything else still needs the master switch.
+
+**Rules:**
+
+- **A capability flag should gate ONE capability.** When a master switch accumulates
+  unrelated features, "turn on X" silently ships Y. Split the flag before shipping, not after
+  someone reports Y broken.
+- **Exemptions from a safety gate must be ALLOWLISTS, not blocklists.** `isRefundOnlyPlan`
+  requires every step to be one of eight named kinds. A blocklist ("not a charge, not a
+  sync") silently widens the moment anyone adds a step kind — and the thing being widened is
+  "may move money without the master flag."
+- **When you add a second gate, re-check the PREVIEW covers both.** Adding the refund
+  exemption reintroduced the dishonest-preview bug for every non-refund plan: the planner
+  reported "runnable" while the route would 501. If `executionBlocked` mirrors the route,
+  it must mirror ALL of it.
+- **Never flip a flag before the corrected code is on the deployed branch.** Main still had
+  the pre-correction engine (no itemized returns, `update_dayof_order` still emitted on a
+  paid order). Setting the flags first would have enabled amount-only refunds — explicitly
+  banned — plus a step that fails fatally AFTER money moved. Verify with
+  `git show origin/main:<path> | grep <symbol>`, not from memory of what you built.
+- **Smoke the shape that PRODUCTION will run, not a convenient one.** The 11/11 run set
+  `RESERVATION_EDIT_V2=true` and used MID + a bowling row. Production is master-OFF, and the
+  reported reservation was POST + a collapsed race-pack line + full refund. Three different
+  axes untested. Deleting the master flag from the smoke and adding `--post` / `--race`
+  turned "probably fine" into 18/18, 18/18, 20/20.
+
+**Square fact (verified 3× live):** an ITEMIZED refund does **not** populate the SALE
+order's `refunds[]` — `refunded_money` and `net_amount_due_money` both read 0 there. The
+linkage lives entirely on the RETURN order (`refund.order_id` → return order carrying
+`return_line_items[].source_line_item_uid`). Debugging a refund by reading the sale order
+will show nothing. Same shape the POS produces for in-store returns.
+
+**Reconciliation trap (cost me a false alarm):** a gift-card-funded payment reports
+`source_type: "CARD"`. Summing by `source_type` counted internal gift-card spend as the
+owner's credit card and reported $59.20 outstanding when the real-card net was zero. The
+ONLY reliable tell is `card_details.card.card_brand === "SQUARE_GIFT_CARD"`. This is the
+same trap already recorded for refund routing — it bites reconciliation queries too.
+
+## A status badge must be per-record truth, or the "informational" excuse leaks (2026-07-28)
+
+Owner, on the live kiosk check-in list: _"Reservations showing everyone as express lane? … Tammy
+reservation is not but is showing express lane?"_ — and, for at least the second time, _"I've said
+several times express lane doesn't need to check in on kiosk and it shouldn't send an OTP."_
+
+The badge rendered on `r.kind === "racing"` — **every** racing row. `CheckinBrowseRow` carried no
+express field; the server never computed eligibility.
+[kiosk-checkin-plan.md §11A](kiosk-checkin-plan.md) had explicitly decided this: "Deliberately NOT
+gated on real express eligibility … computing `fastLane`-per-row would be leaky + slow. Purely
+informational." On live FM data for 7/28, **8 of 25** racing reservations (32%) were mislabelled —
+each one a guest told to skip a check-in they actually needed.
+
+**Where the reasoning went wrong:**
+
+- **"Informational" is not a licence to be wrong.** A green pill next to a specific guest's name
+  and time is not a general explainer — it is a claim about THAT reservation. If a UI element sits
+  on a row, it is per-row truth or it is a bug, no matter how the spec frames it. "It's just
+  informational" was the tell that should have triggered a re-think, not the justification.
+- **The cost objection was never priced.** "Leaky + slow" was true of the rejected design (a live
+  Pandora waiver read per row). The flag was already sitting in Redis: `bookingrecord:{billId}`
+  carries `fastLane` from checkout, and the browse loop was already awaiting a Redis `mintRef` per
+  row — so real eligibility cost ONE extra GET, issued in the same `Promise.all`, i.e. zero extra
+  round trips and nothing new disclosed. **Before accepting "too expensive to be correct", price
+  the cheap version:** the truth is often already in a store the code path is opening anyway.
+- **Repeated guidance means the RULE wasn't implemented, only the artifact.** "Express doesn't
+  check in and shouldn't get an OTP" had been said before, and a modal had been built — but the
+  express row still ran the last-4 gate → OTP → check-in like any other. Building the thing the
+  owner described (a modal) while leaving the behaviour they asked for (no OTP, no check-in)
+  unchanged is why they had to say it again. When guidance repeats, look for the behaviour that
+  never changed, don't re-polish the artifact.
+
+**Fix / guardrails:**
+
+- `express: boolean` on both `CheckinBrowseRow` and `CheckinItinerary`; two pure, unit-tested
+  predicates in `apps/web/src/features/kiosk/checkin/express.ts` (cheap booking-time flag for the
+  list, live-waiver truth for the itinerary — the itinerary one is strictly stronger and catches a
+  waiver that lapsed after booking). Both re-enforce the 2026-06-13 whole-party rule and hard-gate
+  on racing-only (a combo still needs its lane opened).
+- **An express row REPLACES check-in**: tapping it opens the message — no last-4, no OTP, no
+  itinerary. Same for the itinerary when reached by phone lookup or a scanned QR.
+- **Verify a badge change against live data before calling it done.** `cd apps/web && npx tsx
+scripts/kiosk-express-badge-check.mts [date] [center]` prints the decision + reason per
+  reservation, works at any hour (no ±3h window), and is read-only. It's what proved Tammy N.
+  6:00 PM now drops the badge — a build + unit tests could not have.
+- Copy fixed to "Race Check-In — 1st floor, left of the Red Track" (was "the pits"); one shared
+  `ExpressLaneBody` so the modal and the itinerary panel cannot drift.
+
+**A `TODO(i18n)` for "rich text can't be translated" is usually a splitting problem, not an engine
+problem.** The express body was left English because inline `<strong>` spans made it rich text the
+plain-string `formatMessage` can't render. The fix wasn't a new engine: split the paragraph at
+SENTENCE boundaries (plus one standalone place name) so each key is a complete translatable unit
+and the emphasis wraps a whole key. Splitting mid-sentence is what produces half-Spanish output —
+splitting between sentences doesn't. Reach for that before deferring a translation.
+
+**Process note that nearly shipped a regression:** this fix was written in a working tree ~100
+commits behind `origin/main`, and main had since reworked the very file being edited
+(`KioskCheckinFlow.tsx` +403/−143, the kiosk i18n conversion). `git fetch` + `git diff HEAD
+origin/main -- <the files you touched>` BEFORE writing the patch is what caught it; applying the
+original diff would have reverted main's i18n work on that file. Re-do the edit against
+`origin/main` in a nested worktree, never force a stale patch through.

@@ -25,8 +25,21 @@ export const checkinEn = {
   "checkin.continue": "Continue ›",
   "checkin.nextWhosRacing": "Next: who’s racing ›",
 
-  // Express-lane info modal.
-  "checkin.express.title": "Express Lane",
+  // Express-lane info modal. The badge marks reservations that really ARE
+  // express (every racer resolved with a waiver on file), so this copy is the
+  // END of their kiosk visit — no check-in, no OTP. The body is composed from
+  // three WHOLE sentences plus one standalone place name, so the bold emphasis
+  // wraps a complete translatable unit and the plain-string engine never has to
+  // render ICU tags (the reason the old single-paragraph body stayed English).
+  "checkin.express.pillAria": "{label}, {time} — Express Lane, no check-in needed",
+  "checkin.express.title": "Express Lane — you’re already set",
+  "checkin.express.bodyNothing":
+    "Everyone on this reservation has a waiver on file, so there’s nothing to check in here.",
+  "checkin.express.bodyWhere": "Skip the front desk and Guest Services and go straight to",
+  "checkin.express.bodyPlace": "Race Check-In — 1st floor, left of the Red Track",
+  "checkin.express.bodyWhen": "Arrive about 5 minutes before your race.",
+  "checkin.browse.expressHint":
+    "Marked Express lane? You’re already set — tap it to see where to go.",
   "checkin.gotIt": "Got it",
   "checkin.close": "Close",
 
@@ -65,7 +78,16 @@ export const checkinEs: Record<keyof typeof checkinEn, string> = {
   "checkin.continue": "Continuar ›",
   "checkin.nextWhosRacing": "Siguiente: ¿quién compite? ›",
 
-  "checkin.express.title": "Carril Exprés",
+  "checkin.express.pillAria": "{label}, {time} — Carril Exprés, no necesitas registrarte",
+  "checkin.express.title": "Carril Exprés — ya está todo listo",
+  "checkin.express.bodyNothing":
+    "Todos en esta reserva ya tienen su exención firmada, así que no hay nada que registrar aquí.",
+  "checkin.express.bodyWhere": "Omite la recepción y Guest Services y ve directamente a",
+  "checkin.express.bodyPlace":
+    "Race Check-In — 1er piso, a la izquierda de la pista roja (Red Track)",
+  "checkin.express.bodyWhen": "Llega unos 5 minutos antes de tu carrera.",
+  "checkin.browse.expressHint":
+    "¿Marcada como Carril exprés? Ya está todo listo — tócala para ver a dónde ir.",
   "checkin.gotIt": "Entendido",
   "checkin.close": "Cerrar",
 

@@ -45,6 +45,7 @@ import {
 import { heatsConflict } from "~/features/booking/service/conflict";
 import { scheduleCheckinRacers, heatStopFor, type ScheduleRacer } from "./schedule-racers";
 import { checkRacerWaivers } from "./waiver";
+import { isExpressBooking, isExpressRoster } from "./express";
 import { getRaceProductById } from "~/features/booking/service/race-products";
 import {
   assembleItinerary,
@@ -100,7 +101,7 @@ interface BookingRecordRacer {
   heatStart?: string;
   heatName?: string;
 }
-interface BookingRecord {
+export interface BookingRecord {
   billId?: string;
   contact?: { firstName?: string; lastName?: string; email?: string; phone?: string };
   primaryPersonId?: string;
@@ -588,13 +589,22 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
     // this list (a race + bowling combo still shows; owner 2026-07-25).
     if (!g.kinds.has("race")) continue;
     const { label: activitiesLabel, kind } = kindsToActivitiesLabel(g.kinds);
-    const ref = await mintRef({ billId: g.billId, center });
+    // Express Lane is per-RESERVATION truth, not "is this a race" — badging
+    // every racing row (the pre-fix behaviour) told guests who DO need to check
+    // in to skip it. The booking record carries the flag checkout wrote; read it
+    // alongside the ref mint so this costs no extra round trip. Only a
+    // racing-ONLY row can be express (a combo still needs its lane opened).
+    const [record, ref] = await Promise.all([
+      kind === "racing" ? readBookingRecord(g.billId) : Promise.resolve(null),
+      mintRef({ billId: g.billId, center }),
+    ]);
     out.push({
       ref,
       label: g.guestName ? displayNameFromFull(g.guestName) : "Guest",
       timeLabel: fmtTime12(g.earliest),
       activitiesLabel,
       kind,
+      express: isExpressBooking({ record, racingOnly: kind === "racing" }),
     });
   }
   return out;
@@ -867,6 +877,14 @@ export async function buildItinerary(
     roster,
     raceSlots: buildRaceSlots(group),
     dueAtCenterCents,
+    // Live express truth — we've already paid for the per-racer Pandora waiver
+    // read above, so this is stricter than the browse list's booking-time flag
+    // and catches a waiver that lapsed since booking. True → the flow shows the
+    // guest where to go instead of walking them through check-in.
+    express: isExpressRoster({
+      racers: racing?.racers ?? [],
+      racingOnly: !!racing && bowling.length === 0 && attractions.length === 0,
+    }),
   };
 }
 
@@ -881,6 +899,7 @@ function emptyItinerary(center: CenterSlug, reason: CheckinItinerary["reason"]):
     roster: [],
     raceSlots: [],
     dueAtCenterCents: 0,
+    express: false,
     reason,
   };
 }

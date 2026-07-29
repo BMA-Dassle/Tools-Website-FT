@@ -45,6 +45,7 @@ import { useKioskConfig } from "../KioskConfigContext";
 import { useT } from "../i18n";
 import { kioskHasCamera, kioskId } from "../config";
 import { useMobileJoin } from "../hooks/useMobileJoin";
+import { ageFromIso } from "../join/phone/join-helpers";
 import { mergeJoinedGuests } from "../join/merge";
 import { kioskMobileJoinEnabled } from "../flags";
 import { KioskSignInBoxes } from "./KioskSignInBoxes";
@@ -180,6 +181,10 @@ export function KioskPartyManager({
     memberId: string;
     personId: string;
     template: PandoraWaiverTemplate;
+    /** Guardian signing a MINOR's waiver (short Pandora id → sigPersonID).
+     *  Absent = self-sign (adults; legacy paths where guardianID rode the
+     *  person create instead). */
+    signerPersonId?: string;
   } | null>(null);
   // Linked family are OPT-IN suggestions — tap to add, never auto-pulled in.
   const [linked, setLinked] = useState<LinkedSuggestion[]>([]);
@@ -448,16 +453,51 @@ export function KioskPartyManager({
         // against it.
         const sid = member.pandoraPersonId ?? member.bmiPersonId;
         const status = await pandoraCheckWaiver(sid, brandLocation);
+        // MEMBERSHIP REFRESH: BMI's birthdate beats the typed DOB for minor
+        // routing + the template age (2026-07-23 adult-waiver-on-a-17yo class
+        // — mirrors the KioskPeopleStep twin branch).
+        const refreshedIso = status.birthdate
+          ? String(status.birthdate).slice(0, 10)
+          : toIsoDob(dob);
+        const rAge = ageFromIso(refreshedIso) ?? age;
+        const rMinor = rAge < 18;
+        const rGid = member.guardianMemberId || guardianId;
+        if (rMinor && !rGid) {
+          // The typed DOB said adult so the top-of-function guardian gate
+          // never fired — re-gate on the refreshed age (form stays open).
+          setFormError(t("party.err.pickGuardian"));
+          return;
+        }
+        // Template BEFORE resetForm — a fetch failure must surface in the
+        // still-open form (formError renders inside it), not vanish with it.
+        const template = status.valid
+          ? null
+          : await pandoraFetchWaiverTemplate(rAge, brandLocation);
         onUpdateMember(member.id, {
           waiverValid: status.valid,
-          isMinor: minor,
-          category: age < 13 ? "junior" : "adult",
-          guardianMemberId: minor ? gid : undefined,
+          isMinor: rMinor,
+          category: rAge < 13 ? "junior" : "adult",
+          dobIso: refreshedIso,
+          guardianMemberId: rMinor ? rGid : undefined,
         });
         resetForm();
-        if (!status.valid) {
-          const template = await pandoraFetchWaiverTemplate(age, brandLocation);
-          setWaiverFor({ memberId: member.id, personId: sid, template });
+        if (template) {
+          // A minor never self-signs. This branch has no create to attach
+          // guardianID to (that was the duplicate-minting path), so the
+          // guardian rides the WAIVER instead as Pandora sigPersonID — same
+          // record KioskPeopleStep's guardian flow writes.
+          const guardian = rMinor ? party.find((m) => m.id === rGid) : undefined;
+          const guardianSid =
+            guardian?.pandoraPersonId ??
+            (guardian?.bmiPersonId && guardian.bmiPersonId.length <= 12
+              ? guardian.bmiPersonId
+              : undefined);
+          setWaiverFor({
+            memberId: member.id,
+            personId: sid,
+            template,
+            ...(guardianSid ? { signerPersonId: guardianSid } : {}),
+          });
         }
       } else {
         // Account exists (returning racer) — but the lookup's id is the
@@ -1367,6 +1407,7 @@ export function KioskPartyManager({
                   <WaiverSigning
                     personId={waiverFor.personId}
                     template={waiverFor.template}
+                    signerPersonId={waiverFor.signerPersonId}
                     location={brandLocation}
                     heading={
                       isRace ? t("party.waiver.headingRace") : t("party.waiver.headingActivity")

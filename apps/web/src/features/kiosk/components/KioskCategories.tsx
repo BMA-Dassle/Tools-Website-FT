@@ -15,23 +15,30 @@
  * combo registry): anything enabled online is automatically on the kiosk.
  */
 import { useState } from "react";
+import { IconFlag, IconSignature, IconUserCheck } from "@tabler/icons-react";
 import {
   effectiveBrand,
+  isOfferingInPromoScope,
   landingOfferingsFor,
   type ActivityOffering,
   type BookingSession,
   type Brand,
   type CenterCode,
 } from "~/features/booking";
+import type { AppliedPromo } from "~/features/discount-codes";
+import type { AppliedVoucherState } from "~/features/booking/state/types";
+import { KioskVoucherSummary } from "./KioskVoucherSheet";
 import { enabledCombos, type ComboSpecial } from "~/features/combos";
 import { packageFamilyFromPrice } from "~/features/booking/service/packages";
 import { KIOSK_LOGOS, KIOSK_PHOTOS, kioskImg } from "../assets";
 import { useResilientImage } from "../hooks/useResilientImage";
 import { slotLabel, type FirstOpen } from "../service/first-available";
 import { AdminTapZone } from "./AdminTapZone";
+import { UTIL_TILE_BORDER_ALPHA, UTIL_TILE_CLASS, UtilityTile } from "./UtilityTile";
 import { useKioskConfig } from "../KioskConfigContext";
 import { gameZoneCapability } from "../config";
-import { useT, LanguageSwitcher, type Translate } from "../i18n";
+import { useT, useLocale, LanguageSwitcher, type Translate } from "../i18n";
+import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
 
 type CategoryKey = "exp" | "attr";
 
@@ -102,6 +109,26 @@ export interface KioskCategoriesProps {
   onPickPackageExperience: (family: string) => void;
   onOpenCart: () => void;
   onOpenGameZone: () => void;
+  /** Open the standalone race-pack purchase flow. Race packs live on the
+   *  Experiences shelf (owner 2026-07-28) beside the VIP combo and the Ultimate
+   *  Qualifier; omitted = the product is not offered on this kiosk. */
+  onOpenRacePacks?: () => void;
+  /** "Not booking" side doors, moved off the attract screen (owner 2026-07-28).
+   *  Undefined = that door is not offered here; the CALLER owns the flag and
+   *  venue gating so this component stays presentational. */
+  onOpenCheckin?: () => void;
+  onOpenRaceGrid?: () => void;
+  onOpenWaiver?: () => void;
+  /** Coupon/voucher entry (kioskPromoEnabled) — undefined hides the chip. */
+  onOpenCodeEntry?: () => void;
+  /** The session's applied code — renders the gold banner + per-tile
+   *  "Code applies" badges (same isOfferingInPromoScope the web landing uses). */
+  appliedPromo?: AppliedPromo | null;
+  onClearPromo?: () => void;
+  /** The session's vouchers (voucherRedeem live) — the summary chip (twin of
+   *  the coupon chip) opens the voucher sheet for details/removal. */
+  appliedVouchers?: AppliedVoucherState[];
+  onOpenVoucherSheet?: () => void;
 }
 
 export function KioskCategories({
@@ -116,6 +143,15 @@ export function KioskCategories({
   onPickCombo,
   onPickPackageExperience,
   onOpenGameZone,
+  onOpenRacePacks,
+  onOpenCheckin,
+  onOpenRaceGrid,
+  onOpenWaiver,
+  onOpenCodeEntry,
+  appliedPromo,
+  onClearPromo,
+  appliedVouchers = [],
+  onOpenVoucherSheet,
 }: KioskCategoriesProps) {
   const [cat, setCat] = useState<CategoryKey | null>(null);
   const { config } = useKioskConfig();
@@ -131,13 +167,135 @@ export function KioskCategories({
   // Mon–Thu day. Same computed prices the picker/checkout use — display only.
   const qualifierFromWeekday = packageFamilyFromPrice("ultimate-qualifier", ["weekday", "mega"]);
   const qualifierFromWeekend = packageFamilyFromPrice("ultimate-qualifier", ["weekend"]);
+  // Race packs sell at BOTH Fort Myers venues (owner 2026-07-28) — FastTrax and
+  // HeadPinz FM share the campus and guests walk between them, so a pack is
+  // worth offering on either bank. Gated on `showQualifier` (does this kiosk
+  // offer racing at all) rather than on brand: that is the same condition, and
+  // it keeps Naples — which has no karting — out without naming venues. Behind
+  // the race-pack kill switch either way.
+  //
+  // It also has to feed the Experiences shelf's "is anything in here?" check
+  // below: a card that opens onto an empty shelf is the exact failure those
+  // checks exist to prevent.
+  // FASTTRAX ONLY — must match KioskRacePackFlow's own guard exactly.
+  //
+  // 1.10.5 widened this to "any kiosk that offers racing", which put the banner
+  // on HeadPinz FM (owner asked for it) — but KioskRacePackFlow still returns
+  // null for a non-FastTrax brand, so tapping it opened a BLANK SCREEN.
+  //
+  // Selling packs from the HeadPinz bank is not a display change: the flow hands
+  // `brand` to KioskPartyManager as `brandLocation`, which drives
+  // pandoraFetchWaiverTemplate / pandoraCheckWaiver — i.e. WHICH WAIVER the
+  // guest signs. A racing product sold at a HeadPinz kiosk needs an explicit
+  // decision on that, plus a live card-present smoke, so it is not something to
+  // infer here. Reverted until that call is made.
+  const showRacePacks = !!onOpenRacePacks && kioskRacePacksEnabled() && brand === "fasttrax";
+  // Every box in the bottom grid, in render order. Built as a list so the grid
+  // can span an odd last tile across both columns instead of leaving a hole —
+  // and so the two "hide once a voucher is scanned" rules are one place, not
+  // scattered through JSX. The caller owns flag/venue gating: a callback only
+  // arrives when that door applies at all.
+  const hasVoucher = appliedVouchers.length > 0;
+  const utilTiles: { key: string; node: React.ReactNode }[] = [];
+  if (onOpenCheckin) {
+    utilTiles.push({
+      key: "checkin",
+      node: (
+        <UtilityTile
+          icon={<IconUserCheck size={28} aria-hidden="true" />}
+          label={t("attract.raceReservation")}
+          color="#00e2e5"
+          onClick={onOpenCheckin}
+        />
+      ),
+    });
+  }
+  if (onOpenRaceGrid) {
+    utilTiles.push({
+      key: "racegrid",
+      node: (
+        <UtilityTile
+          icon={<IconFlag size={28} aria-hidden="true" />}
+          label={t("attract.raceGrid")}
+          color="#ff6b6b"
+          onClick={onOpenRaceGrid}
+        />
+      ),
+    });
+  }
+  // Waiver: hidden once a voucher is scanned. LAYOUT ONLY — see the grid comment.
+  if (onOpenWaiver && !hasVoucher) {
+    utilTiles.push({
+      key: "waiver",
+      node: (
+        <UtilityTile
+          icon={<IconSignature size={28} aria-hidden="true" />}
+          label={t("attract.waiver")}
+          color="#f5ecee"
+          onClick={onOpenWaiver}
+        />
+      ),
+    });
+  }
+  if (hasVoucher) {
+    // The voucher summary REPLACES the code tile: it opens the sheet, and the
+    // sheet is where more codes get added.
+    utilTiles.push({
+      key: "vouchers",
+      node: (
+        <KioskVoucherSummary
+          vouchers={appliedVouchers}
+          onOpen={() => onOpenVoucherSheet?.()}
+          variant="kiosk"
+        />
+      ),
+    });
+  } else if (appliedPromo) {
+    utilTiles.push({
+      key: "promo",
+      node: (
+        <div
+          className={UTIL_TILE_CLASS}
+          style={{ borderColor: `#e8b14c${UTIL_TILE_BORDER_ALPHA}`, color: "#e8b14c" }}
+        >
+          <TicketGlyph color="#e8b14c" />
+          <span className="min-w-0 truncate">{appliedPromo.code}</span>
+          {onClearPromo && (
+            <button
+              type="button"
+              onClick={onClearPromo}
+              aria-label={t("promo.banner.clear")}
+              className="k-tap shrink-0 px-[6px] text-[28px] leading-none text-white/45"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      ),
+    });
+  } else if (onOpenCodeEntry) {
+    utilTiles.push({
+      key: "code",
+      node: (
+        <UtilityTile
+          icon={<TicketGlyph color="#00e2e5" />}
+          label={t("promo.chip")}
+          color="#00e2e5"
+          onClick={onOpenCodeEntry}
+        />
+      ),
+    });
+  }
+  utilTiles.push({ key: "lang", node: <LanguageSwitcher inline /> });
   const hasCart = session.items.length > 0;
   // Whether ANYTHING on the Experiences shelf is bookable right now. If every
   // tile inside is locked (VIP combo + Ultimate Qualifier both out of runway)
   // or the shelf is empty, the landing card itself locks — no tapping into a
   // screen of all-unavailable tiles (owner 2026-07-19).
   const anyExperienceAvailable =
-    combos.some((c) => c.id !== "race-bowl" || vipComboAvailable) || (showQualifier && uqAvailable);
+    combos.some((c) => c.id !== "race-bowl" || vipComboAvailable) ||
+    (showQualifier && uqAvailable) ||
+    showRacePacks;
   // The availability key for a tile: shuffly is per BUILDING (FT vs HP side,
   // separate BMI products), so it keys by the side this kiosk's brand books.
   const offeringKey = (o: ActivityOffering) =>
@@ -151,10 +309,11 @@ export function KioskCategories({
   if (cat === null) {
     return (
       <div className="relative flex h-full flex-col px-[64px] pb-[28px] pt-[72px]">
-        {/* Language switcher — "What are we doing today?" chooser only, pinned up
-            top-right ABOVE the tiles (owner 2026-07-26); hidden on the
-            pick-experience / pick-attraction sub-views. */}
-        <LanguageSwitcher posClass="right-[40px] top-[36px]" />
+        {/* The language switcher is rendered IN FLOW, in the utility row near the
+            bottom — see that row. Fixed positioning does not work here: the
+            canvas is transformed (so fixed resolves against it) and .k-flow-body
+            scrolls, so a fixed switcher gets clipped at the body edge and landed
+            under the util bar, untappable (owner 2026-07-28). */}
         {/* Hidden staff entry: 5 taps in the header area → admin. */}
         <AdminTapZone />
         <h1 className="k-display mb-[32px] text-[82px]">
@@ -209,6 +368,51 @@ export function KioskCategories({
             />
           )}
         </div>
+
+        {/* No shortcut row here (owner 2026-07-28). VIP Experience is dropped —
+            the Experiences card already leads to it, so it was a second door
+            onto the same room. Race packs moved INTO the Experiences shelf,
+            beside the VIP combo and the Ultimate Qualifier, where a guest is
+            already comparing premium racing. The code/voucher strip below is
+            NOT a shortcut — it carries a code into whatever the guest picks
+            next — so it stays. */}
+        {/* UTILITY ROWS — ONE grid, not two flex rows.
+
+            Every box here is the same UtilityTile shape (see UtilityTile.tsx):
+            same height, radius, border alpha and type, sharing a class string so
+            none can drift. They used to be four hand-rolled buttons with three
+            different border alphas and two radii, laid out as two separate flex
+            rows whose columns could never line up — which is exactly why they
+            read as unrelated controls (owner 2026-07-28).
+
+            Fixed 2 columns, so every tile is the same width and the rows align.
+            An odd last tile spans both columns rather than leaving a hole.
+
+            Contents in order: the "not booking" side doors moved off the attract
+            screen, then the code/voucher tile, then language.
+
+            Two hide rules (owner 2026-07-28), both about handing the grid a slot
+            back once a voucher is in play:
+              - the WAIVER door hides. LAYOUT ONLY — a voucher is not a signed
+                waiver, and /kiosk/waiver plus the in-flow waiver step are
+                untouched and still reachable.
+              - the "Coupon or voucher?" tile hides, because the voucher summary
+                tile replaces it and the sheet it opens is where further codes
+                get added. Two doors onto the same sheet is one too many. */}
+        {utilTiles.length > 0 && (
+          <div className="mt-[22px] grid shrink-0 grid-cols-2 gap-[18px]">
+            {utilTiles.map((tile, i) => (
+              <div
+                key={tile.key}
+                className={
+                  utilTiles.length % 2 === 1 && i === utilTiles.length - 1 ? "col-span-2" : ""
+                }
+              >
+                {tile.node}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -299,7 +503,24 @@ export function KioskCategories({
                   onClick={() => onPickPackageExperience("ultimate-qualifier")}
                 />
               )}
-              {combos.length === 0 && !showQualifier && (
+              {/* Standalone race packs — moved here from the attract screen
+                  (owner 2026-07-28) to sit with the other premium racing
+                  products a guest is already comparing, rather than as a
+                  shortcut button hanging off another screen. */}
+              {showRacePacks && (
+                <ShelfBanner
+                  photo={KIOSK_PHOTOS.raceAction}
+                  eyebrow={t("categories.eyebrow.premiumRacing")}
+                  accent="#e8b14c"
+                  // "Race packs" is the product name, kept untranslated like the
+                  // combo and Ultimate Qualifier names above it.
+                  title="Race Packs"
+                  blurb={t("categories.racePacks.blurb")}
+                  priceLine={t("categories.racePacks.priceLine", { price: "$49.99" })}
+                  onClick={() => onOpenRacePacks?.()}
+                />
+              )}
+              {combos.length === 0 && !showQualifier && !showRacePacks && (
                 <EmptyShelf note={t("categories.emptyShelf")} />
               )}
             </div>
@@ -321,6 +542,9 @@ export function KioskCategories({
                   disabled={!offeringAvailable(offeringKey(o))}
                   disabledNote={t("categories.disabled.attraction")}
                   firstOpen={offeringFirstOpen(offeringKey(o))}
+                  // Gold "Code applies" badge — same scope predicate the web
+                  // landing badges with.
+                  promoApplies={!!appliedPromo && isOfferingInPromoScope(o, appliedPromo)}
                   onClick={() => onPickOffering(o)}
                 />
               ))}
@@ -519,6 +743,7 @@ function OfferingTile({
   disabled,
   disabledNote,
   firstOpen,
+  promoApplies,
   onClick,
 }: {
   offering: ActivityOffering;
@@ -532,10 +757,18 @@ function OfferingTile({
   disabledNote?: string;
   /** Soonest bookable slot → the "3 lanes · 9:30 PM" line above the title. */
   firstOpen?: FirstOpen;
+  /** The applied coupon covers this tile → gold "Code applies" badge. */
+  promoApplies?: boolean;
   onClick: () => void;
 }) {
   const accent = offering.accentColor ?? "#00e2e5";
-  const t = useT();
+  const { t, locale } = useLocale();
+  // Tile name + description are DATA (activities-catalog), so they localize from
+  // the offering's own `es` block rather than the message catalog — same pattern
+  // as the combo marketing copy. A missing `es` field keeps the English one
+  // (brand proper nouns: "Nexus Laser Tag", "Shuffle Showdown", "Kids Bowl Free").
+  const name = (locale === "es" ? offering.es?.displayName : null) ?? offering.displayName;
+  const blurb = (locale === "es" ? offering.es?.blurb : null) ?? offering.blurb;
   // Which building the guest walks to — same venue badge the web landing puts
   // on every attraction card (owner 2026-07-19).
   const venue = effectiveBrand(offering, brand);
@@ -549,10 +782,16 @@ function OfferingTile({
       type="button"
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
-      aria-label={offering.displayName}
+      aria-label={name}
       className={`k-ph k-tap relative overflow-hidden rounded-[28px] border border-white/10 text-left ${wide ? "col-span-2 h-[300px]" : "h-[340px]"} ${disabled ? "opacity-50" : ""}`}
       style={heroUrl ? ({ ["--k-img"]: `url(${heroUrl})` } as React.CSSProperties) : undefined}
     >
+      {/* Gold coupon badge — top-left (venue chip owns top-right). */}
+      {promoApplies && !disabled && (
+        <div className="k-display absolute left-[20px] top-[20px] rounded-full bg-[#e8b14c] px-[22px] py-[10px] text-[22px] text-[#2a1c02] shadow-[0_10px_34px_rgba(232,177,76,0.45)]">
+          {t("promo.badge")}
+        </div>
+      )}
       {/* Venue chip — which building this attraction lives in. */}
       <div className="k-glass absolute right-[20px] top-[20px] flex items-center px-[20px] py-[12px]">
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -576,11 +815,11 @@ function OfferingTile({
             className="k-display line-clamp-2 break-words text-[36px] leading-[1.15]"
             style={{ textWrap: "normal" }}
           >
-            {offering.displayName}
+            {name}
           </span>
         </div>
         <div className="mt-[8px] line-clamp-2 h-[64px] break-words text-[24px] leading-[1.3] text-white/65">
-          {disabled && disabledNote ? disabledNote : offering.blurb}
+          {disabled && disabledNote ? disabledNote : blurb}
         </div>
       </div>
       {/* Availability line sits on the accent bar as a footer (owner 2026-07-25:
@@ -603,5 +842,39 @@ function OfferingTile({
         <div className="h-[8px]" style={{ background: disabled ? "#555" : accent }} />
       </div>
     </button>
+  );
+}
+
+/** "15% off today" / "$5.00 off today" tail for the applied-code banner. */
+function promoDealLine(t: Translate, promo: AppliedPromo): string {
+  if (promo.mechanic === "percent" && promo.amountPct != null) {
+    return t("promo.banner.percent", { pct: promo.amountPct });
+  }
+  if (promo.amountCents != null) {
+    return t("promo.banner.fixed", { amount: `$${(promo.amountCents / 100).toFixed(2)}` });
+  }
+  return "";
+}
+
+/** Ticket outline glyph (house rule: icons, never emoji). */
+function TicketGlyph({ color }: { color: string }) {
+  return (
+    <svg
+      width="34"
+      height="34"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="shrink-0"
+    >
+      <path d="M15 5v2" />
+      <path d="M15 11v2" />
+      <path d="M15 17v2" />
+      <path d="M5 5h14a2 2 0 0 1 2 2v3a2 2 0 0 0 0 4v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3a2 2 0 0 0 0-4V7a2 2 0 0 1 2-2" />
+    </svg>
   );
 }

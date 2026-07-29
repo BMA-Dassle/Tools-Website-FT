@@ -19,6 +19,15 @@ export const en = {
   "attract.letsBowl": "Let’s bowl.",
   "attract.letsRace": "Let’s race.",
   "attract.letsParty": "Let’s party.",
+  // Headline layout only: the "Let's …" line is driven by the AD SLIDE, so it
+  // needs one phrase per slide rather than the free-running welcome rotation.
+  // Rendered at 150px and measured down to one line — a long translation
+  // shrinks rather than wrapping (see fitOneLine in AttractHeadline).
+  "attract.letsBlast": "Let’s blast.",
+  "attract.letsGoMega": "Let’s go Mega.",
+  // Replaces the "Touch to get started" pill. The whole screen is the tap
+  // target, so this labels the gesture instead of faking a control.
+  "attract.touchAnywhereToStart": "Touch anywhere to start",
   // Bank billboard (AttractBillboard) — \n is a hard line break on the big
   // neon word (rendered whitespace-pre-line).
   "attract.billboard.bowling": "Bowling",
@@ -74,6 +83,11 @@ export const en = {
   "categories.qualifier.fromWeekend": "From {price}/person Fri–Sun",
   "categories.qualifier.disabled":
     "Not enough time left today to fit both races — please check back or ask an attendant.",
+  // Race packs on the Experiences shelf. Never time-gated — a pack is credit to
+  // spend later, so it has no "next available" line and never locks out.
+  "categories.racePacks.blurb":
+    "Prepaid races at a better rate — use them today or on your next visit.",
+  "categories.racePacks.priceLine": "From {price}",
   "categories.emptyShelf": "No bundled experiences are running at this location today.",
   "categories.gameZone.unavailable.title": "Game Zone cards not available on this kiosk",
   "categories.gameZone.unavailable.note": "Please use another kiosk or see Guest Services",
@@ -263,6 +277,85 @@ export const en = {
   "checkout.plusTax": "+ tax",
   "checkout.allActivities": "All activities",
   "checkout.reviewAndPay": "Review & Pay",
+  // Coupon savings line above Est. total — {amount} is pre-formatted "$4.13".
+  "checkout.codeSavings": "{code} saves you {amount}",
+
+  // --- Coupon / voucher code entry (KioskCodeEntry + KioskCategories chip) ---
+  "promo.chip": "Coupon or voucher?",
+  "promo.badge": "Code applies",
+  "promo.banner.percent": "{pct}% off today",
+  "promo.banner.fixed": "{amount} off today",
+  "promo.banner.clear": "Remove code",
+  "codeEntry.eyebrow": "Coupon or voucher",
+  "codeEntry.title": "Enter your code",
+  "codeEntry.scanTitle": "Scan your code",
+  "codeEntry.typeInstead": "Type the code instead",
+  "codeEntry.scanInstead": "\u2039 Scan instead",
+  "codeEntry.inputLabel": "Coupon or voucher code",
+  "codeEntry.placeholder": "Tap here to type it",
+  "codeEntry.scanHint.lead": "Or scan it",
+  "codeEntry.scanHint.body":
+    "Hold the code under the screen — paper coupons, e-mail QR codes and vouchers all work.",
+  "codeEntry.apply": "Apply code",
+  "codeEntry.back": "‹ Back",
+  "codeEntry.checking": "Checking your code…",
+  "codeEntry.applied.title": "Code applied!",
+  "codeEntry.applied.body": "Look for the gold “Code applies” tag as you pick your activities.",
+  "codeEntry.applied.cta": "Start picking",
+  // Per-reason rejections — an unattended guest has no cashier to ask, so the
+  // message must say exactly what's wrong (kiosk validation is strict:
+  // today's date, this venue).
+  "codeEntry.err.unknown": "We couldn’t find that code — double-check the letters and numbers.",
+  "codeEntry.err.expired": "This code has expired.",
+  "codeEntry.err.not_yet_active": "This code isn’t active yet.",
+  "codeEntry.err.exhausted": "This code has been fully used up.",
+  "codeEntry.err.wrong_weekday": "This code isn’t valid today — check the days on your coupon.",
+  "codeEntry.err.wrong_date": "This code isn’t valid for today’s visit.",
+  "codeEntry.err.wrong_location": "This code isn’t valid at this location.",
+  "codeEntry.err.rate_limited": "Too many tries — please wait a few minutes and try again.",
+  "codeEntry.err.generic": "Something went wrong checking your code — please try again.",
+  "codeEntry.err.unrecognized": "We couldn’t recognize that scan — try typing the code instead.",
+  // Recognized non-coupon payloads get routed, never "unrecognized".
+  "codeEntry.voucher.title": "That’s a voucher!",
+  "codeEntry.voucher.body":
+    "We can see this is one of our vouchers, but this kiosk can’t redeem vouchers yet — our team at Guest Services will take care of you right away.",
+  "codeEntry.voucher.cta": "Done",
+  "codeEntry.gamecard.title": "That’s a Game Zone card",
+  "codeEntry.gamecard.body": "Use the Game Zone screen to reload it or check its balance.",
+  "codeEntry.gamecard.cta": "Open Game Zone",
+  "codeEntry.giftcard.title": "That’s a gift card",
+  "codeEntry.giftcard.body":
+    "Gift cards are accepted as payment — swipe it at the card reader when you pay.",
+  "codeEntry.giftcard.cta": "Got it",
+  // Voucher redemption live (flag): accepted panel + checkout lines.
+  "codeEntry.voucherOk.title": "Voucher accepted!",
+  "codeEntry.voucherOk.titleNamed": "{name} accepted!",
+  "voucher.pill.fallbackName": "Voucher",
+  "voucher.pill.applied": "{name} applied \u2014 comes off at checkout",
+  "voucher.pill.pending": "{name} ready \u2014 applies when you book",
+  "voucher.pill.error": "Voucher problem \u2014 see Guest Services",
+  "voucher.pill.remove": "Remove voucher",
+  "voucher.chip.applied": "{name} applied",
+  "voucher.chip.pending": "{name} ready",
+  "voucher.chip.error": "Voucher needs help",
+  "voucher.summary.many": "{count} vouchers",
+  "voucher.summary.attention": "Check {count} vouchers",
+  "voucher.sheet.title": "Your vouchers",
+  "voucher.sheet.blurb":
+    "Each voucher covers one race or attraction \u2014 they come off automatically at checkout.",
+  "voucher.sheet.empty": "No vouchers on this order yet.",
+  "voucher.sheet.scanAnother": "Scan another",
+  "codeEntry.voucherOk.body":
+    "Book your activity and this voucher comes off your total automatically at checkout.",
+  "codeEntry.voucherOk.cta": "Start picking",
+  "checkout.voucherCovers": "{name} voucher covers {amount}",
+  "checkout.voucherFallbackName": "Your",
+  "checkout.vouchersCover": "{count} vouchers cover {amount}",
+  "codeEntry.err.duplicate": "That voucher is already on this order.",
+  "checkout.voucherNoMatch":
+    "Your {name} voucher doesn’t match anything in your cart — add it to your visit to use it.",
+  "checkout.voucherError":
+    "We couldn’t apply voucher {code} — you’ll pay full price here, or see Guest Services.",
 
   // --- Checkout upsell (KioskCheckoutUpsell) — "Game Zone" stays untranslated ---
   "upsell.eyebrow": "One more thing…",

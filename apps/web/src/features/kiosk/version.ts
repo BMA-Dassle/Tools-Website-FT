@@ -15,6 +15,227 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.10.11 — the height & age safety confirm now speaks Spanish too.
+ *         1.10.10 left it English on purpose, reading its four disclaimers as
+ *         legal text needing the same attorney review as the ES waiver body.
+ *         Owner overruled that: it needs Spanish and does not need a lawyer. And
+ *         the call was right — it is the one screen where not understanding the
+ *         words is a safety problem, not an inconvenience: a Spanish-speaking
+ *         parent was ticking four English boxes attesting to their kids' age and
+ *         height.
+ *         The enforced FIGURES are untouched and a test now pins them in every
+ *         locale, so a future translation can't drift 13 / 59 / 7-13 / 49 / 70.
+ *         Spanish restates them in meters inside the same parenthetical the
+ *         English uses to restate 59" as 4'11".
+ *         Each requirement is one whole sentence PER PLURAL BRANCH, not a stem
+ *         plus a spliced verb — Spanish has to agree across tiene/tienen AND
+ *         mide/miden at once, which a shared stem can't express.
+ *         The inch/foot marks in the English are now true primes rather than an
+ *         ASCII apostrophe and quote: a bare ' is ICU's own escape character, so
+ *         `4'11"` risked swallowing the rest of the branch as a quoted literal.
+ *         Renders the same; a test asserts the glyphs survive formatting.
+ * 1.10.10 — the attraction flow spoke English even in Spanish mode.
+ *         The i18n pass converted the screens that had kiosk-NATIVE components;
+ *         attractions are the one guest flow that still runs the web wizard's
+ *         steps, so a Spanish guest booking laser tag hit an English "Your Info"
+ *         form and an English attraction page (name, description, product cards,
+ *         "How many people?"). Both are keyed now — they are shared with the web
+ *         wizard, which is unaffected because useLocale() falls back to English
+ *         with no LocaleProvider above it.
+ *         The exit-confirm sheet — the one that pops up when you back out of an
+ *         attraction ("Remove it & go to main page") — was fully hardcoded, and
+ *         so was the rest of the flow SHELL around every step: the activity name
+ *         in the header, "Step 3 of 5", Back / Continue / Add to my visit, the
+ *         signed-in banner, the guest-assistance overlay, the unracered + phone
+ *         sign-in sheets, the vendor loaders, and every flow error. All keyed
+ *         (~110 new EN+ES strings), plus the reused-web step titles and the
+ *         "why Continue is blocked" hint lines via English→key lookup maps,
+ *         since module-scope StepDefs can't reach useT().
+ *         Attraction tile names/blurbs and per-attraction descriptions and
+ *         product names are DATA, so they got `es` blocks (activities-catalog +
+ *         lib/attractions-data) the way the combo marketing copy did.
+ *         Still English by decision: the race height/age modal's legal
+ *         disclaimers, which need the same attorney review as the ES waiver.
+ * 1.10.9 — check-in: "Express lane" now means THIS reservation is express.
+ *         The badge rendered on every racing row (it gated on kind === "racing",
+ *         not on eligibility), so guests who genuinely had to check in were told
+ *         to skip it — 8 of 25 Fort Myers reservations on 7/28, including the one
+ *         ops flagged. It now reads real per-reservation truth: the browse list
+ *         from the `fastLane` flag checkout wrote (one Redis GET, issued in the
+ *         same Promise.all as the existing ref mint, so no extra round trip), the
+ *         itinerary from the live per-racer Pandora waiver read it already does,
+ *         which also catches a waiver that lapsed since booking. Any racer with
+ *         no personId disqualifies the party, and a combo is never express
+ *         because its bowling lane still needs opening.
+ *         And express now REPLACES check-in rather than decorating it: tapping
+ *         an express row pops the message and stops — no last-4 gate, no OTP, no
+ *         itinerary — which is what the owner had asked for more than once. The
+ *         destination copy said "the pits"; it now says Race Check-In, 1st floor,
+ *         left of the Red Track, like the eTicket and the race-day email. Fully
+ *         EN + ES: the old body was stuck in English because its inline bold made
+ *         it rich text, so it is now split at SENTENCE boundaries where each key
+ *         is a whole translatable unit.
+ * 1.10.8 — the chooser's utility boxes are ONE shape, in ONE grid.
+ *         1.10.7 gave them a common height and called it done; they still had
+ *         three border alphas, three type treatments and — the real problem —
+ *         sat in TWO separate flex rows, whose columns can never line up. Now a
+ *         single UtilityTile (components/UtilityTile.tsx) owns the shape and
+ *         EXPORTS its class string, so the voucher chip and the language
+ *         switcher style themselves from it and cannot drift again. Laid out as
+ *         one 2-column grid: every tile identical width, rows aligned, and an
+ *         odd last tile spans both columns instead of leaving a hole.
+ *         Also: the "Coupon or voucher?" tile now hides once a voucher is
+ *         scanned (owner 2026-07-28) — the voucher summary tile replaces it and
+ *         the sheet it opens is where further codes get added, so two doors onto
+ *         the same sheet was one too many.
+ * 1.10.7 — REGRESSION FIX + the last of the attract cleanup.
+ *         (1) RACE PACKS OPENED A BLANK SCREEN. 1.10.5 widened the banner to
+ *         "any kiosk that offers racing" so HeadPinz FM could sell packs, but
+ *         KioskRacePackFlow still returns null for a non-FastTrax brand — so the
+ *         tap swapped the screen for nothing. Reverted to FastTrax-only, and the
+ *         banner gate now MATCHES the flow's own guard so they cannot diverge
+ *         again. Selling packs from the HeadPinz bank is not a display change:
+ *         the flow passes `brand` to KioskPartyManager as `brandLocation`, which
+ *         drives pandoraFetchWaiverTemplate / pandoraCheckWaiver — i.e. WHICH
+ *         WAIVER the guest signs. That needs an explicit decision plus a live
+ *         card-present smoke, so it is not inferred here.
+ *         (2) The attract screen drops the footer logo band and the language
+ *         switcher: the venue's own logo is already the biggest thing on that
+ *         screen, so a second smaller pair of both logos was the same
+ *         information twice, and the switcher belongs where a guest stops to
+ *         read. That is another 130px back in the reach band.
+ *         (3) The chooser's bottom boxes are now ONE shape — side doors, code
+ *         chip, voucher chip and language switcher all 96px tall, 18px radius,
+ *         1.5px border, flex-1. Three different heights and radii read as three
+ *         unrelated controls.
+ *         (4) The language switcher renders IN FLOW there rather than fixed.
+ *         1.10.6 only moved it; the real bug is that `.kiosk-canvas` is
+ *         transformed (so `fixed` resolves against it) and `.k-flow-body`
+ *         scrolls, so a fixed switcher is CLIPPED at the body edge — no offset
+ *         could have fixed it.
+ * 1.10.6 — the attract screen finally has NOTHING on it but the poster. The
+ *         three "not booking" side doors (Race Reservation, View race grid,
+ *         Online & Group Waiver) move to the "What are we doing today?" chooser
+ *         as ONE even row — equal widths, one line each, so two or three read
+ *         as a deliberate row instead of the old full-width-bar-plus-two-halves.
+ *         1.10.4 only moved VIP and race packs; these were the buttons still
+ *         sitting on the poster (owner 2026-07-28). Flag + venue gating moved
+ *         into KioskFlow so it is not duplicated: a callback only reaches the
+ *         chooser when that door applies.
+ *         The waiver door hides once a voucher is applied — a LAYOUT rule to
+ *         give the row a slot back, NOT a legal one: a voucher is not a signed
+ *         waiver, and /kiosk/waiver plus the in-flow waiver are untouched.
+ *         Also: the chooser's language switcher was UNTAPPABLE. At
+ *         bottom-[34px] it sat underneath the flow's 140px util bar (Start Over
+ *         / Guest Assistance); the attract screen has no util bar, which is why
+ *         the same slot worked there. Lifted to bottom-[168px], still
+ *         bottom-right.
+ *         TRADE-OFF, flagged: check-in is now two taps from idle instead of
+ *         one, and it is the one time-sensitive door in that set.
+ * 1.10.5 — the shortcut row is gone again (owner 2026-07-28). VIP Experience is
+ *         DROPPED outright — the Experiences card already leads there, so it was
+ *         a second door onto the same room. Race packs moved INTO the
+ *         Experiences shelf as a banner beside the VIP combo and the Ultimate
+ *         Qualifier, where a guest is already comparing premium racing, and they
+ *         now show at BOTH Fort Myers venues (FastTrax and HeadPinz FM share the
+ *         campus and guests walk between them). Gated on whether the kiosk
+ *         offers racing at all rather than on brand — the same condition, and it
+ *         keeps karting-less Naples out without naming venues. A pack is credit
+ *         to spend later, not a timed booking, so its banner carries no
+ *         availability line, never locks out, and counts toward the Experiences
+ *         card staying open when a pack is the only thing left on the shelf.
+ * 1.10.4 — VIP + race-pack shortcuts move OFF the attract screen and onto the
+ *         "What are we doing today?" chooser, as an even row of buttons under
+ *         the Game Zone card (owner 2026-07-28). The attract screen is a poster
+ *         with one instruction: a button there both competes with "touch
+ *         anywhere" and is the one thing a tap anywhere does NOT do. The
+ *         chooser is where a guest is already deciding. Same destinations the
+ *         ?goto=vip / ?goto=packs deep links seed, so the entry points cannot
+ *         drift. Each is hidden unless it is actually reachable (VIP combo
+ *         enabled at this center and fits today; packs are FastTrax + kill
+ *         switch). The chooser's language switcher also moves bottom-right to
+ *         match the attract screen, so it stops jumping between the first two
+ *         screens a guest sees.
+ * 1.10.3 — the 1.10.2 vehicle fix was itself broken, and took the Mega
+ *         headline with it. (1) `left-[calc(100%+64px)]` emits
+ *         `calc(100%+64px)`, and CSS requires whitespace around `+` inside
+ *         calc() — so the browser dropped the declaration, `left` fell back to
+ *         `auto`, and the car and ball rendered at their STATIC position, parked
+ *         mid-lane in plain view. Worse than the 64px sliver it was meant to
+ *         fix. Now an inline style, where the spaces survive.
+ *         (2) The headline carried `whitespace-pre-line` AND
+ *         `[text-wrap:nowrap]`. `white-space: pre-line` is a shorthand that
+ *         also sets `text-wrap: wrap`, so the winner depended on stylesheet
+ *         order; when wrap won, "LET'S GO MEGA." broke onto a second line that
+ *         clipped. Whitespace is now set inline and per-case: pre-line only for
+ *         billboard words, which carry deliberate \n breaks.
+ *         (3) fitOneLine measured, then the style prop re-applied the base size
+ *         on the next render and wiped the result — five times a second during
+ *         a billboard poll. The hook owns fontSize outright now.
+ *         (4) "Videos load a split second different": the clips were encoded
+ *         with a default ~10s GOP — the race cut had NO keyframe in its first
+ *         8 seconds — so a clock-seek had to decode forward from frame 0 and
+ *         every machine arrived at its own pace. All four re-encoded with a
+ *         keyframe every second, which is what makes the shared-clock seek
+ *         land instantly and identically. Drift watchdog tightened 4s -> 2s
+ *         now that a correction is cheap.
+ *         (5) Bowling re-cut from 6.2s: earlier in the reel a lit HEADPINZ
+ *         sign is on the wall, and the bowling slide also runs on FASTTRAX
+ *         kiosks as cross-promo. Also clears the food and robot segments.
+ * 1.10.2 — attract fixes. (1) The car and ball sat 64px INTO view, parked at
+ *         the right edge, then lurched off — the lane lives inside the hero's
+ *         64px padding, so left:100% is x=1016 on a 1080 canvas. Parked at the
+ *         canvas edge now, so they are genuinely hidden until they cross.
+ *         (2) The billboard raised its curtain raggedly: each screen swapped
+ *         PICTURE on its own staggered beat, so five screens changed a second
+ *         apart and read as five glitches rather than one sign. Now every
+ *         screen cuts to its solid image TOGETHER and only the WORDS travel
+ *         down the row, one per second, before the shared closing line.
+ *         (3) Mega Tuesday no longer appears on HeadPinz Fort Myers: both FM
+ *         venues share one center code, so a racing-only dated promo (with an
+ *         operational junior-racer rule) was landing on the one bank that also
+ *         runs the billboard, and the two fought over the same screen.
+ *         Everyday racing cross-promo stays.
+ * 1.10.1 — attract footer tidy: the venue name ("Fort Myers" / "Naples") is
+ *         gone from the headline layout — a guest at the kiosk knows which
+ *         building they are standing in, and it crowded the language switcher
+ *         that now sits in that footer band. Brand lockup stays centred, the
+ *         switcher owns the right side. Ad-zone layout keeps the venue line.
+ * 1.10.0 — NEW ATTRACT SCREEN (attractLayout "headline", now the default; the
+ *         old ad-zone layout is kept and selectable per device via the config
+ *         field or ?attract=adzone). The 480px display-only ad zone is gone —
+ *         it painted a second full-bleed photo over the backdrop photo, which
+ *         is why it needed its own heavier scrim, and the screen said "start"
+ *         three times (neon sign, marquee, cyan pill). Now: the slide drives
+ *         the screen's own backdrop + a "Let's race." / "Let's bowl." headline
+ *         (EN+ES, measured to one line), the cyan pill becomes a prompt because
+ *         a tap anywhere already starts, and VIP / race packs stay as the only
+ *         two real buttons. Backdrops are real footage, alternating video and
+ *         still by (cycle + index) parity so no two consecutive slides move and
+ *         each activity flips every lap. Vehicles are per-ACTIVITY now — the
+ *         car on racing, the ball on bowling — crossing THROUGH the headline on
+ *         the shared clock. The HeadPinz bank billboard is INTEGRATED rather
+ *         than overlaid: it swaps the backdrop and the headline for its ~11s
+ *         and leaves the prompt and buttons alone, so the 94% navy veil and the
+ *         text-on-text bleed it hid are both gone. Clips are kiosk-encoded
+ *         (31.9MB race hero → 2.5MB; 38MB Nexus montage → 3.9MB gel; arcade
+ *         trimmed before the axe-throwing segment) because Chrome will not
+ *         cache an entry over ~1/8 of its disk cache, and an evicted clip
+ *         re-downloads on every attract re-mount. Video playback position is
+ *         clock-locked like the CSS animations, so the whole bank shows the
+ *         same frame.
+ * 1.9.0 — race packs sell to the whole group + are cart-editable (manager
+ *         report 7/27: a 4-person party got a pack on only ONE racer, then got
+ *         trapped re-entering the wizard to fix it). (1) The "who's this pack
+ *         for?" prompt is a MULTI-SELECT — checkbox chips + Everyone + one
+ *         "Add N packs · $X" apply (was one name per tap). (2) The cart's race
+ *         card grows a "Race packs" block: assigned packs listed by name with
+ *         remove ×, "+ Add race pack" opens the same picker right in the cart
+ *         — no wizard re-entry; cart Est. total now includes pack lines and
+ *         their covered-today discount (mirrors the pay screen's math).
+ *         (3) Mid-wizard cart/main-menu exits on a BOOKED item (heats held)
+ *         now lead with "Keep my race & view cart" — before, the only path to
+ *         the cart was "Remove it & view cart", which released the booking.
  * 1.8.2 — RECOVERY for the 1.8.0 outage. (1) Config-envelope stamp reverted to 2
  *         and readStorage made VERSION-AGNOSTIC: it reads the stored config
  *         whatever the version (2, 3, anything), backfills new fields via
@@ -127,7 +348,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.8.2";
+export const KIOSK_VERSION = "1.10.11";
 
 let bootVersion: string | null = null;
 let captured = false;

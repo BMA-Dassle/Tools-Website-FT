@@ -301,3 +301,24 @@ describe("activities-catalog", () => {
     });
   });
 });
+
+describe("kiosk Spanish copy (repo rule: guest-facing copy ships EN + ES together)", () => {
+  it("every offering carries a Spanish blurb — the kiosk attraction shelf renders it", () => {
+    for (const o of allOfferings()) {
+      expect(o.es?.blurb?.trim(), `missing es.blurb for ${o.slug}`).toBeTruthy();
+      expect(o.es?.blurb, `es.blurb for ${o.slug} is still the English string`).not.toBe(o.blurb);
+    }
+  });
+
+  it("leaves brand/product proper nouns in English (no es.displayName)", () => {
+    // Locked glossary — these tile titles are product names, not descriptions.
+    for (const slug of ["shuffly", "gel-blaster", "laser-tag", "kbf"]) {
+      expect(
+        findOffering(slug)?.es?.displayName,
+        `${slug} should keep its English name`,
+      ).toBeUndefined();
+    }
+    // Descriptive titles DO translate.
+    expect(findOffering("race")?.es?.displayName).toBe("Carreras eléctricas de alta velocidad");
+  });
+});

@@ -23,6 +23,51 @@ uncommitted ReturningRacerLookup work were left alone).
 - [ ] **Owner: live smoke on a real HeadPinz kiosk bank** (billboard sync across screens, ball
       crossing, welcome rotation, tap-through during the takeover) — then PR review + merge
 - [ ] Later PR: FastTrax full-screen drive-by + bank relay wave (picked; not started)
+## Post-day-of refund flow — BUILT + MERGED 2026-07-28, FLAGS OFF
+
+**Plan + flag-flip runbook: [tasks/future/post-dayof-refund-plan.md](future/post-dayof-refund-plan.md).**
+All owner decisions from §5 answered 2026-07-27. §8 Tier-3 smoke COMPLETE — three live shapes
+(`--live` MID 18/18 · `--live --post` POST 18/18 · `--live --post --race` POST + collapsed pack
+line + FULL refund 20/20), all run with the master switch OFF.
+
+Staff entry point: a **Refund** button on the manage modal for rows Cancel refuses (terminal
+status + a day-of payment), opening the edit modal with `intent="refund"`.
+
+**Remaining (owner, in this order — see the plan doc):** deploy, then set ONLY
+`RESERVATION_EDIT_V2_MID_DECREASE=true` and `RESERVATION_EDIT_V2_POST=true`. Leave
+`RESERVATION_EDIT_V2` at `"false"` — it also unlocks PRE-phase editing, whose QAMF player sync is
+blocked by a vendor bug. Refunds are exempt from it by design (`isRefundOnlyPlan`).
+
+
+Owner requirement (2026-07-27): **the Payments tab and History tab in ManageReservationModal
+must reflect EVERYTHING we do to a reservation** — edits, partial/full refunds, store credit,
+gift-card adjustments, and the new post-day-of refund chain. Any money step that doesn't
+surface in those two tabs is unfinished. Full plan doc lands at
+tasks/future/post-dayof-refund-plan.md (research workflow in flight).
+
+Owner requirement (2026-07-27): **full testing is part of the plan** — unit tests per money
+step/allocator/guard, live API probes at the non-accounting location `6MZJFTGAYD7TC`, and an
+end-to-end seed+smoke of the real flow (book → pay deposit → check in → charge day-of →
+partial refund chain → verify Square + Neon + Payments/History tabs) before anything is
+called done. No flag flips without the smoke checklist passing.
+
+## KNOWN ISSUE (parked 2026-07-27): PRE-phase race edit — heat removal can't match order line
+
+Owner call: **park until the post-day-of refund flow ships, then return.** Repro (res 16924-era,
+Pedro Quinones fort-myers 7/27 9:36 PM, 3 heats): Edit Reservation → remove one "Starter Race
+Red" heat → PRICE panel shows `pricing_unresolvable`: "no order line matches removed heat
+'Starter Race Red' — the order money can't be derived safely; adjust this one manually in
+Square". Source: the exact-match guard in `raceLegPlan` — a removed heat must match a live order
+line by `catalogObjectId` OR exact `name`. Guard is failing SAFE (no money moves), so no urgency.
+
+**ROOT CAUSE FOUND 2026-07-28** (while building the Refund action): a race booked as a **PACK**
+bills the day-of order as ONE collapsed line — res 16426's order carries a single "Rookie Pack"
+×1 = $27.67, not per-heat race lines. Per-heat removal therefore has nothing to match, by
+construction; it is not a name/catalog divergence. Post-payment phases route around it entirely
+via `spec.orderLines` (return the pack line — that IS the refund), and the guard message now
+points there. **PRE still needs a real fix:** reprice against the pack (a partial pack removal has
+no defined price) or refuse pack bookings with a pack-aware message. Do NOT widen the matcher to
+unit-price fallback — on a collapsed pack line that would silently refund the wrong amount.
 
 ## Bowling reservation flow redesign (single time pick + offer-accurate availability) — BUILT 2026-07-19, DARK
 
@@ -125,13 +170,17 @@ as Pandora `sigPersonID` (plumbed through `/api/pandora/waiver` POST → `pandor
 excluded from products/heats/charges/BMI bill registration BY CONSTRUCTION; roster shows a
 dashed "Guardians — signed, not playing" chip with **Join the fun** (same id moves into party,
 minors' `guardianMemberId` refs stay valid). Receipt contact switches to the guardian when the
-Main person is a minor. BMI-level `guardianID` link is best-effort via re-upsert.
+Main person is a minor. ~~BMI-level `guardianID` link is best-effort via re-upsert.~~
+**RESOLVED 2026-07-25 (Strachan incident):** the "re-upsert" provably CREATED A DUPLICATE person
+per minor sign (Pandora create is NOT an upsert — see lessons.md § Pandora create is NOT an
+upsert). `linkMinorToGuardian` was removed; the waiver's `sigPersonID` is the guardian record.
 
 - [ ] **Live-verify on the kiosk dev flow** (see plan verification list): minor-first paths
       (valid-waiver / new-adult / lookup / expired-adult chain), guardian absent from charges +
       `registerProjectPerson`, log line `signer=<short id>`, two-minors-one-guardian, join-the-fun.
-- [ ] Confirm with one live call whether the Pandora upsert actually persists `guardianID` on an
-      existing person; if not, drop the best-effort re-upsert in `linkMinorToGuardian`.
+- [x] ~~Confirm whether the Pandora upsert persists `guardianID` on an existing person~~ —
+      confirmed 2026-07-25: it persists it on a fresh DUPLICATE person (guardian's `related`
+      pointed at two no-waiver orphans). `linkMinorToGuardian` dropped.
 
 ## Kiosk CRT-591 card reader/dispenser — DRIVER + TEST PANEL + GAME ZONE WIRED (branch `kiosk`)
 

@@ -9,6 +9,8 @@ const db = vi.hoisted(() => ({
   buildQamfMemo: vi.fn(),
 }));
 const cancelLog = vi.hoisted(() => ({ listCancelEventsByAnchors: vi.fn() }));
+const editLog = vi.hoisted(() => ({ listEditEventsByAnchors: vi.fn() }));
+const editSquare = vi.hoisted(() => ({ fetchRefundFacts: vi.fn() }));
 const qamf = vi.hoisted(() => ({ patchReservation: vi.fn() }));
 const square = vi.hoisted(() => ({
   fetchOrderFacts: vi.fn(),
@@ -23,6 +25,8 @@ const bmiNotes = vi.hoisted(() => ({ syncNoteToBmi: vi.fn() }));
 
 vi.mock("@/lib/bowling-db", () => db);
 vi.mock("@/lib/reservation-cancel-log", () => cancelLog);
+vi.mock("@/lib/reservation-edit-log", () => editLog);
+vi.mock("~/features/reservation-edit/square-actions", () => editSquare);
 vi.mock("@/lib/qamf-bowling", () => qamf);
 vi.mock("~/features/cancellation/square-actions", () => square);
 vi.mock("./audit", () => audit);
@@ -195,6 +199,72 @@ describe("getPaymentTimeline", () => {
       kind: "store_credit",
       giftCard: { balanceCents: 5200, state: "ACTIVE" },
     });
+  });
+
+  it("surfaces refunds from BOTH ledgers, including money still PENDING", async () => {
+    // Owner requirement: the Payments tab reflects everything done to a
+    // reservation. A gift-card credit posts asynchronously, so an in-flight
+    // refund has to be visible rather than looking like nothing happened.
+    const r = row({
+      squareDayofOrderId: undefined,
+      squareGiftCardId: undefined,
+      squareDepositOrderId: undefined,
+    });
+    db.getBowlingReservation.mockResolvedValue({ ...r, lines: [] });
+    db.listCancelGroupReservations.mockResolvedValue([r]);
+    cancelLog.listCancelEventsByAnchors.mockResolvedValue([{ refundIds: ["RF_CANCEL"] }]);
+    editLog.listEditEventsByAnchors.mockResolvedValue([
+      { refundIds: ["RF_EDIT", "RF_CANCEL"] }, // duplicate id must collapse
+    ]);
+    editSquare.fetchRefundFacts.mockImplementation(async (id: string) =>
+      id === "RF_CANCEL"
+        ? { paymentId: "PAY1", amountCents: 4500, status: "COMPLETED" }
+        : { paymentId: "PAY_DAYOF", amountCents: 1605, status: "PENDING" },
+    );
+
+    const tl = await getPaymentTimeline(1);
+    const node = tl!.nodes.find((n) => n.kind === "refunds");
+    expect(node?.refunds).toHaveLength(2);
+    expect(node?.refunds).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "RF_CANCEL", status: "COMPLETED", source: "cancel" }),
+        expect.objectContaining({ id: "RF_EDIT", status: "PENDING", source: "edit" }),
+      ]),
+    );
+  });
+
+  it("omits the refunds node entirely when nothing was ever refunded", async () => {
+    const r = row({
+      squareDayofOrderId: undefined,
+      squareGiftCardId: undefined,
+      squareDepositOrderId: undefined,
+    });
+    db.getBowlingReservation.mockResolvedValue({ ...r, lines: [] });
+    db.listCancelGroupReservations.mockResolvedValue([r]);
+    cancelLog.listCancelEventsByAnchors.mockResolvedValue([]);
+    editLog.listEditEventsByAnchors.mockResolvedValue([]);
+
+    const tl = await getPaymentTimeline(1);
+    expect(tl!.nodes.some((n) => n.kind === "refunds")).toBe(false);
+  });
+
+  it("an unreadable refund still gets a row rather than vanishing", async () => {
+    const r = row({
+      squareDayofOrderId: undefined,
+      squareGiftCardId: undefined,
+      squareDepositOrderId: undefined,
+    });
+    db.getBowlingReservation.mockResolvedValue({ ...r, lines: [] });
+    db.listCancelGroupReservations.mockResolvedValue([r]);
+    cancelLog.listCancelEventsByAnchors.mockResolvedValue([{ refundIds: ["RF_GONE"] }]);
+    editLog.listEditEventsByAnchors.mockResolvedValue([]);
+    editSquare.fetchRefundFacts.mockRejectedValue(new Error("square down"));
+
+    const tl = await getPaymentTimeline(1);
+    const node = tl!.nodes.find((n) => n.kind === "refunds");
+    expect(node?.refunds).toEqual([
+      { id: "RF_GONE", amountCents: 0, status: "UNREADABLE", paymentId: "", source: "cancel" },
+    ]);
   });
 });
 

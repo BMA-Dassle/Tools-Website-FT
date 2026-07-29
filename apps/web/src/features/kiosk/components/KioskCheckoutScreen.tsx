@@ -22,6 +22,7 @@
 import type { Dispatch } from "react";
 import type { Action } from "~/features/booking/state/machine";
 import type { BookingSession } from "~/features/booking";
+import type { KioskPackSelection } from "~/features/booking/service/race-pack-kiosk";
 import {
   CartComboBanner,
   CartGameCardsBlock,
@@ -37,6 +38,7 @@ import { KioskBookingAsCard } from "./KioskBookingAsCard";
 import { KioskRewardsSection } from "./KioskRewardsSection";
 import { BrandLogo } from "./BrandLogo";
 import { useT } from "../i18n";
+import { voucherDisplayName } from "~/features/booking/service/voucher-redeem";
 
 export function KioskCheckoutScreen({
   session,
@@ -50,6 +52,7 @@ export function KioskCheckoutScreen({
   onRemoveGameCards,
   onAllActivities,
   onReviewAndPay,
+  onUpdateRacePacks,
 }: {
   session: BookingSession;
   dispatch: Dispatch<Action>;
@@ -62,6 +65,7 @@ export function KioskCheckoutScreen({
   onRemoveGameCards?: () => void;
   onAllActivities: () => void;
   onReviewAndPay: () => void;
+  onUpdateRacePacks?: (itemId: string, creditPacks: KioskPackSelection[] | undefined) => void;
 }) {
   const t = useT();
   const items = [...session.items].sort((a, b) => itemSortMs(a) - itemSortMs(b));
@@ -90,6 +94,39 @@ export function KioskCheckoutScreen({
       (gz?.totalCents ?? 0) / 100 -
       rewardDiscount,
   );
+  // Coupon savings — the estimate builders above already price WITH the
+  // applied code (promoFactor runs inside them), so the guest-visible saving
+  // is the same math re-run WITHOUT the code, minus the discounted figure.
+  // Display-only; the charge derives its own numbers server-side.
+  const promo = session.appliedPromo ?? null;
+  const promoSavings = (() => {
+    if (!promo) return 0;
+    const bare = { ...session, appliedPromo: null };
+    const undiscounted =
+      items.reduce((s, i) => s + estimateCartItemTotal(i, bare), 0) +
+      (activeComboSpecial(bare)
+        ? (comboChargeLines(bare) ?? []).reduce((s, l) => s + l.amount, 0)
+        : 0);
+    const discounted =
+      items.reduce((s, i) => s + estimateCartItemTotal(i, session), 0) + comboEstimate;
+    return Math.max(0, undiscounted - discounted);
+  })();
+  // BMI vouchers — same with-vs-without differencing (the estimate builders
+  // already exclude the plan's covered heats/units).
+  const vouchers = session.appliedVouchers ?? [];
+  const appliedCount = vouchers.filter((v) => !v.pending && !v.error).length;
+  const erroredVouchers = vouchers.filter((v) => v.error);
+  const voucherSavings = (() => {
+    if (appliedCount === 0) return 0;
+    const bare = { ...session, appliedVouchers: [] };
+    const without = items.reduce((s, i) => s + estimateCartItemTotal(i, bare), 0);
+    const withV = items.reduce((s, i) => s + estimateCartItemTotal(i, session), 0);
+    return Math.max(0, Math.round((without - withV) * 100) / 100);
+  })();
+  const voucherLabel =
+    appliedCount === 1
+      ? voucherDisplayName(vouchers.find((v) => !v.pending && !v.error)?.name)
+      : String(appliedCount);
 
   const itemsReady = items.length > 0 && allItemsReady(session);
   const contactOk = contactIsComplete(session.contact);
@@ -124,6 +161,7 @@ export function KioskCheckoutScreen({
                     onEdit={() => onEditItem(item.id)}
                     onRemove={() => onRemoveItem(item.id)}
                     onRemoveHeat={onRemoveHeat}
+                    onUpdateRacePacks={onUpdateRacePacks}
                   />
                 ))}
               </ul>
@@ -152,6 +190,48 @@ export function KioskCheckoutScreen({
           full-width no-wrap CTA under it. */}
       <div className="k-z-actions">
         <div className="flex w-full flex-col gap-[16px]">
+          {items.length > 0 && promo && promoSavings > 0.004 && (
+            <div className="flex items-baseline justify-end pr-[8px]">
+              <span className="k-display text-[24px] text-[#e8b14c]">
+                {t("checkout.codeSavings", {
+                  code: promo.code,
+                  amount: `$${promoSavings.toFixed(2)}`,
+                })}
+              </span>
+            </div>
+          )}
+          {items.length > 0 && appliedCount > 0 && voucherSavings > 0.004 && (
+            <div className="flex items-baseline justify-end pr-[8px]">
+              <span className="k-display text-[24px] text-[#46d68c]">
+                {appliedCount === 1
+                  ? t("checkout.voucherCovers", {
+                      name: voucherLabel || t("checkout.voucherFallbackName"),
+                      amount: `$${voucherSavings.toFixed(2)}`,
+                    })
+                  : t("checkout.vouchersCover", {
+                      count: appliedCount,
+                      amount: `$${voucherSavings.toFixed(2)}`,
+                    })}
+              </span>
+            </div>
+          )}
+          {items.length > 0 && appliedCount > 0 && voucherSavings <= 0.004 && (
+            <div className="flex items-baseline justify-end pr-[8px]">
+              <span className="text-[22px] text-[#f0b341]">
+                {t("checkout.voucherNoMatch", {
+                  name: voucherLabel || t("checkout.voucherFallbackName"),
+                })}
+              </span>
+            </div>
+          )}
+          {items.length > 0 &&
+            erroredVouchers.map((v) => (
+              <div key={v.code} className="flex items-baseline justify-end pr-[8px]">
+                <span className="text-[22px] text-[#ff8c7a]">
+                  {t("checkout.voucherError", { code: v.code })}
+                </span>
+              </div>
+            ))}
           {items.length > 0 && (
             <div className="flex items-baseline justify-end gap-[14px] pr-[8px]">
               <span className="text-[23px] font-bold uppercase tracking-[0.16em] text-white/45">

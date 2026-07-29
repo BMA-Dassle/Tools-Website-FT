@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import { EditGuardError } from "./types";
-import { assertEditable, selectPhase, type EditabilityFacts, type PhaseFacts } from "./guards";
+import {
+  assertEditable,
+  isRefundOnlyPlan,
+  refundFlagForPhase,
+  selectPhase,
+  type EditabilityFacts,
+  type PhaseFacts,
+} from "./guards";
+import type { EditStepKind } from "./types";
 
 const base: PhaseFacts = {
   status: "confirmed",
@@ -78,6 +86,98 @@ describe("selectPhase", () => {
   });
 });
 
+describe("refundFlagForPhase", () => {
+  it("maps each post-payment phase to ITS OWN flag", () => {
+    // The bug this closes: gating on step kind instead of phase. Both phases
+    // emit refund_dayof_payment, so kind-keyed gating let _MID_DECREASE govern
+    // post-complete refunds while _POST governed nothing that ships.
+    expect(refundFlagForPhase("mid")).toBe("RESERVATION_EDIT_V2_MID_DECREASE");
+    expect(refundFlagForPhase("post_complete")).toBe("RESERVATION_EDIT_V2_POST");
+  });
+
+  it("returns null for pre — nothing is paid yet, so no refund flag applies", () => {
+    expect(refundFlagForPhase("pre")).toBeNull();
+  });
+
+  it("never maps two phases to the same flag", () => {
+    const flags = (["mid", "post_complete"] as const).map(refundFlagForPhase);
+    expect(new Set(flags).size).toBe(flags.length);
+  });
+});
+
+describe("isRefundOnlyPlan", () => {
+  const plan = (diffCents: number, ...kinds: EditStepKind[]) => ({
+    diffCents,
+    steps: kinds.map((kind) => ({ kind })),
+  });
+  /** The shape the Refund action actually produces (proved live, 19/19). */
+  const REFUND: EditStepKind[] = [
+    "audit_start",
+    "refund_dayof_payment",
+    "refund_tender",
+    "reconcile_gift_card",
+    "neon_commit",
+    "notify",
+  ];
+
+  it("accepts the money-only refund cascade", () => {
+    expect(isRefundOnlyPlan(plan(-2767, ...REFUND))).toBe(true);
+  });
+
+  it("accepts a refund settled to a gift card instead of the card", () => {
+    expect(
+      isRefundOnlyPlan(
+        plan(-642, "audit_start", "refund_dayof_payment", "issue_store_credit", "neon_commit"),
+      ),
+    ).toBe(true);
+  });
+
+  it("requires money to actually come back", () => {
+    // A zero or positive diff is not a refund no matter what steps it carries.
+    expect(isRefundOnlyPlan(plan(0, ...REFUND))).toBe(false);
+    expect(isRefundOnlyPlan(plan(1500, ...REFUND))).toBe(false);
+  });
+
+  it("requires the money to come off a PAID day-of order", () => {
+    // A pre-payment decrease refunds the deposit directly — an ordinary edit
+    // that belongs to the master switch, not the refund exemption.
+    expect(
+      isRefundOnlyPlan(
+        plan(-500, "audit_start", "refund_tender", "adjust_gift_card_down", "neon_commit"),
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects anything that also charges, syncs, or rebuilds", () => {
+    // Each of these would sneak a non-refund capability past the master switch.
+    for (const extra of [
+      "charge_topup",
+      "charge_dayof_order",
+      "load_gift_card",
+      "qamf_set_players",
+      "qamf_rebook",
+      "bmi_remove_lines",
+      "bmi_add_heats",
+      "update_dayof_order",
+      "refund_dayof_order",
+      "rebuild_dayof_order",
+      "pay_dayof_order",
+      "complete_dayof_order",
+      "await_payment_link",
+    ] as EditStepKind[]) {
+      expect(isRefundOnlyPlan(plan(-2767, ...REFUND, extra))).toBe(false);
+    }
+  });
+
+  it("is an ALLOWLIST — an unknown future step kind is refused, not permitted", () => {
+    // The whole point: adding a step to the engine must never silently widen
+    // what may run without the master flag.
+    expect(
+      isRefundOnlyPlan(plan(-2767, ...REFUND, "some_new_step_nobody_reviewed" as EditStepKind)),
+    ).toBe(false);
+  });
+});
+
 describe("assertEditable", () => {
   const facts: EditabilityFacts = {
     productKind: "open",
@@ -97,6 +197,22 @@ describe("assertEditable", () => {
     expect(code(() => assertEditable({ ...facts, isCombo: true, legPhases: ["pre", "mid"] }))).toBe(
       "combo_phase_split",
     );
+  });
+
+  it("NON-combo multi-leg groups in different phases are refused too", () => {
+    // A shared internal gift card + an un-charged sibling leg: decrementing
+    // for a refund on the charged leg can starve the sibling's own day-of
+    // charge, and a failed charge burns its deterministic idempotency key —
+    // leaving that leg permanently unchargeable.
+    expect(
+      code(() => assertEditable({ ...facts, isCombo: false, legPhases: ["mid", "pre"] })),
+    ).toBe("leg_phase_split");
+  });
+
+  it("multi-leg groups all in the SAME phase still pass", () => {
+    expect(() =>
+      assertEditable({ ...facts, isCombo: false, legPhases: ["pre", "pre"] }),
+    ).not.toThrow();
   });
 
   it("combo edits after lane-open are refused (v1)", () => {

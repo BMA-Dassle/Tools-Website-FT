@@ -615,6 +615,11 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           : toIsoDob(dob);
         const rAge = ageFromIso(refreshedIso) ?? age;
         const rMinor = rAge < 18;
+        // Template BEFORE resetForm — a fetch failure must surface in the
+        // still-open form (formError renders inside it), not vanish with it.
+        const template = status.valid
+          ? null
+          : await pandoraFetchWaiverTemplate(rAge, brandLocation);
         dispatch({
           type: "updatePartyMember",
           id: member.id,
@@ -626,8 +631,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           },
         });
         resetForm();
-        if (!status.valid) {
-          const template = await pandoraFetchWaiverTemplate(rAge, brandLocation);
+        if (template) {
           openWaiverOrGuardian(sid, template, rMinor);
         }
       } else {

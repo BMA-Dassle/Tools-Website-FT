@@ -82,13 +82,33 @@ async function reservationsByPaymentIds(
   const map = new Map<string, ReservationLite>();
   if (!paymentIds.length || !process.env.DATABASE_URL) return map;
   const q = sql();
+  // Match on the row's own two payment columns AND on any payment id recorded
+  // in the edit ledger for that row. Without the ledger join, refunds against
+  // edit top-up payments, mid-session card charges, and any deposit tender
+  // that is not square_deposit_payment_id (multi-tender deposits store only
+  // the CARD payment there) match no reservation at all — and detect.ts DROPS
+  // unmatched refunds as "not one of ours". That is silent zero monitoring,
+  // not a false alarm: exactly the refund shapes the post-day-of refund flow
+  // creates would go unwatched.
   const rows = (await q`
-    SELECT id, guest_name, status, product_kind, center_code, total_cents,
-           refund_cents, square_refund_id, qamf_reservation_id,
-           square_deposit_payment_id, dayof_payment_id
-    FROM bowling_reservations
-    WHERE square_deposit_payment_id = ANY(${paymentIds})
-       OR dayof_payment_id = ANY(${paymentIds})
+    SELECT r.id, r.guest_name, r.status, r.product_kind, r.center_code, r.total_cents,
+           r.refund_cents, r.square_refund_id, r.qamf_reservation_id,
+           r.square_deposit_payment_id, r.dayof_payment_id,
+           COALESCE(
+             (SELECT array_agg(DISTINCT pid)
+                FROM reservation_edit_events e, unnest(e.payment_ids) AS pid
+               WHERE (e.anchor_reservation_id = r.id OR r.id = ANY(e.leg_ids))
+                 AND pid = ANY(${paymentIds})),
+             '{}'
+           ) AS edit_payment_ids
+    FROM bowling_reservations r
+    WHERE r.square_deposit_payment_id = ANY(${paymentIds})
+       OR r.dayof_payment_id = ANY(${paymentIds})
+       OR EXISTS (
+            SELECT 1 FROM reservation_edit_events e
+             WHERE (e.anchor_reservation_id = r.id OR r.id = ANY(e.leg_ids))
+               AND e.payment_ids && ${paymentIds}
+          )
   `) as Array<Record<string, unknown>>;
   for (const r of rows) {
     const lite: ReservationLite = {
@@ -102,7 +122,8 @@ async function reservationsByPaymentIds(
       squareRefundId: (r.square_refund_id as string) ?? null,
       qamfReservationId: (r.qamf_reservation_id as string) ?? null,
     };
-    for (const key of [r.square_deposit_payment_id, r.dayof_payment_id]) {
+    const editIds = (r.edit_payment_ids as string[] | null) ?? [];
+    for (const key of [r.square_deposit_payment_id, r.dayof_payment_id, ...editIds]) {
       if (key) map.set(String(key), lite);
     }
   }
