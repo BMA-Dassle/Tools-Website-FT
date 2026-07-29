@@ -25,6 +25,7 @@ import {
   type ReservationLine,
 } from "@/lib/bowling-db";
 import { setLanePlayers } from "@/lib/qamf-bowling";
+import { syncShoeKdsLineItems } from "@/lib/bowling-shoe-kds";
 import { toLaneInsertName } from "@/lib/qamf-name";
 import {
   FASTTRAX_QAMF_CENTER_ID,
@@ -1855,6 +1856,23 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       // Non-fatal — player rows are convenience data
       console.error("[bowling/v2/reserve] insertReservationPlayers failed:", err);
+    }
+
+    // ── Shoe-size KDS items on the day-of Square order ──────────────
+    // Kiosk (and KBF) rosters arrive here WITH shoe sizes, so the $0 shoe-KDS
+    // lines must be pushed onto the day-of order now — the shoe desk reads that
+    // order, and nothing else in this flow ever writes them. The web flow sends
+    // placeholder rosters (no sizes) and syncs later via the confirmation-page
+    // PATCH to /reservations/[id]/players, so this is a no-op for web.
+    // Best-effort: the deposit is already captured and shoe KDS never gates a
+    // booking (the helper swallows its own failures).
+    if (squareDayofOrderId && players.some((p) => p.shoeSize)) {
+      await syncShoeKdsLineItems({
+        orderId: squareDayofOrderId,
+        players: players.map((p) => ({ name: p.name, shoeSize: p.shoeSize })),
+        idempotencyKey: `shoe-kds-${neonId}-${Date.now()}`,
+        logLabel: "bowling/v2/reserve",
+      });
     }
 
     // ── Discount-code redemption log ────────────────────────────────
