@@ -2604,3 +2604,28 @@ in the plan, not after the first version ships:
 Corollary that saved us here: per-item claims meant a mixed voucher's unspent
 legs survive an abandoned booking. Per-code single use would have destroyed
 them. Model identity at the smallest redeemable unit from the start.
+
+## Render a new guest-facing page IN its real chrome before shipping/sharing (2026-07-30)
+
+Built the /v/{code} voucher page styled as a standalone white page — dark text,
+light background. It's a top-level route, so middleware rewrites it under the
+brand (/hp) layout: fixed nav + dark site background. Result on a real phone:
+content slid UNDER the fixed nav and rendered dark-on-dark, unreadable. I
+emailed guests a link to it without ever loading it in the actual chrome. Owner
+(rightly): "why didn't you catch this, that should be a normal thing by now."
+
+CLAUDE.md already says "NEVER guess a live site's CSS/layout — inspect the real
+DOM first," and there's a seed+smoke rule. This is the same rule for pages I
+author, not just ones I convert.
+
+**Rule:** any NEW top-level page/route, before sharing a link or calling it
+done:
+1. Find a SIBLING page that already renders in the same chrome (here /reload)
+   and copy its shell: nav-clearance top padding (`pt-32 sm:pt-36`), dark
+   backdrop, white-on-dark colors. Don't invent a standalone light layout.
+2. Actually LOAD it in the brand chrome (dev server or deploy preview) and look
+   — a fixed nav + site background are invisible in a bare component render.
+3. Only then share the link.
+
+The tell you skipped this: your page uses `text-neutral-900` / `bg-white` while
+every sibling uses `text-white` on a fixed dark `-z-10` backdrop.
