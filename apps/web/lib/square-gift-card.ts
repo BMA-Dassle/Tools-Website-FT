@@ -609,8 +609,10 @@ export interface TendersResult {
 }
 
 /** Shared auth call for any tender source — explicit idempotency key.
- *  Mirrors authorizeCardPayment's body; autocomplete:false always. */
-async function createTenderAuth(params: {
+ *  Mirrors authorizeCardPayment's body; autocomplete:false always.
+ *  Exported for the kiosk split-tender rail, which stages the gift-card auth
+ *  BEFORE the reader tap instead of running authorizeTenders in one shot. */
+export async function createTenderAuth(params: {
   orderId: string;
   locationId: string;
   sourceId: string;

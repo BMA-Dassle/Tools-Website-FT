@@ -107,8 +107,14 @@ export interface DepositParams {
  * NEVER charges a token. Only honored when kioskTerminalEnabled(); otherwise ignored.
  */
 export interface ExternalTerminalPayment {
-  /** Square paymentId the reader produced (must be COMPLETED). */
+  /** Square paymentId the reader produced (must be COMPLETED). On a split
+   *  checkout this is the PRIMARY payment (the tap; the gift card when no tap
+   *  was needed). */
   paymentId: string;
+  /** SPLIT (kiosk v1, flag-gated): every captured payment on the deposit
+   *  order — the gift-card auth + the tap — in tender order. Finalize verifies
+   *  the SUM; absent = legacy single payment, byte-identical checks. */
+  paymentIds?: string[];
   /** The deposit order the reader paid. Echoed for logging only — finalize
    *  RE-DERIVES the authoritative id from baseKey and verifies the payment's
    *  order_id matches, so a spoofed client value can never be trusted. */
@@ -344,6 +350,13 @@ export async function finalizeDepositFromExternalPayment(params: {
   note: string;
   externalPaymentId: string;
   /**
+   * SPLIT checkouts (kiosk v1: gift card + tap): EVERY captured payment on the
+   * deposit order. Verification switches from single exact-match to
+   * sum-of-payments === amountCents + extraCents; with one id this degenerates
+   * to the legacy check exactly. Absent = legacy single payment.
+   */
+  externalPaymentIds?: string[];
+  /**
    * KIOSK Game Zone cards riding the deposit order: the lines (re-derivation
    * must byte-match prepare's order) and their total. The reader payment must
    * cover amountCents + extraCents; the gift card still funds amountCents ONLY.
@@ -357,6 +370,10 @@ export async function finalizeDepositFromExternalPayment(params: {
   extraCents?: number;
 }): Promise<DepositResult> {
   const extraCents = params.extraCents ?? 0;
+  const paymentIdList =
+    params.externalPaymentIds && params.externalPaymentIds.length > 0
+      ? [...new Set(params.externalPaymentIds)]
+      : [params.externalPaymentId];
   // 1. Recreate the deposit order idempotently → the SAME id + line uid prepare
   //    created (GIFT_CARD-typed). The client-supplied id is never trusted.
   const { depositOrderId, depositLineItemUid } = await createDepositOrder({
@@ -371,35 +388,42 @@ export async function finalizeDepositFromExternalPayment(params: {
     throw new Error("terminal deposit order has no GIFT_CARD line uid");
   }
 
-  // 2. Verify the reader payment server-side (never trust the browser).
-  const pay = await getSquarePaymentSettled(params.externalPaymentId);
-  if (!pay || pay.status !== "COMPLETED") {
-    throw new TerminalPaymentUnverifiedError("terminal payment not COMPLETED");
+  // 2. Verify every payment server-side (never trust the browser). Per-payment
+  //    checks are identical to the legacy single-payment form; the AMOUNT check
+  //    is the SUM across payments (probe #1: PayOrder captures the set
+  //    atomically, so a verified sum == a verified capture).
+  let summedCents = 0;
+  for (const pid of paymentIdList) {
+    const pay = await getSquarePaymentSettled(pid);
+    if (!pay || pay.status !== "COMPLETED") {
+      throw new TerminalPaymentUnverifiedError(`payment ${pid} not COMPLETED`);
+    }
+    if (pay.orderId && pay.orderId !== depositOrderId) {
+      throw new TerminalPaymentUnverifiedError(`payment ${pid} paid a different order`);
+    }
+    if (pay.locationId && pay.locationId !== params.locationId) {
+      throw new TerminalPaymentUnverifiedError(`payment ${pid} location mismatch`);
+    }
+    summedCents += pay.amountCents;
   }
-  if (pay.orderId && pay.orderId !== depositOrderId) {
-    throw new TerminalPaymentUnverifiedError("terminal payment paid a different order");
-  }
-  if (pay.amountCents !== params.amountCents + extraCents) {
-    throw new TerminalAmountMismatchError(pay.amountCents, params.amountCents + extraCents);
-  }
-  if (pay.locationId && pay.locationId !== params.locationId) {
-    throw new TerminalPaymentUnverifiedError("terminal payment location mismatch");
+  if (summedCents !== params.amountCents + extraCents) {
+    throw new TerminalAmountMismatchError(summedCents, params.amountCents + extraCents);
   }
 
-  // 3. Fund the gift card from the ALREADY-CAPTURED payment — no charge. Idempotent.
+  // 3. Fund the gift card from the ALREADY-CAPTURED payment(s) — no charge. Idempotent.
   const { giftCardId, giftCardGan } = await activateGiftCardForDeposit({
     baseKey: params.baseKey,
     locationId: params.locationId,
     amountCents: params.amountCents,
     ganPrefix: params.ganPrefix,
     ganSuffix: params.ganSuffix,
-    paymentIds: [params.externalPaymentId],
+    paymentIds: paymentIdList,
     depositOrderId,
     lineItemUid: depositLineItemUid, // order-linked form
   });
 
   console.log(
-    `[deposit] terminal finalize depositOrderId=${depositOrderId} amount=${params.amountCents} payment=${params.externalPaymentId}`,
+    `[deposit] terminal finalize depositOrderId=${depositOrderId} amount=${params.amountCents} payments=${paymentIdList.join(",")}`,
   );
   return {
     depositOrderId,
