@@ -9,6 +9,55 @@
  * balances (server-supplied, passed through as params).
  */
 export const gamezoneEn = {
+  // --- Comp-voucher redemption (BMI "Complimentary N Token Game Card") ---
+  // A comp is free play, so the copy never says "paid" or shows a price. The
+  // grant ("100 bonus tokens") is server-derived and passed through as a param.
+  "gamezone.chooser.voucher.title": "Redeem a voucher",
+  "gamezone.chooser.voucher.sub": "Free game card — scan your voucher code",
+  "gamezone.voucher.title": "Redeem a voucher",
+  "gamezone.voucher.scanTitle": "Scan your voucher",
+  "gamezone.voucher.scanBody":
+    "Hold the voucher under the scanner. Your free game card comes out right here.",
+  "gamezone.voucher.scanLabel": "Scan the voucher",
+  "gamezone.voucher.scanSub": "or type the code below",
+  "gamezone.voucher.inputLabel": "Voucher code",
+  "gamezone.voucher.placeholder": "Voucher code",
+  "gamezone.voucher.redeem": "Redeem",
+  "gamezone.voucher.add": "Add",
+  "gamezone.voucher.scanMoreTitle": "Got another one?",
+  "gamezone.voucher.getCard": "Get my card",
+  "gamezone.voucher.getCards": "Get my {n} cards",
+  "gamezone.voucher.dispensingN": "Printing card {n} of {total}…",
+  "gamezone.voucher.loadedOk": "Loaded",
+  "gamezone.voucher.notIssued": "Not issued",
+  "gamezone.voucher.done.bodyN":
+    "{n, plural, one {Your card is loaded and ready.} other {Your # cards are loaded and ready.}}",
+  "gamezone.voucher.err.alreadyAdded": "That voucher is already on the list.",
+  "gamezone.voucher.err.tooMany": "That’s the most we can do at once ({n}).",
+  "gamezone.voucher.checking": "Checking your voucher…",
+  "gamezone.voucher.checkingSub": "one moment",
+  "gamezone.voucher.dispensing": "Printing your card…",
+  "gamezone.voucher.loading": "Loading your card…",
+  "gamezone.voucher.takeCard": "Take your card",
+  "gamezone.voucher.done.title": "Enjoy!",
+  "gamezone.voucher.done.body": "Your card is loaded with {grant}.",
+  "gamezone.voucher.error.title": "We couldn’t finish that",
+  // Refusals — each says what to do next, because nobody is standing here.
+  "gamezone.voucher.err.badFormat": "That doesn’t look like a voucher code — check and try again.",
+  "gamezone.voucher.err.unknown": "That voucher isn’t valid or has expired.",
+  "gamezone.voucher.err.voided": "That voucher was cancelled — please see Guest Services.",
+  "gamezone.voucher.err.expired": "That voucher has expired.",
+  "gamezone.voucher.err.notRedeemable":
+    "That voucher isn’t for a game card — take it to Guest Services to use it.",
+  "gamezone.voucher.err.unverifiable":
+    "We couldn’t check that voucher right now — please see Guest Services.",
+  "gamezone.voucher.err.unsupported":
+    "That voucher isn’t for a game card — please see Guest Services.",
+  "gamezone.voucher.err.multiItem":
+    "That voucher covers more than one thing — please see Guest Services to redeem it.",
+  "gamezone.voucher.err.used": "That voucher has already been used.",
+  "gamezone.voucher.err.generic": "Something went wrong — please see Guest Services.",
+
   // --- Shared chrome / units ---
   "gamezone.back": "Back",
   "gamezone.cancel": "Cancel",
@@ -197,6 +246,53 @@ export const gamezoneEn = {
 } as const;
 
 export const gamezoneEs: Record<keyof typeof gamezoneEn, string> = {
+  // --- Canje de vale (comp) ---
+  "gamezone.chooser.voucher.title": "Canjear un vale",
+  "gamezone.chooser.voucher.sub": "Tarjeta de juego gratis — escanea el código de tu vale",
+  "gamezone.voucher.title": "Canjear un vale",
+  "gamezone.voucher.scanTitle": "Escanea tu vale",
+  "gamezone.voucher.scanBody":
+    "Coloca el vale bajo el escáner. Tu tarjeta de juego gratis sale aquí mismo.",
+  "gamezone.voucher.scanLabel": "Escanea el vale",
+  "gamezone.voucher.scanSub": "o escribe el código abajo",
+  "gamezone.voucher.inputLabel": "Código del vale",
+  "gamezone.voucher.placeholder": "Código del vale",
+  "gamezone.voucher.redeem": "Canjear",
+  "gamezone.voucher.add": "Agregar",
+  "gamezone.voucher.scanMoreTitle": "¿Tienes otro?",
+  "gamezone.voucher.getCard": "Obtener mi tarjeta",
+  "gamezone.voucher.getCards": "Obtener mis {n} tarjetas",
+  "gamezone.voucher.dispensingN": "Imprimiendo tarjeta {n} de {total}…",
+  "gamezone.voucher.loadedOk": "Cargada",
+  "gamezone.voucher.notIssued": "No emitida",
+  "gamezone.voucher.done.bodyN":
+    "{n, plural, one {Tu tarjeta está cargada y lista.} other {Tus # tarjetas están cargadas y listas.}}",
+  "gamezone.voucher.err.alreadyAdded": "Ese vale ya está en la lista.",
+  "gamezone.voucher.err.tooMany": "Ese es el máximo a la vez ({n}).",
+  "gamezone.voucher.checking": "Verificando tu vale…",
+  "gamezone.voucher.checkingSub": "un momento",
+  "gamezone.voucher.dispensing": "Imprimiendo tu tarjeta…",
+  "gamezone.voucher.loading": "Cargando tu tarjeta…",
+  "gamezone.voucher.takeCard": "Toma tu tarjeta",
+  "gamezone.voucher.done.title": "¡Que lo disfrutes!",
+  "gamezone.voucher.done.body": "Tu tarjeta está cargada con {grant}.",
+  "gamezone.voucher.error.title": "No pudimos completarlo",
+  "gamezone.voucher.err.badFormat":
+    "Eso no parece un código de vale — revísalo e inténtalo de nuevo.",
+  "gamezone.voucher.err.unknown": "Ese vale no es válido o ya venció.",
+  "gamezone.voucher.err.voided": "Ese vale fue cancelado — acude a Servicio al Cliente.",
+  "gamezone.voucher.err.expired": "Ese vale ya venció.",
+  "gamezone.voucher.err.notRedeemable":
+    "Ese vale no es para una tarjeta de juego — llévalo a Servicio al Cliente para usarlo.",
+  "gamezone.voucher.err.unverifiable":
+    "No pudimos verificar ese vale en este momento — acude a Servicio al Cliente.",
+  "gamezone.voucher.err.unsupported":
+    "Ese vale no es para una tarjeta de juego — acude a Servicio al Cliente.",
+  "gamezone.voucher.err.multiItem":
+    "Ese vale cubre más de una cosa — acude a Servicio al Cliente para canjearlo.",
+  "gamezone.voucher.err.used": "Ese vale ya fue utilizado.",
+  "gamezone.voucher.err.generic": "Algo salió mal — acude a Servicio al Cliente.",
+
   // --- Shared chrome / units ---
   "gamezone.back": "Atrás",
   "gamezone.cancel": "Cancelar",

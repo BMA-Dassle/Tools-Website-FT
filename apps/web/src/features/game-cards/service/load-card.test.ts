@@ -5,9 +5,17 @@ vi.stubEnv("INTERCARD_MAC", "TESTMAC");
 const order: string[] = [];
 
 vi.mock("../data/intercard", () => ({
+  // loadCard credits through credit-plan.ts → creditAccountValues (one call for
+  // tokens + bonus tokens + bonus cash). creditTokens stays mocked because the
+  // module is also imported elsewhere.
   creditTokens: vi.fn(),
+  creditAccountValues: vi.fn(),
   verifyAccount: vi.fn(),
   clearAccount: vi.fn(),
+}));
+
+vi.mock("../data/voucher-claims-db", () => ({
+  getLiveClaimForTxn: vi.fn(),
 }));
 
 vi.mock("../data/transactions-log", () => ({
@@ -42,8 +50,21 @@ const input = {
 async function mocks() {
   const intercard = await import("../data/intercard");
   const log = await import("../data/transactions-log");
-  return { intercard, log };
+  const claims = await import("../data/voucher-claims-db");
+  return { intercard, log, claims };
 }
+
+/** A comped row: no money, authorised by a held BMI voucher claim. */
+const voucherRow = {
+  ...chargedRow,
+  kind: "voucher",
+  packageId: "gzv-100",
+  tokens: 0,
+  bonusTokens: 100,
+  amountCents: 0,
+  voucherCode: "D3X5Q4Z8M5C3Z4D3H6S3T4G3",
+  tpiTransactionId: "gzvoucher-abc",
+};
 
 beforeEach(() => {
   order.length = 0;
@@ -54,7 +75,7 @@ describe("loadCard (buy: per-card load after charge)", () => {
   it("attaches the account, credits tokens, marks loaded, returns balance", async () => {
     const { intercard, log } = await mocks();
     (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(chargedRow);
-    (intercard.creditTokens as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0 });
+    (intercard.creditAccountValues as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0 });
     (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
       exists: true,
       accountNumber: input.accountNumber,
@@ -67,11 +88,12 @@ describe("loadCard (buy: per-card load after charge)", () => {
     expect(res.tokens).toBe(500);
     expect(res.balance?.tokens).toBe(500);
     expect(log.setTxnAccount).toHaveBeenCalledWith(input.txnId, input.accountNumber);
-    expect(intercard.creditTokens).toHaveBeenCalledWith(
+    expect(intercard.creditAccountValues).toHaveBeenCalledWith(
       expect.objectContaining({
         accountNumber: "1038091",
         tokens: 500,
-        bonusTokens: 100,
+        tokenBonus: 100,
+        cashBonus: 0,
         tpiTransactionID: "newcard-abc",
       }),
     );
@@ -81,7 +103,7 @@ describe("loadCard (buy: per-card load after charge)", () => {
   it("leaves the row pending (not loaded) when Intercard returns a non-zero code", async () => {
     const { intercard, log } = await mocks();
     (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(chargedRow);
-    (intercard.creditTokens as ReturnType<typeof vi.fn>).mockResolvedValue({ code: -1 });
+    (intercard.creditAccountValues as ReturnType<typeof vi.fn>).mockResolvedValue({ code: -1 });
     const { loadCard } = await import("./load-card");
 
     const res = await loadCard(input);
@@ -97,7 +119,7 @@ describe("loadCard (buy: per-card load after charge)", () => {
     const { loadCard } = await import("./load-card");
 
     await expect(loadCard(input)).rejects.toMatchObject({ code: "NOT_CHARGED" });
-    expect(intercard.creditTokens).not.toHaveBeenCalled();
+    expect(intercard.creditAccountValues).not.toHaveBeenCalled();
   });
 
   it("rejects when the txn doesn't belong to the group", async () => {
@@ -123,7 +145,7 @@ describe("loadCard (buy: per-card load after charge)", () => {
 
     const res = await loadCard(input);
     expect(res.loaded).toBe(true);
-    expect(intercard.creditTokens).not.toHaveBeenCalled();
+    expect(intercard.creditAccountValues).not.toHaveBeenCalled();
   });
 });
 
@@ -143,8 +165,8 @@ describe("loadCard clear-on-encode (GC_CLEAR_ON_ENCODE=1)", () => {
       order.push("clearAccount");
       return { code: 0 };
     });
-    (intercard.creditTokens as ReturnType<typeof vi.fn>).mockImplementation(async () => {
-      order.push("creditTokens");
+    (intercard.creditAccountValues as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      order.push("creditAccountValues");
       return { code: 0 };
     });
     (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -157,7 +179,7 @@ describe("loadCard clear-on-encode (GC_CLEAR_ON_ENCODE=1)", () => {
     const res = await loadCard(input);
     expect(res.loaded).toBe(true);
     // Clear must run strictly before the credit.
-    expect(order.indexOf("clearAccount")).toBeLessThan(order.indexOf("creditTokens"));
+    expect(order.indexOf("clearAccount")).toBeLessThan(order.indexOf("creditAccountValues"));
     expect(intercard.clearAccount).toHaveBeenCalledWith(
       expect.objectContaining({ accountNumbers: [input.accountNumber], locationCode: 12 }),
     );
@@ -173,14 +195,14 @@ describe("loadCard clear-on-encode (GC_CLEAR_ON_ENCODE=1)", () => {
     const res = await loadCard(input);
     expect(res.loaded).toBe(false);
     // Never credit an uncleared card (would stack residual + new value).
-    expect(intercard.creditTokens).not.toHaveBeenCalled();
+    expect(intercard.creditAccountValues).not.toHaveBeenCalled();
     expect(order).toContain("markLoadState:load_failed");
   });
 
   it("never clears a reload (would wipe the guest's own balance)", async () => {
     const { intercard, log } = await mocks();
     (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue({ ...chargedRow, kind: "reload" });
-    (intercard.creditTokens as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0 });
+    (intercard.creditAccountValues as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0 });
     (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
       exists: true,
       accountNumber: input.accountNumber,
@@ -191,5 +213,100 @@ describe("loadCard clear-on-encode (GC_CLEAR_ON_ENCODE=1)", () => {
     const res = await loadCard(input);
     expect(res.loaded).toBe(true);
     expect(intercard.clearAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe("loadCard (comp voucher: free load, authorised by the claim)", () => {
+  it("credits the grant's BONUS bucket when the claim is live", async () => {
+    const { intercard, log, claims } = await mocks();
+    (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(voucherRow);
+    (claims.getLiveClaimForTxn as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: voucherRow.voucherCode,
+      packageId: "gzv-100",
+      status: "claimed",
+    });
+    (intercard.creditAccountValues as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0 });
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: true,
+      accountNumber: input.accountNumber,
+      balance: { tokens: 0, bonusTokens: 100, eTickets: 0, timeMinutes: 0 },
+    });
+    const { loadCard } = await import("./load-card");
+
+    const res = await loadCard(input);
+    expect(res.loaded).toBe(true);
+    // Comped value NEVER lands in the purchased-token bucket.
+    expect(intercard.creditAccountValues).toHaveBeenCalledWith(
+      expect.objectContaining({ tokens: 0, tokenBonus: 100, cashBonus: 0 }),
+    );
+    expect(order).toContain("markLoadState:loaded");
+  });
+
+  it("refuses to credit when no live claim backs the row (orphan row)", async () => {
+    // The claim is the authorisation. A row whose claim was lost to a race, or
+    // already released, must dispense no value — this is the free-card path.
+    const { intercard, log, claims } = await mocks();
+    (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(voucherRow);
+    (claims.getLiveClaimForTxn as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    const { loadCard } = await import("./load-card");
+
+    await expect(loadCard(input)).rejects.toMatchObject({ code: "VOUCHER_NOT_CLAIMED" });
+    expect(intercard.creditAccountValues).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the claim and the row disagree about the grant", async () => {
+    const { intercard, log, claims } = await mocks();
+    (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(voucherRow);
+    (claims.getLiveClaimForTxn as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: voucherRow.voucherCode,
+      packageId: "gzv-1000", // ten times the value the row was written with
+      status: "claimed",
+    });
+    const { loadCard } = await import("./load-card");
+
+    await expect(loadCard(input)).rejects.toMatchObject({ code: "VOUCHER_MISMATCH" });
+    expect(intercard.creditAccountValues).not.toHaveBeenCalled();
+  });
+
+  it("credits nothing for an off-allowlist grant id", async () => {
+    const { intercard, log } = await mocks();
+    (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...voucherRow,
+      packageId: "gzv-99999",
+    });
+    const { loadCard } = await import("./load-card");
+
+    await expect(loadCard(input)).rejects.toMatchObject({ code: "UNKNOWN_PACKAGE" });
+    expect(intercard.creditAccountValues).not.toHaveBeenCalled();
+  });
+
+  it("clears a comped blank before crediting (recycled stock, same as a paid new card)", async () => {
+    vi.stubEnv("GC_CLEAR_ON_ENCODE", "1");
+    const { intercard, log, claims } = await mocks();
+    (log.getTxn as ReturnType<typeof vi.fn>).mockResolvedValue(voucherRow);
+    (claims.getLiveClaimForTxn as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: voucherRow.voucherCode,
+      packageId: "gzv-100",
+      status: "claimed",
+    });
+    (intercard.clearAccount as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      order.push("clearAccount");
+      return { code: 0 };
+    });
+    (intercard.creditAccountValues as ReturnType<typeof vi.fn>).mockImplementation(async () => {
+      order.push("creditAccountValues");
+      return { code: 0 };
+    });
+    (intercard.verifyAccount as ReturnType<typeof vi.fn>).mockResolvedValue({
+      exists: true,
+      accountNumber: input.accountNumber,
+      balance: { tokens: 0, bonusTokens: 100, eTickets: 0, timeMinutes: 0 },
+    });
+    const { loadCard } = await import("./load-card");
+
+    const res = await loadCard(input);
+    expect(res.loaded).toBe(true);
+    expect(order.indexOf("clearAccount")).toBeLessThan(order.indexOf("creditAccountValues"));
+    vi.stubEnv("GC_CLEAR_ON_ENCODE", "");
   });
 });

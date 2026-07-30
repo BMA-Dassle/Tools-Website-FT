@@ -304,6 +304,15 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.gamecard.title": "Eso es una tarjeta de Game Zone",
   "codeEntry.gamecard.body": "Usa la pantalla de Game Zone para recargarla o consultar su saldo.",
   "codeEntry.gamecard.cta": "Abrir Game Zone",
+  "codeEntry.voucherGz.title": "Es una tarjeta de juego gratis",
+  "codeEntry.voucherGz.titleNamed": "{name}",
+  "codeEntry.voucherGz.body":
+    "Imprimiremos tu tarjeta en la pantalla de Game Zone — toma un momento.",
+  "codeEntry.voucherGz.cta": "Obtener mi tarjeta",
+  "codeEntry.voucherGz.titleN": "{n} tarjetas de juego gratis",
+  "codeEntry.voucherGz.ctaN": "Obtener mis {n} tarjetas",
+  "codeEntry.voucherGz.bodyMore":
+    "¿Tienes otro vale? Escánealo ahora para agregarlo. Las imprimiremos todas juntas.",
   "codeEntry.giftcard.title": "Eso es una tarjeta de regalo",
   "codeEntry.giftcard.body":
     "Las tarjetas de regalo se aceptan como pago — pásala por el lector de tarjetas al pagar.",
@@ -332,6 +341,8 @@ export const es: Record<CoreKey, string> = {
   "checkout.voucherFallbackName": "tu",
   "checkout.vouchersCover": "{count} vales cubren {amount}",
   "codeEntry.err.duplicate": "Ese vale ya est\u00e1 en esta orden.",
+  "codeEntry.err.multiItem":
+    "Ese vale cubre m\u00e1s de una cosa \u2014 acude a Servicio al Cliente para canjearlo.",
   "checkout.voucherNoMatch":
     "Tu vale {name} no coincide con nada en tu carrito — agrégalo a tu visita para usarlo.",
   "checkout.voucherError":

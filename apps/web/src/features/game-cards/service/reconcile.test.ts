@@ -35,7 +35,13 @@ vi.mock("../data/transactions-log", () => ({
 // vendor formats is part of what's under test); mock only the SOAP calls.
 vi.mock("../data/intercard", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../data/intercard")>();
-  return { ...actual, creditTokens: vi.fn(), verifyAccount: vi.fn() };
+  // The SOAP replay now goes through credit-plan.ts → creditAccountValues.
+  return {
+    ...actual,
+    creditTokens: vi.fn(),
+    creditAccountValues: vi.fn(),
+    verifyAccount: vi.fn(),
+  };
 });
 
 function row(overrides: Partial<TxnRow>): TxnRow {
@@ -67,6 +73,7 @@ function row(overrides: Partial<TxnRow>): TxnRow {
     eisCode: null,
     eisDescription: null,
     loadedVia: null,
+    voucherCode: null,
     ...overrides,
   };
 }
@@ -102,18 +109,18 @@ describe("reconcile phases", () => {
     expect(summary.stillPending).toBe(1);
     expect(summary.verifyScanned).toBe(1);
     expect(tlog.sweepStaleQueued).not.toHaveBeenCalled();
-    expect(intercard.creditTokens).not.toHaveBeenCalled();
+    expect(intercard.creditAccountValues).not.toHaveBeenCalled();
     expect(intercard.verifyAccount).not.toHaveBeenCalled();
   });
 
   it("SOAP-replays eligible pending rows with the stored tpi id", async () => {
     const { tlog, intercard } = await loadMocks();
     (tlog.listPendingLoads as ReturnType<typeof vi.fn>).mockResolvedValueOnce([row({})]);
-    (intercard.creditTokens as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ code: 0 });
+    (intercard.creditAccountValues as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ code: 0 });
     const { reconcilePendingLoads } = await import("./reconcile");
     const summary = await reconcilePendingLoads();
-    expect(intercard.creditTokens).toHaveBeenCalledWith(
-      expect.objectContaining({ tpiTransactionID: "reload-txn-1", tokens: 500, bonusTokens: 100 }),
+    expect(intercard.creditAccountValues).toHaveBeenCalledWith(
+      expect.objectContaining({ tpiTransactionID: "reload-txn-1", tokens: 500, tokenBonus: 100 }),
     );
     expect(calls).toContain("markLoadState:loaded");
     expect(summary.loaded).toBe(1);
@@ -161,7 +168,7 @@ describe("verify resolution (unknown EIS outcome)", () => {
     const summary = await reconcilePendingLoads();
     expect(calls).toContain("markVerifiedLoaded");
     expect(summary.verified).toBe(1);
-    expect(intercard.creditTokens).not.toHaveBeenCalled();
+    expect(intercard.creditAccountValues).not.toHaveBeenCalled();
   });
 
   it("no match + old row → manual (never SOAP)", async () => {
@@ -201,7 +208,7 @@ describe("verify resolution (unknown EIS outcome)", () => {
     const summary = await reconcilePendingLoads();
     expect(calls).toContain("markVerifyManual");
     expect(summary.manual).toBe(1);
-    expect(intercard.creditTokens).not.toHaveBeenCalled();
+    expect(intercard.creditAccountValues).not.toHaveBeenCalled();
   });
 
   it("no match + young row → left for the next run", async () => {

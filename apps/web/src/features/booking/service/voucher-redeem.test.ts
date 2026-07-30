@@ -40,6 +40,23 @@ describe("voucherTarget", () => {
     expect(voucherTarget("Comp Admission").kind).toBe("unknown");
     expect(voucherTarget(undefined).kind).toBe("unknown");
   });
+  it("routes a Game Zone card comp to the gamecard rail, carrying its grant", () => {
+    const target = voucherTarget("Complimentary 100 Token Game Card");
+    expect(target.kind).toBe("gamecard");
+    if (target.kind === "gamecard") {
+      expect(target.grant.packageId).toBe("gzv-100");
+      expect(target.grant.bonusTokens).toBe(100);
+    }
+  });
+  it("checks game-card BEFORE the loose keyword matches", () => {
+    // The strict matcher must not steal an attraction comp, and the loose
+    // keyword matches must not steal a game card. Both directions.
+    expect(voucherTarget("Complimentary Duckpin Game Card")).toEqual({
+      kind: "attraction",
+      slugs: ["duck-pin"],
+    });
+    expect(voucherTarget("Complimentary 50 Token Game Card").kind).toBe("gamecard");
+  });
 });
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
@@ -51,6 +68,10 @@ const raceVoucher = (code: string) => ({
   voucherOrderItemId: `9${code.length}00`,
 });
 const laserVoucher = (code: string) => ({ ...raceVoucher(code), name: "Laser Comp" });
+const gameCardVoucher = (code: string) => ({
+  ...raceVoucher(code),
+  name: "Complimentary 100 Token Game Card",
+});
 
 function heat(heatId: string, assignedTo = "m1"): RaceHeatAssignment {
   return {
@@ -168,6 +189,23 @@ describe("planVoucherCoverage", () => {
     );
     expect(plan.attractionUnits.get("a1")).toBe(2);
     expect(plan.picks.filter((p) => p.attractionItemId).length).toBe(2);
+  });
+
+  it("a Game Zone card comp prices NOTHING in the cart", () => {
+    // It's fulfilled by dispensing a card on the Intercard rail. If this ever
+    // starts discounting, the guest gets a free card AND a free race.
+    const h1 = heat("2026-07-29T18:00:00");
+    const plan = planVoucherCoverage(
+      makeSession(
+        [raceItem([h1]), laserItem("a1", 12.5, 1)],
+        [gameCardVoucher("A2A2A2A2A2A2A2A2A2A2A2A2")],
+      ),
+      new Set(),
+    );
+    expect(plan.raceHeats.size).toBe(0);
+    expect(plan.attractionUnits.size).toBe(0);
+    expect(plan.picks[0].raceHeat).toBeUndefined();
+    expect(plan.picks[0].attractionUnitCents).toBeUndefined();
   });
 
   it("mixed race + laser vouchers allocate independently", () => {

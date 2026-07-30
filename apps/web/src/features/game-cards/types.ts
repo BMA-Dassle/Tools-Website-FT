@@ -5,8 +5,23 @@
 
 import type { TokenPackage } from "./constants";
 
-/** Kind of Intercard transaction. `reload` now; `new_card` is a future product. */
-export type TxnKind = "reload" | "new_card";
+/**
+ * Kind of Intercard transaction.
+ *   reload    — existing card, guest paid
+ *   new_card  — blank dispensed then loaded, guest paid
+ *   voucher   — blank DISPENSED then loaded, NO money leg: authorised by a
+ *               voucher claim in game_card_voucher_claims (BMI- or self-issued).
+ *               `amount_cents` is 0 and `voucher_code` carries the code.
+ *   voucher_reload
+ *             — voucher credited onto a card the guest ALREADY HOLDS (the web
+ *               leg). Same authorisation, but nothing is dispensed, and the card
+ *               must NEVER be treated as fresh stock: clear-on-encode would wipe
+ *               the guest's own balance. The kind is what encodes that
+ *               difference, exactly as new_card vs reload does for paid rows.
+ *
+ * See vouchers/codes.ts, vouchers/grants.ts, data/voucher-claims-db.ts.
+ */
+export type TxnKind = "reload" | "new_card" | "voucher" | "voucher_reload";
 
 /**
  * Current on-card balances, read at verify time. Displayed on the reload page

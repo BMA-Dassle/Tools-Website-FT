@@ -360,6 +360,10 @@ export function KioskFlow({
   const [upsellActive, setUpsellActive] = useState(false);
   const upsellSeenRef = useRef(false);
   const [gzOpen, setGzOpen] = useState(false);
+  /** Comp vouchers scanned on the coupon screen, handed to Game Zone so they're
+   *  never re-scanned there. A LIST — the coupon panel accumulates. Cleared on
+   *  every other Game Zone entry. */
+  const [gzVoucherCodes, setGzVoucherCodes] = useState<string[] | null>(null);
   // Coupon / voucher code entry (owner 2026-07-27) — flag-gated screen off the
   // category chooser; ?kioskPromo=1 is the dark-flag preview opt-in.
   const [codeEntryOpen, setCodeEntryOpen] = useState(false);
@@ -1807,9 +1811,10 @@ export function KioskFlow({
           dispatch({ type: "applyVoucher", voucher: { code, name, pending: true } })
         }
         onBack={() => setCodeEntryOpen(false)}
-        onOpenGameZone={() => {
+        onOpenGameZone={(voucherCodes) => {
           setCodeEntryOpen(false);
           clarityEvent("kiosk:gamezone:open");
+          setGzVoucherCodes(voucherCodes?.length ? voucherCodes : null);
           setGzOpen(true);
         }}
       />,
@@ -1824,7 +1829,11 @@ export function KioskFlow({
           center={config.center}
           brand={config.brand}
           capability={gameZoneCapability(config) === "reload" ? "reload" : "full"}
-          onExit={() => setGzOpen(false)}
+          initialVoucherCodes={gzVoucherCodes}
+          onExit={() => {
+            setGzVoucherCodes(null);
+            setGzOpen(false);
+          }}
           onBusyChange={setGzBusy}
           onCardFault={() => {
             setAssistReason("card-error");
@@ -1874,6 +1883,7 @@ export function KioskFlow({
         onOpenCart={() => setCartActive(true)}
         onOpenGameZone={() => {
           clarityEvent("kiosk:gamezone:open");
+          setGzVoucherCodes(null);
           setGzOpen(true);
         }}
         // Race packs were a quick chip on the attract screen; they now sit on

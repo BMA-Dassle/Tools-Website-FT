@@ -36,6 +36,7 @@ import { useQrScanner } from "../qr-scanner/useQrScanner";
 import { useWedgeScan } from "../checkin/wedge-scan";
 import { classifyKioskCode, type KioskCodeKind } from "../code-entry/classify";
 import { voucherDisplayName } from "~/features/booking/service/voucher-redeem";
+import { kioskVoucherGzEnabled } from "../flags";
 import { clarityEvent } from "~/lib/clarity";
 import { useT, type Translate } from "../i18n";
 
@@ -71,6 +72,14 @@ type Panel =
   | { kind: "applied"; promo: AppliedPromo }
   | { kind: "bmi-voucher"; code: string }
   | { kind: "voucher-accepted"; code: string; name?: string }
+  /**
+   * Game Zone card vouchers — fulfilled by dispensing cards, not by the cart.
+   * A LIST, and the panel keeps the scanner ARMED (owner 2026-07-30: it "is
+   * still going straight to get my card instead of allowing more scans"): a
+   * family holding three vouchers must be able to add them all here rather than
+   * ride the whole flow once per card.
+   */
+  | { kind: "voucher-gamecard"; codes: string[]; name?: string }
   | { kind: "game-card" }
   | { kind: "gift-card" };
 
@@ -86,7 +95,9 @@ export function KioskCodeEntry({
    *  success panel and the CTA returns to the categories. */
   onApplied: (promo: AppliedPromo) => void;
   onBack: () => void;
-  onOpenGameZone: () => void;
+  /** Opens the Game Zone screen. `voucherCodes` seed its redemption basket so
+   *  vouchers scanned HERE are never scanned again there. */
+  onOpenGameZone: (voucherCodes?: string[]) => void;
   /** Voucher REDEMPTION live (voucherRedeemEnabled / ?kioskVoucher=1) — a
    *  scanned voucher is accepted into the session and auto-applies to the
    *  BMI bill at checkout. Off → the Guest Services guidance panel. */
@@ -131,11 +142,32 @@ export function KioskCodeEntry({
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ action: "peek", code, center: config?.center }),
             });
-            const data: { ok?: boolean; name?: string; reason?: string } = await res
-              .json()
-              .catch(() => ({}));
+            const data: { ok?: boolean; name?: string; reason?: string; target?: string } =
+              await res.json().catch(() => ({}));
             if (data.ok === false) {
               setError(t(VOUCHER_ERR_KEY[data.reason ?? ""] ?? "codeEntry.err.generic"));
+              return;
+            }
+            // A Game Zone card comp has no cart leg — it's fulfilled by
+            // dispensing a card. Hand it to the Game Zone screen with the code
+            // already in hand instead of parking it in a cart it can't reduce.
+            if (data.target === "gamecard" && kioskVoucherGzEnabled()) {
+              clarityEvent("kiosk:voucher:gamecard");
+              setPanel((prev) =>
+                prev?.kind === "voucher-gamecard"
+                  ? prev.codes.includes(code)
+                    ? prev
+                    : { ...prev, codes: [...prev.codes, code] }
+                  : { kind: "voucher-gamecard", codes: [code], name: data.name },
+              );
+              return;
+            }
+            // One code bundling several products (e.g. game card + laser tag).
+            // We can't fulfil a bundle whole yet and must not honour half of
+            // it, so route to a human.
+            if (data.target === "multi") {
+              clarityEvent("kiosk:voucher:multi");
+              setError(t("codeEntry.err.multiItem"));
               return;
             }
             clarityEvent("kiosk:voucher:accepted");
@@ -151,6 +183,24 @@ export function KioskCodeEntry({
         } else {
           setPanel({ kind: "bmi-voucher", code });
         }
+        return;
+      }
+      // OUR OWN voucher (HPW…). Fulfilment is a dispensed card, not a cart
+      // discount, so it belongs on the Game Zone rail — hand it over with the
+      // code already in hand. This branch is REQUIRED: without it the code
+      // falls through to the promo validator below and the guest is told
+      // "we couldn't find that code" for a perfectly good voucher.
+      if (kind === "native-voucher") {
+        clarityEvent("kiosk:voucher:native");
+        // Accumulate — a second scan ADDS rather than replacing, and the panel
+        // below keeps listening so the guest never has to leave and come back.
+        setPanel((prev) =>
+          prev?.kind === "voucher-gamecard"
+            ? prev.codes.includes(code)
+              ? prev
+              : { ...prev, codes: [...prev.codes, code] }
+            : { kind: "voucher-gamecard", codes: [code] },
+        );
         return;
       }
       if (kind === "game-card") {
@@ -204,17 +254,28 @@ export function KioskCodeEntry({
 
   const handleRaw = useCallback(
     (raw: string) => {
-      if (!raw.trim() || panel) return;
+      // A terminal panel swallows scans; the voucher list welcomes them.
+      if (!raw.trim() || (panel && panel.kind !== "voucher-gamecard")) return;
       const c = classifyKioskCode(raw);
-      setValue(c.kind === "promo" || c.kind === "bmi-voucher" ? c.value : "");
+      // Keep the normalized code on screen for the shapes the guest can retype;
+      // clear it for payloads (card/gift-card URLs) that aren't codes.
+      setValue(
+        c.kind === "promo" || c.kind === "bmi-voucher" || c.kind === "native-voucher"
+          ? c.value
+          : "",
+      );
       void routeClassified(c.kind, c.value);
     },
     [panel, routeClassified],
   );
 
+  /** The voucher list is the one panel that KEEPS LISTENING; every other result
+   *  panel is terminal, so scanning into it would be noise. */
+  const panelAcceptsScans = panel?.kind === "voucher-gamecard";
+
   // Serial QR scanner — same provisioning knobs as the license scan.
   useQrScanner({
-    enabled: !!config?.qrScannerEnabled && !panel,
+    enabled: !!config?.qrScannerEnabled && (!panel || panelAcceptsScans),
     modelId: config?.qrScannerModel,
     baudRate: config?.qrScannerBaud ?? null,
     portInfo: config?.qrScannerPortInfo ?? null,
@@ -228,11 +289,11 @@ export function KioskCodeEntry({
   const wedge = useWedgeScan(handleRaw);
   const wedgeArm = wedge.arm;
   useEffect(() => {
-    if (panel || !config?.scannerEnabled) return;
+    if ((panel && !panelAcceptsScans) || !config?.scannerEnabled) return;
     wedgeArm();
     const id = setInterval(wedgeArm, 8_000);
     return () => clearInterval(id);
-  }, [panel, config?.scannerEnabled, wedgeArm]);
+  }, [panel, panelAcceptsScans, config?.scannerEnabled, wedgeArm]);
 
   const submit = () => {
     const trimmed = value.trim();
@@ -264,6 +325,28 @@ export function KioskCodeEntry({
               detail: panel.code,
               onCta: onBack,
             }
+          : panel.kind === "voucher-gamecard"
+            ? {
+                title:
+                  panel.codes.length > 1
+                    ? t("codeEntry.voucherGz.titleN", { n: panel.codes.length })
+                    : panel.name
+                      ? t("codeEntry.voucherGz.titleNamed", {
+                          name: voucherDisplayName(panel.name),
+                        })
+                      : t("codeEntry.voucherGz.title"),
+                // The scanner is still live here — say so, or the guest assumes
+                // this screen is a dead end and rides the flow once per card.
+                body: t("codeEntry.voucherGz.bodyMore"),
+                cta:
+                  panel.codes.length > 1
+                    ? t("codeEntry.voucherGz.ctaN", { n: panel.codes.length })
+                    : t("codeEntry.voucherGz.cta"),
+                accent: "#f800c6",
+                detail: null,
+                codes: panel.codes,
+                onCta: () => onOpenGameZone(panel.codes),
+              }
           : panel.kind === "bmi-voucher"
             ? {
                 title: t("codeEntry.voucher.title"),
@@ -301,6 +384,18 @@ export function KioskCodeEntry({
             {p.detail}
           </div>
         )}
+        {"codes" in p && p.codes && (
+          <ul className="mx-auto mt-[28px] w-full max-w-[22ch] space-y-[12px]">
+            {p.codes.map((c) => (
+              <li
+                key={c}
+                className="k-num rounded-[16px] border border-white/15 bg-white/[0.04] px-[24px] py-[14px] font-mono text-[28px] tracking-[0.08em]"
+              >
+                {c}
+              </li>
+            ))}
+          </ul>
+        )}
         <p className="mx-auto mt-[32px] max-w-[26ch] text-[32px] leading-[1.4] text-white/70">
           {p.body}
         </p>
@@ -308,7 +403,9 @@ export function KioskCodeEntry({
           <button type="button" onClick={onBack} className="k-btn-ghost k-tap">
             {t("codeEntry.back")}
           </button>
-          <button type="button" onClick={p.onCta} className="k-btn-primary k-tap">
+          {/* Called with no argument on purpose — the panel's own closure
+              supplies any voucher code (never the click event). */}
+          <button type="button" onClick={() => p.onCta()} className="k-btn-primary k-tap">
             {p.cta}
           </button>
         </div>

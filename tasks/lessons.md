@@ -2533,3 +2533,74 @@ commits behind `origin/main`, and main had since reworked the very file being ed
 origin/main -- <the files you touched>` BEFORE writing the patch is what caught it; applying the
 original diff would have reverted main's i18n work on that file. Re-do the edit against
 `origin/main` in a nested worktree, never force a stale patch through.
+
+## A shared helper is not a fix — the fix is the CALL SITE, and there were three (2026-07-29)
+
+Owner report from the HPFM shoe KDS: a kiosk booking ("Alpha Test", 1 bowler, 6:15 PM)
+showed only `1 Shoe Rental Web` — the paid rental line — and no shoe SIZE ticket. Suspicion
+was the 7/25 change that dropped the "how many pairs" step and derived the shoe count from
+per-bowler sizes (`ceb4357a`).
+
+**It wasn't that change.** Neon had the size (`Female 1`), QAMF had it, and the derived
+rental line item was correct. What was missing was the `$0` shoe-KDS line item on the day-of
+Square order. Live proof, 10 days of bookings that recorded sizes:
+`web 32/32 have shoe-KDS lines · kiosk 0/8`.
+
+**Root cause:** `fe7a1e7d` (7/24) added `syncShoeKdsLineItems()` to
+`unified-reserve.ts` because "kiosk collects sizes UP FRONT." But **kiosk bowling does not
+go through unified-reserve** — it reuses the web `BowlingWizard`, which POSTs
+`/api/bowling/v2/reserve`. That route persisted `shoe_size` to Neon and never touched the
+Square order. Web worked only because the guest later loads the confirmation page and
+`BowlingPlayersEditor` PATCHes `/reservations/[id]/players`, which *does* sync. The kiosk has
+no confirmation page, so nothing ever wrote the sizes. The fix had landed on a producer the
+kiosk never executes — and `tsc`, eslint, and the full build were all green, because a call
+site that is never reached is not a type error.
+
+**Fix:** call `syncShoeKdsLineItems` in `app/api/bowling/v2/reserve/route.ts` right after
+`insertReservationPlayers`, guarded on `players.some(p => p.shoeSize)` — a no-op for web
+placeholder rosters, and a strict improvement for web KBF (sizes are pre-filled, so they now
+land at reserve instead of waiting on a page visit).
+
+**Rules:**
+- **Before fixing "the kiosk path," prove which endpoint the kiosk calls.** Read the network
+  call, or read the runtime log for one real booking. "Kiosk collects it up front" is a UI
+  fact; it says nothing about which server route runs. Kiosk flows that reuse a web wizard
+  hit the WEB route.
+- **When a helper has N producers, enumerate all N and state the coverage in the commit.**
+  `fe7a1e7d`'s own message named a third producer (`bowling-walkin-order.ts`) and left it
+  alone — but never checked that the two it *did* wire were the two that actually run.
+- **A per-guest side effect is verifiable in bulk — verify it in bulk.** One query joining
+  `bowling_reservation_players` to the Square order, grouped by `booking_source`, turned a
+  guess into `web 32/32, kiosk 0/8` in one run. Do that BEFORE writing the fix, not after.
+- **"Best-effort, never throws" hides its own absence.** The helper swallows failures by
+  design, so a missing call and a failing call look identical from the outside. When a
+  side effect is silent, the only proof it ran is the artifact it produces.
+
+## Design the whole guest flow before building the happy path (2026-07-29)
+
+Built Game Zone voucher redemption single-shot: scan one code, dispense one
+card. The owner immediately asked the two questions that should have been
+designed for up front — "scan multiple vouchers before hitting get my cards"
+and "what if a voucher has a game zone card AND a race on it" — and the second
+one had already bitten once (BMI multi-item vouchers were silently
+half-redeemed because `extractApplied` did `.find` on one comp line).
+
+Retrofitting the basket meant reworking claim timing (claim moved from scan
+time to dispense time so browsing can't burn a code), per-row failure handling,
+and the whole entry screen. All of that was cheap to design and expensive to
+add later.
+
+**Rule:** before writing a guest-facing redemption/purchase flow, answer these
+in the plan, not after the first version ships:
+- Can the guest present MORE THAN ONE of these at once? (basket vs single)
+- Can ONE of them contain more than one thing? (per-item identity + per-item
+  single use, not per-code)
+- Do the parts fulfil in DIFFERENT places? (dispense now vs cart at checkout)
+- What does a PARTIAL success look like on screen? ("something went wrong"
+  leaves a guest who is owed 3 cards and got 2 with no idea which)
+- When exactly is the irreversible step taken, and can the guest walk away
+  before it?
+
+Corollary that saved us here: per-item claims meant a mixed voucher's unspent
+legs survive an abandoned booking. Per-code single use would have destroyed
+them. Model identity at the smallest redeemable unit from the start.

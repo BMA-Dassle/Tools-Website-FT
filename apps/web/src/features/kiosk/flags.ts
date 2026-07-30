@@ -242,6 +242,30 @@ export function kioskPromoEnabled(): boolean {
 }
 
 /**
+ * Game Zone COMP voucher redemption — scan a BMI "Complimentary N Token Game
+ * Card" voucher and the kiosk dispenses a loaded card, no payment involved
+ * (owner 2026-07-29, five live codes minted at Office).
+ *
+ * Kill switch, **defaults ON** (owner instruction: "make flag on by default").
+ * Set NEXT_PUBLIC_KIOSK_VOUCHER_GZ=false in Vercel + redeploy to hide it
+ * (NEXT_PUBLIC_* values are build-baked).
+ *
+ * Deliberately INDEPENDENT of kioskPromoEnabled(): the Game Zone chooser tile
+ * is the primary entry point precisely because a guest may arrive holding only
+ * the voucher, with an empty cart and no booking — gating it behind the cart's
+ * coupon screen would mean "on by default" wasn't actually on. (The secondary
+ * hand-off from that coupon screen still follows the promo flag, since that
+ * whole screen does.)
+ *
+ * Gates only the ENTRY. The server refuses on its own terms regardless: no
+ * live BMI peek → no grant, no claim → no load. Read at call time (never module
+ * scope) so tests can stub process.env.
+ */
+export function kioskVoucherGzEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_VOUCHER_GZ !== "false";
+}
+
+/**
  * Kiosk "Next available" EXPERIENCES fan-out — kill switch, defaults ON,
  * server-side only (the cached availability compute is the sole consumer, so no
  * NEXT_PUBLIC prefix / no rebuild needed — flip in Vercel + it takes effect on
