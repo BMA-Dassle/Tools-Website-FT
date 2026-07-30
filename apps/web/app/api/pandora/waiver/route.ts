@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PANDORA_DEFAULT_LOCATION_ID, PANDORA_LOCATION_MAP } from "@/lib/pandora-locations";
+import { logWaiverSignAttempt, type WaiverSignOutcome } from "@/lib/waiver-sign-log";
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
 const API_KEY = process.env.SWAGGER_ADMIN_KEY || "";
@@ -98,6 +99,25 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Naples has its OWN Pandora location (PPTR5G2N0QXF7). resolveLocation()
+    // silently falls back to HeadPinz Fort Myers for anything it doesn't know, so
+    // a typo'd or renamed key would record a Naples guest's waiver at the wrong
+    // center — the 2026-07-20 misroute class, and worse here than for a booking
+    // because a waiver filed at the wrong location isn't valid where they play.
+    // An UNKNOWN key is a bug, not a default: refuse it loudly.
+    if (location && !PANDORA_LOCATION_MAP[String(location)]) {
+      console.error(
+        `[pandora-waiver] REFUSING sign — unknown location "${location}" (known: ${Object.keys(
+          PANDORA_LOCATION_MAP,
+        ).join(", ")}). Would have defaulted to ${PANDORA_DEFAULT_LOCATION_ID}.`,
+      );
+      return NextResponse.json({ error: `Unknown waiver location "${location}"` }, { status: 400 });
+    }
+    if (!location) {
+      console.warn(
+        `[pandora-waiver] no location sent — defaulting to ${PANDORA_DEFAULT_LOCATION_ID} (HeadPinz Fort Myers). A Naples guest signed here would be filed at the wrong center.`,
+      );
+    }
     const locationID = resolveLocation(location || null);
 
     // Convert base64 PNG signature to a Buffer for multipart upload
@@ -158,6 +178,36 @@ export async function POST(req: NextRequest) {
 
     const multipartBody = Buffer.concat(parts);
 
+    // Durable, per-guest, queryable record of EVERY outcome — the thing
+    // console.log could not give us. Awaited (not fire-and-forget) so a failed
+    // sign cannot return to the guest before its row exists; the write swallows
+    // its own errors, so it can still never cost anyone a signature.
+    const logSignOutcome = (
+      outcome: WaiverSignOutcome,
+      attempts: number,
+      waiverId: string | null,
+      err: { status: number; message: string } | null,
+    ) =>
+      logWaiverSignAttempt({
+        personId: String(personID),
+        signerPersonId: String(sigPersonID || personID),
+        waiverContentId: String(waiverContentID),
+        locationId: locationID,
+        invalidationDate: safeInvalidation,
+        invalidationDefaulted: !invalidationDate,
+        signatureBytes: sigBuffer.length,
+        attempts,
+        outcome,
+        waiverId,
+        httpStatus: err?.status ?? null,
+        upstreamMessage: err?.message ?? null,
+        ipAddress:
+          req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+          req.headers.get("x-real-ip") ||
+          null,
+        userAgent: req.headers.get("user-agent"),
+      });
+
     // Pandora (Azure App Service) throws transient 5xx "Unexpected Error
     // Occured" bursts — the same pathology every OTHER Pandora call here
     // already retries (pandoraCreatePerson 3x, getWithRetry, the state -3
@@ -176,6 +226,7 @@ export async function POST(req: NextRequest) {
           console.log(
             `[pandora-waiver] salvaged — waiver already valid after failed attempt(s) (${signMeta})`,
           );
+          await logSignOutcome("salvaged", attempt, null, lastError);
           return NextResponse.json({ ok: true, waiverID: null, alreadyValid: true });
         }
       }
@@ -209,6 +260,10 @@ export async function POST(req: NextRequest) {
         console.log(
           `[pandora-waiver] signed waiver for person ${personID}: waiverID=${waiverID} (attempt ${attempt}/3, ${signMeta})`,
         );
+        await logSignOutcome("signed", attempt, String(waiverID), {
+          status: res.status,
+          message: "",
+        });
         return NextResponse.json({ ok: true, waiverID });
       }
 
@@ -228,9 +283,12 @@ export async function POST(req: NextRequest) {
     // Final salvage: did one of the "failed" attempts actually write?
     if (await waiverNowValid(locationID, personID)) {
       console.log(`[pandora-waiver] salvaged after final attempt — waiver is valid (${signMeta})`);
+      await logSignOutcome("salvaged", 3, null, lastError);
       return NextResponse.json({ ok: true, waiverID: null, alreadyValid: true });
     }
 
+    // The row that matters: the guest signed and has NO waiver.
+    await logSignOutcome("failed", 3, null, lastError);
     return NextResponse.json(
       { error: lastError?.message || "Waiver signing failed" },
       { status: lastError?.status || 502 },
