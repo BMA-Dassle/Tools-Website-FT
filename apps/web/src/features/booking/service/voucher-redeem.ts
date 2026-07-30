@@ -49,15 +49,21 @@ export type { AppliedVoucherState } from "../state/types";
 export const BMI_VOUCHER_RE = /^(?:[A-Z][2-9]){12}$/;
 
 /**
- * Voucher redemption ENTRY flag — OPT-IN, defaults OFF. Gates only the entry
- * points (kiosk code-entry accept + web checkout promo-input branch); the
- * pricing/charge seams key on session vouchers existing, which only a gated
- * entry can set. Preview opt-in without env:
- * /kiosk/flow?kioskPromo=1&kioskVoucher=1. MUST stay dark until the paid live
- * smoke proves BMI's netting at processing.
+ * Voucher redemption ENTRY flag — **kill switch, defaults ON** (owner
+ * 2026-07-30). Gates only the entry points (kiosk code-entry accept + web
+ * checkout promo-input branch); the pricing/charge seams key on session
+ * vouchers existing, which only a gated entry can set. Set the literal "false"
+ * in Vercel + redeploy to turn it off (NEXT_PUBLIC_* is build-baked).
+ *
+ * ⚠ On-by-default means BOTH redemption paths are live on deploy:
+ *   • BMI voucher redemption (applyCode) — wants a paid live smoke of BMI's
+ *     netting at processing before it's trusted with volume;
+ *   • Native (HPW) redemption — game-zone dispenses today; the race/attraction
+ *     cart rail is inert until a native race/attraction voucher is minted AND a
+ *     booking-entry surface adds it to the session.
  */
 export function voucherRedeemEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_VOUCHER_REDEEM === "true";
+  return process.env.NEXT_PUBLIC_VOUCHER_REDEEM !== "false";
 }
 
 /** Reserve-time hard fail: the session claims a voucher our server-side
