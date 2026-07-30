@@ -335,7 +335,8 @@ export const en = {
   "codeEntry.voucherGz.appliedCta": "Back to my order",
   // Receipt (mixed / running list)
   "codeEntry.voucherGz.receiptTitle": "Your vouchers",
-  "codeEntry.voucherGz.printingTitle": "Your game card",
+  "codeEntry.voucherGz.printingTitle":
+    "{n, plural, one {Your game card} other {Your game cards}}",
   "codeEntry.voucherGz.printingSub": "Comes out at the Game Zone dispenser",
   "codeEntry.voucherGz.cardTokens": "{tokens}-token game card",
   "codeEntry.voucherGz.gameCardGeneric": "Game card",
@@ -351,8 +352,20 @@ export const en = {
   // Categories tile back to the receipt while cards are still undispensed.
   "codeEntry.pendingCards.chip":
     "{n, plural, one {Game card to pick up} other {# game cards to pick up}}",
-  "codeEntry.voucherGz.finishCards": "Done — get my {n, plural, one {card} other {# cards}}",
+  // Mixed receipts (cart legs present) keep an explicit decision; card-only
+  // receipts COUNT DOWN and print by themselves (owner 2026-07-30: the
+  // "get my cards" tap should only exist when there's an order to continue).
+  "codeEntry.voucherGz.finishCards":
+    "Print my {n, plural, one {card} other {# cards}} & continue",
   "codeEntry.voucherGz.finishNoCards": "Done — back to my order",
+  "codeEntry.voucherGz.printNowIn":
+    "Printing your {n, plural, one {card} other {# cards}} in {s}s — tap to start now",
+  "codeEntry.voucherGz.printNow": "Print my {n, plural, one {card} other {# cards}} now",
+  // Back with unprinted cards. Cards are NEVER printed later automatically —
+  // the pink home-screen tile is the way back.
+  "codeEntry.voucherGz.leaveWarn":
+    "{n, plural, one {Your game card hasn’t printed yet} other {Your # game cards haven’t printed yet}}. Nothing prints on its own later — the pink button on the home screen brings you back here.",
+  "codeEntry.voucherGz.leaveAnyway": "Leave anyway",
   "codeEntry.voucherGz.titleN": "{n} free game cards",
   "codeEntry.voucherGz.ctaN": "Get my {n} cards",
   "codeEntry.voucherGz.bodyMore":

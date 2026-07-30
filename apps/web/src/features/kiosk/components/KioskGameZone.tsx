@@ -342,6 +342,9 @@ export function KioskGameZone({
   // VALIDATES; the destructive claim happens per card inside the dispense run.
   const [voucherPhase, setVoucherPhase] = useState<VoucherPhase>("entry");
   const [voucherTyped, setVoucherTyped] = useState("");
+  // Typed-code field focused → OSK sheet is up; drives the clear-the-keys
+  // bottom padding on the voucher screen.
+  const [voucherTyping, setVoucherTyping] = useState(false);
   const [voucherMsg, setVoucherMsg] = useState<string | null>(null);
   const [voucherBasket, setVoucherBasket] = useState<VoucherBasketRow[]>([]);
   /** The claim being fulfilled RIGHT NOW (we dispense strictly one at a time,
@@ -1884,7 +1887,14 @@ export function KioskGameZone({
   // ── Redeem a comp voucher: scan → claim → dispense → credit → present ──
   if (mode === "voucher") {
     return (
-      <div className="mx-auto flex h-full max-w-2xl flex-col px-2 py-6 kiosk-zoom">
+      // voucherTyping → the OSK bottom sheet is up: swap in bottom padding so
+      // the column compresses upward and the typed-code field stays visible
+      // above the keys (same fix as the coupon receipt, owner 2026-07-30).
+      <div
+        className={`mx-auto flex h-full max-w-2xl flex-col px-2 pt-6 kiosk-zoom ${
+          voucherTyping ? "pb-[620px]" : "pb-6"
+        }`}
+      >
         <div className="mb-5 flex items-center justify-between">
           <h1 className="font-heading text-4xl font-extrabold italic">
             {t("gamezone.voucher.title")}
@@ -1968,6 +1978,8 @@ export function KioskGameZone({
                   setVoucherTyped("");
                 }
               }}
+              onFocus={() => setVoucherTyping(true)}
+              onBlur={() => setVoucherTyping(false)}
               aria-label={t("gamezone.voucher.inputLabel")}
               placeholder={t("gamezone.voucher.placeholder")}
               autoComplete="off"

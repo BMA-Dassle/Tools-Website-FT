@@ -314,7 +314,8 @@ export const es: Record<CoreKey, string> = {
     "El valor se descuenta al pagar. Escanea otro vale para agregarlo.",
   "codeEntry.voucherGz.appliedCta": "Volver a mi orden",
   "codeEntry.voucherGz.receiptTitle": "Tus vales",
-  "codeEntry.voucherGz.printingTitle": "Tu tarjeta de juego",
+  "codeEntry.voucherGz.printingTitle":
+    "{n, plural, one {Tu tarjeta de juego} other {Tus tarjetas de juego}}",
   "codeEntry.voucherGz.printingSub": "Sale del dispensador en Game Zone",
   "codeEntry.voucherGz.cardTokens": "Tarjeta de {tokens} fichas",
   "codeEntry.voucherGz.gameCardGeneric": "Tarjeta de juego",
@@ -327,8 +328,16 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.voucherGz.promoRow": "se aplica al pagar",
   "codeEntry.pendingCards.chip":
     "{n, plural, one {Tarjeta de juego por recoger} other {# tarjetas de juego por recoger}}",
-  "codeEntry.voucherGz.finishCards": "Listo — {n, plural, one {mi tarjeta} other {mis # tarjetas}}",
+  "codeEntry.voucherGz.finishCards":
+    "Imprimir {n, plural, one {mi tarjeta} other {mis # tarjetas}} y continuar",
   "codeEntry.voucherGz.finishNoCards": "Listo — volver a mi orden",
+  "codeEntry.voucherGz.printNowIn":
+    "Imprimiendo {n, plural, one {tu tarjeta} other {tus # tarjetas}} en {s}s — toca para empezar ya",
+  "codeEntry.voucherGz.printNow":
+    "Imprimir {n, plural, one {mi tarjeta} other {mis # tarjetas}} ahora",
+  "codeEntry.voucherGz.leaveWarn":
+    "{n, plural, one {Tu tarjeta de juego aún no se imprime} other {Tus # tarjetas de juego aún no se imprimen}}. No se imprimirán solas después — el botón rosa en la pantalla de inicio te trae de vuelta aquí.",
+  "codeEntry.voucherGz.leaveAnyway": "Salir de todos modos",
   "codeEntry.voucherGz.titleN": "{n} tarjetas de juego gratis",
   "codeEntry.voucherGz.ctaN": "Obtener mis {n} tarjetas",
   "codeEntry.voucherGz.bodyMore":

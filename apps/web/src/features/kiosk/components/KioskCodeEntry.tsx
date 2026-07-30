@@ -93,6 +93,12 @@ function tokensInPlay(tokens: number): string {
   return `$${Math.round(tokens * 0.1)}`;
 }
 
+/** Card-only receipts AUTO-PRINT after this many seconds (owner 2026-07-30:
+ *  "shouldn't get my cards only be a thing if race or another attraction is
+ *  there?"). Long enough to scan the next voucher — each new scan resets it —
+ *  and typing or an on-screen error pauses it. */
+const AUTO_PRINT_SECONDS = 8;
+
 type Panel =
   | { kind: "applied"; promo: AppliedPromo }
   | { kind: "bmi-voucher"; code: string }
@@ -179,6 +185,47 @@ export function KioskCodeEntry({
   useEffect(() => {
     panelRef.current = panel;
   }, [panel]);
+  // The receipt input has FOCUS → the OSK bottom sheet is up. Drives (a) a
+  // spacer so the sheet can't sit over the input (the receipt footer isn't in
+  // a scrollable region, so the OSK's own scrollIntoView had nothing to
+  // scroll — owner 2026-07-30 "keyboard popups over code"), and (b) pausing
+  // the auto-print countdown mid-typing.
+  const [typing, setTyping] = useState(false);
+  // Back with unprinted cards → inline "they won't print later" warning.
+  const [leaveWarn, setLeaveWarn] = useState(false);
+
+  // ── Card-only receipts auto-print ──
+  // "Get my cards" stays a button ONLY when cart legs (race / attraction) give
+  // the guest a reason to stay; a card-only receipt counts down and dispenses
+  // by itself. Every added card resets the clock; typing, a pending check, an
+  // error on screen, or the leave warning pauses it.
+  const receiptOpen = panel?.kind === "voucher-gamecard";
+  const gzOnlyReceipt =
+    receiptOpen && pendingGzCards.length > 0 && appliedCartLabels.length === 0;
+  const [printIn, setPrintIn] = useState<number | null>(() =>
+    gzOnlyReceipt ? AUTO_PRINT_SECONDS : null,
+  );
+  const printFiredRef = useRef(false);
+  const countdownPaused = checking || typing || leaveWarn || !!error || value.trim() !== "";
+  // (Re)arm the clock when the receipt's card set or card-only-ness changes —
+  // a render-phase adjustment (KioskFlow cursor-normalize precedent), not an
+  // effect, so there's no extra committed render with a stale countdown.
+  const countdownSig = gzOnlyReceipt ? `on|${pendingGzCards.length}` : "off";
+  const [prevCountdownSig, setPrevCountdownSig] = useState(countdownSig);
+  if (prevCountdownSig !== countdownSig) {
+    setPrevCountdownSig(countdownSig);
+    setPrintIn(gzOnlyReceipt ? AUTO_PRINT_SECONDS : null);
+  }
+  useEffect(() => {
+    if (printIn == null || countdownPaused || printFiredRef.current) return;
+    if (printIn <= 0) {
+      printFiredRef.current = true;
+      onOpenGameZone([...new Set(pendingGzCards.map((c) => c.code))]);
+      return;
+    }
+    const id = setTimeout(() => setPrintIn((s) => (s == null ? null : s - 1)), 1000);
+    return () => clearTimeout(id);
+  }, [printIn, countdownPaused, onOpenGameZone, pendingGzCards]);
   /** Native codes already handled this session — a re-scan is a no-op. Seeded
    *  with the parent's pending cards so a remount can't re-add them. */
   const processedNativeRef = useRef<Set<string>>(new Set(pendingGzCards.map((c) => c.code)));
@@ -188,6 +235,7 @@ export function KioskCodeEntry({
       if (checkingRef.current) return;
       setError(null);
       setInfo(null);
+      setLeaveWarn(false);
       clarityEvent(`kiosk:code:${kind}`);
       if (kind === "bmi-voucher") {
         if (voucherRedeem && appliedVoucherCodes.includes(code)) {
@@ -226,6 +274,7 @@ export function KioskCodeEntry({
               // receipt shows the card without a "$ in play" figure (tokens:0).
               onGzCardsAdd?.([{ code, tokens: 0 }]);
               setPanel({ kind: "voucher-gamecard" });
+              setValue(""); // accepted — a lingering code invites double-taps
               return;
             }
             // One code bundling several products (e.g. game card + laser tag).
@@ -245,11 +294,13 @@ export function KioskCodeEntry({
                 ? prev
                 : { kind: "voucher-accepted", code, name: data.name },
             );
+            setValue("");
           } catch {
             onVoucherAccepted(code);
             setPanel((prev) =>
               prev?.kind === "voucher-gamecard" ? prev : { kind: "voucher-accepted", code },
             );
+            setValue("");
           } finally {
             checkingRef.current = false;
             setChecking(false);
@@ -314,6 +365,7 @@ export function KioskCodeEntry({
           if (newGzCards.length > 0) onGzCardsAdd?.(newGzCards);
           if (newGzCards.length > 0 || didApplyCart) {
             setPanel({ kind: "voucher-gamecard" });
+            setValue("");
           } else {
             // Valid voucher, but nothing on it this kiosk can honour right now
             // (e.g. cart legs with redemption off) — say so, don't show an
@@ -378,6 +430,7 @@ export function KioskCodeEntry({
           setPanel((prev) =>
             prev?.kind === "voucher-gamecard" ? prev : { kind: "applied", promo: data.promo! },
           );
+          setValue("");
         } else {
           const key = ERR_KEY[data.reason ?? ""] ?? ("codeEntry.err.unknown" as const);
           setError(t(key));
@@ -469,15 +522,32 @@ export function KioskCodeEntry({
           : null,
         cartLabels.length > 0 ? t("codeEntry.voucherGz.onOrder", { n: cartLabels.length }) : null,
       ].filter(Boolean) as string[];
+      // Card-only receipts auto-print (countdown above); the button is the
+      // "start now" shortcut. Cart legs present → an explicit "& continue"
+      // decision stays with the guest.
       const finish =
         codes.length > 0
           ? {
-              label: t("codeEntry.voucherGz.finishCards", { n: codes.length }),
+              label: gzOnlyReceipt
+                ? t("codeEntry.voucherGz.printNowIn", {
+                    n: codes.length,
+                    s: printIn ?? AUTO_PRINT_SECONDS,
+                  })
+                : t("codeEntry.voucherGz.finishCards", { n: codes.length }),
               onClick: () => onOpenGameZone(codes),
             }
           : { label: t("codeEntry.voucherGz.finishNoCards"), onClick: onBack };
       return (
-        <div className="flex h-full flex-col px-[64px] pb-[40px] pt-[80px]">
+        // `typing` → the OSK bottom sheet (~560px of 90px key rows) is up:
+        // swap the bottom padding to clear it, so the flex column compresses
+        // upward (the list scrolls internally) and the input + Apply stay
+        // visible above the keys (owner 2026-07-30 "keyboard popups over
+        // code making it impossible to type").
+        <div
+          className={`flex h-full flex-col px-[64px] pt-[80px] ${
+            typing ? "pb-[620px]" : "pb-[40px]"
+          }`}
+        >
           <div className="k-eyebrow">{t("codeEntry.eyebrow")}</div>
           <h1 className="k-display mt-[14px] text-[68px] text-[#f800c6]">
             {t("codeEntry.voucherGz.receiptTitle")}
@@ -490,7 +560,7 @@ export function KioskCodeEntry({
             {gzCards.length > 0 && (
               <section>
                 <div className="k-eyebrow text-[#f800c6]">
-                  {t("codeEntry.voucherGz.printingTitle")}
+                  {t("codeEntry.voucherGz.printingTitle", { n: gzCards.length })}
                 </div>
                 <div className="mt-[4px] text-[20px] text-white/45">
                   {t("codeEntry.voucherGz.printingSub")}
@@ -588,6 +658,8 @@ export function KioskCodeEntry({
               onKeyDown={(e) => {
                 if (e.key === "Enter") submit();
               }}
+              onFocus={() => setTyping(true)}
+              onBlur={() => setTyping(false)}
               aria-label={t("codeEntry.inputLabel")}
               placeholder={t("codeEntry.placeholder")}
               autoComplete="off"
@@ -605,14 +677,41 @@ export function KioskCodeEntry({
             </button>
           </div>
 
-          <div className="mt-[20px] flex gap-[24px]">
-            <button type="button" onClick={onBack} className="k-btn-ghost k-tap">
-              {t("codeEntry.back")}
-            </button>
-            <button type="button" onClick={finish.onClick} className="k-btn-primary k-tap">
-              {finish.label}
-            </button>
-          </div>
+          {leaveWarn && codes.length > 0 ? (
+            /* Back with unprinted cards: cards do NOT print later on their
+               own, so say it and offer the right exit both ways. */
+            <div className="mt-[20px] rounded-[20px] border border-[#ff8c7a]/45 bg-[#ff8c7a]/[0.08] px-[28px] py-[20px]">
+              <div className="text-center text-[26px] leading-[1.35] text-[#ffb3a6]">
+                {t("codeEntry.voucherGz.leaveWarn", { n: codes.length })}
+              </div>
+              <div className="mt-[16px] flex gap-[24px]">
+                <button type="button" onClick={onBack} className="k-btn-ghost k-tap">
+                  {t("codeEntry.voucherGz.leaveAnyway")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenGameZone(codes)}
+                  className="k-btn-primary k-tap"
+                >
+                  {t("codeEntry.voucherGz.printNow", { n: codes.length })}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-[20px] flex gap-[24px]">
+              <button
+                type="button"
+                onClick={() => (codes.length > 0 ? setLeaveWarn(true) : onBack())}
+                className="k-btn-ghost k-tap"
+              >
+                {t("codeEntry.back")}
+              </button>
+              <button type="button" onClick={finish.onClick} className="k-btn-primary k-tap">
+                {finish.label}
+              </button>
+            </div>
+          )}
+
         </div>
       );
     }

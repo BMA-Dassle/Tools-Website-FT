@@ -15,6 +15,16 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.10.13 — voucher receipt round 2 (owner walk-through feedback). The OSK no
+ *         longer covers the typed-code field (focus swaps in bottom padding so
+ *         the column lifts above the key rows — same fix on the Game Zone
+ *         voucher screen); the field clears after a successful scan/apply
+ *         instead of parking the last code. Card-only receipts now AUTO-PRINT
+ *         on an 8s countdown (reset per scan, paused while typing/checking/
+ *         error) — the "get my cards" tap only remains when race/attraction
+ *         legs give the guest an order to continue. Backing out with unprinted
+ *         cards asks first and says plainly that nothing prints later on its
+ *         own. "Your game card" pluralizes.
  * 1.10.12 — voucher game cards can't be stranded by backing out. The coupon
  *         receipt's card list now lives in flow state: Back, a promo scan, or
  *         any panel swap no longer loses it; a pink "game cards to pick up"
@@ -359,7 +369,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.10.12";
+export const KIOSK_VERSION = "1.10.13";
 
 let bootVersion: string | null = null;
 let captured = false;
