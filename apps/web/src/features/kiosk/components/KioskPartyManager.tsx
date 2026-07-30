@@ -372,22 +372,19 @@ export function KioskPartyManager({
    *  with guardianID attached (known person → same id, never a duplicate). The
    *  waiver's sigPersonID records the guardian regardless, so a failure is
    *  non-fatal. Skipped when the minor has no phone/email dedup identity. */
-  const linkMinorToGuardian = (minorMemberId: string, guardianSid: string) => {
-    const minor = party.find((m) => m.id === minorMemberId);
-    if (!minor) return;
-    const mPhone = minor.phone?.trim() ?? "";
-    const mEmail = minor.email?.trim() ?? "";
-    if (!mPhone && !mEmail) return;
-    void pandoraCreatePerson({
-      firstName: minor.firstName,
-      lastName: minor.lastName ?? "",
-      email: mEmail,
-      phone: mPhone,
-      birthdate: minor.dobIso,
-      guardianID: guardianSid,
-      location: brandLocation,
-    }).catch(() => {});
-  };
+  // REMOVED 2026-07-30 — there used to be a best-effort `linkMinorToGuardian`
+  // here that re-ran pandoraCreatePerson for the MINOR with guardianID attached,
+  // on the belief that the create is an upsert for a known person. It is NOT.
+  //
+  // Pandora created a fresh DUPLICATE person on every minor sign (the field set
+  // differed from the original create), splitting the kid's identity so later
+  // waiver checks read a record the signature never landed on — the 2026-07-25
+  // Strachan incident. KioskPeopleStep deleted this same call then and left the
+  // warning; this extracted copy kept it, so it was still firing for every minor
+  // signed by a guardian on /waiver AND in the kiosk race-pack flow.
+  //
+  // The waiver's sigPersonID already records who signed. Never re-create a person
+  // that already has an id.
 
   /** guardianSigning: resolve the minor's (pre-selected) guardian, ensure the
    *  guardian's OWN waiver is current (sign it first if lapsed), then open the
@@ -1644,11 +1641,11 @@ export function KioskPartyManager({
                         waiverId,
                         templateContentId: waiverFor.template.contentID,
                       });
-                      // Minor signed by a guardian → best-effort BMI guardian link.
-                      if (waiverFor.signerPersonId) {
-                        linkMinorToGuardian(waiverFor.memberId, waiverFor.signerPersonId);
-                        setGuardianChain(null);
-                      }
+                      // Minor signed by a guardian → the guardian is recorded by the
+                      // waiver's sigPersonID. Nothing else to write: re-creating the
+                      // minor to attach guardianID duplicated the person (see the
+                      // Strachan note above).
+                      if (waiverFor.signerPersonId) setGuardianChain(null);
                       setWaiverFor(null);
                     }}
                   />
