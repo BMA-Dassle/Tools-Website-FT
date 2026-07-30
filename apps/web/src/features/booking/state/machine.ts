@@ -353,10 +353,16 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
       return { ...state, appliedPromo: action.promo };
 
     case "applyVoucher": {
-      // Upsert by code — re-scans and pending→applied transitions replace in
-      // place; new codes append (scan order preserved for coverage picks).
+      // Upsert by (code, itemIndex) — re-scans and pending→applied transitions
+      // replace in place; new ones append (scan order preserved for coverage
+      // picks). itemIndex matters because ONE native voucher can bundle several
+      // items (game card + race), each an independent applied entry under the
+      // same code; keying on code alone would collapse them into one. BMI
+      // vouchers have no itemIndex, so their key is just the code — unchanged.
+      const vkey = (v: AppliedVoucherState) => `${v.code}::${v.itemIndex ?? ""}`;
       const list = state.appliedVouchers ?? [];
-      const i = list.findIndex((v) => v.code === action.voucher.code);
+      const target = vkey(action.voucher);
+      const i = list.findIndex((v) => vkey(v) === target);
       const appliedVouchers =
         i >= 0 ? list.map((v, idx) => (idx === i ? action.voucher : v)) : [...list, action.voucher];
       return { ...state, appliedVouchers };

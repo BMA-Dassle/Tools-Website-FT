@@ -330,3 +330,40 @@ describe("multi-item vouchers (one code, several lines of value)", () => {
     expect(status?.fullySpent).toBe(true);
   });
 });
+
+describe("validateNativeVoucher — per-item routing (auto-split)", () => {
+  it("splits a mixed voucher into gamezone + cart items with coverage names", async () => {
+    const { svc, db } = await mods();
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...live,
+      kind: "mixed",
+      items: [
+        { kind: "gamezone", tokens: 0, bonusTokens: 100, bonusCashDollars: 0 },
+        { kind: "attraction", slug: "laser-tag", qty: 1 },
+        { kind: "race", qty: 1 },
+      ],
+    });
+
+    const res = await svc.validateNativeVoucher(CODE);
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      const byVia = Object.fromEntries(res.items.map((i) => [i.index, i]));
+      expect(byVia[0].redeemVia).toBe("gamezone");
+      expect(byVia[1]).toMatchObject({ redeemVia: "cart", coverageName: "Laser Tag" });
+      expect(byVia[2]).toMatchObject({ redeemVia: "cart", coverageName: "Race" });
+      // coverageName must satisfy the booking's voucherTarget().
+      expect(res.remainingGameZoneItems).toBe(1);
+    }
+  });
+
+  it("omits already-spent items and reports used when the last one is gone", async () => {
+    const { svc, db, claims } = await mods();
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...live,
+      items: [{ kind: "attraction", slug: "laser-tag", qty: 1 }],
+    });
+    (claims.spentItemIndexes as ReturnType<typeof vi.fn>).mockResolvedValueOnce(new Set([0]));
+    const res = await svc.validateNativeVoucher(CODE);
+    expect(res).toEqual({ ok: false, reason: "used" });
+  });
+});
