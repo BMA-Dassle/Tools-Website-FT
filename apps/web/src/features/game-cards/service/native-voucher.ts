@@ -132,6 +132,9 @@ export interface ValidatedItem {
   redeemVia: "gamezone" | "cart";
   label: string;
   coverageName?: string;
+  /** Game-zone items: total tokens (purchased + bonus) — drives the "$ in play"
+   *  value shown on the receipt. Omitted for cart items. */
+  tokens?: number;
 }
 
 export type ValidateResult =
@@ -197,7 +200,12 @@ export async function validateNativeVoucher(code: string): Promise<ValidateResul
     .filter((i) => !i.spent)
     .map((i) => {
       if (i.item.kind === "gamezone") {
-        return { index: i.index, redeemVia: "gamezone" as const, label: i.label };
+        return {
+          index: i.index,
+          redeemVia: "gamezone" as const,
+          label: i.label,
+          tokens: i.item.tokens + i.item.bonusTokens,
+        };
       }
       const slug = i.item.kind === "race" ? "race" : i.item.slug;
       return {

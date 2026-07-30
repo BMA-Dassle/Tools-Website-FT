@@ -199,7 +199,7 @@ export function VoucherRedeemView({ status }: { status: VoucherStatus }) {
             </button>
 
             <p className="mt-6 text-sm text-white/45">
-              No game card yet? Scan this code at any kiosk and it’ll print one for you, already
+              No game card yet? Scan this code at any kiosk and one comes out, already
               loaded.
             </p>
           </>

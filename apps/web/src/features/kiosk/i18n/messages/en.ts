@@ -327,16 +327,30 @@ export const en = {
   // cart, it dispenses a card — so hand it to the Game Zone screen.
   "codeEntry.voucherGz.title": "That’s a free game card",
   "codeEntry.voucherGz.titleNamed": "{name}",
-  "codeEntry.voucherGz.body": "We’ll print your card at the Game Zone screen — it takes a moment.",
+  "codeEntry.voucherGz.body": "Your card comes out at the Game Zone dispenser — it takes a moment.",
   "codeEntry.voucherGz.cta": "Get my card",
   "codeEntry.voucherGz.appliedTitle": "Applied to your order",
   "codeEntry.voucherGz.appliedBody":
     "The value comes off at checkout. Scan another voucher to add it.",
   "codeEntry.voucherGz.appliedCta": "Back to my order",
+  // Receipt (mixed / running list)
+  "codeEntry.voucherGz.receiptTitle": "Your vouchers",
+  "codeEntry.voucherGz.printingTitle": "Your game card",
+  "codeEntry.voucherGz.printingSub": "Comes out at the Game Zone dispenser",
+  "codeEntry.voucherGz.cardTokens": "{tokens}-token game card",
+  "codeEntry.voucherGz.gameCardGeneric": "Game card",
+  "codeEntry.voucherGz.inPlay": "{amount} in play",
+  "codeEntry.voucherGz.appliedSectionTitle": "On your order",
+  "codeEntry.voucherGz.onOrder": "{n} on your order",
+  "codeEntry.voucherGz.comesOff": "comes off at checkout",
+  "codeEntry.voucherGz.scanNext": "Scan your next voucher",
+  "codeEntry.voucherGz.scanNextSub": "we’ll add it to the list",
+  "codeEntry.voucherGz.finishCards": "Done — get my {n, plural, one {card} other {# cards}}",
+  "codeEntry.voucherGz.finishNoCards": "Done — back to my order",
   "codeEntry.voucherGz.titleN": "{n} free game cards",
   "codeEntry.voucherGz.ctaN": "Get my {n} cards",
   "codeEntry.voucherGz.bodyMore":
-    "Got another voucher? Scan it now to add it. We’ll print them all together.",
+    "Got another voucher? Scan it — we’ll add it. Grab all your cards at Game Zone.",
   "codeEntry.giftcard.title": "That’s a gift card",
   "codeEntry.giftcard.body":
     "Gift cards are accepted as payment — swipe it at the card reader when you pay.",
