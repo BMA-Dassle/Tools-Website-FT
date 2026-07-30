@@ -310,6 +310,22 @@ describe("native vouchers cover the cart (no BMI bill)", () => {
     expect(plan.picks[0].raceHeat).toBeDefined();
   });
 
+  it("two items of ONE native code cover two distinct heats", () => {
+    const h1 = heat("2026-07-29T18:00:00");
+    const h2 = heat("2026-07-29T19:00:00", "m2");
+    const plan = planVoucherCoverage(
+      makeSession(
+        [raceItem([h1, h2])],
+        [
+          { code: "HPW4K7M9PQR", issuer: "native", itemIndex: 0, name: "Race" },
+          { code: "HPW4K7M9PQR", issuer: "native", itemIndex: 1, name: "Race" },
+        ],
+      ),
+      new Set(),
+    );
+    expect(plan.raceHeats.size).toBe(2);
+  });
+
   it("a native voucher still pending (no itemIndex) prices nothing", () => {
     const h1 = heat("2026-07-29T18:00:00");
     const plan = planVoucherCoverage(

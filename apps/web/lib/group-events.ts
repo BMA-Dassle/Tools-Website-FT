@@ -262,15 +262,19 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
     companyName: "HeadPinz & FastTrax", // co-host brands
     eventTitle: "Christmas in July",
     // eventDate / startTime / endTime describe the FORT MYERS racing window
-    // (4:30–5:30 PM on 7/30) — used by publicBlock to reserve those heats from the
+    // (4:30–6:00 PM on 7/30) — used by publicBlock to reserve those heats from the
     // public calendar. The overall 4–7 PM event + per-venue dates live in landing.
+    // Owner 2026-07-30 (event day): extended 5:30 → 6:00 PM to open the last two
+    // Red Track heats (34 @ 5:36, 35 @ 5:48) to the event. The window is a
+    // half-open range [start, end) on the heat's START time, so 5:36 and 5:48 come
+    // in and the 6:00 PM heat stays public.
     eventDate: "2026-07-30",
     startTime: "16:30", // racing slot start (4:30 PM)
-    endTime: "17:30", // racing slot end (5:30 PM)
+    endTime: "18:00", // racing slot end (6:00 PM)
     allowedDomains: [], // unused in open mode
     accessMode: "open",
     eventKicker: "You're Invited", // eyebrow above the title
-    publicBlock: "event-window", // only the 16:30–17:30 FM heats blocked for the public
+    publicBlock: "event-window", // only the 16:30–18:00 FM heats blocked for the public
     accentColor: "#E41C1D", // Christmas red
     accentTextColor: "#ffffff",
     accentHoverColor: "#ff3b30", // lighter red on hover (white label stays readable)
@@ -300,7 +304,7 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
         { item: "2 Drink Tickets", note: "Per guest" },
         { item: "Holiday Buffet", note: "Festive bites" },
         { item: "Complimentary Bowling", note: "On the house" },
-        { item: "1 Go-Kart Race", note: "Fort Myers · 4:30–5:30 PM" },
+        { item: "1 Go-Kart Race", note: "Fort Myers · 4:30–6:00 PM" },
       ],
       locations: [
         {
@@ -327,7 +331,7 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
         poster:
           "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-racing.webp",
         heading: "Take a Lap, On Us",
-        text: "High-speed electric karts on our pro-built indoor track — your complimentary race at the Fort Myers event (4:30–5:30 PM).",
+        text: "High-speed electric karts on our pro-built indoor track — your complimentary race at the Fort Myers event (4:30–6:00 PM).",
       },
       gallery: [
         {
@@ -368,7 +372,7 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
       },
       countdown: true,
       finePrint:
-        "Space is limited — RSVP to reserve your spot. Go-kart racing is offered at the Fort Myers event (4:30–5:30 PM); must be 18+ to race. Naples includes complimentary bowling.",
+        "Space is limited — RSVP to reserve your spot. Go-kart racing is offered at the Fort Myers event (4:30–6:00 PM); must be 18+ to race. Naples includes complimentary bowling.",
     },
     // no mealWindow; no freeflow attractions
     attractions: [

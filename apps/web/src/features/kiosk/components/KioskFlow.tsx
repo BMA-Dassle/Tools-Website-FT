@@ -1810,6 +1810,18 @@ export function KioskFlow({
         onVoucherAccepted={(code, name) =>
           dispatch({ type: "applyVoucher", voucher: { code, name, pending: true } })
         }
+        onNativeCartItems={(code, items) => {
+          // Auto-split: one applied entry per cart item, keyed by (code,
+          // itemIndex). issuer:'native' means it's covered on OUR side and
+          // claimed at charge — no BMI bill, no pending apply. `name` is the
+          // coverage label the reserve's voucherTarget() reads.
+          for (const it of items) {
+            dispatch({
+              type: "applyVoucher",
+              voucher: { code, issuer: "native", itemIndex: it.itemIndex, name: it.coverageName },
+            });
+          }
+        }}
         onBack={() => setCodeEntryOpen(false)}
         onOpenGameZone={(voucherCodes) => {
           setCodeEntryOpen(false);
@@ -1922,7 +1934,13 @@ export function KioskFlow({
             : undefined
         }
         onOpenCodeEntry={
-          promoEnabled
+          // The coupon/voucher screen is ONE unified surface — it already
+          // classifies promo codes, vouchers, game cards and gift cards. Open
+          // it whenever EITHER capability is on (owner 2026-07-30: migrate the
+          // promo entry onto the voucher screen), so a booking guest can scan a
+          // voucher mid-flow. `kioskPromoEnabled` stays a kill switch for the
+          // promo PRICING system; it no longer gates whether the door opens.
+          promoEnabled || voucherRedeem
             ? () => {
                 clarityEvent("kiosk:code:open");
                 setCodeEntryOpen(true);
