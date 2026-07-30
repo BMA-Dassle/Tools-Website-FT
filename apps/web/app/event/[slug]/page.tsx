@@ -6,6 +6,7 @@ import {
   getGroupEvent,
   getReservationAttractions,
   getFreeflowAttractions,
+  eventRaceWindowEnd,
 } from "@/lib/group-events";
 import type {
   GroupEventAttraction,
@@ -2523,7 +2524,12 @@ export default function GroupEventPage() {
                         }
                       : undefined
                   }
-                  timeWindow={{ start: event.startTime, end: event.endTime }}
+                  timeWindow={{
+                    start: event.startTime,
+                    // Per-track end: a raceWindowExtension opens extra heats on
+                    // named tracks only (e.g. Red 5:36/5:48 on 7/30).
+                    end: eventRaceWindowEnd(event, selectedTrack),
+                  }}
                 />
               </div>
             )}
