@@ -79,6 +79,24 @@ export const partyEn = {
   // Waiver overlay (heading/subheading passed to WaiverSigning + cancel)
   "party.waiver.headingRace": "Racing Waiver",
   "party.waiver.headingActivity": "Activity Waiver",
+  // Sign-time guardian resolution (mobile /waiver): the minor is registered, now
+  // find the adult who signs.
+  "party.guardian.eyebrow": "Adult signature needed",
+  "party.guardian.heading": "Who signs for {name}?",
+  "party.guardian.checking": "Checking {name}…",
+  "party.guardian.addNewAdult": "Add a new adult",
+  "party.guardian.findAccount": "Find their account",
+  "party.guardian.continueToSign": "Continue to waiver",
+  "party.guardian.signerOnly": "Signing only — not playing",
+  "party.guardian.joinTheFun": "Join the fun",
+  "party.gErr.cantVerifyName": "We need a phone or email for {name} before they can sign.",
+  "party.gErr.underAge": "{name} is under 18 and can’t sign as a guardian.",
+  "party.gErr.verifyAdultFallback": "Couldn’t verify that adult — try another.",
+  "party.gErr.enterName": "Enter the adult’s first and last name.",
+  "party.gErr.enterDob": "Enter the adult’s birthday as MM/DD/YYYY.",
+  "party.gErr.mustBe18": "A guardian must be 18 or older.",
+  "party.gErr.enterPhone": "Enter the adult’s mobile number.",
+  "party.gErr.accountIsMinor": "That account belongs to a minor — a guardian must be 18 or older.",
   "party.waiver.subheading": "Read and sign below — it stays on file for your whole visit.",
   // Guardian signs for a minor (mobile /waiver flow): who signs, and for whom.
   "party.waiver.subheadingGuardian":
@@ -171,6 +189,24 @@ export const partyEs: Record<keyof typeof partyEn, string> = {
 
   "party.waiver.headingRace": "Exención de Carreras",
   "party.waiver.headingActivity": "Exención de Actividad",
+  "party.guardian.eyebrow": "Se necesita la firma de un adulto",
+  "party.guardian.heading": "¿Quién firma por {name}?",
+  "party.guardian.checking": "Verificando a {name}…",
+  "party.guardian.addNewAdult": "Agregar un adulto nuevo",
+  "party.guardian.findAccount": "Buscar su cuenta",
+  "party.guardian.continueToSign": "Continuar a la exención",
+  "party.guardian.signerOnly": "Solo firma — no va a jugar",
+  "party.guardian.joinTheFun": "Únete a la diversión",
+  "party.gErr.cantVerifyName":
+    "Necesitamos un teléfono o correo de {name} antes de que pueda firmar.",
+  "party.gErr.underAge": "{name} es menor de 18 años y no puede firmar como tutor.",
+  "party.gErr.verifyAdultFallback": "No pudimos verificar a ese adulto — intenta con otro.",
+  "party.gErr.enterName": "Ingresa el nombre y apellido del adulto.",
+  "party.gErr.enterDob": "Ingresa la fecha de nacimiento del adulto como MM/DD/YYYY.",
+  "party.gErr.mustBe18": "Un tutor debe tener 18 años o más.",
+  "party.gErr.enterPhone": "Ingresa el número de celular del adulto.",
+  "party.gErr.accountIsMinor":
+    "Esa cuenta pertenece a un menor — el tutor debe tener 18 años o más.",
   "party.waiver.subheading": "Lee y firma abajo — queda registrada durante toda tu visita.",
   "party.waiver.subheadingGuardian":
     "{signer} — firma abajo por {minor}. Queda registrada durante toda la visita.",

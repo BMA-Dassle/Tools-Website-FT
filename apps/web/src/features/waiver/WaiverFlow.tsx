@@ -136,6 +136,11 @@ export function WaiverFlow({
   // first names to confirm what was filed (no DOB, no phone, no last names).
   const [finished, setFinished] = useState(false);
   const [signedNames, setSignedNames] = useState<string[]>([]);
+  // Signer-only guardians: adults who signed for a minor but are NOT playing.
+  // Kept OUT of `party`, exactly as the kiosk keeps them out of session.party, so
+  // they never reach the reservation attach or any purchase path. "Join the fun"
+  // moves the same object (same id) onto the roster so minors' refs stay valid.
+  const [guardians, setGuardians] = useState<PartyMember[]>([]);
 
   const center: CenterCode | null = resInfo ? resInfo.center : standaloneCenter;
   const location: PandoraLocation | null = resInfo
@@ -298,6 +303,19 @@ export function WaiverFlow({
         mode="waiver"
         theme="mobile"
         guardianSigning
+        // The kiosk's model: a minor registers first; the adult who signs is found
+        // when the waiver comes up (choose / add new / look up). No guardian field
+        // on the player form, and no "add an adult first" dead end.
+        guardianResolution="sign-time"
+        guardians={guardians}
+        onAddGuardian={(g) => setGuardians((gs) => [...gs, g])}
+        onUpdateGuardian={(id, patch) =>
+          setGuardians((gs) => gs.map((g) => (g.id === id ? { ...g, ...patch } : g)))
+        }
+        onPromoteGuardian={(g) => {
+          setGuardians((gs) => gs.filter((x) => x.id !== g.id));
+          setParty((p) => [...p, g]);
+        }}
         hasCamera
         photoStep="required-adults"
         renderPhoto={(args) => <MobileWaiverPhoto {...args} />}
