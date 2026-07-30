@@ -174,4 +174,39 @@ describe("mobile /waiver theme covers the kiosk px utilities it reuses", () => {
       ).toBeGreaterThanOrEqual(16);
     }
   });
+
+  it("never lets a safe-area inset BE the page's horizontal gutter", () => {
+    // The shipped bug: `.wp-mobile-page { padding-left: env(safe-area-inset-left) }`
+    // reads as "add the notch inset" but means "SET the gutter to it". That value is
+    // 0 on every phone in PORTRAIT, and because this stylesheet is UNLAYERED it beat
+    // the `px-4 md:px-8` utilities on <main> — so content sat flush against both
+    // screen edges on mobile, and md:px-8 was dead on desktop.
+    //
+    // Asserted on the STYLESHEET rather than a rendered page because that is where
+    // the mistake is expressible: a bare env() is always wrong here, whatever the
+    // markup says, precisely because unlayered CSS wins.
+    const rules = [...css.matchAll(/\.wp-mobile-page\s*\{([^}]*)\}/g)].map((m) => m[1]);
+    expect(
+      rules.length,
+      "no .wp-mobile-page rule found — did the class get renamed?",
+    ).toBeGreaterThan(0);
+
+    for (const body of rules) {
+      for (const side of ["left", "right"] as const) {
+        const decl = new RegExp(`padding-${side}\\s*:\\s*([^;]+)`).exec(body);
+        if (!decl) continue;
+        const value = decl[1].trim();
+        expect(
+          value,
+          `.wp-mobile-page sets padding-${side}: ${value} — a bare env(safe-area-inset-*) ` +
+            `is 0 in portrait AND (unlayered) beats px-4/md:px-8, so the page would ` +
+            `have no gutter. Wrap it: max(<gutter>, env(safe-area-inset-${side})).`,
+        ).toMatch(/max\(/);
+        // rem, not em: em resolves against the PARENT font size.
+        expect(value, `.wp-mobile-page padding-${side} must use a rem gutter`).toMatch(
+          /\d*\.?\d+rem/,
+        );
+      }
+    }
+  });
 });

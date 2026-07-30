@@ -537,11 +537,38 @@
   min-width: 60%;
 }
 
-/* 5. Respect the notch / home-bar so the last action is never under it. */
+/* 5. Respect the notch / home-bar so the last action is never under it — WITHOUT
+      becoming the page's only horizontal padding.
+
+      This rule shipped as `padding-left: env(safe-area-inset-left)`, which read as
+      "add the notch inset" but actually means "SET the gutter to the notch inset".
+      `env(safe-area-inset-left/right)` is **0** on essentially every phone in
+      PORTRAIT — it is non-zero only on a notched device held sideways — so the
+      declared gutter was zero almost always.
+
+      And it won. `<main>` carries `px-4 md:px-8`, but those are Tailwind utilities
+      in @layer utilities and this file is UNLAYERED (see the header), so an
+      unlayered `padding-left` beats them regardless of specificity or source
+      order. Net effect: content ran flush to both screen edges on every phone,
+      and md:px-8 was dead on desktop too.
+
+      `max()` is the fix: a real gutter that a notch can only widen. `rem` and not
+      `em` deliberately — `em` resolves against the PARENT font size, which is what
+      made an earlier clamp in this file behave unpredictably.
+
+      The `px-4 md:px-8` on <main> are now belt-and-braces (they cannot win while
+      this rule exists); these two values are the ones that actually render, so
+      change them here. Pinned in waiver-party.theme.test.ts. */
 .wp-mobile-page {
   padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
-  padding-left: env(safe-area-inset-left);
-  padding-right: env(safe-area-inset-right);
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+}
+@media (min-width: 768px) {
+  .wp-mobile-page {
+    padding-left: max(2rem, env(safe-area-inset-left));
+    padding-right: max(2rem, env(safe-area-inset-right));
+  }
 }
 
 /* ======================================================================
