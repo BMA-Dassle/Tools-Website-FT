@@ -13,10 +13,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const SIZE_STEPS = [720, 560, 448, 360]; // capture widths tried until PNG ≤ cap
 const MAX_PNG_BYTES = 950_000; // margin under Pandora's 1MB
 
-const primaryBtn =
-  "w-full rounded-xl bg-[var(--accent)] px-4 py-3 text-base font-bold text-[#04252b] disabled:opacity-40";
-const ghostBtn =
-  "w-full rounded-xl border border-white/25 px-4 py-3 text-base font-bold text-white";
+// Kiosk primitives (styled for the phone by waiver-party.css under .wp-mobile),
+// so the photo step matches the kiosk photo screen instead of inventing buttons.
+const primaryBtn = "k-btn-primary k-tap w-full";
+const ghostBtn = "k-btn-ghost k-tap w-full";
 
 export function MobileWaiverPhoto({
   memberName,
@@ -120,14 +120,15 @@ export function MobileWaiverPhoto({
 
   return (
     <div className="mx-auto max-w-md">
-      <h2 className="text-xl font-extrabold text-white">Quick photo for check-in</h2>
-      <p className="mt-1 text-sm text-white/60">
+      <div className="k-eyebrow">Check-in photo</div>
+      <h2 className="k-display mt-1 text-xl">Quick photo for check-in</h2>
+      <p className="mt-1 text-sm text-[var(--k-dim)]">
         {isMinor
           ? `A photo for ${memberName} is optional — it speeds up check-in.`
           : `${memberName}, look at the camera — this verifies you at check-in.`}
       </p>
 
-      <div className="relative mt-4 overflow-hidden rounded-2xl border border-white/15 bg-black">
+      <div className="relative mt-4 overflow-hidden rounded-[18px] border border-white/15 bg-black">
         {shot ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={shot} alt="How you'll appear at check-in" className="block w-full" />
@@ -143,13 +144,13 @@ export function MobileWaiverPhoto({
         )}
         {countdown != null && countdown > 0 && (
           <div className="absolute inset-0 grid place-items-center bg-black/40">
-            <span className="text-7xl font-extrabold text-white">{countdown}</span>
+            <span className="k-display k-num text-7xl text-white">{countdown}</span>
           </div>
         )}
       </div>
 
       {camError && (
-        <div className="mt-3 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+        <div className="mt-3 rounded-[14px] border-2 border-[var(--k-warn)]/60 bg-[var(--k-warn)]/12 px-3 py-2 text-sm text-amber-100">
           {camError}
         </div>
       )}
@@ -177,7 +178,7 @@ export function MobileWaiverPhoto({
         <button
           type="button"
           onClick={onSkip}
-          className="mx-auto mt-1 text-sm text-white/40 underline-offset-4 hover:underline"
+          className="mx-auto mt-1 text-sm text-[var(--k-dim)] underline-offset-4 hover:underline"
         >
           {isMinor ? "Skip the photo" : "Camera isn't working — take my photo at check-in"}
         </button>

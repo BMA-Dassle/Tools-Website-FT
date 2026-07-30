@@ -2,60 +2,188 @@
  * Mobile theme for the shared WaiverParty (KioskPartyManager) when it renders
  * OUTSIDE the kiosk canvas — i.e. the first-party /waiver flow.
  *
- * The kiosk authors at a fixed 1080px-wide canvas with large px sizes, and
+ * The kiosk authors at a fixed 1080×1920 canvas with large px sizes, and
  * kiosk.css is imported only in app/kiosk/layout.tsx with every k-* rule nested
  * under .kiosk-canvas. So on a top-level /waiver page NONE of that applies. Under
- * the `.wp-mobile` root hook we (a) re-implement the k-* looks and (b) override
- * the kiosk's arbitrary Tailwind size utilities down to phone sizes.
+ * the `.wp-mobile` root hook we (a) re-implement the k-* looks 1:1 with
+ * app/kiosk/kiosk.css and (b) re-proportion the kiosk's arbitrary Tailwind px
+ * utilities down to phone sizes.
  *
  * These are UNLAYERED rules, so they beat Tailwind's @layer utilities regardless
  * of specificity or source order. The kiosk is untouched — it never has a
  * .wp-mobile ancestor, so every existing class behaves exactly as before.
+ *
+ * ── Why a remap and not a scale ────────────────────────────────────────────
+ * A phone is NOT a shrunken kiosk. The canvas→phone geometry ratio is ~0.36
+ * (390/1080), but 0.36× type is illegible (26px → 9px), because the kiosk screen
+ * is physically large and viewed at arm's length. So type and geometry are
+ * re-proportioned at ~0.6× with a 12px type floor, and the handful of boxes that
+ * are absolutely sized for the canvas (QR codes) are clamped to the viewport.
+ *
+ * ── Completeness is enforced, not hoped for ───────────────────────────────
+ * Every `-[Npx]` utility appearing in a component reachable from the mobile
+ * flow MUST have a rule here, or the kiosk-sized value renders raw on the phone.
+ * `waiver-party.theme.test.ts` fails when a new one appears upstream — when that
+ * test goes red, add the mapping here rather than deleting the assertion.
  */
 
 .wp-mobile {
+  /* Kiosk palette tokens (mirrors .kiosk-canvas in app/kiosk/kiosk.css) so the
+     mobile flow paints from exactly the same colors. */
+  --k-deep: #000418;
+  --k-card: #071027;
+  --k-card-2: #0d1a36;
+  --k-line: rgba(255, 255, 255, 0.1);
+  --k-text: #f5ecee;
+  --k-dim: rgba(245, 236, 238, 0.58);
+  --k-cyan: #00e2e5;
+  --k-cyan-ink: #04252b;
+  --k-ok: #46d68c;
+  --k-warn: #f0b341;
+  /* Exo 2 + Barlow on BOTH brands — the same override .kiosk-canvas makes
+     (owner: "both brands should be fixed"), so the waiver reads as one system
+     with the kiosk instead of inheriting HeadPinz's web Outfit/DM Sans. */
+  --font-heading: var(--font-exo2);
+  --font-body: var(--font-barlow);
+  font-family: var(--font-body), system-ui, sans-serif;
   font-size: 16px;
   line-height: 1.4;
-  color: #f5ecee;
+  color: var(--k-text);
 }
 
-/* ---- k-* look-alikes (kiosk.css is not loaded on /waiver) ---- */
+/* ---- k-* look-alikes: 1:1 with kiosk.css, resized for a phone ---- */
+.wp-mobile .k-display {
+  font-family: var(--font-heading), sans-serif;
+  font-style: italic;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  line-height: 1.02;
+  text-wrap: balance;
+}
+.wp-mobile .k-eyebrow {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 700;
+  font-size: 0.7rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--k-cyan);
+}
+.wp-mobile .k-dim {
+  color: var(--k-dim);
+}
+.wp-mobile .k-num {
+  font-variant-numeric: tabular-nums;
+}
 .wp-mobile .k-glass {
   background: rgba(7, 16, 39, 0.55);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 16px;
-}
-.wp-mobile .k-display {
-  font-weight: 800;
-  letter-spacing: 0.01em;
-  line-height: 1.12;
-}
-.wp-mobile .k-eyebrow {
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  backdrop-filter: blur(18px);
+  border-radius: 18px;
 }
 .wp-mobile .k-tap {
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  transition:
+    transform 0.1s ease,
+    border-color 0.15s,
+    background 0.15s,
+    box-shadow 0.15s;
+}
+.wp-mobile .k-tap:active {
+  transform: scale(0.97);
 }
 .wp-mobile .k-btn-primary {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 0.5rem;
+  min-height: 3.25rem;
   border-radius: 999px;
-  background: #00e2e5;
-  color: #04252b;
+  background: var(--k-cyan);
+  color: var(--k-cyan-ink);
+  font-family: var(--font-heading), sans-serif;
+  font-style: italic;
   font-weight: 800;
-  letter-spacing: 0.02em;
+  font-size: 1.0625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  box-shadow: 0 8px 28px rgba(0, 226, 229, 0.35);
 }
 .wp-mobile .k-btn-primary:disabled {
   opacity: 0.4;
+  box-shadow: none;
+}
+.wp-mobile .k-btn-ghost {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 3.25rem;
+  padding: 0 1.25rem;
+  border-radius: 999px;
+  border: 2px solid var(--k-line);
+  color: var(--k-dim);
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+/* Mobile-join "phone is signing" glow (kiosk-only today — mobile join is off in
+   waiver mode — kept so the box never renders unstyled if that changes). */
+.wp-mobile .k-join-signing {
+  border-color: rgba(240, 179, 65, 0.55);
+  box-shadow: 0 0 22px rgba(240, 179, 65, 0.22);
 }
 
-/* ---- font-size downscale (kiosk px -> mobile) ---- */
+/* ---- flow-head vocabulary, phone scale (kiosk: 74px title on 1080) ---- */
+.wp-mobile .k-fh-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.wp-mobile .k-fh-activity {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 700;
+  font-size: 0.7rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--k-dim);
+}
+.wp-mobile .k-fh-title {
+  margin-top: 0.75rem;
+  font-size: 1.75rem;
+}
+.wp-mobile .k-prog {
+  display: flex;
+  gap: 6px;
+  margin-top: 1rem;
+}
+.wp-mobile .k-prog span {
+  height: 6px;
+  flex: 1;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+.wp-mobile .k-prog span.done {
+  background: var(--k-cyan);
+}
+.wp-mobile .k-prog-label {
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--k-dim);
+}
+
+/* ---- type: kiosk px -> ~0.6x, floored at 12px ---- */
+.wp-mobile .text-\[44px\] {
+  font-size: 1.65rem;
+}
 .wp-mobile .text-\[40px\] {
   font-size: 1.5rem;
+}
+.wp-mobile .text-\[34px\] {
+  font-size: 1.3rem;
 }
 .wp-mobile .text-\[32px\] {
   font-size: 1.25rem;
@@ -65,6 +193,9 @@
 }
 .wp-mobile .text-\[28px\] {
   font-size: 1.0625rem;
+}
+.wp-mobile .text-\[27px\] {
+  font-size: 1rem;
 }
 .wp-mobile .text-\[26px\] {
   font-size: 1rem;
@@ -78,102 +209,321 @@
 .wp-mobile .text-\[20px\] {
   font-size: 0.8125rem;
 }
+.wp-mobile .text-\[19px\] {
+  font-size: 0.78rem;
+}
 .wp-mobile .text-\[18px\] {
   font-size: 0.75rem;
 }
 
-/* ---- padding downscale ---- */
+/* ---- padding ---- */
+.wp-mobile .p-\[8px\] {
+  padding: 0.375rem;
+}
+.wp-mobile .p-\[12px\] {
+  padding: 0.5rem;
+}
 .wp-mobile .p-\[24px\] {
   padding: 1rem;
 }
 .wp-mobile .p-\[28px\] {
   padding: 1.15rem;
 }
+/* page-level gutter: 48px canvas padding would eat a phone's width */
 .wp-mobile .p-\[48px\] {
   padding: 1rem;
 }
-.wp-mobile .px-\[24px\] {
-  padding-left: 1rem;
-  padding-right: 1rem;
-}
-.wp-mobile .px-\[28px\] {
-  padding-left: 1.15rem;
-  padding-right: 1.15rem;
+.wp-mobile .px-\[14px\] {
+  padding-left: 0.625rem;
+  padding-right: 0.625rem;
 }
 .wp-mobile .px-\[20px\] {
   padding-left: 0.85rem;
   padding-right: 0.85rem;
 }
-.wp-mobile .py-\[28px\] {
-  padding-top: 1rem;
-  padding-bottom: 1rem;
+.wp-mobile .px-\[24px\] {
+  padding-left: 1rem;
+  padding-right: 1rem;
 }
-.wp-mobile .py-\[22px\] {
-  padding-top: 0.85rem;
-  padding-bottom: 0.85rem;
+.wp-mobile .px-\[26px\] {
+  padding-left: 1.05rem;
+  padding-right: 1.05rem;
 }
-.wp-mobile .py-\[20px\] {
-  padding-top: 0.75rem;
-  padding-bottom: 0.75rem;
+.wp-mobile .px-\[28px\] {
+  padding-left: 1.15rem;
+  padding-right: 1.15rem;
 }
-.wp-mobile .py-\[18px\] {
-  padding-top: 0.7rem;
-  padding-bottom: 0.7rem;
+.wp-mobile .px-\[44px\] {
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
 }
-.wp-mobile .py-\[16px\] {
-  padding-top: 0.6rem;
-  padding-bottom: 0.6rem;
+.wp-mobile .px-\[48px\] {
+  padding-left: 1rem;
+  padding-right: 1rem;
 }
-.wp-mobile .py-\[14px\] {
-  padding-top: 0.5rem;
-  padding-bottom: 0.5rem;
+.wp-mobile .py-\[4px\] {
+  padding-top: 0.2rem;
+  padding-bottom: 0.2rem;
 }
 .wp-mobile .py-\[12px\] {
   padding-top: 0.5rem;
   padding-bottom: 0.5rem;
 }
+.wp-mobile .py-\[14px\] {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+.wp-mobile .py-\[16px\] {
+  padding-top: 0.6rem;
+  padding-bottom: 0.6rem;
+}
+.wp-mobile .py-\[18px\] {
+  padding-top: 0.7rem;
+  padding-bottom: 0.7rem;
+}
+.wp-mobile .py-\[20px\] {
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+.wp-mobile .py-\[22px\] {
+  padding-top: 0.85rem;
+  padding-bottom: 0.85rem;
+}
+.wp-mobile .py-\[24px\] {
+  padding-top: 0.875rem;
+  padding-bottom: 0.875rem;
+}
+.wp-mobile .py-\[28px\] {
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+.wp-mobile .py-\[44px\] {
+  padding-top: 1.125rem;
+  padding-bottom: 1.125rem;
+}
+
+/* ---- margins ---- */
+.wp-mobile .mt-\[2px\] {
+  margin-top: 0.125rem;
+}
+.wp-mobile .mt-\[4px\] {
+  margin-top: 0.2rem;
+}
+.wp-mobile .mt-\[8px\] {
+  margin-top: 0.4rem;
+}
+.wp-mobile .mt-\[10px\] {
+  margin-top: 0.4rem;
+}
+.wp-mobile .mt-\[24px\] {
+  margin-top: 0.9rem;
+}
+.wp-mobile .mb-\[6px\] {
+  margin-bottom: 0.25rem;
+}
+.wp-mobile .mb-\[10px\] {
+  margin-bottom: 0.4rem;
+}
+.wp-mobile .mb-\[12px\] {
+  margin-bottom: 0.5rem;
+}
+.wp-mobile .mb-\[16px\] {
+  margin-bottom: 0.6rem;
+}
 
 /* ---- fixed box sizes ---- */
-.wp-mobile .h-\[64px\].w-\[64px\] {
+.wp-mobile .h-\[14px\] {
+  height: 0.625rem;
+}
+.wp-mobile .w-\[14px\] {
+  width: 0.625rem;
+}
+.wp-mobile .h-\[18px\] {
+  height: 0.875rem;
+}
+.wp-mobile .w-\[18px\] {
+  width: 0.875rem;
+}
+.wp-mobile .h-\[28px\] {
+  height: 1.25rem;
+}
+.wp-mobile .w-\[28px\] {
+  width: 1.25rem;
+}
+.wp-mobile .h-\[30px\] {
+  height: 1.375rem;
+}
+.wp-mobile .w-\[30px\] {
+  width: 1.375rem;
+}
+.wp-mobile .h-\[36px\] {
+  height: 1.75rem;
+}
+.wp-mobile .w-\[36px\] {
+  width: 1.75rem;
+}
+.wp-mobile .h-\[40px\] {
+  height: 1.75rem;
+}
+.wp-mobile .w-\[40px\] {
+  width: 1.75rem;
+}
+.wp-mobile .h-\[64px\] {
   height: 2.5rem;
+}
+.wp-mobile .w-\[64px\] {
   width: 2.5rem;
 }
 .wp-mobile .h-\[80px\] {
   height: 3rem;
 }
-.wp-mobile .h-\[36px\].w-\[36px\] {
-  height: 1.75rem;
-  width: 1.75rem;
+/* QR codes are absolutely sized for the canvas — clamp to the viewport so a
+   400px block never forces a horizontal scroll on a 390px phone. */
+.wp-mobile .h-\[150px\] {
+  height: 6rem;
+}
+.wp-mobile .w-\[150px\] {
+  width: 6rem;
+}
+.wp-mobile .h-\[400px\] {
+  height: min(72vw, 18rem);
+}
+.wp-mobile .w-\[400px\] {
+  width: min(72vw, 18rem);
+}
+.wp-mobile .max-w-\[900px\] {
+  max-width: 100%;
 }
 
 /* ---- radii ---- */
-.wp-mobile .rounded-\[28px\] {
+.wp-mobile .rounded-\[14px\] {
+  border-radius: 0.625rem;
+}
+.wp-mobile .rounded-\[24px\] {
   border-radius: 1rem;
 }
-
-/* ---- gaps ---- */
-.wp-mobile .gap-\[18px\] {
-  gap: 0.75rem;
+.wp-mobile .rounded-\[26px\] {
+  border-radius: 1rem;
 }
-.wp-mobile .gap-\[16px\] {
-  gap: 0.75rem;
+.wp-mobile .rounded-\[28px\] {
+  border-radius: 1.125rem;
+}
+
+/* ---- gaps + stacks ---- */
+.wp-mobile .gap-\[10px\] {
+  gap: 0.4rem;
 }
 .wp-mobile .gap-\[12px\] {
   gap: 0.5rem;
 }
+.wp-mobile .gap-\[14px\] {
+  gap: 0.6rem;
+}
+.wp-mobile .gap-\[16px\] {
+  gap: 0.75rem;
+}
+.wp-mobile .gap-\[18px\] {
+  gap: 0.75rem;
+}
+.wp-mobile .gap-\[20px\] {
+  gap: 0.8rem;
+}
+.wp-mobile .gap-\[24px\] {
+  gap: 0.9rem;
+}
+.wp-mobile .gap-x-\[16px\] {
+  column-gap: 0.75rem;
+}
 .wp-mobile .gap-x-\[24px\] {
   column-gap: 0.9rem;
+}
+.wp-mobile .gap-y-\[6px\] {
+  row-gap: 0.25rem;
+}
+.wp-mobile .space-y-\[16px\] > * + * {
+  margin-top: 0.6rem;
 }
 .wp-mobile .space-y-\[20px\] > * + * {
   margin-top: 0.75rem;
 }
-.wp-mobile .space-y-\[16px\] > * + * {
-  margin-top: 0.6rem;
+.wp-mobile .space-y-\[24px\] > * + * {
+  margin-top: 0.9rem;
+}
+.wp-mobile .space-y-\[28px\] > * + * {
+  margin-top: 1rem;
 }
 
 /* ---- stack the 2-col grids on a narrow screen ---- */
 @media (max-width: 480px) {
   .wp-mobile .grid-cols-2 {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ======================================================================
+   MOBILE-FIRST HARDENING — the phone is the primary target, not a
+   narrow desktop. These are floors and guards, not decoration.
+   ====================================================================== */
+
+/* 1. iOS Safari ZOOMS the whole page when a focused input's font-size is under
+      16px, and never zooms back out. Every kiosk input is text-[30px], which the
+      type remap above sends to 1.0625rem = 17px, so we clear the threshold.
+      This is NOT enforced with a CSS override on purpose: a `.wp-mobile input`
+      floor loses to the `.wp-mobile .text-\[30px\]` remap on specificity, and a
+      version that wins (doubled class + max()) would clobber the remapped size,
+      since `1em` resolves against the PARENT. The invariant is enforced instead
+      by waiver-party.theme.test.ts, which reads the mapped value for every size
+      class that lands on an input and fails under 16px. */
+
+/* 2. Touch-target floor (WCAG 2.5.5) — the kiosk gets this from
+      .kiosk-step-content; the phone needs its own. Thumbs, not a mouse. */
+.wp-mobile button,
+.wp-mobile [role="button"],
+.wp-mobile a[href],
+.wp-mobile input:not([type="checkbox"]):not([type="radio"]),
+.wp-mobile select {
+  min-height: 44px;
+}
+.wp-mobile input[type="checkbox"],
+.wp-mobile input[type="radio"] {
+  min-width: 24px;
+  min-height: 24px;
+}
+
+/* 3. Never scroll sideways. Long names/emails wrap instead of pushing the page
+      wide, and nothing absolutely sized escapes the viewport. `break-word`, not
+      `anywhere` — `anywhere` also shrinks min-content sizing, which lets flex
+      children collapse in ways ordinary copy shouldn't. */
+.wp-mobile {
+  overflow-wrap: break-word;
+}
+.wp-mobile img,
+.wp-mobile video,
+.wp-mobile canvas,
+.wp-mobile svg {
+  max-width: 100%;
+}
+
+/* 4. Action rows may wrap rather than squeeze: the Cancel/Continue pair keeps
+      its flex-1 primary (do NOT force width here — flex-basis:0% from flex-1
+      would win anyway), but a crowded row drops to a second line instead of
+      crushing the labels. */
+.wp-mobile .flex.gap-\[16px\] > .k-btn-primary {
+  min-width: 60%;
+}
+
+/* 5. Respect the notch / home-bar so the last action is never under it. */
+.wp-mobile-page {
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wp-mobile .k-tap {
+    transition: none;
+  }
+  .wp-mobile .k-tap:active {
+    transform: none;
   }
 }

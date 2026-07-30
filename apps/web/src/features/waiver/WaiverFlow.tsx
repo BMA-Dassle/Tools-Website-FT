@@ -24,9 +24,11 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { IconCheck, IconChevronRight } from "@tabler/icons-react";
 import type { Brand, CenterCode } from "~/features/booking/types";
 import type { PartyMember } from "~/features/booking/state/types";
 import { KioskPartyManager, peopleReady } from "~/features/kiosk/components/KioskPartyManager";
+import { BrandLogo } from "~/features/kiosk/components/BrandLogo";
 import { useReservationJoinAttach } from "./attach/reservation-join";
 import { MobileWaiverPhoto } from "./MobileWaiverPhoto";
 
@@ -60,8 +62,46 @@ interface WaiverContextSummary {
   total: number;
 }
 
-const outlineBtn =
-  "w-full rounded-xl border border-white/25 px-4 py-3 text-base font-bold text-white";
+/** Kiosk flow-head, phone scale: logo + activity label, then the signed-progress
+ *  bar, then the k-display title — the same reading order as KioskFlow. */
+function WaiverHead({
+  brand,
+  subtitle,
+  signed,
+  total,
+}: {
+  brand: Brand;
+  subtitle: string;
+  signed: number;
+  total: number;
+}) {
+  return (
+    <header className="mb-5">
+      <div className="k-fh-top">
+        <BrandLogo brand={brand} className="h-[36px] w-auto" alt={`${brandName(brand)} home`} />
+        <span className="k-fh-activity">Waiver</span>
+      </div>
+      {total > 0 && (
+        <>
+          <div className="k-prog" role="presentation">
+            {Array.from({ length: total }, (_, i) => (
+              <span key={i} className={i < signed ? "done" : ""} />
+            ))}
+          </div>
+          <div className="k-prog-label k-num" aria-live="polite">
+            {signed} of {total} signed
+          </div>
+        </>
+      )}
+      <h1 className="k-display k-fh-title">Sign your waiver</h1>
+      <p className="mt-1 text-sm text-[var(--k-dim)]">{subtitle}</p>
+    </header>
+  );
+}
+
+function brandName(brand: Brand): string {
+  return brand === "headpinz" ? "HeadPinz" : "FastTrax";
+}
 
 export function WaiverFlow({
   brand,
@@ -120,14 +160,16 @@ export function WaiverFlow({
     enabled: !!reservation && !!center,
   });
 
+  // `wp-mobile` scopes the kiosk look (tokens, k-* primitives, px re-proportioning)
+  // to the whole page, not just the party manager — so the head, share block and
+  // success card are the same design system as the kiosk, at phone scale. The deep
+  // navy is the kiosk's --k-deep on BOTH brands, mirroring .kiosk-canvas.
   const shell = (children: ReactNode) => (
     <div
-      className={`min-h-screen text-white ${
-        brand === "headpinz" ? "brand-headpinz bg-[#0a1628]" : "bg-[#000418]"
-      }`}
+      className="wp-mobile min-h-screen bg-[#000418]"
       style={{ "--accent": "#00E2E5" } as CSSProperties}
     >
-      <main className="mx-auto max-w-md px-4 py-8">{children}</main>
+      <main className="wp-mobile-page mx-auto max-w-md px-4 pt-6">{children}</main>
     </div>
   );
 
@@ -135,44 +177,56 @@ export function WaiverFlow({
   // always resolves a center from locationId, so it never lands here).
   if (!center || !location) {
     return shell(
-      <div className="space-y-4">
-        <header className="mb-2 text-center">
-          <div className="text-xs font-black uppercase tracking-[0.3em] text-white/40">
-            HeadPinz
-          </div>
-          <h1 className="mt-2 text-2xl font-extrabold">Sign your waiver</h1>
-          <p className="mt-1 text-sm text-white/50">Which location are you visiting?</p>
-        </header>
-        <button
-          type="button"
-          className={outlineBtn}
-          onClick={() => setStandaloneCenter("fort-myers")}
-        >
-          HeadPinz Fort Myers
-        </button>
-        <button type="button" className={outlineBtn} onClick={() => setStandaloneCenter("naples")}>
-          HeadPinz Naples
-        </button>
-      </div>,
+      <>
+        <WaiverHead
+          brand={brand}
+          subtitle="Which location are you visiting?"
+          signed={0}
+          total={0}
+        />
+        <div className="space-y-3">
+          {(
+            [
+              ["fort-myers", "HeadPinz Fort Myers"],
+              ["naples", "HeadPinz Naples"],
+            ] as const
+          ).map(([code, label]) => (
+            <button
+              key={code}
+              type="button"
+              className="k-glass k-tap flex w-full items-center justify-between px-4 py-4 text-left"
+              onClick={() => setStandaloneCenter(code)}
+            >
+              <span className="k-display text-lg">{label}</span>
+              <IconChevronRight aria-hidden size={20} className="text-[var(--k-cyan)]" />
+            </button>
+          ))}
+        </div>
+      </>,
     );
   }
 
   const allIds = new Set(party.map((m) => m.id));
   const ready = party.length > 0 && peopleReady(party, Array.from(allIds)) === true;
+  // Live signed count for the kiosk-style progress bar (kiosk shows step-of-N;
+  // the waiver's real progress is how much of the party is done).
+  const signedCount = party.filter((m) => m.waiverValid).length;
 
   return shell(
     <>
-      {reservation ? (
-        <EventInfoHeader ctx={ctx} />
-      ) : (
-        <header className="mb-6 text-center">
-          <div className="text-xs font-black uppercase tracking-[0.3em] text-white/40">
-            {brand === "headpinz" ? "HeadPinz" : "FastTrax"}
-          </div>
-          <h1 className="mt-2 text-2xl font-extrabold">Sign your waiver</h1>
-          <p className="mt-1 text-sm text-white/50">{standaloneCenterName(brand, center)}</p>
-        </header>
-      )}
+      <WaiverHead
+        brand={brand}
+        subtitle={
+          reservation
+            ? [ctx?.activity, ctx?.whenLabel, ctx?.centerName].filter(Boolean).join(" · ") ||
+              "Loading reservation…"
+            : standaloneCenterName(brand, center)
+        }
+        signed={signedCount}
+        total={party.length}
+      />
+
+      {reservation && <EventInfoCard ctx={ctx} />}
 
       <KioskPartyManager
         mode="waiver"
@@ -212,9 +266,12 @@ export function WaiverFlow({
       {reservation && <ShareBlock label={ctx?.label ?? "your reservation"} />}
 
       {ready && (
-        <div className="mt-6 rounded-2xl border border-[#46d68c]/40 bg-[#46d68c]/10 p-4 text-center">
-          <p className="text-base font-bold text-[#46d68c]">✓ All waivers signed</p>
-          <p className="mt-1 text-sm text-white/60">
+        <div className="mt-6 rounded-[18px] border border-[var(--k-ok)]/40 bg-[var(--k-ok)]/10 p-4 text-center">
+          <p className="k-display flex items-center justify-center gap-2 text-lg text-[var(--k-ok)]">
+            <IconCheck aria-hidden size={20} stroke={3} />
+            All waivers signed
+          </p>
+          <p className="mt-1 text-sm text-[var(--k-dim)]">
             {reservation
               ? "You're all set — these are saved to your reservation. Share the link above so the rest of your group can sign too."
               : "You're all set — we'll have these on file when you arrive. Add someone else above anytime."}
@@ -225,27 +282,21 @@ export function WaiverFlow({
   );
 }
 
-/** Lean event-info header — reservation name/activity/when/center + guest count.
+/** Lean event-info card — which reservation these signatures attach to. The
+ *  activity/when/center line lives in the head subtitle, so this card carries the
+ *  reservation identity + guest count only.
  *  Deliberately NO pricing / deposit / other guests' PII (see /api/waiver/context). */
-function EventInfoHeader({ ctx }: { ctx: WaiverContextSummary | null }) {
+function EventInfoCard({ ctx }: { ctx: WaiverContextSummary | null }) {
   return (
-    <header className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-4 text-center">
-      <div className="text-xs font-black uppercase tracking-[0.3em] text-[#00e2e5]">
-        Sign your waiver
-      </div>
-      <h1 className="mt-2 text-xl font-extrabold leading-tight">
-        {ctx?.label ?? "Your reservation"}
-      </h1>
-      <p className="mt-1 text-sm text-white/60">
-        {[ctx?.activity, ctx?.whenLabel, ctx?.centerName].filter(Boolean).join(" · ") ||
-          "Loading reservation…"}
-      </p>
+    <section className="k-glass mb-5 px-4 py-3">
+      <div className="k-eyebrow">Signing for</div>
+      <p className="k-display mt-1 text-base">{ctx?.label ?? "Your reservation"}</p>
       {!!ctx?.total && (
-        <p className="mt-1 text-xs text-white/40">
+        <p className="k-num mt-1 text-xs text-[var(--k-dim)]">
           {ctx.total} {ctx.total === 1 ? "guest" : "guests"} on this reservation
         </p>
       )}
-    </header>
+    </section>
   );
 }
 
@@ -284,42 +335,36 @@ function ShareBlock({ label }: { label: string }) {
       .catch(() => {});
   };
 
+  // Two-up on anything wider than a small phone, single column below it — the
+  // share actions are secondary, so they never crowd the signing flow.
+  const shareBtn =
+    "k-tap flex items-center justify-center rounded-full border-2 border-[var(--k-line)] px-3 text-center text-sm font-bold uppercase tracking-wide text-[var(--k-dim)]";
+
   return (
-    <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
-      <div className="text-sm font-bold text-white">Share the waiver with your group</div>
-      <p className="mt-1 text-xs text-white/50">
+    <section className="k-glass mt-6 px-4 py-4">
+      <div className="k-eyebrow">Share with your group</div>
+      <p className="mt-2 text-xs text-[var(--k-dim)]">
         Anyone can sign from this link — it only shows the event, never your booking details.
       </p>
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <a
-          href={`sms:?&body=${encodeURIComponent(bodyText)}`}
-          className="rounded-xl border border-white/20 px-3 py-2 text-center text-sm font-bold text-white"
-        >
+        <a href={`sms:?&body=${encodeURIComponent(bodyText)}`} className={shareBtn}>
           Text it
         </a>
         <a
           href={`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`}
-          className="rounded-xl border border-white/20 px-3 py-2 text-center text-sm font-bold text-white"
+          className={shareBtn}
         >
           Email it
         </a>
-        <button
-          type="button"
-          onClick={copy}
-          className="rounded-xl border border-white/20 px-3 py-2 text-center text-sm font-bold text-white"
-        >
-          {copied ? "Copied!" : "Copy link"}
+        <button type="button" onClick={copy} className={shareBtn}>
+          {copied ? "Copied" : "Copy link"}
         </button>
         {canNativeShare && (
-          <button
-            type="button"
-            onClick={nativeShare}
-            className="rounded-xl bg-[var(--accent)] px-3 py-2 text-center text-sm font-bold text-[#04252b]"
-          >
-            Share…
+          <button type="button" onClick={nativeShare} className="k-btn-primary k-tap px-3">
+            Share
           </button>
         )}
       </div>
-    </div>
+    </section>
   );
 }
