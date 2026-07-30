@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { PartyMember } from "~/features/booking";
-import { tierFromMemberships, type RaceTier } from "~/features/booking/service/race-products";
+import { qualifiedTierForCategory, type RaceTier } from "~/features/booking/service/race-products";
 import { modalBackdropProps } from "@/lib/a11y";
 
 /**
@@ -31,9 +31,16 @@ const TIER_BADGE_CLASS: Record<string, string> = {
   Starter: "bg-[#00E2E5]/15 text-[#00E2E5]",
 };
 
-/** A new racer is always Starter; returning racers derive tier from memberships. */
+/**
+ * A new racer is always Starter; returning racers derive tier from memberships
+ * scoped to THEIR OWN category (the racers passed in are already the product's
+ * category). Category-aware on purpose: "Qualified Junior Pro" must NOT read
+ * as adult Pro here — the badge and the qualification gate stay consistent.
+ */
 function racerTierOf(r: PartyMember): "Starter" | "Intermediate" | "Pro" {
-  return r.isNewRacer ? "Starter" : tierFromMemberships(r.memberships ?? []);
+  if (r.isNewRacer) return "Starter";
+  const tier = qualifiedTierForCategory(r.memberships ?? [], r.category ?? "adult");
+  return tier === "pro" ? "Pro" : tier === "intermediate" ? "Intermediate" : "Starter";
 }
 
 interface Props {

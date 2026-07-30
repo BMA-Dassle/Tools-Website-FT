@@ -12,6 +12,13 @@ function tierLevel(tier: string): number {
   return 0;
 }
 
+/** Qualification scoped to the racer's own category (the racers passed in are
+ *  already filtered to the product's category) — "Qualified Junior Pro" must
+ *  not read as adult Pro (2026-07-30 incident; see getRacerTier). */
+function racerTier(r: PersonData): "Starter" | "Intermediate" | "Pro" {
+  return getRacerTier(r.memberships || [], r.category ?? "adult");
+}
+
 interface Props {
   racers: PersonData[];
   /** The tier of the selected product */
@@ -33,7 +40,7 @@ export default function RacerSelector({
   const [selected, setSelected] = useState<Set<string>>(() => {
     const eligible = new Set<string>();
     for (const r of racers) {
-      const tier = getRacerTier(r.memberships || []);
+      const tier = racerTier(r);
       const qualified = tierLevel(tier) >= tierLevel(raceTier);
       const alreadyBooked = alreadyBookedPersonIds.includes(r.personId);
       if (qualified && !alreadyBooked) eligible.add(r.personId);
@@ -53,7 +60,7 @@ export default function RacerSelector({
   function selectAll() {
     const eligible = new Set<string>();
     for (const r of racers) {
-      const tier = getRacerTier(r.memberships || []);
+      const tier = racerTier(r);
       if (tierLevel(tier) >= tierLevel(raceTier) && !alreadyBookedPersonIds.includes(r.personId)) {
         eligible.add(r.personId);
       }
@@ -63,7 +70,7 @@ export default function RacerSelector({
 
   const selectedRacers = racers.filter((r) => selected.has(r.personId));
   const eligibleCount = racers.filter((r) => {
-    const tier = getRacerTier(r.memberships || []);
+    const tier = racerTier(r);
     return tierLevel(tier) >= tierLevel(raceTier) && !alreadyBookedPersonIds.includes(r.personId);
   }).length;
 
@@ -92,7 +99,7 @@ export default function RacerSelector({
 
         <div className="space-y-2">
           {racers.map((r) => {
-            const tier = getRacerTier(r.memberships || []);
+            const tier = racerTier(r);
             const qualified = tierLevel(tier) >= tierLevel(raceTier);
             const alreadyBooked = alreadyBookedPersonIds.includes(r.personId);
             const disabled = !qualified || alreadyBooked;
