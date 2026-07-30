@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
     // Every log line carries the full sign context — the 2026-07-18 kiosk
     // failures were undiagnosable because errors logged neither WHO was being
     // signed nor with what (owner: "maybe add logging to this?").
-    const meta = `person=${personID} signer=${sigPersonID || personID} content=${waiverContentID} loc=${locationID} sig=${sigBuffer.length}B invalidation=${invalidationDate || "default"}`;
+    const meta = `person=${personID} signer=${sigPersonID || personID} content=${waiverContentID} loc=${locationID} sig=${sigBuffer.length}B`;
 
     // Build multipart/form-data body manually
     const boundary = `----PandoraWaiver${Date.now()}`;
@@ -127,7 +127,22 @@ export async function POST(req: NextRequest) {
     // Signer defaults to the person themselves; a guardian signing a minor's
     // waiver passes their own (SHORT Pandora) id here instead.
     addField("sigPersonID", sigPersonID || personID);
-    addField("invalidationDate", invalidationDate || "");
+    // NEVER send an empty invalidationDate. Pandora answers a blank one with a
+    // bare 400 "Validation Exception" — proven by probe 2026-07-30: the identical
+    // payload failed without it and returned waiverID 56906749 with it. The
+    // browser always computes one from the template duration, so this only bites
+    // a caller that forgets (a script, a retry, a future server-side signer) and
+    // the failure gives no hint why. Fall back to a year out rather than blank.
+    const safeInvalidation =
+      typeof invalidationDate === "string" && invalidationDate.trim()
+        ? invalidationDate.trim()
+        : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    addField("invalidationDate", safeInvalidation);
+    // Appended so every sign log line carries the value actually SENT, including
+    // when it was defaulted — the old line logged "default" and hid the blank.
+    const signMeta = `${meta} invalidation=${safeInvalidation}${
+      invalidationDate ? "" : " (DEFAULTED — caller sent none)"
+    }`;
 
     // Signature file part
     parts.push(
@@ -159,7 +174,7 @@ export async function POST(req: NextRequest) {
         await new Promise((r) => setTimeout(r, 800 * (attempt - 1)));
         if (await waiverNowValid(locationID, personID)) {
           console.log(
-            `[pandora-waiver] salvaged — waiver already valid after failed attempt(s) (${meta})`,
+            `[pandora-waiver] salvaged — waiver already valid after failed attempt(s) (${signMeta})`,
           );
           return NextResponse.json({ ok: true, waiverID: null, alreadyValid: true });
         }
@@ -177,7 +192,10 @@ export async function POST(req: NextRequest) {
         });
       } catch (err) {
         lastError = { status: 502, message: "Pandora unreachable" };
-        console.error(`[pandora-waiver] sign attempt ${attempt}/3 network error (${meta}):`, err);
+        console.error(
+          `[pandora-waiver] sign attempt ${attempt}/3 network error (${signMeta}):`,
+          err,
+        );
         continue;
       }
 
@@ -189,7 +207,7 @@ export async function POST(req: NextRequest) {
       const waiverID = data?.data?.waiverID || data?.waiverID;
       if (res.ok && data?.success !== false && waiverID) {
         console.log(
-          `[pandora-waiver] signed waiver for person ${personID}: waiverID=${waiverID} (attempt ${attempt}/3, ${meta})`,
+          `[pandora-waiver] signed waiver for person ${personID}: waiverID=${waiverID} (attempt ${attempt}/3, ${signMeta})`,
         );
         return NextResponse.json({ ok: true, waiverID });
       }
@@ -199,7 +217,7 @@ export async function POST(req: NextRequest) {
         message: data?.message || data?.data?.message || "Waiver signing failed",
       };
       console.error(
-        `[pandora-waiver] sign attempt ${attempt}/3 failed status=${res.status} success=${data?.success} id=${waiverID ?? "none"} (${meta}):`,
+        `[pandora-waiver] sign attempt ${attempt}/3 failed status=${res.status} success=${data?.success} id=${waiverID ?? "none"} (${signMeta}):`,
         JSON.stringify(data).substring(0, 300),
       );
 
@@ -209,7 +227,7 @@ export async function POST(req: NextRequest) {
 
     // Final salvage: did one of the "failed" attempts actually write?
     if (await waiverNowValid(locationID, personID)) {
-      console.log(`[pandora-waiver] salvaged after final attempt — waiver is valid (${meta})`);
+      console.log(`[pandora-waiver] salvaged after final attempt — waiver is valid (${signMeta})`);
       return NextResponse.json({ ok: true, waiverID: null, alreadyValid: true });
     }
 
