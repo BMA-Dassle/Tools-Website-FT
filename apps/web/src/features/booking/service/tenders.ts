@@ -6,7 +6,8 @@
  *   - gift cards FIRST (each drained to min(balance, remaining)), cards after;
  *   - guest-entered card amounts; only the LAST card may omit its amount
  *     (= auto-fill the remainder);
- *   - caps: SQUARE_MAX_TENDERS_PER_ORDER total, 5 gift cards, 4 cards.
+ *   - caps: MAX_TOTAL_TENDERS total (5 — the kiosk hold is ~5 min), 3 gift
+ *     cards, 3 cards; SQUARE_MAX_TENDERS_PER_ORDER is the hard Square bound.
  *
  * Square rule the whole model exists to satisfy: an order cannot be partially
  * paid — every tender is authorized `autocomplete:false` and the full set is
@@ -23,13 +24,21 @@ import { z } from "zod";
 /**
  * Square's per-order payment cap for PayOrder. PROBE-GATED: believed 10 from
  * Square's docs; `scripts/probe-payorder-cap.mts` confirms the real value
- * before any flag flips (tasks/split-tender-probes.md #3). Lower it here if
- * the probe says otherwise — every guard reads this constant.
+ * before any flag flips (tasks/split-tender-probes.md #3). This is the HARD
+ * bound; the product caps below are the ones guests actually hit.
  */
 export const SQUARE_MAX_TENDERS_PER_ORDER = 10;
-/** Product caps (UX sanity, always ≤ the Square cap). */
-export const MAX_GIFT_CARD_TENDERS = 5;
-export const MAX_CARD_TENDERS = 4;
+/**
+ * Product caps (owner 2026-07-29): the kiosk reservation hold runs ~5 minutes,
+ * and each tender costs real wall-clock — a gift card scan+apply ≈15-20s, a
+ * card tap with payer handoff ≈40-60s. 3 GC + 3 cards ≈4½ min is the outer
+ * edge; anything more can't finish inside the hold. 5 total keeps every
+ * realistic split (family eGifts + two/three families' cards) with room for
+ * one retry.
+ */
+export const MAX_TOTAL_TENDERS = 5;
+export const MAX_GIFT_CARD_TENDERS = 3;
+export const MAX_CARD_TENDERS = 3;
 
 // ── Request schema (used by routes in PR-4; defined here so the contract is
 //    one artifact) ─────────────────────────────────────────────────────────
@@ -67,7 +76,7 @@ export type TenderInput = z.infer<typeof TenderSchema>;
 export const TendersRequestSchema = z
   .array(TenderSchema)
   .min(1)
-  .max(SQUARE_MAX_TENDERS_PER_ORDER)
+  .max(MAX_TOTAL_TENDERS)
   .superRefine((tenders, ctx) => {
     const gcs = tenders.filter((t) => t.kind === "gift_card");
     const cards = tenders.filter((t) => t.kind === "card");
@@ -158,10 +167,10 @@ export function planTenderAmounts(
   if (tenderCount < 1) {
     throw new TenderPlanError("NO_TENDER", "No payment method provided");
   }
-  if (tenderCount > SQUARE_MAX_TENDERS_PER_ORDER) {
+  if (tenderCount > MAX_TOTAL_TENDERS) {
     throw new TenderPlanError(
       "TOO_MANY_TENDERS",
-      `At most ${SQUARE_MAX_TENDERS_PER_ORDER} payments per order`,
+      `At most ${MAX_TOTAL_TENDERS} payments per checkout`,
     );
   }
 

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   MAX_CARD_TENDERS,
   MAX_GIFT_CARD_TENDERS,
-  SQUARE_MAX_TENDERS_PER_ORDER,
+  MAX_TOTAL_TENDERS,
   TenderPlanError,
   TendersRequestSchema,
   cancelKey,
@@ -40,10 +40,10 @@ describe("TendersRequestSchema", () => {
 
   it("rejects an empty list and over-cap lists", () => {
     expect(TendersRequestSchema.safeParse([]).success).toBe(false);
-    const eleven = Array.from({ length: SQUARE_MAX_TENDERS_PER_ORDER + 1 }, (_, i) =>
-      i < 5 ? gc(`n${i}`) : card(`cnon:${i}`, 100),
+    const overTotal = Array.from({ length: MAX_TOTAL_TENDERS + 1 }, (_, i) =>
+      i < 3 ? gc(`n${i}`) : card(`cnon:${i}`, 100),
     );
-    expect(TendersRequestSchema.safeParse(eleven).success).toBe(false);
+    expect(TendersRequestSchema.safeParse(overTotal).success).toBe(false);
     const sixGcs = Array.from({ length: MAX_GIFT_CARD_TENDERS + 1 }, (_, i) => gc(`n${i}`));
     expect(TendersRequestSchema.safeParse(sixGcs).success).toBe(false);
     const fiveCards = Array.from({ length: MAX_CARD_TENDERS + 1 }, (_, i) =>
@@ -171,8 +171,8 @@ describe("planTenderAmounts", () => {
       codeOf(() =>
         planTenderAmounts(
           10_000,
-          Array.from({ length: 6 }, () => 100),
-          Array.from({ length: 5 }, () => 100),
+          Array.from({ length: 3 }, () => 100),
+          Array.from({ length: 3 }, () => 100),
         ),
       ),
     ).toBe("TOO_MANY_TENDERS");
