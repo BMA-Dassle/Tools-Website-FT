@@ -26,18 +26,18 @@
  * network dependency, no skipped sends, and `projectReference` — which is NOT a
  * `/waiver` pid — is out of the waiver path entirely.
  *
- * ── admin vs register: which link goes where ─────────────────────────────────
+ * ── organizer vs register: which link goes where ──────────────────────────────
  * Owner rule (2026-07-30): "for the main person who gets the waiver email, they
  * should be able to remove people. Others with share link should not."
  *
- *   ADMIN    -> mail and SMS addressed TO THE BOOKER (`quote.guest_email`), and
- *               the booker's own contract page. Roster + remove.
- *   REGISTER -> anything FORWARDABLE: the contract page's Copy/Text buttons, the
- *               waiver page's own Share sheet. Sign only.
+ *   ORGANIZER -> mail and SMS addressed TO THE BOOKER (`quote.guest_email`), and
+ *                the booker's own contract page. Roster + remove.
+ *   REGISTER  -> anything FORWARDABLE: the contract page's Copy/Text buttons, the
+ *                waiver page's own Share sheet. Sign only.
  *
  * Consequence for COPY, and it is load-bearing rather than cosmetic: the old
  * emails said "please forward this link to everyone in your group". Forwarding an
- * ADMIN link hands every guest the ability to delete people from the booking, so
+ * ORGANIZER link hands every guest the ability to delete people from the booking, so
  * that copy had to change with the link. Organizer emails now say the link is
  * theirs and point them at the in-page Share button, which hands out a REGISTER
  * code. A capability is only as narrow as the instructions shipped next to it.
@@ -169,10 +169,11 @@ export async function waiverUrlForQuote(
  * hold only a centerCode + projectId (the dispatch cron works off BMI items, not
  * quotes).
  *
- * Named `organizerUrl` rather than `adminUrl` because that is the word the owner
- * uses and the word the emails already print. The stored capability value is still
- * `admin`; this is the label layer, and the two should not be confused — one is a
- * database enum, the other is what a human reads.
+ * Returns `organizerUrl` / `signUrl` — the words the owner uses and the emails
+ * print. Those now match the stored capability values (`organizer` / `register`)
+ * rather than shadowing an `admin` enum with an "Organizer" label, which is exactly
+ * how a future caller puts the wrong link in the wrong slot: someone grepping for
+ * "organizer" has to find the mint call.
  *
  * Unmemoized: it has no stable quote id to key on, and minting is idempotent, so a
  * repeat call returns the same code from Neon.
@@ -192,7 +193,7 @@ export async function waiverLinksForReservation(params: {
       capability,
       origin: params.origin,
     });
-  const [organizer, sign] = await Promise.all([mint("admin"), mint("register")]);
+  const [organizer, sign] = await Promise.all([mint("organizer"), mint("register")]);
   return { organizerUrl: organizer.url, signUrl: sign.url };
 }
 

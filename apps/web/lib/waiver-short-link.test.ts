@@ -15,7 +15,7 @@
  *   a code we never wrote -> a `/w/{code}` in delivered mail that Neon has no row
  *                            for: permanently dead, and nobody can report it
  *   id through Number()   -> a 17-digit BMI projectId silently becomes its
- *                            neighbour, and the "admin" code manages the wrong
+ *                            neighbour, and the "organizer" code manages the wrong
  *                            booking
  *   mint throws in a send -> the guest gets no email at all because of a link
  *
@@ -55,7 +55,7 @@ const neon = {
    * i.e. an UPSERT whose ON CONFLICT no longer discriminates on capability, so it
    * RETURNs the reservation's OTHER row. A schema drift, a hand-built index or a
    * future migration can all produce it, and the consequence is that asking for a
-   * `register` code hands back the ADMIN one.
+   * `register` code hands back the ORGANIZER one.
    */
   upsertIgnoresCapability: false,
   /**
@@ -223,7 +223,7 @@ import {
   recordWaiverLinkHit,
   resolveWaiverLink,
   resolveWaiverLinkTarget,
-  waiverLinkGrantsAdminFor,
+  waiverLinkGrantsOrganizerFor,
   waiverShortPath,
 } from "./waiver-short-link";
 
@@ -254,8 +254,8 @@ beforeEach(() => {
 
 describe("mintWaiverLink — idempotency", () => {
   it("returns the SAME code and URL every time for one (reservation, capability)", async () => {
-    const first = await mintWaiverLink({ ...FM, capability: "admin" });
-    const second = await mintWaiverLink({ ...FM, capability: "admin" });
+    const first = await mintWaiverLink({ ...FM, capability: "organizer" });
+    const second = await mintWaiverLink({ ...FM, capability: "organizer" });
     expect(second.code).toBe(first.code);
     expect(second.url).toBe(first.url);
     expect(neon.rows.size).toBe(1);
@@ -270,7 +270,7 @@ describe("mintWaiverLink — idempotency", () => {
   });
 
   it("upserts on the real idempotency key", async () => {
-    await mintWaiverLink({ ...FM, capability: "admin" });
+    await mintWaiverLink({ ...FM, capability: "organizer" });
     const ddl = statements(/^CREATE UNIQUE INDEX/i)[0];
     expect(ddl?.text).toContain("waiver_link_codes (location_id, project_id, capability)");
     const insert = statements(/^INSERT INTO waiver_link_codes/i)[0];
@@ -282,18 +282,18 @@ describe("mintWaiverLink — idempotency", () => {
     const blind = await mintWaiverLink({
       center: null,
       reservation: FM.reservation,
-      capability: "admin",
+      capability: "organizer",
       origin: ORIGIN,
     });
     expect(blind.center).toBeNull();
-    const repaired = await mintWaiverLink({ ...FM, capability: "admin" });
+    const repaired = await mintWaiverLink({ ...FM, capability: "organizer" });
     expect(repaired.code).toBe(blind.code);
     expect(repaired.center).toBe("fort-myers");
     // A later caller that does not know the center must not undo the repair.
     const third = await mintWaiverLink({
       center: null,
       reservation: FM.reservation,
-      capability: "admin",
+      capability: "organizer",
       origin: ORIGIN,
     });
     expect(third.center).toBe("fort-myers");
@@ -302,7 +302,7 @@ describe("mintWaiverLink — idempotency", () => {
 
 describe("mintWaiverLink — capabilities are separate codes", () => {
   it("admin and register for the SAME reservation are DIFFERENT codes", async () => {
-    const admin = await mintWaiverLink({ ...FM, capability: "admin" });
+    const admin = await mintWaiverLink({ ...FM, capability: "organizer" });
     const register = await mintWaiverLink({ ...FM, capability: "register" });
     expect(admin.code).not.toBe(register.code);
     expect(admin.url).not.toBe(register.url);
@@ -310,11 +310,11 @@ describe("mintWaiverLink — capabilities are separate codes", () => {
   });
 
   it("different reservations never share a code", async () => {
-    const a = await mintWaiverLink({ ...FM, capability: "admin" });
+    const a = await mintWaiverLink({ ...FM, capability: "organizer" });
     const b = await mintWaiverLink({
       center: "naples",
       reservation: { locationId: 332145, projectId: BIG_PID },
-      capability: "admin",
+      capability: "organizer",
       origin: ORIGIN,
     });
     expect(a.code).not.toBe(b.code);
@@ -359,10 +359,10 @@ describe("mintWaiverLink — the URL that goes in the email", () => {
   });
 
   it("carries NO capability in the target the guest's address bar ends up showing", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     expect(link.target).toBe(buildWaiverUrl({ center: "fort-myers", reservation: FM.reservation }));
     expect(link.target).not.toContain(link.code);
-    expect(link.target).not.toMatch(/admin|cap|capab/i);
+    expect(link.target).not.toMatch(/organizer|cap|capab/i);
     // Relative, so the redirect keeps the guest on whichever brand host they opened.
     expect(link.target.startsWith("/waiver")).toBe(true);
   });
@@ -394,10 +394,10 @@ describe("codes are bearer tokens", () => {
   it("are STORED random, not DERIVED from the reservation", async () => {
     // A derived (HMAC) code is unguessable only while the secret is; for a
     // capability that can delete guests, the code must not be computable at all.
-    const first = await mintWaiverLink({ ...FM, capability: "admin" });
+    const first = await mintWaiverLink({ ...FM, capability: "organizer" });
     neon.rows.clear();
     cache.store.clear();
-    const rebuilt = await mintWaiverLink({ ...FM, capability: "admin" });
+    const rebuilt = await mintWaiverLink({ ...FM, capability: "organizer" });
     expect(rebuilt.code).not.toBe(first.code);
   });
 
@@ -409,12 +409,12 @@ describe("codes are bearer tokens", () => {
 
 describe("resolveWaiverLink", () => {
   it("returns the right capability, reservation and target", async () => {
-    const admin = await mintWaiverLink({ ...FM, capability: "admin" });
+    const admin = await mintWaiverLink({ ...FM, capability: "organizer" });
     const register = await mintWaiverLink({ ...FM, capability: "register" });
 
     const a = await resolveWaiverLink(admin.code);
     expect(a).not.toBeNull();
-    expect(a!.capability).toBe("admin");
+    expect(a!.capability).toBe("organizer");
     expect(a!.center).toBe("fort-myers");
     expect(a!.reservation).toEqual({ locationId: "467486", projectId: "51383608" });
     expect(a!.target).toBe("/waiver?c=fort-myers&loc=467486&pid=51383608");
@@ -425,7 +425,7 @@ describe("resolveWaiverLink", () => {
   });
 
   it("returns null for an unknown code", async () => {
-    await mintWaiverLink({ ...FM, capability: "admin" });
+    await mintWaiverLink({ ...FM, capability: "organizer" });
     expect(await resolveWaiverLink("aaaaaaaaaaaaaaaa")).toBeNull();
   });
 
@@ -438,11 +438,11 @@ describe("resolveWaiverLink", () => {
   });
 
   it("still resolves when REDIS IS DOWN — Neon is the source of truth", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     cache.fail = true;
     cache.store.clear();
     const resolved = await resolveWaiverLink(link.code);
-    expect(resolved?.capability).toBe("admin");
+    expect(resolved?.capability).toBe("organizer");
     expect(resolved?.reservation.projectId).toBe("51383608");
     expect(statements(/^SELECT/i)).toHaveLength(1);
   });
@@ -460,31 +460,31 @@ describe("resolveWaiverLink", () => {
     // The redirect may be cached; the capability may not. Previously a warm cache
     // answered this call with zero SELECTs, which made a disposable 90-day Redis key
     // the authority on a guest-DELETE — see "a capability is only ever the row".
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     neon.calls.length = 0;
-    expect((await resolveWaiverLink(link.code))?.capability).toBe("admin");
+    expect((await resolveWaiverLink(link.code))?.capability).toBe("organizer");
     expect(statements(/^SELECT/i)).toHaveLength(1);
-    expect((await resolveWaiverLink(link.code))?.capability).toBe("admin");
+    expect((await resolveWaiverLink(link.code))?.capability).toBe("organizer");
     expect(statements(/^SELECT/i)).toHaveLength(2);
   });
 
   it("treats an unreadable / stale-shaped cache entry as a miss, not as truth", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     for (const junk of [
       "not json",
       JSON.stringify({ v: 99, c: "fort-myers", loc: "467486", pid: "51383608" }),
       // A v1 entry, the shape that used to carry `cap`. Still in Redis for up to 90
       // days after this deploy and must be discarded, never half-read.
-      JSON.stringify({ v: 1, cap: "admin", c: "fort-myers", loc: "467486", pid: "51383608" }),
+      JSON.stringify({ v: 1, cap: "organizer", c: "fort-myers", loc: "467486", pid: "51383608" }),
     ]) {
       cache.store.set(`wvlink:${link.code}`, junk);
       expect((await resolveWaiverLinkTarget(link.code))?.target).toBe(link.target);
-      expect((await resolveWaiverLink(link.code))?.capability).toBe("admin");
+      expect((await resolveWaiverLink(link.code))?.capability).toBe("organizer");
     }
   });
 
   it("grants NOTHING when Neon cannot be read", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     cache.store.clear();
     neon.fail = true;
     expect(await resolveWaiverLink(link.code)).toBeNull();
@@ -499,7 +499,7 @@ describe("17-digit BMI ids", () => {
   };
 
   it("survive minting as an exact string", async () => {
-    const link = await mintWaiverLink({ ...big, capability: "admin" });
+    const link = await mintWaiverLink({ ...big, capability: "organizer" });
     const insert = statements(/^INSERT INTO waiver_link_codes/i)[0]!;
     const stored = insert.values[4];
     expect(typeof stored).toBe("string");
@@ -518,7 +518,7 @@ describe("17-digit BMI ids", () => {
   });
 
   it("never appear anywhere as a rounded float", async () => {
-    await mintWaiverLink({ ...big, capability: "admin" });
+    await mintWaiverLink({ ...big, capability: "organizer" });
     const serialized = JSON.stringify(neon.calls);
     expect(serialized).toContain(BIG_PID);
     expect(serialized).not.toMatch(/e\+/);
@@ -532,14 +532,14 @@ describe("reservation scope is mandatory", () => {
       mintWaiverLink({
         center: "naples",
         reservation: { locationId: "", projectId: "" },
-        capability: "admin",
+        capability: "organizer",
       }),
     ).rejects.toThrow(/both required/i);
     await expect(
       mintWaiverLink({
         center: "naples",
         reservation: { locationId: 332145, projectId: "" },
-        capability: "admin",
+        capability: "organizer",
       }),
     ).rejects.toThrow(/both required/i);
     await expect(
@@ -554,10 +554,12 @@ describe("reservation scope is mandatory", () => {
 
   it("throws rather than mint a code it cannot make durable", async () => {
     neon.configured = false;
-    await expect(mintWaiverLink({ ...FM, capability: "admin" })).rejects.toThrow(/DATABASE_URL/);
+    await expect(mintWaiverLink({ ...FM, capability: "organizer" })).rejects.toThrow(
+      /DATABASE_URL/,
+    );
     neon.configured = true;
     neon.fail = true;
-    await expect(mintWaiverLink({ ...FM, capability: "admin" })).rejects.toThrow(/neon/i);
+    await expect(mintWaiverLink({ ...FM, capability: "organizer" })).rejects.toThrow(/neon/i);
   });
 });
 
@@ -566,7 +568,7 @@ describe("a center is never guessed", () => {
     const naples = await mintWaiverLink({
       center: "naples",
       reservation: { locationId: 332145, projectId: "77001" },
-      capability: "admin",
+      capability: "organizer",
       origin: ORIGIN,
     });
     expect(naples.target).toContain("c=naples");
@@ -589,7 +591,7 @@ describe("a center is never guessed", () => {
 
 describe("mintWaiverLinkOrLongUrl — a send never dies for a link", () => {
   it("upgrades to the short link when minting works", async () => {
-    const sent = await mintWaiverLinkOrLongUrl({ ...FM, capability: "admin" });
+    const sent = await mintWaiverLinkOrLongUrl({ ...FM, capability: "organizer" });
     expect(sent.short).toBe(true);
     expect(sent.code).not.toBeNull();
     expect(sent.url).toBe(`${ORIGIN}/w/${sent.code}`);
@@ -597,7 +599,7 @@ describe("mintWaiverLinkOrLongUrl — a send never dies for a link", () => {
 
   it("degrades to the long sign-only URL when Neon is down", async () => {
     neon.fail = true;
-    const sent = await mintWaiverLinkOrLongUrl({ ...FM, capability: "admin" });
+    const sent = await mintWaiverLinkOrLongUrl({ ...FM, capability: "organizer" });
     expect(sent.short).toBe(false);
     expect(sent.code).toBeNull();
     // A usable, correct, absolute link — just without the remove button.
@@ -610,14 +612,14 @@ describe("mintWaiverLinkOrLongUrl — a send never dies for a link", () => {
     expect(sent.url).toBe(`${ORIGIN}/waiver?c=fort-myers&loc=467486&pid=51383608`);
     // Degrading must never hand out a capability we have no durable record of.
     expect(sent.url).not.toContain("/w/");
-    expect(sent.url).not.toMatch(/admin|cap=/i);
+    expect(sent.url).not.toMatch(/organizer|cap=/i);
   });
 
   it("degrades rather than throwing on a half-set reservation", async () => {
     const sent = await mintWaiverLinkOrLongUrl({
       center: "naples",
       reservation: { locationId: 332145, projectId: "" },
-      capability: "admin",
+      capability: "organizer",
       origin: ORIGIN,
     });
     expect(sent.short).toBe(false);
@@ -632,37 +634,37 @@ describe("mintWaiverLinkOrLongUrl — a send never dies for a link", () => {
   });
 });
 
-describe("waiverLinkGrantsAdminFor — the authorization check", () => {
-  it("grants only the admin code, only for its own reservation", async () => {
-    const admin = await mintWaiverLink({ ...FM, capability: "admin" });
+describe("waiverLinkGrantsOrganizerFor — the authorization check", () => {
+  it("grants only the organizer code, only for its own reservation", async () => {
+    const admin = await mintWaiverLink({ ...FM, capability: "organizer" });
     const register = await mintWaiverLink({ ...FM, capability: "register" });
-    expect(await waiverLinkGrantsAdminFor(admin.code, "51383608")).toBe(true);
+    expect(await waiverLinkGrantsOrganizerFor(admin.code, "51383608")).toBe(true);
     // The whole reason the capability is not a query param.
-    expect(await waiverLinkGrantsAdminFor(register.code, "51383608")).toBe(false);
-    expect(await waiverLinkGrantsAdminFor(admin.code, "99999999")).toBe(false);
+    expect(await waiverLinkGrantsOrganizerFor(register.code, "51383608")).toBe(false);
+    expect(await waiverLinkGrantsOrganizerFor(admin.code, "99999999")).toBe(false);
   });
 
   it("does not confuse two adjacent 17-digit projectIds", async () => {
     const admin = await mintWaiverLink({
       center: "naples",
       reservation: { locationId: 332160, projectId: BIG_PID },
-      capability: "admin",
+      capability: "organizer",
       origin: ORIGIN,
     });
-    expect(await waiverLinkGrantsAdminFor(admin.code, BIG_PID)).toBe(true);
-    expect(await waiverLinkGrantsAdminFor(admin.code, NEIGHBOUR_PID)).toBe(false);
+    expect(await waiverLinkGrantsOrganizerFor(admin.code, BIG_PID)).toBe(true);
+    expect(await waiverLinkGrantsOrganizerFor(admin.code, NEIGHBOUR_PID)).toBe(false);
   });
 
   it("denies on missing, malformed, unknown or unreadable input", async () => {
-    const admin = await mintWaiverLink({ ...FM, capability: "admin" });
-    expect(await waiverLinkGrantsAdminFor(null, "51383608")).toBe(false);
-    expect(await waiverLinkGrantsAdminFor(admin.code, null)).toBe(false);
-    expect(await waiverLinkGrantsAdminFor(admin.code, "")).toBe(false);
-    expect(await waiverLinkGrantsAdminFor("' OR 1=1 --", "51383608")).toBe(false);
-    expect(await waiverLinkGrantsAdminFor("aaaaaaaaaaaaaaaa", "51383608")).toBe(false);
+    const admin = await mintWaiverLink({ ...FM, capability: "organizer" });
+    expect(await waiverLinkGrantsOrganizerFor(null, "51383608")).toBe(false);
+    expect(await waiverLinkGrantsOrganizerFor(admin.code, null)).toBe(false);
+    expect(await waiverLinkGrantsOrganizerFor(admin.code, "")).toBe(false);
+    expect(await waiverLinkGrantsOrganizerFor("' OR 1=1 --", "51383608")).toBe(false);
+    expect(await waiverLinkGrantsOrganizerFor("aaaaaaaaaaaaaaaa", "51383608")).toBe(false);
     cache.store.clear();
     neon.fail = true;
-    expect(await waiverLinkGrantsAdminFor(admin.code, "51383608")).toBe(false);
+    expect(await waiverLinkGrantsOrganizerFor(admin.code, "51383608")).toBe(false);
   });
 });
 
@@ -673,7 +675,7 @@ describe("waiverLinkGrantsAdminFor — the authorization check", () => {
  * payload carried `cap`. So the authority on "may this person delete a guest from
  * someone else's booking" was a disposable, 90-day, never-invalidated key —
  *
- *   - a `wvlink:` entry saying `cap:"admin"` turned a REGISTER code into an admin
+ *   - a `wvlink:` entry saying `cap:"organizer"` turned a REGISTER code into an organizer
  *     code, in a store Neon never sees and `hits`/`last_seen_at` never records;
  *   - and it could not be REVOKED: correcting `capability` on the row changed
  *     nothing for up to 90 days, because the row was never read again.
@@ -685,9 +687,9 @@ describe("waiverLinkGrantsAdminFor — the authorization check", () => {
 describe("a capability is only ever the stored row", () => {
   /** Everything an attacker with Redis write access could put under a code's key. */
   const forgeries = (loc: string, pid: string) => [
-    { v: 1, cap: "admin", c: "fort-myers", loc, pid },
-    { v: 2, cap: "admin", c: "fort-myers", loc, pid },
-    { v: 2, capability: "admin", c: "fort-myers", loc, pid },
+    { v: 1, cap: "organizer", c: "fort-myers", loc, pid },
+    { v: 2, cap: "organizer", c: "fort-myers", loc, pid },
+    { v: 2, capability: "organizer", c: "fort-myers", loc, pid },
     { v: 2, cap: "ADMIN", admin: true, c: "fort-myers", loc, pid },
   ];
 
@@ -696,20 +698,20 @@ describe("a capability is only ever the stored row", () => {
     for (const forged of forgeries("467486", "51383608")) {
       cache.store.set(`wvlink:${reg.code}`, JSON.stringify(forged));
       expect((await resolveWaiverLink(reg.code))?.capability).toBe("register");
-      expect(await waiverLinkGrantsAdminFor(reg.code, "51383608")).toBe(false);
+      expect(await waiverLinkGrantsOrganizerFor(reg.code, "51383608")).toBe(false);
     }
   });
 
-  it("a REGISTER code never yields admin by borrowing the admin code's cache entry", async () => {
-    const admin = await mintWaiverLink({ ...FM, capability: "admin" });
+  it("a REGISTER code never yields admin by borrowing the organizer code's cache entry", async () => {
+    const admin = await mintWaiverLink({ ...FM, capability: "organizer" });
     const reg = await mintWaiverLink({ ...FM, capability: "register" });
-    // Copy the admin code's own cached payload onto the register code's key, and
-    // point it back at the admin code for good measure.
+    // Copy the organizer code's own cached payload onto the register code's key, and
+    // point it back at the organizer code for good measure.
     cache.store.set(`wvlink:${reg.code}`, cache.store.get(`wvlink:${admin.code}`)!);
     expect((await resolveWaiverLink(reg.code))?.capability).toBe("register");
-    expect(await waiverLinkGrantsAdminFor(reg.code, "51383608")).toBe(false);
-    // …and the admin code is still admin: this is a scoping fix, not a blanket deny.
-    expect(await waiverLinkGrantsAdminFor(admin.code, "51383608")).toBe(true);
+    expect(await waiverLinkGrantsOrganizerFor(reg.code, "51383608")).toBe(false);
+    // …and the organizer code is still admin: this is a scoping fix, not a blanket deny.
+    expect(await waiverLinkGrantsOrganizerFor(admin.code, "51383608")).toBe(true);
   });
 
   it("NOTHING a caller passes in can raise a register code", async () => {
@@ -717,14 +719,14 @@ describe("a capability is only ever the stored row", () => {
     const inputs = [
       reg.code,
       `${reg.code}?admin=1`,
-      `${reg.code}&cap=admin`,
-      `${reg.code}#admin`,
-      `${reg.code}/admin`,
+      `${reg.code}&cap=organizer`,
+      `${reg.code}#organizer`,
+      `${reg.code}/organizer`,
       reg.code.toUpperCase(),
       ` ${reg.code} `,
     ];
     for (const attempt of inputs) {
-      expect(await waiverLinkGrantsAdminFor(attempt, "51383608")).toBe(false);
+      expect(await waiverLinkGrantsOrganizerFor(attempt, "51383608")).toBe(false);
       const resolved = await resolveWaiverLink(attempt);
       // Either it is not a code at all, or it is the register code. Never admin.
       expect(resolved === null || resolved.capability === "register").toBe(true);
@@ -732,38 +734,38 @@ describe("a capability is only ever the stored row", () => {
   });
 
   it("REVOKES on the next request when the row changes — no stale yes anywhere", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
-    expect(await waiverLinkGrantsAdminFor(link.code, "51383608")).toBe(true);
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
+    expect(await waiverLinkGrantsOrganizerFor(link.code, "51383608")).toBe(true);
     neon.rows.get(link.code)!.capability = "register"; // ops demotes the row
-    expect(await waiverLinkGrantsAdminFor(link.code, "51383608")).toBe(false);
+    expect(await waiverLinkGrantsOrganizerFor(link.code, "51383608")).toBe(false);
     expect((await resolveWaiverLink(link.code))?.capability).toBe("register");
     // And it comes back the moment the row does — the row, nothing else, decides.
-    neon.rows.get(link.code)!.capability = "admin";
-    expect(await waiverLinkGrantsAdminFor(link.code, "51383608")).toBe(true);
+    neon.rows.get(link.code)!.capability = "organizer";
+    expect(await waiverLinkGrantsOrganizerFor(link.code, "51383608")).toBe(true);
   });
 
   it("denies rather than guessing when the row's capability is unrecognisable", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     for (const broken of ["Admin", "ADMIN", "", "owner", "admin "]) {
       neon.rows.get(link.code)!.capability = broken;
       expect(await resolveWaiverLink(link.code)).toBeNull();
-      expect(await waiverLinkGrantsAdminFor(link.code, "51383608")).toBe(false);
+      expect(await waiverLinkGrantsOrganizerFor(link.code, "51383608")).toBe(false);
     }
   });
 
   it("stores NO capability in Redis at all — there is nothing there to poison", async () => {
-    await mintWaiverLink({ ...FM, capability: "admin" });
+    await mintWaiverLink({ ...FM, capability: "organizer" });
     await mintWaiverLink({ ...FM, capability: "register" });
     expect(cache.store.size).toBe(2);
     for (const payload of cache.store.values()) {
-      expect(payload).not.toMatch(/admin|register|\bcap\b/i);
+      expect(payload).not.toMatch(/organizer|register|\bcap\b/i);
       // Only the redirect: version, center, and the two ids as strings.
       expect(Object.keys(JSON.parse(payload)).sort()).toEqual(["c", "loc", "pid", "v"]);
     }
   });
 
   it("cannot report a capability from the cache-first resolver — there is no field", async () => {
-    const admin = await mintWaiverLink({ ...FM, capability: "admin" });
+    const admin = await mintWaiverLink({ ...FM, capability: "organizer" });
     const target = await resolveWaiverLinkTarget(admin.code);
     expect(target).not.toBeNull();
     expect(Object.keys(target!).sort()).toEqual(["center", "code", "reservation", "target"]);
@@ -775,7 +777,7 @@ describe("a capability is only ever the stored row", () => {
   });
 
   it("scopes admin to the ROW's reservation, not to a poisoned target", async () => {
-    const admin = await mintWaiverLink({ ...FM, capability: "admin" });
+    const admin = await mintWaiverLink({ ...FM, capability: "organizer" });
     // Redirect the code at a different reservation via the cache…
     cache.store.set(
       `wvlink:${admin.code}`,
@@ -783,16 +785,16 @@ describe("a capability is only ever the stored row", () => {
     );
     expect((await resolveWaiverLinkTarget(admin.code))?.reservation.projectId).toBe(NEIGHBOUR_PID);
     // …and it authorizes nothing there: the check compares the ROW's projectId.
-    expect(await waiverLinkGrantsAdminFor(admin.code, NEIGHBOUR_PID)).toBe(false);
-    expect(await waiverLinkGrantsAdminFor(admin.code, "51383608")).toBe(true);
+    expect(await waiverLinkGrantsOrganizerFor(admin.code, NEIGHBOUR_PID)).toBe(false);
+    expect(await waiverLinkGrantsOrganizerFor(admin.code, "51383608")).toBe(true);
   });
 
   it("refuses to hand out a capability the mint did not ask for", async () => {
     // Guards the UPSERT: if `waiver_link_codes_idem` were ever narrowed to
     // (location_id, project_id), ON CONFLICT would start RETURNing the reservation's
-    // OTHER row and a `register` request would be answered with the ADMIN code — by
+    // OTHER row and a `register` request would be answered with the ORGANIZER code — by
     // email, to whoever the booker forwards it to.
-    const admin = await mintWaiverLink({ ...FM, capability: "admin" });
+    const admin = await mintWaiverLink({ ...FM, capability: "organizer" });
     neon.upsertIgnoresCapability = true;
 
     await expect(mintWaiverLink({ ...FM, capability: "register" })).rejects.toThrow(
@@ -807,16 +809,16 @@ describe("a capability is only ever the stored row", () => {
   });
 
   it("tells a sender which capability it actually got", async () => {
-    // Until this field existed, the admin link and the forwardable register link were
+    // Until this field existed, the organizer link and the forwardable register link were
     // indistinguishable at the call site — one mix-up hands every guest the remove
     // button. It reports the ROW's value, never the requested one.
-    const admin = await mintWaiverLinkOrLongUrl({ ...FM, capability: "admin" });
-    expect(admin.capability).toBe("admin");
+    const admin = await mintWaiverLinkOrLongUrl({ ...FM, capability: "organizer" });
+    expect(admin.capability).toBe("organizer");
     const share = await mintWaiverLinkOrLongUrl({ ...FM, capability: "register" });
     expect(share.capability).toBe("register");
     expect(share.url).not.toBe(admin.url);
     neon.fail = true;
-    const degraded = await mintWaiverLinkOrLongUrl({ ...FM, capability: "admin" });
+    const degraded = await mintWaiverLinkOrLongUrl({ ...FM, capability: "organizer" });
     expect(degraded.capability).toBeNull(); // no code minted = no capability granted
   });
 });
@@ -830,12 +832,12 @@ describe("a code is a bearer token in the LOGS too", () => {
     console.error = spy;
     console.warn = spy;
     try {
-      const link = await mintWaiverLink({ ...FM, capability: "admin" });
+      const link = await mintWaiverLink({ ...FM, capability: "organizer" });
       cache.store.clear();
       neon.fail = true;
       await resolveWaiverLink(link.code); // resolve failure
       await recordWaiverLinkHit(link.code); // hit-write failure
-      await mintWaiverLinkOrLongUrl({ ...FM, capability: "admin" }); // mint failure
+      await mintWaiverLinkOrLongUrl({ ...FM, capability: "organizer" }); // mint failure
       neon.fail = false;
       neon.configured = false;
       await resolveWaiverLink(link.code); // unconfigured warn
@@ -881,7 +883,7 @@ describe("recordWaiverLinkHit", () => {
  */
 describe("durability — Neon is the truth on the way OUT, not just the way in", () => {
   it("resolves from NEON after the cache is gone, then rehydrates it", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     cache.store.clear(); // eviction / TTL expiry, five months before the event
     neon.calls.length = 0;
 
@@ -895,13 +897,13 @@ describe("durability — Neon is the truth on the way OUT, not just the way in",
   });
 
   it("resolves with the cache gone AND every DDL statement failing", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     cache.store.clear();
     _resetWaiverLinkSchemaCache(); // a cold lambda: nothing latched
     neon.failDdl = true; // e.g. the role lost CREATE, or a lock
     neon.calls.length = 0;
 
-    expect((await resolveWaiverLink(link.code))?.capability).toBe("admin");
+    expect((await resolveWaiverLink(link.code))?.capability).toBe("organizer");
     expect((await resolveWaiverLinkTarget(link.code))?.target).toBe(link.target);
     await expect(recordWaiverLinkHit(link.code)).resolves.toBeUndefined();
     expect(neon.rows.get(link.code)!.hits).toBe(1);
@@ -925,7 +927,7 @@ describe("durability — Neon is the truth on the way OUT, not just the way in",
   });
 
   it("separates 'no such code' from 'could not read' — a MISS is the only dead link", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     cache.store.clear();
 
     // Neon MISS — a verdict. This is the one and only dead link. No `reason`, because
@@ -947,7 +949,7 @@ describe("durability — Neon is the truth on the way OUT, not just the way in",
     });
     expect((await lookupWaiverLinkTarget(link.code)).status).toBe("unavailable");
     // …while authorization still says no, because it was never verified.
-    expect(await waiverLinkGrantsAdminFor(link.code, "51383608")).toBe(false);
+    expect(await waiverLinkGrantsOrganizerFor(link.code, "51383608")).toBe(false);
 
     // A warm cache still serves the REDIRECT while the truth is unreadable.
     neon.fail = false;
@@ -957,7 +959,7 @@ describe("durability — Neon is the truth on the way OUT, not just the way in",
   });
 
   it("treats a missing DATABASE_URL as unavailable, never as an unknown code", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     cache.store.clear();
     neon.configured = false;
     expect((await lookupWaiverLink(link.code)).status).toBe("unavailable");
@@ -967,7 +969,7 @@ describe("durability — Neon is the truth on the way OUT, not just the way in",
 
 describe("the idempotency key cannot lose a race with its own DDL", () => {
   it("declares UNIQUE (location_id, project_id, capability) in the CREATE TABLE itself", async () => {
-    await mintWaiverLink({ ...FM, capability: "admin" });
+    await mintWaiverLink({ ...FM, capability: "organizer" });
     // One statement, one catalog write: there is no window where the table exists and
     // the constraint the UPSERT infers does not.
     expect(statements(/^CREATE TABLE/i)[0]!.text).toMatch(
@@ -977,7 +979,7 @@ describe("the idempotency key cannot lose a race with its own DDL", () => {
 
   it("writes only AFTER the schema exists, never before", async () => {
     neon.missingTable = true; // a real 42P01 until a CREATE runs
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     expect(link.code).toMatch(WAIVER_LINK_CODE_RE);
     const firstInsert = neon.calls.findIndex((c) => /^INSERT/i.test(c.text));
     const lastDdl = neon.calls.reduce((at, c, i) => (/^CREATE/i.test(c.text) ? i : at), -1);
@@ -989,7 +991,7 @@ describe("the idempotency key cannot lose a race with its own DDL", () => {
     // A boolean latch lets both callers issue DDL, and concurrent CREATE … IF NOT
     // EXISTS is exactly the catalog race in the next test.
     await Promise.all([
-      mintWaiverLink({ ...FM, capability: "admin" }),
+      mintWaiverLink({ ...FM, capability: "organizer" }),
       mintWaiverLink({ ...FM, capability: "register" }),
     ]);
     expect(statements(/^CREATE TABLE/i)).toHaveLength(1);
@@ -999,7 +1001,7 @@ describe("the idempotency key cannot lose a race with its own DDL", () => {
   it("survives LOSING the catalog race to another lambda", async () => {
     neon.failDdl = true;
     neon.ddlError = pgError('relation "waiver_link_codes_idem" already exists', "42P07");
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     // The object exists either way — that a peer created it first is not a failure.
     expect(link.code).toMatch(WAIVER_LINK_CODE_RE);
   });
@@ -1007,18 +1009,18 @@ describe("the idempotency key cannot lose a race with its own DDL", () => {
   it("re-bootstraps and retries rather than minting a SECOND code", async () => {
     // An instance that latched a bootstrap from an older deploy, or a table predating
     // the inline UNIQUE: the write fails "schema not ready", not "conflict".
-    const first = await mintWaiverLink({ ...FM, capability: "admin" });
+    const first = await mintWaiverLink({ ...FM, capability: "organizer" });
     neon.missingTable = true;
     neon.calls.length = 0;
 
-    const again = await mintWaiverLink({ ...FM, capability: "admin" });
+    const again = await mintWaiverLink({ ...FM, capability: "organizer" });
     expect(again.code).toBe(first.code); // still ONE code per reservation
     expect(statements(/^CREATE TABLE/i)).toHaveLength(1);
     expect(statements(/^INSERT/i)).toHaveLength(2); // failed write -> bootstrap -> retry
   });
 
   it("does not re-bootstrap on a plain outage — only on a missing schema", async () => {
-    await mintWaiverLink({ ...FM, capability: "admin" });
+    await mintWaiverLink({ ...FM, capability: "organizer" });
     neon.fail = true;
     neon.calls.length = 0;
     await expect(mintWaiverLink({ ...FM, capability: "register" })).rejects.toThrow(/neon/i);
@@ -1030,7 +1032,7 @@ describe("the idempotency key cannot lose a race with its own DDL", () => {
 describe("a code is handed out ONLY when Neon stored it", () => {
   it("hands out nothing when the write cannot be confirmed", async () => {
     neon.fail = true;
-    const sent = await mintWaiverLinkOrLongUrl({ ...FM, capability: "admin" });
+    const sent = await mintWaiverLinkOrLongUrl({ ...FM, capability: "organizer" });
     expect(sent.code).toBeNull();
     expect(sent.short).toBe(false);
     expect(sent.url).not.toContain("/w/");
@@ -1043,11 +1045,11 @@ describe("a code is handed out ONLY when Neon stored it", () => {
     // A link that 404s in November is worse than no link in July: the guest cannot
     // even report it, because it looks like ours.
     neon.mangleCode = true;
-    const err = await mintWaiverLink({ ...FM, capability: "admin" }).catch((e: unknown) => e);
+    const err = await mintWaiverLink({ ...FM, capability: "organizer" }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(WaiverLinkMintError);
     expect((err as WaiverLinkMintError).failure).toBe("unusable-row");
 
-    const sent = await mintWaiverLinkOrLongUrl({ ...FM, capability: "admin" });
+    const sent = await mintWaiverLinkOrLongUrl({ ...FM, capability: "organizer" });
     expect(sent.code).toBeNull();
     expect(sent.url).not.toContain("/w/");
     expect(sent.failure).toBe("unusable-row");
@@ -1058,8 +1060,8 @@ describe("a code is handed out ONLY when Neon stored it", () => {
   });
 
   it("emits the code the ROW holds, never the candidate it generated", async () => {
-    const first = await mintWaiverLink({ ...FM, capability: "admin" });
-    const second = await mintWaiverLink({ ...FM, capability: "admin" });
+    const first = await mintWaiverLink({ ...FM, capability: "organizer" });
+    const second = await mintWaiverLink({ ...FM, capability: "organizer" });
     const candidates = statements(/^INSERT/i).map((c) => c.values[0]);
     // The second mint generated a fresh candidate and threw it away: `RETURNING` gave
     // back the stored code, which is the one already in delivered mail.
@@ -1074,27 +1076,27 @@ describe("a code is handed out ONLY when Neon stored it", () => {
     const halfSet = await mintWaiverLinkOrLongUrl({
       center: "naples",
       reservation: { locationId: 332145, projectId: "" },
-      capability: "admin",
+      capability: "organizer",
       origin: ORIGIN,
     });
     expect(halfSet.failure).toBe("invalid-input");
     expect(isDurabilityFailure(halfSet.failure)).toBe(false);
 
     neon.configured = false;
-    const unconfigured = await mintWaiverLinkOrLongUrl({ ...FM, capability: "admin" });
+    const unconfigured = await mintWaiverLinkOrLongUrl({ ...FM, capability: "organizer" });
     expect(unconfigured.failure).toBe("not-configured");
     expect(isDurabilityFailure(unconfigured.failure)).toBe(false);
 
     // A write was attempted and cannot be accounted for: loud.
     neon.configured = true;
     neon.fail = true;
-    const lost = await mintWaiverLinkOrLongUrl({ ...FM, capability: "admin" });
+    const lost = await mintWaiverLinkOrLongUrl({ ...FM, capability: "organizer" });
     expect(lost.failure).toBe("not-persisted");
     expect(isDurabilityFailure(lost.failure)).toBe(true);
 
     // Success reports nothing at all.
     neon.fail = false;
-    expect((await mintWaiverLinkOrLongUrl({ ...FM, capability: "admin" })).failure).toBeNull();
+    expect((await mintWaiverLinkOrLongUrl({ ...FM, capability: "organizer" })).failure).toBeNull();
   });
 });
 
@@ -1135,7 +1137,7 @@ describe("the minted link routes on BOTH brand hosts", () => {
   const rewriteOf = (res: Response) => res.headers.get("x-middleware-rewrite");
 
   it("is NOT /hp-rewritten on headpinz.com", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     expect(link.url).toBe(`https://headpinz.com${WAIVER_LINK_PATH}/${link.code}`);
     const res = await middleware(waiverLinkRequest(link.url));
     expect(rewriteOf(res)).toBeNull();
@@ -1181,7 +1183,7 @@ describe("the minted link routes on BOTH brand hosts", () => {
  */
 describe("/w/{code} resolver route", () => {
   it("sends the guest to the reservation's waiver page, host-relative", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     const res = await open(link.code);
     expect(res.status).toBe(302);
     // Relative — no host, so headpinz.com stays headpinz.com and fasttraxent.com stays
@@ -1192,10 +1194,10 @@ describe("/w/{code} resolver route", () => {
   });
 
   it("never puts the bearer token in the address bar, and never caches it", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     const res = await open(link.code);
     expect(res.headers.get("location")).not.toContain(link.code);
-    expect(res.headers.get("location")).not.toMatch(/admin|cap/i);
+    expect(res.headers.get("location")).not.toMatch(/organizer|cap/i);
     // A Set-Cookie carrying a capability may never be held by a shared cache.
     expect(res.headers.get("cache-control")).toMatch(/no-store/);
     expect(cookieOf(res)?.value).toBe(link.code);
@@ -1211,23 +1213,23 @@ describe("/w/{code} resolver route", () => {
     const register = await mintWaiverLink({ ...FM, capability: "register" });
     const res = await open(register.code);
     expect(cookieOf(res)?.value).toBe(register.code);
-    expect(await waiverLinkGrantsAdminFor(cookieOf(res)!.value, "51383608")).toBe(false);
+    expect(await waiverLinkGrantsOrganizerFor(cookieOf(res)!.value, "51383608")).toBe(false);
   });
 
   it("cannot inherit admin on a shared device: the last link opened wins", async () => {
-    const admin = await mintWaiverLink({ ...FM, capability: "admin" });
+    const admin = await mintWaiverLink({ ...FM, capability: "organizer" });
     const register = await mintWaiverLink({ ...FM, capability: "register" });
-    // Booker signs via their admin link on the in-center tablet…
+    // Booker signs via their organizer link on the in-center tablet…
     expect(cookieOf(await open(admin.code))?.value).toBe(admin.code);
     // …then the next guest opens the forwarded sign-only link on the same device.
     const second = await open(register.code);
     expect(cookieOf(second)?.value).toBe(register.code);
     expect(cookieOf(second)?.value).not.toBe(admin.code);
-    expect(await waiverLinkGrantsAdminFor(cookieOf(second)!.value, "51383608")).toBe(false);
+    expect(await waiverLinkGrantsOrganizerFor(cookieOf(second)!.value, "51383608")).toBe(false);
   });
 
   it("is never a dead end: an unknown code signs standalone and CLEARS the grant", async () => {
-    const admin = await mintWaiverLink({ ...FM, capability: "admin" });
+    const admin = await mintWaiverLink({ ...FM, capability: "organizer" });
     expect(cookieOf(await open(admin.code))?.value).toBe(admin.code);
     const res = await open("aaaaaaaaaaaaaaaa"); // well-formed, not ours
     expect(res.status).toBe(302);
@@ -1248,7 +1250,7 @@ describe("/w/{code} resolver route", () => {
   });
 
   it("still resolves when Redis is down — a cache miss is not evidence about the link", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     cache.fail = true;
     cache.store.clear();
     const res = await open(link.code);
@@ -1265,14 +1267,14 @@ describe("/w/{code} resolver route", () => {
    *   1. the guest signs a waiver attached to NOTHING and believes they are done —
    *      nobody finds it at the counter, and they sign again;
    *   2. a dropped connection REVOKES the booker's admin grant. The row still says
-   *      `admin`; nothing revoked it. (Module rule: revoke a status only with the
+   *      `organizer`; nothing revoked it. (Module rule: revoke a status only with the
    *      same reach that granted it — that reach is the row.)
    *
    * A dead link is the one thing a redirect-to-standalone is right for, and Neon
    * being unreachable is not evidence of one.
    */
   it("an UNREADABLE code is explained, never redirected to an unattached waiver", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     cache.store.clear();
     neon.fail = true;
     const res = await open(link.code);
@@ -1287,7 +1289,7 @@ describe("/w/{code} resolver route", () => {
   });
 
   it("does NOT let a database blip revoke a grant nobody revoked", async () => {
-    const admin = await mintWaiverLink({ ...FM, capability: "admin" });
+    const admin = await mintWaiverLink({ ...FM, capability: "organizer" });
     expect(cookieOf(await open(admin.code))?.value).toBe(admin.code);
 
     cache.store.clear();
@@ -1301,11 +1303,11 @@ describe("/w/{code} resolver route", () => {
     // And recovery costs the booker nothing: the cookie the browser still holds works
     // the moment Neon answers again. No re-clicking the email, no re-send.
     neon.fail = false;
-    expect(await waiverLinkGrantsAdminFor(admin.code, "51383608")).toBe(true);
+    expect(await waiverLinkGrantsOrganizerFor(admin.code, "51383608")).toBe(true);
   });
 
   it("recovers on the retry, so one dropped connection costs the guest nothing", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     cache.store.clear();
     neon.failTimes = 1; // the first read drops; the second is fine
     const res = await open(link.code);
@@ -1315,7 +1317,7 @@ describe("/w/{code} resolver route", () => {
   });
 
   it("retries an unreadable read ONCE, and never retries a verdict", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     cache.store.clear();
     neon.fail = true;
     neon.calls.length = 0;
@@ -1372,7 +1374,7 @@ describe("/w/{code} resolver route", () => {
  */
 describe("the unknown / unavailable boundary", () => {
   it("NEON DOWN with a live row is unavailable/unreadable — never unknown", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     cache.store.clear();
     neon.fail = true;
 
@@ -1393,11 +1395,11 @@ describe("the unknown / unavailable boundary", () => {
     neon.fail = false;
     const recovered = await lookupWaiverLink(link.code);
     expect(recovered.status).toBe("found");
-    expect(recovered.link!.capability).toBe("admin");
+    expect(recovered.link!.capability).toBe("organizer");
   });
 
   it("the TABLE MISSING from this database is unreadable — the guest retries, the grant survives", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     // The grant exists on the device first, so the assertion that it survives is real.
     expect(cookieOf(await open(link.code))?.value).toBe(link.code);
 
@@ -1428,11 +1430,11 @@ describe("the unknown / unavailable boundary", () => {
     expect(back.status).toBe(302);
     expect(back.headers.get("location")).toBe(link.target);
     expect(cookieOf(back)?.value).toBe(link.code);
-    expect(await waiverLinkGrantsAdminFor(link.code, "51383608")).toBe(true);
+    expect(await waiverLinkGrantsOrganizerFor(link.code, "51383608")).toBe(true);
   });
 
   it("a CACHE READ THAT STALLS with a live row still resolves, from the truth", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     // The key is WARM — the stall is the only fault. ioredis queues commands against an
     // unreachable server, so an unbounded GET would sit here instead of reading the row.
     expect(cache.store.has(`wvlink:${link.code}`)).toBe(true);
@@ -1451,11 +1453,11 @@ describe("the unknown / unavailable boundary", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe(link.target);
     expect(cookieOf(res)?.value).toBe(link.code);
-    expect(await waiverLinkGrantsAdminFor(link.code, "51383608")).toBe(true);
+    expect(await waiverLinkGrantsOrganizerFor(link.code, "51383608")).toBe(true);
   });
 
   it("a GENUINELY ABSENT code IS unknown — and only after the store answered", async () => {
-    await mintWaiverLink({ ...FM, capability: "admin" }); // a live table with rows in it
+    await mintWaiverLink({ ...FM, capability: "organizer" }); // a live table with rows in it
     cache.store.clear();
     const absent = "aaaaaaaaaaaaaaaa"; // well-formed, never minted
     expect(absent).toMatch(WAIVER_LINK_CODE_RE);
@@ -1476,10 +1478,10 @@ describe("the unknown / unavailable boundary", () => {
   });
 
   it("a row with an UNRECOGNISED CAPABILITY keeps its redirect and grants nothing", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     // NON-VACUITY: it grants admin BEFORE the corruption, so everything below is about
     // the capability column and nothing else.
-    expect(await waiverLinkGrantsAdminFor(link.code, "51383608")).toBe(true);
+    expect(await waiverLinkGrantsOrganizerFor(link.code, "51383608")).toBe(true);
     cache.store.clear();
     neon.rows.get(link.code)!.capability = "Admin"; // ops typo / another vocabulary
 
@@ -1512,11 +1514,11 @@ describe("the unknown / unavailable boundary", () => {
     expect(cookieOf(res)?.value).toBe(link.code);
     expect(statements(/^SELECT/i)).toHaveLength(1); // read once — a corrupt row is not retried
     // And the cookie it carries is inert: a capability is only ever a recognised row value.
-    expect(await waiverLinkGrantsAdminFor(link.code, "51383608")).toBe(false);
+    expect(await waiverLinkGrantsOrganizerFor(link.code, "51383608")).toBe(false);
   });
 
   it("a row that points at NO RESERVATION is unusable-row — not unknown, not a 503 loop", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     cache.store.clear();
     neon.rows.get(link.code)!.project_id = ""; // corrupted after the mint: nothing to attach to
 
@@ -1545,7 +1547,7 @@ describe("the unknown / unavailable boundary", () => {
     // The guard against a fix that just relabels everything: a blanket "always
     // unavailable" (or "always unknown") implementation fails every line below, which is
     // what makes the assertions in this block non-vacuous.
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     cache.store.clear();
 
     const found = await lookupWaiverLink(link.code);
@@ -1577,7 +1579,7 @@ describe("the unknown / unavailable boundary", () => {
   });
 
   it("CONTROL: the whole guest-facing matrix — no 404, no 500, and the right destination", async () => {
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     // Status AND destination: a 302 alone cannot tell "your reservation's waiver page"
     // from "sign standalone, we lost your booking", and that difference is the defect.
     const seen: [number, string | null][] = [];
@@ -1604,7 +1606,7 @@ describe("the unknown / unavailable boundary", () => {
     await record(link.code); // capability column corrupt
 
     cache.store.clear();
-    neon.rows.get(link.code)!.capability = "admin";
+    neon.rows.get(link.code)!.capability = "organizer";
     neon.rows.get(link.code)!.project_id = "";
     await record(link.code); // row points nowhere
 
@@ -1627,7 +1629,7 @@ describe("the unknown / unavailable boundary", () => {
     // `resolveWaiverLink` / `resolveWaiverLinkTarget` cannot tell a dead link from an
     // outage, by construction. This pins the doc warning: guest-facing copy and cookie
     // clearing must come from a STATUS, which is what /w/{code} uses.
-    const link = await mintWaiverLink({ ...FM, capability: "admin" });
+    const link = await mintWaiverLink({ ...FM, capability: "organizer" });
     cache.store.clear();
     neon.fail = true;
     const unreadable = await resolveWaiverLink(link.code);

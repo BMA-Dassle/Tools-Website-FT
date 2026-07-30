@@ -130,7 +130,7 @@ export async function GET(req: NextRequest) {
     // BMI call succeeding.
     const { waiverUrlForQuote } = await import("@/lib/waiver-link-send");
     const [waiverUrl, waiverShareUrl] = await Promise.all([
-      waiverUrlForQuote(quote, "admin"),
+      waiverUrlForQuote(quote, "organizer"),
       waiverUrlForQuote(quote, "register"),
     ]);
 

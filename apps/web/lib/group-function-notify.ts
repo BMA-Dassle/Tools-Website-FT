@@ -428,7 +428,7 @@ async function waiverLinkPair(
 ): Promise<{ adminUrl: string; shareUrl: string } | null> {
   const { waiverUrlForQuote } = await import("@/lib/waiver-link-send");
   const [adminUrl, shareUrl] = await Promise.all([
-    waiverUrlForQuote(quote, "admin"),
+    waiverUrlForQuote(quote, "organizer"),
     waiverUrlForQuote(quote, "register"),
   ]);
   return adminUrl && shareUrl ? { adminUrl, shareUrl } : null;
@@ -1865,7 +1865,7 @@ function buildGroupFunctionCard(
  * Deliberately NOT admin. These surfaces are generic and their copy has always
  * been "share the link with everyone attending", so a link whose own instructions
  * say to hand it out must not also carry the ability to delete guests from the
- * booking. The organizer gets a full-roster ADMIN link where it belongs — in the
+ * booking. The organizer gets a full-roster ORGANIZER link where it belongs — in the
  * three dedicated waiver emails (which opt out of the banner via
  * `omitWaiverNotice` and use `waiverLinkPair`) and on their contract page.
  *

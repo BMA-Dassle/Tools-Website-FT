@@ -1,6 +1,6 @@
 /**
  * The send path. Every case here is a way a real email has gone wrong, or a way
- * the admin/register split could leak the remove button to a whole party.
+ * the organizer/register split could leak the remove button to a whole party.
  *
  * The mint itself is mocked — it has its own 89-case suite. What is under test is
  * WHICH capability each surface asks for, WHICH venue it resolves, and what
@@ -25,7 +25,7 @@ function minted(over: Partial<WaiverLinkForSend> = {}): WaiverLinkForSend {
   return {
     url: "https://headpinz.com/w/AbCdEfGhIjKlMnOp",
     code: "AbCdEfGhIjKlMnOp",
-    capability: "admin",
+    capability: "organizer",
     short: true,
     target: "/waiver?c=fort-myers&loc=332160&pid=51383608",
     failure: null,
@@ -61,11 +61,11 @@ beforeEach(() => {
 
 describe("waiverLinkForQuote", () => {
   it("mints for the quote's own venue, with the STORED brand origin", () => {
-    return waiverLinkForQuote(QUOTE, "admin").then(() => {
+    return waiverLinkForQuote(QUOTE, "organizer").then(() => {
       expect(mintWaiverLinkOrLongUrl).toHaveBeenCalledWith({
         center: "fort-myers",
         reservation: { locationId: "332160", projectId: "51383608" },
-        capability: "admin",
+        capability: "organizer",
         // From the quote row, never a request origin — a cron has no request, and a
         // brand-less origin would put a HeadPinz guest on the FastTrax host.
         origin: "https://headpinz.com",
@@ -87,36 +87,38 @@ describe("waiverLinkForQuote", () => {
   });
 
   it("REFUSES an unknown center_code without minting anything", async () => {
-    expect(await waiverLinkForQuote({ ...QUOTE, center_code: "sarasota" }, "admin")).toBeNull();
+    expect(await waiverLinkForQuote({ ...QUOTE, center_code: "sarasota" }, "organizer")).toBeNull();
     expect(mintWaiverLinkOrLongUrl).not.toHaveBeenCalled();
   });
 
   it("refuses a quote with no reservation id", async () => {
-    expect(await waiverLinkForQuote({ ...QUOTE, bmi_reservation_id: "  " }, "admin")).toBeNull();
+    expect(
+      await waiverLinkForQuote({ ...QUOTE, bmi_reservation_id: "  " }, "organizer"),
+    ).toBeNull();
     expect(mintWaiverLinkOrLongUrl).not.toHaveBeenCalled();
   });
 
   it("keeps a 17-digit BMI id as an exact string", async () => {
     const big = "63000000004542824"; // > Number.MAX_SAFE_INTEGER
-    await waiverLinkForQuote({ ...QUOTE, bmi_reservation_id: big }, "admin");
+    await waiverLinkForQuote({ ...QUOTE, bmi_reservation_id: big }, "organizer");
     expect(mintWaiverLinkOrLongUrl.mock.calls[0][0].reservation.projectId).toBe(big);
   });
 
   it("memoizes a SUCCESS per quote+capability", async () => {
-    await waiverLinkForQuote(QUOTE, "admin");
-    await waiverLinkForQuote(QUOTE, "admin");
+    await waiverLinkForQuote(QUOTE, "organizer");
+    await waiverLinkForQuote(QUOTE, "organizer");
     expect(mintWaiverLinkOrLongUrl).toHaveBeenCalledTimes(1);
   });
 
   it("never lets admin and register share a cache slot", async () => {
     // If they did, the FIRST caller would decide the capability for the second —
-    // i.e. a share box could be handed the admin link.
-    mintWaiverLinkOrLongUrl.mockResolvedValueOnce(minted({ capability: "admin", code: "A" }));
+    // i.e. a share box could be handed the organizer link.
+    mintWaiverLinkOrLongUrl.mockResolvedValueOnce(minted({ capability: "organizer", code: "A" }));
     mintWaiverLinkOrLongUrl.mockResolvedValueOnce(minted({ capability: "register", code: "R" }));
-    const admin = await waiverLinkForQuote(QUOTE, "admin");
+    const admin = await waiverLinkForQuote(QUOTE, "organizer");
     const register = await waiverLinkForQuote(QUOTE, "register");
     expect(mintWaiverLinkOrLongUrl).toHaveBeenCalledTimes(2);
-    expect(admin!.capability).toBe("admin");
+    expect(admin!.capability).toBe("organizer");
     expect(register!.capability).toBe("register");
   });
 
@@ -126,14 +128,14 @@ describe("waiverLinkForQuote", () => {
     // the instance. Minting is idempotent, so retrying costs one upsert.
     mintWaiverLinkOrLongUrl.mockResolvedValueOnce(degraded());
     mintWaiverLinkOrLongUrl.mockResolvedValueOnce(minted());
-    expect((await waiverLinkForQuote(QUOTE, "admin"))!.short).toBe(false);
-    expect((await waiverLinkForQuote(QUOTE, "admin"))!.short).toBe(true);
+    expect((await waiverLinkForQuote(QUOTE, "organizer"))!.short).toBe(false);
+    expect((await waiverLinkForQuote(QUOTE, "organizer"))!.short).toBe(true);
     expect(mintWaiverLinkOrLongUrl).toHaveBeenCalledTimes(2);
   });
 
   it("waiverUrlForQuote is the url, or null when there is no venue", async () => {
-    expect(await waiverUrlForQuote(QUOTE, "admin")).toBe(minted().url);
-    expect(await waiverUrlForQuote({ ...QUOTE, center_code: "?" }, "admin")).toBeNull();
+    expect(await waiverUrlForQuote(QUOTE, "organizer")).toBe(minted().url);
+    expect(await waiverUrlForQuote({ ...QUOTE, center_code: "?" }, "organizer")).toBeNull();
   });
 });
 
@@ -141,12 +143,12 @@ describe("waiverLinkForSuppliedUrl", () => {
   it("upgrades a canonical reservation link and keeps ITS origin", async () => {
     const url = await waiverLinkForSuppliedUrl(
       "https://fasttraxent.com/waiver?c=fort-myers&loc=467486&pid=51383608",
-      "admin",
+      "organizer",
     );
     expect(mintWaiverLinkOrLongUrl).toHaveBeenCalledWith({
       center: "fort-myers",
       reservation: { locationId: "467486", projectId: "51383608" },
-      capability: "admin",
+      capability: "organizer",
       // The caller that built the absolute URL is the one that knew the brand.
       origin: "https://fasttraxent.com",
     });
@@ -169,7 +171,7 @@ describe("waiverLinkForSuppliedUrl", () => {
       "https://kiosk.bmileisure.com/headpinznaples",
       "https://kiosk.sms-timing.com/headpinzftmyers/subscribe/event?id=9931",
     ]) {
-      const url = await waiverLinkForSuppliedUrl(legacy, "admin", {
+      const url = await waiverLinkForSuppliedUrl(legacy, "organizer", {
         center: "naples",
         origin: "https://headpinz.com",
       });
@@ -182,14 +184,14 @@ describe("waiverLinkForSuppliedUrl", () => {
   it("falls back to the canonical picker when nothing was supplied", async () => {
     for (const empty of ["", "   ", null, undefined]) {
       expect(
-        await waiverLinkForSuppliedUrl(empty, "admin", { origin: "https://headpinz.com" }),
+        await waiverLinkForSuppliedUrl(empty, "organizer", { origin: "https://headpinz.com" }),
       ).toBe("https://headpinz.com/waiver");
     }
     expect(mintWaiverLinkOrLongUrl).not.toHaveBeenCalled();
   });
 
   it("does not shorten a standalone link — there is no capability to encode", async () => {
-    const url = await waiverLinkForSuppliedUrl("/waiver?c=naples", "admin", {
+    const url = await waiverLinkForSuppliedUrl("/waiver?c=naples", "organizer", {
       origin: "https://headpinz.com",
     });
     expect(url).toBe("https://headpinz.com/waiver?c=naples");
@@ -198,7 +200,7 @@ describe("waiverLinkForSuppliedUrl", () => {
 
   it("refuses a HALF-SET pair the same way buildWaiverUrl does", async () => {
     for (const half of ["/waiver?c=naples&loc=332145", "/waiver?c=naples&pid=51383608"]) {
-      const url = await waiverLinkForSuppliedUrl(half, "admin", {
+      const url = await waiverLinkForSuppliedUrl(half, "organizer", {
         origin: "https://headpinz.com",
       });
       expect(url).toBe("https://headpinz.com/waiver?c=naples");
@@ -210,7 +212,7 @@ describe("waiverLinkForSuppliedUrl", () => {
     mintWaiverLinkOrLongUrl.mockResolvedValueOnce(degraded());
     const url = await waiverLinkForSuppliedUrl(
       "https://headpinz.com/waiver?c=fort-myers&loc=332160&pid=51383608",
-      "admin",
+      "organizer",
     );
     // Long, sign-only, absolute — never empty, and never a bare relative path in
     // an inbox.
@@ -220,7 +222,7 @@ describe("waiverLinkForSuppliedUrl", () => {
 
   it("leaves an unrelated absolute URL alone", async () => {
     const other = "https://headpinz.com/contract/AB12CD";
-    expect(await waiverLinkForSuppliedUrl(other, "admin")).toBe(other);
+    expect(await waiverLinkForSuppliedUrl(other, "organizer")).toBe(other);
     expect(mintWaiverLinkOrLongUrl).not.toHaveBeenCalled();
   });
 

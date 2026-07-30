@@ -17,7 +17,7 @@ import type { CenterCode } from "~/features/booking/types";
  *   register — sign only. This is what Share / Text / Email / Copy hands out.
  *
  * ── Why an opaque code and never `?admin=1` ────────────────────────────────────
- * The admin capability grants a MUTATION (remove a guest from someone else's
+ * The organizer capability grants a MUTATION (remove a guest from someone else's
  * booking). A guessable flag would mean anyone holding a forwarded register link
  * could flip it and start deleting guests. The capability is therefore a property
  * of the code — an unguessable 96-bit random string that we look up server-side —
@@ -32,15 +32,15 @@ import type { CenterCode } from "~/features/booking/types";
  * and nothing else. That is deliberate and it is the fix for a real hole. When the
  * cache was allowed to answer, two things were true at once:
  *
- *   1. A `wvlink:{code}` entry claiming `cap:"admin"` turned a REGISTER code into
- *      an admin code — `waiverLinkGrantsAdminFor` authorizes a guest-DELETE off
+ *   1. A `wvlink:{code}` entry claiming `cap:"organizer"` turned a REGISTER code into
+ *      an organizer code — `waiverLinkGrantsOrganizerFor` authorizes a guest-DELETE off
  *      this value, so the mutation's authority sat in a disposable key that Neon
  *      never saw and `hits`/`last_seen_at` never recorded.
  *   2. The grant could not be REVOKED. Correcting `capability` on the row did
  *      nothing for up to the 90-day TTL, because the row was never read again.
  *      (Repo lesson: revoke a status with the same reach you granted it.)
  *
- * So: cache the REDIRECT (which is capability-independent — an admin code and a
+ * So: cache the REDIRECT (which is capability-independent — an organizer code and a
  * register code for one reservation resolve to the identical `/waiver?…` target),
  * never the capability. An authorization decision is worth one indexed primary-key
  * lookup. `lookupWaiverLinkTarget` is the cache-first path `/w/{code}` uses (it needs
@@ -112,7 +112,7 @@ import type { CenterCode } from "~/features/booking/types";
  * `(location_id, project_id, capability)` is UNIQUE **in the CREATE TABLE**, not in a
  * follow-up CREATE INDEX, and minting is an UPSERT that
  * RETURNs the existing code (the `lib/bmi-deposit-retry.ts` move). One reservation
- * has exactly ONE admin code and ONE register code, forever. A fresh code per email
+ * has exactly ONE organizer code and ONE register code, forever. A fresh code per email
  * send would fragment click history and, worse, would not appear in mail we already
  * delivered.
  *
@@ -145,8 +145,8 @@ import type { CenterCode } from "~/features/booking/types";
  * Never Number() / parseInt / JSON.parse them — they exceed MAX_SAFE_INTEGER.
  */
 
-/** `admin` = roster + remove. `register` = sign only. */
-export type WaiverLinkCapability = "admin" | "register";
+/** `organizer` = roster + remove. `register` = sign only. */
+export type WaiverLinkCapability = "organizer" | "register";
 
 /**
  * Path prefix of the resolver route that turns a code back into a waiver page —
@@ -172,7 +172,7 @@ export const WAIVER_LINK_PATH = "/w";
  * else's booking. HttpOnly also keeps it away from page scripts entirely.
  *
  * NEVER trust this cookie on its own, and never store a decision in it. Read it
- * through `waiverLinkGrantsAdminFor(cookie, projectId)` at the point of use, which
+ * through `waiverLinkGrantsOrganizerFor(cookie, projectId)` at the point of use, which
  * goes to the ROW and binds the code to the reservation of the page it is being used
  * on. Two consequences, both load-bearing:
  *   - a `register` code in this cookie grants NOTHING, so the resolver does not need
@@ -220,7 +220,7 @@ const HIT_WRITE_TIMEOUT_MS = 400;
  *
  * v1 -> v2 REMOVED the `cap` field. v1 payloads are still in Redis for up to 90
  * days, and they must never be reinterpreted — the bump is what guarantees an old
- * `{v:1, cap:"admin", …}` blob is discarded rather than half-read.
+ * `{v:1, cap:"organizer", …}` blob is discarded rather than half-read.
  */
 const CACHE_VERSION = 2;
 
@@ -254,7 +254,7 @@ export interface MintWaiverLinkParams {
  * WHERE a code goes — and nothing about what it grants. `target` is always freshly
  * built by buildWaiverUrl.
  *
- * This is the cacheable half, and it is capability-free on purpose: an `admin` code
+ * This is the cacheable half, and it is capability-free on purpose: an `organizer` code
  * and a `register` code for the same reservation resolve to the IDENTICAL target, so
  * a redirect can be served from Redis without any authorization value passing
  * through it. Anything that needs to know what a code grants must use
@@ -308,7 +308,7 @@ function normalizeCenter(center: unknown): CenterCode | null {
 /**
  * Both ids or neither — the same rule buildWaiverUrl enforces. A half-set pair
  * would store a row that claims to be reservation-scoped while its target attaches
- * to nothing, which for an `admin` code means a bearer token pointing at a
+ * to nothing, which for an `organizer` code means a bearer token pointing at a
  * standalone page.
  */
 function normalizeReservation(
@@ -323,7 +323,7 @@ function normalizeReservation(
 }
 
 function isCapability(v: unknown): v is WaiverLinkCapability {
-  return v === "admin" || v === "register";
+  return v === "organizer" || v === "register";
 }
 
 // ── Postgres error classification ───────────────────────────────────────────
@@ -343,7 +343,7 @@ function errMessage(err: unknown): string {
  * bootstrapping in the same instant collide in the catalog: 42P07 duplicate_table,
  * 42710 duplicate_object, or a unique violation on a `pg_*` catalog index. The
  * object exists either way, which is all the caller needed — losing that race must
- * not cost a booker their admin link. A unique violation on one of OUR indexes is
+ * not cost a booker their organizer link. A unique violation on one of OUR indexes is
  * NOT benign (it means genuinely duplicated rows) and is deliberately unmatched.
  */
 function isBenignDdlError(err: unknown): boolean {
@@ -712,7 +712,7 @@ export async function mintWaiverLink(params: MintWaiverLinkParams): Promise<Waiv
   // definition the same capability. This asserts that rather than assuming it: if the
   // unique index is ever narrowed to (location_id, project_id), the UPSERT would
   // start RETURNing the reservation's OTHER row, and a caller asking for `register`
-  // would be handed the ADMIN code — the exact escalation this module exists to
+  // would be handed the ORGANIZER code — the exact escalation this module exists to
   // prevent, delivered by email. Fail the mint instead; the send degrades to a long
   // sign-only URL.
   if (link.capability !== params.capability) {
@@ -742,7 +742,7 @@ export interface WaiverLinkForSend {
    * link.
    */
   capability: WaiverLinkCapability | null;
-  /** false = degraded: an `admin` send became sign-only. Adjust copy accordingly. */
+  /** false = degraded: an `organizer` send became sign-only. Adjust copy accordingly. */
   short: boolean;
   /** Relative waiver path the guest ends up on either way. */
   target: string;
@@ -759,7 +759,7 @@ export interface WaiverLinkForSend {
  * Send-path wrapper. NEVER throws: the long absolute waiver URL is the default and
  * a successful mint only upgrades it (the `/api/notifications/level-up` idiom).
  *
- * The degraded form of an `admin` link is a sign-only link — losing the remove
+ * The degraded form of an `organizer` link is a sign-only link — losing the remove
  * button is a much smaller failure than a dead link in an inbox, and it is strictly
  * safer than any capability we could encode without a durable record of it. Either
  * way, `code` is non-null only when Neon proved the code is stored: no `/w/` URL is
@@ -828,7 +828,7 @@ export async function mintWaiverLinkOrLongUrl(
  * waiver once it has an authoritative answer. Collapsing the two there would silently
  * (a) have a guest sign a waiver attached to nothing and (b) let a dropped connection
  * revoke a capability nobody revoked. AUTHORIZATION, by contrast, treats every non-found
- * status as no — see `waiverLinkGrantsAdminFor`.
+ * status as no — see `waiverLinkGrantsOrganizerFor`.
  */
 export type WaiverLinkLookupStatus = "found" | "unknown" | "unavailable";
 
@@ -1031,7 +1031,7 @@ export async function lookupWaiverLink(code: string): Promise<WaiverLinkLookup> 
  * This is what `/w/{code}` needs, and it deliberately cannot report a capability:
  * the returned shape has no such field, so a redirect can be served from a warm cache
  * without any authorization value being read from it. The capability is decided later,
- * at the point of use, by `waiverLinkGrantsAdminFor` against the row.
+ * at the point of use, by `waiverLinkGrantsOrganizerFor` against the row.
  *
  * Which is exactly why a row whose CAPABILITY column is unusable is still `found` here:
  * this lookup was never asking about the capability. The ids and the code passed the same
@@ -1068,10 +1068,10 @@ export async function resolveWaiverLinkTarget(
 }
 
 /**
- * THE authorization check for the admin capability. Two independent conditions, both
+ * THE authorization check for the organizer capability. Two independent conditions, both
  * read from the same stored row:
  *
- *   1. the row's capability is `admin` — never a cached value, never a parameter,
+ *   1. the row's capability is `organizer` — never a cached value, never a parameter,
  *      never a default;
  *   2. the row's projectId is the one being acted on, compared as STRINGS (a 17-digit
  *      BMI id through Number() is a silent off-by-one), so a code minted for one
@@ -1085,14 +1085,14 @@ export async function resolveWaiverLinkTarget(
  * (`unusable-row`, which keeps its redirect); for a MUTATION both mean no. We do not
  * grant a capability we could not verify, and we do not guess at one we could not read.
  */
-export async function waiverLinkGrantsAdminFor(
+export async function waiverLinkGrantsOrganizerFor(
   code: string | null | undefined,
   projectId: string | null | undefined,
 ): Promise<boolean> {
   const wanted = String(projectId ?? "").trim();
   if (!code || !wanted) return false;
   const { link } = await readStoredLink(code);
-  if (!link || link.capability !== "admin") return false;
+  if (!link || link.capability !== "organizer") return false;
   return link.reservation.projectId === wanted;
 }
 

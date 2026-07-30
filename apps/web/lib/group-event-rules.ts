@@ -67,7 +67,7 @@ export async function hasWaiver(quote: GroupFunctionQuote): Promise<boolean> {
 }
 
 /**
- * The reminder rules' waiver link — the ADMIN capability, because every rule here
+ * The reminder rules' waiver link — the ORGANIZER capability, because every rule here
  * sends to `quote.guest_email`, i.e. the organizer who booked.
  *
  * Named `eventWaiverLinkUrl`, NOT `buildWaiverUrl`: it used to be the latter, which
@@ -81,7 +81,7 @@ export async function hasWaiver(quote: GroupFunctionQuote): Promise<boolean> {
  */
 export async function eventWaiverLinkUrl(quote: GroupFunctionQuote): Promise<string | null> {
   const { waiverUrlForQuote } = await import("@/lib/waiver-link-send");
-  return waiverUrlForQuote(quote, "admin");
+  return waiverUrlForQuote(quote, "organizer");
 }
 
 const PLACEHOLDER_PHONES = new Set(["2222222222"]);

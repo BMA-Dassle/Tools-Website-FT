@@ -677,8 +677,9 @@ const NOTES_LINKS_MARKER = "──";
  * the desk can answer "who still needs to sign?" and "send me the link" without
  * digging through the guest's email — the same reason the contract URL is here.
  *
- * "Organizer" is the owner's word for it (and what the guest emails print). The
- * stored capability is still `admin`; do not conflate the label with the enum.
+ * "Organizer" is the owner's word for it, what the guest emails print, AND the
+ * stored capability value — one vocabulary end to end, so a label can never drift
+ * from the enum it describes.
  */
 interface SectionLinks {
   contractUrl: string | null;

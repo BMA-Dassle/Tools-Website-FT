@@ -243,7 +243,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Sales-log capture — every confirmed reservation gets one entry
-    // for the /admin/{token}/sales dashboard. Fired once per bill,
+    // for the /organizer/{token}/sales dashboard. Fired once per bill,
     // gated by the same notif-dedup so a refresh of the confirmation
     // page doesn't double-log. Best-effort: errors here never break
     // confirmation send.
@@ -419,7 +419,7 @@ export async function POST(req: NextRequest) {
       // POV camera codes — kiosk counterpart of the web template's
       // ^SoldVouchersList()$ block (this branch's email is inline HTML, so the
       // placeholder never runs here). Renders only when codes were claimed.
-      // Codes come from the admin-imported pool ([A-Z0-9]) — strip any HTML
+      // Codes come from the organizer-imported pool ([A-Z0-9]) — strip any HTML
       // metachars anyway so a bad import can never break the email markup.
       const cleanCode = (c: string) => c.replace(/[<>&"']/g, "");
       const povHtml =
@@ -601,7 +601,7 @@ export async function POST(req: NextRequest) {
         <p class="section-label" style="margin: 0 0 14px 0; text-align: center;">Where to Check In</p>`;
 
       // Canonical short confirmation URL for the email button. Deterministic
-      // per billId, so email, SMS, the BMI memo, and the admin board all
+      // per billId, so email, SMS, the BMI memo, and the organizer board all
       // resolve to the SAME /s/{code} (one Redis key, one click bucket).
       let emailConfirmUrl = "";
       if (billId) {
@@ -700,12 +700,12 @@ export async function POST(req: NextRequest) {
       //
       // The page supplies `waiverUrl` as a canonical /waiver link (buildWaiverUrl,
       // with loc+pid when the reservation is known). `waiverLinkForSuppliedUrl`
-      // upgrades that to a short ADMIN code — this email goes to the person who
+      // upgrades that to a short ORGANIZER code — this email goes to the person who
       // booked, so they get the roster and the remove button — and replaces the old
       // hardcoded fallback, which pointed every guest, Naples included, at the
       // FastTrax/HeadPinz FM tenant where a Naples waiver is not valid.
       const { waiverLinkForSuppliedUrl } = await import("@/lib/waiver-link-send");
-      const waiverLink = isNewRacer ? await waiverLinkForSuppliedUrl(waiverUrl, "admin") : "";
+      const waiverLink = isNewRacer ? await waiverLinkForSuppliedUrl(waiverUrl, "organizer") : "";
       const waiverSectionHtml = isNewRacer
         ? `
 <tr>

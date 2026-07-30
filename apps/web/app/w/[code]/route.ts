@@ -16,14 +16,14 @@ import { buildWaiverUrl } from "~/features/waiver/build-waiver-url";
  *
  * Looks the opaque code up, records the click, and redirects to the waiver page. The
  * code never reaches the address bar: it travels on in an HttpOnly cookie, and the
- * `admin` and `register` codes for one reservation redirect to the IDENTICAL
+ * `organizer` and `register` codes for one reservation redirect to the IDENTICAL
  * `/waiver?c=&loc=&pid=` target, so a forwarded link reveals no capability.
  *
  * ── This route makes no authorization decision ────────────────────────────────
  * It hands over the code the guest arrived with and nothing else — it does not read
  * `.capability`, does not branch on it, and stores no verdict anywhere. Whether that
  * code grants the remove button is decided at the point of use by
- * `waiverLinkGrantsAdminFor(cookie, projectId)`, which reads the row. That keeps the
+ * `waiverLinkGrantsOrganizerFor(cookie, projectId)`, which reads the row. That keeps the
  * grant REVOCABLE (fix the row and the next click is denied) and means a forwarded
  * `register` code in the cookie is inert by construction rather than by a check here.
  *

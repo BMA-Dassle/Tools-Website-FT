@@ -221,9 +221,9 @@ export async function POST(req: NextRequest) {
         isExpress
           ? buildWaiverExpress()
           : buildWaiverStandard(
-              // Short ADMIN code — this goes to the booker. Also replaces the old
+              // Short ORGANIZER code — this goes to the booker. Also replaces the old
               // hardcoded FM fallback, which was wrong for every Naples guest.
-              await waiverLinkForSuppliedUrl(waiverUrl, "admin"),
+              await waiverLinkForSuppliedUrl(waiverUrl, "organizer"),
             ),
       );
       html = html.replace(
