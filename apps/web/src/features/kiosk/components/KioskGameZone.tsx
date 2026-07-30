@@ -297,7 +297,7 @@ export function KioskGameZone({
   cartHasItems = false,
   onAddToVisit,
   onCardFault,
-  initialVoucherCode = null,
+  initialVoucherCodes = null,
 }: {
   center: CenterCode;
   brand: Brand;
@@ -319,9 +319,9 @@ export function KioskGameZone({
    *  2026-07-20). Never re-fires for the same fault — after staff clear the
    *  beacon they need the hold screen (Resume / See attendant) usable. */
   onCardFault?: () => void;
-  /** A comp voucher already scanned on the coupon screen — lands straight in
-   *  voucher mode so the guest never scans the same code twice. */
-  initialVoucherCode?: string | null;
+  /** Comp vouchers already scanned on the coupon screen — they land straight in
+   *  the basket so the guest never scans the same code twice. */
+  initialVoucherCodes?: string[] | null;
 }) {
   const t = useT();
   // Every kiosk lands on the chooser — MSR-only kiosks offer reload + balance
@@ -329,7 +329,7 @@ export function KioskGameZone({
   // MSR release wrongly jumped straight to reload, hiding balance check).
   // EXCEPT when a comp voucher was already scanned on the coupon screen: go
   // straight to redemption.
-  const [mode, setMode] = useState<Mode>(initialVoucherCode ? "voucher" : "choose");
+  const [mode, setMode] = useState<Mode>(initialVoucherCodes?.length ? "voucher" : "choose");
 
   // ── Comp-voucher redemption state ──
   // A BASKET, not one code at a time (owner 2026-07-29: "it would make sense to
@@ -1176,18 +1176,21 @@ export function KioskGameZone({
     return () => clearInterval(id);
   }, [voucherScanArmed, config?.scannerEnabled, voucherWedgeArm]);
 
-  // A code handed over from the coupon screen redeems itself on arrival — the
-  // guest already scanned it once. Runs exactly once per mounted code.
+  // Codes handed over from the coupon screen join the basket on arrival — the
+  // guest already scanned them once. They still land in the BASKET rather than
+  // auto-dispensing, so more can be added here. Runs once per seeded set.
   const seededVoucherRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!initialVoucherCode || !readerReady) return;
-    if (seededVoucherRef.current === initialVoucherCode) return;
-    seededVoucherRef.current = initialVoucherCode;
-    // Lands in the basket like any scan, so the guest can add more before
-    // committing — never auto-dispenses behind their back.
-    void addVoucherToBasket(initialVoucherCode);
+    const seed = initialVoucherCodes ?? [];
+    if (seed.length === 0 || !readerReady) return;
+    const key = seed.join(",");
+    if (seededVoucherRef.current === key) return;
+    seededVoucherRef.current = key;
+    void (async () => {
+      for (const c of seed) await addVoucherToBasket(c);
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialVoucherCode, readerReady]);
+  }, [initialVoucherCodes, readerReady]);
 
   // A claim still held when the guest walks away (mode change or the whole Game
   // Zone closing) is given back rather than burned — `voucherClaimRef` is

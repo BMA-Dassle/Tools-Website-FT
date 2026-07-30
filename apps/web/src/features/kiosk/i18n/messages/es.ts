@@ -309,6 +309,10 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.voucherGz.body":
     "Imprimiremos tu tarjeta en la pantalla de Game Zone — toma un momento.",
   "codeEntry.voucherGz.cta": "Obtener mi tarjeta",
+  "codeEntry.voucherGz.titleN": "{n} tarjetas de juego gratis",
+  "codeEntry.voucherGz.ctaN": "Obtener mis {n} tarjetas",
+  "codeEntry.voucherGz.bodyMore":
+    "¿Tienes otro vale? Escánealo ahora para agregarlo. Las imprimiremos todas juntas.",
   "codeEntry.giftcard.title": "Eso es una tarjeta de regalo",
   "codeEntry.giftcard.body":
     "Las tarjetas de regalo se aceptan como pago — pásala por el lector de tarjetas al pagar.",
