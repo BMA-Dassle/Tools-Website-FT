@@ -35,6 +35,17 @@
  *         lines + Clarity events on every scan, reject (with reason), print,
  *         leave-warn/leave, removal, restore, claim release and dispense
  *         outcome. New unit suites: receipt-plan, pending-cards.
+ *         Pre-merge adversarial review fixes: one dispensed card clears ONE
+ *         leg of a multi-card voucher (not all — the server spends one gz
+ *         item per claim, so the remainder keeps the way-back tile alive);
+ *         basket guards + the outcome report read a live ref (the seed loop's
+ *         snapshot bypassed the 10-per-run cap; the outcome callback ran
+ *         inside a state updater); ✕-removal frees the code for a clean
+ *         re-scan (upsert-idempotent end to end); guest-facing counts are
+ *         LEGS everywhere; and PARKED BMI comps (GZ_VOUCHER_BMI unset) are
+ *         routed to Guest Services at SCAN time — validate is now issuer-
+ *         routed like claims (validateAnyVoucher + test), so the receipt can
+ *         no longer promise a card the dispenser will refuse.
  * 1.10.13 — voucher receipt round 2 (owner walk-through feedback). The OSK no
  *         longer covers the typed-code field (focus swaps in bottom padding so
  *         the column lifts above the key rows — same fix on the Game Zone

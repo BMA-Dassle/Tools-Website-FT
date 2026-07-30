@@ -284,6 +284,28 @@ export function KioskCodeEntry({
                 setError(t("codeEntry.err.duplicate"));
                 return;
               }
+              // ASK before promising: BMI comps are PARKED server-side
+              // (GZ_VOUCHER_BMI, owner 2026-07-29) and the dispenser's claim
+              // would refuse them — accepting one here used to strand the
+              // guest with a "card to pick up" that could never print. The
+              // same validate the Game Zone runs decides NOW.
+              const vres = await fetch("/api/game-cards/voucher-redeem", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "validate", code }),
+              });
+              const v: { ok?: boolean; reason?: string } = await vres.json().catch(() => ({}));
+              if (v.ok !== true) {
+                logReject("bmi-gamecard", code, v.reason ?? `http-${vres.status}`);
+                // Real comp, not redeemable at a kiosk (yet) — Guest Services
+                // panel; inline note instead if the receipt is already up.
+                if (panelRef.current?.kind === "voucher-gamecard") {
+                  setInfo(t("codeEntry.voucher.body"));
+                } else {
+                  setPanel({ kind: "bmi-voucher", code });
+                }
+                return;
+              }
               // BMI comp gamecard — token value isn't known at peek, so the
               // receipt shows the card without a "$ in play" figure (tokens:0).
               onGzCardsAdd?.([{ code, tokens: 0 }]);
@@ -534,15 +556,19 @@ export function KioskCodeEntry({
       const gzCards = pendingGzCards;
       const cartLabels = appliedCartVouchers;
       const codes = [...new Set(gzCards.map((c) => c.code))];
-      // Removing a row frees the code for a clean re-scan ONLY once it's gone
-      // from BOTH lists (a mixed voucher's other half may still be in play).
+      // ANY removal frees the code for a re-scan — safe on a mixed voucher's
+      // surviving half because a re-scan is idempotent end to end: the session
+      // reducer UPSERTS by (code, itemIndex) and the pending-card add dedups
+      // by code, so re-validating restores only what was removed. (Keeping the
+      // guard until both halves were gone left a mis-tapped ✕ unrecoverable:
+      // "already added" with no way to get the card back.)
       const removeGzCard = (code: string) => {
         onGzCardRemove?.(code);
-        if (!cartLabels.some((v) => v.code === code)) processedNativeRef.current.delete(code);
+        processedNativeRef.current.delete(code);
       };
       const removeCartVoucher = (code: string) => {
         onCartVoucherRemove?.(code);
-        if (!gzCards.some((c) => c.code === code)) processedNativeRef.current.delete(code);
+        processedNativeRef.current.delete(code);
       };
       const totalTokens = gzCards.reduce((sum, c) => sum + c.tokens, 0);
       const totalBits = [
@@ -559,10 +585,15 @@ export function KioskCodeEntry({
         cartVouchers: cartLabels.length,
         promoApplied: !!appliedPromo,
       });
+      // Counts shown to the guest are LEGS (cards owed) — same number the
+      // section header and the categories tile use. A run dispenses one card
+      // per CODE, so a multi-leg voucher's remainder stays pending and the
+      // tile brings them back for the next card.
+      const cardCount = gzCards.length;
       const startPrint = () => {
-        console.log(`[kiosk] receipt → print ${codes.length} card(s): ${codes.join(", ")}`);
+        console.log(`[kiosk] receipt → print ${cardCount} card(s) via: ${codes.join(", ")}`);
         clarityEvent("kiosk:receipt:print");
-        clarityTag("kiosk_receipt_print_n", String(codes.length));
+        clarityTag("kiosk_receipt_print_n", String(cardCount));
         onOpenGameZone(codes);
       };
       const leaveTo = (why: "start-picking" | "done") => {
@@ -571,10 +602,10 @@ export function KioskCodeEntry({
       };
       const finish =
         plan.primary === "print"
-          ? { label: t("codeEntry.voucherGz.printNow", { n: codes.length }), onClick: startPrint }
+          ? { label: t("codeEntry.voucherGz.printNow", { n: cardCount }), onClick: startPrint }
           : plan.primary === "print-continue"
             ? {
-                label: t("codeEntry.voucherGz.finishCards", { n: codes.length }),
+                label: t("codeEntry.voucherGz.finishCards", { n: cardCount }),
                 onClick: startPrint,
               }
             : plan.primary === "start-picking"
@@ -757,14 +788,14 @@ export function KioskCodeEntry({
                own, so say it and offer the right exit both ways. */
             <div className="mt-auto rounded-[20px] border border-[#ff8c7a]/45 bg-[#ff8c7a]/[0.08] px-[28px] py-[20px]">
               <div className="text-center text-[26px] leading-[1.35] text-[#ffb3a6]">
-                {t("codeEntry.voucherGz.leaveWarn", { n: codes.length })}
+                {t("codeEntry.voucherGz.leaveWarn", { n: cardCount })}
               </div>
               <div className="mt-[16px] flex gap-[24px]">
                 <button
                   type="button"
                   onClick={() => {
                     console.warn(
-                      `[kiosk] guest LEFT ${codes.length} unprinted card(s): ${codes.join(", ")}`,
+                      `[kiosk] guest LEFT ${cardCount} unprinted card(s): ${codes.join(", ")}`,
                     );
                     clarityEvent("kiosk:receipt:leave-anyway");
                     onBack();
@@ -774,7 +805,7 @@ export function KioskCodeEntry({
                   {t("codeEntry.voucherGz.leaveAnyway")}
                 </button>
                 <button type="button" onClick={startPrint} className="k-btn-primary k-tap">
-                  {t("codeEntry.voucherGz.printNow", { n: codes.length })}
+                  {t("codeEntry.voucherGz.printNow", { n: cardCount })}
                 </button>
               </div>
             </div>

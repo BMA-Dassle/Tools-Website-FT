@@ -27,12 +27,28 @@ export function removePendingCard(prev: PendingGzCard[], code: string): PendingG
   return prev.filter((c) => c.code !== code);
 }
 
-/** Apply a dispense run's per-code outcome: DISPENSED codes leave the list;
- *  failed ones stay (their claims were released — the way back must stay
- *  open). Unknown codes in `outcomes` are ignored. */
+/** Apply a dispense run's per-code outcome. ONE loaded outcome clears ONE leg
+ *  of that code — never all of them: the server spends a single gz item per
+ *  claim (`claimNativeVoucher` takes "the FIRST unspent Game Zone item"), so a
+ *  voucher carrying two card legs is owed a second run and its remaining leg
+ *  must keep the way-back tile alive. Failed outcomes clear nothing (their
+ *  claims were released). Unknown codes in `outcomes` are ignored. */
 export function clearDispensedCards(
   prev: PendingGzCard[],
   outcomes: { code: string; loaded: boolean }[],
 ): PendingGzCard[] {
-  return prev.filter((p) => !outcomes.some((o) => o.code === p.code && o.loaded));
+  const spent = new Map<string, number>();
+  for (const o of outcomes) {
+    if (o.loaded) spent.set(o.code, (spent.get(o.code) ?? 0) + 1);
+  }
+  const next: PendingGzCard[] = [];
+  for (const c of prev) {
+    const n = spent.get(c.code) ?? 0;
+    if (n > 0) {
+      spent.set(c.code, n - 1); // this leg's card just came out
+      continue;
+    }
+    next.push(c);
+  }
+  return next;
 }

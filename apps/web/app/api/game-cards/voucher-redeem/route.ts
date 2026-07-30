@@ -3,9 +3,9 @@ import { VoucherRedeemSchema } from "~/features/game-cards/schemas";
 import {
   claimAnyVoucher,
   releaseAnyVoucher,
+  validateAnyVoucher,
 } from "~/features/game-cards/service/voucher-redeem-router";
 import { redeemVoucherToCard } from "~/features/game-cards/service/voucher-to-card";
-import { validateNativeVoucher } from "~/features/game-cards/service/native-voucher";
 import { GameCardHttpError, jsonOk, toErrorResponse } from "~/features/game-cards/errors";
 import { getClientIp } from "@/lib/admin-auth";
 import redis from "@/lib/redis";
@@ -71,7 +71,10 @@ export async function POST(req: NextRequest) {
 
     if (parsed.data.action === "validate") {
       // Non-destructive: the guest is still adding vouchers to the basket.
-      return jsonOk({ ...(await validateNativeVoucher(parsed.data.code)) });
+      // Issuer-routed like claims — a PARKED BMI comp answers "unsupported"
+      // here so the kiosk routes to Guest Services at scan time instead of
+      // promising a card the dispenser will refuse.
+      return jsonOk({ ...(await validateAnyVoucher(parsed.data.code)) });
     }
 
     if (parsed.data.action === "to-card") {

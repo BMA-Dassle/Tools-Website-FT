@@ -25,6 +25,7 @@ import { BMI_VOUCHER_RE } from "~/features/booking/service/voucher-redeem";
 import {
   claimNativeVoucher,
   releaseNativeVoucher,
+  validateNativeVoucher,
   type NativeVoucherRefusal,
 } from "./native-voucher";
 import {
@@ -54,6 +55,27 @@ export function voucherIssuerFor(code: string): VoucherIssuer | null {
   if (isNativeVoucherCode(code)) return "native";
   if (BMI_VOUCHER_RE.test(code.trim().toUpperCase())) return "bmi";
   return null;
+}
+
+/**
+ * Non-destructive validate, issuer-routed the same way claims are. Validate
+ * used to be native-only, so a BMI-shaped comp read as `bad_format` AFTER the
+ * coupon screen had already promised the guest a card — and BMI comps are
+ * PARKED anyway (owner 2026-07-29, `GZ_VOUCHER_BMI`), so the kiosk needs the
+ * honest answer at SCAN time to route the guest to Guest Services instead.
+ * With the park flag lifted this answers ok optimistically — the claim (which
+ * peeks BMI and maps the grant) stays the destructive authority.
+ */
+export async function validateAnyVoucher(
+  code: string,
+): Promise<{ ok: boolean; reason?: string; label?: string; items?: unknown[] }> {
+  const issuer = voucherIssuerFor(code);
+  if (issuer === "native") return validateNativeVoucher(code);
+  if (issuer === "bmi") {
+    if (process.env.GZ_VOUCHER_BMI !== "1") return { ok: false, reason: "unsupported" };
+    return { ok: true, label: "Game Zone card comp" };
+  }
+  return { ok: false, reason: "bad_format" };
 }
 
 export async function claimAnyVoucher(input: {

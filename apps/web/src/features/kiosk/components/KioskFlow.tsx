@@ -381,14 +381,11 @@ export function KioskFlow({
    *  with the guest session (Start Over remounts this component). */
   const [pendingGzCards, setPendingGzCards] = useState<PendingGzCard[]>([]);
   const addPendingGzCards = useCallback((cards: PendingGzCard[]) => {
-    setPendingGzCards((prev) => {
-      const next = addPendingCards(prev, cards);
-      if (next !== prev) {
-        console.log(`[kiosk] gz cards pending +${next.length - prev.length} (=${next.length})`);
-        clarityTag("kiosk_gz_pending", String(next.length));
-      }
-      return next;
-    });
+    // Log OUTSIDE the updater — updaters must stay pure (StrictMode runs them
+    // twice; a clarity tag inside fired twice per add).
+    console.log(`[kiosk] gz card legs scanned: ${cards.map((c) => c.code).join(", ")}`);
+    clarityEvent("kiosk:receipt:add-cards");
+    setPendingGzCards((prev) => addPendingCards(prev, cards));
   }, []);
   // Coupon / voucher code entry (owner 2026-07-27) — flag-gated screen off the
   // category chooser; ?kioskPromo=1 is the dark-flag preview opt-in.

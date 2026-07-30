@@ -39,6 +39,25 @@ describe("clearDispensedCards", () => {
     ).toEqual([B]);
   });
 
+  it("one loaded outcome clears ONE leg of a multi-card voucher, not all", () => {
+    // The server spends one gz item per claim — the second leg is still owed
+    // and must keep the pending tile alive.
+    const twoLegs = [A, { code: "HPW-A", tokens: 100 }];
+    expect(clearDispensedCards(twoLegs, [{ code: "HPW-A", loaded: true }])).toEqual([
+      { code: "HPW-A", tokens: 100 },
+    ]);
+  });
+
+  it("two loaded outcomes for the same code clear two legs", () => {
+    const twoLegs = [A, { code: "HPW-A", tokens: 100 }, B];
+    expect(
+      clearDispensedCards(twoLegs, [
+        { code: "HPW-A", loaded: true },
+        { code: "HPW-A", loaded: true },
+      ]),
+    ).toEqual([B]);
+  });
+
   it("ignores outcomes for codes not in the list (GZ walk-up baskets)", () => {
     expect(clearDispensedCards([A], [{ code: "HPW-Z", loaded: true }])).toEqual([A]);
   });

@@ -344,6 +344,17 @@ export function KioskGameZone({
   const [voucherTyped, setVoucherTyped] = useState("");
   const [voucherMsg, setVoucherMsg] = useState<string | null>(null);
   const [voucherBasket, setVoucherBasket] = useState<VoucherBasketRow[]>([]);
+  /** Live mirror of the basket for ASYNC code — the seed loop and the redeem
+   *  run's finally both execute inside one closure whose `voucherBasket` is a
+   *  snapshot; guards (duplicate / MAX per run) and the outcome report must
+   *  see the CURRENT rows. Kept in sync by every setVoucherBasket below. */
+  const voucherBasketRef = useRef<VoucherBasketRow[]>([]);
+  const updateBasket = (fn: (rows: VoucherBasketRow[]) => VoucherBasketRow[]) =>
+    setVoucherBasket((rows) => {
+      const next = fn(rows);
+      voucherBasketRef.current = next;
+      return next;
+    });
   /** The claim being fulfilled RIGHT NOW (we dispense strictly one at a time,
    *  because the reader holds one card at a time). Present = that voucher is
    *  spent unless we release it. */
@@ -351,7 +362,7 @@ export function KioskGameZone({
   /** Guards scans + taps against re-entry. */
   const voucherBusyRef = useRef(false);
   const setBasketRow = (code: string, patch: Partial<VoucherBasketRow>) =>
-    setVoucherBasket((rows) => rows.map((r) => (r.code === code ? { ...r, ...patch } : r)));
+    updateBasket((rows) => rows.map((r) => (r.code === code ? { ...r, ...patch } : r)));
 
   // Local bridge status chip (staff-facing, guest-benign): green = loads hit
   // the local card system instantly; amber = cloud path (slower to the floor).
@@ -1045,11 +1056,14 @@ export function KioskGameZone({
     if (voucherBusyRef.current || voucherPhase !== "entry") return null;
     const code = classifyKioskCode(raw).value;
     if (!code) return null;
-    if (voucherBasket.some((r) => r.code === code)) {
+    // Guards read the REF, not the render snapshot: the seed loop adds several
+    // codes inside one closure, where `voucherBasket` is frozen at [] and the
+    // duplicate/cap checks would never trip.
+    if (voucherBasketRef.current.some((r) => r.code === code)) {
       setVoucherMsg(t("gamezone.voucher.err.alreadyAdded"));
       return null;
     }
-    if (voucherBasket.length >= MAX_VOUCHERS_PER_RUN) {
+    if (voucherBasketRef.current.length >= MAX_VOUCHERS_PER_RUN) {
       setVoucherMsg(t("gamezone.voucher.err.tooMany", { n: MAX_VOUCHERS_PER_RUN }));
       return null;
     }
@@ -1075,7 +1089,7 @@ export function KioskGameZone({
       }
       console.log(`[kiosk] gz voucher validated: ${code} (${data.label ?? "?"})`);
       const row = { code, label: data.label ?? "", status: "ready" as const };
-      setVoucherBasket((rows) => [...rows, row]);
+      updateBasket((rows) => [...rows, row]);
       return row;
     } catch {
       setVoucherMsg(t("gamezone.voucher.err.generic"));
@@ -1086,7 +1100,7 @@ export function KioskGameZone({
   };
 
   const removeFromBasket = (code: string) =>
-    setVoucherBasket((rows) => rows.filter((r) => r.code !== code));
+    updateBasket((rows) => rows.filter((r) => r.code !== code));
 
   /**
    * "Get my cards" — claim + dispense + credit each voucher in turn.
@@ -1099,9 +1113,9 @@ export function KioskGameZone({
    * dispense, so an abandoned basket leaves nothing spent.
    */
   const redeemBasket = async (queueOverride?: VoucherBasketRow[]) => {
-    // `queueOverride` = rows the seed effect JUST added — the state update may
-    // not have committed into this closure's `voucherBasket` yet.
-    const source = queueOverride ?? voucherBasket;
+    // `queueOverride` = rows the seed effect JUST added; otherwise read the
+    // ref so a click closure can't act on a stale snapshot.
+    const source = queueOverride ?? voucherBasketRef.current;
     if (voucherBusyRef.current || source.length === 0) return;
     voucherBusyRef.current = true;
     setVoucherMsg(null);
@@ -1170,12 +1184,12 @@ export function KioskGameZone({
       // The screen reports per row, so land on `done` whenever anything worked
       // and only on `error` when NOTHING did. The outcome callback lets the
       // flow drop DISPENSED codes from its pending list (failed ones stay —
-      // their claims were released, so the way back must stay open).
-      setVoucherBasket((rows) => {
-        setVoucherPhase(rows.some((r) => r.status === "loaded") ? "done" : "error");
-        onVoucherOutcome?.(rows.map((r) => ({ code: r.code, loaded: r.status === "loaded" })));
-        return rows;
-      });
+      // their claims were released, so the way back must stay open). Read the
+      // REF — calling the parent inside a state updater ran it during render
+      // (and twice under StrictMode).
+      const rows = voucherBasketRef.current;
+      setVoucherPhase(rows.some((r) => r.status === "loaded") ? "done" : "error");
+      onVoucherOutcome?.(rows.map((r) => ({ code: r.code, loaded: r.status === "loaded" })));
     }
   };
 
@@ -1859,7 +1873,7 @@ export function KioskGameZone({
                 // never-started run starts clean.
                 if (voucherPhase !== "entry" || voucherBasket.length === 0) {
                   setVoucherPhase("entry");
-                  setVoucherBasket([]);
+                  updateBasket(() => []);
                 }
                 setVoucherTyped("");
                 setVoucherMsg(null);
