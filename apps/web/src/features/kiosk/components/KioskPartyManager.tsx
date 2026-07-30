@@ -205,6 +205,19 @@ export function peopleReady(party: PartyMember[], ids: string[]): true | { reaso
   return true;
 }
 
+/** Patch for the member whose waiver just completed. Under sign-time resolution the
+ *  guardian lives only in `guardianFlow` until this moment — record the link on the
+ *  MINOR too, or peopleReady keeps demanding a guardian pick that already happened
+ *  and the flow can never reach its done state (live /waiver, 2026-07-30). */
+export function waiverCompletePatch(
+  memberId: string,
+  guardianFlow: { minorMemberId: string; guardianId?: string } | null,
+): Partial<PartyMember> {
+  return guardianFlow?.minorMemberId === memberId && guardianFlow.guardianId
+    ? { waiverValid: true, guardianMemberId: guardianFlow.guardianId }
+    : { waiverValid: true };
+}
+
 type FormState = { mode: "new" } | { mode: "setup"; member: PartyMember } | null;
 
 /** A linked-family suggestion (opt-in — NOT auto-added to the party). */
@@ -933,13 +946,18 @@ export function KioskPartyManager({
     }
     const minor = age < 18;
     const gid = member.guardianMemberId || guardianId;
-    if (minor && adults.filter((a) => a.id !== member.id).length === 0) {
-      setFormError(t("party.err.needAdult"));
-      return;
-    }
-    if (minor && !gid) {
-      setFormError(t("party.err.pickGuardian"));
-      return;
+    // sign-time resolution: same rule as submitNew — the guardian is found when the
+    // waiver needs signing. Demanding a pick here dead-ended every minor, because
+    // the picker itself is hidden under sign-time (live /waiver, 2026-07-30).
+    if (!signTimeGuardian) {
+      if (minor && adults.filter((a) => a.id !== member.id).length === 0) {
+        setFormError(t("party.err.needAdult"));
+        return;
+      }
+      if (minor && !gid) {
+        setFormError(t("party.err.pickGuardian"));
+        return;
+      }
     }
     setBusyAll(true);
     setFormError(null);
@@ -995,7 +1013,7 @@ export function KioskPartyManager({
         const rAge = ageFromIso(refreshedIso) ?? age;
         const rMinor = rAge < 18;
         const rGid = member.guardianMemberId || guardianId;
-        if (rMinor && !rGid) {
+        if (!signTimeGuardian && rMinor && !rGid) {
           // The typed DOB said adult so the top-of-function guardian gate
           // never fired — re-gate on the refreshed age (form stays open).
           setFormError(t("party.err.pickGuardian"));
@@ -1015,6 +1033,17 @@ export function KioskPartyManager({
         });
         resetForm();
         if (template) {
+          if (signTimeGuardian && rMinor) {
+            // Sign-time: the signer is found at the WAIVER, not on this form.
+            // Route through openWaiverFor's guardianFlow interception — the
+            // direct setWaiverFor below would let the minor self-sign.
+            await openWaiverFor(
+              { ...member, isMinor: rMinor, guardianMemberId: rGid || undefined },
+              sid,
+              template,
+            );
+            return;
+          }
           // A minor never self-signs. This branch has no create to attach
           // guardianID to (that was the duplicate-minting path), so the
           // guardian rides the WAIVER instead as Pandora sigPersonID — same
@@ -2191,7 +2220,13 @@ export function KioskPartyManager({
                         });
                         return;
                       }
-                      onUpdateMember(waiverFor.memberId, { waiverValid: true });
+                      // Sign-time chain: also record the resolved guardian on the
+                      // minor (waiverCompletePatch) — peopleReady demands it, and
+                      // without it the flow can never reach its done state.
+                      onUpdateMember(
+                        waiverFor.memberId,
+                        waiverCompletePatch(waiverFor.memberId, guardianFlow),
+                      );
                       onWaiverSigned?.({
                         memberId: waiverFor.memberId,
                         personId: waiverFor.personId,

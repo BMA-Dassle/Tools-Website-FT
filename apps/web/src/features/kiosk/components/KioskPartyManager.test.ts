@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { newPartyMember, type PartyMember } from "~/features/booking/state/types";
-import { needsSetup, peopleReady, shortPandoraId } from "./KioskPartyManager";
+import { needsSetup, peopleReady, shortPandoraId, waiverCompletePatch } from "./KioskPartyManager";
 
 /** Build a PartyMember, spreading overrides that newPartyMember doesn't accept
  *  (e.g. pandoraPersonId). */
@@ -57,6 +57,58 @@ describe("peopleReady", () => {
     const inA = member({ firstName: "In", bmiPersonId: "1", waiverValid: true });
     const outB = member({ firstName: "Out" }); // not ready, but not included
     expect(peopleReady([inA, outB], [inA.id])).toBe(true);
+  });
+
+  it("blocks a minor whose guardianMemberId is the EMPTY STRING (sign-time pre-sign state)", () => {
+    // Under sign-time resolution submitNew stores guardianId="" on the minor —
+    // this is the state waiverCompletePatch exists to repair at sign-complete.
+    const kid = member({
+      firstName: "Kit",
+      bmiPersonId: "1",
+      waiverValid: true,
+      isMinor: true,
+      guardianMemberId: "",
+    });
+    expect(peopleReady([kid], [kid.id])).not.toBe(true);
+  });
+});
+
+describe("waiverCompletePatch (sign-time guardian lands on the minor)", () => {
+  it("records the resolved guardian when the completed waiver is the chain's minor", () => {
+    expect(waiverCompletePatch("kid-1", { minorMemberId: "kid-1", guardianId: "g-1" })).toEqual({
+      waiverValid: true,
+      guardianMemberId: "g-1",
+    });
+  });
+
+  it("does not touch guardianMemberId for the guardian's OWN waiver in the same chain", () => {
+    expect(waiverCompletePatch("g-1", { minorMemberId: "kid-1", guardianId: "g-1" })).toEqual({
+      waiverValid: true,
+    });
+  });
+
+  it("does not touch guardianMemberId outside a chain, or when the signer never resolved", () => {
+    expect(waiverCompletePatch("kid-1", null)).toEqual({ waiverValid: true });
+    expect(waiverCompletePatch("kid-1", { minorMemberId: "kid-1" })).toEqual({
+      waiverValid: true,
+    });
+  });
+
+  it("the patched minor passes peopleReady — the /waiver flow can finish (2026-07-30)", () => {
+    // The exact live regression: kid signed via the sign-time chain, guardian is a
+    // signer-only adult (NOT in the party), guardianMemberId still "".
+    const kid = member({
+      firstName: "Kid",
+      bmiPersonId: "2",
+      waiverValid: false,
+      isMinor: true,
+      guardianMemberId: "",
+    });
+    const patched = {
+      ...kid,
+      ...waiverCompletePatch(kid.id, { minorMemberId: kid.id, guardianId: "signer-only-adult" }),
+    };
+    expect(peopleReady([patched], [patched.id])).toBe(true);
   });
 });
 
