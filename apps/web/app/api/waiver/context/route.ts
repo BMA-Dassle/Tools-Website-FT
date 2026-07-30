@@ -36,6 +36,27 @@ export const dynamic = "force-dynamic";
 
 const DIGIT_ID = /^\d+$/;
 const CACHE_TTL_SECONDS = 120;
+const COUNT_CACHE_TTL_SECONDS = 60;
+/**
+ * The signed count costs one Pandora read per REGISTERED person (concurrency 5),
+ * and real group events are big — the 2026-12-18 Fireservice event has 100. That
+ * is ~20 sequential rounds inside the request that draws the event header, so it
+ * gets a hard deadline: the header (name + when) must never wait on a count.
+ *
+ * Missing the deadline is not a failure. The per-person results are cached as they
+ * land, so the sweep keeps warming and a later load shows the number. The count is
+ * cached separately from the summary for exactly this reason — a slow count must
+ * not poison the summary's cache entry with a permanently absent `signed`.
+ */
+const COUNT_DEADLINE_MS = 2_500;
+
+/** Resolve to undefined rather than hang past `ms`. */
+function withDeadline<T>(work: Promise<T>, ms: number): Promise<T | undefined> {
+  return Promise.race([
+    work,
+    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), ms)),
+  ]);
+}
 
 const LOCATION_NAMES: Record<number, string> = {
   467486: "FastTrax Fort Myers",
@@ -74,9 +95,20 @@ export async function GET(req: NextRequest) {
   }
 
   const cacheKey = `waiver:ctx:${locationId}:${projectId}`;
-  const cached = await redis.get(cacheKey).catch(() => null);
+  const countKey = `waiver:ctx:signed:${locationId}:${projectId}`;
+  const [cached, cachedCount] = await Promise.all([
+    redis.get(cacheKey).catch(() => null),
+    redis.get(countKey).catch(() => null),
+  ]);
+  const cachedSigned =
+    typeof cachedCount === "string" && /^\d+$/.test(cachedCount) ? Number(cachedCount) : undefined;
+
   if (typeof cached === "string" && cached) {
-    return new NextResponse(cached, {
+    // Summary is cached; merge in whatever the count cache knows right now. A
+    // fresh count can appear on a later load without re-fetching the summary.
+    const summary = JSON.parse(cached) as Record<string, unknown>;
+    if (cachedSigned !== undefined) summary.signed = cachedSigned;
+    return new NextResponse(JSON.stringify(summary), {
       status: 200,
       headers: { "content-type": "application/json", "x-waiver-cache": "hit" },
     });
@@ -120,28 +152,45 @@ export async function GET(req: NextRequest) {
     const pandoraLocationId =
       PANDORA_LOCATION_MAP[BMI_LOCATION_TO_PANDORA_KEY[locationId] ?? ""] ||
       PANDORA_DEFAULT_LOCATION_ID;
-    const validFlags = await mapWithConcurrency(registered, WAIVER_CHECK_CONCURRENCY, (p) =>
-      waiverValidNow(p.personId, pandoraLocationId),
-    );
-    const signed = unionValidWithJoins(registered, validFlags, joins).length;
-
     const total = detail.persons ?? 0;
-    const body = JSON.stringify({
+
+    // The summary is what the header needs; it is cached on its own so a slow
+    // count can never keep the event name and date off the screen.
+    const summary = {
       ok: true,
       label,
       activity: activities.join(" · ") || null,
       whenLabel: formatWhen(detail.when),
       centerName: LOCATION_NAMES[locationId] ?? "",
       total,
-      // Never claim more signed than registered — the join union can exceed the
-      // BMI headcount when someone signs who was never added to the reservation.
-      signed: Math.min(signed, total || signed),
-    });
-    redis.setex(cacheKey, CACHE_TTL_SECONDS, body).catch(() => {});
-    return new NextResponse(body, {
-      status: 200,
-      headers: { "content-type": "application/json", "x-waiver-cache": "miss" },
-    });
+    };
+    redis.setex(cacheKey, CACHE_TTL_SECONDS, JSON.stringify(summary)).catch(() => {});
+
+    let signed = cachedSigned;
+    if (signed === undefined) {
+      const counted = await withDeadline(
+        mapWithConcurrency(registered, WAIVER_CHECK_CONCURRENCY, (p) =>
+          waiverValidNow(p.personId, pandoraLocationId),
+        ).then((flags) => unionValidWithJoins(registered, flags, joins).length),
+        COUNT_DEADLINE_MS,
+      );
+      if (counted !== undefined) {
+        // Never claim more signed than registered — the join union can exceed the
+        // BMI headcount when someone signs who was never added to the reservation.
+        signed = Math.min(counted, total || counted);
+        redis.setex(countKey, COUNT_CACHE_TTL_SECONDS, String(signed)).catch(() => {});
+      }
+    }
+
+    // `signed` is OMITTED when the count didn't land in time — the card then shows
+    // "100 registered" with no fraction, rather than a confident, wrong "0 of 100".
+    return new NextResponse(
+      JSON.stringify(signed === undefined ? summary : { ...summary, signed }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json", "x-waiver-cache": "miss" },
+      },
+    );
   } catch (err) {
     console.error("[waiver-context] error:", err);
     return NextResponse.json({ ok: false, error: "Failed to load reservation" }, { status: 502 });

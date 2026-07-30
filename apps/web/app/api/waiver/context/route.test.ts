@@ -107,6 +107,27 @@ describe("GET /api/waiver/context", () => {
     }
   });
 
+  it("omits `signed` rather than reporting 0 when the count cannot be produced", async () => {
+    // A count that never resolves must not hold up the header, and must not be
+    // rendered as a confident "0 of 100".
+    mockDetail.mockResolvedValue(
+      detail({
+        name: "Big Event",
+        persons: 100,
+        persons_list: [
+          { personId: "1", firstName: "A", name: "One" },
+        ] as unknown as ReservationDetail["persons_list"],
+      }),
+    );
+    mockValid.mockImplementation(() => new Promise<boolean>(() => {})); // never settles
+    const res = await GET(makeReq("?c=fort-myers&loc=467486&pid=51383608"));
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    expect(body.label).toBe("Big Event"); // header still renders
+    expect(body.total).toBe(100);
+    expect("signed" in body).toBe(false);
+  }, 10_000);
+
   it("never reports more signed than registered", async () => {
     mockDetail.mockResolvedValue(detail({ name: "Small Party", persons: 1, persons_list: [] }));
     mockJoins.mockResolvedValue([

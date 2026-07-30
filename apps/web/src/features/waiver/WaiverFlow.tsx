@@ -384,9 +384,13 @@ function EventInfoCard({ ctx }: { ctx: WaiverContextSummary | null }) {
           Room · Duck Lane 1 · …", 14 entries on a real event) is deliberately
           NOT here — it was noise, not information, for someone signing. */}
       {!!ctx?.whenLabel && <p className="k-num mt-1 text-sm">{ctx.whenLabel}</p>}
+      {/* No fraction until the count is actually known — "0 of 100" would read as
+          "nobody has signed" when it really means "we haven't counted yet". */}
       {!!ctx?.total && (
         <p className="k-num mt-1 text-xs text-[var(--k-dim)]">
-          {ctx.signed ?? 0} of {ctx.total} registered
+          {ctx.signed === undefined
+            ? `${ctx.total} registered`
+            : `${ctx.signed} of ${ctx.total} registered`}
         </p>
       )}
     </section>
