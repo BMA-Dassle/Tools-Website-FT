@@ -216,9 +216,14 @@ export function WaiverFlow({
     <>
       <WaiverHead
         brand={brand}
+        // Reservation mode: WHEN and WHERE only. The activity list is a raw BMI
+        // resource list and runs long — a real group event came back with 14
+        // resources ("FT VIP Room · FT Room 2 · Duck Lane 1 · …"), which buried
+        // the title under a wall of text on a phone. It lives in the card below,
+        // clamped.
         subtitle={
           reservation
-            ? [ctx?.activity, ctx?.whenLabel, ctx?.centerName].filter(Boolean).join(" · ") ||
+            ? [ctx?.whenLabel, ctx?.centerName].filter(Boolean).join(" · ") ||
               "Loading reservation…"
             : standaloneCenterName(brand, center)
         }
@@ -291,6 +296,11 @@ function EventInfoCard({ ctx }: { ctx: WaiverContextSummary | null }) {
     <section className="k-glass mb-5 px-4 py-3">
       <div className="k-eyebrow">Signing for</div>
       <p className="k-display mt-1 text-base">{ctx?.label ?? "Your reservation"}</p>
+      {/* Raw BMI resource list — clamped to two lines the way the kiosk clamps
+          k-util-help, so a 14-resource event stays a card and not a page. */}
+      {!!ctx?.activity && (
+        <p className="mt-1 line-clamp-2 text-xs text-[var(--k-dim)]">{ctx.activity}</p>
+      )}
       {!!ctx?.total && (
         <p className="k-num mt-1 text-xs text-[var(--k-dim)]">
           {ctx.total} {ctx.total === 1 ? "guest" : "guests"} on this reservation
