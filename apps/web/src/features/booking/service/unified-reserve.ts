@@ -77,9 +77,15 @@ import {
   planVoucherCoverage,
   sessionVouchers,
   voucherIsApplied,
+  voucherTarget,
   VoucherNotVerifiedError,
 } from "./voucher-redeem";
 import { getAppliedVouchersForBill, markVoucherCharged } from "../data/voucher-redemptions-db";
+import {
+  claimNativeCartVouchers,
+  markNativeCartVouchersCharged,
+  type NativeCartVoucherRef,
+} from "~/features/game-cards/service/native-cart-vouchers";
 import { activeComboSpecial, comboOrderGroups } from "~/features/combos/combo-pricing";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { wallClockMs } from "~/features/combos/combo-itinerary";
@@ -855,11 +861,17 @@ async function unifiedReserveInner(
     // charge session. Every APPLIED one must be backed by a ledger row WE
     // wrote for THIS bill, else the reserve hard-fails.
     const kept = sessionVouchers(input.session).filter(
-      (v) => voucherIsApplied(v) && !!billId && v.billId === billId,
+      (v) =>
+        voucherIsApplied(v) &&
+        // Native vouchers carry no BMI bill — they're verified by the
+        // charge-time claim below, not the BMI ledger. BMI vouchers still must
+        // match the bill WE wrote a ledger row for.
+        (v.issuer === "native" || (!!billId && v.billId === billId)),
     );
-    if (kept.length > 0) {
+    const bmiKept = kept.filter((v) => v.issuer !== "native");
+    if (bmiKept.length > 0) {
       const rows = await getAppliedVouchersForBill(billId!).catch(() => []);
-      for (const v of kept) {
+      for (const v of bmiKept) {
         const row = rows.find(
           (r) => r.code === v.code && r.voucherOrderItemId === v.voucherOrderItemId,
         );
@@ -880,6 +892,35 @@ async function unifiedReserveInner(
   // Deterministic idempotency seed — same session anchor → same Square keys on
   // every retry, so all 7 keys replay the SAME order / payment / gift card.
   const baseKey = seedSource ? reserveBaseKey(seedSource) : randomBytes(8).toString("hex");
+
+  // ── Native voucher claim — charge-time, single use ───────────────────
+  // Race/attraction items on OUR (HPW) vouchers reduce THIS charge:
+  // planVoucherCoverage has already excluded the heat / dropped the attraction
+  // qty from pricing above. Claim them atomically HERE — after pricing, before
+  // any money moves — so:
+  //   • a code already spent by another checkout HARD-FAILS before the charge
+  //     (never a silent full charge — displayed==charged),
+  //   • retries of THIS reserve reuse their own claim (idempotent on baseKey),
+  //   • an abandoned checkout leaves the claim recoverable, never a double spend.
+  // Game-zone items never reach here — voucherTarget()==="gamecard" prices
+  // nothing and they're fulfilled on the dispense rail instead.
+  const nativeVoucherRefs: NativeCartVoucherRef[] = sessionVouchers(session)
+    .filter((v) => voucherIsApplied(v) && v.issuer === "native" && typeof v.itemIndex === "number")
+    .filter((v) => {
+      const k = voucherTarget(v.name).kind;
+      return k === "race" || k === "attraction";
+    })
+    .map((v) => ({ code: v.code, itemIndex: v.itemIndex as number, name: v.name }));
+  let nativeClaimed: NativeCartVoucherRef[] = [];
+  if (nativeVoucherRefs.length > 0) {
+    const claimRes = await claimNativeCartVouchers({
+      vouchers: nativeVoucherRefs,
+      baseKey,
+      locationCode: 0, // audit-only for cart vouchers (no Intercard leg)
+    });
+    if (!claimRes.ok) throw new VoucherNotVerifiedError(claimRes.conflictCode);
+    nativeClaimed = claimRes.claimed;
+  }
 
   // ── Bookability guard: drop legs QAMF could never accept ───────────
   // A bowling/KBF leg needs a lane hold OR a picked slot (bookedAt + webOfferId).
@@ -1589,10 +1630,18 @@ async function unifiedReserveInner(
   // processing — this is OUR trail, soft-fail like every post-capture stamp).
   if (session.bmiBillId) {
     for (const v of sessionVouchers(session).filter(voucherIsApplied)) {
+      if (v.issuer === "native") continue; // native stamped below (no BMI ledger)
       await markVoucherCharged(session.bmiBillId, v.code).catch((err) =>
         console.error("[voucher] markVoucherCharged failed (non-fatal):", err),
       );
     }
+  }
+  // Native cart vouchers: the claim already holds them single-use; this is the
+  // audit stamp that they were spent on a captured booking (soft-fail).
+  if (nativeClaimed.length > 0) {
+    await markNativeCartVouchersCharged(nativeClaimed).catch((err) =>
+      console.error("[voucher] markNativeCartVouchersCharged failed (non-fatal):", err),
+    );
   }
 
   // ── Record the USA250 redemption (idempotent, soft-fail) ──────────

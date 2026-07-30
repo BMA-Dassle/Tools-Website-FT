@@ -77,7 +77,12 @@ export function sessionVouchers(session: BookingSession): AppliedVoucherState[] 
 
 /** True once a voucher is actually ON a BMI bill (comp line exists). */
 export function voucherIsApplied(v: AppliedVoucherState | null | undefined): boolean {
-  return !!v && !v.pending && !v.error && !!v.billId && !!v.voucherOrderItemId;
+  if (!v || v.pending || v.error) return false;
+  // Native vouchers are "applied" without a BMI bill — the coverage plan prices
+  // them from `name` + `itemIndex`, and the reserve claims them at charge. BMI
+  // vouchers still require the bill + comp-line id exactly as before.
+  if (v.issuer === "native") return typeof v.itemIndex === "number";
+  return !!v.billId && !!v.voucherOrderItemId;
 }
 
 /**

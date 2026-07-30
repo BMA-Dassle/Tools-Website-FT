@@ -47,9 +47,17 @@ import type { AppliedPromo } from "~/features/discount-codes";
  * service/voucher-redeem.ts for the redemption model and coverage math).
  */
 export interface AppliedVoucherState {
-  /** The voucher number, uppercased (24-char BMI format). */
+  /** The voucher number, uppercased. */
   code: string;
-  /** BMI comp line name (e.g. "Race Comp") — known once applied to the bill. */
+  /**
+   * Who issued it. Absent = "bmi" (every pre-existing row), so the BMI path is
+   * unchanged. "native" = our own HPW voucher, covered on OUR side at charge
+   * (no BMI bill, no applyCode) and made single-use by voucher_claims.
+   */
+  issuer?: "bmi" | "native";
+  /** Native only: which item on the code this applied line spends. */
+  itemIndex?: number;
+  /** Comp/line name (e.g. "Race Comp") — drives voucherTarget() coverage. */
   name?: string;
   /** Bill the comp line landed on — set once applied (not pending). */
   billId?: string;

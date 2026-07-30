@@ -68,6 +68,13 @@ const raceVoucher = (code: string) => ({
   voucherOrderItemId: `9${code.length}00`,
 });
 const laserVoucher = (code: string) => ({ ...raceVoucher(code), name: "Laser Comp" });
+/** A NATIVE (HPW) applied voucher — no BMI bill, applied via issuer+itemIndex. */
+const nativeRaceVoucher = (code: string) => ({
+  code,
+  issuer: "native" as const,
+  itemIndex: 0,
+  name: "Race",
+});
 const gameCardVoucher = (code: string) => ({
   ...raceVoucher(code),
   name: "Complimentary 100 Token Game Card",
@@ -287,5 +294,28 @@ describe("voucherDisplayName (real BMI comp names, live 2026-07-28)", () => {
       "A very long unmapped comp…",
     );
     expect(voucherDisplayName(undefined)).toBe("Voucher");
+  });
+});
+
+describe("native vouchers cover the cart (no BMI bill)", () => {
+  it("a native race voucher covers a heat via the SAME coverage plan", () => {
+    // The whole point of issuer-aware voucherIsApplied: native vouchers price
+    // exactly like BMI ones, just without a bill/comp-line id.
+    const h1 = heat("2026-07-29T18:00:00");
+    const plan = planVoucherCoverage(
+      makeSession([raceItem([h1])], [nativeRaceVoucher("HPW4K7M9PQR")]),
+      new Set(),
+    );
+    expect(plan.raceHeats.size).toBe(1);
+    expect(plan.picks[0].raceHeat).toBeDefined();
+  });
+
+  it("a native voucher still pending (no itemIndex) prices nothing", () => {
+    const h1 = heat("2026-07-29T18:00:00");
+    const plan = planVoucherCoverage(
+      makeSession([raceItem([h1])], [{ code: "HPW4K7M9PQR", issuer: "native", pending: true }]),
+      new Set(),
+    );
+    expect(plan.raceHeats.size).toBe(0);
   });
 });
