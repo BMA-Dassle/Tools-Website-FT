@@ -33,8 +33,10 @@ import { sql, isDbConfigured } from "@/lib/db";
  * picks unresolved rows oldest-attempt first, calls
  * `/api/pandora/deposit` for each. On success: marks resolved.
  * On failure: bumps `attempts`, records `last_error`, sets
- * `last_attempt_at`. No exponential backoff — BMA outages are
- * usually short and 5-min granularity is fine.
+ * `last_attempt_at`. Retries back off as `attempts` climbs and STOP at
+ * MAX_RETRY_ATTEMPTS — see the note there; the original "no backoff,
+ * retry forever" assumption held only for transient BMA outages, and
+ * cost ~82,000 upstream calls on 9 rows that could never succeed.
  */
 
 export type DepositFailureSource =
@@ -173,9 +175,30 @@ export async function enqueueDepositFailure(params: EnqueueParams): Promise<void
   }
 }
 
-/** Fetch the next batch of unresolved failures for the sweep cron.
- *  Oldest-attempt-first so a stuck row doesn't get starved. */
-export async function listUnresolved(limit: number = 50): Promise<DepositFailureRow[]> {
+/**
+ * After this many failed attempts a row is PARKED: still unresolved (the admin
+ * list and the money owed are untouched) but no longer retried, because at that
+ * point it is not a transient upstream blip — it needs a human.
+ *
+ * Set from real data on 2026-07-30: the sweep had 9 rows at 4,122–19,114 attempts
+ * each (~82,000 upstream calls, the oldest retrying every 5 minutes since May 24)
+ * while 77 other rows resolved within a handful of tries. Every one of the 9
+ * pointed at a Pandora person that returns 404 "No person found with that ID", so
+ * the deposit could never succeed — and /bmi/deposit reports it as a generic
+ * 500, which is why the sweep could not tell "later" from "never".
+ */
+export const MAX_RETRY_ATTEMPTS = 25;
+
+/** Fetch the next batch of RETRYABLE failures for the sweep cron.
+ *
+ *  Oldest-attempt-first so a genuinely stuck row isn't starved, but with two
+ *  gates the original query lacked:
+ *    - parked rows (attempts >= MAX_RETRY_ATTEMPTS) are excluded entirely
+ *    - escalating backoff, so even a young row isn't hammered every 5 minutes
+ *
+ *  Deliberately NOT filtered out of the admin views: the guest is still owed the
+ *  credit, so the row must stay visible and unresolved. */
+export async function listRetryable(limit: number = 50): Promise<DepositFailureRow[]> {
   if (!isDbConfigured()) return [];
   await ensureSchema();
   const q = sql();
@@ -185,7 +208,30 @@ export async function listUnresolved(limit: number = 50): Promise<DepositFailure
            resolved_deposit_id, notes
     FROM bmi_deposit_failures
     WHERE resolved_at IS NULL
+      AND attempts < ${MAX_RETRY_ATTEMPTS}
+      AND (
+        last_attempt_at IS NULL
+        OR last_attempt_at < now() - (interval '5 minutes' * LEAST(attempts, 12))
+      )
     ORDER BY last_attempt_at NULLS FIRST, created_at
+    LIMIT ${Math.max(1, Math.min(500, limit))}
+  `;
+  return (rows as Array<Record<string, unknown>>).map(rowToObject);
+}
+
+/** Rows that have given up retrying and are waiting on a human — what the sweep
+ *  should report and an alert/board should show. */
+export async function listParked(limit: number = 100): Promise<DepositFailureRow[]> {
+  if (!isDbConfigured()) return [];
+  await ensureSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT id, source, source_ref, location_id, person_id, deposit_kind_id, amount,
+           attempts, last_attempt_at, last_error, created_at, resolved_at,
+           resolved_deposit_id, notes
+    FROM bmi_deposit_failures
+    WHERE resolved_at IS NULL AND attempts >= ${MAX_RETRY_ATTEMPTS}
+    ORDER BY created_at
     LIMIT ${Math.max(1, Math.min(500, limit))}
   `;
   return (rows as Array<Record<string, unknown>>).map(rowToObject);

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "ioredis";
 import {
-  listUnresolved,
+  listRetryable,
+  listParked,
   recordRetryAttempt,
+  MAX_RETRY_ATTEMPTS,
   type DepositFailureRow,
 } from "@/lib/bmi-deposit-retry";
 import { verifyCron } from "@/lib/cron-auth";
@@ -147,14 +149,36 @@ export async function GET(req: NextRequest) {
     ),
   );
 
-  const rows = await listUnresolved(limit);
+  const rows = await listRetryable(limit);
+  // Parked rows are reported on EVERY run, including the idle one. A row that
+  // gave up is money still owed to a guest; if the quiet path returned early
+  // without mentioning it, giving up would look exactly like being finished.
+  const parked = await listParked();
   if (rows.length === 0) {
+    if (parked.length > 0) {
+      console.warn(
+        `[deposit-retry-sweep] ${parked.length} row(s) PARKED after ${MAX_RETRY_ATTEMPTS} attempts — need a human: ` +
+          parked
+            .map((p) => `#${p.id} person=${p.personId} kind=${p.depositKindId} amount=${p.amount}`)
+            .join("; "),
+      );
+    }
     return NextResponse.json({
       ok: true,
       scanned: 0,
       attempted: 0,
       succeeded: 0,
       failed: 0,
+      parked: parked.length,
+      parkedRows: parked.map((p) => ({
+        id: p.id,
+        source: p.source,
+        personId: p.personId,
+        depositKindId: p.depositKindId,
+        amount: p.amount,
+        attempts: p.attempts,
+        lastError: p.lastError,
+      })),
       dryRun,
     });
   }
@@ -196,8 +220,16 @@ export async function GET(req: NextRequest) {
 
   const elapsedMs = Date.now() - started;
   console.log(
-    `[deposit-retry-sweep] scanned=${rows.length} attempted=${attempted} succeeded=${succeeded} failed=${failed} elapsed=${elapsedMs}ms dryRun=${dryRun}`,
+    `[deposit-retry-sweep] scanned=${rows.length} attempted=${attempted} succeeded=${succeeded} failed=${failed} parked=${parked.length} elapsed=${elapsedMs}ms dryRun=${dryRun}`,
   );
+  if (parked.length > 0) {
+    console.warn(
+      `[deposit-retry-sweep] ${parked.length} row(s) PARKED after ${MAX_RETRY_ATTEMPTS} attempts — need a human: ` +
+        parked
+          .map((p) => `#${p.id} person=${p.personId} kind=${p.depositKindId} amount=${p.amount}`)
+          .join("; "),
+    );
+  }
 
   return NextResponse.json({
     ok: true,
@@ -206,6 +238,7 @@ export async function GET(req: NextRequest) {
     succeeded,
     failed,
     failures: failures.slice(0, 20),
+    parked: parked.length,
     elapsedMs,
     dryRun,
   });
