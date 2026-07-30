@@ -299,8 +299,7 @@ export const en = {
   "codeEntry.apply": "Apply code",
   "codeEntry.back": "‹ Back",
   "codeEntry.checking": "Checking your code…",
-  "codeEntry.applied.title": "Code applied!",
-  "codeEntry.applied.body": "Look for the gold “Code applies” tag as you pick your activities.",
+  // Receipt primary when everything scanned rides the ORDER (vouchers/promo).
   "codeEntry.applied.cta": "Start picking",
   // Per-reason rejections — an unattended guest has no cashier to ask, so the
   // message must say exactly what's wrong (kiosk validation is strict:
@@ -323,18 +322,9 @@ export const en = {
   "codeEntry.gamecard.title": "That’s a Game Zone card",
   "codeEntry.gamecard.body": "Use the Game Zone screen to reload it or check its balance.",
   "codeEntry.gamecard.cta": "Open Game Zone",
-  // A Game Zone card COMP scanned on the coupon screen: it can't reduce the
-  // cart, it dispenses a card — so hand it to the Game Zone screen.
-  "codeEntry.voucherGz.title": "That’s a free game card",
-  "codeEntry.voucherGz.titleNamed": "{name}",
-  "codeEntry.voucherGz.body": "Your card comes out at the Game Zone dispenser — it takes a moment.",
-  "codeEntry.voucherGz.cta": "Get my card",
-  "codeEntry.voucherGz.appliedTitle": "Applied to your order",
-  "codeEntry.voucherGz.appliedBody":
-    "The value comes off at checkout. Scan another voucher to add it.",
-  "codeEntry.voucherGz.appliedCta": "Back to my order",
-  // Receipt (mixed / running list)
-  "codeEntry.voucherGz.receiptTitle": "Your vouchers",
+  // Receipt — the module's ONE hub: every value code (coupon, voucher, comp
+  // game card) lands and lives here.
+  "codeEntry.voucherGz.receiptTitle": "Your codes",
   "codeEntry.voucherGz.printingTitle":
     "{n, plural, one {Your game card} other {Your game cards}}",
   "codeEntry.voucherGz.printingSub": "Comes out at the Game Zone dispenser",
@@ -344,39 +334,36 @@ export const en = {
   "codeEntry.voucherGz.appliedSectionTitle": "On your order",
   "codeEntry.voucherGz.onOrder": "{n} on your order",
   "codeEntry.voucherGz.comesOff": "comes off at checkout",
-  "codeEntry.voucherGz.scanNext": "Scan your next voucher",
-  "codeEntry.voucherGz.scanNextSub": "we’ll add it to the list — coupon codes work here too",
+  // Errored voucher row — the receipt is the ONLY surface that shows these.
+  "codeEntry.voucherGz.rowNeedsHelp": "needs help — see Guest Services",
+  // The "add another" panel — scan and type share one box on the receipt.
+  "codeEntry.voucherGz.scanNext": "Add another voucher or coupon",
+  "codeEntry.voucherGz.scanNextSub": "Scan it under the screen — or type the code:",
   // The session promo shown INLINE on the receipt (a coupon scanned/typed
   // mid-receipt must never replace the guest's card list).
   "codeEntry.voucherGz.promoRow": "applies at checkout",
   // Categories tile back to the receipt while cards are still undispensed.
   "codeEntry.pendingCards.chip":
     "{n, plural, one {Game card to pick up} other {# game cards to pick up}}",
-  // Mixed receipts (cart legs present) keep an explicit decision; card-only
-  // receipts COUNT DOWN and print by themselves (owner 2026-07-30: the
-  // "get my cards" tap should only exist when there's an order to continue).
+  // The primary action: card-only → "Print my cards"; cart legs present →
+  // "& continue" (there's an order to go back to); no dispenser → Done.
   "codeEntry.voucherGz.finishCards":
     "Print my {n, plural, one {card} other {# cards}} & continue",
-  "codeEntry.voucherGz.finishNoCards": "Done — back to my order",
-  "codeEntry.voucherGz.printNowIn":
-    "Printing your {n, plural, one {card} other {# cards}} in {s}s — tap to start now",
-  "codeEntry.voucherGz.printNow": "Print my {n, plural, one {card} other {# cards}} now",
+  "codeEntry.voucherGz.printNow": "Print my {n, plural, one {card} other {# cards}}",
+  "codeEntry.voucherGz.done": "Done",
+  // This kiosk has no dispenser — cards are collected elsewhere; the voucher
+  // stays live (nothing was claimed here).
+  "codeEntry.voucherGz.printingSubElsewhere":
+    "Pick up at the front kiosk or Guest Services — your voucher stays good",
   // Back with unprinted cards. Cards are NEVER printed later automatically —
   // the pink home-screen tile is the way back.
   "codeEntry.voucherGz.leaveWarn":
     "{n, plural, one {Your game card hasn’t printed yet} other {Your # game cards haven’t printed yet}}. Nothing prints on its own later — the pink button on the home screen brings you back here.",
   "codeEntry.voucherGz.leaveAnyway": "Leave anyway",
-  "codeEntry.voucherGz.titleN": "{n} free game cards",
-  "codeEntry.voucherGz.ctaN": "Get my {n} cards",
-  "codeEntry.voucherGz.bodyMore":
-    "Got another voucher? Scan it — we’ll add it. Grab all your cards at Game Zone.",
   "codeEntry.giftcard.title": "That’s a gift card",
   "codeEntry.giftcard.body":
     "Gift cards are accepted as payment — swipe it at the card reader when you pay.",
   "codeEntry.giftcard.cta": "Got it",
-  // Voucher redemption live (flag): accepted panel + checkout lines.
-  "codeEntry.voucherOk.title": "Voucher accepted!",
-  "codeEntry.voucherOk.titleNamed": "{name} accepted!",
   "voucher.pill.fallbackName": "Voucher",
   "voucher.pill.applied": "{name} applied \u2014 comes off at checkout",
   "voucher.pill.pending": "{name} ready \u2014 applies when you book",
@@ -392,9 +379,6 @@ export const en = {
     "Each voucher covers one race or attraction \u2014 they come off automatically at checkout.",
   "voucher.sheet.empty": "No vouchers on this order yet.",
   "voucher.sheet.scanAnother": "Scan another",
-  "codeEntry.voucherOk.body":
-    "Book your activity and this voucher comes off your total automatically at checkout.",
-  "codeEntry.voucherOk.cta": "Start picking",
   "checkout.voucherCovers": "{name} voucher covers {amount}",
   "checkout.voucherFallbackName": "Your",
   "checkout.vouchersCover": "{count} vouchers cover {amount}",

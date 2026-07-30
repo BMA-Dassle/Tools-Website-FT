@@ -280,8 +280,18 @@ export function KioskCategories({
           className={UTIL_TILE_CLASS}
           style={{ borderColor: `#e8b14c${UTIL_TILE_BORDER_ALPHA}`, color: "#e8b14c" }}
         >
-          <TicketGlyph color="#e8b14c" />
-          <span className="min-w-0 truncate">{appliedPromo.code}</span>
+          {/* The label area is a DOOR back into the code screen — with a
+              promo applied this chip used to be display-only, leaving no way
+              to scan a voucher afterwards (owner 2026-07-30 audit). */}
+          <button
+            type="button"
+            onClick={onOpenCodeEntry}
+            disabled={!onOpenCodeEntry}
+            className="flex min-w-0 flex-1 items-center gap-[12px] text-left"
+          >
+            <TicketGlyph color="#e8b14c" />
+            <span className="min-w-0 truncate">{appliedPromo.code}</span>
+          </button>
           {onClearPromo && (
             <button
               type="button"

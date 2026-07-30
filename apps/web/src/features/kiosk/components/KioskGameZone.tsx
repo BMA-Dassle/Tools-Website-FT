@@ -342,9 +342,6 @@ export function KioskGameZone({
   // VALIDATES; the destructive claim happens per card inside the dispense run.
   const [voucherPhase, setVoucherPhase] = useState<VoucherPhase>("entry");
   const [voucherTyped, setVoucherTyped] = useState("");
-  // Typed-code field focused → OSK sheet is up; drives the clear-the-keys
-  // bottom padding on the voucher screen.
-  const [voucherTyping, setVoucherTyping] = useState(false);
   const [voucherMsg, setVoucherMsg] = useState<string | null>(null);
   const [voucherBasket, setVoucherBasket] = useState<VoucherBasketRow[]>([]);
   /** The claim being fulfilled RIGHT NOW (we dispense strictly one at a time,
@@ -886,6 +883,7 @@ export function KioskGameZone({
   /** Give the code back. ONLY legal while NO card has left the stacker. */
   const releaseVoucherClaim = async (reason: string) => {
     const claim = voucherClaimRef.current;
+    if (claim) console.warn(`[kiosk] gz voucher claim RELEASED: ${claim.code} — ${reason}`);
     if (!claim) return;
     voucherClaimRef.current = null;
     try {
@@ -1025,6 +1023,9 @@ export function KioskGameZone({
       );
     }
 
+    console.log(
+      `[kiosk] gz voucher fulfilled: ${claim.code} → card #${displayCardNumber(account)}`,
+    );
     setBasketRow(claim.code, { status: "loaded", cardNumber: displayCardNumber(account) });
     setDispenseMsg(t("gamezone.voucher.takeCard"));
     await dispenser.present();
@@ -1066,9 +1067,13 @@ export function KioskGameZone({
         label?: string;
       };
       if (!res.ok || data.ok !== true) {
+        console.warn(
+          `[kiosk] gz voucher refused at validate: ${code} — ${data.reason ?? `http-${res.status}`}`,
+        );
         setVoucherMsg(t(VOUCHER_REFUSAL_KEY[data.reason ?? ""] ?? "gamezone.voucher.err.generic"));
         return null;
       }
+      console.log(`[kiosk] gz voucher validated: ${code} (${data.label ?? "?"})`);
       const row = { code, label: data.label ?? "", status: "ready" as const };
       setVoucherBasket((rows) => [...rows, row]);
       return row;
@@ -1141,12 +1146,16 @@ export function KioskGameZone({
               grant: { ...data.grant, label: data.label ?? data.grant.label ?? row.label },
             };
           } else {
+            console.warn(
+              `[kiosk] gz voucher CLAIM refused: ${row.code} — ${data.reason ?? `http-${res.status}`}`,
+            );
             failRow(
               row.code,
               t(VOUCHER_REFUSAL_KEY[data.reason ?? ""] ?? "gamezone.voucher.err.generic"),
             );
           }
-        } catch {
+        } catch (err) {
+          console.warn(`[kiosk] gz voucher claim network failure: ${row.code}`, err);
           failRow(row.code, t("gamezone.voucher.err.generic"));
         }
         if (!claimed) continue; // nothing spent for this row — try the next
@@ -1204,13 +1213,21 @@ export function KioskGameZone({
     const key = seed.join(",");
     if (seededVoucherRef.current === key) return;
     seededVoucherRef.current = key;
+    console.log(`[kiosk] gz voucher seed from coupon receipt: ${seed.length} code(s)`);
     void (async () => {
       const rows: VoucherBasketRow[] = [];
       for (const c of seed) {
         const row = await addVoucherToBasket(c);
         if (row) rows.push(row);
       }
-      if (rows.length === seed.length && rows.length > 0) await redeemBasket(rows);
+      if (rows.length === seed.length && rows.length > 0) {
+        console.log(`[kiosk] gz voucher seed all valid → dispensing ${rows.length} card(s)`);
+        await redeemBasket(rows);
+      } else {
+        console.warn(
+          `[kiosk] gz voucher seed: only ${rows.length}/${seed.length} validated — staying on basket screen`,
+        );
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialVoucherCodes, readerReady]);
@@ -1887,14 +1904,7 @@ export function KioskGameZone({
   // ── Redeem a comp voucher: scan → claim → dispense → credit → present ──
   if (mode === "voucher") {
     return (
-      // voucherTyping → the OSK bottom sheet is up: swap in bottom padding so
-      // the column compresses upward and the typed-code field stays visible
-      // above the keys (same fix as the coupon receipt, owner 2026-07-30).
-      <div
-        className={`mx-auto flex h-full max-w-2xl flex-col px-2 pt-6 kiosk-zoom ${
-          voucherTyping ? "pb-[620px]" : "pb-6"
-        }`}
-      >
+      <div className="mx-auto flex h-full max-w-2xl flex-col px-2 py-6 kiosk-zoom">
         <div className="mb-5 flex items-center justify-between">
           <h1 className="font-heading text-4xl font-extrabold italic">
             {t("gamezone.voucher.title")}
@@ -1978,8 +1988,6 @@ export function KioskGameZone({
                   setVoucherTyped("");
                 }
               }}
-              onFocus={() => setVoucherTyping(true)}
-              onBlur={() => setVoucherTyping(false)}
               aria-label={t("gamezone.voucher.inputLabel")}
               placeholder={t("gamezone.voucher.placeholder")}
               autoComplete="off"

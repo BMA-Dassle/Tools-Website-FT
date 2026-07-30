@@ -283,9 +283,6 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.apply": "Aplicar código",
   "codeEntry.back": "‹ Atrás",
   "codeEntry.checking": "Verificando tu código…",
-  "codeEntry.applied.title": "¡Código aplicado!",
-  "codeEntry.applied.body":
-    "Busca la etiqueta dorada “Código válido” mientras eliges tus actividades.",
   "codeEntry.applied.cta": "Empezar a elegir",
   "codeEntry.err.unknown": "No encontramos ese código — revisa las letras y los números.",
   "codeEntry.err.expired": "Este código ya venció.",
@@ -304,16 +301,7 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.gamecard.title": "Eso es una tarjeta de Game Zone",
   "codeEntry.gamecard.body": "Usa la pantalla de Game Zone para recargarla o consultar su saldo.",
   "codeEntry.gamecard.cta": "Abrir Game Zone",
-  "codeEntry.voucherGz.title": "Es una tarjeta de juego gratis",
-  "codeEntry.voucherGz.titleNamed": "{name}",
-  "codeEntry.voucherGz.body":
-    "Imprimiremos tu tarjeta en la pantalla de Game Zone — toma un momento.",
-  "codeEntry.voucherGz.cta": "Obtener mi tarjeta",
-  "codeEntry.voucherGz.appliedTitle": "Aplicado a tu orden",
-  "codeEntry.voucherGz.appliedBody":
-    "El valor se descuenta al pagar. Escanea otro vale para agregarlo.",
-  "codeEntry.voucherGz.appliedCta": "Volver a mi orden",
-  "codeEntry.voucherGz.receiptTitle": "Tus vales",
+  "codeEntry.voucherGz.receiptTitle": "Tus códigos",
   "codeEntry.voucherGz.printingTitle":
     "{n, plural, one {Tu tarjeta de juego} other {Tus tarjetas de juego}}",
   "codeEntry.voucherGz.printingSub": "Sale del dispensador en Game Zone",
@@ -323,31 +311,26 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.voucherGz.appliedSectionTitle": "En tu orden",
   "codeEntry.voucherGz.onOrder": "{n} en tu orden",
   "codeEntry.voucherGz.comesOff": "se descuenta al pagar",
-  "codeEntry.voucherGz.scanNext": "Escanea tu próximo vale",
-  "codeEntry.voucherGz.scanNextSub": "lo agregaremos a la lista — los cupones también funcionan aquí",
+  "codeEntry.voucherGz.rowNeedsHelp": "necesita ayuda — ve a Servicio al Cliente",
+  "codeEntry.voucherGz.scanNext": "Agrega otro vale o cupón",
+  "codeEntry.voucherGz.scanNextSub": "Escanéalo bajo la pantalla — o escribe el código:",
   "codeEntry.voucherGz.promoRow": "se aplica al pagar",
   "codeEntry.pendingCards.chip":
     "{n, plural, one {Tarjeta de juego por recoger} other {# tarjetas de juego por recoger}}",
   "codeEntry.voucherGz.finishCards":
     "Imprimir {n, plural, one {mi tarjeta} other {mis # tarjetas}} y continuar",
-  "codeEntry.voucherGz.finishNoCards": "Listo — volver a mi orden",
-  "codeEntry.voucherGz.printNowIn":
-    "Imprimiendo {n, plural, one {tu tarjeta} other {tus # tarjetas}} en {s}s — toca para empezar ya",
   "codeEntry.voucherGz.printNow":
-    "Imprimir {n, plural, one {mi tarjeta} other {mis # tarjetas}} ahora",
+    "Imprimir {n, plural, one {mi tarjeta} other {mis # tarjetas}}",
+  "codeEntry.voucherGz.done": "Listo",
+  "codeEntry.voucherGz.printingSubElsewhere":
+    "Recógelas en el quiosco principal o en Servicios al Huésped — tu vale sigue válido",
   "codeEntry.voucherGz.leaveWarn":
     "{n, plural, one {Tu tarjeta de juego aún no se imprime} other {Tus # tarjetas de juego aún no se imprimen}}. No se imprimirán solas después — el botón rosa en la pantalla de inicio te trae de vuelta aquí.",
   "codeEntry.voucherGz.leaveAnyway": "Salir de todos modos",
-  "codeEntry.voucherGz.titleN": "{n} tarjetas de juego gratis",
-  "codeEntry.voucherGz.ctaN": "Obtener mis {n} tarjetas",
-  "codeEntry.voucherGz.bodyMore":
-    "¿Tienes otro vale? Escánealo ahora para agregarlo. Las imprimiremos todas juntas.",
   "codeEntry.giftcard.title": "Eso es una tarjeta de regalo",
   "codeEntry.giftcard.body":
     "Las tarjetas de regalo se aceptan como pago — pásala por el lector de tarjetas al pagar.",
   "codeEntry.giftcard.cta": "Entendido",
-  "codeEntry.voucherOk.title": "¡Vale aceptado!",
-  "codeEntry.voucherOk.titleNamed": "\u00a1{name} aceptado!",
   "voucher.pill.fallbackName": "Vale",
   "voucher.pill.applied": "{name} aplicado \u2014 se descuenta al pagar",
   "voucher.pill.pending": "{name} listo \u2014 se aplica al reservar",
@@ -363,9 +346,6 @@ export const es: Record<CoreKey, string> = {
     "Cada vale cubre una carrera o atracci\u00f3n \u2014 se descuentan autom\u00e1ticamente al pagar.",
   "voucher.sheet.empty": "A\u00fan no hay vales en esta orden.",
   "voucher.sheet.scanAnother": "Escanear otro",
-  "codeEntry.voucherOk.body":
-    "Reserva tu actividad y este vale se descontará automáticamente al pagar.",
-  "codeEntry.voucherOk.cta": "Empezar a elegir",
   "checkout.voucherCovers": "El vale {name} cubre {amount}",
   "checkout.voucherFallbackName": "tu",
   "checkout.vouchersCover": "{count} vales cubren {amount}",

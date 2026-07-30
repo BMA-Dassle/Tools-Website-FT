@@ -83,7 +83,13 @@ import {
 } from "../state/registry";
 import { KioskCategories } from "./KioskCategories";
 import { KioskCodeEntry } from "./KioskCodeEntry";
-import { KioskVoucherSheet, KioskVoucherSummary } from "./KioskVoucherSheet";
+import { KioskVoucherSummary } from "./KioskVoucherSheet";
+import {
+  addPendingCards,
+  clearDispensedCards,
+  removePendingCard,
+  type PendingGzCard,
+} from "../code-entry/pending-cards";
 import {
   sessionVouchers,
   voucherDisplayName,
@@ -373,18 +379,20 @@ export function KioskFlow({
    *  them (owner 2026-07-30: "back out … then no way to return"). Cleared
    *  per code only when its card is actually dispensed; the whole list dies
    *  with the guest session (Start Over remounts this component). */
-  const [pendingGzCards, setPendingGzCards] = useState<{ code: string; tokens: number }[]>([]);
-  const addPendingGzCards = useCallback((cards: { code: string; tokens: number }[]) => {
+  const [pendingGzCards, setPendingGzCards] = useState<PendingGzCard[]>([]);
+  const addPendingGzCards = useCallback((cards: PendingGzCard[]) => {
     setPendingGzCards((prev) => {
-      const have = new Set(prev.map((c) => c.code));
-      const add = cards.filter((c) => !have.has(c.code));
-      return add.length > 0 ? [...prev, ...add] : prev;
+      const next = addPendingCards(prev, cards);
+      if (next !== prev) {
+        console.log(`[kiosk] gz cards pending +${next.length - prev.length} (=${next.length})`);
+        clarityTag("kiosk_gz_pending", String(next.length));
+      }
+      return next;
     });
   }, []);
   // Coupon / voucher code entry (owner 2026-07-27) — flag-gated screen off the
   // category chooser; ?kioskPromo=1 is the dark-flag preview opt-in.
   const [codeEntryOpen, setCodeEntryOpen] = useState(false);
-  const [voucherSheetOpen, setVoucherSheetOpen] = useState(false);
   const promoEnabled = kioskPromoEnabled() || !!kioskPromo;
   // Voucher REDEMPTION (dark until the paid live smoke — see voucher-redeem.ts).
   const voucherRedeem =
@@ -1666,7 +1674,14 @@ export function KioskFlow({
         {voucherRedeem && (
           <KioskVoucherSummary
             vouchers={appliedVouchers}
-            onOpen={() => setVoucherSheetOpen(true)}
+            // Must CLOSE the cart first: the cart's render branch sits above
+            // code entry's, so without this the tap did nothing (pre-existing
+            // — the old sheet's branch was also below the cart's).
+            onOpen={() => {
+              clarityEvent("kiosk:receipt:open-from-cart");
+              setCartActive(false);
+              setCodeEntryOpen(true);
+            }}
             variant="web"
           />
         )}
@@ -1802,21 +1817,6 @@ export function KioskFlow({
     );
   }
 
-  // ── Voucher manager (summary pill → full list w/ remove) ──
-  if (voucherSheetOpen) {
-    return chrome(
-      <KioskVoucherSheet
-        vouchers={appliedVouchers}
-        onClear={clearVoucher}
-        onScanAnother={() => {
-          setVoucherSheetOpen(false);
-          setCodeEntryOpen(true);
-        }}
-        onBack={() => setVoucherSheetOpen(false)}
-      />,
-    );
-  }
-
   // ── Coupon / voucher code entry ──
   if (codeEntryOpen) {
     return chrome(
@@ -1848,12 +1848,29 @@ export function KioskFlow({
         }}
         pendingGzCards={pendingGzCards}
         onGzCardsAdd={addPendingGzCards}
+        onGzCardRemove={(code) => {
+          console.log(`[kiosk] gz card removed from receipt: ${code}`);
+          clarityEvent("kiosk:receipt:remove-card");
+          setPendingGzCards((prev) => removePendingCard(prev, code));
+        }}
         // The receipt's "On your order" section renders from session truth
-        // (BMI + native legs) so it survives remounts.
-        appliedCartLabels={appliedVouchers
-          .filter((v) => !v.error)
-          .map((v) => voucherDisplayName(v.name))}
+        // (BMI + native legs) so it survives remounts — ERRORED entries too
+        // (the receipt is now the only place a bad code is visible). Remove
+        // unwinds the whole code via clearVoucher (BMI line + session legs).
+        appliedCartVouchers={appliedVouchers.map((v) => ({
+          code: v.code,
+          label: voucherDisplayName(v.name),
+          error: v.error ?? null,
+        }))}
+        onCartVoucherRemove={(code) => {
+          console.log(`[kiosk] order voucher removed from receipt: ${code}`);
+          const v = appliedVouchers.find((x) => x.code === code);
+          if (v) clearVoucher(v); // clearVoucher logs kiosk:voucher:cleared
+        }}
         appliedPromo={promoEnabled ? session.appliedPromo : null}
+        onClearPromo={() => dispatch({ type: "applyPromo", promo: null })}
+        // A kiosk without a dispenser must never promise to print a card.
+        canDispenseCards={gameZoneCapability(config) === "full"}
       />,
     );
   }
@@ -1870,11 +1887,15 @@ export function KioskFlow({
           // Per-code truth from the dispense run: a DISPENSED card leaves the
           // pending list; a failed one stays, so the categories tile keeps
           // offering the way back (claim was released — retry is safe).
-          onVoucherOutcome={(outcomes) =>
-            setPendingGzCards((prev) =>
-              prev.filter((p) => !outcomes.some((o) => o.code === p.code && o.loaded)),
-            )
-          }
+          onVoucherOutcome={(outcomes) => {
+            const loaded = outcomes.filter((o) => o.loaded).length;
+            console.log(
+              `[kiosk] gz voucher run: ${loaded}/${outcomes.length} dispensed`,
+              outcomes,
+            );
+            clarityTag("kiosk_gz_voucher_run", `${loaded}/${outcomes.length}`);
+            setPendingGzCards((prev) => clearDispensedCards(prev, outcomes));
+          }}
           onExit={() => {
             setGzVoucherCodes(null);
             setGzOpen(false);
@@ -1983,7 +2004,9 @@ export function KioskFlow({
         appliedPromo={promoEnabled ? session.appliedPromo : null}
         onClearPromo={() => dispatch({ type: "applyPromo", promo: null })}
         appliedVouchers={voucherRedeem ? appliedVouchers : []}
-        onOpenVoucherSheet={() => setVoucherSheetOpen(true)}
+        // The voucher chip now opens the ONE receipt (the standalone sheet is
+        // gone — owner 2026-07-30: "why is it using a different screen?").
+        onOpenVoucherSheet={() => setCodeEntryOpen(true)}
         // Scanned-but-undispensed game cards — the way BACK to "Get my cards"
         // after any back-out. Opens the coupon screen, which restores the
         // receipt from this same list.

@@ -15,6 +15,26 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.10.14 — the coupon/voucher module unified onto ONE screen (owner live
+ *         walk-through: "make this all make sense"). "Your codes" is now the
+ *         single hub — coupons, BMI vouchers, our vouchers and comp game
+ *         cards ALL land there; the terminal "Accepted!" / "Code applied!"
+ *         panels (no way to scan more) and the separate voucher-sheet screen
+ *         are gone; the cart's voucher chip and the categories promo chip
+ *         (previously display-only — a dead end) open it too. Layout reads
+ *         top-down: scanned items → ONE "Add another" panel (scan + type
+ *         share the box, input in the TOP half so the OSK never covers it
+ *         and nothing moves when the keyboard opens — which is also what
+ *         fixes "hit Apply twice"; Apply keeps field focus so the keyboard
+ *         stops bouncing). The 1.10.13 auto-print countdown is GONE (owner:
+ *         hated) — the primary comes from receiptPlan() (tested): "Print my
+ *         cards" / "Print & continue" / "Start picking" / "Done". Every row
+ *         is removable (✕), errored vouchers are VISIBLE with "needs help",
+ *         and a kiosk with NO dispenser stops promising cards ("pick up at
+ *         the front kiosk or Guest Services"). Full logging: [kiosk] console
+ *         lines + Clarity events on every scan, reject (with reason), print,
+ *         leave-warn/leave, removal, restore, claim release and dispense
+ *         outcome. New unit suites: receipt-plan, pending-cards.
  * 1.10.13 — voucher receipt round 2 (owner walk-through feedback). The OSK no
  *         longer covers the typed-code field (focus swaps in bottom padding so
  *         the column lifts above the key rows — same fix on the Game Zone
@@ -369,7 +389,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.10.13";
+export const KIOSK_VERSION = "1.10.14";
 
 let bootVersion: string | null = null;
 let captured = false;

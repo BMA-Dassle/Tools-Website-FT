@@ -1,0 +1,45 @@
+import { describe, expect, it } from "vitest";
+import { addPendingCards, clearDispensedCards, removePendingCard } from "./pending-cards";
+
+const A = { code: "HPW-A", tokens: 100 };
+const B = { code: "HPW-B", tokens: 50 };
+
+describe("addPendingCards", () => {
+  it("appends new codes", () => {
+    expect(addPendingCards([A], [B])).toEqual([A, B]);
+  });
+
+  it("never duplicates a code already pending (re-scan is a no-op)", () => {
+    const prev = [A];
+    expect(addPendingCards(prev, [{ ...A }])).toBe(prev); // same reference
+  });
+
+  it("mixed batch keeps only the genuinely new codes", () => {
+    expect(addPendingCards([A], [{ ...A }, B])).toEqual([A, B]);
+  });
+});
+
+describe("removePendingCard", () => {
+  it("removes every leg of the code", () => {
+    const multi = [A, { code: "HPW-A", tokens: 100 }, B];
+    expect(removePendingCard(multi, "HPW-A")).toEqual([B]);
+  });
+});
+
+describe("clearDispensedCards", () => {
+  it("drops dispensed codes, keeps failed ones (way back stays open)", () => {
+    expect(
+      clearDispensedCards(
+        [A, B],
+        [
+          { code: "HPW-A", loaded: true },
+          { code: "HPW-B", loaded: false },
+        ],
+      ),
+    ).toEqual([B]);
+  });
+
+  it("ignores outcomes for codes not in the list (GZ walk-up baskets)", () => {
+    expect(clearDispensedCards([A], [{ code: "HPW-Z", loaded: true }])).toEqual([A]);
+  });
+});
