@@ -2629,3 +2629,29 @@ done:
 
 The tell you skipped this: your page uses `text-neutral-900` / `bg-white` while
 every sibling uses `text-white` on a fixed dark `-z-10` backdrop.
+
+## A module-level complaint is a scope statement, not a bug report (2026-07-30)
+
+Owner opened with "this voucher plus game zone is a total mess … research and
+fix." I fixed exactly what each of their test screenshots showed — and they had
+to keep walking the kiosk finding the NEXT dead end (a different "Accepted!"
+screen with no scan-more, a cart voucher chip whose tap never worked, a promo
+chip with no way back in, a no-dispenser kiosk promising to print cards) until:
+"Why am I still having to tell you this stuff … why haven't you reviewed,
+tested and fixed it all?"
+
+The symptoms all had ONE structural cause — value state scattered across
+panel-local screens — and per-symptom patches kept shipping new inconsistencies
+into the gaps (my own auto-print countdown among them; owner hated it: timers
+that act without the guest asking are not a UX fix).
+
+**Rule:** when the complaint names a MODULE, enumerate its full surface before
+editing — every entry point, panel, state and exit, including chips/banners on
+OTHER screens that open it. Walk each path on paper, list every dead end, design
+one target state, implement once. Extract the decision logic into pure tested
+functions (`code-entry/receipt-plan.ts`) and instrument every transition
+(`[kiosk]` console + Clarity) so the next report arrives with data instead of a
+screenshot.
+
+The tell you're doing it wrong: the owner's screenshots are driving your commit
+sequence.
