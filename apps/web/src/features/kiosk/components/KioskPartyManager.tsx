@@ -174,6 +174,10 @@ export function needsSetup(m: PartyMember): boolean {
  *  on sign). A new-created person's bmiPersonId IS the short id; a returning
  *  lookup's id is the 17-digit Office id and needs an upsert-create to resolve
  *  the short id — null here signals "resolve the short id before signing." */
+/** Prefix marking an error message as written BY US and safe to show a guest.
+ *  Anything without it is upstream text and gets replaced with human copy. */
+const GUEST_SAFE_ERROR = "guest:";
+
 export function shortPandoraId(m: PartyMember): string | null {
   return m.pandoraPersonId ?? (m.bmiPersonId && m.bmiPersonId.length <= 12 ? m.bmiPersonId : null);
 }
@@ -565,19 +569,35 @@ export function KioskPartyManager({
       if (!sid) {
         const gPhoneTrim = g.phone?.trim() ?? "";
         const gEmailTrim = g.email?.trim() ?? "";
-        if (!gPhoneTrim && !gEmailTrim) {
-          throw new Error(t("party.gErr.cantVerifyName", { name: g.firstName }));
+        // The upsert needs a dedup identity AND a birthdate. An adult signed in via
+        // account lookup carries a 17-digit Office id and often NO birthdate, and
+        // Pandora answers that with a bare 400 "Validation Exception" — which is
+        // exactly what a guest saw on 2026-07-30 when tapping an existing adult.
+        if ((gPhoneTrim || gEmailTrim) && g.dobIso) {
+          try {
+            const { personId } = await pandoraCreatePerson({
+              firstName: formatPersonName(g.firstName),
+              lastName: formatPersonName(g.lastName ?? ""),
+              email: gEmailTrim,
+              phone: gPhoneTrim,
+              birthdate: g.dobIso,
+              location: brandLocation,
+            });
+            patchPerson(g.id, { pandoraPersonId: personId });
+            sid = personId;
+          } catch {
+            // fall through to the Office id rather than dead-ending
+          }
         }
-        const { personId } = await pandoraCreatePerson({
-          firstName: g.firstName,
-          lastName: g.lastName ?? "",
-          email: gEmailTrim,
-          phone: gPhoneTrim,
-          birthdate: g.dobIso,
-          location: brandLocation,
-        });
-        patchPerson(g.id, { pandoraPersonId: personId });
-        sid = personId;
+        // Last resort: sign with the Office id. pandoraCheckWaiver accepts 17-digit
+        // ids, and this is the same fallback the account-lookup path already takes.
+        if (!sid && g.bmiPersonId) sid = g.bmiPersonId;
+        if (!sid) {
+          throw new Error(
+            GUEST_SAFE_ERROR +
+              t("party.gErr.cantVerifyName", { name: formatPersonName(g.firstName) }),
+          );
+        }
       }
       const status = await pandoraCheckWaiver(sid, brandLocation);
       // MEMBERSHIP REFRESH (2026-07-23): the check just returned the BMI record's
@@ -587,7 +607,9 @@ export function KioskPartyManager({
       const gDobIso = g.dobIso ?? (status.birthdate ? String(status.birthdate).slice(0, 10) : null);
       const gAge = ageFromIso(gDobIso);
       if (gAge !== null && gAge < 18) {
-        throw new Error(t("party.gErr.underAge", { name: g.firstName }));
+        throw new Error(
+          GUEST_SAFE_ERROR + t("party.gErr.underAge", { name: formatPersonName(g.firstName) }),
+        );
       }
       if (!g.dobIso && gDobIso) patchPerson(g.id, { dobIso: gDobIso });
       let ownTemplate: PandoraWaiverTemplate | null = null;
@@ -597,7 +619,14 @@ export function KioskPartyManager({
       if (status.valid !== !!g.waiverValid) patchPerson(g.id, { waiverValid: status.valid });
       proceedWithGuardian(g, sid, status.valid, ownTemplate, gf);
     } catch (err) {
-      setGError(err instanceof Error ? err.message : t("party.gErr.verifyAdultFallback"));
+      // Only OUR messages are guest-facing. Upstream text ("Validation Exception")
+      // means nothing to a parent and looks like the site broke, so it is logged
+      // and replaced with something actionable.
+      const ours = err instanceof Error && err.message.startsWith(GUEST_SAFE_ERROR);
+      if (!ours) console.error("[waiver-guardian] choose failed:", err);
+      setGError(
+        ours ? err.message.slice(GUEST_SAFE_ERROR.length) : t("party.gErr.verifyAdultFallback"),
+      );
     } finally {
       setBusyAll(false);
       setChoosingGuardianId(null);
@@ -1929,8 +1958,8 @@ export function KioskPartyManager({
             (a) => a.id !== guardianFlow.minorMemberId,
           );
           return (
-            <div className="fixed inset-0 z-[77] overflow-y-auto bg-[#000418] p-[48px]">
-              <div className="mx-auto max-w-[900px] space-y-[24px]">
+            <div className="fixed inset-0 z-[77] overflow-y-auto bg-[#000418] p-[48px] md:flex md:items-center md:justify-center">
+              <div className="mx-auto w-full max-w-[900px] space-y-[24px]">
                 <div>
                   <div className="k-eyebrow">{t("party.guardian.eyebrow")}</div>
                   <h2 className="k-display mt-[8px] text-[44px]">
@@ -1958,8 +1987,10 @@ export function KioskPartyManager({
                             }`}
                           >
                             {choosingGuardianId === a.id
-                              ? t("party.guardian.checking", { name: a.firstName })
-                              : a.firstName}
+                              ? t("party.guardian.checking", {
+                                  name: formatPersonName(a.firstName),
+                                })
+                              : formatPersonName(a.firstName)}
                           </button>
                         ))}
                       </div>

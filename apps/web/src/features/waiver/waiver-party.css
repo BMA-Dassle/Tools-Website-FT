@@ -229,9 +229,12 @@
 .wp-mobile .p-\[28px\] {
   padding: 1.15rem;
 }
-/* page-level gutter: 48px canvas padding would eat a phone's width */
-.wp-mobile .p-\[48px\] {
-  padding: 1rem;
+/* page-level gutter: 48px canvas padding would eat a phone's width. Phone-only —
+   the >=768px block gives it real padding back. */
+@media (max-width: 767px) {
+  .wp-mobile .p-\[48px\] {
+    padding: 1rem;
+  }
 }
 .wp-mobile .px-\[14px\] {
   padding-left: 0.625rem;
@@ -391,8 +394,13 @@
 .wp-mobile .w-\[400px\] {
   width: min(72vw, 18rem);
 }
-.wp-mobile .max-w-\[900px\] {
-  max-width: 100%;
+/* Phone-only: 900px would force a horizontal scroll. On desktop the >=768px
+   block gives it a real measure — leaving this at 100% is what let the guardian
+   overlay stretch its buttons across a 1700px monitor. */
+@media (max-width: 767px) {
+  .wp-mobile .max-w-\[900px\] {
+    max-width: 100%;
+  }
 }
 
 /* ---- radii ---- */
@@ -544,59 +552,42 @@
    a min-width block, so the phone values are the base and stay untouched.
    ====================================================================== */
 @media (min-width: 768px) {
-  .wp-mobile {
-    font-size: 17px;
-  }
-  .wp-mobile .k-fh-title {
-    font-size: 2.5rem;
-  }
-  .wp-mobile .k-eyebrow,
-  .wp-mobile .k-fh-activity {
-    font-size: 0.8rem;
-  }
-  .wp-mobile .k-prog span {
-    height: 8px;
-  }
-  .wp-mobile .text-\[44px\] {
-    font-size: 2.25rem;
-  }
-  .wp-mobile .text-\[40px\] {
-    font-size: 2rem;
-  }
-  .wp-mobile .text-\[34px\] {
-    font-size: 1.6rem;
-  }
-  .wp-mobile .text-\[32px\] {
-    font-size: 1.5rem;
-  }
-  .wp-mobile .text-\[30px\],
-  .wp-mobile .text-\[28px\] {
-    font-size: 1.3rem;
-  }
-  .wp-mobile .text-\[27px\],
-  .wp-mobile .text-\[26px\] {
-    font-size: 1.2rem;
-  }
-  .wp-mobile .text-\[24px\] {
-    font-size: 1.1rem;
-  }
-  .wp-mobile .text-\[22px\] {
-    font-size: 1rem;
-  }
-  .wp-mobile .text-\[20px\],
-  .wp-mobile .text-\[19px\],
-  .wp-mobile .text-\[18px\] {
-    font-size: 0.95rem;
-  }
-  /* Roomier cards + controls once there is width to spend. */
-  .wp-mobile .p-\[24px\],
-  .wp-mobile .p-\[28px\] {
-    padding: 1.5rem;
-  }
+  /* Type is NOT scaled up here. The remap above already lands on normal web
+     sizes (17px body, 28px page title), and a desktop browser is viewed at desk
+     distance — the kiosk's large type exists because that screen is across the
+     room. Inflating it produced a giant phone: a 40px name inside a list row and
+     a 768px-wide primary button. What desktop needs is STRUCTURE, not scale. */
+
+  /* Actions stop being full-bleed. A pill the width of the page reads unfinished;
+     cap it and centre it in the column. */
   .wp-mobile .k-btn-primary,
   .wp-mobile .k-btn-ghost {
-    min-height: 3.5rem;
-    font-size: 1.2rem;
+    max-width: 22rem;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  /* …except inside an action ROW, where flex-1 already sizes them. */
+  .wp-mobile .flex > .k-btn-primary,
+  .wp-mobile .flex > .k-btn-ghost {
+    max-width: none;
+  }
+
+  /* Overlays get a readable measure instead of spanning the monitor, and sit
+     centred rather than pinned to the top. */
+  .wp-mobile .max-w-\[900px\] {
+    max-width: 34rem;
+  }
+  .wp-mobile .p-\[48px\] {
+    padding: 3rem 2rem;
+  }
+
+  /* A roster row is a row, not a headline: keep the kiosk display face but at
+     body-adjacent size so it stops competing with the page title. */
+  .wp-mobile .text-\[40px\] {
+    font-size: 1.375rem;
+  }
+  .wp-mobile .text-\[44px\] {
+    font-size: 1.5rem;
   }
 }
 

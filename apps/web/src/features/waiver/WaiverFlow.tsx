@@ -92,7 +92,9 @@ function WaiverHead({
         <BrandLogo brand={brand} className="h-[36px] w-auto" alt={`${brandName(brand)} home`} />
         <span className="k-fh-activity">Waiver</span>
       </div>
-      {total > 0 && (
+      {/* Only meaningful for a GROUP. With one person "1 of 1 signed" under a full
+          cyan bar reads as a completed loading bar, not as progress. */}
+      {total > 1 && (
         <>
           <div className="k-prog" role="presentation">
             {Array.from({ length: total }, (_, i) => (
@@ -191,7 +193,9 @@ export function WaiverFlow({
       className="wp-mobile min-h-screen bg-[#000418]"
       style={{ "--accent": "#00E2E5" } as CSSProperties}
     >
-      <main className="wp-mobile-page mx-auto w-full max-w-md px-4 pt-6 md:max-w-3xl md:px-8 md:pt-10">
+      {/* max-w-xl, not 3xl: this is a short form, and a wider column just stretched
+          the rows so "Remove" ended up 500px from the name it belongs to. */}
+      <main className="wp-mobile-page mx-auto w-full max-w-md px-4 pt-6 md:max-w-xl md:px-8 md:pt-10">
         {children}
       </main>
     </div>
