@@ -120,9 +120,47 @@ export async function getVoucherStatus(code: string): Promise<VoucherStatus | nu
   };
 }
 
+/**
+ * One UNSPENT item on a scanned voucher, told apart by where it's redeemed:
+ *   gamezone → dispense a card / credit one (the Game Zone rail)
+ *   cart     → covers a race heat or an attraction unit at booking checkout
+ * `coverageName` is the string the booking's voucherTarget() keys off
+ * ("Race" / "Laser Tag" / …) — see native-voucher cart rail.
+ */
+export interface ValidatedItem {
+  index: number;
+  redeemVia: "gamezone" | "cart";
+  label: string;
+  coverageName?: string;
+}
+
 export type ValidateResult =
-  | { ok: true; label: string; remainingGameZoneItems: number }
+  | {
+      ok: true;
+      label: string;
+      remainingGameZoneItems: number;
+      /** Every UNSPENT item, so a mixed voucher routes each half correctly. */
+      items: ValidatedItem[];
+    }
   | { ok: false; reason: NativeVoucherRefusal };
+
+/** Booking coverage name for a cart item — must satisfy voucherTarget(). */
+function cartCoverageName(slugOrRace: string): string {
+  switch (slugOrRace) {
+    case "race":
+      return "Race";
+    case "laser-tag":
+      return "Laser Tag";
+    case "gel-blaster":
+      return "Gel Blaster";
+    case "shuffly":
+      return "Shuffly";
+    case "duck-pin":
+      return "Duckpin";
+    default:
+      return slugOrRace;
+  }
+}
 
 /**
  * Check a code WITHOUT claiming it — the scan step of the kiosk basket, where a
@@ -151,14 +189,39 @@ export async function validateNativeVoucher(code: string): Promise<ValidateResul
   if (!status) return { ok: false, reason: "unknown" };
   if (status.voidedAt) return { ok: false, reason: "voided" };
   if (status.expired) return { ok: false, reason: "expired" };
-  const gz = status.items.filter((i) => i.redeemable);
-  if (gz.length === 0) return { ok: false, reason: "not_redeemable" };
-  const unspent = gz.filter((i) => !i.spent);
-  if (unspent.length === 0) return { ok: false, reason: "used" };
+
+  // Every UNSPENT item, routed by how it's redeemed — a mixed voucher (game
+  // card + laser) surfaces both so the caller dispenses one and covers the
+  // other in the cart.
+  const items: ValidatedItem[] = status.items
+    .filter((i) => !i.spent)
+    .map((i) => {
+      if (i.item.kind === "gamezone") {
+        return { index: i.index, redeemVia: "gamezone" as const, label: i.label };
+      }
+      const slug = i.item.kind === "race" ? "race" : i.item.slug;
+      return {
+        index: i.index,
+        redeemVia: "cart" as const,
+        label: i.label,
+        coverageName: cartCoverageName(slug),
+      };
+    });
+
+  if (items.length === 0) {
+    // Nothing left to redeem: distinguish "all spent" from "never had anything
+    // we handle" so the guest hears the right thing.
+    const everSpendable = status.items.some(
+      (i) => i.item.kind === "gamezone" || i.item.kind === "attraction" || i.item.kind === "race",
+    );
+    return { ok: false, reason: everSpendable ? "used" : "not_redeemable" };
+  }
+
   return {
     ok: true,
-    label: unspent[0].label,
-    remainingGameZoneItems: unspent.length,
+    label: items[0].label,
+    remainingGameZoneItems: items.filter((i) => i.redeemVia === "gamezone").length,
+    items,
   };
 }
 
