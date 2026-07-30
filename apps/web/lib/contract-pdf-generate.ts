@@ -137,12 +137,40 @@ export async function generateAndStorePdf(shortId: string): Promise<string> {
     const pdfUrl = `${quote.base_url || "https://fasttraxent.com"}/contract/${shortId}/pdf`;
     const ts = noteTimestamp();
 
+    // Waiver links go in the same sticky header as the contract URL (owner request
+    // 2026-07-30), so the desk can see who has signed and hand a guest a link
+    // without going through the organizer's inbox.
+    //
+    // Only for events that actually need waivers — a bowling-only party would just
+    // get two irrelevant URLs in every staff note. Non-fatal: a mint failure must
+    // not cost the contract-signed note, so the links are simply omitted (and
+    // they are sticky, so a later append can still fill them in).
+    let waiverOrganizerUrl: string | undefined;
+    let waiverSignUrl: string | undefined;
+    try {
+      const { hasWaiverRequiredActivities } = await import("@/lib/bmi-office-actions");
+      if (hasWaiverRequiredActivities((quote.line_items || []) as Array<{ name: string }>)) {
+        const { waiverLinksForReservation } = await import("@/lib/waiver-link-send");
+        const links = await waiverLinksForReservation({
+          centerCode: quote.center_code,
+          projectId: quote.bmi_reservation_id,
+          origin: quote.base_url || undefined,
+        });
+        waiverOrganizerUrl = links?.organizerUrl;
+        waiverSignUrl = links?.signUrl;
+      }
+    } catch (err) {
+      console.warn("[generate-pdf] waiver links for BMI note unavailable:", err);
+    }
+
     await appendProjectPrivateNote({
       centerCode: quote.center_code,
       projectId: quote.bmi_reservation_id,
       note: `[${ts}] Contract signed`,
       contractUrl: contractPageUrl,
       pdfUrl,
+      waiverOrganizerUrl,
+      waiverSignUrl,
     });
   } catch (err) {
     console.error("[generate-pdf] BMI private note update failed:", err);

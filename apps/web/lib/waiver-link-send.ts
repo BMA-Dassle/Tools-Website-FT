@@ -165,6 +165,38 @@ export async function waiverUrlForQuote(
 }
 
 /**
+ * Both links for a reservation, WITHOUT needing a quote row — for callers that
+ * hold only a centerCode + projectId (the dispatch cron works off BMI items, not
+ * quotes).
+ *
+ * Named `organizerUrl` rather than `adminUrl` because that is the word the owner
+ * uses and the word the emails already print. The stored capability value is still
+ * `admin`; this is the label layer, and the two should not be confused — one is a
+ * database enum, the other is what a human reads.
+ *
+ * Unmemoized: it has no stable quote id to key on, and minting is idempotent, so a
+ * repeat call returns the same code from Neon.
+ */
+export async function waiverLinksForReservation(params: {
+  centerCode: string;
+  projectId: string;
+  origin?: string;
+}): Promise<{ organizerUrl: string; signUrl: string } | null> {
+  const projectId = String(params.projectId ?? "").trim();
+  const venue = waiverVenueForCenterCode(params.centerCode);
+  if (!projectId || !venue) return null;
+  const mint = (capability: WaiverLinkCapability) =>
+    mintWaiverLinkOrLongUrl({
+      center: venue.center,
+      reservation: { locationId: venue.locationId, projectId },
+      capability,
+      origin: params.origin,
+    });
+  const [organizer, sign] = await Promise.all([mint("admin"), mint("register")]);
+  return { organizerUrl: organizer.url, signUrl: sign.url };
+}
+
+/**
  * Upgrade a waiver URL that some CALLER built into a short capability link.
  *
  * The racing senders (booking-confirmation, race-day-instructions,
