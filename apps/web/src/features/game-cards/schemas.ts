@@ -190,6 +190,13 @@ export const VoucherRedeemSchema = z.discriminatedUnion("action", [
     txnId: z.string().uuid(),
     reason: z.string().trim().max(200).optional(),
   }),
+  /** WEB leg: credit the value onto a card the guest already holds. */
+  z.object({
+    action: z.literal("to-card"),
+    code: z.string().trim().min(8).max(64),
+    accountNumber,
+    locationCode: z.number().int(),
+  }),
 ]);
 export type VoucherRedeemInput = z.infer<typeof VoucherRedeemSchema>;
 

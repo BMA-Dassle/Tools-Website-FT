@@ -23,7 +23,7 @@
 import { getCenter } from "~/config/intercard-centers";
 import { GameCardHttpError } from "../errors";
 import type { LoadCardInput } from "../schemas";
-import type { CardBalance } from "../types";
+import type { CardBalance, TxnKind } from "../types";
 import { clearAccount, verifyAccount } from "../data/intercard";
 import { getTxn, markLoadState, setTxnAccount } from "../data/transactions-log";
 import { getLiveClaimForTxn } from "../data/voucher-claims-db";
@@ -49,11 +49,19 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
   // kiosk PC's on-prem bridge then reported here) OR voucher (blank dispensed
   // against a BMI comp — no money leg). The website reload path never calls this
   // — it credits inline via SOAP.
-  if (row.kind !== "new_card" && row.kind !== "reload" && row.kind !== "voucher") {
+  const KINDS: TxnKind[] = ["new_card", "reload", "voucher", "voucher_reload"];
+  if (!KINDS.includes(row.kind)) {
     throw new GameCardHttpError(400, "WRONG_KIND", "That transaction can't be loaded here.");
   }
-  /** A blank taken from the stacker (paid or comped) vs a guest's own card. */
-  const isFreshBlank = row.kind !== "reload";
+  /**
+   * A blank taken from the STACKER (paid `new_card` or comped `voucher`) vs a
+   * card already in the guest's hand (`reload`, `voucher_reload`). This drives
+   * clear-on-encode, so getting it wrong wipes a guest's balance — hence an
+   * explicit allowlist rather than "anything that isn't a reload".
+   */
+  const isFreshBlank = row.kind === "new_card" || row.kind === "voucher";
+  /** Authorised by a voucher claim rather than a payment. */
+  const isComped = row.kind === "voucher" || row.kind === "voucher_reload";
 
   const plan = creditPlanForRow(row);
   if (!plan || planIsEmpty(plan)) {
@@ -81,7 +89,7 @@ export async function loadCard(input: LoadCardInput): Promise<LoadCardResult> {
   // HERE rather than trusting the row: the claim is what makes the voucher
   // single-use, and the row alone can exist without one (claim raced, or a
   // release already handed the code back). No live claim → credit nothing.
-  if (row.kind === "voucher") {
+  if (isComped) {
     const claim = await getLiveClaimForTxn(row.txnId);
     if (!claim) {
       throw new GameCardHttpError(

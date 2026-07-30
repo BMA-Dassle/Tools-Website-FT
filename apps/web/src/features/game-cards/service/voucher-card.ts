@@ -125,6 +125,7 @@ export async function claimGameCardVoucher(input: {
   try {
     claimed = await claimVoucher({
       code,
+      issuer: "bmi",
       compName,
       packageId: grant.packageId,
       txnId,

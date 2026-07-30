@@ -31,7 +31,13 @@ import {
 import { useQrScanner } from "../qr-scanner/useQrScanner";
 import { useWedgeScan } from "../checkin/wedge-scan";
 import { classifyKioskCode } from "../code-entry/classify";
-import type { GameCardGrant } from "~/features/game-cards/vouchers/grants";
+/** What the redeem route reports back — issuer-agnostic (ours or BMI's). */
+interface RedeemedGrant {
+  tokens: number;
+  bonusTokens: number;
+  bonusCashDollars: number;
+  label: string;
+}
 import {
   TOKEN_PACKAGES,
   ACTIVATION_FEE_CENTS,
@@ -56,10 +62,16 @@ import { useT, type Translate } from "../i18n";
 const VOUCHER_REFUSAL_KEY: Record<string, Parameters<Translate>[0]> = {
   bad_format: "gamezone.voucher.err.badFormat",
   unknown: "gamezone.voucher.err.unknown",
+  // Ours (vouchers table) — an issuer decision and an expiry, both phrased
+  // plainly so a guest knows whether to bother asking staff.
+  voided: "gamezone.voucher.err.voided",
+  expired: "gamezone.voucher.err.expired",
+  // BMI-issued only.
   unverifiable: "gamezone.voucher.err.unverifiable",
   unsupported: "gamezone.voucher.err.unsupported",
   multi_item: "gamezone.voucher.err.multiItem",
   used: "gamezone.voucher.err.used",
+  rate_limited: "gamezone.voucher.err.generic",
   storage: "gamezone.voucher.err.generic",
 };
 
@@ -305,7 +317,7 @@ export function KioskGameZone({
   const [voucherPhase, setVoucherPhase] = useState<VoucherPhase>("entry");
   const [voucherTyped, setVoucherTyped] = useState("");
   const [voucherMsg, setVoucherMsg] = useState<string | null>(null);
-  const [voucherGrant, setVoucherGrant] = useState<GameCardGrant | null>(null);
+  const [voucherGrant, setVoucherGrant] = useState<RedeemedGrant | null>(null);
   const [voucherCardNumber, setVoucherCardNumber] = useState<string | null>(null);
   /** The held claim. Present = a voucher is spent until we release it. */
   const voucherClaimRef = useRef<{ code: string; txnId: string; groupId: string } | null>(null);
@@ -877,7 +889,7 @@ export function KioskGameZone({
     code: string;
     txnId: string;
     groupId: string;
-    grant: GameCardGrant;
+    grant: RedeemedGrant;
   }) => {
     setVoucherPhase("dispensing");
     setDispenseMsg(t("gamezone.voucher.dispensing"));
@@ -930,7 +942,7 @@ export function KioskGameZone({
 
   /** Credit the dispensed blank, then present it. Never releases the claim. */
   const creditVoucherCard = async (
-    claim: { code: string; txnId: string; groupId: string; grant: GameCardGrant },
+    claim: { code: string; txnId: string; groupId: string; grant: RedeemedGrant },
     account: string,
   ) => {
     setDispenseMsg(t("gamezone.voucher.loading"));
@@ -984,7 +996,12 @@ export function KioskGameZone({
   /** Validate + claim the code server-side, then dispense. */
   const redeemVoucher = async (raw: string) => {
     if (voucherBusyRef.current) return;
-    const code = classifyKioskCode(raw).value;
+    // Both issuers land here: `HPW…` (ours) and BMI's 24-char shape are both
+    // normalized by the classifier, and the server decides which registry to
+    // ask. Anything else falls through as a promo-shaped string and the server
+    // refuses it with bad_format.
+    const classified = classifyKioskCode(raw);
+    const code = classified.value;
     if (!code) return;
     voucherBusyRef.current = true;
     setVoucherMsg(null);
@@ -1006,21 +1023,18 @@ export function KioskGameZone({
         reason?: string;
         txnId?: string;
         groupId?: string;
-        grant?: GameCardGrant;
+        grant?: RedeemedGrant;
+        label?: string;
       };
       if (!res.ok || data.ok !== true || !data.txnId || !data.groupId || !data.grant) {
         setVoucherPhase("entry");
         setVoucherMsg(t(VOUCHER_REFUSAL_KEY[data.reason ?? ""] ?? "gamezone.voucher.err.generic"));
         return;
       }
+      const grant: RedeemedGrant = { ...data.grant, label: data.label ?? data.grant.label ?? "" };
       voucherClaimRef.current = { code, txnId: data.txnId, groupId: data.groupId };
-      setVoucherGrant(data.grant);
-      await dispenseVoucherCard({
-        code,
-        txnId: data.txnId,
-        groupId: data.groupId,
-        grant: data.grant,
-      });
+      setVoucherGrant(grant);
+      await dispenseVoucherCard({ code, txnId: data.txnId, groupId: data.groupId, grant });
     } catch {
       setVoucherPhase("entry");
       setVoucherMsg(t("gamezone.voucher.err.generic"));
@@ -1728,7 +1742,7 @@ export function KioskGameZone({
 
   // ── Redeem a comp voucher: scan → claim → dispense → credit → present ──
   if (mode === "voucher") {
-    const grantLabel = voucherGrant ? voucherGrant.label : "";
+    const grantLabel = voucherGrant?.label ?? "";
     return (
       <div className="mx-auto flex h-full max-w-2xl flex-col px-2 py-6 kiosk-zoom">
         <div className="mb-5 flex items-center justify-between">

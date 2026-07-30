@@ -120,7 +120,7 @@ export async function reconcilePendingLoads(dryRun = false): Promise<ReconcileSu
     // must make the same check independently — otherwise an orphan row (claim
     // raced, or the code already released back) would be credited here even
     // though loadCard refused it.
-    if (row.kind === "voucher") {
+    if (row.kind === "voucher" || row.kind === "voucher_reload") {
       const claim = await getLiveClaimForTxn(row.txnId);
       if (!claim || claim.packageId !== row.packageId) {
         await markLoadState(row.txnId, "load_failed", "no live voucher claim");

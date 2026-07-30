@@ -34,6 +34,8 @@ export const gamezoneEn = {
   // Refusals — each says what to do next, because nobody is standing here.
   "gamezone.voucher.err.badFormat": "That doesn’t look like a voucher code — check and try again.",
   "gamezone.voucher.err.unknown": "That voucher isn’t valid or has expired.",
+  "gamezone.voucher.err.voided": "That voucher was cancelled — please see Guest Services.",
+  "gamezone.voucher.err.expired": "That voucher has expired.",
   "gamezone.voucher.err.unverifiable":
     "We couldn’t check that voucher right now — please see Guest Services.",
   "gamezone.voucher.err.unsupported":
@@ -254,6 +256,8 @@ export const gamezoneEs: Record<keyof typeof gamezoneEn, string> = {
   "gamezone.voucher.err.badFormat":
     "Eso no parece un código de vale — revísalo e inténtalo de nuevo.",
   "gamezone.voucher.err.unknown": "Ese vale no es válido o ya venció.",
+  "gamezone.voucher.err.voided": "Ese vale fue cancelado — acude a Servicio al Cliente.",
+  "gamezone.voucher.err.expired": "Ese vale ya venció.",
   "gamezone.voucher.err.unverifiable":
     "No pudimos verificar ese vale en este momento — acude a Servicio al Cliente.",
   "gamezone.voucher.err.unsupported":

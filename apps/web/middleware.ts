@@ -566,6 +566,11 @@ export async function middleware(request: NextRequest) {
     // these must not be /hp-rewritten (404 otherwise).
     pathname.startsWith("/t/") ||
     pathname.startsWith("/g/") ||
+    // Voucher redemption landing (/v/{code}) — our own Game Zone vouchers are
+    // emailed/texted to guests, so the link can be opened on EITHER brand
+    // domain. Brand-neutral, code-in-path; without this the /hp rewrite 404s
+    // every voucher sent to a HeadPinz guest.
+    pathname.startsWith("/v/") ||
     // Centralized cross-brand customer account portal (2FA login + Square
     // subscription payment management). Same route on both hosts; brand is
     // chrome-only. Without this the /hp rewrite turns it into a 404 on HeadPinz.

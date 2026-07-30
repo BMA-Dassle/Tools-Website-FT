@@ -1,27 +1,52 @@
 import type { NextRequest } from "next/server";
 import { VoucherRedeemSchema } from "~/features/game-cards/schemas";
 import {
-  claimGameCardVoucher,
-  releaseGameCardVoucher,
-} from "~/features/game-cards/service/voucher-card";
+  claimAnyVoucher,
+  releaseAnyVoucher,
+} from "~/features/game-cards/service/voucher-redeem-router";
+import { redeemVoucherToCard } from "~/features/game-cards/service/voucher-to-card";
 import { GameCardHttpError, jsonOk, toErrorResponse } from "~/features/game-cards/errors";
+import { getClientIp } from "@/lib/admin-auth";
+import redis from "@/lib/redis";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Game Zone COMP voucher redemption.
+ * Game Zone voucher redemption — issuer-agnostic (`HPW…` = ours, the 24-char
+ * alternating shape = BMI's; resolved from the code, no round-trip).
  *
- *   claim   → validate the code with BMI, resolve what it grants, take the
- *             GLOBAL single-use claim, and return a $0 ledger row for the kiosk
- *             to dispense + load against.
- *   release → hand an unspent code back (guest walked away / dispenser faulted
- *             before a card moved).
+ *   claim   → validate, take the GLOBAL single-use claim, return a $0 ledger row
+ *             for the KIOSK to dispense + load against.
+ *   to-card → WEB leg: credit the value onto a card the guest already holds.
+ *   release → hand an unspent code back (nothing was delivered).
  *
- * A refusal is HTTP 200 + `{ok:false, reason}` — the kiosk phrases every reason
- * for an unattended guest, and a rejected voucher is not a server error. Only
+ * A refusal is HTTP 200 + `{ok:false, reason}`: an unattended guest gets phrased
+ * copy for every reason, and a rejected voucher is not a server error. Only
  * malformed requests 400.
+ *
+ * RATE LIMITED per IP. These are bearer instruments — 30^8 is a big space, but
+ * an unthrottled endpoint is still an oracle, and the guessing surface is worth
+ * closing since codes are individually emailed rather than bulk-published.
  */
+
+const RATE_LIMIT_WINDOW_SEC = 300;
+const RATE_LIMIT_MAX = 20;
+
+async function rateLimited(req: NextRequest): Promise<boolean> {
+  const ip = getClientIp(req) ?? "unknown";
+  try {
+    const key = `gzvoucher:redeem:${ip}`;
+    const count = await redis.incr(key);
+    if (count === 1) await redis.expire(key, RATE_LIMIT_WINDOW_SEC);
+    return count > RATE_LIMIT_MAX;
+  } catch (err) {
+    // Redis down must not block a guest holding a legitimate voucher.
+    console.warn("[game-cards/voucher-redeem] rate-limit unavailable:", err);
+    return false;
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => null);
@@ -31,19 +56,33 @@ export async function POST(req: NextRequest) {
     }
 
     if (parsed.data.action === "release") {
-      await releaseGameCardVoucher({
+      await releaseAnyVoucher({
         code: parsed.data.code,
         txnId: parsed.data.txnId,
-        reason: parsed.data.reason ?? "released by kiosk",
+        reason: parsed.data.reason ?? "released by client",
       });
       return jsonOk({ released: true });
     }
 
-    const result = await claimGameCardVoucher({
+    if (await rateLimited(req)) {
+      return jsonOk({ ok: false, reason: "rate_limited" });
+    }
+
+    if (parsed.data.action === "to-card") {
+      const result = await redeemVoucherToCard({
+        code: parsed.data.code,
+        accountNumber: parsed.data.accountNumber,
+        locationCode: parsed.data.locationCode,
+      });
+      return jsonOk({ ...result });
+    }
+
+    const result = await claimAnyVoucher({
       code: parsed.data.code,
       locationCode: parsed.data.locationCode,
       center: parsed.data.center,
       kioskId: parsed.data.kioskId,
+      source: "kiosk",
     });
     return jsonOk({ ...result });
   } catch (err) {
