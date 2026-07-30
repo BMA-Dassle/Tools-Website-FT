@@ -30,8 +30,10 @@
 import { randomBytes } from "crypto";
 import {
   authorizeMultiTender,
+  authorizeTenders,
   GIFT_CARD_MAX_CENTS,
   SquarePaymentError,
+  type TendersResult,
 } from "@/lib/square-gift-card";
 import { composeGan } from "@/lib/gan";
 
@@ -130,6 +132,14 @@ export interface DepositResult {
    *  (idempotent via baseKey). */
   giftCardPending?: boolean;
   gcError?: string;
+  /** Split checkouts only (createDepositAndChargeTenders): every captured
+   *  tender in authorization order. Absent on legacy single/two-tender paths. */
+  tenders?: Array<{
+    kind: "gift_card" | "card";
+    paymentId: string;
+    amountCents: number;
+    ganLast4?: string;
+  }>;
 }
 
 export const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
@@ -517,6 +527,150 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
   }
 }
 
+/** Tender inputs for a SPLIT deposit — already schema-validated upstream
+ *  (TendersRequestSchema in ./tenders); the engine re-validates every gift
+ *  card server-side regardless. */
+export interface DepositTenderInputs {
+  giftCards: Array<{ nonce?: string; giftCardId?: string }>;
+  cards: Array<{ sourceId: string; amountCents?: number }>;
+}
+
+/**
+ * Split-tender twin of createDepositAndCharge (PR-2, flag-gated callers land
+ * in PR-4+): same 4-step lifecycle — deposit order → authorize N gift cards +
+ * M cards via `authorizeTenders` (atomic PayOrder capture) → create + ACTIVATE
+ * the internal deposit gift card funded by ALL captured payment ids. The
+ * legacy function above is untouched; when a checkout has no split, it never
+ * comes near this path.
+ *
+ * Failure semantics are identical to the legacy path: pre-capture failures
+ * cancel every auth and throw (customer never charged); a gift-card
+ * create/activate failure AFTER capture returns `giftCardPending` so the
+ * caller persists a recoverable anchor (forward recovery, never refund).
+ */
+export async function createDepositAndChargeTenders(
+  params: Omit<DepositParams, "cardSourceId" | "giftCardNonce"> & {
+    tenders: DepositTenderInputs;
+    /** Retry counter for the auth idempotency keys — bump per retry after a
+     *  failed authorize/capture (burned-key lesson). Persisted by the caller. */
+    attempt?: number;
+  },
+): Promise<DepositResult> {
+  const { amountCents, locationId, squareCustomerId, ganPrefix, ganSuffix, note, tenders } = params;
+
+  if (amountCents <= 0) {
+    throw new Error("Deposit amount must be > 0");
+  }
+  if (tenders.giftCards.length + tenders.cards.length < 1) {
+    throw new Error("At least one tender required for deposit");
+  }
+
+  const baseKey = params.baseKey ?? randomBytes(8).toString("hex");
+  const saleMode = giftCardSaleEnabled();
+
+  // ── 1. Deposit order (same idempotent create as the legacy path) ──────
+  const { depositOrderId, depositLineItemUid } = await createDepositOrder({
+    baseKey,
+    locationId,
+    amountCents,
+    note,
+    asGiftCardLine: saleMode,
+  });
+
+  // ── 2. Authorize + capture the tender set atomically ──────────────────
+  let result: TendersResult;
+  try {
+    result = await authorizeTenders({
+      orderId: depositOrderId,
+      locationId,
+      totalCents: amountCents,
+      baseKey,
+      giftCards: tenders.giftCards,
+      cards: tenders.cards,
+      attempt: params.attempt,
+      customerId: squareCustomerId,
+      note,
+    });
+  } catch (err) {
+    if (err instanceof SquarePaymentError) {
+      const friendly =
+        FRIENDLY_PAYMENT_ERRORS[err.code] ??
+        err.message ??
+        "Payment could not be processed. Please try again.";
+      const depositErr = new DepositPaymentError(err.code, friendly, err.message);
+      depositErr.failedTender = err.failedTender; // plan §6 decline recovery
+      throw depositErr;
+    }
+    throw err;
+  }
+
+  const gcApprovedCents = result.tenders
+    .filter((t) => t.kind === "gift_card")
+    .reduce((s, t) => s + t.amountCents, 0);
+  const cardApprovedCents = result.tenders
+    .filter((t) => t.kind === "card")
+    .reduce((s, t) => s + t.amountCents, 0);
+  // Primary payment id — the LAST card when one exists (mirrors the legacy
+  // "card over gc" preference), else the last gift card.
+  const lastCard = [...result.tenders].reverse().find((t) => t.kind === "card");
+  const depositPaymentId = (lastCard ?? result.tenders[result.tenders.length - 1]).paymentId;
+
+  // ── 3 + 4. Create + ACTIVATE the deposit gift card from ALL captures ──
+  try {
+    const { giftCardId, giftCardGan } = await activateGiftCardForDeposit({
+      baseKey,
+      locationId,
+      amountCents,
+      ganPrefix,
+      ganSuffix,
+      paymentIds: result.paymentIds,
+      ...(saleMode && depositLineItemUid
+        ? { depositOrderId, lineItemUid: depositLineItemUid }
+        : {}),
+    });
+    console.log(
+      `[deposit] split success depositOrderId=${depositOrderId} amount=${amountCents} ` +
+        `tenders=${result.tenders.length} gc=${gcApprovedCents} card=${cardApprovedCents}`,
+    );
+    return {
+      depositOrderId,
+      depositPaymentId,
+      giftCardId,
+      giftCardGan,
+      gcApprovedCents,
+      cardApprovedCents,
+      tenders: result.tenders.map(({ kind, paymentId, amountCents: cents, ganLast4 }) => ({
+        kind,
+        paymentId,
+        amountCents: cents,
+        ...(ganLast4 ? { ganLast4 } : {}),
+      })),
+    };
+  } catch (gcErr) {
+    const detail = gcErr instanceof Error ? gcErr.message : String(gcErr);
+    console.error(
+      "[deposit] split gift card create/activate failed AFTER capture (recoverable):",
+      detail,
+    );
+    return {
+      depositOrderId,
+      depositPaymentId,
+      giftCardId: null,
+      giftCardGan: null,
+      gcApprovedCents,
+      cardApprovedCents,
+      giftCardPending: true,
+      gcError: detail,
+      tenders: result.tenders.map(({ kind, paymentId, amountCents: cents, ganLast4 }) => ({
+        kind,
+        paymentId,
+        amountCents: cents,
+        ...(ganLast4 ? { ganLast4 } : {}),
+      })),
+    };
+  }
+}
+
 /**
  * Create a DIGITAL gift card with the custom GAN and ACTIVATE it with the
  * deposit amount, funded by the given (already-captured) payment ids. Idempotent
@@ -711,6 +865,9 @@ export async function getDepositOrderLineItem(
 export class DepositPaymentError extends Error {
   code: string;
   friendlyMessage: string;
+  /** Split checkouts: which tender failed (index/kind/ganLast4), when known —
+   *  the PR-4 routes surface this so the client re-collects ONLY that tender. */
+  failedTender?: { index: number; kind: "gift_card" | "card"; ganLast4?: string };
 
   constructor(code: string, friendlyMessage: string, detail?: string) {
     super(detail ?? friendlyMessage);

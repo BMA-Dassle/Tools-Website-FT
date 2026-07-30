@@ -5,13 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Keep the real SquarePaymentError so instanceof checks still work.
 vi.mock("@/lib/square-gift-card", async (importActual) => {
   const actual = await importActual<typeof import("@/lib/square-gift-card")>();
-  return { ...actual, authorizeMultiTender: vi.fn() };
+  return { ...actual, authorizeMultiTender: vi.fn(), authorizeTenders: vi.fn() };
 });
 
-import { authorizeMultiTender } from "@/lib/square-gift-card";
+import { authorizeMultiTender, authorizeTenders } from "@/lib/square-gift-card";
 import {
   activateGiftCardForDeposit,
   createDepositAndCharge,
+  createDepositAndChargeTenders,
   getDepositOrderLineItem,
   giftCardSaleChunks,
 } from "./deposit";
@@ -232,6 +233,132 @@ describe("createDepositAndCharge — flag ON (gift-card sale)", () => {
     const res = await createDepositAndCharge({ ...baseParams });
     expect(res.giftCardPending).toBe(true);
     expect(res.giftCardId).toBeNull();
+  });
+});
+
+describe("createDepositAndChargeTenders — split engine wiring", () => {
+  const mockTenders = authorizeTenders as unknown as ReturnType<typeof vi.fn>;
+  const splitParams = {
+    amountCents: 4399,
+    locationId: "TXBSQN0FEKQ11",
+    ganPrefix: "RACE",
+    ganSuffix: "12345678",
+    note: "Deposit - RACE12345678 - 2026-07-29",
+    baseKey: "testbase",
+    tenders: {
+      giftCards: [{ giftCardId: "gftc:aaa" }, { nonce: "gcnon:bbb" }],
+      cards: [{ sourceId: "cnon:c1", amountCents: 1000 }, { sourceId: "cnon:c2" }],
+    },
+  };
+  const engineResult = {
+    tenders: [
+      { index: 0, kind: "gift_card", paymentId: "pay_gc_0", amountCents: 500, ganLast4: "1234" },
+      { index: 1, kind: "gift_card", paymentId: "pay_gc_1", amountCents: 899, ganLast4: "5678" },
+      { index: 2, kind: "card", paymentId: "pay_card_0", amountCents: 1000 },
+      { index: 3, kind: "card", paymentId: "pay_card_1", amountCents: 2000 },
+    ],
+    paymentIds: ["pay_gc_0", "pay_gc_1", "pay_card_0", "pay_card_1"],
+    totalAuthorizedCents: 4399,
+  };
+
+  beforeEach(() => {
+    mockTenders.mockReset();
+    mockTenders.mockResolvedValue(engineResult);
+  });
+
+  it("forwards order + tender inputs to authorizeTenders and activates with ALL payment ids", async () => {
+    const mock = installFetchMock();
+    registerHappyRoutes(mock);
+
+    const res = await createDepositAndChargeTenders({ ...splitParams });
+
+    expect(mockTenders).toHaveBeenCalledTimes(1);
+    const args = mockTenders.mock.calls[0][0];
+    expect(args.orderId).toBe("ord_dep_1");
+    expect(args.totalCents).toBe(4399);
+    expect(args.baseKey).toBe("testbase");
+    expect(args.giftCards).toEqual(splitParams.tenders.giftCards);
+    expect(args.cards).toEqual(splitParams.tenders.cards);
+
+    const activateCall = mock.calls.find((c) => c.url === `${SQUARE_BASE}/gift-cards/activities`);
+    const details = (activateCall!.body!.gift_card_activity as Record<string, unknown>)
+      .activate_activity_details as Record<string, unknown>;
+    expect(details.buyer_payment_instrument_ids).toEqual([
+      "pay_gc_0",
+      "pay_gc_1",
+      "pay_card_0",
+      "pay_card_1",
+    ]);
+
+    // Aggregates + primary payment id (last CARD wins, mirroring legacy).
+    expect(res.gcApprovedCents).toBe(1399);
+    expect(res.cardApprovedCents).toBe(3000);
+    expect(res.depositPaymentId).toBe("pay_card_1");
+    expect(res.tenders).toHaveLength(4);
+    expect(res.tenders![0]).toEqual({
+      kind: "gift_card",
+      paymentId: "pay_gc_0",
+      amountCents: 500,
+      ganLast4: "1234",
+    });
+    expect(res.giftCardId).toBe("gftc_1");
+  });
+
+  it("maps SquarePaymentError to DepositPaymentError with the friendly message", async () => {
+    const mock = installFetchMock();
+    registerHappyRoutes(mock);
+    const { SquarePaymentError } = await import("@/lib/square-gift-card");
+    mockTenders.mockRejectedValue(new SquarePaymentError("INSUFFICIENT_FUNDS", "raw detail"));
+
+    await expect(createDepositAndChargeTenders({ ...splitParams })).rejects.toMatchObject({
+      code: "INSUFFICIENT_FUNDS",
+      friendlyMessage: "Card declined — insufficient funds. Try a different card.",
+      message: "raw detail", // DepositPaymentError keeps the raw detail as .message
+    });
+    // No activate attempt after a failed authorize.
+    expect(mock.calls.some((c) => c.url === `${SQUARE_BASE}/gift-cards/activities`)).toBe(false);
+  });
+
+  it("returns giftCardPending + tenders when activate fails AFTER capture", async () => {
+    const mock = installFetchMock();
+    registerHappyRoutes(mock, { activateErrors: [{ code: "BAD", detail: "replayed failure" }] });
+
+    const res = await createDepositAndChargeTenders({ ...splitParams });
+    expect(res.giftCardPending).toBe(true);
+    expect(res.giftCardId).toBeNull();
+    expect(res.depositPaymentId).toBe("pay_card_1");
+    expect(res.tenders).toHaveLength(4); // caller persists these on the anchor
+  });
+
+  it("gift-card-only split: primary payment id falls back to the last gift card", async () => {
+    const mock = installFetchMock();
+    registerHappyRoutes(mock);
+    mockTenders.mockResolvedValue({
+      tenders: [
+        { index: 0, kind: "gift_card", paymentId: "pay_gc_0", amountCents: 4399, ganLast4: "9999" },
+      ],
+      paymentIds: ["pay_gc_0"],
+      totalAuthorizedCents: 4399,
+    });
+
+    const res = await createDepositAndChargeTenders({
+      ...splitParams,
+      tenders: { giftCards: [{ giftCardId: "gftc:solo" }], cards: [] },
+    });
+    expect(res.depositPaymentId).toBe("pay_gc_0");
+    expect(res.gcApprovedCents).toBe(4399);
+    expect(res.cardApprovedCents).toBe(0);
+  });
+
+  it("rejects an empty tender set before any Square call", async () => {
+    const mock = installFetchMock();
+    await expect(
+      createDepositAndChargeTenders({
+        ...splitParams,
+        tenders: { giftCards: [], cards: [] },
+      }),
+    ).rejects.toThrow("At least one tender required");
+    expect(mock.calls).toHaveLength(0);
   });
 });
 
