@@ -86,6 +86,9 @@ export interface VoucherStatus {
   items: VoucherItemState[];
   expiresAt: string | null;
   voidedAt: string | null;
+  /** Resolved HERE (server) rather than at render time — reading the clock
+   *  during a render is impure and would differ between passes. */
+  expired: boolean;
   /** True once every REDEEMABLE item is spent. */
   fullySpent: boolean;
 }
@@ -112,6 +115,7 @@ export async function getVoucherStatus(code: string): Promise<VoucherStatus | nu
     items,
     expiresAt: voucher.expiresAt,
     voidedAt: voucher.voidedAt,
+    expired: !!voucher.expiresAt && Date.parse(voucher.expiresAt) <= Date.now(),
     fullySpent: items.filter((i) => i.redeemable).every((i) => i.spent),
   };
 }

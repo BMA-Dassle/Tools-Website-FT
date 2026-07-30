@@ -66,6 +66,9 @@ const VOUCHER_REFUSAL_KEY: Record<string, Parameters<Translate>[0]> = {
   // plainly so a guest knows whether to bother asking staff.
   voided: "gamezone.voucher.err.voided",
   expired: "gamezone.voucher.err.expired",
+  // Live voucher, nothing on it we can hand over HERE (e.g. laser tag only).
+  // Distinct from "used" on purpose — the guest still has value.
+  not_redeemable: "gamezone.voucher.err.notRedeemable",
   // BMI-issued only.
   unverifiable: "gamezone.voucher.err.unverifiable",
   unsupported: "gamezone.voucher.err.unsupported",
@@ -1081,13 +1084,11 @@ export function KioskGameZone({
   useEffect(() => {
     if (mode === "voucher") return;
     if (voucherClaimRef.current) void releaseVoucherClaim("left voucher mode");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
   useEffect(() => {
     return () => {
       if (voucherClaimRef.current) void releaseVoucherClaim("game zone closed");
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ── Consolidation (cloud-only) ──────────────────────────────────────────────

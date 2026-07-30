@@ -36,6 +36,8 @@ export const gamezoneEn = {
   "gamezone.voucher.err.unknown": "That voucher isn’t valid or has expired.",
   "gamezone.voucher.err.voided": "That voucher was cancelled — please see Guest Services.",
   "gamezone.voucher.err.expired": "That voucher has expired.",
+  "gamezone.voucher.err.notRedeemable":
+    "That voucher isn’t for a game card — take it to Guest Services to use it.",
   "gamezone.voucher.err.unverifiable":
     "We couldn’t check that voucher right now — please see Guest Services.",
   "gamezone.voucher.err.unsupported":
@@ -258,6 +260,8 @@ export const gamezoneEs: Record<keyof typeof gamezoneEn, string> = {
   "gamezone.voucher.err.unknown": "Ese vale no es válido o ya venció.",
   "gamezone.voucher.err.voided": "Ese vale fue cancelado — acude a Servicio al Cliente.",
   "gamezone.voucher.err.expired": "Ese vale ya venció.",
+  "gamezone.voucher.err.notRedeemable":
+    "Ese vale no es para una tarjeta de juego — llévalo a Servicio al Cliente para usarlo.",
   "gamezone.voucher.err.unverifiable":
     "No pudimos verificar ese vale en este momento — acude a Servicio al Cliente.",
   "gamezone.voucher.err.unsupported":
