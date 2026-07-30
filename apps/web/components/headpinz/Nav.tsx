@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { setBookingLocation } from "@/lib/booking-location";
 import { normalizeLocationSlug, type LocationKey } from "@/lib/attractions-data";
+import { buildWaiverUrl } from "~/features/waiver/build-waiver-url";
 import Image from "next/image";
 
 const locations = [
@@ -13,7 +14,9 @@ const locations = [
     label: "Fort Myers",
     shortLabel: "FM",
     href: "/fort-myers",
-    waiver: "https://kiosk.bmileisure.com/headpinzftmyers",
+    // First-party flow (was kiosk.bmileisure.com/headpinzftmyers). Center is
+    // explicit so a Naples guest can never be filed at Fort Myers.
+    waiver: buildWaiverUrl({ center: "fort-myers" }),
     booking: "/hp/book",
     leagues: "https://www.leaguesecretary.com/bowling-centers/headpinz-fort-myers/leagues/11934",
   },
@@ -22,7 +25,7 @@ const locations = [
     label: "Naples",
     shortLabel: "NAP",
     href: "/naples",
-    waiver: "https://kiosk.bmileisure.com/headpinznaples",
+    waiver: buildWaiverUrl({ center: "naples" }),
     booking: "/hp/book?location=naples",
     leagues:
       "https://www.leaguesecretary.com/bowling-centers/headpinz-naples-naples-florida/dashboard/4318",

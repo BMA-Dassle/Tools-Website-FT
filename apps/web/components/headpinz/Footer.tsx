@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { buildWaiverUrl } from "~/features/waiver/build-waiver-url";
 
 const locations = [
   {
@@ -138,12 +139,12 @@ export default function HeadPinzFooter() {
         <div className="border-t border-white/10 pt-6 flex flex-col sm:flex-row justify-between items-center gap-2 text-xs text-white/30 font-body">
           <p>&copy; 2026 Pinboyz LLC. All rights reserved.</p>
           <p>
-            <a
-              href="https://kiosk.bmileisure.com/headpinzftmyers"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-white/60 transition-colors"
-            >
+            {/* No center on purpose. This footer renders on both HeadPinz venues
+                and has no idea which one you're on — it previously hardcoded
+                headpinzftmyers, so a Naples visitor was sent to Fort Myers' waiver.
+                Centre-less /waiver asks which location, and Naples has its own
+                Pandora location AND its own waiver template, so guessing is wrong. */}
+            <a href={buildWaiverUrl()} className="hover:text-white/60 transition-colors">
               Waiver
             </a>
             <span className="mx-2">&middot;</span>

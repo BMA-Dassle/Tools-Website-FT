@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { useChatAvailable } from "@/hooks/useChatAvailable";
+import { buildWaiverUrl } from "~/features/waiver/build-waiver-url";
 
 const quickLinks = [
   { label: "Racing", href: "/racing" },
@@ -146,10 +147,11 @@ export default function Footer() {
       <div className="max-w-7xl mx-auto px-4 mt-6 pt-6 border-t border-white/10 flex flex-col sm:flex-row justify-between items-center gap-2 text-xs text-white/30">
         <p>© 2026 Fast Trax FEC LLC. All rights reserved.</p>
         <p>
+          {/* First-party /waiver now — so no target/rel: it is our own page, and
+              sending it to a new tab was only ever because it was an external
+              BMI host. FastTrax is Fort Myers only. */}
           <a
-            href="https://kiosk.bmileisure.com/headpinzftmyers"
-            target="_blank"
-            rel="noopener noreferrer"
+            href={buildWaiverUrl({ center: "fort-myers" })}
             className="hover:text-white/60 transition-colors"
           >
             Waiver
