@@ -87,8 +87,15 @@ export async function claimAnyVoucher(input: {
     };
   }
 
-  // BMI-issued. Only the kiosk can redeem these today: fulfilment is a dispense
-  // and the comp's value has to be read back off BMI, so there is no web leg.
+  // BMI-issued comps are PARKED (owner 2026-07-29: "leave BMI vouchers for game
+  // cards for another day"). The code ships dormant rather than being deleted —
+  // it's probe-verified work — but a BMI-shaped scan must not reach a live BMI
+  // call on a path nobody has smoked. Set GZ_VOUCHER_BMI=1 to wake it up.
+  if (process.env.GZ_VOUCHER_BMI !== "1") {
+    return { ok: false, issuer, reason: "unsupported" };
+  }
+  // Only the kiosk can redeem these: fulfilment is a dispense and the comp's
+  // value has to be read back off BMI, so there is no web leg.
   if (input.source === "web") return { ok: false, issuer, reason: "unsupported" };
   const res = await claimGameCardVoucher({
     code: input.code,
