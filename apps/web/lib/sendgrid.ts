@@ -34,6 +34,20 @@ export interface SendEmailOpts {
   headers?: Record<string, string>;
   /** SendGrid categories for reporting/segmentation (e.g. ["xmas_in_july"]). */
   categories?: string[];
+  /**
+   * File attachments. Set `contentId` and reference it from the HTML as
+   * `<img src="cid:THAT_ID">` for an INLINE image — the only reliable way to put
+   * a generated image (e.g. a voucher QR) in an email, because Gmail and Outlook
+   * both strip `data:` URIs from <img src>.
+   */
+  attachments?: Array<{
+    /** Base64-encoded file content. */
+    content: string;
+    filename: string;
+    type?: string;
+    /** Present = inline (referenced via cid:); absent = a normal attachment. */
+    contentId?: string;
+  }>;
 }
 
 export interface SendEmailResult {
@@ -97,6 +111,16 @@ export async function sendEmail(opts: SendEmailOpts): Promise<SendEmailResult> {
   }
   if (opts.headers && Object.keys(opts.headers).length > 0) {
     payload.headers = opts.headers;
+  }
+  if (opts.attachments && opts.attachments.length > 0) {
+    payload.attachments = opts.attachments.map((a) => ({
+      content: a.content,
+      filename: a.filename,
+      type: a.type ?? "application/octet-stream",
+      // `inline` keeps it out of the attachment tray so it renders in the body.
+      disposition: a.contentId ? "inline" : "attachment",
+      ...(a.contentId ? { content_id: a.contentId } : {}),
+    }));
   }
   if (opts.categories && opts.categories.length > 0) {
     payload.categories = opts.categories;

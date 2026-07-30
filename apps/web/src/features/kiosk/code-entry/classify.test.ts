@@ -87,3 +87,33 @@ describe("classifyKioskCode", () => {
     expect(classifyKioskCode("https://example.com/whatever").kind).toBe("unknown");
   });
 });
+
+describe("our own vouchers (HPW…)", () => {
+  it("classifies the canonical, hyphenated and lowercase forms", () => {
+    // Regression: HPW codes were reaching the PROMO validator (which of course
+    // doesn't know them) and the guest was told "we couldn't find that code"
+    // for a perfectly good voucher. Live-caught on preview 2026-07-29.
+    for (const raw of ["HPWRKEMG926", "HPW-RKEM-G926", "hpw-rkem-g926", " HPW RKEM G926 "]) {
+      const c = classifyKioskCode(raw);
+      expect(c.kind).toBe("native-voucher");
+      expect(c.value).toBe("HPWRKEMG926");
+    }
+  });
+
+  it("classifies the emailed /v/{code} QR payload", () => {
+    const c = classifyKioskCode("https://headpinz.com/v/HPWRKEMG926");
+    expect(c.kind).toBe("native-voucher");
+    expect(c.value).toBe("HPWRKEMG926");
+  });
+
+  it("keeps a promo code a promo", () => {
+    expect(classifyKioskCode("SUMMER26").kind).toBe("promo");
+    // Near-misses must NOT become vouchers.
+    expect(classifyKioskCode("HPWRKEMG92").kind).toBe("promo"); // 7 body chars
+    expect(classifyKioskCode("HPWRKEMG9260").kind).toBe("promo"); // 9
+  });
+
+  it("still classifies a BMI voucher as BMI", () => {
+    expect(classifyKioskCode("D3X5Q4Z8M5C3Z4D3H6S3T4G3").kind).toBe("bmi-voucher");
+  });
+});

@@ -17,6 +17,7 @@
  * text costs money per segment and gets read less.
  */
 
+import QRCode from "qrcode";
 import { sendEmail } from "@/lib/sendgrid";
 import { twilioSend } from "@/lib/twilio-send";
 import { formatVoucherCode } from "../vouchers/codes";
@@ -42,6 +43,42 @@ function esc(s: string): string {
 }
 
 /**
+ * A scannable QR per code, as an INLINE (cid:) attachment.
+ *
+ * It encodes the /v/{code} URL, not the bare code, so ONE image serves both
+ * uses: a phone camera opens the redemption page, and the kiosk scanner
+ * recognises the URL (classify.ts pulls the code back out of a /v/ path). A
+ * bare-code QR would work at the kiosk and do nothing useful on a phone.
+ *
+ * cid, not `data:` — Gmail and Outlook both strip data URIs from <img src>, so
+ * an inline attachment is the only form that actually renders.
+ *
+ * `errorCorrectionLevel: "H"` because these get printed, photographed off a
+ * screen, and scanned under a kiosk bezel; margin 1 keeps the image tight.
+ */
+async function qrAttachment(code: string): Promise<{
+  cid: string;
+  attachment: { content: string; filename: string; type: string; contentId: string };
+}> {
+  const cid = `qr-${code}`;
+  const buf = await QRCode.toBuffer(voucherRedeemUrl(code), {
+    type: "png",
+    errorCorrectionLevel: "H",
+    margin: 1,
+    width: 320,
+  });
+  return {
+    cid,
+    attachment: {
+      content: buf.toString("base64"),
+      filename: `${code}.png`,
+      type: "image/png",
+      contentId: cid,
+    },
+  };
+}
+
+/**
  * Email a freshly-minted batch to the person who minted it.
  *
  * Best-effort by design: the vouchers are already durable in Neon, so a mail
@@ -62,10 +99,22 @@ export async function emailMintBatch(args: {
     ? new Date(args.expiresAt).toLocaleDateString("en-US", { timeZone: "America/New_York" })
     : "no expiry";
 
-  // Plain, monospaced, copy-pasteable. This is a working list, not a brochure —
-  // it gets pasted into a spreadsheet or read off to a guest on the phone.
+  // Each code gets a scannable QR beside it (owner 2026-07-29: "I wanted
+  // scannable QRs too") so a tester can hold the phone up to the kiosk instead
+  // of typing 11 characters on an on-screen keyboard. The code stays in text
+  // next to it — still copy-pasteable, still readable over the phone.
+  const qrs = await Promise.all(args.codes.map((c) => qrAttachment(c)));
   const rows = args.codes
-    .map((c) => `<tr><td style="padding:4px 12px 4px 0;font-family:monospace;font-size:15px">${esc(formatVoucherCode(c))}</td></tr>`)
+    .map(
+      (c, i) =>
+        `<tr>` +
+        `<td style="padding:6px 14px 6px 0;vertical-align:middle">` +
+        `<img src="cid:${qrs[i].cid}" width="110" height="110" alt="QR for ${esc(formatVoucherCode(c))}" ` +
+        `style="display:block;border:1px solid #e5e5e5;border-radius:6px"></td>` +
+        `<td style="padding:6px 0;vertical-align:middle;font-family:monospace;font-size:17px">` +
+        `${esc(formatVoucherCode(c))}</td>` +
+        `</tr>`,
+    )
     .join("");
 
   const html = `
@@ -77,7 +126,7 @@ export async function emailMintBatch(args: {
       </p>
       <table style="border-collapse:collapse;margin:0 0 20px">${rows}</table>
       <p style="margin:0 0 6px;color:#555;font-size:13px">
-        Guests redeem at a kiosk (scan or type the code) or at
+        Scan a QR at the kiosk, or type the code. Guests can also open
         <span style="font-family:monospace">${esc(siteOrigin())}/v/&lt;code&gt;</span>
         to load a card they already have.
       </p>
@@ -99,6 +148,7 @@ export async function emailMintBatch(args: {
     html,
     text,
     categories: ["voucher_mint"],
+    attachments: qrs.map((q) => q.attachment),
   });
   return res.ok ? { ok: true } : { ok: false, error: res.error };
 }
@@ -118,6 +168,7 @@ export async function sendVoucherToGuest(args: {
   const out: { emailOk?: boolean; smsOk?: boolean; error?: string } = {};
 
   if (args.email) {
+    const qr = await qrAttachment(args.code);
     const html = `
       <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111">
         <p style="margin:0 0 12px">${args.name ? `${esc(args.name)}, ` : ""}here's ${esc(value)} on us.</p>
@@ -130,6 +181,14 @@ export async function sendVoucherToGuest(args: {
              padding:12px 20px;border-radius:999px;display:inline-block;font-weight:600">
             Load it on my card
           </a>
+        </p>
+        <p style="margin:0 0 12px">
+          <img src="cid:${qr.cid}" width="180" height="180"
+               alt="Scan this at any kiosk"
+               style="display:block;border:1px solid #e5e5e5;border-radius:8px">
+          <span style="display:block;margin-top:6px;color:#555;font-size:13px">
+            Or scan this at any kiosk
+          </span>
         </p>
         <p style="margin:0 0 6px;color:#555">
           Already have a game card? Use the button. Don't have one? Scan this code at any
@@ -152,6 +211,7 @@ export async function sendVoucherToGuest(args: {
       html,
       text: `${value} on us. Code ${pretty}. Load it on your card: ${url} — or scan it at any kiosk for a new card.`,
       categories: ["voucher_guest"],
+      attachments: [qr.attachment],
     });
     out.emailOk = res.ok;
     if (!res.ok) out.error = res.error;

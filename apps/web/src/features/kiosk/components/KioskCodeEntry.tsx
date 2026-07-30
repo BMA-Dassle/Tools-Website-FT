@@ -173,6 +173,16 @@ export function KioskCodeEntry({
         }
         return;
       }
+      // OUR OWN voucher (HPW…). Fulfilment is a dispensed card, not a cart
+      // discount, so it belongs on the Game Zone rail — hand it over with the
+      // code already in hand. This branch is REQUIRED: without it the code
+      // falls through to the promo validator below and the guest is told
+      // "we couldn't find that code" for a perfectly good voucher.
+      if (kind === "native-voucher") {
+        clarityEvent("kiosk:voucher:native");
+        setPanel({ kind: "voucher-gamecard", code });
+        return;
+      }
       if (kind === "game-card") {
         setPanel({ kind: "game-card" });
         return;
@@ -226,7 +236,13 @@ export function KioskCodeEntry({
     (raw: string) => {
       if (!raw.trim() || panel) return;
       const c = classifyKioskCode(raw);
-      setValue(c.kind === "promo" || c.kind === "bmi-voucher" ? c.value : "");
+      // Keep the normalized code on screen for the shapes the guest can retype;
+      // clear it for payloads (card/gift-card URLs) that aren't codes.
+      setValue(
+        c.kind === "promo" || c.kind === "bmi-voucher" || c.kind === "native-voucher"
+          ? c.value
+          : "",
+      );
       void routeClassified(c.kind, c.value);
     },
     [panel, routeClassified],
