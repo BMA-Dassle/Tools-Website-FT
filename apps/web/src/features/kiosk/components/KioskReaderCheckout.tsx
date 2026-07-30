@@ -30,6 +30,8 @@ export function KioskReaderCheckout({
   seed,
   depositOrderId,
   depositCents,
+  split,
+  giftCardAction,
   onCaptured,
   onCancel,
 }: {
@@ -40,6 +42,14 @@ export function KioskReaderCheckout({
   /** OUR deposit order the reader pays (created server-side in prepare). */
   depositOrderId: string;
   depositCents: number;
+  /** GIFT-CARD (split v1) mode: arm the reader auth-only for the REMAINDER —
+   *  the server validates the amount against the anchor and salts the key;
+   *  capture happens later via /deposit-tenders/capture. */
+  split?: { splitToken: string; amountCents: number };
+  /** Flag-gated "Use a gift card" entry: replaces the amber swipe banner.
+   *  Activating it cancels the armed full-amount checkout FIRST, then hands
+   *  control to the gift-card flow — the reader is never double-armed. */
+  giftCardAction?: { label: string; onActivate: () => void };
   /** The COMPLETED reader paymentId → reserve records it as collected. */
   onCaptured: (result: { paymentId: string }) => void;
   onCancel: () => void;
@@ -59,7 +69,7 @@ export function KioskReaderCheckout({
     deadlineRef.current = null;
   }, []);
 
-  const cancel = useCallback(async () => {
+  const dismissArmed = useCallback(async () => {
     cleanup();
     const id = checkoutIdRef.current;
     if (id) {
@@ -67,9 +77,13 @@ export function KioskReaderCheckout({
         method: "DELETE",
       }).catch(() => {});
     }
+  }, [cleanup]);
+
+  const cancel = useCallback(async () => {
+    await dismissArmed();
     setPhase("canceled");
     onCancel();
-  }, [cleanup, onCancel]);
+  }, [dismissArmed, onCancel]);
 
   const start = useCallback(async () => {
     setError(null);
@@ -78,13 +92,26 @@ export function KioskReaderCheckout({
       const res = await fetch("/api/kiosk/terminal-checkout", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          deviceId,
-          amountCents: depositCents,
-          referenceId: seed,
-          orderId: depositOrderId,
-          idempotencyKey: idemKey,
-        }),
+        body: JSON.stringify(
+          split
+            ? {
+                // Split mode: the SERVER computes + validates the amount from
+                // the anchor and derives the salted key — the client claim is
+                // only cross-checked (409 = re-sync).
+                deviceId,
+                referenceId: seed,
+                seed,
+                splitToken: split.splitToken,
+                splitAmountCents: split.amountCents,
+              }
+            : {
+                deviceId,
+                amountCents: depositCents,
+                referenceId: seed,
+                orderId: depositOrderId,
+                idempotencyKey: idemKey,
+              },
+        ),
       });
       const data = await res.json();
       if (!res.ok || !data.checkoutId) {
@@ -133,6 +160,7 @@ export function KioskReaderCheckout({
     seed,
     depositOrderId,
     idemKey,
+    split,
     cancel,
     cleanup,
     onCaptured,
@@ -154,12 +182,29 @@ export function KioskReaderCheckout({
             brand={brand}
             label={t("pay.reader.followPrompts")}
             sublabel={t("pay.reader.tapToPay", {
-              amount: `$${(depositCents / 100).toFixed(2)}`,
+              amount: `$${((split?.amountCents ?? depositCents) / 100).toFixed(2)}`,
             })}
           />
-          <div className="rounded-2xl border border-[#e8b14c]/40 bg-[#e8b14c]/10 px-6 py-4 text-lg text-[#f5d896]">
-            {t("pay.reader.giftCardSwipe")}
-          </div>
+          {split ? (
+            <div className="text-base text-white/40">{t("giftcard.readerExactAmount")}</div>
+          ) : giftCardAction ? (
+            <button
+              type="button"
+              onClick={() => {
+                // Release the armed full-amount checkout BEFORE the gift-card
+                // flow starts — one live checkout at a time.
+                void dismissArmed().then(giftCardAction.onActivate);
+              }}
+              className="flex w-full items-center justify-between rounded-2xl border-2 border-[#f0b341]/55 bg-[#f0b341]/10 px-6 py-5 text-left text-lg font-bold text-[#f0b341]"
+            >
+              <span>🎁 {giftCardAction.label}</span>
+              <span aria-hidden="true">→</span>
+            </button>
+          ) : (
+            <div className="rounded-2xl border border-[#e8b14c]/40 bg-[#e8b14c]/10 px-6 py-4 text-lg text-[#f5d896]">
+              {t("pay.reader.giftCardSwipe")}
+            </div>
+          )}
           <button
             type="button"
             onClick={() => void cancel()}

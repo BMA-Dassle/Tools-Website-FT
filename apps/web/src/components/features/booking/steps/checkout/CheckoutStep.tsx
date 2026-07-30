@@ -1389,6 +1389,8 @@ export function CheckoutStep({
        *  bill and ignores this field). */
       externalPayment?: {
         paymentId: string;
+        /** Gift-card checkouts: every captured payment (GC + tap). */
+        paymentIds?: string[];
         depositOrderId: string;
         amountCents: number;
         seed: string;

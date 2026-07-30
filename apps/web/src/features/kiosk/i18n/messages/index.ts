@@ -22,6 +22,7 @@ import { peopleUiEn, peopleUiEs } from "./parts/peopleUi";
 import { checkinEn, checkinEs } from "./parts/checkin";
 import { flowEn, flowEs } from "./parts/flow";
 import { attractionEn, attractionEs } from "./parts/attraction";
+import { giftcardEn, giftcardEs } from "./parts/giftcard";
 import type { KioskLocale } from "../locales";
 
 /** English source of truth — core + every screen fragment. */
@@ -37,6 +38,7 @@ const EN = {
   ...checkinEn,
   ...flowEn,
   ...attractionEn,
+  ...giftcardEn,
 };
 
 /** Spanish — each piece is exhaustively typed against its English counterpart. */
@@ -52,6 +54,7 @@ const ES = {
   ...checkinEs,
   ...flowEs,
   ...attractionEs,
+  ...giftcardEs,
 };
 
 export type MessageKey = keyof typeof EN;

@@ -1337,7 +1337,14 @@ export interface ReserveAllParams {
   /** Kiosk direct-Terminal charge (owner: NO saved card) — the reader already
    *  captured the card against OUR deposit order. Mutually exclusive with a card
    *  token. Flag-gated + fail-closed server-side. */
-  externalPayment?: { paymentId: string; depositOrderId: string; amountCents: number };
+  externalPayment?: {
+    paymentId: string;
+    /** Gift-card checkouts: every captured payment (GC + tap) — the server
+     *  finalizes with the full set (sum verification). */
+    paymentIds?: string[];
+    depositOrderId: string;
+    amountCents: number;
+  };
 }
 
 export interface ReserveAllResult {
@@ -1375,6 +1382,9 @@ export async function reserveAll(params: ReserveAllParams): Promise<ReserveAllRe
       externalPayment: params.externalPayment
         ? {
             paymentId: params.externalPayment.paymentId,
+            ...(params.externalPayment.paymentIds
+              ? { paymentIds: params.externalPayment.paymentIds }
+              : {}),
             depositOrderId: params.externalPayment.depositOrderId,
             amountCents: params.externalPayment.amountCents,
             source: "terminal" as const,

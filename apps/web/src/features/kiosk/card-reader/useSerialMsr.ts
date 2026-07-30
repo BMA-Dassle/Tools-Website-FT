@@ -1,14 +1,17 @@
 "use client";
 
 /**
- * Serial-COM swipe MSR for Game Zone cards (reload-only kiosks).
+ * Serial-COM swipe MSR — Game Zone cards (reload kiosks) and, in
+ * mode "square-gift", physical Square gift cards for the split-tender flow.
  *
  * NOT the CRT-591: the MSR is a dumb swipe reader on its own COM port that
- * streams one ISO track-2 burst per swipe — `;6283=<account>?` (6283 =
- * Intercard corp prefix). There is no command protocol and nothing to poll:
- * we open the port, listen, and parse bursts (parseIntercardSwipe). A burst
- * without the 6283 prefix is discarded unparsed and unlogged — PCI house
- * rule: payment tracks are never parsed or retained.
+ * streams one ISO track-2 burst per swipe. There is no command protocol and
+ * nothing to poll: we open the port, listen, and parse bursts with the
+ * mode's parser — "intercard" (default) wants `;6283=<account>?` bursts
+ * (parseIntercardSwipe); "square-gift" wants a gift-card GAN candidate
+ * (parseSquareGiftSwipe, bank cards hard-discarded first). Raw bursts never
+ * leave this hook, and an unwanted burst is discarded unretained and
+ * unlogged — PCI house rule: payment tracks are never parsed or retained.
  *
  * Provisioning mirrors the CRT-591: the admin grants the COM port once
  * (chooser = the grant), the port's USB ids + baud persist to KioskConfig
@@ -16,7 +19,7 @@
  * no picker in front of a guest.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { parseIntercardSwipe } from "./wedge";
+import { parseIntercardSwipe, parseSquareGiftSwipe } from "./wedge";
 
 export type SerialMsrConnection =
   | { state: "unsupported" }
@@ -25,6 +28,9 @@ export type SerialMsrConnection =
   | { state: "listening" }
   | { state: "error"; message: string };
 
+/** Why a "square-gift" burst was rejected — coarse by design, never the data. */
+export type MsrBadSwipeReason = "not-gift-card" | "unreadable";
+
 export interface UseSerialMsrOptions {
   /** Provisioned kiosk → silently (re)connect to the saved grant on mount. */
   enabled?: boolean;
@@ -32,10 +38,19 @@ export interface UseSerialMsrOptions {
   portInfo?: { usbVendorId?: number; usbProductId?: number } | null;
   /** Line speed; serial swipe MSRs are conventionally 9600 8N1. */
   baud?: number | null;
-  /** A valid Intercard swipe (account number, leading zeros kept). */
+  /**
+   * What this MSR feeds — "intercard" (default; Game Zone reload, existing
+   * callers unchanged) or "square-gift" (gift-card GAN capture for split
+   * tender).
+   */
+  mode?: "intercard" | "square-gift";
+  /** A valid swipe for the mode: Intercard account number (leading zeros
+   *  kept), or a Square gift-card GAN candidate (server lookup validates). */
   onSwipe?: (cardNumber: string) => void;
-  /** A burst arrived that is NOT an Intercard track (bad swipe / wrong card). */
-  onBadSwipe?: () => void;
+  /** A burst arrived that the mode doesn't want (bad swipe / wrong card).
+   *  "intercard" mode keeps its legacy no-arg call; "square-gift" mode says
+   *  "not-gift-card" for a Game Zone swipe, "unreadable" for the rest. */
+  onBadSwipe?: (reason?: MsrBadSwipeReason) => void;
   /** First successful open — the admin persists the grant's ids from this. */
   onConnected?: (portInfo: SerialPortInfo, baudRate: number) => void;
 }
@@ -52,13 +67,13 @@ const RECONNECT_BACKOFFS = [1_000, 2_000, 4_000, 8_000] as const;
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function useSerialMsr(opts: UseSerialMsrOptions = {}) {
-  const { enabled = false, portInfo = null, baud = null } = opts;
+  const { enabled = false, portInfo = null, baud = null, mode = "intercard" } = opts;
 
   const [connection, setConnection] = useState<SerialMsrConnection>({
     state: "disconnected",
     hadPortGrant: false,
   });
-  /** Last parsed account — admin test surface only. */
+  /** Last parsed account/GAN candidate — admin test surface only. */
   const [lastSwipe, setLastSwipe] = useState<string | null>(null);
 
   // Callbacks live in refs so the long-running read loop always sees the
@@ -67,6 +82,12 @@ export function useSerialMsr(opts: UseSerialMsrOptions = {}) {
   useEffect(() => {
     cbRef.current = { onSwipe: opts.onSwipe, onBadSwipe: opts.onBadSwipe };
   }, [opts.onSwipe, opts.onBadSwipe]);
+  // Same ref treatment for mode: a mid-session change must steer the NEXT
+  // burst without re-opening the port.
+  const modeRef = useRef(mode);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
   const onConnectedRef = useRef(opts.onConnected);
   useEffect(() => {
     onConnectedRef.current = opts.onConnected;
@@ -81,7 +102,21 @@ export function useSerialMsr(opts: UseSerialMsrOptions = {}) {
   }, [enabled]);
   const attemptReconnectRef = useRef<() => void>(() => {});
 
+  // Raw bursts never leave this function — only a parsed account/GAN does,
+  // and a rejected burst is dropped unretained and unlogged.
   const flushBurst = useCallback((buffer: string) => {
+    if (modeRef.current === "square-gift") {
+      const swipe = parseSquareGiftSwipe(buffer);
+      if (swipe?.kind === "candidate") {
+        setLastSwipe(swipe.gan);
+        cbRef.current.onSwipe?.(swipe.gan);
+      } else if (swipe?.kind === "gamezone") {
+        cbRef.current.onBadSwipe?.("not-gift-card");
+      } else if (buffer.trim()) {
+        cbRef.current.onBadSwipe?.("unreadable");
+      }
+      return;
+    }
     const account = parseIntercardSwipe(buffer);
     if (account) {
       setLastSwipe(account);
@@ -102,7 +137,10 @@ export function useSerialMsr(opts: UseSerialMsrOptions = {}) {
         idleTimer = null;
         const b = buffer;
         buffer = "";
-        flushBurst(b);
+        // A queued idle-flush can fire in the window between unmount/close and
+        // the reader-cancel settling — never deliver a burst to a consumer
+        // that is going away (review 2026-07-29).
+        if (!closingRef.current) flushBurst(b);
       };
       try {
         while (port.readable && !closingRef.current) {
