@@ -29,6 +29,7 @@
 
 export type KioskCodeKind =
   | "bmi-voucher" // BMI voucher number → voucher flow
+  | "native-voucher" // OUR voucher (HPW…) → internal redemption, no BMI call
   | "promo" // discount/coupon code candidate → /api/booking/v2/promo
   | "game-card" // Intercard account / shortlink → Game Zone screens
   | "gift-card" // Square gift card → pay with it at the reader
@@ -47,6 +48,12 @@ export interface ClassifiedCode {
 /** BMI voucher number shape - single source in the shared booking layer. */
 export { BMI_VOUCHER_RE } from "~/features/booking/service/voucher-redeem";
 import { BMI_VOUCHER_RE } from "~/features/booking/service/voucher-redeem";
+/** OUR voucher shape (`HPW` + 8) — the universal internal-issuer marker, so a
+ *  scan is routed locally with no round-trip. Single source in game-cards. */
+import {
+  NATIVE_VOUCHER_RE,
+  normalizeVoucherCode,
+} from "~/features/game-cards/vouchers/codes";
 
 /** Intercard card-number QR shortlink host (see game-cards/resolve-scan). */
 const ICARD_HOST_RE = /^https?:\/\/(?:www\.)?icardinc\.net\//i;
@@ -92,6 +99,12 @@ export function classifyKioskCode(input: string): ClassifiedCode {
 
   // Compact the typed/scanned code: codes never contain inner whitespace.
   const compact = upper.replace(/\s+/g, "");
+
+  // OURS first — the printed/spoken form carries hyphens (HPW-4K7M-9PQR), so
+  // normalize before matching. Checked ahead of the promo fallback so an
+  // internal voucher is never mistaken for a discount code.
+  const native = normalizeVoucherCode(raw);
+  if (NATIVE_VOUCHER_RE.test(native)) return { kind: "native-voucher", value: native, raw };
 
   if (BMI_VOUCHER_RE.test(compact)) return { kind: "bmi-voucher", value: compact, raw };
 

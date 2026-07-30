@@ -90,7 +90,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, reason });
     }
     warnUnknownComp(res.name, code, "peek");
-    return NextResponse.json({ ok: true, name: res.name });
+    // `target` lets the CART surfaces route instead of silently accepting a
+    // voucher that can never reduce their total: "gamecard" belongs on the Game
+    // Zone dispense rail (/api/game-cards/voucher-redeem), and "multi" is a
+    // bundle we don't split yet — both must send the guest somewhere real
+    // rather than sit in the cart covering nothing.
+    const names = res.names?.filter((n) => n.trim().length > 0) ?? [];
+    const target = names.length > 1 ? "multi" : voucherTarget(res.name).kind;
+    return NextResponse.json({ ok: true, name: res.name, names, target });
   }
 
   if (body.action === "remove") {

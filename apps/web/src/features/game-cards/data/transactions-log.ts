@@ -80,6 +80,8 @@ export interface TxnRow {
   eisCode: string | null;
   eisDescription: string | null;
   loadedVia: string | null;
+  /** BMI comp voucher that authorised this row (kind='voucher' only). */
+  voucherCode: string | null;
 }
 
 /** One claimed credit job, as handed to the on-prem bridge. */
@@ -133,6 +135,8 @@ async function ensureSchema(): Promise<void> {
   // Which door delivered the credit: 'bridge' (web queue, on-prem EIS),
   // 'kiosk_bridge' (kiosk fast path), 'soap' (cloud), 'verify' (history match).
   await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS loaded_via TEXT`;
+  // Round 4: BMI comp vouchers dispensed as cards (kind='voucher', amount 0).
+  await q`ALTER TABLE intercard_transactions ADD COLUMN IF NOT EXISTS voucher_code TEXT`;
   await q`CREATE INDEX IF NOT EXISTS ict_acct ON intercard_transactions (account_number)`;
   await q`CREATE INDEX IF NOT EXISTS ict_group ON intercard_transactions (group_id)`;
   // Partial index the reconcile cron scans: charged-but-not-loaded rows.
@@ -166,6 +170,45 @@ export async function startTxn(ev: TxnStart): Promise<void> {
       ${ev.txnId}, ${ev.groupId}, ${ev.kind}, ${ev.locationCode}, ${ev.accountNumber}, ${ev.packageId},
       ${ev.tokens}, ${ev.bonusTokens}, ${ev.amountCents}, ${ev.tpiTransactionId},
       ${ev.contact ? JSON.stringify(ev.contact) : null}, 'started', 'pending'
+    )
+    ON CONFLICT (txn_id) DO NOTHING
+  `;
+}
+
+/**
+ * Insert a COMPED row (BMI voucher → dispensed card) already cleared to load.
+ *
+ * There is no charge step to wait for, so the row lands `state='charged'` in
+ * ONE statement. `state` here means "consideration settled — cleared to load",
+ * which for a comp is true the moment the voucher claim is held; `amount_cents`
+ * stays 0 and `voucher_code` records what authorised it. Landing in the normal
+ * charged+pending shape is deliberate: voucher rows then sit inside the exact
+ * recover-forward set the reconcile cron already drives, so a credit that
+ * doesn't confirm is replayed on the stable tpi_transaction_id instead of
+ * needing a second recovery path.
+ *
+ * THROWS if the DB is unconfigured (same rule as startTxn — never move value
+ * without an audit row). The caller MUST already hold the voucher claim: this
+ * function does not authorise anything, and `loadCard` re-checks the claim
+ * before it credits.
+ */
+export async function startCompedTxn(
+  ev: Omit<TxnStart, "amountCents"> & { voucherCode: string },
+): Promise<void> {
+  if (!isDbConfigured()) {
+    throw new Error("game-cards: DATABASE_URL not configured");
+  }
+  await ensureSchema();
+  const q = sql();
+  await q`
+    INSERT INTO intercard_transactions (
+      txn_id, group_id, kind, location_code, account_number, package_id,
+      tokens, bonus_tokens, amount_cents, tpi_transaction_id, contact,
+      voucher_code, state, load_state
+    ) VALUES (
+      ${ev.txnId}, ${ev.groupId}, ${ev.kind}, ${ev.locationCode}, ${ev.accountNumber}, ${ev.packageId},
+      ${ev.tokens}, ${ev.bonusTokens}, 0, ${ev.tpiTransactionId},
+      ${ev.contact ? JSON.stringify(ev.contact) : null}, ${ev.voucherCode}, 'charged', 'pending'
     )
     ON CONFLICT (txn_id) DO NOTHING
   `;
@@ -614,6 +657,7 @@ function rowToTxn(r: any): TxnRow {
     eisCode: r.eis_code ?? null,
     eisDescription: r.eis_description ?? null,
     loadedVia: r.loaded_via ?? null,
+    voucherCode: r.voucher_code ?? null,
   };
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */

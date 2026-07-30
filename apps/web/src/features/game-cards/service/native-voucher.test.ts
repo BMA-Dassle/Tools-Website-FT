@@ -1,0 +1,332 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const order: string[] = [];
+
+// Mock only the DB calls — `gameZoneGrant` / `voucherItemLabel` are pure item
+// helpers and their real behaviour is part of what these tests exercise.
+vi.mock("../data/vouchers-db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../data/vouchers-db")>();
+  return {
+    ...actual,
+    getVoucher: vi.fn(),
+    insertVoucher: vi.fn(async () => {
+      order.push("insertVoucher");
+      return true;
+    }),
+    logVoucherEvent: vi.fn(async () => {}),
+    voidVoucher: vi.fn(async () => {
+      order.push("voidVoucher");
+    }),
+  };
+});
+
+vi.mock("../data/voucher-claims-db", () => ({
+  spentItemIndexes: vi.fn(async () => new Set<number>()),
+  claimVoucher: vi.fn(async () => {
+    order.push("claim");
+    return { ok: true, claim: {} };
+  }),
+  releaseVoucherClaim: vi.fn(async () => {
+    order.push("release");
+  }),
+}));
+
+vi.mock("../data/transactions-log", () => ({
+  startCompedTxn: vi.fn(async () => {
+    order.push("ledger");
+  }),
+  markChargeFailed: vi.fn(async () => {
+    order.push("chargeFailed");
+  }),
+}));
+
+async function mods() {
+  return {
+    svc: await import("./native-voucher"),
+    db: await import("../data/vouchers-db"),
+    claims: await import("../data/voucher-claims-db"),
+    log: await import("../data/transactions-log"),
+  };
+}
+
+const CODE = "HPW4K7M9PQR";
+const live = {
+  id: 1,
+  code: CODE,
+  kind: "gamezone" as const,
+  items: [{ kind: "gamezone" as const, tokens: 0, bonusTokens: 100, bonusCashDollars: 0 }],
+  batchId: "b-1",
+  batchLabel: "Service recovery",
+  issuedSource: "admin",
+  issuedTo: null,
+  expiresAt: null,
+  voidedAt: null,
+  voidedReason: null,
+  createdBy: "eric",
+  createdAt: new Date().toISOString(),
+};
+
+beforeEach(() => {
+  order.length = 0;
+  vi.clearAllMocks();
+});
+
+describe("claimNativeVoucher", () => {
+  it("claims BEFORE the ledger row, and grants exactly what was minted", async () => {
+    const { svc, db } = await mods();
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue(live);
+
+    const res = await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" });
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      // No name parsing anywhere — the grant is a stored fact.
+      expect(res.grant).toEqual({ tokens: 0, bonusTokens: 100, bonusCashDollars: 0 });
+      expect(res.packageId).toBe("gzv-100");
+    }
+    expect(order).toEqual(["claim", "ledger"]);
+  });
+
+  it("accepts the hyphenated printed form", async () => {
+    const { svc, db } = await mods();
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue(live);
+    const res = await svc.claimNativeVoucher({
+      code: "hpw-4k7m-9pqr",
+      locationCode: 12,
+      source: "kiosk",
+    });
+    expect(res.ok).toBe(true);
+    expect(db.getVoucher).toHaveBeenCalledWith(CODE);
+  });
+
+  it("records the WEB leg as voucher_reload so a guest's card is never cleared", async () => {
+    // clear-on-encode keys off the kind. Mislabelling a guest's own card as a
+    // fresh blank would wipe their existing balance.
+    const { svc, db, log } = await mods();
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue(live);
+
+    await svc.claimNativeVoucher({
+      code: CODE,
+      locationCode: 12,
+      accountNumber: "1063464",
+      source: "web",
+    });
+
+    expect(log.startCompedTxn).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "voucher_reload", accountNumber: "1063464" }),
+    );
+  });
+
+  it("records the KIOSK leg as voucher with no account yet", async () => {
+    const { svc, db, log } = await mods();
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue(live);
+    await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" });
+    expect(log.startCompedTxn).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "voucher", accountNumber: "" }),
+    );
+  });
+
+  it("refuses unknown / voided / expired BEFORE touching the claim", async () => {
+    const { svc, db, claims } = await mods();
+
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    expect(await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" })).toEqual({
+      ok: false,
+      reason: "unknown",
+    });
+
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...live,
+      voidedAt: new Date().toISOString(),
+    });
+    expect(await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" })).toEqual({
+      ok: false,
+      reason: "voided",
+    });
+
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...live,
+      expiresAt: new Date(Date.now() - 1000).toISOString(),
+    });
+    expect(await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" })).toEqual({
+      ok: false,
+      reason: "expired",
+    });
+
+    // A cheap refusal must never burn the code.
+    expect(claims.claimVoucher).not.toHaveBeenCalled();
+    expect(order).toEqual([]);
+  });
+
+  it("honours a voucher expiring in the future", async () => {
+    const { svc, db } = await mods();
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...live,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const res = await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" });
+    expect(res.ok).toBe(true);
+  });
+
+  it("reports a spent code as used and writes no ledger row", async () => {
+    const { svc, db, claims } = await mods();
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue(live);
+    // Once: mockResolvedValue persists across clearAllMocks and would make
+    // every later test look like a spent voucher.
+    (claims.claimVoucher as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      reason: "already_claimed",
+    });
+    const res = await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" });
+    expect(res).toEqual({ ok: false, reason: "used" });
+    expect(order).toEqual([]);
+  });
+
+  it("releases the claim when the ledger insert fails", async () => {
+    const { svc, db, log } = await mods();
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue(live);
+    // Once: a persistent rejection here leaks into every later test (they'd all
+    // refuse with `storage`). clearAllMocks resets CALLS, not implementations.
+    (log.startCompedTxn as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("neon down"));
+    const res = await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" });
+    expect(res).toEqual({ ok: false, reason: "storage" });
+    expect(order).toEqual(["claim", "release"]);
+  });
+
+  it("rejects a BMI-shaped code (wrong registry)", async () => {
+    const { svc, db } = await mods();
+    const res = await svc.claimNativeVoucher({
+      code: "D3X5Q4Z8M5C3Z4D3H6S3T4G3",
+      locationCode: 12,
+      source: "kiosk",
+    });
+    expect(res).toEqual({ ok: false, reason: "bad_format" });
+    expect(db.getVoucher).not.toHaveBeenCalled();
+  });
+});
+
+describe("mintVouchers", () => {
+  it("mints N codes in one batch, all zero-purchased / all bonus", async () => {
+    const { svc, db } = await mods();
+    const { batchId, vouchers } = await svc.mintVouchers({
+      count: 3,
+      items: [svc.gameZoneItem(100)],
+    });
+    expect(vouchers).toHaveLength(3);
+    expect(batchId).toBeTruthy();
+    expect(new Set(vouchers.map((v) => v.code)).size).toBe(3);
+    for (const v of vouchers) {
+      expect(v.items).toEqual([
+        { kind: "gamezone", tokens: 0, bonusTokens: 100, bonusCashDollars: 0 },
+      ]);
+    }
+    expect(db.insertVoucher).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries a colliding code instead of overwriting a live voucher", async () => {
+    const { svc, db } = await mods();
+    (db.insertVoucher as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(false) // collision
+      .mockResolvedValueOnce(true);
+    const { vouchers } = await svc.mintVouchers({ count: 1, items: [svc.gameZoneItem(50)] });
+    expect(vouchers).toHaveLength(1);
+    expect(db.insertVoucher).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses a denomination we don't sell", async () => {
+    const { svc } = await mods();
+    await expect(svc.mintVouchers({ count: 1, items: [svc.gameZoneItem(75)] })).rejects.toThrow(
+      /unsupported denomination/,
+    );
+  });
+});
+
+describe("multi-item vouchers (one code, several lines of value)", () => {
+  const mixed = {
+    ...live,
+    kind: "mixed" as const,
+    items: [
+      { kind: "gamezone" as const, tokens: 0, bonusTokens: 100, bonusCashDollars: 0 },
+      { kind: "attraction" as const, slug: "laser-tag", qty: 1 },
+    ],
+  };
+
+  it("spends only the Game Zone ITEM and reports the rest as remaining", async () => {
+    // The whole point: redeeming the card must not destroy the laser-tag leg.
+    const { svc, db, claims } = await mods();
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue(mixed);
+
+    const res = await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" });
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.itemIndex).toBe(0);
+      expect(res.grant.bonusTokens).toBe(100);
+      expect(res.remaining.map((r) => r.item.kind)).toEqual(["attraction"]);
+    }
+    expect(claims.claimVoucher).toHaveBeenCalledWith(expect.objectContaining({ itemIndex: 0 }));
+  });
+
+  it("picks the FIRST UNSPENT Game Zone item when several exist", async () => {
+    const { svc, db, claims } = await mods();
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...live,
+      items: [svc.gameZoneItem(100), svc.gameZoneItem(200)],
+    });
+    (claims.spentItemIndexes as ReturnType<typeof vi.fn>).mockResolvedValueOnce(new Set([0]));
+
+    const res = await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" });
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.itemIndex).toBe(1);
+      expect(res.grant.bonusTokens).toBe(200);
+    }
+  });
+
+  it("reports used only when EVERY Game Zone item is spent", async () => {
+    const { svc, db, claims } = await mods();
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue(mixed);
+    (claims.spentItemIndexes as ReturnType<typeof vi.fn>).mockResolvedValueOnce(new Set([0]));
+    const res = await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" });
+    expect(res).toEqual({ ok: false, reason: "used" });
+  });
+
+  it("distinguishes 'nothing to redeem HERE' from 'used up'", async () => {
+    // A laser-tag-only voucher is live and valuable — the guest just can't spend
+    // it on this rail. Saying "used" would be a lie.
+    const { svc, db } = await mods();
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...live,
+      kind: "mixed" as const,
+      items: [{ kind: "attraction" as const, slug: "laser-tag", qty: 1 }],
+    });
+    const res = await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" });
+    expect(res).toEqual({ ok: false, reason: "not_redeemable" });
+  });
+
+  it("mints a mixed voucher and labels it accordingly", async () => {
+    const { svc, db } = await mods();
+    const { vouchers } = await svc.mintVouchers({
+      count: 1,
+      items: [svc.gameZoneItem(100), { kind: "attraction", slug: "laser-tag", qty: 2 }],
+    });
+    expect(vouchers[0].items).toHaveLength(2);
+    expect(db.insertVoucher).toHaveBeenCalledWith(expect.objectContaining({ kind: "mixed" }));
+  });
+
+  it("getVoucherStatus reports per-item spend + redeemability", async () => {
+    const { svc, db, claims } = await mods();
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue(mixed);
+    (claims.spentItemIndexes as ReturnType<typeof vi.fn>).mockResolvedValueOnce(new Set([0]));
+
+    const status = await svc.getVoucherStatus(CODE);
+
+    expect(status?.items).toEqual([
+      expect.objectContaining({ index: 0, spent: true, redeemable: true }),
+      expect.objectContaining({ index: 1, spent: false, redeemable: false, label: "laser tag" }),
+    ]);
+    // Every REDEEMABLE item is spent — the unredeemable leg doesn't hold it open.
+    expect(status?.fullySpent).toBe(true);
+  });
+});

@@ -81,8 +81,15 @@ async function bmiCall(
 
 export interface VoucherApplyResult {
   ok: boolean;
-  /** Comp line name ("Race Comp") — set on success. */
+  /** FIRST comp line name ("Race Comp") — set on success. */
   name?: string;
+  /**
+   * EVERY comp line the code landed, in BMI's order. Length > 1 = a multi-item
+   * voucher setup (one code bundling several products). Callers that fulfil
+   * irreversibly (dispensing a game card) MUST refuse a bundle they can't
+   * satisfy whole rather than honour one leg — see voucher-card.ts.
+   */
+  names?: string[];
   /** Comp line OrderItemId (raw string) — set on success. */
   voucherOrderItemId?: string;
   /** BMI's errorMessage verbatim on failure ("Voucher (code: …) is not found"). */
@@ -117,7 +124,7 @@ export async function applyVoucherToBill(args: {
   if (!found) {
     return { ok: false, errorMessage: "voucher did not attach to the order" };
   }
-  const { voucherOrderItemId, name } = found;
+  const { voucherOrderItemId, name, names } = found;
 
   try {
     await recordVoucherApplied({
@@ -134,7 +141,7 @@ export async function applyVoucherToBill(args: {
     return { ok: false, errorMessage: "could not record the voucher — please try again" };
   }
 
-  return { ok: true, name: name || undefined, voucherOrderItemId };
+  return { ok: true, name: name || undefined, names, voucherOrderItemId };
 }
 
 /** Remove a previously applied voucher (guest cleared it / teardown hygiene). */
@@ -155,12 +162,24 @@ export async function removeVoucherFromBill(args: {
   return { ok };
 }
 
-/** Pull our code's AppliedPromoCodes entry + comp-line name off an inline
- *  overview (camelCase in practice; Pascal tolerated). */
+/**
+ * Pull our code's AppliedPromoCodes entry + comp-line name(s) off an inline
+ * overview (camelCase in practice; Pascal tolerated).
+ *
+ * MULTI-ITEM VOUCHERS. A BMI voucher setup can bundle more than one product
+ * (owner question 2026-07-29: "what if a voucher contains game zone card AND
+ * laser tag?"), and applyCode then lands ONE comp line per bundled product,
+ * all stamped with the same voucherCode. This used to `.find` a single line,
+ * which silently honoured the first leg and dropped the rest — the guest loses
+ * value and nothing logs it. Every comp line is now collected, so callers can
+ * see the bundle and decide. `name` stays the first line for back-compat;
+ * `names` is the whole bundle in BMI's order. VoucherMeta semantics are still
+ * unverified (research doc §4.2), so multi-leg is DETECTED, not assumed.
+ */
 function extractApplied(
   data: Record<string, unknown>,
   code: string,
-): { voucherOrderItemId: string; name: string } | null {
+): { voucherOrderItemId: string; name: string; names: string[] } | null {
   const promos = (data.appliedPromoCodes ?? data.AppliedPromoCodes ?? []) as Array<
     Record<string, unknown>
   >;
@@ -173,13 +192,23 @@ function extractApplied(
   const voucherOrderItemId = String(applied.voucherOrderItemId ?? applied.VoucherOrderItemId ?? "");
   if (!voucherOrderItemId) return null;
   const lines = (data.lines ?? data.Lines ?? []) as Array<Record<string, unknown>>;
-  const compLine = lines.find(
+  const compLines = lines.filter(
     (l) => String(l.voucherCode ?? l.VoucherCode ?? "").toUpperCase() === code,
   );
-  const name = compLine
-    ? String(compLine.name ?? compLine.Name ?? "")
-    : String(applied.name ?? applied.Name ?? "").split(" - ")[0];
-  return { voucherOrderItemId, name };
+  const names = compLines
+    .map((l) => String(l.name ?? l.Name ?? ""))
+    .filter((n) => n.trim().length > 0);
+  if (names.length === 0) {
+    // No stamped line (older overview shape) — fall back to the promo entry's
+    // own label, which carries a single product name.
+    names.push(String(applied.name ?? applied.Name ?? "").split(" - ")[0]);
+  }
+  if (names.length > 1) {
+    console.warn(
+      `[bmi-voucher] MULTI-ITEM voucher ${code} — ${names.length} comp lines: ${names.join(" | ")}`,
+    );
+  }
+  return { voucherOrderItemId, name: names[0], names };
 }
 
 /** The cheapest standalone BMI line — opens a throwaway order for the peek
@@ -236,7 +265,7 @@ export async function peekVoucher(args: {
         { rawIds: { OrderId: orderId, VoucherOrderItemId: found.voucherOrderItemId } },
       ),
     ).catch(() => {});
-    return { ok: true, name: found.name || undefined };
+    return { ok: true, name: found.name || undefined, names: found.names };
   } finally {
     await bmiCall(clientKey, "DELETE", `bill/${orderId}/cancel`).catch(() => {});
   }

@@ -19,8 +19,9 @@
  * SOAP replay, and every state flip is a single guarded UPDATE (one winner) —
  * two overlapping runs can only duplicate idempotent work.
  */
-import { creditTokens, verifyAccount, parseIntercardTimestamp } from "../data/intercard";
-import { getPackage } from "../constants";
+import { verifyAccount, parseIntercardTimestamp } from "../data/intercard";
+import { applyCreditPlan, creditPlanForRow, planIsEmpty } from "./credit-plan";
+import { getLiveClaimForTxn } from "../data/voucher-claims-db";
 import {
   listPendingLoads,
   markLoadState,
@@ -93,22 +94,50 @@ export async function reconcilePendingLoads(dryRun = false): Promise<ReconcileSu
   summary.scanned = rows.length;
 
   for (const row of rows) {
-    const pkg = getPackage(row.packageId);
-    const tokens = pkg?.tokens ?? row.tokens;
-    const bonusTokens = pkg?.bonusTokens ?? row.bonusTokens;
+    const plan = creditPlanForRow(row);
+    const tokens = plan?.tokens ?? 0;
+    const bonusTokens = plan?.bonusTokens ?? 0;
 
     if (dryRun) {
       summary.stillPending++;
       continue;
     }
 
+    // Nothing resolvable to credit (retired/hand-edited package id) — never
+    // guess, and never mark it loaded. Flag it for staff instead.
+    if (!plan || planIsEmpty(plan)) {
+      await markLoadState(row.txnId, "load_failed", `unresolvable package ${row.packageId}`);
+      summary.failed++;
+      console.error(
+        `[game-cards-reconcile] MANUAL INTERVENTION REQUIRED txn=${row.txnId} ` +
+          `card=${row.accountNumber}: package ${row.packageId} resolves to no credit`,
+      );
+      continue;
+    }
+
+    // A comped row is authorised by its voucher claim, not by a payment. The
+    // live path checks this too, but the cron credits WITHOUT a client, so it
+    // must make the same check independently — otherwise an orphan row (claim
+    // raced, or the code already released back) would be credited here even
+    // though loadCard refused it.
+    if (row.kind === "voucher" || row.kind === "voucher_reload") {
+      const claim = await getLiveClaimForTxn(row.txnId);
+      if (!claim || claim.packageId !== row.packageId) {
+        await markLoadState(row.txnId, "load_failed", "no live voucher claim");
+        summary.failed++;
+        console.error(
+          `[game-cards-reconcile] voucher row NOT credited (no live claim) txn=${row.txnId} ` +
+            `code=${row.voucherCode ?? "?"} card=${row.accountNumber}`,
+        );
+        continue;
+      }
+    }
+
     const attempt = await incrementAttempt(row.txnId);
     try {
-      const { code } = await creditTokens({
+      const { code } = await applyCreditPlan(plan, {
         locationCode: row.locationCode,
         accountNumber: row.accountNumber,
-        tokens,
-        bonusTokens,
         tpiTransactionID: row.tpiTransactionId,
       });
       if (code === 0) {
