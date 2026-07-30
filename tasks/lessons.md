@@ -2575,3 +2575,32 @@ land at reserve instead of waiting on a page visit).
 - **"Best-effort, never throws" hides its own absence.** The helper swallows failures by
   design, so a missing call and a failing call look identical from the outside. When a
   side effect is silent, the only proof it ran is the artifact it produces.
+
+## Design the whole guest flow before building the happy path (2026-07-29)
+
+Built Game Zone voucher redemption single-shot: scan one code, dispense one
+card. The owner immediately asked the two questions that should have been
+designed for up front — "scan multiple vouchers before hitting get my cards"
+and "what if a voucher has a game zone card AND a race on it" — and the second
+one had already bitten once (BMI multi-item vouchers were silently
+half-redeemed because `extractApplied` did `.find` on one comp line).
+
+Retrofitting the basket meant reworking claim timing (claim moved from scan
+time to dispense time so browsing can't burn a code), per-row failure handling,
+and the whole entry screen. All of that was cheap to design and expensive to
+add later.
+
+**Rule:** before writing a guest-facing redemption/purchase flow, answer these
+in the plan, not after the first version ships:
+- Can the guest present MORE THAN ONE of these at once? (basket vs single)
+- Can ONE of them contain more than one thing? (per-item identity + per-item
+  single use, not per-code)
+- Do the parts fulfil in DIFFERENT places? (dispense now vs cart at checkout)
+- What does a PARTIAL success look like on screen? ("something went wrong"
+  leaves a guest who is owed 3 cards and got 2 with no idea which)
+- When exactly is the irreversible step taken, and can the guest walk away
+  before it?
+
+Corollary that saved us here: per-item claims meant a mixed voucher's unspent
+legs survive an abandoned booking. Per-code single use would have destroyed
+them. Model identity at the smallest redeemable unit from the start.

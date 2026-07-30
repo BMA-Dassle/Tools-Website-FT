@@ -190,6 +190,11 @@ export const VoucherRedeemSchema = z.discriminatedUnion("action", [
     txnId: z.string().uuid(),
     reason: z.string().trim().max(200).optional(),
   }),
+  /** Scan step: is this code good? Claims NOTHING (kiosk basket). */
+  z.object({
+    action: z.literal("validate"),
+    code: z.string().trim().min(8).max(64),
+  }),
   /** WEB leg: credit the value onto a card the guest already holds. */
   z.object({
     action: z.literal("to-card"),
