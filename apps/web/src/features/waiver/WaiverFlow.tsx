@@ -176,13 +176,11 @@ export function WaiverFlow({
   });
 
   // `wp-mobile` scopes the kiosk look (tokens, k-* primitives, px re-proportioning)
-  // to the whole page, not just the party manager — so the head, share block and
-  // success card are the same design system as the kiosk, at phone scale. The deep
-  // navy is the kiosk's --k-deep on BOTH brands, mirroring .kiosk-canvas.
-  // `wp-mobile` scopes the kiosk look (tokens, k-* primitives, px re-proportioning)
-  // to the whole page, not just the party manager. Mobile-first width that grows
-  // into a desktop window instead of stranding a phone column on a monitor —
-  // paired with the >=768px type/spacing block in waiver-party.css.
+  // to the whole page, not just the party manager — so the head, share modal and
+  // success card are the same design system as the kiosk. The deep navy is the
+  // kiosk's --k-deep on BOTH brands, mirroring .kiosk-canvas. Mobile-first width
+  // that grows into a desktop window instead of stranding a phone column on a
+  // monitor — paired with the >=768px type/spacing block in waiver-party.css.
   const shell = (children: ReactNode) => (
     <div
       className="wp-mobile min-h-screen bg-[#000418]"
