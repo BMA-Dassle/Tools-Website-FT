@@ -298,6 +298,7 @@ export function KioskGameZone({
   onAddToVisit,
   onCardFault,
   initialVoucherCodes = null,
+  onVoucherOutcome,
 }: {
   center: CenterCode;
   brand: Brand;
@@ -322,6 +323,9 @@ export function KioskGameZone({
   /** Comp vouchers already scanned on the coupon screen — they land straight in
    *  the basket so the guest never scans the same code twice. */
   initialVoucherCodes?: string[] | null;
+  /** Per-code result of a voucher dispense run — the flow drops DISPENSED codes
+   *  from its pending list and keeps failed ones offering a way back. */
+  onVoucherOutcome?: (outcomes: { code: string; loaded: boolean }[]) => void;
 }) {
   const t = useT();
   // Every kiosk lands on the chooser — MSR-only kiosks offer reload + balance
@@ -1030,19 +1034,20 @@ export function KioskGameZone({
    * SCAN → add to the basket. Validates only (see validateNativeVoucher): a
    * guest still deciding must never have a code burned, and two kiosks can both
    * validate the same voucher — the atomic claim at dispense time picks the
-   * winner, not whoever scanned first.
+   * winner, not whoever scanned first. Returns the added row (the seed effect
+   * auto-redeems only when every handed-over code validated), null otherwise.
    */
-  const addVoucherToBasket = async (raw: string) => {
-    if (voucherBusyRef.current || voucherPhase !== "entry") return;
+  const addVoucherToBasket = async (raw: string): Promise<VoucherBasketRow | null> => {
+    if (voucherBusyRef.current || voucherPhase !== "entry") return null;
     const code = classifyKioskCode(raw).value;
-    if (!code) return;
+    if (!code) return null;
     if (voucherBasket.some((r) => r.code === code)) {
       setVoucherMsg(t("gamezone.voucher.err.alreadyAdded"));
-      return;
+      return null;
     }
     if (voucherBasket.length >= MAX_VOUCHERS_PER_RUN) {
       setVoucherMsg(t("gamezone.voucher.err.tooMany", { n: MAX_VOUCHERS_PER_RUN }));
-      return;
+      return null;
     }
     voucherBusyRef.current = true;
     setVoucherMsg(null);
@@ -1059,14 +1064,14 @@ export function KioskGameZone({
       };
       if (!res.ok || data.ok !== true) {
         setVoucherMsg(t(VOUCHER_REFUSAL_KEY[data.reason ?? ""] ?? "gamezone.voucher.err.generic"));
-        return;
+        return null;
       }
-      setVoucherBasket((rows) => [
-        ...rows,
-        { code, label: data.label ?? "", status: "ready" as const },
-      ]);
+      const row = { code, label: data.label ?? "", status: "ready" as const };
+      setVoucherBasket((rows) => [...rows, row]);
+      return row;
     } catch {
       setVoucherMsg(t("gamezone.voucher.err.generic"));
+      return null;
     } finally {
       voucherBusyRef.current = false;
     }
@@ -1085,13 +1090,16 @@ export function KioskGameZone({
    * blank is the wrong call. Each row's claim is taken immediately before its
    * dispense, so an abandoned basket leaves nothing spent.
    */
-  const redeemBasket = async () => {
-    if (voucherBusyRef.current || voucherBasket.length === 0) return;
+  const redeemBasket = async (queueOverride?: VoucherBasketRow[]) => {
+    // `queueOverride` = rows the seed effect JUST added — the state update may
+    // not have committed into this closure's `voucherBasket` yet.
+    const source = queueOverride ?? voucherBasket;
+    if (voucherBusyRef.current || source.length === 0) return;
     voucherBusyRef.current = true;
     setVoucherMsg(null);
     setVoucherPhase("dispensing");
     try {
-      const queue = voucherBasket.filter((r) => r.status === "ready" || r.status === "failed");
+      const queue = source.filter((r) => r.status === "ready" || r.status === "failed");
       for (let i = 0; i < queue.length; i++) {
         const row = queue[i];
         setBasketRow(row.code, { status: "dispensing", error: undefined });
@@ -1148,9 +1156,12 @@ export function KioskGameZone({
       voucherBusyRef.current = false;
       setDispenseMsg(null);
       // The screen reports per row, so land on `done` whenever anything worked
-      // and only on `error` when NOTHING did.
+      // and only on `error` when NOTHING did. The outcome callback lets the
+      // flow drop DISPENSED codes from its pending list (failed ones stay —
+      // their claims were released, so the way back must stay open).
       setVoucherBasket((rows) => {
         setVoucherPhase(rows.some((r) => r.status === "loaded") ? "done" : "error");
+        onVoucherOutcome?.(rows.map((r) => ({ code: r.code, loaded: r.status === "loaded" })));
         return rows;
       });
     }
@@ -1177,8 +1188,12 @@ export function KioskGameZone({
   }, [voucherScanArmed, config?.scannerEnabled, voucherWedgeArm]);
 
   // Codes handed over from the coupon screen join the basket on arrival — the
-  // guest already scanned them once. They still land in the BASKET rather than
-  // auto-dispensing, so more can be added here. Runs once per seeded set.
+  // guest already scanned them once. When EVERY handed-over code validates,
+  // dispense immediately: the guest already tapped "Get my cards & continue"
+  // over there, and making them read a second basket screen with a second
+  // identical button was the 2026-07-30 "total mess" complaint. Any code that
+  // fails to validate keeps the basket screen up instead (the message says
+  // which and why; nothing is claimed). Runs once per seeded set.
   const seededVoucherRef = useRef<string | null>(null);
   useEffect(() => {
     const seed = initialVoucherCodes ?? [];
@@ -1187,7 +1202,12 @@ export function KioskGameZone({
     if (seededVoucherRef.current === key) return;
     seededVoucherRef.current = key;
     void (async () => {
-      for (const c of seed) await addVoucherToBasket(c);
+      const rows: VoucherBasketRow[] = [];
+      for (const c of seed) {
+        const row = await addVoucherToBasket(c);
+        if (row) rows.push(row);
+      }
+      if (rows.length === seed.length && rows.length > 0) await redeemBasket(rows);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialVoucherCodes, readerReady]);
@@ -1813,10 +1833,16 @@ export function KioskGameZone({
             <button
               type="button"
               onClick={() => {
-                setVoucherPhase("entry");
+                // A basket abandoned MID-ENTRY (guest tapped Back) comes back
+                // intact — wiping it forced a full re-scan (owner 2026-07-30:
+                // "back out … then no way to return"). Only a finished or
+                // never-started run starts clean.
+                if (voucherPhase !== "entry" || voucherBasket.length === 0) {
+                  setVoucherPhase("entry");
+                  setVoucherBasket([]);
+                }
                 setVoucherTyped("");
                 setVoucherMsg(null);
-                setVoucherBasket([]);
                 setMode("voucher");
               }}
               className="k-glass k-tap p-[40px] text-left"

@@ -98,19 +98,17 @@ type Panel =
   | { kind: "bmi-voucher"; code: string }
   | { kind: "voucher-accepted"; code: string; name?: string }
   /**
-   * Native (HPW) vouchers accepted at the coupon screen — a running RECEIPT
-   * (owner 2026-07-30). Auto-split: CART items (race / laser) are dispatched
-   * into the booking session as scanned (`cartLabels` acknowledges them, "comes
-   * off at checkout"); GAME-ZONE items land in `gzCards` (code + token value)
-   * for the dispense basket. The receipt shows a running value total and keeps
-   * the scanner ARMED so a family adds every voucher before finishing.
+   * Voucher RECEIPT (owner 2026-07-30). Auto-split: CART items (race / laser)
+   * are dispatched into the booking session as scanned ("comes off at
+   * checkout"); GAME-ZONE items go to the parent's pending list (code + token
+   * value) for the dispense basket. The receipt renders ENTIRELY from parent
+   * state (`pendingGzCards` / `appliedCartLabels` / `appliedPromo`) — nothing
+   * lives only in this panel, so Back, a remount, or a promo scan can never
+   * lose the guest's cards (the 2026-07-30 "no way back to Get my cards"
+   * trap). The panel value is just the marker that the receipt is open; the
+   * scanner stays ARMED so a family adds every voucher before finishing.
    */
-  | {
-      kind: "voucher-gamecard";
-      gzCards: { code: string; tokens: number }[];
-      cartLabels: string[];
-      name?: string;
-    }
+  | { kind: "voucher-gamecard" }
   | { kind: "game-card" }
   | { kind: "gift-card" };
 
@@ -122,6 +120,10 @@ export function KioskCodeEntry({
   appliedVoucherCodes = [],
   onVoucherAccepted,
   onNativeCartItems,
+  pendingGzCards = [],
+  onGzCardsAdd,
+  appliedCartLabels = [],
+  appliedPromo = null,
 }: {
   /** Valid promo → parent dispatches applyPromo; this screen shows the
    *  success panel and the CTA returns to the categories. */
@@ -142,6 +144,17 @@ export function KioskCodeEntry({
   /** Native (HPW) CART items → dispatched into the booking session, one applied
    *  voucher per item (auto-split). The reserve claims them at charge. */
   onNativeCartItems?: (code: string, items: { itemIndex: number; coverageName: string }[]) => void;
+  /** Game-card voucher legs waiting to be dispensed — OWNED BY THE PARENT so
+   *  the receipt survives Back / unmount / a promo scan. */
+  pendingGzCards?: { code: string; tokens: number }[];
+  /** Newly-scanned game-card legs → append to the parent's pending list. */
+  onGzCardsAdd?: (cards: { code: string; tokens: number }[]) => void;
+  /** Display names of vouchers already on the order (BMI + native cart legs) —
+   *  the receipt's "On your order" section renders from session truth. */
+  appliedCartLabels?: string[];
+  /** The session promo — rendered INLINE on the receipt; a promo scanned while
+   *  the receipt is up must never replace it. */
+  appliedPromo?: AppliedPromo | null;
 }) {
   const t = useT();
   const { config } = useKioskConfig();
@@ -150,16 +163,31 @@ export function KioskCodeEntry({
   const [value, setValue] = useState("");
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [panel, setPanel] = useState<Panel | null>(null);
+  // Routed-but-not-a-problem scans (gift card / game card) while the receipt is
+  // up read as a calm info line, not the red error line and not a panel swap.
+  const [info, setInfo] = useState<string | null>(null);
+  // Cards already pending when this screen opens → restore the receipt (the
+  // guest backed out earlier; their cards must still be one tap away).
+  const [panel, setPanel] = useState<Panel | null>(() =>
+    pendingGzCards.length > 0 ? { kind: "voucher-gamecard" } : null,
+  );
   const inputRef = useRef<HTMLInputElement>(null);
   const checkingRef = useRef(false);
-  /** Native codes already handled this session — a re-scan is a no-op. */
-  const processedNativeRef = useRef<Set<string>>(new Set());
+  /** Mirror of `panel` for the async router — routeClassified must see the
+   *  CURRENT panel (is the receipt up?) without re-creating on every change. */
+  const panelRef = useRef<Panel | null>(panel);
+  useEffect(() => {
+    panelRef.current = panel;
+  }, [panel]);
+  /** Native codes already handled this session — a re-scan is a no-op. Seeded
+   *  with the parent's pending cards so a remount can't re-add them. */
+  const processedNativeRef = useRef<Set<string>>(new Set(pendingGzCards.map((c) => c.code)));
 
   const routeClassified = useCallback(
     async (kind: KioskCodeKind, code: string) => {
       if (checkingRef.current) return;
       setError(null);
+      setInfo(null);
       clarityEvent(`kiosk:code:${kind}`);
       if (kind === "bmi-voucher") {
         if (voucherRedeem && appliedVoucherCodes.includes(code)) {
@@ -190,16 +218,14 @@ export function KioskCodeEntry({
             // already in hand instead of parking it in a cart it can't reduce.
             if (data.target === "gamecard" && kioskVoucherGzEnabled()) {
               clarityEvent("kiosk:voucher:gamecard");
+              if (pendingGzCards.some((c) => c.code === code)) {
+                setError(t("codeEntry.err.duplicate"));
+                return;
+              }
               // BMI comp gamecard — token value isn't known at peek, so the
               // receipt shows the card without a "$ in play" figure (tokens:0).
-              setPanel((prev) => {
-                const base =
-                  prev?.kind === "voucher-gamecard"
-                    ? prev
-                    : { kind: "voucher-gamecard" as const, gzCards: [], cartLabels: [] };
-                if (base.gzCards.some((c) => c.code === code)) return base;
-                return { ...base, gzCards: [...base.gzCards, { code, tokens: 0 }], name: data.name };
-              });
+              onGzCardsAdd?.([{ code, tokens: 0 }]);
+              setPanel({ kind: "voucher-gamecard" });
               return;
             }
             // One code bundling several products (e.g. game card + laser tag).
@@ -212,10 +238,18 @@ export function KioskCodeEntry({
             }
             clarityEvent("kiosk:voucher:accepted");
             onVoucherAccepted(code, data.name);
-            setPanel({ kind: "voucher-accepted", code, name: data.name });
+            // With the receipt up, the accepted voucher joins its "On your
+            // order" section (session truth) — never swap the card list away.
+            setPanel((prev) =>
+              prev?.kind === "voucher-gamecard"
+                ? prev
+                : { kind: "voucher-accepted", code, name: data.name },
+            );
           } catch {
             onVoucherAccepted(code);
-            setPanel({ kind: "voucher-accepted", code });
+            setPanel((prev) =>
+              prev?.kind === "voucher-gamecard" ? prev : { kind: "voucher-accepted", code },
+            );
           } finally {
             checkingRef.current = false;
             setChecking(false);
@@ -270,31 +304,22 @@ export function KioskCodeEntry({
             clarityEvent("kiosk:voucher:native-cart");
           }
           processedNativeRef.current.add(code);
-          // Build the receipt rows. GAME-ZONE items carry their token value;
-          // CART items show their coverage name (title-cased). Both accumulate
-          // across scans; the scanner stays live so the guest adds every one.
+          // Route the legs. GAME-ZONE items (code + token value) go UP to the
+          // parent's pending list — the receipt renders from that, so they
+          // survive anything. CART items are already in the session (above).
           const newGzCards =
             gz.length > 0 && kioskVoucherGzEnabled()
               ? gz.map((i) => ({ code, tokens: i.tokens ?? 0 }))
               : [];
-          const newCartLabels = didApplyCart
-            ? cart.map((i) => {
-                const n = i.coverageName as string;
-                return n.charAt(0).toUpperCase() + n.slice(1);
-              })
-            : [];
-          setPanel((prev) => {
-            const base =
-              prev?.kind === "voucher-gamecard"
-                ? prev
-                : { kind: "voucher-gamecard" as const, gzCards: [], cartLabels: [] };
-            return {
-              kind: "voucher-gamecard",
-              gzCards: [...base.gzCards, ...newGzCards],
-              cartLabels: [...base.cartLabels, ...newCartLabels],
-              name: base.name,
-            };
-          });
+          if (newGzCards.length > 0) onGzCardsAdd?.(newGzCards);
+          if (newGzCards.length > 0 || didApplyCart) {
+            setPanel({ kind: "voucher-gamecard" });
+          } else {
+            // Valid voucher, but nothing on it this kiosk can honour right now
+            // (e.g. cart legs with redemption off) — say so, don't show an
+            // empty receipt.
+            setError(t(NATIVE_ERR_KEY.not_redeemable));
+          }
         } catch {
           setError(t("codeEntry.err.generic"));
         } finally {
@@ -304,10 +329,20 @@ export function KioskCodeEntry({
         return;
       }
       if (kind === "game-card") {
+        // Receipt up → an existing game card is a pointer, not a result worth
+        // replacing the guest's card list for. Inline note instead.
+        if (panelRef.current?.kind === "voucher-gamecard") {
+          setInfo(t("codeEntry.gamecard.body"));
+          return;
+        }
         setPanel({ kind: "game-card" });
         return;
       }
       if (kind === "gift-card") {
+        if (panelRef.current?.kind === "voucher-gamecard") {
+          setInfo(t("codeEntry.giftcard.body"));
+          return;
+        }
         setPanel({ kind: "gift-card" });
         return;
       }
@@ -337,7 +372,12 @@ export function KioskCodeEntry({
         if (data.valid && data.promo) {
           clarityEvent("kiosk:code:applied");
           onApplied(data.promo);
-          setPanel({ kind: "applied", promo: data.promo });
+          // Receipt up → the promo shows as a line ON the receipt (from the
+          // session). Swapping panels here used to obliterate the guest's
+          // card list — the 2026-07-30 dead end.
+          setPanel((prev) =>
+            prev?.kind === "voucher-gamecard" ? prev : { kind: "applied", promo: data.promo! },
+          );
         } else {
           const key = ERR_KEY[data.reason ?? ""] ?? ("codeEntry.err.unknown" as const);
           setError(t(key));
@@ -349,7 +389,17 @@ export function KioskCodeEntry({
         setChecking(false);
       }
     },
-    [appliedVoucherCodes, config, onApplied, onVoucherAccepted, onNativeCartItems, t, voucherRedeem],
+    [
+      appliedVoucherCodes,
+      config,
+      onApplied,
+      onVoucherAccepted,
+      onNativeCartItems,
+      onGzCardsAdd,
+      pendingGzCards,
+      t,
+      voucherRedeem,
+    ],
   );
 
   const handleRaw = useCallback(
@@ -407,7 +457,10 @@ export function KioskCodeEntry({
     // Native voucher RECEIPT — its own render (the generic panel can't do a
     // running total + two valued sections + scan-primary/finish-secondary).
     if (panel.kind === "voucher-gamecard") {
-      const { gzCards, cartLabels } = panel;
+      // EVERYTHING here renders from parent/session state — see the Panel
+      // comment. Local state on this screen can't lose the guest's cards.
+      const gzCards = pendingGzCards;
+      const cartLabels = appliedCartLabels;
       const codes = [...new Set(gzCards.map((c) => c.code))];
       const totalTokens = gzCards.reduce((sum, c) => sum + c.tokens, 0);
       const totalBits = [
@@ -463,7 +516,7 @@ export function KioskCodeEntry({
                 </ul>
               </section>
             )}
-            {cartLabels.length > 0 && (
+            {(cartLabels.length > 0 || appliedPromo) && (
               <section>
                 <div className="k-eyebrow text-[#46d68c]">
                   {t("codeEntry.voucherGz.appliedSectionTitle")}
@@ -480,6 +533,18 @@ export function KioskCodeEntry({
                       </span>
                     </li>
                   ))}
+                  {/* The session promo, INLINE — scanning a coupon mid-receipt
+                      lands here instead of replacing the card list. */}
+                  {appliedPromo && (
+                    <li className="flex items-center justify-between rounded-[16px] border border-[#e8b14c]/30 bg-[#e8b14c]/[0.08] px-[24px] py-[16px]">
+                      <span className="text-[28px] text-[#e8b14c]">
+                        {appliedSummary(t, appliedPromo)}
+                      </span>
+                      <span className="text-[22px] text-white/50">
+                        {t("codeEntry.voucherGz.promoRow")}
+                      </span>
+                    </li>
+                  )}
                 </ul>
               </section>
             )}
@@ -493,7 +558,7 @@ export function KioskCodeEntry({
             {checking ? (
               <span className="text-white/55">{t("codeEntry.checking")}</span>
             ) : (
-              (error ?? "")
+              (error ?? (info ? <span className="text-white/70">{info}</span> : ""))
             )}
           </div>
 
@@ -506,6 +571,38 @@ export function KioskCodeEntry({
             <div className="mt-[4px] text-[22px] text-white/55">
               {t("codeEntry.voucherGz.scanNextSub")}
             </div>
+          </div>
+
+          {/* Typed entry, right here — a coupon or voucher the scanner can't
+              read must not require backing out of the receipt (owner
+              2026-07-30: "you can't enter promo code"). */}
+          <div className="mt-[16px] flex gap-[16px]">
+            <input
+              type="text"
+              value={value}
+              onChange={(e) => {
+                setError(null);
+                setInfo(null);
+                setValue(e.target.value.toUpperCase());
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submit();
+              }}
+              aria-label={t("codeEntry.inputLabel")}
+              placeholder={t("codeEntry.placeholder")}
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              className="k-num h-[80px] min-w-0 flex-1 rounded-[20px] border-2 border-[rgba(0,226,229,0.4)] bg-[#040d24] px-[24px] font-mono text-[30px] uppercase tracking-[0.08em] text-white placeholder:text-white/30 focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!value.trim() || checking}
+              className="k-tap shrink-0 rounded-[20px] border border-white/20 px-[32px] text-[26px] text-white/80 disabled:opacity-40"
+            >
+              {t("codeEntry.apply")}
+            </button>
           </div>
 
           <div className="mt-[20px] flex gap-[24px]">

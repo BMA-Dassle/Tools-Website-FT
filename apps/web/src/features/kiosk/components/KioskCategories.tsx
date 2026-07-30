@@ -129,6 +129,9 @@ export interface KioskCategoriesProps {
    *  the coupon chip) opens the voucher sheet for details/removal. */
   appliedVouchers?: AppliedVoucherState[];
   onOpenVoucherSheet?: () => void;
+  /** Voucher game cards scanned but NOT dispensed yet — a loud tile back to
+   *  the coupon receipt, so backing out never strands the guest's cards. */
+  pendingGzCardCount?: number;
 }
 
 export function KioskCategories({
@@ -152,6 +155,7 @@ export function KioskCategories({
   onClearPromo,
   appliedVouchers = [],
   onOpenVoucherSheet,
+  pendingGzCardCount = 0,
 }: KioskCategoriesProps) {
   const [cat, setCat] = useState<CategoryKey | null>(null);
   const { config } = useKioskConfig();
@@ -233,6 +237,24 @@ export function KioskCategories({
           label={t("attract.waiver")}
           color="#f5ecee"
           onClick={onOpenWaiver}
+        />
+      ),
+    });
+  }
+  // Undispensed voucher game cards — the one guaranteed way BACK to "Get my
+  // cards" after any back-out (opens the coupon receipt, which restores from
+  // the same flow-owned list). Its OWN tile, ahead of the voucher/promo chips
+  // and exempt from their replace-each-other rules: cards someone is owed
+  // must never be hidden by a summary chip.
+  if (pendingGzCardCount > 0 && onOpenCodeEntry) {
+    utilTiles.push({
+      key: "gzcards",
+      node: (
+        <UtilityTile
+          icon={<TicketGlyph color="#f800c6" />}
+          label={t("codeEntry.pendingCards.chip", { n: pendingGzCardCount })}
+          color="#f800c6"
+          onClick={onOpenCodeEntry}
         />
       ),
     });

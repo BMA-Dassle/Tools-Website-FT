@@ -15,6 +15,17 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.10.12 — voucher game cards can't be stranded by backing out. The coupon
+ *         receipt's card list now lives in flow state: Back, a promo scan, or
+ *         any panel swap no longer loses it; a pink "game cards to pick up"
+ *         tile on the categories row is the guaranteed way back, cleared
+ *         per-code only when a card actually dispenses. The receipt gained a
+ *         typed-code field (coupons enterable there — no backing out) and the
+ *         session promo renders inline on it. "Get my cards & continue" now
+ *         dispenses IMMEDIATELY when every code validates — the second,
+ *         identical basket screen inside Game Zone is gone from that path;
+ *         Game Zone's own voucher screen keeps a mid-entry basket intact when
+ *         a guest backs out and returns.
  * 1.10.11 — the height & age safety confirm now speaks Spanish too.
  *         1.10.10 left it English on purpose, reading its four disclaimers as
  *         legal text needing the same attorney review as the ES waiver body.
@@ -348,7 +359,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.10.11";
+export const KIOSK_VERSION = "1.10.12";
 
 let bootVersion: string | null = null;
 let captured = false;

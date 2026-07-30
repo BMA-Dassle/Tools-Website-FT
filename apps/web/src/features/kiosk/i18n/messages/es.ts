@@ -323,7 +323,10 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.voucherGz.onOrder": "{n} en tu orden",
   "codeEntry.voucherGz.comesOff": "se descuenta al pagar",
   "codeEntry.voucherGz.scanNext": "Escanea tu próximo vale",
-  "codeEntry.voucherGz.scanNextSub": "lo agregaremos a la lista",
+  "codeEntry.voucherGz.scanNextSub": "lo agregaremos a la lista — los cupones también funcionan aquí",
+  "codeEntry.voucherGz.promoRow": "se aplica al pagar",
+  "codeEntry.pendingCards.chip":
+    "{n, plural, one {Tarjeta de juego por recoger} other {# tarjetas de juego por recoger}}",
   "codeEntry.voucherGz.finishCards": "Listo — {n, plural, one {mi tarjeta} other {mis # tarjetas}}",
   "codeEntry.voucherGz.finishNoCards": "Listo — volver a mi orden",
   "codeEntry.voucherGz.titleN": "{n} tarjetas de juego gratis",

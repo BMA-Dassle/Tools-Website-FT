@@ -344,7 +344,13 @@ export const en = {
   "codeEntry.voucherGz.onOrder": "{n} on your order",
   "codeEntry.voucherGz.comesOff": "comes off at checkout",
   "codeEntry.voucherGz.scanNext": "Scan your next voucher",
-  "codeEntry.voucherGz.scanNextSub": "we’ll add it to the list",
+  "codeEntry.voucherGz.scanNextSub": "we’ll add it to the list — coupon codes work here too",
+  // The session promo shown INLINE on the receipt (a coupon scanned/typed
+  // mid-receipt must never replace the guest's card list).
+  "codeEntry.voucherGz.promoRow": "applies at checkout",
+  // Categories tile back to the receipt while cards are still undispensed.
+  "codeEntry.pendingCards.chip":
+    "{n, plural, one {Game card to pick up} other {# game cards to pick up}}",
   "codeEntry.voucherGz.finishCards": "Done — get my {n, plural, one {card} other {# cards}}",
   "codeEntry.voucherGz.finishNoCards": "Done — back to my order",
   "codeEntry.voucherGz.titleN": "{n} free game cards",

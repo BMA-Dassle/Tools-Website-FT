@@ -84,7 +84,11 @@ import {
 import { KioskCategories } from "./KioskCategories";
 import { KioskCodeEntry } from "./KioskCodeEntry";
 import { KioskVoucherSheet, KioskVoucherSummary } from "./KioskVoucherSheet";
-import { sessionVouchers, voucherRedeemEnabled } from "~/features/booking/service/voucher-redeem";
+import {
+  sessionVouchers,
+  voucherDisplayName,
+  voucherRedeemEnabled,
+} from "~/features/booking/service/voucher-redeem";
 import type { AppliedVoucherState } from "~/features/booking/state/types";
 import { useKioskAvailability } from "../hooks/useKioskAvailability";
 import { KioskHoldBar } from "./KioskHoldBar";
@@ -364,6 +368,19 @@ export function KioskFlow({
    *  never re-scanned there. A LIST — the coupon panel accumulates. Cleared on
    *  every other Game Zone entry. */
   const [gzVoucherCodes, setGzVoucherCodes] = useState<string[] | null>(null);
+  /** Game-card voucher legs scanned but NOT YET dispensed. Owned HERE — not by
+   *  the coupon screen's receipt — so backing out of any screen can't lose
+   *  them (owner 2026-07-30: "back out … then no way to return"). Cleared
+   *  per code only when its card is actually dispensed; the whole list dies
+   *  with the guest session (Start Over remounts this component). */
+  const [pendingGzCards, setPendingGzCards] = useState<{ code: string; tokens: number }[]>([]);
+  const addPendingGzCards = useCallback((cards: { code: string; tokens: number }[]) => {
+    setPendingGzCards((prev) => {
+      const have = new Set(prev.map((c) => c.code));
+      const add = cards.filter((c) => !have.has(c.code));
+      return add.length > 0 ? [...prev, ...add] : prev;
+    });
+  }, []);
   // Coupon / voucher code entry (owner 2026-07-27) — flag-gated screen off the
   // category chooser; ?kioskPromo=1 is the dark-flag preview opt-in.
   const [codeEntryOpen, setCodeEntryOpen] = useState(false);
@@ -1829,6 +1846,14 @@ export function KioskFlow({
           setGzVoucherCodes(voucherCodes?.length ? voucherCodes : null);
           setGzOpen(true);
         }}
+        pendingGzCards={pendingGzCards}
+        onGzCardsAdd={addPendingGzCards}
+        // The receipt's "On your order" section renders from session truth
+        // (BMI + native legs) so it survives remounts.
+        appliedCartLabels={appliedVouchers
+          .filter((v) => !v.error)
+          .map((v) => voucherDisplayName(v.name))}
+        appliedPromo={promoEnabled ? session.appliedPromo : null}
       />,
     );
   }
@@ -1842,6 +1867,14 @@ export function KioskFlow({
           brand={config.brand}
           capability={gameZoneCapability(config) === "reload" ? "reload" : "full"}
           initialVoucherCodes={gzVoucherCodes}
+          // Per-code truth from the dispense run: a DISPENSED card leaves the
+          // pending list; a failed one stays, so the categories tile keeps
+          // offering the way back (claim was released — retry is safe).
+          onVoucherOutcome={(outcomes) =>
+            setPendingGzCards((prev) =>
+              prev.filter((p) => !outcomes.some((o) => o.code === p.code && o.loaded)),
+            )
+          }
           onExit={() => {
             setGzVoucherCodes(null);
             setGzOpen(false);
@@ -1951,6 +1984,10 @@ export function KioskFlow({
         onClearPromo={() => dispatch({ type: "applyPromo", promo: null })}
         appliedVouchers={voucherRedeem ? appliedVouchers : []}
         onOpenVoucherSheet={() => setVoucherSheetOpen(true)}
+        // Scanned-but-undispensed game cards — the way BACK to "Get my cards"
+        // after any back-out. Opens the coupon screen, which restores the
+        // receipt from this same list.
+        pendingGzCardCount={pendingGzCards.length}
       />,
     );
   }
