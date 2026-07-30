@@ -29,6 +29,23 @@ Square Terminal as the sole tender." This project generalizes the rail to N gift
 on both surfaces, with kiosk hardware ingestion (QR scan for eGift, MSR swipe for plastic, manual
 GAN entry fallback).
 
+## Owner decisions (2026-07-29 — v1 scope + caps)
+
+- **v1 ships "kiosk matches web": ONE gift card + ONE card per checkout.** Web already does
+  1 GC + 1 card, so v1 is kiosk-only work: scan/swipe/type a gift card at the reader kiosk,
+  balance applies, remainder is one tap. Multi-GC and multi-card become later flag flips on
+  the same rail (the PR-2 engine already models N). The kiosk deposit-tenders route enforces
+  max 1 GC in v1.
+- **Tender caps (post-v1): 5 total / 3 gift cards / 3 cards** — the kiosk hold runs ~5 min;
+  a GC scan+apply ≈15-20s, a card tap with payer handoff ≈40-60s, so 3+3 ≈4½ min is the outer
+  edge. Constants + rationale live in `tenders.ts` (`MAX_TOTAL_TENDERS` etc.);
+  `SQUARE_MAX_TENDERS_PER_ORDER` stays the probe-gated hard bound.
+- **Probe status:** #1 terminal-split = **GO** (2026-07-29, see split-tender-probes.md — order
+  state is authoritative, post-capture cancel impossible). v1's only remaining gate is #2
+  (gc-id-as-source, headless). #3 (cap) stops mattering at 2 tenders. PR-2 (server engine)
+  shipped on `feat/split-tender-engine` with attempt-salted keys + smuggled-GC rejection +
+  failedTender attribution (adversarial review, 5 confirmed findings fixed).
+
 ## Owner decisions (2026-07-26)
 
 - Scope: **kiosk + web booking**. Split model: **gift cards first (drained), cards cover the rest**.
