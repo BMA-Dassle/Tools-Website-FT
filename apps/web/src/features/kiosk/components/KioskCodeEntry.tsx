@@ -68,18 +68,38 @@ const VOUCHER_ERR_KEY: Record<string, MessageKey> = {
   generic: "codeEntry.err.generic",
 };
 
+/** Native (HPW) validate reasons → guest copy. */
+const NATIVE_ERR_KEY: Record<string, MessageKey> = {
+  bad_format: "codeEntry.err.unrecognized",
+  unknown: "codeEntry.err.unknown",
+  voided: "codeEntry.err.unknown",
+  expired: "codeEntry.err.expired",
+  used: "codeEntry.err.exhausted",
+  not_redeemable: "codeEntry.err.generic",
+  storage: "codeEntry.err.generic",
+};
+
+/** One unspent item from the native validate response. */
+interface NativeValidateItem {
+  index: number;
+  redeemVia: "gamezone" | "cart";
+  label: string;
+  coverageName?: string;
+}
+
 type Panel =
   | { kind: "applied"; promo: AppliedPromo }
   | { kind: "bmi-voucher"; code: string }
   | { kind: "voucher-accepted"; code: string; name?: string }
   /**
-   * Game Zone card vouchers — fulfilled by dispensing cards, not by the cart.
-   * A LIST, and the panel keeps the scanner ARMED (owner 2026-07-30: it "is
-   * still going straight to get my card instead of allowing more scans"): a
-   * family holding three vouchers must be able to add them all here rather than
-   * ride the whole flow once per card.
+   * Native (HPW) vouchers accepted at the coupon screen. Auto-split (owner
+   * 2026-07-30): a mixed voucher's CART items (race / laser) are dispatched
+   * into the booking session as they're scanned — `cartLabels` is just the
+   * acknowledgement — while its GAME-ZONE items ride `codes` to the dispense
+   * basket. The panel keeps the scanner ARMED so a family adds all their
+   * vouchers here instead of riding the flow once each.
    */
-  | { kind: "voucher-gamecard"; codes: string[]; name?: string }
+  | { kind: "voucher-gamecard"; codes: string[]; cartLabels?: string[]; name?: string }
   | { kind: "game-card" }
   | { kind: "gift-card" };
 
@@ -90,6 +110,7 @@ export function KioskCodeEntry({
   voucherRedeem = false,
   appliedVoucherCodes = [],
   onVoucherAccepted,
+  onNativeCartItems,
 }: {
   /** Valid promo → parent dispatches applyPromo; this screen shows the
    *  success panel and the CTA returns to the categories. */
@@ -107,6 +128,9 @@ export function KioskCodeEntry({
   /** Parent dispatches the pending voucher into the session (name from the
    *  scan-time peek when BMI answered). */
   onVoucherAccepted?: (code: string, name?: string) => void;
+  /** Native (HPW) CART items → dispatched into the booking session, one applied
+   *  voucher per item (auto-split). The reserve claims them at charge. */
+  onNativeCartItems?: (code: string, items: { itemIndex: number; coverageName: string }[]) => void;
 }) {
   const t = useT();
   const { config } = useKioskConfig();
@@ -118,6 +142,8 @@ export function KioskCodeEntry({
   const [panel, setPanel] = useState<Panel | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const checkingRef = useRef(false);
+  /** Native codes already handled this session — a re-scan is a no-op. */
+  const processedNativeRef = useRef<Set<string>>(new Set());
 
   const routeClassified = useCallback(
     async (kind: KioskCodeKind, code: string) => {
@@ -185,22 +211,68 @@ export function KioskCodeEntry({
         }
         return;
       }
-      // OUR OWN voucher (HPW…). Fulfilment is a dispensed card, not a cart
-      // discount, so it belongs on the Game Zone rail — hand it over with the
-      // code already in hand. This branch is REQUIRED: without it the code
-      // falls through to the promo validator below and the guest is told
-      // "we couldn't find that code" for a perfectly good voucher.
+      // OUR OWN voucher (HPW…). Validate (non-destructive), then AUTO-SPLIT:
+      // race/laser items are dispatched into the booking session (covered at
+      // charge), game-zone items ride to the dispense basket. This branch is
+      // REQUIRED — without it the code falls through to the promo validator and
+      // the guest is told "we couldn't find that code" for a good voucher.
       if (kind === "native-voucher") {
         clarityEvent("kiosk:voucher:native");
-        // Accumulate — a second scan ADDS rather than replacing, and the panel
-        // below keeps listening so the guest never has to leave and come back.
-        setPanel((prev) =>
-          prev?.kind === "voucher-gamecard"
-            ? prev.codes.includes(code)
-              ? prev
-              : { ...prev, codes: [...prev.codes, code] }
-            : { kind: "voucher-gamecard", codes: [code] },
-        );
+        // A re-scan of the same code adds nothing (reducer is idempotent; the
+        // basket already holds it) — tell the guest rather than double-listing.
+        if (processedNativeRef.current.has(code)) {
+          setError(t("codeEntry.err.duplicate"));
+          return;
+        }
+        checkingRef.current = true;
+        setChecking(true);
+        try {
+          const res = await fetch("/api/game-cards/voucher-redeem", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "validate", code }),
+          });
+          const data: { ok?: boolean; reason?: string; items?: NativeValidateItem[] } = await res
+            .json()
+            .catch(() => ({}));
+          if (!res.ok || data.ok !== true) {
+            setError(t(NATIVE_ERR_KEY[data.reason ?? ""] ?? "codeEntry.err.generic"));
+            return;
+          }
+          const items = data.items ?? [];
+          const cart = items.filter((i) => i.redeemVia === "cart" && i.coverageName);
+          const gz = items.filter((i) => i.redeemVia === "gamezone");
+
+          // CART items → the booking session (auto-split), claimed at charge.
+          if (cart.length > 0 && voucherRedeem && onNativeCartItems) {
+            onNativeCartItems(
+              code,
+              cart.map((i) => ({ itemIndex: i.index, coverageName: i.coverageName as string })),
+            );
+            clarityEvent("kiosk:voucher:native-cart");
+          }
+          // GAME-ZONE items → the dispense basket. Accumulate + keep listening.
+          processedNativeRef.current.add(code);
+          const gzCode = gz.length > 0 && kioskVoucherGzEnabled() ? code : null;
+          const cartLabels = cart.map((i) => i.label);
+          setPanel((prev) => {
+            const base =
+              prev?.kind === "voucher-gamecard"
+                ? prev
+                : { kind: "voucher-gamecard" as const, codes: [], cartLabels: [] };
+            return {
+              kind: "voucher-gamecard",
+              codes: gzCode && !base.codes.includes(gzCode) ? [...base.codes, gzCode] : base.codes,
+              cartLabels: [...(base.cartLabels ?? []), ...cartLabels],
+              name: base.name,
+            };
+          });
+        } catch {
+          setError(t("codeEntry.err.generic"));
+        } finally {
+          checkingRef.current = false;
+          setChecking(false);
+        }
         return;
       }
       if (kind === "game-card") {
@@ -249,7 +321,7 @@ export function KioskCodeEntry({
         setChecking(false);
       }
     },
-    [appliedVoucherCodes, config, onApplied, onVoucherAccepted, t, voucherRedeem],
+    [appliedVoucherCodes, config, onApplied, onVoucherAccepted, onNativeCartItems, t, voucherRedeem],
   );
 
   const handleRaw = useCallback(
@@ -326,27 +398,40 @@ export function KioskCodeEntry({
               onCta: onBack,
             }
           : panel.kind === "voucher-gamecard"
-            ? {
-                title:
-                  panel.codes.length > 1
-                    ? t("codeEntry.voucherGz.titleN", { n: panel.codes.length })
-                    : panel.name
-                      ? t("codeEntry.voucherGz.titleNamed", {
-                          name: voucherDisplayName(panel.name),
-                        })
-                      : t("codeEntry.voucherGz.title"),
-                // The scanner is still live here — say so, or the guest assumes
-                // this screen is a dead end and rides the flow once per card.
-                body: t("codeEntry.voucherGz.bodyMore"),
-                cta:
-                  panel.codes.length > 1
-                    ? t("codeEntry.voucherGz.ctaN", { n: panel.codes.length })
-                    : t("codeEntry.voucherGz.cta"),
-                accent: "#f800c6",
-                detail: null,
-                codes: panel.codes,
-                onCta: () => onOpenGameZone(panel.codes),
-              }
+            ? panel.codes.length === 0
+              ? {
+                  // Pure cart voucher(s) — already applied to the order, nothing
+                  // to dispense. CTA just returns to the booking.
+                  title: t("codeEntry.voucherGz.appliedTitle"),
+                  body: t("codeEntry.voucherGz.appliedBody"),
+                  cta: t("codeEntry.voucherGz.appliedCta"),
+                  accent: "#46d68c",
+                  detail: null,
+                  cartLabels: panel.cartLabels ?? [],
+                  onCta: onBack,
+                }
+              : {
+                  title:
+                    panel.codes.length > 1
+                      ? t("codeEntry.voucherGz.titleN", { n: panel.codes.length })
+                      : panel.name
+                        ? t("codeEntry.voucherGz.titleNamed", {
+                            name: voucherDisplayName(panel.name),
+                          })
+                        : t("codeEntry.voucherGz.title"),
+                  // The scanner is still live here — say so, or the guest assumes
+                  // this screen is a dead end and rides the flow once per card.
+                  body: t("codeEntry.voucherGz.bodyMore"),
+                  cta:
+                    panel.codes.length > 1
+                      ? t("codeEntry.voucherGz.ctaN", { n: panel.codes.length })
+                      : t("codeEntry.voucherGz.cta"),
+                  accent: "#f800c6",
+                  detail: null,
+                  codes: panel.codes,
+                  cartLabels: panel.cartLabels ?? [],
+                  onCta: () => onOpenGameZone(panel.codes),
+                }
           : panel.kind === "bmi-voucher"
             ? {
                 title: t("codeEntry.voucher.title"),
@@ -384,7 +469,7 @@ export function KioskCodeEntry({
             {p.detail}
           </div>
         )}
-        {"codes" in p && p.codes && (
+        {"codes" in p && p.codes && p.codes.length > 0 && (
           <ul className="mx-auto mt-[28px] w-full max-w-[22ch] space-y-[12px]">
             {p.codes.map((c) => (
               <li
@@ -395,6 +480,21 @@ export function KioskCodeEntry({
               </li>
             ))}
           </ul>
+        )}
+        {"cartLabels" in p && p.cartLabels && p.cartLabels.length > 0 && (
+          <div className="mx-auto mt-[24px] w-full max-w-[24ch]">
+            <div className="k-eyebrow text-[#46d68c]">{t("codeEntry.voucherGz.appliedTitle")}</div>
+            <ul className="mt-[12px] space-y-[10px]">
+              {p.cartLabels.map((label, i) => (
+                <li
+                  key={`${label}-${i}`}
+                  className="rounded-[16px] border border-[#46d68c]/30 bg-[#46d68c]/[0.08] px-[24px] py-[12px] text-[26px] text-white/85"
+                >
+                  {label}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         <p className="mx-auto mt-[32px] max-w-[26ch] text-[32px] leading-[1.4] text-white/70">
           {p.body}

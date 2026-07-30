@@ -375,3 +375,50 @@ describe("reducer — KBF identity (conditional)", () => {
     });
   });
 });
+
+describe("applyVoucher — native multi-item keying", () => {
+  it("keeps two items of ONE native voucher as distinct applied entries", () => {
+    // A mixed voucher (game card + race) dispatches two applyVoucher actions
+    // under the same code. Keying on code alone would collapse them; keying on
+    // (code, itemIndex) keeps both so each covers its own thing.
+    let s = seedSession();
+    s = reducer(s, {
+      type: "applyVoucher",
+      voucher: { code: "HPW4K7M9PQR", issuer: "native", itemIndex: 0, name: "Race" },
+    });
+    s = reducer(s, {
+      type: "applyVoucher",
+      voucher: { code: "HPW4K7M9PQR", issuer: "native", itemIndex: 1, name: "Laser Tag" },
+    });
+    expect(s.appliedVouchers).toHaveLength(2);
+    expect(s.appliedVouchers?.map((v) => v.itemIndex)).toEqual([0, 1]);
+  });
+
+  it("re-dispatching the SAME (code,itemIndex) replaces in place, not appends", () => {
+    let s = seedSession();
+    const v = { code: "HPW4K7M9PQR", issuer: "native" as const, itemIndex: 0, name: "Race" };
+    s = reducer(s, { type: "applyVoucher", voucher: { ...v, pending: true } });
+    s = reducer(s, { type: "applyVoucher", voucher: v });
+    expect(s.appliedVouchers).toHaveLength(1);
+    expect(s.appliedVouchers?.[0].pending).toBeUndefined();
+  });
+
+  it("BMI vouchers (no itemIndex) still upsert by code — unchanged", () => {
+    let s = seedSession();
+    s = reducer(s, { type: "applyVoucher", voucher: { code: "K5B7C3S7Q4Z9Q9Z3M9A9T7Z2" } });
+    s = reducer(s, {
+      type: "applyVoucher",
+      voucher: { code: "K5B7C3S7Q4Z9Q9Z3M9A9T7Z2", name: "Race Comp", billId: "1", voucherOrderItemId: "2" },
+    });
+    expect(s.appliedVouchers).toHaveLength(1);
+    expect(s.appliedVouchers?.[0].name).toBe("Race Comp");
+  });
+
+  it("removeVoucher drops every item of a code", () => {
+    let s = seedSession();
+    s = reducer(s, { type: "applyVoucher", voucher: { code: "HPWAAAAAAAA", issuer: "native", itemIndex: 0 } });
+    s = reducer(s, { type: "applyVoucher", voucher: { code: "HPWAAAAAAAA", issuer: "native", itemIndex: 1 } });
+    s = reducer(s, { type: "removeVoucher", code: "HPWAAAAAAAA" });
+    expect(s.appliedVouchers ?? []).toHaveLength(0);
+  });
+});

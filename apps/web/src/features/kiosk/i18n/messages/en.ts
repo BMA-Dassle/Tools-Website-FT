@@ -329,6 +329,10 @@ export const en = {
   "codeEntry.voucherGz.titleNamed": "{name}",
   "codeEntry.voucherGz.body": "We’ll print your card at the Game Zone screen — it takes a moment.",
   "codeEntry.voucherGz.cta": "Get my card",
+  "codeEntry.voucherGz.appliedTitle": "Applied to your order",
+  "codeEntry.voucherGz.appliedBody":
+    "The value comes off at checkout. Scan another voucher to add it.",
+  "codeEntry.voucherGz.appliedCta": "Back to my order",
   "codeEntry.voucherGz.titleN": "{n} free game cards",
   "codeEntry.voucherGz.ctaN": "Get my {n} cards",
   "codeEntry.voucherGz.bodyMore":
