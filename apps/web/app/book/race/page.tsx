@@ -1528,11 +1528,11 @@ export default function BookRacePage() {
     if (catRacers.length === 0) return verifiedPerson?.memberships;
     // Use the HIGHEST tier in the group so all race types show.
     // The RacerSelector handles per-racer qualification gating.
+    // Category-scoped: a junior's "Qualified Junior Pro" counts for junior
+    // products only, never adult ones (2026-07-30 incident — see getRacerTier).
     const tiers = catRacers.map((r) => {
-      const mems = (r.memberships || []).map((m) => m.toLowerCase());
-      if (mems.some((m) => m.includes("pro"))) return 2;
-      if (mems.some((m) => m.includes("intermediate"))) return 1;
-      return 0;
+      const tier = getRacerTier(r.memberships || [], cat);
+      return tier === "Pro" ? 2 : tier === "Intermediate" ? 1 : 0;
     });
     const highestTier = Math.max(...tiers);
     if (highestTier >= 2) return ["Qualified Pro"];
@@ -1726,14 +1726,15 @@ export default function BookRacePage() {
                           </span>
                           <span
                             className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                              getRacerTier(r.memberships || []) === "Pro"
+                              getRacerTier(r.memberships || [], r.category ?? "adult") === "Pro"
                                 ? "bg-red-500/20 text-red-400"
-                                : getRacerTier(r.memberships || []) === "Intermediate"
+                                : getRacerTier(r.memberships || [], r.category ?? "adult") ===
+                                    "Intermediate"
                                   ? "bg-blue-500/20 text-blue-400"
                                   : "bg-green-500/20 text-green-400"
                             }`}
                           >
-                            {getRacerTier(r.memberships || [])}
+                            {getRacerTier(r.memberships || [], r.category ?? "adult")}
                           </span>
                           {(r.memberships || []).some((m) =>
                             m.toLowerCase().includes("license fee"),

@@ -22,11 +22,23 @@ export function isRelevantMembership(name: string): boolean {
   return RELEVANT_MEMBERSHIP_KEYWORDS.some((kw) => lower.includes(kw));
 }
 
-/** Determine a racer's highest qualification tier from their membership names */
-export function getRacerTier(memberships: string[]): "Starter" | "Intermediate" | "Pro" {
+/**
+ * A racer's qualification tier from their membership names, scoped to a race
+ * category. BMI junior qualifications carry "Junior" in the name ("Qualified
+ * Junior Pro") and do NOT qualify the racer for adult karts — a bare substring
+ * match here let a junior pro book adult Pro (2026-07-30 incident, bill
+ * 63000000006631238). Adult scope counts only non-"junior" names; junior scope
+ * counts everything (an adult qualification implies at least junior skill).
+ * Mirror of v2 `qualifiedTierForCategory` — keep in lockstep.
+ */
+export function getRacerTier(
+  memberships: string[],
+  category: "adult" | "junior",
+): "Starter" | "Intermediate" | "Pro" {
   const mems = memberships.map((m) => m.toLowerCase());
-  if (mems.some((m) => m.includes("pro"))) return "Pro";
-  if (mems.some((m) => m.includes("intermediate"))) return "Intermediate";
+  const scoped = category === "adult" ? mems.filter((m) => !m.includes("junior")) : mems;
+  if (scoped.some((m) => m.includes("pro"))) return "Pro";
+  if (scoped.some((m) => m.includes("intermediate"))) return "Intermediate";
   return "Starter";
 }
 
@@ -937,6 +949,8 @@ export function classifyProducts(pages: BmiPage[]): ClassifiedProduct[] {
   return results;
 }
 
+const TIER_QUAL_RANK: Record<RaceTier, number> = { starter: 0, intermediate: 1, pro: 2 };
+
 export function filterProducts(
   products: ClassifiedProduct[],
   racerType: RacerType,
@@ -944,11 +958,6 @@ export function filterProducts(
   juniorCount: number,
   memberships?: string[],
 ): ClassifiedProduct[] {
-  // Determine highest qualification from memberships
-  const mems = (memberships || []).map((m) => m.toLowerCase());
-  const hasQualifiedPro = mems.some((m) => m.includes("pro"));
-  const hasQualifiedIntermediate = mems.some((m) => m.includes("intermediate"));
-
   return products.filter((p) => {
     // Hide race-pack credit products (BMI credit pipeline is broken).
     // Keep combo products (they use booking/book, not credits).
@@ -961,17 +970,10 @@ export function filterProducts(
       return p.tier === "starter";
     }
 
-    // Returning racers: filter by qualification
-    if (hasQualifiedPro) {
-      // Pro: show all tiers
-      return true;
-    }
-    if (hasQualifiedIntermediate) {
-      // Intermediate: starter + intermediate
-      return p.tier === "starter" || p.tier === "intermediate";
-    }
-    // No qualifications: starter only
-    return p.tier === "starter";
+    // Returning racers: qualification scoped to the PRODUCT's category — a
+    // "Qualified Junior Pro" must not unlock adult Pro (see getRacerTier).
+    const qualified = getRacerTier(memberships || [], p.category).toLowerCase() as RaceTier;
+    return TIER_QUAL_RANK[qualified] >= TIER_QUAL_RANK[p.tier];
   });
 }
 

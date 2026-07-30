@@ -924,20 +924,20 @@ export interface ProductFilterContext {
 }
 
 /**
- * Apply party / qualification filters to a list of products. Ports v1's
- * `filterProducts` logic verbatim:
+ * Apply party / qualification filters to a list of products:
  *
  *   - Hide credit-pack products (packType === "sell"). Combos stay.
  *   - Hide adult products when no adults; junior products when no juniors.
  *   - New racers see Starter only.
- *   - Returning racers see tiers up to their highest qualification (from
- *     membership names containing "pro" / "intermediate").
+ *   - Returning racers see tiers up to their qualification IN THE PRODUCT'S
+ *     CATEGORY (see qualifiedTierForCategory — a junior qualification never
+ *     unlocks an adult tier).
+ *
+ * Diverges from the v1 port on purpose: v1's bare `.includes("pro")` let
+ * "Qualified Junior Pro" unlock adult Pro (2026-07-30 incident, bill
+ * 63000000006631238 — a 13-year-old junior pro booked adult Pro Race Red).
  */
 export function filterProducts(products: RaceProduct[], ctx: ProductFilterContext): RaceProduct[] {
-  const mems = (ctx.memberships ?? []).map((m) => m.toLowerCase());
-  const hasPro = mems.some((m) => m.includes("pro"));
-  const hasIntermediate = mems.some((m) => m.includes("intermediate"));
-
   return products.filter((p) => {
     if (p.packType === "sell") return false;
     if (p.category === "adult" && ctx.adultCount === 0) return false;
@@ -946,22 +946,55 @@ export function filterProducts(products: RaceProduct[], ctx: ProductFilterContex
     if (ctx.racerType === "new") {
       return p.tier === "starter";
     }
-    if (hasPro) return true;
-    if (hasIntermediate) return p.tier === "starter" || p.tier === "intermediate";
-    return p.tier === "starter";
+    return isQualifiedForTier(ctx.memberships ?? [], p.category, p.tier);
   });
 }
 
+const TIER_QUAL_RANK: Record<RaceTier, number> = { starter: 0, intermediate: 1, pro: 2 };
+
 /**
- * Highest-qualified tier from a list of BMI membership name strings.
- * Mirror of v1 `getRacerTier`. Used by both filter logic above and the
- * UI's tier badge display.
+ * The tier a racer's BMI memberships qualify them for IN A GIVEN CATEGORY.
+ *
+ * BMI qualification memberships are category-scoped by NAME: junior karts
+ * grant "Qualified Junior Intermediate" / "Qualified Junior Pro"; adult karts
+ * grant names WITHOUT "junior" ("Qualified Pro", "Pro License", …). A junior
+ * qualification says nothing about adult karts, so:
+ *
+ *   - category "adult": only non-"junior" membership names count.
+ *   - category "junior": every qualification counts — junior-scoped names are
+ *     the normal case, and an adult qualification implies at least that skill
+ *     (also keeps legacy junior grants without the "Junior" prefix working).
+ *
+ * This is THE gating primitive — every tier-eligibility decision (product
+ * filter, per-racer heat selector, the server-side booking guard) must go
+ * through it or isQualifiedForTier, never a raw substring match.
+ */
+export function qualifiedTierForCategory(memberships: string[], category: RaceCategory): RaceTier {
+  const mems = memberships.map((m) => m.toLowerCase());
+  const scoped = category === "adult" ? mems.filter((m) => !m.includes("junior")) : mems;
+  if (scoped.some((m) => m.includes("pro"))) return "pro";
+  if (scoped.some((m) => m.includes("intermediate"))) return "intermediate";
+  return "starter";
+}
+
+/** May these memberships book a `tier` product in `category`? */
+export function isQualifiedForTier(
+  memberships: string[],
+  category: RaceCategory,
+  tier: RaceTier,
+): boolean {
+  return TIER_QUAL_RANK[qualifiedTierForCategory(memberships, category)] >= TIER_QUAL_RANK[tier];
+}
+
+/**
+ * Highest-qualified tier across BOTH categories, for DISPLAY ONLY (account
+ * cards, roster badges) — a junior pro shows "Pro" here. Never use this to
+ * gate a booking: it can't tell "Qualified Junior Pro" from "Qualified Pro"
+ * by design. Gate with qualifiedTierForCategory / isQualifiedForTier.
  */
 export function tierFromMemberships(memberships: string[]): "Starter" | "Intermediate" | "Pro" {
-  const mems = memberships.map((m) => m.toLowerCase());
-  if (mems.some((m) => m.includes("pro"))) return "Pro";
-  if (mems.some((m) => m.includes("intermediate"))) return "Intermediate";
-  return "Starter";
+  const tier = qualifiedTierForCategory(memberships, "junior"); // junior scope = all names count
+  return tier === "pro" ? "Pro" : tier === "intermediate" ? "Intermediate" : "Starter";
 }
 
 /** Substrings used by `filterProducts` + the membership widget to decide

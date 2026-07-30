@@ -3,8 +3,10 @@ import {
   combineTrackVariants,
   filterProducts,
   getRaceProductById,
+  isQualifiedForTier,
   isRelevantMembership,
   productsForSchedule,
+  qualifiedTierForCategory,
   tierFromMemberships,
 } from "./race-products";
 
@@ -143,6 +145,74 @@ describe("filterProducts", () => {
     });
     expect(out.every((p) => p.packType !== "sell")).toBe(true);
   });
+
+  // 2026-07-30 incident (bill 63000000006631238): "Qualified Junior Pro"
+  // substring-matched "pro" and unlocked adult Pro Race for a 13-year-old
+  // holding only junior qualifications.
+  it("junior qualifications do NOT unlock adult Intermediate/Pro", () => {
+    const out = filterProducts(weekdayExisting, {
+      racerType: "existing",
+      adultCount: 1,
+      juniorCount: 0,
+      memberships: ["License Fee", "Qualified Junior Intermediate", "Qualified Junior Pro"],
+    });
+    expect(out.length).toBeGreaterThan(0);
+    expect(out.every((p) => p.tier === "starter")).toBe(true);
+  });
+
+  it("junior qualifications still unlock junior tiers", () => {
+    const out = filterProducts(weekdayExisting, {
+      racerType: "existing",
+      adultCount: 0,
+      juniorCount: 1,
+      memberships: ["Qualified Junior Pro"],
+    });
+    const juniorTiers = new Set(out.filter((p) => p.category === "junior").map((p) => p.tier));
+    expect(juniorTiers.has("pro") || juniorTiers.has("intermediate")).toBe(true);
+  });
+
+  it("adult Pro qualification still unlocks adult Pro (no regression)", () => {
+    const out = filterProducts(weekdayExisting, {
+      racerType: "existing",
+      adultCount: 1,
+      juniorCount: 0,
+      memberships: ["Qualified Pro"],
+    });
+    expect(new Set(out.map((p) => p.tier))).toEqual(new Set(["starter", "intermediate", "pro"]));
+  });
+});
+
+describe("qualifiedTierForCategory / isQualifiedForTier", () => {
+  const juniorProOnly = ["License Fee", "Qualified Junior Intermediate", "Qualified Junior Pro"];
+
+  it("junior quals rate as Starter in the adult category", () => {
+    expect(qualifiedTierForCategory(juniorProOnly, "adult")).toBe("starter");
+    expect(isQualifiedForTier(juniorProOnly, "adult", "pro")).toBe(false);
+    expect(isQualifiedForTier(juniorProOnly, "adult", "intermediate")).toBe(false);
+    expect(isQualifiedForTier(juniorProOnly, "adult", "starter")).toBe(true);
+  });
+
+  it("junior quals rate at their tier in the junior category", () => {
+    expect(qualifiedTierForCategory(juniorProOnly, "junior")).toBe("pro");
+    expect(isQualifiedForTier(juniorProOnly, "junior", "pro")).toBe(true);
+  });
+
+  it("adult quals count for both categories", () => {
+    expect(qualifiedTierForCategory(["Qualified Pro"], "adult")).toBe("pro");
+    expect(qualifiedTierForCategory(["Qualified Pro"], "junior")).toBe("pro");
+    expect(qualifiedTierForCategory(["Qualified Intermediate"], "adult")).toBe("intermediate");
+  });
+
+  it("mixed junior + adult quals: each category sees its own ceiling", () => {
+    const mixed = ["Qualified Junior Pro", "Qualified Intermediate"];
+    expect(qualifiedTierForCategory(mixed, "adult")).toBe("intermediate");
+    expect(qualifiedTierForCategory(mixed, "junior")).toBe("pro");
+  });
+
+  it("no quals → starter everywhere", () => {
+    expect(qualifiedTierForCategory([], "adult")).toBe("starter");
+    expect(qualifiedTierForCategory(["Birthday Membership"], "junior")).toBe("starter");
+  });
 });
 
 describe("tierFromMemberships", () => {
@@ -162,6 +232,10 @@ describe("tierFromMemberships", () => {
   it("case-insensitive match", () => {
     expect(tierFromMemberships(["PRO RACER"])).toBe("Pro");
     expect(tierFromMemberships(["intermediate qualified"])).toBe("Intermediate");
+  });
+
+  it("is DISPLAY-ONLY: a junior pro still shows Pro (gate with isQualifiedForTier)", () => {
+    expect(tierFromMemberships(["Qualified Junior Pro"])).toBe("Pro");
   });
 });
 

@@ -775,6 +775,7 @@ async function ensurePersonId(
 import {
   bmiBookingTarget,
   getRaceProductById,
+  isQualifiedForTier,
   resolveBuildPair,
   singleRaceProductsOnTrack,
 } from "./race-products";
@@ -812,13 +813,14 @@ function centerWallClockToEpochMs(naiveIso: string): number {
 }
 
 /**
- * Authoritative server-side guard for config restriction rules
- * (race-restriction-rules.ts). Mirrors the client-side filter in
- * RaceHeatPickerStep so a stale client or a direct API call can't slip a
- * restricted heat (e.g. back-to-back Mega Pro) onto the bill. Throws when the
- * heat is blocked; no-op otherwise. `availability` is the SAME response the
- * caller just fetched for this heat's product, so its freeSpots is the live
- * global occupancy signal.
+ * Authoritative server-side guard: per-racer tier qualification (see the
+ * inline block below) + config restriction rules (race-restriction-rules.ts).
+ * Mirrors the client-side filters in RaceProductStep / RacerSelectorModal /
+ * RaceHeatPickerStep so a stale client or a direct API call can't slip an
+ * unqualified racer or a restricted heat (e.g. back-to-back Mega Pro) onto
+ * the bill. Throws when the heat is blocked; no-op otherwise. `availability`
+ * is the SAME response the caller just fetched for this heat's product, so
+ * its freeSpots is the live global occupancy signal.
  */
 async function assertHeatBookable(
   session: BookingSession,
@@ -847,6 +849,29 @@ async function assertHeatBookable(
   // Express-lane eligibility — mirrors RaceHeatPickerStep's allReturningHaveWaivers:
   // no new racer in the heat's category AND every returning racer has a valid waiver.
   const category = heat.category ?? product?.category ?? "adult";
+
+  // Personal tier-qualification guard — mirrors the product filter + racer
+  // selector so a stale client can't put an unqualified racer on an
+  // Intermediate/Pro heat (2026-07-30 incident, bill 63000000006631238: a
+  // "Qualified Junior Pro" substring-matched "pro" and booked adult Pro).
+  // Scope: catalog products only (single races + same-tier 3-packs). Package
+  // heats (Rookie Pack / Ultimate Qualifier) resolve no catalog product and
+  // combo legs are itinerary-driven — both legitimately book above a racer's
+  // current tier, so they're exempt. Judged on the session's memberships (the
+  // same verified-lookup data the client gates on).
+  if (product && tier !== "starter" && !session.comboSpecialId && heat.assignedTo) {
+    const member = session.party.find((m) => m.id === heat.assignedTo);
+    if (member) {
+      const qualified =
+        !member.isNewRacer && isQualifiedForTier(member.memberships ?? [], category, tier);
+      if (!qualified) {
+        const tierLabel = tier.charAt(0).toUpperCase() + tier.slice(1);
+        throw new Error(
+          `${member.firstName || "A racer"} isn't qualified for ${tierLabel} races yet — please pick a race at their level.`,
+        );
+      }
+    }
+  }
   const anyNewInCategory = session.party.some(
     (m) => (m.category ?? "adult") === category && m.isNewRacer,
   );

@@ -1,5 +1,37 @@
 # Lessons Learned
 
+## BMI membership names are category-scoped — a substring match on "pro" is a qualification bypass (2026-07-30)
+
+**What happened:** A 13-year-old holding only `Qualified Junior Intermediate` + `Qualified Junior
+Pro` booked an **adult Pro Race Red** (bill 63000000006631238, res W55920). Every tier gate in the
+booking flow — v1 `getRacerTier`/`filterProducts`, v2's verbatim port, and the per-racer selector —
+decided qualification with `m.includes("pro")`, and `"qualified junior pro"` contains `"pro"`. Age
+13 puts a racer in the ADULT category (junior is 7–13, adult is 13+ — 13 overlaps), so her junior
+quals were read as adult quals and the whole adult catalog unlocked. There was **no server-side
+check at all**: `assertHeatBookable` guarded scheduling rules only, so the client filter was the
+single (broken) gate.
+
+**Fix (`fix/junior-pro-tier-gating`):** one gating primitive, `qualifiedTierForCategory(memberships,
+category)` in `race-products.ts` — adult scope counts only non-"junior" membership names; junior
+scope counts everything (adult skill ⊇ junior). `filterProducts` (v1 + v2), both racer selectors,
+and a NEW per-racer guard in `assertHeatBookable` (catalog products above Starter; packages/combos
+exempt — Ultimate Qualifier legitimately books above current tier) all route through it.
+`tierFromMemberships` survives as DISPLAY-ONLY and its doc says so.
+
+**Guardrails:**
+
+- **Vendor name strings that encode scope must be parsed with the scope, never substring-matched.**
+  "Junior Pro" ⊃ "Pro" is the exact shape of bug a bare `.includes()` invites. One exported
+  primitive owns the interpretation; every gate calls it.
+- **Any client-side eligibility filter needs a server-side mirror at the money/booking choke
+  point.** The restriction rules had one (`assertHeatBookable`); personal qualification didn't —
+  so a UI bug shipped bookings the business forbids.
+- **"Ports v1 verbatim" copies v1's bugs.** A parity port is a bug-compat contract; when the ported
+  logic gates safety or eligibility, audit it instead of trusting the port.
+- **Boundary ages belong to both ranges — decide explicitly.** Published rules say junior 7–13,
+  adult 13+; the code buckets 13 as adult (`age < 13`), which silently strips a 13-year-old junior
+  pro of their junior-tier access. Owner decision still open (flagged 2026-07-30).
+
 ## A readiness gate that covers 3 of 4 item kinds is a hole, not a gate — and a $0 cart leg still calls a vendor (2026-07-28)
 
 **What happened:** A FastTrax kiosk captured **$234.21** (race + 4 race packs, BMI bill
