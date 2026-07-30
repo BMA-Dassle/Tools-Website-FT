@@ -2,7 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { displayNameFromFull } from "@/lib/display-name";
 import { getReservationDetail } from "~/features/daily-events/service";
-import { CENTER_TO_BMI_LOCATION_IDS, isValidCenter } from "~/features/kiosk/waiver/locations";
+import { listJoinsForProject } from "~/features/kiosk/data/kiosk-waiver-joins-db";
+import {
+  CENTER_TO_BMI_LOCATION_IDS,
+  BMI_LOCATION_TO_PANDORA_KEY,
+  isValidCenter,
+} from "~/features/kiosk/waiver/locations";
+import { PANDORA_LOCATION_MAP, PANDORA_DEFAULT_LOCATION_ID } from "@/lib/pandora-locations";
+import {
+  waiverValidNow,
+  mapWithConcurrency,
+  unionValidWithJoins,
+  WAIVER_CHECK_CONCURRENCY,
+} from "~/features/kiosk/waiver/valid-count";
+import { makeDisplayName } from "@/lib/display-name";
 
 export const dynamic = "force-dynamic";
 
@@ -70,7 +83,10 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const detail = await getReservationDetail(locationId, projectId);
+    const [detail, joins] = await Promise.all([
+      getReservationDetail(locationId, projectId),
+      listJoinsForProject(projectId).catch(() => []),
+    ]);
 
     // Online reservations stuff the guest's FULL name into detail.name — reduce
     // to "First L." (group functions use a real event name, kept as-is).
@@ -90,13 +106,36 @@ export async function GET(req: NextRequest) {
       ),
     );
 
+    // "N of M registered" for the event card. Counts ONLY — the same union the
+    // kiosk roster uses (Pandora waiverExpiry ∪ our Neon joins), with the names
+    // dropped on the floor. That distinction is the whole point of this endpoint:
+    // the link is forwardable to a whole party, so it must never carry a list of
+    // who has and hasn't signed.
+    const registered = (detail.persons_list || [])
+      .map((p) => ({
+        personId: String(p.personId ?? p.id ?? ""),
+        displayName: makeDisplayName(p.firstName || "", p.name || ""),
+      }))
+      .filter((p) => p.personId && p.displayName);
+    const pandoraLocationId =
+      PANDORA_LOCATION_MAP[BMI_LOCATION_TO_PANDORA_KEY[locationId] ?? ""] ||
+      PANDORA_DEFAULT_LOCATION_ID;
+    const validFlags = await mapWithConcurrency(registered, WAIVER_CHECK_CONCURRENCY, (p) =>
+      waiverValidNow(p.personId, pandoraLocationId),
+    );
+    const signed = unionValidWithJoins(registered, validFlags, joins).length;
+
+    const total = detail.persons ?? 0;
     const body = JSON.stringify({
       ok: true,
       label,
       activity: activities.join(" · ") || null,
       whenLabel: formatWhen(detail.when),
       centerName: LOCATION_NAMES[locationId] ?? "",
-      total: detail.persons ?? 0,
+      total,
+      // Never claim more signed than registered — the join union can exceed the
+      // BMI headcount when someone signs who was never added to the reservation.
+      signed: Math.min(signed, total || signed),
     });
     redis.setex(cacheKey, CACHE_TTL_SECONDS, body).catch(() => {});
     return new NextResponse(body, {

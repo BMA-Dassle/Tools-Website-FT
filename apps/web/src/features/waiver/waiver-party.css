@@ -453,11 +453,25 @@
   margin-top: 1rem;
 }
 
-/* ---- stack the 2-col grids on a narrow screen ---- */
-@media (max-width: 480px) {
-  .wp-mobile .grid-cols-2 {
+/* ---- stack the 2-col grids until there is REAL room ---- */
+/* 480px was too eager: the returning-racer cards kept two columns from 640px
+   (their own `sm:grid-cols-2`), and at ~340px per card the name, tier badge and
+   product chips fight for the same row — every name rendered as "Eric Osb…".
+   Hold one column until 768px, where two columns actually fit. */
+@media (max-width: 767px) {
+  .wp-mobile .grid-cols-2,
+  .wp-mobile .sm\:grid-cols-2 {
     grid-template-columns: 1fr;
   }
+}
+
+/* Names and meta lines must never be clipped mid-word on a phone. The picker is
+   SHARED with the web booking flow, so this is scoped here instead of dropping
+   `truncate` in the component — the web race flow keeps its single-line cards. */
+.wp-mobile .truncate {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 /* ======================================================================
@@ -517,6 +531,70 @@
   padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
+}
+
+/* ======================================================================
+   DESKTOP (>=768px) — the same flow, not a phone column stranded in the
+   middle of a monitor. The remap above is tuned for a 390px screen; left
+   alone it reads as 12-15px type on a 1440px display. Bump the type back
+   toward native size and let the container breathe. Mobile-first: this is
+   a min-width block, so the phone values are the base and stay untouched.
+   ====================================================================== */
+@media (min-width: 768px) {
+  .wp-mobile {
+    font-size: 17px;
+  }
+  .wp-mobile .k-fh-title {
+    font-size: 2.5rem;
+  }
+  .wp-mobile .k-eyebrow,
+  .wp-mobile .k-fh-activity {
+    font-size: 0.8rem;
+  }
+  .wp-mobile .k-prog span {
+    height: 8px;
+  }
+  .wp-mobile .text-\[44px\] {
+    font-size: 2.25rem;
+  }
+  .wp-mobile .text-\[40px\] {
+    font-size: 2rem;
+  }
+  .wp-mobile .text-\[34px\] {
+    font-size: 1.6rem;
+  }
+  .wp-mobile .text-\[32px\] {
+    font-size: 1.5rem;
+  }
+  .wp-mobile .text-\[30px\],
+  .wp-mobile .text-\[28px\] {
+    font-size: 1.3rem;
+  }
+  .wp-mobile .text-\[27px\],
+  .wp-mobile .text-\[26px\] {
+    font-size: 1.2rem;
+  }
+  .wp-mobile .text-\[24px\] {
+    font-size: 1.1rem;
+  }
+  .wp-mobile .text-\[22px\] {
+    font-size: 1rem;
+  }
+  .wp-mobile .text-\[20px\],
+  .wp-mobile .text-\[19px\],
+  .wp-mobile .text-\[18px\] {
+    font-size: 0.95rem;
+  }
+  /* Roomier cards + controls once there is width to spend. */
+  .wp-mobile .p-\[24px\],
+  .wp-mobile .p-\[28px\] {
+    padding: 1.5rem;
+  }
+  .wp-mobile .k-btn-primary,
+  .wp-mobile .k-btn-ghost {
+    min-height: 3.5rem;
+    font-size: 1.2rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

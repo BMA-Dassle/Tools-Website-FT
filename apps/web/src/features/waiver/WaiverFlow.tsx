@@ -24,7 +24,14 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { IconCheck, IconChevronRight } from "@tabler/icons-react";
+import {
+  IconCheck,
+  IconChevronRight,
+  IconLink,
+  IconMail,
+  IconMessage,
+  IconShare2,
+} from "@tabler/icons-react";
 import type { Brand, CenterCode } from "~/features/booking/types";
 import type { PartyMember } from "~/features/booking/state/types";
 import { KioskPartyManager, peopleReady } from "~/features/kiosk/components/KioskPartyManager";
@@ -59,7 +66,11 @@ interface WaiverContextSummary {
   activity: string | null;
   whenLabel: string;
   centerName: string;
+  /** Registered on the reservation (BMI projectPersons). */
   total: number;
+  /** Of those, how many hold a currently-valid waiver — the authoritative count
+   *  across everyone's devices, not just this phone's roster. */
+  signed?: number;
 }
 
 /** Kiosk flow-head, phone scale: logo + activity label, then the signed-progress
@@ -121,6 +132,10 @@ export function WaiverFlow({
   );
   const [party, setParty] = useState<PartyMember[]>([]);
   const [ctx, setCtx] = useState<WaiverContextSummary | null>(null);
+  // Terminal state after "I'm done" — the roster is cleared, so we keep just the
+  // first names to confirm what was filed (no DOB, no phone, no last names).
+  const [finished, setFinished] = useState(false);
+  const [signedNames, setSignedNames] = useState<string[]>([]);
 
   const center: CenterCode | null = resInfo ? resInfo.center : standaloneCenter;
   const location: PandoraLocation | null = resInfo
@@ -164,12 +179,18 @@ export function WaiverFlow({
   // to the whole page, not just the party manager — so the head, share block and
   // success card are the same design system as the kiosk, at phone scale. The deep
   // navy is the kiosk's --k-deep on BOTH brands, mirroring .kiosk-canvas.
+  // `wp-mobile` scopes the kiosk look (tokens, k-* primitives, px re-proportioning)
+  // to the whole page, not just the party manager. Mobile-first width that grows
+  // into a desktop window instead of stranding a phone column on a monitor —
+  // paired with the >=768px type/spacing block in waiver-party.css.
   const shell = (children: ReactNode) => (
     <div
       className="wp-mobile min-h-screen bg-[#000418]"
       style={{ "--accent": "#00E2E5" } as CSSProperties}
     >
-      <main className="wp-mobile-page mx-auto max-w-md px-4 pt-6">{children}</main>
+      <main className="wp-mobile-page mx-auto w-full max-w-md px-4 pt-6 md:max-w-3xl md:px-8 md:pt-10">
+        {children}
+      </main>
     </div>
   );
 
@@ -211,6 +232,48 @@ export function WaiverFlow({
   // Live signed count for the kiosk-style progress bar (kiosk shows step-of-N;
   // the waiver's real progress is how much of the party is done).
   const signedCount = party.filter((m) => m.waiverValid).length;
+
+  // "I'm done" clears the roster off the screen. The waivers are already durable
+  // (Pandora + the Neon audit row + the reservation attach), so nothing is lost —
+  // what goes away is a list of real names and birth years left sitting on a
+  // phone that gets handed to the next person in line (owner 2026-07-30).
+  if (finished) {
+    return shell(
+      <>
+        <WaiverHead
+          brand={brand}
+          subtitle={reservation ? (ctx?.centerName ?? "") : standaloneCenterName(brand, center)}
+          signed={0}
+          total={0}
+        />
+        <div className="rounded-[18px] border border-[var(--k-ok)]/40 bg-[var(--k-ok)]/10 p-5 text-center">
+          <p className="k-display flex items-center justify-center gap-2 text-lg text-[var(--k-ok)]">
+            <IconCheck aria-hidden size={20} stroke={3} />
+            You&apos;re all set
+          </p>
+          <p className="mt-2 text-sm text-[var(--k-dim)]">
+            {signedNames.length === 1
+              ? `${signedNames[0]}'s waiver is on file.`
+              : `${signedNames.length} waivers are on file.`}{" "}
+            {reservation
+              ? "We have them saved to your reservation."
+              : "We'll have them when you arrive."}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setFinished(false);
+            setSignedNames([]);
+          }}
+          className="k-btn-ghost k-tap mt-4 w-full"
+        >
+          Sign someone else
+        </button>
+        {reservation && <ShareBlock label={ctx?.label ?? "your reservation"} />}
+      </>,
+    );
+  }
 
   return shell(
     <>
@@ -278,9 +341,22 @@ export function WaiverFlow({
           </p>
           <p className="mt-1 text-sm text-[var(--k-dim)]">
             {reservation
-              ? "You're all set — these are saved to your reservation. Share the link above so the rest of your group can sign too."
-              : "You're all set — we'll have these on file when you arrive. Add someone else above anytime."}
+              ? "Saved to your reservation."
+              : "We'll have these on file when you arrive."}
           </p>
+          {/* Deliberate end to the flow: without it the roster of names just sits
+              on the screen and the guest has to guess whether they can leave. */}
+          <button
+            type="button"
+            onClick={() => {
+              setSignedNames(party.map((m) => m.firstName).filter(Boolean));
+              setParty([]);
+              setFinished(true);
+            }}
+            className="k-btn-primary k-tap mt-4 w-full"
+          >
+            I&apos;m done
+          </button>
         </div>
       )}
     </>,
@@ -296,14 +372,13 @@ function EventInfoCard({ ctx }: { ctx: WaiverContextSummary | null }) {
     <section className="k-glass mb-5 px-4 py-3">
       <div className="k-eyebrow">Signing for</div>
       <p className="k-display mt-1 text-base">{ctx?.label ?? "Your reservation"}</p>
-      {/* Raw BMI resource list — clamped to two lines the way the kiosk clamps
-          k-util-help, so a 14-resource event stays a card and not a page. */}
-      {!!ctx?.activity && (
-        <p className="mt-1 line-clamp-2 text-xs text-[var(--k-dim)]">{ctx.activity}</p>
-      )}
+      {/* Name, when, and signed-of-registered. The BMI resource list ("FT VIP
+          Room · Duck Lane 1 · …", 14 entries on a real event) is deliberately
+          NOT here — it was noise, not information, for someone signing. */}
+      {!!ctx?.whenLabel && <p className="k-num mt-1 text-sm">{ctx.whenLabel}</p>}
       {!!ctx?.total && (
         <p className="k-num mt-1 text-xs text-[var(--k-dim)]">
-          {ctx.total} {ctx.total === 1 ? "guest" : "guests"} on this reservation
+          {ctx.signed ?? 0} of {ctx.total} registered
         </p>
       )}
     </section>
@@ -325,6 +400,9 @@ function useHydrated(): boolean {
 function ShareBlock({ label }: { label: string }) {
   const hydrated = useHydrated();
   const [copied, setCopied] = useState(false);
+  // One button, not a four-button grid: sharing is secondary to signing, and the
+  // inline block was the busiest thing on the screen (owner 2026-07-30).
+  const [open, setOpen] = useState(false);
   const url = hydrated ? window.location.href : "";
   const canNativeShare =
     hydrated && typeof navigator !== "undefined" && typeof navigator.share === "function";
@@ -345,36 +423,71 @@ function ShareBlock({ label }: { label: string }) {
       .catch(() => {});
   };
 
-  // Two-up on anything wider than a small phone, single column below it — the
-  // share actions are secondary, so they never crowd the signing flow.
-  const shareBtn =
-    "k-tap flex items-center justify-center rounded-full border-2 border-[var(--k-line)] px-3 text-center text-sm font-bold uppercase tracking-wide text-[var(--k-dim)]";
+  const rowBtn =
+    "k-tap flex w-full items-center gap-3 rounded-[14px] border border-[var(--k-line)] px-4 py-3 text-left text-sm font-semibold text-white";
 
   return (
-    <section className="k-glass mt-6 px-4 py-4">
-      <div className="k-eyebrow">Share with your group</div>
-      <p className="mt-2 text-xs text-[var(--k-dim)]">
-        Anyone can sign from this link — it only shows the event, never your booking details.
-      </p>
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <a href={`sms:?&body=${encodeURIComponent(bodyText)}`} className={shareBtn}>
-          Text it
-        </a>
-        <a
-          href={`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`}
-          className={shareBtn}
+    <>
+      <button type="button" onClick={() => setOpen(true)} className="k-btn-ghost k-tap mt-6 w-full">
+        <IconShare2 aria-hidden size={18} />
+        Share with your group
+      </button>
+
+      {open && (
+        <div
+          className="fixed inset-0 z-[80] flex items-end justify-center bg-black/70 p-4 md:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="wp-share-title"
         >
-          Email it
-        </a>
-        <button type="button" onClick={copy} className={shareBtn}>
-          {copied ? "Copied" : "Copy link"}
-        </button>
-        {canNativeShare && (
-          <button type="button" onClick={nativeShare} className="k-btn-primary k-tap px-3">
-            Share
-          </button>
-        )}
-      </div>
-    </section>
+          {/* Backdrop dismiss. A sibling button rather than a click handler on the
+              overlay div, so it is keyboard-reachable and jsx-a11y clean. */}
+          <button
+            type="button"
+            aria-label="Close share options"
+            className="absolute inset-0 h-full w-full cursor-default"
+            onClick={() => setOpen(false)}
+          />
+          <div className="k-glass relative w-full max-w-sm px-4 py-5">
+            <div id="wp-share-title" className="k-eyebrow">
+              Share with your group
+            </div>
+            <p className="mt-2 text-xs text-[var(--k-dim)]">
+              Anyone can sign from this link — it only shows the event, never your booking details.
+            </p>
+            <div className="mt-4 space-y-2">
+              <a href={`sms:?&body=${encodeURIComponent(bodyText)}`} className={rowBtn}>
+                <IconMessage aria-hidden size={18} className="text-[var(--k-cyan)]" />
+                Text it
+              </a>
+              <a
+                href={`mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(bodyText)}`}
+                className={rowBtn}
+              >
+                <IconMail aria-hidden size={18} className="text-[var(--k-cyan)]" />
+                Email it
+              </a>
+              <button type="button" onClick={copy} className={rowBtn}>
+                <IconLink aria-hidden size={18} className="text-[var(--k-cyan)]" />
+                {copied ? "Copied" : "Copy link"}
+              </button>
+              {canNativeShare && (
+                <button type="button" onClick={nativeShare} className={rowBtn}>
+                  <IconShare2 aria-hidden size={18} className="text-[var(--k-cyan)]" />
+                  More sharing options
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="k-tap mt-4 w-full text-sm text-[var(--k-dim)]"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

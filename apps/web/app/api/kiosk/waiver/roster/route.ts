@@ -9,7 +9,13 @@ import {
   isValidCenter,
 } from "~/features/kiosk/waiver/locations";
 import { PANDORA_LOCATION_MAP, PANDORA_DEFAULT_LOCATION_ID } from "@/lib/pandora-locations";
-import { rosterCacheKey, personValidCacheKey } from "~/features/kiosk/waiver/cache";
+import { rosterCacheKey } from "~/features/kiosk/waiver/cache";
+import {
+  waiverValidNow,
+  mapWithConcurrency,
+  unionValidWithJoins,
+  WAIVER_CHECK_CONCURRENCY,
+} from "~/features/kiosk/waiver/valid-count";
 
 export const dynamic = "force-dynamic";
 
@@ -25,52 +31,11 @@ export const dynamic = "force-dynamic";
  */
 
 const ROSTER_CACHE_TTL_SECONDS = 30; // join POST DELs this so post-add refetches are fresh
-const PERSON_VALID_TTL_SECONDS = 120;
-const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
-const PANDORA_KEY = process.env.SWAGGER_ADMIN_KEY || "";
-const WAIVER_CHECK_CONCURRENCY = 5;
 const DIGIT_ID = /^\d+$/;
 
-/** Authoritative "has a valid waiver right now" — same Pandora read as
- *  /api/pandora GET (which accepts 17-digit Office ids). Errors → false
- *  (show fewer people rather than fake a signed waiver). */
-async function waiverValidNow(personId: string, pandoraLocationId: string): Promise<boolean> {
-  const cacheKey = personValidCacheKey(personId);
-  const cached = await redis.get(cacheKey).catch(() => null);
-  if (cached === "1") return true;
-  if (cached === "0") return false;
-  try {
-    const res = await fetch(
-      `${PANDORA_URL}/bmi/person/${pandoraLocationId}/${personId}?picture=false&allRelated=false`,
-      { headers: { Authorization: `Bearer ${PANDORA_KEY}` }, cache: "no-store" },
-    );
-    const data = await res.json();
-    const person = res.ok && data.success ? data.data : null;
-    const expiry = person?.waiverExpiry ? new Date(person.waiverExpiry) : null;
-    const valid = expiry ? expiry > new Date() : false;
-    redis.setex(cacheKey, PERSON_VALID_TTL_SECONDS, valid ? "1" : "0").catch(() => {});
-    return valid;
-  } catch {
-    return false;
-  }
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await fn(items[i]);
-    }
-  });
-  await Promise.all(workers);
-  return results;
-}
+// waiverValidNow / mapWithConcurrency / unionValidWithJoins now live in
+// ~/features/kiosk/waiver/valid-count so /api/waiver/context can reuse the exact
+// same "who is actually signed" rule without also returning guest names.
 
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
@@ -114,22 +79,10 @@ export async function GET(req: NextRequest) {
     const validFlags = await mapWithConcurrency(registered, WAIVER_CHECK_CONCURRENCY, (p) =>
       waiverValidNow(p.personId, pandoraLocationId),
     );
-    const valid = registered.filter((_, i) => validFlags[i]);
+    // Union in kiosk joins (written only after a signed/valid waiver) — same rule
+    // the public waiver context counts with.
+    const valid = unionValidWithJoins(registered, validFlags, joins);
     const pendingCount = registered.length - valid.length;
-
-    // Union in kiosk joins (written only after a signed/valid waiver). Kiosk
-    // joins carry the Pandora SHORT id while BMI projectPersons may surface the
-    // 17-digit Office id for the same human — dedupe by personId first, then by
-    // display name (cosmetic roster; a rare "John S."+"John S." merge is fine).
-    const seenIds = new Set(valid.map((p) => p.personId));
-    const seenNames = new Set(valid.map((p) => p.displayName.toLowerCase()));
-    for (const j of joins) {
-      if (seenIds.has(j.personId)) continue;
-      if (seenNames.has(j.displayName.toLowerCase())) continue;
-      seenIds.add(j.personId);
-      seenNames.add(j.displayName.toLowerCase());
-      valid.push({ personId: j.personId, displayName: j.displayName });
-    }
 
     const body = JSON.stringify({
       success: true,
