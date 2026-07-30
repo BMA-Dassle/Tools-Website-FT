@@ -120,6 +120,48 @@ export async function getVoucherStatus(code: string): Promise<VoucherStatus | nu
   };
 }
 
+export type ValidateResult =
+  | { ok: true; label: string; remainingGameZoneItems: number }
+  | { ok: false; reason: NativeVoucherRefusal };
+
+/**
+ * Check a code WITHOUT claiming it — the scan step of the kiosk basket, where a
+ * guest adds several vouchers before committing to anything.
+ *
+ * Claiming at scan time would be wrong twice over: a guest still choosing would
+ * be holding codes hostage, and abandoning the screen would burn them (we'd
+ * have to chase every one with a release). So scanning only VALIDATES, and the
+ * destructive claim happens per card at dispense time. Two kiosks can therefore
+ * both validate the same code and only one will win the claim — which is the
+ * correct outcome, decided by the atomic CAS rather than by who scanned first.
+ *
+ * Cheap enough to do per scan because it reads OUR database; there is no
+ * external call anywhere on this path.
+ */
+export async function validateNativeVoucher(code: string): Promise<ValidateResult> {
+  const c = normalizeVoucherCode(code);
+  if (!isNativeVoucherCode(c)) return { ok: false, reason: "bad_format" };
+  let status: Awaited<ReturnType<typeof getVoucherStatus>>;
+  try {
+    status = await getVoucherStatus(c);
+  } catch (err) {
+    console.error("[native-voucher] validate failed:", err instanceof Error ? err.message : err);
+    return { ok: false, reason: "storage" };
+  }
+  if (!status) return { ok: false, reason: "unknown" };
+  if (status.voidedAt) return { ok: false, reason: "voided" };
+  if (status.expired) return { ok: false, reason: "expired" };
+  const gz = status.items.filter((i) => i.redeemable);
+  if (gz.length === 0) return { ok: false, reason: "not_redeemable" };
+  const unspent = gz.filter((i) => !i.spent);
+  if (unspent.length === 0) return { ok: false, reason: "used" };
+  return {
+    ok: true,
+    label: unspent[0].label,
+    remainingGameZoneItems: unspent.length,
+  };
+}
+
 /**
  * Mint a batch. Each code is generated from a CSPRNG and inserted with
  * ON CONFLICT DO NOTHING; a collision retries with a fresh code rather than

@@ -185,6 +185,21 @@ type Mode = "choose" | "reload" | "newcard" | "balance" | "consolidate" | "vouch
  *   error      refused, or dispensed-but-not-credited (staff)
  */
 type VoucherPhase = "entry" | "checking" | "dispensing" | "done" | "error";
+
+/** One voucher waiting in (or moving through) the basket. */
+interface VoucherBasketRow {
+  code: string;
+  /** What it's worth, from the scan-time validate ("100 bonus tokens"). */
+  label: string;
+  status: "ready" | "dispensing" | "loaded" | "failed";
+  /** Card number handed over, once loaded. */
+  cardNumber?: string;
+  /** Why this one didn't make it (shown per row, never as a whole-run failure). */
+  error?: string;
+}
+
+/** Cards per run — same ceiling as a paid multi-card buy. */
+const MAX_VOUCHERS_PER_RUN = 10;
 /** Consolidate flow steps: read the target card, then feed sources, then done. */
 type ConsoStep = "target" | "sources" | "done";
 
@@ -317,15 +332,22 @@ export function KioskGameZone({
   const [mode, setMode] = useState<Mode>(initialVoucherCode ? "voucher" : "choose");
 
   // ── Comp-voucher redemption state ──
+  // A BASKET, not one code at a time (owner 2026-07-29: "it would make sense to
+  // be able to scan multiple vouchers before hitting get my cards"). A family
+  // holding three vouchers shouldn't queue three times. Scanning only
+  // VALIDATES; the destructive claim happens per card inside the dispense run.
   const [voucherPhase, setVoucherPhase] = useState<VoucherPhase>("entry");
   const [voucherTyped, setVoucherTyped] = useState("");
   const [voucherMsg, setVoucherMsg] = useState<string | null>(null);
-  const [voucherGrant, setVoucherGrant] = useState<RedeemedGrant | null>(null);
-  const [voucherCardNumber, setVoucherCardNumber] = useState<string | null>(null);
-  /** The held claim. Present = a voucher is spent until we release it. */
+  const [voucherBasket, setVoucherBasket] = useState<VoucherBasketRow[]>([]);
+  /** The claim being fulfilled RIGHT NOW (we dispense strictly one at a time,
+   *  because the reader holds one card at a time). Present = that voucher is
+   *  spent unless we release it. */
   const voucherClaimRef = useRef<{ code: string; txnId: string; groupId: string } | null>(null);
-  /** Guards the whole redeem run against re-entry (scanner + auto-seed + tap). */
+  /** Guards scans + taps against re-entry. */
   const voucherBusyRef = useRef(false);
+  const setBasketRow = (code: string, patch: Partial<VoucherBasketRow>) =>
+    setVoucherBasket((rows) => rows.map((r) => (r.code === code ? { ...r, ...patch } : r)));
 
   // Local bridge status chip (staff-facing, guest-benign): green = loads hit
   // the local card system instantly; amber = cloud path (slower to the floor).
@@ -883,39 +905,39 @@ export function KioskGameZone({
   };
 
   /**
-   * Dispense + credit ONE comped card. Pre-dispense bails RELEASE the voucher
+   * Dispense + credit ONE comped card. Pre-dispense bails RELEASE that voucher
    * so the guest can try again; once a blank has physically moved, the claim
    * STANDS even on failure (the ledger row is pending and the cron drives it
    * forward — releasing there would hand out a second card for one voucher).
+   *
+   * Returns whether THIS card made it. A failure is per-row: the run continues
+   * with the next voucher rather than abandoning cards the guest is owed.
    */
   const dispenseVoucherCard = async (claim: {
     code: string;
     txnId: string;
     groupId: string;
     grant: RedeemedGrant;
-  }) => {
-    setVoucherPhase("dispensing");
-    setDispenseMsg(t("gamezone.voucher.dispensing"));
+  }): Promise<boolean> => {
     let blanksBad = 0;
 
     for (;;) {
       // Nowhere to reject a bad blank → hold before feeding one.
       if (!(await holdIfBinFull())) {
         await releaseVoucherClaim("bin full, nothing dispensed");
-        return voucherFail(t("gamezone.seeAttendantSafe"));
+        return failRow(claim.code, t("gamezone.seeAttendantSafe"));
       }
       const r = await dispenser.dispenseAndRead();
       if (r.ok) {
         // A card is OUT. Past this line the voucher stays spent.
-        await creditVoucherCard(claim, r.value);
-        return;
+        return await creditVoucherCard(claim, r.value);
       }
       const f = r.fault;
       if (f.kind === "hold") {
         const resumed = await holdUntilResolved(f);
         if (!resumed) {
           await releaseVoucherClaim("dispenser hold, nothing dispensed");
-          return voucherFail(t("gamezone.seeAttendantSafe"));
+          return failRow(claim.code, t("gamezone.seeAttendantSafe"));
         }
         continue; // staff cleared it — same voucher, try again
       }
@@ -924,30 +946,37 @@ export function KioskGameZone({
         // stock can't feed the whole stacker through one card at a time.
         if (!(await captureSafely())) {
           await releaseVoucherClaim("could not bin an unreadable blank");
-          return voucherFail(t("gamezone.seeAttendantSafe"));
+          return failRow(claim.code, t("gamezone.seeAttendantSafe"));
         }
         if (++blanksBad >= MAX_BAD_BLANKS) {
           const resumed = await holdUntilResolved(BAD_READ_HOLD);
           if (!resumed) {
             await releaseVoucherClaim("card stock unreadable");
-            return voucherFail(t("gamezone.seeAttendantSafe"));
+            return failRow(claim.code, t("gamezone.seeAttendantSafe"));
           }
           blanksBad = 0;
         }
         continue;
       }
       await releaseVoucherClaim("dispenser fault, nothing dispensed");
-      return voucherFail(
+      return failRow(
+        claim.code,
         f.kind === "abort" ? f.message : `${r.info.message}. ${t("gamezone.seeAttendantSafe")}`,
       );
     }
+  };
+
+  /** Mark one basket row failed and keep the run going. */
+  const failRow = (code: string, message: string): boolean => {
+    setBasketRow(code, { status: "failed", error: message });
+    return false;
   };
 
   /** Credit the dispensed blank, then present it. Never releases the claim. */
   const creditVoucherCard = async (
     claim: { code: string; txnId: string; groupId: string; grant: RedeemedGrant },
     account: string,
-  ) => {
+  ): Promise<boolean> => {
     setDispenseMsg(t("gamezone.voucher.loading"));
     // On-prem bridge first (instant on the floor), cloud SOAP as the fallback —
     // never both, they share no dedup. A bonus-CASH grant can't ride the bridge
@@ -983,66 +1012,147 @@ export function KioskGameZone({
       // reconcile cron recovers the credit; the voucher stays spent, so staff
       // (not the guest) resolve it.
       await captureSafely();
-      setVoucherCardNumber(null);
-      return voucherFail(`${t("gamezone.err.cardRetained")} ${t("gamezone.seeAttendantSafe")}`);
+      return failRow(
+        claim.code,
+        `${t("gamezone.err.cardRetained")} ${t("gamezone.seeAttendantSafe")}`,
+      );
     }
 
-    setVoucherCardNumber(displayCardNumber(account));
+    setBasketRow(claim.code, { status: "loaded", cardNumber: displayCardNumber(account) });
     setDispenseMsg(t("gamezone.voucher.takeCard"));
     await dispenser.present();
     await dispenser.waitTaken({ timeoutMs: 30_000 });
     voucherClaimRef.current = null; // fulfilled
-    setDispenseMsg(null);
-    setVoucherPhase("done");
+    return true;
   };
 
-  /** Validate + claim the code server-side, then dispense. */
-  const redeemVoucher = async (raw: string) => {
-    if (voucherBusyRef.current) return;
-    // Both issuers land here: `HPW…` (ours) and BMI's 24-char shape are both
-    // normalized by the classifier, and the server decides which registry to
-    // ask. Anything else falls through as a promo-shaped string and the server
-    // refuses it with bad_format.
-    const classified = classifyKioskCode(raw);
-    const code = classified.value;
+  /**
+   * SCAN → add to the basket. Validates only (see validateNativeVoucher): a
+   * guest still deciding must never have a code burned, and two kiosks can both
+   * validate the same voucher — the atomic claim at dispense time picks the
+   * winner, not whoever scanned first.
+   */
+  const addVoucherToBasket = async (raw: string) => {
+    if (voucherBusyRef.current || voucherPhase !== "entry") return;
+    const code = classifyKioskCode(raw).value;
     if (!code) return;
+    if (voucherBasket.some((r) => r.code === code)) {
+      setVoucherMsg(t("gamezone.voucher.err.alreadyAdded"));
+      return;
+    }
+    if (voucherBasket.length >= MAX_VOUCHERS_PER_RUN) {
+      setVoucherMsg(t("gamezone.voucher.err.tooMany", { n: MAX_VOUCHERS_PER_RUN }));
+      return;
+    }
     voucherBusyRef.current = true;
     setVoucherMsg(null);
-    setVoucherPhase("checking");
     try {
       const res = await fetch("/api/game-cards/voucher-redeem", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          action: "claim",
-          code,
-          locationCode,
-          center: config?.center,
-          kioskId: config ? kioskDeviceKey(config) : undefined,
-        }),
+        body: JSON.stringify({ action: "validate", code }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         reason?: string;
-        txnId?: string;
-        groupId?: string;
-        grant?: RedeemedGrant;
         label?: string;
       };
-      if (!res.ok || data.ok !== true || !data.txnId || !data.groupId || !data.grant) {
-        setVoucherPhase("entry");
+      if (!res.ok || data.ok !== true) {
         setVoucherMsg(t(VOUCHER_REFUSAL_KEY[data.reason ?? ""] ?? "gamezone.voucher.err.generic"));
         return;
       }
-      const grant: RedeemedGrant = { ...data.grant, label: data.label ?? data.grant.label ?? "" };
-      voucherClaimRef.current = { code, txnId: data.txnId, groupId: data.groupId };
-      setVoucherGrant(grant);
-      await dispenseVoucherCard({ code, txnId: data.txnId, groupId: data.groupId, grant });
+      setVoucherBasket((rows) => [
+        ...rows,
+        { code, label: data.label ?? "", status: "ready" as const },
+      ]);
     } catch {
-      setVoucherPhase("entry");
       setVoucherMsg(t("gamezone.voucher.err.generic"));
     } finally {
       voucherBusyRef.current = false;
+    }
+  };
+
+  const removeFromBasket = (code: string) =>
+    setVoucherBasket((rows) => rows.filter((r) => r.code !== code));
+
+  /**
+   * "Get my cards" — claim + dispense + credit each voucher in turn.
+   *
+   * STRICTLY SEQUENTIAL: the reader holds one card at a time, so the next
+   * voucher is never claimed until the current card is in the guest's hand or
+   * safely binned. A failure is PER ROW — the run keeps going, because a guest
+   * with three vouchers is owed three cards and abandoning the rest over one bad
+   * blank is the wrong call. Each row's claim is taken immediately before its
+   * dispense, so an abandoned basket leaves nothing spent.
+   */
+  const redeemBasket = async () => {
+    if (voucherBusyRef.current || voucherBasket.length === 0) return;
+    voucherBusyRef.current = true;
+    setVoucherMsg(null);
+    setVoucherPhase("dispensing");
+    try {
+      const queue = voucherBasket.filter((r) => r.status === "ready" || r.status === "failed");
+      for (let i = 0; i < queue.length; i++) {
+        const row = queue[i];
+        setBasketRow(row.code, { status: "dispensing", error: undefined });
+        setDispenseMsg(
+          queue.length > 1
+            ? t("gamezone.voucher.dispensingN", { n: i + 1, total: queue.length })
+            : t("gamezone.voucher.dispensing"),
+        );
+
+        // Claim HERE, not at scan time.
+        let claimed: { txnId: string; groupId: string; grant: RedeemedGrant } | null = null;
+        try {
+          const res = await fetch("/api/game-cards/voucher-redeem", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              action: "claim",
+              code: row.code,
+              locationCode,
+              center: config?.center,
+              kioskId: config ? kioskDeviceKey(config) : undefined,
+            }),
+          });
+          const data = (await res.json().catch(() => ({}))) as {
+            ok?: boolean;
+            reason?: string;
+            txnId?: string;
+            groupId?: string;
+            grant?: RedeemedGrant;
+            label?: string;
+          };
+          if (res.ok && data.ok === true && data.txnId && data.groupId && data.grant) {
+            claimed = {
+              txnId: data.txnId,
+              groupId: data.groupId,
+              grant: { ...data.grant, label: data.label ?? data.grant.label ?? row.label },
+            };
+          } else {
+            failRow(
+              row.code,
+              t(VOUCHER_REFUSAL_KEY[data.reason ?? ""] ?? "gamezone.voucher.err.generic"),
+            );
+          }
+        } catch {
+          failRow(row.code, t("gamezone.voucher.err.generic"));
+        }
+        if (!claimed) continue; // nothing spent for this row — try the next
+
+        voucherClaimRef.current = { code: row.code, txnId: claimed.txnId, groupId: claimed.groupId };
+        await dispenseVoucherCard({ code: row.code, ...claimed });
+        voucherClaimRef.current = null;
+      }
+    } finally {
+      voucherBusyRef.current = false;
+      setDispenseMsg(null);
+      // The screen reports per row, so land on `done` whenever anything worked
+      // and only on `error` when NOTHING did.
+      setVoucherBasket((rows) => {
+        setVoucherPhase(rows.some((r) => r.status === "loaded") ? "done" : "error");
+        return rows;
+      });
     }
   };
 
@@ -1055,9 +1165,9 @@ export function KioskGameZone({
     baudRate: config?.qrScannerBaud ?? null,
     portInfo: config?.qrScannerPortInfo ?? null,
     allowLoneGrantFallback: false,
-    onScan: (scan) => void redeemVoucher(scan.payload),
+    onScan: (scan) => void addVoucherToBasket(scan.payload),
   });
-  const voucherWedge = useWedgeScan((raw) => void redeemVoucher(raw));
+  const voucherWedge = useWedgeScan((raw) => void addVoucherToBasket(raw));
   const voucherWedgeArm = voucherWedge.arm;
   useEffect(() => {
     if (!voucherScanArmed || !config?.scannerEnabled) return;
@@ -1073,7 +1183,9 @@ export function KioskGameZone({
     if (!initialVoucherCode || !readerReady) return;
     if (seededVoucherRef.current === initialVoucherCode) return;
     seededVoucherRef.current = initialVoucherCode;
-    void redeemVoucher(initialVoucherCode);
+    // Lands in the basket like any scan, so the guest can add more before
+    // committing — never auto-dispenses behind their back.
+    void addVoucherToBasket(initialVoucherCode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialVoucherCode, readerReady]);
 
@@ -1701,8 +1813,7 @@ export function KioskGameZone({
                 setVoucherPhase("entry");
                 setVoucherTyped("");
                 setVoucherMsg(null);
-                setVoucherGrant(null);
-                setVoucherCardNumber(null);
+                setVoucherBasket([]);
                 setMode("voucher");
               }}
               className="k-glass k-tap p-[40px] text-left"
@@ -1743,7 +1854,6 @@ export function KioskGameZone({
 
   // ── Redeem a comp voucher: scan → claim → dispense → credit → present ──
   if (mode === "voucher") {
-    const grantLabel = voucherGrant?.label ?? "";
     return (
       <div className="mx-auto flex h-full max-w-2xl flex-col px-2 py-6 kiosk-zoom">
         <div className="mb-5 flex items-center justify-between">
@@ -1764,25 +1874,57 @@ export function KioskGameZone({
 
         {voucherPhase === "entry" && (
           <div className="flex min-h-0 flex-1 flex-col items-center text-center">
-            <h2 className="font-heading text-5xl font-extrabold italic leading-tight">
-              {t("gamezone.voucher.scanTitle")}
+            <h2 className="font-heading text-4xl font-extrabold italic leading-tight">
+              {voucherBasket.length === 0
+                ? t("gamezone.voucher.scanTitle")
+                : t("gamezone.voucher.scanMoreTitle")}
             </h2>
-            <p className="mt-3 max-w-xl text-2xl text-white/60">
+            <p className="mt-2 max-w-xl text-xl text-white/60">
               {t("gamezone.voucher.scanBody")}
             </p>
-            <div className="mt-8">
+
+            {/* The basket. Scan as many as they're holding, then one tap. */}
+            {voucherBasket.length > 0 && (
+              <ul className="mt-5 w-full space-y-2 text-left">
+                {voucherBasket.map((row) => (
+                  <li
+                    key={row.code}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-white/15 bg-white/[0.04] px-5 py-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-mono text-lg tracking-[0.08em] text-white/90">
+                        {row.code}
+                      </div>
+                      <div className="text-sm text-[#46d68c]">{row.label}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeFromBasket(row.code)}
+                      aria-label={t("gamezone.remove")}
+                      className="k-tap shrink-0 rounded-full border border-white/20 px-4 py-2 text-sm text-white/60"
+                    >
+                      {t("gamezone.remove")}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <div className="mt-5">
               <CardSlotGuide
                 label={t("gamezone.voucher.scanLabel")}
                 sublabel={t("gamezone.voucher.scanSub")}
               />
             </div>
+
             <div
-              className="mt-6 min-h-[40px] text-xl text-[#ff8c7a]"
+              className="mt-4 min-h-[36px] text-lg text-[#ff8c7a]"
               role="alert"
               aria-live="polite"
             >
               {voucherMsg ?? ""}
             </div>
+
             {/* Typed fallback — the OnScreenKeyboardHost attaches to this. */}
             <input
               type="text"
@@ -1792,23 +1934,45 @@ export function KioskGameZone({
                 setVoucherTyped(e.target.value.toUpperCase());
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && voucherTyped.trim()) void redeemVoucher(voucherTyped);
+                if (e.key === "Enter" && voucherTyped.trim()) {
+                  void addVoucherToBasket(voucherTyped);
+                  setVoucherTyped("");
+                }
               }}
               aria-label={t("gamezone.voucher.inputLabel")}
               placeholder={t("gamezone.voucher.placeholder")}
               autoComplete="off"
               autoCorrect="off"
               spellCheck={false}
-              className="k-num mt-2 h-[92px] w-full rounded-[20px] border-2 border-[rgba(232,177,76,0.55)] bg-[#040d24] px-6 font-mono text-[34px] uppercase tracking-[0.08em] text-white placeholder:text-white/30 focus:outline-none"
+              className="k-num h-[80px] w-full rounded-[20px] border-2 border-[rgba(232,177,76,0.55)] bg-[#040d24] px-6 font-mono text-[30px] uppercase tracking-[0.08em] text-white placeholder:text-white/30 focus:outline-none"
             />
-            <button
-              type="button"
-              onClick={() => void redeemVoucher(voucherTyped)}
-              disabled={!voucherTyped.trim()}
-              className="k-tap mt-5 w-full rounded-full bg-[#e8b14c] px-6 py-4 text-xl font-extrabold text-[#231703] disabled:opacity-40"
-            >
-              {t("gamezone.voucher.redeem")}
-            </button>
+            <div className="mt-3 flex w-full gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  void addVoucherToBasket(voucherTyped);
+                  setVoucherTyped("");
+                }}
+                disabled={!voucherTyped.trim()}
+                className="k-tap flex-1 rounded-full border border-white/20 px-5 py-4 text-lg text-white/80 disabled:opacity-40"
+              >
+                {t("gamezone.voucher.add")}
+              </button>
+              {/* Everything in the basket is a CARD voucher, so one tap
+                  dispenses them all. When cart-bound items (race, laser) become
+                  redeemable this is where the copy splits — see
+                  tasks/gamezone-voucher-plan.md. */}
+              <button
+                type="button"
+                onClick={() => void redeemBasket()}
+                disabled={voucherBasket.length === 0}
+                className="k-tap flex-1 rounded-full bg-[#e8b14c] px-5 py-4 text-lg font-extrabold text-[#231703] disabled:opacity-40"
+              >
+                {voucherBasket.length > 1
+                  ? t("gamezone.voucher.getCards", { n: voucherBasket.length })
+                  : t("gamezone.voucher.getCard")}
+              </button>
+            </div>
           </div>
         )}
 
@@ -1821,48 +1985,65 @@ export function KioskGameZone({
                   ? t("gamezone.voucher.checking")
                   : (dispenseMsg ?? t("gamezone.voucher.dispensing"))
               }
-              sublabel={grantLabel || t("gamezone.voucher.checkingSub")}
+              sublabel={t("gamezone.voucher.checkingSub")}
             />
           </div>
         )}
 
-        {voucherPhase === "done" && (
+        {(voucherPhase === "done" || voucherPhase === "error") && (
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center text-center">
-            <div className="font-heading text-6xl font-extrabold italic text-[#46d68c]">
-              {t("gamezone.voucher.done.title")}
-            </div>
-            <p className="mt-4 text-3xl text-white/75">
-              {t("gamezone.voucher.done.body", { grant: grantLabel })}
-            </p>
-            {voucherCardNumber && (
-              <div className="mt-6 text-xl text-white/45">
-                {t("gamezone.cardHash", { num: voucherCardNumber })}
+            {voucherBasket.some((r) => r.status === "loaded") ? (
+              <>
+                <div className="font-heading text-5xl font-extrabold italic text-[#46d68c]">
+                  {t("gamezone.voucher.done.title")}
+                </div>
+                <p className="mt-3 text-2xl text-white/75">
+                  {t("gamezone.voucher.done.bodyN", {
+                    n: voucherBasket.filter((r) => r.status === "loaded").length,
+                  })}
+                </p>
+              </>
+            ) : (
+              <div className="font-heading text-4xl font-extrabold italic text-amber-300">
+                {t("gamezone.voucher.error.title")}
               </div>
             )}
+
+            {/* Per-row outcome. A partial run must show WHICH card is missing —
+                "something went wrong" would leave the guest guessing. */}
+            <ul className="mt-6 w-full space-y-2 text-left">
+              {voucherBasket.map((row) => (
+                <li
+                  key={row.code}
+                  className="rounded-2xl border border-white/15 bg-white/[0.04] px-5 py-3"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-mono text-base text-white/70">{row.code}</span>
+                    <span
+                      className={
+                        row.status === "loaded" ? "text-[#46d68c]" : "text-[#ff8c7a]"
+                      }
+                    >
+                      {row.status === "loaded"
+                        ? row.cardNumber
+                          ? t("gamezone.cardHash", { num: row.cardNumber })
+                          : t("gamezone.voucher.loadedOk")
+                        : t("gamezone.voucher.notIssued")}
+                    </span>
+                  </div>
+                  {row.error && (
+                    <div className="mt-1 text-sm text-white/55">{row.error}</div>
+                  )}
+                </li>
+              ))}
+            </ul>
+
             <button
               type="button"
               onClick={onExit}
-              className="font-heading k-tap mt-10 h-16 w-full rounded-full bg-[#00e2e5] text-xl font-extrabold uppercase italic text-[#04252b]"
+              className="font-heading k-tap mt-8 h-16 w-full rounded-full bg-[#00e2e5] text-xl font-extrabold uppercase italic text-[#04252b]"
             >
               {t("gamezone.done")}
-            </button>
-          </div>
-        )}
-
-        {voucherPhase === "error" && (
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center text-center">
-            <div className="font-heading text-5xl font-extrabold italic text-amber-300">
-              {t("gamezone.voucher.error.title")}
-            </div>
-            <p className="mt-4 whitespace-pre-line text-2xl text-white/70">
-              {voucherMsg ?? t("gamezone.seeAttendantSafe")}
-            </p>
-            <button
-              type="button"
-              onClick={() => setMode("choose")}
-              className="k-tap mt-10 w-full rounded-full border border-white/20 px-6 py-4 text-xl text-white/80"
-            >
-              {t("gamezone.back")}
             </button>
           </div>
         )}
