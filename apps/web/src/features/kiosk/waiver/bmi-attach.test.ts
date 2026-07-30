@@ -32,7 +32,7 @@ function reply(status: number, body: string) {
 
 const ARGS = {
   clientKey: "headpinzftmyers",
-  projectId: "63000000006754862",
+  orderId: "63000000006754861",
   personId: "56906741",
   firstName: "Ross",
   lastName: "Geller",
@@ -64,16 +64,18 @@ describe("billIdFromOfficeProjectId", () => {
 });
 
 describe("registerProjectPersonServer", () => {
-  it("sends the BILL id as orderId, not the projectId", async () => {
-    // The bug: orderId took the projectId, so BMI looked up billId + 1 and answered
-    // "Cannot find the reservation for bill …".
+  it("sends the caller's orderId through verbatim, raw-injected", async () => {
+    // NO conversion happens in here any more. It briefly did, and that broke the
+    // kiosk CHECK-IN flow, which correctly passes a billId already — one shared
+    // function cannot both convert and not convert. Callers holding a projectId
+    // convert at their own call site.
     reply(200, '{"success":true}');
     await registerProjectPersonServer(ARGS);
     const body = String(fetchMock.mock.calls[0][1].body);
     expect(body).toContain('"orderId":63000000006754861');
-    expect(body).not.toContain('"orderId":63000000006754862');
-    // Ids still raw-injected, never quoted or rounded.
+    // Ids raw-injected, never quoted or rounded through Number().
     expect(body).toContain('"personId":56906741');
+    expect(body).not.toContain('"orderId":"');
   });
 
   it("treats HTTP 200 with success:false as a FAILURE", async () => {
@@ -105,8 +107,8 @@ describe("registerProjectPersonServer", () => {
     expect((await registerProjectPersonServer(ARGS)).ok).toBe(false);
   });
 
-  it("refuses to call BMI at all when the billId cannot be derived", async () => {
-    const r = await registerProjectPersonServer({ ...ARGS, projectId: "63000000000000000" });
+  it("refuses a non-numeric id without calling BMI", async () => {
+    const r = await registerProjectPersonServer({ ...ARGS, orderId: "abc" });
     expect(r.ok).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
   });

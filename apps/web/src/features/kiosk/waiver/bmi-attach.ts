@@ -14,7 +14,7 @@
  * on. Until then the join route records status 'skipped' and the Neon roster
  * union keeps the guest experience whole.
  */
-import { getPublicBookingToken, billIdFromOfficeProjectId } from "@/lib/bmi-office-actions";
+import { getPublicBookingToken } from "@/lib/bmi-office-actions";
 
 const BMI_PUBLIC_API_URL = process.env.BMI_API_URL || "https://api.bmileisure.com";
 const BMI_SUB_KEY = process.env.BMI_SUBSCRIPTION_KEY || "";
@@ -23,27 +23,23 @@ const DIGIT_ID = /^\d+$/;
 
 export async function registerProjectPersonServer(args: {
   clientKey: string;
-  projectId: string;
+  /**
+   * The public-booking `orderId` — which is a BILL id, NOT a projectId. Named for
+   * what the API calls it, because this parameter used to be called `projectId`
+   * while the proven caller (kiosk CHECK-IN) passed a billId through it and the
+   * waiver-join caller passed an actual projectId. One name, two meanings, and the
+   * wrong one fails as `200 {"success":false}` — see the header.
+   *
+   * Callers holding a projectId must convert with `billIdFromOfficeProjectId`.
+   */
+  orderId: string;
   personId: string;
   firstName: string;
   lastName: string;
 }): Promise<{ ok: boolean; status: number; body: string }> {
-  const { clientKey, projectId, personId, firstName, lastName } = args;
-  if (!DIGIT_ID.test(projectId) || !DIGIT_ID.test(personId)) {
+  const { clientKey, orderId, personId, firstName, lastName } = args;
+  if (!DIGIT_ID.test(orderId) || !DIGIT_ID.test(personId)) {
     return { ok: false, status: 400, body: "invalid id" };
-  }
-  /**
-   * `orderId` is a BILL id, NOT a projectId — settled by a live probe on
-   * 2026-07-30 (see billIdFromOfficeProjectId). Passing the projectId made the
-   * endpoint look up `billId + 1`:
-   *   http 200 {"success":false,"errorMessage":"Cannot find the reservation for bill …"}
-   * which, combined with the HTTP-200 bug fixed below, would have recorded every
-   * attach as a success while attaching nobody.
-   */
-  const billId = billIdFromOfficeProjectId(projectId);
-  if (!billId) {
-    console.warn(`[kiosk-waiver] cannot derive billId from projectId ${projectId} — refusing`);
-    return { ok: false, status: 400, body: "cannot derive billId" };
   }
   const token = await getPublicBookingToken(clientKey);
   const namesJson = JSON.stringify({ firstName, lastName });
@@ -58,7 +54,7 @@ export async function registerProjectPersonServer(args: {
         "Accept-Language": "en",
       },
       // Raw-id injection (bmi-register.ts idiom): ids spliced as raw text.
-      body: `{"personId":${personId},"orderId":${billId},` + namesJson.slice(1),
+      body: `{"personId":${personId},"orderId":${orderId},` + namesJson.slice(1),
       cache: "no-store",
       signal: AbortSignal.timeout(15_000),
     },
@@ -94,7 +90,7 @@ export async function registerProjectPersonServer(args: {
     console.warn(
       `[kiosk-waiver] registerProjectPerson failed: http=${res.status}` +
         `${declaredFailure ? ` success=false (${errorMessage})` : ""} ` +
-        `project=${projectId} bill=${billId} ${body.slice(0, 300)}`,
+        `orderId=${orderId} ${body.slice(0, 300)}`,
     );
   }
   return { ok, status: res.status, body: body.slice(0, 1000) };

@@ -975,7 +975,11 @@ export async function bindPartyMembers(args: {
       try {
         const res = await registerProjectPersonServer({
           clientKey,
-          projectId: args.billId, // injected as the public-booking "orderId" (bmi-sync late-add idiom)
+          // A BILL id — which is what the public-booking endpoint means by orderId.
+          // This flow is the PROVEN one (it already adds people at check-in); the
+          // parameter was renamed from `projectId` to `orderId` so it stops implying
+          // otherwise. Behaviour here is unchanged.
+          orderId: args.billId,
           personId: m.bmiPersonId,
           firstName: m.firstName,
           lastName: m.lastName ?? "",

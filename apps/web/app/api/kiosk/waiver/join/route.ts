@@ -5,6 +5,7 @@ import { makeDisplayName } from "@/lib/display-name";
 import { clientKeyForLocation } from "~/features/daily-events/service";
 import { upsertJoin, setJoinAttachStatus } from "~/features/kiosk/data/kiosk-waiver-joins-db";
 import { registerProjectPersonServer } from "~/features/kiosk/waiver/bmi-attach";
+import { billIdFromOfficeProjectId } from "@/lib/bmi-office-actions";
 import { kioskWaiverBmiAttachEnabled } from "~/features/kiosk/flags";
 import { CENTER_TO_BMI_LOCATION_IDS, isValidCenter } from "~/features/kiosk/waiver/locations";
 import { rosterCacheKey, personValidCacheKey } from "~/features/kiosk/waiver/cache";
@@ -71,11 +72,19 @@ export async function POST(req: NextRequest) {
     attach = "bmi";
   } else if (kioskWaiverBmiAttachEnabled()) {
     const clientKey = clientKeyForLocation(locationId);
-    if (clientKey) {
+    // THE bug the A3 probe found: this route holds a projectId, but the
+    // public-booking endpoint's `orderId` is a BILL id. Passing the projectId made
+    // BMI look up `billId + 1` and answer
+    //   200 {"success":false,"errorMessage":"Cannot find the reservation for bill …"}
+    // The kiosk CHECK-IN flow always got this right — it passes a billId — so the
+    // conversion belongs here, at the caller that has the wrong id, not inside the
+    // shared function where it would have broken check-in.
+    const orderId = billIdFromOfficeProjectId(projectId);
+    if (clientKey && orderId) {
       try {
         const result = await registerProjectPersonServer({
           clientKey,
-          projectId,
+          orderId,
           personId,
           firstName,
           lastName,
