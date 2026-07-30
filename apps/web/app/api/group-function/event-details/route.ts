@@ -120,7 +120,7 @@ export async function GET(req: NextRequest) {
     //
     //   waiverUrl (ADMIN)      — the "Complete Waivers" link the organizer opens.
     //                            This page is reached by their own contract_short_id,
-    //                            so they are the booker: roster + remove.
+    //                            so they are the booker: sees the roster.
     //   waiverShareUrl (REGISTER) — what the Copy and Text buttons hand out. Those
     //                            buttons exist to forward the link to the party, so
     //                            they must not carry the ability to delete guests.

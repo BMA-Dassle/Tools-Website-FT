@@ -3,7 +3,7 @@
  *
  * Staff read these links off the reservation in BMI: the contract, the signed PDF,
  * and (owner request 2026-07-30) the two waiver links — the ORGANIZER one, which
- * shows the roster and can remove a guest, and a SIGN-ONLY one to hand a guest.
+ * shows the roster (who has signed), and a SIGN-ONLY one to hand a guest.
  *
  * The whole risk in this file is loss. A private memo is read-modify-WRITE-ALL
  * (Pandora replaces the memo rather than appending), so anything the merge drops is

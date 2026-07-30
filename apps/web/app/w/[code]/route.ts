@@ -93,7 +93,7 @@ function redirectCarrying(target: string, code: string | null): NextResponse {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
-    // Root path, not /waiver: the roster + remove endpoints live under
+    // Root path, not /waiver: the roster endpoint lives under
     // /api/waiver/*, which a /waiver-scoped cookie would never be sent to.
     path: "/",
     maxAge: code ? WAIVER_LINK_COOKIE_MAX_AGE : 0,

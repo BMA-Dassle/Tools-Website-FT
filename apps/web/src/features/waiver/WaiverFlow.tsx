@@ -102,6 +102,22 @@ interface WaiverContextSummary {
    * empty persons_list) and is distinct from `undefined`.
    */
   roster?: WaiverRosterEntry[];
+  /**
+   * The SHORT sign-only link the Share sheet hands out (`/w/{code}`), minted
+   * server-side. Absent for a standalone visit (no reservation to attach to) and on
+   * a mint failure — ShareBlock falls back to the page URL, which is the long
+   * sign-only form, so sharing always works.
+   *
+   * Never the organizer link. Sharing must not be able to pass on the roster.
+   */
+  shareUrl?: string;
+  /**
+   * True when this visitor arrived on the ORGANIZER code for this reservation (the
+   * `/w/{code}` cookie, resolved against the stored row). It is the same condition
+   * the route uses to decide whether to send `roster` at all, so it is a UI hint,
+   * not a permission — the server has already withheld anything it should.
+   */
+  canManage?: boolean;
 }
 
 /** Kiosk flow-head, phone scale: logo + activity label, then the signed-progress
@@ -484,7 +500,11 @@ export function WaiverFlow({
           Sign someone else
         </button>
         {reservation && (
-          <ShareBlock label={ctx?.label ?? "your reservation"} showsNames={linkShowsNames} />
+          <ShareBlock
+            label={ctx?.label ?? "your reservation"}
+            showsNames={linkShowsNames}
+            shareUrl={ctx?.shareUrl}
+          />
         )}
       </>,
     );
@@ -609,7 +629,11 @@ export function WaiverFlow({
       )}
 
       {reservation && (
-        <ShareBlock label={ctx?.label ?? "your reservation"} showsNames={linkShowsNames} />
+        <ShareBlock
+          label={ctx?.label ?? "your reservation"}
+          showsNames={linkShowsNames}
+          shareUrl={ctx?.shareUrl}
+        />
       )}
 
       {ready && (
@@ -704,13 +728,29 @@ function useHydrated(): boolean {
   );
 }
 
-function ShareBlock({ label, showsNames }: { label: string; showsNames: boolean }) {
+function ShareBlock({
+  label,
+  showsNames,
+  shareUrl,
+}: {
+  label: string;
+  showsNames: boolean;
+  /** Server-minted SHORT sign-only link. Falls back to the page URL. */
+  shareUrl?: string;
+}) {
   const hydrated = useHydrated();
   const [copied, setCopied] = useState(false);
   // One button, not a four-button grid: sharing is secondary to signing, and the
   // inline block was the busiest thing on the screen (owner 2026-07-30).
   const [open, setOpen] = useState(false);
-  const url = hydrated ? window.location.href : "";
+  /**
+   * Prefer the server-minted SHORT sign-only link. `window.location.href` is the
+   * fallback and is safe — `/w/{code}` carries the code in an HttpOnly cookie, so
+   * the address bar never holds a capability to copy — but it is the long form, and
+   * for an ORGANIZER it is the URL *they* were sent, which reads as "here is my
+   * link" when what they mean is "here is one to sign with".
+   */
+  const url = shareUrl || (hydrated ? window.location.href : "");
   const canNativeShare =
     hydrated && typeof navigator !== "undefined" && typeof navigator.share === "function";
 

@@ -672,8 +672,8 @@ const NOTES_LINKS_MARKER = "──";
 /**
  * The sticky links staff read off a project's private memo.
  *
- * `Waiver Organizer` opens the waiver page WITH the roster and the ability to
- * remove a guest; `Waiver Sign Only` is the link to hand a guest. Both are here so
+ * `Waiver Organizer` opens the waiver page WITH the roster — who has signed and who
+ * has not; `Waiver Sign Only` is the link to hand a guest. Both are here so
  * the desk can answer "who still needs to sign?" and "send me the link" without
  * digging through the guest's email — the same reason the contract URL is here.
  *
@@ -772,7 +772,7 @@ export async function appendProjectPrivateNote(params: {
   note: string;
   contractUrl?: string;
   pdfUrl?: string;
-  /** Waiver page WITH the roster + remove — the organizer's link. Sticky once set. */
+  /** Waiver page WITH the roster — the organizer's link. Sticky once set. */
   waiverOrganizerUrl?: string;
   /** Sign-only waiver link, safe to hand a guest. Sticky once set. */
   waiverSignUrl?: string;

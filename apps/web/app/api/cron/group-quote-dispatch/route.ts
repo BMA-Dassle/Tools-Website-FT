@@ -1024,7 +1024,7 @@ async function processQueueItem(
 
     // Waiver links ride the same sticky header as the contract URL (owner request
     // 2026-07-30) so the desk has them from the moment the contract goes out —
-    // organizer link (roster + remove) and a sign-only link to hand a guest.
+    // organizer link (sees the roster) and a sign-only link to hand a guest.
     // Gated on the event actually needing waivers; omitted rather than fatal if the
     // mint fails, and sticky, so the contract-signed append can still fill them in.
     let waiverOrganizerUrl: string | undefined;

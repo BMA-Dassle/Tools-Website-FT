@@ -497,7 +497,7 @@ export async function notifyWaiverReminder(quote: GroupFunctionQuote): Promise<v
           ${activityList ? `<ul style="margin:8px 0 0;padding-left:20px">${activityList}</ul>` : ""}
         </div>
 
-        <p style="margin:16px 0;font-size:14px;color:#475569">The button below is <strong>your organizer link</strong> — it shows who has signed so far and lets you remove anyone who is no longer coming. Getting waivers done early avoids delays at check-in!</p>
+        <p style="margin:16px 0;font-size:14px;color:#475569">The button below is <strong>your organizer link</strong> — it shows who has signed so far, so you can chase whoever hasn&rsquo;t. Getting waivers done early avoids delays at check-in!</p>
 
         ${ctaButton("Track & Complete Waivers", waiverUrl)}
 
@@ -510,7 +510,7 @@ export async function notifyWaiverReminder(quote: GroupFunctionQuote): Promise<v
         <p style="margin:16px 0 0;font-size:13px;color:#64748b;text-align:center">You can also access the waiver link anytime from your <a href="${contractUrl}" style="color:#004aad">event page</a>.</p>`,
         { omitWaiverNotice: true },
       ),
-      text: `Hi ${quote.guest_first_name},\n\nYour deposit is confirmed! Before your event, every participant must complete a waiver.\n\nYour organizer link (see who has signed, remove anyone not coming): ${waiverUrl}\n\nShare this sign-only link with your group: ${shareUrl}\n\nIncomplete waivers may delay check-in.\n\nQuestions? Contact ${plannerName(quote)}.\n${quote.center_name}`,
+      text: `Hi ${quote.guest_first_name},\n\nYour deposit is confirmed! Before your event, every participant must complete a waiver.\n\nYour organizer link (see who has signed): ${waiverUrl}\n\nShare this sign-only link with your group: ${shareUrl}\n\nIncomplete waivers may delay check-in.\n\nQuestions? Contact ${plannerName(quote)}.\n${quote.center_name}`,
     }),
   ]);
 
@@ -557,7 +557,7 @@ export async function notify7DayWaiverReminder(quote: GroupFunctionQuote): Promi
           quote.guest_phone,
           [
             `${quote.guest_first_name}, your event ${quote.event_name || ""} is in 7 days! All participants must complete their waivers before arriving.`,
-            // Organizer link (roster + remove). The sign-only link to hand out is
+            // Organizer link (sees the roster). The sign-only link to hand out is
             // behind Share on that page — do NOT tell them to forward this one.
             `Track your group's waivers: ${waiverUrl}`,
           ].join("\n"),
@@ -587,7 +587,7 @@ export async function notify7DayWaiverReminder(quote: GroupFunctionQuote): Promi
 
         ${ctaButton("Track & Complete Waivers", waiverUrl)}
 
-        <p style="margin:16px 0;font-size:14px;color:#475569">The button above is <strong>your organizer link</strong> — it shows who has signed and lets you remove anyone not coming. To get everyone else signed, share this sign-only link:</p>
+        <p style="margin:16px 0;font-size:14px;color:#475569">The button above is <strong>your organizer link</strong> — it shows who has signed. To get everyone else signed, share this sign-only link:</p>
 
         <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;text-align:center">
           <p style="margin:0 0 8px;font-size:12px;color:#64748b">Sign-only — safe to forward to your whole group.</p>
@@ -597,7 +597,7 @@ export async function notify7DayWaiverReminder(quote: GroupFunctionQuote): Promi
         <p style="margin:16px 0 0;font-size:13px;color:#64748b;text-align:center">View your event details anytime on your <a href="${contractUrl}" style="color:#004aad">event page</a>.</p>`,
         { omitWaiverNotice: true },
       ),
-      text: `Hi ${quote.guest_first_name},\n\nYour event is 7 days away! All participants must complete a waiver before arriving.\n\nYour organizer link (see who has signed, remove anyone not coming): ${waiverUrl}\n\nShare this sign-only link with everyone in your group: ${shareUrl}\n\nFailure to complete waivers may result in check-in delays.\n\nIf the links don't work, copy and paste them into your browser.\n\n${quote.center_name}`,
+      text: `Hi ${quote.guest_first_name},\n\nYour event is 7 days away! All participants must complete a waiver before arriving.\n\nYour organizer link (see who has signed): ${waiverUrl}\n\nShare this sign-only link with everyone in your group: ${shareUrl}\n\nFailure to complete waivers may result in check-in delays.\n\nIf the links don't work, copy and paste them into your browser.\n\n${quote.center_name}`,
     }),
   ]);
 
@@ -672,7 +672,7 @@ export async function notify2DayWaiverWarning(quote: GroupFunctionQuote): Promis
 
         ${ctaButton("Track & Complete Waivers", waiverUrl)}
 
-        <p style="margin:16px 0;font-size:14px;color:#475569"><strong>Make sure your entire group is ready.</strong> The button above is your organizer link (who has signed, plus remove). Send anyone who still needs to sign this link instead:</p>
+        <p style="margin:16px 0;font-size:14px;color:#475569"><strong>Make sure your entire group is ready.</strong> The button above is your organizer link — it shows who has signed. Send anyone who still needs to sign this link instead:</p>
 
         <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;text-align:center">
           <p style="margin:0 0 8px;font-size:12px;color:#64748b">Sign-only — safe to forward.</p>
@@ -682,7 +682,7 @@ export async function notify2DayWaiverWarning(quote: GroupFunctionQuote): Promis
         <p style="margin:16px 0 0;font-size:13px;color:#64748b;text-align:center">If you have already completed your waiver, please disregard this email. View event details on your <a href="${contractUrl}" style="color:#004aad">event page</a>.</p>`,
         { omitWaiverNotice: true },
       ),
-      text: `URGENT: ${quote.guest_first_name}, your event is in 2 days!\n\nAll participants must complete their waiver within the next 48 hours.\n\nGuests without a signed waiver will not be able to participate.\n\nYour organizer link (see who has signed, remove anyone not coming): ${waiverUrl}\n\nShare this sign-only link with your entire group: ${shareUrl}\n\nIf already completed, please disregard.\n\n${quote.center_name}`,
+      text: `URGENT: ${quote.guest_first_name}, your event is in 2 days!\n\nAll participants must complete their waiver within the next 48 hours.\n\nGuests without a signed waiver will not be able to participate.\n\nYour organizer link (see who has signed): ${waiverUrl}\n\nShare this sign-only link with your entire group: ${shareUrl}\n\nIf already completed, please disregard.\n\n${quote.center_name}`,
     }),
   ]);
 

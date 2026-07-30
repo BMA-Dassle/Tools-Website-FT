@@ -23,12 +23,27 @@ import path from "node:path";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(path.join(here, "WaiverFlow.tsx"), "utf8");
 
-/** The body of a top-level `function <name>(` declaration, to its closing brace. */
+/**
+ * The body of a top-level `function <name>(` declaration, to its closing brace.
+ *
+ * Terminates on `\n}` followed by a NEWLINE — a closing brace alone on its line.
+ * Plain `indexOf("\n}")` also matched the `\n}: {` inside a multi-line destructured
+ * parameter list, which silently truncated the extraction to the signature and made
+ * every assertion below fail as "the copy was reworded" when the copy was untouched.
+ * A helper that can quietly return a fragment turns a contract test into a liar.
+ */
 function functionSource(name: string): string {
   const start = source.indexOf(`function ${name}(`);
   expect(start, `function ${name} not found in WaiverFlow.tsx`).toBeGreaterThan(-1);
-  const end = source.indexOf("\n}", start);
-  return source.slice(start, end === -1 ? undefined : end);
+  const end = source.indexOf("\n}\n", start);
+  const body = source.slice(start, end === -1 ? undefined : end);
+  // A signature-only slice is never a real function body — fail loudly rather than
+  // let a short extraction masquerade as missing copy.
+  expect(
+    body.length,
+    `extracted only ${body.length} chars for ${name} — the extractor stopped early`,
+  ).toBeGreaterThan(400);
+  return body;
 }
 
 describe("ShareBlock privacy disclosure", () => {

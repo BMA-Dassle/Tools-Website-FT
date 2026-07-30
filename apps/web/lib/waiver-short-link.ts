@@ -145,7 +145,7 @@ import type { CenterCode } from "~/features/booking/types";
  * Never Number() / parseInt / JSON.parse them — they exceed MAX_SAFE_INTEGER.
  */
 
-/** `organizer` = roster + remove. `register` = sign only. */
+/** `organizer` = sees the roster. `register` = sign only. */
 export type WaiverLinkCapability = "organizer" | "register";
 
 /**

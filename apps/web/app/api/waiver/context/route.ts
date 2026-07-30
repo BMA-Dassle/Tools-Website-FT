@@ -271,6 +271,45 @@ export async function GET(req: NextRequest) {
      */
     const total = Math.max(detail.persons ?? 0, registered.length);
 
+    /**
+     * The SHORT sign-only link the Share sheet hands out.
+     *
+     * Minted here, server-side, because the page cannot: a client has no database,
+     * and an endpoint that mints on request would let anyone mint a code for any
+     * guessable projectId. The REGISTER capability is the only one that may travel
+     * this way — it grants nothing but signing, so putting it in a client payload
+     * costs nothing even if the page is screenshotted.
+     *
+     * Why not just share `window.location.href` (what ShareBlock did): it is safe —
+     * `/w/{code}` keeps the code in an HttpOnly cookie, so the URL bar never holds a
+     * capability — but it is the LONG url, and the owner standard is short links
+     * everywhere guest-facing. It also meant an ORGANIZER who shared from the page
+     * handed out a link that looked like theirs.
+     *
+     * Cached with the summary: the register code is identical for every visitor to
+     * this reservation, so it is not a privileged value and needs no per-capability
+     * cache entry. Degrades to undefined, and ShareBlock falls back to the page URL.
+     */
+    let shareUrl: string | undefined;
+    try {
+      // Minted from the EXACT (center, locationId) this request was validated
+      // against — not re-derived from a center_code, which cannot tell HeadPinz FM
+      // (332160) from FastTrax (467486) and would file the share link at the wrong
+      // venue half the time.
+      const { mintWaiverLinkOrLongUrl } = await import("@/lib/waiver-short-link");
+      const link = await mintWaiverLinkOrLongUrl({
+        center,
+        reservation: { locationId: String(locationId), projectId },
+        capability: "register",
+        origin: req.nextUrl.origin,
+      });
+      // Only when it is genuinely SHORT and genuinely sign-only. A degraded mint
+      // returns the long URL, which is what ShareBlock already falls back to.
+      if (link.short && link.capability === "register") shareUrl = link.url;
+    } catch (err) {
+      console.warn("[waiver-context] share link unavailable:", err);
+    }
+
     // The summary is what the header needs; it is cached on its own so a slow
     // count can never keep the event name and date off the screen.
     const summary = {
@@ -280,6 +319,7 @@ export async function GET(req: NextRequest) {
       whenLabel: formatWhen(detail.when),
       centerName: LOCATION_NAMES[locationId] ?? "",
       total,
+      ...(shareUrl ? { shareUrl } : {}),
     };
     redis.setex(cacheKey, CACHE_TTL_SECONDS, JSON.stringify(summary)).catch(() => {});
 
