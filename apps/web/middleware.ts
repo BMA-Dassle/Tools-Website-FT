@@ -601,7 +601,23 @@ export async function middleware(request: NextRequest) {
     // EITHER brand host; center comes from ?c=, brand chrome is host-aware.
     // Mirrors /join. (The static /waiver-3 legal page matches neither test.)
     pathname === "/waiver" ||
-    pathname.startsWith("/waiver/");
+    pathname.startsWith("/waiver/") ||
+    // Waiver capability short links — /w/{code}, served by app/w/[code]/route.ts.
+    // These are EMAILED AND TEXTED to guests of both brands (a HeadPinz booker's
+    // confirmation carries https://headpinz.com/w/{code}), so without this
+    // exclusion the /hp rewrite turns every HeadPinz waiver link into a 404.
+    // Path constant: WAIVER_LINK_PATH in lib/waiver-short-link.ts — the two are
+    // pinned together by a test in lib/waiver-short-link.test.ts.
+    //
+    // The trailing slash is REQUIRED. A bare startsWith("/w") would also swallow
+    // /waiver, /waiver-3 and every future top-level path beginning with "w" —
+    // the same trap documented above for /book/bowling vs /book/bowling-confirmation.
+    // A bare /w is deliberately NOT registered: it carries no code and there is no
+    // route at /w on either host.
+    //
+    // No x-no-chrome pairing below: the resolver renders NOTHING. It looks the code
+    // up and 302s to /waiver, which carries its own x-no-chrome registration.
+    pathname.startsWith("/w/");
   if (
     isHeadPinz &&
     !pathname.startsWith("/hp") &&
