@@ -440,6 +440,9 @@
 .wp-mobile .gap-y-\[6px\] {
   row-gap: 0.25rem;
 }
+.wp-mobile .space-y-\[12px\] > * + * {
+  margin-top: 0.5rem;
+}
 .wp-mobile .space-y-\[16px\] > * + * {
   margin-top: 0.6rem;
 }

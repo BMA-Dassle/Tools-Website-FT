@@ -79,6 +79,16 @@ export const partyEn = {
   // Waiver overlay (heading/subheading passed to WaiverSigning + cancel)
   "party.waiver.headingRace": "Racing Waiver",
   "party.waiver.headingActivity": "Activity Waiver",
+  // Inline guardian add (mobile /waiver flow): a minor entered with no adult on
+  // the roster gets a way forward instead of "add an adult first".
+  "party.guardianAdd.needOne": "A minor needs a registered adult to sign for them.",
+  "party.guardianAdd.cta": "Add their guardian",
+  "party.guardianAdd.heading": "{name}’s guardian",
+  "party.guardianAdd.subheading":
+    "Enter the adult who will sign for {name}. We’ll bring you right back.",
+  "party.guardianAdd.participatingPrompt": "Is this adult also participating?",
+  "party.guardianAdd.participatingYes": "Yes, they’re playing",
+  "party.guardianAdd.participatingNo": "No, just signing",
   "party.waiver.subheading": "Read and sign below — it stays on file for your whole visit.",
   // Guardian signs for a minor (mobile /waiver flow): who signs, and for whom.
   "party.waiver.subheadingGuardian":
@@ -171,6 +181,14 @@ export const partyEs: Record<keyof typeof partyEn, string> = {
 
   "party.waiver.headingRace": "Exención de Carreras",
   "party.waiver.headingActivity": "Exención de Actividad",
+  "party.guardianAdd.needOne": "Un menor necesita un adulto registrado que firme por él.",
+  "party.guardianAdd.cta": "Agregar a su tutor",
+  "party.guardianAdd.heading": "Tutor de {name}",
+  "party.guardianAdd.subheading":
+    "Ingresa al adulto que firmará por {name}. Te traeremos de vuelta aquí.",
+  "party.guardianAdd.participatingPrompt": "¿Este adulto también va a participar?",
+  "party.guardianAdd.participatingYes": "Sí, va a jugar",
+  "party.guardianAdd.participatingNo": "No, solo firma",
   "party.waiver.subheading": "Lee y firma abajo — queda registrada durante toda tu visita.",
   "party.waiver.subheadingGuardian":
     "{signer} — firma abajo por {minor}. Queda registrada durante toda la visita.",

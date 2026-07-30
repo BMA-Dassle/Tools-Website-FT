@@ -136,6 +136,10 @@ export function WaiverFlow({
   // first names to confirm what was filed (no DOB, no phone, no last names).
   const [finished, setFinished] = useState(false);
   const [signedNames, setSignedNames] = useState<string[]>([]);
+  // Who is actually doing the activity. The party manager adds each new member
+  // here EXCEPT a guardian marked "just signing", so this is the set that decides
+  // reservation attachment — not the roster.
+  const [participating, setParticipating] = useState<Set<string>>(new Set());
 
   const center: CenterCode | null = resInfo ? resInfo.center : standaloneCenter;
   const location: PandoraLocation | null = resInfo
@@ -173,6 +177,10 @@ export function WaiverFlow({
     center,
     kioskId: null,
     enabled: !!reservation && !!center,
+    // Only participants join the reservation. An adult added purely to sign for a
+    // minor ("No, just signing") signs their own waiver but never lands in the
+    // event's headcount.
+    participatingIds: participating,
   });
 
   // `wp-mobile` scopes the kiosk look (tokens, k-* primitives, px re-proportioning)
@@ -298,14 +306,16 @@ export function WaiverFlow({
         mode="waiver"
         theme="mobile"
         guardianSigning
+        inlineGuardianAdd
+        askGuardianParticipation
         hasCamera
         photoStep="required-adults"
         renderPhoto={(args) => <MobileWaiverPhoto {...args} />}
         party={party}
         brandLocation={location}
         center={center}
-        includedIds={allIds}
-        onIncludedChange={() => {}}
+        includedIds={participating}
+        onIncludedChange={setParticipating}
         onAddMember={(m) => setParty((p) => [...p, m])}
         onUpdateMember={(id, patch) =>
           setParty((p) => p.map((m) => (m.id === id ? { ...m, ...patch } : m)))
