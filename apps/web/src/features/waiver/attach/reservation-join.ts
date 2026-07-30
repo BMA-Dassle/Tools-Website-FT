@@ -18,34 +18,10 @@ export interface UseReservationJoinAttachArgs {
   kioskId?: string | null;
   /** Master gate (e.g. until device config / brand resolves). Default true. */
   enabled?: boolean;
-  /** When provided, ONLY these member ids attach. The mobile /waiver flow passes
-   *  its participating set so an adult added purely to sign for a minor ("No,
-   *  just signing") never lands in the reservation's headcount — that count feeds
-   *  guest totals and billing (owner 2026-07-30). Omitted = attach everyone,
-   *  which is the kiosk group-waiver behavior. */
-  participatingIds?: ReadonlySet<string> | null;
   /** Fires as each member's join POST starts — bump an in-flight counter. */
   onJoinStart?: () => void;
   /** Fires in the POST's finally — decrement the counter + refetch the roster. */
   onJoinSettled?: () => void;
-}
-
-/**
- * Does this member attach to the reservation right now?
- *
- * Exported and pure so the rule is testable without a React renderer — it decides
- * who lands in a real event's headcount, which feeds guest totals and billing.
- * Returns the person id to POST, or null to skip.
- */
-export function attachPersonId(
-  member: PartyMember,
-  participatingIds: ReadonlySet<string> | null,
-): string | null {
-  // Signer-only guardians stay in `party` (their own waiver is tracked, and the
-  // minor's guardian reference must resolve) but never join the reservation.
-  if (participatingIds && !participatingIds.has(member.id)) return null;
-  if (!member.waiverValid) return null;
-  return member.pandoraPersonId ?? member.bmiPersonId ?? null;
 }
 
 /**
@@ -66,7 +42,6 @@ export function useReservationJoinAttach({
   center,
   kioskId = null,
   enabled = true,
-  participatingIds = null,
   onJoinStart,
   onJoinSettled,
 }: UseReservationJoinAttachArgs): void {
@@ -85,8 +60,8 @@ export function useReservationJoinAttach({
   useEffect(() => {
     if (!enabled || !target || !center) return;
     for (const m of party) {
-      const pid = attachPersonId(m, participatingIds);
-      if (!pid || postedRef.current.has(pid)) continue;
+      const pid = m.pandoraPersonId ?? m.bmiPersonId;
+      if (!pid || !m.waiverValid || postedRef.current.has(pid)) continue;
       postedRef.current.add(pid);
       onJoinStartRef.current?.();
       void fetch("/api/kiosk/waiver/join", {
@@ -110,5 +85,5 @@ export function useReservationJoinAttach({
           onJoinSettledRef.current?.();
         });
     }
-  }, [party, target, center, kioskId, enabled, participatingIds]);
+  }, [party, target, center, kioskId, enabled]);
 }

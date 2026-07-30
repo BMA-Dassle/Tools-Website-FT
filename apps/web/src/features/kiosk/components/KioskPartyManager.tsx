@@ -93,18 +93,6 @@ export interface KioskPartyManagerProps {
    *  waiver first if it's lapsed). Default false = the minor self-signs
    *  (unchanged kiosk behavior). Turned on by the mobile /waiver flow. */
   guardianSigning?: boolean;
-  /** When true, a minor entered with NO registered adult on the roster can add
-   *  their guardian inline — the half-filled minor is parked, the adult form
-   *  opens, and the minor comes back with the new adult preselected. Default
-   *  false keeps the kiosk's dead-end notice ("add an adult first"), which is
-   *  right there: a staff member is standing next to the guest.
-   *  Pairs with `askGuardianParticipation` below. */
-  inlineGuardianAdd?: boolean;
-  /** When true, an adult being added AS a guardian is asked whether they are
-   *  also participating. "Just signing" leaves them OUT of `includedIds`, which
-   *  is what keeps a non-participating guardian off the reservation attach
-   *  (owner 2026-07-30: they must not land in the reservation's headcount). */
-  askGuardianParticipation?: boolean;
   /** Visual theme. "kiosk" (default) keeps the fixed 1080-wide kiosk canvas
    *  classes, byte-identical to today. "mobile" adds a `wp-mobile` root hook that
    *  the mobile /waiver flow's stylesheet uses to render a phone-native layout. */
@@ -220,8 +208,6 @@ export function KioskPartyManager({
   onSetContact,
   setBusy,
   guardianSigning = false,
-  inlineGuardianAdd = false,
-  askGuardianParticipation = false,
   theme = "kiosk",
   hasCamera,
   photoStep = "required-adults",
@@ -242,17 +228,6 @@ export function KioskPartyManager({
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [guardianId, setGuardianId] = useState("");
-  // inlineGuardianAdd: a minor's half-filled form parked while their guardian is
-  // created. Restored (with the new adult preselected) when the adult is added,
-  // or on Cancel — a guest who typed a birthday should never retype it.
-  const [pendingMinor, setPendingMinor] = useState<{
-    firstName: string;
-    lastName: string;
-    dob: string;
-    phone: string;
-    email: string;
-  } | null>(null);
-  const [guardianParticipating, setGuardianParticipating] = useState(true);
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusyLocal] = useState(false);
   const [waiverFor, setWaiverFor] = useState<{
@@ -387,40 +362,6 @@ export function KioskPartyManager({
     setEmail("");
     setGuardianId("");
     setFormError(null);
-    setPendingMinor(null);
-  };
-
-  /** Park the minor being entered and open a blank adult form for their guardian. */
-  const startGuardianAdd = () => {
-    setPendingMinor({ firstName, lastName, dob, phone, email });
-    setFirstName("");
-    setLastName("");
-    setDob("");
-    setPhone("");
-    setEmail("");
-    setGuardianId("");
-    setFormError(null);
-    setGuardianParticipating(true);
-    setForm({ mode: "new" });
-  };
-
-  /** Put the parked minor back on screen. `newGuardianId` preselects the adult we
-   *  just created; omitted on Cancel, where the minor returns guardian-less. */
-  const restoreMinorForm = (newGuardianId?: string) => {
-    const parked = pendingMinor;
-    setPendingMinor(null);
-    if (!parked) {
-      resetForm();
-      return;
-    }
-    setFirstName(parked.firstName);
-    setLastName(parked.lastName);
-    setDob(parked.dob);
-    setPhone(parked.phone);
-    setEmail(parked.email);
-    setGuardianId(newGuardianId ?? "");
-    setFormError(null);
-    setForm({ mode: "new" });
   };
 
   // First person added becomes main — only where a main-contact concept exists
@@ -607,19 +548,8 @@ export function KioskPartyManager({
       });
       onAddMember(member);
       if (isMain) setContactFrom(member); // main person → booking contact
-      // This adult was added AS a guardian for the parked minor.
-      const isGuardianAdd = !!pendingMinor && !minor;
-      // "Just signing" → stay out of the included set. Participation is what the
-      // reservation attach keys off, so a signer-only guardian never joins the
-      // event's roster; they still sign their own waiver (Pandora requires a
-      // current waiver on the person whose id rides sigPersonID).
-      const signerOnly = isGuardianAdd && askGuardianParticipation && !guardianParticipating;
-      if (!isRace && !signerOnly) setIncluded(new Set([...included, member.id]));
-      if (isGuardianAdd) {
-        restoreMinorForm(member.id);
-      } else {
-        resetForm();
-      }
+      if (!isRace) setIncluded(new Set([...included, member.id]));
+      resetForm();
       if (!result.waiverValid && result.template) {
         await openWaiverFor(member, result.personId, result.template);
       }
@@ -1451,19 +1381,10 @@ export function KioskPartyManager({
       {form !== null && (
         <div className="k-glass space-y-[20px] p-[28px]">
           <div className="k-display text-[32px]">
-            {pendingMinor
-              ? t("party.guardianAdd.heading", { name: pendingMinor.firstName || "" })
-              : form.mode === "new"
-                ? t("party.form.newPlayer")
-                : t("party.form.setUpName", { name: form.member.firstName })}
+            {form.mode === "new"
+              ? t("party.form.newPlayer")
+              : t("party.form.setUpName", { name: form.member.firstName })}
           </div>
-          {/* Adding a guardian: say who they're for, so the guest never wonders
-              whose details they're typing after the form swapped under them. */}
-          {pendingMinor && (
-            <p className="text-[22px] text-white/55">
-              {t("party.guardianAdd.subheading", { name: pendingMinor.firstName || "" })}
-            </p>
-          )}
           {form.mode === "new" && (
             <div className="grid grid-cols-2 gap-[16px]">
               <input
@@ -1538,27 +1459,9 @@ export function KioskPartyManager({
               </div>
               {adults.filter((a) => form.mode !== "setup" || a.id !== form.member.id).length ===
               0 ? (
-                inlineGuardianAdd ? (
-                  // Offer the way forward instead of a dead end. On a kiosk a staff
-                  // member is standing there to explain; on a phone, alone, "add an
-                  // adult first" is where the guest gives up.
-                  <div className="space-y-[12px]">
-                    <div className="rounded-2xl border border-[#f0b341]/40 bg-[#f0b341]/10 px-[20px] py-[16px] text-[22px] text-[#f0b341]">
-                      {t("party.guardianAdd.needOne")}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={startGuardianAdd}
-                      className="k-btn-primary k-tap h-[80px] w-full text-[26px]"
-                    >
-                      {t("party.guardianAdd.cta")}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border border-[#f0b341]/40 bg-[#f0b341]/10 px-[20px] py-[16px] text-[22px] text-[#f0b341]">
-                    {t("party.err.needAdult")}
-                  </div>
-                )
+                <div className="rounded-2xl border border-[#f0b341]/40 bg-[#f0b341]/10 px-[20px] py-[16px] text-[22px] text-[#f0b341]">
+                  {t("party.err.needAdult")}
+                </div>
               ) : (
                 <div className="flex flex-wrap gap-[12px]">
                   {adults
@@ -1581,42 +1484,11 @@ export function KioskPartyManager({
               )}
             </div>
           )}
-          {/* Is this guardian also doing the activity? "Just signing" keeps them
-              off the reservation (owner 2026-07-30) — they sign and go sit down. */}
-          {pendingMinor && askGuardianParticipation && (
-            <div>
-              <div className="mb-[10px] text-[22px] text-white/55">
-                {t("party.guardianAdd.participatingPrompt")}
-              </div>
-              <div className="flex flex-wrap gap-[12px]">
-                {(
-                  [
-                    [true, t("party.guardianAdd.participatingYes")],
-                    [false, t("party.guardianAdd.participatingNo")],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={String(value)}
-                    type="button"
-                    aria-pressed={guardianParticipating === value}
-                    onClick={() => setGuardianParticipating(value)}
-                    className={`rounded-2xl border-2 px-[24px] py-[14px] text-[24px] font-bold ${
-                      guardianParticipating === value
-                        ? "border-[#00e2e5] bg-[#00e2e5]/10 text-white"
-                        : "border-white/15 text-white/60"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
           {formError && <p className="text-[24px] text-red-300">{formError}</p>}
           <div className="flex gap-[16px]">
             <button
               type="button"
-              onClick={() => (pendingMinor ? restoreMinorForm() : resetForm())}
+              onClick={resetForm}
               className="rounded-2xl border border-white/15 px-[28px] py-[18px] text-[24px] font-semibold text-white/60"
             >
               {t("party.form.cancel")}
