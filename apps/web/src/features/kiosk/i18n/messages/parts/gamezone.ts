@@ -27,7 +27,7 @@ export const gamezoneEn = {
   "gamezone.voucher.scanMoreTitle": "Got another one?",
   "gamezone.voucher.getCard": "Get my card",
   "gamezone.voucher.getCards": "Get my {n} cards",
-  "gamezone.voucher.dispensingN": "Printing card {n} of {total}…",
+  "gamezone.voucher.dispensingN": "Card {n} of {total}…",
   "gamezone.voucher.loadedOk": "Loaded",
   "gamezone.voucher.notIssued": "Not issued",
   "gamezone.voucher.done.bodyN":
@@ -36,7 +36,7 @@ export const gamezoneEn = {
   "gamezone.voucher.err.tooMany": "That’s the most we can do at once ({n}).",
   "gamezone.voucher.checking": "Checking your voucher…",
   "gamezone.voucher.checkingSub": "one moment",
-  "gamezone.voucher.dispensing": "Printing your card…",
+  "gamezone.voucher.dispensing": "Getting your card…",
   "gamezone.voucher.loading": "Loading your card…",
   "gamezone.voucher.takeCard": "Take your card",
   "gamezone.voucher.done.title": "Enjoy!",
