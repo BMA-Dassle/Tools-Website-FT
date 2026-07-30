@@ -23,7 +23,15 @@ import { useEffect, useRef, useState } from "react";
 import PaymentForm from "@/components/square/PaymentForm";
 import { KioskTerminalCheckoutGate } from "./KioskTerminalCheckoutGate";
 import { bridgeHealth, creditTokensViaBridge } from "../service/game-card-bridge";
-import { kioskTerminalEnabled, kioskGzCartEnabled } from "~/features/kiosk/flags";
+import {
+  kioskTerminalEnabled,
+  kioskGzCartEnabled,
+  kioskVoucherGzEnabled,
+} from "~/features/kiosk/flags";
+import { useQrScanner } from "../qr-scanner/useQrScanner";
+import { useWedgeScan } from "../checkin/wedge-scan";
+import { classifyKioskCode } from "../code-entry/classify";
+import type { GameCardGrant } from "~/features/game-cards/vouchers/grants";
 import {
   TOKEN_PACKAGES,
   ACTIVATION_FEE_CENTS,
@@ -34,10 +42,26 @@ import type { Brand, CenterCode } from "~/features/booking";
 import { useGameCardDispenser, useSerialMsr, type FaultBehavior } from "../card-reader";
 import type { GameCardCartPurchase } from "~/features/booking/state/types";
 import { useKioskConfig } from "../KioskConfigContext";
+import { kioskDeviceKey } from "../config";
 import { BrandedLoader } from "./BrandedLoader";
 import { CardSlotGuide } from "./CardSlotGuide";
 import { KioskDispenserHold } from "./KioskDispenserHold";
-import { useT } from "../i18n";
+import { useT, type Translate } from "../i18n";
+
+/**
+ * Comp-voucher refusal → guest copy. Every reason the server can return is
+ * phrased: an unattended guest has no cashier to ask, and "something went
+ * wrong" on a voucher they were handed reads as us keeping their comp.
+ */
+const VOUCHER_REFUSAL_KEY: Record<string, Parameters<Translate>[0]> = {
+  bad_format: "gamezone.voucher.err.badFormat",
+  unknown: "gamezone.voucher.err.unknown",
+  unverifiable: "gamezone.voucher.err.unverifiable",
+  unsupported: "gamezone.voucher.err.unsupported",
+  multi_item: "gamezone.voucher.err.multiItem",
+  used: "gamezone.voucher.err.used",
+  storage: "gamezone.voucher.err.generic",
+};
 
 /** A recoverable dispenser fault the flow holds on until staff resume. */
 type HoldFault = Extract<FaultBehavior, { kind: "hold" }>;
@@ -130,7 +154,22 @@ function errText(data: unknown): string | null {
 }
 
 type Phase = "cart" | "paying" | "loading" | "done" | "error";
-type Mode = "choose" | "reload" | "newcard" | "balance" | "consolidate";
+type Mode = "choose" | "reload" | "newcard" | "balance" | "consolidate" | "voucher";
+
+/**
+ * Comp-voucher redemption (owner 2026-07-29). NO money leg: a BMI
+ * "Complimentary N Token Game Card" voucher is validated + claimed server-side,
+ * then ONE card is dispensed and credited on the shared rail. Works with an
+ * empty cart and never joins the booking (a comp has nothing to add to a
+ * checkout), so it is deliberately outside the addToVisit path below.
+ *
+ *   entry      waiting for a scan / typed code
+ *   checking   server-side: BMI peek → grant → global single-use claim
+ *   dispensing claim held; card being dispensed + credited
+ *   done       card credited and taken
+ *   error      refused, or dispensed-but-not-credited (staff)
+ */
+type VoucherPhase = "entry" | "checking" | "dispensing" | "done" | "error";
 /** Consolidate flow steps: read the target card, then feed sources, then done. */
 type ConsoStep = "target" | "sources" | "done";
 
@@ -228,6 +267,7 @@ export function KioskGameZone({
   cartHasItems = false,
   onAddToVisit,
   onCardFault,
+  initialVoucherCode = null,
 }: {
   center: CenterCode;
   brand: Brand;
@@ -249,12 +289,28 @@ export function KioskGameZone({
    *  2026-07-20). Never re-fires for the same fault — after staff clear the
    *  beacon they need the hold screen (Resume / See attendant) usable. */
   onCardFault?: () => void;
+  /** A comp voucher already scanned on the coupon screen — lands straight in
+   *  voucher mode so the guest never scans the same code twice. */
+  initialVoucherCode?: string | null;
 }) {
   const t = useT();
   // Every kiosk lands on the chooser — MSR-only kiosks offer reload + balance
   // check there, with new-card sales greyed out (owner 2026-07-20; the first
   // MSR release wrongly jumped straight to reload, hiding balance check).
-  const [mode, setMode] = useState<Mode>("choose");
+  // EXCEPT when a comp voucher was already scanned on the coupon screen: go
+  // straight to redemption.
+  const [mode, setMode] = useState<Mode>(initialVoucherCode ? "voucher" : "choose");
+
+  // ── Comp-voucher redemption state ──
+  const [voucherPhase, setVoucherPhase] = useState<VoucherPhase>("entry");
+  const [voucherTyped, setVoucherTyped] = useState("");
+  const [voucherMsg, setVoucherMsg] = useState<string | null>(null);
+  const [voucherGrant, setVoucherGrant] = useState<GameCardGrant | null>(null);
+  const [voucherCardNumber, setVoucherCardNumber] = useState<string | null>(null);
+  /** The held claim. Present = a voucher is spent until we release it. */
+  const voucherClaimRef = useRef<{ code: string; txnId: string; groupId: string } | null>(null);
+  /** Guards the whole redeem run against re-entry (scanner + auto-seed + tap). */
+  const voucherBusyRef = useRef(false);
 
   // Local bridge status chip (staff-facing, guest-benign): green = loads hit
   // the local card system instantly; amber = cloud path (slower to the floor).
@@ -418,8 +474,16 @@ export function KioskGameZone({
   // Pause the idle watchdog while the dispenser is working, holding, or in the
   // middle of a consolidate read/move (consoBusy).
   useEffect(() => {
-    onBusyChange?.(phase === "loading" || phase === "paying" || holdFault != null || consoBusy);
-  }, [phase, holdFault, consoBusy, onBusyChange]);
+    onBusyChange?.(
+      phase === "loading" ||
+        phase === "paying" ||
+        holdFault != null ||
+        consoBusy ||
+        // A voucher redemption is a live dispense — never reset a guest mid-run.
+        voucherPhase === "checking" ||
+        voucherPhase === "dispensing",
+    );
+  }, [phase, holdFault, consoBusy, voucherPhase, onBusyChange]);
 
   // Card-error beacon: report each hold fault to the parent exactly once, by
   // instance — a re-render (or the parent closing the beacon) must not re-raise
@@ -767,6 +831,250 @@ export function KioskGameZone({
     }
     return true;
   };
+
+  // ── Comp-voucher redemption (no money leg) ─────────────────────────────────
+  // Reuses the SAME rail as a paid new card — holdIfBinFull, dispenseAndRead,
+  // captureSafely, the bridge-then-SOAP credit, and the reconcile cron behind it
+  // — so there is exactly one dispense implementation to trust. The only
+  // difference is what authorises the load: a held voucher claim instead of a
+  // Square charge.
+
+  /** Give the code back. ONLY legal while NO card has left the stacker. */
+  const releaseVoucherClaim = async (reason: string) => {
+    const claim = voucherClaimRef.current;
+    if (!claim) return;
+    voucherClaimRef.current = null;
+    try {
+      await fetch("/api/game-cards/voucher-redeem", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "release",
+          code: claim.code,
+          txnId: claim.txnId,
+          reason,
+        }),
+      });
+    } catch {
+      // Best-effort: an unreleased claim strands ONE voucher (recoverable by
+      // staff), whereas a released-but-dispensed one gives away a second card.
+      // Failing to release is the safe direction.
+    }
+  };
+
+  const voucherFail = (msg: string) => {
+    setVoucherMsg(msg);
+    setVoucherPhase("error");
+  };
+
+  /**
+   * Dispense + credit ONE comped card. Pre-dispense bails RELEASE the voucher
+   * so the guest can try again; once a blank has physically moved, the claim
+   * STANDS even on failure (the ledger row is pending and the cron drives it
+   * forward — releasing there would hand out a second card for one voucher).
+   */
+  const dispenseVoucherCard = async (claim: {
+    code: string;
+    txnId: string;
+    groupId: string;
+    grant: GameCardGrant;
+  }) => {
+    setVoucherPhase("dispensing");
+    setDispenseMsg(t("gamezone.voucher.dispensing"));
+    let blanksBad = 0;
+
+    for (;;) {
+      // Nowhere to reject a bad blank → hold before feeding one.
+      if (!(await holdIfBinFull())) {
+        await releaseVoucherClaim("bin full, nothing dispensed");
+        return voucherFail(t("gamezone.seeAttendantSafe"));
+      }
+      const r = await dispenser.dispenseAndRead();
+      if (r.ok) {
+        // A card is OUT. Past this line the voucher stays spent.
+        await creditVoucherCard(claim, r.value);
+        return;
+      }
+      const f = r.fault;
+      if (f.kind === "hold") {
+        const resumed = await holdUntilResolved(f);
+        if (!resumed) {
+          await releaseVoucherClaim("dispenser hold, nothing dispensed");
+          return voucherFail(t("gamezone.seeAttendantSafe"));
+        }
+        continue; // staff cleared it — same voucher, try again
+      }
+      if (f.kind === "card-retry") {
+        // Unreadable blank: bin it and take the next one. Bounded so wrong-way
+        // stock can't feed the whole stacker through one card at a time.
+        if (!(await captureSafely())) {
+          await releaseVoucherClaim("could not bin an unreadable blank");
+          return voucherFail(t("gamezone.seeAttendantSafe"));
+        }
+        if (++blanksBad >= MAX_BAD_BLANKS) {
+          const resumed = await holdUntilResolved(BAD_READ_HOLD);
+          if (!resumed) {
+            await releaseVoucherClaim("card stock unreadable");
+            return voucherFail(t("gamezone.seeAttendantSafe"));
+          }
+          blanksBad = 0;
+        }
+        continue;
+      }
+      await releaseVoucherClaim("dispenser fault, nothing dispensed");
+      return voucherFail(
+        f.kind === "abort" ? f.message : `${r.info.message}. ${t("gamezone.seeAttendantSafe")}`,
+      );
+    }
+  };
+
+  /** Credit the dispensed blank, then present it. Never releases the claim. */
+  const creditVoucherCard = async (
+    claim: { code: string; txnId: string; groupId: string; grant: GameCardGrant },
+    account: string,
+  ) => {
+    setDispenseMsg(t("gamezone.voucher.loading"));
+    // On-prem bridge first (instant on the floor), cloud SOAP as the fallback —
+    // never both, they share no dedup. A bonus-CASH grant can't ride the bridge
+    // (its /credit speaks tokens only), so it goes straight to SOAP.
+    const bridged = claim.grant.bonusCashDollars
+      ? false
+      : await creditTokensViaBridge({
+          accountNumber: account,
+          tokens: claim.grant.tokens,
+          bonusTokens: claim.grant.bonusTokens,
+        });
+    let loaded = false;
+    try {
+      const res = await fetch("/api/game-cards/load-card", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          groupId: claim.groupId,
+          txnId: claim.txnId,
+          accountNumber: account,
+          locationCode,
+          preLoaded: bridged,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      loaded = res.ok && data.loaded === true;
+    } catch {
+      loaded = false;
+    }
+
+    if (!loaded) {
+      // Don't hand over an empty card — bin it. The row stays pending and the
+      // reconcile cron recovers the credit; the voucher stays spent, so staff
+      // (not the guest) resolve it.
+      await captureSafely();
+      setVoucherCardNumber(null);
+      return voucherFail(`${t("gamezone.err.cardRetained")} ${t("gamezone.seeAttendantSafe")}`);
+    }
+
+    setVoucherCardNumber(displayCardNumber(account));
+    setDispenseMsg(t("gamezone.voucher.takeCard"));
+    await dispenser.present();
+    await dispenser.waitTaken({ timeoutMs: 30_000 });
+    voucherClaimRef.current = null; // fulfilled
+    setDispenseMsg(null);
+    setVoucherPhase("done");
+  };
+
+  /** Validate + claim the code server-side, then dispense. */
+  const redeemVoucher = async (raw: string) => {
+    if (voucherBusyRef.current) return;
+    const code = classifyKioskCode(raw).value;
+    if (!code) return;
+    voucherBusyRef.current = true;
+    setVoucherMsg(null);
+    setVoucherPhase("checking");
+    try {
+      const res = await fetch("/api/game-cards/voucher-redeem", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          action: "claim",
+          code,
+          locationCode,
+          center: config?.center,
+          kioskId: config ? kioskDeviceKey(config) : undefined,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        reason?: string;
+        txnId?: string;
+        groupId?: string;
+        grant?: GameCardGrant;
+      };
+      if (!res.ok || data.ok !== true || !data.txnId || !data.groupId || !data.grant) {
+        setVoucherPhase("entry");
+        setVoucherMsg(t(VOUCHER_REFUSAL_KEY[data.reason ?? ""] ?? "gamezone.voucher.err.generic"));
+        return;
+      }
+      voucherClaimRef.current = { code, txnId: data.txnId, groupId: data.groupId };
+      setVoucherGrant(data.grant);
+      await dispenseVoucherCard({
+        code,
+        txnId: data.txnId,
+        groupId: data.groupId,
+        grant: data.grant,
+      });
+    } catch {
+      setVoucherPhase("entry");
+      setVoucherMsg(t("gamezone.voucher.err.generic"));
+    } finally {
+      voucherBusyRef.current = false;
+    }
+  };
+
+  // Scanner inputs for voucher mode — the serial QR reader and the keyboard
+  // wedge both feed the same handler, exactly as on the coupon screen.
+  const voucherScanArmed = mode === "voucher" && voucherPhase === "entry";
+  useQrScanner({
+    enabled: voucherScanArmed && !!config?.qrScannerEnabled,
+    modelId: config?.qrScannerModel,
+    baudRate: config?.qrScannerBaud ?? null,
+    portInfo: config?.qrScannerPortInfo ?? null,
+    allowLoneGrantFallback: false,
+    onScan: (scan) => void redeemVoucher(scan.payload),
+  });
+  const voucherWedge = useWedgeScan((raw) => void redeemVoucher(raw));
+  const voucherWedgeArm = voucherWedge.arm;
+  useEffect(() => {
+    if (!voucherScanArmed || !config?.scannerEnabled) return;
+    voucherWedgeArm();
+    const id = setInterval(voucherWedgeArm, 8_000);
+    return () => clearInterval(id);
+  }, [voucherScanArmed, config?.scannerEnabled, voucherWedgeArm]);
+
+  // A code handed over from the coupon screen redeems itself on arrival — the
+  // guest already scanned it once. Runs exactly once per mounted code.
+  const seededVoucherRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!initialVoucherCode || !readerReady) return;
+    if (seededVoucherRef.current === initialVoucherCode) return;
+    seededVoucherRef.current = initialVoucherCode;
+    void redeemVoucher(initialVoucherCode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialVoucherCode, readerReady]);
+
+  // A claim still held when the guest walks away (mode change or the whole Game
+  // Zone closing) is given back rather than burned — `voucherClaimRef` is
+  // cleared the moment a card is fulfilled or deliberately kept, so anything
+  // still here means no card reached anyone.
+  useEffect(() => {
+    if (mode === "voucher") return;
+    if (voucherClaimRef.current) void releaseVoucherClaim("left voucher mode");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+  useEffect(() => {
+    return () => {
+      if (voucherClaimRef.current) void releaseVoucherClaim("game zone closed");
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Consolidation (cloud-only) ──────────────────────────────────────────────
   // Read the TARGET card and hand it straight back (it's the survivor). Balance
@@ -1368,6 +1676,29 @@ export function KioskGameZone({
                 : t("gamezone.chooser.balance.subInsert")}
             </div>
           </button>
+          {/* Redeem a comp voucher — needs the dispenser (a card comes out) but
+              NOT a cart, a booking or a payment: a guest can walk up holding
+              only the voucher (owner 2026-07-29). Flag defaults ON. */}
+          {kioskVoucherGzEnabled() && canSellNewCards && readerReady && (
+            <button
+              type="button"
+              onClick={() => {
+                setVoucherPhase("entry");
+                setVoucherTyped("");
+                setVoucherMsg(null);
+                setVoucherGrant(null);
+                setVoucherCardNumber(null);
+                setMode("voucher");
+              }}
+              className="k-glass k-tap p-[40px] text-left"
+              style={{ borderLeft: "8px solid #e8b14c" }}
+            >
+              <div className="k-display text-[48px]">{t("gamezone.chooser.voucher.title")}</div>
+              <div className="mt-[10px] text-[28px] text-white/55">
+                {t("gamezone.chooser.voucher.sub")}
+              </div>
+            </button>
+          )}
           {/* Combine cards — CLOUD ONLY. Appears when this kiosk is on the cloud
               path (no local bridge, bridgeUp===false); needs the reader to
               accept + bin sources. Forcing a kiosk to cloud turns this on.
@@ -1391,6 +1722,135 @@ export function KioskGameZone({
             </button>
           )}
         </div>
+      </div>
+    );
+  }
+
+  // ── Redeem a comp voucher: scan → claim → dispense → credit → present ──
+  if (mode === "voucher") {
+    const grantLabel = voucherGrant ? voucherGrant.label : "";
+    return (
+      <div className="mx-auto flex h-full max-w-2xl flex-col px-2 py-6 kiosk-zoom">
+        <div className="mb-5 flex items-center justify-between">
+          <h1 className="font-heading text-4xl font-extrabold italic">
+            {t("gamezone.voucher.title")}
+          </h1>
+          {/* Never offer Back mid-dispense — a card is in motion. */}
+          {voucherPhase !== "dispensing" && voucherPhase !== "checking" && (
+            <button
+              type="button"
+              onClick={() => setMode("choose")}
+              className="k-tap rounded-full border border-white/15 px-5 py-2 text-sm text-white/60"
+            >
+              {t("gamezone.back")}
+            </button>
+          )}
+        </div>
+
+        {voucherPhase === "entry" && (
+          <div className="flex min-h-0 flex-1 flex-col items-center text-center">
+            <h2 className="font-heading text-5xl font-extrabold italic leading-tight">
+              {t("gamezone.voucher.scanTitle")}
+            </h2>
+            <p className="mt-3 max-w-xl text-2xl text-white/60">
+              {t("gamezone.voucher.scanBody")}
+            </p>
+            <div className="mt-8">
+              <CardSlotGuide
+                label={t("gamezone.voucher.scanLabel")}
+                sublabel={t("gamezone.voucher.scanSub")}
+              />
+            </div>
+            <div
+              className="mt-6 min-h-[40px] text-xl text-[#ff8c7a]"
+              role="alert"
+              aria-live="polite"
+            >
+              {voucherMsg ?? ""}
+            </div>
+            {/* Typed fallback — the OnScreenKeyboardHost attaches to this. */}
+            <input
+              type="text"
+              value={voucherTyped}
+              onChange={(e) => {
+                setVoucherMsg(null);
+                setVoucherTyped(e.target.value.toUpperCase());
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && voucherTyped.trim()) void redeemVoucher(voucherTyped);
+              }}
+              aria-label={t("gamezone.voucher.inputLabel")}
+              placeholder={t("gamezone.voucher.placeholder")}
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              className="k-num mt-2 h-[92px] w-full rounded-[20px] border-2 border-[rgba(232,177,76,0.55)] bg-[#040d24] px-6 font-mono text-[34px] uppercase tracking-[0.08em] text-white placeholder:text-white/30 focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => void redeemVoucher(voucherTyped)}
+              disabled={!voucherTyped.trim()}
+              className="k-tap mt-5 w-full rounded-full bg-[#e8b14c] px-6 py-4 text-xl font-extrabold text-[#231703] disabled:opacity-40"
+            >
+              {t("gamezone.voucher.redeem")}
+            </button>
+          </div>
+        )}
+
+        {(voucherPhase === "checking" || voucherPhase === "dispensing") && (
+          <div className="flex min-h-0 flex-1 items-center justify-center">
+            <BrandedLoader
+              brand={brand}
+              label={
+                voucherPhase === "checking"
+                  ? t("gamezone.voucher.checking")
+                  : (dispenseMsg ?? t("gamezone.voucher.dispensing"))
+              }
+              sublabel={grantLabel || t("gamezone.voucher.checkingSub")}
+            />
+          </div>
+        )}
+
+        {voucherPhase === "done" && (
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center text-center">
+            <div className="font-heading text-6xl font-extrabold italic text-[#46d68c]">
+              {t("gamezone.voucher.done.title")}
+            </div>
+            <p className="mt-4 text-3xl text-white/75">
+              {t("gamezone.voucher.done.body", { grant: grantLabel })}
+            </p>
+            {voucherCardNumber && (
+              <div className="mt-6 text-xl text-white/45">
+                {t("gamezone.cardHash", { num: voucherCardNumber })}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={onExit}
+              className="font-heading k-tap mt-10 h-16 w-full rounded-full bg-[#00e2e5] text-xl font-extrabold uppercase italic text-[#04252b]"
+            >
+              {t("gamezone.done")}
+            </button>
+          </div>
+        )}
+
+        {voucherPhase === "error" && (
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center text-center">
+            <div className="font-heading text-5xl font-extrabold italic text-amber-300">
+              {t("gamezone.voucher.error.title")}
+            </div>
+            <p className="mt-4 whitespace-pre-line text-2xl text-white/70">
+              {voucherMsg ?? t("gamezone.seeAttendantSafe")}
+            </p>
+            <button
+              type="button"
+              onClick={() => setMode("choose")}
+              className="k-tap mt-10 w-full rounded-full border border-white/20 px-6 py-4 text-xl text-white/80"
+            >
+              {t("gamezone.back")}
+            </button>
+          </div>
+        )}
       </div>
     );
   }

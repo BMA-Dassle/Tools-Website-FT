@@ -323,6 +323,12 @@ export const en = {
   "codeEntry.gamecard.title": "That’s a Game Zone card",
   "codeEntry.gamecard.body": "Use the Game Zone screen to reload it or check its balance.",
   "codeEntry.gamecard.cta": "Open Game Zone",
+  // A Game Zone card COMP scanned on the coupon screen: it can't reduce the
+  // cart, it dispenses a card — so hand it to the Game Zone screen.
+  "codeEntry.voucherGz.title": "That’s a free game card",
+  "codeEntry.voucherGz.titleNamed": "{name}",
+  "codeEntry.voucherGz.body": "We’ll print your card at the Game Zone screen — it takes a moment.",
+  "codeEntry.voucherGz.cta": "Get my card",
   "codeEntry.giftcard.title": "That’s a gift card",
   "codeEntry.giftcard.body":
     "Gift cards are accepted as payment — swipe it at the card reader when you pay.",
@@ -352,6 +358,8 @@ export const en = {
   "checkout.voucherFallbackName": "Your",
   "checkout.vouchersCover": "{count} vouchers cover {amount}",
   "codeEntry.err.duplicate": "That voucher is already on this order.",
+  "codeEntry.err.multiItem":
+    "That voucher covers more than one thing — please see Guest Services to redeem it.",
   "checkout.voucherNoMatch":
     "Your {name} voucher doesn’t match anything in your cart — add it to your visit to use it.",
   "checkout.voucherError":

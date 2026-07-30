@@ -33,6 +33,10 @@ import type {
 import { packageIdForCategory } from "../state/types";
 import { getRaceProductById } from "./race-products";
 import { promoFactor } from "./promo-pricing";
+import {
+  gameCardGrantFromCompName,
+  type GameCardGrant,
+} from "~/features/game-cards/vouchers/grants";
 
 export type { AppliedVoucherState } from "../state/types";
 
@@ -83,10 +87,24 @@ export function voucherIsApplied(v: AppliedVoucherState | null | undefined): boo
 export type VoucherTarget =
   | { kind: "race" }
   | { kind: "attraction"; slugs: string[] }
+  /**
+   * Game Zone card comp. Deliberately NOT a cart target: there is no line to
+   * discount and no BMI money leg to net (see grants.ts header). It is
+   * fulfilled by dispensing a card on the Game Zone rail, so the cart covers
+   * nothing and the kiosk ROUTES the guest instead of saying "doesn't match
+   * your cart". Carries the grant so the caller never re-parses the name.
+   */
+  | { kind: "gamecard"; grant: GameCardGrant }
   | { kind: "unknown" };
 
 export function voucherTarget(name: string | null | undefined): VoucherTarget {
   const n = (name ?? "").toLowerCase();
+  // Game Zone FIRST — its matcher is strict (`Complimentary <N> Token Game
+  // Card`), so testing it before the loose keyword matches below can never
+  // steal a race/attraction comp, while the reverse order could: a future
+  // "Complimentary Duckpin Game Card" must stay on the attraction rail.
+  const gameCard = gameCardGrantFromCompName(name);
+  if (gameCard) return { kind: "gamecard", grant: gameCard };
   if (n.includes("race")) return { kind: "race" };
   if (n.includes("laser")) return { kind: "attraction", slugs: ["laser-tag"] };
   if (n.includes("gel")) return { kind: "attraction", slugs: ["gel-blaster"] };
@@ -116,6 +134,7 @@ const ATTRACTION_COMP_LABEL: Record<string, string> = {
 export function voucherDisplayName(name: string | null | undefined): string {
   const target = voucherTarget(name);
   if (target.kind === "race") return "Race comp";
+  if (target.kind === "gamecard") return `${target.grant.bonusTokens} Token Game Card comp`;
   if (target.kind === "attraction") {
     return ATTRACTION_COMP_LABEL[target.slugs[0]] ?? "Comp";
   }
@@ -184,6 +203,13 @@ export function planVoucherCoverage(
         pick.attractionItemId = found.itemId;
         pick.attractionUnitCents = found.cents;
       }
+    } else if (target.kind === "gamecard") {
+      // Allocates NOTHING, deliberately. A Game Zone comp is fulfilled by
+      // dispensing a card with Intercard value on it (see
+      // game-cards/vouchers/grants.ts), not by discounting a cart line — the
+      // guest still owes full price for everything else in the cart. Routing
+      // happens at the kiosk / /api/game-cards/voucher-redeem; this rail must
+      // never price it. Do not "fix" this into a discount.
     }
     picks.push(pick);
   }

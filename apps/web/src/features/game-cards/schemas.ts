@@ -170,6 +170,29 @@ export const LoadStatusSchema = z.object({
 export type LoadStatusInput = z.infer<typeof LoadStatusSchema>;
 
 /** Attach + load tokens onto ONE just-dispensed new card (post-charge). */
+/**
+ * Game Zone COMP voucher redemption (kiosk). `claim` takes the code and hands
+ * back a $0 ledger row to dispense against; `release` gives an unspent code
+ * back when no card left the stacker. Codes are the BMI 24-char shape — the
+ * server re-validates against BMI_VOUCHER_RE, this is only a cheap gate.
+ */
+export const VoucherRedeemSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("claim"),
+    code: z.string().trim().min(8).max(64),
+    locationCode: z.number().int(),
+    center: z.string().trim().max(40).optional(),
+    kioskId: z.string().trim().max(120).optional(),
+  }),
+  z.object({
+    action: z.literal("release"),
+    code: z.string().trim().min(8).max(64),
+    txnId: z.string().uuid(),
+    reason: z.string().trim().max(200).optional(),
+  }),
+]);
+export type VoucherRedeemInput = z.infer<typeof VoucherRedeemSchema>;
+
 export const LoadCardSchema = z.object({
   groupId: z.string().uuid(),
   txnId: z.string().uuid(),
