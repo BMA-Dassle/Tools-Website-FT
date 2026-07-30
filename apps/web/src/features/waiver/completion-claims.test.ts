@@ -32,7 +32,11 @@ import { mergeRosterIntoParty, reservationWaiverStatus } from "./roster-preload"
 import type { WaiverRosterEntry } from "./roster";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(path.join(here, "WaiverFlow.tsx"), "utf8");
+// Normalize CRLF: a Windows checkout (core.autocrlf) materializes \r\n, and every
+// extractor below anchors on \n-only sentinels like "\n}\n" — without this the
+// extraction silently over-captures to EOF and the pins fail on real defects that
+// aren't there.
+const source = readFileSync(path.join(here, "WaiverFlow.tsx"), "utf8").replace(/\r\n/g, "\n");
 
 /** The rendered claim, verbatim. */
 const ALL_SIGNED = "All waivers signed";
