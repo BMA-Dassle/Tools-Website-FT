@@ -37,6 +37,7 @@ import {
   getGroupEventForDate,
   getRaceBlockWindowsForDate,
   getPublicReopenMinutes,
+  raceWindowAppliesToTrack,
 } from "@/lib/group-events";
 import { getPackage } from "~/features/booking/service/packages";
 import { packageComponentsCovered } from "~/features/booking/service/package-picks";
@@ -815,9 +816,12 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
                 !isSelected &&
                 crossCategoryBlocks.length > 0 &&
                 collidesWithOtherCategory(tp.track, block.start, crossCategoryBlocks);
+              // A track-scoped window (raceWindowExtension) reserves only its own
+              // track — the other track's heats in those minutes stay bookable.
               const isEventReserved =
                 !isSelected &&
                 blockWindows.some((w) => {
+                  if (!raceWindowAppliesToTrack(w, tp.track ?? null)) return false;
                   const hS = blockStartMs;
                   const hE = parseLocal(block.stop).getTime();
                   const wS = parseLocal(w.startIso).getTime();

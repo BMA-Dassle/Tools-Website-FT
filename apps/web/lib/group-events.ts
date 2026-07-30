@@ -129,6 +129,13 @@ export interface GroupEvent {
    *  "full-day" (default) = whole date greyed/unclickable (facility buyout).
    *  "event-window" = date stays bookable; only heats overlapping [startTime,endTime] are disabled. */
   publicBlock?: "full-day" | "event-window";
+  /** Extra racing window past `endTime` that applies to SPECIFIC TRACKS ONLY.
+   *  For a sold-out event that needs a couple more heats on one track: those
+   *  heats open to event guests and are reserved from the public, while the
+   *  other track's heats in the same minutes stay publicly bookable.
+   *  `tracks` holds track names as they appear on the race product ("Red").
+   *  Covers [endTime, extension.endTime) — same half-open rule as the base window. */
+  raceWindowExtension?: { endTime: string; tracks: string[] };
   /** Public booking reopens at this ET wall-clock time on `eventDate` (e.g. "14:30").
    *  Used for a morning-only buyout that hands the facility back to the public partway
    *  through the day: every public slot/heat/hour BEFORE this time is disabled, and
@@ -262,19 +269,19 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
     companyName: "HeadPinz & FastTrax", // co-host brands
     eventTitle: "Christmas in July",
     // eventDate / startTime / endTime describe the FORT MYERS racing window
-    // (4:30–6:00 PM on 7/30) — used by publicBlock to reserve those heats from the
+    // (4:30–5:30 PM on 7/30) — used by publicBlock to reserve those heats from the
     // public calendar. The overall 4–7 PM event + per-venue dates live in landing.
-    // Owner 2026-07-30 (event day): extended 5:30 → 6:00 PM to open the last two
-    // Red Track heats (34 @ 5:36, 35 @ 5:48) to the event. The window is a
-    // half-open range [start, end) on the heat's START time, so 5:36 and 5:48 come
-    // in and the 6:00 PM heat stays public.
     eventDate: "2026-07-30",
     startTime: "16:30", // racing slot start (4:30 PM)
-    endTime: "18:00", // racing slot end (6:00 PM)
+    endTime: "17:30", // racing slot end (5:30 PM) — BOTH tracks
+    // Owner 2026-07-30 (event day): the 4:30–5:30 window sold out, so open the
+    // last two RED heats (Track 34 @ 5:36, 35 @ 5:48) to the event. RED ONLY —
+    // Blue's 5:36/5:48 heats stay publicly bookable (owner: "keep to red only").
+    raceWindowExtension: { endTime: "18:00", tracks: ["Red"] },
     allowedDomains: [], // unused in open mode
     accessMode: "open",
     eventKicker: "You're Invited", // eyebrow above the title
-    publicBlock: "event-window", // only the 16:30–18:00 FM heats blocked for the public
+    publicBlock: "event-window", // 16:30–17:30 both tracks + 17:30–18:00 Red only
     accentColor: "#E41C1D", // Christmas red
     accentTextColor: "#ffffff",
     accentHoverColor: "#ff3b30", // lighter red on hover (white label stays readable)
@@ -445,17 +452,58 @@ export interface RaceBlockWindow {
   startIso: string; // "2026-07-25T16:30:00"
   stopIso: string; // "2026-07-25T17:30:00"
   label: string; // event title, for display
+  /** Track names this window applies to. UNDEFINED = every track (the normal
+   *  case). Set only by a raceWindowExtension, where one track's heats are
+   *  reserved and the other track's heats in the same minutes stay public. */
+  tracks?: string[];
 }
 
 /** Reserved race windows on a date from "event-window" events (e.g. FastTrax
  *  16:30–17:30). The public heat pickers disable heats overlapping these windows
- *  while leaving the rest of the day bookable. Empty on dates with no such event. */
+ *  while leaving the rest of the day bookable. Empty on dates with no such event.
+ *
+ *  An event with a `raceWindowExtension` yields TWO windows: the base one (all
+ *  tracks) and a track-scoped one covering [endTime, extension.endTime). */
 export function getRaceBlockWindowsForDate(date: string): RaceBlockWindow[] {
-  return Object.values(GROUP_EVENTS)
-    .filter((e) => e.eventDate === date && e.publicBlock === "event-window")
-    .map((e) => ({
+  const events = Object.values(GROUP_EVENTS).filter(
+    (e) => e.eventDate === date && e.publicBlock === "event-window",
+  );
+  const windows: RaceBlockWindow[] = [];
+  for (const e of events) {
+    windows.push({
       startIso: `${e.eventDate}T${e.startTime}:00`,
       stopIso: `${e.eventDate}T${e.endTime}:00`,
       label: e.eventTitle,
-    }));
+    });
+    if (e.raceWindowExtension) {
+      windows.push({
+        startIso: `${e.eventDate}T${e.endTime}:00`,
+        stopIso: `${e.eventDate}T${e.raceWindowExtension.endTime}:00`,
+        label: e.eventTitle,
+        tracks: e.raceWindowExtension.tracks,
+      });
+    }
+  }
+  return windows;
+}
+
+/** Does a reserved window apply to the track a picker is showing?
+ *
+ *  Untracked windows apply to everything (the normal full-event case). A
+ *  track-scoped window applies only to its named tracks — and, deliberately,
+ *  never to a heat whose track we cannot identify: a null track must not be
+ *  silently swept into a one-track reservation. Both public pickers call this
+ *  so they cannot drift apart. */
+export function raceWindowAppliesToTrack(w: RaceBlockWindow, track: string | null): boolean {
+  if (!w.tracks) return true;
+  return !!track && w.tracks.includes(track);
+}
+
+/** The racing window END for one track — `endTime`, or the extension's end when
+ *  this track is named in it. Drives which heats the EVENT's own picker offers
+ *  (the mirror of the public block above). */
+export function eventRaceWindowEnd(event: GroupEvent, track: string | null): string {
+  const ext = event.raceWindowExtension;
+  if (ext && track && ext.tracks.includes(track)) return ext.endTime;
+  return event.endTime;
 }

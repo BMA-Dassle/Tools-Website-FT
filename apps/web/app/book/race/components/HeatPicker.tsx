@@ -9,7 +9,11 @@ import {
   violatesMinGapAfter,
   packageGapTooltip,
 } from "@/lib/heat-conflict";
-import { getGroupEventForDate, getRaceBlockWindowsForDate } from "@/lib/group-events";
+import {
+  getGroupEventForDate,
+  getRaceBlockWindowsForDate,
+  raceWindowAppliesToTrack,
+} from "@/lib/group-events";
 
 interface HeatPickerProps {
   race: ClassifiedProduct;
@@ -322,8 +326,11 @@ export default function HeatPicker({
               })();
 
               // Event-window reservation (e.g. FastTrax 4:30–5:30) — heats
-              // overlapping a reserved window are disabled for the public.
+              // overlapping a reserved window are disabled for the public. A
+              // track-scoped window (raceWindowExtension) only reserves its own
+              // track; the other track's heats in those minutes stay bookable.
               const isEventReserved = blockWindows.some((w) => {
+                if (!raceWindowAppliesToTrack(w, race.track ?? null)) return false;
                 const hS = parseLocal(block.start).getTime();
                 const hE = parseLocal(block.stop).getTime();
                 const wS = parseLocal(w.startIso).getTime();
