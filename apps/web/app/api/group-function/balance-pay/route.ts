@@ -243,24 +243,9 @@ export async function POST(req: NextRequest) {
         `payment=${balancePaymentId}`,
     );
 
-    // Receipt with waiver URL + card last4 (best-effort, non-fatal).
+    // Receipt with card last4 (best-effort, non-fatal). The waiver link is resolved
+    // inside notifyBalanceReceipt now (lib/waiver-link-send) — no BMI Office lookup.
     (async () => {
-      let waiverUrl: string | null = null;
-      try {
-        const { fetchProject } = await import("@/lib/bmi-office-actions");
-        const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
-        if (project?.projectReference) {
-          const clientKeys: Record<string, string> = {
-            "fort-myers": "headpinzftmyers",
-            fasttrax: "headpinzftmyers",
-            naples: "headpinznaples",
-          };
-          const ck = clientKeys[quote.center_code] || "headpinzftmyers";
-          waiverUrl = `https://kiosk.sms-timing.com/${ck}/subscribe/event?id=${encodeURIComponent(project.projectReference as string)}`;
-        }
-      } catch {
-        /* non-fatal */
-      }
       await notifyBalanceReceipt(
         {
           ...quote,
@@ -268,7 +253,6 @@ export async function POST(req: NextRequest) {
           balance_paid_at: new Date().toISOString(),
           balance_payment_method: "web",
         } as GroupFunctionQuote,
-        waiverUrl,
         cardLast4,
       );
     })().catch((err) => console.error("[gf-balance-pay] receipt notify error:", err));

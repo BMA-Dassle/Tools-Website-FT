@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql, isDbConfigured } from "@/lib/db";
 import { type GroupFunctionQuote } from "@/lib/group-function-db";
-import { fetchProject, hasWaiverRequiredActivities } from "@/lib/bmi-office-actions";
+import { hasWaiverRequiredActivities } from "@/lib/bmi-office-actions";
 import { verifyCron } from "@/lib/cron-auth";
 
 /**
@@ -16,12 +16,6 @@ import { verifyCron } from "@/lib/cron-auth";
  * Sends a stronger "action required" waiver email urging completion
  * within 7 days. Replaces the BMI "Waiver Reminder" auto-email.
  */
-
-const CLIENT_KEYS: Record<string, string> = {
-  "fort-myers": "headpinzftmyers",
-  fasttrax: "headpinzftmyers",
-  naples: "headpinznaples",
-};
 
 export async function GET(req: NextRequest) {
   const denied = verifyCron(req);
@@ -74,24 +68,15 @@ export async function GET(req: NextRequest) {
 
   for (const quote of waiverQuotes) {
     try {
-      let waiverUrl: string | null = null;
-      try {
-        const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
-        if (project?.projectReference) {
-          const clientKey = CLIENT_KEYS[quote.center_code] || "headpinzftmyers";
-          waiverUrl = `https://kiosk.sms-timing.com/${clientKey}/subscribe/event?id=${encodeURIComponent(project.projectReference as string)}`;
-        }
-      } catch {
-        /* non-fatal */
-      }
-
-      if (!waiverUrl) {
-        console.warn(`[group-7day-waiver] no waiver URL for quote=${quote.id}, skipping`);
-        continue;
-      }
-
+      // The waiver link is resolved inside the sender now (lib/waiver-link-send):
+      // it needs only center_code + bmi_reservation_id, both already on the quote,
+      // so the BMI Office lookup that used to sit here — and the "no waiver URL,
+      // skipping" branch that silently dropped a reminder whenever that upstream
+      // call failed — are both gone. The sender also needs TWO links (an organizer
+      // link and a sign-only one to share), which a single URL argument could not
+      // express.
       const { notify7DayWaiverReminder } = await import("@/lib/group-function-notify");
-      await notify7DayWaiverReminder(quote, waiverUrl);
+      await notify7DayWaiverReminder(quote);
 
       await q`INSERT INTO contract_audit_log (quote_id, event, metadata) VALUES (${quote.id}, '7day_waiver_sent', '{}')`;
 
@@ -125,21 +110,11 @@ export async function GET(req: NextRequest) {
   let twoDaySent = 0;
   for (const quote of twoDayWaiverQuotes) {
     try {
-      let waiverUrl: string | null = null;
-      try {
-        const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
-        if (project?.projectReference) {
-          const clientKey = CLIENT_KEYS[quote.center_code] || "headpinzftmyers";
-          waiverUrl = `https://kiosk.sms-timing.com/${clientKey}/subscribe/event?id=${encodeURIComponent(project.projectReference as string)}`;
-        }
-      } catch {
-        /* non-fatal */
-      }
-
-      if (!waiverUrl) continue;
-
+      // Same as the 7-day path above: the sender resolves both links itself, so the
+      // BMI lookup and the silent `continue` that dropped the FINAL waiver warning on
+      // an upstream blip are gone.
       const { notify2DayWaiverWarning } = await import("@/lib/group-function-notify");
-      await notify2DayWaiverWarning(quote, waiverUrl);
+      await notify2DayWaiverWarning(quote);
 
       await q`INSERT INTO contract_audit_log (quote_id, event, metadata) VALUES (${quote.id}, '2day_waiver_sent', '{}')`;
       twoDaySent++;

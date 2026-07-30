@@ -404,25 +404,47 @@ export async function notifyDepositPaid(quote: GroupFunctionQuote): Promise<void
 
 // ── Waiver Reminder (sent 5 min after deposit) ─────────────────────
 
-const CLIENT_KEYS_NOTIFY: Record<string, string> = {
-  "fort-myers": "headpinzftmyers",
-  fasttrax: "headpinzftmyers",
-  naples: "headpinznaples",
-};
+/**
+ * The two links every DEDICATED waiver email needs.
+ *
+ * These emails are addressed to the organizer but exist to be distributed, so one
+ * link cannot serve both jobs:
+ *
+ *   adminUrl — the CTA and the SMS. Roster + remove, for the person whose inbox
+ *              and phone this is.
+ *   shareUrl — the copy/paste box, which is the slot that actually gets forwarded
+ *              to the party. Sign only.
+ *
+ * Resolved HERE rather than passed in by the caller on purpose: the capability and
+ * the copy sitting next to it have to agree ("safe to forward" must be true of the
+ * link under it), so choosing one at a distant call site is how they drift apart.
+ * It also means the crons no longer do a BMI lookup just to build a URL.
+ *
+ * Null = we could not name the venue (unknown center_code / missing reservation),
+ * so the caller skips rather than send a link pointing at the wrong location.
+ */
+async function waiverLinkPair(
+  quote: GroupFunctionQuote,
+): Promise<{ adminUrl: string; shareUrl: string } | null> {
+  const { waiverUrlForQuote } = await import("@/lib/waiver-link-send");
+  const [adminUrl, shareUrl] = await Promise.all([
+    waiverUrlForQuote(quote, "admin"),
+    waiverUrlForQuote(quote, "register"),
+  ]);
+  return adminUrl && shareUrl ? { adminUrl, shareUrl } : null;
+}
 
 export async function notifyWaiverReminder(quote: GroupFunctionQuote): Promise<void> {
   const items = (quote.line_items || []) as Array<{ name: string }>;
-  const { hasWaiverRequiredActivities, fetchProject } = await import("@/lib/bmi-office-actions");
+  const { hasWaiverRequiredActivities } = await import("@/lib/bmi-office-actions");
   if (!hasWaiverRequiredActivities(items)) return;
 
-  const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
-  if (!project?.projectReference) {
-    console.warn(`[gf-notify] no projectReference for waiver email, skipping quote=${quote.id}`);
+  const links = await waiverLinkPair(quote);
+  if (!links) {
+    console.warn(`[gf-notify] no waiver link for waiver email, skipping quote=${quote.id}`);
     return;
   }
-
-  const clientKey = CLIENT_KEYS_NOTIFY[quote.center_code] || "headpinzftmyers";
-  const waiverUrl = `https://kiosk.sms-timing.com/${clientKey}/subscribe/event?id=${encodeURIComponent(project.projectReference as string)}`;
+  const { adminUrl: waiverUrl, shareUrl } = links;
   const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=email_waiver`;
 
   const waiverActivities = items
@@ -446,7 +468,9 @@ export async function notifyWaiverReminder(quote: GroupFunctionQuote): Promise<v
           quote.guest_phone,
           [
             `${quote.guest_first_name}, all participants for ${quote.event_name || "your event"} at ${quote.center_name} must complete a waiver before arriving.`,
-            `Please forward this link to everyone in your group:`,
+            // Organizer link — open it to see who has signed, then use Share on
+            // the page to send your group a sign-only link.
+            `Track your group's waivers here:`,
             waiverUrl,
             `Questions? Contact ${plannerName(quote)}.`,
           ].join("\n"),
@@ -473,19 +497,20 @@ export async function notifyWaiverReminder(quote: GroupFunctionQuote): Promise<v
           ${activityList ? `<ul style="margin:8px 0 0;padding-left:20px">${activityList}</ul>` : ""}
         </div>
 
-        <p style="margin:16px 0;font-size:14px;color:#475569">Please forward this email — or share the link below — with everyone attending your event. Getting waivers done early avoids delays at check-in!</p>
+        <p style="margin:16px 0;font-size:14px;color:#475569">The button below is <strong>your organizer link</strong> — it shows who has signed so far and lets you remove anyone who is no longer coming. Getting waivers done early avoids delays at check-in!</p>
 
-        ${ctaButton("Complete Waivers Now", waiverUrl)}
+        ${ctaButton("Track & Complete Waivers", waiverUrl)}
 
         <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;text-align:center">
           <p style="margin:0 0 8px;font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px">Share This Link With Your Group</p>
-          <p style="margin:0;font-size:13px;font-family:monospace;color:#334155;word-break:break-all">${waiverUrl}</p>
+          <p style="margin:0 0 8px;font-size:12px;color:#64748b">Sign-only — safe to forward to everyone attending.</p>
+          <p style="margin:0;font-size:13px;font-family:monospace;color:#334155;word-break:break-all">${shareUrl}</p>
         </div>
 
         <p style="margin:16px 0 0;font-size:13px;color:#64748b;text-align:center">You can also access the waiver link anytime from your <a href="${contractUrl}" style="color:#004aad">event page</a>.</p>`,
         { omitWaiverNotice: true },
       ),
-      text: `Hi ${quote.guest_first_name},\n\nYour deposit is confirmed! Before your event, every participant must complete a waiver.\n\nComplete waivers here: ${waiverUrl}\n\nPlease forward this link to everyone in your group. Incomplete waivers may delay check-in.\n\nQuestions? Contact ${plannerName(quote)}.\n${quote.center_name}`,
+      text: `Hi ${quote.guest_first_name},\n\nYour deposit is confirmed! Before your event, every participant must complete a waiver.\n\nYour organizer link (see who has signed, remove anyone not coming): ${waiverUrl}\n\nShare this sign-only link with your group: ${shareUrl}\n\nIncomplete waivers may delay check-in.\n\nQuestions? Contact ${plannerName(quote)}.\n${quote.center_name}`,
     }),
   ]);
 
@@ -501,10 +526,13 @@ export async function notifyWaiverReminder(quote: GroupFunctionQuote): Promise<v
 
 // ── 7-Day Waiver Reminder ──────────────────────────────────────────
 
-export async function notify7DayWaiverReminder(
-  quote: GroupFunctionQuote,
-  waiverUrl: string,
-): Promise<void> {
+export async function notify7DayWaiverReminder(quote: GroupFunctionQuote): Promise<void> {
+  const links = await waiverLinkPair(quote);
+  if (!links) {
+    console.warn(`[gf-notify] no waiver link for 7-day reminder, skipping quote=${quote.id}`);
+    return;
+  }
+  const { adminUrl: waiverUrl, shareUrl } = links;
   const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=email_7day_waiver`;
 
   const items = (quote.line_items || []) as Array<{ name: string }>;
@@ -529,8 +557,9 @@ export async function notify7DayWaiverReminder(
           quote.guest_phone,
           [
             `${quote.guest_first_name}, your event ${quote.event_name || ""} is in 7 days! All participants must complete their waivers before arriving.`,
-            `Complete waivers: ${waiverUrl}`,
-            `Please share this link with your entire group.`,
+            // Organizer link (roster + remove). The sign-only link to hand out is
+            // behind Share on that page — do NOT tell them to forward this one.
+            `Track your group's waivers: ${waiverUrl}`,
           ].join("\n"),
         )
       : Promise.resolve(),
@@ -556,18 +585,19 @@ export async function notify7DayWaiverReminder(
 
         <p style="margin:16px 0;font-size:14px;color:#dc2626;font-weight:bold">Failure to complete waivers in time may result in check-in delays or delays to your event.</p>
 
-        ${ctaButton("Complete Your Waiver Now", waiverUrl)}
+        ${ctaButton("Track & Complete Waivers", waiverUrl)}
 
-        <p style="margin:16px 0;font-size:14px;color:#475569">Make sure everyone in your group signs the waiver. Share this link:</p>
+        <p style="margin:16px 0;font-size:14px;color:#475569">The button above is <strong>your organizer link</strong> — it shows who has signed and lets you remove anyone not coming. To get everyone else signed, share this sign-only link:</p>
 
         <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;text-align:center">
-          <p style="margin:0;font-size:13px;font-family:monospace;color:#334155;word-break:break-all">${waiverUrl}</p>
+          <p style="margin:0 0 8px;font-size:12px;color:#64748b">Sign-only — safe to forward to your whole group.</p>
+          <p style="margin:0;font-size:13px;font-family:monospace;color:#334155;word-break:break-all">${shareUrl}</p>
         </div>
 
         <p style="margin:16px 0 0;font-size:13px;color:#64748b;text-align:center">View your event details anytime on your <a href="${contractUrl}" style="color:#004aad">event page</a>.</p>`,
         { omitWaiverNotice: true },
       ),
-      text: `Hi ${quote.guest_first_name},\n\nYour event is 7 days away! All participants must complete a waiver before arriving.\n\nComplete waivers: ${waiverUrl}\n\nPlease share this link with everyone in your group. Failure to complete waivers may result in check-in delays.\n\nIf text don't work, copy and paste the waiver link above.\n\n${quote.center_name}`,
+      text: `Hi ${quote.guest_first_name},\n\nYour event is 7 days away! All participants must complete a waiver before arriving.\n\nYour organizer link (see who has signed, remove anyone not coming): ${waiverUrl}\n\nShare this sign-only link with everyone in your group: ${shareUrl}\n\nFailure to complete waivers may result in check-in delays.\n\nIf the links don't work, copy and paste them into your browser.\n\n${quote.center_name}`,
     }),
   ]);
 
@@ -583,10 +613,13 @@ export async function notify7DayWaiverReminder(
 
 // ── 2-Day Final Waiver Warning ─────────────────────────────────────
 
-export async function notify2DayWaiverWarning(
-  quote: GroupFunctionQuote,
-  waiverUrl: string,
-): Promise<void> {
+export async function notify2DayWaiverWarning(quote: GroupFunctionQuote): Promise<void> {
+  const links = await waiverLinkPair(quote);
+  if (!links) {
+    console.warn(`[gf-notify] no waiver link for 2-day warning, skipping quote=${quote.id}`);
+    return;
+  }
+  const { adminUrl: waiverUrl, shareUrl } = links;
   const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=email_2day_waiver`;
 
   const items = (quote.line_items || []) as Array<{ name: string }>;
@@ -612,7 +645,8 @@ export async function notify2DayWaiverWarning(
           [
             `URGENT: ${quote.guest_first_name}, your event ${quote.event_name || ""} is in 2 days! Waivers must be completed NOW.`,
             `Guests without a signed waiver will not be able to participate.`,
-            `Complete waivers: ${waiverUrl}`,
+            // Organizer link — the forwardable sign-only one is behind Share.
+            `Track your group's waivers: ${waiverUrl}`,
           ].join("\n"),
         )
       : Promise.resolve(),
@@ -636,18 +670,19 @@ export async function notify2DayWaiverWarning(
           ${activityList ? `<ul style="margin:8px 0 0;padding-left:20px">${activityList}</ul>` : ""}
         </div>
 
-        ${ctaButton("Complete Your Waiver Now", waiverUrl)}
+        ${ctaButton("Track & Complete Waivers", waiverUrl)}
 
-        <p style="margin:16px 0;font-size:14px;color:#475569"><strong>Make sure your entire group is ready.</strong> Share the waiver link below with anyone who still needs to sign:</p>
+        <p style="margin:16px 0;font-size:14px;color:#475569"><strong>Make sure your entire group is ready.</strong> The button above is your organizer link (who has signed, plus remove). Send anyone who still needs to sign this link instead:</p>
 
         <div style="background:#f8fafc;border-radius:8px;padding:16px;margin:16px 0;text-align:center">
-          <p style="margin:0;font-size:13px;font-family:monospace;color:#334155;word-break:break-all">${waiverUrl}</p>
+          <p style="margin:0 0 8px;font-size:12px;color:#64748b">Sign-only — safe to forward.</p>
+          <p style="margin:0;font-size:13px;font-family:monospace;color:#334155;word-break:break-all">${shareUrl}</p>
         </div>
 
         <p style="margin:16px 0 0;font-size:13px;color:#64748b;text-align:center">If you have already completed your waiver, please disregard this email. View event details on your <a href="${contractUrl}" style="color:#004aad">event page</a>.</p>`,
         { omitWaiverNotice: true },
       ),
-      text: `URGENT: ${quote.guest_first_name}, your event is in 2 days!\n\nAll participants must complete their waiver within the next 48 hours.\n\nGuests without a signed waiver will not be able to participate.\n\nComplete waivers: ${waiverUrl}\n\nShare this link with your entire group.\n\nIf already completed, please disregard.\n\n${quote.center_name}`,
+      text: `URGENT: ${quote.guest_first_name}, your event is in 2 days!\n\nAll participants must complete their waiver within the next 48 hours.\n\nGuests without a signed waiver will not be able to participate.\n\nYour organizer link (see who has signed, remove anyone not coming): ${waiverUrl}\n\nShare this sign-only link with your entire group: ${shareUrl}\n\nIf already completed, please disregard.\n\n${quote.center_name}`,
     }),
   ]);
 
@@ -1360,16 +1395,19 @@ export async function notifyWinbackBalanceDueFinal(
 
 // ── 96-Hour Reminder (24hrs before balance charge) ─────────────────
 
-export async function notify96HourReminder(
-  quote: GroupFunctionQuote,
-  waiverUrl: string | null,
-): Promise<void> {
+export async function notify96HourReminder(quote: GroupFunctionQuote): Promise<void> {
   const contractUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=email_96hr`;
   const smsUrl = `${baseUrl(quote)}/contract/${quote.contract_short_id}?src=sms_96hr`;
   const pName = plannerName(quote);
   const items = (quote.line_items || []) as Array<{ name: string }>;
   const { hasWaiverRequiredActivities } = await import("@/lib/bmi-office-actions");
   const hasWaivers = hasWaiverRequiredActivities(items);
+  // REGISTER, not admin: this is a generic secondary "Complete Waivers" nudge on a
+  // verify-your-details email, and its copy makes no organizer claim. Resolved only
+  // when the event actually needs waivers, so nothing is minted for a bowling-only
+  // party. The organizer's full-roster link lives in the dedicated waiver emails
+  // and on their contract page.
+  const waiverUrl = hasWaivers ? await waiverRegisterUrl(quote) : null;
 
   const waiverBlock =
     hasWaivers && waiverUrl
@@ -1456,13 +1494,15 @@ export async function notify96HourReminder(
 
 export async function notifyBalanceReceipt(
   quote: GroupFunctionQuote,
-  waiverUrl: string | null,
   cardLast4?: string,
 ): Promise<void> {
   const pName = plannerName(quote);
   const items = (quote.line_items || []) as Array<{ name: string }>;
   const { hasWaiverRequiredActivities } = await import("@/lib/bmi-office-actions");
   const hasWaivers = hasWaiverRequiredActivities(items);
+  // REGISTER — a secondary nudge on a payment receipt, same reasoning as the
+  // 96-hour reminder. Only minted when the event needs waivers at all.
+  const waiverUrl = hasWaivers ? await waiverRegisterUrl(quote) : null;
   const chargeDate = new Date().toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
@@ -1817,26 +1857,24 @@ function buildGroupFunctionCard(
 
 // ── Premium Email HTML ──────────────────────────────────────────────
 
-// Per-quote waiver-URL cache — one BMI lookup per quote per warm lambda.
-const WAIVER_URL_CACHE = new Map<number, string | null>();
-
-/** Event-specific waiver signing link (kiosk), or null when unresolvable. */
-async function eventWaiverUrl(quote: GroupFunctionQuote): Promise<string | null> {
-  const cached = WAIVER_URL_CACHE.get(quote.id);
-  if (cached !== undefined) return cached;
-  let url: string | null = null;
-  try {
-    const { fetchProject } = await import("@/lib/bmi-office-actions");
-    const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
-    if (project?.projectReference) {
-      const clientKey = CLIENT_KEYS_NOTIFY[quote.center_code] || "headpinzftmyers";
-      url = `https://kiosk.sms-timing.com/${clientKey}/subscribe/event?id=${encodeURIComponent(String(project.projectReference))}`;
-    }
-  } catch {
-    /* non-fatal — the notice renders without a link */
-  }
-  WAIVER_URL_CACHE.set(quote.id, url);
-  return url;
+/**
+ * The SIGN-ONLY (register) waiver link — for every generic, forwardable mention of
+ * waivers in this file: the banner that rides EVERY guest lifecycle email, the
+ * 96-hour reminder's secondary block, and the balance receipt's.
+ *
+ * Deliberately NOT admin. These surfaces are generic and their copy has always
+ * been "share the link with everyone attending", so a link whose own instructions
+ * say to hand it out must not also carry the ability to delete guests from the
+ * booking. The organizer gets a full-roster ADMIN link where it belongs — in the
+ * three dedicated waiver emails (which opt out of the banner via
+ * `omitWaiverNotice` and use `waiverLinkPair`) and on their contract page.
+ *
+ * Memoization lives in lib/waiver-link-send.ts now, so there is no per-quote cache
+ * here and no BMI round trip behind it.
+ */
+async function waiverRegisterUrl(quote: GroupFunctionQuote): Promise<string | null> {
+  const { waiverUrlForQuote } = await import("@/lib/waiver-link-send");
+  return waiverUrlForQuote(quote, "register");
 }
 
 /**
@@ -1872,7 +1910,9 @@ async function emailShell(
 ): Promise<string> {
   const pName = plannerName(quote);
   const domain = quote.brand === "headpinz" ? "headpinz.com" : "fasttraxent.com";
-  const waiverNotice = opts?.omitWaiverNotice ? "" : waiverNoticeRow(await eventWaiverUrl(quote));
+  const waiverNotice = opts?.omitWaiverNotice
+    ? ""
+    : waiverNoticeRow(await waiverRegisterUrl(quote));
 
   return `<html xmlns="http://www.w3.org/1999/xhtml"><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="color-scheme" content="light" /><meta name="supported-color-schemes" content="light" /><style type="text/css">:root{color-scheme:light;supported-color-schemes:light}#outlook a{padding:0}a img{border:none}table td{border-collapse:collapse}body{margin:0;padding:0;background-color:#f2f3f5;-webkit-text-size-adjust:100%}a{color:#004aad}.section-label{font-size:10px;text-transform:uppercase;letter-spacing:3px;color:#004aad;font-weight:bold}.cta-btn{display:inline-block;padding:14px 28px;background-color:#004aad;color:#ffffff !important;text-decoration:none;border-radius:555px;font-weight:bold;font-size:14px;letter-spacing:1px;text-transform:uppercase}.cta-btn.red{background-color:#d71c1c;color:#ffffff !important}</style></head>
 <body style="margin:0;padding:0;background-color:#f2f3f5">

@@ -255,6 +255,8 @@ function ContractClientActive({ quote }: { quote: QuoteProps }) {
   const [eventDetails, setEventDetails] = useState<{
     notes: string;
     waiverUrl: string | null;
+    /** Sign-only link for the Copy / Share-via-Text controls. Never the admin one. */
+    waiverShareUrl: string | null;
     participants: Array<{ name: string; confirmed: boolean; confirmedAt: string | null }>;
     totalParticipants: number;
     confirmedCount: number;
@@ -2000,14 +2002,21 @@ function ContractClientActive({ quote }: { quote: QuoteProps }) {
                   <div className="flex-1">
                     <p className="font-semibold text-white">Complete Your Waivers</p>
                     <p className="mt-1 text-sm text-gray-400">
-                      All participants must sign a waiver before the event. Share this link with
-                      your group.
+                      All participants must sign a waiver before the event. Opening it here shows
+                      who has signed so far; Copy and Share send your group a sign-only link.
                     </p>
                     <p className="mt-1 text-xs font-semibold text-red-400">
                       MANDATORY: Failure to complete waivers is grounds for cancellation.
                     </p>
                   </div>
                 </div>
+                {/* Two capabilities, split by what the control DOES. "Open" is the
+                    organizer acting on their own booking (this page is reached by
+                    their contract_short_id), so it carries the ADMIN link — roster +
+                    remove. Copy and Share hand a link to other people, so they carry
+                    the sign-only REGISTER link and must never fall back to the admin
+                    one: `?? waiverUrl` here would have quietly handed every guest the
+                    remove button on the first request that failed to mint. */}
                 <div className="mt-4 flex flex-wrap gap-2">
                   <a
                     href={eventDetails.waiverUrl}
@@ -2017,21 +2026,25 @@ function ContractClientActive({ quote }: { quote: QuoteProps }) {
                   >
                     Open Waiver Form
                   </a>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(eventDetails.waiverUrl!);
-                    }}
-                    aria-label="Copy waiver link"
-                    className="flex items-center gap-1.5 rounded-xl border border-white/20 px-4 py-2.5 text-sm font-semibold hover:bg-white/5"
-                  >
-                    <IconLink size={16} /> Copy Link
-                  </button>
-                  <a
-                    href={`sms:?body=${encodeURIComponent(`Please complete your waiver for our event: ${eventDetails.waiverUrl}`)}`}
-                    className="flex items-center gap-1.5 rounded-xl border border-white/20 px-4 py-2.5 text-sm font-semibold hover:bg-white/5"
-                  >
-                    <IconShare size={16} /> Share via Text
-                  </a>
+                  {eventDetails.waiverShareUrl && (
+                    <>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(eventDetails.waiverShareUrl!);
+                        }}
+                        aria-label="Copy sign-only waiver link to share"
+                        className="flex items-center gap-1.5 rounded-xl border border-white/20 px-4 py-2.5 text-sm font-semibold hover:bg-white/5"
+                      >
+                        <IconLink size={16} /> Copy Link
+                      </button>
+                      <a
+                        href={`sms:?body=${encodeURIComponent(`Please complete your waiver for our event: ${eventDetails.waiverShareUrl}`)}`}
+                        className="flex items-center gap-1.5 rounded-xl border border-white/20 px-4 py-2.5 text-sm font-semibold hover:bg-white/5"
+                      >
+                        <IconShare size={16} /> Share via Text
+                      </a>
+                    </>
+                  )}
                 </div>
               </div>
             )}

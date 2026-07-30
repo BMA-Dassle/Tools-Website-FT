@@ -11,7 +11,6 @@ import {
 import { loadBalanceOntoGiftCards } from "@/lib/square-gift-card";
 import { notifyBalanceReceipt } from "@/lib/group-function-notify";
 import { issueWinbackIncentive } from "@/lib/group-function-winback";
-import { fetchProject } from "@/lib/bmi-office-actions";
 import { verifyCron } from "@/lib/cron-auth";
 import { firePortalWebhookAsync } from "@/lib/portal-webhook";
 
@@ -255,22 +254,9 @@ async function reconcileQuote(quote: GroupFunctionQuote): Promise<ReconcileResul
 
   // Receipt + ops trail (best-effort, non-fatal).
   (async () => {
-    let waiverUrl: string | null = null;
+    // Waiver link resolved inside notifyBalanceReceipt (lib/waiver-link-send) — no
+    // BMI Office lookup, minted only when the event needs waivers.
     let cardLast4: string | undefined;
-    try {
-      const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
-      if (project?.projectReference) {
-        const clientKeys: Record<string, string> = {
-          "fort-myers": "headpinzftmyers",
-          fasttrax: "headpinzftmyers",
-          naples: "headpinznaples",
-        };
-        const ck = clientKeys[quote.center_code] || "headpinzftmyers";
-        waiverUrl = `https://kiosk.sms-timing.com/${ck}/subscribe/event?id=${encodeURIComponent(project.projectReference as string)}`;
-      }
-    } catch {
-      /* non-fatal */
-    }
     if (balancePaymentId) {
       try {
         const payRes = await fetch(`${SQUARE_BASE}/payments/${balancePaymentId}`, {
@@ -291,7 +277,6 @@ async function reconcileQuote(quote: GroupFunctionQuote): Promise<ReconcileResul
         balance_paid_at: new Date().toISOString(),
         balance_payment_method: "link",
       },
-      waiverUrl,
       cardLast4,
     );
   })().catch((err) => console.error("[group-balance-link-reconcile] receipt notify error:", err));

@@ -16,7 +16,6 @@ import {
 import { loadBalanceOntoGiftCards, sumGiftCardLoadsForPayment } from "@/lib/square-gift-card";
 import { serviceChargeCentsFromLineItems, buildPaymentLineItems } from "@/lib/service-charge";
 import { notifyBalanceReceipt, notifyBalanceLinkSent } from "@/lib/group-function-notify";
-import { fetchProject } from "@/lib/bmi-office-actions";
 import { verifyCron } from "@/lib/cron-auth";
 import { firePortalWebhookAsync } from "@/lib/portal-webhook";
 
@@ -292,24 +291,11 @@ async function processBalanceCharge(
           `amount=${quote.balance_cents} payment=${balancePaymentId}`,
       );
 
-      // Send receipt email with waiver URL and card last4
+      // Send receipt email with card last4. The waiver link is resolved inside
+      // notifyBalanceReceipt now (lib/waiver-link-send) — no BMI Office lookup, and
+      // it is only minted when the event actually needs waivers.
       (async () => {
-        let waiverUrl: string | null = null;
         let cardLast4: string | undefined;
-        try {
-          const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
-          if (project?.projectReference) {
-            const clientKeys: Record<string, string> = {
-              "fort-myers": "headpinzftmyers",
-              fasttrax: "headpinzftmyers",
-              naples: "headpinznaples",
-            };
-            const ck = clientKeys[quote.center_code] || "headpinzftmyers";
-            waiverUrl = `https://kiosk.sms-timing.com/${ck}/subscribe/event?id=${encodeURIComponent(project.projectReference as string)}`;
-          }
-        } catch {
-          /* non-fatal */
-        }
         // Get card last4 from the payment
         try {
           const payRes = await fetch(`${SQUARE_BASE}/payments/${balancePaymentId}`, {
@@ -329,7 +315,6 @@ async function processBalanceCharge(
             balance_paid_at: new Date().toISOString(),
             balance_payment_method: "auto_card",
           },
-          waiverUrl,
           cardLast4,
         );
       })().catch((err) => console.error("[group-balance-charge] receipt notify error:", err));

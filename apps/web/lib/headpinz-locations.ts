@@ -13,7 +13,11 @@ export interface HeadPinzLocation {
   hoursWeekend: string;
   bmiClientKey: string;
   bowlingUrl: string;
-  waiverUrl: string;
+  // NO waiverUrl. It held the legacy external kiosk.bmileisure.com pages and
+  // nothing read it — dead data that any future caller would have picked up in
+  // preference to the first-party flow. Waiver links come from
+  // ~/features/waiver/build-waiver-url (standalone) or lib/waiver-link-send
+  // (reservation-scoped, short, capability-bearing). Never hand-rolled.
   /** Location-specific overrides (pricing, etc.) */
   laserTagPrice: number;
   gelBlasterPrice: number;
@@ -33,7 +37,6 @@ export const HP_LOCATIONS: Record<string, HeadPinzLocation> = {
     hoursWeekend: "Fri-Sat 11AM-2AM",
     bmiClientKey: "headpinzftmyers",
     bowlingUrl: "https://www.mybowlingpassport.com/2/9172/book",
-    waiverUrl: "https://kiosk.bmileisure.com/headpinzftmyers",
     laserTagPrice: 10,
     gelBlasterPrice: 12,
   },
@@ -50,7 +53,6 @@ export const HP_LOCATIONS: Record<string, HeadPinzLocation> = {
     hoursWeekend: "Fri-Sat 11AM-2AM",
     bmiClientKey: "headpinznaples",
     bowlingUrl: "https://www.mybowlingpassport.com/2/3148/book",
-    waiverUrl: "https://kiosk.bmileisure.com/headpinznaples",
     laserTagPrice: 8.5,
     gelBlasterPrice: 12,
   },

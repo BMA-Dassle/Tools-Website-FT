@@ -3,8 +3,8 @@
  * footers, confirmation pages, the group-event emails and SMS — builds its URL
  * here and nowhere else.
  *
- * Why this exists: 21 files hand-rolled `https://kiosk.bmileisure.com/...` /
- * `kiosk.sms-timing.com/...`, each with its own clientKey guess, so the first-party
+ * Why this exists: 21 files hand-rolled their own external kiosk.bmileisure.com /
+ * kiosk.sms-timing.com links, each with its own clientKey guess, so the first-party
  * /waiver flow was live and verified but reachable only by typing the URL. Worse,
  * a hand-rolled link can silently point a Naples guest at Fort Myers — Naples has
  * its own Pandora location AND its own waiver template (contentID 5958737 vs FM's
@@ -16,11 +16,10 @@
  */
 import type { CenterCode } from "~/features/booking/types";
 
-/** External BMI/SMS-Timing pages the site used before the first-party flow. */
-export const LEGACY_WAIVER_URLS = {
-  headpinzFortMyers: "https://kiosk.bmileisure.com/headpinzftmyers",
-  headpinzNaples: "https://kiosk.bmileisure.com/headpinznaples",
-} as const;
+// NOTE: there is deliberately no LEGACY_WAIVER_URLS export here any more. It held
+// the external kiosk.bmileisure.com pages, nothing imported it, and leaving a
+// ready-made legacy URL in the module that exists to replace them is an invitation
+// to a future caller. Anything reachable from here must be a first-party link.
 
 export interface WaiverLinkTarget {
   /** Which venue the guest is signing for. Omit only when it is genuinely

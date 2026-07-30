@@ -696,10 +696,16 @@ export async function POST(req: NextRequest) {
       if (false) {
       }
 
-      // Waiver section — only for new racers
-      const waiverLink = isNewRacer
-        ? waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe"
-        : "";
+      // Waiver section — only for new racers.
+      //
+      // The page supplies `waiverUrl` as a canonical /waiver link (buildWaiverUrl,
+      // with loc+pid when the reservation is known). `waiverLinkForSuppliedUrl`
+      // upgrades that to a short ADMIN code — this email goes to the person who
+      // booked, so they get the roster and the remove button — and replaces the old
+      // hardcoded fallback, which pointed every guest, Naples included, at the
+      // FastTrax/HeadPinz FM tenant where a Naples waiver is not valid.
+      const { waiverLinkForSuppliedUrl } = await import("@/lib/waiver-link-send");
+      const waiverLink = isNewRacer ? await waiverLinkForSuppliedUrl(waiverUrl, "admin") : "";
       const waiverSectionHtml = isNewRacer
         ? `
 <tr>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { pandoraFetchWaiverTemplate } from "@/lib/pandora";
+import { buildWaiverUrl } from "~/features/waiver/build-waiver-url";
 
 type ScheduleItem = { label: string; time: string };
 type ConflictBundle = {
@@ -313,13 +314,18 @@ export default function ConfirmClient(props: Props) {
             </button>
 
             {/* Walk-in path — never RSVP'd, so the lookup above won't find them.
-                Send them straight to the kiosk waiver they still need to sign. */}
+                Send them straight to the waiver they still need to sign.
+                First-party /waiver now (was kiosk.bmileisure.com/headpinzftmyers),
+                so no target/rel — it is our own page, and the new tab only existed
+                because the old link left the site. Center is Fort Myers, explicit:
+                this page loads the HeadPinz Fort Myers waiver template above
+                (pandoraFetchWaiverTemplate(35, "headpinz")) and the events it
+                serves run at HeadPinz Fort Myers & FastTrax. No reservation —
+                these guests never RSVP'd, so there is no project to attach to. */}
             <div className="mt-5 border-t border-white/10 pt-4 text-center">
               <p className="text-sm font-bold text-white/70">Didn&apos;t RSVP?</p>
               <a
-                href="https://kiosk.bmileisure.com/headpinzftmyers"
-                target="_blank"
-                rel="noopener noreferrer"
+                href={buildWaiverUrl({ center: "fort-myers" })}
                 className="mt-3 inline-block w-full rounded-full border border-white/15 px-6 py-3 text-sm font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
                 style={{ color: "var(--accent)" }}
               >
