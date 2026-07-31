@@ -1350,7 +1350,9 @@ export function CheckoutStep({
           >
             {overview.isCreditOrder
               ? "Confirm Booking (Credit)"
-              : `Pay $${overview.cashOwed.toFixed(2)} →`}
+              : overview.cashOwed <= 0
+                ? "Confirm Booking →"
+                : `Pay $${overview.cashOwed.toFixed(2)} →`}
           </button>
         </div>
 
@@ -1613,6 +1615,41 @@ export function CheckoutStep({
           });
         }
       }
+    }
+
+    // Nothing due (vouchers/credits covered the whole order) → NEVER arm a
+    // payment surface. The Square reader cannot process a $0 order (the terminal
+    // gate would dead-end at "see the front desk") and the web card form can't
+    // tokenize $0 either. Reserve directly instead: the server charges nothing
+    // at a $0 deposit and refuses a chargeless reserve that actually owes money
+    // ("Card or gift card required"), so displayed==charged still holds.
+    if (Math.round(overview.cashOwed * 100) <= 0) {
+      return (
+        <div className="mx-auto max-w-md space-y-5 py-8 text-center">
+          <div className="rounded-2xl border border-white/15 bg-white/5 px-6 py-5">
+            <p className="text-lg font-semibold text-white">Nothing to pay today</p>
+            <p className="mt-1 text-sm text-white/60">
+              Your vouchers and credits cover this booking in full.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              void handleTokenize({
+                cardNonce: null,
+                savedCardId: null,
+                giftCardNonce: null,
+                sourceKind: "card",
+                saveCardConsent: false,
+              })
+            }
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#00E2E5] px-8 py-4 text-base font-bold text-[#000418] shadow-lg shadow-[#00E2E5]/25 transition-colors hover:bg-white"
+          >
+            Confirm booking →
+          </button>
+          {cancelControl}
+        </div>
+      );
     }
 
     // Kiosk card-present on the paired reader.
