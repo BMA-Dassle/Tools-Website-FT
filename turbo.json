@@ -4,6 +4,11 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      // NEXT_PUBLIC_* is INLINED into the client bundle at build time, so it
+      // must be part of the cache hash — otherwise flipping a flag in Vercel
+      // and redeploying replays the cached bundle with the OLD value baked in
+      // (live incident 2026-07-30: NEXT_PUBLIC_KIOSK_SPLIT_TENDER).
+      "env": ["NEXT_PUBLIC_*"],
       "outputs": [".next/**", "!.next/cache/**", "dist/**"]
     },
     "dev": {
