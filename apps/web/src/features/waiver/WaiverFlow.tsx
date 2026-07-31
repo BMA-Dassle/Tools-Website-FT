@@ -269,21 +269,47 @@ export function WaiverFlow({
 
   // Reservation mode: fetch the lean, PII-safe event-info header (+ the roster for
   // an online booking).
+  //
+  // POLLED, not one-shot. The server omits `signed` (and with it the roster) when
+  // its Pandora sweep misses the deadline — which reliably happens on the FIRST
+  // request after Azure has gone cold (the kiosk prewarns for the same reason).
+  // The server re-sweeps on every request until one lands, but a page that asks
+  // once inherits whatever the unlucky first request got: an organizer staring at
+  // "6 registered" over an empty list, fixed by a manual reload ("second time
+  // going to the page it's there" — owner 2026-07-31). So while the response
+  // carries no `signed`, keep asking on a short interval — each retry warms
+  // Pandora's per-person cache further, so one of them lands — and give up after
+  // CTX_MAX_ATTEMPTS rather than poll a genuinely broken backend forever. The
+  // loader stays up during the retries (see ctxSettled), which is exactly what it
+  // is for.
   useEffect(() => {
     if (!reservation || !center) return;
     let cancelled = false;
+    const CTX_MAX_ATTEMPTS = 5;
+    const CTX_RETRY_DELAY_MS = 2_500;
+    const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
     void (async () => {
       try {
-        const res = await fetch(
-          `/api/waiver/context?c=${center}&loc=${reservation.locationId}&pid=${reservation.projectId}`,
-          { cache: "no-store" },
-        );
-        // res.json() is safe for the roster's 17-digit person ids because the route
-        // serializes every one as a JSON *string* — pinned by its own wire test
-        // (`"personId":"51383608123456789"`). The BMI precision rule bites on
-        // unquoted numeric ids; do NOT "simplify" that serialization.
-        const data = await res.json();
-        if (!cancelled && res.ok && data.ok) setCtx(data as WaiverContextSummary);
+        for (let attempt = 1; attempt <= CTX_MAX_ATTEMPTS && !cancelled; attempt++) {
+          if (attempt > 1) await delay(CTX_RETRY_DELAY_MS);
+          if (cancelled) return;
+          const res = await fetch(
+            `/api/waiver/context?c=${center}&loc=${reservation.locationId}&pid=${reservation.projectId}`,
+            { cache: "no-store" },
+          );
+          // res.json() is safe for the roster's 17-digit person ids because the route
+          // serializes every one as a JSON *string* — pinned by its own wire test
+          // (`"personId":"51383608123456789"`). The BMI precision rule bites on
+          // unquoted numeric ids; do NOT "simplify" that serialization.
+          const data = await res.json();
+          if (cancelled) return;
+          if (res.ok && data.ok) {
+            setCtx(data as WaiverContextSummary);
+            // `signed` present ⇒ the sweep landed; the roster (organizer, online
+            // booking) rode the same result. Absent ⇒ sweep missed — retry.
+            if (data.signed !== undefined) return;
+          }
+        }
       } catch {
         /* header is best-effort — the sign flow works without it */
       } finally {
@@ -533,10 +559,13 @@ export function WaiverFlow({
   }
 
   // Reservation link, context still in flight: the kiosk's branded loader
-  // instead of an empty party under "N registered". `ctxSettled` (not `ctx`)
-  // ends this state, so a FAILED fetch falls through to the normal flow rather
-  // than spinning forever — signing has never depended on the header.
-  if (reservation && !ctx && !ctxSettled) {
+  // instead of an empty party under "N registered". Keyed on `ctxSettled`, not
+  // on the first response — a summary that arrived WITHOUT the sweep result is
+  // still "loading the people", and the fetch loop above is mid-retry for
+  // exactly that case. A failed/exhausted loop settles and falls through to the
+  // normal flow rather than spinning forever — signing has never depended on
+  // the header.
+  if (reservation && !ctxSettled) {
     return shell(
       <>
         <WaiverHead brand={brand} subtitle="Loading reservation…" signed={0} total={0} />
