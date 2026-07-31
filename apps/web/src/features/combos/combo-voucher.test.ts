@@ -10,10 +10,13 @@ vi.mock("~/features/game-cards/data/vouchers-db", () => ({
 }));
 
 vi.mock("~/features/game-cards/service/native-voucher", () => ({
-  mintVouchers: vi.fn(async (args: { items: unknown[] }) => ({
-    batchId: "b-1",
-    vouchers: [{ code: "HPW4K7M9PQR", items: args.items }],
-  })),
+  mintBookingVoucherIfNeeded: vi.fn(
+    async (args: { items: unknown[]; expiresAt: string | null }) => ({
+      code: "HPW4K7M9PQR",
+      items: args.items,
+      expiresAt: args.expiresAt,
+    }),
+  ),
 }));
 
 vi.mock("~/features/game-cards/service/voucher-mail", () => ({
@@ -22,7 +25,7 @@ vi.mock("~/features/game-cards/service/voucher-mail", () => ({
 
 import { comboVoucherExpiry, comboVoucherItems, mintComboVoucherIfNeeded } from "./combo-voucher";
 import { getVoucherByBillId } from "~/features/game-cards/data/vouchers-db";
-import { mintVouchers } from "~/features/game-cards/service/native-voucher";
+import { mintBookingVoucherIfNeeded } from "~/features/game-cards/service/native-voucher";
 import type { ComboSpecial } from "./combo-specials";
 
 const BILL = "63000000006397110";
@@ -81,7 +84,7 @@ describe("comboVoucherExpiry", () => {
   });
 });
 
-describe("mintComboVoucherIfNeeded", () => {
+describe("mintComboVoucherIfNeeded — thin adapter over the universal booking rail", () => {
   const args = {
     combo,
     billId: BILL,
@@ -96,53 +99,36 @@ describe("mintComboVoucherIfNeeded", () => {
       combo: { ...combo, voucherGrant: undefined } as ComboSpecial,
     });
     expect(res).toBeNull();
-    expect(mintVouchers).not.toHaveBeenCalled();
+    expect(mintBookingVoucherIfNeeded).not.toHaveBeenCalled();
   });
 
-  it("is idempotent on the bill — an existing voucher short-circuits the mint", async () => {
-    (getVoucherByBillId as ReturnType<typeof vi.fn>).mockResolvedValue({
-      code: "HPWEXISTING",
-      items: [gz],
-      expiresAt: "2027-08-03T04:59:59.000Z",
-    });
-    const res = await mintComboVoucherIfNeeded(args);
-    expect(res?.code).toBe("HPWEXISTING");
-    expect(mintVouchers).not.toHaveBeenCalled();
-  });
-
-  it("mints ONE bill-linked voucher with per-guest items × racers", async () => {
+  it("maps the grant onto the universal rail: items × racers, visit-date expiry, combo audit fields", async () => {
     const res = await mintComboVoucherIfNeeded(args);
     expect(res?.code).toBe("HPW4K7M9PQR");
-    expect(mintVouchers).toHaveBeenCalledWith(
+    expect(mintBookingVoucherIfNeeded).toHaveBeenCalledWith(
       expect.objectContaining({
-        count: 1,
         billId: BILL,
         issuedSource: "booking-combo",
         issuedTo: { email: "guest@example.com", name: "Guest" },
         expiresAt: "2027-08-03T04:59:59.000Z",
+        batchLabel: `race-bowl-v2 ${BILL}`,
       }),
     );
-    const items = (mintVouchers as ReturnType<typeof vi.fn>).mock.calls[0][0].items;
-    expect(items).toHaveLength(5); // 2×(gz+choice) + shuffly
+    const call = (mintBookingVoucherIfNeeded as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(call.items).toHaveLength(5); // 2×(gz+choice) + shuffly
   });
 
-  it("re-selects the winner when the bill_id unique index loses a race", async () => {
-    (mintVouchers as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error("duplicate key value violates unique constraint"),
+  it("omits issuedTo when the booking has no contact", async () => {
+    await mintComboVoucherIfNeeded({ ...args, contact: undefined });
+    expect(mintBookingVoucherIfNeeded).toHaveBeenCalledWith(
+      expect.objectContaining({ issuedTo: null }),
     );
-    (getVoucherByBillId as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(null) // pre-mint check: nothing yet
-      .mockResolvedValueOnce({
-        code: "HPWWINNER",
-        items: [gz],
-        expiresAt: null,
-      }); // post-conflict re-select: the other writer's voucher
-    const res = await mintComboVoucherIfNeeded(args);
-    expect(res?.code).toBe("HPWWINNER");
   });
 
-  it("rethrows when the mint fails and no winner exists (cron recovers)", async () => {
-    (mintVouchers as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("neon down"));
+  it("propagates a rail failure (caller soft-fails; cron recovers)", async () => {
+    (mintBookingVoucherIfNeeded as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("neon down"),
+    );
     await expect(mintComboVoucherIfNeeded(args)).rejects.toThrow("neon down");
   });
 });

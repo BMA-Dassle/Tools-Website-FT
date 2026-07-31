@@ -21,19 +21,15 @@
  */
 
 import { sql, isDbConfigured } from "@ft/db";
+import { getVoucherByBillId, type VoucherItem } from "~/features/game-cards/data/vouchers-db";
 import {
-  getVoucherByBillId,
-  type VoucherItem,
-} from "~/features/game-cards/data/vouchers-db";
-import { mintVouchers } from "~/features/game-cards/service/native-voucher";
+  mintBookingVoucherIfNeeded,
+  type BookingVoucher,
+} from "~/features/game-cards/service/native-voucher";
 import { sendVoucherToGuest } from "~/features/game-cards/service/voucher-mail";
 import { getComboSpecial, type ComboSpecial } from "./combo-specials";
 
-export interface ComboVoucherMintResult {
-  code: string;
-  items: VoucherItem[];
-  expiresAt: string | null;
-}
+export type ComboVoucherMintResult = BookingVoucher;
 
 /** The full item list one booking's voucher carries. Pure — unit-tested. */
 export function comboVoucherItems(combo: ComboSpecial, racerCount: number): VoucherItem[] {
@@ -60,7 +56,9 @@ export function comboVoucherExpiry(visitDateYmd: string, months: number): string
 
 /**
  * Mint the booking's voucher if it doesn't exist yet; return the live one
- * either way. Null only when the combo grants nothing.
+ * either way. Null only when the combo grants nothing. Thin adapter over the
+ * UNIVERSAL `mintBookingVoucherIfNeeded` (game-cards) — future non-combo
+ * booking grants call that rail directly with their own item lists.
  */
 export async function mintComboVoucherIfNeeded(args: {
   combo: ComboSpecial;
@@ -73,38 +71,20 @@ export async function mintComboVoucherIfNeeded(args: {
 }): Promise<ComboVoucherMintResult | null> {
   const grant = args.combo.voucherGrant;
   if (!grant) return null;
-
-  const existing = await getVoucherByBillId(args.billId);
-  if (existing) {
-    return { code: existing.code, items: existing.items, expiresAt: existing.expiresAt };
-  }
-
-  const items = comboVoucherItems(args.combo, args.racerCount);
-  const expiresAt = comboVoucherExpiry(args.visitDateYmd, grant.expiresMonthsFromVisit);
-  try {
-    const { vouchers } = await mintVouchers({
-      count: 1,
-      items,
-      billId: args.billId,
-      expiresAt,
-      issuedSource: "booking-combo",
-      issuedTo:
-        args.contact?.email || args.contact?.name
-          ? {
-              ...(args.contact.email ? { email: args.contact.email } : {}),
-              ...(args.contact.name ? { name: args.contact.name } : {}),
-            }
-          : null,
-      batchLabel: `${args.combo.id} ${args.billId}`,
-    });
-    return { code: vouchers[0].code, items, expiresAt };
-  } catch (err) {
-    // Two writers raced the bill_id unique index — the other one won. Their
-    // voucher IS this booking's voucher; re-select it instead of failing.
-    const raced = await getVoucherByBillId(args.billId);
-    if (raced) return { code: raced.code, items: raced.items, expiresAt: raced.expiresAt };
-    throw err;
-  }
+  return mintBookingVoucherIfNeeded({
+    billId: args.billId,
+    items: comboVoucherItems(args.combo, args.racerCount),
+    expiresAt: comboVoucherExpiry(args.visitDateYmd, grant.expiresMonthsFromVisit),
+    issuedSource: "booking-combo",
+    issuedTo:
+      args.contact?.email || args.contact?.name
+        ? {
+            ...(args.contact.email ? { email: args.contact.email } : {}),
+            ...(args.contact.name ? { name: args.contact.name } : {}),
+          }
+        : null,
+    batchLabel: `${args.combo.id} ${args.billId}`,
+  });
 }
 
 export interface ComboVoucherSweepSummary {

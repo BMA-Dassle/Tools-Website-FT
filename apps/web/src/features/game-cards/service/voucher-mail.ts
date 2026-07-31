@@ -56,7 +56,7 @@ function esc(s: string): string {
  * `errorCorrectionLevel: "H"` because these get printed, photographed off a
  * screen, and scanned under a kiosk bezel; margin 1 keeps the image tight.
  */
-async function qrAttachment(code: string): Promise<{
+export async function qrAttachment(code: string): Promise<{
   cid: string;
   attachment: { content: string; filename: string; type: string; contentId: string };
 }> {

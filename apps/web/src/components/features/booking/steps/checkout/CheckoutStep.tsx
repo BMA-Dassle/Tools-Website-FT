@@ -63,6 +63,7 @@ import {
 import { stashGzFulfillment as stashKioskGameCards } from "~/features/kiosk/service/gz-fulfillment";
 import { stashRacePackConfirmation } from "~/features/kiosk/service/race-pack-confirmation";
 import { stashPovConfirmation } from "~/features/kiosk/service/pov-confirmation";
+import { stashVipVoucherConfirmation } from "~/features/kiosk/service/vip-voucher-confirmation";
 import { stashKioskHasRacing } from "~/features/kiosk/service/racing-confirmation";
 import {
   kioskRacePacksEnabled,
@@ -1565,6 +1566,7 @@ export function CheckoutStep({
           stashKioskGameCards((result as { gameCards?: unknown }).gameCards);
           stashRacePackConfirmation((result as { racePacks?: unknown }).racePacks);
           stashPovConfirmation((result as { povCodes?: unknown }).povCodes);
+          stashVipVoucherConfirmation((result as { comboVoucher?: unknown }).comboVoucher);
           // Booked heats only (race packs are credits, not a visit today) — the
           // kiosk confirmation's racing "what's next" banner keys off this.
           stashKioskHasRacing(session.items.some((i) => i.kind === "race"));

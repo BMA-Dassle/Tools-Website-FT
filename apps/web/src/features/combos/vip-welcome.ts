@@ -162,6 +162,64 @@ export function vipEmailSubject(combo: ComboSpecial, reservationNumber: string):
 }
 
 /**
+ * The "Your VIP Voucher" card — the V2 grant's code + QR + entitlement list.
+ * Fills `^VipVoucherSection()$`; the route passes "" when the booking has no
+ * voucher, so v1 combos collapse the section to nothing.
+ *
+ * Pure over its args (labels come from the caller via voucherItemLabel) so it
+ * unit-tests without the voucher registry. `qrCid` is the inline attachment's
+ * content id — cid, never a data: URI, because Gmail/Outlook strip those.
+ */
+export function buildVipVoucherSectionHtml(args: {
+  /** Display form, e.g. "HPW-4K7M-9PQR". */
+  codeDisplay: string;
+  /** One guest-facing label per voucher item, mint order. */
+  itemLabels: string[];
+  /** Absolute expiry ISO (from vouchers.expires_at), or null. */
+  expiresAt: string | null;
+  /** /v/{code} redemption URL. */
+  redeemUrl: string;
+  /** Inline QR attachment content id. */
+  qrCid: string;
+}): string {
+  const items = args.itemLabels
+    .map(
+      (l) =>
+        `<tr><td style="padding: 3px 0; font-size: 13px; color: #333; line-height: 1.5;"><span style="color: #B8860B; font-weight: bold;">&#10003;</span>&nbsp;&nbsp;${l.replace(/&(?!amp;|mdash;)/g, "&amp;")}</td></tr>`,
+    )
+    .join("");
+  const expiry = args.expiresAt
+    ? new Date(args.expiresAt).toLocaleDateString("en-US", {
+        timeZone: "America/New_York",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })
+    : null;
+  return `
+<tr>
+<td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
+<table width="100%" cellpadding="16" cellspacing="0" border="0" style="background-color: #FFFBEB; border: 2px solid #B8860B; border-radius: 6px;">
+<tr><td align="center" style="font-size: 15px; font-weight: bold; color: #B8860B; letter-spacing: 1px; text-transform: uppercase;">Your VIP Voucher</td></tr>
+<tr><td align="center" style="padding: 6px 0 2px 0;">
+  <span style="display: inline-block; font-family: monospace; font-size: 24px; letter-spacing: 2px; color: #1A1A1A; background: #F3E8B8; border-radius: 8px; padding: 10px 16px;">${args.codeDisplay}</span>
+</td></tr>
+<tr><td align="center" style="padding: 4px 0;">
+  <img src="cid:${args.qrCid}" width="160" height="160" alt="Scan this voucher at any kiosk" style="display: block; margin: 0 auto; border: 1px solid #F3E8B8; border-radius: 8px;" />
+  <p style="margin: 6px 0 0 0; font-size: 12px; color: #666;">Scan this QR at any kiosk, or open <a href="${args.redeemUrl}" style="color: #B8860B;">your voucher page</a>.</p>
+</td></tr>
+<tr><td style="padding: 4px 8px;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">${items}</table>
+</td></tr>
+<tr><td align="center" style="font-size: 12px; color: #888; line-height: 1.6;">
+  ${expiry ? `Valid through <strong style="color: #555;">${expiry}</strong> &mdash; 1 year from your race date. ` : ""}Not transferable. Attractions redeem when available &mdash; book them on a future visit or see Guest Services.
+</td></tr>
+</table>
+</td>
+</tr>`;
+}
+
+/**
  * VIP confirmation SMS. Returns null when the composed body would break the
  * strict single-segment GSM-7 policy (>160 chars or any non-ASCII char) so
  * the route falls back to the standard body — the VIP SMS is provably never

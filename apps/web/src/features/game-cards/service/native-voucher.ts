@@ -25,6 +25,7 @@ import {
 import {
   gameZoneGrant,
   getVoucher,
+  getVoucherByBillId,
   insertVoucher,
   logVoucherEvent,
   voidVoucher,
@@ -321,6 +322,57 @@ export async function mintVouchers(args: {
     if (!inserted) throw new Error("could not mint a unique code after retries");
   }
   return { batchId, vouchers };
+}
+
+/** The one voucher a booking granted (or already had). */
+export interface BookingVoucher {
+  code: string;
+  items: VoucherItem[];
+  expiresAt: string | null;
+}
+
+/**
+ * UNIVERSAL booking-grant rail: mint the ONE voucher linked to a bill, or
+ * return the existing one. Any booking-time grant — the VIP combo today,
+ * future bundles/parties/promos — converges here, so "a booking granted a
+ * voucher" always means the same thing: one bill, one code, any item list.
+ *
+ * Idempotent on `vouchers.bill_id` (partial UNIQUE index): reserve retries,
+ * recovery sweeps and manual re-mints all return the same code, and a lost
+ * insert race re-selects the winner instead of erroring or duplicating.
+ */
+export async function mintBookingVoucherIfNeeded(args: {
+  /** BMI billId — a STRING (17-digit ids exceed float-safe range). */
+  billId: string;
+  items: VoucherItem[];
+  expiresAt: string | null;
+  /** e.g. "booking-combo", "booking-party" — the audit trail's who-minted. */
+  issuedSource: string;
+  issuedTo?: VoucherRow["issuedTo"];
+  batchLabel?: string | null;
+}): Promise<BookingVoucher> {
+  const existing = await getVoucherByBillId(args.billId);
+  if (existing) {
+    return { code: existing.code, items: existing.items, expiresAt: existing.expiresAt };
+  }
+  try {
+    const { vouchers } = await mintVouchers({
+      count: 1,
+      items: args.items,
+      billId: args.billId,
+      expiresAt: args.expiresAt,
+      issuedSource: args.issuedSource,
+      issuedTo: args.issuedTo ?? null,
+      batchLabel: args.batchLabel ?? null,
+    });
+    return { code: vouchers[0].code, items: args.items, expiresAt: args.expiresAt };
+  } catch (err) {
+    // Two writers raced the bill_id unique index — the other one won. Their
+    // voucher IS this booking's voucher; re-select it instead of failing.
+    const raced = await getVoucherByBillId(args.billId);
+    if (raced) return { code: raced.code, items: raced.items, expiresAt: raced.expiresAt };
+    throw err;
+  }
 }
 
 export type NativeClaimResult =

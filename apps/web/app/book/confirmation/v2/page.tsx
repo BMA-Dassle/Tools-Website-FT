@@ -14,6 +14,7 @@ import { productDisplayNameFromPackages, getPackageIgnoreFlag } from "@/lib/pack
 import { buildReservationMemo } from "~/features/booking/service/reservation-memo";
 import { ATTRACTIONS, type AttractionConfig } from "@/lib/attractions-data";
 import { comboReservationNote, getComboSpecial } from "~/features/combos";
+import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
 import { BowlingPlayersEditor } from "~/components/features/booking/confirmation/BowlingPlayersEditor";
 import ComboManageNote from "~/components/features/cancellation/ComboManageNote";
 import GiftCardIssuedPanel from "~/components/features/cancellation/GiftCardIssuedPanel";
@@ -1637,6 +1638,10 @@ export default function ConfirmationPage() {
   // (saveBookingDetails → comboSpecial). Drives the celebratory banner.
   const comboSpecialId = (bookingRec?.comboSpecial as string | null | undefined) ?? null;
   const comboSpecial = comboSpecialId ? getComboSpecial(comboSpecialId) : null;
+  // V2 grant: the reserve stamps the minted voucher code onto the booking
+  // record (unified-reserve → vipVoucherCode). Absent on v1 combos and when
+  // the mint deferred to the recovery cron (the guest then gets it by email).
+  const vipVoucherCode = (bookingRec?.vipVoucherCode as string | null | undefined) ?? null;
 
   return (
     <div className="min-h-screen bg-[#000418]">
@@ -1794,6 +1799,41 @@ export default function ConfirmationPage() {
               </svg>
               All bookings
             </button>
+          )}
+
+          {/* V2 VIP voucher — the redeem-later entitlements minted with this
+              booking. The email carries the scannable QR; this card is the
+              on-page copy of the code. */}
+          {comboSpecial && vipVoucherCode && !bookingCancelled && !isDetail && (
+            <div
+              className="mb-6 rounded-2xl border-2 p-5 text-center"
+              style={{
+                borderColor: comboSpecial.accentColor,
+                backgroundColor: "rgba(212,175,55,0.08)",
+              }}
+            >
+              <p
+                className="font-display text-sm uppercase tracking-widest"
+                style={{ color: comboSpecial.accentColor }}
+              >
+                Your VIP Voucher
+              </p>
+              <p className="mt-2 font-mono text-2xl tracking-[0.12em] text-white">
+                {formatVoucherCode(vipVoucherCode)}
+              </p>
+              <p className="mx-auto mt-2 max-w-md text-sm text-white/60">
+                Your Game Zone cards, Laser Tag or Gel Blaster passes, and Shuffly hour live on
+                this one code — it was emailed to you with a scannable QR. Valid 1 year from your
+                race date. Not transferable; attractions redeem when available.
+              </p>
+              <a
+                href={`/v/${encodeURIComponent(vipVoucherCode)}`}
+                className="mt-3 inline-block text-sm font-semibold underline"
+                style={{ color: comboSpecial.accentColor }}
+              >
+                See what&apos;s on your voucher
+              </a>
+            </div>
           )}
 
           {/* Waiver banner — any waiver activity where the party's waivers did

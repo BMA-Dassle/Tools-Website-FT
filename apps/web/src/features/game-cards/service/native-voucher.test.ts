@@ -9,6 +9,7 @@ vi.mock("../data/vouchers-db", async (importOriginal) => {
   return {
     ...actual,
     getVoucher: vi.fn(),
+    getVoucherByBillId: vi.fn(async () => null),
     insertVoucher: vi.fn(async () => {
       order.push("insertVoucher");
       return true;
@@ -399,6 +400,62 @@ describe("attraction-choice items + bill-linked mints", () => {
     await expect(
       svc.mintVouchers({ count: 2, items: [svc.gameZoneItem(100)], billId: "63000000006397110" }),
     ).rejects.toThrow(/exactly one voucher/);
+  });
+});
+
+describe("mintBookingVoucherIfNeeded — the universal booking-grant rail", () => {
+  const BILL = "63000000006397110";
+  const args = () => ({
+    billId: BILL,
+    items: [
+      { kind: "gamezone" as const, tokens: 0, bonusTokens: 100, bonusCashDollars: 0 },
+      { kind: "attraction-choice" as const, slugs: ["laser-tag", "gel-blaster"], qty: 1 },
+    ],
+    expiresAt: "2027-08-03T04:59:59.000Z",
+    issuedSource: "booking-combo",
+  });
+
+  it("mints ONE bill-linked voucher and returns its code + items + expiry", async () => {
+    const { svc, db } = await mods();
+    (db.getVoucherByBillId as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    const res = await svc.mintBookingVoucherIfNeeded(args());
+    expect(res.code).toMatch(/^HPW/);
+    expect(res.items).toHaveLength(2);
+    expect(res.expiresAt).toBe("2027-08-03T04:59:59.000Z");
+    expect(db.insertVoucher).toHaveBeenCalledWith(
+      expect.objectContaining({ billId: BILL, kind: "mixed", issuedSource: "booking-combo" }),
+    );
+  });
+
+  it("is idempotent on the bill — an existing voucher short-circuits the mint", async () => {
+    const { svc, db } = await mods();
+    (db.getVoucherByBillId as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: "HPWEXISTING",
+      items: [svc.gameZoneItem(100)],
+      expiresAt: null,
+    });
+    const res = await svc.mintBookingVoucherIfNeeded(args());
+    expect(res.code).toBe("HPWEXISTING");
+    expect(db.insertVoucher).not.toHaveBeenCalled();
+  });
+
+  it("re-selects the winner when the bill_id unique index loses a race", async () => {
+    const { svc, db } = await mods();
+    (db.getVoucherByBillId as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(null) // pre-mint check: nothing yet
+      .mockResolvedValueOnce({ code: "HPWWINNER", items: [], expiresAt: null }); // post-conflict
+    (db.insertVoucher as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error("duplicate key value violates unique constraint"),
+    );
+    const res = await svc.mintBookingVoucherIfNeeded(args());
+    expect(res.code).toBe("HPWWINNER");
+  });
+
+  it("rethrows when the mint fails and no winner exists (caller's recovery owns it)", async () => {
+    const { svc, db } = await mods();
+    (db.getVoucherByBillId as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (db.insertVoucher as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("neon down"));
+    await expect(svc.mintBookingVoucherIfNeeded(args())).rejects.toThrow("neon down");
   });
 });
 

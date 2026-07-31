@@ -25,6 +25,12 @@ import {
 } from "../service/race-pack-confirmation";
 import { clarityEvent } from "~/lib/clarity";
 import { readPovConfirmation, clearPovConfirmation } from "../service/pov-confirmation";
+import {
+  readVipVoucherConfirmation,
+  clearVipVoucherConfirmation,
+  type VipVoucherConfirmation,
+} from "../service/vip-voucher-confirmation";
+import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
 import { readKioskHasRacing, clearKioskHasRacing } from "../service/racing-confirmation";
 import { useT } from "../i18n";
 import PovVoucherBlock from "@/components/booking/PovVoucherBlock";
@@ -178,6 +184,9 @@ export function KioskConfirmation({ src }: { src: string | null }) {
   // POV video codes claimed with the booking (unified-reserve → checkout stash)
   // — display nicety; the durable copies are the guest email + reservation memo.
   const [povCodes, setPovCodes] = useState<string[] | null>(null);
+  // V2 combo voucher minted with the booking — display nicety; the durable
+  // copies are the guest email (code + QR) and the vouchers registry.
+  const [vipVoucher, setVipVoucher] = useState<VipVoucherConfirmation | null>(null);
   // Checkout included a booked race (heats, not race-pack credits) — show the
   // racing "what's next" banner with the race check-in details popup.
   const [includesRacing, setIncludesRacing] = useState(false);
@@ -207,6 +216,11 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       if (codes) {
         setPovCodes(codes);
         clearPovConfirmation();
+      }
+      const voucher = readVipVoucherConfirmation();
+      if (voucher) {
+        setVipVoucher(voucher);
+        clearVipVoucherConfirmation();
       }
       if (readKioskHasRacing()) {
         setIncludesRacing(true);
@@ -580,6 +594,22 @@ export function KioskConfirmation({ src }: { src: string | null }) {
               </>
             }
           />
+        </div>
+      )}
+      {vipVoucher && (
+        // V2 VIP grant — the code the guest will scan back in on a later
+        // visit. Product proper nouns stay English (same rule as combo names);
+        // the email carries the scannable QR + full terms.
+        <div className="relative w-full max-w-[860px] rounded-[24px] border-2 border-[#B8860B] bg-[#B8860B]/10 px-[48px] py-[28px] text-left">
+          <div className="k-eyebrow text-[#f0b341]">Your VIP Voucher</div>
+          <div className="k-display mt-2 text-[52px] tracking-widest text-white">
+            {formatVoucherCode(vipVoucher.code)}
+          </div>
+          <p className="mt-2 text-[22px] leading-snug text-white/70">
+            Game Zone cards, Laser Tag or Gel Blaster, and your Shuffly hour live on this one code
+            — it was <strong className="text-white/90">emailed to you</strong> with a scannable QR.
+            Valid 1 year from your race date. Not transferable.
+          </p>
         </div>
       )}
       {gzPayload && (

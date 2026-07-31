@@ -12,8 +12,12 @@ import { getComboSpecial } from "~/features/combos/combo-specials";
 import {
   buildVipEmailFields,
   buildVipSmsBody,
+  buildVipVoucherSectionHtml,
   vipEmailSubject,
 } from "~/features/combos/vip-welcome";
+import { getVoucherByBillId, voucherItemLabel } from "~/features/game-cards/data/vouchers-db";
+import { qrAttachment, voucherRedeemUrl } from "~/features/game-cards/service/voucher-mail";
+import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
 
 // Re-export so any existing importer of this route's signature verifier keeps
 // working after the helpers moved to lib/booking-confirmation-link.
@@ -57,6 +61,9 @@ async function sendEmail(
   subject: string,
   html: string,
   fromName?: string,
+  /** Inline (cid:) attachments — the voucher QR. Gmail/Outlook strip data-URI
+   *  images, so a cid attachment is the only <img> form that renders there. */
+  attachments?: Array<{ content: string; filename: string; type: string; contentId: string }>,
 ): Promise<boolean> {
   if (!SENDGRID_API_KEY) {
     console.error("[booking-confirmation] No SENDGRID_API_KEY");
@@ -73,6 +80,17 @@ async function sendEmail(
       from: { email: FROM_EMAIL, name: fromName || FROM_NAME },
       subject,
       content: [{ type: "text/html", value: html }],
+      ...(attachments && attachments.length > 0
+        ? {
+            attachments: attachments.map((a) => ({
+              content: a.content,
+              filename: a.filename,
+              type: a.type,
+              disposition: "inline",
+              content_id: a.contentId,
+            })),
+          }
+        : {}),
     }),
   });
   if (!res.ok) {
@@ -437,6 +455,50 @@ export async function POST(req: NextRequest) {
           </table>
         </td></tr>`
           : "";
+      // V2 combo voucher — kiosk sales never reach the vip-welcome template
+      // (this branch early-returns), so the voucher block renders inline here.
+      // Resolved SERVER-SIDE from the registry (vouchers.bill_id, stamped at
+      // reserve); a client-posted code is never trusted. Best-effort.
+      let kioskVoucherHtml = "";
+      const kioskAttachments: Array<{
+        content: string;
+        filename: string;
+        type: string;
+        contentId: string;
+      }> = [];
+      if (typeof comboSpecialId === "string" && comboSpecialId && billId) {
+        try {
+          const v = await getVoucherByBillId(String(billId));
+          if (v && !v.voidedAt) {
+            const qr = await qrAttachment(v.code);
+            kioskAttachments.push(qr.attachment);
+            const expiry = v.expiresAt
+              ? new Date(v.expiresAt).toLocaleDateString("en-US", {
+                  timeZone: "America/New_York",
+                  month: "long",
+                  day: "numeric",
+                  year: "numeric",
+                })
+              : null;
+            kioskVoucherHtml = `<tr><td style="padding:0 32px 8px 32px;">
+          <table role="presentation" width="100%" style="background:#231a05;border:1px solid #B8860B;border-radius:12px;">
+            <tr><td style="padding:16px 20px;">
+              <p style="margin:0 0 8px;color:#f0b341;font-size:15px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;">Your VIP Voucher</p>
+              <p style="font-family:monospace;font-size:22px;font-weight:bold;color:#fff;margin:0 0 10px;letter-spacing:2px;">${formatVoucherCode(v.code)}</p>
+              <img src="cid:${qr.cid}" width="150" height="150" alt="Scan this voucher at any kiosk" style="display:block;border:1px solid #B8860B;border-radius:8px;margin:0 0 10px;">
+              ${v.items.map((it) => `<p style="margin:2px 0;color:#e8d9b0;font-size:13px;">&#10003;&nbsp;&nbsp;${voucherItemLabel(it)}</p>`).join("")}
+              <p style="color:#8d7a4d;font-size:12px;line-height:1.6;margin:10px 0 0 0;">
+                Scan the QR at any kiosk or open ${voucherRedeemUrl(v.code)} —
+                ${expiry ? `valid through ${expiry} (1 year from your race date), ` : ""}not transferable. Attractions redeem when available.
+              </p>
+            </td></tr>
+          </table>
+        </td></tr>`;
+          }
+        } catch (err) {
+          console.error("[booking-confirmation] kiosk voucher lookup failed (non-fatal):", err);
+        }
+      }
       const emailHtml = `<!doctype html><html><body style="margin:0;background:#000418;font-family:Arial,Helvetica,sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#000418;padding:32px 0;">
     <tr><td align="center">
@@ -450,7 +512,7 @@ export async function POST(req: NextRequest) {
           <table role="presentation" width="100%" style="background:#0a1430;border-radius:12px;">
             <tr><td style="padding:16px 20px;color:#fff;font-size:16px;font-weight:700;">${when || "Today"} · ${who}</td></tr>
           </table>
-        </td></tr>${povHtml}
+        </td></tr>${povHtml}${kioskVoucherHtml}
         <tr><td style="padding:8px 32px 28px 32px;color:#b7c3da;font-size:15px;line-height:1.6;">
           Your <strong style="color:#fff;">e-ticket</strong> — with your check-in time and everything you need at the track — is on its way by text and email. Nothing to print, nothing to do at the desk. See you soon!
         </td></tr>
@@ -460,7 +522,9 @@ export async function POST(req: NextRequest) {
   </table>
 </body></html>`;
 
-      results.email = email ? await sendEmail(email, subject, emailHtml, "FastTrax") : false;
+      results.email = email
+        ? await sendEmail(email, subject, emailHtml, "FastTrax", kioskAttachments)
+        : false;
       if (smsOptIn && phone) {
         results.sms = await sendSms(normalizePhone(phone), smsBody, VOX_FROM_FASTTRAX);
       }
@@ -535,6 +599,19 @@ export async function POST(req: NextRequest) {
     // bookings only ever execute this one falsy check.
     let vipCombo =
       typeof comboSpecialId === "string" && comboSpecialId ? getComboSpecial(comboSpecialId) : null;
+
+    // V2 combo voucher — resolved SERVER-SIDE from the registry (the reserve
+    // mint stamps vouchers.bill_id); a client-posted code is never trusted.
+    // Best-effort: a lookup failure just drops the section.
+    let vipVoucher: Awaited<ReturnType<typeof getVoucherByBillId>> = null;
+    if (vipCombo && billId) {
+      try {
+        const v = await getVoucherByBillId(String(billId));
+        if (v && !v.voidedAt) vipVoucher = v;
+      } catch (err) {
+        console.error("[booking-confirmation] voucher lookup failed (non-fatal):", err);
+      }
+    }
 
     // ── Send email ────────────────────────────────────────────────────────
     try {
@@ -728,8 +805,34 @@ export async function POST(req: NextRequest) {
 </tr>`
         : "";
 
+      // VIP voucher section — cid QR (Gmail/Outlook strip data-URI imgs, so
+      // the reservation QR's data-URI technique would render blank here).
+      let vipVoucherSectionHtml = "";
+      const emailAttachments: Array<{
+        content: string;
+        filename: string;
+        type: string;
+        contentId: string;
+      }> = [];
+      if (vipVoucher) {
+        try {
+          const qr = await qrAttachment(vipVoucher.code);
+          emailAttachments.push(qr.attachment);
+          vipVoucherSectionHtml = buildVipVoucherSectionHtml({
+            codeDisplay: formatVoucherCode(vipVoucher.code),
+            itemLabels: vipVoucher.items.map(voucherItemLabel),
+            expiresAt: vipVoucher.expiresAt,
+            redeemUrl: voucherRedeemUrl(vipVoucher.code),
+            qrCid: qr.cid,
+          });
+        } catch (err) {
+          console.error("[booking-confirmation] voucher QR failed (non-fatal):", err);
+        }
+      }
+
       // Function-style ^PlaceholderName()$ replacements
       html = html
+        .replace(/\^VipVoucherSection\(\)\$/g, vipVoucherSectionHtml)
         .replace(/\^WaiverSection\(\)\$/g, waiverSectionHtml)
         .replace(/\^ReservationLink\(\)\$/g, waiverLink || "#")
         .replace(/\^BookingConfirmationQr\(\)\$/g, qrHtml)
@@ -817,6 +920,7 @@ export async function POST(req: NextRequest) {
           : `${brandName} Booking Confirmed — #${reservationNumber}`,
         html,
         isHeadPinzBrand ? "HeadPinz Entertainment" : undefined,
+        emailAttachments,
       );
     } catch (err) {
       console.error("[booking-confirmation] email failed:", err);

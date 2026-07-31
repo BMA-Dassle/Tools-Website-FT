@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { getComboSpecial } from "./combo-specials";
-import { buildVipEmailFields, buildVipSmsBody, vipEmailSubject } from "./vip-welcome";
+import {
+  buildVipEmailFields,
+  buildVipSmsBody,
+  buildVipVoucherSectionHtml,
+  vipEmailSubject,
+} from "./vip-welcome";
 
 const raceBowl = getComboSpecial("race-bowl")!;
 
@@ -144,5 +149,45 @@ describe("buildVipSmsBody", () => {
   it("omits the link clause when no short link was minted", () => {
     const body = buildVipSmsBody({ ...base, shortConfirm: "" });
     expect(body).toBe("FastTrax: Your Ultimate VIP Experience is booked for Sat Jul 11, 2:00 PM.");
+  });
+});
+
+describe("buildVipVoucherSectionHtml — the V2 grant card", () => {
+  const args = {
+    codeDisplay: "HPW-4K7M-9PQR",
+    itemLabels: ["100 bonus tokens", "laser tag or gel blaster", "shuffly"],
+    expiresAt: "2027-08-03T04:59:59.000Z",
+    redeemUrl: "https://headpinz.com/v/HPW4K7M9PQR",
+    qrCid: "qr-HPW4K7M9PQR",
+  };
+
+  it("renders the code, the cid QR (never a data: URI), and every item", () => {
+    const html = buildVipVoucherSectionHtml(args);
+    expect(html).toContain("HPW-4K7M-9PQR");
+    expect(html).toContain('src="cid:qr-HPW4K7M9PQR"');
+    expect(html).not.toContain("data:image"); // Gmail/Outlook strip data URIs
+    for (const label of args.itemLabels) expect(html).toContain(label);
+    expect(html).toContain("https://headpinz.com/v/HPW4K7M9PQR");
+  });
+
+  it("carries the owner's terms: 1 year from race date + not transferable", () => {
+    const html = buildVipVoucherSectionHtml(args);
+    expect(html).toContain("1 year from your race date");
+    expect(html).toContain("Not transferable");
+    // The expiry instant (race date 23:59:59 EST + 12 months) renders in ET as
+    // the day AFTER the anniversary during DST — the EST pin's deliberate
+    // guest-favouring slack (see comboVoucherExpiry).
+    expect(html).toContain("August 3, 2027");
+  });
+
+  it("omits the expiry sentence when the voucher never expires", () => {
+    const html = buildVipVoucherSectionHtml({ ...args, expiresAt: null });
+    expect(html).not.toContain("Valid through");
+    expect(html).toContain("Not transferable");
+  });
+
+  it("escapes bare ampersands in item labels (email HTML stays valid)", () => {
+    const html = buildVipVoucherSectionHtml({ ...args, itemLabels: ["chips & salsa"] });
+    expect(html).toContain("chips &amp; salsa");
   });
 });
