@@ -38,6 +38,12 @@ export type VoucherItem =
    *  redeemable — the cart-coverage rail for self-issued vouchers isn't built,
    *  so redemption refuses with `not_redeemable` rather than silently eating it. */
   | { kind: "attraction"; slug: string; qty: number }
+  /** The guest's choice of ONE of `slugs` at redemption (e.g. laser tag OR gel
+   *  blaster). A NEW member rather than a widened `attraction`: every stored
+   *  JSONB row must stay unambiguous, and two spellings of one concept would
+   *  make old single-slug items readable as either. Covers one unit of
+   *  whichever matching attraction is actually booked. */
+  | { kind: "attraction-choice"; slugs: string[]; qty: number }
   /** Race entry. Same status as attraction. */
   | { kind: "race"; qty: number };
 
@@ -71,6 +77,10 @@ export function voucherItemLabel(item: VoucherItem): string {
     const name = item.slug.replace(/-/g, " ");
     return item.qty > 1 ? `${item.qty} x ${name}` : name;
   }
+  if (item.kind === "attraction-choice") {
+    const name = item.slugs.map((s) => s.replace(/-/g, " ")).join(" or ");
+    return item.qty > 1 ? `${item.qty} x ${name}` : name;
+  }
   return item.qty > 1 ? `${item.qty} x race` : "race";
 }
 
@@ -84,6 +94,9 @@ export interface VoucherRow {
   batchLabel: string | null;
   issuedSource: string;
   issuedTo: { email?: string; phone?: string; name?: string } | null;
+  /** BMI billId of the booking that minted this voucher (combo grants), else
+   *  null. A STRING end to end — 17-digit BMI ids exceed float-safe range. */
+  billId: string | null;
   expiresAt: string | null;
   voidedAt: string | null;
   voidedReason: string | null;
@@ -118,6 +131,15 @@ function ensureSchema(): Promise<void> {
       )
     `;
     await q`CREATE INDEX IF NOT EXISTS vouchers_batch ON vouchers (batch_id)`;
+    // Booking-minted vouchers (combo grants): one voucher per bill, and the
+    // partial UNIQUE index is what makes mint-at-reserve retries race-safe —
+    // the second inserter errors and re-selects by billId instead of minting
+    // a duplicate code for the same booking.
+    await q`ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS bill_id TEXT`;
+    await q`
+      CREATE UNIQUE INDEX IF NOT EXISTS vouchers_bill_id_uniq
+      ON vouchers (bill_id) WHERE bill_id IS NOT NULL
+    `;
     await q`
       CREATE TABLE IF NOT EXISTS voucher_events (
         id BIGSERIAL PRIMARY KEY,
@@ -146,6 +168,7 @@ function decode(r: any): VoucherRow {
     batchLabel: r.batch_label ?? null,
     issuedSource: String(r.issued_source ?? "admin"),
     issuedTo: r.issued_to ?? null,
+    billId: r.bill_id != null ? String(r.bill_id) : null,
     expiresAt: r.expires_at ? String(r.expires_at) : null,
     voidedAt: r.voided_at ? String(r.voided_at) : null,
     voidedReason: r.voided_reason ?? null,
@@ -211,6 +234,10 @@ export async function insertVoucher(args: {
   batchLabel: string | null;
   issuedSource: string;
   issuedTo: VoucherRow["issuedTo"];
+  /** Booking link (combo grants). NOTE: a duplicate bill_id THROWS (partial
+   *  unique index) rather than returning false — callers minting for a bill
+   *  catch and re-select by billId. */
+  billId?: string | null;
   expiresAt: string | null;
   createdBy: string | null;
 }): Promise<boolean> {
@@ -220,15 +247,26 @@ export async function insertVoucher(args: {
   const rows = (await q`
     INSERT INTO vouchers
       (code, kind, items, batch_id, batch_label, issued_source, issued_to,
-       expires_at, created_by)
+       bill_id, expires_at, created_by)
     VALUES
       (${args.code}, ${args.kind}, ${JSON.stringify(args.items)}, ${args.batchId},
        ${args.batchLabel}, ${args.issuedSource}, ${args.issuedTo ? JSON.stringify(args.issuedTo) : null},
-       ${args.expiresAt}, ${args.createdBy})
+       ${args.billId ?? null}, ${args.expiresAt}, ${args.createdBy})
     ON CONFLICT (code) DO NOTHING
     RETURNING id
   `) as unknown[];
   return rows.length > 0;
+}
+
+/** The voucher minted for a booking, if any — mint idempotency + check-in lookup. */
+export async function getVoucherByBillId(billId: string): Promise<VoucherRow | null> {
+  if (!isDbConfigured()) return null;
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    SELECT * FROM vouchers WHERE bill_id = ${billId} LIMIT 1
+  `) as unknown[];
+  return rows.length > 0 ? decode(rows[0]) : null;
 }
 
 export async function getVoucher(code: string): Promise<VoucherRow | null> {

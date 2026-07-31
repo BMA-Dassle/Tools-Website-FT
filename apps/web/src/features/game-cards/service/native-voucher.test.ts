@@ -331,6 +331,77 @@ describe("multi-item vouchers (one code, several lines of value)", () => {
   });
 });
 
+describe("attraction-choice items + bill-linked mints", () => {
+  const choice = { kind: "attraction-choice" as const, slugs: ["laser-tag", "gel-blaster"], qty: 1 };
+
+  it("validates a choice item to the cart rail with an either-keyword coverage name", async () => {
+    const { svc, db } = await mods();
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...live,
+      kind: "mixed",
+      items: [svc.gameZoneItem(100), choice],
+    });
+    const res = await svc.validateNativeVoucher(CODE);
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      const cart = res.items.find((i) => i.index === 1);
+      // Must contain BOTH keywords so voucherTarget() covers either attraction.
+      expect(cart).toMatchObject({
+        redeemVia: "cart",
+        coverageName: "Laser Tag or Gel Blaster",
+        label: "laser tag or gel blaster",
+      });
+    }
+  });
+
+  it("a choice-only voucher refuses the Game Zone rail as not_redeemable (never 'used')", async () => {
+    const { svc, db } = await mods();
+    (db.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ...live,
+      kind: "mixed" as const,
+      items: [choice],
+    });
+    const res = await svc.claimNativeVoucher({ code: CODE, locationCode: 12, source: "kiosk" });
+    expect(res).toEqual({ ok: false, reason: "not_redeemable" });
+  });
+
+  it("mints mixed kind and threads billId + issuedTo through to the row", async () => {
+    const { svc, db } = await mods();
+    await svc.mintVouchers({
+      count: 1,
+      items: [svc.gameZoneItem(100), choice],
+      billId: "63000000006397110",
+      issuedTo: { email: "guest@example.com", name: "Guest" },
+      issuedSource: "booking-combo",
+    });
+    expect(db.insertVoucher).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "mixed",
+        billId: "63000000006397110",
+        issuedTo: { email: "guest@example.com", name: "Guest" },
+        issuedSource: "booking-combo",
+      }),
+    );
+  });
+
+  it("refuses a choice item with no attractions", async () => {
+    const { svc } = await mods();
+    await expect(
+      svc.mintVouchers({
+        count: 1,
+        items: [{ kind: "attraction-choice", slugs: [], qty: 1 }],
+      }),
+    ).rejects.toThrow(/at least one attraction/);
+  });
+
+  it("refuses a bill-linked mint of more than one voucher", async () => {
+    const { svc } = await mods();
+    await expect(
+      svc.mintVouchers({ count: 2, items: [svc.gameZoneItem(100)], billId: "63000000006397110" }),
+    ).rejects.toThrow(/exactly one voucher/);
+  });
+});
+
 describe("validateNativeVoucher — per-item routing (auto-split)", () => {
   it("splits a mixed voucher into gamezone + cart items with coverage names", async () => {
     const { svc, db } = await mods();

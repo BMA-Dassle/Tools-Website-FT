@@ -48,8 +48,15 @@ const MintSchema = z.object({
   count: z.number().int().min(1).max(500),
   bonusTokens: z.number().int(),
   batchLabel: z.string().trim().max(120).optional(),
-  /** ISO date; the voucher stops being redeemable after this instant. */
-  expiresAt: z.string().trim().max(40).optional(),
+  /** ISO date; the voucher stops being redeemable after this instant. Must
+   *  PARSE — a malformed string used to mint a never-expiring voucher, because
+   *  Date.parse(garbage) is NaN and `NaN <= now` is false forever. */
+  expiresAt: z
+    .string()
+    .trim()
+    .max(40)
+    .refine((v) => !Number.isNaN(Date.parse(v)), { message: "expiresAt must be a valid date" })
+    .optional(),
   /** Where to send the batch. Falls back to VOUCHER_MINT_EMAIL. */
   emailTo: z.string().trim().email().optional(),
   createdBy: z.string().trim().max(80).optional(),

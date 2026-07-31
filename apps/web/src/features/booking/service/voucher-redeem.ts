@@ -117,6 +117,12 @@ export function voucherTarget(name: string | null | undefined): VoucherTarget {
   const gameCard = gameCardGrantFromCompName(name);
   if (gameCard) return { kind: "gamecard", grant: gameCard };
   if (n.includes("race")) return { kind: "race" };
+  // Choice comps BEFORE the single-keyword matches — "Laser Tag or Gel
+  // Blaster" must cover EITHER attraction, and the "laser" check alone would
+  // silently narrow it to laser tag only.
+  if (n.includes("laser") && n.includes("gel")) {
+    return { kind: "attraction", slugs: ["laser-tag", "gel-blaster"] };
+  }
   if (n.includes("laser")) return { kind: "attraction", slugs: ["laser-tag"] };
   if (n.includes("gel")) return { kind: "attraction", slugs: ["gel-blaster"] };
   if (n.includes("shuf")) return { kind: "attraction", slugs: ["shuffly"] };
@@ -147,6 +153,14 @@ export function voucherDisplayName(name: string | null | undefined): string {
   if (target.kind === "race") return "Race comp";
   if (target.kind === "gamecard") return `${target.grant.bonusTokens} Token Game Card comp`;
   if (target.kind === "attraction") {
+    if (target.slugs.length > 1) {
+      // A choice comp — name every option so the chip never implies the guest
+      // already picked one.
+      const names = target.slugs.map(
+        (s) => ATTRACTION_COMP_LABEL[s]?.replace(/ comp$/, "") ?? s,
+      );
+      return `${names.join(" / ")} comp`;
+    }
     return ATTRACTION_COMP_LABEL[target.slugs[0]] ?? "Comp";
   }
   const first = (name ?? "").split(/[.!\r\n]/)[0].trim();

@@ -165,6 +165,18 @@ function cartCoverageName(slugOrRace: string): string {
   }
 }
 
+/** Coverage name for a whole item — a choice item joins its options with "or"
+ *  so voucherTarget() sees every keyword ("Laser Tag or Gel Blaster" matches
+ *  the combined laser+gel branch and covers whichever is in the cart). */
+function cartCoverageNameForItem(item: VoucherItem): string {
+  if (item.kind === "race") return cartCoverageName("race");
+  if (item.kind === "attraction") return cartCoverageName(item.slug);
+  if (item.kind === "attraction-choice") {
+    return item.slugs.map(cartCoverageName).join(" or ");
+  }
+  return "";
+}
+
 /**
  * Check a code WITHOUT claiming it — the scan step of the kiosk basket, where a
  * guest adds several vouchers before committing to anything.
@@ -207,12 +219,11 @@ export async function validateNativeVoucher(code: string): Promise<ValidateResul
           tokens: i.item.tokens + i.item.bonusTokens,
         };
       }
-      const slug = i.item.kind === "race" ? "race" : i.item.slug;
       return {
         index: i.index,
         redeemVia: "cart" as const,
         label: i.label,
-        coverageName: cartCoverageName(slug),
+        coverageName: cartCoverageNameForItem(i.item),
       };
     });
 
@@ -220,7 +231,11 @@ export async function validateNativeVoucher(code: string): Promise<ValidateResul
     // Nothing left to redeem: distinguish "all spent" from "never had anything
     // we handle" so the guest hears the right thing.
     const everSpendable = status.items.some(
-      (i) => i.item.kind === "gamezone" || i.item.kind === "attraction" || i.item.kind === "race",
+      (i) =>
+        i.item.kind === "gamezone" ||
+        i.item.kind === "attraction" ||
+        i.item.kind === "attraction-choice" ||
+        i.item.kind === "race",
     );
     return { ok: false, reason: everSpendable ? "used" : "not_redeemable" };
   }
@@ -246,11 +261,16 @@ export async function mintVouchers(args: {
   batchLabel?: string | null;
   expiresAt?: string | null;
   issuedSource?: string;
+  issuedTo?: VoucherRow["issuedTo"];
+  /** Booking link — requires count === 1 (one voucher per bill, enforced by a
+   *  partial unique index; a duplicate-bill insert THROWS, callers re-select). */
+  billId?: string | null;
   createdBy?: string | null;
 }): Promise<{ batchId: string; vouchers: MintedVoucher[] }> {
   const count = Math.max(1, Math.min(500, Math.floor(args.count)));
   const items = args.items;
   if (items.length === 0) throw new Error("a voucher needs at least one item");
+  if (args.billId && count !== 1) throw new Error("a bill-linked mint is exactly one voucher");
   // Game Zone denominations stay on the allowlist even though we mint them
   // ourselves: it keeps comped value to amounts we actually sell, and it is the
   // same guard the load path re-applies when resolving `gzv-<n>`.
@@ -263,6 +283,9 @@ export async function mintVouchers(args: {
     }
     if (item.kind !== "gamezone" && item.qty < 1) {
       throw new Error(`item qty must be at least 1`);
+    }
+    if (item.kind === "attraction-choice" && item.slugs.length < 1) {
+      throw new Error(`a choice item needs at least one attraction`);
     }
   }
   const kind: VoucherKind = items.every((i) => i.kind === "gamezone") ? "gamezone" : "mixed";
@@ -280,7 +303,8 @@ export async function mintVouchers(args: {
         batchId,
         batchLabel: args.batchLabel ?? null,
         issuedSource: args.issuedSource ?? "admin",
-        issuedTo: null,
+        issuedTo: args.issuedTo ?? null,
+        billId: args.billId ?? null,
         expiresAt: args.expiresAt ?? null,
         createdBy: args.createdBy ?? null,
       });
@@ -289,7 +313,7 @@ export async function mintVouchers(args: {
         await logVoucherEvent(
           code,
           "mint",
-          { batchId, items, batchLabel: args.batchLabel },
+          { batchId, items, batchLabel: args.batchLabel, billId: args.billId ?? undefined },
           args.createdBy,
         );
       }

@@ -297,6 +297,66 @@ describe("voucherDisplayName (real BMI comp names, live 2026-07-28)", () => {
   });
 });
 
+describe("choice comps — laser OR gel on one voucher item", () => {
+  const gelItem = (id: string, price: number, qty = 1) => ({
+    ...laserItem(id, price, qty),
+    slug: "gel-blaster",
+  });
+  const choiceVoucher = (code: string) => ({
+    code,
+    issuer: "native" as const,
+    itemIndex: 0,
+    name: "Laser Tag or Gel Blaster",
+  });
+
+  it("parses a combined name into BOTH slugs (order-independent)", () => {
+    expect(voucherTarget("Laser Tag or Gel Blaster")).toEqual({
+      kind: "attraction",
+      slugs: ["laser-tag", "gel-blaster"],
+    });
+    expect(voucherTarget("Gel Blaster or Laser Tag comp")).toEqual({
+      kind: "attraction",
+      slugs: ["laser-tag", "gel-blaster"],
+    });
+  });
+
+  it("single-keyword names still narrow to one slug", () => {
+    // Guard the branch ORDER: the combined check must not loosen the singles.
+    expect(voucherTarget("Laser Comp")).toEqual({ kind: "attraction", slugs: ["laser-tag"] });
+    expect(voucherTarget("Gel Blaster Comp")).toEqual({
+      kind: "attraction",
+      slugs: ["gel-blaster"],
+    });
+  });
+
+  it("covers whichever of the two attractions is in the cart — that IS the guest's choice", () => {
+    const laserPlan = planVoucherCoverage(
+      makeSession([laserItem("a1", 10, 1)], [choiceVoucher("HPW4K7M9PQR")]),
+      new Set(),
+    );
+    expect(laserPlan.attractionUnits.get("a1")).toBe(1);
+
+    const gelPlan = planVoucherCoverage(
+      makeSession([gelItem("g1", 12, 1)], [choiceVoucher("HPW4K7M9PQR")]),
+      new Set(),
+    );
+    expect(gelPlan.attractionUnits.get("g1")).toBe(1);
+  });
+
+  it("with both in the cart it covers the cheaper unit (deterministic)", () => {
+    const plan = planVoucherCoverage(
+      makeSession([laserItem("a1", 10, 1), gelItem("g1", 12, 1)], [choiceVoucher("HPW4K7M9PQR")]),
+      new Set(),
+    );
+    expect(plan.attractionUnits.get("a1")).toBe(1);
+    expect(plan.attractionUnits.has("g1")).toBe(false);
+  });
+
+  it("display name keeps both options visible", () => {
+    expect(voucherDisplayName("Laser Tag or Gel Blaster")).toBe("Laser Tag / Gel Blaster comp");
+  });
+});
+
 describe("native vouchers cover the cart (no BMI bill)", () => {
   it("a native race voucher covers a heat via the SAME coverage plan", () => {
     // The whole point of issuer-aware voucherIsApplied: native vouchers price
