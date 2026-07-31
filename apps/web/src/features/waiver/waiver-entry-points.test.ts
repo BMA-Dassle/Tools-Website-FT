@@ -141,6 +141,31 @@ describe("waiver entry-point completeness", () => {
     expect(mw).toContain('"/w/"');
   });
 
+  it("the racing confirmation banners build RESERVATION-scoped links", () => {
+    // The first /waiver cutover silently downgraded these two banners from the
+    // old subscribe/event link (which attached signatures to the reservation) to
+    // a center-only standalone link — guests signed, but nothing landed on the
+    // booking's roster, and the owner caught it in production (2026-07-31). A
+    // reservation-scoped link needs BOTH halves: the Office projectId (billId+1,
+    // via the pure helper — never Number()/res.json() on a 17-digit id) and a
+    // `reservation` passed to buildWaiverUrl.
+    const banners = [
+      join("app", "book", "confirmation", "page.tsx"),
+      join("app", "book", "confirmation", "v2", "page.tsx"),
+    ];
+    for (const rel of banners) {
+      const f = FILES.find((x) => x.rel === rel);
+      expect(f, `${rel} missing from scan`).toBeTruthy();
+      expect(f!.text, `${rel} must derive pid via officeProjectIdFromBillId`).toContain(
+        "officeProjectIdFromBillId(",
+      );
+      expect(
+        /buildWaiverUrl\(\s*\{[^}]*reservation/.test(f!.text),
+        `${rel} must pass a reservation to buildWaiverUrl`,
+      ).toBe(true);
+    }
+  });
+
   it("every group sender that mentions waivers goes through the send module", () => {
     // A sender that still mentions a waiver URL but imports neither helper is
     // almost certainly building one itself.

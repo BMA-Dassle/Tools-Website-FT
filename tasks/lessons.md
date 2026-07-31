@@ -2707,3 +2707,41 @@ the instructions never pinned the surface. (Owner, fairly: "your steps were not 
    unambiguous.
 The tell you skipped this: the owner's report describes UI your finding's code path
 cannot render.
+
+## A cutover report's claim about behavior must match a call site, not an intention (2026-07-31)
+
+The stage-2 waiver cutover report said the four booking confirmation pages "keep the
+canonical long /waiver URL … the long link still attaches the waiver to the
+reservation, it just has no remove button." The code never did that: both racing
+confirmation pages built `buildWaiverUrl({ center })` — no `reservation`, so no
+`loc`/`pid` — and the block's own comment admitted it was "center- not
+reservation-scoped." The email route even documented the intended contract ("with
+loc+pid when the reservation is known") while never receiving one. Net effect in
+production: guests signed standalone waivers that never landed on the booking's
+roster — the owner caught it from a live confirmation page (billId 63000000006696489).
+The old pre-cutover `subscribe/event?id=projectReference` link HAD attached, so the
+cutover silently regressed the attach while every waiver test stayed green.
+
+Two compounding details found while fixing it:
+
+1. **The pid was derivable all along, without any fetch.** Office projectId =
+   billId + 1 (`officeProjectIdFromBillId`, last-10-digit math). The old block
+   instead fetched the bill overview and read `ov.id` off `res.json()` — a 17-digit
+   BMI id through JSON.parse, i.e. ALREADY precision-corrupted before use (both
+   …489 and …490 round to …488). The "reservation exists" gate was probing a
+   neighbor's id and still passing. A `string` annotation on the URL param was safe;
+   the "convenience" read of the parsed overview was the violation.
+2. **Pure id arithmetic must live in a pure module.** `officeProjectIdFromBillId`
+   sat in `lib/bmi-office-actions.ts`, which imports node `https`/`crypto` at module
+   top — unimportable from the "use client" confirmation pages. Extracted to
+   `lib/bmi-office-ids.ts` (re-exported from the old path so server callers and the
+   round-trip tests are untouched).
+
+**Rules:**
+- When a report asserts "surface X does Y," verify the assertion against the call
+  site before relying on it — a report describes the author's model, the tree
+  describes the product. Here one grep (`buildWaiverUrl\(` in the page) falsified it.
+- A cutover that replaces a reservation-scoped link must prove the replacement is
+  still reservation-scoped — "same banner renders" is not that proof. The tree-scan
+  suite (`waiver-entry-points.test.ts`) now pins both racing confirmation banners to
+  `officeProjectIdFromBillId` + a `reservation` passed to `buildWaiverUrl`.

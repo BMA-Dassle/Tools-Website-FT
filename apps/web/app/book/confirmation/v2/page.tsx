@@ -19,6 +19,8 @@ import ComboManageNote from "~/components/features/cancellation/ComboManageNote"
 import GiftCardIssuedPanel from "~/components/features/cancellation/GiftCardIssuedPanel";
 import StoreCreditCancelSection from "~/components/features/cancellation/StoreCreditCancelSection";
 import { buildWaiverUrl } from "~/features/waiver/build-waiver-url";
+import { waiverVenueForCenterCode } from "~/features/waiver/waiver-venue";
+import { officeProjectIdFromBillId } from "@/lib/bmi-office-ids";
 
 /** Resolve a race line's display name from our own registries instead
  *  of trusting BMI's public-facing name. BMI's bill/overview API has
@@ -926,7 +928,7 @@ export default function ConfirmationPage() {
           (window.location.hostname.includes("headpinz") ? "headpinz" : "fasttrax");
         const isHpLoc = resolvedLocation === "headpinz" || resolvedLocation === "naples";
 
-        // Waiver link for new racers — get projectReference from Office API
+        // Waiver link for new racers — reservation-scoped via the Office projectId
         const isReturning = hasReturningRacers;
         setIsNewRacer(!isReturning);
 
@@ -944,39 +946,65 @@ export default function ConfirmationPage() {
         let resolvedWaiverUrl = "";
         if (id && !isReturning && needsWaiver) {
           try {
-            // Get projectId from bill overview
-            const ovRes = await fetch(
-              `/api/sms?endpoint=bill%2Foverview&billId=${id}${getBookingClientKey() ? `&clientKey=${getBookingClientKey()}` : ""}`,
-            );
-            const ov = await ovRes.json();
-            const projectId = ov.id || id;
+            // RESERVATION-SCOPED link — signatures ATTACH to this booking's BMI
+            // project, exactly like a group-contract event, so every guest who
+            // opens it lands on the reservation's roster instead of filing a
+            // standalone waiver the desk must match by hand. This is what the
+            // pre-cutover subscribe/event link did; the first `/waiver` cutover
+            // shipped center-only and lost the attach (owner report 2026-07-31).
+            //
+            // pid = the BMI Office projectId = billId + 1 (last-10-digit math —
+            // the id exceeds Number.MAX_SAFE_INTEGER). Derived from the URL's
+            // STRING billId: the old read (`ov.id` off a res.json()'d bill
+            // overview) had already lost precision before it was ever used.
+            const projectId = officeProjectIdFromBillId(id);
 
-            // Get projectReference from Office API
+            // "Reservation really exists" gate (same banner/email condition as
+            // before), now probing the actual project rather than the billId.
             const projRes = await fetch(`/api/bmi-office?action=project&id=${projectId}`);
-            const proj = await projRes.json();
-            if (proj.projectReference) {
-              // Was: https://kiosk.sms-timing.com/headpinzftmyers/subscribe/event?id=<projectReference>
-              // — hardcoded to Fort Myers, so a HeadPinz Naples booking sent the
-              // guest to the wrong center's waiver template. Center now comes
-              // from the booking location. The Office lookup above stays as the
-              // "reservation really exists" gate (same banner/email condition as
-              // before); projectReference is NOT a /waiver `pid` (that's the
-              // Office projectId), so this link is center- not reservation-scoped.
-              const waiverCenter = resolvedLocation === "naples" ? "naples" : "fort-myers";
-              // Absolute for the email below — an inbox has no origin to resolve
-              // against — and brand-aware, because /waiver takes its brand from the
-              // HOST (x-brand) and standalone filing is pandoraLocationFor(brand,
-              // center): brand "fasttrax" + center "fort-myers" files at FastTrax,
-              // so a HeadPinz Fort Myers guest sent to fasttraxent.com/waiver lands
-              // at the wrong Pandora location. ?c=naples is immune (center wins
-              // there), but the origin is chosen uniformly.
-              const waiverOrigin = isHpLoc ? "https://headpinz.com" : "https://fasttraxent.com";
-              resolvedWaiverUrl = buildWaiverUrl(
-                { center: waiverCenter },
-                { absolute: true, origin: waiverOrigin },
+            if (projRes.ok) {
+              // Which VENUE the waiver files against — center picks the template,
+              // the BMI locationId picks the Pandora location the signature and
+              // the roster live at (see waiver-venue.ts; Naples is the sharp
+              // edge). Racing is FastTrax-only; everything else follows the
+              // booking's resolved location, the same signal the email uses.
+              const hasRacing =
+                lineNames.some((n: string) => n.includes("race")) ||
+                ((bookingRecord?.racers as unknown[] | undefined)?.length ?? 0) > 0;
+              const venue = waiverVenueForCenterCode(
+                resolvedLocation === "naples"
+                  ? "naples"
+                  : hasRacing
+                    ? "fasttrax"
+                    : resolvedLocation === "headpinz"
+                      ? "fort-myers"
+                      : "fasttrax",
               );
-              // The in-page CTA stays relative so it works on both hosts.
-              setWaiverUrl(buildWaiverUrl({ center: waiverCenter }));
+              if (venue) {
+                const reservation = { locationId: venue.locationId, projectId };
+                // Absolute for the email below — an inbox has no origin to
+                // resolve against. The notifications route upgrades a loc+pid
+                // link to a short ORGANIZER code (roster + remove) for the
+                // booker; this long form is what makes that possible.
+                const waiverOrigin = isHpLoc ? "https://headpinz.com" : "https://fasttraxent.com";
+                resolvedWaiverUrl = buildWaiverUrl(
+                  { center: venue.center, reservation },
+                  { absolute: true, origin: waiverOrigin },
+                );
+                // The in-page CTA stays relative so it works on both hosts, and
+                // stays the LONG url on purpose: a client page must never mint
+                // capability codes (an open mint endpoint would let anyone mint
+                // an organizer code for any guessable projectId). Sign-only.
+                setWaiverUrl(buildWaiverUrl({ center: venue.center, reservation }));
+                // Persist for the race-day cron — api/cron/race-day-emails reads
+                // record.waiverUrl and NOTHING wrote it until now, so every
+                // race-day waiver email degraded to a standalone link too.
+                fetch("/api/booking-record", {
+                  method: "PATCH",
+                  headers: { "content-type": "application/json", "x-api-key": BOOKING_API_KEY },
+                  body: JSON.stringify({ billId: id, waiverUrl: resolvedWaiverUrl }),
+                }).catch(() => {});
+              }
             }
           } catch {
             /* non-fatal */
