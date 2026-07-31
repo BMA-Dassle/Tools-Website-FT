@@ -959,4 +959,18 @@ describe("WaiverFlow wiring", () => {
     expect(source).toMatch(/membersOwnedHere\(party,\s*signedHere\)/);
     expect(source).toMatch(/addMemberSupersedingPreload\(p,\s*\w+\)/);
   });
+
+  it("keeps asking for the context until the sweep lands (cold-Pandora first hit)", () => {
+    // The server omits `signed` when its Pandora sweep misses the deadline —
+    // reliably the FIRST request after Azure idles. A one-shot fetch inherited
+    // that miss and rendered "6 registered" over an empty list until a manual
+    // reload (owner 2026-07-31: "second time going to the page it's there").
+    // So the fetch is a bounded retry loop keyed on `signed` being present, and
+    // the branded loader stays up until the loop settles.
+    expect(source).toMatch(/CTX_MAX_ATTEMPTS/);
+    expect(source).toMatch(/data\.signed !== undefined/);
+    expect(source).toMatch(/if \(reservation && !ctxSettled\)/);
+    // Bounded — a genuinely broken backend must not be polled forever.
+    expect(source).toMatch(/attempt <= CTX_MAX_ATTEMPTS/);
+  });
 });
