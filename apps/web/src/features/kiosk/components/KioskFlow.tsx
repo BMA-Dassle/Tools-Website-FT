@@ -70,7 +70,6 @@ import {
   kioskGzCartEnabled,
   kioskPromoEnabled,
   kioskRaceInfoEnabled,
-  kioskTerminalEnabled,
 } from "../flags";
 import { KioskCheckoutScreen } from "./KioskCheckoutScreen";
 import { KioskCheckoutUpsell } from "./KioskCheckoutUpsell";
@@ -1621,8 +1620,7 @@ export function KioskFlow({
             // (cart rail + reader rail + dispenser "full" capability — the
             // dispenser is a hard requirement, owner re-confirmed 7/21).
             // Every gate is named so a device console shows exactly why the
-            // page didn't appear (NEXT_PUBLIC_KIOSK_TERMINAL_ENABLED must be
-            // scoped to the Vercel PREVIEW env or preview builds bake it off).
+            // page didn't appear.
             // `?upsellPreview=1` on the flow URL bypasses ONLY the hardware
             // gates so the page can be SEEN on any rig (bowling still
             // required in the cart); accepting still rides the real rails —
@@ -1644,7 +1642,6 @@ export function KioskFlow({
                 ["once-per-session", !upsellSeenRef.current],
                 ["no-cards-in-cart", !session.gameCardPurchase?.cards.length],
                 ["gz-cart-flag", kioskGzCartEnabled()],
-                ["terminal-flag", upsellPreview || kioskTerminalEnabled()],
                 ["reader-paired", upsellPreview || !!config.readerId],
                 ["dispenser-full", upsellPreview || gameZoneCapability(config) === "full"],
               ] as const
@@ -1886,10 +1883,7 @@ export function KioskFlow({
           // offering the way back (claim was released — retry is safe).
           onVoucherOutcome={(outcomes) => {
             const loaded = outcomes.filter((o) => o.loaded).length;
-            console.log(
-              `[kiosk] gz voucher run: ${loaded}/${outcomes.length} dispensed`,
-              outcomes,
-            );
+            console.log(`[kiosk] gz voucher run: ${loaded}/${outcomes.length} dispensed`, outcomes);
             clarityTag("kiosk_gz_voucher_run", `${loaded}/${outcomes.length}`);
             setPendingGzCards((prev) => clearDispensedCards(prev, outcomes));
           }}

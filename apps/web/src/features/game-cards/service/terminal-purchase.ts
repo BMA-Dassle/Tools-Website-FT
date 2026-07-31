@@ -19,7 +19,6 @@
 import { randomBytes, randomUUID } from "crypto";
 import redis from "@/lib/redis";
 import { getCenter } from "~/config/intercard-centers";
-import { kioskSplitTenderEnabled } from "~/features/kiosk/flags";
 import { getPackage, activationFeeCents } from "../constants";
 import { GameCardHttpError } from "../errors";
 import type { TerminalPrepareInput, TerminalFinalizeInput } from "../schemas";
@@ -151,7 +150,7 @@ export async function prepareTerminalPurchase(
   // without an anchor would light the gift-card button and then answer
   // "no-session" to every tap on it.
   let splitToken: string | undefined;
-  if (kioskSplitTenderEnabled()) {
+  {
     const token = randomUUID();
     try {
       await redis.set(

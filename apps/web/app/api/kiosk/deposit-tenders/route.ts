@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { kioskSplitTenderEnabled, kioskTerminalEnabled } from "~/features/kiosk/flags";
 import {
   addGiftCardTender,
   getSplitStatus,
@@ -53,16 +52,7 @@ const FRIENDLY: Partial<Record<SplitError, string>> = {
   "nothing-to-capture": "No gift card is applied.",
 };
 
-function gate(): NextResponse | null {
-  if (!kioskSplitTenderEnabled() || !kioskTerminalEnabled()) {
-    return NextResponse.json({ error: "Not enabled" }, { status: 404 });
-  }
-  return null;
-}
-
 export async function POST(req: NextRequest) {
-  const gated = gate();
-  if (gated) return gated;
   let body: { seed?: string; splitToken?: string; lookupToken?: string };
   try {
     body = await req.json();
@@ -96,8 +86,6 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const gated = gate();
-  if (gated) return gated;
   const url = new URL(req.url);
   const seed = url.searchParams.get("seed") ?? "";
   const splitToken = url.searchParams.get("splitToken") ?? "";
@@ -116,8 +104,6 @@ export async function DELETE(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const gated = gate();
-  if (gated) return gated;
   const url = new URL(req.url);
   const seed = url.searchParams.get("seed") ?? "";
   const splitToken = url.searchParams.get("splitToken") ?? "";

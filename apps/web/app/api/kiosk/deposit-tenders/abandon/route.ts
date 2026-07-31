@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { kioskSplitTenderEnabled, kioskTerminalEnabled } from "~/features/kiosk/flags";
 import { abandonSplit } from "~/features/kiosk/service/split-tenders";
 
 export const runtime = "nodejs";
@@ -13,9 +12,6 @@ export const dynamic = "force-dynamic";
  * because a session timed out.
  */
 export async function POST(req: NextRequest) {
-  if (!kioskSplitTenderEnabled() || !kioskTerminalEnabled()) {
-    return NextResponse.json({ error: "Not enabled" }, { status: 404 });
-  }
   let body: { seed?: string; splitToken?: string };
   try {
     body = await req.json();
