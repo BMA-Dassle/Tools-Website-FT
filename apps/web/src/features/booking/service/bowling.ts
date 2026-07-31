@@ -391,7 +391,14 @@ export async function bowlingTerminalPrepare(params: {
   /** KIOSK: Game Zone cards riding this cart — lines join the deposit order. */
   gameCardPurchase?: GameCardCartPurchase;
   gameCardLocationCode?: number;
-}): Promise<{ seed: string; depositOrderId: string; depositCents: number }> {
+}): Promise<{
+  seed: string;
+  depositOrderId: string;
+  depositCents: number;
+  /** Present when the gift-card split flag is on — the session secret the
+   *  gift-card routes require (mirrors the unified rail's prepare). */
+  splitToken?: string;
+}> {
   const { item } = params;
   const seed = params.seed ?? crypto.randomUUID();
   const centerId = item.qamfCenterId;
@@ -438,5 +445,6 @@ export async function bowlingTerminalPrepare(params: {
     seed: data.seed ?? seed,
     depositOrderId: data.depositOrderId,
     depositCents: data.depositCents ?? depositCents,
+    ...(data.splitToken ? { splitToken: data.splitToken } : {}),
   };
 }

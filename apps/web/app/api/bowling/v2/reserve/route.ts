@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes, randomUUID } from "crypto";
 import { buildGanPrefix } from "@/lib/gan";
-import { kioskGzCartEnabled } from "~/features/kiosk/flags";
+import { kioskGzCartEnabled, kioskSplitTenderEnabled } from "~/features/kiosk/flags";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { startTxn, markCharged, markLoadState } from "~/features/game-cards/data/transactions-log";
 import {
@@ -95,13 +95,27 @@ async function writeBowlingTerminalAnchor(
     locationId: string;
     /** Stamped once the reader has captured (persist-at-capture, for reconcile). */
     paymentId?: string;
+    /** Split-tender session secret (gift card + tap) — same trust model as the
+     *  unified rail: the seed alone must never authorize the gift-card routes. */
+    splitToken?: string;
     gameCards?: AnchorGameCards;
   },
 ): Promise<void> {
   try {
+    // MERGE over the existing anchor, never replace: the split rail stores its
+    // tender bookkeeping (tenders / paymentIds / capturedAt / splitToken) on
+    // this same key, and the finalize-failure rewrite must not destroy the
+    // record the terminal-orphan reconcile needs to complete or refund a
+    // multi-payment capture.
+    const prevRaw = await redis.get(`kiosk:terminal:anchor:${seed}`).catch(() => null);
+    const prev =
+      typeof prevRaw === "string"
+        ? (JSON.parse(prevRaw) as Record<string, unknown>)
+        : ((prevRaw as Record<string, unknown> | null) ?? {});
     await redis.set(
       `kiosk:terminal:anchor:${seed}`,
       JSON.stringify({
+        ...prev,
         ...anchor,
         baseKey: seed,
         source: "bowling",
@@ -321,6 +335,9 @@ interface ReserveBody {
     depositOrderId: string;
     amountCents: number;
     seed: string;
+    /** SPLIT checkouts (kiosk v1: gift card + tap): EVERY captured payment on
+     *  the deposit order — finalize verifies the SUM. Absent = single tap. */
+    paymentIds?: string[];
   };
   /**
    * Pre-created Square day-of order ID from the quote step.
@@ -516,17 +533,27 @@ export async function POST(req: NextRequest) {
         asGiftCardLine: true,
         extraLines: gz?.orderLines,
       });
+      // Split-tender session secret (gift card + tap) — minted at PREPARE, the
+      // session's trust root, exactly like the unified rail. Returned ONLY to
+      // this prepare's caller; every gift-card route requires it.
+      const splitToken = kioskSplitTenderEnabled() ? randomUUID() : undefined;
       await writeBowlingTerminalAnchor(seed, {
         depositOrderId,
         depositCents: depositForReader,
         locationId: prepLocationId,
+        ...(splitToken ? { splitToken } : {}),
         ...(anchorGameCards ? { gameCards: anchorGameCards } : {}),
       });
       console.log(
-        `[bowling/v2/reserve] TERMINAL PREPARE seed=${seed} order=${depositOrderId} deposit=${depositForReader}c gz=${gzCents}c loc=${prepLocationId}`,
+        `[bowling/v2/reserve] TERMINAL PREPARE seed=${seed} order=${depositOrderId} deposit=${depositForReader}c gz=${gzCents}c loc=${prepLocationId} split=${!!splitToken}`,
       );
       // The reader charges the ORDER TOTAL: booking deposit + card lines.
-      return NextResponse.json({ seed, depositOrderId, depositCents: depositForReader + gzCents });
+      return NextResponse.json({
+        seed,
+        depositOrderId,
+        depositCents: depositForReader + gzCents,
+        ...(splitToken ? { splitToken } : {}),
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "prepare failed";
       console.error("[bowling/v2/reserve] TERMINAL PREPARE failed:", msg);
@@ -1589,6 +1616,11 @@ export async function POST(req: NextRequest) {
             // reservation-stamped depositNote belongs to the typed-card path.
             note: `Kiosk deposit ${ep.seed.slice(0, 12)}`,
             externalPaymentId: ep.paymentId,
+            // Split checkout: every captured payment (gift card + tap) —
+            // verification switches to sum-of-payments === order total.
+            ...(ep.paymentIds && ep.paymentIds.length > 0
+              ? { externalPaymentIds: ep.paymentIds }
+              : {}),
             extraLines: gzFin?.orderLines,
             extraCents: gzFinCents,
           });
