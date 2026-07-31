@@ -27,7 +27,9 @@ export function kioskEnabled(): boolean {
  * path until this is set to "true" in Vercel + redeployed, after the smoke.
  */
 export function kioskTerminalEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_KIOSK_TERMINAL_ENABLED === "true";
+  // PREVIEW BRANCH ONLY (preview/kiosk-split-smoke): forced ON so the smoke
+  // needs no env-var/bake dance. NEVER merge this hardcode to main.
+  return true;
 }
 
 /**
@@ -294,5 +296,7 @@ export function kioskExperienceAvailEnabled(): boolean {
  * kioskTerminalEnabled() is also on (the split rides the terminal rail).
  */
 export function kioskSplitTenderEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_KIOSK_SPLIT_TENDER === "true";
+  // PREVIEW BRANCH ONLY (preview/kiosk-split-smoke): forced ON so the smoke
+  // needs no env-var/bake dance. NEVER merge this hardcode to main.
+  return true;
 }
