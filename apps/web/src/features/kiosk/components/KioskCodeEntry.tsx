@@ -179,10 +179,24 @@ export function KioskCodeEntry({
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ action: "peek", code, center: config?.center }),
             });
-            const data: { ok?: boolean; name?: string; reason?: string; target?: string } =
-              await res.json().catch(() => ({}));
+            const data: {
+              ok?: boolean;
+              name?: string;
+              reason?: string;
+              target?: string;
+              gzRailLive?: boolean;
+            } = await res.json().catch(() => ({}));
             if (data.ok === false) {
               setError(t(VOUCHER_ERR_KEY[data.reason ?? ""] ?? "codeEntry.err.generic"));
+              return;
+            }
+            // A valid game-card comp while the BMI dispense rail is DARK
+            // (GZ_VOUCHER_BMI off, reported by the peek): the basket's claim
+            // would refuse it, so route the guest to a human instead of a
+            // receipt that dead-ends at "Get my card".
+            if (data.target === "gamecard" && data.gzRailLive !== true) {
+              clarityEvent("kiosk:voucher:gamecard-desk");
+              setError(t("codeEntry.err.gamecardDesk"));
               return;
             }
             // A Game Zone card comp has no cart leg — it's fulfilled by
@@ -198,7 +212,11 @@ export function KioskCodeEntry({
                     ? prev
                     : { kind: "voucher-gamecard" as const, gzCards: [], cartLabels: [] };
                 if (base.gzCards.some((c) => c.code === code)) return base;
-                return { ...base, gzCards: [...base.gzCards, { code, tokens: 0 }], name: data.name };
+                return {
+                  ...base,
+                  gzCards: [...base.gzCards, { code, tokens: 0 }],
+                  name: data.name,
+                };
               });
               return;
             }
@@ -349,7 +367,15 @@ export function KioskCodeEntry({
         setChecking(false);
       }
     },
-    [appliedVoucherCodes, config, onApplied, onVoucherAccepted, onNativeCartItems, t, voucherRedeem],
+    [
+      appliedVoucherCodes,
+      config,
+      onApplied,
+      onVoucherAccepted,
+      onNativeCartItems,
+      t,
+      voucherRedeem,
+    ],
   );
 
   const handleRaw = useCallback(

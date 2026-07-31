@@ -6,6 +6,7 @@ import {
   voucherClientKeyForCenter,
 } from "~/features/booking/service/bmi-voucher.server";
 import { BMI_VOUCHER_RE, voucherTarget } from "~/features/booking/service/voucher-redeem";
+import { gzVoucherBmiRailLive } from "~/features/game-cards/service/voucher-redeem-router";
 import { getClientIp } from "@/lib/admin-auth";
 import redis from "@/lib/redis";
 
@@ -97,7 +98,16 @@ export async function POST(req: NextRequest) {
     // rather than sit in the cart covering nothing.
     const names = res.names?.filter((n) => n.trim().length > 0) ?? [];
     const target = names.length > 1 ? "multi" : voucherTarget(res.name).kind;
-    return NextResponse.json({ ok: true, name: res.name, names, target });
+    // A "gamecard" target is only actionable when the BMI dispense rail is live
+    // (server-only flag) — the kiosk uses this to route a valid comp to Guest
+    // Services instead of a basket whose claim would refuse it.
+    return NextResponse.json({
+      ok: true,
+      name: res.name,
+      names,
+      target,
+      ...(target === "gamecard" ? { gzRailLive: gzVoucherBmiRailLive() } : {}),
+    });
   }
 
   if (body.action === "remove") {

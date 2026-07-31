@@ -380,6 +380,8 @@ export const en = {
   "checkout.voucherFallbackName": "Your",
   "checkout.vouchersCover": "{count} vouchers cover {amount}",
   "codeEntry.err.duplicate": "That voucher is already on this order.",
+  "codeEntry.err.gamecardDesk":
+    "That's a game card voucher — please see Guest Services and they'll hand you your card.",
   "codeEntry.err.multiItem":
     "That voucher covers more than one thing — please see Guest Services to redeem it.",
   "checkout.voucherNoMatch":

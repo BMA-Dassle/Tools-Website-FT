@@ -25,16 +25,26 @@ import { BMI_VOUCHER_RE } from "~/features/booking/service/voucher-redeem";
 import {
   claimNativeVoucher,
   releaseNativeVoucher,
+  validateNativeVoucher,
   type NativeVoucherRefusal,
 } from "./native-voucher";
 import {
   claimGameCardVoucher,
   releaseGameCardVoucher,
+  resolveGameCardComp,
   type VoucherRedeemRefusal,
 } from "./voucher-card";
 import type { VoucherIssuer } from "../data/voucher-claims-db";
 
 export type AnyVoucherRefusal = VoucherRedeemRefusal | NativeVoucherRefusal;
+
+/** The BMI game-card comp rail ships dark (owner 2026-07-29: "leave BMI vouchers
+ *  for game cards for another day"). ONE gate shared by the claim, the basket
+ *  validate, and the coupon screen's peek routing, so the surfaces can never
+ *  disagree about whether the rail is live. Set GZ_VOUCHER_BMI=1 to wake it up. */
+export function gzVoucherBmiRailLive(): boolean {
+  return process.env.GZ_VOUCHER_BMI === "1";
+}
 
 export type RedeemClaim =
   | {
@@ -87,11 +97,10 @@ export async function claimAnyVoucher(input: {
     };
   }
 
-  // BMI-issued comps are PARKED (owner 2026-07-29: "leave BMI vouchers for game
-  // cards for another day"). The code ships dormant rather than being deleted —
-  // it's probe-verified work — but a BMI-shaped scan must not reach a live BMI
-  // call on a path nobody has smoked. Set GZ_VOUCHER_BMI=1 to wake it up.
-  if (process.env.GZ_VOUCHER_BMI !== "1") {
+  // BMI-issued comps are PARKED — see gzVoucherBmiRailLive. The code ships
+  // dormant rather than being deleted (it's probe-verified work), but a
+  // BMI-shaped scan must not reach a live BMI call on a path nobody has smoked.
+  if (!gzVoucherBmiRailLive()) {
     return { ok: false, issuer, reason: "unsupported" };
   }
   // Only the kiosk can redeem these: fulfilment is a dispense and the comp's
@@ -116,6 +125,37 @@ export async function claimAnyVoucher(input: {
     },
     label: res.grant.label,
   };
+}
+
+/**
+ * Scan-time validate, whoever issued the code — claims NOTHING on either path.
+ * Native answers from the `vouchers` registry (response shape unchanged: `items`);
+ * BMI answers from the same non-destructive peek→allowlist resolution the claim
+ * uses, returned as a `label` for the basket row. A BMI code while the rail is
+ * dark refuses `unsupported` — the same answer its claim would give — instead of
+ * the `bad_format` lie the native-only validate used to tell.
+ */
+export async function validateAnyVoucher(input: {
+  code: string;
+  locationCode?: number;
+  center?: string | null;
+}): Promise<Record<string, unknown>> {
+  const issuer = voucherIssuerFor(input.code);
+  if (!issuer) return { ok: false, issuer: null, reason: "bad_format" };
+  if (issuer === "native") {
+    return { issuer, ...(await validateNativeVoucher(input.code)) };
+  }
+  if (!gzVoucherBmiRailLive()) return { ok: false, issuer, reason: "unsupported" };
+  // The peek needs a center to pick the BMI tenant — a basket that can claim
+  // always has one; refuse rather than guess (a wrong tenant misreads the comp).
+  if (input.locationCode === undefined) return { ok: false, issuer, reason: "unverifiable" };
+  const res = await resolveGameCardComp({
+    code: input.code,
+    locationCode: input.locationCode,
+    center: input.center,
+  });
+  if (!res.ok) return { ok: false, issuer, reason: res.reason };
+  return { ok: true, issuer, label: res.grant.label };
 }
 
 /** Release by issuer — same "nothing was delivered" rule on both paths. */

@@ -68,12 +68,17 @@ function refusalFromBmiError(message: string | undefined): VoucherRedeemRefusal 
   return "unverifiable";
 }
 
-export async function claimGameCardVoucher(input: {
+/** Non-destructive "what IS this code, and what would it grant?" — shape check →
+ *  BMI peek → denomination allowlist. Shared by the basket's validate (scan time,
+ *  claims NOTHING) and the claim below, so the two can never disagree about a code. */
+export async function resolveGameCardComp(input: {
   code: string;
   locationCode: number;
   center: string | null | undefined;
-  kioskId?: string | null;
-}): Promise<VoucherRedeemResult> {
+}): Promise<
+  | { ok: true; grant: GameCardGrant; compName: string }
+  | { ok: false; reason: VoucherRedeemRefusal; compName?: string }
+> {
   const code = input.code.trim().toUpperCase();
   if (!BMI_VOUCHER_RE.test(code)) return { ok: false, reason: "bad_format" };
   if (!getCenter(input.locationCode)) return { ok: false, reason: "unverifiable" };
@@ -117,6 +122,21 @@ export async function claimGameCardVoucher(input: {
     return { ok: false, reason: "unsupported", compName };
   }
 
+  return { ok: true, grant, compName };
+}
+
+export async function claimGameCardVoucher(input: {
+  code: string;
+  locationCode: number;
+  center: string | null | undefined;
+  kioskId?: string | null;
+}): Promise<VoucherRedeemResult> {
+  const code = input.code.trim().toUpperCase();
+  const resolved = await resolveGameCardComp(input);
+  if (!resolved.ok) return resolved;
+  const { grant, compName } = resolved;
+  const clientKey = voucherClientKeyForCenter(input.center);
+
   const txnId = randomUUID();
   const groupId = randomUUID();
 
@@ -134,7 +154,10 @@ export async function claimGameCardVoucher(input: {
       kioskId: input.kioskId ?? null,
     });
   } catch (err) {
-    console.error("[gz-voucher] claim store unavailable:", err instanceof Error ? err.message : err);
+    console.error(
+      "[gz-voucher] claim store unavailable:",
+      err instanceof Error ? err.message : err,
+    );
     return { ok: false, reason: "storage" };
   }
   if (!claimed.ok) return { ok: false, reason: "used", compName };

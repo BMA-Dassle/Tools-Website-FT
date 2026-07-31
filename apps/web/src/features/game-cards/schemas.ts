@@ -190,10 +190,14 @@ export const VoucherRedeemSchema = z.discriminatedUnion("action", [
     txnId: z.string().uuid(),
     reason: z.string().trim().max(200).optional(),
   }),
-  /** Scan step: is this code good? Claims NOTHING (kiosk basket). */
+  /** Scan step: is this code good? Claims NOTHING (kiosk basket). Location +
+   *  center are only needed to peek a BMI comp (tenant selection); native
+   *  validation ignores them, so they stay optional for compatibility. */
   z.object({
     action: z.literal("validate"),
     code: z.string().trim().min(8).max(64),
+    locationCode: z.number().int().optional(),
+    center: z.string().trim().max(40).optional(),
   }),
   /** WEB leg: credit the value onto a card the guest already holds. */
   z.object({
