@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
-import { kioskSplitTenderEnabled, kioskTerminalEnabled } from "~/features/kiosk/flags";
 import { lookupGiftCardForSplit } from "~/features/kiosk/service/split-tenders";
 
 export const runtime = "nodejs";
@@ -38,9 +37,6 @@ async function rateLimited(req: NextRequest): Promise<boolean> {
 }
 
 export async function POST(req: NextRequest) {
-  if (!kioskSplitTenderEnabled() || !kioskTerminalEnabled()) {
-    return NextResponse.json({ error: "Not enabled" }, { status: 404 });
-  }
   if (await rateLimited(req)) {
     return NextResponse.json({ error: "Too many lookups — wait a moment" }, { status: 429 });
   }

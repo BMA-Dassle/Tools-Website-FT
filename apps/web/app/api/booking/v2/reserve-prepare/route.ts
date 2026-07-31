@@ -8,7 +8,6 @@ import {
 } from "~/features/booking/service/unified-reserve";
 import { CreditRedemptionError } from "~/features/booking/service/race-credit-redeem";
 import { WorldCupReservationError } from "~/features/world-cup";
-import { kioskTerminalEnabled } from "~/features/kiosk/flags";
 import type { BookingSession } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
 
@@ -18,13 +17,10 @@ import type { ContactInfo } from "~/features/booking/types";
  * Runs all pre-charge guards + builds the day-of order(s) + creates the GIFT_CARD
  * deposit order the paired reader will pay, writing a persist-first anchor. The
  * client then charges `depositOrderId` on the reader and calls reserve-all with
- * the completed paymentId. Fail-closed: dormant unless kioskTerminalEnabled().
+ * the completed paymentId.
  * NEVER charges here — the reader does, after this returns.
  */
 export async function POST(req: NextRequest) {
-  if (!kioskTerminalEnabled()) {
-    return NextResponse.json({ error: "Terminal payments are not enabled" }, { status: 400 });
-  }
   try {
     const body = (await req.json()) as {
       session: BookingSession;

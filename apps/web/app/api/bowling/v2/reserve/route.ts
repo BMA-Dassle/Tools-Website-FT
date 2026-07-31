@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomBytes, randomUUID } from "crypto";
 import { buildGanPrefix } from "@/lib/gan";
-import { kioskGzCartEnabled, kioskSplitTenderEnabled } from "~/features/kiosk/flags";
+import { kioskGzCartEnabled } from "~/features/kiosk/flags";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { startTxn, markCharged, markLoadState } from "~/features/game-cards/data/transactions-log";
 import {
@@ -536,7 +536,7 @@ export async function POST(req: NextRequest) {
       // Split-tender session secret (gift card + tap) — minted at PREPARE, the
       // session's trust root, exactly like the unified rail. Returned ONLY to
       // this prepare's caller; every gift-card route requires it.
-      const splitToken = kioskSplitTenderEnabled() ? randomUUID() : undefined;
+      const splitToken: string | undefined = randomUUID();
       await writeBowlingTerminalAnchor(seed, {
         depositOrderId,
         depositCents: depositForReader,

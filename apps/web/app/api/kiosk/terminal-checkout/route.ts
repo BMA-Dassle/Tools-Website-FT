@@ -9,7 +9,6 @@ import {
   stampTerminalPaymentOnAnchor,
   updateTerminalAnchor,
 } from "~/features/booking/service/unified-reserve";
-import { kioskSplitTenderEnabled } from "~/features/kiosk/flags";
 import { splitRemainingCents } from "~/features/kiosk/service/split-tenders";
 
 /**
@@ -56,9 +55,6 @@ export async function POST(req: NextRequest) {
   // ── SPLIT fork: server-authoritative amount + auth-only + salted key. When
   //    absent, the legacy full-amount autocomplete path below runs verbatim. ──
   if (body.splitAmountCents != null) {
-    if (!kioskSplitTenderEnabled()) {
-      return NextResponse.json({ error: "Split payments are not enabled" }, { status: 400 });
-    }
     if (!body.seed || !body.splitToken) {
       return NextResponse.json(
         { error: "seed and splitToken required for a split checkout" },

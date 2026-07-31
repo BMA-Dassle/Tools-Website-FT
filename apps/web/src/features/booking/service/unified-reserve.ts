@@ -15,12 +15,7 @@ import {
   finalizeDepositFromExternalPayment,
   type ExternalTerminalPayment,
 } from "./deposit";
-import {
-  kioskTerminalEnabled,
-  kioskGzCartEnabled,
-  kioskPovCodesEnabled,
-  kioskSplitTenderEnabled,
-} from "~/features/kiosk/flags";
+import { kioskGzCartEnabled, kioskPovCodesEnabled } from "~/features/kiosk/flags";
 import { getOrderPaymentInfo } from "~/features/kiosk/service/square-terminal";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { startTxn, markCharged, markLoadState } from "~/features/game-cards/data/transactions-log";
@@ -174,7 +169,7 @@ export interface UnifiedReserveInput {
    * Kiosk direct-Terminal charge (owner rule: NO saved card). When set, the
    * guest's card was ALREADY captured on the paired reader against OUR deposit
    * order; reserve funds the gift card from that completed paymentId and NEVER
-   * charges a token. Only honored when kioskTerminalEnabled(). See
+   * charges a token. See
    * tasks/kiosk-terminal-charge.md.
    */
   externalPayment?: ExternalTerminalPayment;
@@ -1467,7 +1462,7 @@ async function unifiedReserveInner(
    *  into the post-reserve rail for the guest email + reservation memo. */
   let povCodesResult: string[] | undefined;
 
-  const useTerminal = kioskTerminalEnabled() && !!input.externalPayment;
+  const useTerminal = !!input.externalPayment;
 
   // Open the durable audit row BEFORE the charge (prepare runs its own pass and
   // doesn't need one — its failures cost nothing). Soft-fails to a null id.
@@ -1638,7 +1633,7 @@ async function unifiedReserveInner(
       // client-visible, so it can NOT authorize the split routes by itself.
       // Minted here (prepare is the session's trust root), stored on the
       // anchor, returned ONLY to this prepare's caller.
-      const splitToken = kioskSplitTenderEnabled() ? randomUUID() : undefined;
+      const splitToken: string | undefined = randomUUID();
       await writeTerminalAnchor(seedSource ?? baseKey, {
         depositOrderId,
         depositCents,

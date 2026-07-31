@@ -4,7 +4,8 @@
  * Direct-Terminal card-present CHARGE on a paired Square reader (owner 2026-07-19:
  * "Kiosk is NOT going to use saved card").
  *
- * Unlike KioskReaderPayment (SAVE_CARD vault, being retired), this charges OUR
+ * Unlike the retired KioskReaderPayment (SAVE_CARD vault, deleted 2026-07-31 —
+ * no card is ever vaulted on a kiosk), this charges OUR
  * prepared deposit order DIRECTLY on the reader via a Terminal checkout → yields a
  * COMPLETED paymentId that reserve records as collected (no card is ever vaulted).
  * A Square reader also accepts HeadPinz/FastTrax gift-card SWIPES as tender, so
