@@ -129,6 +129,8 @@ export interface ComboMeta {
   /** Lane length from the combo registry (Ultimate VIP = 90) — drives the
    *  board's live "time left on lane" countdown. */
   bowlingDurationMinutes?: number;
+  /** Short version badge ("VIP V2") — v1 combos have none. */
+  adminShortLabel?: string;
 }
 
 /** One step of a VIP combo's itinerary (race heat → bowling slot → race heat). */

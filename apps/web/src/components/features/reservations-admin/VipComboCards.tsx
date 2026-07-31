@@ -105,6 +105,25 @@ export default function VipComboCards({
             >
               <div style={{ fontWeight: 700, color: "var(--ba-fg)", fontSize: "1rem" }}>
                 <span style={{ color: accent }}>★</span> {name}
+                {g.meta?.adminShortLabel && (
+                  <span
+                    style={{
+                      marginLeft: 8,
+                      padding: "1px 6px",
+                      borderRadius: 4,
+                      fontSize: "0.62rem",
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                      verticalAlign: "middle",
+                      color: accent,
+                      border: `1px solid ${accent}`,
+                    }}
+                    title={`${g.meta.adminShortLabel} pack (registry ${g.comboId})`}
+                  >
+                    {g.meta.adminShortLabel}
+                  </span>
+                )}
               </div>
               <div style={{ fontWeight: 700, color: "#22c55e" }}>{dollars(g.totalCents)}</div>
             </div>

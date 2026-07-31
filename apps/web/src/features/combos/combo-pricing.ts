@@ -379,12 +379,23 @@ export function comboOrderGroups(session: BookingSession): ComboOrderGroup[] | n
       if ((li.priceCents ?? 0) !== 0 || !li.squareCatalogObjectId) continue;
       if (seen.has(li.squareCatalogObjectId)) continue;
       seen.add(li.squareCatalogObjectId);
+      // Registry quantity rule (e.g. chips & salsa = 1 per 3 guests, owner
+      // 2026-07-31): the experience seeds these per LANE; a matching rule
+      // re-sizes the line to ceil(players / guestsPerUnit), floor 1. Combos
+      // without rules keep the experience's own quantity — v1 unchanged.
+      const rule = active.combo.inclusionQtyRules?.find(
+        (r) => r.catalogObjectId === li.squareCatalogObjectId,
+      );
+      const players = active.bowlingItem.playerCount ?? active.racerIds.length;
+      const quantity = rule
+        ? Math.max(1, Math.ceil(players / Math.max(1, rule.guestsPerUnit)))
+        : li.quantity;
       bowlingLines.push({
         key: `incl-${li.squareCatalogObjectId}`,
         name: li.label ?? "Included",
         entity: BOWLING_ENTITY,
         catalogObjectId: li.squareCatalogObjectId,
-        quantity: li.quantity,
+        quantity,
         unitCents: 0,
       });
     }

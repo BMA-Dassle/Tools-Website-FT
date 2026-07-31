@@ -201,6 +201,16 @@ export interface ComboSpecial {
    * combo grants nothing beyond its booked itinerary.
    */
   voucherGrant?: ComboVoucherGrant;
+  /**
+   * Quantity rules for the $0 included lines re-attached to the bowling
+   * day-of order (e.g. chips & salsa). The QAMF experience seeds one per
+   * LANE; a rule re-sizes that line to ceil(players / guestsPerUnit) on the
+   * Square order (owner 2026-07-31: chips = 1 per 3 people). $0 lines only —
+   * totals, deposit and the displayed==charged tripwire are untouched.
+   */
+  inclusionQtyRules?: Array<{ catalogObjectId: string; guestsPerUnit: number }>;
+  /** Short admin-board badge (e.g. "VIP V2"); absent = the generic "VIP". */
+  adminShortLabel?: string;
   enabled: boolean;
   displayOrder?: number;
   /** Optional seasonal window for future combos (mirrors discount-codes). */
@@ -212,6 +222,15 @@ export interface ComboSpecial {
  * Vercel prod keeps it "false" until the staff canary passes).
  */
 const COMBO_RACE_BOWL_ENABLED = process.env.NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED !== "false";
+
+/**
+ * V2 pack flag: default OFF (ships dark per the v2 cutover rule). Cutover is
+ * ONE redeploy flipping both: `NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED=false` +
+ * `NEXT_PUBLIC_COMBO_RACE_BOWL_V2_ENABLED=true`. NEVER both on in prod — the
+ * two entries share a guest-facing name, so every enabledCombos() surface
+ * would render duplicate cards.
+ */
+const COMBO_RACE_BOWL_V2_ENABLED = process.env.NEXT_PUBLIC_COMBO_RACE_BOWL_V2_ENABLED === "true";
 
 /**
  * Reorder-fallback flag: default OFF (ships dark per the v2 cutover rule).
@@ -372,11 +391,159 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     enabled: COMBO_RACE_BOWL_ENABLED,
     displayOrder: 10,
   },
+  // ── V2 pack (owner 2026-07-31): $79 wd / $99 we + redeem-later vouchers ──
+  // Same itinerary and guest-facing NAME as race-bowl (the shared name keeps
+  // the checkout flat-display and receipt collapse matchers working); new
+  // price, per-person Game Zone + laser/gel voucher items, a shared Shuffly
+  // hour, and chips re-sized to 1 per 3 guests. Ships dark; the cutover flips
+  // v1 off and v2 on in one redeploy (see COMBO_RACE_BOWL_V2_ENABLED).
+  {
+    id: "race-bowl-v2",
+    name: "Ultimate VIP Experience",
+    shortDescription:
+      "A full 3-hour experience: Starter race, 1.5 hours of VIP bowling, then an Intermediate " +
+      "race — license, POV video and VIP lane perks included. Plus a $10 Game Zone bonus card, " +
+      "a Laser Tag or Gel Blaster pass, and an hour of Shuffly by voucher. One price, one booking.",
+    longDescription:
+      "Three hours of the full FastTrax + HeadPinz premium night: qualify on a Starter race, " +
+      "take over a semi-private VIP lane for 1.5 hours of bowling, then come back faster on " +
+      "an Intermediate race. Racing license, POV race video, and VIP lane perks (NeoVerse " +
+      "video wall, chips & salsa, premium glow) are all included — plus a voucher good for a " +
+      "$10 Game Zone bonus card per person, Laser Tag OR Gel Blaster per person, and an hour " +
+      "of Shuffly, valid up to 1 year from your race date (when available, not transferable). " +
+      "Pick a start time — 2, 4, 6, 8, or 10 PM — and we schedule the rest.",
+    durationLabel: "≈ 3-Hour Experience",
+    qualifyFallbackNote:
+      "Didn't qualify? No problem — we'll convert your Intermediate to a second Starter race, or issue you a race credit.",
+    includes: [
+      "Starter Race",
+      "1.5 Hours of VIP Bowling",
+      "Intermediate Race",
+      "Racing License + POV Video",
+      "$10 Game Zone Bonus Card (voucher — when available, up to 1 year)",
+      "Laser Tag OR Gel Blaster (voucher — when available, up to 1 year)",
+      "1 Hour of Shuffly (voucher — when available, up to 1 year)",
+    ],
+    es: {
+      shortDescription:
+        "Una experiencia completa de 3 horas: carrera Starter, 1.5 horas de boliche VIP y luego " +
+        "una carrera Intermediate — licencia, video POV y beneficios de pista VIP incluidos. " +
+        "Además una tarjeta Game Zone de $10, un pase de Laser Tag o Gel Blaster y una hora de " +
+        "Shuffly por cupón. Un precio, una reservación.",
+      longDescription:
+        "Tres horas de la noche premium completa de FastTrax + HeadPinz: califica en una carrera " +
+        "Starter, toma una pista VIP semiprivada para 1.5 horas de boliche y luego regresa más " +
+        "rápido en una carrera Intermediate. La licencia de carreras, el video POV y los " +
+        "beneficios de pista VIP (muro de video NeoVerse, chips y salsa, glow premium) están todos " +
+        "incluidos — además un cupón por una tarjeta Game Zone de $10 por persona, Laser Tag O " +
+        "Gel Blaster por persona y una hora de Shuffly, válido hasta 1 año desde tu fecha de " +
+        "carrera (según disponibilidad, no transferible). Elige una hora de inicio — 2, 4, 6, 8 o " +
+        "10 PM — y nosotros programamos el resto.",
+      durationLabel: "≈ Experiencia de 3 horas",
+      qualifyFallbackNote:
+        "¿No calificaste? No hay problema — convertimos tu carrera Intermediate en una segunda " +
+        "carrera Starter, o te damos un crédito de carrera.",
+      includes: [
+        "Carrera Starter",
+        "1.5 horas de boliche VIP",
+        "Carrera Intermediate",
+        "Licencia de carreras + video POV",
+        "Tarjeta Game Zone de $10 (cupón — según disponibilidad, hasta 1 año)",
+        "Laser Tag O Gel Blaster (cupón — según disponibilidad, hasta 1 año)",
+        "1 hora de Shuffly (cupón — según disponibilidad, hasta 1 año)",
+      ],
+    },
+    perks: [
+      "Semi-private 8-lane VIP area",
+      "NeoVerse video wall",
+      "Complimentary chips & salsa (1 per 3 guests)",
+      "Bowling shoes included",
+      "HyperBowling + premium glow lighting",
+      "Vouchers valid up to 1 year from race date — not transferable; attractions subject to availability",
+    ],
+    heroImage:
+      "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/pricing-combos.webp",
+    accentColor: "#FFD700",
+    center: "fort-myers",
+    price: { weekday: 7900, weekend: 9900 },
+    // Owner: the VIP experience is a shared semi-private suite — book ≥2 guests.
+    minHeadcount: 2,
+    components: [
+      { kind: "race", tier: "starter" },
+      { kind: "bowling", durationMinutes: 90, vip: true, maxWaitMinutes: 75 },
+      { kind: "race", tier: "intermediate" },
+    ],
+    fallbackComponents: [
+      { kind: "race", tier: "starter" },
+      { kind: "race", tier: "intermediate", minWaitMinutes: 20, maxWaitMinutes: 45 },
+      { kind: "bowling", durationMinutes: 90, vip: true, maxWaitMinutes: 45 },
+    ],
+    fallbackNote:
+      "Both races run first, then your VIP lane — your lane time opens later in the evening.",
+    flatCartDisplay: true,
+    transitionMinutes: 15,
+    includesLicense: true,
+    includedPovPerRacer: 1,
+    startHours: [14, 16, 18, 20, 22],
+    premium: true,
+    // V2 split (owner 2026-07-31): the +$14 wd / +$24 we uplift over v1 is
+    // shared EVENLY — FastTrax $44→$51 / $49→$61, HeadPinz $21→$28 / $26→$38.
+    // Sums to 7900 wd / 9900 we per person. The voucher entitlements (Game
+    // Zone card, laser/gel, Shuffly) are unfunded until redemption — no
+    // separate Square line; same fold-in model as license/POV/shoes.
+    revenueSplit: [
+      {
+        key: "vip-racing",
+        label: "Ultimate VIP Experience",
+        entity: "fasttrax-fm",
+        catalogObjectId: SQUARE_CATALOG_IDS.VIP_EXPERIENCE_RACING,
+        weekdayCents: 5100,
+        weekendCents: 6100,
+        appliesTo: "allRacers",
+      },
+      {
+        key: "vip-bowling",
+        label: "Ultimate VIP Experience",
+        entity: "headpinz-fm",
+        catalogObjectId: SQUARE_CATALOG_IDS.VIP_EXPERIENCE_BOWLING,
+        weekdayCents: 2800,
+        weekendCents: 3800,
+        appliesTo: "allRacers",
+      },
+    ],
+    // Redeem-later grant: ONE voucher per booking (owner: "one voucher that
+    // pulls up all their entitlements"), 1 year from the RACE date, not
+    // transferable. Per racer: a $10 Game Zone card (100 bonus tokens) + a
+    // laser-tag-OR-gel-blaster pass; per booking: one Shuffly hour (the
+    // product is per-table, seats up to 10).
+    voucherGrant: {
+      perGuest: [
+        { kind: "gamezone", tokens: 0, bonusTokens: 100, bonusCashDollars: 0 },
+        { kind: "attraction-choice", slugs: ["laser-tag", "gel-blaster"], qty: 1 },
+      ],
+      perBooking: [{ kind: "attraction", slug: "shuffly", qty: 1 }],
+      expiresMonthsFromVisit: 12,
+    },
+    // Chips & salsa: the QAMF experience seeds 1/lane; owner 2026-07-31 —
+    // 1 per 3 guests (round up) on the HeadPinz day-of order.
+    inclusionQtyRules: [{ catalogObjectId: "LHZXWYO72N5QFX4CGYKRVPZX", guestsPerUnit: 3 }],
+    adminShortLabel: "VIP V2",
+    enabled: COMBO_RACE_BOWL_V2_ENABLED,
+    displayOrder: 11,
+  },
 ];
 
 /** Look up a combo by id (enabled or not — callers gate separately). */
 export function getComboSpecial(id: string): ComboSpecial | null {
   return COMBO_SPECIALS.find((c) => c.id === id) ?? null;
+}
+
+/** Admin-board badge for a combo booking ("VIP" for v1, "VIP V2" for the V2
+ *  pack). Falls back to "VIP" for unknown/legacy ids so historical rows keep
+ *  their badge even after a registry entry retires. */
+export function comboAdminLabel(comboSpecialId: string | null | undefined): string {
+  if (!comboSpecialId) return "VIP";
+  return getComboSpecial(comboSpecialId)?.adminShortLabel ?? "VIP";
 }
 
 /** Is the combo within its availability window (if it has one)? */

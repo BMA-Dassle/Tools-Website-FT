@@ -16,6 +16,7 @@ import {
 import { clickableDivProps } from "@/lib/a11y";
 import { centerShortOf, dollars, fmtClock, ganDisplay } from "~/features/reservations-admin/format";
 import type { ComboMergeInfo, Reservation } from "~/features/reservations-admin/types";
+import { comboAdminLabel } from "~/features/combos/combo-specials";
 import ActionButtons from "./ActionButtons";
 import { SurveyChip } from "./chips";
 import type { ContactTarget } from "./modals/ContactModal";
@@ -211,9 +212,9 @@ export default function BoardTable({
                         color: KIND_BADGE.vip.color,
                         border: `1px solid ${KIND_BADGE.vip.border}`,
                       }}
-                      title="Part of an Ultimate VIP combo"
+                      title={`Part of an Ultimate ${comboAdminLabel(r.comboSpecialId)} combo`}
                     >
-                      ★ VIP
+                      ★ {comboAdminLabel(r.comboSpecialId)}
                     </span>
                   )}
                   {r.comboSpecialId &&

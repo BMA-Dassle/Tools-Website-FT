@@ -310,6 +310,7 @@ export async function GET(req: NextRequest) {
         includes: string[];
         center: string;
         bowlingDurationMinutes?: number;
+        adminShortLabel?: string;
       }
     > = {};
     for (const r of vipReservations) {
@@ -326,6 +327,7 @@ export async function GET(req: NextRequest) {
           // Registry lane length (Ultimate VIP = 90) — drives the board's
           // live "time left on lane" countdown.
           bowlingDurationMinutes: bowlingLeg?.durationMinutes,
+          adminShortLabel: combo.adminShortLabel,
         };
       }
     }
