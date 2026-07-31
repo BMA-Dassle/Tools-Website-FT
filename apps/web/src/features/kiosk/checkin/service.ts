@@ -11,6 +11,8 @@ import type {
   CheckinConfirmOtpResponse,
   CheckinItinerary,
   CheckinLookupResponse,
+  CheckinPartyMember,
+  CheckinPartyResponse,
   CheckinSendOtpResponse,
   CheckinSlotAssignment,
 } from "./types";
@@ -90,6 +92,26 @@ export async function fetchItinerary(
       { cache: "no-store" },
     );
     return (await res.json()) as CheckinItinerary;
+  } catch {
+    return null;
+  }
+}
+
+/** Bind-ready party of a proven reservation (voucher-QR prefill). Null on any
+ *  failure — the panel just doesn't offer the shortcut. */
+export async function fetchBindableParty(
+  center: string,
+  proofToken: string,
+): Promise<CheckinPartyMember[] | null> {
+  try {
+    const res = await fetch("/api/kiosk/checkin/lookup?action=party", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ center, proofToken }),
+      cache: "no-store",
+    });
+    const data = (await res.json()) as CheckinPartyResponse;
+    return data.ok ? data.members : null;
   } catch {
     return null;
   }

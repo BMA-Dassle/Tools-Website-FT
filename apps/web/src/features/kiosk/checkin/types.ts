@@ -89,6 +89,21 @@ export interface CheckinConfirmOtpResponse {
 // scheduling, and the -5 Arrived stamp are PR3.
 
 /** A ready party member the client sends to be attached. */
+/** One bind-ready person from a proven reservation's roster (voucher-QR party
+ *  prefill). Ids flow ONLY through the proofToken-gated party action — the
+ *  itinerary roster itself deliberately nulls them. */
+export interface CheckinPartyMember {
+  firstName: string;
+  lastName?: string;
+  /** 17-digit BMI Office id as a STRING; absent for bowling-only guests. */
+  bmiPersonId?: string;
+  waiverValid: boolean;
+}
+
+export type CheckinPartyResponse =
+  | { ok: true; members: CheckinPartyMember[] }
+  | { ok: false; reason: "expired-proof" | "rate-limited" | "invalid" | "disabled" };
+
 export interface CheckinBindMember {
   /** 17-digit Office id (returning) or short Pandora id (new) — digit string. */
   bmiPersonId: string;

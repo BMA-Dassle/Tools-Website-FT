@@ -72,3 +72,29 @@ describe("shortCodeFromPath", () => {
     expect(shortCodeFromPath("https://x.com/book/confirmation")).toBeNull();
   });
 });
+
+describe("classifyScan — native voucher (voucher-QR party prefill)", () => {
+  it("classifies a /v/{code} URL (the emailed VIP voucher QR payload)", () => {
+    expect(classifyScan("https://headpinz.com/v/HPW4K7M9PQR")).toEqual({
+      kind: "voucher",
+      value: "HPW4K7M9PQR",
+    });
+  });
+
+  it("classifies a bare HPW code — BEFORE the short-code bucket it used to dead-end in", () => {
+    expect(classifyScan("HPW4K7M9PQR")).toEqual({ kind: "voucher", value: "HPW4K7M9PQR" });
+  });
+
+  it("normalizes the hyphenated printed form and lowercase input", () => {
+    expect(classifyScan("hpw-4k7m-9pqr")).toEqual({ kind: "voucher", value: "HPW4K7M9PQR" });
+  });
+
+  it("a /v path with a non-voucher segment stays unknown (never guess)", () => {
+    expect(classifyScan("https://headpinz.com/v/NOTACODE123").kind).toBe("unknown");
+  });
+
+  it("HPW-prefixed tokens of the wrong shape do NOT classify as vouchers", () => {
+    // 7 chars after the prefix — one short. Falls to the short-code bucket.
+    expect(classifyScan("HPW4K7M9PQ").kind).toBe("shortcode");
+  });
+});

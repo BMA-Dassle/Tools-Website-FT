@@ -33,7 +33,8 @@ import {
   appendProjectPrivateNote,
   KIOSK_CONFIRMATION_STATE_IDS,
 } from "@/lib/bmi-office-actions";
-import { kioskCheckinAttachEnabled } from "../flags";
+import { kioskCheckinAttachEnabled, kioskVoucherPrefillEnabled } from "../flags";
+import { getVoucher } from "~/features/game-cards/data/vouchers-db";
 import {
   openCheckinEvent,
   getCheckinEvent,
@@ -61,6 +62,7 @@ import type {
   CheckinBrowseRow,
   CheckinItinerary,
   CheckinLookupMatch,
+  CheckinPartyMember,
   CheckinRaceSlot,
   CheckinRosterPerson,
   CheckinSlotAssignment,
@@ -243,6 +245,19 @@ export async function resolveScanToBillId(
       if (byRes) return { billId: byRes, proven: false };
       const billId = await officeResolveWNumber(center, c.value);
       return billId ? { billId, proven: false } : { reason: "not-found" };
+    }
+    case "voucher": {
+      // A booking-minted voucher (vouchers.bill_id, stamped at reserve). The
+      // QR arrives in the same email as the reservation QR, so possession =
+      // proof (owner 2026-07-25 posture). CSPRNG codes are non-enumerable.
+      // Voided codes prove nothing; EXPIRED ones still do — expiry limits
+      // redemption value, not identity. Flag-gated: OFF = today's not-found.
+      if (!kioskVoucherPrefillEnabled()) return { reason: "not-found" };
+      const voucher = await getVoucher(c.value).catch(() => null);
+      if (voucher && !voucher.voidedAt && voucher.billId) {
+        return { billId: voucher.billId, proven: true };
+      }
+      return { reason: "not-found" };
     }
     default:
       return { reason: "invalid" };
@@ -1369,6 +1384,58 @@ async function stampBookingRecordCheckedIn(billId: string): Promise<void> {
   } catch {
     /* non-fatal */
   }
+}
+
+// ── voucher-QR party prefill (flag: kioskVoucherPrefillEnabled) ──────────────
+
+/**
+ * The party of a proven reservation, bind-ready — what the voucher-QR prefill
+ * loads into the kiosk's roster so nobody re-types names the booking already
+ * knows. Names + ids come from the Redis booking record's racers (fallback:
+ * the Neon race row's booking_metadata.heats); waiver status is re-verified
+ * LIVE per person (never trusted from booking time — it may have lapsed).
+ *
+ * PII posture: only reachable through a proofToken-gated action, the same bar
+ * as the itinerary — ids flow ONLY after possession is proven. (The itinerary
+ * roster itself deliberately nulls ids; this is the bind-ready counterpart.)
+ */
+export async function listBindableParty(billId: string): Promise<CheckinPartyMember[]> {
+  const summary = await loadSummary(billId);
+  if (!summary || summary.cancelled) return [];
+
+  // One row per person: record racers list one row per HEAT (a combo racer
+  // appears twice), so dedupe on personId, falling back to the name.
+  const rows: Array<{ full: string; personId: string | null }> = [];
+  const recRacers = summary.record?.racers ?? [];
+  if (recRacers.length > 0) {
+    for (const r of recRacers) {
+      rows.push({ full: (r.racerName ?? "").trim(), personId: r.personId ?? null });
+    }
+  } else {
+    for (const h of neonHeats(summary.moneyGroup)) {
+      rows.push({ full: (h.racer ?? "").trim(), personId: h.bmiPersonId ?? null });
+    }
+  }
+  const seen = new Set<string>();
+  const uniq = rows.filter((r) => {
+    if (!r.full && !r.personId) return false;
+    const key = r.personId ?? `name:${r.full.toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (uniq.length === 0) return [];
+
+  const waiverBy = await checkRacerWaivers(uniq.map((r) => r.personId));
+  return uniq.map((r) => {
+    const parts = r.full.split(/\s+/).filter(Boolean);
+    return {
+      firstName: parts[0] || "Guest",
+      ...(parts.length > 1 ? { lastName: parts.slice(1).join(" ") } : {}),
+      ...(r.personId ? { bmiPersonId: r.personId } : {}),
+      waiverValid: r.personId ? (waiverBy.get(r.personId) ?? false) : false,
+    };
+  });
 }
 
 export { loadSummary };

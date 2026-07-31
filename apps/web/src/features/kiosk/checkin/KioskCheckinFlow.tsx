@@ -38,6 +38,7 @@ import {
   bindParty,
   completeCheckin,
   confirmContactOtp,
+  fetchBindableParty,
   fetchItinerary,
   lookupBrowse,
   lookupByPhone,
@@ -46,6 +47,8 @@ import {
   sendOwnPhoneOtp,
   verifyOwnPhoneOtp,
 } from "./service";
+import { prefillPartyMembers } from "./party-prefill";
+import { kioskVoucherPrefillEnabled } from "../flags";
 import { useWedgeScan } from "./wedge-scan";
 import { useQrScanner } from "../qr-scanner";
 import { heatsConflict } from "~/features/booking/service/conflict";
@@ -58,6 +61,7 @@ import type {
   CheckinCompleteResponse,
   CheckinItinerary,
   CheckinLookupMatch,
+  CheckinPartyMember,
   CheckinRaceSlot,
   CheckinSlotAssignment,
 } from "./types";
@@ -151,6 +155,9 @@ export function KioskCheckinFlow() {
   // Itinerary
   const [itinerary, setItinerary] = useState<CheckinItinerary | null>(null);
   const [proofToken, setProofToken] = useState<string | null>(null);
+  // Voucher-QR party prefill (flag-gated): the proven reservation's bind-ready
+  // roster, fetched alongside the itinerary. Null = unavailable / flag off.
+  const [prefillRoster, setPrefillRoster] = useState<CheckinPartyMember[] | null>(null);
 
   // Party panel — the people monolith runs on this LOCAL, non-persisted booking
   // reducer (center baked in; config hydrates synchronously on a provisioned
@@ -196,6 +203,13 @@ export function KioskCheckinFlow() {
       setItinerary(data);
       setProofToken(token);
       setStage("itinerary");
+      // Prefill roster rides the same proof — fire-and-forget so the itinerary
+      // never waits on it; a failure just means no shortcut button.
+      if (kioskVoucherPrefillEnabled()) {
+        void fetchBindableParty(center, token).then((members) => {
+          if (members && members.length > 0) setPrefillRoster(members);
+        });
+      }
     },
     [center, t],
   );
@@ -727,6 +741,35 @@ export function KioskCheckinFlow() {
         {stage === "party" && itinerary && (
           <div>
             <p className="mb-[20px] text-[26px] text-white/55">{t("checkin.addGroup.body")}</p>
+            {/* Voucher-QR prefill: everyone from the original booking, one tap.
+                Recomputed against the live party so a double tap (or someone
+                already signed in by phone) never duplicates. English copy while
+                the flag is OFF — localize before the flag flips (same
+                rich-text caveat as the POV caption above). */}
+            {(() => {
+              const prefillable = prefillRoster
+                ? prefillPartyMembers(session.party, prefillRoster)
+                : [];
+              if (prefillable.length === 0) return null;
+              return (
+                <button
+                  type="button"
+                  onClick={() => {
+                    for (const m of prefillable) dispatch({ type: "addPartyMember", member: m });
+                  }}
+                  className="k-tap mb-[20px] w-full rounded-2xl border-2 border-[#B8860B] bg-[#B8860B]/10 px-[28px] py-[22px] text-left"
+                >
+                  <span className="block text-[30px] font-bold text-[#f0b341]">
+                    Load your party ({prefillable.length}{" "}
+                    {prefillable.length === 1 ? "guest" : "guests"})
+                  </span>
+                  <span className="mt-[4px] block text-[22px] leading-snug text-white/60">
+                    {prefillable.map((m) => m.firstName).join(", ")} — from your original booking.
+                    Anyone whose waiver lapsed just re-signs.
+                  </span>
+                </button>
+              );
+            })()}
             <PeopleScreens
               item={checkinItem}
               session={session}

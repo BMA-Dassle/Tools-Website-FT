@@ -13,11 +13,17 @@
  * those.
  */
 
+// Pure code-shape helpers — same registry-agnostic rule as the code-entry
+// classifier: what a code is FOR lives in the database, but the HPW shape is
+// unambiguous, so classification is safe in this pure module.
+import { isNativeVoucherCode, normalizeVoucherCode } from "~/features/game-cards/vouchers/codes";
+
 export type ScanKind =
   | "shortcode" // /s/{code} link, a bare short code, or a full URL with a short code
   | "signed-url" // full confirmation URL carrying billId= + sig=
   | "wnumber" // W#####
   | "code" // opaque reservationCode (incl. the r{billId} fallback) — resolved via index, OTP-gated
+  | "voucher" // native HPW voucher (bare code or /v/{code} URL) — resolves via vouchers.bill_id
   | "unknown";
 
 export interface ScanClass {
@@ -41,8 +47,14 @@ export function classifyScan(raw: string): ScanClass {
   const text = (raw || "").trim();
   if (!text) return { kind: "unknown", value: "" };
 
-  // A URL — either a /s short link or a full signed confirmation URL.
+  // A URL — a /s short link, a /v voucher deep-link, or a signed confirmation
+  // URL. The voucher QR encodes /v/{code} (voucher-mail.ts), so the emailed
+  // VIP QR must classify here or it dead-ends as "unknown".
   if (/^https?:\/\//i.test(text) || text.includes("/s/") || text.includes("billId=")) {
+    const vPath = /\/v\/([A-Za-z0-9-]+)(?:[/?#]|$)/.exec(text)?.[1];
+    if (vPath && isNativeVoucherCode(normalizeVoucherCode(vPath))) {
+      return { kind: "voucher", value: normalizeVoucherCode(vPath) };
+    }
     const shortCode = shortCodeFromPath(text);
     if (shortCode) return { kind: "shortcode", value: shortCode };
     // Full confirmation URL with an inline billId + sig.
@@ -60,6 +72,12 @@ export function classifyScan(raw: string): ScanClass {
   }
 
   if (W_RE.test(text)) return { kind: "wnumber", value: text.toUpperCase() };
+
+  // Bare / hyphen-printed HPW voucher code — MUST precede the short-code
+  // check (11 alnum chars match SHORT_CODE_RE and used to dead-end at
+  // "reservation not found").
+  const asVoucher = normalizeVoucherCode(text);
+  if (isNativeVoucherCode(asVoucher)) return { kind: "voucher", value: asVoucher };
 
   // Ambiguous short token: could be a /s short code OR a native reservationCode.
   // The server tries the short-link key (which carries a verifiable signature)

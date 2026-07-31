@@ -58,6 +58,20 @@ export function kioskCheckinEnabled(): boolean {
 }
 
 /**
+ * Voucher-QR party prefill — OPT-IN, defaults OFF. When a guest scans their
+ * booking-minted voucher QR (the /v/{code} image in the VIP welcome email) at
+ * check-in, the code resolves to its booking via vouchers.bill_id (possession
+ * = proof, same posture as the emailed reservation QR — owner 2026-07-25) and
+ * the party panel offers "Load your party" so nobody re-types names the
+ * booking already knows. Gates BOTH the server resolution arm and the client
+ * banner. Set the literal "true" in Vercel + redeploy (build-baked). Read at
+ * call time so tests can stub process.env.
+ */
+export function kioskVoucherPrefillEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_VOUCHER_PARTY_PREFILL === "true";
+}
+
+/**
  * Race Info hub on the kiosk — OPT-IN, defaults OFF. A view-only destination
  * (owner 2026-07-21): tile landing → Upcoming Races (live availability grid,
  * nothing bookable), Race Records, Race Types, The Tracks, plus a Book Now

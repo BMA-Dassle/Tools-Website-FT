@@ -4,19 +4,23 @@ import {
   rateLimited,
   resolveScanToBillId,
   loadSummary,
+  listBindableParty,
   mintProof,
   mintRef,
   matchByPhone,
   phoneIsVerified,
   listBrowseRows,
+  readProof,
   readRef,
   sendContactOtp,
   confirmContactOtp,
 } from "~/features/kiosk/checkin/server";
 import { isExpressBooking } from "~/features/kiosk/checkin/express";
+import { kioskVoucherPrefillEnabled } from "~/features/kiosk/flags";
 import type {
   CheckinConfirmOtpResponse,
   CheckinLookupResponse,
+  CheckinPartyResponse,
   CheckinSendOtpResponse,
 } from "~/features/kiosk/checkin/types";
 
@@ -88,6 +92,33 @@ export async function POST(req: NextRequest) {
     }
     const res = await confirmContactOtp(handle.billId, center, code);
     return NextResponse.json<CheckinConfirmOtpResponse>(res, { status: res.ok ? 200 : 401 });
+  }
+
+  // ── bind-ready party (voucher-QR prefill) ─────────────────────────────────
+  // Proof-gated: ids flow ONLY for a reservation the guest demonstrably holds
+  // (same bar as the itinerary — which itself deliberately nulls person ids).
+  if (action === "party") {
+    if (!kioskVoucherPrefillEnabled()) {
+      return NextResponse.json<CheckinPartyResponse>(
+        { ok: false, reason: "disabled" },
+        { status: 404 },
+      );
+    }
+    if (await rateLimited("party", ip, 30)) {
+      return NextResponse.json<CheckinPartyResponse>(
+        { ok: false, reason: "rate-limited" },
+        { status: 429 },
+      );
+    }
+    const proof = await readProof(String(body.proofToken ?? ""));
+    if (!proof || proof.center !== center) {
+      return NextResponse.json<CheckinPartyResponse>(
+        { ok: false, reason: "expired-proof" },
+        { status: 401 },
+      );
+    }
+    const members = await listBindableParty(proof.billId);
+    return NextResponse.json<CheckinPartyResponse>({ ok: true, members });
   }
 
   // ── find ──────────────────────────────────────────────────────────────────
