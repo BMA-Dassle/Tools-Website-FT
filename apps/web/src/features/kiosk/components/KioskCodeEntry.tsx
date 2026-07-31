@@ -268,8 +268,12 @@ export function KioskCodeEntry({
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ action: "peek", code, center: config?.center }),
             });
-            const data: { ok?: boolean; name?: string; reason?: string; target?: string } =
-              await res.json().catch(() => ({}));
+            const data: {
+              ok?: boolean;
+              name?: string;
+              reason?: string;
+              target?: string;
+            } = await res.json().catch(() => ({}));
             if (data.ok === false) {
               logReject("bmi-voucher", code, data.reason ?? "peek-failed");
               setError(t(VOUCHER_ERR_KEY[data.reason ?? ""] ?? "codeEntry.err.generic"));
@@ -836,31 +840,31 @@ export function KioskCodeEntry({
 
     const p =
       panel.kind === "bmi-voucher"
-            ? {
-                title: t("codeEntry.voucher.title"),
-                body: t("codeEntry.voucher.body"),
-                cta: t("codeEntry.voucher.cta"),
-                accent: "#e8b14c",
-                detail: panel.code,
-                onCta: onBack,
-              }
-            : panel.kind === "game-card"
-              ? {
-                  title: t("codeEntry.gamecard.title"),
-                  body: t("codeEntry.gamecard.body"),
-                  cta: t("codeEntry.gamecard.cta"),
-                  accent: "#f800c6",
-                  detail: null,
-                  onCta: onOpenGameZone,
-                }
-              : {
-                  title: t("codeEntry.giftcard.title"),
-                  body: t("codeEntry.giftcard.body"),
-                  cta: t("codeEntry.giftcard.cta"),
-                  accent: "#00e2e5",
-                  detail: null,
-                  onCta: onBack,
-                };
+        ? {
+            title: t("codeEntry.voucher.title"),
+            body: t("codeEntry.voucher.body"),
+            cta: t("codeEntry.voucher.cta"),
+            accent: "#e8b14c",
+            detail: panel.code,
+            onCta: onBack,
+          }
+        : panel.kind === "game-card"
+          ? {
+              title: t("codeEntry.gamecard.title"),
+              body: t("codeEntry.gamecard.body"),
+              cta: t("codeEntry.gamecard.cta"),
+              accent: "#f800c6",
+              detail: null,
+              onCta: onOpenGameZone,
+            }
+          : {
+              title: t("codeEntry.giftcard.title"),
+              body: t("codeEntry.giftcard.body"),
+              cta: t("codeEntry.giftcard.cta"),
+              accent: "#00e2e5",
+              detail: null,
+              onCta: onBack,
+            };
     return (
       <div className="flex h-full flex-col px-[64px] pb-[40px] pt-[120px] text-center">
         <div className="k-eyebrow">{t("codeEntry.eyebrow")}</div>

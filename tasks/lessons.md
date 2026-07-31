@@ -2687,3 +2687,23 @@ screenshot.
 
 The tell you're doing it wrong: the owner's screenshots are driving your commit
 sequence.
+
+## A verify-this-for-me finding needs the exact URL, or the owner tests the wrong surface (2026-07-30)
+
+Reported "the /waiver sign-time guardian chain soft-locks completion" and asked the
+owner to test with steps that assumed they knew WHICH page. Three rounds of "it works
+fine" followed - they were testing /kiosk/flow (form-mode guardians, a Continue
+button, genuinely fine) and an older branch's /waiver, while the defect lived only in
+the head build's /waiver sign-time path. Both sides were right about what they saw;
+the instructions never pinned the surface. (Owner, fairly: "your steps were not clear.")
+
+**Rule:** when handing the owner a repro for a UI finding:
+1. Give the FULL URL (host + path + params), not a route name - on preview, the
+   literal vercel.app link.
+2. Name the build fingerprint: what visibly differs in the version under test
+   (here: the finish is a green "All waivers signed / I'm done" card; a "Continue"
+   ending = wrong page or old build).
+3. Say what a PASS and a FAIL each look like on screen, so "it worked" is
+   unambiguous.
+The tell you skipped this: the owner's report describes UI your finding's code path
+cannot render.

@@ -84,6 +84,7 @@ import { getAppliedVouchersForBill, markVoucherCharged } from "../data/voucher-r
 import {
   claimNativeCartVouchers,
   markNativeCartVouchersCharged,
+  releaseNativeCartVouchers,
   type NativeCartVoucherRef,
 } from "~/features/game-cards/service/native-cart-vouchers";
 import { activeComboSpecial, comboOrderGroups } from "~/features/combos/combo-pricing";
@@ -753,6 +754,18 @@ export async function unifiedReserve(input: UnifiedReserveInput): Promise<Unifie
     });
     return result;
   } catch (err) {
+    // Pre-capture failure with native voucher claims held → hand the codes
+    // back (txn-guarded), or an abandoned retry leaves them reading "used".
+    if (audit.releaseNativeClaims) {
+      await audit
+        .releaseNativeClaims()
+        .catch((relErr) =>
+          console.error(
+            "[voucher] release after failed reserve did not complete (sweep will):",
+            relErr instanceof Error ? relErr.message : relErr,
+          ),
+        );
+    }
     await finishReserveAttempt(audit.id, {
       state: "failed",
       failedStep: audit.step,
@@ -796,9 +809,32 @@ export async function prepareUnifiedDeposit(
     }
     if (!lockHeld) throw new ReserveInProgressError();
   }
+  // Same give-back contract as unifiedReserve: a prepare that throws after the
+  // native claim releases it. A prepare that SUCCEEDS keeps its claims armed on
+  // purpose — the reader is about to charge, and the reserve-all resume
+  // re-recognises them via the same baseKey (abandoned-at-reader claims are the
+  // stale-claim sweep's job).
+  const audit: ReserveAudit = { id: null, step: "pre-charge" };
   try {
-    const result = (await unifiedReserveInner(input, seedSource, true)) as PrepareDepositResult;
+    const result = (await unifiedReserveInner(
+      input,
+      seedSource,
+      true,
+      audit,
+    )) as PrepareDepositResult;
     return result;
+  } catch (err) {
+    if (audit.releaseNativeClaims) {
+      await audit
+        .releaseNativeClaims()
+        .catch((relErr) =>
+          console.error(
+            "[voucher] release after failed prepare did not complete (sweep will):",
+            relErr instanceof Error ? relErr.message : relErr,
+          ),
+        );
+    }
+    throw err;
   } finally {
     if (lockKey && lockHeld) {
       await redis.del(lockKey).catch(() => {});
@@ -815,6 +851,13 @@ interface ReserveAudit {
   id: number | null;
   /** Last milestone entered — becomes reserve_attempts.failed_step on a throw. */
   step: string;
+  /**
+   * Armed while native cart-voucher claims are HELD but money is NOT captured;
+   * the wrappers fire it on a throw so a failed checkout hands the guest's
+   * codes back. Cleared the moment capture succeeds — from there the claims are
+   * spent and forward recovery owns the booking, never a release.
+   */
+  releaseNativeClaims?: (() => Promise<void>) | null;
 }
 
 async function unifiedReserveInner(
@@ -920,6 +963,12 @@ async function unifiedReserveInner(
     });
     if (!claimRes.ok) throw new VoucherNotVerifiedError(claimRes.conflictCode);
     nativeClaimed = claimRes.claimed;
+    // Arm the give-back: any throw between here and capture releases these
+    // claims (guarded on this reserve's own txn ids), so a declined card or a
+    // failed guard never leaves the guest's voucher reading "used". The
+    // wrappers fire it; capture disarms it.
+    audit.releaseNativeClaims = () =>
+      releaseNativeCartVouchers({ vouchers: nativeClaimed, baseKey });
   }
 
   // ── Bookability guard: drop legs QAMF could never accept ───────────
@@ -1612,6 +1661,9 @@ async function unifiedReserveInner(
   // Money (if any) is captured — stamp the ids on the audit row IMMEDIATELY, so
   // a crash on any line below still leaves the payment queryable by bill id.
   audit.step = "post-capture";
+  // Point of no return for native voucher claims: the charge they reduced has
+  // captured, so they are spent — a throw below must NOT hand them back.
+  audit.releaseNativeClaims = null;
   await recordReserveCapture(audit.id, {
     depositOrderId: depositResult.depositOrderId,
     depositPaymentId: depositResult.depositPaymentId,
@@ -1636,10 +1688,10 @@ async function unifiedReserveInner(
       );
     }
   }
-  // Native cart vouchers: the claim already holds them single-use; this is the
-  // audit stamp that they were spent on a captured booking (soft-fail).
+  // Native cart vouchers → terminal 'spent' + redemption event (soft-fail; the
+  // stale-claim sweep uses both as capture evidence).
   if (nativeClaimed.length > 0) {
-    await markNativeCartVouchersCharged(nativeClaimed).catch((err) =>
+    await markNativeCartVouchersCharged({ vouchers: nativeClaimed, baseKey }).catch((err) =>
       console.error("[voucher] markNativeCartVouchersCharged failed (non-fatal):", err),
     );
   }

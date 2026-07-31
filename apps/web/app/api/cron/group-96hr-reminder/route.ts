@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { sql, isDbConfigured } from "@/lib/db";
 import { type GroupFunctionQuote } from "@/lib/group-function-db";
 import { notify96HourReminder } from "@/lib/group-function-notify";
-import { fetchProject } from "@/lib/bmi-office-actions";
 import { verifyCron } from "@/lib/cron-auth";
 
 /**
@@ -22,12 +21,6 @@ import { verifyCron } from "@/lib/cron-auth";
  * promising "$0.00 will be charged tomorrow," which is both wrong and redundant on top
  * of the deposit-paid confirmation they already received.
  */
-
-const CLIENT_KEYS: Record<string, string> = {
-  "fort-myers": "headpinzftmyers",
-  fasttrax: "headpinzftmyers",
-  naples: "headpinznaples",
-};
 
 export async function GET(req: NextRequest) {
   const denied = verifyCron(req);
@@ -74,19 +67,9 @@ export async function GET(req: NextRequest) {
 
   for (const quote of quotes) {
     try {
-      // Fetch waiver URL from BMI Office
-      let waiverUrl: string | null = null;
-      try {
-        const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
-        if (project?.projectReference) {
-          const clientKey = CLIENT_KEYS[quote.center_code] || "headpinzftmyers";
-          waiverUrl = `https://kiosk.sms-timing.com/${clientKey}/subscribe/event?id=${encodeURIComponent(project.projectReference as string)}`;
-        }
-      } catch {
-        /* non-fatal */
-      }
-
-      await notify96HourReminder(quote, waiverUrl);
+      // Waiver link resolved inside the sender now (lib/waiver-link-send) — no BMI
+      // Office round trip, and it is gated on the event actually needing waivers.
+      await notify96HourReminder(quote);
 
       // Record that reminder was sent
       await q`INSERT INTO contract_audit_log (quote_id, event, metadata) VALUES (${quote.id}, '96hr_reminder_sent', '{}')`;

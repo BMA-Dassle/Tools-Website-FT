@@ -31,11 +31,20 @@ import {
 import {
   claimGameCardVoucher,
   releaseGameCardVoucher,
+  resolveGameCardComp,
   type VoucherRedeemRefusal,
 } from "./voucher-card";
 import type { VoucherIssuer } from "../data/voucher-claims-db";
 
 export type AnyVoucherRefusal = VoucherRedeemRefusal | NativeVoucherRefusal;
+
+/** The BMI game-card comp rail ships dark (owner 2026-07-29: "leave BMI vouchers
+ *  for game cards for another day"). ONE gate shared by the claim, the basket
+ *  validate, and the coupon screen's peek routing, so the surfaces can never
+ *  disagree about whether the rail is live. Set GZ_VOUCHER_BMI=1 to wake it up. */
+export function gzVoucherBmiRailLive(): boolean {
+  return process.env.GZ_VOUCHER_BMI === "1";
+}
 
 export type RedeemClaim =
   | {
@@ -63,17 +72,25 @@ export function voucherIssuerFor(code: string): VoucherIssuer | null {
  * coupon screen had already promised the guest a card — and BMI comps are
  * PARKED anyway (owner 2026-07-29, `GZ_VOUCHER_BMI`), so the kiosk needs the
  * honest answer at SCAN time to route the guest to Guest Services instead.
- * With the park flag lifted this answers ok optimistically — the claim (which
- * peeks BMI and maps the grant) stays the destructive authority.
+ *
+ * With the park flag lifted, a caller that can name the tenant (locationCode +
+ * center — the Game Zone basket does) validates through the SAME non-destructive
+ * peek→allowlist resolution the claim uses (resolveGameCardComp), so the basket
+ * row shows the real grant. A bare-code caller still gets the optimistic ok —
+ * either way the claim stays the destructive authority.
  */
 export async function validateAnyVoucher(
-  code: string,
+  input: string | { code: string; locationCode?: number; center?: string | null },
 ): Promise<{ ok: boolean; reason?: string; label?: string; items?: unknown[] }> {
+  const { code, locationCode, center } =
+    typeof input === "string" ? { code: input, locationCode: undefined, center: undefined } : input;
   const issuer = voucherIssuerFor(code);
   if (issuer === "native") return validateNativeVoucher(code);
   if (issuer === "bmi") {
-    if (process.env.GZ_VOUCHER_BMI !== "1") return { ok: false, reason: "unsupported" };
-    return { ok: true, label: "Game Zone card comp" };
+    if (!gzVoucherBmiRailLive()) return { ok: false, reason: "unsupported" };
+    if (locationCode === undefined) return { ok: true, label: "Game Zone card comp" };
+    const res = await resolveGameCardComp({ code, locationCode, center });
+    return res.ok ? { ok: true, label: res.grant.label } : { ok: false, reason: res.reason };
   }
   return { ok: false, reason: "bad_format" };
 }
@@ -109,11 +126,10 @@ export async function claimAnyVoucher(input: {
     };
   }
 
-  // BMI-issued comps are PARKED (owner 2026-07-29: "leave BMI vouchers for game
-  // cards for another day"). The code ships dormant rather than being deleted —
-  // it's probe-verified work — but a BMI-shaped scan must not reach a live BMI
-  // call on a path nobody has smoked. Set GZ_VOUCHER_BMI=1 to wake it up.
-  if (process.env.GZ_VOUCHER_BMI !== "1") {
+  // BMI-issued comps are PARKED — see gzVoucherBmiRailLive. The code ships
+  // dormant rather than being deleted (it's probe-verified work), but a
+  // BMI-shaped scan must not reach a live BMI call on a path nobody has smoked.
+  if (!gzVoucherBmiRailLive()) {
     return { ok: false, issuer, reason: "unsupported" };
   }
   // Only the kiosk can redeem these: fulfilment is a dispense and the comp's

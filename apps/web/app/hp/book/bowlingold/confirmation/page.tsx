@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getBookingClientKey, getBookingLocation } from "@/lib/booking-location";
 import { trackBowlingStep } from "@/lib/analytics";
+import { buildWaiverUrl } from "~/features/waiver/build-waiver-url";
 
 const API = "/api/qamf";
 const coral = "#fd5b56";
@@ -108,18 +109,19 @@ export default function BowlingConfirmationPage() {
   const [status, setStatus] = useState<"loading" | "confirmed" | "failed">("loading");
   const [reservation, setReservation] = useState<ReservationData | null>(null);
   const [bmiStatus, setBmiStatus] = useState<"" | "booking" | "done" | "error">("");
-  const [waiverUrl, setWaiverUrl] = useState<string | null>(null);
-
-  // Default waiver URL — always points at the event-waiver landing
-  // page for the chosen center. The event-waiver type is what
-  // we want for laser tag / gel blaster (and KBF) participants.
-  // BMI add-ons that fire createBmiBill below override this with a
-  // project-scoped event-waiver URL via setWaiverUrl.
-  const fallbackWaiverUrl = (() => {
-    const loc = getBookingLocation();
-    const ck = loc === "naples" ? "headpinznaples" : "headpinzftmyers";
-    return `https://kiosk.sms-timing.com/${ck}/subscribe/event`;
-  })();
+  // First-party /waiver for the booked center — laser tag / gel blaster / KBF
+  // participants all sign the same flow now.
+  //
+  // There is no longer a project-scoped variant here, and that is not a regression:
+  // the override this page used to apply was built from BMI's `projectReference`,
+  // which is NOT a /waiver `pid` (that is the projectId). A link built from it would
+  // read as reservation-scoped to the guest and attach to nothing — strictly worse
+  // than an honest standalone link, which still files the waiver at the right
+  // location. Reservation-scoped links come from lib/waiver-link-send, server-side,
+  // where a code can actually be minted.
+  const waiverUrl = buildWaiverUrl({
+    center: getBookingLocation() === "naples" ? "naples" : "fort-myers",
+  });
 
   // Player form state
   const [shoeCategories, setShoeCategories] = useState<ShoeCategory[]>([]);
@@ -201,18 +203,8 @@ export default function BowlingConfirmationPage() {
         headers: { "content-type": "application/json" },
         body: confirmBody,
       });
-      // Get waiver URL from BMI project reference
-      try {
-        const projRes = await fetch(`/api/bmi-office?action=project&id=${orderId}`);
-        const proj = await projRes.json();
-        if (proj.projectReference) {
-          setWaiverUrl(
-            `https://kiosk.sms-timing.com/${waiverClientKey}/subscribe/event?id=${encodeURIComponent(proj.projectReference)}`,
-          );
-        }
-      } catch {
-        /* non-fatal */
-      }
+      // (Removed: a BMI project fetch whose only purpose was to build an external
+      // kiosk waiver URL out of `projectReference`. See the waiverUrl note above.)
 
       sessionStorage.removeItem("qamf_bmi_addons");
       setBmiStatus("done");
@@ -599,7 +591,7 @@ export default function BowlingConfirmationPage() {
                         blasters. You can do this online ahead of time or at the check-in kiosk.
                       </p>
                       <a
-                        href={waiverUrl || fallbackWaiverUrl}
+                        href={waiverUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1.5 mt-3 font-body text-amber-300 text-xs font-bold hover:text-amber-200 transition-colors"

@@ -1073,7 +1073,9 @@ export function KioskGameZone({
       const res = await fetch("/api/game-cards/voucher-redeem", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "validate", code }),
+        // locationCode + center ride along so a BMI comp can be peeked against
+        // the right tenant; native validation ignores them.
+        body: JSON.stringify({ action: "validate", code, locationCode, center: config?.center }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
@@ -1174,7 +1176,11 @@ export function KioskGameZone({
         }
         if (!claimed) continue; // nothing spent for this row — try the next
 
-        voucherClaimRef.current = { code: row.code, txnId: claimed.txnId, groupId: claimed.groupId };
+        voucherClaimRef.current = {
+          code: row.code,
+          txnId: claimed.txnId,
+          groupId: claimed.groupId,
+        };
         await dispenseVoucherCard({ code: row.code, ...claimed });
         voucherClaimRef.current = null;
       }
@@ -1942,9 +1948,7 @@ export function KioskGameZone({
                 ? t("gamezone.voucher.scanTitle")
                 : t("gamezone.voucher.scanMoreTitle")}
             </h2>
-            <p className="mt-2 max-w-xl text-xl text-white/60">
-              {t("gamezone.voucher.scanBody")}
-            </p>
+            <p className="mt-2 max-w-xl text-xl text-white/60">{t("gamezone.voucher.scanBody")}</p>
 
             {/* The basket. Scan as many as they're holding, then one tap. */}
             {voucherBasket.length > 0 && (
@@ -2082,11 +2086,7 @@ export function KioskGameZone({
                 >
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-mono text-base text-white/70">{row.code}</span>
-                    <span
-                      className={
-                        row.status === "loaded" ? "text-[#46d68c]" : "text-[#ff8c7a]"
-                      }
-                    >
+                    <span className={row.status === "loaded" ? "text-[#46d68c]" : "text-[#ff8c7a]"}>
                       {row.status === "loaded"
                         ? row.cardNumber
                           ? t("gamezone.cardHash", { num: row.cardNumber })
@@ -2094,9 +2094,7 @@ export function KioskGameZone({
                         : t("gamezone.voucher.notIssued")}
                     </span>
                   </div>
-                  {row.error && (
-                    <div className="mt-1 text-sm text-white/55">{row.error}</div>
-                  )}
+                  {row.error && <div className="mt-1 text-sm text-white/55">{row.error}</div>}
                 </li>
               ))}
             </ul>

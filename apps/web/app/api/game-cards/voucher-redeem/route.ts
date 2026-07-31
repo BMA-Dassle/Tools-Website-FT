@@ -73,8 +73,15 @@ export async function POST(req: NextRequest) {
       // Non-destructive: the guest is still adding vouchers to the basket.
       // Issuer-routed like claims — a PARKED BMI comp answers "unsupported"
       // here so the kiosk routes to Guest Services at scan time instead of
-      // promising a card the dispenser will refuse.
-      return jsonOk({ ...(await validateAnyVoucher(parsed.data.code)) });
+      // promising a card the dispenser will refuse. With the rail live, a
+      // caller that names the tenant gets the real peeked grant.
+      return jsonOk(
+        await validateAnyVoucher({
+          code: parsed.data.code,
+          locationCode: parsed.data.locationCode,
+          center: parsed.data.center,
+        }),
+      );
     }
 
     if (parsed.data.action === "to-card") {

@@ -176,6 +176,28 @@ export async function logVoucherEvent(
 }
 
 /**
+ * Was this voucher line ever stamped "redeemed on a captured charge"? Second,
+ * independent evidence the stale-claim sweep checks before releasing a cart
+ * claim — the post-capture spent-stamp and this event row are both soft-fail,
+ * so requiring EITHER to block a release keeps a captured booking's voucher
+ * from being freed by one missed write.
+ */
+export async function hasChargedRedeemEvent(code: string, itemIndex: number): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    SELECT 1 FROM voucher_events
+    WHERE code = ${code}
+      AND event = 'redeem'
+      AND detail->>'charged' = 'true'
+      AND (detail->>'itemIndex')::int = ${itemIndex}
+    LIMIT 1
+  `) as unknown[];
+  return rows.length > 0;
+}
+
+/**
  * Insert one minted voucher. Returns false if the code already existed — the
  * caller retries with a fresh code (a CSPRNG collision at 30^8 is vanishingly
  * unlikely, but "vanishingly" is not "never" and a silent overwrite would

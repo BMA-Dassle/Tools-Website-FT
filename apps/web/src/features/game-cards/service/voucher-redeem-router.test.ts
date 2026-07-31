@@ -13,10 +13,16 @@ vi.mock("./native-voucher", () => ({
 vi.mock("./voucher-card", () => ({
   claimGameCardVoucher: vi.fn(),
   releaseGameCardVoucher: vi.fn(),
+  resolveGameCardComp: vi.fn(async () => ({
+    ok: true,
+    grant: { label: "100 Token Game Card", packageId: "pkg", tokens: 0, bonusTokens: 100 },
+    compName: "Complimentary 100 Token Game Card",
+  })),
 }));
 
 import { validateAnyVoucher, voucherIssuerFor } from "./voucher-redeem-router";
 import { validateNativeVoucher } from "./native-voucher";
+import { resolveGameCardComp } from "./voucher-card";
 
 // Real shapes: ours is HPW-…; BMI's is the 24-char alternating form.
 const NATIVE = "HPW-RKEM-G926";
@@ -52,6 +58,18 @@ describe("validateAnyVoucher", () => {
     vi.stubEnv("GZ_VOUCHER_BMI", "1");
     const res = await validateAnyVoucher(BMI);
     expect(res.ok).toBe(true);
+    expect(resolveGameCardComp).not.toHaveBeenCalled(); // no tenant named — no peek
+  });
+
+  it("with the rail live AND a tenant named, validates through the claim's own peek", async () => {
+    vi.stubEnv("GZ_VOUCHER_BMI", "1");
+    const res = await validateAnyVoucher({ code: BMI, locationCode: 12, center: "fort-myers" });
+    expect(res).toEqual({ ok: true, label: "100 Token Game Card" });
+    expect(resolveGameCardComp).toHaveBeenCalledWith({
+      code: BMI,
+      locationCode: 12,
+      center: "fort-myers",
+    });
   });
 
   it("unrecognized shapes are bad_format", async () => {

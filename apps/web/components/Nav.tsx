@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { trackBookingClick } from "@/lib/analytics";
+import { buildWaiverUrl } from "~/features/waiver/build-waiver-url";
 
 const schedule: Record<number, { day: string; open: string; close: string }> = {
   0: { day: "SUNDAY", open: "11:00 AM", close: "11:00 PM" },
@@ -41,7 +42,10 @@ const links = [
   { label: "Nemo's Trackside", href: "/menu" },
   { label: "Leaderboards", href: "/leaderboards" },
   { label: "Gift Cards", href: "https://squareup.com/gift/2Z728TECCNWSE/order" },
-  { label: "Waiver", href: "https://kiosk.bmileisure.com/headpinzftmyers" },
+  // First-party /waiver. This nav is FastTrax, which is in the Fort Myers metro —
+  // same center the FastTrax footer passes. (Missed by the nav/footer cutover in
+  // 332bd1c2, which only reached components/Footer.tsx and components/headpinz/*.)
+  { label: "Waiver", href: buildWaiverUrl({ center: "fort-myers" }) },
 ];
 
 export default function Nav() {

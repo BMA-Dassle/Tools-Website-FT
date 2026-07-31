@@ -1017,14 +1017,36 @@ async function processQueueItem(
 
   // Log to BMI private notes
   try {
-    const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
+    const { appendProjectPrivateNote, noteTimestamp, hasWaiverRequiredActivities } =
+      await import("@/lib/bmi-office-actions");
     const contractUrl = `${center.baseUrl}/contract/${contractShortId}`;
     const ts = noteTimestamp();
+
+    // Waiver links ride the same sticky header as the contract URL (owner request
+    // 2026-07-30) so the desk has them from the moment the contract goes out —
+    // organizer link (sees the roster) and a sign-only link to hand a guest.
+    // Gated on the event actually needing waivers; omitted rather than fatal if the
+    // mint fails, and sticky, so the contract-signed append can still fill them in.
+    let waiverOrganizerUrl: string | undefined;
+    let waiverSignUrl: string | undefined;
+    if (hasWaiverRequiredActivities((item.products || []) as Array<{ name: string }>)) {
+      const { waiverLinksForReservation } = await import("@/lib/waiver-link-send");
+      const links = await waiverLinksForReservation({
+        centerCode: center.centerCode,
+        projectId: item.reservationId,
+        origin: center.baseUrl,
+      });
+      waiverOrganizerUrl = links?.organizerUrl;
+      waiverSignUrl = links?.signUrl;
+    }
+
     await appendProjectPrivateNote({
       centerCode: center.centerCode,
       projectId: item.reservationId,
       note: `[${ts}] Contract sent to ${item.customer.email}`,
       contractUrl,
+      waiverOrganizerUrl,
+      waiverSignUrl,
     });
   } catch {
     /* non-fatal */

@@ -5,7 +5,7 @@ import {
   getEventNotifications,
   recordEventNotification,
 } from "@/lib/group-function-db";
-import { RULES, buildWaiverUrl, type RuleContext } from "@/lib/group-event-rules";
+import { RULES, eventWaiverLinkUrl, type RuleContext } from "@/lib/group-event-rules";
 
 /**
  * Admin reminder visibility + manual fire.
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
     quote,
     getWaiverUrl: async () => {
       if (!waiverDone) {
-        waiverCache = await buildWaiverUrl(quote);
+        waiverCache = await eventWaiverLinkUrl(quote);
         waiverDone = true;
       }
       return waiverCache;

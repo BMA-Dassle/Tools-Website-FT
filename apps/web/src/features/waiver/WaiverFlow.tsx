@@ -12,13 +12,19 @@
  *                                     web booking), with a lean event-info header
  *                                     and a Text/Email/Copy/Share block so the
  *                                     organizer can forward the link to the whole
- *                                     party WITHOUT exposing the confirmation.
+ *                                     party WITHOUT exposing the confirmation,
+ *                                     prices or payments. An ONLINE booking's link
+ *                                     DOES show the party, redacted to a given name
+ *                                     plus one initial — the ShareBlock disclosure
+ *                                     says so, and must stay true to the payload.
  *
  * Standalone brand comes from the host (x-brand); center from ?c=. Reservation
  * mode derives center + Pandora location from the authoritative locationId.
  */
 import {
   useEffect,
+  useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
@@ -37,6 +43,18 @@ import type { PartyMember } from "~/features/booking/state/types";
 import { KioskPartyManager, peopleReady } from "~/features/kiosk/components/KioskPartyManager";
 import { BrandLogo } from "~/features/kiosk/components/BrandLogo";
 import { useReservationJoinAttach } from "./attach/reservation-join";
+import type { WaiverRosterEntry } from "./roster";
+import {
+  addMemberSupersedingPreload,
+  coveredPersonIds,
+  isPreloadedMember,
+  membersOwnedHere,
+  mergeRosterIntoParty,
+  reservationWaiverStatus,
+  splitPartyBySignability,
+  waiverProgress,
+  type ReservationWaiverStatus,
+} from "./roster-preload";
 import { MobileWaiverPhoto } from "./MobileWaiverPhoto";
 
 type PandoraLocation = "fasttrax" | "headpinz" | "naples";
@@ -71,6 +89,35 @@ interface WaiverContextSummary {
   /** Of those, how many hold a currently-valid waiver — the authoritative count
    *  across everyone's devices, not just this phone's roster. */
   signed?: number;
+  /**
+   * WHO is on the booking, redacted to "Ann A." + per-person waiver validity.
+   * Present ONLY for an ONLINE booking (racing / laser / gel) whose Pandora sweep
+   * landed inside the route's deadline; ABSENT for a group function (a contract
+   * party returns through the contract confirmation page) and ABSENT on a sweep
+   * miss (`signed` is absent then too — the route never ships rows with validity
+   * guessed `false`, which would tell signed guests to sign again).
+   *
+   * Gate the preload on THIS field, never on `signed`: a group function returns
+   * `signed` with no roster. `[]` is a real answer (an online booking with an
+   * empty persons_list) and is distinct from `undefined`.
+   */
+  roster?: WaiverRosterEntry[];
+  /**
+   * The SHORT sign-only link the Share sheet hands out (`/w/{code}`), minted
+   * server-side. Absent for a standalone visit (no reservation to attach to) and on
+   * a mint failure — ShareBlock falls back to the page URL, which is the long
+   * sign-only form, so sharing always works.
+   *
+   * Never the organizer link. Sharing must not be able to pass on the roster.
+   */
+  shareUrl?: string;
+  /**
+   * True when this visitor arrived on the ORGANIZER code for this reservation (the
+   * `/w/{code}` cookie, resolved against the stored row). It is the same condition
+   * the route uses to decide whether to send `roster` at all, so it is a UI hint,
+   * not a permission — the server has already withheld anything it should.
+   */
+  canManage?: boolean;
 }
 
 /** Kiosk flow-head, phone scale: logo + activity label, then the signed-progress
@@ -116,6 +163,58 @@ function brandName(brand: Brand): string {
   return brand === "headpinz" ? "HeadPinz" : "FastTrax";
 }
 
+/** The ONE place a counted remainder is put into words. Reached only through
+ *  `groupWaiverLine`, which is what actually keeps the ready card and the terminal
+ *  card from wording the same reservation differently — saying so here was not
+ *  enough on its own, and they drifted anyway. Module scope, not a render-body const
+ *  (a helper called from an earlier closure is a TDZ ReferenceError tsc misses). */
+function stillNeedWaiverLine(n: number): string {
+  return n === 1
+    ? "1 more person on this reservation still needs a waiver."
+    : `${n} more people on this reservation still need a waiver.`;
+}
+
+/**
+ * The ONE group-wide sentence either card may add. Both read it from the same
+ * status, so the ready card and the terminal card can never describe the same
+ * reservation differently — and neither can go SILENT about people who are still
+ * outstanding, which is how a device-scoped "You're all set" ended up implying a
+ * booking was finished.
+ *
+ * `null` — nothing to say — is reachable from exactly two places: standalone (no
+ * reservation, so nobody is outside the party on screen) and `covered` (the booking
+ * really is done, and the ready card's headline already says so). Silence anywhere
+ * else would be a completion claim by omission.
+ */
+function groupWaiverLine(status: ReservationWaiverStatus | null): string | null {
+  if (!status || status.kind === "covered") return null;
+  if (status.kind === "unknown") {
+    // No number, and no claim in either direction — an invitation is the only thing
+    // that is true when we cannot see the rest of the booking.
+    return "If anyone else on the booking hasn't signed, they can sign from this link.";
+  }
+  return status.count === null
+    ? "Other people on this reservation still need a waiver."
+    : stillNeedWaiverLine(status.count);
+}
+
+/** May this page state that every waiver on the booking is signed? ONLY from the
+ *  authoritative reservation status — `covered` — or standalone (`null`), where the
+ *  `ready` gate has already proven every person on screen is covered and there is no
+ *  reservation to speak for. Never from this device's rows (invariant 6). */
+function mayClaimAllSigned(status: ReservationWaiverStatus | null): boolean {
+  return status === null || status.kind === "covered";
+}
+
+/** "Ann A.", "Ann A. and Bob B.", "Ann A., Bob B. and 2 more" — already-redacted
+ *  roster names, the only ones this page ever holds. */
+function nameList(members: PartyMember[]): string {
+  const names = members.map((m) => [m.firstName, m.lastName].filter(Boolean).join(" "));
+  if (names.length <= 2) return names.join(" and ");
+  const shown = names.slice(0, 2);
+  return `${shown.join(", ")} and ${names.length - shown.length} more`;
+}
+
 export function WaiverFlow({
   brand,
   initialCenter,
@@ -134,10 +233,30 @@ export function WaiverFlow({
   );
   const [party, setParty] = useState<PartyMember[]>([]);
   const [ctx, setCtx] = useState<WaiverContextSummary | null>(null);
-  // Terminal state after "I'm done" — the roster is cleared, so we keep just the
-  // first names to confirm what was filed (no DOB, no phone, no last names).
-  const [finished, setFinished] = useState(false);
-  const [signedNames, setSignedNames] = useState<string[]>([]);
+  // Terminal state after "I'm done". The roster is cleared then, so both facts the
+  // card states are FROZEN at that moment: the first names of what this device
+  // filed (no DOB, no phone, no last names) and where the RESERVATION stood.
+  // Recomputing either from `party` after the wipe would report "0 waivers on file"
+  // — and, worse, an empty party has no unsigned rows left to contradict a
+  // "nobody else to sign" reading of the card (roster-preload.ts invariant 6).
+  const [finished, setFinished] = useState<{
+    names: string[];
+    status: ReservationWaiverStatus | null;
+  } | null>(null);
+  // Member ids whose waiver was signed ON THIS DEVICE. The completion gate is
+  // scoped to what this phone is responsible for, and for a guest who arrived on a
+  // forwarded link that is exactly "the preloaded rows I signed" — their own row
+  // keeps its `res:` id, so nothing else distinguishes it from the seven strangers
+  // beside it. See roster-preload.ts invariant 4.
+  const [signedHere, setSignedHere] = useState<ReadonlySet<string>>(() => new Set<string>());
+  // Person ids this device has PROVEN covered, kept ACROSS the "I'm done" wipe.
+  // While the rows are on screen `party` proves it; the wipe destroys them on
+  // purpose, and the roster is never re-seeded, so this is all that is left to stop
+  // the outstanding count creeping back up on the next person in line (they would be
+  // told to sign the waiver this phone just filed). Ids only — no names, no dates.
+  const [carriedCovered, setCarriedCovered] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
   // Signer-only guardians: adults who signed for a minor but are NOT playing.
   // Kept OUT of `party`, exactly as the kiosk keeps them out of session.party, so
   // they never reach the reservation attach or any purchase path. "Join the fun"
@@ -151,7 +270,8 @@ export function WaiverFlow({
       ? pandoraLocationFor(brand, center)
       : null;
 
-  // Reservation mode: fetch the lean, PII-safe event-info header.
+  // Reservation mode: fetch the lean, PII-safe event-info header (+ the roster for
+  // an online booking).
   useEffect(() => {
     if (!reservation || !center) return;
     let cancelled = false;
@@ -161,6 +281,10 @@ export function WaiverFlow({
           `/api/waiver/context?c=${center}&loc=${reservation.locationId}&pid=${reservation.projectId}`,
           { cache: "no-store" },
         );
+        // res.json() is safe for the roster's 17-digit person ids because the route
+        // serializes every one as a JSON *string* — pinned by its own wire test
+        // (`"personId":"51383608123456789"`). The BMI precision rule bites on
+        // unquoted numeric ids; do NOT "simplify" that serialization.
         const data = await res.json();
         if (!cancelled && res.ok && data.ok) setCtx(data as WaiverContextSummary);
       } catch {
@@ -172,10 +296,37 @@ export function WaiverFlow({
     };
   }, [reservation, center]);
 
+  // ONLINE booking (racing / laser / gel): seed the party from the reservation's
+  // roster so the guest sees who is on the booking — and who still needs a waiver
+  // — instead of "3 of 8 registered" over an empty list and a demand to retype
+  // eight people (owner 2026-07-30). A group function sends no roster and behaves
+  // exactly as it did before.
+  //
+  // ONCE, deliberately: from here the party is the guest's working set. They add
+  // people, sign, promote a guardian, and "I'm done" CLEARS the roster off a phone
+  // that gets handed to the next person in line — re-seeding would undo all of
+  // that. mergeRosterIntoParty appends only what is missing, so a guest who signed
+  // themselves in before the fetch landed keeps their own row (and their real
+  // name), and signer-only guardians are left where they are.
+  const seededRef = useRef(false);
+  useEffect(() => {
+    const roster = ctx?.roster;
+    if (!roster || seededRef.current) return;
+    seededRef.current = true;
+    setParty((prev) => mergeRosterIntoParty(prev, roster, guardians));
+  }, [ctx, guardians]);
+
+  // Preloaded rows are ALREADY registered on this reservation — that is where they
+  // came from — and the only name they carry is the redacted "Ann A.". Attaching
+  // them would re-register an existing projectPerson under a first name of "Ann"
+  // and a last name of "A."; only people who signed in or signed up on THIS device
+  // attach (see roster-preload.ts invariant 2).
+  const attachParty = useMemo(() => party.filter((m) => !isPreloadedMember(m)), [party]);
+
   // Reservation mode: each member who reaches (person id + valid waiver) attaches
   // to the reservation — Neon persist-first, then the probe-gated BMI attach.
   useReservationJoinAttach({
-    party,
+    party: attachParty,
     target: reservation ?? null,
     center,
     kioskId: null,
@@ -234,17 +385,76 @@ export function WaiverFlow({
     );
   }
 
-  const allIds = new Set(party.map((m) => m.id));
-  const ready = party.length > 0 && peopleReady(party, Array.from(allIds)) === true;
+  // Which rows the party manager may offer a signature to. A preloaded row whose
+  // only id is the 17-digit Office id has no established signature path and no way
+  // to resolve one (roster-preload.ts § preloadCanSign), so it is NOT handed to the
+  // party manager at all: a card whose "Sign waiver" button ends on an error is the
+  // dead end this split exists to remove. It stays in `party` state — still counted
+  // as outstanding, still superseded in place when the guest verifies — and is
+  // rendered read-only below, with the rail that can finish it.
+  const { signable, needSignIn } = splitPartyBySignability(party);
+  // EVERY signable row is included and visible — that is the point of the roster.
+  // `includedIds` is display/participation state, not the completion gate; it has to
+  // match the party the manager was actually given, or its own blockReason would
+  // report on members it isn't rendering.
+  const signableIds = new Set(signable.map((m) => m.id));
+  // The completion gate is scoped to what THIS DEVICE is responsible for. A
+  // preloaded row nobody here has touched is somebody else's job: it renders, and
+  // it must not hold this phone in the flow forever (roster-preload.ts invariant
+  // 4). peopleReady itself is untouched — it is shared with the kiosk; we hand it
+  // a narrower participating set, which is exactly what its `ids` argument is for.
+  const myMembers = membersOwnedHere(party, signedHere);
+  const myIds = myMembers.map((m) => m.id);
+  const ready = myIds.length > 0 && peopleReady(party, myIds) === true;
   // Live signed count for the kiosk-style progress bar (kiosk shows step-of-N;
-  // the waiver's real progress is how much of the party is done).
+  // the waiver's real progress is how much of the party is done). Off the FULL
+  // party, not `signable`: the bar is the booking's progress, and a row routed to
+  // the sign-in rail is still a person on the booking who still needs a waiver.
   const signedCount = party.filter((m) => m.waiverValid).length;
+
+  // GROUP-WIDE, and never this device's rows: where the RESERVATION stands. Every
+  // sentence and every bar below that speaks for the whole booking reads this, and
+  // only this — see roster-preload.ts invariant 6 for why `party` may not answer it
+  // (removed cards, an empty persons_list and the "I'm done" wipe all leave zero
+  // unsigned rows on screen for a booking where nobody has signed). `null` =
+  // standalone: there is no reservation, so nobody is outside the party on screen.
+  const groupStatus: ReservationWaiverStatus | null = reservation
+    ? reservationWaiverStatus({
+        signed: ctx?.signed,
+        total: ctx?.total,
+        roster: ctx?.roster,
+        party,
+        covered: carriedCovered,
+      })
+    : null;
+  const groupLine = groupWaiverLine(groupStatus);
+  // The head bar answers to the same status: filling it is the same claim as saying
+  // "All waivers signed" out loud.
+  const progress = waiverProgress({
+    status: groupStatus,
+    partySize: party.length,
+    partySigned: signedCount,
+    signed: ctx?.signed,
+    total: ctx?.total,
+  });
+
+  // Does the link this guest is about to forward actually show the party? Read off
+  // `ctx.roster`, the same field the preload gates on, so the disclosure in
+  // ShareBlock can never claim less than the payload delivers. False for a group
+  // function (no roster by design), for an online booking with nobody registered,
+  // and on a sweep miss — in all three cases no name is on the link.
+  const linkShowsNames = !!ctx?.roster?.length;
 
   // "I'm done" clears the roster off the screen. The waivers are already durable
   // (Pandora + the Neon audit row + the reservation attach), so nothing is lost —
   // what goes away is a list of real names and birth years left sitting on a
   // phone that gets handed to the next person in line (owner 2026-07-30).
   if (finished) {
+    // FROZEN at "I'm done", never recomputed: the wipe emptied `party`, and an empty
+    // party cannot contradict anything. Both cards word the reservation through the
+    // same `groupWaiverLine`, so the terminal card can no longer be the quiet one.
+    const finishedLine = groupWaiverLine(finished.status);
+    const finishedOutstanding = finished.status?.kind === "outstanding";
     return shell(
       <>
         <WaiverHead
@@ -254,30 +464,48 @@ export function WaiverFlow({
           total={0}
         />
         <div className="rounded-[18px] border border-[var(--k-ok)]/40 bg-[var(--k-ok)]/10 p-5 text-center">
+          {/* "You're all set" is a claim about THIS DEVICE's work — never about the
+              booking — which is what makes it safe to say while other people on the
+              reservation are outstanding. It only holds up while the line below
+              actually owns up to them, in EVERY state: this card used to render
+              nothing at all unless it held a positive count, so a booking we could
+              not vouch for read exactly like a finished one. */}
           <p className="k-display flex items-center justify-center gap-2 text-lg text-[var(--k-ok)]">
             <IconCheck aria-hidden size={20} stroke={3} />
             You&apos;re all set
           </p>
           <p className="mt-2 text-sm text-[var(--k-dim)]">
-            {signedNames.length === 1
-              ? `${signedNames[0]}'s waiver is on file.`
-              : `${signedNames.length} waivers are on file.`}{" "}
+            {finished.names.length === 1
+              ? `${finished.names[0]}'s waiver is on file.`
+              : `${finished.names.length} waivers are on file.`}{" "}
             {reservation
               ? "We have them saved to your reservation."
               : "We'll have them when you arrive."}
           </p>
+          {finishedLine && (
+            <p
+              className={`mt-2 text-sm ${finishedOutstanding ? "text-[var(--k-warn)]" : "text-[var(--k-dim)]"}`}
+            >
+              {finishedOutstanding
+                ? `${finishedLine} Share the link below so they can sign.`
+                : finishedLine}
+            </p>
+          )}
         </div>
         <button
           type="button"
-          onClick={() => {
-            setFinished(false);
-            setSignedNames([]);
-          }}
+          onClick={() => setFinished(null)}
           className="k-btn-ghost k-tap mt-4 w-full"
         >
           Sign someone else
         </button>
-        {reservation && <ShareBlock label={ctx?.label ?? "your reservation"} />}
+        {reservation && (
+          <ShareBlock
+            label={ctx?.label ?? "your reservation"}
+            showsNames={linkShowsNames}
+            shareUrl={ctx?.shareUrl}
+          />
+        )}
       </>,
     );
   }
@@ -297,8 +525,12 @@ export function WaiverFlow({
               "Loading reservation…"
             : standaloneCenterName(brand, center)
         }
-        signed={signedCount}
-        total={party.length}
+        // The RESERVATION's progress, not this phone's — a full bar over "N of N
+        // signed" says "All waivers signed" just as loudly as the card at the
+        // bottom, and `signedCount`/`party.length` would happily fill it for a
+        // booking with four people outstanding (roster-preload.ts § waiverProgress).
+        signed={progress.signed}
+        total={progress.total}
       />
 
       {reservation && <EventInfoCard ctx={ctx} />}
@@ -318,22 +550,33 @@ export function WaiverFlow({
         }
         onPromoteGuardian={(g) => {
           setGuardians((gs) => gs.filter((x) => x.id !== g.id));
-          setParty((p) => [...p, g]);
+          setParty((p) => addMemberSupersedingPreload(p, g));
         }}
         hasCamera
         photoStep="required-adults"
         renderPhoto={(args) => <MobileWaiverPhoto {...args} />}
-        party={party}
+        // `signable`, not the whole party — see the split above. Every write-back
+        // below still targets the FULL party state, so nothing the guest does is
+        // scoped to the subset the manager can see.
+        party={signable}
         brandLocation={location}
         center={center}
-        includedIds={allIds}
+        includedIds={signableIds}
         onIncludedChange={() => {}}
-        onAddMember={(m) => setParty((p) => [...p, m])}
+        // A guest who is already a preloaded row may still sign in through the
+        // lookup / a license scan / a linked-family tap instead of tapping their
+        // own row. The real account SUPERSEDES the redacted placeholder in place —
+        // two cards for one human would leave a row nobody can ever satisfy.
+        onAddMember={(m) => setParty((p) => addMemberSupersedingPreload(p, m))}
         onUpdateMember={(id, patch) =>
           setParty((p) => p.map((m) => (m.id === id ? { ...m, ...patch } : m)))
         }
         onRemoveMember={(id) => setParty((p) => p.filter((m) => m.id !== id))}
         onWaiverSigned={(info) => {
+          // THIS DEVICE signed this member — so it counts toward this device's
+          // completion even when the row came from the reservation roster (that is
+          // the guest who opened a forwarded link and signed their own row).
+          setSignedHere((prev) => new Set(prev).add(info.memberId));
           // Best-effort E-SIGN audit row in our own DB (Pandora holds the
           // signature image; this is the persist-to-Neon record of acceptance).
           void fetch("/api/waiver/record", {
@@ -351,27 +594,89 @@ export function WaiverFlow({
         }}
       />
 
-      {reservation && <ShareBlock label={ctx?.label ?? "your reservation"} />}
+      {/* Sits directly under the party manager — the "Sign in / find people" button
+          it names is right above it. These people ARE on the booking and they DO
+          still need a waiver, so they are listed by name (already redacted) and
+          counted as outstanding; what they do not get is a Sign-waiver button that
+          ends on an error. The list is deliberately read-only: the only thing that
+          can move a row out of it is proving the account, and that is one tap away. */}
+      {needSignIn.length > 0 && (
+        <section className="mt-5 rounded-[18px] border border-[var(--k-warn)]/40 bg-[var(--k-warn)]/10 p-4">
+          <p className="k-eyebrow text-[var(--k-warn)]">One more step for {nameList(needSignIn)}</p>
+          <ul className="mt-3 space-y-1">
+            {needSignIn.map((m) => (
+              <li
+                key={m.id}
+                className="flex items-center justify-between gap-3 text-sm text-white/85"
+              >
+                <span className="truncate">
+                  {[m.firstName, m.lastName].filter(Boolean).join(" ")}
+                </span>
+                <span className="shrink-0 text-xs font-semibold text-[var(--k-warn)]">
+                  Needs sign-in
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-sm text-[var(--k-dim)]">
+            They joined this booking from an existing account, so their waiver has to file against
+            that record — and a shared link can&apos;t prove who they are. If that&apos;s you, tap
+            &ldquo;Sign in / find people&rdquo; above and verify the mobile number on the account.
+            If not, share the link below so they can — or the front desk will sign them in at
+            check-in.
+          </p>
+        </section>
+      )}
+
+      {reservation && (
+        <ShareBlock
+          label={ctx?.label ?? "your reservation"}
+          showsNames={linkShowsNames}
+          shareUrl={ctx?.shareUrl}
+        />
+      )}
 
       {ready && (
         <div className="mt-6 rounded-[18px] border border-[var(--k-ok)]/40 bg-[var(--k-ok)]/10 p-4 text-center">
+          {/* "All waivers signed" is a claim about the whole RESERVATION, so it is
+              spoken by the reservation — `mayClaimAllSigned` — and by nothing else.
+              It was previously licensed by "no unsigned rows on this screen", which
+              is also true of a booking whose persons_list came back empty, of one
+              whose cards the guest removed, and of one this phone already wiped. With
+              four people on the booking still unsigned it is a lie, and the guest is
+              the one holding the link that would fix it. */}
           <p className="k-display flex items-center justify-center gap-2 text-lg text-[var(--k-ok)]">
             <IconCheck aria-hidden size={20} stroke={3} />
-            All waivers signed
+            {/* A JS string, so the apostrophe is a literal one — `&apos;` inside an
+                expression would render as five characters on the guest's screen. */}
+            {mayClaimAllSigned(groupStatus) ? "All waivers signed" : "You're all set"}
           </p>
           <p className="mt-1 text-sm text-[var(--k-dim)]">
             {reservation
               ? "Saved to your reservation."
               : "We'll have these on file when you arrive."}
+            {groupLine ? ` ${groupLine}` : ""}
           </p>
           {/* Deliberate end to the flow: without it the roster of names just sits
-              on the screen and the guest has to guess whether they can leave. */}
+              on the screen and the guest has to guess whether they can leave. It is
+              gated on `ready` — this DEVICE's members — so a guest who signed only
+              their own row can always finish, however much of the booking is left. */}
           <button
             type="button"
             onClick={() => {
-              setSignedNames(party.map((m) => m.firstName).filter(Boolean));
+              // Only what THIS DEVICE filed — `party` still holds the preloaded
+              // rows of people who never signed here, and counting them would
+              // report "8 waivers are on file" for one signature.
+              setFinished({
+                names: myMembers.map((m) => m.firstName).filter(Boolean),
+                status: groupStatus,
+              });
+              // The wipe is about to destroy the only proof that this phone covered
+              // these people; keep their ids so the next person in line is not told
+              // to sign a waiver that is already on file.
+              setCarriedCovered((prev) => coveredPersonIds(party, prev));
               setParty([]);
-              setFinished(true);
+              setSignedHere(new Set());
             }}
             className="k-btn-primary k-tap mt-4 w-full"
           >
@@ -386,7 +691,9 @@ export function WaiverFlow({
 /** Lean event-info card — which reservation these signatures attach to. The
  *  activity/when/center line lives in the head subtitle, so this card carries the
  *  reservation identity + guest count only.
- *  Deliberately NO pricing / deposit / other guests' PII (see /api/waiver/context). */
+ *  Deliberately NO pricing / deposit / payments. The party itself IS shown, in the
+ *  roster below, redacted to a given name + one initial — so do not read this card
+ *  as a promise that the page is name-free (see /api/waiver/context). */
 function EventInfoCard({ ctx }: { ctx: WaiverContextSummary | null }) {
   return (
     <section className="k-glass mb-5 px-4 py-3">
@@ -421,13 +728,29 @@ function useHydrated(): boolean {
   );
 }
 
-function ShareBlock({ label }: { label: string }) {
+function ShareBlock({
+  label,
+  showsNames,
+  shareUrl,
+}: {
+  label: string;
+  showsNames: boolean;
+  /** Server-minted SHORT sign-only link. Falls back to the page URL. */
+  shareUrl?: string;
+}) {
   const hydrated = useHydrated();
   const [copied, setCopied] = useState(false);
   // One button, not a four-button grid: sharing is secondary to signing, and the
   // inline block was the busiest thing on the screen (owner 2026-07-30).
   const [open, setOpen] = useState(false);
-  const url = hydrated ? window.location.href : "";
+  /**
+   * Prefer the server-minted SHORT sign-only link. `window.location.href` is the
+   * fallback and is safe — `/w/{code}` carries the code in an HttpOnly cookie, so
+   * the address bar never holds a capability to copy — but it is the long form, and
+   * for an ORGANIZER it is the URL *they* were sent, which reads as "here is my
+   * link" when what they mean is "here is one to sign with".
+   */
+  const url = shareUrl || (hydrated ? window.location.href : "");
   const canNativeShare =
     hydrated && typeof navigator !== "undefined" && typeof navigator.share === "function";
 
@@ -476,8 +799,18 @@ function ShareBlock({ label }: { label: string }) {
             <div id="wp-share-title" className="k-eyebrow">
               Share with your group
             </div>
+            {/* This has to match what /api/waiver/context actually returns. Until
+                2026-07-30 it claimed unconditionally that the link showed the
+                event and none of the booking — true right up to the moment an
+                ONLINE booking started shipping the party's redacted names. A
+                privacy claim the payload contradicts is worse than no claim.
+                share-disclosure.test.ts holds the shape of this sentence. */}
             <p className="mt-2 text-xs text-[var(--k-dim)]">
-              Anyone can sign from this link — it only shows the event, never your booking details.
+              Anyone can sign from this link.{" "}
+              {showsNames
+                ? "It shows the event and who's on the booking — first name and last initial only —"
+                : "It shows the event only —"}{" "}
+              never your confirmation number, prices or payment details.
             </p>
             <div className="mt-4 space-y-2">
               <a href={`sms:?&body=${encodeURIComponent(bodyText)}`} className={rowBtn}>

@@ -8,13 +8,22 @@ vi.mock("../data/voucher-claims-db", () => ({
   releaseVoucherClaim: vi.fn(async (code: string) => {
     calls.push("release:" + code);
   }),
+  markVoucherClaimSpent: vi.fn(async (code: string) => {
+    calls.push("spent:" + code);
+    return true;
+  }),
+  listStaleCartClaims: vi.fn(async () => []),
 }));
-vi.mock("../data/vouchers-db", () => ({ logVoucherEvent: vi.fn(async () => {}) }));
+vi.mock("../data/vouchers-db", () => ({
+  logVoucherEvent: vi.fn(async () => {}),
+  hasChargedRedeemEvent: vi.fn(async () => false),
+}));
 
 async function mods() {
   return {
     svc: await import("./native-cart-vouchers"),
     claims: await import("../data/voucher-claims-db"),
+    vouchers: await import("../data/vouchers-db"),
   };
 }
 
@@ -42,7 +51,12 @@ describe("claimNativeCartVouchers", () => {
     if (res.ok) expect(res.claimed).toHaveLength(2);
     // Distinct, deterministic txn id per (reserve, code, item).
     expect(claims.claimVoucher).toHaveBeenCalledWith(
-      expect.objectContaining({ code: race.code, itemIndex: 0, issuer: "native", txnId: `cart-${BASE}-${race.code}-0` }),
+      expect.objectContaining({
+        code: race.code,
+        itemIndex: 0,
+        issuer: "native",
+        txnId: `cart-${BASE}-${race.code}-0`,
+      }),
     );
   });
 
@@ -58,7 +72,11 @@ describe("claimNativeCartVouchers", () => {
       { code: race.code, itemIndex: 0, status: "claimed", txnId: `cart-${BASE}-${race.code}-0` },
     ]);
 
-    const res = await svc.claimNativeCartVouchers({ vouchers: [race], baseKey: BASE, locationCode: 12 });
+    const res = await svc.claimNativeCartVouchers({
+      vouchers: [race],
+      baseKey: BASE,
+      locationCode: 12,
+    });
     expect(res.ok).toBe(true);
   });
 
@@ -99,5 +117,97 @@ describe("releaseNativeCartVouchers", () => {
       `cart-${BASE}-${laser.code}-1`,
       expect.any(String),
     );
+  });
+});
+
+describe("markNativeCartVouchersCharged (capture → terminal 'spent')", () => {
+  it("flips every claim to spent under this reserve's txn id and logs the redemption", async () => {
+    const { svc, claims, vouchers } = await mods();
+    await svc.markNativeCartVouchersCharged({ vouchers: [race, laser], baseKey: BASE });
+    expect(claims.markVoucherClaimSpent).toHaveBeenCalledWith(
+      race.code,
+      `cart-${BASE}-${race.code}-0`,
+    );
+    expect(claims.markVoucherClaimSpent).toHaveBeenCalledWith(
+      laser.code,
+      `cart-${BASE}-${laser.code}-1`,
+    );
+    expect(vouchers.logVoucherEvent).toHaveBeenCalledWith(
+      race.code,
+      "redeem",
+      expect.objectContaining({ charged: true, itemIndex: 0 }),
+    );
+  });
+});
+
+describe("a replay of a reserve that already CAPTURED", () => {
+  it("re-recognises its own 'spent' claim instead of hard-failing the guest", async () => {
+    const { svc, claims } = await mods();
+    (claims.claimVoucher as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      reason: "already_claimed",
+    });
+    (claims.getClaimsByCode as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { code: race.code, itemIndex: 0, status: "spent", txnId: `cart-${BASE}-${race.code}-0` },
+    ]);
+    const res = await svc.claimNativeCartVouchers({
+      vouchers: [race],
+      baseKey: BASE,
+      locationCode: 12,
+    });
+    expect(res.ok).toBe(true);
+  });
+});
+
+describe("sweepStaleCartClaims (abandoned checkouts hand the codes back)", () => {
+  const staleRow = (code: string, itemIndex: number) => ({
+    code,
+    itemIndex,
+    status: "claimed",
+    txnId: `cart-${BASE}-${code}-${itemIndex}`,
+  });
+
+  it("releases a stale claim with no capture evidence", async () => {
+    const { svc, claims } = await mods();
+    (claims.listStaleCartClaims as ReturnType<typeof vi.fn>).mockResolvedValue([
+      staleRow(race.code, 0),
+    ]);
+    const summary = await svc.sweepStaleCartClaims({ minAgeMinutes: 120, dryRun: false });
+    expect(summary).toMatchObject({ candidates: 1, released: 1, healedSpent: 0, errors: 0 });
+    expect(claims.releaseVoucherClaim).toHaveBeenCalledWith(
+      race.code,
+      `cart-${BASE}-${race.code}-0`,
+      "stale cart claim sweep",
+    );
+  });
+
+  it("NEVER releases a claim whose charge captured — heals it to spent instead", async () => {
+    const { svc, claims, vouchers } = await mods();
+    (claims.listStaleCartClaims as ReturnType<typeof vi.fn>).mockResolvedValue([
+      staleRow(race.code, 0),
+    ]);
+    (vouchers.hasChargedRedeemEvent as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+    const summary = await svc.sweepStaleCartClaims({ minAgeMinutes: 120, dryRun: false });
+    expect(summary).toMatchObject({ candidates: 1, released: 0, healedSpent: 1 });
+    expect(claims.releaseVoucherClaim).not.toHaveBeenCalled();
+    expect(claims.markVoucherClaimSpent).toHaveBeenCalledWith(
+      race.code,
+      `cart-${BASE}-${race.code}-0`,
+    );
+  });
+
+  it("dry-run counts but mutates nothing", async () => {
+    const { svc, claims, vouchers } = await mods();
+    // mockResolvedValue survives clearAllMocks — reset the evidence check
+    // explicitly or this test inherits the previous test's `true`.
+    (vouchers.hasChargedRedeemEvent as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+    (claims.listStaleCartClaims as ReturnType<typeof vi.fn>).mockResolvedValue([
+      staleRow(race.code, 0),
+      staleRow(laser.code, 1),
+    ]);
+    const summary = await svc.sweepStaleCartClaims({ minAgeMinutes: 120, dryRun: true });
+    expect(summary).toMatchObject({ candidates: 2, released: 2 });
+    expect(claims.releaseVoucherClaim).not.toHaveBeenCalled();
+    expect(claims.markVoucherClaimSpent).not.toHaveBeenCalled();
   });
 });

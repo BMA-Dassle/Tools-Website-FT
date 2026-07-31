@@ -116,10 +116,23 @@ export async function GET(req: NextRequest) {
     const publicLog = (project.logs || []).find((l: { public: boolean }) => l.public);
     const notes = publicLog?.memo || quote.notes || "";
 
-    // Waiver URL
-    const waiverUrl = project.projectReference
-      ? `https://kiosk.sms-timing.com/${clientKey}/subscribe/event?id=${encodeURIComponent(project.projectReference)}`
-      : null;
+    // TWO waiver links, because the contract page uses them differently:
+    //
+    //   waiverUrl (ADMIN)      — the "Complete Waivers" link the organizer opens.
+    //                            This page is reached by their own contract_short_id,
+    //                            so they are the booker: sees the roster.
+    //   waiverShareUrl (REGISTER) — what the Copy and Text buttons hand out. Those
+    //                            buttons exist to forward the link to the party, so
+    //                            they must not carry the ability to delete guests.
+    //
+    // Both come from lib/waiver-link-send, so neither depends on the
+    // `projectReference` read above (which is NOT a /waiver pid) or on this route's
+    // BMI call succeeding.
+    const { waiverUrlForQuote } = await import("@/lib/waiver-link-send");
+    const [waiverUrl, waiverShareUrl] = await Promise.all([
+      waiverUrlForQuote(quote, "organizer"),
+      waiverUrlForQuote(quote, "register"),
+    ]);
 
     // Participants — batch lookup via personsByIds
     const projectPersons: Array<{ personId: string; confirmed: string | null }> =
@@ -148,6 +161,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       notes,
       waiverUrl,
+      waiverShareUrl,
       participants,
       totalParticipants: projectPersons.length,
       confirmedCount: projectPersons.filter((p) => p.confirmed).length,

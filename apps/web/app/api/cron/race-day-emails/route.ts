@@ -102,9 +102,12 @@ export async function GET(req: NextRequest) {
         // Determine express lane
         const expressLane = record.fastLane === true;
 
-        // Determine waiver URL
-        const waiverUrl =
-          record.waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe";
+        // Pass the stored waiver URL through as-is (empty when absent). The
+        // notification route resolves it — it upgrades a canonical /waiver link to a
+        // short code and supplies the fallback — so the fallback lives in exactly one
+        // place. The old literal here pointed every guest, Naples included, at the
+        // Fort Myers tenant.
+        const waiverUrl = record.waiverUrl || "";
 
         // Send via the notification API
         const notifRes = await fetch(`${BASE_URL}/api/notifications/race-day-instructions`, {

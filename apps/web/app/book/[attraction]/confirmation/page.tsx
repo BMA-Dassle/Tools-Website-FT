@@ -6,6 +6,7 @@ import Link from "next/link";
 import Nav from "@/components/Nav";
 import { ATTRACTIONS, bmiPost } from "@/lib/attractions-data";
 import type { AttractionConfig } from "@/lib/attractions-data";
+import { buildWaiverUrl } from "~/features/waiver/build-waiver-url";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -359,10 +360,20 @@ export default function AttractionConfirmationPage() {
                     All participants must complete a waiver before playing. You can do this online
                     ahead of time or at the check-in kiosk.
                   </p>
+                  {/* First-party /waiver now (was kiosk.bmileisure.com/headpinzftmyers),
+                      so no target/rel — our own page, and the new tab only existed
+                      because the old link left the site.
+                      NO center on purpose: this page has no center signal in scope.
+                      The only waiver-prompt attractions are gel-blaster and laser-tag
+                      (both location: "both", i.e. HeadPinz FM *and* Naples) plus
+                      FastTrax racing; it reads only ?billId, calls bill/overview with
+                      no clientKey, and middleware rewrites /headpinz-naples/laser-tag
+                      here, so a Naples guest genuinely lands on this page. Hardcoding
+                      headpinzftmyers was filing Naples waivers at Fort Myers — Naples
+                      has its own Pandora location AND its own waiver template, so
+                      center-less /waiver (which asks) is the only correct answer. */}
                   <a
-                    href="https://kiosk.bmileisure.com/headpinzftmyers"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    href={buildWaiverUrl()}
                     className="inline-flex items-center gap-1.5 mt-3 text-amber-300 text-xs font-medium hover:text-amber-200 transition-colors"
                   >
                     Complete Waiver Now

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { Redis } from "ioredis";
+import { waiverLinkForSuppliedUrl } from "@/lib/waiver-link-send";
 
 const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
 const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@headpinz.com";
@@ -220,7 +221,9 @@ export async function POST(req: NextRequest) {
         isExpress
           ? buildWaiverExpress()
           : buildWaiverStandard(
-              waiverUrl || "https://kiosk.sms-timing.com/headpinzftmyers/subscribe",
+              // Short ORGANIZER code — this goes to the booker. Also replaces the old
+              // hardcoded FM fallback, which was wrong for every Naples guest.
+              await waiverLinkForSuppliedUrl(waiverUrl, "organizer"),
             ),
       );
       html = html.replace(

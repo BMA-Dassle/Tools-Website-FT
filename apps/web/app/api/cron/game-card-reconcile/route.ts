@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyCron } from "@/lib/cron-auth";
 import { reconcilePendingLoads } from "~/features/game-cards/service/reconcile";
+import { sweepStaleCartClaims } from "~/features/game-cards/service/native-cart-vouchers";
+
+/** Far past any reserve retry horizon (the NX lock is 120s; checkout holds are
+ *  minutes). A claim still 'claimed' this long after minting is an abandoned
+ *  checkout, not an in-flight one. */
+const STALE_CART_CLAIM_MINUTES = 120;
 
 /**
  * GET /api/cron/game-card-reconcile
@@ -22,7 +28,17 @@ export async function GET(req: NextRequest) {
   const dryRun = req.nextUrl.searchParams.get("dryRun") === "1";
   try {
     const summary = await reconcilePendingLoads(dryRun);
-    return NextResponse.json({ ok: true, dryRun, ...summary });
+    // Cart-voucher claims stranded by a checkout that never captured (walk-away,
+    // decline never retried, crash between claim and release) — hand the codes
+    // back. Claims with capture evidence are healed to 'spent', never released.
+    const cartClaims = await sweepStaleCartClaims({
+      minAgeMinutes: STALE_CART_CLAIM_MINUTES,
+      dryRun,
+    }).catch((err) => {
+      console.error("[game-card-reconcile] stale cart-claim sweep failed:", err);
+      return null;
+    });
+    return NextResponse.json({ ok: true, dryRun, ...summary, cartClaims });
   } catch (err) {
     console.error("[game-card-reconcile] failed:", err);
     return NextResponse.json(

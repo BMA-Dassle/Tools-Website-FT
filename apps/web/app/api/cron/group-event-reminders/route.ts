@@ -4,7 +4,7 @@ import { recordEventNotification, type GroupFunctionQuote } from "@/lib/group-fu
 import { verifyCron } from "@/lib/cron-auth";
 import {
   RULES,
-  buildWaiverUrl,
+  eventWaiverLinkUrl,
   isEngineKilled,
   isPandoraPlaceholder,
   isRuleEnabled,
@@ -240,7 +240,7 @@ function memoWaiverUrl(quote: GroupFunctionQuote): () => Promise<string | null> 
   let done = false;
   return async () => {
     if (!done) {
-      cached = await buildWaiverUrl(quote);
+      cached = await eventWaiverLinkUrl(quote);
       done = true;
     }
     return cached;

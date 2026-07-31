@@ -186,6 +186,34 @@ export function officeProjectIdFromBillId(billId: string): string {
   return billId.slice(0, -tail.length) + tail;
 }
 
+/**
+ * The INVERSE: projectId → billId. Same last-10-digits arithmetic, same raw-text
+ * prefix, so a 17-digit id never touches Number() as a whole.
+ *
+ * Needed because the two ids are NOT interchangeable at the API boundary and the
+ * difference is invisible: `public-booking/person/registerProjectPerson` resolves a
+ * BILL, so handing it a projectId makes it look up `billId + 1` — a different
+ * booking, or none. Probed live 2026-07-30 (project 63000000006754862):
+ *   http 200  {"success":false,"errorMessage":"Cannot find the reservation for bill …"}
+ * It echoes the value back as a BILL, which is what settles which key it wants.
+ *
+ * Returns null rather than guessing when the arithmetic would borrow past the
+ * 10-digit window — a wrong id here attaches a guest to someone else's booking.
+ */
+export function billIdFromOfficeProjectId(projectId: string): string | null {
+  if (!/^\d+$/.test(projectId)) return null;
+  // Group-function ids are 8 digits, online-booking ids 17 — operate on the last 10
+  // (or fewer), the same window the forward function uses.
+  const width = Math.min(10, projectId.length);
+  const tail = Number(projectId.slice(-width));
+  if (!Number.isSafeInteger(tail) || tail <= 0) return null;
+  const prefix = projectId.slice(0, projectId.length - width);
+  const dec = String(tail - 1);
+  // Pad only when there IS a prefix to protect; padding a bare id would invent a
+  // leading zero and stop it round-tripping.
+  return prefix + (prefix ? dec.padStart(width, "0") : dec);
+}
+
 // ── Update project state (generic) ──────────────────────────────────
 
 export async function setProjectState(params: {
@@ -669,32 +697,61 @@ const NOTES_SECTION_END = "── End FastTrax Web ──";
 
 const NOTES_LINKS_MARKER = "──";
 
-function buildSection(contractUrl: string | null, pdfUrl: string | null, logLines: string): string {
-  const links: string[] = [];
-  if (contractUrl) links.push(`Contract: ${contractUrl}`);
-  if (pdfUrl) links.push(`Signed PDF: ${pdfUrl}`);
-  const header = links.length > 0 ? `${links.join("\n")}\n${NOTES_LINKS_MARKER}\n` : "";
+/**
+ * The sticky links staff read off a project's private memo.
+ *
+ * `Waiver Organizer` opens the waiver page WITH the roster — who has signed and who
+ * has not; `Waiver Sign Only` is the link to hand a guest. Both are here so
+ * the desk can answer "who still needs to sign?" and "send me the link" without
+ * digging through the guest's email — the same reason the contract URL is here.
+ *
+ * "Organizer" is the owner's word for it, what the guest emails print, AND the
+ * stored capability value — one vocabulary end to end, so a label can never drift
+ * from the enum it describes.
+ */
+interface SectionLinks {
+  contractUrl: string | null;
+  pdfUrl: string | null;
+  waiverOrganizerUrl: string | null;
+  waiverSignUrl: string | null;
+}
+
+const EMPTY_LINKS: SectionLinks = {
+  contractUrl: null,
+  pdfUrl: null,
+  waiverOrganizerUrl: null,
+  waiverSignUrl: null,
+};
+
+/** Label ↔ field, in the order they render. Prefixes are regex-plain on purpose. */
+const LINK_LABELS: Array<[keyof SectionLinks, string]> = [
+  ["contractUrl", "Contract"],
+  ["pdfUrl", "Signed PDF"],
+  ["waiverOrganizerUrl", "Waiver Organizer"],
+  ["waiverSignUrl", "Waiver Sign Only"],
+];
+
+function buildSection(links: SectionLinks, logLines: string): string {
+  const lines = LINK_LABELS.filter(([key]) => links[key]).map(
+    ([key, label]) => `${label}: ${links[key]}`,
+  );
+  const header = lines.length > 0 ? `${lines.join("\n")}\n${NOTES_LINKS_MARKER}\n` : "";
   return `${NOTES_SECTION_START}\n${header}${logLines}\n${NOTES_SECTION_END}`;
 }
 
-function parseSection(section: string): {
-  contractUrl: string | null;
-  pdfUrl: string | null;
-  logLines: string;
-} {
+function parseSection(section: string): SectionLinks & { logLines: string } {
   const markerIdx = section.indexOf(NOTES_LINKS_MARKER + "\n");
-  if (markerIdx >= 0) {
-    const header = section.slice(0, markerIdx).trim();
-    const logLines = section.slice(markerIdx + NOTES_LINKS_MARKER.length + 1).trim();
-    const contractMatch = header.match(/Contract:\s*(.+)/);
-    const pdfMatch = header.match(/Signed PDF:\s*(.+)/);
-    return {
-      contractUrl: contractMatch?.[1]?.trim() || null,
-      pdfUrl: pdfMatch?.[1]?.trim() || null,
-      logLines,
-    };
+  if (markerIdx < 0) return { ...EMPTY_LINKS, logLines: section.trim() };
+  const header = section.slice(0, markerIdx).trim();
+  const logLines = section.slice(markerIdx + NOTES_LINKS_MARKER.length + 1).trim();
+  const parsed = { ...EMPTY_LINKS, logLines };
+  for (const [key, label] of LINK_LABELS) {
+    // Anchored to line start so "Signed PDF" cannot be captured by a looser
+    // prefix, and so a URL containing a label word can never be re-read as one.
+    const m = new RegExp(`^${label}:\\s*(.+)$`, "m").exec(header);
+    parsed[key] = m?.[1]?.trim() || null;
   }
-  return { contractUrl: null, pdfUrl: null, logLines: section.trim() };
+  return parsed;
 }
 
 /**
@@ -703,12 +760,7 @@ function parseSection(section: string): {
  * entries inside it — and appending the new line inside the
  * "── FastTrax Web ──" section. Returns the full merged memo.
  */
-function mergePrivateMemo(
-  existing: string,
-  note: string,
-  contractUrl: string | null,
-  pdfUrl: string | null,
-): string {
+function mergePrivateMemo(existing: string, note: string, incoming: SectionLinks): string {
   const startIdx = existing.indexOf(NOTES_SECTION_START);
   const endIdx = existing.indexOf(NOTES_SECTION_END);
 
@@ -722,15 +774,25 @@ function mergePrivateMemo(
     // line. Timestamped portal notes stay unique by their prefix, so genuine
     // repeat notes from staff still land.
     if (parsed.logLines.includes(note)) return existing;
-    const url = contractUrl || parsed.contractUrl;
-    const pdf = pdfUrl || parsed.pdfUrl;
+    // Links are STICKY per field: a caller that knows only about the contract must
+    // never blank a waiver link a previous append already recorded, and vice versa.
+    const merged: SectionLinks = { ...EMPTY_LINKS };
+    for (const [key] of LINK_LABELS) merged[key] = incoming[key] || parsed[key];
     const updatedLog = parsed.logLines ? `${parsed.logLines}\n${note}` : note;
-    return `${before}${buildSection(url, pdf, updatedLog)}${after}`;
+    return `${before}${buildSection(merged, updatedLog)}${after}`;
   }
 
   const sep = existing.trim() ? "\n\n" : "";
-  return `${existing}${sep}${buildSection(contractUrl, pdfUrl, note)}`;
+  return `${existing}${sep}${buildSection(incoming, note)}`;
 }
+
+/**
+ * Test seam — the PURE memo merge, no network. Exported so the sticky-link rules
+ * can be pinned: this function is the only thing standing between "append a note"
+ * and "silently blank a link a previous append recorded".
+ */
+export { mergePrivateMemo as _mergePrivateMemo };
+export type { SectionLinks as _SectionLinks };
 
 export async function appendProjectPrivateNote(params: {
   centerCode: string;
@@ -738,6 +800,10 @@ export async function appendProjectPrivateNote(params: {
   note: string;
   contractUrl?: string;
   pdfUrl?: string;
+  /** Waiver page WITH the roster — the organizer's link. Sticky once set. */
+  waiverOrganizerUrl?: string;
+  /** Sign-only waiver link, safe to hand a guest. Sticky once set. */
+  waiverSignUrl?: string;
   /** BMI bill/order id (raw 17-digit string — NEVER Number() it). When
    *  provided, enables the public `booking/memo` fallback — the only write
    *  path verified to reach CONVERTED racing reservations (see below). */
@@ -792,12 +858,12 @@ export async function appendProjectPrivateNote(params: {
 
   // 2. Merge the new entry into the existing memo (preserves staff text + prior
   //    system entries).
-  const mergedMemo = mergePrivateMemo(
-    privateLog?.memo || "",
-    params.note,
-    params.contractUrl || null,
-    params.pdfUrl || null,
-  );
+  const mergedMemo = mergePrivateMemo(privateLog?.memo || "", params.note, {
+    contractUrl: params.contractUrl || null,
+    pdfUrl: params.pdfUrl || null,
+    waiverOrganizerUrl: params.waiverOrganizerUrl || null,
+    waiverSignUrl: params.waiverSignUrl || null,
+  });
 
   // Re-read the private memo and report whether the appended note landed.
   const noteVisible = async (): Promise<boolean> => {

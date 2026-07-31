@@ -57,12 +57,6 @@ export interface ReminderRule {
 
 // ── shared helpers ───────────────────────────────────────────────────
 
-const CLIENT_KEYS: Record<string, string> = {
-  "fort-myers": "headpinzftmyers",
-  fasttrax: "headpinzftmyers",
-  naples: "headpinznaples",
-};
-
 export function hasBalanceDue(quote: GroupFunctionQuote): boolean {
   return quote.total_cents - quote.collected_cents > 0;
 }
@@ -72,19 +66,22 @@ export async function hasWaiver(quote: GroupFunctionQuote): Promise<boolean> {
   return hasWaiverRequiredActivities((quote.line_items || []) as Array<{ name: string }>);
 }
 
-/** Centralizes the waiver-URL logic duplicated across the legacy reminder crons. */
-export async function buildWaiverUrl(quote: GroupFunctionQuote): Promise<string | null> {
-  try {
-    const { fetchProject } = await import("@/lib/bmi-office-actions");
-    const project = await fetchProject(quote.center_code, quote.bmi_reservation_id);
-    if (project?.projectReference) {
-      const ck = CLIENT_KEYS[quote.center_code] || "headpinzftmyers";
-      return `https://kiosk.sms-timing.com/${ck}/subscribe/event?id=${encodeURIComponent(String(project.projectReference))}`;
-    }
-  } catch {
-    /* non-fatal */
-  }
-  return null;
+/**
+ * The reminder rules' waiver link — the ORGANIZER capability, because every rule here
+ * sends to `quote.guest_email`, i.e. the organizer who booked.
+ *
+ * Named `eventWaiverLinkUrl`, NOT `buildWaiverUrl`: it used to be the latter, which
+ * collided with the canonical `buildWaiverUrl` in ~/features/waiver/build-waiver-url
+ * that every other surface uses. Two different functions with one name, one of them
+ * feeding a live cron, is a trap — an import fixed in the wrong file silently swaps
+ * a reservation-scoped link for a standalone one, or vice versa.
+ *
+ * No BMI round trip any more (it needed `projectReference`; a short link needs the
+ * quote's own columns), so a reminder is no longer contingent on BMI Office being up.
+ */
+export async function eventWaiverLinkUrl(quote: GroupFunctionQuote): Promise<string | null> {
+  const { waiverUrlForQuote } = await import("@/lib/waiver-link-send");
+  return waiverUrlForQuote(quote, "organizer");
 }
 
 const PLACEHOLDER_PHONES = new Set(["2222222222"]);
@@ -170,11 +167,16 @@ async function sendPaymentDue(ctx: RuleContext, daysOut: number): Promise<RuleSe
 }
 
 async function sendWaiver(ctx: RuleContext, kind: "7day" | "2day"): Promise<RuleSendResult> {
+  // The gate stays: no resolvable link means no send, recorded as an error so the
+  // rule is NOT deduped and retries. But it now fails only when we cannot name the
+  // venue (unknown center_code / missing reservation id) rather than whenever BMI
+  // Office was briefly down — and the senders resolve BOTH links themselves,
+  // because an organizer link and a shareable one cannot share one URL argument.
   const url = await ctx.getWaiverUrl();
   if (!url) return { channelsAttempted: [], error: "no waiver url" };
   const notify = await import("@/lib/group-function-notify");
-  if (kind === "7day") await notify.notify7DayWaiverReminder(ctx.quote, url);
-  else await notify.notify2DayWaiverWarning(ctx.quote, url);
+  if (kind === "7day") await notify.notify7DayWaiverReminder(ctx.quote);
+  else await notify.notify2DayWaiverWarning(ctx.quote);
   // Legacy builders return void; record optimistic success for the ledger.
   return { channelsAttempted: ["email", "sms"], emailOk: true, smsOk: true };
 }

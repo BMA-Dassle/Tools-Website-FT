@@ -18,6 +18,7 @@ import { BowlingPlayersEditor } from "~/components/features/booking/confirmation
 import ComboManageNote from "~/components/features/cancellation/ComboManageNote";
 import GiftCardIssuedPanel from "~/components/features/cancellation/GiftCardIssuedPanel";
 import StoreCreditCancelSection from "~/components/features/cancellation/StoreCreditCancelSection";
+import { buildWaiverUrl } from "~/features/waiver/build-waiver-url";
 
 /** Resolve a race line's display name from our own registries instead
  *  of trusting BMI's public-facing name. BMI's bill/overview API has
@@ -902,6 +903,29 @@ export default function ConfirmationPage() {
         // separate memos here — they're composed into ONE combined memo below so
         // none overrides another. See the "combined reservation memo" block.)
 
+        // Which venue this booking belongs to — resolved ONCE here and reused by
+        // BOTH the waiver link and the confirmation email/SMS below, so a guest can
+        // never be sent to sign at a center the email doesn't name.
+        //
+        // Resolve location for venue/address picking + brand. The booking-store
+        // wins because the user might have crossed domains between booking and
+        // confirmation (e.g. Naples booking that lands them on fasttraxent.com);
+        // the old hostname-only check broke HeadPinz Naples emails.
+        //
+        // Deliberately NOT getBookingLocation(): clearBookingLocation() already ran
+        // earlier in this function, so a fresh sessionStorage read is guaranteed
+        // null by now and "naples" could never win — every booking, HeadPinz Naples
+        // included, would resolve to Fort Myers. (The stored read is kept as the
+        // middle signal because it IS still live on the all-confirms-failed path,
+        // where the clear never ran.)
+        const storedLoc =
+          typeof window !== "undefined" ? sessionStorage.getItem("bookingLocation") : null;
+        const resolvedLocation =
+          (details?.location as string | undefined) ||
+          storedLoc ||
+          (window.location.hostname.includes("headpinz") ? "headpinz" : "fasttrax");
+        const isHpLoc = resolvedLocation === "headpinz" || resolvedLocation === "naples";
+
         // Waiver link for new racers — get projectReference from Office API
         const isReturning = hasReturningRacers;
         setIsNewRacer(!isReturning);
@@ -931,8 +955,28 @@ export default function ConfirmationPage() {
             const projRes = await fetch(`/api/bmi-office?action=project&id=${projectId}`);
             const proj = await projRes.json();
             if (proj.projectReference) {
-              resolvedWaiverUrl = `https://kiosk.sms-timing.com/headpinzftmyers/subscribe/event?id=${encodeURIComponent(proj.projectReference)}`;
-              setWaiverUrl(resolvedWaiverUrl);
+              // Was: https://kiosk.sms-timing.com/headpinzftmyers/subscribe/event?id=<projectReference>
+              // — hardcoded to Fort Myers, so a HeadPinz Naples booking sent the
+              // guest to the wrong center's waiver template. Center now comes
+              // from the booking location. The Office lookup above stays as the
+              // "reservation really exists" gate (same banner/email condition as
+              // before); projectReference is NOT a /waiver `pid` (that's the
+              // Office projectId), so this link is center- not reservation-scoped.
+              const waiverCenter = resolvedLocation === "naples" ? "naples" : "fort-myers";
+              // Absolute for the email below — an inbox has no origin to resolve
+              // against — and brand-aware, because /waiver takes its brand from the
+              // HOST (x-brand) and standalone filing is pandoraLocationFor(brand,
+              // center): brand "fasttrax" + center "fort-myers" files at FastTrax,
+              // so a HeadPinz Fort Myers guest sent to fasttraxent.com/waiver lands
+              // at the wrong Pandora location. ?c=naples is immune (center wins
+              // there), but the origin is chosen uniformly.
+              const waiverOrigin = isHpLoc ? "https://headpinz.com" : "https://fasttraxent.com";
+              resolvedWaiverUrl = buildWaiverUrl(
+                { center: waiverCenter },
+                { absolute: true, origin: waiverOrigin },
+              );
+              // The in-page CTA stays relative so it works on both hosts.
+              setWaiverUrl(buildWaiverUrl({ center: waiverCenter }));
             }
           } catch {
             /* non-fatal */
@@ -1021,18 +1065,9 @@ export default function ConfirmationPage() {
         const notifKey = `notif_sent_${id}`;
         if (notificationPayload && !sessionStorage.getItem(notifKey)) {
           sessionStorage.setItem(notifKey, "1");
-          // Resolve location for venue/address picking + brand. The
-          // booking-store wins because the user might have crossed
-          // domains between booking and confirmation (e.g. Naples
-          // booking that lands them on fasttraxent.com); the old
-          // hostname-only check broke HeadPinz Naples emails.
-          const storedLoc =
-            typeof window !== "undefined" ? sessionStorage.getItem("bookingLocation") : null;
-          const resolvedLocation =
-            (details?.location as string | undefined) ||
-            storedLoc ||
-            (window.location.hostname.includes("headpinz") ? "headpinz" : "fasttrax");
-          const isHpLoc = resolvedLocation === "headpinz" || resolvedLocation === "naples";
+          // resolvedLocation / isHpLoc are resolved once above the waiver block —
+          // same 3-signal chain, now shared so the waiver link and this email
+          // cannot disagree about the center.
 
           // Multi-activity emails arrived near-blank: the BMI overview is gone
           // post-conversion and details.overviews carried only ONE activity's
