@@ -1,4 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// These specs exercise the ORIGINAL race-bowl pack ($65/$75), retired at the
+// 2026-07-31 V2 cutover (v2 default ON forces v1 off — see combo-specials).
+// Revive it for this file: the engine behavior under test (gate, split,
+// grouping, promo) is version-agnostic, and these fixtures document it against
+// the v1 numbers. vi.hoisted runs before the module graph loads, which is what
+// the load-time flag consts require.
+vi.hoisted(() => {
+  process.env.NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED = "true";
+  process.env.NEXT_PUBLIC_COMBO_RACE_BOWL_V2_ENABLED = "false";
+});
 
 import { buildRaceChargeLines } from "~/features/booking/service/checkout";
 import type { RaceTier } from "~/features/booking/service/race-products";

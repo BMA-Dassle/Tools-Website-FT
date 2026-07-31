@@ -17,7 +17,7 @@
  * Every check defaults to AVAILABLE on error (never false-lock a normally-open
  * experience because a vendor blipped); the route decides whether to cache.
  */
-import { buildChains, getComboSpecial } from "~/features/combos";
+import { activeVipCombo, buildChains } from "~/features/combos";
 import { comboMinHeadcount, comboReorderFallbackEnabled } from "~/features/combos/combo-specials";
 import {
   candidatesForOrdering,
@@ -125,7 +125,9 @@ async function resolveSlotAvailability(
  *  chain's RACE legs (the binding constraint — the VIP lane is booked whole for
  *  the group and QAMF gives it no per-seat count). null = nothing fits today. */
 async function comboFirstOpenToday(center: CenterCode, dateYmd: string): Promise<FirstOpen | null> {
-  const combo = getComboSpecial("race-bowl");
+  // The LIVE pack (v2 after the 7/31 cutover). "race-bowl" stays the WIRE key
+  // in the availability payload — a stable slot label, not a registry lookup.
+  const combo = activeVipCombo();
   if (!combo?.enabled || combo.center !== center) return null;
   const centerId = qamfCenterIdForCode(center);
   if (centerId == null) return null;

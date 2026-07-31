@@ -218,19 +218,22 @@ export interface ComboSpecial {
 }
 
 /**
- * Flag: default ON unless explicitly set to "false" (plan §booking layer —
- * Vercel prod keeps it "false" until the staff canary passes).
+ * V2 pack flag: DEFAULT ON — the V2 pack goes live on deploy (owner
+ * 2026-07-31: "flags on by default"). Kill switch: set the literal "false" in
+ * Vercel + redeploy (NEXT_PUBLIC_* is build-baked).
  */
-const COMBO_RACE_BOWL_ENABLED = process.env.NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED !== "false";
+const COMBO_RACE_BOWL_V2_ENABLED = process.env.NEXT_PUBLIC_COMBO_RACE_BOWL_V2_ENABLED !== "false";
 
 /**
- * V2 pack flag: default OFF (ships dark per the v2 cutover rule). Cutover is
- * ONE redeploy flipping both: `NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED=false` +
- * `NEXT_PUBLIC_COMBO_RACE_BOWL_V2_ENABLED=true`. NEVER both on in prod — the
- * two entries share a guest-facing name, so every enabledCombos() surface
- * would render duplicate cards.
+ * V1 flag — RETIRED at the V2 cutover (owner 2026-07-31). Revive-only switch:
+ * v1 sells again ONLY when explicitly set "true" AND v2 is killed. The
+ * `!V2` guard is structural: the two entries share a guest-facing name, so
+ * both-on would render duplicate cards on every enabledCombos() surface —
+ * no combination of env values can produce that. The entry itself stays in
+ * code so historical bookings keep resolving (admin badges, receipts, memos).
  */
-const COMBO_RACE_BOWL_V2_ENABLED = process.env.NEXT_PUBLIC_COMBO_RACE_BOWL_V2_ENABLED === "true";
+const COMBO_RACE_BOWL_ENABLED =
+  process.env.NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED === "true" && !COMBO_RACE_BOWL_V2_ENABLED;
 
 /**
  * Reorder-fallback flag: default OFF (ships dark per the v2 cutover rule).
@@ -536,6 +539,21 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
 /** Look up a combo by id (enabled or not — callers gate separately). */
 export function getComboSpecial(id: string): ComboSpecial | null {
   return COMBO_SPECIALS.find((c) => c.id === id) ?? null;
+}
+
+/**
+ * The LIVE Ultimate VIP pack — v2 today; v1 only if explicitly revived.
+ * Consumers that used to hardcode "race-bowl" (kiosk availability, the
+ * anchor-reserve rule, the attract chip) resolve through THIS so a pack
+ * cutover is a flag concern, never a call-site hunt. Null = no VIP pack on
+ * sale (anchor reserve lifts, kiosk tile hides — the correct dark state).
+ */
+export function activeVipCombo(): ComboSpecial | null {
+  return (
+    COMBO_SPECIALS.find(
+      (c) => c.enabled && (c.id === "race-bowl-v2" || c.id === "race-bowl"),
+    ) ?? null
+  );
 }
 
 /** Admin-board badge for a combo booking ("VIP" for v1, "VIP V2" for the V2

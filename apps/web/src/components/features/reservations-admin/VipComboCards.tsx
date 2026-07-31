@@ -30,9 +30,10 @@ import { NAV_BTN } from "./theme";
 const TIME_SHIFT_CUTOFF_MS = 5 * 60_000;
 
 /** Ultimate VIP only (owner 7/10): bowling leg still confirmed (lane not
- *  open), QAMF-linked, and not within 5 min of its start. */
+ *  open), QAMF-linked, and not within 5 min of its start. Any race-bowl*
+ *  pack (v1 or the 7/31 V2) qualifies — same lane-shift mechanics. */
 function timeShiftLeg(g: ComboGroup, nowMs: number): Reservation | null {
-  if (g.comboId !== "race-bowl" || g.inactive) return null;
+  if (!g.comboId.startsWith("race-bowl") || g.inactive) return null;
   const b = g.bowling;
   if (!b || b.status !== "confirmed" || !b.qamfReservationId) return null;
   const startMs = etWallMs(b.bookedAt);

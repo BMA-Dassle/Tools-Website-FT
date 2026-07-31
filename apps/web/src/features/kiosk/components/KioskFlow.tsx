@@ -52,7 +52,12 @@ import {
   releaseItemBmiLines,
   releaseHeatBmiLines,
 } from "~/features/booking/service/checkout";
-import { comboBowlingComponent, getComboSpecial, type ComboSpecial } from "~/features/combos";
+import {
+  activeVipCombo,
+  comboBowlingComponent,
+  getComboSpecial,
+  type ComboSpecial,
+} from "~/features/combos";
 import { getPackage } from "@/lib/packages";
 import { resolvePreselectPatch } from "../service/package-preselect";
 import {
@@ -606,7 +611,7 @@ export function KioskFlow({
       }
       const seed = seedForGoto(goto, fasttraxQamfDuckpinEnabled());
       if (seed === "vip") {
-        const combo = getComboSpecial("race-bowl");
+        const combo = activeVipCombo();
         if (
           combo &&
           combo.enabled &&

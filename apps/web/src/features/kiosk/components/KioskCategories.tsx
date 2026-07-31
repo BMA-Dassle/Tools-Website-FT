@@ -324,8 +324,11 @@ export function KioskCategories({
   // tile inside is locked (VIP combo + Ultimate Qualifier both out of runway)
   // or the shelf is empty, the landing card itself locks — no tapping into a
   // screen of all-unavailable tiles (owner 2026-07-19).
+  // Any race-bowl* pack (v1 or the 7/31 V2) is THE VIP tile — same feasibility
+  // poll, same lockout.
+  const isVipPack = (id: string) => id.startsWith("race-bowl");
   const anyExperienceAvailable =
-    combos.some((c) => c.id !== "race-bowl" || vipComboAvailable) ||
+    combos.some((c) => !isVipPack(c.id) || vipComboAvailable) ||
     (showQualifier && uqAvailable) ||
     showRacePacks;
   // The availability key for a tile: shuffly is per BUILDING (FT vs HP side,
@@ -470,7 +473,7 @@ export function KioskCategories({
               {combos.map((combo) => {
                 // The VIP combo locks out when today has no feasible race →
                 // VIP-lane → race itinerary (polled every 5 min).
-                const locked = combo.id === "race-bowl" && !vipComboAvailable;
+                const locked = isVipPack(combo.id) && !vipComboAvailable;
                 return (
                   <ShelfBanner
                     key={combo.id}

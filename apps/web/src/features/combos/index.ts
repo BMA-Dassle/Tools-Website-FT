@@ -1,5 +1,6 @@
 export {
   COMBO_SPECIALS,
+  activeVipCombo,
   comboAvailableOn,
   comboBowlingComponent,
   comboHeatsPerRacer,

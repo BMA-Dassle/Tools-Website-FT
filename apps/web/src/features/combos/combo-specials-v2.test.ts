@@ -195,25 +195,54 @@ describe("chips & salsa 1-per-3 (inclusionQtyRules)", () => {
     expect(hp.subtotalCents + ft.subtotalCents).toBe(7900 * racers.length);
   });
 
-  it("v1 (no rules) keeps the experience's own quantity", () => {
-    const s = v2Session(MON, ["a", "b", "c", "d"]);
-    s.comboSpecialId = "race-bowl";
-    const groups = pricing.comboOrderGroups(s)!;
-    const hp = groups.find((g) => g.entity === "headpinz-fm")!;
-    expect(hp.lines.find((l) => l.catalogObjectId === CHIPS)!.quantity).toBe(1);
-  });
+  // v1's rule-less pass-through (quantity untouched) is covered by
+  // combo-pricing.test.ts's re-attach spec, which revives v1 for the file.
 });
 
-describe("ships dark", () => {
-  it("v2 is disabled without the flag; v1 stays enabled — never both on", async () => {
-    vi.stubEnv("NEXT_PUBLIC_COMBO_RACE_BOWL_V2_ENABLED", "");
+describe("flag defaults (owner 2026-07-31: flags on by default)", () => {
+  async function freshWith(env: Record<string, string>) {
+    for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
     vi.resetModules();
-    const fresh = await import("./combo-specials");
+    return import("./combo-specials");
+  }
+
+  it("v2 is LIVE by default; v1 is retired — activeVipCombo resolves v2", async () => {
+    const fresh = await freshWith({
+      NEXT_PUBLIC_COMBO_RACE_BOWL_V2_ENABLED: "",
+      NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED: "",
+    });
+    expect(fresh.getComboSpecial("race-bowl-v2")!.enabled).toBe(true);
+    expect(fresh.getComboSpecial("race-bowl")!.enabled).toBe(false);
+    expect(fresh.enabledCombos().map((c) => c.id)).toEqual(["race-bowl-v2"]);
+    expect(fresh.activeVipCombo()?.id).toBe("race-bowl-v2");
+  });
+
+  it("NEVER both on: forcing v1 true while v2 lives keeps v1 off (structural guard)", async () => {
+    const fresh = await freshWith({
+      NEXT_PUBLIC_COMBO_RACE_BOWL_V2_ENABLED: "",
+      NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED: "true",
+    });
+    expect(fresh.getComboSpecial("race-bowl")!.enabled).toBe(false);
+    expect(fresh.enabledCombos().map((c) => c.id)).toEqual(["race-bowl-v2"]);
+  });
+
+  it("kill switch: V2=false turns v2 off without silently reviving v1", async () => {
+    const fresh = await freshWith({
+      NEXT_PUBLIC_COMBO_RACE_BOWL_V2_ENABLED: "false",
+      NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED: "",
+    });
     expect(fresh.getComboSpecial("race-bowl-v2")!.enabled).toBe(false);
+    expect(fresh.getComboSpecial("race-bowl")!.enabled).toBe(false);
+    expect(fresh.activeVipCombo()).toBeNull(); // anchor reserve lifts, kiosk tile hides
+  });
+
+  it("revive path: v1 true + v2 false brings the original pack back", async () => {
+    const fresh = await freshWith({
+      NEXT_PUBLIC_COMBO_RACE_BOWL_V2_ENABLED: "false",
+      NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED: "true",
+    });
     expect(fresh.getComboSpecial("race-bowl")!.enabled).toBe(true);
-    expect(fresh.enabledCombos().map((c) => c.id)).not.toContain("race-bowl-v2");
-    // restore for any later suites in this file run
-    vi.stubEnv("NEXT_PUBLIC_COMBO_RACE_BOWL_V2_ENABLED", "true");
-    vi.resetModules();
+    expect(fresh.enabledCombos().map((c) => c.id)).toEqual(["race-bowl"]);
+    expect(fresh.activeVipCombo()?.id).toBe("race-bowl");
   });
 });

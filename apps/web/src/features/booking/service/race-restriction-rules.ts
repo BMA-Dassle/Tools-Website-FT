@@ -76,7 +76,7 @@
  * constraint, add an optional constraint block to RaceRestrictionRule and a
  * branch in `evaluateRaceRestrictions`.
  */
-import { getComboSpecial } from "~/features/combos/combo-specials";
+import { activeVipCombo, getComboSpecial } from "~/features/combos/combo-specials";
 import type { RaceCategory, RaceTier } from "./race-products";
 
 /** How a blocked slot is surfaced to the customer. */
@@ -253,15 +253,21 @@ const WALK_IN_OR_EXPRESS_PRESENTATION: RestrictionPresentation = {
 function vipAnchorReserveEnabled(): boolean {
   return (
     process.env.NEXT_PUBLIC_COMBO_VIP_ANCHOR_RESERVE !== "false" &&
-    (getComboSpecial("race-bowl")?.enabled ?? false)
+    // The LIVE pack (v2 after the 7/31 cutover) — anchors lift only when NO
+    // VIP pack is on sale, never because one version retired.
+    activeVipCombo() != null
   );
 }
 
 /** The combo's start grid (0–26 chip notation) as center-local clock minutes —
- *  derived from the registry so a startHours change stays a one-line edit. */
-const VIP_COMBO_ANCHOR_MINUTES: number[] = (getComboSpecial("race-bowl")?.startHours ?? []).map(
-  (h) => (h % 24) * 60,
-);
+ *  derived from the registry so a startHours change stays a one-line edit.
+ *  v1 fallback keeps the grid defined even when no pack is enabled (the rule
+ *  itself is off then via vipAnchorReserveEnabled). */
+const VIP_COMBO_ANCHOR_MINUTES: number[] = (
+  activeVipCombo()?.startHours ??
+  getComboSpecial("race-bowl-v2")?.startHours ??
+  []
+).map((h) => (h % 24) * 60);
 
 /**
  * Active restriction rules. Plain const config — edit here to expand.

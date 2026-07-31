@@ -58,17 +58,18 @@ export function kioskCheckinEnabled(): boolean {
 }
 
 /**
- * Voucher-QR party prefill — OPT-IN, defaults OFF. When a guest scans their
- * booking-minted voucher QR (the /v/{code} image in the VIP welcome email) at
- * check-in, the code resolves to its booking via vouchers.bill_id (possession
- * = proof, same posture as the emailed reservation QR — owner 2026-07-25) and
- * the party panel offers "Load your party" so nobody re-types names the
- * booking already knows. Gates BOTH the server resolution arm and the client
- * banner. Set the literal "true" in Vercel + redeploy (build-baked). Read at
+ * Voucher-QR party prefill — kill switch, DEFAULTS ON (owner 2026-07-31:
+ * "flags on by default"). When a guest scans their booking-minted voucher QR
+ * (the /v/{code} image in the VIP welcome email) at check-in, the code
+ * resolves to its booking via vouchers.bill_id (possession = proof, same
+ * posture as the emailed reservation QR — owner 2026-07-25) and the party
+ * panel offers "Load your party" so nobody re-types names the booking already
+ * knows. Gates BOTH the server resolution arm and the client banner. Set the
+ * literal "false" in Vercel + redeploy to turn it off (build-baked). Read at
  * call time so tests can stub process.env.
  */
 export function kioskVoucherPrefillEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_KIOSK_VOUCHER_PARTY_PREFILL === "true";
+  return process.env.NEXT_PUBLIC_KIOSK_VOUCHER_PARTY_PREFILL !== "false";
 }
 
 /**
