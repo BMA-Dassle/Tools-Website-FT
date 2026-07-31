@@ -1,5 +1,28 @@
 # Lessons Learned
 
+## A cache in front of deadline-bounded work must never cache the ABSENCE of the result (2026-07-31)
+
+**What happened:** `/api/waiver/context` cached its summary for 120s and ran the Pandora
+waiver sweep (signed count + roster) only on a summary-cache MISS, bounded by a 2.5s
+deadline. One cold request missing the deadline meant: summary cached WITHOUT the sweep
+result, and every request for the next 120s early-returned off that summary — the sweep
+never re-ran. The organizer clicked their email link and saw "2 registered" over an empty
+roster, forever (pid 63000000006846994). Every piece behaved as designed; the composition
+guaranteed the feature's headline payload could permanently fail to ship.
+
+**The rule:** when a response is `fast part + slow bounded part`, the cache key must
+distinguish "have the slow part" from "don't". Early-return from cache ONLY when the
+complete result is present; a hit that is missing the bounded part falls through and
+retries the work (per-item caches make each retry cheaper until it lands). Never let the
+fast part's TTL suppress recomputation of the slow part.
+
+**Also:** the same route 502'd an entire request on ONE transient `getReservationDetail`
+failure. Multi-call upstream fetches on guest-facing routes get one retry before erroring.
+
+Fix: `fix/waiver-organizer-roster` — sweep re-runs on summary-hit-with-no-state, deadline
+2.5s→5s, one detail retry, pinned in `app/api/waiver/context/route.test.ts` ("cache
+interplay" describe).
+
 ## BMI membership names are category-scoped — a substring match on "pro" is a qualification bypass (2026-07-30)
 
 **What happened:** A 13-year-old holding only `Qualified Junior Intermediate` + `Qualified Junior

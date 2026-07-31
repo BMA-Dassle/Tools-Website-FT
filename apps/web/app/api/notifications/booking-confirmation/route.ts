@@ -696,17 +696,21 @@ export async function POST(req: NextRequest) {
       if (false) {
       }
 
-      // Waiver section — only for new racers.
+      // Waiver section — whenever the page sent a waiver URL, i.e. whenever
+      // someone on the booking still needs a waiver. NOT `isNewRacer`: the page
+      // keys `waiverUrl` on the live Pandora check (all-valid parties send ""),
+      // so a returning racer with an expired waiver and a mixed party get the
+      // section too — the old gate silenced both (owner report 2026-07-31).
       //
       // The page supplies `waiverUrl` as a canonical /waiver link (buildWaiverUrl,
       // with loc+pid when the reservation is known). `waiverLinkForSuppliedUrl`
       // upgrades that to a short ORGANIZER code — this email goes to the person who
-      // booked, so they get the roster and the remove button — and replaces the old
-      // hardcoded fallback, which pointed every guest, Naples included, at the
-      // FastTrax/HeadPinz FM tenant where a Naples waiver is not valid.
+      // booked, so they get the roster with per-person waiver status — and replaces
+      // the old hardcoded fallback, which pointed every guest, Naples included, at
+      // the FastTrax/HeadPinz FM tenant where a Naples waiver is not valid.
       const { waiverLinkForSuppliedUrl } = await import("@/lib/waiver-link-send");
-      const waiverLink = isNewRacer ? await waiverLinkForSuppliedUrl(waiverUrl, "organizer") : "";
-      const waiverSectionHtml = isNewRacer
+      const waiverLink = waiverUrl ? await waiverLinkForSuppliedUrl(waiverUrl, "organizer") : "";
+      const waiverSectionHtml = waiverLink
         ? `
 <tr>
 <td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">

@@ -76,8 +76,13 @@ const COUNT_CACHE_TTL_SECONDS = 60;
  * same Pandora sweep. So `roster` present ⇒ every row's `waiverValid` is real; on
  * a miss the roster is omitted rather than shipped with every row guessed `false`,
  * which would tell already-signed guests to sign again.
+ *
+ * 5s, not the original 2.5s: only the /waiver page awaits this route, and a live
+ * reservation (2 people) reproducibly missed 2.5s cold — which, combined with the
+ * summary cache, meant the roster NEVER appeared (2026-07-31). A slower first
+ * paint of the fraction beats an organizer permanently staring at an empty list.
  */
-const COUNT_DEADLINE_MS = 2_500;
+const COUNT_DEADLINE_MS = 5_000;
 
 /** Resolve to undefined rather than hang past `ms`. */
 function withDeadline<T>(work: Promise<T>, ms: number): Promise<T | undefined> {
@@ -200,20 +205,23 @@ export async function GET(req: NextRequest) {
   ]);
   const state = parseSignedState(cachedState);
 
-  if (typeof cached === "string" && cached) {
-    // Summary is cached; merge in whatever the sweep cache knows right now. A
-    // fresh count/roster can appear on a later load without re-fetching the summary.
+  // A cached summary alone is NOT enough to answer from cache: `state` (the
+  // signed count + roster) must be there too. The old `if (cached)` early-return
+  // meant one cold sweep missing its deadline left the state key empty, and then
+  // every request for the next 120s was a summary HIT that never re-ran the sweep
+  // — so `signed`/`roster` never appeared at all (live repro 2026-07-31, pid
+  // 63000000006846994). Falling through re-fetches the detail and sweeps again;
+  // the per-person Pandora cache makes each retry cheaper until one lands.
+  if (typeof cached === "string" && cached && state) {
     const summary = JSON.parse(cached) as Record<string, unknown>;
     summary.canManage = canManage;
-    if (state) {
-      summary.signed = state.signed;
-      // Only ONLINE bookings ever put a roster in this entry, so merging what the
-      // cache holds cannot leak a group function's party. The ORGANIZER gate is
-      // applied here too, and deliberately at RESPONSE time rather than cache time:
-      // the cached entry stays capability-free (one entry per reservation, not one
-      // per capability), and withholding is a property of the read.
-      if (state.roster && canManage) summary.roster = state.roster;
-    }
+    summary.signed = state.signed;
+    // Only ONLINE bookings ever put a roster in this entry, so merging what the
+    // cache holds cannot leak a group function's party. The ORGANIZER gate is
+    // applied here too, and deliberately at RESPONSE time rather than cache time:
+    // the cached entry stays capability-free (one entry per reservation, not one
+    // per capability), and withholding is a property of the read.
+    if (state.roster && canManage) summary.roster = state.roster;
     return new NextResponse(JSON.stringify(summary), {
       status: 200,
       headers: { ...privateHeaders, "x-waiver-cache": "hit" },
@@ -221,8 +229,14 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // One retry: getReservationDetail is several BMI calls and a single transient
+    // failure was observed 502-ing this whole route in production (2026-07-31) —
+    // the guest just saw "Loading reservation…" die. A second attempt is cheap
+    // next to shipping an error page over a working waiver flow.
     const [detail, joins] = await Promise.all([
-      getReservationDetail(locationId, projectId),
+      getReservationDetail(locationId, projectId).catch(() =>
+        getReservationDetail(locationId, projectId),
+      ),
       listJoinsForProject(projectId).catch(() => []),
     ]);
 

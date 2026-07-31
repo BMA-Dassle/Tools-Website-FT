@@ -928,7 +928,6 @@ export default function ConfirmationPage() {
           (window.location.hostname.includes("headpinz") ? "headpinz" : "fasttrax");
         const isHpLoc = resolvedLocation === "headpinz" || resolvedLocation === "naples";
 
-        // Waiver link for new racers — reservation-scoped via the Office projectId
         const isReturning = hasReturningRacers;
         setIsNewRacer(!isReturning);
 
@@ -943,8 +942,16 @@ export default function ConfirmationPage() {
             n.includes("race") || n.includes("gel") || n.includes("laser") || n.includes("blaster"),
         );
 
+        // Built for EVERY waiver activity, returning racers included — the old
+        // `!isReturning` gate meant ONE resolved personId on the booking hid the
+        // waiver from the whole party: a returning racer with an EXPIRED waiver,
+        // or a mixed party (one returning + one new), got no banner and no email
+        // waiver section, while also failing express lane (owner report
+        // 2026-07-31, billId 63000000006535250). Whether anyone still NEEDS to
+        // sign is `allWaiversValid` — the live Pandora check express lane already
+        // ran — and that is what gates the banner and the email below.
         let resolvedWaiverUrl = "";
-        if (id && !isReturning && needsWaiver) {
+        if (id && needsWaiver) {
           try {
             // RESERVATION-SCOPED link — signatures ATTACH to this booking's BMI
             // project, exactly like a group-contract event, so every guest who
@@ -991,11 +998,28 @@ export default function ConfirmationPage() {
                   { center: venue.center, reservation },
                   { absolute: true, origin: waiverOrigin },
                 );
-                // The in-page CTA stays relative so it works on both hosts, and
-                // stays the LONG url on purpose: a client page must never mint
-                // capability codes (an open mint endpoint would let anyone mint
-                // an organizer code for any guessable projectId). Sign-only.
-                setWaiverUrl(buildWaiverUrl({ center: venue.center, reservation }));
+                // The in-page CTA: the ORGANIZER short link when we can prove the
+                // caller is the booker, the long sign-only url otherwise. A client
+                // page must never mint capability codes directly (an open mint
+                // endpoint would let anyone mint an organizer code for any
+                // guessable projectId) — so the mint happens server-side, gated on
+                // the SAME HMAC bill signature that authorizes booking-status and
+                // self-cancel. Opening the organizer link sets the wv_cap cookie,
+                // so the booker's /waiver shows the full roster + who has signed.
+                const longCta = buildWaiverUrl({ center: venue.center, reservation });
+                setWaiverUrl(longCta);
+                if (sig) {
+                  fetch("/api/waiver/booking-link", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ billId: id, sig, waiverUrl: resolvedWaiverUrl }),
+                  })
+                    .then((r) => (r.ok ? r.json() : null))
+                    .then((d) => {
+                      if (d?.url) setWaiverUrl(d.url);
+                    })
+                    .catch(() => void 0); // long sign-only CTA stays — never worse than before
+                }
                 // Persist for the race-day cron — api/cron/race-day-emails reads
                 // record.waiverUrl and NOTHING wrote it until now, so every
                 // race-day waiver email degraded to a standalone link too.
@@ -1199,7 +1223,10 @@ export default function ConfirmationPage() {
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               ...notificationPayload,
-              waiverUrl: !isReturning ? resolvedWaiverUrl : "",
+              // The email carries the waiver whenever someone still needs one —
+              // returning racers with expired waivers and mixed parties included.
+              // Only a party whose waivers ALL verified live gets none.
+              waiverUrl: allWaiversValid ? "" : resolvedWaiverUrl,
               isNewRacer: !isReturning,
               povCodes: claimedPovCodes,
               brand: isHpLoc ? "headpinz" : "fasttrax",
@@ -1769,7 +1796,9 @@ export default function ConfirmationPage() {
             </button>
           )}
 
-          {/* Waiver banner — new racers or attractions that require waivers.
+          {/* Waiver banner — any waiver activity where the party's waivers did
+              not ALL verify live (`!expressLane`). Returning racers included:
+              an expired waiver or a mixed party must see this, not silence.
               Wrapped in max-w-2xl so it visually aligns with the reservation
               card directly below it. The page outer is max-w-6xl, but the
               reservation card group inside uses max-w-2xl for the single-

@@ -840,7 +840,6 @@ export default function ConfirmationPage() {
           (window.location.hostname.includes("headpinz") ? "headpinz" : "fasttrax");
         const isHpLoc = resolvedLocation === "headpinz" || resolvedLocation === "naples";
 
-        // Waiver link for new racers — reservation-scoped via the Office projectId
         const isReturning = hasReturningRacers;
         setIsNewRacer(!isReturning);
 
@@ -855,8 +854,16 @@ export default function ConfirmationPage() {
             n.includes("race") || n.includes("gel") || n.includes("laser") || n.includes("blaster"),
         );
 
+        // Built for EVERY waiver activity, returning racers included — the old
+        // `!isReturning` gate meant ONE resolved personId on the booking hid the
+        // waiver from the whole party: a returning racer with an EXPIRED waiver,
+        // or a mixed party (one returning + one new), got no banner and no email
+        // waiver section, while also failing express lane (owner report
+        // 2026-07-31). Whether anyone still NEEDS to sign is `allWaiversValid` —
+        // the live Pandora check express lane already ran — and that is what
+        // gates the banner (`!expressLane`) and the email payload below.
         let resolvedWaiverUrl = "";
-        if (id && !isReturning && needsWaiver) {
+        if (id && needsWaiver) {
           try {
             // RESERVATION-SCOPED link — signatures ATTACH to this booking's BMI
             // project, exactly like a group-contract event, so every guest who
@@ -977,7 +984,10 @@ export default function ConfirmationPage() {
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               ...notificationPayload,
-              waiverUrl: !isReturning ? resolvedWaiverUrl : "",
+              // The email carries the waiver whenever someone still needs one —
+              // returning racers with expired waivers and mixed parties included.
+              // Only a party whose waivers ALL verified live gets none.
+              waiverUrl: allWaiversValid ? "" : resolvedWaiverUrl,
               isNewRacer: !isReturning,
               povCodes: claimedPovCodes,
               brand: isHpLoc ? "headpinz" : "fasttrax",
@@ -1205,7 +1215,9 @@ export default function ConfirmationPage() {
       {/* Main content */}
       {!loading && orderId && (
         <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-16 pt-6">
-          {/* Waiver banner — new racers or attractions that require waivers.
+          {/* Waiver banner — any waiver activity where the party's waivers did
+              not ALL verify live (`!expressLane`). Returning racers included:
+              an expired waiver or a mixed party must see this, not silence.
               Wrapped in max-w-2xl so it visually aligns with the reservation
               card directly below it. The page outer is max-w-6xl, but the
               reservation card group inside uses max-w-2xl for the single-

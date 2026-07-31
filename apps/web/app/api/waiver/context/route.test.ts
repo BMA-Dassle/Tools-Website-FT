@@ -21,6 +21,7 @@ vi.mock("@/lib/waiver-short-link", () => ({
 }));
 
 import { GET } from "./route";
+import redis from "@/lib/redis";
 import { waiverLinkGrantsOrganizerFor } from "@/lib/waiver-short-link";
 import { getReservationDetail } from "~/features/daily-events/service";
 import { listJoinsForProject } from "~/features/kiosk/data/kiosk-waiver-joins-db";
@@ -36,6 +37,8 @@ function makeReq(qs: string) {
 }
 
 const mockGrant = vi.mocked(waiverLinkGrantsOrganizerFor);
+// ioredis's overloaded signature defeats vi.mocked — cast to the plain mock.
+const mockRedisGet = redis.get as unknown as ReturnType<typeof vi.fn>;
 
 /** A request carrying an ORGANIZER grant — the only way a roster is returned. */
 function makeOrganizerReq(qs: string) {
@@ -492,5 +495,93 @@ describe("GET /api/waiver/context", () => {
     const res = await GET(makeReq("?c=fort-myers&loc=467486&pid=abc"));
     expect(res.status).toBe(400);
     expect(mockDetail).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/waiver/context — cache interplay", () => {
+  const onlineDetail = () =>
+    detail({
+      name: "Ross Gallagher",
+      kind: "Online booking",
+      when: "2026-08-02T14:00:00",
+      persons: 2,
+      persons_list: [
+        { personId: "11", firstName: "Ann", name: "Alpha" },
+        { personId: "12", firstName: "Bob", name: "Beta" },
+      ] as unknown as ReservationDetail["persons_list"],
+    });
+
+  const cachedSummary = JSON.stringify({
+    ok: true,
+    label: "Ross G.",
+    activity: "Blue Track",
+    whenLabel: "Sun, Aug 2 · 2:00 PM",
+    centerName: "FastTrax Fort Myers",
+    total: 2,
+  });
+
+  beforeEach(() => {
+    mockRedisGet.mockReset().mockResolvedValue(null);
+  });
+
+  it("re-runs the sweep when the summary is cached but the sweep state is not", async () => {
+    // THE 2026-07-31 production symptom: one cold sweep missed its deadline, the
+    // summary cached anyway, and every request for the next 120s early-returned
+    // off that summary — the organizer never saw a roster at all.
+    mockRedisGet.mockImplementation(async (key: string) =>
+      key.startsWith("waiver:ctx:state:") ? null : cachedSummary,
+    );
+    mockDetail.mockResolvedValue(onlineDetail());
+    mockValid.mockResolvedValue(true);
+
+    const res = await GET(makeOrganizerReq("?c=fort-myers&loc=467486&pid=51383608"));
+    const body = await res.json();
+
+    expect(mockDetail).toHaveBeenCalled(); // fell through — did NOT answer from cache
+    expect(res.headers.get("x-waiver-cache")).toBe("miss");
+    expect(body.signed).toBe(2);
+    expect(body.roster).toHaveLength(2);
+  });
+
+  it("answers from cache when BOTH the summary and the sweep state are present", async () => {
+    const state = JSON.stringify({
+      signed: 1,
+      roster: [
+        { personId: "11", displayName: "Ann A.", waiverValid: true },
+        { personId: "12", displayName: "Bob B.", waiverValid: false },
+      ],
+    });
+    mockRedisGet.mockImplementation(async (key: string) =>
+      key.startsWith("waiver:ctx:state:") ? state : cachedSummary,
+    );
+
+    const res = await GET(makeOrganizerReq("?c=fort-myers&loc=467486&pid=51383608"));
+    const body = await res.json();
+
+    expect(mockDetail).not.toHaveBeenCalled();
+    expect(res.headers.get("x-waiver-cache")).toBe("hit");
+    expect(body.signed).toBe(1);
+    expect(body.roster).toHaveLength(2);
+  });
+
+  it("retries the detail fetch once before giving up (transient BMI failure)", async () => {
+    mockDetail
+      .mockRejectedValueOnce(new Error("BMI hiccup"))
+      .mockResolvedValueOnce(onlineDetail());
+
+    const res = await GET(makeReq("?c=fort-myers&loc=467486&pid=51383608"));
+    const body = await res.json();
+
+    expect(mockDetail).toHaveBeenCalledTimes(2);
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.total).toBe(2);
+  });
+
+  it("still 502s when the detail fetch fails twice", async () => {
+    mockDetail.mockRejectedValue(new Error("BMI down"));
+    const res = await GET(makeReq("?c=fort-myers&loc=467486&pid=51383608"));
+    expect(res.status).toBe(502);
+    expect(mockDetail).toHaveBeenCalledTimes(2);
   });
 });

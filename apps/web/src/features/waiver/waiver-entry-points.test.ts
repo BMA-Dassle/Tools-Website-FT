@@ -56,6 +56,9 @@ const RAW_URL_ALLOWED = new Set([
   join("lib", "waiver-short-link.test.ts"),
   // Documents the redirect target it serves; builds it via buildWaiverUrl.
   join("app", "w", "[code]", "route.ts"),
+  // Fixture URLs for the pid-binding tests; the route itself only PARSES a
+  // supplied link (built by the page via buildWaiverUrl), never composes one.
+  join("app", "api", "waiver", "booking-link", "route.test.ts"),
   // Client-side fetches of our own API, not guest-facing links.
   join("app", "api", "waiver", "context", "route.ts"),
 ]);
@@ -162,6 +165,36 @@ describe("waiver entry-point completeness", () => {
       expect(
         /buildWaiverUrl\(\s*\{[^}]*reservation/.test(f!.text),
         `${rel} must pass a reservation to buildWaiverUrl`,
+      ).toBe(true);
+    }
+  });
+
+  it("the confirmation waiver is keyed on live validity, never on isNewRacer", () => {
+    // The original gate — `!isReturning && needsWaiver` on the pages, `isNewRacer ?`
+    // in the email route — meant ONE resolved personId on the booking hid the
+    // waiver from the whole party: a returning racer with an EXPIRED waiver, or a
+    // mixed party (one returning + one new), saw no banner and got no email waiver
+    // section, while also failing express lane (owner report 2026-07-31). The
+    // signal for "someone still needs to sign" is `allWaiversValid` — the live
+    // Pandora check express lane runs — so that is the only thing allowed to
+    // suppress the waiver.
+    const gated = [
+      join("app", "book", "confirmation", "page.tsx"),
+      join("app", "book", "confirmation", "v2", "page.tsx"),
+      join("app", "api", "notifications", "booking-confirmation", "route.ts"),
+    ];
+    for (const rel of gated) {
+      const f = FILES.find((x) => x.rel === rel);
+      expect(f, `${rel} missing from scan`).toBeTruthy();
+      expect(
+        /!isReturning && needsWaiver|isNewRacer \? await waiverLinkForSuppliedUrl/.test(f!.text),
+        `${rel} must not gate the waiver on isNewRacer/isReturning`,
+      ).toBe(false);
+      expect(
+        /allWaiversValid \? "" : resolvedWaiverUrl|waiverUrl \? await waiverLinkForSuppliedUrl/.test(
+          f!.text,
+        ),
+        `${rel} must key the waiver on live validity (allWaiversValid / supplied waiverUrl)`,
       ).toBe(true);
     }
   });
