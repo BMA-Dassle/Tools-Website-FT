@@ -344,7 +344,11 @@ export function reservationWaiverStatus(input: {
       unsignedPreloadCount(input.party),
     );
     if (outstanding > 0) return { kind: "outstanding", count: outstanding };
-    if (roster.length > 0 && roster.length >= total) return { kind: "covered" };
+    // `total > 0`, not just a nonempty roster: a headcount of ZERO is a headcount we
+    // never learned (BMI `persons` absent AND persons_list empty), and a roster made
+    // only of Neon join rows can be nonempty on exactly that booking — "covered"
+    // would then claim a whole reservation on the word of one walk-in signer.
+    if (total > 0 && roster.length >= total) return { kind: "covered" };
     // Fewer names than heads — the roster cannot close the question either way.
   }
 

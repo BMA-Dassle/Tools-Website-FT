@@ -2203,7 +2203,10 @@ export function KioskPartyManager({
                       // Guardian just signed their OWN waiver → audit it, mark it,
                       // and chain straight to the minor's (guardian as sigPersonID).
                       if (guardianChain && waiverFor.memberId === guardianChain.guardianId) {
-                        onUpdateMember(guardianChain.guardianId, { waiverValid: true });
+                        // patchPerson, NOT onUpdateMember: a signer-only guardian
+                        // lives in `guardians`, where onUpdateMember is a no-op —
+                        // their card then demands the waiver they just signed.
+                        patchPerson(guardianChain.guardianId, { waiverValid: true });
                         onWaiverSigned?.({
                           memberId: guardianChain.guardianId,
                           personId: waiverFor.personId,

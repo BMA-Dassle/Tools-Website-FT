@@ -104,3 +104,25 @@ export function unionValidWithJoins(
   }
   return valid;
 }
+
+/**
+ * How many REGISTERED people still need a waiver. Per-person over `registered`,
+ * never `registered.length - union.length`: the union also holds WALK-IN joins
+ * (people never registered on the reservation), and arithmetic over its length let
+ * three walk-ups swallow the "still pending" banner — or drive the count negative —
+ * while registered guests remained unsigned. A registered person is pending unless
+ * Pandora says valid OR one of our joins matches them (same id-then-name rule the
+ * union folds with).
+ */
+export function pendingRegisteredCount(
+  registered: RegisteredPerson[],
+  validFlags: boolean[],
+  joins: WaiverJoinRow[],
+): number {
+  const joinIds = new Set(joins.map((j) => j.personId));
+  const joinNames = new Set(joins.map((j) => j.displayName.toLowerCase()));
+  return registered.filter(
+    (p, i) =>
+      !validFlags[i] && !joinIds.has(p.personId) && !joinNames.has(p.displayName.toLowerCase()),
+  ).length;
+}

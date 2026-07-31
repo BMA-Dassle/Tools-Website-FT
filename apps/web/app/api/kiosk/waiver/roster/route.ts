@@ -14,6 +14,7 @@ import {
   waiverValidNow,
   mapWithConcurrency,
   unionValidWithJoins,
+  pendingRegisteredCount,
   WAIVER_CHECK_CONCURRENCY,
 } from "~/features/kiosk/waiver/valid-count";
 
@@ -82,7 +83,9 @@ export async function GET(req: NextRequest) {
     // Union in kiosk joins (written only after a signed/valid waiver) — same rule
     // the public waiver context counts with.
     const valid = unionValidWithJoins(registered, validFlags, joins);
-    const pendingCount = registered.length - valid.length;
+    // Per-person over the REGISTERED set — the union also holds walk-in joins, so
+    // `registered.length - valid.length` went negative / hid the pending banner.
+    const pendingCount = pendingRegisteredCount(registered, validFlags, joins);
 
     const body = JSON.stringify({
       success: true,

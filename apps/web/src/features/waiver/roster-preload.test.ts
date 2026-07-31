@@ -690,6 +690,17 @@ describe("reservationWaiverStatus", () => {
     });
   });
 
+  it("does NOT let a ZERO headcount plus a join-only roster read as covered", () => {
+    // BMI `persons` absent AND persons_list empty (total = 0), but one walk-in has
+    // signed via a Neon join — the roster is nonempty and fully covered, yet it
+    // names a booking whose headcount we never learned. `roster.length >= total`
+    // is trivially true of ANY roster when total is 0; that must not be a verdict.
+    const walkInOnly = [entry("99", "Wal K.", true)];
+    expect(reservationWaiverStatus({ signed: 0, total: 0, roster: walkInOnly, party: [] })).toEqual(
+      { kind: "unknown" },
+    );
+  });
+
   it("believes the roster over a CLAMPED fraction that reads 8 of 8", () => {
     // The route clamps: `signed = Math.min(validCount, total)`. Two join-only signers
     // push validCount to 8 on an 8-head booking while two registered guests are
