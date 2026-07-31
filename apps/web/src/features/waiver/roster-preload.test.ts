@@ -7,12 +7,9 @@ import {
   isPreloadedMember,
   membersOwnedHere,
   mergeRosterIntoParty,
-  preloadCanSign,
   preloadedMemberId,
-  preloadNeedsSignIn,
   coveredPersonIds,
   reservationWaiverStatus,
-  splitPartyBySignability,
   unsignedPreloadCount,
   waiverProgress,
 } from "./roster-preload";
@@ -85,10 +82,8 @@ describe("mergeRosterIntoParty", () => {
     const bob = party[1];
     expect(needsSetup(bob)).toBe(true);
     // bmiPersonId present ⇒ the card offers "Sign waiver", not "Set up", and no
-    // Pandora create runs for a person who already has a record. Whether that card
-    // can FINISH is a separate question, decided by the id FORM — "account found" is
-    // not "signable" (see the three-shapes suite). This roster id is short, so this
-    // one really can sign.
+    // Pandora create runs for a person who already has a record. Either id form
+    // finishes now (see the direct-sign suite).
     expect(bob.bmiPersonId).toBe("12");
     expect(shortPandoraId(bob)).toBe("12");
     // Bob's card asks for a waiver — but Bob is a name off the reservation, not
@@ -202,183 +197,102 @@ describe("mergeRosterIntoParty", () => {
  * 2-character ids, which are incidentally "short", which is exactly why every one of
  * them passed while a live 17-digit roster row could not sign.
  */
-describe("the unsigned preloaded guest — one shape signs, two are routed", () => {
+describe("the unsigned preloaded guest — every id form signs directly", () => {
   /** Returning racer, identified through the BMI Office lookup. */
   const OFFICE_ID = "51383608123456789";
   /** Person our own booking/kiosk created (docs/pandora-api.md's real example). */
   const SHORT_ID = "713365";
 
-  /** KioskPartyManager's own guardian-candidate rule, verbatim: `adults` is
-   *  `party.filter(m => !m.isMinor)` over the party it was GIVEN. */
-  const guardianCandidates = (given: PartyMember[]) => given.filter((m) => !m.isMinor);
+  // BOTH id forms take KioskPartyManager's check-and-sign branch now: tap "Sign
+  // waiver" → DOB form → pandoraCheckWaiver on the id we hold (refreshes the
+  // real birthdate + validity; both GETs proven on Office ids) → sign against
+  // that same id. The 17-digit sign leg is established from production's own
+  // ledger (waiver_sign_attempts, 2026-07-31): 41 signed HTTP 201 with a
+  // 17-digit personID, 16 with a 17-digit sigPersonID, zero failures at that
+  // length. The old `splitPartyBySignability` rail — which routed Office-id
+  // rows to a sign-in card — is gone: the owner's verdict was "on kiosk it
+  // would bring me to signing".
 
-  /** chooseGuardian's create precondition, verbatim (KioskPartyManager ~576):
-   *  `(phone || email) && dobIso`. False ⇒ no create is even attempted. */
-  const couldCreatePerson = (m: PartyMember) =>
-    !!((m.phone?.trim() || m.email?.trim()) && m.dobIso);
-
-  describe("shape 1 — a SHORT Pandora id", () => {
-    it("signs end to end on the id we already hold, and keeps its card", () => {
-      const party = mergeRosterIntoParty([], [entry(SHORT_ID, "Ann A.", false)]);
-      const [member] = party;
-      // Non-null shortPandoraId ⇒ submitSetup takes the branch that checks the waiver
-      // on this id and signs against it. Carried explicitly rather than left to a
-      // length check downstream.
-      expect(shortPandoraId(member)).toBe(SHORT_ID);
-      expect(member.pandoraPersonId).toBe(SHORT_ID);
-      expect(preloadCanSign(member)).toBe(true);
-      expect(needsSetup(member)).toBe(true); // the waiver itself is still outstanding
-      expect(preloadNeedsSignIn(member)).toBe(false);
-      // …so it is handed to the party manager, which is what renders "Sign waiver".
-      const split = splitPartyBySignability(party);
-      expect(split.signable).toBe(party); // same array — no churn in the common case
-      expect(split.needSignIn).toEqual([]);
-    });
+  it("a SHORT-id row keeps its card and its Sign-waiver button", () => {
+    const party = mergeRosterIntoParty([], [entry(SHORT_ID, "Ann A.", false)]);
+    const [member] = party;
+    expect(shortPandoraId(member)).toBe(SHORT_ID);
+    expect(member.pandoraPersonId).toBe(SHORT_ID);
+    expect(needsSetup(member)).toBe(true); // the waiver itself is still outstanding
   });
 
-  describe("shape 2 — a 17-digit OFFICE id", () => {
-    it("never reaches a signature screen we cannot stand behind", () => {
-      const party = mergeRosterIntoParty([], [entry(OFFICE_ID, "Bob B.", false)]);
-      const [member] = party;
-      // The sign path's own rule says "resolve a short id first" — and shape 3 is why
-      // nothing on this row can resolve it. So the row is held OUT of the party the
-      // manager renders: no card, therefore no "Sign waiver" button, therefore no
-      // dead signature screen. This is the assertion round 2 was missing — it flagged
-      // the row for the copy and still handed it the button.
-      expect(shortPandoraId(member)).toBeNull();
-      expect(preloadCanSign(member)).toBe(false);
-      expect(preloadNeedsSignIn(member)).toBe(true);
-      const { signable, needSignIn } = splitPartyBySignability(party);
-      expect(signable).toEqual([]);
-      expect(needSignIn).toEqual([member]);
-    });
-
-    it("stays ON the booking — listed, counted, never silently dropped", () => {
-      const party = mergeRosterIntoParty(
-        [],
-        [entry(OFFICE_ID, "Bob B.", false), entry(SHORT_ID, "Ann A.", true)],
-      );
-      const { signable, needSignIn } = splitPartyBySignability(party);
-      // Ann keeps her "✓ Ready" card; Bob is named in the read-only block instead.
-      expect(signable.map((m) => m.firstName)).toEqual(["Ann"]);
-      expect(needSignIn.map((m) => m.firstName)).toEqual(["Bob"]);
-      // The group-wide copy still owes him, and the page's signed/total still counts
-      // him — both read the FULL party, never the split.
-      expect(unsignedPreloadCount(party)).toBe(1);
-      expect(party).toHaveLength(2);
-      // And he is still not this device's job, so he cannot block "I'm done".
-      expect(membersOwnedHere(party, new Set())).toEqual([]);
-    });
-
-    it("never fabricates a short id, and never re-creates a person who has one", () => {
-      const [member] = mergeRosterIntoParty([], [entry(OFFICE_ID, "Bob B.", false)]);
-      // Inventing a pandoraPersonId would push a 17-digit id down the short-id branch;
-      // dropping bmiPersonId would push the row into the CREATE branch and mint a
-      // duplicate for someone who already has a BMI record. Both fields stay exactly
-      // as BMI reported them, as strings.
-      expect(member.pandoraPersonId).toBeUndefined();
-      expect(member.bmiPersonId).toBe(OFFICE_ID);
-      expect(Number(OFFICE_ID)).toBeGreaterThan(Number.MAX_SAFE_INTEGER); // guard the guard
-    });
-
-    it("stays quiet about a COVERED 17-digit row — there is no waiver to sign", () => {
-      const party = mergeRosterIntoParty([], [entry(OFFICE_ID, "Ann A.", true)]);
-      expect(needsSetup(party[0])).toBe(false);
-      expect(preloadNeedsSignIn(party[0])).toBe(false);
-      // Her card renders exactly as before: nothing to sign, nothing to route.
-      expect(splitPartyBySignability(party).signable).toBe(party);
-    });
-
-    it("becomes signable the moment the guest proves the account", () => {
-      const party = mergeRosterIntoParty([], [entry(OFFICE_ID, "Bob B.", false)]);
-      expect(splitPartyBySignability(party).needSignIn).toHaveLength(1);
-      // "Sign in / find people" → OTP → handleVerified resolves the SHORT id from the
-      // verified phone → the real account supersedes the placeholder in place.
-      const verified = local({
-        id: "uuid-bob",
-        firstName: "Bob",
-        lastName: "Beta",
-        bmiPersonId: OFFICE_ID,
-        pandoraPersonId: SHORT_ID,
-        phone: "2395551212",
-      });
-      const next = addMemberSupersedingPreload(party, verified);
-      expect(next).toEqual([verified]); // one card for one human, never two
-      const split = splitPartyBySignability(next);
-      expect(split.needSignIn).toEqual([]);
-      expect(split.signable).toEqual([verified]);
-      expect(shortPandoraId(next[0])).toBe(SHORT_ID); // …and now it can sign
-    });
-
-    it("speaks about preloaded rows only", () => {
-      // A member added on THIS device carrying only an Office id is the manual path's
-      // business: KioskPartyManager holds their phone/email and resolves the short id
-      // itself. The preload must not put words in that flow's mouth, or hold it back.
-      const manual = local({ bmiPersonId: OFFICE_ID, waiverValid: false });
-      expect(preloadNeedsSignIn(manual)).toBe(false);
-      expect(splitPartyBySignability([manual]).needSignIn).toEqual([]);
-    });
+  it("a 17-digit OFFICE-id row keeps its card and its Sign-waiver button too", () => {
+    const party = mergeRosterIntoParty([], [entry(OFFICE_ID, "Bob B.", false)]);
+    const [member] = party;
+    // bmiPersonId present + waiverValid false ⇒ the card renders "Sign waiver"
+    // (needsSetup), and submitSetup's else-branch checks and signs on this id.
+    expect(member.bmiPersonId).toBe(OFFICE_ID);
+    expect(needsSetup(member)).toBe(true);
+    // Still not this device's job until someone here touches it.
+    expect(membersOwnedHere(party, new Set())).toEqual([]);
+    expect(unsignedPreloadCount(party)).toBe(1);
   });
 
-  describe("shape 3 — no usable dedup identity and no birthdate", () => {
-    it("can never run a Pandora create — so the id we hold is the only id it gets", () => {
-      // This is the precondition every other decision rests on, and it is true for
-      // BOTH id forms. chooseGuardian attempts pandoraCreatePerson only when
-      // `(phone || email) && dobIso`; a preloaded row fails all three, and cannot
-      // acquire any of them (the setup form's only input is the DOB). A create here
-      // would either 400 "Validation Exception" or, worse, succeed and mint a
-      // duplicate person named "Ann A." — the 2026-07-25 Strachan class.
-      const party = mergeRosterIntoParty(
-        [],
-        [entry(SHORT_ID, "Ann A.", false), entry(OFFICE_ID, "Bob B.", false)],
-      );
-      for (const m of party) {
-        expect(m.phone).toBeUndefined();
-        expect(m.email).toBeUndefined();
-        expect(m.dobIso).toBeUndefined();
-        expect(couldCreatePerson(m)).toBe(false);
-      }
-      // Which is exactly why signability may only ever be read off the id FORM.
-      expect(preloadCanSign(party[0])).toBe(true);
-      expect(preloadCanSign(party[1])).toBe(false);
-    });
+  it("never fabricates a short id, and never re-creates a person who has one", () => {
+    const [member] = mergeRosterIntoParty([], [entry(OFFICE_ID, "Bob B.", false)]);
+    // Inventing a pandoraPersonId would misstate which record the check runs on;
+    // dropping bmiPersonId would push the row into the CREATE branch and mint a
+    // duplicate for someone who already has a BMI record (2026-07-25 Strachan;
+    // the double "William H." roster row, 2026-07-31). Both fields stay exactly
+    // as BMI reported them, as strings.
+    expect(member.pandoraPersonId).toBeUndefined();
+    expect(member.bmiPersonId).toBe(OFFICE_ID);
+    expect(Number(OFFICE_ID)).toBeGreaterThan(Number.MAX_SAFE_INTEGER); // guard the guard
+  });
 
-    it("is never offered as a guardian on an id whose signature we cannot place", () => {
-      // A preloaded row has no birthdate, so `isMinor` is unset, so KioskPartyManager
-      // counts it as an ADULT and offers it as a guardian candidate for someone
-      // else's minor. For a 17-digit row chooseGuardian would then fall back to the
-      // OFFICE id and file the MINOR's waiver with that as sigPersonID — the same
-      // unproven id, now on someone else's signature, and with no age we ever checked.
-      // Holding the row out of the party prop removes it from `adults` too.
-      const party = mergeRosterIntoParty(
-        [],
-        [entry(OFFICE_ID, "Bob B.", false), entry(SHORT_ID, "Ann A.", false)],
-      );
-      expect(party.every((m) => m.isMinor === undefined)).toBe(true);
-      const { signable } = splitPartyBySignability(party);
-      expect(guardianCandidates(signable).map((m) => m.firstName)).toEqual(["Ann"]);
-      // Ann is a safe candidate for a different reason, and it is worth pinning:
-      // chooseGuardian resolves her SHORT id, and pandoraCheckWaiver then hands back
-      // BMI's birthdate, so the under-18 gate has something real to fire on.
-      expect(shortPandoraId(signable[0])).toBe(SHORT_ID);
-    });
+  it("a preloaded row can never reach the create branch — it has no contact identity", () => {
+    // The duplicate-person hazard lives in flows that CREATE from typed contact
+    // details. A preloaded row carries no phone, no email, no dobIso, and the
+    // setup form's only input is the DOB — so pandoraOnboardGuest is structurally
+    // unreachable from its Sign button.
+    const party = mergeRosterIntoParty(
+      [],
+      [entry(SHORT_ID, "Ann A.", false), entry(OFFICE_ID, "Bob B.", false)],
+    );
+    for (const m of party) {
+      expect(m.phone).toBeUndefined();
+      expect(m.email).toBeUndefined();
+      expect(m.dobIso).toBeUndefined();
+    }
+  });
 
-    it("holds back a whole roster of Office ids without inventing a green card", () => {
-      // The worst real shape: every registered person came in through the Office
-      // lookup. The manager gets an empty party (so it shows its own "add / sign in"
-      // entry points), the page lists all four as outstanding, and nothing about this
-      // device's completion changes — it still owns nobody.
-      const party = mergeRosterIntoParty(
-        [],
-        ["1", "2", "3", "4"].map((n) => entry(`5138360812345678${n}`, `P${n} X.`, false)),
-      );
-      const { signable, needSignIn } = splitPartyBySignability(party);
-      expect(signable).toEqual([]);
-      expect(needSignIn).toHaveLength(4);
-      expect(unsignedPreloadCount(party)).toBe(4);
-      expect(membersOwnedHere(party, new Set())).toEqual([]);
-      expect(peopleReady(party, [])).not.toBe(true); // ⇒ no terminal card
+  it("stays quiet about a COVERED row — there is no waiver to sign", () => {
+    const party = mergeRosterIntoParty([], [entry(OFFICE_ID, "Ann A.", true)]);
+    expect(needsSetup(party[0])).toBe(false);
+  });
+
+  it("a guest who signs in anyway still supersedes their placeholder in place", () => {
+    const party = mergeRosterIntoParty([], [entry(OFFICE_ID, "Bob B.", false)]);
+    const verified = local({
+      id: "uuid-bob",
+      firstName: "Bob",
+      lastName: "Beta",
+      bmiPersonId: OFFICE_ID,
+      pandoraPersonId: SHORT_ID,
+      phone: "2395551212",
     });
+    const next = addMemberSupersedingPreload(party, verified);
+    expect(next).toEqual([verified]); // one card for one human, never two
+    expect(shortPandoraId(next[0])).toBe(SHORT_ID);
+  });
+
+  it("KioskPartyManager's check-and-sign branch owns every account id — the legacy 17-digit paths are gone", () => {
+    // Source pin on the shared component: the `length <= 12` branch gate and the
+    // create/blind-sign else it guarded ("dedupPhone") must not come back — that
+    // pair is the duplicate-person factory AND the sign-in detour the owner
+    // rejected. If a length rule ever needs to return, it needs new evidence:
+    // production's sign ledger currently shows zero failures at 17 digits.
+    const src = readFileSync(
+      path.join(__dirname, "../kiosk/components/KioskPartyManager.tsx"),
+      "utf8",
+    );
+    expect(src).not.toMatch(/member\.bmiPersonId\.length <= 12/);
+    expect(src).not.toMatch(/No phone\/email on file to dedup against/);
   });
 });
 
@@ -1029,56 +943,20 @@ describe("WaiverFlow wiring", () => {
     "utf8",
   );
 
-  it("hands KioskPartyManager the signable subset, never the whole party", () => {
-    expect(source).toMatch(/splitPartyBySignability\(party\)/);
-    expect(source).toMatch(/party=\{signable\}/);
-    // The regression, verbatim: the manager renders "Sign waiver" for every member
-    // needsSetup() is true for, so giving it a row we cannot sign IS the dead end.
-    expect(source).not.toMatch(/party=\{party\}/);
-    // includedIds has to travel with it, or the manager's own blockReason banner
-    // reports on members it is not rendering.
-    expect(source).toMatch(/includedIds=\{signableIds\}/);
-  });
-
-  it("uses the subset ONLY to build the manager's props — never to count or to gate", () => {
-    // This is what makes holding a row back honest rather than a disappearing act:
-    // the reservation still owes the waiver, the header still counts the person, the
-    // completion gate is unchanged, and their placeholder is still there to be
-    // superseded when they verify. All of that holds for exactly one reason — every
-    // counter and gate reads the FULL `party` — so instead of naming today's counters
-    // (they get refactored; this test should not break when they do) every use of
-    // `signable` is enumerated. A new one that isn't a prop is the regression.
-    const uses = source.match(/^.*\bsignable\b.*$/gm) ?? [];
-    expect(uses.length).toBeGreaterThan(0);
-    const allowed = [
-      /=\s*splitPartyBySignability\(party\)/, // the split itself
-      /const signableIds = new Set\(signable\.map\(/, // the ids that travel with it
-      /party=\{signable\}/, // the prop
-      /includedIds=\{signableIds\}/, // and its companion
-      /^\s*(\/\/|\*|\{\/\*)/, // prose about it
-    ];
-    for (const line of uses) {
-      expect(
-        allowed.some((re) => re.test(line)),
-        `\`signable\` used outside the party manager's props — a count or gate built ` +
-          `from the subset would under-report the booking: ${line.trim()}`,
-      ).toBe(true);
-    }
-    // And the gate itself still reads the whole party.
+  it("hands KioskPartyManager the WHOLE party — every roster row gets its card and button", () => {
+    // The split (`splitPartyBySignability`) and the sign-in rail are gone: every id
+    // form signs directly now (see the direct-sign suite above for the evidence).
+    // A resurrected split would bring back the detour the owner rejected twice —
+    // "I click sign waiver and it brings me to sign in where on kiosk it would
+    // bring me to signing" (2026-07-31).
+    expect(source).toMatch(/party=\{party\}/);
+    expect(source).not.toMatch(/splitPartyBySignability/);
+    expect(source).not.toMatch(/signInRows/);
+    // includedIds has to match the party the manager renders, or its own
+    // blockReason banner reports on members it isn't showing.
+    expect(source).toMatch(/includedIds=\{partyIds\}/);
+    // The completion gate still reads the whole party, scoped to this device.
     expect(source).toMatch(/membersOwnedHere\(party,\s*signedHere\)/);
     expect(source).toMatch(/addMemberSupersedingPreload\(p,\s*\w+\)/);
-  });
-
-  it("shows the held-back people IN the roster list with a sign button", () => {
-    // A row with no card and no mention would just be a person who quietly vanished
-    // off a booking they are on — and nobody would sign for them. Round 1 rendered
-    // them as a read-only note UNDER the list; the owner's verdict (2026-07-31) was
-    // that anything under the list is just missed. So they ride the party manager's
-    // `signInRows` prop — the same card shape as a member, amber, whose Sign button
-    // opens the lookup (proving the account is still the only way out of the state).
-    expect(source).toMatch(/signInRows=\{needSignIn\.map\(/);
-    // Organizer remove reaches these rows too — gated on the capability, and only
-    // as a UI hint: the roster-remove route re-verifies the cookie server-side.
-    expect(source).toMatch(/onRemoveSignInRow=\{ctx\?\.canManage \? removeFromParty : undefined\}/);
   });
 });

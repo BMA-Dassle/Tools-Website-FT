@@ -424,113 +424,31 @@ export function waiverProgress(input: {
 }
 
 /**
- * Can the signature path FINISH this preloaded row, using only the id we already
- * hold? Mirrors `shortPandoraId` in KioskPartyManager, which is what the sign path
- * actually consults.
+ * EVERY preloaded row with a person id is signable — 17-digit Office ids included.
  *
- * "Only the id we already hold" is not a simplification — it is the whole situation.
- * The one way to turn a 17-digit Office id into a short Pandora id is
- * `pandoraCreatePerson`, and chooseGuardian's rule (proven live 2026-07-30, when
- * tapping an existing adult 400'd) is: attempt it ONLY with a dedup identity AND a
- * birthdate, because Pandora answers anything less with a bare 400 "Validation
- * Exception". A preloaded row has no phone, no email and no birthdate — and cannot
- * acquire one, because the setup form's only field is the DOB. So no create is ever
- * legitimate here, and attempting one anyway would either 400 or, worse, succeed and
- * mint a duplicate person carrying the redacted name "Ann A." (2026-07-25 Strachan).
+ * This USED to be a split (`splitPartyBySignability`): 17-digit unsigned rows were
+ * held out of the party manager and routed to a sign-in rail, because whether
+ * Pandora's waiver POST accepts the Office id form was "NOT ESTABLISHED". It is
+ * established now, from production's own ledger (waiver_sign_attempts, queried
+ * 2026-07-31): 41 waivers SIGNED (HTTP 201) with a 17-digit `personID` and 16 with a
+ * 17-digit `sigPersonID`, zero failures at that length — the kiosk people-step's
+ * no-contact fallback has been filing them all along. The owner's verdict on the
+ * rail was the final word: "I click sign waiver and it brings me to sign in where on
+ * kiosk it would bring me to signing."
  *
- * That leaves the id form, and the two forms are NOT symmetric:
+ * So a preloaded unsigned row now renders as a normal party card. Its Sign-waiver
+ * button opens the kiosk setup form (DOB only — a preloaded row carries no
+ * phone/email, so `submitSetup` takes its no-contact branch and signs on the raw
+ * 17-digit id, exactly like the kiosk). The create/duplicate hazard the old split
+ * feared lives in the WITH-contact branch, which a preloaded row structurally
+ * cannot reach.
  *
- *   - SHORT (≤12) → `submitSetup`'s short-id branch checks the waiver on this id
- *     (pandoraCheckWaiver), refreshes the age from BMI's own birthdate, and signs
- *     against it. A proven path end to end. Signable.
- *
- *   - 17-digit Office id → NOT ESTABLISHED, either way. Verified 2026-07-30 by
- *     reading app/api/pandora/waiver POST: it drops `personID` into the multipart
- *     body verbatim — no length rule, no validation, no branch — so the route makes
- *     no claim about the Office form on its own account, and it cannot rescue a
- *     rejection either (a 4xx breaks straight out of the retry loop, and the salvage
- *     probe re-reads the SAME id). The "waiver-sign rejects the 17-digit id" that
- *     `PartyMember` and three call sites assert traces back to the 2026-07-18 kiosk
- *     500s — which THAT ROUTE's own analysis re-diagnosed as transient Azure bursts
- *     plus a blank `invalidationDate`, both since fixed. The repo also proves the
- *     500s for /bmi/schedule, a different endpoint. Nothing here settles /bmi/waiver.
- *
- * An unproven id is not a signature path. So the code does not gamble a guest's
- * signature on it: `splitPartyBySignability` keeps the row off the party manager
- * entirely and the page routes it to the rail that CAN establish identity. Note the
- * one thing we do know works on a 17-digit id is the waiver CHECK (/api/pandora GET
- * accepts Office ids — chooseGuardian and valid-count both rely on it), which is why
- * such a row can still be reported as covered or outstanding truthfully.
+ * Known pre-existing edge (NOT introduced here, extended by it): a preloaded row's
+ * age is unknown (`isMinor` deliberately unset), yet the guardian picker counts
+ * ageless rows as adults — nominating one files a minor's waiver against a signer
+ * whose age we never verified. That hole already existed for signed preloaded rows;
+ * closing it is a follow-up on the picker, not on this predicate.
  */
-export function preloadCanSign(member: PartyMember): boolean {
-  if (member.pandoraPersonId) return true;
-  return !!member.bmiPersonId && isShortPersonId(member.bmiPersonId);
-}
-
-/**
- * A preloaded row that still needs a waiver and cannot sign with the id we hold —
- * the one case where the card's "Sign waiver" button could not finish, so the guest
- * is pointed at the path that can instead of at a signature screen.
- *
- * WHAT DOES work is the rail already on this page, and it is the same rail a
- * manually-added person walks: "Sign in / find people" → OTP → `handleVerified`
- * resolves the SHORT id from the verified phone/email → `addMemberSupersedingPreload`
- * swaps the real account in for this placeholder, and the row becomes signable. On a
- * link anyone can forward, proving the phone before writing a signature onto a
- * stranger's record is a feature, not friction.
- */
-export function preloadNeedsSignIn(member: PartyMember): boolean {
-  return isPreloadedMember(member) && !member.waiverValid && !preloadCanSign(member);
-}
-
-/** The working roster, split by what the party manager is allowed to offer. */
-export interface PreloadSplit {
-  /**
-   * What KioskPartyManager gets as its `party`. Everything this device added, plus
-   * every preloaded row that is either already covered (renders "✓ Ready") or can
-   * genuinely sign.
-   */
-  signable: PartyMember[];
-  /** Preloaded rows still needing a waiver that this link cannot sign — shown
-   *  read-only by the page, with the sign-in rail named. */
-  needSignIn: PartyMember[];
-}
-
-/**
- * Split the working roster into what the party manager may render and what it must
- * not.
- *
- * WHY the split is at the PROP and not inside the card: KioskPartyManager offers
- * "Sign waiver" to every member `needsSetup()` is true for, and `needsSetup` is
- * `!bmiPersonId || !waiverValid` — there is no member shape that renders a preloaded
- * row honestly (id present, waiver outstanding) AND suppresses that button. The two
- * ways to suppress it from here are both lies: `waiverValid: true` claims a waiver
- * that does not exist, and dropping `bmiPersonId` pushes the row into the CREATE
- * branch, which is how you mint a duplicate under a redacted name. So the row is
- * held out of the prop instead.
- *
- * Held out of the PROP, NOT out of state. The caller keeps the full `party`, which is
- * what makes this safe rather than a disappearing act:
- *   - `unsignedPreloadCount` still counts them, so `reservationWaiverStatus` still
- *     owes them and the group-wide copy still says so;
- *   - `membersOwnedHere` still excludes them (nobody here can sign them), so the
- *     completion gate is unchanged;
- *   - `addMemberSupersedingPreload` still finds and replaces the placeholder when the
- *     guest verifies, so there is never a second card for one human;
- *   - the page's own signed/total header still counts the whole booking.
- * And one thing improves for free: a held-out row is no longer in the component's
- * `adults`, so it can no longer be nominated as a GUARDIAN for someone else's minor
- * — which would have filed that minor's waiver with a `sigPersonID` we cannot stand
- * behind, on a row whose age we never knew.
- *
- * Returns the SAME array for `signable` when nothing is held back, so the common
- * case (every roster id short) hands React an unchanged prop.
- */
-export function splitPartyBySignability(party: PartyMember[]): PreloadSplit {
-  const needSignIn = party.filter((m) => preloadNeedsSignIn(m));
-  if (needSignIn.length === 0) return { signable: party, needSignIn };
-  return { signable: party.filter((m) => !preloadNeedsSignIn(m)), needSignIn };
-}
 
 /**
  * Add a member, superseding their preloaded placeholder if they have one.

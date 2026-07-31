@@ -52,7 +52,6 @@ import {
   membersOwnedHere,
   mergeRosterIntoParty,
   reservationWaiverStatus,
-  splitPartyBySignability,
   waiverProgress,
   type ReservationWaiverStatus,
 } from "./roster-preload";
@@ -385,19 +384,13 @@ export function WaiverFlow({
     );
   }
 
-  // Which rows the party manager may offer a signature to. A preloaded row whose
-  // only id is the 17-digit Office id has no established signature path and no way
-  // to resolve one (roster-preload.ts § preloadCanSign), so it is NOT handed to the
-  // party manager at all: a card whose "Sign waiver" button ends on an error is the
-  // dead end this split exists to remove. It stays in `party` state — still counted
-  // as outstanding, still superseded in place when the guest verifies — and is
-  // rendered read-only below, with the rail that can finish it.
-  const { signable, needSignIn } = splitPartyBySignability(party);
-  // EVERY signable row is included and visible — that is the point of the roster.
-  // `includedIds` is display/participation state, not the completion gate; it has to
-  // match the party the manager was actually given, or its own blockReason would
-  // report on members it isn't rendering.
-  const signableIds = new Set(signable.map((m) => m.id));
+  // EVERY row is included and visible with its Sign-waiver button — 17-digit
+  // Office ids sign directly now (proven from production's own sign ledger; see
+  // roster-preload.ts § "EVERY preloaded row with a person id is signable").
+  // `includedIds` is display/participation state, not the completion gate; it has
+  // to match the party the manager was actually given, or its own blockReason
+  // would report on members it isn't rendering.
+  const partyIds = new Set(party.map((m) => m.id));
   // The completion gate is scoped to what THIS DEVICE is responsible for. A
   // preloaded row nobody here has touched is somebody else's job: it renders, and
   // it must not hold this phone in the flow forever (roster-preload.ts invariant
@@ -407,9 +400,7 @@ export function WaiverFlow({
   const myIds = myMembers.map((m) => m.id);
   const ready = myIds.length > 0 && peopleReady(party, myIds) === true;
   // Live signed count for the kiosk-style progress bar (kiosk shows step-of-N;
-  // the waiver's real progress is how much of the party is done). Off the FULL
-  // party, not `signable`: the bar is the booking's progress, and a row routed to
-  // the sign-in rail is still a person on the booking who still needs a waiver.
+  // the waiver's real progress is how much of the party is done).
   const signedCount = party.filter((m) => m.waiverValid).length;
 
   // GROUP-WIDE, and never this device's rows: where the RESERVATION stands. Every
@@ -606,13 +597,10 @@ export function WaiverFlow({
         hasCamera
         photoStep="required-adults"
         renderPhoto={(args) => <MobileWaiverPhoto {...args} />}
-        // `signable`, not the whole party — see the split above. Every write-back
-        // below still targets the FULL party state, so nothing the guest does is
-        // scoped to the subset the manager can see.
-        party={signable}
+        party={party}
         brandLocation={location}
         center={center}
-        includedIds={signableIds}
+        includedIds={partyIds}
         onIncludedChange={() => {}}
         // A guest who is already a preloaded row may still sign in through the
         // lookup / a license scan / a linked-family tap instead of tapping their
@@ -623,14 +611,6 @@ export function WaiverFlow({
           setParty((p) => p.map((m) => (m.id === id ? { ...m, ...patch } : m)))
         }
         onRemoveMember={removeFromParty}
-        // Reservation people who must sign in before signing — rendered IN the
-        // list with a Sign button (opens the lookup), because a read-only note
-        // under the list is just missed (owner 2026-07-31).
-        signInRows={needSignIn.map((m) => ({
-          id: m.id,
-          name: [m.firstName, m.lastName].filter(Boolean).join(" "),
-        }))}
-        onRemoveSignInRow={ctx?.canManage ? removeFromParty : undefined}
         onWaiverSigned={(info) => {
           // THIS DEVICE signed this member — so it counts toward this device's
           // completion even when the row came from the reservation roster (that is

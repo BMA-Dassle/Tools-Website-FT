@@ -144,16 +144,6 @@ export interface KioskPartyManagerProps {
     onCaptured: (pngBase64: string) => void;
     onSkip: () => void;
   }) => ReactNode;
-  /** Reservation-roster people who must SIGN IN before they can sign (they
-   *  joined from an existing account, so their waiver has to file against that
-   *  record and the flow needs them to prove it). Mobile /waiver only — the
-   *  kiosk omits this and is byte-identical. Rendered IN the roster list as
-   *  amber cards whose Sign button opens the lookup, because a read-only note
-   *  under the list is just missed (owner 2026-07-31). */
-  signInRows?: Array<{ id: string; name: string }>;
-  /** Organizer remove for a sign-in row (present only when the viewer holds
-   *  the organizer capability — the server refuses anyone else anyway). */
-  onRemoveSignInRow?: (id: string) => void;
 }
 
 function ageFromDob(mmddyyyy: string): number | null {
@@ -264,8 +254,6 @@ export function KioskPartyManager({
   photoStep = "required-adults",
   onWaiverSigned,
   renderPhoto,
-  signInRows,
-  onRemoveSignInRow,
 }: KioskPartyManagerProps) {
   const t = useT();
   const isRace = mode === "race";
@@ -1007,13 +995,26 @@ export function KioskPartyManager({
             result.template,
           );
         }
-      } else if (member.pandoraPersonId || member.bmiPersonId.length <= 12) {
-        // A SHORT Pandora id is already on the member — NEVER create again.
-        // Pandora's create is NOT an upsert: a re-tap used to re-run the
-        // "upsert" below and mint a fresh duplicate person every time, so the
-        // new waiver landed on a record later checks never read (2026-07-25
-        // Strachan incident). Check the waiver on the id we have and sign
-        // against it.
+      } else {
+        // An id is already on the member — NEVER create again. Pandora's
+        // create is NOT an upsert: a re-tap used to re-run the "upsert" and
+        // mint a fresh duplicate person every time, so the new waiver landed
+        // on a record later checks never read (2026-07-25 Strachan incident).
+        // Check the waiver on the id we have and sign against it.
+        //
+        // This branch now takes 17-DIGIT OFFICE IDS TOO. It used to be gated
+        // `length <= 12` on the belief that Pandora's waiver sign rejects the
+        // Office form (2026-07-18 kiosk 500s) — production's own sign ledger
+        // says otherwise (waiver_sign_attempts, 2026-07-31: 41 waivers signed
+        // HTTP 201 with a 17-digit personID, 16 with a 17-digit sigPersonID,
+        // zero failures at that length; the old 500s were the since-fixed
+        // blank-invalidationDate bug). The check half was never in doubt —
+        // pandoraCheckWaiver is the same GET the roster sweep runs on Office
+        // ids constantly. The two paths this replaces were both worse: the
+        // with-contact create resolved a short id by MINTING A PERSON (the
+        // duplicate factory — Strachan; the double "William H." roster row,
+        // 2026-07-31), and the no-contact fallback signed blind off the typed
+        // DOB with no validity check at all.
         const sid = member.pandoraPersonId ?? member.bmiPersonId;
         const status = await pandoraCheckWaiver(sid, brandLocation);
         // MEMBERSHIP REFRESH: BMI's birthdate beats the typed DOB for minor
@@ -1059,80 +1060,17 @@ export function KioskPartyManager({
           // A minor never self-signs. This branch has no create to attach
           // guardianID to (that was the duplicate-minting path), so the
           // guardian rides the WAIVER instead as Pandora sigPersonID — same
-          // record KioskPeopleStep's guardian flow writes.
+          // record KioskPeopleStep's guardian flow writes. Office-id guardians
+          // are fine here too (chooseGuardian's own "last resort" already
+          // signs with them; 16 prod 201s carry a 17-digit sigPersonID).
           const guardian = rMinor ? party.find((m) => m.id === rGid) : undefined;
-          const guardianSid =
-            guardian?.pandoraPersonId ??
-            (guardian?.bmiPersonId && guardian.bmiPersonId.length <= 12
-              ? guardian.bmiPersonId
-              : undefined);
+          const guardianSid = guardian?.pandoraPersonId ?? guardian?.bmiPersonId ?? undefined;
           setWaiverFor({
             memberId: member.id,
             personId: sid,
             template,
             ...(guardianSid ? { signerPersonId: guardianSid } : {}),
           });
-        }
-      } else {
-        // Account exists (returning racer) — but the lookup's id is the
-        // 17-digit OFFICE id, which Pandora's waiver-sign endpoint REJECTS
-        // (live 2026-07-18: sign 500s; the "second time worked" because the
-        // Pandora create resolved the same human to their SHORT id). Resolve
-        // the short id via that create using the member's OWN phone/email as
-        // the dedup identity, then sign against it. It also returns the REAL
-        // waiver status — a regular with a current waiver skips signing.
-        // (Create is NOT a reliable upsert — the short-id guard above makes
-        // sure it runs at most ONCE per member.)
-        const dedupPhone = member.phone?.trim() ?? "";
-        const dedupEmail = member.email?.trim() ?? "";
-        if (dedupPhone || dedupEmail) {
-          const guardian = minor ? party.find((m) => m.id === gid) : undefined;
-          const result = await pandoraOnboardGuest(
-            {
-              firstName: member.firstName,
-              lastName: member.lastName ?? "",
-              email: dedupEmail,
-              phone: dedupPhone,
-              birthdate: toIsoDob(dob),
-              guardianID: guardian?.pandoraPersonId ?? guardian?.bmiPersonId,
-            },
-            brandLocation,
-          );
-          onUpdateMember(member.id, {
-            pandoraPersonId: result.personId,
-            waiverValid: result.waiverValid,
-            isMinor: minor,
-            category: age < 13 ? "junior" : "adult",
-            guardianMemberId: minor ? gid : undefined,
-          });
-          resetForm();
-          if (!result.waiverValid && result.template) {
-            await openWaiverFor(
-              {
-                ...member,
-                isMinor: minor,
-                guardianMemberId: minor ? gid : undefined,
-                pandoraPersonId: result.personId,
-              },
-              result.personId,
-              result.template,
-            );
-          }
-        } else {
-          // No phone/email on file to dedup against — DON'T upsert (risk of a
-          // duplicate person). Old path; the front desk can sign at check-in.
-          const template = await pandoraFetchWaiverTemplate(age, brandLocation);
-          onUpdateMember(member.id, {
-            isMinor: minor,
-            category: age < 13 ? "junior" : "adult",
-            guardianMemberId: minor ? gid : undefined,
-          });
-          resetForm();
-          await openWaiverFor(
-            { ...member, isMinor: minor, guardianMemberId: minor ? gid : undefined },
-            member.bmiPersonId,
-            template,
-          );
         }
       }
     } catch (err) {
@@ -1694,49 +1632,6 @@ export function KioskPartyManager({
             </div>
           );
         })}
-
-        {/* Sign-in-first roster rows (mobile /waiver, `signInRows` prop) — the
-            SAME card shape as a party member so they read as part of the list,
-            not a footnote below it. Their Sign button opens the lookup: the
-            one thing that can move them into the party is proving the account
-            (a shared link can't), and that is exactly what the lookup does. */}
-        {(signInRows ?? []).map((r) => (
-          <div
-            key={r.id}
-            className="k-glass relative overflow-hidden p-[24px]"
-            style={{ borderLeft: "8px solid #f0b341" }}
-          >
-            <div className="flex items-center gap-[20px]">
-              <div className="min-w-0 flex-1">
-                <span className="k-display block truncate text-[40px]">{r.name}</span>
-                <div className="mt-[8px] text-[22px]">
-                  <span className="font-semibold text-[#f0b341]">
-                    {t("party.status.waiverNeeded")}
-                  </span>
-                </div>
-              </div>
-              <div className="flex shrink-0 flex-col items-end gap-[12px]">
-                <button
-                  type="button"
-                  onClick={() => setLookupOpen(true)}
-                  className="rounded-2xl border-2 border-[#f0b341]/55 px-[24px] py-[12px] text-[24px] font-bold text-[#f0b341]"
-                >
-                  {t("party.signWaiver")}
-                </button>
-                {onRemoveSignInRow && (
-                  <button
-                    type="button"
-                    onClick={() => onRemoveSignInRow(r.id)}
-                    aria-label={t("party.aria.remove", { name: r.name })}
-                    className="text-[22px] text-white/40"
-                  >
-                    {t("party.remove")}
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        ))}
       </div>
 
       {/* add / sign-in entry points */}
