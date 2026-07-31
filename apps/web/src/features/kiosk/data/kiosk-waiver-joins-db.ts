@@ -137,6 +137,30 @@ export async function listJoinsForProject(projectId: string): Promise<KioskWaive
   return rows.map(mapRow);
 }
 
+/**
+ * Backfill candidates for the poisoned-attach sweep: honest 'failed' rows, plus
+ * rows recorded 'attached' BEFORE the 2026-07-30 fix — the pre-fix attach sent
+ * the projectId where BMI wanted a bill id AND read 200 {"success":false} as
+ * success, so none of those "attached" rows ever reached BMI. Oldest first.
+ */
+export async function listAttachBackfillCandidates(args: {
+  /** ISO timestamp: 'attached' rows last touched before this are suspect. */
+  attachedBefore: string;
+  limit: number;
+}): Promise<KioskWaiverJoinRow[]> {
+  if (!isDbConfigured()) return [];
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    SELECT * FROM kiosk_waiver_joins
+    WHERE bmi_attach_status = 'failed'
+       OR (bmi_attach_status = 'attached' AND updated_at < ${args.attachedBefore})
+    ORDER BY updated_at ASC
+    LIMIT ${args.limit}
+  `) as Array<Record<string, unknown>>;
+  return rows.map(mapRow);
+}
+
 /** Attach failures for staff reconciliation / a future retry sweep. */
 export async function listFailedJoins(limit = 100): Promise<KioskWaiverJoinRow[]> {
   if (!isDbConfigured()) return [];
