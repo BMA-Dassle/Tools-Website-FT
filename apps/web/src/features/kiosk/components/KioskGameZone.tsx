@@ -23,11 +23,7 @@ import { useEffect, useRef, useState } from "react";
 import PaymentForm from "@/components/square/PaymentForm";
 import { KioskTerminalCheckoutGate } from "./KioskTerminalCheckoutGate";
 import { bridgeHealth, creditTokensViaBridge } from "../service/game-card-bridge";
-import {
-  kioskTerminalEnabled,
-  kioskGzCartEnabled,
-  kioskVoucherGzEnabled,
-} from "~/features/kiosk/flags";
+import { kioskGzCartEnabled, kioskVoucherGzEnabled } from "~/features/kiosk/flags";
 import { useQrScanner } from "../qr-scanner/useQrScanner";
 import { useWedgeScan } from "../checkin/wedge-scan";
 import { classifyKioskCode } from "../code-entry/classify";
@@ -479,13 +475,7 @@ export function KioskGameZone({
   // the reader rail (cards join the deposit order the reader charges); the
   // standalone empty-cart flow is untouched. Null = pay & dispense here.
   const addToVisit =
-    cartHasItems &&
-    onAddToVisit &&
-    kioskGzCartEnabled() &&
-    kioskTerminalEnabled() &&
-    config?.readerId
-      ? onAddToVisit
-      : null;
+    cartHasItems && onAddToVisit && kioskGzCartEnabled() && config?.readerId ? onAddToVisit : null;
 
   // Recoverable-fault hold: the flow pauses on a full-screen hold overlay until
   // staff resume. `holdRef` carries the promise resolver the dispense loop
@@ -2897,7 +2887,7 @@ export function KioskGameZone({
     // uses the reader, not the embedded card iframe). Falls back to the typed
     // card only on a readerless device.
     const readerId = config?.readerId ?? null;
-    const useReader = kioskTerminalEnabled() && !!readerId;
+    const useReader = !!readerId;
     return (
       <div className="mx-auto max-w-md py-8 kiosk-zoom">
         <div className="mb-6 text-center">

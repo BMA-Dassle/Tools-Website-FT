@@ -2,7 +2,7 @@
  * Kiosk split-tender service (v1 — "match web": ONE gift card + ONE reader
  * tap; owner 2026-07-29). Server-side only.
  *
- * Sequence (all flag-gated by kioskSplitTenderEnabled + kioskTerminalEnabled):
+ * Sequence:
  *   1. Client scans/swipes/types a GAN → lookupGiftCardForSplit → single-use
  *      lookupToken (the raw GAN / gftc: id never round-trips to the client).
  *   2. addGiftCardTender: persist-first (Neon ledger row) → authorize the gift

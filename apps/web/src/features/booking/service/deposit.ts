@@ -104,7 +104,7 @@ export interface DepositParams {
  * Kiosk direct-Terminal charge (owner rule: NO saved card). Threaded through the
  * reserve rails; when present, the guest's card was ALREADY captured on the paired
  * Square reader against OUR deposit order, so reserve records it as collected and
- * NEVER charges a token. Only honored when kioskTerminalEnabled(); otherwise ignored.
+ * NEVER charges a token.
  */
 export interface ExternalTerminalPayment {
   /** Square paymentId the reader produced (must be COMPLETED). On a split

@@ -50,7 +50,7 @@ import {
   voucherReviewLines,
 } from "~/features/booking/service/voucher-redeem";
 import { contactIsComplete } from "../ContactStep";
-import { kioskTerminalEnabled, kioskGzCartEnabled } from "~/features/kiosk/flags";
+import { kioskGzCartEnabled } from "~/features/kiosk/flags";
 import { playNowActive } from "~/features/booking/flags";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { centerCodeFor } from "~/config/intercard-centers";
@@ -75,14 +75,9 @@ import { redeemedHeatSet } from "~/features/booking/data/race-credits";
 import type { RaceHeatAssignment } from "~/features/booking";
 import dynamic from "next/dynamic";
 
-// Kiosk-only card-present capture. Dynamically imported so the kiosk feature
-// isn't bundled into the web checkout and there's no booking↔kiosk import cycle.
-const KioskReaderPayment = dynamic(
-  () => import("~/features/kiosk/components/KioskReaderPayment").then((m) => m.KioskReaderPayment),
-  { ssr: false },
-);
-// Kiosk direct-Terminal charge gate (owner: NO saved card). Flag-gated; dynamic
-// for the same reason as above.
+// Kiosk direct-Terminal charge gate (owner: NO saved card). Dynamically imported
+// so the kiosk feature isn't bundled into the web checkout and there's no
+// booking↔kiosk import cycle.
 const KioskTerminalCheckoutGate = dynamic(
   () =>
     import("~/features/kiosk/components/KioskTerminalCheckoutGate").then(
@@ -1661,13 +1656,12 @@ export function CheckoutStep({
       const bowlingOnlyReader = session.items.every(
         (i) => i.kind === "bowling" || i.kind === "kbf",
       );
-      // Terminal DIRECT charge (owner: NO saved card) — flag-gated for the live
-      // reader smoke. The reader charges OUR deposit order → reserve records the
-      // completed paymentId. Racing/mixed prepare via the unified rail; a
-      // bowling/KBF-only cart prepares via the bowling rail (bowlingTerminalPrepare)
-      // so it reuses this exact reader UX + server-side verification while keeping
-      // the proven bowling reserve route.
-      if (kioskTerminalEnabled()) {
+      // Terminal DIRECT charge (owner: NO saved card). The reader charges OUR
+      // deposit order → reserve records the completed paymentId. Racing/mixed
+      // prepare via the unified rail; a bowling/KBF-only cart prepares via the
+      // bowling rail (bowlingTerminalPrepare) so it reuses this exact reader UX
+      // + server-side verification while keeping the proven bowling reserve route.
+      {
         const bowlingItemForTerminal = bowlingOnlyReader
           ? (session.items.find((i) => i.kind === "bowling" || i.kind === "kbf") as
               | BowlingItem
@@ -1727,37 +1721,9 @@ export function CheckoutStep({
           </div>
         );
       }
-      // Interim (flag off): capture the card on the reader (SAVE_CARD → card on
-      // file), then charge via the saved-card reserve rail. Retired once the
-      // terminal flag flips on after the smoke.
-      if (!kioskTerminalEnabled()) {
-        return (
-          <div className="mx-auto max-w-md">
-            <KioskReaderPayment
-              brand={session.entryBrand}
-              deviceId={readerDeviceId}
-              referenceId={bmiBillId}
-              amountLabelCents={Math.round(overview.cashOwed * 100)}
-              contact={contact}
-              onCaptured={({ cardId, customerId }) =>
-                void handleTokenize({
-                  cardNonce: null,
-                  savedCardId: cardId,
-                  giftCardNonce: null,
-                  sourceKind: "saved",
-                  saveCardConsent: false,
-                  squareCustomerIdOverride: customerId,
-                })
-              }
-              onCancel={() => setPhase({ step: "review", overview: reviewOverview, bmiBillId })}
-            />
-            {cancelControl}
-          </div>
-        );
-      }
-      // A kiosk with a paired reader ALWAYS returns above (flag on → terminal,
-      // flag off → reader capture). Only a readerless device / web falls through
-      // to the typed card path below.
+      // A kiosk with a paired reader ALWAYS returns above. Only a readerless
+      // device / web falls through to the typed card path below. (The interim
+      // SAVE_CARD reader-capture path is retired — owner 2026-07-31, no flags.)
     }
 
     return (

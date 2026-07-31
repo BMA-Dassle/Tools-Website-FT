@@ -2768,3 +2768,22 @@ Two compounding details found while fixing it:
   still reservation-scoped — "same banner renders" is not that proof. The tree-scan
   suite (`waiver-entry-points.test.ts`) now pins both racing confirmation banners to
   `officeProjectIdFromBillId` + a `reservation` passed to `buildWaiverUrl`.
+
+## Flags are kill switches, not launch gates (2026-07-31)
+
+Shipped the kiosk gift-card split behind TWO stacked opt-in flags (terminal +
+split, both `=== "true"` NEXT_PUBLIC vars). The owner enabled one, redeployed,
+and stared at the old UI through three rounds of "did you redeploy?" - the
+second flag was never set, the values are build-baked, and an open kiosk tab
+keeps the stale bundle anyway. Owner: "stop trying to make everything flags...
+if we do flags, it's only to turn features off. I don't want to fight it 24/7."
+
+**Rule (now in CLAUDE.md hard rules):** a merged feature is ON. A flag, when
+one exists at all, defaults ON (`!== "false"`) as an emergency kill switch -
+never an opt-in gate. Not ready to be on = not ready to merge: branch + preview
+deployment is the exposure control, not an env var. And never stack two flags
+in one feature's path - the second one is invisible until someone loses an
+evening to it.
+
+The tell you're doing it wrong: your rollout instructions contain the words
+"set the env var in Vercel and redeploy" for a feature the owner asked for.

@@ -1,34 +1,30 @@
 /**
- * Kiosk kill switch.
+ * HOUSE RULE — FLAGS ARE KILL SWITCHES ONLY (owner 2026-07-31: "if we do flags,
+ * it's only to turn features off — I don't want to fight it 24/7").
  *
- * House convention (see src/features/world-cup/flags.ts): a NEXT_PUBLIC_* env
- * var that defaults ON and is disabled by setting the literal string "false"
- * in Vercel + redeploy (NEXT_PUBLIC_* values are build-baked). The /kiosk URL
- * is not linked from any nav — this flag is the emergency off switch, not an
- * exposure gate.
+ * A merged feature is ON. A flag, when one exists at all, DEFAULTS ON and is an
+ * emergency OFF switch (`!== "false"`), never an opt-in gate (`=== "true"`) that
+ * ships a feature dark and then demands an env-var + rebuild scavenger hunt to
+ * see it. Features that aren't ready to be on don't merge — they live on a
+ * branch and get tested on its preview deployment. (Born from the split-tender
+ * rollout: two stacked opt-in flags left the owner staring at old UI through
+ * three "did you redeploy?" rounds.)
  *
- * Read at call time (never module scope) so tests can stub process.env.
+ * Mechanics: a NEXT_PUBLIC_* env var is BUILD-BAKED — changing it in Vercel does
+ * nothing until a redeploy, and an open kiosk tab keeps the old bundle until
+ * reload. Read at call time (never module scope) so tests can stub process.env.
+ *
+ * Kiosk kill switch below: the /kiosk URL is not linked from any nav — this is
+ * the emergency off switch, not an exposure gate.
  */
 export function kioskEnabled(): boolean {
   return process.env.NEXT_PUBLIC_KIOSK_ENABLED !== "false";
 }
 
-/**
- * Direct Square Terminal (card-present reader) charging — OPT-IN (defaults OFF).
- *
- * When ON, the kiosk charges the guest's card DIRECTLY on the paired Square
- * reader (Terminal checkout pays the deposit order → yields a completed
- * paymentId) instead of tokenizing a typed card. NO card is vaulted — the
- * SAVE_CARD path is retired for the kiosk (owner rule: "Kiosk is NOT going to
- * use saved card"). This re-sequences the money rail (charge on the reader
- * BEFORE reserve records it as an externalPayment), so it MUST ship with a live
- * card-present smoke on real hardware before going live (H3074 six-charge rule).
- * The reader flow stays dormant and the kiosk falls back to the proven typed-card
- * path until this is set to "true" in Vercel + redeployed, after the smoke.
- */
-export function kioskTerminalEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_KIOSK_TERMINAL_ENABLED === "true";
-}
+// kioskTerminalEnabled is GONE (owner 2026-07-31: "stop trying to make
+// everything flags") — the direct-Terminal reader charge IS the kiosk payment
+// rail, unconditionally, and the interim SAVE_CARD path is retired. NO card is
+// ever vaulted (owner rule: "Kiosk is NOT going to use saved card").
 
 /**
  * Group & online waiver flow on the kiosk — OPT-IN, defaults OFF (owner
@@ -300,14 +296,6 @@ export function kioskExperienceAvailEnabled(): boolean {
   return process.env.KIOSK_EXPERIENCE_AVAIL !== "0";
 }
 
-/**
- * Kiosk split-tender v1 — "match web": ONE gift card (scan/swipe/typed GAN)
- * + ONE reader tap per checkout (owner 2026-07-29). Gates the gift-card-lookup
- * + deposit-tenders routes AND the client split UI. Opt-in, default OFF —
- * money-path change; flip only after probe #2 (gc-id-as-source) passes and a
- * live card-present smoke (tasks/split-tender-probes.md). Inert unless
- * kioskTerminalEnabled() is also on (the split rides the terminal rail).
- */
-export function kioskSplitTenderEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_KIOSK_SPLIT_TENDER === "true";
-}
+// kioskSplitTenderEnabled is GONE (owner 2026-07-31) — paying with a gift card
+// (ONE gift card + ONE reader tap, "match web") is unconditional on every kiosk
+// checkout. History: tasks/split-tender-probes.md.

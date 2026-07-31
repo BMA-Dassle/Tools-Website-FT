@@ -23,7 +23,6 @@ import { BrandedLoader } from "./BrandedLoader";
 import { useT } from "../i18n";
 import { KioskReaderCheckout } from "./KioskReaderCheckout";
 import { KioskGiftCardFlow } from "./split/KioskGiftCardFlow";
-import { kioskSplitTenderEnabled } from "../flags";
 import type { Brand, BookingSession } from "~/features/booking";
 import type { ContactInfo } from "~/features/booking/types";
 
@@ -240,7 +239,7 @@ export function KioskTerminalCheckoutGate({
   }
 
   if (phase === "ready" && prepared) {
-    const giftAvailable = kioskSplitTenderEnabled() && !!prepared.splitToken && !!prepared.seed;
+    const giftAvailable = !!prepared.splitToken && !!prepared.seed;
     if (giftMode && giftAvailable) {
       return (
         <KioskGiftCardFlow

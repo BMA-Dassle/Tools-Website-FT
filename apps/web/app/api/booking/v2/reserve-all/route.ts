@@ -14,7 +14,6 @@ import {
   type ExternalTerminalPayment,
 } from "~/features/booking/service/deposit";
 import { CreditRedemptionError } from "~/features/booking/service/race-credit-redeem";
-import { kioskSplitTenderEnabled, kioskTerminalEnabled } from "~/features/kiosk/flags";
 import { WorldCupReservationError } from "~/features/world-cup";
 import type { BookingSession } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
@@ -57,21 +56,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Contact info required" }, { status: 400 });
     }
 
-    // Fail-closed: an externalPayment (kiosk reader charge) is only honored when
-    // the terminal flag is on. With the flag off the seam is dormant, so a stale
-    // client carrying one is rejected before any money is touched.
-    if (body.externalPayment && !kioskTerminalEnabled()) {
-      return NextResponse.json({ error: "Terminal payments are not enabled" }, { status: 400 });
-    }
-    // Split checkouts (paymentIds beyond the primary) additionally require the
-    // split flag — same fail-closed posture for a stale/spoofed client.
-    if (
-      body.externalPayment?.paymentIds &&
-      body.externalPayment.paymentIds.length > 1 &&
-      !kioskSplitTenderEnabled()
-    ) {
-      return NextResponse.json({ error: "Split payments are not enabled" }, { status: 400 });
-    }
     // A request must never carry BOTH a card token and a pre-captured reader
     // payment — reject the ambiguity rather than risk a double charge.
     if (body.externalPayment && body.cardSourceId) {

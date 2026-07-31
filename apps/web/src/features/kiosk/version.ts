@@ -59,10 +59,11 @@
  *         shared checkout; bowling's prepare rail joined the same anchor +
  *         token model this release. $0-due orders (vouchers/credits cover
  *         everything) no longer arm the reader at all: "Nothing to pay today"
- *         confirms directly. Requires NEXT_PUBLIC_KIOSK_SPLIT_TENDER=true AND
- *         the terminal rail (NEXT_PUBLIC_KIOSK_TERMINAL_ENABLED=true); the
- *         footer version is the fastest way to confirm a kiosk picked up this
- *         bundle.
+ *         confirms directly. 1.11.2 removed the terminal + split-tender FLAGS
+ *         entirely (owner: no flags) — the direct-reader charge and the
+ *         gift-card option are unconditional on any kiosk with a paired
+ *         reader, and the interim SAVE_CARD path is deleted. The footer
+ *         version is the fastest way to confirm a kiosk picked up a bundle.
  * 1.10.13 — voucher receipt round 2 (owner walk-through feedback). The OSK no
  *         longer covers the typed-code field (focus swaps in bottom padding so
  *         the column lifts above the key rows — same fix on the Game Zone
@@ -417,7 +418,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.11.1";
+export const KIOSK_VERSION = "1.11.2";
 
 let bootVersion: string | null = null;
 let captured = false;

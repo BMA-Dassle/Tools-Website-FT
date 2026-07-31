@@ -9,7 +9,6 @@ import {
   stampTerminalPaymentOnAnchor,
   updateTerminalAnchor,
 } from "~/features/booking/service/unified-reserve";
-import { kioskSplitTenderEnabled } from "~/features/kiosk/flags";
 import { splitRemainingCents } from "~/features/kiosk/service/split-tenders";
 
 /**
@@ -56,9 +55,6 @@ export async function POST(req: NextRequest) {
   // ── SPLIT fork: server-authoritative amount + auth-only + salted key. When
   //    absent, the legacy full-amount autocomplete path below runs verbatim. ──
   if (body.splitAmountCents != null) {
-    if (!kioskSplitTenderEnabled()) {
-      return NextResponse.json({ error: "Split payments are not enabled" }, { status: 400 });
-    }
     if (!body.seed || !body.splitToken) {
       return NextResponse.json(
         { error: "seed and splitToken required for a split checkout" },
@@ -136,14 +132,37 @@ export async function POST(req: NextRequest) {
     `[kiosk-terminal] CHECKOUT start device=${body.deviceId} amount=${body.amountCents} order=${body.orderId ?? "(none)"} ref=${body.referenceId} idem=${body.idempotencyKey ?? "(random)"}`,
   );
   try {
-    const result = await createTerminalCheckout({
+    let idemKey = body.idempotencyKey;
+    let result = await createTerminalCheckout({
       deviceId: body.deviceId,
       amountCents: Math.round(body.amountCents),
       referenceId: body.referenceId,
       note: body.note,
       orderId: body.orderId,
-      idempotencyKey: body.idempotencyKey,
+      idempotencyKey: idemKey,
     });
+    // Dead-replay escape hatch: with a deterministic key, a retry AFTER the
+    // first arm was canceled (guest let the reader time out / tapped Cancel)
+    // replays the original — now CANCELED — checkout from Square forever, so
+    // the reader never re-arms and the kiosk loops back to Review & Pay
+    // (kiosk 5, 2026-07-31). A CANCELED checkout captured nothing, so re-arm
+    // under a key chained off the dead checkout's id. The chain stays
+    // deterministic: concurrent/repeated retries converge on the same live
+    // checkout instead of arming the reader twice.
+    for (let hop = 0; result && idemKey && result.status === "CANCELED" && hop < 5; hop++) {
+      idemKey = `${body.idempotencyKey}-r:${result.checkoutId}`;
+      console.log(
+        `[kiosk-terminal] CHECKOUT replay was CANCELED (${result.checkoutId}) — re-arming with idem=${idemKey}`,
+      );
+      result = await createTerminalCheckout({
+        deviceId: body.deviceId,
+        amountCents: Math.round(body.amountCents),
+        referenceId: body.referenceId,
+        note: body.note,
+        orderId: body.orderId,
+        idempotencyKey: idemKey,
+      });
+    }
     if (!result) {
       console.error("[kiosk-terminal] CHECKOUT createTerminalCheckout returned null (no token?)");
       return NextResponse.json({ error: "Square not configured" }, { status: 500 });
