@@ -92,6 +92,8 @@ import { activeComboSpecial, comboOrderGroups } from "~/features/combos/combo-pr
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { wallClockMs } from "~/features/combos/combo-itinerary";
 import { notifyComboBooked } from "~/features/combos/combo-notify";
+import { mintComboVoucherIfNeeded } from "~/features/combos/combo-voucher";
+import type { VoucherItem } from "~/features/game-cards/data/vouchers-db";
 import { redemptionsFromSession, redeemedHeatSet } from "../data/race-credits";
 import { validateCreditRedemptions, deductCreditRedemptions } from "./race-credit-redeem";
 import {
@@ -253,6 +255,10 @@ export interface UnifiedReserveResult {
    *  claim failed — the kiosk rail retries the (billId-idempotent) claim and
    *  every delivery surface gates on codes being present. */
   povCodes?: string[];
+  /** Present only when the combo minted its redeem-later voucher (V2 grant):
+   *  the confirmation surfaces show the code; absent = the reconcile cron owns
+   *  recovery and the guest gets the code by make-good email. */
+  comboVoucher?: { code: string; expiresAt: string | null };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -1814,6 +1820,53 @@ async function unifiedReserveInner(
     );
   }
 
+  // ── V2 combo voucher grant: mint ONE code per booking ─────────────
+  // Idempotent on the BILL (vouchers.bill_id unique), so reserve retries and
+  // the recovery sweep converge on one code. Soft-fail — a mint hiccup must
+  // never fail a captured booking; the combo-voucher-reconcile cron recovers
+  // and emails the guest the code as a make-good.
+  let comboVoucherResult: { code: string; items: VoucherItem[]; expiresAt: string | null } | null =
+    null;
+  {
+    const activeForVoucher = activeComboSpecial(session);
+    if (activeForVoucher?.combo.voucherGrant && session.bmiBillId && activeForVoucher.raceItem.date) {
+      try {
+        comboVoucherResult = await mintComboVoucherIfNeeded({
+          combo: activeForVoucher.combo,
+          billId: session.bmiBillId,
+          racerCount: activeForVoucher.racerIds.length,
+          visitDateYmd: activeForVoucher.raceItem.date,
+          contact: {
+            email: contact.email ?? undefined,
+            name: `${contact.firstName ?? ""} ${contact.lastName ?? ""}`.trim() || undefined,
+          },
+        });
+        // Stamp the code onto the Redis booking record (merge, same pattern as
+        // the lane stamp) so the confirmation page + email route can read it
+        // without a new API surface. Best-effort.
+        if (comboVoucherResult) {
+          try {
+            const key = `bookingrecord:${session.bmiBillId}`;
+            const existing = await redis.get(key);
+            if (existing) {
+              const rec = typeof existing === "string" ? JSON.parse(existing) : existing;
+              await redis.set(
+                key,
+                JSON.stringify({ ...rec, vipVoucherCode: comboVoucherResult.code }),
+                "EX",
+                60 * 60 * 24 * 90,
+              );
+            }
+          } catch (err) {
+            console.error("[combo-voucher] booking-record stamp failed (non-fatal):", err);
+          }
+        }
+      } catch (err) {
+        console.error("[combo-voucher] mint failed (cron will recover):", err);
+      }
+    }
+  }
+
   // ── Record the USA250 redemption (idempotent, soft-fail) ──────────
   // The deposit is captured + squareDayofOrderId exists, so log the use now —
   // keyed on the order id so a retry never double-counts. A combo's two orders
@@ -2824,6 +2877,7 @@ async function unifiedReserveInner(
       squareDayofOrderId,
       totalCents: dayofTotalCents,
       depositOrderId: depositResult.depositOrderId,
+      voucher: comboVoucherResult,
     });
   }
 
@@ -2860,6 +2914,14 @@ async function unifiedReserveInner(
     ...(gameCardFulfillment ? { gameCards: gameCardFulfillment } : {}),
     ...(racePacksResult ? { racePacks: racePacksResult } : {}),
     ...(povCodesResult && povCodesResult.length > 0 ? { povCodes: povCodesResult } : {}),
+    ...(comboVoucherResult
+      ? {
+          comboVoucher: {
+            code: comboVoucherResult.code,
+            expiresAt: comboVoucherResult.expiresAt,
+          },
+        }
+      : {}),
   };
 }
 

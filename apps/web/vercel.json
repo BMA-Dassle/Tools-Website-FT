@@ -9,6 +9,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/combo-voucher-reconcile",
+      "schedule": "15,45 * * * *"
+    },
+    {
       "path": "/api/cron/pov-pool-alert",
       "schedule": "0 */6 * * *"
     },

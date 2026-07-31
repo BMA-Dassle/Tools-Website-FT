@@ -12,6 +12,9 @@
 import { sendEmail } from "@/lib/sendgrid";
 import type { BookingSession, BowlingItem, RaceItem } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
+import type { VoucherItem } from "~/features/game-cards/data/vouchers-db";
+import { itemsSummary } from "~/features/game-cards/service/voucher-mail";
+import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
 
 import { listComboGroupsForDate } from "./combo-existing.server";
 import { chipHourOfIso, classifyGroupMatch } from "./combo-group-match";
@@ -38,6 +41,8 @@ export async function notifyComboBooked(args: {
   totalCents: number;
   /** This booking's Square deposit order — excludes it from the group-match lookup. */
   depositOrderId?: string | null;
+  /** The booking's redeem-later voucher (V2 grant), when one minted. */
+  voucher?: { code: string; items: VoucherItem[]; expiresAt: string | null } | null;
 }): Promise<void> {
   try {
     const { session, contact } = args;
@@ -180,6 +185,13 @@ export async function notifyComboBooked(args: {
       `<p style="margin:0 0 12px"><strong>${guest}</strong><br/>${contact.email ?? ""}<br/>${contact.phone ?? ""}</p>`,
       `<p style="margin:0 0 4px"><strong>Itinerary</strong></p>`,
       `<ol style="margin:0 0 12px;padding-left:20px">${itinerary.map((r) => `<li>${r}</li>`).join("")}</ol>`,
+      args.voucher
+        ? `<p style="margin:0 0 12px"><strong>Voucher</strong> <span style="font-family:monospace">${formatVoucherCode(args.voucher.code)}</span> — ${itemsSummary(args.voucher.items)}${
+            args.voucher.expiresAt
+              ? ` · valid through ${new Date(args.voucher.expiresAt).toLocaleDateString("en-US", { timeZone: "America/New_York" })}`
+              : ""
+          } · not transferable</p>`
+        : "",
       `<p style="margin:0;color:#555;font-size:13px">BMI bill ${args.bmiBillId ?? "—"}${
         args.bmiReservationNumber ? ` · Res ${args.bmiReservationNumber}` : ""
       } · Square order ${args.squareDayofOrderId}</p>`,
@@ -195,6 +207,9 @@ export async function notifyComboBooked(args: {
         (reordered ? `\n** ${reorderNotice} **\n\n` : "") +
         (groupNote ? `\n** ${groupNote.text} **\n\n` : "") +
         itinerary.map((r, i) => `${i + 1}. ${r}`).join("\n") +
+        (args.voucher
+          ? `\nVoucher ${formatVoucherCode(args.voucher.code)} — ${itemsSummary(args.voucher.items)}`
+          : "") +
         `\nBMI bill ${args.bmiBillId ?? "—"} · Square order ${args.squareDayofOrderId}`,
     });
     if (!result.ok) {

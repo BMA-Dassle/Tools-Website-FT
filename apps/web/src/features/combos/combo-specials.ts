@@ -29,6 +29,23 @@ import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import type { RaceTier } from "~/features/booking/service/race-products";
 import type { CenterCode } from "~/features/booking/types";
 import { SQUARE_CATALOG_IDS } from "~/features/booking/data/square-catalog-map";
+// Type-only import (erased at compile) — this registry is client-shared and
+// must never pull the voucher DB module's runtime (@ft/db) into a bundle.
+import type { VoucherItem } from "~/features/game-cards/data/vouchers-db";
+
+/**
+ * Redeem-later entitlements a combo booking GRANTS, minted as ONE native
+ * voucher code per booking after the deposit captures (combo-voucher.ts).
+ * Not transferable; expiry runs from the VISIT (race) date, not purchase.
+ */
+export interface ComboVoucherGrant {
+  /** Items minted once PER RACER (e.g. a game card each). */
+  perGuest: VoucherItem[];
+  /** Items minted once PER BOOKING (e.g. one shared Shuffly hour). */
+  perBooking: VoucherItem[];
+  /** expires_at = visit date + this many months (owner: "1 year from race date"). */
+  expiresMonthsFromVisit: number;
+}
 
 /**
  * Which Square location/entity a revenue line books to. Each maps to a Square
@@ -177,6 +194,13 @@ export interface ComboSpecial {
    * Absent = single flat combo line on one order (legacy behavior).
    */
   revenueSplit?: ComboRevenueLine[];
+  /**
+   * Redeem-later entitlements: one native voucher (HPW code) minted per
+   * booking, carrying perGuest items × racer count + perBooking items,
+   * expiring `expiresMonthsFromVisit` after the visit date. Absent = the
+   * combo grants nothing beyond its booked itinerary.
+   */
+  voucherGrant?: ComboVoucherGrant;
   enabled: boolean;
   displayOrder?: number;
   /** Optional seasonal window for future combos (mirrors discount-codes). */
