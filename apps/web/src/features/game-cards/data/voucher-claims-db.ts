@@ -40,7 +40,14 @@
 
 import { sql, isDbConfigured } from "@ft/db";
 
-export type VoucherClaimStatus = "claimed" | "released";
+/**
+ * claimed  — held by an in-flight redemption (dispense or cart charge).
+ * released — handed back; the code is claimable again.
+ * spent    — terminal: the charge it covered was CAPTURED. Distinguishes a
+ *            finished cart claim from a stranded one, so the stale-claim sweep
+ *            can release abandoned checkouts without ever freeing a spent code.
+ */
+export type VoucherClaimStatus = "claimed" | "released" | "spent";
 
 /**
  * WHO issued the voucher this claim covers.
@@ -110,7 +117,7 @@ function decode(r: Record<string, unknown>): VoucherClaimRow {
     id: Number(r.id),
     code: String(r.code),
     itemIndex: Number(r.item_index ?? 0),
-    issuer: (String(r.issuer ?? "bmi") as VoucherIssuer),
+    issuer: String(r.issuer ?? "bmi") as VoucherIssuer,
     compName: r.comp_name == null ? null : String(r.comp_name),
     packageId: String(r.package_id),
     txnId: String(r.txn_id),
@@ -199,6 +206,44 @@ export async function releaseVoucherClaim(
     SET status = 'released', released_at = NOW(), released_reason = ${reason}
     WHERE code = ${code} AND txn_id = ${txnId} AND status = 'claimed'
   `;
+}
+
+/**
+ * Terminal stamp after the charge a cart claim covered was CAPTURED. Guarded on
+ * txn_id like release, and only ever forward from 'claimed' — a released (re-
+ * claimable) or already-spent row is left alone. Returns whether a row moved.
+ */
+export async function markVoucherClaimSpent(code: string, txnId: string): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    UPDATE voucher_claims
+    SET status = 'spent'
+    WHERE code = ${code} AND txn_id = ${txnId} AND status = 'claimed'
+    RETURNING id
+  `) as Record<string, unknown>[];
+  return rows.length > 0;
+}
+
+/**
+ * Cart-charge claims (txn_id `cart-…`, minted only by unified-reserve) still
+ * 'claimed' after `minAgeMinutes` — the abandoned-checkout candidates the
+ * reconcile sweep releases. Dispense claims (UUID txn ids) never match.
+ */
+export async function listStaleCartClaims(minAgeMinutes: number): Promise<VoucherClaimRow[]> {
+  if (!isDbConfigured()) return [];
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    SELECT * FROM voucher_claims
+    WHERE status = 'claimed'
+      AND txn_id LIKE 'cart-%'
+      AND created_at < NOW() - make_interval(mins => ${minAgeMinutes})
+    ORDER BY created_at ASC
+    LIMIT 200
+  `) as Record<string, unknown>[];
+  return rows.map(decode);
 }
 
 /**
