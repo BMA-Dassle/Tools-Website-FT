@@ -46,6 +46,19 @@
  *         routed to Guest Services at SCAN time — validate is now issuer-
  *         routed like claims (validateAnyVoucher + test), so the receipt can
  *         no longer promise a card the dispenser will refuse.
+ * 1.11.0 — pay with a GIFT CARD on every checkout (split-tender v1, "match
+ *         web": one gift card + one reader tap). The pay screen gains an amber
+ *         "Use a gift card" button → scan the QR / swipe / type the GAN →
+ *         balance confirm → applied board with LEFT TO PAY → tap for the
+ *         remainder (a card covering the whole total skips the reader). Works
+ *         on EVERY cart type — racing, mixed, bowling, KBF — through the one
+ *         shared checkout; bowling's prepare rail joined the same anchor +
+ *         token model this release. $0-due orders (vouchers/credits cover
+ *         everything) no longer arm the reader at all: "Nothing to pay today"
+ *         confirms directly. Requires NEXT_PUBLIC_KIOSK_SPLIT_TENDER=true AND
+ *         the terminal rail (NEXT_PUBLIC_KIOSK_TERMINAL_ENABLED=true); the
+ *         footer version is the fastest way to confirm a kiosk picked up this
+ *         bundle.
  * 1.10.13 — voucher receipt round 2 (owner walk-through feedback). The OSK no
  *         longer covers the typed-code field (focus swaps in bottom padding so
  *         the column lifts above the key rows — same fix on the Game Zone
@@ -400,7 +413,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.10.14";
+export const KIOSK_VERSION = "1.11.0";
 
 let bootVersion: string | null = null;
 let captured = false;
