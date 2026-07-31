@@ -169,6 +169,31 @@ export function KioskVipOverview({
           </div>
         )}
 
+        {/* Voucher inclusions — their own section (registry data with per-field
+            ES fallback); the shared terms render once in the note. */}
+        {combo.voucherIncludes && (
+          <div
+            className="mt-[20px] rounded-[20px] border-2 border-[#e8b14c]/50 bg-[#e8b14c]/[0.07] p-[28px]"
+          >
+            <div className="k-eyebrow mb-[16px] text-[#e8b14c]">
+              {cEs?.voucherIncludes?.title ??
+                combo.voucherIncludes.title ??
+                "Plus vouchers for your next visit"}
+            </div>
+            <div className="grid grid-cols-2 gap-x-[24px] gap-y-[12px]">
+              {(cEs?.voucherIncludes?.items ?? combo.voucherIncludes.items).map((inc, i) => (
+                <div key={i} className="flex items-start gap-[12px] text-[24px] text-white/75">
+                  <span className="mt-[2px] text-[#e8b14c]">✓</span>
+                  <span>{inc}</span>
+                </div>
+              ))}
+            </div>
+            <p className="mt-[16px] text-[20px] leading-snug text-white/50">
+              {cEs?.voucherIncludes?.note ?? combo.voucherIncludes.note}
+            </p>
+          </div>
+        )}
+
         {minHead > 1 && (
           <p className="mt-[24px] text-center text-[24px] text-[#e8b14c]/80">
             {t("vip.minGuests", { count: minHead })}

@@ -118,19 +118,60 @@ export default function ComboSpecialCard({ combo }: { combo: ComboSpecial }) {
           {combo.shortDescription}
         </p>
 
-        {/* What's included — one labeled, grouped checklist (the activities
-            you do + the VIP perks) so the package reads as a single offering,
-            not two competing lists in two different styles */}
-        <div className={premium ? "mb-4 grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2" : "mb-4"}>
-          <div>
+        {/* What's included — ONE checklist (itinerary + perks together; owner
+            2026-07-31: the two side-by-side lists read as the same thing).
+            Premium flows the merged list across two columns for width. */}
+        <div className="mb-4">
+          <p
+            className="font-heading uppercase mb-2"
+            style={{ color: combo.accentColor, fontSize: "12px", letterSpacing: "2px" }}
+          >
+            What&apos;s included
+          </p>
+          <ul
+            className={
+              premium
+                ? "font-body grid grid-cols-1 gap-x-8 gap-y-1.5 sm:grid-cols-2"
+                : "font-body space-y-1.5"
+            }
+          >
+            {[...combo.includes, ...(premium ? (combo.perks ?? []) : [])].map((line) => (
+              <li
+                key={line}
+                className="flex items-start gap-2"
+                style={{ color: "rgba(245,236,238,0.8)", fontSize: "14px", lineHeight: "1.4" }}
+              >
+                <ComboCheck />
+                {line}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Voucher inclusions — their own boxed section so the shared terms
+            appear ONCE instead of a suffix on every line */}
+        {combo.voucherIncludes && (
+          <div
+            className="mb-4 rounded-lg px-4 py-3"
+            style={{
+              border: `1px solid ${combo.accentColor}66`,
+              backgroundColor: `${combo.accentColor}0f`,
+            }}
+          >
             <p
               className="font-heading uppercase mb-2"
               style={{ color: combo.accentColor, fontSize: "12px", letterSpacing: "2px" }}
             >
-              Your experience
+              {combo.voucherIncludes.title ?? "Plus vouchers for your next visit"}
             </p>
-            <ul className="font-body space-y-1.5">
-              {combo.includes.map((line) => (
+            <ul
+              className={
+                premium
+                  ? "font-body grid grid-cols-1 gap-x-8 gap-y-1.5 sm:grid-cols-2"
+                  : "font-body space-y-1.5"
+              }
+            >
+              {combo.voucherIncludes.items.map((line) => (
                 <li
                   key={line}
                   className="flex items-start gap-2"
@@ -141,30 +182,14 @@ export default function ComboSpecialCard({ combo }: { combo: ComboSpecial }) {
                 </li>
               ))}
             </ul>
+            <p
+              className="font-body mt-2"
+              style={{ color: "rgba(245,236,238,0.55)", fontSize: "12px", lineHeight: "1.5" }}
+            >
+              {combo.voucherIncludes.note}
+            </p>
           </div>
-          {premium && (combo.perks?.length ?? 0) > 0 && (
-            <div className="mt-3 sm:mt-0">
-              <p
-                className="font-heading uppercase mb-2"
-                style={{ color: combo.accentColor, fontSize: "12px", letterSpacing: "2px" }}
-              >
-                VIP perks included
-              </p>
-              <ul className="font-body space-y-1.5">
-                {combo.perks!.map((perk) => (
-                  <li
-                    key={perk}
-                    className="flex items-start gap-2"
-                    style={{ color: "rgba(245,236,238,0.75)", fontSize: "14px", lineHeight: "1.4" }}
-                  >
-                    <ComboCheck />
-                    {perk}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
+        )}
 
         <p className="font-body flex-1 mb-4" style={{ fontSize: "15px", lineHeight: "1.6" }}>
           <strong className="text-white">

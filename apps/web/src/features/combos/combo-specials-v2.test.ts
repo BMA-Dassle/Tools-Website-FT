@@ -152,22 +152,26 @@ describe("race-bowl-v2 registry invariants", () => {
     }
   });
 
-  it("every voucher inclusion is labeled voucher + when available + up to 1 year (EN and ES)", () => {
+  it("voucher inclusions live in their OWN section with the terms stated once (EN and ES)", () => {
+    // Owner 2026-07-31: no "(voucher — when available…)" suffix repeated per
+    // line — one section, one shared note carrying the full terms.
     const v2 = specials.getComboSpecial("race-bowl-v2")!;
-    const voucherLines = v2.includes.slice(4);
-    expect(voucherLines).toHaveLength(3);
-    for (const line of voucherLines) {
-      expect(line).toMatch(/voucher/i);
-      expect(line).toMatch(/when available/i);
-      expect(line).toMatch(/up to 1 year/i);
-    }
+    expect(v2.includes).toHaveLength(4); // itinerary only — no voucher suffix lines
+    expect(v2.includes.join(" ")).not.toMatch(/voucher/i);
+
+    const vi2 = v2.voucherIncludes!;
+    expect(vi2.items).toHaveLength(3);
+    expect(vi2.items.join(" ")).toMatch(/game zone/i);
+    expect(vi2.items.join(" ")).toMatch(/laser tag or gel blaster/i);
+    expect(vi2.items.join(" ")).toMatch(/shuffly/i);
+    expect(vi2.note).toMatch(/1 year from your race date/i);
+    expect(vi2.note).toMatch(/when available/i);
+    expect(vi2.note).toMatch(/not transferable/i);
+
+    const es = v2.es!.voucherIncludes!;
+    expect(es.items).toHaveLength(3);
+    expect(es.note).toMatch(/no transferible/i);
     expect(v2.es!.includes!).toHaveLength(v2.includes.length);
-    for (const line of v2.es!.includes!.slice(4)) {
-      expect(line).toMatch(/cupón/i);
-    }
-    // Perks carry the full terms (owner: "1 year from race date. Not transferable.")
-    expect(v2.perks!.join(" ")).toMatch(/not transferable/i);
-    expect(v2.perks!.join(" ")).toMatch(/1 year from race date/i);
   });
 });
 

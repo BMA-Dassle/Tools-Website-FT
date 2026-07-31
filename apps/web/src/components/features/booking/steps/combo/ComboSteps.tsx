@@ -269,6 +269,39 @@ const ComboIntroComponent: StepDef<RaceItem>["Component"] = ({ session }) => {
         </div>
       )}
 
+      {/* Voucher inclusions — the buying surface MUST disclose the terms
+          (owner: "put in email and while buying — good for 1 year from race
+          date, not transferable"). One section, terms once. */}
+      {combo.voucherIncludes && (
+        <div
+          className="rounded-2xl border p-4"
+          style={{ borderColor: `${GOLD}40`, backgroundColor: `${GOLD}0a` }}
+        >
+          <p
+            className="mb-2 text-center text-[11px] uppercase tracking-[2px]"
+            style={{ color: GOLD }}
+          >
+            {combo.voucherIncludes.title ?? "Plus vouchers for your next visit"}
+          </p>
+          <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+            {combo.voucherIncludes.items.map((line) => (
+              <li key={line} className="flex items-center gap-2 text-sm text-white/80">
+                <span
+                  className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+                  style={{ backgroundColor: `${GOLD}25`, color: GOLD }}
+                >
+                  ✓
+                </span>
+                {line}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-center text-[11px] leading-relaxed text-white/40">
+            {combo.voucherIncludes.note}
+          </p>
+        </div>
+      )}
+
       <p className="text-center text-xs text-white/35">
         Next: tell us who&apos;s racing and bowling.
       </p>

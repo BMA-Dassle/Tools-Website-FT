@@ -579,19 +579,45 @@ function ComboCard({ combo, gold }: { combo: ComboSpecial; gold: string }) {
           </h3>
         )}
 
-        {/* What's included — one labeled, grouped checklist (the activities
-            you do + the VIP perks) so the package reads as a single offering,
-            not two competing lists scattered around the card */}
-        <div className={`mb-4 grid grid-cols-1 gap-x-6 gap-y-3 ${premium ? "sm:grid-cols-2" : ""}`}>
-          <div>
+        {/* What's included — ONE checklist (itinerary + perks together; owner
+            2026-07-31: the two side-by-side lists read as the same thing).
+            Premium flows the merged list across two columns for width. */}
+        <div className="mb-4">
+          <p
+            className="mb-1.5 text-[11px] font-bold uppercase tracking-[2px]"
+            style={{ color: gold }}
+          >
+            What&apos;s included
+          </p>
+          <ul
+            className={`grid grid-cols-1 gap-x-6 gap-y-1 ${premium ? "sm:grid-cols-2" : ""}`}
+          >
+            {[...combo.includes, ...(combo.perks ?? [])].map((item) => (
+              <li key={item} className="flex items-start gap-2 text-sm leading-snug text-white/80">
+                <ComboCheck gold={gold} />
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Voucher inclusions — their own boxed section so the shared terms
+            appear ONCE instead of a suffix on every line */}
+        {combo.voucherIncludes && (
+          <div
+            className="mb-4 rounded-xl px-4 py-3"
+            style={{ border: `1px solid ${gold}66`, backgroundColor: `${gold}0f` }}
+          >
             <p
               className="mb-1.5 text-[11px] font-bold uppercase tracking-[2px]"
               style={{ color: gold }}
             >
-              Your experience
+              {combo.voucherIncludes.title ?? "Plus vouchers for your next visit"}
             </p>
-            <ul className="space-y-1">
-              {combo.includes.map((item) => (
+            <ul
+              className={`grid grid-cols-1 gap-x-6 gap-y-1 ${premium ? "sm:grid-cols-2" : ""}`}
+            >
+              {combo.voucherIncludes.items.map((item) => (
                 <li
                   key={item}
                   className="flex items-start gap-2 text-sm leading-snug text-white/80"
@@ -601,29 +627,11 @@ function ComboCard({ combo, gold }: { combo: ComboSpecial; gold: string }) {
                 </li>
               ))}
             </ul>
+            <p className="mt-2 text-xs leading-relaxed text-white/50">
+              {combo.voucherIncludes.note}
+            </p>
           </div>
-          {(combo.perks?.length ?? 0) > 0 && (
-            <div>
-              <p
-                className="mb-1.5 text-[11px] font-bold uppercase tracking-[2px]"
-                style={{ color: gold }}
-              >
-                VIP perks included
-              </p>
-              <ul className="space-y-1">
-                {combo.perks!.map((item) => (
-                  <li
-                    key={item}
-                    className="flex items-start gap-2 text-sm leading-snug text-white/80"
-                  >
-                    <ComboCheck gold={gold} />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
+        )}
 
         <p className="font-body mb-3 flex-1 text-sm leading-relaxed">
           <span className="font-bold text-white">

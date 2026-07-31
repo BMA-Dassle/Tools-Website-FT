@@ -106,6 +106,13 @@ export interface ComboSpecial {
   longDescription: string;
   /** Display bullets, e.g. ["1 Starter Race", "1.5 Hours of Bowling", …]. */
   includes: string[];
+  /**
+   * Redeem-later voucher inclusions, rendered as their OWN labeled section
+   * (owner 2026-07-31): the shared terms live once in `note` instead of a
+   * "(voucher — when available, up to 1 year)" suffix repeated on every line.
+   * Absent = the combo grants no vouchers (v1).
+   */
+  voucherIncludes?: { title?: string; items: string[]; note: string };
   /** Optional Spanish overrides for the guest-facing marketing copy (kiosk ES
    *  locale). Web + emails keep the English fields; the kiosk falls back to
    *  English per-field when an es value is absent. First-pass translation. */
@@ -114,6 +121,7 @@ export interface ComboSpecial {
     longDescription?: string;
     durationLabel?: string;
     includes?: string[];
+    voucherIncludes?: { title?: string; items?: string[]; note?: string };
     qualifyFallbackNote?: string;
   };
   heroImage: string;
@@ -423,10 +431,18 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
       "1.5 Hours of VIP Bowling",
       "Intermediate Race",
       "Racing License + POV Video",
-      "$10 Game Zone Bonus Card (voucher — when available, up to 1 year)",
-      "Laser Tag OR Gel Blaster (voucher — when available, up to 1 year)",
-      "1 Hour of Shuffly (voucher — when available, up to 1 year)",
     ],
+    // One labeled section instead of a per-line "(voucher — when available…)"
+    // suffix ×3 (owner 2026-07-31). The note carries the shared terms once.
+    voucherIncludes: {
+      title: "Plus vouchers for your next visit",
+      items: [
+        "$10 Game Zone Bonus Card — per person",
+        "Laser Tag OR Gel Blaster — per person",
+        "1 Hour of Shuffly AR Shuffleboard",
+      ],
+      note: "One code covers them all — valid up to 1 year from your race date, when available. Not transferable.",
+    },
     es: {
       shortDescription:
         "Una experiencia completa de 3 horas: carrera Starter, 1.5 horas de boliche VIP y luego " +
@@ -451,10 +467,16 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
         "1.5 horas de boliche VIP",
         "Carrera Intermediate",
         "Licencia de carreras + video POV",
-        "Tarjeta Game Zone de $10 (cupón — según disponibilidad, hasta 1 año)",
-        "Laser Tag O Gel Blaster (cupón — según disponibilidad, hasta 1 año)",
-        "1 hora de Shuffly (cupón — según disponibilidad, hasta 1 año)",
       ],
+      voucherIncludes: {
+        title: "Además, cupones para tu próxima visita",
+        items: [
+          "Tarjeta Game Zone de $10 — por persona",
+          "Laser Tag O Gel Blaster — por persona",
+          "1 hora de Shuffly AR Shuffleboard",
+        ],
+        note: "Un solo código los cubre todos — válido hasta 1 año desde tu fecha de carrera, según disponibilidad. No transferible.",
+      },
     },
     perks: [
       "Semi-private 8-lane VIP area",
@@ -462,7 +484,6 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
       "Complimentary chips & salsa (1 per 3 guests)",
       "Bowling shoes included",
       "HyperBowling + premium glow lighting",
-      "Vouchers valid up to 1 year from race date — not transferable; attractions subject to availability",
     ],
     heroImage:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/subpages/pricing-combos.webp",
