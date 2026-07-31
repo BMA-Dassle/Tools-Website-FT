@@ -42,6 +42,7 @@ import type { Brand, CenterCode } from "~/features/booking/types";
 import type { PartyMember } from "~/features/booking/state/types";
 import { KioskPartyManager, peopleReady } from "~/features/kiosk/components/KioskPartyManager";
 import { BrandLogo } from "~/features/kiosk/components/BrandLogo";
+import { BrandedLoader } from "~/features/kiosk/components/BrandedLoader";
 import { useReservationJoinAttach } from "./attach/reservation-join";
 import type { WaiverRosterEntry } from "./roster";
 import {
@@ -206,15 +207,6 @@ function mayClaimAllSigned(status: ReservationWaiverStatus | null): boolean {
   return status === null || status.kind === "covered";
 }
 
-/** "Ann A.", "Ann A. and Bob B.", "Ann A., Bob B. and 2 more" — already-redacted
- *  roster names, the only ones this page ever holds. */
-function nameList(members: PartyMember[]): string {
-  const names = members.map((m) => [m.firstName, m.lastName].filter(Boolean).join(" "));
-  if (names.length <= 2) return names.join(" and ");
-  const shown = names.slice(0, 2);
-  return `${shown.join(", ")} and ${names.length - shown.length} more`;
-}
-
 export function WaiverFlow({
   brand,
   initialCenter,
@@ -233,6 +225,12 @@ export function WaiverFlow({
   );
   const [party, setParty] = useState<PartyMember[]>([]);
   const [ctx, setCtx] = useState<WaiverContextSummary | null>(null);
+  // True once the context fetch has RESOLVED (either way). Until then a
+  // reservation link shows the branded loader instead of an empty party over
+  // "N registered" — a production load sat for a long moment with no loading
+  // indication at all (owner 2026-07-31). On failure the flow renders exactly
+  // as before: the header is best-effort, signing works without it.
+  const [ctxSettled, setCtxSettled] = useState(false);
   // Terminal state after "I'm done". The roster is cleared then, so both facts the
   // card states are FROZEN at that moment: the first names of what this device
   // filed (no DOB, no phone, no last names) and where the RESERVATION stood.
@@ -289,6 +287,8 @@ export function WaiverFlow({
         if (!cancelled && res.ok && data.ok) setCtx(data as WaiverContextSummary);
       } catch {
         /* header is best-effort — the sign flow works without it */
+      } finally {
+        if (!cancelled) setCtxSettled(true);
       }
     })();
     return () => {
@@ -445,6 +445,37 @@ export function WaiverFlow({
   // and on a sweep miss — in all three cases no name is on the link.
   const linkShowsNames = !!ctx?.roster?.length;
 
+  // Remove — shared by the party cards and the sign-in rows. For the ORGANIZER
+  // it is REAL: the person comes off the reservation itself (BMI projectPerson
+  // row + our Neon join, via the organizer-gated roster-remove route — the
+  // Office UI's own call, probe-proven from the owner's HAR 2026-07-31).
+  // Optimistic locally; a failed server removal puts the row back rather than
+  // lying about it. Anyone else's Remove stays what it always was — tidying
+  // this screen — because the server refuses their cookie anyway, and a hidden
+  // preloaded row comes back on the next load.
+  const removeFromParty = (id: string) => {
+    const member = party.find((m) => m.id === id);
+    setParty((p) => p.filter((m) => m.id !== id));
+    const personId = member ? (member.pandoraPersonId ?? member.bmiPersonId) : null;
+    if (!member || !reservation || !center || !ctx?.canManage || !personId) return;
+    const restore = () => setParty((p) => (p.some((m) => m.id === id) ? p : [...p, member]));
+    void fetch("/api/waiver/roster-remove", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        c: center,
+        loc: reservation.locationId,
+        pid: reservation.projectId,
+        personId,
+      }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d?.ok) restore();
+      })
+      .catch(restore);
+  };
+
   // "I'm done" clears the roster off the screen. The waivers are already durable
   // (Pandora + the Neon audit row + the reservation attach), so nothing is lost —
   // what goes away is a list of real names and birth years left sitting on a
@@ -510,6 +541,26 @@ export function WaiverFlow({
     );
   }
 
+  // Reservation link, context still in flight: the kiosk's branded loader
+  // instead of an empty party under "N registered". `ctxSettled` (not `ctx`)
+  // ends this state, so a FAILED fetch falls through to the normal flow rather
+  // than spinning forever — signing has never depended on the header.
+  if (reservation && !ctx && !ctxSettled) {
+    return shell(
+      <>
+        <WaiverHead brand={brand} subtitle="Loading reservation…" signed={0} total={0} />
+        <div className="flex justify-center py-10">
+          <BrandedLoader
+            brand={brand}
+            size={180}
+            label="Loading your reservation"
+            sublabel="One moment"
+          />
+        </div>
+      </>,
+    );
+  }
+
   return shell(
     <>
       <WaiverHead
@@ -571,7 +622,15 @@ export function WaiverFlow({
         onUpdateMember={(id, patch) =>
           setParty((p) => p.map((m) => (m.id === id ? { ...m, ...patch } : m)))
         }
-        onRemoveMember={(id) => setParty((p) => p.filter((m) => m.id !== id))}
+        onRemoveMember={removeFromParty}
+        // Reservation people who must sign in before signing — rendered IN the
+        // list with a Sign button (opens the lookup), because a read-only note
+        // under the list is just missed (owner 2026-07-31).
+        signInRows={needSignIn.map((m) => ({
+          id: m.id,
+          name: [m.firstName, m.lastName].filter(Boolean).join(" "),
+        }))}
+        onRemoveSignInRow={ctx?.canManage ? removeFromParty : undefined}
         onWaiverSigned={(info) => {
           // THIS DEVICE signed this member — so it counts toward this device's
           // completion even when the row came from the reservation roster (that is
@@ -593,40 +652,6 @@ export function WaiverFlow({
           }).catch(() => {});
         }}
       />
-
-      {/* Sits directly under the party manager — the "Sign in / find people" button
-          it names is right above it. These people ARE on the booking and they DO
-          still need a waiver, so they are listed by name (already redacted) and
-          counted as outstanding; what they do not get is a Sign-waiver button that
-          ends on an error. The list is deliberately read-only: the only thing that
-          can move a row out of it is proving the account, and that is one tap away. */}
-      {needSignIn.length > 0 && (
-        <section className="mt-5 rounded-[18px] border border-[var(--k-warn)]/40 bg-[var(--k-warn)]/10 p-4">
-          <p className="k-eyebrow text-[var(--k-warn)]">One more step for {nameList(needSignIn)}</p>
-          <ul className="mt-3 space-y-1">
-            {needSignIn.map((m) => (
-              <li
-                key={m.id}
-                className="flex items-center justify-between gap-3 text-sm text-white/85"
-              >
-                <span className="truncate">
-                  {[m.firstName, m.lastName].filter(Boolean).join(" ")}
-                </span>
-                <span className="shrink-0 text-xs font-semibold text-[var(--k-warn)]">
-                  Needs sign-in
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-3 text-sm text-[var(--k-dim)]">
-            They joined this booking from an existing account, so their waiver has to file against
-            that record — and a shared link can&apos;t prove who they are. If that&apos;s you, tap
-            &ldquo;Sign in / find people&rdquo; above and verify the mobile number on the account.
-            If not, share the link below so they can — or the front desk will sign them in at
-            check-in.
-          </p>
-        </section>
-      )}
 
       {reservation && (
         <ShareBlock

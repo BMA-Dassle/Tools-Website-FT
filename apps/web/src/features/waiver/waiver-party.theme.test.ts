@@ -31,6 +31,8 @@ const REACHABLE = [
   "src/features/kiosk/components/KioskPartyManager.tsx",
   "src/features/kiosk/components/KioskSignInBoxes.tsx",
   "src/features/kiosk/components/LicenseMatchPicker.tsx",
+  // Context-load spinner (WaiverFlow renders it inside the wp-mobile shell).
+  "src/features/kiosk/components/BrandedLoader.tsx",
 ];
 
 /** Utility prefixes whose px values affect visible size/spacing on a phone. */

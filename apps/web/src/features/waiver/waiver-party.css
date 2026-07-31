@@ -618,11 +618,43 @@
   }
 }
 
+/* The kiosk BrandedLoader's animation pair, verbatim from app/kiosk/kiosk.css
+   (which this page deliberately does NOT import). Needed since the /waiver page
+   adopted the branded loader for the context fetch — a production load took a
+   visible while with no indication at all (owner 2026-07-31). */
+@keyframes kiosk-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.kiosk-orbit {
+  animation: kiosk-orbit 1.2s linear infinite;
+}
+
+@keyframes kiosk-breathe {
+  0%,
+  100% {
+    transform: scale(0.92);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+  }
+}
+.kiosk-breathe {
+  animation: kiosk-breathe 2.4s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .wp-mobile .k-tap {
     transition: none;
   }
   .wp-mobile .k-tap:active {
     transform: none;
+  }
+  .kiosk-orbit,
+  .kiosk-breathe {
+    animation: none;
   }
 }

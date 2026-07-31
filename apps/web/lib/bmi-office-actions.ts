@@ -491,6 +491,64 @@ export async function fetchProject(
   return JSON.parse(res.body);
 }
 
+// ── Remove a person from a reservation (Office projectPerson row) ──
+
+/**
+ * Detach a person from a reservation — the Office UI's own call, proven by HAR
+ * capture + live probe 2026-07-31 (scripts/office-projectperson-remove-probe.mts,
+ * PASS on project 55762353: add verified, delete verified, net-zero row set).
+ *
+ *   DELETE /api/{clientKey}/projectPerson?id={projectPersonRowId}
+ *
+ * Keyed on the projectPersons[] ROW id, not the personId — so this re-reads the
+ * project to find the row, deletes it, and re-reads again to CONFIRM the row is
+ * gone. A bare 200 is never trusted (tasks/lessons.md "removeItem 200 ≠
+ * success"). The person's WAIVER is untouched by construction: this only
+ * detaches them from the reservation roster; the Pandora signature record and
+ * their account survive.
+ *
+ * Own raw-id parse here — projectPersons carries 17-digit row ids and person
+ * ids, and the module's fetchProject JSON.parses bare (fine for its callers,
+ * fatal here).
+ */
+export async function removeProjectPersonRow(params: {
+  clientKey: string;
+  projectId: string;
+  personId: string;
+}): Promise<
+  | { removed: true; rowId: string }
+  | { removed: false; reason: "not-on-project" | "delete-failed" | "still-present" }
+> {
+  const { clientKey, projectId, personId } = params;
+  const token = await getOfficeToken(clientKey);
+  const headers = apiHeaders(token, clientKey);
+
+  const parseRawIds = (text: string): Record<string, unknown> =>
+    JSON.parse(text.replace(/"(\w*[iI]d)"\s*:\s*(\d{15,})/g, '"$1":"$2"'));
+  const rowsOf = (project: Record<string, unknown>) =>
+    ((project.projectPersons ?? []) as Array<Record<string, unknown>>).map((r) => ({
+      id: String(r.id),
+      personId: String(r.personId),
+    }));
+
+  const before = await httpsRequest("GET", `/api/${clientKey}/project/${projectId}`, headers);
+  if (before.status >= 400) throw new Error(`project GET failed: ${before.status}`);
+  const row = rowsOf(parseRawIds(before.body)).find((r) => r.personId === personId);
+  if (!row) return { removed: false, reason: "not-on-project" };
+
+  const del = await httpsRequest(
+    "DELETE",
+    `/api/${clientKey}/projectPerson?id=${encodeURIComponent(row.id)}`,
+    headers,
+  );
+  if (del.status >= 400) return { removed: false, reason: "delete-failed" };
+
+  const after = await httpsRequest("GET", `/api/${clientKey}/project/${projectId}`, headers);
+  if (after.status >= 400) throw new Error(`verify GET failed: ${after.status}`);
+  const stillThere = rowsOf(parseRawIds(after.body)).some((r) => r.personId === personId);
+  return stillThere ? { removed: false, reason: "still-present" } : { removed: true, rowId: row.id };
+}
+
 // ── Update project name ────────────────────────────────────────────
 
 export async function updateProjectName(params: {

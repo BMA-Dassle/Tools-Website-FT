@@ -1069,11 +1069,16 @@ describe("WaiverFlow wiring", () => {
     expect(source).toMatch(/addMemberSupersedingPreload\(p,\s*\w+\)/);
   });
 
-  it("shows the held-back people by name instead of hiding them", () => {
+  it("shows the held-back people IN the roster list with a sign button", () => {
     // A row with no card and no mention would just be a person who quietly vanished
-    // off a booking they are on — and nobody would sign for them.
-    expect(source).toMatch(/needSignIn\.length > 0/);
-    expect(source).toMatch(/needSignIn\.map\(/);
-    expect(source).toContain("Sign in / find people");
+    // off a booking they are on — and nobody would sign for them. Round 1 rendered
+    // them as a read-only note UNDER the list; the owner's verdict (2026-07-31) was
+    // that anything under the list is just missed. So they ride the party manager's
+    // `signInRows` prop — the same card shape as a member, amber, whose Sign button
+    // opens the lookup (proving the account is still the only way out of the state).
+    expect(source).toMatch(/signInRows=\{needSignIn\.map\(/);
+    // Organizer remove reaches these rows too — gated on the capability, and only
+    // as a UI hint: the roster-remove route re-verifies the cookie server-side.
+    expect(source).toMatch(/onRemoveSignInRow=\{ctx\?\.canManage \? removeFromParty : undefined\}/);
   });
 });

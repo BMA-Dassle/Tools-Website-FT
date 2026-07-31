@@ -144,6 +144,16 @@ export interface KioskPartyManagerProps {
     onCaptured: (pngBase64: string) => void;
     onSkip: () => void;
   }) => ReactNode;
+  /** Reservation-roster people who must SIGN IN before they can sign (they
+   *  joined from an existing account, so their waiver has to file against that
+   *  record and the flow needs them to prove it). Mobile /waiver only — the
+   *  kiosk omits this and is byte-identical. Rendered IN the roster list as
+   *  amber cards whose Sign button opens the lookup, because a read-only note
+   *  under the list is just missed (owner 2026-07-31). */
+  signInRows?: Array<{ id: string; name: string }>;
+  /** Organizer remove for a sign-in row (present only when the viewer holds
+   *  the organizer capability — the server refuses anyone else anyway). */
+  onRemoveSignInRow?: (id: string) => void;
 }
 
 function ageFromDob(mmddyyyy: string): number | null {
@@ -254,6 +264,8 @@ export function KioskPartyManager({
   photoStep = "required-adults",
   onWaiverSigned,
   renderPhoto,
+  signInRows,
+  onRemoveSignInRow,
 }: KioskPartyManagerProps) {
   const t = useT();
   const isRace = mode === "race";
@@ -1682,6 +1694,49 @@ export function KioskPartyManager({
             </div>
           );
         })}
+
+        {/* Sign-in-first roster rows (mobile /waiver, `signInRows` prop) — the
+            SAME card shape as a party member so they read as part of the list,
+            not a footnote below it. Their Sign button opens the lookup: the
+            one thing that can move them into the party is proving the account
+            (a shared link can't), and that is exactly what the lookup does. */}
+        {(signInRows ?? []).map((r) => (
+          <div
+            key={r.id}
+            className="k-glass relative overflow-hidden p-[24px]"
+            style={{ borderLeft: "8px solid #f0b341" }}
+          >
+            <div className="flex items-center gap-[20px]">
+              <div className="min-w-0 flex-1">
+                <span className="k-display block truncate text-[40px]">{r.name}</span>
+                <div className="mt-[8px] text-[22px]">
+                  <span className="font-semibold text-[#f0b341]">
+                    {t("party.status.waiverNeeded")}
+                  </span>
+                </div>
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-[12px]">
+                <button
+                  type="button"
+                  onClick={() => setLookupOpen(true)}
+                  className="rounded-2xl border-2 border-[#f0b341]/55 px-[24px] py-[12px] text-[24px] font-bold text-[#f0b341]"
+                >
+                  {t("party.signWaiver")}
+                </button>
+                {onRemoveSignInRow && (
+                  <button
+                    type="button"
+                    onClick={() => onRemoveSignInRow(r.id)}
+                    aria-label={t("party.aria.remove", { name: r.name })}
+                    className="text-[22px] text-white/40"
+                  >
+                    {t("party.remove")}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* add / sign-in entry points */}

@@ -125,6 +125,25 @@ export async function setJoinAttachStatus(
   `;
 }
 
+/**
+ * Drop the join when an ORGANIZER removes the person from the reservation
+ * (roster-remove route). Without this, the roster union re-adds the removed
+ * person from our side even after the BMI projectPerson row is gone. The
+ * waiver acceptance/audit rows are untouched — removal is about the roster,
+ * never the signature record.
+ */
+export async function removeJoin(projectId: string, personId: string): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    DELETE FROM kiosk_waiver_joins
+    WHERE project_id = ${projectId} AND person_id = ${personId}
+    RETURNING id
+  `) as Array<Record<string, unknown>>;
+  return rows.length > 0;
+}
+
 export async function listJoinsForProject(projectId: string): Promise<KioskWaiverJoinRow[]> {
   if (!isDbConfigured()) return [];
   await ensureSchema();
