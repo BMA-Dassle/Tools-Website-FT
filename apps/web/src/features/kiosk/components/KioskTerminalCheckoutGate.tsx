@@ -22,6 +22,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BrandedLoader } from "./BrandedLoader";
 import { useT } from "../i18n";
 import { KioskReaderCheckout } from "./KioskReaderCheckout";
+import { KioskGiftCardFlow } from "./split/KioskGiftCardFlow";
+import { kioskSplitTenderEnabled } from "../flags";
 import type { Brand, BookingSession } from "~/features/booking";
 import type { ContactInfo } from "~/features/booking/types";
 
@@ -29,6 +31,9 @@ interface Prepared {
   seed: string;
   depositOrderId: string;
   depositCents: number;
+  /** Present when the gift-card flag is on — the session secret every
+   *  gift-card route requires (the seed alone is guessable). */
+  splitToken?: string;
 }
 
 export function KioskTerminalCheckoutGate({
@@ -62,6 +67,9 @@ export function KioskTerminalCheckoutGate({
    *  `seed` lets the bowling route recreate the exact order the reader paid. */
   onCaptured: (ep: {
     paymentId: string;
+    /** Gift-card checkouts: EVERY captured payment (GC auth + tap) — reserve
+     *  finalizes with the full set (sum verification). Absent = single tap. */
+    paymentIds?: string[];
     depositOrderId: string;
     amountCents: number;
     seed: string;
@@ -72,6 +80,9 @@ export function KioskTerminalCheckoutGate({
   const [phase, setPhase] = useState<"preparing" | "ready" | "error">("preparing");
   const [error, setError] = useState<string | null>(null);
   const [prepared, setPrepared] = useState<Prepared | null>(null);
+  // Gift-card flow engaged (flag-gated; entered from the reader screen's
+  // amber button, exited by the flow's back/cancel — the reader re-arms).
+  const [giftMode, setGiftMode] = useState(false);
   // Prepare exactly once per mount — it creates a Square deposit order.
   const preparedOnce = useRef(false);
 
@@ -88,6 +99,8 @@ export function KioskTerminalCheckoutGate({
          *  resume the booking with this payment instead of arming the reader. */
         alreadyPaid?: boolean;
         paymentId?: string;
+        paymentIds?: string[];
+        splitToken?: string;
       };
       if (prepareFn) {
         // Bowling-only cart: create the deposit order via the bowling rail.
@@ -130,6 +143,9 @@ export function KioskTerminalCheckoutGate({
         console.log("[kiosk-terminal] gate resume — order already paid, skipping reader");
         onCaptured({
           paymentId: data.paymentId,
+          // A gift-card checkout captured SEVERAL payments — resume must carry
+          // the whole set or finalize's sum check can never pass.
+          ...(data.paymentIds && data.paymentIds.length > 1 ? { paymentIds: data.paymentIds } : {}),
           depositOrderId: data.depositOrderId,
           amountCents: data.depositCents ?? depositCentsExpected,
           seed: data.seed ?? "",
@@ -167,6 +183,7 @@ export function KioskTerminalCheckoutGate({
         seed: data.seed ?? "",
         depositOrderId: data.depositOrderId,
         depositCents: data.depositCents,
+        ...(data.splitToken ? { splitToken: data.splitToken } : {}),
       });
       setPhase("ready");
     } catch {
@@ -223,6 +240,28 @@ export function KioskTerminalCheckoutGate({
   }
 
   if (phase === "ready" && prepared) {
+    const giftAvailable = kioskSplitTenderEnabled() && !!prepared.splitToken && !!prepared.seed;
+    if (giftMode && giftAvailable) {
+      return (
+        <KioskGiftCardFlow
+          brand={brand}
+          deviceId={deviceId}
+          seed={prepared.seed}
+          splitToken={prepared.splitToken as string}
+          totalCents={prepared.depositCents}
+          onCaptured={({ paymentId, paymentIds }) =>
+            onCaptured({
+              paymentId,
+              paymentIds,
+              depositOrderId: prepared.depositOrderId,
+              amountCents: prepared.depositCents,
+              seed: prepared.seed,
+            })
+          }
+          onExit={() => setGiftMode(false)}
+        />
+      );
+    }
     return (
       <KioskReaderCheckout
         brand={brand}
@@ -230,6 +269,11 @@ export function KioskTerminalCheckoutGate({
         seed={prepared.seed || bmiBillId || ""}
         depositOrderId={prepared.depositOrderId}
         depositCents={prepared.depositCents}
+        giftCardAction={
+          giftAvailable
+            ? { label: t("giftcard.useButton"), onActivate: () => setGiftMode(true) }
+            : undefined
+        }
         onCaptured={({ paymentId }) =>
           onCaptured({
             paymentId,

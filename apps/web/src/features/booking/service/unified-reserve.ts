@@ -19,6 +19,7 @@ import {
   kioskTerminalEnabled,
   kioskGzCartEnabled,
   kioskPovCodesEnabled,
+  kioskSplitTenderEnabled,
 } from "~/features/kiosk/flags";
 import { getOrderPaymentInfo } from "~/features/kiosk/service/square-terminal";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
@@ -195,6 +196,13 @@ export interface PrepareDepositResult {
   alreadyPaid?: boolean;
   /** The captured reader paymentId, present only when alreadyPaid. */
   paymentId?: string;
+  /** ALL captured payment ids when alreadyPaid — a split-captured order (gift
+   *  card + tap) has several, and reserve-all's finalize verifies the SUM, so
+   *  resuming with just one id would dead-end on TerminalAmountMismatch. */
+  paymentIds?: string[];
+  /** Per-session secret for the split-tender routes (present only when the
+   *  split flag is on) — see TerminalAnchor.splitToken. */
+  splitToken?: string;
 }
 
 /**
@@ -525,13 +533,49 @@ function buildCombinedLineItems(session: BookingSession): {
 // seed. Square itself is the source of truth for the captured funds (the deposit
 // order + payment live there forever); this anchor is the fast pointer the
 // terminal-orphan reconcile follows. 48h TTL comfortably outlives a kiosk session.
-interface TerminalAnchor {
+export interface TerminalAnchorTender {
+  /** Position in the tender sequence (v1: the single gift card is 0). */
+  index: number;
+  kind: "gift_card" | "terminal";
+  paymentId?: string;
+  amountCents: number;
+  ganLast4?: string;
+  status: "authorized" | "canceled" | "cancel-failed";
+}
+export interface TerminalAnchor {
   depositOrderId: string;
   depositCents: number;
   locationId: string;
   baseKey: string;
   paymentId?: string;
   stampedAt?: string;
+  // ── Split-tender additions (kiosk v1: one gift card + one tap). Absent on
+  //    legacy anchors — every reader is null-safe. ─────────────────────────
+  /** True once a gift-card tender was applied to this checkout. */
+  split?: true;
+  /** Union of every payment id on this deposit order (GC auths + reader
+   *  captures), in arrival order. Legacy single-tap flows never set it. */
+  paymentIds?: string[];
+  /** The applied tenders ledger mirror (authoritative copy in Neon —
+   *  kiosk_split_tenders; this is the fast pointer). */
+  tenders?: TerminalAnchorTender[];
+  /** Retry counter for the auth idempotency keys — bumped whenever a tender
+   *  is canceled (remove/abandon) so re-adds never replay a burned key. */
+  attempt?: number;
+  /** Per-arm counter for the split reader checkout — every arming of the
+   *  reader gets a fresh `term-…-r${n}` key (a canceled/timed-out checkout
+   *  burns its key; Square replays the dead one otherwise). */
+  termArm?: number;
+  /** The currently-armed split reader checkoutId — abandon/remove dismiss it
+   *  so a tap can't land on a session the guest already walked away from. */
+  pendingCheckoutId?: string;
+  /** Random per-session secret minted at PREPARE when the split flag is on.
+   *  Every split-tender route requires it: the seed (a sequential,
+   *  client-visible bill id) is NOT a secret, and without this a guessed seed
+   *  would control a stranger's in-flight payment (review 2026-07-29). */
+  splitToken?: string;
+  /** Set by the capture route after PayOrder reports the order COMPLETED. */
+  capturedAt?: string;
   /**
    * KIOSK Game Zone cards riding this deposit order (owner 2026-07-18): the
    * ledger rows persisted at PREPARE, so finalize can mark them charged and
@@ -570,14 +614,67 @@ export async function stampTerminalPaymentOnAnchor(seed: string, paymentId: stri
         : raw
           ? (raw as Partial<TerminalAnchor>)
           : {};
+    // paymentId stays last-won (legacy readers); paymentIds is the union every
+    // split-tender consumer reads (dedup append — a re-poll of the same
+    // COMPLETED checkout must not double-record).
+    const paymentIds = Array.isArray(prev.paymentIds) ? [...prev.paymentIds] : [];
+    if (!paymentIds.includes(paymentId)) paymentIds.push(paymentId);
+    // Split sessions additionally record the tap as a POSITIVE tender entry —
+    // capture derives its payment set from tenders, never by set-difference on
+    // paymentIds (a canceled auth left in the union must not read as a tap).
+    let tenders = prev.tenders;
+    let pendingCheckoutId = prev.pendingCheckoutId;
+    if (prev.split) {
+      tenders = [...(prev.tenders ?? [])];
+      if (!tenders.some((t) => t.paymentId === paymentId)) {
+        tenders.push({
+          index: tenders.length,
+          kind: "terminal",
+          paymentId,
+          amountCents: 0, // unknown at stamp time — capture re-reads from Square
+          status: "authorized",
+        });
+      }
+      pendingCheckoutId = undefined; // the armed checkout produced its payment
+    }
     await redis.set(
       terminalAnchorKey(seed),
-      JSON.stringify({ ...prev, paymentId, stampedAt: new Date().toISOString() }),
+      JSON.stringify({
+        ...prev,
+        paymentId,
+        paymentIds,
+        ...(prev.split ? { tenders, pendingCheckoutId } : {}),
+        stampedAt: new Date().toISOString(),
+      }),
       "EX",
       TERMINAL_ANCHOR_TTL_S,
     );
   } catch {
     /* non-fatal */
+  }
+}
+
+/**
+ * Read-modify-write a terminal anchor for the split-tender routes (add/remove
+ * a gift-card tender, bump the attempt salt, mark captured). Returns the
+ * updated anchor, or null when no anchor exists / Redis is down — callers
+ * treat null as "session not found" and fail closed BEFORE any money moves
+ * (unlike the stamp above, which is a best-effort pointer AFTER capture).
+ */
+export async function updateTerminalAnchor(
+  seed: string,
+  mutate: (anchor: TerminalAnchor) => TerminalAnchor,
+): Promise<TerminalAnchor | null> {
+  try {
+    const raw = await redis.get(terminalAnchorKey(seed));
+    if (!raw) return null;
+    const prev: TerminalAnchor =
+      typeof raw === "string" ? (JSON.parse(raw) as TerminalAnchor) : (raw as TerminalAnchor);
+    const next = mutate(prev);
+    await redis.set(terminalAnchorKey(seed), JSON.stringify(next), "EX", TERMINAL_ANCHOR_TTL_S);
+    return next;
+  } catch {
+    return null;
   }
 }
 
@@ -1460,10 +1557,20 @@ async function unifiedReserveInner(
       const priorAnchor = await readTerminalAnchor(seedSource ?? baseKey).catch(() => null);
       if (priorAnchor?.depositOrderId) {
         const info = await getOrderPaymentInfo(priorAnchor.depositOrderId).catch(() => null);
-        const resumePaymentId = info?.paymentId ?? priorAnchor.paymentId ?? null;
+        // A split-captured order carries SEVERAL payments (gift card + tap) —
+        // resume must hand back the FULL set or the reserve-all finalize sum
+        // check can never pass (review 2026-07-29). Square's tender list is
+        // authoritative; the anchor's union is the fallback when the read
+        // failed. The primary id prefers the LAST payment (the tap).
+        const resumePaymentIds =
+          info?.paymentIds && info.paymentIds.length > 0
+            ? info.paymentIds
+            : (priorAnchor.paymentIds ?? (priorAnchor.paymentId ? [priorAnchor.paymentId] : []));
+        const resumePaymentId =
+          resumePaymentIds[resumePaymentIds.length - 1] ?? priorAnchor.paymentId ?? null;
         if (info?.state === "COMPLETED" && resumePaymentId) {
           console.log(
-            `[kiosk-terminal] PREPARE resume — order ${priorAnchor.depositOrderId} already COMPLETED, paymentId=${resumePaymentId} seed=${seedSource ?? baseKey} (skipping reader)`,
+            `[kiosk-terminal] PREPARE resume — order ${priorAnchor.depositOrderId} already COMPLETED, payments=${resumePaymentIds.join(",")} seed=${seedSource ?? baseKey} (skipping reader)`,
           );
           return {
             __prepare: true,
@@ -1474,6 +1581,7 @@ async function unifiedReserveInner(
             // prepare's total so the client's display/amount stays consistent.
             depositCents: priorAnchor.depositCents + (priorAnchor.gameCards?.totalCents ?? 0),
             paymentId: resumePaymentId,
+            ...(resumePaymentIds.length > 1 ? { paymentIds: resumePaymentIds } : {}),
             locationId: priorAnchor.locationId,
           };
         }
@@ -1526,11 +1634,17 @@ async function unifiedReserveInner(
         extraLines: gzPurchase?.orderLines,
       });
       console.log(`[kiosk-terminal] PREPARE created deposit order ${depositOrderId}`);
+      // Split-tender session secret: the seed (bill id) is sequential and
+      // client-visible, so it can NOT authorize the split routes by itself.
+      // Minted here (prepare is the session's trust root), stored on the
+      // anchor, returned ONLY to this prepare's caller.
+      const splitToken = kioskSplitTenderEnabled() ? randomUUID() : undefined;
       await writeTerminalAnchor(seedSource ?? baseKey, {
         depositOrderId,
         depositCents,
         locationId,
         baseKey,
+        ...(splitToken ? { splitToken } : {}),
         ...(anchorGameCards ? { gameCards: anchorGameCards } : {}),
       });
       return {
@@ -1540,6 +1654,7 @@ async function unifiedReserveInner(
         // The reader charges the ORDER TOTAL: booking deposit + card lines.
         depositCents: depositCents + gzCents,
         locationId,
+        ...(splitToken ? { splitToken } : {}),
       };
     }
 
@@ -1570,6 +1685,9 @@ async function unifiedReserveInner(
           ganSuffix,
           note: depositNote,
           externalPaymentId: ep.paymentId,
+          // Split checkout (kiosk v1): verify + activate with EVERY captured
+          // payment on the order (gift card + tap), not just the primary.
+          externalPaymentIds: ep.paymentIds,
           extraLines: gzPurchase?.orderLines,
           extraCents: gzCents,
         });

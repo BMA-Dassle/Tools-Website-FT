@@ -51,12 +51,15 @@ export { hexDump, type LogEntry } from "./log";
 export {
   parseWedgeBurst,
   parseIntercardSwipe,
+  parseSquareGiftSwipe,
   INTERCARD_TRACK2_PREFIX,
   type WedgeCapture,
+  type SquareGiftSwipe,
 } from "./wedge";
 export {
   useSerialMsr,
   MSR_DEFAULT_BAUD,
+  type MsrBadSwipeReason,
   type SerialMsr,
   type SerialMsrConnection,
   type UseSerialMsrOptions,

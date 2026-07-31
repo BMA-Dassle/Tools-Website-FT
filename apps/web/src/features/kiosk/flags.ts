@@ -284,3 +284,15 @@ export function kioskVoucherGzEnabled(): boolean {
 export function kioskExperienceAvailEnabled(): boolean {
   return process.env.KIOSK_EXPERIENCE_AVAIL !== "0";
 }
+
+/**
+ * Kiosk split-tender v1 — "match web": ONE gift card (scan/swipe/typed GAN)
+ * + ONE reader tap per checkout (owner 2026-07-29). Gates the gift-card-lookup
+ * + deposit-tenders routes AND the client split UI. Opt-in, default OFF —
+ * money-path change; flip only after probe #2 (gc-id-as-source) passes and a
+ * live card-present smoke (tasks/split-tender-probes.md). Inert unless
+ * kioskTerminalEnabled() is also on (the split rides the terminal rail).
+ */
+export function kioskSplitTenderEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_KIOSK_SPLIT_TENDER === "true";
+}

@@ -134,15 +134,20 @@ export interface TerminalCheckoutResult {
  */
 export async function getOrderPaymentInfo(
   orderId: string,
-): Promise<{ state: string; paymentId: string | null } | null> {
+): Promise<{ state: string; paymentId: string | null; paymentIds: string[] } | null> {
   if (!SQUARE_TOKEN) return null;
   const { body } = await sq<{
     order?: { state?: string; tenders?: Array<{ id?: string; payment_id?: string }> };
   }>(`/orders/${encodeURIComponent(orderId)}`);
   const order = body.order;
   if (!order) return null;
-  const paymentId = order.tenders?.find((t) => t.payment_id)?.payment_id ?? null;
-  return { state: order.state ?? "UNKNOWN", paymentId };
+  // ALL tender payment ids — a split-captured order (gift card + tap) has
+  // several, and the resume path must replay reserve with the FULL set or
+  // finalize's sum verification can never pass (review 2026-07-29).
+  const paymentIds = (order.tenders ?? [])
+    .map((t) => t.payment_id)
+    .filter((id): id is string => Boolean(id));
+  return { state: order.state ?? "UNKNOWN", paymentId: paymentIds[0] ?? null, paymentIds };
 }
 
 /**

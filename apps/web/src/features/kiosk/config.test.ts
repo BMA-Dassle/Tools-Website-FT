@@ -28,6 +28,12 @@ describe("gameZoneCapability", () => {
     expect(gameZoneCapability(base({ msrEnabled: true }))).toBe("reload");
   });
 
+  it("msrUse gates the MSR: 'giftcard' is split-tender hardware, not Game Zone", () => {
+    expect(gameZoneCapability(base({ msrEnabled: true, msrUse: "giftcard" }))).toBe("none");
+    expect(gameZoneCapability(base({ msrEnabled: true, msrUse: "gamezone" }))).toBe("reload");
+    expect(gameZoneCapability(base({ msrEnabled: true, msrUse: "both" }))).toBe("reload");
+  });
+
   it("is 'none' for a null config", () => {
     expect(gameZoneCapability(null)).toBe("none");
   });
@@ -117,6 +123,31 @@ describe("resolveKioskConfig", () => {
       qrScannerBaud: null,
       qrScannerPortInfo: null,
     });
+  });
+
+  it("defaults msrUse to 'gamezone' — pre-existing MSR kiosks keep Game Zone", () => {
+    expect(resolveKioskConfig({ center: "fort-myers" })).toMatchObject({ msrUse: "gamezone" });
+  });
+
+  it("msr fields survive resolve + merge (readStorage re-resolves on boot)", () => {
+    // The strip-guard: a field missing from resolveKioskConfig's literal is
+    // silently dropped on every boot — this test catches that.
+    const saved = resolveKioskConfig({
+      center: "fort-myers",
+      msrEnabled: true,
+      msrUse: "giftcard",
+      msrBaud: 9600,
+      msrPortInfo: { usbVendorId: 0x0acd, usbProductId: 0x0300 },
+    });
+    const expected = {
+      msrEnabled: true,
+      msrUse: "giftcard",
+      msrBaud: 9600,
+      msrPortInfo: { usbVendorId: 0x0acd, usbProductId: 0x0300 },
+    };
+    expect(saved).toMatchObject(expected);
+    expect(resolveKioskConfig(saved!)).toMatchObject(expected);
+    expect(mergeKioskConfig(saved, { variant: "pitcrew" })).toMatchObject(expected);
   });
 
   it("qr-scanner fields survive resolve + merge (readStorage re-resolves on boot)", () => {

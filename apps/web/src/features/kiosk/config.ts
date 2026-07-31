@@ -80,6 +80,17 @@ export interface KioskConfig {
   msrPortInfo?: { usbVendorId?: number; usbProductId?: number } | null;
   /** MSR line speed (default 9600 8N1 — typical for serial swipe readers). */
   msrBaud?: number | null;
+  /**
+   * What the attached MSR feeds (default "gamezone" — every kiosk provisioned
+   * before this field existed).
+   *  - "gamezone" — Intercard Game Zone reload/balance (the original wiring).
+   *  - "giftcard" — Square gift-card capture for split tender ONLY: the MSR
+   *                 must NOT light up Game Zone reload on this kiosk.
+   *  - "both"     — one reader serves both flows; Game Zone stays available.
+   * Additive with a default in resolveKioskConfig — NEVER bump CONFIG_VERSION
+   * for it (see the CONFIG_VERSION incident note).
+   */
+  msrUse?: "gamezone" | "giftcard" | "both";
   /** Whether a keyboard-wedge QR/barcode scanner is attached (login codes + vouchers). */
   scannerEnabled?: boolean;
   /**
@@ -298,6 +309,7 @@ export function resolveKioskConfig(partial: Partial<KioskConfig>): KioskConfig |
     msrEnabled: partial.msrEnabled ?? false,
     msrPortInfo: partial.msrPortInfo ?? null,
     msrBaud: partial.msrBaud ?? null,
+    msrUse: partial.msrUse ?? "gamezone",
     scannerEnabled: partial.scannerEnabled ?? false,
     cardInputMethod: partial.cardInputMethod ?? (partial.readerId ? "reader" : "manual"),
     swipeEnabled: partial.swipeEnabled ?? false,
@@ -334,7 +346,9 @@ export function gameZoneCapability(cfg: KioskConfig | null): "full" | "reload" |
   // toggle is turned off, and must NOT keep Game Zone alive on its own (owner
   // 2026-07-21: CRT + MSR both off but Game Zone still showed).
   if (cfg.cardReaderEnabled && cfg.dispenserId) return "full";
-  if (cfg.msrEnabled) return "reload";
+  // An MSR pointed at gift cards (msrUse "giftcard") is split-tender hardware,
+  // not Game Zone hardware — it must not light up reload. "both" keeps it.
+  if (cfg.msrEnabled && (cfg.msrUse ?? "gamezone") !== "giftcard") return "reload";
   return "none";
 }
 

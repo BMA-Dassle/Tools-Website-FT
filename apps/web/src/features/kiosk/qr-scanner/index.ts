@@ -22,5 +22,6 @@ export { LineAccumulator } from "./line-accumulator";
 export { matchScannerPort, type PortLike } from "./port-matching";
 export { deriveScannerCheck, type ScannerCheck, type SerialGrantProbe } from "./scanner-check";
 export { AamvaBurst, parseAamvaLines, type AamvaLicense } from "./aamva";
+export { extractGanCandidate, type GanExtraction } from "./gift-card-qr";
 export { parseMemberQr, type MemberQr } from "./member-qr";
 export { useLicenseScan, type LicenseScan, type UseLicenseScanOptions } from "./useLicenseScan";

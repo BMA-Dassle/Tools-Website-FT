@@ -30,8 +30,10 @@
 import { randomBytes } from "crypto";
 import {
   authorizeMultiTender,
+  authorizeTenders,
   GIFT_CARD_MAX_CENTS,
   SquarePaymentError,
+  type TendersResult,
 } from "@/lib/square-gift-card";
 import { composeGan } from "@/lib/gan";
 
@@ -105,8 +107,14 @@ export interface DepositParams {
  * NEVER charges a token. Only honored when kioskTerminalEnabled(); otherwise ignored.
  */
 export interface ExternalTerminalPayment {
-  /** Square paymentId the reader produced (must be COMPLETED). */
+  /** Square paymentId the reader produced (must be COMPLETED). On a split
+   *  checkout this is the PRIMARY payment (the tap; the gift card when no tap
+   *  was needed). */
   paymentId: string;
+  /** SPLIT (kiosk v1, flag-gated): every captured payment on the deposit
+   *  order — the gift-card auth + the tap — in tender order. Finalize verifies
+   *  the SUM; absent = legacy single payment, byte-identical checks. */
+  paymentIds?: string[];
   /** The deposit order the reader paid. Echoed for logging only — finalize
    *  RE-DERIVES the authoritative id from baseKey and verifies the payment's
    *  order_id matches, so a spoofed client value can never be trusted. */
@@ -130,6 +138,14 @@ export interface DepositResult {
    *  (idempotent via baseKey). */
   giftCardPending?: boolean;
   gcError?: string;
+  /** Split checkouts only (createDepositAndChargeTenders): every captured
+   *  tender in authorization order. Absent on legacy single/two-tender paths. */
+  tenders?: Array<{
+    kind: "gift_card" | "card";
+    paymentId: string;
+    amountCents: number;
+    ganLast4?: string;
+  }>;
 }
 
 export const FRIENDLY_PAYMENT_ERRORS: Record<string, string> = {
@@ -334,6 +350,13 @@ export async function finalizeDepositFromExternalPayment(params: {
   note: string;
   externalPaymentId: string;
   /**
+   * SPLIT checkouts (kiosk v1: gift card + tap): EVERY captured payment on the
+   * deposit order. Verification switches from single exact-match to
+   * sum-of-payments === amountCents + extraCents; with one id this degenerates
+   * to the legacy check exactly. Absent = legacy single payment.
+   */
+  externalPaymentIds?: string[];
+  /**
    * KIOSK Game Zone cards riding the deposit order: the lines (re-derivation
    * must byte-match prepare's order) and their total. The reader payment must
    * cover amountCents + extraCents; the gift card still funds amountCents ONLY.
@@ -347,6 +370,10 @@ export async function finalizeDepositFromExternalPayment(params: {
   extraCents?: number;
 }): Promise<DepositResult> {
   const extraCents = params.extraCents ?? 0;
+  const paymentIdList =
+    params.externalPaymentIds && params.externalPaymentIds.length > 0
+      ? [...new Set(params.externalPaymentIds)]
+      : [params.externalPaymentId];
   // 1. Recreate the deposit order idempotently → the SAME id + line uid prepare
   //    created (GIFT_CARD-typed). The client-supplied id is never trusted.
   const { depositOrderId, depositLineItemUid } = await createDepositOrder({
@@ -361,35 +388,42 @@ export async function finalizeDepositFromExternalPayment(params: {
     throw new Error("terminal deposit order has no GIFT_CARD line uid");
   }
 
-  // 2. Verify the reader payment server-side (never trust the browser).
-  const pay = await getSquarePaymentSettled(params.externalPaymentId);
-  if (!pay || pay.status !== "COMPLETED") {
-    throw new TerminalPaymentUnverifiedError("terminal payment not COMPLETED");
+  // 2. Verify every payment server-side (never trust the browser). Per-payment
+  //    checks are identical to the legacy single-payment form; the AMOUNT check
+  //    is the SUM across payments (probe #1: PayOrder captures the set
+  //    atomically, so a verified sum == a verified capture).
+  let summedCents = 0;
+  for (const pid of paymentIdList) {
+    const pay = await getSquarePaymentSettled(pid);
+    if (!pay || pay.status !== "COMPLETED") {
+      throw new TerminalPaymentUnverifiedError(`payment ${pid} not COMPLETED`);
+    }
+    if (pay.orderId && pay.orderId !== depositOrderId) {
+      throw new TerminalPaymentUnverifiedError(`payment ${pid} paid a different order`);
+    }
+    if (pay.locationId && pay.locationId !== params.locationId) {
+      throw new TerminalPaymentUnverifiedError(`payment ${pid} location mismatch`);
+    }
+    summedCents += pay.amountCents;
   }
-  if (pay.orderId && pay.orderId !== depositOrderId) {
-    throw new TerminalPaymentUnverifiedError("terminal payment paid a different order");
-  }
-  if (pay.amountCents !== params.amountCents + extraCents) {
-    throw new TerminalAmountMismatchError(pay.amountCents, params.amountCents + extraCents);
-  }
-  if (pay.locationId && pay.locationId !== params.locationId) {
-    throw new TerminalPaymentUnverifiedError("terminal payment location mismatch");
+  if (summedCents !== params.amountCents + extraCents) {
+    throw new TerminalAmountMismatchError(summedCents, params.amountCents + extraCents);
   }
 
-  // 3. Fund the gift card from the ALREADY-CAPTURED payment — no charge. Idempotent.
+  // 3. Fund the gift card from the ALREADY-CAPTURED payment(s) — no charge. Idempotent.
   const { giftCardId, giftCardGan } = await activateGiftCardForDeposit({
     baseKey: params.baseKey,
     locationId: params.locationId,
     amountCents: params.amountCents,
     ganPrefix: params.ganPrefix,
     ganSuffix: params.ganSuffix,
-    paymentIds: [params.externalPaymentId],
+    paymentIds: paymentIdList,
     depositOrderId,
     lineItemUid: depositLineItemUid, // order-linked form
   });
 
   console.log(
-    `[deposit] terminal finalize depositOrderId=${depositOrderId} amount=${params.amountCents} payment=${params.externalPaymentId}`,
+    `[deposit] terminal finalize depositOrderId=${depositOrderId} amount=${params.amountCents} payments=${paymentIdList.join(",")}`,
   );
   return {
     depositOrderId,
@@ -513,6 +547,150 @@ export async function createDepositAndCharge(params: DepositParams): Promise<Dep
       cardApprovedCents,
       giftCardPending: true,
       gcError: detail,
+    };
+  }
+}
+
+/** Tender inputs for a SPLIT deposit — already schema-validated upstream
+ *  (TendersRequestSchema in ./tenders); the engine re-validates every gift
+ *  card server-side regardless. */
+export interface DepositTenderInputs {
+  giftCards: Array<{ nonce?: string; giftCardId?: string }>;
+  cards: Array<{ sourceId: string; amountCents?: number }>;
+}
+
+/**
+ * Split-tender twin of createDepositAndCharge (PR-2, flag-gated callers land
+ * in PR-4+): same 4-step lifecycle — deposit order → authorize N gift cards +
+ * M cards via `authorizeTenders` (atomic PayOrder capture) → create + ACTIVATE
+ * the internal deposit gift card funded by ALL captured payment ids. The
+ * legacy function above is untouched; when a checkout has no split, it never
+ * comes near this path.
+ *
+ * Failure semantics are identical to the legacy path: pre-capture failures
+ * cancel every auth and throw (customer never charged); a gift-card
+ * create/activate failure AFTER capture returns `giftCardPending` so the
+ * caller persists a recoverable anchor (forward recovery, never refund).
+ */
+export async function createDepositAndChargeTenders(
+  params: Omit<DepositParams, "cardSourceId" | "giftCardNonce"> & {
+    tenders: DepositTenderInputs;
+    /** Retry counter for the auth idempotency keys — bump per retry after a
+     *  failed authorize/capture (burned-key lesson). Persisted by the caller. */
+    attempt?: number;
+  },
+): Promise<DepositResult> {
+  const { amountCents, locationId, squareCustomerId, ganPrefix, ganSuffix, note, tenders } = params;
+
+  if (amountCents <= 0) {
+    throw new Error("Deposit amount must be > 0");
+  }
+  if (tenders.giftCards.length + tenders.cards.length < 1) {
+    throw new Error("At least one tender required for deposit");
+  }
+
+  const baseKey = params.baseKey ?? randomBytes(8).toString("hex");
+  const saleMode = giftCardSaleEnabled();
+
+  // ── 1. Deposit order (same idempotent create as the legacy path) ──────
+  const { depositOrderId, depositLineItemUid } = await createDepositOrder({
+    baseKey,
+    locationId,
+    amountCents,
+    note,
+    asGiftCardLine: saleMode,
+  });
+
+  // ── 2. Authorize + capture the tender set atomically ──────────────────
+  let result: TendersResult;
+  try {
+    result = await authorizeTenders({
+      orderId: depositOrderId,
+      locationId,
+      totalCents: amountCents,
+      baseKey,
+      giftCards: tenders.giftCards,
+      cards: tenders.cards,
+      attempt: params.attempt,
+      customerId: squareCustomerId,
+      note,
+    });
+  } catch (err) {
+    if (err instanceof SquarePaymentError) {
+      const friendly =
+        FRIENDLY_PAYMENT_ERRORS[err.code] ??
+        err.message ??
+        "Payment could not be processed. Please try again.";
+      const depositErr = new DepositPaymentError(err.code, friendly, err.message);
+      depositErr.failedTender = err.failedTender; // plan §6 decline recovery
+      throw depositErr;
+    }
+    throw err;
+  }
+
+  const gcApprovedCents = result.tenders
+    .filter((t) => t.kind === "gift_card")
+    .reduce((s, t) => s + t.amountCents, 0);
+  const cardApprovedCents = result.tenders
+    .filter((t) => t.kind === "card")
+    .reduce((s, t) => s + t.amountCents, 0);
+  // Primary payment id — the LAST card when one exists (mirrors the legacy
+  // "card over gc" preference), else the last gift card.
+  const lastCard = [...result.tenders].reverse().find((t) => t.kind === "card");
+  const depositPaymentId = (lastCard ?? result.tenders[result.tenders.length - 1]).paymentId;
+
+  // ── 3 + 4. Create + ACTIVATE the deposit gift card from ALL captures ──
+  try {
+    const { giftCardId, giftCardGan } = await activateGiftCardForDeposit({
+      baseKey,
+      locationId,
+      amountCents,
+      ganPrefix,
+      ganSuffix,
+      paymentIds: result.paymentIds,
+      ...(saleMode && depositLineItemUid
+        ? { depositOrderId, lineItemUid: depositLineItemUid }
+        : {}),
+    });
+    console.log(
+      `[deposit] split success depositOrderId=${depositOrderId} amount=${amountCents} ` +
+        `tenders=${result.tenders.length} gc=${gcApprovedCents} card=${cardApprovedCents}`,
+    );
+    return {
+      depositOrderId,
+      depositPaymentId,
+      giftCardId,
+      giftCardGan,
+      gcApprovedCents,
+      cardApprovedCents,
+      tenders: result.tenders.map(({ kind, paymentId, amountCents: cents, ganLast4 }) => ({
+        kind,
+        paymentId,
+        amountCents: cents,
+        ...(ganLast4 ? { ganLast4 } : {}),
+      })),
+    };
+  } catch (gcErr) {
+    const detail = gcErr instanceof Error ? gcErr.message : String(gcErr);
+    console.error(
+      "[deposit] split gift card create/activate failed AFTER capture (recoverable):",
+      detail,
+    );
+    return {
+      depositOrderId,
+      depositPaymentId,
+      giftCardId: null,
+      giftCardGan: null,
+      gcApprovedCents,
+      cardApprovedCents,
+      giftCardPending: true,
+      gcError: detail,
+      tenders: result.tenders.map(({ kind, paymentId, amountCents: cents, ganLast4 }) => ({
+        kind,
+        paymentId,
+        amountCents: cents,
+        ...(ganLast4 ? { ganLast4 } : {}),
+      })),
     };
   }
 }
@@ -711,6 +889,9 @@ export async function getDepositOrderLineItem(
 export class DepositPaymentError extends Error {
   code: string;
   friendlyMessage: string;
+  /** Split checkouts: which tender failed (index/kind/ganLast4), when known —
+   *  the PR-4 routes surface this so the client re-collects ONLY that tender. */
+  failedTender?: { index: number; kind: "gift_card" | "card"; ganLast4?: string };
 
   constructor(code: string, friendlyMessage: string, detail?: string) {
     super(detail ?? friendlyMessage);

@@ -25,6 +25,15 @@
 import { createHash } from "crypto";
 
 import { KNOWN_DEPOSIT_GAN_PREFIXES } from "@/lib/gan";
+import {
+  planTenderAmounts,
+  TenderPlanError,
+  gcAuthKey,
+  cardAuthKey,
+  payOrderKey,
+  cancelKey,
+  type TenderAmountPlan,
+} from "~/features/booking/service/tenders";
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_TOKEN = process.env.SQUARE_ACCESS_TOKEN || "";
@@ -253,39 +262,55 @@ export async function payOrder(params: {
   orderId: string;
   paymentIds: string[];
   baseKey: string;
-}): Promise<void> {
+  /** Override the default `payorder-${baseKey}` key. The split-tender engine
+   *  salts with the payment-id SET (`payord2-…`) so a retry after one tender
+   *  was swapped gets a fresh key instead of colliding with the burned one. */
+  idempotencyKey?: string;
+}): Promise<{ orderState: string }> {
   const res = await fetch(`${SQUARE_BASE}/orders/${params.orderId}/pay`, {
     method: "POST",
     headers: sqHeaders(),
     body: JSON.stringify({
-      idempotency_key: `payorder-${params.baseKey}`,
+      idempotency_key: params.idempotencyKey ?? `payorder-${params.baseKey}`,
       payment_ids: params.paymentIds,
     }),
   });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
+  const data = await res.json().catch(() => ({}) as Record<string, never>);
+  if (!res.ok || data.errors) {
     const e = data.errors?.[0];
     throw new SquarePaymentError(
       e?.code || "PAY_ORDER_FAILED",
       e?.detail || "Order payment capture failed",
     );
   }
+  // Probe #1 (2026-07-29): the ORDER state is the authoritative capture
+  // signal — the payments themselves can read APPROVED for a short lag
+  // window after PayOrder. Callers that care should assert COMPLETED.
+  return { orderState: data.order?.state ?? "" };
 }
 
 export async function cancelSquarePayment(
   paymentId: string,
   baseKey: string,
   kind: "gc" | "card",
+  opts?: {
+    /** Override the default `cancel-${kind}-${baseKey}` key — the split-tender
+     *  engine cancels N payments per baseKey, so it salts per payment id. */
+    idempotencyKey?: string;
+  },
 ): Promise<void> {
   // /payments/{id}/cancel with an idempotency key. Errors are logged
   // but not thrown — if cancel itself fails Square auto-voids
-  // unsettled auths after ~6 days; we don't want a cancel failure
-  // masking the original payment error to the customer.
+  // unsettled auths (terminal auths carry delay_action=CANCEL ≈36h;
+  // probe 2026-07-29); we don't want a cancel failure masking the
+  // original payment error to the customer.
   try {
     const res = await fetch(`${SQUARE_BASE}/payments/${paymentId}/cancel`, {
       method: "POST",
       headers: sqHeaders(),
-      body: JSON.stringify({ idempotency_key: `cancel-${kind}-${baseKey}` }),
+      body: JSON.stringify({
+        idempotency_key: opts?.idempotencyKey ?? `cancel-${kind}-${baseKey}`,
+      }),
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -353,6 +378,9 @@ export class SquarePaymentError extends Error {
   code: string;
   /** HTTP status from Square, when the error came from a 4xx/5xx response. */
   status?: number;
+  /** Which tender failed, when the split-tender engine knows (plan §6 decline
+   *  recovery: the client re-collects ONLY the failed tender). */
+  failedTender?: { index: number; kind: "gift_card" | "card"; ganLast4?: string };
   constructor(code: string, detail: string, status?: number) {
     super(detail);
     this.code = code;
@@ -509,6 +537,325 @@ export async function authorizeMultiTender(params: {
     cardApprovedCents,
     gcGan,
   };
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// Split-tender engine (PR-2 — plan: tasks/split-payments-plan.md)
+//
+// Generalizes authorizeMultiTender to N gift cards + M cards. The legacy
+// two-tender function above stays FROZEN — every existing checkout keeps
+// riding it; this engine is reachable only through the (flag-gated, PR-4+)
+// tenders[] paths. Sequence: resolve + re-validate every gift card →
+// plan exact amounts (planTenderAmounts — sums must equal the total,
+// Square captures all-or-nothing) → authorize each tender
+// `autocomplete:false` with indexed idempotency keys → capture the whole
+// set atomically via PayOrder. Any pre-capture failure voids every prior
+// authorization; the customer is never charged on throw.
+// ═════════════════════════════════════════════════════════════════════
+
+/**
+ * Look up a gift card by its Square id (`gftc:…`) — the kiosk GAN-lookup
+ * rail resolves a scanned/swiped/typed GAN server-side and hands the engine
+ * the id (charging by id as source_id is live-proven: store-credit purchase
+ * strategy 2026-07-13; probe #2 extends it to autocomplete:false + PayOrder).
+ */
+export async function retrieveGiftCardById(giftCardId: string): Promise<GiftCardInfo | null> {
+  const res = await fetch(`${SQUARE_BASE}/gift-cards/${giftCardId}`, {
+    method: "GET",
+    headers: sqHeaders(),
+  });
+  const data = await res.json().catch(() => ({}) as Record<string, never>);
+  if (!res.ok || data.errors || !data.gift_card) {
+    console.warn("[square-gift-card] gift-card GET failed:", data.errors || data);
+    return null;
+  }
+  const gc = data.gift_card;
+  const gan: string = gc.gan || "";
+  const blocked = isInternalDepositGan(gan);
+  return {
+    id: gc.id,
+    gan,
+    balanceCents: gc.balance_money?.amount ?? 0,
+    state: gc.state || "UNKNOWN",
+    blocked,
+    blockedReason: blocked ? "internal" : gc.state !== "ACTIVE" ? "inactive" : undefined,
+  };
+}
+
+/** One gift-card tender source — exactly one of nonce (web) / giftCardId (kiosk). */
+export interface TenderGiftCardSource {
+  nonce?: string;
+  giftCardId?: string;
+}
+/** One card tender — amountCents omitted on the LAST card = auto-fill remainder. */
+export interface TenderCardSource {
+  sourceId: string;
+  amountCents?: number;
+}
+export interface AuthorizedTender {
+  /** Position in the combined gift-cards-then-cards sequence. */
+  index: number;
+  kind: "gift_card" | "card";
+  paymentId: string;
+  amountCents: number;
+  /** Last 4 of the GAN (gift cards only) — receipts / staff breadcrumbs. */
+  ganLast4?: string;
+}
+export interface TendersResult {
+  tenders: AuthorizedTender[];
+  /** Every captured paymentId, in authorization order. */
+  paymentIds: string[];
+  totalAuthorizedCents: number;
+}
+
+/** Shared auth call for any tender source — explicit idempotency key.
+ *  Mirrors authorizeCardPayment's body; autocomplete:false always.
+ *  Exported for the kiosk split-tender rail, which stages the gift-card auth
+ *  BEFORE the reader tap instead of running authorizeTenders in one shot. */
+export async function createTenderAuth(params: {
+  orderId: string;
+  locationId: string;
+  sourceId: string;
+  amountCents: number;
+  idempotencyKey: string;
+  errCode: string;
+  customerId?: string;
+  buyerEmail?: string;
+  note?: string;
+}): Promise<{ paymentId: string; sourceType: string; cardBrand: string }> {
+  const body: Record<string, unknown> = {
+    source_id: params.sourceId,
+    idempotency_key: params.idempotencyKey,
+    amount_money: { amount: params.amountCents, currency: "USD" },
+    order_id: params.orderId,
+    location_id: params.locationId,
+    autocomplete: false,
+  };
+  if (params.customerId) body.customer_id = params.customerId;
+  if (params.buyerEmail) body.buyer_email_address = params.buyerEmail;
+  if (params.note) body.note = params.note;
+  const res = await fetch(`${SQUARE_BASE}/payments`, {
+    method: "POST",
+    headers: sqHeaders(),
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}) as Record<string, never>);
+  if (!res.ok || data.errors) {
+    const e = data.errors?.[0];
+    throw new SquarePaymentError(
+      e?.code || params.errCode,
+      e?.detail || "Payment could not be authorized.",
+      res.status,
+    );
+  }
+  const paymentId: string = data.payment?.id;
+  if (!paymentId) {
+    throw new SquarePaymentError("MISSING_PAYMENT_ID", "Authorize returned no paymentId");
+  }
+  // Burned-key guard (PR-2 review): with a stable source id, Square's
+  // idempotent replay can hand back a payment a PRIOR attempt's cancel-all
+  // already voided. Only a live APPROVED auth is capturable by PayOrder —
+  // anything else means the caller must retry with a bumped `attempt` salt.
+  const paymentStatus: string = data.payment?.status ?? "";
+  if (paymentStatus !== "APPROVED") {
+    throw new SquarePaymentError(
+      "PAYMENT_NOT_APPROVED",
+      `Authorize returned status ${paymentStatus || "(unknown)"} — if this is a retry, ` +
+        `bump the attempt salt (a canceled prior auth was replayed).`,
+    );
+  }
+  return {
+    paymentId,
+    sourceType: data.payment?.source_type ?? "",
+    cardBrand: data.payment?.card_details?.card?.card_brand ?? "",
+  };
+}
+
+/**
+ * Authorize N gift cards + M cards against `orderId`, then capture the whole
+ * set atomically. Throws SquarePaymentError on any failure; every prior
+ * authorization is voided first (per-payment `cxl-` keys), so the customer is
+ * never charged on throw. Post-capture there is NO rollback here — the caller
+ * owns forward recovery, exactly like authorizeMultiTender.
+ */
+export async function authorizeTenders(params: {
+  orderId: string;
+  locationId: string;
+  totalCents: number;
+  baseKey: string;
+  giftCards: TenderGiftCardSource[];
+  cards: TenderCardSource[];
+  /** Retry counter — bump on every retry AFTER a failed authorize/capture so
+   *  stable sources (gift cards, saved cards) get FRESH idempotency keys
+   *  instead of replaying ones a cancel-all unwind burned (lessons.md
+   *  2026-07-25). The PR-3 ledger / PR-6 anchor persist it per checkout. */
+  attempt?: number;
+  customerId?: string;
+  buyerEmail?: string;
+  note?: string;
+}): Promise<TendersResult> {
+  const { orderId, locationId, totalCents, baseKey } = params;
+  const attempt = params.attempt ?? 0;
+
+  // ── Resolve + re-validate every gift card (the security boundary) ──────
+  const resolved: GiftCardInfo[] = [];
+  const seenIds = new Set<string>();
+  for (const [i, src] of params.giftCards.entries()) {
+    if (!!src.nonce === !!src.giftCardId) {
+      throw new SquarePaymentError(
+        "GIFT_CARD_SOURCE_INVALID",
+        `Gift card #${i + 1} needs exactly one of nonce / giftCardId`,
+      );
+    }
+    const info = src.nonce
+      ? await retrieveGiftCardFromNonce(src.nonce)
+      : await retrieveGiftCardById(src.giftCardId as string);
+    if (!info) {
+      throw new SquarePaymentError(
+        "GIFT_CARD_NOT_FOUND",
+        `Gift card #${i + 1} could not be found. Please re-enter it.`,
+      );
+    }
+    if (info.blocked) {
+      throw new SquarePaymentError("GIFT_CARD_BLOCKED", `Gift card #${i + 1} cannot be used here.`);
+    }
+    if (info.state !== "ACTIVE") {
+      throw new SquarePaymentError("GIFT_CARD_INACTIVE", `Gift card #${i + 1} is not active.`);
+    }
+    if (info.balanceCents <= 0) {
+      throw new SquarePaymentError("GIFT_CARD_EMPTY", `Gift card #${i + 1} has no balance.`);
+    }
+    if (seenIds.has(info.id)) {
+      // Two different tokens (e.g. a nonce AND a kiosk lookup) can resolve to
+      // the SAME physical card — dedup on the resolved id, not the token.
+      throw new SquarePaymentError(
+        "GIFT_CARD_DUPLICATE",
+        `Gift card ending ${info.gan.slice(-4)} was added twice.`,
+      );
+    }
+    seenIds.add(info.id);
+    resolved.push(info);
+  }
+
+  // ── Plan exact per-tender amounts (pure math; throws before any money) ──
+  let plan: TenderAmountPlan;
+  try {
+    plan = planTenderAmounts(
+      totalCents,
+      resolved.map((r) => r.balanceCents),
+      params.cards.map((c) => c.amountCents),
+    );
+  } catch (err) {
+    if (err instanceof TenderPlanError) {
+      throw new SquarePaymentError(err.code, err.message);
+    }
+    throw err;
+  }
+
+  // ── Authorize sequentially; unwind everything on any failure ───────────
+  const authorized: AuthorizedTender[] = [];
+  const cancelAll = async () => {
+    for (const t of authorized) {
+      await cancelSquarePayment(t.paymentId, baseKey, t.kind === "gift_card" ? "gc" : "card", {
+        idempotencyKey: cancelKey(baseKey, t.paymentId),
+      });
+    }
+  };
+  try {
+    for (const [i, info] of resolved.entries()) {
+      try {
+        const auth = await createTenderAuth({
+          orderId,
+          locationId,
+          sourceId: info.id, // gftc: id — works for nonce-resolved cards too
+          amountCents: plan.gcAmounts[i],
+          idempotencyKey: gcAuthKey(baseKey, i, info.id, attempt),
+          errCode: "GIFT_CARD_AUTH_FAILED",
+          note: params.note,
+        });
+        authorized.push({
+          index: i,
+          kind: "gift_card",
+          paymentId: auth.paymentId,
+          amountCents: plan.gcAmounts[i],
+          ganLast4: info.gan.slice(-4),
+        });
+      } catch (err) {
+        // Attribute the failure so the client re-collects ONLY this tender
+        // (plan §6 decline-recovery contract).
+        if (err instanceof SquarePaymentError && !err.failedTender) {
+          err.failedTender = { index: i, kind: "gift_card", ganLast4: info.gan.slice(-4) };
+        }
+        throw err;
+      }
+    }
+    for (const [j, card] of params.cards.entries()) {
+      try {
+        const auth = await createTenderAuth({
+          orderId,
+          locationId,
+          sourceId: card.sourceId,
+          amountCents: plan.cardAmounts[j],
+          idempotencyKey: cardAuthKey(baseKey, j, card.sourceId, attempt),
+          errCode: "CARD_AUTH_FAILED",
+          customerId: params.customerId,
+          buyerEmail: params.buyerEmail,
+          note: params.note,
+        });
+        // Push BEFORE the source-type gate so a rejected smuggled gift card
+        // is voided by cancelAll like any other unwind.
+        authorized.push({
+          index: resolved.length + j,
+          kind: "card",
+          paymentId: auth.paymentId,
+          amountCents: plan.cardAmounts[j],
+        });
+        // A Square gift card tokenized into a card slot bypasses the resolve
+        // phase's internal-GAN block / balance checks / dedup — reject it.
+        // (PR-2 review: the legacy 2-tender path shares this hole; the new
+        // N-tender contract closes it.)
+        if (auth.sourceType === "GIFT_CARD" || auth.cardBrand === "SQUARE_GIFT_CARD") {
+          throw new SquarePaymentError(
+            "CARD_SLOT_GIFT_CARD",
+            "That's a gift card — add it with 'Use a gift card' instead of as a credit card.",
+          );
+        }
+      } catch (err) {
+        if (err instanceof SquarePaymentError && !err.failedTender) {
+          err.failedTender = { index: resolved.length + j, kind: "card" };
+        }
+        throw err;
+      }
+    }
+  } catch (err) {
+    await cancelAll();
+    throw err;
+  }
+
+  // ── Capture atomically. Probe #1 (2026-07-29): trust the ORDER state —
+  //    payments can read APPROVED for a short lag after capture, and
+  //    post-capture payments cannot be canceled ("guaranteed to complete";
+  //    the swallowed cancel failures below cover exactly that case). ──────
+  const paymentIds = authorized.map((t) => t.paymentId);
+  try {
+    const { orderState } = await payOrder({
+      orderId,
+      paymentIds,
+      baseKey,
+      idempotencyKey: payOrderKey(baseKey, paymentIds),
+    });
+    if (orderState && orderState !== "COMPLETED") {
+      throw new SquarePaymentError(
+        "ORDER_NOT_COMPLETED",
+        `PayOrder returned order state ${orderState} (expected COMPLETED)`,
+      );
+    }
+  } catch (err) {
+    await cancelAll();
+    throw err;
+  }
+
+  return { tenders: authorized, paymentIds, totalAuthorizedCents: totalCents };
 }
 
 // ═════════════════════════════════════════════════════════════════════
