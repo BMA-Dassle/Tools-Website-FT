@@ -281,7 +281,7 @@ const ComboIntroComponent: StepDef<RaceItem>["Component"] = ({ session }) => {
             className="mb-2 text-center text-[11px] uppercase tracking-[2px]"
             style={{ color: GOLD }}
           >
-            {combo.voucherIncludes.title ?? "Plus vouchers for your next visit"}
+            {combo.voucherIncludes.title ?? "Plus vouchers to your favorite attractions"}
           </p>
           <ul className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
             {combo.voucherIncludes.items.map((line) => (

@@ -612,7 +612,7 @@ function ComboCard({ combo, gold }: { combo: ComboSpecial; gold: string }) {
               className="mb-1.5 text-[11px] font-bold uppercase tracking-[2px]"
               style={{ color: gold }}
             >
-              {combo.voucherIncludes.title ?? "Plus vouchers for your next visit"}
+              {combo.voucherIncludes.title ?? "Plus vouchers to your favorite attractions"}
             </p>
             <ul
               className={`grid grid-cols-1 gap-x-6 gap-y-1 ${premium ? "sm:grid-cols-2" : ""}`}

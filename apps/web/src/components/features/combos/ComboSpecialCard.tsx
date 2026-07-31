@@ -162,7 +162,7 @@ export default function ComboSpecialCard({ combo }: { combo: ComboSpecial }) {
               className="font-heading uppercase mb-2"
               style={{ color: combo.accentColor, fontSize: "12px", letterSpacing: "2px" }}
             >
-              {combo.voucherIncludes.title ?? "Plus vouchers for your next visit"}
+              {combo.voucherIncludes.title ?? "Plus vouchers to your favorite attractions"}
             </p>
             <ul
               className={

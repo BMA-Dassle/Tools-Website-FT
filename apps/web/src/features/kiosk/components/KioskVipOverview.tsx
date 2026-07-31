@@ -178,7 +178,7 @@ export function KioskVipOverview({
             <div className="k-eyebrow mb-[16px] text-[#e8b14c]">
               {cEs?.voucherIncludes?.title ??
                 combo.voucherIncludes.title ??
-                "Plus vouchers for your next visit"}
+                "Plus vouchers to your favorite attractions"}
             </div>
             <div className="grid grid-cols-2 gap-x-[24px] gap-y-[12px]">
               {(cEs?.voucherIncludes?.items ?? combo.voucherIncludes.items).map((inc, i) => (

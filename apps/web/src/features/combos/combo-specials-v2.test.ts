@@ -156,7 +156,8 @@ describe("race-bowl-v2 registry invariants", () => {
     // Owner 2026-07-31: no "(voucher — when available…)" suffix repeated per
     // line — one section, one shared note carrying the full terms.
     const v2 = specials.getComboSpecial("race-bowl-v2")!;
-    expect(v2.includes).toHaveLength(4); // itinerary only — no voucher suffix lines
+    // Itinerary + license/POV on their own lines (owner) — no voucher suffixes.
+    expect(v2.includes).toHaveLength(5);
     expect(v2.includes.join(" ")).not.toMatch(/voucher/i);
 
     const vi2 = v2.voucherIncludes!;

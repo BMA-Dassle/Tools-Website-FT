@@ -412,30 +412,31 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     id: "race-bowl-v2",
     name: "Ultimate VIP Experience",
     shortDescription:
-      "A full 3-hour experience: Starter race, 1.5 hours of VIP bowling, then an Intermediate " +
+      "A 3–4 hour experience: Starter race, 1.5 hours of VIP bowling, then an Intermediate " +
       "race — license, POV video and VIP lane perks included. Plus a $10 Game Zone bonus card, " +
       "a Laser Tag or Gel Blaster pass, and an hour of Shuffly by voucher. One price, one booking.",
     longDescription:
-      "Three hours of the full FastTrax + HeadPinz premium night: qualify on a Starter race, " +
+      "Three to four hours of the full FastTrax + HeadPinz premium night: qualify on a Starter race, " +
       "take over a semi-private VIP lane for 1.5 hours of bowling, then come back faster on " +
       "an Intermediate race. Racing license, POV race video, and VIP lane perks (NeoVerse " +
       "video wall, chips & salsa, premium glow) are all included — plus a voucher good for a " +
       "$10 Game Zone bonus card per person, Laser Tag OR Gel Blaster per person, and an hour " +
       "of Shuffly, valid up to 1 year from your race date (when available, not transferable). " +
       "Pick a start time — 2, 4, 6, 8, or 10 PM — and we schedule the rest.",
-    durationLabel: "≈ 3-Hour Experience",
+    durationLabel: "≈ 3–4 Hour Experience",
     qualifyFallbackNote:
       "Didn't qualify? No problem — we'll convert your Intermediate to a second Starter race, or issue you a race credit.",
     includes: [
       "Starter Race",
       "1.5 Hours of VIP Bowling",
       "Intermediate Race",
-      "Racing License + POV Video",
+      "Racing License",
+      "POV Race Video",
     ],
     // One labeled section instead of a per-line "(voucher — when available…)"
     // suffix ×3 (owner 2026-07-31). The note carries the shared terms once.
     voucherIncludes: {
-      title: "Plus vouchers for your next visit",
+      title: "Plus vouchers to your favorite attractions",
       items: [
         "$10 Game Zone Bonus Card — per person",
         "Laser Tag OR Gel Blaster — per person",
@@ -445,12 +446,12 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     },
     es: {
       shortDescription:
-        "Una experiencia completa de 3 horas: carrera Starter, 1.5 horas de boliche VIP y luego " +
+        "Una experiencia de 3–4 horas: carrera Starter, 1.5 horas de boliche VIP y luego " +
         "una carrera Intermediate — licencia, video POV y beneficios de pista VIP incluidos. " +
         "Además una tarjeta Game Zone de $10, un pase de Laser Tag o Gel Blaster y una hora de " +
         "Shuffly por cupón. Un precio, una reservación.",
       longDescription:
-        "Tres horas de la noche premium completa de FastTrax + HeadPinz: califica en una carrera " +
+        "De tres a cuatro horas de la noche premium completa de FastTrax + HeadPinz: califica en una carrera " +
         "Starter, toma una pista VIP semiprivada para 1.5 horas de boliche y luego regresa más " +
         "rápido en una carrera Intermediate. La licencia de carreras, el video POV y los " +
         "beneficios de pista VIP (muro de video NeoVerse, chips y salsa, glow premium) están todos " +
@@ -458,7 +459,7 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
         "Gel Blaster por persona y una hora de Shuffly, válido hasta 1 año desde tu fecha de " +
         "carrera (según disponibilidad, no transferible). Elige una hora de inicio — 2, 4, 6, 8 o " +
         "10 PM — y nosotros programamos el resto.",
-      durationLabel: "≈ Experiencia de 3 horas",
+      durationLabel: "≈ Experiencia de 3–4 horas",
       qualifyFallbackNote:
         "¿No calificaste? No hay problema — convertimos tu carrera Intermediate en una segunda " +
         "carrera Starter, o te damos un crédito de carrera.",
@@ -466,10 +467,11 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
         "Carrera Starter",
         "1.5 horas de boliche VIP",
         "Carrera Intermediate",
-        "Licencia de carreras + video POV",
+        "Licencia de carreras",
+        "Video POV de tu carrera",
       ],
       voucherIncludes: {
-        title: "Además, cupones para tu próxima visita",
+        title: "Además, cupones para tus atracciones favoritas",
         items: [
           "Tarjeta Game Zone de $10 — por persona",
           "Laser Tag O Gel Blaster — por persona",
