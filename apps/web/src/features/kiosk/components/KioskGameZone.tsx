@@ -1649,7 +1649,14 @@ export function KioskGameZone({
       throw new Error(errText(data) || t("gamezone.err.startReader"));
     }
     readerPrep.current = data;
-    return { seed: data.groupId, depositOrderId: data.orderId, depositCents: data.totalCents };
+    return {
+      seed: data.groupId,
+      depositOrderId: data.orderId,
+      depositCents: data.totalCents,
+      // Present when the gift-card split flag is on — lights the "Use a gift
+      // card" button on the shared pay screen, same as every other cart.
+      ...(data.splitToken ? { splitToken: data.splitToken } : {}),
+    };
   };
 
   // reload via the reader: after the charge, load each already-charged card on the
@@ -1694,7 +1701,7 @@ export function KioskGameZone({
 
   const readerFinalize = async (
     kind: "reload" | "new_card",
-    ep: { paymentId: string; depositOrderId: string; amountCents: number },
+    ep: { paymentId: string; paymentIds?: string[]; depositOrderId: string; amountCents: number },
   ) => {
     const prep = readerPrep.current;
     if (!prep) {
@@ -1717,6 +1724,8 @@ export function KioskGameZone({
             paymentId: ep.paymentId,
             orderId: ep.depositOrderId,
             amountCents: ep.amountCents,
+            // Split checkout (gift card + tap): finalize verifies the SUM.
+            ...(ep.paymentIds && ep.paymentIds.length > 0 ? { paymentIds: ep.paymentIds } : {}),
           },
         }),
       });

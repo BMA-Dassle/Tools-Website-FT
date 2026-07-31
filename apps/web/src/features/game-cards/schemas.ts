@@ -128,6 +128,9 @@ export const TerminalFinalizeSchema = z.object({
     paymentId: z.string().min(1).max(128),
     orderId: z.string().min(1).max(128),
     amountCents: z.number().int().nonnegative(),
+    /** SPLIT checkouts (gift card + tap): every captured payment on the order —
+     *  finalize verifies the SUM. Absent = single tap. */
+    paymentIds: z.array(z.string().min(1).max(128)).max(6).optional(),
   }),
 });
 export type TerminalFinalizeInput = z.infer<typeof TerminalFinalizeSchema>;

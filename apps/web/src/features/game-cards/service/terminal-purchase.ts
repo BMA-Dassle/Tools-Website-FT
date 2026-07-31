@@ -17,7 +17,9 @@
  * own file so purchase.ts (the embed rail) is untouched.
  */
 import { randomBytes, randomUUID } from "crypto";
+import redis from "@/lib/redis";
 import { getCenter } from "~/config/intercard-centers";
+import { kioskSplitTenderEnabled } from "~/features/kiosk/flags";
 import { getPackage, activationFeeCents } from "../constants";
 import { GameCardHttpError } from "../errors";
 import type { TerminalPrepareInput, TerminalFinalizeInput } from "../schemas";
@@ -40,6 +42,10 @@ export interface TerminalPrepareResult {
   orderId: string;
   totalCents: number;
   rows: TerminalPreparedRow[];
+  /** Present when the gift-card split flag is on AND the split session anchor
+   *  was durably written — the session secret the gift-card routes require.
+   *  The checkout gate carries the groupId as this rail's `seed`. */
+  splitToken?: string;
 }
 
 /**
@@ -138,7 +144,36 @@ export async function prepareTerminalPurchase(
     })),
   });
 
-  return { groupId, orderId, totalCents, rows };
+  // Gift-card split (kiosk v1): the shared split rail authorizes the gift card
+  // against the terminal ANCHOR, so this rail writes one too — keyed on the
+  // groupId, which is the `seed` the checkout gate carries for Game Zone
+  // purchases. Token only handed out when the anchor durably landed: a token
+  // without an anchor would light the gift-card button and then answer
+  // "no-session" to every tap on it.
+  let splitToken: string | undefined;
+  if (kioskSplitTenderEnabled()) {
+    const token = randomUUID();
+    try {
+      await redis.set(
+        `kiosk:terminal:anchor:${groupId}`,
+        JSON.stringify({
+          depositOrderId: orderId,
+          depositCents: totalCents,
+          locationId: center.squareLocation,
+          baseKey: groupId,
+          splitToken: token,
+          source: "gamezone",
+        }),
+        "EX",
+        48 * 3600,
+      );
+      splitToken = token;
+    } catch {
+      /* Redis down → no split session; the full-amount reader tap still works. */
+    }
+  }
+
+  return { groupId, orderId, totalCents, rows, ...(splitToken ? { splitToken } : {}) };
 }
 
 export interface TerminalFinalizeResult {
@@ -180,37 +215,46 @@ export async function finalizeTerminalPurchase(
   const expectedCents =
     txns.reduce((s, t) => s + t.amountCents, 0) + activationFeeCents(input.kind, txns.length);
 
-  // Verify the reader payment server-side (displayed==charged tripwire lives here).
-  // Poll briefly: the Terminal checkout reports COMPLETED a beat before
+  // Verify the reader payment(s) server-side (displayed==charged tripwire lives
+  // here). Poll briefly: the Terminal checkout reports COMPLETED a beat before
   // GET /payments reflects it, so a single read stranded good captures.
+  // SPLIT checkouts (gift card + tap): every captured payment is verified with
+  // the same per-payment checks, and the AMOUNT check is the SUM across the set
+  // (PayOrder captures it atomically). One id degenerates to the legacy checks.
   const ep = input.externalPayment;
-  const pay = await readSquarePaymentSettled(ep.paymentId);
-  if (!pay || pay.status !== "COMPLETED") {
-    throw new GameCardHttpError(
-      402,
-      "PAYMENT_UNVERIFIED",
-      "We couldn't confirm the reader payment. Please see the front desk (do not pay again).",
-    );
+  const paymentIdList =
+    ep.paymentIds && ep.paymentIds.length > 0 ? [...new Set(ep.paymentIds)] : [ep.paymentId];
+  let summedCents = 0;
+  for (const pid of paymentIdList) {
+    const pay = await readSquarePaymentSettled(pid);
+    if (!pay || pay.status !== "COMPLETED") {
+      throw new GameCardHttpError(
+        402,
+        "PAYMENT_UNVERIFIED",
+        "We couldn't confirm the reader payment. Please see the front desk (do not pay again).",
+      );
+    }
+    if (pay.orderId && pay.orderId !== ep.orderId) {
+      throw new GameCardHttpError(
+        402,
+        "PAYMENT_ORDER_MISMATCH",
+        "That payment doesn't match this order. Please see the front desk.",
+      );
+    }
+    if (pay.locationId && pay.locationId !== center.squareLocation) {
+      throw new GameCardHttpError(
+        402,
+        "PAYMENT_LOCATION_MISMATCH",
+        "Payment location mismatch. Please see the front desk.",
+      );
+    }
+    summedCents += pay.amountCents;
   }
-  if (pay.orderId && pay.orderId !== ep.orderId) {
-    throw new GameCardHttpError(
-      402,
-      "PAYMENT_ORDER_MISMATCH",
-      "That payment doesn't match this order. Please see the front desk.",
-    );
-  }
-  if (pay.amountCents !== expectedCents) {
+  if (summedCents !== expectedCents) {
     throw new GameCardHttpError(
       402,
       "PAYMENT_AMOUNT_MISMATCH",
       "The charged amount didn't match the order. Please see the front desk.",
-    );
-  }
-  if (pay.locationId && pay.locationId !== center.squareLocation) {
-    throw new GameCardHttpError(
-      402,
-      "PAYMENT_LOCATION_MISMATCH",
-      "Payment location mismatch. Please see the front desk.",
     );
   }
 

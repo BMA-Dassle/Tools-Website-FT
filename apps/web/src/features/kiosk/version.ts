@@ -46,6 +46,10 @@
  *         routed to Guest Services at SCAN time — validate is now issuer-
  *         routed like claims (validateAnyVoucher + test), so the receipt can
  *         no longer promise a card the dispenser will refuse.
+ * 1.11.1 — the gift-card option reaches STANDALONE Game Zone purchases too
+ *         (buy/reload cards with no booking): that rail now writes the shared
+ *         split anchor at prepare and its finalize verifies the gift-card +
+ *         tap payments as a sum. Same button, same flow, same screen.
  * 1.11.0 — pay with a GIFT CARD on every checkout (split-tender v1, "match
  *         web": one gift card + one reader tap). The pay screen gains an amber
  *         "Use a gift card" button → scan the QR / swipe / type the GAN →
@@ -413,7 +417,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.11.0";
+export const KIOSK_VERSION = "1.11.1";
 
 let bootVersion: string | null = null;
 let captured = false;
