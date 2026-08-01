@@ -497,7 +497,15 @@ export function KioskCategories({
                       weekday: `$${(combo.price.weekday / 100).toFixed(0)}`,
                       weekend: `$${(combo.price.weekend / 100).toFixed(0)}`,
                     })}
-                    firstOpen={locked ? undefined : offeringFirstOpen(combo.id)}
+                    // The availability compute keys the VIP pack by the WIRE key
+                    // "race-bowl" regardless of which pack entry is live (v1 or
+                    // the 7/31 race-bowl-v2), so look it up by that key — the
+                    // raw v2 id has no entry and silently dropped the line.
+                    firstOpen={
+                      locked
+                        ? undefined
+                        : offeringFirstOpen(isVipPack(combo.id) ? "race-bowl" : combo.id)
+                    }
                     disabled={locked}
                     disabledNote={t("categories.disabled.experience")}
                     onClick={() => onPickCombo(combo)}
