@@ -44,6 +44,7 @@ import ClickwrapCheckbox from "@/components/booking/ClickwrapCheckbox";
 import { LoyaltySection } from "./LoyaltySection";
 import { PromoCodeInput } from "./PromoCodeInput";
 import {
+  planVoucherCoverage,
   sessionVouchers,
   voucherDisplayName,
   voucherIsApplied,
@@ -361,6 +362,9 @@ export function CheckoutStep({
       // Step 2: Build combined review from all items with schedule info
       setPhase({ step: "booking", progress: "Calculating your total…" });
       const reviewLines: BillOverview["lines"] = [];
+      // BMI-side dollars covered by vouchers (attraction picks) — nets the
+      // display tax base below so shown tax === Square's tax on the reduced order.
+      let voucherBmiCoverage = 0;
 
       // Bowling line items — include bookedAt time. In combo mode the combo
       // line (inside bmiOverview, via buildRaceChargeLines) is the whole
@@ -511,6 +515,15 @@ export function CheckoutStep({
               amount: -vl.amount,
             });
           }
+          // BMI-side (attraction) value the vouchers cover — the display tax
+          // base drops it exactly like the Square order does (covered units
+          // never reach the order, so Square taxes only the remainder; a
+          // fully-covered cart displayed $1.56 tax it was never charged —
+          // owner repro 2026-07-31).
+          voucherBmiCoverage = planVoucherCoverage(session, base).picks.reduce(
+            (s, p) => s + (p.attractionUnitCents ?? 0) / 100,
+            0,
+          );
         } catch {
           /* voucher display is best-effort; the reserve verifies coverage */
         }
@@ -650,8 +663,15 @@ export function CheckoutStep({
       // charge (caught on the first Ultimate VIP booking: review $82.87,
       // charged $83.06 — the fee's tax). Bowling-only carts use the quoted
       // tax-inclusive total below instead; race-only carts add 0 here.
-      const nonBmiSubtotal = Math.max(0, preTaxSubtotal - (bmiOverview?.subtotal ?? 0));
-      const estTax = (bmiOverview?.tax ?? 0) + calculateTax(nonBmiSubtotal);
+      // Voucher coverage of BMI lines nets the taxable base FIRST — the Square
+      // order never carries the covered units, so its tax is on the remainder
+      // (a fully-covered cart is $0 + $0 tax; one voucher on a 2-unit line
+      // taxes one unit). Without vouchers this is byte-identical to before.
+      const bmiTaxableSubtotal = Math.max(0, (bmiOverview?.subtotal ?? 0) - voucherBmiCoverage);
+      const bmiTaxDisplay =
+        voucherBmiCoverage > 0 ? calculateTax(bmiTaxableSubtotal) : (bmiOverview?.tax ?? 0);
+      const nonBmiSubtotal = Math.max(0, preTaxSubtotal - bmiTaxableSubtotal);
+      const estTax = bmiTaxDisplay + calculateTax(nonBmiSubtotal);
       const rewardDiscount = rewardDiscountCents / 100;
       const grossTotal = quotedTotal ?? preTaxSubtotal + estTax;
       // The HeadPinz Rewards $-off reduces the charge, so the DISPLAYED Total

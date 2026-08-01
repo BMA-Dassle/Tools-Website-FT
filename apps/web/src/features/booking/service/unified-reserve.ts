@@ -494,7 +494,22 @@ function buildCombinedLineItems(session: BookingSession): {
     totalPriceCents += lineTotal;
     totalDepositCents += lineTotal; // 100% deposit for attractions
     promoSavingsCents += (fullUnitCents - unitCents) * chargedQty;
-    if (chargedQty === 0) continue; // fully voucher-covered — no Square line
+    // Fully voucher-covered: keep the line at $0 (original qty) instead of
+    // dropping it — a cart covered entirely by vouchers used to build ZERO
+    // Square lines and die on the "No line items to charge" guard (live
+    // 2026-07-31, two gel covers). The $0 line keeps the day-of order real
+    // (desk/KDS see what was booked), taxes $0, and charges nothing — same
+    // convention as the combo's $0 inclusions and the credit-order lines.
+    if (chargedQty === 0) {
+      sqLineItems.push({
+        name: attr.slug ?? "Attraction",
+        quantity: String(attr.qty),
+        ...(catalogId
+          ? { catalogObjectId: catalogId, basePriceMoney: { amount: 0, currency: "USD" } }
+          : { basePriceMoney: { amount: 0, currency: "USD" } }),
+      });
+      continue;
+    }
 
     sqLineItems.push({
       name: attr.slug ?? "Attraction",

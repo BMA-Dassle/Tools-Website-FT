@@ -436,7 +436,14 @@ export function KioskFlow({
     // dead one (live-probed 2026-07-27), so applied vouchers must chase the
     // session's current bill or the reserve drops them. One voucher per pass;
     // the dispatch re-runs the effect until every voucher is settled.
-    const next = appliedVouchers.find((v) => v.pending || (!v.error && v.billId !== voucherBillId));
+    // NATIVE (HPW) legs never chase: they have no BMI bill by design (priced
+    // by the coverage plan, claimed at charge). Chasing one POSTed the HPW
+    // code to BMI's applyCode, which rejected it and stamped a phantom
+    // errored entry on the code — the red "couldn't apply" line under a cart
+    // the voucher WAS covering (owner repro 2026-07-31).
+    const next = appliedVouchers.find(
+      (v) => v.issuer !== "native" && (v.pending || (!v.error && v.billId !== voucherBillId)),
+    );
     if (!next) return;
     if (voucherApplyBusy.current) return;
     voucherApplyBusy.current = true;
