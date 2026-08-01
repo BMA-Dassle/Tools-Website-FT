@@ -421,4 +421,16 @@ describe("applyVoucher — native multi-item keying", () => {
     s = reducer(s, { type: "removeVoucher", code: "HPWAAAAAAAA" });
     expect(s.appliedVouchers ?? []).toHaveLength(0);
   });
+
+  it("removeVoucher with itemIndex drops ONLY that leg (kiosk per-leg ✕)", () => {
+    let s = seedSession();
+    s = reducer(s, { type: "applyVoucher", voucher: { code: "HPWAAAAAAAA", issuer: "native", itemIndex: 0 } });
+    s = reducer(s, { type: "applyVoucher", voucher: { code: "HPWAAAAAAAA", issuer: "native", itemIndex: 1 } });
+    s = reducer(s, { type: "applyVoucher", voucher: { code: "HPWBBBBBBBB", issuer: "native", itemIndex: 0 } });
+    s = reducer(s, { type: "removeVoucher", code: "HPWAAAAAAAA", itemIndex: 1 });
+    expect(s.appliedVouchers).toHaveLength(2);
+    expect(s.appliedVouchers?.some((v) => v.code === "HPWAAAAAAAA" && v.itemIndex === 0)).toBe(true);
+    expect(s.appliedVouchers?.some((v) => v.code === "HPWAAAAAAAA" && v.itemIndex === 1)).toBe(false);
+    expect(s.appliedVouchers?.some((v) => v.code === "HPWBBBBBBBB")).toBe(true);
+  });
 });

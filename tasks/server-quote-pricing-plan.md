@@ -57,7 +57,15 @@ interface PricedLine {
   packs, vouchers partial/full, duckpin/bowling mixed, promos) asserts old
   totals == new totals. This PR ships only when parity is exact.
 
-**PR B — quote endpoint + display rendered from it.**
+**PR B — quote endpoint + display rendered from it. [DONE 2026-08-01, preview]**
+Implementation notes: labels are DISTINCT per owner ("Labels is fine") —
+"Credit" / "Race Pack" / "Voucher …Z4SX" / "Included", per-code on both race
+and attraction picks. Quote skips bowling-only AND any KBF-containing cart
+(the unified builder doesn't price KBF extras). A failed fetch CLEARS the
+quote (client estimate takes over — never a stale coverage state). The legacy
+$0 credit rail still books from the client credit-adjusted lines (it matches
+by bmiProductId; $0 both ways so no drift class). GZ card lines + loyalty
+reward layer back on top from the client base.
 - `POST /api/booking/v2/quote {session}` → pricedSession result. NO side
   effects (no Square order, no claims, no Redis writes), no external calls
   (prices come from the session's own items — same inputs reserve uses),
@@ -72,11 +80,15 @@ interface PricedLine {
   "3 vouchers / only 1 used" copy bug is fixed here for free.
 - Kill switch only (house rule): `NEXT_PUBLIC_SERVER_QUOTE !== "false"`.
 
-**PR C — the gate trusts the quote + kiosk voucher UX.**
-- Kiosk terminal gate's `depositCentsExpected` = the quote's depositCents →
-  drift ≈ 0 by construction; the $25 backstop stays as a tripwire and the new
-  telemetry keeps logging shown/computed per prepare.
-- "Your codes" per-LEG ✕ (today removing one leg removes the whole code).
+**PR C — the gate trusts the quote + kiosk voucher UX. [DONE 2026-08-01, preview]**
+- Kiosk terminal gate's `depositCentsExpected` = the quote → drift ≈ 0 by
+  construction; the $25 backstop stays as a tripwire and the telemetry keeps
+  logging shown/computed per prepare. ACHIEVED STRUCTURALLY by PR B: the gate
+  reads `overview.cashOwed` from the paying phase, and handleConfirm passes
+  the quote-derived overview into it — no separate gate change needed.
+- "Your codes" per-LEG ✕: DONE — `removeVoucher` action takes an optional
+  `itemIndex` (native legs only; BMI rows still unwind the whole code since
+  their comp line lives on the bill). A re-scan restores a mis-tapped leg.
 
 ## Explicitly unchanged
 

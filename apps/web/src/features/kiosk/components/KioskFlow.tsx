@@ -1868,15 +1868,25 @@ export function KioskFlow({
         }}
         // The receipt's "On your order" section renders from session truth
         // (BMI + native legs) so it survives remounts — ERRORED entries too
-        // (the receipt is now the only place a bad code is visible). Remove
-        // unwinds the whole code via clearVoucher (BMI line + session legs).
+        // (the receipt is now the only place a bad code is visible). A native
+        // leg's ✕ removes ONLY that leg (PR C — the code's other legs stay;
+        // a re-scan restores it); BMI rows unwind the whole code via
+        // clearVoucher (their comp line lives on the bill).
         appliedCartVouchers={appliedVouchers.map((v) => ({
           code: v.code,
           label: voucherDisplayName(v.name),
           error: v.error ?? null,
+          itemIndex: v.issuer === "native" && typeof v.itemIndex === "number" ? v.itemIndex : null,
         }))}
-        onCartVoucherRemove={(code) => {
-          console.log(`[kiosk] order voucher removed from receipt: ${code}`);
+        onCartVoucherRemove={(code, itemIndex) => {
+          console.log(
+            `[kiosk] order voucher removed from receipt: ${code}${itemIndex != null ? ` leg#${itemIndex}` : ""}`,
+          );
+          if (itemIndex != null) {
+            clarityEvent("kiosk:voucher:cleared");
+            dispatch({ type: "removeVoucher", code, itemIndex });
+            return;
+          }
           const v = appliedVouchers.find((x) => x.code === code);
           if (v) clearVoucher(v); // clearVoucher logs kiosk:voucher:cleared
         }}

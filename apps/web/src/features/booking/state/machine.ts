@@ -98,7 +98,9 @@ export type Action =
    */
   | { type: "applyPromo"; promo: AppliedPromo | null }
   | { type: "applyVoucher"; voucher: AppliedVoucherState }
-  | { type: "removeVoucher"; code: string }
+  /** No itemIndex = drop every leg of the code; with itemIndex = drop ONE
+   *  native leg (kiosk per-leg ✕) and leave the code's other legs applied. */
+  | { type: "removeVoucher"; code: string; itemIndex?: number }
   /**
    * Stamp (or clear) the session's combo-special id. Intended to fire ONCE
    * at session creation by the /book/combo/[id]/v2 entry seeding — same
@@ -371,7 +373,11 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
     case "removeVoucher":
       return {
         ...state,
-        appliedVouchers: (state.appliedVouchers ?? []).filter((v) => v.code !== action.code),
+        appliedVouchers: (state.appliedVouchers ?? []).filter(
+          (v) =>
+            v.code !== action.code ||
+            (action.itemIndex != null && v.itemIndex !== action.itemIndex),
+        ),
       };
 
     case "setComboSpecial": {

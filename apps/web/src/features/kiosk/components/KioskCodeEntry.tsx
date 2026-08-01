@@ -158,9 +158,15 @@ export function KioskCodeEntry({
    *  the receipt's "On your order" section renders from session truth.
    *  ERRORED vouchers ride along too: with the old voucher sheet gone, this
    *  is where a guest learns a code needs help. */
-  appliedCartVouchers?: { code: string; label: string; error?: string | null }[];
+  appliedCartVouchers?: {
+    code: string;
+    label: string;
+    error?: string | null;
+    /** Native leg's item index — set = this row's ✕ removes ONE leg. */
+    itemIndex?: number | null;
+  }[];
   /** Remove an on-order voucher (whole code) — parent unwinds BMI/session. */
-  onCartVoucherRemove?: (code: string) => void;
+  onCartVoucherRemove?: (code: string, itemIndex?: number | null) => void;
   /** The session promo — rendered INLINE on the receipt; a promo scanned while
    *  the receipt is up must never replace it. */
   appliedPromo?: AppliedPromo | null;
@@ -570,8 +576,8 @@ export function KioskCodeEntry({
         onGzCardRemove?.(code);
         processedNativeRef.current.delete(code);
       };
-      const removeCartVoucher = (code: string) => {
-        onCartVoucherRemove?.(code);
+      const removeCartVoucher = (code: string, itemIndex?: number | null) => {
+        onCartVoucherRemove?.(code, itemIndex);
         processedNativeRef.current.delete(code);
       };
       const totalTokens = gzCards.reduce((sum, c) => sum + c.tokens, 0);
@@ -696,7 +702,7 @@ export function KioskCodeEntry({
                         </span>
                         <button
                           type="button"
-                          onClick={() => removeCartVoucher(v.code)}
+                          onClick={() => removeCartVoucher(v.code, v.itemIndex)}
                           aria-label={t("promo.banner.clear")}
                           className="k-tap px-[8px] text-[28px] leading-none text-white/40"
                         >
