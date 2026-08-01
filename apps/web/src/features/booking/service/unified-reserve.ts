@@ -175,6 +175,10 @@ export interface UnifiedReserveInput {
    * tasks/kiosk-terminal-charge.md.
    */
   externalPayment?: ExternalTerminalPayment;
+  /** What the review screen SHOWED (kiosk gate) — diagnostics only, never
+   *  pricing: logged against the server-computed deposit with a per-line
+   *  breakdown so a drift abort is diagnosable from server logs. */
+  expectedCents?: number;
 }
 
 /** Result of prepareUnifiedDeposit — the deposit order the reader must pay. */
@@ -1655,9 +1659,26 @@ async function unifiedReserveInner(
           };
         }
       }
-      console.log(
-        `[kiosk-terminal] PREPARE dayofTotalCents=${dayofTotalCents} depositPct=${depositPct} → depositCents=${depositCents} gzCents=${gzCents} loc=${locationId} seed=${seedSource ?? baseKey}`,
-      );
+      {
+        const expected = input.expectedCents;
+        const drift = typeof expected === "number" ? depositCents - expected : null;
+        console.log(
+          `[kiosk-terminal] PREPARE dayofTotalCents=${dayofTotalCents} depositPct=${depositPct} → depositCents=${depositCents} gzCents=${gzCents} loc=${locationId} seed=${seedSource ?? baseKey}` +
+            (drift != null ? ` shown=${expected} drift=${drift}` : ""),
+        );
+        // Per-line breakdown whenever the shown total disagrees beyond tax
+        // rounding — the exact data every drift incident has been missing
+        // (owner 2026-07-31: "need full logging of all this").
+        if (drift != null && Math.abs(drift) > 100) {
+          console.warn(
+            `[kiosk-terminal] PREPARE DRIFT ${drift}¢ — lines: ` +
+              sqLineItems
+                .map((l) => `[${l.name}|q${l.quantity}|${l.basePriceMoney ? l.basePriceMoney.amount + "¢" : "catalog"}]`)
+                .join(" ") +
+              ` packs=${kioskPacks.length} packCoveredHeats=${packCoverage.heats.size}`,
+          );
+        }
+      }
       // Game Zone cards: persist one ledger row per card BEFORE the order exists
       // (persist-first — every card durable before any money moves), and stash
       // the row pointers on the anchor so finalize can mark them charged.

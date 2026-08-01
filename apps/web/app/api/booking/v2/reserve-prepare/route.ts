@@ -25,6 +25,8 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as {
       session: BookingSession;
       contact: ContactInfo;
+      /** What the review screen showed — logged against the server total. */
+      expectedCents?: number;
     };
 
     if (!body.session?.items?.length) {
@@ -37,6 +39,7 @@ export async function POST(req: NextRequest) {
     const result = await prepareUnifiedDeposit({
       session: body.session,
       contact: body.contact,
+      expectedCents: typeof body.expectedCents === "number" ? body.expectedCents : undefined,
     });
 
     return NextResponse.json(result);

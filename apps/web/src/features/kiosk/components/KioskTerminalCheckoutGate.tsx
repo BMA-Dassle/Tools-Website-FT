@@ -118,6 +118,10 @@ export function KioskTerminalCheckoutGate({
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
+            // What the REVIEW screen showed — server logs shown-vs-computed
+            // with a per-line breakdown, so a drift abort is diagnosable from
+            // Vercel logs instead of a kiosk screenshot (owner 2026-07-31).
+            expectedCents: depositCentsExpected,
             session,
             contact: {
               firstName: contact.firstName,
