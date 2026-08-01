@@ -38,7 +38,12 @@ import { KioskBookingAsCard } from "./KioskBookingAsCard";
 import { KioskRewardsSection } from "./KioskRewardsSection";
 import { BrandLogo } from "./BrandLogo";
 import { useT } from "../i18n";
-import { voucherDisplayName } from "~/features/booking/service/voucher-redeem";
+import {
+  planVoucherCoverage,
+  voucherDisplayName,
+  voucherIsApplied,
+} from "~/features/booking/service/voucher-redeem";
+import { redeemedHeatSet } from "~/features/booking/data/race-credits";
 
 export function KioskCheckoutScreen({
   session,
@@ -114,8 +119,23 @@ export function KioskCheckoutScreen({
   // BMI vouchers — same with-vs-without differencing (the estimate builders
   // already exclude the plan's covered heats/units).
   const vouchers = session.appliedVouchers ?? [];
-  const appliedCount = vouchers.filter((v) => !v.pending && !v.error).length;
   const erroredVouchers = vouchers.filter((v) => v.error);
+  // Count legs the coverage plan actually ALLOCATES — "3 vouchers cover
+  // $12.00" with one gel in the cart read as nonsense (owner 2026-07-31).
+  // Same plan the charge uses (picks align positionally with the applied
+  // list); a leg matching nothing here (the VIP Shuffly hour on a gel cart)
+  // stays out of the count AND stays unclaimed at checkout.
+  const allocatedVouchers = (() => {
+    try {
+      const applied = vouchers.filter(voucherIsApplied);
+      if (applied.length === 0) return [];
+      const plan = planVoucherCoverage(session, redeemedHeatSet(session));
+      return plan.picks.flatMap((p, i) => (p.raceHeat || p.attractionItemId ? [applied[i]] : []));
+    } catch {
+      return vouchers.filter((v) => !v.pending && !v.error);
+    }
+  })();
+  const appliedCount = allocatedVouchers.length;
   const voucherSavings = (() => {
     if (appliedCount === 0) return 0;
     const bare = { ...session, appliedVouchers: [] };
@@ -124,9 +144,7 @@ export function KioskCheckoutScreen({
     return Math.max(0, Math.round((without - withV) * 100) / 100);
   })();
   const voucherLabel =
-    appliedCount === 1
-      ? voucherDisplayName(vouchers.find((v) => !v.pending && !v.error)?.name)
-      : String(appliedCount);
+    appliedCount === 1 ? voucherDisplayName(allocatedVouchers[0]?.name) : String(appliedCount);
 
   const itemsReady = items.length > 0 && allItemsReady(session);
   const contactOk = contactIsComplete(session.contact);
