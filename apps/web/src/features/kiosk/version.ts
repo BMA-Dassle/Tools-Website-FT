@@ -15,6 +15,11 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.11.3 — the Ultimate VIP tile's "Next available · TIME · N slots" line is
+ *         back: the 7/31 V2 cutover changed the combo id to race-bowl-v2, but
+ *         the availability payload keys the VIP pack by the stable wire key
+ *         "race-bowl" — the tile now looks it up by that key (any race-bowl*
+ *         pack), so the line survives future pack revisions too.
  * 1.10.14 — the coupon/voucher module unified onto ONE screen (owner live
  *         walk-through: "make this all make sense"). "Your codes" is now the
  *         single hub — coupons, BMI vouchers, our vouchers and comp game
@@ -418,7 +423,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.11.2";
+export const KIOSK_VERSION = "1.11.3";
 
 let bootVersion: string | null = null;
 let captured = false;
