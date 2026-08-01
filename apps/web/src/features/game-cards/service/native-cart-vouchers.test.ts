@@ -101,6 +101,59 @@ describe("claimNativeCartVouchers", () => {
     if (!res.ok) expect(res.conflictCode).toBe(laser.code);
     expect(calls).toContain("release:" + race.code); // rolled back
   });
+
+  it("falls over to an equivalent SUBSTITUTE leg when the named leg is spent", async () => {
+    // The session names leg 1 (spent by an earlier checkout) but leg 3 — same
+    // code, same coverage — is unallocated and unspent (owner repro
+    // 2026-08-01, W56657): the claim must spend leg 3, not fail the booking.
+    const { svc, claims } = await mods();
+    const leg1 = { code: "HPWZ96RZ4SX", itemIndex: 1, name: "Laser Tag or Gel Blaster" };
+    const leg3 = { code: "HPWZ96RZ4SX", itemIndex: 3, name: "Laser Tag or Gel Blaster" };
+    (claims.claimVoucher as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: false, reason: "already_claimed" }) // leg 1 → spent
+      .mockResolvedValueOnce({ ok: true, claim: {} }); // leg 3 → ours
+    (claims.getClaimsByCode as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { code: leg1.code, itemIndex: 1, status: "spent", txnId: "cart-SOMEONE-ELSE" },
+    ]);
+
+    const res = await svc.claimNativeCartVouchers({
+      vouchers: [leg1],
+      baseKey: BASE,
+      locationCode: 12,
+      substitutes: new Map([[`${leg1.code}:1`, [leg3]]]),
+    });
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.claimed).toHaveLength(1);
+      expect(res.claimed[0].itemIndex).toBe(3); // the twin, not the spent leg
+    }
+    expect(claims.claimVoucher).toHaveBeenLastCalledWith(
+      expect.objectContaining({ itemIndex: 3, txnId: `cart-${BASE}-${leg3.code}-3` }),
+    );
+  });
+
+  it("still hard-fails when the substitute is spent too", async () => {
+    const { svc, claims } = await mods();
+    const leg1 = { code: "HPWZ96RZ4SX", itemIndex: 1, name: "Laser Tag or Gel Blaster" };
+    const leg3 = { code: "HPWZ96RZ4SX", itemIndex: 3, name: "Laser Tag or Gel Blaster" };
+    (claims.claimVoucher as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: false,
+      reason: "already_claimed",
+    });
+    (claims.getClaimsByCode as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { code: leg1.code, itemIndex: 1, status: "spent", txnId: "cart-SOMEONE-ELSE" },
+      { code: leg1.code, itemIndex: 3, status: "spent", txnId: "cart-SOMEONE-ELSE-2" },
+    ]);
+
+    const res = await svc.claimNativeCartVouchers({
+      vouchers: [leg1],
+      baseKey: BASE,
+      locationCode: 12,
+      substitutes: new Map([[`${leg1.code}:1`, [leg3]]]),
+    });
+    expect(res.ok).toBe(false);
+  });
 });
 
 describe("releaseNativeCartVouchers", () => {

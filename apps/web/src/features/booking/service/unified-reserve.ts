@@ -1312,12 +1312,35 @@ async function unifiedReserveInner(
         allocatedIdx.has(i) && v.issuer === "native" && typeof v.itemIndex === "number",
     )
     .map(({ v }) => ({ code: v.code, itemIndex: v.itemIndex as number, name: v.name }));
+  // Fall-over substitutes: a stale session can name a leg another checkout
+  // has since SPENT while an identical leg of the same code sits unallocated
+  // (leg 1 vs leg 3 "Laser Tag or Gel Blaster" — owner repro 2026-08-01: the
+  // 00:25 booking W56657 spent leg 1, the 00:29 cart still named it and
+  // hard-failed with a twin available). Same code + same coverage NAME means
+  // the priced coverage is identical, so the claim may spend the twin instead.
+  const claimSubstitutes = new Map<string, NativeCartVoucherRef[]>();
+  for (const ref of nativeVoucherRefs) {
+    const subs = appliedForClaims
+      .map((v, i) => ({ v, i }))
+      .filter(
+        ({ v, i }) =>
+          !allocatedIdx.has(i) &&
+          v.issuer === "native" &&
+          typeof v.itemIndex === "number" &&
+          v.code === ref.code &&
+          v.itemIndex !== ref.itemIndex &&
+          (v.name ?? "") === (ref.name ?? ""),
+      )
+      .map(({ v }) => ({ code: v.code, itemIndex: v.itemIndex as number, name: v.name }));
+    if (subs.length > 0) claimSubstitutes.set(`${ref.code}:${ref.itemIndex}`, subs);
+  }
   let nativeClaimed: NativeCartVoucherRef[] = [];
   if (nativeVoucherRefs.length > 0) {
     const claimRes = await claimNativeCartVouchers({
       vouchers: nativeVoucherRefs,
       baseKey,
       locationCode: 0, // audit-only for cart vouchers (no Intercard leg)
+      substitutes: claimSubstitutes,
     });
     if (!claimRes.ok) throw new VoucherNotVerifiedError(claimRes.conflictCode);
     nativeClaimed = claimRes.claimed;

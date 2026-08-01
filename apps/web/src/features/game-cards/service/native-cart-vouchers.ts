@@ -56,9 +56,15 @@ export async function claimNativeCartVouchers(args: {
   vouchers: NativeCartVoucherRef[];
   baseKey: string;
   locationCode: number;
+  /** Per-ref equivalent legs (same code, IDENTICAL coverage name) the plan did
+   *  NOT allocate, keyed `${code}:${itemIndex}`. A stale session can carry a
+   *  leg another checkout has since spent while its twin sits unspent (leg 1
+   *  vs leg 3 on the V2 voucher — owner repro 2026-08-01, W56657): the claim
+   *  falls over to the twin instead of hard-failing the booking. */
+  substitutes?: Map<string, NativeCartVoucherRef[]>;
 }): Promise<NativeCartClaimResult> {
   const claimed: NativeCartVoucherRef[] = [];
-  for (const v of args.vouchers) {
+  const claimOne = async (v: NativeCartVoucherRef): Promise<boolean> => {
     const txnId = cartTxnId(args.baseKey, v.code, v.itemIndex);
     const res = await claimVoucher({
       code: v.code,
@@ -70,16 +76,33 @@ export async function claimNativeCartVouchers(args: {
       locationCode: args.locationCode,
       clientKey: null,
     });
-    if (res.ok) {
-      claimed.push(v);
-      continue;
-    }
     // Conflict: either a stale claim from THIS reserve (idempotent retry → OK)
-    // or a genuine double-spend by another checkout (→ hard fail).
-    if (await alreadyOurs(v, txnId)) {
+    // or a genuine double-spend by another checkout (→ caller decides).
+    return res.ok || (await alreadyOurs(v, txnId));
+  };
+  for (const v of args.vouchers) {
+    if (await claimOne(v)) {
       claimed.push(v);
       continue;
     }
+    // The named leg is gone — try each equivalent unallocated twin before
+    // failing. Same code + same coverage name, so the priced coverage is
+    // byte-identical; only WHICH ledger row gets spent changes.
+    const subs = (args.substitutes?.get(`${v.code}:${v.itemIndex}`) ?? []).filter(
+      (s) => !claimed.some((c) => c.code === s.code && c.itemIndex === s.itemIndex),
+    );
+    let substituted = false;
+    for (const sub of subs) {
+      if (await claimOne(sub)) {
+        console.log(
+          `[native-cart-vouchers] leg ${v.itemIndex} of ${v.code} already spent — substituted equivalent leg ${sub.itemIndex}`,
+        );
+        claimed.push(sub);
+        substituted = true;
+        break;
+      }
+    }
+    if (substituted) continue;
     // Release what we took before bailing — never leave a half-claimed voucher.
     await releaseNativeCartVouchers({ vouchers: claimed, baseKey: args.baseKey }).catch(() => {});
     return { ok: false, conflictCode: v.code };
