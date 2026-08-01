@@ -1838,6 +1838,13 @@ export function KioskFlow({
           // itemIndex). issuer:'native' means it's covered on OUR side and
           // claimed at charge — no BMI bill, no pending apply. `name` is the
           // coverage label the reserve's voucherTarget() reads.
+          //
+          // REPLACE, don't merge: validate returns the code's UNSPENT items
+          // only, so dropping the code's old legs first makes a re-scan
+          // reconcile the session to server truth — a leg spent since the
+          // first scan disappears instead of riding to checkout and
+          // conflict-failing the reserve (owner repro 2026-07-31).
+          dispatch({ type: "removeVoucher", code });
           for (const it of items) {
             dispatch({
               type: "applyVoucher",

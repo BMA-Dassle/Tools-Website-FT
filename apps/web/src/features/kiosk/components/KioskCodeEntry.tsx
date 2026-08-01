@@ -353,12 +353,12 @@ export function KioskCodeEntry({
       // the guest is told "we couldn't find that code" for a good voucher.
       if (kind === "native-voucher") {
         clarityEvent("kiosk:voucher:native");
-        // A re-scan of the same code adds nothing (reducer is idempotent; the
-        // basket already holds it) — tell the guest rather than double-listing.
-        if (processedNativeRef.current.has(code)) {
-          setError(t("codeEntry.err.duplicate"));
-          return;
-        }
+        // A re-scan is a REFRESH, not an error (owner 2026-07-31: a leg
+        // redeemed earlier "is still there when I go back and put in voucher
+        // again"). Validation returns only UNSPENT items and the flow's
+        // onNativeCartItems REPLACES the code's legs, so a stale session
+        // reconciles to server truth instead of showing spent legs forever.
+        // (pending gz cards dedupe by code, so gz legs never double-list.)
         checkingRef.current = true;
         setChecking(true);
         try {
