@@ -32,6 +32,12 @@ import { applyPromoToAmount } from "~/features/booking/service/promo-pricing";
 import { calculateTax } from "~/features/booking/service/race-pricing";
 import { activeComboSpecial } from "~/features/combos/combo-pricing";
 import {
+  fetchServerQuote,
+  overviewFromServerQuote,
+  serverQuoteEnabled,
+  type ServerQuote,
+} from "~/features/booking/service/server-quote";
+import {
   KBF_GAMES_PER_SESSION,
   kbfAdultGamesTotalCents,
   kbfVipUpchargeTotalCents,
@@ -331,6 +337,48 @@ export function CheckoutStep({
     );
   });
 
+  // Bowling/KBF-only carts keep their existing tax-inclusive Square quote
+  // (/api/square/bowling-orders/quote); the unified server quote below covers
+  // everything else. KBF-containing MIXED carts are excluded too: the unified
+  // builder doesn't price the KBF extras (VIP lane / adult games) the client
+  // adds, so the client estimate stays authoritative for those.
+  const bowlingOnlyCart = session.items.every((i) => i.kind === "bowling" || i.kind === "kbf");
+  const cartHasKbf = session.items.some((i) => i.kind === "kbf");
+
+  // ── Server-authoritative review pricing (PR B, server-quote-pricing-plan) ──
+  // On review entry — and again whenever coverage changes (credit toggle,
+  // voucher add/remove, promo) — POST the exact session the reserve will
+  // price and render the returned lines verbatim: covered units as their own
+  // $0 tagged lines ("Credit" / "Race Pack" / "Voucher …Z4SX"), tax on the
+  // charged subtotal only. Debounced; a failed fetch clears the quote so the
+  // client estimate (the pre-PR-B display) takes over.
+  const [serverQuote, setServerQuote] = useState<ServerQuote | null>(null);
+  const quoteSeq = useRef(0);
+  const quoteKey =
+    phase.step === "review" && !bowlingOnlyCart && !cartHasKbf && serverQuoteEnabled()
+      ? JSON.stringify([
+          creditChoices,
+          sessionVouchers(session).map((v) => [v.code, v.itemIndex, !!v.pending, !!v.error]),
+          session.appliedPromo?.code ?? null,
+        ])
+      : null;
+  useEffect(() => {
+    if (quoteKey === null) {
+      setServerQuote(null);
+      return;
+    }
+    const seq = ++quoteSeq.current;
+    const t = setTimeout(() => {
+      void fetchServerQuote(sessionForReserve).then((q) => {
+        // Stale responses lose; a null (failed) fetch clears the quote rather
+        // than leaving a previous coverage state on screen.
+        if (quoteSeq.current === seq) setServerQuote(q);
+      });
+    }, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on quoteKey (the coverage inputs); sessionForReserve is rebuilt every render from the same inputs
+  }, [quoteKey]);
+
   const isValidContact =
     firstName.trim().length > 0 &&
     lastName.trim().length > 0 &&
@@ -587,7 +635,6 @@ export function CheckoutStep({
       // Only for a bowling/KBF-only cart — that's the path that reuses the quoted
       // day-of order (bowlingReserve). A mixed cart (KBF + race) settles via the
       // unified reserve, so don't override its total with the bowling-only quote.
-      const bowlingOnlyCart = session.items.every((i) => i.kind === "bowling" || i.kind === "kbf");
       if (bowlingOnlyCart) {
         const bowlingItems = session.items.filter(
           (i): i is BowlingItem | KbfItem => i.kind === "bowling" || i.kind === "kbf",
@@ -799,7 +846,11 @@ export function CheckoutStep({
           await reserveBooking({
             session: reserveSession,
             bmiBillId,
-            overview,
+            // The legacy credit rail builds its $0 cart from these lines and
+            // matches them by bmiProductId — always the CLIENT credit-adjusted
+            // overview, never the server quote's product-grouped lines (the
+            // total is $0 either way, so display and charge can't drift here).
+            overview: applyCreditRedemptionsToOverview(reviewOverview, reserveSession),
             contact,
           });
         }
@@ -1111,7 +1162,14 @@ export function CheckoutStep({
     // Recompute the displayed charge with any per-racer credit redemptions applied
     // (redeemed race lines → $0). The SAME overview is sent to the reserve call,
     // so the displayed price always equals what's charged.
-    const overview = applyCreditRedemptionsToOverview(baseOverview, sessionForReserve);
+    // SERVER QUOTE (PR B): when the quote is in, the bill renders ITS lines —
+    // the exact ones the reserve will charge, covered units as $0 tagged
+    // lines — instead of the client estimate. The estimate stays as the
+    // fallback (quote unreachable / bowling-only / KBF carts).
+    const clientOverview = applyCreditRedemptionsToOverview(baseOverview, sessionForReserve);
+    const overview = serverQuote
+      ? overviewFromServerQuote(serverQuote, sessionForReserve, baseOverview)
+      : clientOverview;
     // Build a heatId -> [racer names] map from session.items so we can
     // append "— Alex, Sarah" to each race line in the review pane.
     // Without this the cart shows just "Starter Race Red x 1" with no
@@ -1282,13 +1340,15 @@ export function CheckoutStep({
                     ${line.originalAmount.toFixed(2)}
                   </span>
                 )}
-                {/* amount < 0 = a deduction line (pack coverage) — show the signed
-                    dollars; exactly $0 = a credit-redeemed heat, labeled "Credit". */}
+                {/* amount < 0 = a deduction line (pack coverage, client-estimate
+                    fallback only) — show the signed dollars; exactly $0 = a
+                    covered line, tagged with WHY from the server quote
+                    ("Credit" / "Race Pack" / "Voucher …Z4SX" / "Included"). */}
                 {line.amount > 0
                   ? `$${line.amount.toFixed(2)}`
                   : line.amount < 0
                     ? `-$${Math.abs(line.amount).toFixed(2)}`
-                    : "Credit"}
+                    : (line.coverageLabel ?? "Credit")}
               </span>
             </div>
           ))}

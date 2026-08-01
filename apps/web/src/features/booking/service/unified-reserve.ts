@@ -541,26 +541,47 @@ export function buildCombinedLineItems(session: BookingSession): {
 
   // COVERED race heats — each set becomes its own $0 line group, named by the
   // heat's product, tagged with why. This is the per-line "Credit" model the
-  // owner asked for; the negative aggregates die in PR B.
+  // owner asked for; the negative aggregates die in PR B. Voucher tags carry
+  // the covering code's tail ("Voucher …Z4SX") — owner approved distinct
+  // labels 2026-08-01 — so heats covered by different codes group separately.
   {
-    const covered: Array<{ set: ReadonlySet<RaceHeatAssignment>; kind: "race-credit" | "race-pack" | "voucher"; label: string }> = [
-      { set: redeemedHeats, kind: "race-credit", label: "Credit" },
-      { set: packCoverage.heats, kind: "race-pack", label: "Race Pack" },
-      { set: voucherPlan?.raceHeats ?? new Set(), kind: "voucher", label: "Voucher" },
+    const voucherCodeByHeat = new Map<RaceHeatAssignment, string>();
+    for (const p of voucherPlan?.picks ?? []) {
+      if (p.raceHeat) voucherCodeByHeat.set(p.raceHeat, p.code);
+    }
+    const covered: Array<{
+      set: ReadonlySet<RaceHeatAssignment>;
+      kind: "race-credit" | "race-pack" | "voucher";
+      labelFor: (h: RaceHeatAssignment) => string;
+    }> = [
+      { set: redeemedHeats, kind: "race-credit", labelFor: () => "Credit" },
+      { set: packCoverage.heats, kind: "race-pack", labelFor: () => "Race Pack" },
+      {
+        set: voucherPlan?.raceHeats ?? new Set(),
+        kind: "voucher",
+        labelFor: (h) => {
+          const code = voucherCodeByHeat.get(h);
+          return code ? `Voucher …${code.slice(-4)}` : "Voucher";
+        },
+      },
     ];
-    for (const { set, kind, label } of covered) {
-      const byName = new Map<string, number>();
+    for (const { set, kind, labelFor } of covered) {
+      const groups = new Map<string, { name: string; label: string; qty: number }>();
       for (const item of session.items) {
         if (item.kind !== "race") continue;
         for (const h of item.heats) {
           if (!set.has(h)) continue;
           const pid = h.productId ?? (h.category === "junior" ? item.productIdJunior : item.productIdAdult);
           const name = (pid ? getRaceProductById(pid)?.name : null) ?? "Race";
-          byName.set(name, (byName.get(name) ?? 0) + 1);
+          const label = labelFor(h);
+          const key = `${name}::${label}`;
+          const g = groups.get(key) ?? { name, label, qty: 0 };
+          g.qty += 1;
+          groups.set(key, g);
         }
       }
-      for (const [name, qty] of byName) {
-        pricedLines.push({ name, quantity: qty, unitCents: 0, coverage: { kind, label } });
+      for (const g of groups.values()) {
+        pricedLines.push({ name: g.name, quantity: g.qty, unitCents: 0, coverage: { kind, label: g.label } });
       }
     }
   }
@@ -571,6 +592,20 @@ export function buildCombinedLineItems(session: BookingSession): {
   // counterpart; BMI nets at processing). Combo carts skip coverage (flat
   // pricing) — same rule as the race rail. voucherAttractionCoverage computes
   // the identical discounted unit the display subtracts.
+  // Per-attraction covering codes (attr item id → code → units) so the $0
+  // covered lines carry "Voucher …Z4SX" tags, one line per covering code.
+  const attrCoverCodes = new Map<string, Map<string, number>>();
+  for (const p of voucherPlan?.picks ?? []) {
+    if (!p.attractionItemId) continue;
+    const m = attrCoverCodes.get(p.attractionItemId) ?? new Map<string, number>();
+    m.set(p.code, (m.get(p.code) ?? 0) + 1);
+    attrCoverCodes.set(p.attractionItemId, m);
+  }
+  // "gel-blaster" → "Gel Blaster" for guest-facing priced lines (the Square
+  // wire line keeps the raw slug — unchanged).
+  const prettySlug = (s: string | null): string | null =>
+    s ? s.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : null;
+
   for (const item of session.items) {
     if (item.kind !== "attraction") continue;
     const attr = item as AttractionItem;
@@ -596,14 +631,32 @@ export function buildCombinedLineItems(session: BookingSession): {
     // 2026-07-31, two gel covers). The $0 line keeps the day-of order real
     // (desk/KDS see what was booked), taxes $0, and charges nothing — same
     // convention as the combo's $0 inclusions and the credit-order lines.
-    // Covered units — their own $0 line, voucher-tagged (per-line Credit model).
+    // Covered units — their own $0 line per covering CODE, voucher-tagged
+    // (per-line Credit model, "Voucher …Z4SX").
     if (coveredUnits > 0) {
-      pricedLines.push({
-        name: attr.slug ?? "Attraction",
-        quantity: Math.min(coveredUnits, attr.qty),
-        unitCents: 0,
-        coverage: { kind: "voucher", label: "Voucher" },
-      });
+      const attrName = prettySlug(attr.slug) ?? "Attraction";
+      const byCode = attrCoverCodes.get(attr.id);
+      if (byCode?.size) {
+        let remaining = Math.min(coveredUnits, attr.qty);
+        for (const [code, units] of byCode) {
+          const qty = Math.min(units, remaining);
+          if (qty <= 0) continue;
+          remaining -= qty;
+          pricedLines.push({
+            name: attrName,
+            quantity: qty,
+            unitCents: 0,
+            coverage: { kind: "voucher", label: `Voucher …${code.slice(-4)}` },
+          });
+        }
+      } else {
+        pricedLines.push({
+          name: attrName,
+          quantity: Math.min(coveredUnits, attr.qty),
+          unitCents: 0,
+          coverage: { kind: "voucher", label: "Voucher" },
+        });
+      }
     }
     if (chargedQty === 0) {
       sqLineItems.push({
@@ -624,7 +677,7 @@ export function buildCombinedLineItems(session: BookingSession): {
         : { basePriceMoney: { amount: unitCents, currency: "USD" } }),
     });
     pricedLines.push({
-      name: attr.slug ?? "Attraction",
+      name: prettySlug(attr.slug) ?? "Attraction",
       quantity: chargedQty,
       unitCents,
       ...(factor !== 1 ? { originalUnitCents: fullUnitCents } : {}),

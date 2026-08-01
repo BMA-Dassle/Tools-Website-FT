@@ -74,6 +74,10 @@ export interface BillLine {
   originalAmount?: number;
   /** The promo % applied to this line (e.g. 25), for the UI label. */
   promoPct?: number;
+  /** Server-quote coverage tag for a $0 covered line ("Credit" · "Race Pack" ·
+   *  "Voucher …Z4SX" · "Included") — rendered in the amount slot, the same
+   *  spot the account-credit rows show "Credit". Display-only. */
+  coverageLabel?: string;
 }
 
 export interface BillOverview {
