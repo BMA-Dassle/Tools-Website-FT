@@ -127,13 +127,34 @@ export function buildVipEmailFields(
 
   const itineraryHtml = `<table width="100%" cellpadding="0" cellspacing="0" border="0">${rows}</table>${qualifyNote}`;
 
-  const perkItems = combo.perks?.length ? combo.perks : combo.includes;
-  const perksHtml = perkItems
+  // ONE merged list — the experience items + the perks — mirroring the web
+  // card ("What's included", owner 2026-07-31: the split lists read as the
+  // same thing). The voucher inclusions follow as their own sub-block with
+  // the shared terms stated once; the voucher SECTION elsewhere in the email
+  // carries the actual code + QR.
+  const esc = (p: string) => p.replace(/&(?!amp;|mdash;|asymp;)/g, "&amp;");
+  const perkItems = [...combo.includes, ...(combo.perks ?? [])];
+  const perkRows = perkItems
     .map(
       (p) =>
-        `<tr><td style="padding: 4px 0; font-size: 13px; color: #333; line-height: 1.5;"><span style="color: #B8860B; font-weight: bold;">&#10003;</span>&nbsp;&nbsp;${p.replace(/&(?!amp;|mdash;|asymp;)/g, "&amp;")}</td></tr>`,
+        `<tr><td style="padding: 4px 0; font-size: 13px; color: #333; line-height: 1.5;"><span style="color: #B8860B; font-weight: bold;">&#10003;</span>&nbsp;&nbsp;${esc(p)}</td></tr>`,
     )
     .join("");
+  const voucherRows = combo.voucherIncludes
+    ? `<tr><td style="padding: 12px 0 4px; font-size: 12px; font-weight: bold; color: #B8860B; text-transform: uppercase; letter-spacing: 1px; border-top: 1px solid #E8E0C8;">${esc(
+        combo.voucherIncludes.title ?? "Plus vouchers to your favorite attractions",
+      )}</td></tr>` +
+      combo.voucherIncludes.items
+        .map(
+          (p) =>
+            `<tr><td style="padding: 4px 0; font-size: 13px; color: #333; line-height: 1.5;"><span style="color: #B8860B; font-weight: bold;">&#10003;</span>&nbsp;&nbsp;${esc(p)}</td></tr>`,
+        )
+        .join("") +
+      `<tr><td style="padding: 6px 0 0; font-size: 11.5px; color: #888; line-height: 1.5;">${esc(
+        combo.voucherIncludes.note,
+      ).replace(/—/g, "&mdash;")}</td></tr>`
+    : "";
+  const perksHtml = perkRows + voucherRows;
 
   const inclusions: string[] = [];
   if (combo.includesLicense) inclusions.push("racing license");

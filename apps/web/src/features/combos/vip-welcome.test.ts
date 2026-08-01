@@ -191,3 +191,30 @@ describe("buildVipVoucherSectionHtml — the V2 grant card", () => {
     expect(html).toContain("chips &amp; salsa");
   });
 });
+
+describe("buildVipEmailFields — V2 pack 'Included With Your VIP Experience'", () => {
+  const v2 = getComboSpecial("race-bowl-v2")!;
+
+  it("merges experience items + perks into one list (owner: the split lists read the same)", () => {
+    const { perksHtml } = buildVipEmailFields(v2);
+    expect(perksHtml).toContain("Starter Race"); // includes[]
+    expect(perksHtml).toContain("Semi-private 8-lane VIP area"); // perks[]
+  });
+
+  it("appends the voucher sub-block with the shared terms stated ONCE", () => {
+    const { perksHtml } = buildVipEmailFields(v2);
+    expect(perksHtml).toContain("Plus vouchers to your favorite attractions");
+    expect(perksHtml).toContain("$10 Game Zone Bonus Card");
+    expect(perksHtml).toContain("Laser Tag OR Gel Blaster");
+    expect(perksHtml).toContain("Shuffly");
+    expect(perksHtml).toContain("1 year from your race date");
+    expect(perksHtml.match(/when available/gi)).toHaveLength(1);
+    expect(perksHtml).toContain("Not transferable");
+  });
+
+  it("v1 (no voucherIncludes) renders the merged list with no voucher block", () => {
+    const { perksHtml } = buildVipEmailFields(raceBowl);
+    expect(perksHtml).not.toContain("Plus vouchers");
+    expect(perksHtml).toContain("Starter Race");
+  });
+});
