@@ -5,6 +5,7 @@ import {
   releaseAnyVoucher,
   validateAnyVoucher,
 } from "~/features/game-cards/service/voucher-redeem-router";
+import { getVoucherStatus } from "~/features/game-cards/service/native-voucher";
 import { redeemVoucherToCard } from "~/features/game-cards/service/voucher-to-card";
 import { GameCardHttpError, jsonOk, toErrorResponse } from "~/features/game-cards/errors";
 import { getClientIp } from "@/lib/admin-auth";
@@ -67,6 +68,21 @@ export async function POST(req: NextRequest) {
 
     if (await rateLimited(req)) {
       return jsonOk({ ok: false, reason: "rate_limited" });
+    }
+
+    if (parsed.data.action === "status") {
+      // Read-only per-item state for the confirmation page's Available/Used
+      // chips — exactly what the public /v/{code} page renders server-side,
+      // so no new exposure (the code IS the bearer instrument). Native only.
+      const status = await getVoucherStatus(parsed.data.code);
+      if (!status) return jsonOk({ ok: false, reason: "unknown" });
+      return jsonOk({
+        ok: true,
+        expiresAt: status.expiresAt,
+        expired: status.expired,
+        voided: !!status.voidedAt,
+        items: status.items.map((i) => ({ index: i.index, label: i.label, spent: i.spent })),
+      });
     }
 
     if (parsed.data.action === "validate") {

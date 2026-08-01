@@ -228,6 +228,118 @@ interface ReceiptData {
   dueAtCenterCents: number;
 }
 
+/**
+ * V2 voucher detail — the gold card behind the hub's voucher tile (and the
+ * inline fallback for single-activity bookings). Big /v QR, one row per
+ * entitlement with a live Available/Used chip when the status fetch landed;
+ * without state it degrades to code + QR + terms — never a broken box.
+ */
+function VipVoucherDetailCard({
+  code,
+  accent,
+  qr,
+  state,
+}: {
+  code: string;
+  accent: string;
+  qr: string | null;
+  state: { expiresAt: string | null; items: Array<{ index: number; label: string; spent: boolean }> } | null;
+}) {
+  const expiry = state?.expiresAt
+    ? new Date(state.expiresAt).toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+        timeZone: "America/New_York",
+      })
+    : null;
+  return (
+    <div
+      className="rounded-2xl border-2 p-5 text-center"
+      style={{ borderColor: accent, backgroundColor: "rgba(212,175,55,0.08)" }}
+    >
+      <p className="font-display text-sm uppercase tracking-widest" style={{ color: accent }}>
+        Your VIP Voucher
+      </p>
+      <p
+        className="mx-auto mt-3 inline-block rounded-xl px-4 py-2 font-mono text-2xl tracking-[0.12em] text-white"
+        style={{ backgroundColor: "rgba(212,175,55,0.16)" }}
+      >
+        {formatVoucherCode(code)}
+      </p>
+      {qr && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={qr}
+          alt={`Voucher QR ${formatVoucherCode(code)}`}
+          className="mx-auto mt-4 h-40 w-40 rounded-xl bg-white p-1.5"
+        />
+      )}
+      <p className="mt-2 text-xs text-white/50">
+        Scan at any kiosk, or open{" "}
+        <a
+          href={`/v/${encodeURIComponent(code)}`}
+          className="underline"
+          style={{ color: accent }}
+        >
+          your voucher page
+        </a>
+      </p>
+      {state ? (
+        <ul className="mx-auto mt-4 flex max-w-md flex-col gap-2 text-left">
+          {state.items.map((i) => (
+            <li key={i.index} className="flex items-center justify-between gap-3 text-sm">
+              <span
+                className={
+                  i.spent ? "text-white/35 line-through" : "flex items-center gap-2 text-white/85"
+                }
+              >
+                {!i.spent && (
+                  <span className="font-bold" style={{ color: accent }}>
+                    ✓
+                  </span>
+                )}
+                {i.label}
+              </span>
+              <span
+                className="shrink-0 rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+                style={
+                  i.spent
+                    ? { color: "rgba(255,255,255,0.38)", borderColor: "rgba(255,255,255,0.18)" }
+                    : {
+                        color: "#46d68c",
+                        borderColor: "rgba(70,214,140,0.45)",
+                        backgroundColor: "rgba(70,214,140,0.1)",
+                      }
+                }
+              >
+                {i.spent ? "Used" : "Available"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mx-auto mt-4 max-w-md text-sm text-white/60">
+          Your Game Zone cards, Laser Tag or Gel Blaster passes, and Shuffly hour live on this one
+          code.
+        </p>
+      )}
+      <p className="mx-auto mt-4 max-w-md text-xs leading-relaxed text-white/45">
+        {expiry ? (
+          <>
+            Valid through <strong className="text-white/65">{expiry}</strong> — 1 year from your
+            race date.{" "}
+          </>
+        ) : (
+          <>Valid 1 year from your race date. </>
+        )}
+        Not transferable. Attractions redeem when available — book them on a future visit or see
+        Guest Services.
+      </p>
+    </div>
+  );
+}
+
 export default function ConfirmationPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -301,6 +413,18 @@ export default function ConfirmationPage() {
   const [selectedActivity, setSelectedActivity] = useState<{
     kind: "racing" | "attraction" | "bowling";
     index: number;
+  } | null>(null);
+  /** V2 voucher tile tapped — renders the voucher detail in place of the hub.
+   *  Reset together with selectedActivity by the "All bookings" back button. */
+  const [voucherOpen, setVoucherOpen] = useState(false);
+  /** Data-URI QR of the voucher's /v/{code} URL — same payload as the emailed
+   *  QR, so kiosks and phone cameras both read it. */
+  const [voucherQr, setVoucherQr] = useState<string | null>(null);
+  /** Per-item Available/Used state from the read-only status action. Null =
+   *  not loaded / failed — the tile + detail degrade to code + QR only. */
+  const [voucherState, setVoucherState] = useState<{
+    expiresAt: string | null;
+    items: Array<{ index: number; label: string; spent: boolean }>;
   } | null>(null);
   const confirmStarted = useRef(false);
   const liveStatus = useTrackStatus();
@@ -1484,7 +1608,39 @@ export default function ConfirmationPage() {
   // scroll position without this.
   useEffect(() => {
     window.scrollTo(0, 0);
-  }, [selectedActivity]);
+  }, [selectedActivity, voucherOpen]);
+
+  // V2 voucher: build the /v/{code} QR + fetch per-item Available/Used state
+  // for the hub tile and its detail view. Both best-effort — a miss degrades
+  // to code + link, never a broken tile.
+  useEffect(() => {
+    const code = (bookingRec?.vipVoucherCode as string | null | undefined) ?? null;
+    if (!code) return;
+    let alive = true;
+    QRCode.toDataURL(`${window.location.origin}/v/${encodeURIComponent(code)}`, {
+      width: 320,
+      margin: 1,
+    })
+      .then((d) => {
+        if (alive) setVoucherQr(d);
+      })
+      .catch(() => {});
+    fetch("/api/game-cards/voucher-redeem", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "status", code }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (alive && d?.ok === true && Array.isArray(d.items)) {
+          setVoucherState({ expiresAt: d.expiresAt ?? null, items: d.items });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [bookingRec]);
 
   // Extract data from order — find the first scheduled line (racing or attraction)
   const raceLine = order?.lines.find((l) => l.scheduledTime?.start || l.schedules?.[0]?.start);
@@ -1781,11 +1937,14 @@ export default function ConfirmationPage() {
       {/* Main content */}
       {!loading && orderId && (
         <div className="max-w-6xl mx-auto px-4 sm:px-6 pb-16 pt-6">
-          {/* Multi-activity detail view — back to the hub of buttons */}
-          {isDetail && (
+          {/* Multi-activity / voucher detail view — back to the hub of buttons */}
+          {(isDetail || voucherOpen) && (
             <button
               type="button"
-              onClick={() => setSelectedActivity(null)}
+              onClick={() => {
+                setSelectedActivity(null);
+                setVoucherOpen(false);
+              }}
               className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-white/60 transition-colors hover:text-white"
             >
               <svg
@@ -1801,38 +1960,17 @@ export default function ConfirmationPage() {
             </button>
           )}
 
-          {/* V2 VIP voucher — the redeem-later entitlements minted with this
-              booking. The email carries the scannable QR; this card is the
-              on-page copy of the code. */}
-          {comboSpecial && vipVoucherCode && !bookingCancelled && !isDetail && (
-            <div
-              className="mb-6 rounded-2xl border-2 p-5 text-center"
-              style={{
-                borderColor: comboSpecial.accentColor,
-                backgroundColor: "rgba(212,175,55,0.08)",
-              }}
-            >
-              <p
-                className="font-display text-sm uppercase tracking-widest"
-                style={{ color: comboSpecial.accentColor }}
-              >
-                Your VIP Voucher
-              </p>
-              <p className="mt-2 font-mono text-2xl tracking-[0.12em] text-white">
-                {formatVoucherCode(vipVoucherCode)}
-              </p>
-              <p className="mx-auto mt-2 max-w-md text-sm text-white/60">
-                Your Game Zone cards, Laser Tag or Gel Blaster passes, and Shuffly hour live on
-                this one code — it was emailed to you with a scannable QR. Valid 1 year from your
-                race date. Not transferable; attractions redeem when available.
-              </p>
-              <a
-                href={`/v/${encodeURIComponent(vipVoucherCode)}`}
-                className="mt-3 inline-block text-sm font-semibold underline"
-                style={{ color: comboSpecial.accentColor }}
-              >
-                See what&apos;s on your voucher
-              </a>
+          {/* V2 VIP voucher lives as a hub tile + detail view below (mock
+              approved 2026-07-31). Single-activity bookings can't reach the
+              hub, so they keep an inline detail card as the fallback. */}
+          {!isMulti && comboSpecial && vipVoucherCode && !bookingCancelled && (
+            <div className="mx-auto mb-6 max-w-2xl">
+              <VipVoucherDetailCard
+                code={vipVoucherCode}
+                accent={comboSpecial.accentColor}
+                qr={voucherQr}
+                state={voucherState}
+              />
             </div>
           )}
 
@@ -1851,7 +1989,7 @@ export default function ConfirmationPage() {
               per-attraction reminder via cfg.showWaiverPrompt.) */}
           {/* Cancelled settlement — the guest's card (or refund note) front and
               center; everything below is the historical record. */}
-          {bookingCancelled && !isDetail && (
+          {bookingCancelled && !isDetail && !voucherOpen && (
             <div className="max-w-2xl mx-auto mb-8">
               {cancelStatus?.storeCredit ? (
                 <GiftCardIssuedPanel
@@ -1872,7 +2010,7 @@ export default function ConfirmationPage() {
             </div>
           )}
 
-          {waiverUrl && !expressLane && !isDetail && !bookingCancelled && (
+          {waiverUrl && !expressLane && !isDetail && !voucherOpen && !bookingCancelled && (
             <div className="max-w-2xl mx-auto rounded-2xl border-2 border-red-500/60 bg-gradient-to-br from-red-500/15 via-red-500/5 to-transparent p-5 sm:p-6 mb-8 shadow-[0_0_30px_rgba(239,68,68,0.15)]">
               <div className="flex items-start gap-4 mb-4">
                 <div className="w-14 h-14 rounded-full bg-red-500/20 border-2 border-red-500/50 flex items-center justify-center shrink-0 animate-pulse">
@@ -1936,7 +2074,7 @@ export default function ConfirmationPage() {
 
           {/* What you paid for — itemized day-of Square order. Shown once on the
               main view (hub + single-activity), not inside a per-activity detail. */}
-          {!isDetail && receipt && receipt.lineItems.length > 0 && (
+          {!isDetail && !voucherOpen && receipt && receipt.lineItems.length > 0 && (
             <div className="max-w-2xl mx-auto rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6 mb-8">
               <h2 className="font-display text-lg uppercase tracking-widest text-white mb-3">
                 What you paid for
@@ -2001,6 +2139,7 @@ export default function ConfirmationPage() {
               Shipped ON without a flag per owner call 2026-07-03. Hidden once
               cancelled (the settlement panel above replaces it). */}
           {!isDetail &&
+            !voucherOpen &&
             !bookingCancelled &&
             (comboSpecial ? (
               <div className="max-w-2xl mx-auto mb-8">
@@ -2037,7 +2176,7 @@ export default function ConfirmationPage() {
 
           {/* Multi-activity hub — one button per activity, sorted by start
               time. Single-activity bookings skip the hub and render as v1. */}
-          {isMulti && selectedActivity === null ? (
+          {isMulti && selectedActivity === null && !voucherOpen ? (
             <div className="max-w-3xl mx-auto">
               {/* Overview header — signals this is the full booking summary */}
               <div className="text-center mb-6">
@@ -2219,7 +2358,103 @@ export default function ConfirmationPage() {
                     </button>
                   );
                 })}
+
+                {/* V2 voucher tile — the pack's take-home. No time slot, so it
+                    sorts last; tapping opens the voucher detail like any other
+                    activity (mock approved 2026-07-31). */}
+                {comboSpecial && vipVoucherCode && !bookingCancelled && (
+                  <button
+                    type="button"
+                    onClick={() => setVoucherOpen(true)}
+                    className="group relative flex flex-col overflow-hidden rounded-2xl border text-left transition-all hover:bg-white/[0.04]"
+                    style={{
+                      borderColor: "rgba(212,175,55,0.55)",
+                      backgroundColor: "rgba(212,175,55,0.05)",
+                    }}
+                  >
+                    <div
+                      className="relative aspect-[16/10] overflow-hidden"
+                      style={{
+                        background:
+                          "radial-gradient(circle at 78% 22%, rgba(255,215,0,0.22), transparent 55%), linear-gradient(160deg, #2a2208 0%, #071027 75%)",
+                      }}
+                    >
+                      {voucherState &&
+                        (() => {
+                          const total = voucherState.items.length;
+                          const avail = voucherState.items.filter((i) => !i.spent).length;
+                          return (
+                            <span
+                              className="absolute left-3 top-3 rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+                              style={{
+                                color: "#46d68c",
+                                borderColor: "rgba(70,214,140,0.45)",
+                                backgroundColor: "rgba(70,214,140,0.12)",
+                              }}
+                            >
+                              {avail} of {total} available
+                            </span>
+                          );
+                        })()}
+                      {voucherQr && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={voucherQr}
+                          alt="Voucher QR"
+                          className="absolute right-3 top-3 h-12 w-12 rounded-md bg-white p-0.5"
+                        />
+                      )}
+                      <p
+                        className="absolute bottom-3 left-4 right-4 font-display text-xl sm:text-2xl font-black uppercase tracking-wider"
+                        style={{ color: "#FFD700", textShadow: "0 2px 8px rgba(0,0,0,0.7)" }}
+                      >
+                        ★ VIP Voucher
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between gap-3 p-4">
+                      <div className="min-w-0">
+                        <p className="font-mono text-sm tracking-wider text-white/70">
+                          {formatVoucherCode(vipVoucherCode)}
+                        </p>
+                        <p className="mt-0.5 text-xs text-white/40">
+                          Game cards · Laser/Gel · Shuffly
+                          {voucherState?.expiresAt
+                            ? ` — thru ${new Date(voucherState.expiresAt).toLocaleDateString(
+                                "en-US",
+                                { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" },
+                              )}`
+                            : ""}
+                        </p>
+                      </div>
+                      <span
+                        className="inline-flex shrink-0 items-center gap-1 text-xs font-bold uppercase tracking-wider"
+                        style={{ color: "#FFD700" }}
+                      >
+                        View voucher
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.5"
+                          viewBox="0 0 24 24"
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                        </svg>
+                      </span>
+                    </div>
+                    <div className="h-0.5 w-full" style={{ backgroundColor: "#FFD700" }} />
+                  </button>
+                )}
               </div>
+            </div>
+          ) : voucherOpen && vipVoucherCode ? (
+            <div className="mx-auto max-w-2xl">
+              <VipVoucherDetailCard
+                code={vipVoucherCode}
+                accent={comboSpecial?.accentColor ?? "#FFD700"}
+                qr={voucherQr}
+                state={voucherState}
+              />
             </div>
           ) : (
             <>

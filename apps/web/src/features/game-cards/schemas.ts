@@ -202,6 +202,13 @@ export const VoucherRedeemSchema = z.discriminatedUnion("action", [
     locationCode: z.number().int().optional(),
     center: z.string().trim().max(40).optional(),
   }),
+  /** Read-only per-item state (native codes only) — the confirmation page's
+   *  Available/Used chips. Same data the public /v/{code} page renders; the
+   *  code is the bearer instrument either way. */
+  z.object({
+    action: z.literal("status"),
+    code: z.string().trim().min(8).max(64),
+  }),
   /** WEB leg: credit the value onto a card the guest already holds. */
   z.object({
     action: z.literal("to-card"),
