@@ -14,7 +14,7 @@
  * restriction rules — that lands with the kiosk race step (the engine here
  * exposes the seam via the `blocked` predicate).
  */
-import { businessDayYmdET } from "@/lib/race-business-day";
+import { businessDayYmdET, calendarYmdET } from "@/lib/race-business-day";
 
 export interface CandidateSlot {
   /** BMI block start — ISO local wall-clock (as the adapters return it). */
@@ -90,6 +90,16 @@ export function slotLabel(start: string): string {
  * an empty next-day search, and BMI's business-day dayplanner keeps those
  * late-night heats under that date.
  */
+// TEST kiosks only (kioskNumber 99, owner 2026-08-01): flip the operating day
+// at calendar MIDNIGHT ET instead of the 2 AM business rollover, so overnight
+// testing sees the new day immediately (stampToday, slot steps, VIP pricing
+// date — every todayYmd consumer). Set once at config load (KioskFlow);
+// production kiosks never turn it on. Server-side availability computes read
+// businessDayYmdET directly and stay on the shared business day.
+let midnightRollover = false;
+export function setKioskMidnightRollover(on: boolean): void {
+  midnightRollover = on;
+}
 export function todayYmd(now: Date = new Date()): string {
-  return businessDayYmdET(now);
+  return midnightRollover ? calendarYmdET(now) : businessDayYmdET(now);
 }

@@ -185,6 +185,10 @@ export function KioskCodeEntry({
   const [mode, setMode] = useState<"scan" | "type">("scan");
   const [value, setValue] = useState("");
   const [checking, setChecking] = useState(false);
+  // code → its already-SPENT legs from the last validate (receipt "used" rows).
+  const [spentByCode, setSpentByCode] = useState<Record<string, { index: number; label: string }[]>>(
+    {},
+  );
   const [error, setError] = useState<string | null>(null);
   // Routed-but-not-a-problem scans (gift card / game card) while the receipt is
   // up read as a calm info line, not the red error line and not a panel swap.
@@ -373,14 +377,22 @@ export function KioskCodeEntry({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "validate", code }),
           });
-          const data: { ok?: boolean; reason?: string; items?: NativeValidateItem[] } = await res
-            .json()
-            .catch(() => ({}));
+          const data: {
+            ok?: boolean;
+            reason?: string;
+            items?: NativeValidateItem[];
+            spentItems?: { index: number; label: string }[];
+          } = await res.json().catch(() => ({}));
           if (!res.ok || data.ok !== true) {
             logReject("native-voucher", code, data.reason ?? `http-${res.status}`);
             setError(t(NATIVE_ERR_KEY[data.reason ?? ""] ?? "codeEntry.err.generic"));
             return;
           }
+          // Already-used legs → struck-through "used" rows on the receipt, so
+          // a re-scan EXPLAINS where a leg went instead of it silently missing.
+          // Informational only (no action, nothing to lose) — local state is
+          // fine; a remount just drops the rows until the next scan.
+          setSpentByCode((prev) => ({ ...prev, [code]: data.spentItems ?? [] }));
           const items = data.items ?? [];
           const cart = items.filter((i) => i.redeemVia === "cart" && i.coverageName);
           const gz = items.filter((i) => i.redeemVia === "gamezone");
@@ -676,7 +688,9 @@ export function KioskCodeEntry({
                 </ul>
               </section>
             )}
-            {(cartLabels.length > 0 || appliedPromo) && (
+            {(cartLabels.length > 0 ||
+              appliedPromo ||
+              Object.values(spentByCode).some((legs) => legs.length > 0)) && (
               <section>
                 <div className="k-eyebrow text-[#46d68c]">
                   {t("codeEntry.voucherGz.appliedSectionTitle")}
@@ -711,6 +725,23 @@ export function KioskCodeEntry({
                       </span>
                     </li>
                   ))}
+                  {/* Already-used legs — struck through, no ✕ (nothing to
+                      remove; the claim lives in the ledger). */}
+                  {Object.entries(spentByCode).flatMap(([code, legs]) =>
+                    legs.map((leg) => (
+                      <li
+                        key={`used-${code}-${leg.index}`}
+                        className="flex items-center justify-between gap-[16px] rounded-[16px] border border-white/10 bg-white/[0.03] px-[24px] py-[16px]"
+                      >
+                        <span className="min-w-0 truncate text-[28px] text-white/35 line-through">
+                          {leg.label}
+                        </span>
+                        <span className="shrink-0 text-[22px] text-white/35">
+                          {t("codeEntry.voucherGz.rowUsed")}
+                        </span>
+                      </li>
+                    )),
+                  )}
                   {/* The session promo, INLINE — scanning a coupon mid-receipt
                       lands here instead of replacing the card list. */}
                   {appliedPromo && (

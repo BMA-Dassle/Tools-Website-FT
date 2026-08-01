@@ -46,6 +46,12 @@ function etParts(now: Date): { ymd: string; hour: number } {
  * The ET business-day date (YYYY-MM-DD). Before 2 AM ET it returns the
  * PREVIOUS calendar date so a post-midnight race night stays "today".
  */
+/** Plain ET CALENDAR date — no business-day shift. Test-kiosk midnight
+ *  rollover (kiosk 99) reads this instead of businessDayYmdET. */
+export function calendarYmdET(now: Date = new Date()): string {
+  return etParts(now).ymd;
+}
+
 export function businessDayYmdET(now: Date = new Date()): string {
   const { ymd, hour } = etParts(now);
   if (hour >= RACE_DAY_ROLLOVER_HOUR) return ymd;

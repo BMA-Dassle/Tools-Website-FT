@@ -334,6 +334,7 @@ export const en = {
   "codeEntry.voucherGz.appliedSectionTitle": "On your order",
   "codeEntry.voucherGz.onOrder": "{n} on your order",
   "codeEntry.voucherGz.comesOff": "comes off at checkout",
+  "codeEntry.voucherGz.rowUsed": "already used",
   // Errored voucher row — the receipt is the ONLY surface that shows these.
   "codeEntry.voucherGz.rowNeedsHelp": "needs help — see Guest Services",
   // The "add another" panel — scan and type share one box on the receipt.

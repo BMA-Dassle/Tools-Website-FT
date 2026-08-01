@@ -145,6 +145,9 @@ export type ValidateResult =
       remainingGameZoneItems: number;
       /** Every UNSPENT item, so a mixed voucher routes each half correctly. */
       items: ValidatedItem[];
+      /** Already-SPENT items (label only) — the kiosk receipt shows them as
+       *  struck-through "used" rows so a re-scan explains where a leg went. */
+      spentItems: { index: number; label: string }[];
     }
   | { ok: false; reason: NativeVoucherRefusal };
 
@@ -246,6 +249,7 @@ export async function validateNativeVoucher(code: string): Promise<ValidateResul
     label: items[0].label,
     remainingGameZoneItems: items.filter((i) => i.redeemVia === "gamezone").length,
     items,
+    spentItems: status.items.filter((i) => i.spent).map((i) => ({ index: i.index, label: i.label })),
   };
 }
 

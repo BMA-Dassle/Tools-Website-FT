@@ -110,7 +110,7 @@ import { IdleWatcher } from "./IdleWatcher";
 import { useMobileJoinStatus } from "../hooks/useMobileJoin";
 import { closeMobileJoin } from "../join/kiosk-client";
 import { BrandedLoader, BrandedLoaderOverlay } from "./BrandedLoader";
-import { todayYmd } from "../service/first-available";
+import { setKioskMidnightRollover, todayYmd } from "../service/first-available";
 import { KIOSK_PHOTOS } from "../assets";
 import { useResilientImages } from "../hooks/useResilientImage";
 import { BrandLogo } from "./BrandLogo";
@@ -308,6 +308,12 @@ export function KioskFlow({
 }) {
   const router = useRouter();
   const { config } = useKioskConfig();
+  // TEST kiosk 99 (owner 2026-08-01): its operating day flips at calendar
+  // MIDNIGHT ET instead of the 2 AM business rollover, so overnight testing
+  // sees the new day immediately. Every other kiosk keeps the 2 AM rule.
+  useEffect(() => {
+    setKioskMidnightRollover(config?.kioskNumber === 99);
+  }, [config?.kioskNumber]);
   // Reset the guest's language override on Start-Over — the LocaleProvider is
   // mounted in KioskShell (survives the soft-nav to /kiosk), so without this the
   // next guest would inherit the previous guest's chosen language.

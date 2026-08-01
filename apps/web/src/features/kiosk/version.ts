@@ -15,6 +15,13 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.11.4 — voucher receipt: already-used legs render as struck-through
+ *         "already used" rows (a re-scan explains where a leg went), a native
+ *         leg's ✕ removes ONLY that leg (the code's other legs stay; re-scan
+ *         restores a mis-tap), and the review bill renders the SERVER quote —
+ *         covered items as $0 lines tagged Credit / Race Pack / Voucher …XXXX.
+ *         TEST kiosks (kioskNumber 99): operating day flips at calendar
+ *         midnight ET instead of the 2 AM business rollover.
  * 1.11.3 — the Ultimate VIP tile's "Next available · TIME · N slots" line is
  *         back: the 7/31 V2 cutover changed the combo id to race-bowl-v2, but
  *         the availability payload keys the VIP pack by the stable wire key
@@ -423,7 +430,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.11.3";
+export const KIOSK_VERSION = "1.11.4";
 
 let bootVersion: string | null = null;
 let captured = false;
