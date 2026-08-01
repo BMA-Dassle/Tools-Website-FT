@@ -87,6 +87,54 @@ export function effectiveBowlingOptionId(
   return durationOpt?.qamfOptionId ?? exp.qamfOptionId ?? slotOptionId;
 }
 
+/**
+ * Longest close-fitting Time option for an experience that seeds NO option of
+ * its own (Midnight Madness riding the shared Fri-Sun hourly offer). The
+ * availability route already strips per-slot Time options that would run past
+ * closing, so the longest option REMAINING on a slot is exactly "the closest
+ * duration that doesn't pass close" (owner 2026-08-01): 2hr sells until a
+ * midnight start, 1.5hr until 12:30, 1hr until the 1 AM last start. Durations
+ * resolve from OUR config across the experiences sharing the slot's web offer
+ * (QAMF's Minutes field is absent from availability responses — never read;
+ * trusting response order degrades to the shortest option, the Pizza Bowl
+ * short-booking bug). Undefined when nothing resolves — callers fall back to
+ * the slot's own optionId, so Game/Unlimited offers are unaffected.
+ */
+export function longestFittingOptionId(
+  slot: { webOfferId: number; availableTimeOptionIds?: number[] },
+  experiences: Array<Pick<BowlingExperienceWithDetails, "qamfWebOfferId" | "durationOptions">>,
+): number | undefined {
+  let best: number | undefined;
+  let bestMinutes = -1;
+  for (const id of slot.availableTimeOptionIds ?? []) {
+    for (const exp of experiences) {
+      if (exp.qamfWebOfferId !== slot.webOfferId) continue;
+      const d = (exp.durationOptions ?? []).find((o) => o.qamfOptionId === id);
+      if (d && d.durationMinutes > bestMinutes) {
+        bestMinutes = d.durationMinutes;
+        best = id;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Midnight Madness rides the all-day Fri-Sun Time offer (its dedicated QAMF
+ * Unlimited offers reject every reservation create — vendor ticket open,
+ * 2026-08-01), so its late-night sales window must be enforced on OUR side.
+ * Without this gate the MM card would sell $11.99/person lanes at noon next
+ * to the full-price hourly card. 11:45 PM first start (owner 2026-08-01) —
+ * matches the original QAMF MM offer schedule. Minutes are ET minutes-of-day
+ * in the 0-26h notation (11:45 PM = 1425, 1 AM = 1500).
+ */
+export const MM_EARLIEST_START_MINUTES = 23 * 60 + 45;
+
+export function slotAllowedForExperience(slug: string, etMinutes: number): boolean {
+  if (!slug.startsWith("midnight-madness")) return true;
+  return etMinutes >= MM_EARLIEST_START_MINUTES;
+}
+
 export interface HoldBowlingSlotInput {
   centerId: number;
   webOfferId: number;

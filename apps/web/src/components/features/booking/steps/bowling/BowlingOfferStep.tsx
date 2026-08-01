@@ -108,7 +108,7 @@ const BowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         <>
           <div className="space-y-4">
             {visibleExperiences.map((exp) => {
-              const expSlots = slotsForOffer(exp.qamfWebOfferId);
+              const expSlots = slotsForOffer(exp.qamfWebOfferId, exp.slug);
               const isVip = exp.isVip;
               const accent = isVip ? GOLD : BLUE;
               const videoUrl = isVip
