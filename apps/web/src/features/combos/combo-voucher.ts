@@ -139,7 +139,8 @@ export async function sweepMissingComboVouchers(args: {
     FROM bowling_reservations
     WHERE combo_special_id IS NOT NULL
       AND bmi_bill_id IS NOT NULL
-      AND created_at > NOW() - make_interval(days => ${args.sinceDays})
+      AND status <> 'cancelled'
+      AND inserted_at > NOW() - make_interval(days => ${args.sinceDays})
     GROUP BY bmi_bill_id
   `) as Array<Record<string, unknown>>;
 
