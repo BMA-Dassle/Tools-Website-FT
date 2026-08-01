@@ -5,7 +5,7 @@
  * Extracted verbatim from app/admin/[token]/reservations/ReservationsClient.tsx.
  */
 import { useCallback, useEffect, useState } from "react";
-import type { ComboMeta, GroupEvent, Reservation } from "./types";
+import type { ComboMeta, GroupEvent, Reservation, VipVoucherSummary } from "./types";
 
 /**
  * Theme: "dark" (default) or "light" — set via URL ?theme= at load, then
@@ -72,8 +72,8 @@ export interface ReservationsData {
   groupEvents: GroupEvent[];
   vipReservations: Reservation[];
   comboMeta: Record<string, ComboMeta>;
-  /** Booking-minted V2 voucher per BMI billId — the VIP cards' code + QR. */
-  vipVouchers: Record<string, { code: string; voided: boolean }>;
+  /** Booking-minted V2 voucher per BMI billId — code + QR + per-item state. */
+  vipVouchers: Record<string, VipVoucherSummary>;
   loading: boolean;
   error: string | null;
   reload: (opts?: { silent?: boolean }) => Promise<void>;
@@ -91,9 +91,7 @@ export function useReservationsData(token: string, date: string, center: string)
   // racing + HeadPinz bowling) so they surface in every location's portal view.
   const [vipReservations, setVipReservations] = useState<Reservation[]>([]);
   const [comboMeta, setComboMeta] = useState<Record<string, ComboMeta>>({});
-  const [vipVouchers, setVipVouchers] = useState<Record<string, { code: string; voided: boolean }>>(
-    {},
-  );
+  const [vipVouchers, setVipVouchers] = useState<Record<string, VipVoucherSummary>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

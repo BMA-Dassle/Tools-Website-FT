@@ -133,6 +133,15 @@ export interface ComboMeta {
   adminShortLabel?: string;
 }
 
+/** The V2 voucher a VIP booking minted, with live per-item spend state —
+ *  keyed by BMI billId in the reservations response (`vipVouchers`). */
+export interface VipVoucherSummary {
+  code: string;
+  voided: boolean;
+  expiresAt: string | null;
+  items: Array<{ label: string; spent: boolean }>;
+}
+
 /** One step of a VIP combo's itinerary (race heat → bowling slot → race heat). */
 export interface ComboScheduleStep {
   icon: string;

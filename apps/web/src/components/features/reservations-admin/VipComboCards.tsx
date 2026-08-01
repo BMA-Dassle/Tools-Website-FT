@@ -12,7 +12,7 @@
  */
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { clickableDivProps } from "@/lib/a11y";
+import { clickableDivProps, modalBackdropProps } from "@/lib/a11y";
 import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
 import { cancelActionable } from "~/features/reservations-admin/actionable";
 import { stepProgress, type ComboGroup } from "~/features/reservations-admin/combo-board";
@@ -24,7 +24,7 @@ import {
   STATUS_LABELS,
 } from "~/features/reservations-admin/constants";
 import { centerLabel, dollars, fmtClock, fmtDurShort } from "~/features/reservations-admin/format";
-import type { Reservation } from "~/features/reservations-admin/types";
+import type { Reservation, VipVoucherSummary } from "~/features/reservations-admin/types";
 import type { OrderTarget } from "./modals/SquareOrderModal";
 import { NAV_BTN } from "./theme";
 
@@ -50,12 +50,16 @@ function timeShiftLeg(g: ComboGroup, nowMs: number): Reservation | null {
  * Same payload as the emailed QR, so kiosks recognise it too. Rendered as a
  * data URI (internal screen — the email's cid constraint doesn't apply).
  */
-function VoucherBadge({ code, voided }: { code: string; voided: boolean }) {
+function VoucherBadge({ code, voided, items }: VipVoucherSummary) {
   const [qr, setQr] = useState<string | null>(null);
+  // Tap-to-enlarge lightbox: a phone camera / kiosk scanner reads the big
+  // version across the desk far more reliably than the 72px thumbnail.
+  const [zoomed, setZoomed] = useState(false);
   const url = `${typeof window !== "undefined" ? window.location.origin : ""}/v/${encodeURIComponent(code)}`;
   useEffect(() => {
     let alive = true;
-    QRCode.toDataURL(url, { width: 96, margin: 1 })
+    // Rendered once at lightbox size; the badge shows it downscaled (crisp).
+    QRCode.toDataURL(url, { width: 480, margin: 1 })
       .then((d) => {
         if (alive) setQr(d);
       })
@@ -79,16 +83,69 @@ function VoucherBadge({ code, voided }: { code: string; voided: boolean }) {
       }}
     >
       {qr && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={qr}
-          alt={`Voucher QR ${formatVoucherCode(code)}`}
-          width={72}
-          height={72}
-          style={{ borderRadius: 6, background: "#fff", display: "block" }}
-        />
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation(); // the card behind opens the manage modal
+            setZoomed(true);
+          }}
+          title="Enlarge for scanning"
+          style={{ padding: 0, border: 0, background: "none", cursor: "zoom-in", lineHeight: 0 }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={qr}
+            alt={`Voucher QR ${formatVoucherCode(code)} — click to enlarge`}
+            width={72}
+            height={72}
+            style={{ borderRadius: 6, background: "#fff", display: "block" }}
+          />
+        </button>
       )}
-      <div style={{ minWidth: 0 }}>
+      {zoomed && qr && (
+        <div
+          {...modalBackdropProps(() => setZoomed(false))}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1000,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 16,
+            background: "rgba(0,4,24,0.85)",
+            cursor: "zoom-out",
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={qr}
+            alt={`Voucher QR ${formatVoucherCode(code)}`}
+            style={{
+              width: "min(70vw, 70vh, 480px)",
+              height: "auto",
+              borderRadius: 16,
+              background: "#fff",
+              padding: 16,
+            }}
+          />
+          <div
+            style={{
+              fontFamily: "monospace",
+              fontSize: "1.6rem",
+              letterSpacing: "0.1em",
+              color: "#fff",
+            }}
+          >
+            {formatVoucherCode(code)}
+          </div>
+          <div style={{ fontSize: "0.8rem", color: "rgba(255,255,255,0.55)" }}>
+            Click anywhere or press Esc to close
+          </div>
+        </div>
+      )}
+      <div style={{ minWidth: 0, flex: 1 }}>
         <div
           style={{
             fontSize: "0.62rem",
@@ -99,6 +156,11 @@ function VoucherBadge({ code, voided }: { code: string; voided: boolean }) {
           }}
         >
           VIP Voucher{voided ? " · VOIDED" : ""}
+          {!voided && items.length > 0 && (
+            <span style={{ color: "#22c55e", marginLeft: 8 }}>
+              {items.filter((i) => !i.spent).length} of {items.length} available
+            </span>
+          )}
         </div>
         <a
           href={`/v/${encodeURIComponent(code)}`}
@@ -113,10 +175,41 @@ function VoucherBadge({ code, voided }: { code: string; voided: boolean }) {
             textDecoration: "underline",
             textDecorationColor: "rgba(212,175,55,0.5)",
           }}
-          title="Open the guest's voucher page (per-item used/available state)"
+          title="Open the guest's voucher page"
         >
           {formatVoucherCode(code)}
         </a>
+        {/* What's left on it — used items struck through so a manager answers
+            "do they still have their laser tag?" without leaving the board. */}
+        {items.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "2px 12px",
+              marginTop: 4,
+              fontSize: "0.72rem",
+            }}
+          >
+            {items.map((it, i) => (
+              <span
+                key={i}
+                style={
+                  it.spent
+                    ? {
+                        color: "var(--ba-muted)",
+                        opacity: 0.55,
+                        textDecoration: "line-through",
+                      }
+                    : { color: "var(--ba-fg)", opacity: 0.85 }
+                }
+              >
+                {it.spent ? "" : "✓ "}
+                {it.label}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -134,7 +227,7 @@ export default function VipComboCards({
   groups: ComboGroup[];
   nowMs: number;
   /** Booking-minted V2 voucher per BMI billId (route vipVouchers). */
-  vouchers?: Record<string, { code: string; voided: boolean }>;
+  vouchers?: Record<string, VipVoucherSummary>;
   onCancelLeg: (leg: Reservation) => void;
   onViewOrder: (target: OrderTarget) => void;
   /** Card click (anywhere except inner buttons) opens the manage modal on the anchor leg. */
@@ -231,7 +324,7 @@ export default function VipComboCards({
             {(() => {
               const billId = g.legs.find((l) => l.bmiBillId)?.bmiBillId;
               const v = billId ? vouchers?.[billId] : undefined;
-              return v ? <VoucherBadge code={v.code} voided={v.voided} /> : null;
+              return v ? <VoucherBadge {...v} /> : null;
             })()}
 
             {/* Schedule — real per-leg times: race heat times (heatId =

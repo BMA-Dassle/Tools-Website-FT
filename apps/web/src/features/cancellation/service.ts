@@ -40,6 +40,8 @@ import { deleteReservation as deleteQamfReservation } from "@/lib/qamf-bowling";
 import { cancelBmiAttractions } from "@/lib/bmi-attraction-cancel";
 import { finishCancelEvent, startCancelEvent } from "@/lib/reservation-cancel-log";
 import { refundRedemption } from "~/features/discount-codes/data";
+import { getVoucherByBillId } from "~/features/game-cards/data/vouchers-db";
+import { voidNativeVoucher } from "~/features/game-cards/service/native-voucher";
 import { cancelBmiProject } from "./bmi-cancel";
 import { markBookingRecordCancelled } from "./booking-record";
 import { resolveCenter } from "./centers";
@@ -309,6 +311,27 @@ export async function cancelReservationCascade(req: CancelRequest): Promise<Canc
       const detail = err instanceof Error ? err.message : String(err);
       warnings.push(`${step.kind} (${step.target}): ${detail}`);
       log(step.kind, step.target, `FAILED: ${detail}`);
+    }
+  }
+
+  // Void any booking-minted voucher (V2 combo grant — universal rail: any
+  // future booking grant too). The money came back, so the redeem-later
+  // entitlements die with the booking (owner 2026-07-31: "voucher will void
+  // with cancel of combo"). Already-spent items stay spent (history), voiding
+  // only blocks FUTURE redemption. Best-effort like the rest of teardown.
+  for (const billId of new Set(
+    plan.legs.map((l) => l.bmiBillId).filter((b): b is string => !!b),
+  )) {
+    try {
+      const voucher = await getVoucherByBillId(billId);
+      if (voucher && !voucher.voidedAt) {
+        await voidNativeVoucher(voucher.code, `booking cancelled (cascade ${plan.cascadeId})`);
+        log("void_voucher", voucher.code, "voided");
+      }
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      warnings.push(`voucher void (bill ${billId}): ${detail}`);
+      log("void_voucher", billId, `FAILED: ${detail}`);
     }
   }
 

@@ -10,7 +10,9 @@ import { shortenUrl } from "@/lib/short-url";
 import { confirmationShortUrl } from "@/lib/booking-confirmation-link";
 import { sql } from "@/lib/db";
 import { getComboSpecial } from "~/features/combos/combo-specials";
-import { getVouchersByBillIds } from "~/features/game-cards/data/vouchers-db";
+import { getVouchersByBillIds, voucherItemLabel } from "~/features/game-cards/data/vouchers-db";
+import { getVoucherStatus } from "~/features/game-cards/service/native-voucher";
+import type { VipVoucherSummary } from "~/features/reservations-admin/types";
 import { belongsOnHeadpinzFmBoard } from "~/features/reservations-admin/center-scope";
 import {
   attachRaceLiveState,
@@ -233,10 +235,12 @@ export async function GET(req: NextRequest) {
     // share a square_dayof_order_id; the client groups on that.
     const vipReservations = await listVipComboReservations({ startDate: date, endDate: date });
 
-    // Booking-minted vouchers (V2 grant) keyed by bill — the VIP cards show the
-    // code + QR so managers can pull up / scan a guest's entitlements at the
-    // desk. Best-effort; never fails the response.
-    let vipVouchers: Record<string, { code: string; voided: boolean }> = {};
+    // Booking-minted vouchers (V2 grant) keyed by bill — the VIP cards show
+    // the code + QR + what's still AVAILABLE on it, so managers see a guest's
+    // remaining entitlements at the desk. Per-item spend state comes from
+    // getVoucherStatus (the claims ledger); a day has a handful of VIP groups,
+    // so one status read per code is fine. Best-effort; never fails the response.
+    let vipVouchers: Record<string, VipVoucherSummary> = {};
     try {
       const billIds = [
         ...new Set(
@@ -246,12 +250,19 @@ export async function GET(req: NextRequest) {
         ),
       ];
       const byBill = await getVouchersByBillIds(billIds);
-      vipVouchers = Object.fromEntries(
-        [...byBill.entries()].map(([billId, v]) => [
-          billId,
-          { code: v.code, voided: !!v.voidedAt },
-        ]),
+      const entries = await Promise.all(
+        [...byBill.entries()].map(async ([billId, v]): Promise<[string, VipVoucherSummary]> => {
+          // Claims ledger down → labels from the mint row, nothing marked spent
+          // (the safe read: never tell staff something is used when unknown...
+          // the /v page is the authoritative view either way).
+          const status = await getVoucherStatus(v.code).catch(() => null);
+          const items = status
+            ? status.items.map((s) => ({ label: s.label, spent: s.spent }))
+            : v.items.map((it) => ({ label: voucherItemLabel(it), spent: false }));
+          return [billId, { code: v.code, voided: !!v.voidedAt, expiresAt: v.expiresAt, items }];
+        }),
       );
+      vipVouchers = Object.fromEntries(entries);
     } catch (err) {
       console.error("[admin/reservations] voucher lookup failed (non-fatal):", err);
     }
