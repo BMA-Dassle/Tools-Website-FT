@@ -692,8 +692,10 @@ export function KioskPartyManager({
         return;
       }
       const g = newPartyMember({
-        firstName: gCleanFirst,
-        lastName: gCleanLast,
+        // Resolved record's name beats what was typed (2026-07-31: booking slot
+        // labels "Adult 1"/"Adult 2" typed as names reached BMI's people list).
+        firstName: formatPersonName(result.firstName) || gCleanFirst,
+        lastName: formatPersonName(result.lastName) || gCleanLast,
         isNewRacer: true,
         category: "adult",
         bmiPersonId: result.personId,
@@ -901,8 +903,10 @@ export function KioskPartyManager({
         brandLocation,
       );
       const member = newPartyMember({
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
+        // Resolved record's name beats what was typed (2026-07-31: booking slot
+        // labels "Adult 1"/"Adult 2" typed as names reached BMI's people list).
+        firstName: formatPersonName(result.firstName) || firstName.trim(),
+        lastName: formatPersonName(result.lastName) || lastName.trim(),
         isNewRacer: true, // new person → Starter-only for racing
         category: age < 13 ? "junior" : "adult",
         isMinor: minor,
@@ -976,6 +980,9 @@ export function KioskPartyManager({
           brandLocation,
         );
         onUpdateMember(member.id, {
+          // Record's name wins over the local label — see submitNew.
+          firstName: formatPersonName(result.firstName) || member.firstName,
+          lastName: formatPersonName(result.lastName) || member.lastName,
           bmiPersonId: result.personId,
           waiverValid: result.waiverValid,
           isMinor: minor,

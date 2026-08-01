@@ -268,6 +268,15 @@ export function calculateWaiverExpiry(durationYears: number): string {
  * a missing local DOB) must never hand a minor the adult waiver, so the
  * template age prefers BMI's birthdate over the typed one.
  * (2026-07-23: a 17-year-old got an adult waiver signature — Hayden Waln.)
+ *
+ * `firstName`/`lastName` are refreshed the same way: when the create resolved
+ * an existing record, the result carries THAT record's name, falling back to
+ * what was typed. What a guest types can be a booking slot label, not a name —
+ * 2026-07-31: guests entered "Adult 1"/"Adult 2" (their booking's unnamed-racer
+ * labels), the create matched their real accounts by phone, and the typed
+ * labels rode the check-in bind into BMI's project people list and the staff
+ * memo. The record's name is the account the guest signed into — callers should
+ * store and display it (Title Case it first: CRM rows can be ALL CAPS).
  */
 export async function pandoraOnboardGuest(
   input: PandoraPersonCreateInput & { birthdate: string },
@@ -276,23 +285,39 @@ export async function pandoraOnboardGuest(
    *  kiosk locale (set by LocaleProvider); callers need not pass it. */
   lang: "en" | "es" = getWaiverLang(),
 ): Promise<
-  | { personId: string; waiverValid: true; template: null; birthdate: string }
-  | { personId: string; waiverValid: false; template: PandoraWaiverTemplate; birthdate: string }
+  | {
+      personId: string;
+      waiverValid: true;
+      template: null;
+      birthdate: string;
+      firstName: string;
+      lastName: string;
+    }
+  | {
+      personId: string;
+      waiverValid: false;
+      template: PandoraWaiverTemplate;
+      birthdate: string;
+      firstName: string;
+      lastName: string;
+    }
 > {
   // 1. Create person (usually resolves a known person to their existing record;
   //    NOT a reliable upsert — see the risk note on pandoraCreatePerson)
   const { personId } = await pandoraCreatePerson({ ...input, location });
 
   // 2. Check if waiver already valid — the response carries the BMI record's
-  //    birthdate (membership refresh: BMI wins over what was typed).
+  //    birthdate and name (membership refresh: BMI wins over what was typed).
   const status = await pandoraCheckWaiver(personId, location);
   const birthdate = status.birthdate ? String(status.birthdate).slice(0, 10) : input.birthdate;
+  const firstName = status.firstName?.trim() || input.firstName;
+  const lastName = status.lastName?.trim() || input.lastName;
   if (status.valid) {
-    return { personId, waiverValid: true, template: null, birthdate };
+    return { personId, waiverValid: true, template: null, birthdate, firstName, lastName };
   }
 
   // 3. Fetch age-appropriate waiver template from the refreshed birthdate
   const age = calculateAge(birthdate);
   const template = await pandoraFetchWaiverTemplate(age, location, lang);
-  return { personId, waiverValid: false, template, birthdate };
+  return { personId, waiverValid: false, template, birthdate, firstName, lastName };
 }
