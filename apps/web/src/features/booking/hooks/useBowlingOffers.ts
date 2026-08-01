@@ -27,6 +27,8 @@ import {
   buildBowlingLineItems,
   effectiveBowlingOptionId,
   holdBowlingSlot,
+  longestFittingOptionId,
+  slotAllowedForExperience,
 } from "../service/bowling-offer";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
 import {
@@ -331,8 +333,15 @@ export function useBowlingOffers({
 
     try {
       // Option precedence guard (Pizza Bowl / Fun 4 All short-booking bug) —
-      // see effectiveBowlingOptionId in service/bowling-offer.ts.
-      const effectiveOptionId = effectiveBowlingOptionId(durationOpt, exp, slot.optionId);
+      // see effectiveBowlingOptionId in service/bowling-offer.ts. Experiences
+      // that seed NO option at all (Midnight Madness on the shared Fri-Sun
+      // Time offer) book the longest close-fitting option instead — the
+      // slot's own optionId is a response-order guess that degrades to the
+      // shortest duration.
+      const effectiveOptionId =
+        durationOpt == null && exp.qamfOptionId == null && !exp.durationOptions?.length
+          ? (longestFittingOptionId(slot, experiences) ?? slot.optionId)
+          : effectiveBowlingOptionId(durationOpt, exp, slot.optionId);
 
       // holdBowlingSlot releases the superseded hold first (re-pick after an
       // earlier selection used to leak the old hold for its full 10-min TTL).
@@ -415,9 +424,15 @@ export function useBowlingOffers({
   // the date step, so we DON'T re-ask for a time — we book the earliest start
   // within that hour (a single confirm). Only when that hour was full for this
   // tier (widened) do we surface the next-available times to pick from.
-  function slotsForOffer(webOfferId: number): AvailabilitySlot[] {
+  // `slug` scopes experience-specific slot windows (Midnight Madness shares
+  // the all-day Fri-Sun offer but only sells its late-night window) — the
+  // offer id alone can't distinguish the sharing experiences.
+  function slotsForOffer(webOfferId: number, slug = ""): AvailabilitySlot[] {
     const atOffer = relevantSlots
-      .filter((s) => s.webOfferId === webOfferId)
+      .filter(
+        (s) =>
+          s.webOfferId === webOfferId && slotAllowedForExperience(slug, etMinutesOfDay(s.bookedAt)),
+      )
       .sort((a, b) => a.bookedAt.localeCompare(b.bookedAt));
     if (widened) return atOffer.slice(0, 8);
     const inHour = atOffer.filter((s) => etHour(s.bookedAt) === selectedHour);
@@ -429,8 +444,16 @@ export function useBowlingOffers({
   // accurate filter (optionsVerified) — the optimistic response echoes every
   // configured option and must not gate anything.
   const visibleExperiences = tierExperiences.filter((exp) => {
+    // Midnight Madness: hide the card entirely outside its late-night window
+    // (a permanent "sold out" card all day would read as a bug).
+    if (
+      exp.slug.startsWith("midnight-madness") &&
+      slotsForOffer(exp.qamfWebOfferId, exp.slug).length === 0
+    ) {
+      return false;
+    }
     if (!exp.durationOptions?.length) return true;
-    const expSlots = slotsForOffer(exp.qamfWebOfferId);
+    const expSlots = slotsForOffer(exp.qamfWebOfferId, exp.slug);
     if (expSlots.length === 0) return true;
     if (!expSlots[0].optionsVerified) return true;
     const ids = expSlots[0].availableTimeOptionIds;

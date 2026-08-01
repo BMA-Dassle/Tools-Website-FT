@@ -4,6 +4,8 @@ import {
   buildBowlingLineItems,
   effectiveBowlingOptionId,
   isPerLaneExperience,
+  longestFittingOptionId,
+  slotAllowedForExperience,
 } from "./bowling-offer";
 import type {
   BowlingExperienceWithDetails,
@@ -149,5 +151,63 @@ describe("effectiveBowlingOptionId (Pizza Bowl short-booking guard)", () => {
 
   it("slot option only as a true last resort", () => {
     expect(effectiveBowlingOptionId(null, { qamfOptionId: null }, 999)).toBe(999);
+  });
+});
+
+describe("longestFittingOptionId (Midnight Madness on the shared Fri-Sun offer)", () => {
+  const friSun = makeExp({
+    slug: "regular-fri-sun",
+    qamfWebOfferId: 158,
+    qamfOptionId: null,
+    durationOptions: [
+      { ...opt90, id: 11, qamfOptionId: 1259, durationMinutes: 90 },
+      { ...opt120, id: 12, qamfOptionId: 1260, durationMinutes: 120 },
+      { ...opt90, id: 13, qamfOptionId: 1258, durationMinutes: 60 },
+    ],
+  });
+
+  it("picks the longest configured option remaining on the slot", () => {
+    expect(
+      longestFittingOptionId({ webOfferId: 158, availableTimeOptionIds: [1258, 1259, 1260] }, [
+        friSun,
+      ]),
+    ).toBe(1260);
+  });
+
+  it("near close the route strips long options — picks the longest that's left", () => {
+    expect(
+      longestFittingOptionId({ webOfferId: 158, availableTimeOptionIds: [1258, 1259] }, [friSun]),
+    ).toBe(1259);
+    expect(
+      longestFittingOptionId({ webOfferId: 158, availableTimeOptionIds: [1258] }, [friSun]),
+    ).toBe(1258);
+  });
+
+  it("ignores experiences on other offers and unknown option ids", () => {
+    expect(
+      longestFittingOptionId({ webOfferId: 159, availableTimeOptionIds: [1258] }, [friSun]),
+    ).toBeUndefined();
+    expect(
+      longestFittingOptionId({ webOfferId: 158, availableTimeOptionIds: [999] }, [friSun]),
+    ).toBeUndefined();
+  });
+
+  it("undefined when the slot has no Time options (Game/Unlimited offers)", () => {
+    expect(longestFittingOptionId({ webOfferId: 158 }, [friSun])).toBeUndefined();
+  });
+});
+
+describe("slotAllowedForExperience (Midnight Madness late-night gate)", () => {
+  it("MM blocked before 10:30 PM, allowed from 10:30 PM through post-midnight", () => {
+    expect(slotAllowedForExperience("midnight-madness", 22 * 60)).toBe(false);
+    expect(slotAllowedForExperience("midnight-madness", 22 * 60 + 30)).toBe(true);
+    expect(slotAllowedForExperience("midnight-madness-vip", 24 * 60)).toBe(true); // midnight
+    expect(slotAllowedForExperience("midnight-madness-vip", 25 * 60)).toBe(true); // 1 AM
+  });
+
+  it("every other slug is unrestricted", () => {
+    expect(slotAllowedForExperience("regular-fri-sun", 11 * 60)).toBe(true);
+    expect(slotAllowedForExperience("pizza-bowl", 12 * 60)).toBe(true);
+    expect(slotAllowedForExperience("fun-4-all", 9 * 60)).toBe(true);
   });
 });

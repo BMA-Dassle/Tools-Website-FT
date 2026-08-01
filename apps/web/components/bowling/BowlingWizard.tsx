@@ -18,6 +18,10 @@ import {
 import type { BowlingSquareProduct, BowlingExperienceWithDetails } from "@/lib/bowling-db";
 import { HP_LOCATIONS } from "@/lib/headpinz-locations";
 import { KBF_ELIGIBILITY_HEADING, KBF_ELIGIBILITY_TEXT } from "@/components/kbf/EligibilityNotice";
+import {
+  longestFittingOptionId,
+  slotAllowedForExperience,
+} from "~/features/booking/service/bowling-offer";
 
 /**
  * BowlingWizard — shared wizard for Kids Bowl Free (v2) and Open Bowling.
@@ -4727,10 +4731,16 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                   selectedTier === null || (selectedTier === "vip" ? exp.isVip : !exp.isVip);
                 if (!tierMatch) return false;
                 if (exp.kind === "open") {
-                  // Fun 4 All / Pizza Bowl — only show when QAMF confirms availability
+                  // Fun 4 All / Pizza Bowl — only show when QAMF confirms availability.
+                  // Midnight Madness additionally sells only its late-night window
+                  // (slotAllowedForExperience) — it shares the all-day Fri-Sun offer.
                   return availableSlots.some(
                     (s) =>
                       s.webOfferId === exp.qamfWebOfferId &&
+                      slotAllowedForExperience(
+                        exp.slug,
+                        slotHourET(s.bookedAt, selectedDate) * 60 + slotMinuteET(s.bookedAt),
+                      ) &&
                       (selectedHour === null ||
                         slotHourET(s.bookedAt, selectedDate) === selectedHour) &&
                       (selectedMinute === null || slotMinuteET(s.bookedAt) === selectedMinute),
@@ -4792,6 +4802,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                       const offerSlots = availableSlots.filter(
                         (s) =>
                           s.webOfferId === exp.qamfWebOfferId &&
+                          slotAllowedForExperience(
+                            exp.slug,
+                            slotHourET(s.bookedAt, selectedDate) * 60 + slotMinuteET(s.bookedAt),
+                          ) &&
                           (selectedHour === null ||
                             slotHourET(s.bookedAt, selectedDate) === selectedHour) &&
                           (selectedMinute === null || slotMinuteET(s.bookedAt) === selectedMinute),
@@ -5101,9 +5115,22 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                       <button
                                         type="button"
                                         onClick={() => {
+                                          // No seeded option and no duration chips
+                                          // (Midnight Madness on the shared Time offer):
+                                          // book the longest close-fitting option — the
+                                          // slot's own optionId is a response-order guess.
                                           const slot = exp.qamfOptionId
                                             ? { ...offerSlots[0], optionId: exp.qamfOptionId }
-                                            : offerSlots[0];
+                                            : !exp.durationOptions.length
+                                              ? {
+                                                  ...offerSlots[0],
+                                                  optionId:
+                                                    longestFittingOptionId(
+                                                      offerSlots[0],
+                                                      experiences,
+                                                    ) ?? offerSlots[0].optionId,
+                                                }
+                                              : offerSlots[0];
                                           setSelectedSlot(slot);
                                           setSelectedExperienceId(exp.id);
                                           if (!holdBusy) void createHold(slot);
@@ -5129,9 +5156,18 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                               key={s.bookedAt}
                                               type="button"
                                               onClick={() => {
+                                                // Same longest-fitting pick as the
+                                                // auto-select button above.
                                                 const slot = exp.qamfOptionId
                                                   ? { ...s, optionId: exp.qamfOptionId }
-                                                  : s;
+                                                  : !exp.durationOptions.length
+                                                    ? {
+                                                        ...s,
+                                                        optionId:
+                                                          longestFittingOptionId(s, experiences) ??
+                                                          s.optionId,
+                                                      }
+                                                    : s;
                                                 setSelectedSlot(slot);
                                                 setSelectedExperienceId(exp.id);
                                                 if (!holdBusy) void createHold(slot);
