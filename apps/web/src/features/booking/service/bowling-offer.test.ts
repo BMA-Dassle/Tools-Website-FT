@@ -3,8 +3,10 @@ import {
   bowlingLaneCount,
   buildBowlingLineItems,
   effectiveBowlingOptionId,
+  isMidnightMadnessSlug,
   isPerLaneExperience,
   longestFittingOptionId,
+  midnightMadnessWindowError,
   slotAllowedForExperience,
 } from "./bowling-offer";
 import type {
@@ -210,5 +212,54 @@ describe("slotAllowedForExperience (Midnight Madness late-night gate)", () => {
     expect(slotAllowedForExperience("regular-fri-sun", 11 * 60)).toBe(true);
     expect(slotAllowedForExperience("pizza-bowl", 12 * 60)).toBe(true);
     expect(slotAllowedForExperience("fun-4-all", 9 * 60)).toBe(true);
+  });
+});
+
+describe("isMidnightMadnessSlug", () => {
+  it("matches both MM slugs and nothing else", () => {
+    expect(isMidnightMadnessSlug("midnight-madness")).toBe(true);
+    expect(isMidnightMadnessSlug("midnight-madness-vip")).toBe(true);
+    expect(isMidnightMadnessSlug("regular-fri-sun")).toBe(false);
+    expect(isMidnightMadnessSlug("")).toBe(false);
+    expect(isMidnightMadnessSlug(null)).toBe(false);
+    expect(isMidnightMadnessSlug(undefined)).toBe(false);
+  });
+});
+
+describe("midnightMadnessWindowError (server-authoritative window)", () => {
+  // 2026-07-31 = Friday, 2026-08-01 = Saturday, 2026-08-02 = Sunday (ET).
+  it("allows Friday and Saturday nights from 11:45 PM", () => {
+    expect(midnightMadnessWindowError("2026-07-31T23:45:00-04:00")).toBeNull(); // Fri 11:45 PM
+    expect(midnightMadnessWindowError("2026-08-01T23:45:00-04:00")).toBeNull(); // Sat 11:45 PM
+    expect(midnightMadnessWindowError("2026-08-01T23:59:00-04:00")).toBeNull();
+  });
+
+  it("allows post-midnight starts on Friday/Saturday NIGHTS (Sat/Sun calendar dates)", () => {
+    expect(midnightMadnessWindowError("2026-08-01T00:30:00-04:00")).toBeNull(); // Fri night 12:30 AM
+    expect(midnightMadnessWindowError("2026-08-02T01:00:00-04:00")).toBeNull(); // Sat night 1 AM
+  });
+
+  it("rejects Friday/Saturday starts before 11:45 PM", () => {
+    expect(midnightMadnessWindowError("2026-08-01T12:00:00-04:00")).not.toBeNull(); // Sat noon
+    expect(midnightMadnessWindowError("2026-08-01T20:00:00-04:00")).not.toBeNull(); // Sat 8 PM
+    expect(midnightMadnessWindowError("2026-07-31T23:30:00-04:00")).not.toBeNull(); // Fri 11:30 PM
+  });
+
+  it("rejects other nights even at 11:45 PM+ (Sunday rides the same Fri-Sun offer)", () => {
+    expect(midnightMadnessWindowError("2026-08-02T23:45:00-04:00")).not.toBeNull(); // Sun 11:45 PM
+    expect(midnightMadnessWindowError("2026-08-03T00:30:00-04:00")).not.toBeNull(); // Sun night 12:30 AM
+    expect(midnightMadnessWindowError("2026-07-29T23:45:00-04:00")).not.toBeNull(); // Wed
+  });
+
+  it("fails closed on an unparseable timestamp", () => {
+    expect(midnightMadnessWindowError("")).not.toBeNull();
+    expect(midnightMadnessWindowError("not-a-date")).not.toBeNull();
+  });
+
+  it("evaluates the wall clock in ET regardless of the timestamp's offset", () => {
+    // Sat 11:45 PM ET expressed as Sun 03:45 UTC — still inside the window.
+    expect(midnightMadnessWindowError("2026-08-02T03:45:00Z")).toBeNull();
+    // Sat 8 PM ET expressed in UTC — still outside.
+    expect(midnightMadnessWindowError("2026-08-02T00:00:00Z")).not.toBeNull();
   });
 });

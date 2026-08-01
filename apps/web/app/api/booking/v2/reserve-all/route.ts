@@ -14,6 +14,7 @@ import {
   type ExternalTerminalPayment,
 } from "~/features/booking/service/deposit";
 import { CreditRedemptionError } from "~/features/booking/service/race-credit-redeem";
+import { MidnightMadnessWindowError } from "~/features/booking/service/bowling-offer";
 import { WorldCupReservationError } from "~/features/world-cup";
 import type { BookingSession } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
@@ -102,6 +103,11 @@ export async function POST(req: NextRequest) {
       // 409 — a World Cup booking failed the fixture/center validation
       // (disabled center, non-kickoff start, past kickoff). Raised before any
       // Square write; nothing charged.
+      return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
+    }
+    if (err instanceof MidnightMadnessWindowError) {
+      // 409 — a Midnight Madness leg starts outside Fri/Sat 11:45 PM+ ET.
+      // Raised before any Square or QAMF write; nothing charged.
       return NextResponse.json({ error: err.message, code: err.code }, { status: 409 });
     }
     if (err instanceof RewardFailedError) {

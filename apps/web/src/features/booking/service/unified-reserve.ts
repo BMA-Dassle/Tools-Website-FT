@@ -104,6 +104,11 @@ import {
 import { enrichFixture } from "~/features/world-cup/live-teams";
 import { notifyWorldCupBooked } from "~/features/world-cup/notify.server";
 import {
+  isMidnightMadnessSlug,
+  midnightMadnessWindowError,
+  MidnightMadnessWindowError,
+} from "./bowling-offer";
+import {
   insertBowlingReservation,
   insertReservationPlayers,
   updateBowlingReservationNotes,
@@ -414,9 +419,7 @@ export function buildCombinedLineItems(session: BookingSession): {
           // price, so order total == displayed == deposit by construction.
           // $0-local-price lines (fees priced by the catalog) keep catalog
           // pricing — sending 0 would zero a real fee.
-          ...(fullCents > 0
-            ? { basePriceMoney: { amount: priceCents, currency: "USD" } }
-            : {}),
+          ...(fullCents > 0 ? { basePriceMoney: { amount: priceCents, currency: "USD" } } : {}),
         });
       } else if (li.squareCatalogObjectId) {
         // Discounted catalog line: keep the catalog link for categorization but
@@ -571,7 +574,8 @@ export function buildCombinedLineItems(session: BookingSession): {
         if (item.kind !== "race") continue;
         for (const h of item.heats) {
           if (!set.has(h)) continue;
-          const pid = h.productId ?? (h.category === "junior" ? item.productIdJunior : item.productIdAdult);
+          const pid =
+            h.productId ?? (h.category === "junior" ? item.productIdJunior : item.productIdAdult);
           const name = (pid ? getRaceProductById(pid)?.name : null) ?? "Race";
           const label = labelFor(h);
           const key = `${name}::${label}`;
@@ -581,7 +585,12 @@ export function buildCombinedLineItems(session: BookingSession): {
         }
       }
       for (const g of groups.values()) {
-        pricedLines.push({ name: g.name, quantity: g.qty, unitCents: 0, coverage: { kind, label: g.label } });
+        pricedLines.push({
+          name: g.name,
+          quantity: g.qty,
+          unitCents: 0,
+          coverage: { kind, label: g.label },
+        });
       }
     }
   }
@@ -1308,8 +1317,7 @@ async function unifiedReserveInner(
   const nativeVoucherRefs: NativeCartVoucherRef[] = appliedForClaims
     .map((v, i) => ({ v, i }))
     .filter(
-      ({ v, i }) =>
-        allocatedIdx.has(i) && v.issuer === "native" && typeof v.itemIndex === "number",
+      ({ v, i }) => allocatedIdx.has(i) && v.issuer === "native" && typeof v.itemIndex === "number",
     )
     .map(({ v }) => ({ code: v.code, itemIndex: v.itemIndex as number, name: v.name }));
   // Fall-over substitutes: a stale session can name a leg another checkout
@@ -1541,6 +1549,19 @@ async function unifiedReserveInner(
           "World Cup booking is missing its lane time option — please re-pick your match.",
         );
       }
+    }
+  }
+
+  // ── 2d. Validate Midnight Madness window (fail-closed) ────────────
+  // MM shares the all-day Fri-Sun Time offer, so the offer id can't scope its
+  // late-night window and the client slot gates are display-only (2026-08-01
+  // incident: MM booked hours before its window). Throws → 409 in reserve-all
+  // BEFORE any Square or QAMF write — nothing is charged.
+  for (const item of bowlingItems) {
+    if (isMidnightMadnessSlug(item.experienceSlug)) {
+      // null bookedAt is unparseable → rejects (fail-closed; guards money).
+      const mmWindowError = midnightMadnessWindowError(item.bookedAt ?? "");
+      if (mmWindowError) throw new MidnightMadnessWindowError(mmWindowError);
     }
   }
 
@@ -1884,7 +1905,10 @@ async function unifiedReserveInner(
           console.warn(
             `[kiosk-terminal] PREPARE DRIFT ${drift}¢ — lines: ` +
               sqLineItems
-                .map((l) => `[${l.name}|q${l.quantity}|${l.basePriceMoney ? l.basePriceMoney.amount + "¢" : "catalog"}]`)
+                .map(
+                  (l) =>
+                    `[${l.name}|q${l.quantity}|${l.basePriceMoney ? l.basePriceMoney.amount + "¢" : "catalog"}]`,
+                )
                 .join(" ") +
               ` packs=${kioskPacks.length} packCoveredHeats=${packCoverage.heats.size}`,
           );
@@ -2124,7 +2148,11 @@ async function unifiedReserveInner(
     null;
   {
     const activeForVoucher = activeComboSpecial(session);
-    if (activeForVoucher?.combo.voucherGrant && session.bmiBillId && activeForVoucher.raceItem.date) {
+    if (
+      activeForVoucher?.combo.voucherGrant &&
+      session.bmiBillId &&
+      activeForVoucher.raceItem.date
+    ) {
       try {
         comboVoucherResult = await mintComboVoucherIfNeeded({
           combo: activeForVoucher.combo,

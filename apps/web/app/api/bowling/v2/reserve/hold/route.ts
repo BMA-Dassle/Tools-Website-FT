@@ -5,6 +5,10 @@ import {
   DurationGuardError,
   qamfSlotTakenMessage,
 } from "~/features/booking/service/duration-guard";
+import {
+  isMidnightMadnessSlug,
+  midnightMadnessWindowError,
+} from "~/features/booking/service/bowling-offer";
 import { FASTTRAX_QAMF_CENTER_ID } from "@/lib/qamf-centers";
 
 /**
@@ -35,6 +39,11 @@ interface HoldBody {
   bookedAt: string;
   players: number;
   service?: "BookForLater" | "PlayNow";
+  /** Experience the hold is for. Midnight Madness shares its webOfferId with
+   *  the all-day Fri-Sun hourly offer, so the slug is the only signal that
+   *  lets this route apply MM's late-night sales window. Optional — the
+   *  reserve route re-checks fail-closed via the MM product lines. */
+  experienceSlug?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -56,6 +65,17 @@ export async function POST(req: NextRequest) {
 
   if (!VALID_CENTER_IDS.has(centerId)) {
     return NextResponse.json({ error: `unknown centerId: ${centerId}` }, { status: 400 });
+  }
+
+  // Midnight Madness sales window (server-side — the client slot gates are
+  // display-only). Reject before the QAMF hold so the guest gets immediate
+  // feedback instead of failing later at payment.
+  if (isMidnightMadnessSlug(body.experienceSlug)) {
+    const windowError = midnightMadnessWindowError(bookedAt);
+    if (windowError) {
+      console.log(`[bowling/v2/reserve/hold] MM window rejected: bookedAt=${bookedAt}`);
+      return NextResponse.json({ error: windowError, code: "mm_outside_window" }, { status: 400 });
+    }
   }
 
   const optionType = body.optionType ?? "Game";

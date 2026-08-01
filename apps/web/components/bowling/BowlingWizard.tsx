@@ -2170,7 +2170,7 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
   const createHold = useCallback(
     async (
       slot: AvailabilitySlot,
-      opts?: { silent?: boolean },
+      opts?: { silent?: boolean; experienceSlug?: string },
     ): Promise<"ok" | "unavailable" | "error"> => {
       // Release any in-flight hold before creating a new one
       releaseHold();
@@ -2189,6 +2189,9 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             bookedAt: slot.bookedAt,
             players: activePlayerCount,
             service: "BookForLater",
+            // Experience-scoped windows (Midnight Madness shares the all-day
+            // Fri-Sun offer id, so the route needs the slug to gate it).
+            ...(opts?.experienceSlug ? { experienceSlug: opts.experienceSlug } : {}),
           }),
         });
         const data = (await res.json()) as { qamfReservationId?: string; error?: string };
@@ -2620,6 +2623,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
             service: "BookForLater",
             players,
             guest: { name: guestName, email: guestEmail, phone: guestPhone },
+            // Experience-scoped server checks (Midnight Madness window) — the
+            // route also detects MM from its product lines, this is the
+            // cheaper primary signal.
+            ...(selectedExperience?.slug ? { experienceSlug: selectedExperience.slug } : {}),
             lineItems,
             // Booking fee on non-$0 reservations
             ...(hasBookingFee ? { bookingFee: true } : {}),
@@ -4981,7 +4988,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                             };
                                             setSelectedSlot(slot);
                                             setSelectedExperienceId(exp.id);
-                                            if (!holdBusy) void createHold(slot);
+                                            if (!holdBusy)
+                                              void createHold(slot, {
+                                                experienceSlug: exp.slug,
+                                              });
                                           }}
                                           className="flex flex-col items-center rounded-xl p-4 min-w-[110px] transition-all hover:scale-[1.02] disabled:opacity-40 disabled:cursor-not-allowed"
                                           style={{
@@ -5040,7 +5050,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                           onClick={() => {
                                             setSelectedSlot(s);
                                             setSelectedExperienceId(exp.id);
-                                            if (!holdBusy) void createHold(s);
+                                            if (!holdBusy)
+                                              void createHold(s, { experienceSlug: exp.slug });
                                           }}
                                           className="inline-flex items-center font-body text-sm font-bold uppercase tracking-wider px-4 py-2 rounded-full transition-all hover:scale-[1.02]"
                                           style={{
@@ -5133,7 +5144,8 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                               : offerSlots[0];
                                           setSelectedSlot(slot);
                                           setSelectedExperienceId(exp.id);
-                                          if (!holdBusy) void createHold(slot);
+                                          if (!holdBusy)
+                                            void createHold(slot, { experienceSlug: exp.slug });
                                         }}
                                         className="w-full rounded-full px-4 py-3 font-body font-bold text-sm uppercase tracking-wider transition-all hover:scale-[1.01]"
                                         style={{
@@ -5170,7 +5182,10 @@ export default function BowlingWizard({ kind }: BowlingWizardProps) {
                                                     : s;
                                                 setSelectedSlot(slot);
                                                 setSelectedExperienceId(exp.id);
-                                                if (!holdBusy) void createHold(slot);
+                                                if (!holdBusy)
+                                                  void createHold(slot, {
+                                                    experienceSlug: exp.slug,
+                                                  });
                                               }}
                                               className="inline-flex items-center font-body text-sm font-bold uppercase tracking-wider px-4 py-2 rounded-full transition-all hover:scale-[1.02]"
                                               style={{

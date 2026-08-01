@@ -130,9 +130,81 @@ export function longestFittingOptionId(
  */
 export const MM_EARLIEST_START_MINUTES = 23 * 60 + 45;
 
+/** Calendar day-of-week of the EVENING the MM window opens on: Fri(5), Sat(6).
+ *  A post-midnight start (e.g. Sat 12:30 AM) belongs to the PREVIOUS night. */
+export const MM_BUSINESS_NIGHTS: ReadonlySet<number> = new Set([5, 6]);
+
+export function isMidnightMadnessSlug(slug: string | null | undefined): boolean {
+  return !!slug && slug.startsWith("midnight-madness");
+}
+
+/**
+ * MM's Square catalog products (both centers share catalog ids — see
+ * scripts/seed-bowling-experiences.ts CAT.MIDNIGHT_MADNESS*). The reserve
+ * route uses these to recognize an MM booking even when the client sends no
+ * experienceSlug (the classic wizard doesn't): every MM booking must carry an
+ * MM product line — that's where its per-person price comes from.
+ */
+export const MM_CATALOG_OBJECT_IDS: ReadonlySet<string> = new Set([
+  "ND5N3PMV4AZ5I47U3BJZMLKW", // Midnight Madness $11.99/person
+  "G6G2AZV3HHKAWLIZUJVVMOVD", // Midnight Madness VIP $13.99/person
+]);
+
 export function slotAllowedForExperience(slug: string, etMinutes: number): boolean {
-  if (!slug.startsWith("midnight-madness")) return true;
+  if (!isMidnightMadnessSlug(slug)) return true;
   return etMinutes >= MM_EARLIEST_START_MINUTES;
+}
+
+/**
+ * Server-authoritative MM sales-window check (2026-08-01 incident: MM was
+ * booked well before its window — the slot gates above are display-only and
+ * live in the client, so a stale bundle or direct API call sails past them).
+ * Validates the full rule from `bookedAt` alone: start on a Friday or
+ * Saturday NIGHT, 11:45 PM or later ET (post-midnight starts roll back to the
+ * previous calendar night before the day check). Returns the guest-facing
+ * rejection message, or null when the start is inside the window. Fails
+ * CLOSED on an unparseable timestamp — this guards money paths.
+ */
+export function midnightMadnessWindowError(bookedAt: string): string | null {
+  const rejection =
+    "Midnight Madness is only available Friday and Saturday nights starting at 11:45 PM.";
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date(bookedAt));
+    let dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(
+      parts.find((p) => p.type === "weekday")?.value ?? "",
+    );
+    let h = Number(parts.find((p) => p.type === "hour")?.value ?? NaN);
+    const m = Number(parts.find((p) => p.type === "minute")?.value ?? NaN);
+    if (dow < 0 || Number.isNaN(h) || Number.isNaN(m)) return rejection;
+    if (h === 24) h = 0; // midnight edge from hour12:false
+    if (h < 6) {
+      // Post-midnight start — same 0-26h notation as etMinutesOfDay, and the
+      // night it belongs to is the previous calendar day.
+      h += 24;
+      dow = (dow + 6) % 7;
+    }
+    if (!MM_BUSINESS_NIGHTS.has(dow)) return rejection;
+    if (h * 60 + m < MM_EARLIEST_START_MINUTES) return rejection;
+    return null;
+  } catch {
+    return rejection;
+  }
+}
+
+/** Typed for the reserve-all shell — unified-reserve throws it BEFORE any
+ *  Square or QAMF write, so nothing is charged when the window check fails. */
+export class MidnightMadnessWindowError extends Error {
+  readonly code = "mm_outside_window";
+  constructor(message: string) {
+    super(message);
+    this.name = "MidnightMadnessWindowError";
+  }
 }
 
 export interface HoldBowlingSlotInput {
@@ -143,6 +215,10 @@ export interface HoldBowlingSlotInput {
   bookedAt: string;
   players: number;
   service?: "BookForLater" | "PlayNow";
+  /** Experience being held. MM shares its web offer with the all-day Fri-Sun
+   *  hourly rail, so the slug is the only way the hold route can apply MM's
+   *  sales window (the reserve route re-checks via the MM product lines). */
+  experienceSlug?: string;
   /**
    * A hold this one supersedes (re-pick, duration change, VIP upgrade).
    * Released best-effort AFTER the new hold succeeds — so a failed re-hold
@@ -196,6 +272,7 @@ export async function holdBowlingSlot(input: HoldBowlingSlotInput): Promise<Hold
       bookedAt: input.bookedAt,
       players: input.players,
       service: input.service ?? "BookForLater",
+      ...(input.experienceSlug ? { experienceSlug: input.experienceSlug } : {}),
     }),
   });
   const data = (await res.json().catch(() => ({}))) as {

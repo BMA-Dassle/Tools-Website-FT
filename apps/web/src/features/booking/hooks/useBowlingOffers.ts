@@ -353,6 +353,9 @@ export function useBowlingOffers({
         bookedAt: slot.bookedAt,
         players: playerCount,
         service: "BookForLater",
+        // Lets the hold route apply experience-scoped windows (Midnight
+        // Madness shares the all-day Fri-Sun offer id).
+        experienceSlug: exp.slug,
         previousHoldId: item.qamfReservationId,
         previousCenterId: item.qamfCenterId,
       });

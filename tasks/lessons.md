@@ -2787,3 +2787,30 @@ evening to it.
 
 The tell you're doing it wrong: your rollout instructions contain the words
 "set the env var in Vercel and redeploy" for a feature the owner asked for.
+
+## A client-side slot gate is a display filter, not enforcement (2026-08-01)
+
+Midnight Madness was sold hours before its 11:45 PM window on launch day.
+When MM moved onto the shared all-day Fri-Sun Time offer (its dedicated QAMF
+Unlimited offers reject every create), its late-night window became OUR rule -
+and the only place it was enforced was the offer-card/slot filtering in the
+clients (`slotAllowedForExperience` in the classic wizard + useBowlingOffers).
+Nothing on the server knew MM had a window at all: the hold and reserve routes
+saw only the shared `webOfferId`, which is exactly the field that can no longer
+distinguish MM from the regular hourly rail. Any stale bundle, cached offer
+step, or direct POST booked MM at noon and charged for it.
+
+**Rule:** every experience-scoped sales restriction (time window, day, blackout)
+must be enforced in the money path - the reserve route / unified-reserve -
+fail-closed, BEFORE any QAMF confirm or Square write. Client gates are UX
+sugar on top, never the mechanism. When the restricted experience shares its
+offer id with an unrestricted one, the offer id is not a usable signal: detect
+by `experienceSlug` when the client sends one AND by the experience's Square
+product lines (every paid booking carries them) so clients that predate the
+slug field are still covered. `midnightMadnessWindowError` /
+`MM_CATALOG_OBJECT_IDS` in `features/booking/service/bowling-offer.ts` is the
+pattern: one shared rule, asserted at hold (UX), reserve (money), and
+unified-reserve (kiosk/mixed carts).
+
+The tell you're doing it wrong: a restriction described with "the card is
+hidden outside the window." Hidden is not blocked.

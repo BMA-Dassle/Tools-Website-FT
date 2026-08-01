@@ -63,6 +63,11 @@ import {
 } from "~/features/booking/service/deposit";
 import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
 import { bowlingPricingMode } from "~/features/booking/service/bowling-booked-pricing";
+import {
+  isMidnightMadnessSlug,
+  midnightMadnessWindowError,
+  MM_CATALOG_OBJECT_IDS,
+} from "~/features/booking/service/bowling-offer";
 import { assertBookable, DurationGuardError } from "~/features/booking/service/duration-guard";
 import {
   KBF_GAMES_PER_SESSION,
@@ -717,6 +722,29 @@ export async function POST(req: NextRequest) {
       quantity: li.quantity,
       unitPriceCents: unitCents,
     });
+  }
+
+  // ── Midnight Madness sales window (fail-closed, server-authoritative) ──
+  // MM rides the all-day Fri-Sun Time offer (its dedicated QAMF Unlimited
+  // offers reject every create — vendor ticket open, 2026-08-01), so the
+  // webOfferId can NOT scope its window and the client slot gates are
+  // display-only (2026-08-01 incident: MM booked hours before its window).
+  // Recognize an MM booking by slug or by its Square product lines — every MM
+  // booking carries one, that's where its per-person price comes from — and
+  // reject any start outside Fri/Sat 11:45 PM+ ET BEFORE any QAMF confirm or
+  // Square write.
+  const isMidnightMadness =
+    isMidnightMadnessSlug(body.experienceSlug) ||
+    productItems.some((p) => MM_CATALOG_OBJECT_IDS.has(p.product.squareCatalogObjectId));
+  if (isMidnightMadness) {
+    const mmWindowError = midnightMadnessWindowError(bookedAt);
+    if (mmWindowError) {
+      console.log(`[bowling/v2/reserve] MM window rejected: bookedAt=${bookedAt}`);
+      return NextResponse.json(
+        { error: mmWindowError, code: "mm_outside_window" },
+        { status: 400 },
+      );
+    }
   }
 
   // ── Determine product kind ──────────────────────────────────────
