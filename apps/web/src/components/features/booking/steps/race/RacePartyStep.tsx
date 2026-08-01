@@ -32,6 +32,21 @@ function ageFromBirthDate(birthDate: string | null | undefined): number | null {
   return Math.floor((Date.now() - new Date(birthDate).getTime()) / (365.25 * 24 * 60 * 60 * 1000));
 }
 
+/** Count-based slot label minted by setNewRacerCount ("Adult 1", "Junior 3").
+ *  A slot label is NOT a person's name — the kiosk check-in prefill filters
+ *  these on the same shape (party-prefill.ts isPlaceholderRacerName), which is
+ *  why a combo booked with bare counts scanned in with no names to pull. */
+function isPlaceholderSlotLabel(name: string): boolean {
+  return /^(adult|junior)\s+\d+$/i.test(name.trim());
+}
+
+/** "First [Middle …] Last" → PartyMember name fields (same split the returning
+ *  lookup uses for person.fullName). */
+function splitFullName(raw: string): { firstName: string; lastName?: string } {
+  const parts = raw.trim().split(/\s+/).filter(Boolean);
+  return { firstName: parts[0] ?? "", lastName: parts.slice(1).join(" ") || undefined };
+}
+
 const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
   item,
   session,
@@ -59,6 +74,28 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
   const combo = session.comboSpecialId ? getComboSpecial(session.comboSpecialId) : null;
   const comboMin = combo ? comboMinHeadcount(combo) : 1;
   const belowComboMin = !!combo && session.party.length < comboMin;
+
+  // Combo bookings NAME every racer (owner 2026-08-01: the VIP voucher scanned
+  // at check-in "pulled no names in" — count-based bookings never had any).
+  // Raw input text is kept per member id so trailing spaces survive typing;
+  // the parsed first/last land on the member via updatePartyMember.
+  const [nameDrafts, setNameDrafts] = useState<Record<string, string>>({});
+  const setRacerName = (member: PartyMember, slotLabel: string, raw: string) => {
+    setNameDrafts((d) => ({ ...d, [member.id]: raw }));
+    const { firstName, lastName } = splitFullName(raw);
+    // Cleared input → back to the slot label, so heat/summary displays keep a
+    // stable handle (canAdvance still blocks until a real name returns).
+    dispatch({
+      type: "updatePartyMember",
+      id: member.id,
+      patch: firstName ? { firstName, lastName } : { firstName: slotLabel, lastName: undefined },
+    });
+  };
+  const racerNameValue = (m: PartyMember): string =>
+    nameDrafts[m.id] ??
+    (isPlaceholderSlotLabel(m.firstName)
+      ? ""
+      : [m.firstName, m.lastName].filter(Boolean).join(" "));
 
   // ── New-racer quantity helpers ─────────────────────────────
   const newAdults = session.party.filter(
@@ -394,10 +431,41 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
           </p>
         )}
 
-        {total === 0 && !combo && (
-          <p className="text-center text-xs text-amber-400/70">
-            Add at least one racer to continue.
-          </p>
+        {/* Combo bookings name each racer here — the names ride the racing
+            licenses, the VIP voucher's per-guest legs and check-in (scanning
+            the voucher pulls the whole party in by name). The plain race flow
+            stays count-only (v1 parity); slots get real people at check-in. */}
+        {combo && total > 0 && (
+          <div className="mx-auto max-w-md space-y-3">
+            <div className="text-center">
+              <h4 className="text-sm font-semibold uppercase tracking-widest text-white/70">
+                Who&rsquo;s racing?
+              </h4>
+              <p className="mt-1 text-xs text-white/40">
+                Names go on the racing licenses and your VIP voucher, and check-in finds everyone
+                instantly.
+              </p>
+            </div>
+            {[...newAdults, ...newJuniors].map((m) => {
+              const slotLabel =
+                (m.category ?? "adult") === "adult"
+                  ? `Adult ${newAdults.indexOf(m) + 1}`
+                  : `Junior ${newJuniors.indexOf(m) + 1}`;
+              return (
+                <input
+                  key={m.id}
+                  type="text"
+                  value={racerNameValue(m)}
+                  onChange={(e) => setRacerName(m, slotLabel, e.target.value)}
+                  placeholder={`${slotLabel} — first & last name`}
+                  aria-label={`${slotLabel} name`}
+                  autoComplete="off"
+                  autoCapitalize="words"
+                  className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-white/25 focus:border-[#00E2E5]/60 focus:outline-none"
+                />
+              );
+            })}
+          </div>
         )}
 
         {total > 0 && (
@@ -636,7 +704,7 @@ function PartyMemberRow({
               value={member.firstName}
               onChange={(e) => onUpdate({ firstName: e.target.value })}
               className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-[#00E2E5]/60 focus:bg-white/10 focus:outline-none"
-              placeholder="Alex"
+              placeholder="First name"
             />
           </label>
           <label className="min-w-32 flex-1">
@@ -646,7 +714,7 @@ function PartyMemberRow({
               value={member.lastName ?? ""}
               onChange={(e) => onUpdate({ lastName: e.target.value || undefined })}
               className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/30 focus:border-[#00E2E5]/60 focus:bg-white/10 focus:outline-none"
-              placeholder="Trepasso"
+              placeholder="Last name"
             />
           </label>
         </div>
@@ -812,6 +880,16 @@ export const RacePartyStep: StepDef<RaceItem> = {
     }
     const missingName = session.party.some((m) => !m.isNewRacer && !m.firstName.trim());
     if (missingName) return { reason: "Every party member needs a first name." };
+    // Combos: EVERY racer needs a real name, not a count slot — the names ride
+    // the VIP voucher's per-guest legs, the racing licenses and check-in's
+    // voucher-scan prefill, all of which (correctly) refuse "Adult 1" as a
+    // person (owner 2026-08-01: voucher scan "pulled no names in").
+    if (combo) {
+      const unnamed = session.party.some(
+        (m) => !m.firstName.trim() || isPlaceholderSlotLabel(m.firstName),
+      );
+      if (unnamed) return { reason: "Please enter each racer's name to continue." };
+    }
     return true;
   },
 };

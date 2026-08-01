@@ -70,18 +70,41 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "billId required" }, { status: 400 });
     }
 
-    // Store the full record
-    await redis.set(`bookingrecord:${billId}`, JSON.stringify(data), "EX", TTL);
+    // MERGE with any existing record instead of blind-overwriting it. The
+    // client saves this record TWICE around a checkout (pre-pay handleConfirm,
+    // then post-reserve), and unified-reserve stamps server-only fields in
+    // between (vipVoucherCode, bowlingLane, comboReorder) — the second save
+    // used to drop them, which is why every VIP booking's confirmation page
+    // lost its voucher section (probed live 2026-08-01: 5/5 records had no
+    // vipVoucherCode). Keys named by the new payload win; a cancelled/refunded
+    // status never flips back (same guard as PATCH).
+    let record = data;
+    const existingRaw = await redis.get(`bookingrecord:${billId}`).catch(() => null);
+    if (existingRaw) {
+      try {
+        const existing = JSON.parse(existingRaw);
+        record = { ...existing, ...data };
+        if (
+          (existing.status === "cancelled" || existing.status === "refunded") &&
+          record.status !== existing.status
+        ) {
+          record.status = existing.status;
+        }
+      } catch {
+        /* unreadable existing record — the new payload stands alone */
+      }
+    }
+    await redis.set(`bookingrecord:${billId}`, JSON.stringify(record), "EX", TTL);
 
     // Create reverse indexes
-    if (data.date) {
-      await redis.sadd(`bookingrecord:date:${data.date}`, billId);
-      await redis.expire(`bookingrecord:date:${data.date}`, TTL);
+    if (record.date) {
+      await redis.sadd(`bookingrecord:date:${record.date}`, billId);
+      await redis.expire(`bookingrecord:date:${record.date}`, TTL);
     }
 
     // Index by personId for each racer
-    if (data.racers && Array.isArray(data.racers)) {
-      for (const racer of data.racers) {
+    if (record.racers && Array.isArray(record.racers)) {
+      for (const racer of record.racers) {
         if (racer.personId) {
           await redis.sadd(`bookingrecord:person:${racer.personId}`, billId);
           await redis.expire(`bookingrecord:person:${racer.personId}`, TTL);
@@ -90,14 +113,17 @@ export async function POST(req: NextRequest) {
     }
 
     // Index by primary personId
-    if (data.primaryPersonId) {
-      await redis.sadd(`bookingrecord:person:${data.primaryPersonId}`, billId);
-      await redis.expire(`bookingrecord:person:${data.primaryPersonId}`, TTL);
+    if (record.primaryPersonId) {
+      await redis.sadd(`bookingrecord:person:${record.primaryPersonId}`, billId);
+      await redis.expire(`bookingrecord:person:${record.primaryPersonId}`, TTL);
     }
 
-    await writeExpressSessionIndex(data, billId);
+    await writeExpressSessionIndex(record, billId);
 
-    console.log(`[booking-record] saved billId=${billId} racers=${data.racers?.length || 0}`);
+    console.log(
+      `[booking-record] saved billId=${billId} racers=${record.racers?.length || 0}` +
+        (existingRaw ? " (merged over existing)" : ""),
+    );
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.error("[booking-record] POST error:", err);

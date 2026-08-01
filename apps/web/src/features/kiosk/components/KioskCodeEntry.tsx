@@ -186,9 +186,9 @@ export function KioskCodeEntry({
   const [value, setValue] = useState("");
   const [checking, setChecking] = useState(false);
   // code → its already-SPENT legs from the last validate (receipt "used" rows).
-  const [spentByCode, setSpentByCode] = useState<Record<string, { index: number; label: string }[]>>(
-    {},
-  );
+  const [spentByCode, setSpentByCode] = useState<
+    Record<string, { index: number; label: string }[]>
+  >({});
   const [error, setError] = useState<string | null>(null);
   // Routed-but-not-a-problem scans (gift card / game card) while the receipt is
   // up read as a calm info line, not the red error line and not a panel swap.
@@ -608,9 +608,9 @@ export function KioskCodeEntry({
         promoApplied: !!appliedPromo,
       });
       // Counts shown to the guest are LEGS (cards owed) — same number the
-      // section header and the categories tile use. A run dispenses one card
-      // per CODE, so a multi-leg voucher's remainder stays pending and the
-      // tile brings them back for the next card.
+      // section header and the categories tile use. A dispense run covers
+      // EVERY leg (one claim per card), so normally nothing stays pending;
+      // only legs that fail mid-run keep the way-back tile alive.
       const cardCount = gzCards.length;
       const startPrint = () => {
         console.log(`[kiosk] receipt → print ${cardCount} card(s) via: ${codes.join(", ")}`);

@@ -27,6 +27,6 @@ describe("parseMemberQr", () => {
     expect(parseMemberQr('https://smstim.in?["headpinzftmyers"]')).toBeNull();
     expect(parseMemberQr('https://smstim.in?["headpinzftmyers","<script>"]')).toBeNull();
     expect(parseMemberQr("https://smstim.in?not json at all")).toBeNull();
-    expect(parseMemberQr("DCSTREPASSO")).toBeNull();
+    expect(parseMemberQr("DCSDOE")).toBeNull();
   });
 });

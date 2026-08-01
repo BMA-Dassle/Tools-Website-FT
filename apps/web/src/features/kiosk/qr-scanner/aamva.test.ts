@@ -58,11 +58,11 @@ describe("parseAamvaLines", () => {
     const lic = parseAamvaLines([
       "ANSI 636010090002DL00410269ZF03100075DLDCSSMITH",
       "DACJOHN",
-      "DBB08202002",
+      "DBB03142001",
       "DCGUSA",
     ]);
     expect(lic?.lastName).toBe("SMITH");
-    expect(lic?.dobIso).toBe("2002-08-20");
+    expect(lic?.dobIso).toBe("2001-03-14");
   });
 
   it('treats middle name filler "NONE" as absent', () => {

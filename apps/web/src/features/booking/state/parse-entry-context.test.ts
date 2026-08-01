@@ -72,9 +72,9 @@ describe("parseEntryContextFromSearchParams", () => {
       parseEntryContextFromSearchParams({
         member: "M-100",
         promo: "VIP",
-        firstName: "Alex",
-        lastName: "Trepasso",
-        email: "alex@example.com",
+        firstName: "Jane",
+        lastName: "Doe",
+        email: "jane@example.com",
         phone: "239-555-1212",
         utm_source: "email-spring-2026",
       }),
@@ -83,9 +83,9 @@ describe("parseEntryContextFromSearchParams", () => {
       promo: { code: "VIP", source: "url" },
       referrer: "email-spring-2026",
       prefilledContact: {
-        firstName: "Alex",
-        lastName: "Trepasso",
-        email: "alex@example.com",
+        firstName: "Jane",
+        lastName: "Doe",
+        email: "jane@example.com",
         phone: "239-555-1212",
       },
     });

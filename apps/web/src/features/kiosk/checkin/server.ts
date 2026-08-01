@@ -1432,6 +1432,22 @@ export async function listBindableParty(billId: string): Promise<CheckinPartyMem
     seen.add(key);
     return true;
   });
+  // The booking CONTACT is a real person the booking always knows. Offer them
+  // when the racer rows can't say who's coming — a count-based booking carries
+  // only slot labels (all filtered above; probed live 2026-08-01: every recent
+  // VIP combo), so without this the voucher scan pulled NO names in at all.
+  const contact = summary.record?.contact;
+  const contactFull = contact
+    ? `${(contact.firstName ?? "").trim()} ${(contact.lastName ?? "").trim()}`.trim()
+    : "";
+  const contactPersonId = summary.record?.primaryPersonId ?? null;
+  if (
+    contactFull &&
+    !(contactPersonId && seen.has(contactPersonId)) &&
+    !uniq.some((r) => r.full.toLowerCase() === contactFull.toLowerCase())
+  ) {
+    uniq.push({ full: contactFull, personId: contactPersonId });
+  }
   if (uniq.length === 0) return [];
 
   const waiverBy = await checkRacerWaivers(uniq.map((r) => r.personId));

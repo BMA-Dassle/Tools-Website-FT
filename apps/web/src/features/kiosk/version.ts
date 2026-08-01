@@ -15,6 +15,15 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.11.5 — a dispense run covers EVERY card leg of a scanned voucher (one
+ *         claim per card, sequential): the VIP voucher's whole family of
+ *         cards comes out in ONE "Get my cards" instead of one card per visit
+ *         with a "continue" loop between each (owner 2026-08-01). Basket rows
+ *         show "× N cards", the button/progress/done counts are CARDS not
+ *         codes, and the outcome report is per-LEG scoped to the run (a
+ *         prior run's cards can never be double-cleared from the pending
+ *         list). A "used" refusal after cards already came out finishes the
+ *         row (server truth won a race) instead of erroring it.
  * 1.11.4 — voucher receipt: already-used legs render as struck-through
  *         "already used" rows (a re-scan explains where a leg went), a native
  *         leg's ✕ removes ONLY that leg (the code's other legs stay; re-scan
@@ -430,7 +439,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.11.4";
+export const KIOSK_VERSION = "1.11.5";
 
 let bootVersion: string | null = null;
 let captured = false;

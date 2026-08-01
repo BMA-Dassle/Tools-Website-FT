@@ -11,8 +11,8 @@
  *  - The upstream endpoint 500s under Node fetch/undici for slash-bearing or
  *    single-word tokens — call it via raw `https.get` (app/api/bmi-office and
  *    the kiosk license lookup both do); person/{id} fetches are fine on fetch.
- *  - Birthdate tokens work as `M/D/YYYY` with NO leading zeros ("8/20/2002";
- *    "08/20/2002" returns nothing). Combined "LastName M/D/YYYY" scopes the
+ *  - Birthdate tokens work as `M/D/YYYY` with NO leading zeros ("3/14/2001";
+ *    "03/14/2001" returns nothing). Combined "LastName M/D/YYYY" scopes the
  *    search to one human — the kiosk license lookup's vector (owner ask).
  */
 
@@ -47,9 +47,9 @@ export function nameFromDescription(desc: string): string {
   return (nameMatch ? nameMatch[1].trim() : desc.split(" phone:")[0].trim()) || desc.trim();
 }
 
-/** "2002-08-20" → "8/20/2002" — the exact DOB token format the Office search
- *  indexes (M/D/YYYY, NO leading zeros — "08/20/2002" matches NOTHING;
- *  verified live 2026-07-23). Descriptions carry the same form as "(8/20/2002)". */
+/** "2001-03-14" → "3/14/2001" — the exact DOB token format the Office search
+ *  indexes (M/D/YYYY, NO leading zeros — "03/14/2001" matches NOTHING;
+ *  verified live 2026-07-23). Descriptions carry the same form as "(3/14/2001)". */
 export function dobTokenOf(dobIso: string): string {
   const [y, m, d] = dobIso.split("-");
   return `${Number(m)}/${Number(d)}/${y}`;

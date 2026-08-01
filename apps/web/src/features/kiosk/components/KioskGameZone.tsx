@@ -187,6 +187,12 @@ interface VoucherBasketRow {
   code: string;
   /** What it's worth, from the scan-time validate ("100 bonus tokens"). */
   label: string;
+  /** UNSPENT game-card legs on this code at scan time. A VIP voucher carries
+   *  one leg per guest, and the run owes a card for EVERY leg — the server
+   *  spends exactly one leg per claim, so this is how many claims we make. */
+  gzCount: number;
+  /** Cards actually dispensed for this code so far (across retries). */
+  issued: number;
   status: "ready" | "dispensing" | "loaded" | "failed";
   /** Card number handed over, once loaded. */
   cardNumber?: string;
@@ -1071,6 +1077,7 @@ export function KioskGameZone({
         ok?: boolean;
         reason?: string;
         label?: string;
+        items?: { redeemVia?: string }[];
       };
       if (!res.ok || data.ok !== true) {
         console.warn(
@@ -1079,8 +1086,18 @@ export function KioskGameZone({
         setVoucherMsg(t(VOUCHER_REFUSAL_KEY[data.reason ?? ""] ?? "gamezone.voucher.err.generic"));
         return null;
       }
-      console.log(`[kiosk] gz voucher validated: ${code} (${data.label ?? "?"})`);
-      const row = { code, label: data.label ?? "", status: "ready" as const };
+      // How many cards this code is owed: native validate lists every unspent
+      // leg; a BMI comp (no items array) is always exactly one card. Floor of 1
+      // keeps a cart-only voucher on today's path (the claim refuses it with
+      // the right message).
+      const gzCount = Math.max(
+        1,
+        (data.items ?? []).filter((i) => i.redeemVia === "gamezone").length,
+      );
+      console.log(
+        `[kiosk] gz voucher validated: ${code} (${data.label ?? "?"}) — ${gzCount} card leg(s)`,
+      );
+      const row = { code, label: data.label ?? "", gzCount, issued: 0, status: "ready" as const };
       updateBasket((rows) => [...rows, row]);
       return row;
     } catch {
@@ -1095,13 +1112,17 @@ export function KioskGameZone({
     updateBasket((rows) => rows.filter((r) => r.code !== code));
 
   /**
-   * "Get my cards" — claim + dispense + credit each voucher in turn.
+   * "Get my cards" — claim + dispense + credit every card leg of every voucher
+   * in turn. A code carrying several game-card legs (the VIP combo voucher:
+   * one leg per guest) gets ONE claim PER LEG in the SAME run — the server
+   * spends a single leg per claim, and making the guest re-enter the flow for
+   * each remaining card was the 2026-08-01 "keeps asking me to continue" bug.
    *
    * STRICTLY SEQUENTIAL: the reader holds one card at a time, so the next
-   * voucher is never claimed until the current card is in the guest's hand or
+   * claim is never taken until the current card is in the guest's hand or
    * safely binned. A failure is PER ROW — the run keeps going, because a guest
    * with three vouchers is owed three cards and abandoning the rest over one bad
-   * blank is the wrong call. Each row's claim is taken immediately before its
+   * blank is the wrong call. Each claim is taken immediately before its
    * dispense, so an abandoned basket leaves nothing spent.
    */
   const redeemBasket = async (queueOverride?: VoucherBasketRow[]) => {
@@ -1112,80 +1133,113 @@ export function KioskGameZone({
     voucherBusyRef.current = true;
     setVoucherMsg(null);
     setVoucherPhase("dispensing");
+    // Outcomes for THIS run only, one entry per attempted card leg — the flow
+    // clears one pending leg per loaded entry, so re-reporting a prior run's
+    // rows would over-clear the guest's remaining cards.
+    const runOutcomes: { code: string; loaded: boolean }[] = [];
     try {
       const queue = source.filter((r) => r.status === "ready" || r.status === "failed");
-      for (let i = 0; i < queue.length; i++) {
-        const row = queue[i];
+      const totalCards = queue.reduce((s, r) => s + Math.max(1, r.gzCount) - r.issued, 0);
+      let cardNo = 0;
+      for (const row of queue) {
+        const legsOwed = Math.max(1, row.gzCount) - row.issued;
+        if (legsOwed <= 0) continue;
         setBasketRow(row.code, { status: "dispensing", error: undefined });
-        setDispenseMsg(
-          queue.length > 1
-            ? t("gamezone.voucher.dispensingN", { n: i + 1, total: queue.length })
-            : t("gamezone.voucher.dispensing"),
-        );
+        let issued = row.issued;
+        for (let leg = 0; leg < legsOwed; leg++) {
+          cardNo++;
+          setDispenseMsg(
+            totalCards > 1
+              ? t("gamezone.voucher.dispensingN", { n: cardNo, total: totalCards })
+              : t("gamezone.voucher.dispensing"),
+          );
 
-        // Claim HERE, not at scan time.
-        let claimed: { txnId: string; groupId: string; grant: RedeemedGrant } | null = null;
-        try {
-          const res = await fetch("/api/game-cards/voucher-redeem", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              action: "claim",
-              code: row.code,
-              locationCode,
-              center: config?.center,
-              kioskId: config ? kioskDeviceKey(config) : undefined,
-            }),
-          });
-          const data = (await res.json().catch(() => ({}))) as {
-            ok?: boolean;
-            reason?: string;
-            txnId?: string;
-            groupId?: string;
-            grant?: RedeemedGrant;
-            label?: string;
-          };
-          if (res.ok && data.ok === true && data.txnId && data.groupId && data.grant) {
-            claimed = {
-              txnId: data.txnId,
-              groupId: data.groupId,
-              grant: { ...data.grant, label: data.label ?? data.grant.label ?? row.label },
+          // Claim HERE, not at scan time — one claim per CARD.
+          let claimed: { txnId: string; groupId: string; grant: RedeemedGrant } | null = null;
+          let refusedUsed = false;
+          try {
+            const res = await fetch("/api/game-cards/voucher-redeem", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                action: "claim",
+                code: row.code,
+                locationCode,
+                center: config?.center,
+                kioskId: config ? kioskDeviceKey(config) : undefined,
+              }),
+            });
+            const data = (await res.json().catch(() => ({}))) as {
+              ok?: boolean;
+              reason?: string;
+              txnId?: string;
+              groupId?: string;
+              grant?: RedeemedGrant;
+              label?: string;
             };
-          } else {
-            console.warn(
-              `[kiosk] gz voucher CLAIM refused: ${row.code} — ${data.reason ?? `http-${res.status}`}`,
-            );
-            failRow(
-              row.code,
-              t(VOUCHER_REFUSAL_KEY[data.reason ?? ""] ?? "gamezone.voucher.err.generic"),
-            );
+            if (res.ok && data.ok === true && data.txnId && data.groupId && data.grant) {
+              claimed = {
+                txnId: data.txnId,
+                groupId: data.groupId,
+                grant: { ...data.grant, label: data.label ?? data.grant.label ?? row.label },
+              };
+            } else {
+              console.warn(
+                `[kiosk] gz voucher CLAIM refused: ${row.code} — ${data.reason ?? `http-${res.status}`}`,
+              );
+              refusedUsed = data.reason === "used";
+              failRow(
+                row.code,
+                t(VOUCHER_REFUSAL_KEY[data.reason ?? ""] ?? "gamezone.voucher.err.generic"),
+              );
+            }
+          } catch (err) {
+            console.warn(`[kiosk] gz voucher claim network failure: ${row.code}`, err);
+            failRow(row.code, t("gamezone.voucher.err.generic"));
           }
-        } catch (err) {
-          console.warn(`[kiosk] gz voucher claim network failure: ${row.code}`, err);
-          failRow(row.code, t("gamezone.voucher.err.generic"));
-        }
-        if (!claimed) continue; // nothing spent for this row — try the next
+          if (!claimed) {
+            // "used" AFTER cards already came out = server truth says the code
+            // is exhausted (our scan-time count raced another redemption) —
+            // the dispensed cards stand, so the row is done, not failed.
+            if (refusedUsed && issued > 0) {
+              setBasketRow(row.code, { status: "loaded", error: undefined });
+            } else {
+              runOutcomes.push({ code: row.code, loaded: false });
+            }
+            break; // a refused claim repeats for every remaining leg — next row
+          }
 
-        voucherClaimRef.current = {
-          code: row.code,
-          txnId: claimed.txnId,
-          groupId: claimed.groupId,
-        };
-        await dispenseVoucherCard({ code: row.code, ...claimed });
-        voucherClaimRef.current = null;
+          voucherClaimRef.current = {
+            code: row.code,
+            txnId: claimed.txnId,
+            groupId: claimed.groupId,
+          };
+          const ok = await dispenseVoucherCard({ code: row.code, ...claimed });
+          voucherClaimRef.current = null;
+          runOutcomes.push({ code: row.code, loaded: ok });
+          if (!ok) break; // dispenseVoucherCard already failed the row — next row
+          issued++;
+          // creditVoucherCard flipped the row to `loaded` — keep it "dispensing"
+          // while this code still owes cards so the list never reads finished
+          // mid-run.
+          setBasketRow(
+            row.code,
+            issued < Math.max(1, row.gzCount) ? { issued, status: "dispensing" } : { issued },
+          );
+        }
       }
     } finally {
       voucherBusyRef.current = false;
       setDispenseMsg(null);
       // The screen reports per row, so land on `done` whenever anything worked
       // and only on `error` when NOTHING did. The outcome callback lets the
-      // flow drop DISPENSED codes from its pending list (failed ones stay —
+      // flow drop DISPENSED legs from its pending list (failed ones stay —
       // their claims were released, so the way back must stay open). Read the
       // REF — calling the parent inside a state updater ran it during render
       // (and twice under StrictMode).
       const rows = voucherBasketRef.current;
       setVoucherPhase(rows.some((r) => r.status === "loaded") ? "done" : "error");
-      onVoucherOutcome?.(rows.map((r) => ({ code: r.code, loaded: r.status === "loaded" })));
+      onVoucherOutcome?.(runOutcomes);
     }
   };
 
@@ -1961,7 +2015,11 @@ export function KioskGameZone({
                       <div className="font-mono text-lg tracking-[0.08em] text-white/90">
                         {row.code}
                       </div>
-                      <div className="text-sm text-[#46d68c]">{row.label}</div>
+                      <div className="text-sm text-[#46d68c]">
+                        {row.gzCount > 1
+                          ? `${row.label} · ${t("gamezone.voucher.cardsOnCode", { n: row.gzCount })}`
+                          : row.label}
+                      </div>
                     </div>
                     <button
                       type="button"
@@ -2034,9 +2092,17 @@ export function KioskGameZone({
                 disabled={voucherBasket.length === 0}
                 className="k-tap flex-1 rounded-full bg-[#e8b14c] px-5 py-4 text-lg font-extrabold text-[#231703] disabled:opacity-40"
               >
-                {voucherBasket.length > 1
-                  ? t("gamezone.voucher.getCards", { n: voucherBasket.length })
-                  : t("gamezone.voucher.getCard")}
+                {(() => {
+                  // Count CARDS, not codes — one VIP voucher can owe a whole
+                  // family's cards.
+                  const n = voucherBasket.reduce(
+                    (s, r) => s + Math.max(1, r.gzCount) - r.issued,
+                    0,
+                  );
+                  return n > 1
+                    ? t("gamezone.voucher.getCards", { n })
+                    : t("gamezone.voucher.getCard");
+                })()}
               </button>
             </div>
           </div>
@@ -2065,7 +2131,8 @@ export function KioskGameZone({
                 </div>
                 <p className="mt-3 text-2xl text-white/75">
                   {t("gamezone.voucher.done.bodyN", {
-                    n: voucherBasket.filter((r) => r.status === "loaded").length,
+                    // CARDS handed over, not codes — a VIP voucher is several.
+                    n: voucherBasket.reduce((s, r) => s + r.issued, 0),
                   })}
                 </p>
               </>
@@ -2087,10 +2154,14 @@ export function KioskGameZone({
                     <span className="font-mono text-base text-white/70">{row.code}</span>
                     <span className={row.status === "loaded" ? "text-[#46d68c]" : "text-[#ff8c7a]"}>
                       {row.status === "loaded"
-                        ? row.cardNumber
-                          ? t("gamezone.cardHash", { num: row.cardNumber })
-                          : t("gamezone.voucher.loadedOk")
-                        : t("gamezone.voucher.notIssued")}
+                        ? row.gzCount > 1
+                          ? t("gamezone.voucher.cardsIssued", { n: row.issued })
+                          : row.cardNumber
+                            ? t("gamezone.cardHash", { num: row.cardNumber })
+                            : t("gamezone.voucher.loadedOk")
+                        : row.issued > 0
+                          ? t("gamezone.voucher.cardsIssued", { n: row.issued })
+                          : t("gamezone.voucher.notIssued")}
                     </span>
                   </div>
                   {row.error && <div className="mt-1 text-sm text-white/55">{row.error}</div>}

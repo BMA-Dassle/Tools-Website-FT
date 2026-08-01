@@ -28,6 +28,8 @@ export const gamezoneEn = {
   "gamezone.voucher.getCard": "Get my card",
   "gamezone.voucher.getCards": "Get my {n} cards",
   "gamezone.voucher.dispensingN": "Card {n} of {total}…",
+  "gamezone.voucher.cardsOnCode": "{n, plural, one {# card} other {# cards}}",
+  "gamezone.voucher.cardsIssued": "{n, plural, one {# card issued} other {# cards issued}}",
   "gamezone.voucher.loadedOk": "Loaded",
   "gamezone.voucher.notIssued": "Not issued",
   "gamezone.voucher.done.bodyN":
@@ -263,6 +265,9 @@ export const gamezoneEs: Record<keyof typeof gamezoneEn, string> = {
   "gamezone.voucher.getCard": "Obtener mi tarjeta",
   "gamezone.voucher.getCards": "Obtener mis {n} tarjetas",
   "gamezone.voucher.dispensingN": "Imprimiendo tarjeta {n} de {total}…",
+  "gamezone.voucher.cardsOnCode": "{n, plural, one {# tarjeta} other {# tarjetas}}",
+  "gamezone.voucher.cardsIssued":
+    "{n, plural, one {# tarjeta emitida} other {# tarjetas emitidas}}",
   "gamezone.voucher.loadedOk": "Cargada",
   "gamezone.voucher.notIssued": "No emitida",
   "gamezone.voucher.done.bodyN":

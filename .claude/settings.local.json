@@ -278,7 +278,8 @@
       "Bash(git fetch *)",
       "Bash(git rev-list *)",
       "Bash(git stash *)",
-      "WebFetch(domain:www.leg.state.fl.us)"
+      "WebFetch(domain:www.leg.state.fl.us)",
+      "PowerShell(git fetch origin 2>$null)"
     ],
     "additionalDirectories": [
       "\\tmp"

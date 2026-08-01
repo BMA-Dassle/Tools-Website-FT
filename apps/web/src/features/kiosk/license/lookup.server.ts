@@ -9,11 +9,11 @@
  * THE SEARCH IS THE BMI OFFICE TOKEN SEARCH with a combined token (owner
  * 2026-07-23, third revision — this one measured FAST):
  *
- *   search/person?token=<LastName M/D/YYYY>     e.g. "Trepasso 8/20/2002"
+ *   search/person?token=<LastName M/D/YYYY>     e.g. "Doe 3/14/2001"
  *
  * ~1 s live vs ~8.5 s for Pandora's /bmi/person/search (docs/pandora-api.md
  * keeps that endpoint's numbers). Hard-won upstream facts (verified live):
- *  - The DOB token must be M/D/YYYY with NO LEADING ZEROS — "08/20/2002"
+ *  - The DOB token must be M/D/YYYY with NO LEADING ZEROS — "03/14/2001"
  *    matches nothing.
  *  - This endpoint 500s under Node fetch/undici for slash-bearing or
  *    single-word tokens — the search call MUST go over raw `https.get`

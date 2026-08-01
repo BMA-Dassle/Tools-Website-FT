@@ -13,10 +13,7 @@ export interface PendingGzCard {
 /** Append newly-scanned legs; a code already in the list never duplicates
  *  (one voucher's gz legs travel together, re-scans are no-ops). Returns the
  *  SAME array when nothing was added so React state doesn't churn. */
-export function addPendingCards(
-  prev: PendingGzCard[],
-  cards: PendingGzCard[],
-): PendingGzCard[] {
+export function addPendingCards(prev: PendingGzCard[], cards: PendingGzCard[]): PendingGzCard[] {
   const have = new Set(prev.map((c) => c.code));
   const add = cards.filter((c) => !have.has(c.code));
   return add.length > 0 ? [...prev, ...add] : prev;
@@ -27,12 +24,13 @@ export function removePendingCard(prev: PendingGzCard[], code: string): PendingG
   return prev.filter((c) => c.code !== code);
 }
 
-/** Apply a dispense run's per-code outcome. ONE loaded outcome clears ONE leg
- *  of that code — never all of them: the server spends a single gz item per
- *  claim (`claimNativeVoucher` takes "the FIRST unspent Game Zone item"), so a
- *  voucher carrying two card legs is owed a second run and its remaining leg
- *  must keep the way-back tile alive. Failed outcomes clear nothing (their
- *  claims were released). Unknown codes in `outcomes` are ignored. */
+/** Apply a dispense run's per-LEG outcomes. ONE loaded outcome clears ONE leg
+ *  of that code — the server spends a single gz item per claim
+ *  (`claimNativeVoucher` takes "the FIRST unspent Game Zone item"), and the
+ *  run reports one outcome per card it attempted, so a multi-leg voucher that
+ *  fully dispenses clears all its legs while a leg that failed mid-run stays
+ *  pending and keeps the way-back tile alive. Failed outcomes clear nothing
+ *  (their claims were released). Unknown codes in `outcomes` are ignored. */
 export function clearDispensedCards(
   prev: PendingGzCard[],
   outcomes: { code: string; loaded: boolean }[],

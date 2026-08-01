@@ -33,25 +33,25 @@ describe("scoreSearchResult / lastSeenFromDescription", () => {
 
 describe("dobTokenOf", () => {
   it("strips leading zeros — the only form the Office search matches", () => {
-    expect(dobTokenOf("2002-08-20")).toBe("8/20/2002");
+    expect(dobTokenOf("2001-03-14")).toBe("3/14/2001");
     expect(dobTokenOf("1990-12-05")).toBe("12/5/1990");
     expect(dobTokenOf("2010-01-01")).toBe("1/1/2010");
   });
 });
 
 describe("descriptionMatchesLastName", () => {
-  // Live shape from the combined-token search: "Alex Trepasso (8/20/2002)
-  // zip: 33966 phone: 7249676207 Last seen: 7/22/2026 Memberships: …"
-  const DESC_DOB = "JANE DOE (8/20/2002) zip: 33901 phone: 2395551212 Last seen: 7/22/2026";
+  // Mirrors the live combined-token search shape (name/DOB fictionalized):
+  // "JANE DOE (3/14/2001) zip: 33901 phone: … Last seen: 7/22/2026 Memberships: …"
+  const DESC_DOB = "JANE DOE (3/14/2001) zip: 33901 phone: 2395551212 Last seen: 7/22/2026";
   it("matches whole words case-insensitively", () => {
     expect(descriptionMatchesLastName(DESC_DOB, "doe")).toBe(true);
     expect(descriptionMatchesLastName(DESC_FULL, "DOE")).toBe(true);
   });
   it("does not match substrings of longer names", () => {
-    expect(descriptionMatchesLastName("JANE DOEBER (8/20/2002)", "DOE")).toBe(false);
+    expect(descriptionMatchesLastName("JANE DOEBER (3/14/2001)", "DOE")).toBe(false);
   });
   it("matches a nameless legacy record whose name part is just the last name", () => {
-    expect(descriptionMatchesLastName(" DOE (8/20/2002) zip: 33973", "doe")).toBe(true);
+    expect(descriptionMatchesLastName(" DOE (3/14/2001) zip: 33973", "doe")).toBe(true);
   });
   it("matches inside hyphenated names; rejects empty needles", () => {
     expect(descriptionMatchesLastName("ANA SMITH-JONES (1/2/2003)", "SMITH")).toBe(true);
