@@ -269,6 +269,23 @@ export async function getVoucherByBillId(billId: string): Promise<VoucherRow | n
   return rows.length > 0 ? decode(rows[0]) : null;
 }
 
+/** Booking vouchers for a set of bills in one query (admin board). billIds are
+ *  17-digit STRINGS end to end. Returns a billId-keyed map. */
+export async function getVouchersByBillIds(billIds: string[]): Promise<Map<string, VoucherRow>> {
+  const out = new Map<string, VoucherRow>();
+  if (!isDbConfigured() || billIds.length === 0) return out;
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    SELECT * FROM vouchers WHERE bill_id = ANY(${billIds})
+  `) as unknown[];
+  for (const r of rows) {
+    const row = decode(r);
+    if (row.billId) out.set(row.billId, row);
+  }
+  return out;
+}
+
 export async function getVoucher(code: string): Promise<VoucherRow | null> {
   if (!isDbConfigured()) return null;
   await ensureSchema();

@@ -10,7 +10,10 @@
  * the 30s heartbeat keep the "left"/"in" countdowns current) — do NOT wrap
  * this component in React.memo or the pills freeze.
  */
+import { useEffect, useState } from "react";
+import QRCode from "qrcode";
 import { clickableDivProps } from "@/lib/a11y";
+import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
 import { cancelActionable } from "~/features/reservations-admin/actionable";
 import { stepProgress, type ComboGroup } from "~/features/reservations-admin/combo-board";
 import { etWallMs } from "~/features/reservations-admin/format";
@@ -41,9 +44,88 @@ function timeShiftLeg(g: ComboGroup, nowMs: number): Reservation | null {
   return b;
 }
 
+/**
+ * The booking's V2 voucher — code + a scannable QR of the /v/{code} URL so a
+ * manager can pull up (or scan) a guest's entitlements straight off the board.
+ * Same payload as the emailed QR, so kiosks recognise it too. Rendered as a
+ * data URI (internal screen — the email's cid constraint doesn't apply).
+ */
+function VoucherBadge({ code, voided }: { code: string; voided: boolean }) {
+  const [qr, setQr] = useState<string | null>(null);
+  const url = `${typeof window !== "undefined" ? window.location.origin : ""}/v/${encodeURIComponent(code)}`;
+  useEffect(() => {
+    let alive = true;
+    QRCode.toDataURL(url, { width: 96, margin: 1 })
+      .then((d) => {
+        if (alive) setQr(d);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [url]);
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        marginBottom: 10,
+        padding: "8px 12px",
+        borderRadius: 10,
+        border: "1px solid rgba(212,175,55,0.4)",
+        background: "rgba(212,175,55,0.06)",
+        opacity: voided ? 0.5 : 1,
+      }}
+    >
+      {qr && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={qr}
+          alt={`Voucher QR ${formatVoucherCode(code)}`}
+          width={72}
+          height={72}
+          style={{ borderRadius: 6, background: "#fff", display: "block" }}
+        />
+      )}
+      <div style={{ minWidth: 0 }}>
+        <div
+          style={{
+            fontSize: "0.62rem",
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: "0.08em",
+            color: "#d4af37",
+          }}
+        >
+          VIP Voucher{voided ? " · VOIDED" : ""}
+        </div>
+        <a
+          href={`/v/${encodeURIComponent(code)}`}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            fontFamily: "monospace",
+            fontSize: "1.05rem",
+            letterSpacing: "0.08em",
+            color: "var(--ba-fg)",
+            textDecoration: "underline",
+            textDecorationColor: "rgba(212,175,55,0.5)",
+          }}
+          title="Open the guest's voucher page (per-item used/available state)"
+        >
+          {formatVoucherCode(code)}
+        </a>
+      </div>
+    </div>
+  );
+}
+
 export default function VipComboCards({
   groups,
   nowMs,
+  vouchers,
   onCancelLeg,
   onViewOrder,
   onOpenReservation,
@@ -51,6 +133,8 @@ export default function VipComboCards({
 }: {
   groups: ComboGroup[];
   nowMs: number;
+  /** Booking-minted V2 voucher per BMI billId (route vipVouchers). */
+  vouchers?: Record<string, { code: string; voided: boolean }>;
   onCancelLeg: (leg: Reservation) => void;
   onViewOrder: (target: OrderTarget) => void;
   /** Card click (anywhere except inner buttons) opens the manage modal on the anchor leg. */
@@ -142,6 +226,13 @@ export default function VipComboCards({
               {g.guestPhone ? ` · ${g.guestPhone}` : ""}
               {g.playerCount ? ` · ${g.playerCount}p` : ""} · {centerLabel(g.centerCode)}
             </div>
+
+            {/* V2 voucher (code + scannable QR) — keyed by the combo's BMI bill */}
+            {(() => {
+              const billId = g.legs.find((l) => l.bmiBillId)?.bmiBillId;
+              const v = billId ? vouchers?.[billId] : undefined;
+              return v ? <VoucherBadge code={v.code} voided={v.voided} /> : null;
+            })()}
 
             {/* Schedule — real per-leg times: race heat times (heatId =
                 block-start ISO) + the bowling slot, with the lane. */}

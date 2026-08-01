@@ -92,8 +92,16 @@ export default function ReservationsBoard({
     return new URLSearchParams(window.location.search).get("view") === "vip" ? "vip" : null;
   });
 
-  const { reservations, groupEvents, vipReservations, comboMeta, loading, error, reload } =
-    useReservationsData(token, date, center);
+  const {
+    reservations,
+    groupEvents,
+    vipReservations,
+    comboMeta,
+    vipVouchers,
+    loading,
+    error,
+    reload,
+  } = useReservationsData(token, date, center);
 
   // Countdown heartbeat — keeps the VIP pills moving between data polls.
   useNowTick(30_000);
@@ -571,6 +579,7 @@ export default function ReservationsBoard({
               // Recomputed on every render — the 10s silent auto-refresh and
               // the 30s heartbeat keep the "left"/"in" countdowns current.
               nowMs={nowEtWallMs()}
+              vouchers={vipVouchers}
               onCancelLeg={setCancelTarget}
               onViewOrder={setOrderTarget}
               onOpenReservation={openManage}

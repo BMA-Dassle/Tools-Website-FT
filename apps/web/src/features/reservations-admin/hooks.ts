@@ -72,6 +72,8 @@ export interface ReservationsData {
   groupEvents: GroupEvent[];
   vipReservations: Reservation[];
   comboMeta: Record<string, ComboMeta>;
+  /** Booking-minted V2 voucher per BMI billId — the VIP cards' code + QR. */
+  vipVouchers: Record<string, { code: string; voided: boolean }>;
   loading: boolean;
   error: string | null;
   reload: (opts?: { silent?: boolean }) => Promise<void>;
@@ -89,6 +91,9 @@ export function useReservationsData(token: string, date: string, center: string)
   // racing + HeadPinz bowling) so they surface in every location's portal view.
   const [vipReservations, setVipReservations] = useState<Reservation[]>([]);
   const [comboMeta, setComboMeta] = useState<Record<string, ComboMeta>>({});
+  const [vipVouchers, setVipVouchers] = useState<Record<string, { code: string; voided: boolean }>>(
+    {},
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -117,6 +122,7 @@ export function useReservationsData(token: string, date: string, center: string)
         setGroupEvents(data.groupEvents ?? []);
         setVipReservations(data.vipReservations ?? []);
         setComboMeta(data.comboMeta ?? {});
+        setVipVouchers(data.vipVouchers ?? {});
         setError(null);
       } catch (err) {
         if (!silent) {
@@ -125,6 +131,7 @@ export function useReservationsData(token: string, date: string, center: string)
           setGroupEvents([]);
           setVipReservations([]);
           setComboMeta({});
+          setVipVouchers({});
         }
       } finally {
         setLoading(false);
@@ -150,6 +157,7 @@ export function useReservationsData(token: string, date: string, center: string)
     groupEvents,
     vipReservations,
     comboMeta,
+    vipVouchers,
     loading,
     error,
     reload: load,

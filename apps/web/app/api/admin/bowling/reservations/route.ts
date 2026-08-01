@@ -10,6 +10,7 @@ import { shortenUrl } from "@/lib/short-url";
 import { confirmationShortUrl } from "@/lib/booking-confirmation-link";
 import { sql } from "@/lib/db";
 import { getComboSpecial } from "~/features/combos/combo-specials";
+import { getVouchersByBillIds } from "~/features/game-cards/data/vouchers-db";
 import { belongsOnHeadpinzFmBoard } from "~/features/reservations-admin/center-scope";
 import {
   attachRaceLiveState,
@@ -232,6 +233,29 @@ export async function GET(req: NextRequest) {
     // share a square_dayof_order_id; the client groups on that.
     const vipReservations = await listVipComboReservations({ startDate: date, endDate: date });
 
+    // Booking-minted vouchers (V2 grant) keyed by bill — the VIP cards show the
+    // code + QR so managers can pull up / scan a guest's entitlements at the
+    // desk. Best-effort; never fails the response.
+    let vipVouchers: Record<string, { code: string; voided: boolean }> = {};
+    try {
+      const billIds = [
+        ...new Set(
+          vipReservations
+            .map((r) => r.bmiBillId)
+            .filter((b): b is string => typeof b === "string" && b.length > 0),
+        ),
+      ];
+      const byBill = await getVouchersByBillIds(billIds);
+      vipVouchers = Object.fromEntries(
+        [...byBill.entries()].map(([billId, v]) => [
+          billId,
+          { code: v.code, voided: !!v.voidedAt },
+        ]),
+      );
+    } catch (err) {
+      console.error("[admin/reservations] voucher lookup failed (non-fatal):", err);
+    }
+
     // Enrich combo BOWLING legs with their QAMF lane. dayof_order_lane is only
     // persisted at lane-open, so an upcoming combo shows no lane even though the
     // VIP lane is already reserved in QAMF — fetch it. Best-effort; never fails
@@ -332,7 +356,13 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ reservations: enriched, groupEvents, vipReservations, comboMeta });
+    return NextResponse.json({
+      reservations: enriched,
+      groupEvents,
+      vipReservations,
+      comboMeta,
+      vipVouchers,
+    });
   } catch (err) {
     console.error("[admin/bowling/reservations]", err);
     return NextResponse.json({ error: "Failed to load reservations" }, { status: 500 });
