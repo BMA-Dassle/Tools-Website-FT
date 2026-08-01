@@ -709,6 +709,33 @@ export function racerNamesFromHeats(heats: RaceHeatAssignment[], party: PartyMem
   return party.filter((m) => racing.has(m.id)).map((m) => m.firstName);
 }
 
+/**
+ * Map the charge overview to the /reserve cart. The `overview` IS the charge
+ * in both models — legacy = BMI bill lines; zero model = registry race +
+ * license (+ any non-race BMI lines), built in buildZeroModelOverview — so
+ * mapping it straight to the Square cart guarantees the charge equals what
+ * the customer was shown (displayed price = charge-time price).
+ *
+ * NEGATIVE lines never pass: Square rejects negative base_price_money
+ * outright (live 2026-07-31: voucher review lines on a fully-covered $0 cart
+ * → value_too_low, booking dead). Voucher-covered carts are ROUTED to the
+ * unified rail before ever reaching this path (CheckoutStep credit branch);
+ * this filter is the last-line guard if anything misroutes again.
+ */
+export function cartItemsFromOverview(
+  session: BookingSession,
+  overview: BillOverview,
+): Array<{ bmiProductId: string; name: string; quantity: number; unitPriceCents: number }> {
+  return overview.lines
+    .filter((l) => (l.amount > 0 || overview.isCreditOrder) && l.amount >= 0)
+    .map((l) => ({
+      bmiProductId: l.bmiProductId ?? resolveProductId(session, l) ?? "",
+      name: l.name,
+      quantity: l.quantity,
+      unitPriceCents: Math.round((l.amount * 100) / l.quantity),
+    }));
+}
+
 export async function reserveBooking(params: ReserveParams): Promise<ReserveResult> {
   const { session, bmiBillId, overview, contact } = params;
 
@@ -720,18 +747,7 @@ export async function reserveBooking(params: ReserveParams): Promise<ReserveResu
   const bmiClientKey = centerCode === "naples" ? "headpinznaples" : "headpinzftmyers";
 
   const useZeroModel = raceItems.length > 0 && raceItems.every(raceUsesZeroBmiModel);
-  // The `overview` IS the charge in both models — legacy = BMI bill lines; zero
-  // model = registry race + license (+ any non-race BMI lines), built in
-  // buildZeroModelOverview. Mapping it straight to the Square cart guarantees the
-  // charge equals what the customer was shown (displayed price = charge-time price).
-  const cartItems = overview.lines
-    .filter((l) => l.amount > 0 || overview.isCreditOrder)
-    .map((l) => ({
-      bmiProductId: l.bmiProductId ?? resolveProductId(session, l) ?? "",
-      name: l.name,
-      quantity: l.quantity,
-      unitPriceCents: Math.round((l.amount * 100) / l.quantity),
-    }));
+  const cartItems = cartItemsFromOverview(session, overview);
 
   const bookingMetadata: Record<string, unknown> = {};
   if (raceItem) {

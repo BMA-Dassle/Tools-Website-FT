@@ -46,6 +46,7 @@ import { PromoCodeInput } from "./PromoCodeInput";
 import {
   sessionVouchers,
   voucherDisplayName,
+  voucherIsApplied,
   voucherRedeemEnabled,
   voucherReviewLines,
 } from "~/features/booking/service/voucher-redeem";
@@ -757,12 +758,25 @@ export function CheckoutStep({
     if (overview.isCreditOrder) {
       setPhase({ step: "confirming", bmiBillId });
       try {
-        await reserveBooking({
-          session: reserveSession,
-          bmiBillId,
-          overview,
-          contact,
-        });
+        // A $0 total from VOUCHER coverage takes the UNIFIED rail (owner
+        // 2026-07-31, after two gel covers zeroed a kiosk cart): the legacy
+        // credit path predates vouchers — it can't take their single-use
+        // claims, and its negative review lines are unrepresentable on a
+        // Square order (value_too_low killed the booking). unified reprices
+        // from the session (coverage = quantity reduction, never a negative
+        // line), claims the voucher items atomically, and skips the charge at
+        // $0 — no card needed. Race-credit-only $0 orders keep the proven
+        // legacy credit path.
+        if (sessionVouchers(reserveSession).some(voucherIsApplied)) {
+          await reserveAll({ session: reserveSession, contact });
+        } else {
+          await reserveBooking({
+            session: reserveSession,
+            bmiBillId,
+            overview,
+            contact,
+          });
+        }
         clearBookingSession(storageKey);
         go(buildConfirmationUrl(reserveSession, bmiBillId, true));
       } catch (err) {
