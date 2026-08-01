@@ -323,7 +323,8 @@ interface SquareLineItem {
 
 // ── Build combined line items from all session items ──────────────────
 
-function buildCombinedLineItems(session: BookingSession): {
+// Exported for tests (repro of live pricing bugs); not part of the public API.
+export function buildCombinedLineItems(session: BookingSession): {
   sqLineItems: SquareLineItem[];
   depositPct: number;
   promoSavingsCents: number;
@@ -1046,6 +1047,29 @@ async function unifiedReserveInner(
       }
     }
     input = { ...input, session: { ...input.session, appliedVouchers: kept } };
+  }
+  // DIAGNOSTIC (owner smoke 2026-07-31, kept cheap + PII-free): what voucher
+  // legs did this request actually carry, and what does the plan allocate?
+  // The pricing builder is proven correct in unit repro with the expected
+  // session shape — this log pins down what the wire delivers instead.
+  {
+    const posted = input.session.appliedVouchers ?? [];
+    const applied = sessionVouchers(input.session).filter(voucherIsApplied);
+    const plan = activeComboSpecial(input.session)
+      ? null
+      : planVoucherCoverage(input.session, redeemedHeatSet(input.session));
+    const alloc = (plan?.picks ?? []).filter((p) => p.raceHeat || p.attractionItemId).length;
+    if (posted.length > 0 || applied.length > 0) {
+      console.log(
+        `[unified-reserve] vouchers: posted=${posted.length} applied=${applied.length} allocated=${alloc} ` +
+          posted
+            .map(
+              (v) =>
+                `{i:${(v as { itemIndex?: number }).itemIndex ?? "-"},iss:${(v as { issuer?: string }).issuer ?? "-"},p:${(v as { pending?: boolean }).pending ? 1 : 0},e:${(v as { error?: string }).error ? 1 : 0},n:"${String((v as { name?: string }).name ?? "").slice(0, 30)}"}`,
+            )
+            .join(" "),
+      );
+    }
   }
   const { session, contact } = input;
   // Day-of order → the entity that OWNS the products (revenue split stays
