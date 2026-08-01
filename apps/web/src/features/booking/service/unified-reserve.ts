@@ -368,6 +368,17 @@ function buildCombinedLineItems(session: BookingSession): {
           name: li.label ?? "Bowling",
           quantity: String(li.quantity),
           catalogObjectId: li.squareCatalogObjectId,
+          // VARIABLY-priced variations (duckpin EXW7E74I…) REQUIRE a price —
+          // a bare catalog line 400'd the whole order (owner repro 2026-07-31,
+          // duckpin+gel mixed cart; duckpin-only carts ride the bowling rail,
+          // so unified never hit it before). Fixed-price variations accept an
+          // equal override, and the deposit math above already uses THIS
+          // price, so order total == displayed == deposit by construction.
+          // $0-local-price lines (fees priced by the catalog) keep catalog
+          // pricing — sending 0 would zero a real fee.
+          ...(fullCents > 0
+            ? { basePriceMoney: { amount: priceCents, currency: "USD" } }
+            : {}),
         });
       } else if (li.squareCatalogObjectId) {
         // Discounted catalog line: keep the catalog link for categorization but
@@ -1060,13 +1071,31 @@ async function unifiedReserveInner(
   //   • an abandoned checkout leaves the claim recoverable, never a double spend.
   // Game-zone items never reach here — voucherTarget()==="gamecard" prices
   // nothing and they're fulfilled on the dispense rail instead.
-  const nativeVoucherRefs: NativeCartVoucherRef[] = sessionVouchers(session)
-    .filter((v) => voucherIsApplied(v) && v.issuer === "native" && typeof v.itemIndex === "number")
-    .filter((v) => {
-      const k = voucherTarget(v.name).kind;
-      return k === "race" || k === "attraction";
-    })
-    .map((v) => ({ code: v.code, itemIndex: v.itemIndex as number, name: v.name }));
+  //
+  // Claim ONLY the legs the coverage plan ALLOCATES against this cart. A leg
+  // that matches nothing (the VIP voucher's Shuffly hour on a gel-blaster
+  // cart) must stay unclaimed and available — claiming every applied leg
+  // SPENT that Shuffly hour on a no-shuffly booking, then conflict-failed
+  // every later cart carrying the code (owner repro 2026-07-31). picks[] is
+  // positional over the applied-voucher list, so allocation maps by index.
+  // Attraction allocation is base-independent; race legs use the credits-
+  // first base, mirroring pricing.
+  const appliedForClaims = sessionVouchers(session).filter(voucherIsApplied);
+  const claimPlan = activeComboSpecial(session)
+    ? null
+    : planVoucherCoverage(session, redeemedHeatSet(session));
+  const allocatedIdx = new Set(
+    (claimPlan?.picks ?? [])
+      .map((p, i) => (p.raceHeat || p.attractionItemId ? i : -1))
+      .filter((i) => i >= 0),
+  );
+  const nativeVoucherRefs: NativeCartVoucherRef[] = appliedForClaims
+    .map((v, i) => ({ v, i }))
+    .filter(
+      ({ v, i }) =>
+        allocatedIdx.has(i) && v.issuer === "native" && typeof v.itemIndex === "number",
+    )
+    .map(({ v }) => ({ code: v.code, itemIndex: v.itemIndex as number, name: v.name }));
   let nativeClaimed: NativeCartVoucherRef[] = [];
   if (nativeVoucherRefs.length > 0) {
     const claimRes = await claimNativeCartVouchers({
