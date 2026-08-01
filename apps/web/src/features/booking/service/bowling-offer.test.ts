@@ -198,9 +198,10 @@ describe("longestFittingOptionId (Midnight Madness on the shared Fri-Sun offer)"
 });
 
 describe("slotAllowedForExperience (Midnight Madness late-night gate)", () => {
-  it("MM blocked before 10:30 PM, allowed from 10:30 PM through post-midnight", () => {
-    expect(slotAllowedForExperience("midnight-madness", 22 * 60)).toBe(false);
-    expect(slotAllowedForExperience("midnight-madness", 22 * 60 + 30)).toBe(true);
+  it("MM blocked before 11:45 PM, allowed from 11:45 PM through post-midnight", () => {
+    expect(slotAllowedForExperience("midnight-madness", 22 * 60 + 30)).toBe(false);
+    expect(slotAllowedForExperience("midnight-madness", 23 * 60 + 30)).toBe(false);
+    expect(slotAllowedForExperience("midnight-madness", 23 * 60 + 45)).toBe(true);
     expect(slotAllowedForExperience("midnight-madness-vip", 24 * 60)).toBe(true); // midnight
     expect(slotAllowedForExperience("midnight-madness-vip", 25 * 60)).toBe(true); // 1 AM
   });

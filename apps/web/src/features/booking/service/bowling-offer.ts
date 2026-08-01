@@ -124,11 +124,11 @@ export function longestFittingOptionId(
  * Unlimited offers reject every reservation create — vendor ticket open,
  * 2026-08-01), so its late-night sales window must be enforced on OUR side.
  * Without this gate the MM card would sell $11.99/person lanes at noon next
- * to the full-price hourly card. 10:30 PM first start matches the schedule
- * the owner configured on the (dead) QAMF offer 177. Minutes are ET
- * minutes-of-day in the 0-26h notation (10:30 PM = 1350, 1 AM = 1500).
+ * to the full-price hourly card. 11:45 PM first start (owner 2026-08-01) —
+ * matches the original QAMF MM offer schedule. Minutes are ET minutes-of-day
+ * in the 0-26h notation (11:45 PM = 1425, 1 AM = 1500).
  */
-export const MM_EARLIEST_START_MINUTES = 22 * 60 + 30;
+export const MM_EARLIEST_START_MINUTES = 23 * 60 + 45;
 
 export function slotAllowedForExperience(slug: string, etMinutes: number): boolean {
   if (!slug.startsWith("midnight-madness")) return true;
