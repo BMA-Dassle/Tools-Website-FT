@@ -32,6 +32,7 @@ import {
   effectiveBowlingOptionId,
   holdBowlingSlot,
   isPerLaneExperience,
+  slotAllowedForExperience,
 } from "~/features/booking/service/bowling-offer";
 import {
   useBowlingExperiences,
@@ -130,7 +131,15 @@ const BowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     [session, item.id, item.date, item.durationMinutes],
   );
 
-  const slots = slotsQuery.data ?? [];
+  // Experience-scoped slot window (Midnight Madness shares the all-day
+  // Fri-Sun offer but sells only 11:45 PM+): useOfferSlots fetches by
+  // webOfferId, which can't distinguish the sharing experiences — without
+  // this filter MM listed every daytime slot (2026-08-01 incident). The item
+  // slug is stamped at selectExperience; exp?.slug covers a stale session.
+  const expSlug = item.experienceSlug ?? exp?.slug ?? "";
+  const slots = (slotsQuery.data ?? []).filter((s) =>
+    slotAllowedForExperience(expSlug, etMinutesOfDay(s.bookedAt)),
+  );
   const firstClear = slots.find((s) => conflictOf(s.bookedAt) == null) ?? null;
   const heroSelected = firstClear != null && item.bookedAt === firstClear.bookedAt;
 
@@ -170,6 +179,9 @@ const BowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         bookedAt: slot.bookedAt,
         players: playerCount,
         service: "BookForLater",
+        // Lets the hold route apply experience-scoped windows (MM shares the
+        // all-day Fri-Sun offer id).
+        experienceSlug: exp.slug,
         previousHoldId: item.qamfReservationId,
         previousCenterId: item.qamfCenterId,
       });
@@ -284,6 +296,7 @@ const BowlingTimeStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         bookedAt,
         players: playerCount,
         service: "BookForLater",
+        experienceSlug: vipExp.slug,
         previousHoldId: item.qamfReservationId,
         previousCenterId: item.qamfCenterId,
       });

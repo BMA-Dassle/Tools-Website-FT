@@ -23,7 +23,11 @@ import type {
 } from "@/lib/bowling-db";
 import { KBF_VIP_LANE_UPCHARGE_PER_PERSON_CENTS } from "~/features/booking/service/kbf-pricing";
 import { QAMF_TO_CENTER_CODE } from "~/features/booking/service/bowling-hours";
-import { isPerLaneExperience, releaseBowlingHold } from "~/features/booking/service/bowling-offer";
+import {
+  isPerLaneExperience,
+  releaseBowlingHold,
+  slotAllowedForExperience,
+} from "~/features/booking/service/bowling-offer";
 import {
   useBowlingExperiences,
   useDayAvailability,
@@ -31,7 +35,7 @@ import {
 import { IconCheck } from "@tabler/icons-react";
 import { ExperienceCard, type DurationChip } from "../../bowling/ExperienceCard";
 import { VIP_CORE_PERKS } from "../../bowling/VipUpgradeModal";
-import type { AvailabilitySlot } from "./availability-client";
+import { etMinutesOfDay, type AvailabilitySlot } from "./availability-client";
 
 // Bowling wizard accent — owner 2026-07-19: bowling reads BLUE ("red just
 // seems negative"); FastTrax red stays on racing only.
@@ -245,6 +249,12 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   function firstSlotFor(exp: BowlingExperienceWithDetails, optionId: number | null): string | null {
     const slots = slotsByOffer.get(exp.qamfWebOfferId) ?? [];
     for (const s of slots) {
+      // Experience-scoped slot window (Midnight Madness shares the all-day
+      // Fri-Sun offer but sells only 11:45 PM+) — without this the MM card
+      // reads "Next lane 8:00 PM" and stays visible all day (2026-08-01
+      // incident). Also drives expHasAnySlot, so out-of-window days hide
+      // the card entirely.
+      if (!slotAllowedForExperience(exp.slug, etMinutesOfDay(s.bookedAt))) continue;
       if (
         optionId != null &&
         s.optionsVerified &&
