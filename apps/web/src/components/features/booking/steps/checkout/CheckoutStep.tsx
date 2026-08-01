@@ -465,8 +465,13 @@ export function CheckoutStep({
                 amount: p.priceCents / 100,
               });
             }
-            const redeemed = redeemedHeatSet(session);
-            const coverage = computePackCoverage(session, packs, redeemed);
+            // CREDIT-CHOICE session, not the raw one — the raw session has no
+            // redeemCredits flags, so the pack 'covered' the credit's heat too
+            // (double coverage: -$80.97 shown vs the server's -$53.98 → the
+            // $27 drift that stopped a real guest, Jacob 2026-07-31). The
+            // server prices sessionForReserve; coverage must use the same.
+            const redeemed = redeemedHeatSet(sessionForReserve);
+            const coverage = computePackCoverage(sessionForReserve, packs, redeemed);
             if (coverage.heats.size > 0) {
               const sumLines = (ex: Set<RaceHeatAssignment>) =>
                 buildRaceChargeLines(session, ex).reduce((s, l) => s + l.amount, 0);
@@ -493,14 +498,15 @@ export function CheckoutStep({
       // voucher-redeem.ts voucherReviewLines).
       if (sessionVouchers(session).length > 0 && !activeComboSpecial(session)) {
         try {
-          let base = redeemedHeatSet(session);
+          // Same credit-choice session rule as the pack block above.
+          let base = redeemedHeatSet(sessionForReserve);
           if (session.context?.kiosk && kioskRacePacksEnabled()) {
             const packSel = session.items.flatMap((i) =>
               i.kind === "race" ? (i.creditPacks ?? []) : [],
             );
             if (packSel.length > 0) {
               const packs = resolveKioskPacks(packSel, session.party);
-              const cov = computePackCoverage(session, packs, base);
+              const cov = computePackCoverage(sessionForReserve, packs, base);
               if (cov.heats.size > 0) base = new Set([...base, ...cov.heats]);
             }
           }
