@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { newPartyMember } from "~/features/booking";
-import { prefillPartyMembers } from "./party-prefill";
+import { isPlaceholderRacerName, prefillPartyMembers } from "./party-prefill";
 import type { CheckinPartyMember } from "./types";
 
 const roster: CheckinPartyMember[] = [
@@ -48,5 +48,27 @@ describe("prefillPartyMembers", () => {
       [...roster, { firstName: "eric", lastName: "OSBORN", waiverValid: true }],
     );
     expect(out.filter((m) => m.firstName.toLowerCase() === "eric")).toHaveLength(1);
+  });
+});
+
+describe("isPlaceholderRacerName", () => {
+  it("matches the count-based booking slot labels, case-insensitively", () => {
+    // Exactly what RacePartyStep's setNewRacerCount mints: `Adult ${i + 1}`.
+    expect(isPlaceholderRacerName("Adult 1")).toBe(true);
+    expect(isPlaceholderRacerName("Adult 12")).toBe(true);
+    expect(isPlaceholderRacerName("Junior 3")).toBe(true);
+    expect(isPlaceholderRacerName("  adult 2  ")).toBe(true);
+    expect(isPlaceholderRacerName("JUNIOR 1")).toBe(true);
+  });
+
+  it("never flags a real name", () => {
+    // 2026-07-31 whitley check-in: "Adult 1"/"Adult 2" slot labels became BMI
+    // people-list names. The filter must catch labels — and ONLY labels.
+    expect(isPlaceholderRacerName("Tori Whitley")).toBe(false);
+    expect(isPlaceholderRacerName("Adult")).toBe(false); // no ordinal → mononym
+    expect(isPlaceholderRacerName("Junior")).toBe(false); // legit given name
+    expect(isPlaceholderRacerName("Junior Soprano")).toBe(false);
+    expect(isPlaceholderRacerName("Adaline 1")).toBe(false);
+    expect(isPlaceholderRacerName("")).toBe(false);
   });
 });

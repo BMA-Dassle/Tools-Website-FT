@@ -17,6 +17,17 @@ function nameKey(firstName: string, lastName?: string): string {
   return `${firstName.trim().toLowerCase()}|${(lastName ?? "").trim().toLowerCase()}`;
 }
 
+/**
+ * Category placeholder labels minted by count-based booking ("Adult 1",
+ * "Junior 3" — web RacePartyStep's setNewRacerCount): slot labels, not names.
+ * They must never be offered as prefill people — the "Who's racing?" step
+ * assigns real people to those open slots instead. (2026-07-31: a booking's
+ * "Adult 1"/"Adult 2" labels ended up as the names on BMI's people list.)
+ */
+export function isPlaceholderRacerName(name: string): boolean {
+  return /^(adult|junior)\s+\d+$/i.test(name.trim());
+}
+
 function memberIds(p: { bmiPersonId?: string; pandoraPersonId?: string }): string[] {
   return [p.bmiPersonId, p.pandoraPersonId].filter(Boolean) as string[];
 }
