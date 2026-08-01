@@ -121,7 +121,14 @@ export async function POST(req: NextRequest) {
     // from (refresh slots) instead of an opaque 502.
     const taken = qamfSlotTakenMessage(err);
     if (taken) {
-      return NextResponse.json({ error: taken, code: "slot_taken" }, { status: 409 });
+      // `detail` carries QAMF's raw reason so an offer-level misconfiguration
+      // (every hold on one offer 409ing — the 2026-07-31 Midnight Madness
+      // outage) is distinguishable from a genuine slot race without log
+      // access. The wizard renders only `error`.
+      return NextResponse.json(
+        { error: taken, code: "slot_taken", detail: msg.slice(0, 500) },
+        { status: 409 },
+      );
     }
     return NextResponse.json({ error: msg }, { status: 502 });
   }

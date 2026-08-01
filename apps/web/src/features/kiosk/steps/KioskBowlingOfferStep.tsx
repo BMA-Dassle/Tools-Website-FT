@@ -193,7 +193,7 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
 
   /** Duration + start-time + reserve tray — shared by both layouts. */
   const configTray = (exp: BowlingExperienceWithDetails) => {
-    const expSlots = slotsForOffer(exp.qamfWebOfferId);
+    const expSlots = slotsForOffer(exp.qamfWebOfferId, exp.slug);
     const allDurations = exp.durationOptions ?? [];
     const validDurations = validDurationOptionsFor(exp, expSlots);
     const validIds = new Set(validDurations.map((d) => d.id));
@@ -360,7 +360,7 @@ const KioskBowlingOfferStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   /** Full-bleed photo hero — big card header (both layouts). */
   const hero = (exp: BowlingExperienceWithDetails, tall: boolean) => {
     const accent = accentFor(exp);
-    const expSlots = slotsForOffer(exp.qamfWebOfferId);
+    const expSlots = slotsForOffer(exp.qamfWebOfferId, exp.slug);
     const primary = exp.items.find((i) => i.sortOrder === 0);
     return (
       <div
