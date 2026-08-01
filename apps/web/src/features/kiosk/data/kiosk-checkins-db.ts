@@ -253,6 +253,13 @@ export async function listCheckinPeople(eventId: number): Promise<KioskCheckinPe
  * Persist a bound person (step 1 of the join/complete pipeline — before any
  * vendor call). Idempotent per (event_id, person_id): re-runs refresh the
  * binding + short id but never downgrade a succeeded vendor status.
+ *
+ * waiver_valid is STICKY-TRUE within the event: callers that only refresh the
+ * binding (the heat-assignment upsert passes no waiverValid) used to reset the
+ * true the bind wrote back to the `?? false` default, so our durable record
+ * said "no waiver" for people with valid waivers (2026-07-31 whitley check-in).
+ * A waiver can't be revoked mid-visit, and the event row is scoped to one
+ * business date — once true, it stays true.
  */
 export async function upsertCheckinPerson(args: {
   eventId: number;
@@ -287,7 +294,7 @@ export async function upsertCheckinPerson(args: {
       display_name = EXCLUDED.display_name,
       first_name = COALESCE(EXCLUDED.first_name, kiosk_checkin_people.first_name),
       last_name = COALESCE(EXCLUDED.last_name, kiosk_checkin_people.last_name),
-      waiver_valid = EXCLUDED.waiver_valid,
+      waiver_valid = (kiosk_checkin_people.waiver_valid OR EXCLUDED.waiver_valid),
       bound_heats = COALESCE(EXCLUDED.bound_heats, kiosk_checkin_people.bound_heats),
       bound_attraction_slugs = EXCLUDED.bound_attraction_slugs,
       bowling_slot = COALESCE(EXCLUDED.bowling_slot, kiosk_checkin_people.bowling_slot),

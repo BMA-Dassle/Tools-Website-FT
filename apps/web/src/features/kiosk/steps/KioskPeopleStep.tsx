@@ -489,9 +489,16 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       // minor/guardian routing uses it (2026-07-23 adult-waiver-on-a-17yo bug).
       const rAge = ageFromIso(result.birthdate) ?? age;
       const rMinor = rAge < 18;
+      // Refreshed name, same rule: the resolved record's name beats what was
+      // typed — 2026-07-31, guests typed their booking's slot labels ("Adult
+      // 1"/"Adult 2") as names, the create matched their real accounts, and the
+      // labels rode the check-in bind into BMI's people list and staff memo.
+      // Title Case the record's name (CRM rows can be ALL CAPS).
+      const rFirst = formatPersonName(result.firstName) || cleanFirst;
+      const rLast = formatPersonName(result.lastName) || cleanLast;
       const member = newPartyMember({
-        firstName: cleanFirst,
-        lastName: cleanLast,
+        firstName: rFirst,
+        lastName: rLast,
         isNewRacer: true, // new person → Starter-only for racing
         category: rAge < 13 ? "junior" : "adult",
         isMinor: rMinor,
@@ -589,6 +596,10 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           type: "updatePartyMember",
           id: member.id,
           patch: {
+            // Resolved record's name beats the roster label (2026-07-31:
+            // "Adult 1" slot labels reached BMI's people list) — see submitNew.
+            firstName: formatPersonName(result.firstName) || member.firstName,
+            lastName: formatPersonName(result.lastName) || member.lastName,
             bmiPersonId: result.personId,
             waiverValid: result.waiverValid,
             isMinor: rMinor,
@@ -666,6 +677,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             type: "updatePartyMember",
             id: member.id,
             patch: {
+              // Record's name wins over the local label — see submitNew.
+              firstName: formatPersonName(result.firstName) || member.firstName,
+              lastName: formatPersonName(result.lastName) || member.lastName,
               pandoraPersonId: result.personId,
               waiverValid: result.waiverValid,
               isMinor: rMinor,
@@ -837,8 +851,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         return;
       }
       const g = newPartyMember({
-        firstName: gCleanFirst,
-        lastName: gCleanLast,
+        // Resolved record's name beats what was typed — see submitNew.
+        firstName: formatPersonName(result.firstName) || gCleanFirst,
+        lastName: formatPersonName(result.lastName) || gCleanLast,
         isNewRacer: true,
         category: "adult",
         bmiPersonId: result.personId, // short id — created via Pandora

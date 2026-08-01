@@ -56,6 +56,7 @@ import {
   type AttractionMeta,
 } from "./itinerary";
 import { classifyScan } from "./scan";
+import { isPlaceholderRacerName } from "./party-prefill";
 import type {
   CheckinBindMember,
   CheckinBindResult,
@@ -1419,6 +1420,13 @@ export async function listBindableParty(billId: string): Promise<CheckinPartyMem
   const seen = new Set<string>();
   const uniq = rows.filter((r) => {
     if (!r.full && !r.personId) return false;
+    // An UNIDENTIFIED row wearing a category placeholder label ("Adult 1") is
+    // an unnamed new-racer slot, not a person — never offer it as a prefill
+    // name. One tap would seed a literal "Adult 1" party member, and its
+    // "Set up" (DOB-only, contact-less onboard) could then mint a BMI person
+    // actually NAMED "Adult 1". The "Who's racing?" assignment step is how
+    // those open slots get real people. (2026-07-31 whitley check-in.)
+    if (!r.personId && isPlaceholderRacerName(r.full)) return false;
     const key = r.personId ?? `name:${r.full.toLowerCase()}`;
     if (seen.has(key)) return false;
     seen.add(key);

@@ -218,9 +218,13 @@ export function JoinPhoneFlow({
         },
         brandLocation,
       );
+      // Resolved record's name beats what was typed (2026-07-31: booking slot
+      // labels "Adult 1"/"Adult 2" typed as names reached BMI's people list).
+      const rFirst = formatPersonName(result.firstName) || cleanFirst;
+      const rLast = formatPersonName(result.lastName) || cleanLast;
       const draft: DraftGuest = {
-        firstName: cleanFirst,
-        lastName: cleanLast || undefined,
+        firstName: rFirst,
+        lastName: rLast || undefined,
         // New person: the short Pandora id rides BOTH fields (submitNew mirror).
         bmiPersonId: result.personId,
         pandoraPersonId: result.personId,
