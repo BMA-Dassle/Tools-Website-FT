@@ -52,3 +52,54 @@ describe("unified pricing — voucher-covered kiosk attraction cart", () => {
     expect(sqLineItems[0].basePriceMoney?.amount).toBe(1200);
   });
 });
+
+import { quoteUnifiedSession } from "./unified-reserve";
+
+/** PR A parity (tasks/server-quote-pricing-plan.md): the PricedLine mirror
+ *  must carry the same money as the Square lines, with covered units as
+ *  their own tagged $0 lines. */
+describe("quoteUnifiedSession — server quote mirror", () => {
+  it("fully covered gel: $0 subtotal + $0 tax + a voucher-tagged $0 line", () => {
+    const q = quoteUnifiedSession(kioskGelSession(LEGS));
+    expect(q.subtotalCents).toBe(0);
+    expect(q.taxCents).toBe(0);
+    expect(q.totalCents).toBe(0);
+    const covered = q.lines.find((l) => l.coverage?.kind === "voucher");
+    expect(covered).toMatchObject({ quantity: 1, unitCents: 0 });
+  });
+
+  it("uncovered gel: charged line, 6.5% tax on the charged subtotal", () => {
+    const q = quoteUnifiedSession(kioskGelSession([]));
+    expect(q.subtotalCents).toBe(1200);
+    expect(q.taxCents).toBe(78); // FL 6.5%
+    expect(q.totalCents).toBe(1278);
+    expect(q.lines).toHaveLength(1);
+    expect(q.lines[0]).toMatchObject({ unitCents: 1200, quantity: 1 });
+    expect(q.lines[0].coverage).toBeUndefined();
+  });
+
+  it("partial coverage (qty 2, one covered): one charged unit + one $0 voucher line", () => {
+    const s = kioskGelSession([LEGS[0]]);
+    (s.items[0] as { qty: number }).qty = 2;
+    const q = quoteUnifiedSession(s);
+    expect(q.subtotalCents).toBe(1200); // one unit charged
+    const charged = q.lines.find((l) => !l.coverage);
+    const covered = q.lines.find((l) => l.coverage?.kind === "voucher");
+    expect(charged).toMatchObject({ quantity: 1, unitCents: 1200 });
+    expect(covered).toMatchObject({ quantity: 1, unitCents: 0 });
+  });
+
+  it("mirror parity: priced-line money always equals the Square-line money", () => {
+    for (const vouchers of [[], LEGS, [LEGS[0]]]) {
+      const s = kioskGelSession(vouchers);
+      const { sqLineItems, pricedLines, totalPriceCents } = buildCombinedLineItems(s);
+      const sqCents = sqLineItems.reduce(
+        (sum, l) => sum + (l.basePriceMoney?.amount ?? 0) * Number(l.quantity),
+        0,
+      );
+      const quoteCents = pricedLines.reduce((sum, l) => sum + l.unitCents * l.quantity, 0);
+      expect(quoteCents).toBe(sqCents);
+      expect(quoteCents).toBe(totalPriceCents);
+    }
+  });
+});

@@ -59,6 +59,7 @@ import {
   SQUARE_LOCATIONS,
 } from "../data/square-catalog-map";
 import { getRaceProductById } from "./race-products";
+import { calculateTax } from "./race-pricing";
 import { patchHeatSetups } from "./session-setup";
 import { raceUsesZeroBmiModel, computeRaceItemPovQty } from "./race";
 import { buildRaceChargeLines, raceHeatsMetadata, racerNamesFromHeats } from "./checkout";
@@ -128,6 +129,7 @@ import type {
   BowlingItem,
   KbfItem,
   RaceItem,
+  RaceHeatAssignment,
   AttractionItem,
 } from "../state/types";
 import type { ContactInfo } from "../types";
@@ -327,6 +329,31 @@ interface SquareLineItem {
 
 // ── Build combined line items from all session items ──────────────────
 
+/**
+ * One server-priced display line (tasks/server-quote-pricing-plan.md, PR A).
+ * Charged lines carry the money; COVERED units are their own $0 lines tagged
+ * with why (owner 2026-07-31: "change the line to credit like the
+ * Intermediate race does" — no negative aggregates anywhere). The review
+ * screens will render these verbatim (PR B), so display ≡ charge by
+ * construction.
+ */
+export interface PricedLine {
+  name: string;
+  quantity: number;
+  unitCents: number;
+  /** $0 here but priced by the Square catalog (the $2.99 booking fee) —
+   *  render the KNOWN price, never "free". */
+  catalogPricedCents?: number;
+  /** Why a $0 line is $0. Absent = a genuinely charged (or $0-value) line. */
+  coverage?: {
+    kind: "race-credit" | "race-pack" | "voucher" | "combo-inclusion";
+    /** Display tag, e.g. "Credit" · "Race Pack" · "Voucher …Z4SX". */
+    label: string;
+  };
+  /** USA250 strikethrough support (pre-discount unit price). */
+  originalUnitCents?: number;
+}
+
 // Exported for tests (repro of live pricing bugs); not part of the public API.
 export function buildCombinedLineItems(session: BookingSession): {
   sqLineItems: SquareLineItem[];
@@ -334,8 +361,14 @@ export function buildCombinedLineItems(session: BookingSession): {
   promoSavingsCents: number;
   kioskPacks: ResolvedKioskPack[];
   packCoverage: PackCoverage;
+  /** The quote/display mirror — accumulated ADJACENT to every Square-line
+   *  push above it, so the two can only drift if a diff reviewer misses it. */
+  pricedLines: PricedLine[];
+  /** Charged subtotal (local-priced lines; catalog-priced fees included). */
+  totalPriceCents: number;
 } {
   const sqLineItems: SquareLineItem[] = [];
+  const pricedLines: PricedLine[] = [];
   let totalPriceCents = 0;
   let totalDepositCents = 0;
   let promoSavingsCents = 0; // USA250 cents removed across all lines (for the ledger)
@@ -401,6 +434,12 @@ export function buildCombinedLineItems(session: BookingSession): {
           basePriceMoney: { amount: priceCents, currency: "USD" },
         });
       }
+      pricedLines.push({
+        name: li.label ?? "Bowling",
+        quantity: li.quantity,
+        unitCents: priceCents,
+        ...(factor !== 1 ? { originalUnitCents: fullCents } : {}),
+      });
     }
 
     // Raw items (pizza/soda $0 passthrough)
@@ -410,6 +449,12 @@ export function buildCombinedLineItems(session: BookingSession): {
         quantity: String(ri.quantity),
         catalogObjectId: ri.catalogObjectId,
         ...(ri.note ? { note: ri.note } : {}),
+      });
+      pricedLines.push({
+        name: ri.name,
+        quantity: ri.quantity,
+        unitCents: 0,
+        coverage: { kind: "combo-inclusion", label: "Included" },
       });
     }
 
@@ -422,6 +467,7 @@ export function buildCombinedLineItems(session: BookingSession): {
       });
       totalPriceCents += 299;
       totalDepositCents += 299;
+      pricedLines.push({ name: "Booking Fee", quantity: 1, unitCents: 0, catalogPricedCents: 299 });
     }
   }
 
@@ -483,6 +529,40 @@ export function buildCombinedLineItems(session: BookingSession): {
         ? { catalogObjectId: catalogId, basePriceMoney: { amount: unitCents, currency: "USD" } }
         : { basePriceMoney: { amount: unitCents, currency: "USD" } }),
     });
+    pricedLines.push({
+      name: bl.name,
+      quantity: bl.quantity,
+      unitCents,
+      ...(bl.originalAmount != null && bl.quantity > 0
+        ? { originalUnitCents: Math.round((bl.originalAmount * 100) / bl.quantity) }
+        : {}),
+    });
+  }
+
+  // COVERED race heats — each set becomes its own $0 line group, named by the
+  // heat's product, tagged with why. This is the per-line "Credit" model the
+  // owner asked for; the negative aggregates die in PR B.
+  {
+    const covered: Array<{ set: ReadonlySet<RaceHeatAssignment>; kind: "race-credit" | "race-pack" | "voucher"; label: string }> = [
+      { set: redeemedHeats, kind: "race-credit", label: "Credit" },
+      { set: packCoverage.heats, kind: "race-pack", label: "Race Pack" },
+      { set: voucherPlan?.raceHeats ?? new Set(), kind: "voucher", label: "Voucher" },
+    ];
+    for (const { set, kind, label } of covered) {
+      const byName = new Map<string, number>();
+      for (const item of session.items) {
+        if (item.kind !== "race") continue;
+        for (const h of item.heats) {
+          if (!set.has(h)) continue;
+          const pid = h.productId ?? (h.category === "junior" ? item.productIdJunior : item.productIdAdult);
+          const name = (pid ? getRaceProductById(pid)?.name : null) ?? "Race";
+          byName.set(name, (byName.get(name) ?? 0) + 1);
+        }
+      }
+      for (const [name, qty] of byName) {
+        pricedLines.push({ name, quantity: qty, unitCents: 0, coverage: { kind, label } });
+      }
+    }
   }
 
   // Attraction items. A voucher whose comp targets an attraction (Laser/Gel/
@@ -516,6 +596,15 @@ export function buildCombinedLineItems(session: BookingSession): {
     // 2026-07-31, two gel covers). The $0 line keeps the day-of order real
     // (desk/KDS see what was booked), taxes $0, and charges nothing — same
     // convention as the combo's $0 inclusions and the credit-order lines.
+    // Covered units — their own $0 line, voucher-tagged (per-line Credit model).
+    if (coveredUnits > 0) {
+      pricedLines.push({
+        name: attr.slug ?? "Attraction",
+        quantity: Math.min(coveredUnits, attr.qty),
+        unitCents: 0,
+        coverage: { kind: "voucher", label: "Voucher" },
+      });
+    }
     if (chargedQty === 0) {
       sqLineItems.push({
         name: attr.slug ?? "Attraction",
@@ -534,6 +623,12 @@ export function buildCombinedLineItems(session: BookingSession): {
         ? { catalogObjectId: catalogId, basePriceMoney: { amount: unitCents, currency: "USD" } }
         : { basePriceMoney: { amount: unitCents, currency: "USD" } }),
     });
+    pricedLines.push({
+      name: attr.slug ?? "Attraction",
+      quantity: chargedQty,
+      unitCents,
+      ...(factor !== 1 ? { originalUnitCents: fullUnitCents } : {}),
+    });
   }
 
   // Pack lines LAST (after every booked-thing line) — one revenue line per
@@ -548,12 +643,52 @@ export function buildCombinedLineItems(session: BookingSession): {
       catalogObjectId: SQUARE_RACE_PACK_CATALOG_ID,
       basePriceMoney: { amount: p.priceCents, currency: "USD" },
     });
+    pricedLines.push({
+      name: `Race Pack — ${p.label} · ${p.memberName}`,
+      quantity: 1,
+      unitCents: p.priceCents,
+    });
   }
 
   const depositPct =
     totalPriceCents > 0 ? Math.round((totalDepositCents / totalPriceCents) * 100) : 100;
 
-  return { sqLineItems, depositPct, promoSavingsCents, kioskPacks, packCoverage };
+  return {
+    sqLineItems,
+    depositPct,
+    promoSavingsCents,
+    kioskPacks,
+    packCoverage,
+    pricedLines,
+    totalPriceCents,
+  };
+}
+
+/**
+ * Server-authoritative QUOTE (tasks/server-quote-pricing-plan.md, PR A/B):
+ * the review screens' pricing source. Pure — no Square calls, no claims, no
+ * writes; same inputs, same code as the charge, so quote ≡ charge by
+ * construction. Tax = FL 6.5% on the charged subtotal (catalog-priced fees
+ * included at their known price). Bowling-ONLY carts keep their existing
+ * tax-inclusive quote rail.
+ */
+export function quoteUnifiedSession(session: BookingSession): {
+  lines: PricedLine[];
+  subtotalCents: number;
+  taxCents: number;
+  totalCents: number;
+} {
+  const { pricedLines, totalPriceCents } = buildCombinedLineItems(session);
+  const catalogFeeCents = pricedLines.reduce(
+    (sum, l) => sum + (l.catalogPricedCents ?? 0) * l.quantity,
+    0,
+  );
+  // totalPriceCents already includes the booking fee (added to the deposit at
+  // its known price), so no double count — catalogFeeCents is informational.
+  void catalogFeeCents;
+  const subtotalCents = totalPriceCents;
+  const taxCents = Math.round(calculateTax(subtotalCents / 100) * 100);
+  return { lines: pricedLines, subtotalCents, taxCents, totalCents: subtotalCents + taxCents };
 }
 
 // ── Kiosk direct-Terminal persist-first anchor ────────────────────────
