@@ -321,7 +321,13 @@ export function KioskFlow({
   // Bookable-today availability for the Experiences (VIP combo + Ultimate
   // Qualifier), from the cached server endpoint — locks their entry points when
   // nothing fits today.
-  const { available: availableFor, firstOpenFor } = useKioskAvailability(config?.center ?? null);
+  const { available: availableForLive, firstOpenFor } = useKioskAvailability(config?.center ?? null);
+  // TEST kiosk 99 (owner 2026-08-01): its operating day flips at calendar
+  // midnight, but the server availability compute stays on the 2 AM business
+  // day — overnight, yesterday's slots are all in the past and every tile
+  // locks. Ignore the locks on the test kiosk only; the slot steps fetch REAL
+  // availability for the flipped date, so nothing unbookable gets booked.
+  const availableFor = config?.kioskNumber === 99 ? () => true : availableForLive;
   const vipAvailable = availableFor("race-bowl");
   const uqAvailable = availableFor("ultimate-qualifier");
 

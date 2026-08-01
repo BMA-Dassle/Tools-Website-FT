@@ -73,9 +73,12 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
   // (cached server-side; see useKioskAvailability). The attract loop runs 24/7
   // on every idle kiosk, so it polls on the slow interval — enough to keep the
   // chip honest without keeping the vendor recompute warm around the clock.
-  const vipAvailable = useKioskAvailability(config?.center ?? null, {
+  const vipAvailableLive = useKioskAvailability(config?.center ?? null, {
     pollMs: ATTRACT_POLL_MS,
   }).available("race-bowl");
+  // TEST kiosk 99: availability locks are ignored (see KioskFlow — the server
+  // compute stays on the 2 AM business day while this kiosk flips at midnight).
+  const vipAvailable = config?.kioskNumber === 99 ? true : vipAvailableLive;
   // Center-scoped rotation — Naples never advertises karting.
   const adSlides = kioskAdSlidesFor(config?.center ?? null, config?.brand);
 
