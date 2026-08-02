@@ -318,6 +318,7 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.voucherGz.scanNextCollapsedSub":
     "Puedes escanear en cualquier momento — toca aquí para escribir un código",
   "codeEntry.voucherGz.addClose": "Cerrar",
+  "codeEntry.voucherGz.qtyOf": "{n} de {m}",
   "codeEntry.voucherGz.addOne": "Agregar uno de vuelta",
   "codeEntry.voucherGz.removeOne": "Quitar uno",
   "codeEntry.voucherGz.noMoreLegs": "Eso es todo lo que tiene este vale.",

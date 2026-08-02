@@ -345,7 +345,9 @@ export const en = {
   "codeEntry.voucherGz.scanNextCollapsedSub":
     "Scanning works anytime — tap here to type a code instead",
   "codeEntry.voucherGz.addClose": "Close",
-  // Qty stepper on grouped receipt rows (identical legs collapse to ×N).
+  // Qty stepper on grouped receipt rows (identical legs collapse to "N of M";
+  // "+" disables at the voucher's max so a full row never invites another tap).
+  "codeEntry.voucherGz.qtyOf": "{n} of {m}",
   "codeEntry.voucherGz.addOne": "Add one back",
   "codeEntry.voucherGz.removeOne": "Remove one",
   "codeEntry.voucherGz.noMoreLegs": "That's everything this voucher has.",

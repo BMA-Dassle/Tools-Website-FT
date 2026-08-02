@@ -230,9 +230,31 @@ export function KioskCodeEntry({
     Record<string, { index: number; label: string }[]>
   >({});
   // code → its UNSPENT items from the last validate — what the qty "+" checks
-  // before promising another leg. Local like spentByCode; a remount just costs
-  // "+" one re-validate to repopulate.
+  // before promising another leg, and what caps the "N of M" display. Primed
+  // on mount for restored codes so the stepper knows its max right away.
   const [unspentByCode, setUnspentByCode] = useState<Record<string, NativeValidateItem[]>>({});
+  const unspentFetchedRef = useRef<Set<string>>(new Set());
+  const fetchUnspentItems = useCallback(async (code: string): Promise<NativeValidateItem[]> => {
+    try {
+      const res = await fetch("/api/game-cards/voucher-redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "validate", code }),
+      });
+      const data: {
+        ok?: boolean;
+        items?: NativeValidateItem[];
+        spentItems?: { index: number; label: string }[];
+      } = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok !== true) return [];
+      const items = data.items ?? [];
+      setUnspentByCode((prev) => ({ ...prev, [code]: items }));
+      setSpentByCode((prev) => ({ ...prev, [code]: data.spentItems ?? [] }));
+      return items;
+    } catch {
+      return [];
+    }
+  }, []);
   const [error, setError] = useState<string | null>(null);
   // Routed-but-not-a-problem scans (gift card / game card) while the receipt is
   // up read as a calm info line, not the red error line and not a panel swap.
@@ -336,10 +358,16 @@ export function KioskCodeEntry({
   );
 
   // Restore the section with the rest of the receipt: the parent's surviving
-  // codes re-offer their booking party after Back / a remount.
+  // codes re-offer their booking party after Back / a remount — and re-prime
+  // the unspent counts so the qty steppers know their max.
   useEffect(() => {
     for (const code of processedNativeRef.current) {
-      if (classifyKioskCode(code).kind === "native-voucher") void loadVoucherRoster(code);
+      if (classifyKioskCode(code).kind !== "native-voucher") continue;
+      void loadVoucherRoster(code);
+      if (!unspentFetchedRef.current.has(code)) {
+        unspentFetchedRef.current.add(code);
+        void fetchUnspentItems(code);
+      }
     }
     // Mount-only: later scans call loadVoucherRoster directly.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -709,27 +737,22 @@ export function KioskCodeEntry({
       const gzGroups = groupGzCards(gzCards);
       const cartGroups = groupCartLegs(cartLabels);
       const usedGroups = groupUsedLegs(spentByCode);
-      const ensureUnspent = async (code: string): Promise<NativeValidateItem[]> => {
-        if (unspentByCode[code]) return unspentByCode[code];
-        try {
-          const res = await fetch("/api/game-cards/voucher-redeem", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "validate", code }),
-          });
-          const data: {
-            ok?: boolean;
-            items?: NativeValidateItem[];
-            spentItems?: { index: number; label: string }[];
-          } = await res.json().catch(() => ({}));
-          if (!res.ok || data.ok !== true) return [];
-          const items = data.items ?? [];
-          setUnspentByCode((prev) => ({ ...prev, [code]: items }));
-          setSpentByCode((prev) => ({ ...prev, [code]: data.spentItems ?? [] }));
-          return items;
-        } catch {
-          return [];
-        }
+      const ensureUnspent = async (code: string): Promise<NativeValidateItem[]> =>
+        unspentByCode[code] ?? (await fetchUnspentItems(code));
+      // The voucher's TOTAL of a kind — caps the "N of M" display and disables
+      // "+" at the max, so a full row never invites another tap (owner
+      // 2026-08-02: "4 is already selected and it feels like it lets you go
+      // more"). Null until the validate lands (then "+" checks live).
+      const cartMax = (g: CartGroup): number | null => {
+        const items = unspentByCode[g.code];
+        if (!items) return null;
+        return items.filter((i) => i.redeemVia === "cart" && (i.coverageName ?? null) === g.name)
+          .length;
+      };
+      const gzMax = (code: string): number | null => {
+        const items = unspentByCode[code];
+        if (!items) return null;
+        return items.filter((i) => i.redeemVia === "gamezone").length;
       };
       const stepCartDown = (g: CartGroup) => {
         // Highest leg first, so the surviving indexes stay contiguous-ish and
@@ -779,7 +802,15 @@ export function KioskCodeEntry({
         clarityEvent("kiosk:receipt:qty-add");
         onGzCardAddOne?.({ code: g.code, tokens: g.tokens });
       };
-      const stepBtn = "k-tap h-[56px] w-[56px] rounded-full border border-white/20 text-[30px] leading-none text-white/70";
+      const stepBtn =
+        "k-tap h-[56px] w-[56px] rounded-full border border-white/20 text-[30px] leading-none text-white/70 disabled:opacity-30";
+      /** "4 of 4" when the voucher's total is known, "×4" until it is. */
+      const qtyLabel = (qty: number, max: number | null): string =>
+        max != null && max > 0
+          ? t("codeEntry.voucherGz.qtyOf", { n: qty, m: max })
+          : qty > 1
+            ? `×${qty}`
+            : "";
       // Booking party chips — the decisions live in voucher-party.ts (tested);
       // this only maps chip verdicts to copy and dispatches.
       const partyPeople = onPartyAdd ? mergeRosters(voucherRosters) : [];
@@ -889,44 +920,52 @@ export function KioskCodeEntry({
                     : t("codeEntry.voucherGz.printingSubElsewhere")}
                 </div>
                 <ul className="mt-[14px] space-y-[10px]">
-                  {gzGroups.map((g) => (
-                    <li
-                      key={`${g.code}-${g.tokens}`}
-                      className="flex items-center justify-between gap-[16px] rounded-[16px] border border-white/12 bg-white/[0.04] px-[24px] py-[12px]"
-                    >
-                      <span className="min-w-0 truncate text-[28px] text-white/90">
-                        {g.tokens > 0
-                          ? t("codeEntry.voucherGz.cardTokens", { tokens: g.tokens })
-                          : t("codeEntry.voucherGz.gameCardGeneric")}
-                        {g.qty > 1 && <span className="text-white/50">{`  ×${g.qty}`}</span>}
-                      </span>
-                      <span className="flex shrink-0 items-center gap-[14px]">
-                        {g.tokens > 0 && (
-                          <span className="text-[24px] text-[#46d68c]">
-                            {t("codeEntry.voucherGz.inPlay", {
-                              amount: tokensInPlay(g.tokens * g.qty),
-                            })}
-                          </span>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => stepGzDown(g)}
-                          aria-label={t("codeEntry.voucherGz.removeOne")}
-                          className={stepBtn}
-                        >
-                          −
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void stepGzUp(g)}
-                          aria-label={t("codeEntry.voucherGz.addOne")}
-                          className={stepBtn}
-                        >
-                          ＋
-                        </button>
-                      </span>
-                    </li>
-                  ))}
+                  {gzGroups.map((g) => {
+                    const max = gzMax(g.code);
+                    const pendingForCode = gzCards.filter((c) => c.code === g.code).length;
+                    const atMax = max != null && pendingForCode >= max;
+                    return (
+                      <li
+                        key={`${g.code}-${g.tokens}`}
+                        className="flex items-center justify-between gap-[16px] rounded-[16px] border border-white/12 bg-white/[0.04] px-[24px] py-[12px]"
+                      >
+                        <span className="min-w-0 truncate text-[28px] text-white/90">
+                          {g.tokens > 0
+                            ? t("codeEntry.voucherGz.cardTokens", { tokens: g.tokens })
+                            : t("codeEntry.voucherGz.gameCardGeneric")}
+                          {qtyLabel(g.qty, max) && (
+                            <span className="text-white/50">{`  ${qtyLabel(g.qty, max)}`}</span>
+                          )}
+                        </span>
+                        <span className="flex shrink-0 items-center gap-[14px]">
+                          {g.tokens > 0 && (
+                            <span className="text-[24px] text-[#46d68c]">
+                              {t("codeEntry.voucherGz.inPlay", {
+                                amount: tokensInPlay(g.tokens * g.qty),
+                              })}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => stepGzDown(g)}
+                            aria-label={t("codeEntry.voucherGz.removeOne")}
+                            className={stepBtn}
+                          >
+                            −
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void stepGzUp(g)}
+                            disabled={atMax}
+                            aria-label={t("codeEntry.voucherGz.addOne")}
+                            className={stepBtn}
+                          >
+                            ＋
+                          </button>
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
               </section>
             )}
@@ -949,7 +988,9 @@ export function KioskCodeEntry({
                     >
                       <span className="min-w-0 truncate text-[28px] text-white/90">
                         {g.label}
-                        {g.qty > 1 && <span className="text-white/50">{`  ×${g.qty}`}</span>}
+                        {g.native && !g.error && qtyLabel(g.qty, cartMax(g)) && (
+                          <span className="text-white/50">{`  ${qtyLabel(g.qty, cartMax(g))}`}</span>
+                        )}
                       </span>
                       <span className="flex shrink-0 items-center gap-[14px]">
                         <span
@@ -972,6 +1013,10 @@ export function KioskCodeEntry({
                             <button
                               type="button"
                               onClick={() => void stepCartUp(g)}
+                              disabled={(() => {
+                                const max = cartMax(g);
+                                return max != null && g.qty >= max;
+                              })()}
                               aria-label={t("codeEntry.voucherGz.addOne")}
                               className={stepBtn}
                             >
