@@ -24,6 +24,7 @@ import {
   IconClock,
   IconUserCheck,
   IconBolt,
+  IconStarFilled,
 } from "@tabler/icons-react";
 import { emptySession, reducer, type AttractionItem } from "~/features/booking";
 import { KioskAttractionPeopleStep } from "../steps/KioskPeopleStep";
@@ -686,6 +687,15 @@ export function KioskCheckinFlow() {
                     <div className="k-display truncate text-[38px]">{r.label}</div>
                     <div className="mt-[6px] flex items-center gap-[14px] text-[26px] text-white/55">
                       <span>{r.activitiesLabel}</span>
+                      {/* VIP pill — decorative like Express, gold to match the
+                          admin board/scanner ★ VIP badges (#d4af37). Driven by
+                          the booking's own combo stamp (per-record truth). */}
+                      {r.vip && (
+                        <span className="flex items-center gap-[8px] rounded-full border-2 border-[#d4af37]/60 bg-[#d4af37]/15 px-[18px] py-[6px] text-[22px] font-bold text-[#d4af37]">
+                          <IconStarFilled size={20} aria-hidden="true" />
+                          {t("checkin.vip.pill")}
+                        </span>
+                      )}
                       {r.express && (
                         <span className="flex items-center gap-[8px] rounded-full border-2 border-[#46d68c]/60 bg-[#46d68c]/15 px-[18px] py-[6px] text-[22px] font-bold text-[#46d68c]">
                           <IconBolt size={22} aria-hidden="true" />

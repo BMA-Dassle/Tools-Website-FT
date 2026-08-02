@@ -22,6 +22,8 @@ export const checkinEn = {
   // Browse rows + itinerary/party navigation.
   "checkin.browse.openAria": "Open {label}, {time}",
   "checkin.express.pill": "Express lane",
+  // Gold ★ pill on VIP-combo rows — proper noun, identical in every locale.
+  "checkin.vip.pill": "VIP",
   "checkin.continue": "Continue ›",
   "checkin.nextWhosRacing": "Next: who’s racing ›",
 
@@ -75,6 +77,7 @@ export const checkinEs: Record<keyof typeof checkinEn, string> = {
 
   "checkin.browse.openAria": "Abrir {label}, {time}",
   "checkin.express.pill": "Carril exprés",
+  "checkin.vip.pill": "VIP",
   "checkin.continue": "Continuar ›",
   "checkin.nextWhosRacing": "Siguiente: ¿quién compite? ›",
 
