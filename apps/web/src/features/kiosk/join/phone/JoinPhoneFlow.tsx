@@ -22,6 +22,8 @@ import {
 import WaiverSigning from "@/components/pandora/WaiverSigning";
 import { pandoraOnboardGuest, type PandoraWaiverTemplate } from "@/lib/pandora";
 import { formatPersonName, normalizeEmail } from "~/lib/helpers/name-format";
+import { fetchNameDobMatches, personDataFromMatch } from "../../license/lookup-client";
+import { matchGateVerdict } from "../../license/match-gate";
 import { useJoinSession } from "./useJoinSession";
 import { NewGuestForm, type NewGuestFields } from "./NewGuestForm";
 import { useT } from "../../i18n";
@@ -208,6 +210,20 @@ export function JoinPhoneFlow({
     const cleanLast = formatPersonName(fields.lastName);
     const cleanEmail = normalizeEmail(fields.email ?? "");
     try {
+      // SEARCH BEFORE CREATE (owner 2026-08-01 — see license/match-gate.ts):
+      // a returning guest who taps "I'm new" on their phone must land on
+      // their EXISTING account, not mint a duplicate. The attach runs the
+      // same pipeline a returning sign-in uses (minor block, DOB backfill,
+      // waiver). No picker on this phone surface → ambiguity creates.
+      const found = await fetchNameDobMatches(
+        { firstName: cleanFirst, lastName: cleanLast, dobIso: fields.dobIso },
+        brandLocation,
+      );
+      const verdict = matchGateVerdict(cleanFirst, found, { pickable: false });
+      if (verdict.kind === "attach") {
+        handleSingleVerified(personDataFromMatch(verdict.match));
+        return;
+      }
       const result = await pandoraOnboardGuest(
         {
           firstName: cleanFirst,

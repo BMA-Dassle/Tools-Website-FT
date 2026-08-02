@@ -21,6 +21,7 @@ export const peopleUiEn = {
   // block reason banner + license scan progress
   "peopleUi.beforeYouContinue": "Before you continue",
   "peopleUi.checkingLicense": "Checking your license for an account…",
+  "peopleUi.checkingAccount": "Checking for your account…",
 
   // roster card
   "peopleUi.aria.addToActivity": "Add {name} to this activity",
@@ -163,6 +164,7 @@ export const peopleUiEs: Record<keyof typeof peopleUiEn, string> = {
   // block reason banner + license scan progress
   "peopleUi.beforeYouContinue": "Antes de continuar",
   "peopleUi.checkingLicense": "Verificando tu licencia para buscar una cuenta…",
+  "peopleUi.checkingAccount": "Buscando tu cuenta…",
 
   // roster card
   "peopleUi.aria.addToActivity": "Agregar a {name} a esta actividad",

@@ -15,6 +15,19 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.11.6 — SEARCH BEFORE CREATE on every person-minting surface (owner
+ *         2026-08-01, the Gipson check-in: 13 person records for two guests
+ *         because every path created blind). New Member / Set up / new-
+ *         guardian submits — kiosk people step, check-in party, group waiver,
+ *         mobile /waiver, race packs — now run the Office name+DOB lookup
+ *         FIRST (the proven license-scan rail): an existing account signs in
+ *         (roster dedupe + waiver re-check included), several candidates open
+ *         the account picker ("None of these" still creates), and only a
+ *         genuine stranger mints a person. Eager as-you-type prefetch +
+ *         "Checking for your account…" spinner; lookup warmed on every
+ *         kiosk, not just scanner-equipped ones. Pure verdict logic in
+ *         license/match-gate.ts (tested — a lone hit with a foreign first
+ *         name is a sibling, never auto-attached).
  * 1.11.5 — a dispense run covers EVERY card leg of a scanned voucher (one
  *         claim per card, sequential): the VIP voucher's whole family of
  *         cards comes out in ONE "Get my cards" instead of one card per visit
@@ -439,7 +452,7 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.11.5";
+export const KIOSK_VERSION = "1.11.6";
 
 let bootVersion: string | null = null;
 let captured = false;

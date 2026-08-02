@@ -70,6 +70,7 @@ export const partyEn = {
     "Must be this minor’s parent or legal guardian. Under Florida Statute § 831.01, misrepresenting yourself as a minor’s guardian is a criminal offense.",
   "party.form.cancel": "Cancel",
   "party.form.settingUp": "Setting up…",
+  "party.form.checkingAccount": "Checking for your account…",
   "party.form.continueToWaiver": "Continue to waiver",
 
   // Returning-racer lookup panel
@@ -182,6 +183,7 @@ export const partyEs: Record<keyof typeof partyEn, string> = {
     "Debe ser el padre, la madre o el tutor legal de este menor. Conforme a la Ley de Florida § 831.01, declarar falsamente que usted es el tutor de un menor constituye un delito.",
   "party.form.cancel": "Cancelar",
   "party.form.settingUp": "Registrando…",
+  "party.form.checkingAccount": "Buscando tu cuenta…",
   "party.form.continueToWaiver": "Continuar a la exención",
 
   "party.lookup.title": "Iniciar sesión",

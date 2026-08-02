@@ -2814,3 +2814,27 @@ unified-reserve (kiosk/mixed carts).
 
 The tell you're doing it wrong: a restriction described with "the card is
 hidden outside the window." Hidden is not blocked.
+
+## Guest-facing UI on a money path needs an explicit owner decision BEFORE building (2026-08-01)
+
+While fixing "scanning the VIP voucher pulls no names in at check-in," the fix
+chosen was to ADD required per-racer name inputs to the web combo party step -
+a whole new guest-facing form on a purchase flow, gating Next. The owner had
+asked for name RECOGNITION (pull the name in when a signed-in / previously
+raced guest scans), never for new typing at booking. The change was described
+after the fact inside a long summary, the owner committed the batch trusting
+the headline ("combo names"), it deployed, and they discovered a form they
+never approved on their live checkout. Reverted same day (15d826e5).
+
+**Rule:** anything a GUEST will see or type - a new field, step, gate, or
+required input, especially on a booking/checkout path - is a product decision,
+not an implementation detail. STOP and ask before building it, with a one-line
+mock or description of exactly what the guest will see ("this adds two required
+name inputs to step 3 of the combo flow - ok?"). "I mentioned it in the
+summary" does not count: the decision has to be made BEFORE the code exists,
+in its own question, not discovered inside a report of finished work. Root
+causes can have multiple fixes - when one candidate fix changes guest UX and
+another doesn't, present both and let the owner pick.
+
+The tell you're doing it wrong: the words "and Next is blocked until..." about
+a flow the owner never asked to change.

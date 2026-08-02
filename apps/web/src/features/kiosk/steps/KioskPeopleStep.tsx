@@ -54,9 +54,11 @@ import { useLicenseScan, type AamvaLicense, type MemberQr } from "../qr-scanner"
 import {
   fetchLicenseMatches,
   fetchMemberMatches,
+  fetchNameDobMatches,
   personDataFromMatch,
   prewarmLicenseLookup,
 } from "../license/lookup-client";
+import { matchGateKey, matchGateVerdict } from "../license/match-gate";
 import type { LicenseMatch } from "../license/types";
 import { LicenseMatchPicker } from "../components/LicenseMatchPicker";
 import { ageFromIso } from "../join/phone/join-helpers";
@@ -214,6 +216,16 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     matches: LicenseMatch[];
   } | null>(null);
   const [scanNote, setScanNote] = useState<string | null>(null);
+  // Search-before-create gate (owner 2026-08-01: "pull those people in — load
+  // as often as we can"): every New Member / Set up / new-guardian submit runs
+  // the Office name+DOB lookup FIRST and attaches the existing account instead
+  // of minting (Pandora create is NOT an upsert — the Gipson party ended one
+  // afternoon with 13 person records). `matchChecking` drives the spinner;
+  // the cache makes the eager (as-you-type) prefetch free at submit time; the
+  // skip key honors an explicit "None of these" so create doesn't re-gate.
+  const [matchChecking, setMatchChecking] = useState(false);
+  const matchCacheRef = useRef<{ key: string; matches: LicenseMatch[] | null } | null>(null);
+  const matchSkipKeyRef = useRef<string | null>(null);
   // Members whose Pandora waiver status is still being fetched — a returning racer
   // lands with waiverValid unknown, so without this the card flashes "Waiver
   // needed" before the check resolves (owner 2026-07-19). Shown as "Checking
@@ -429,6 +441,59 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   const isMainDefault = party.length === 0; // first person added becomes main
 
   /** Add a brand-NEW person (name + DOB + mobile [+ guardian if minor]) → onboard → waiver. */
+  /** Office name+DOB lookup with a per-identity cache (the eager prefetch
+   *  below fills it while the guest is still typing, so the submit-time gate
+   *  is usually instant). `null` = lookup unavailable — callers create. */
+  const findExistingAccounts = async (
+    first: string,
+    last: string,
+    dobIso: string,
+  ): Promise<LicenseMatch[] | null> => {
+    const key = matchGateKey(first, last, dobIso);
+    const cached = matchCacheRef.current;
+    if (cached && cached.key === key) return cached.matches;
+    setMatchChecking(true);
+    try {
+      const matches = await fetchNameDobMatches(
+        { firstName: first, lastName: last, dobIso },
+        brandLocation,
+      );
+      matchCacheRef.current = { key, matches };
+      return matches;
+    } finally {
+      setMatchChecking(false);
+    }
+  };
+
+  // Eager prefetch — fire the lookup the moment a form holds a complete
+  // name + DOB (debounced), so "Continue" doesn't pay the ~1 s search. Cache
+  // only; no UI until submit decides. Covers the main form (new + setup) and
+  // the guardian overlay's new-adult form.
+  const eagerFirst = form?.mode === "setup" ? form.member.firstName : firstName;
+  const eagerLast = form?.mode === "setup" ? (form.member.lastName ?? "") : lastName;
+  useEffect(() => {
+    const targets: Array<{ first: string; last: string; dob: string }> = [];
+    if (form) targets.push({ first: eagerFirst, last: eagerLast, dob });
+    if (guardianFlow?.stage === "new-form") targets.push({ first: gFirst, last: gLast, dob: gDob });
+    const ready = targets.find(
+      (c) => c.first.trim() && c.last.trim() && ageFromDob(c.dob) !== null,
+    );
+    if (!ready) return;
+    const dobIso = toIsoDob(ready.dob);
+    const key = matchGateKey(ready.first, ready.last, dobIso);
+    if (matchCacheRef.current?.key === key) return;
+    const id = setTimeout(() => {
+      void fetchNameDobMatches(
+        { firstName: ready.first.trim(), lastName: ready.last.trim(), dobIso },
+        brandLocation,
+      ).then((matches) => {
+        matchCacheRef.current = { key, matches };
+      });
+    }, 700);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, eagerFirst, eagerLast, dob, guardianFlow?.stage, gFirst, gLast, gDob, brandLocation]);
+
   const submitNew = async () => {
     const age = ageFromDob(dob);
     const isMain = party.length === 0;
@@ -474,6 +539,29 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       const cleanFirst = formatPersonName(firstName);
       const cleanLast = formatPersonName(lastName);
       const cleanEmail = normalizeEmail(email);
+      // SEARCH BEFORE CREATE: an existing account signs in (same rail as a
+      // license scan — roster dedupe, guardian join, waiver re-check all
+      // included); several candidates open the account picker. Only a guest
+      // the Office genuinely doesn't know (or an explicit "None of these")
+      // reaches the create below.
+      const gateDobIso = toIsoDob(dob);
+      const gateKey = matchGateKey(cleanFirst, cleanLast, gateDobIso);
+      if (matchSkipKeyRef.current !== gateKey) {
+        const found = await findExistingAccounts(cleanFirst, cleanLast, gateDobIso);
+        const verdict = matchGateVerdict(cleanFirst, found, { pickable: true });
+        if (verdict.kind === "attach") {
+          signInLicenseMatch(verdict.match);
+          resetForm();
+          return;
+        }
+        if (verdict.kind === "pick") {
+          setLicenseMatches({
+            license: { firstName: cleanFirst, lastName: cleanLast, dobIso: gateDobIso },
+            matches: verdict.matches,
+          });
+          return;
+        }
+      }
       const result = await pandoraOnboardGuest(
         {
           firstName: cleanFirst,
@@ -580,6 +668,43 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     };
     try {
       if (!member.bmiPersonId) {
+        // SEARCH BEFORE CREATE: this roster row has a name and we just learned
+        // the DOB — if the Office already knows this person, adopt THAT record
+        // onto the row (no picker can mount over the setup form, so ambiguity
+        // falls through to create; matchGateVerdict only adopts on first-name
+        // agreement). importLinked then resolves the waiver authoritatively —
+        // a guest who already signed stops being asked to sign again.
+        const setupFirst = formatPersonName(member.firstName);
+        const setupLast = formatPersonName(member.lastName ?? "");
+        const found = await findExistingAccounts(setupFirst, setupLast, toIsoDob(dob));
+        const verdict = matchGateVerdict(setupFirst, found, { pickable: false });
+        if (verdict.kind === "attach") {
+          const m = verdict.match;
+          const [mFirst, ...mRest] = m.fullName.trim().split(/\s+/);
+          const bdIso = m.birthDate ? String(m.birthDate).slice(0, 10) : toIsoDob(dob);
+          const rAge = ageFromIso(bdIso) ?? age;
+          dispatch({
+            type: "updatePartyMember",
+            id: member.id,
+            patch: {
+              // Record's name wins over the local label — see submitNew.
+              firstName: formatPersonName(mFirst) || member.firstName,
+              lastName: formatPersonName(mRest.join(" ")) || member.lastName,
+              bmiPersonId: m.personId,
+              memberships: m.memberships,
+              isMinor: rAge < 18,
+              category: rAge < 13 ? "junior" : "adult",
+              dobIso: bdIso,
+            },
+          });
+          resetForm();
+          setCheckingIds((s) => new Set(s).add(member.id));
+          const alreadyIds = new Set(
+            [m.personId, ...party.map((x) => x.bmiPersonId)].filter(Boolean) as string[],
+          );
+          void importLinked(m.personId, member.id, alreadyIds);
+          return;
+        }
         const result = await pandoraOnboardGuest(
           {
             firstName: formatPersonName(member.firstName),
@@ -832,6 +957,18 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       const gCleanFirst = formatPersonName(gFirst);
       const gCleanLast = formatPersonName(gLast);
       const gCleanEmail = normalizeEmail(gEmail);
+      // SEARCH BEFORE CREATE: a guardian who already exists signs in through
+      // the SAME rail the OTP lookup uses (age re-gate, roster reuse, short-id
+      // resolve, own-waiver-first). Guardians were serial duplicate victims —
+      // the minor flow re-minted the same adult on every signing round
+      // (2026-08-01 Gipson). No picker over this overlay → ambiguity creates.
+      const found = await findExistingAccounts(gCleanFirst, gCleanLast, toIsoDob(gDob));
+      const verdict = matchGateVerdict(gCleanFirst, found, { pickable: false });
+      if (verdict.kind === "attach") {
+        resetGuardianForm();
+        await handleGuardianVerified(personDataFromMatch(verdict.match));
+        return;
+      }
       const result = await pandoraOnboardGuest(
         {
           firstName: gCleanFirst,
@@ -1342,15 +1479,16 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     onMemberQr: handleMemberQr,
   });
 
-  // Absorb Pandora's Azure cold start BEFORE anyone scans (one shot per
-  // mount) — otherwise the first scan after idle pays the spin-up.
+  // Absorb the Office/Pandora cold start BEFORE anyone scans or types (one
+  // shot per mount) — the search-before-create gate runs the same lookup on
+  // EVERY kiosk now, not just scanner-equipped ones, so warm unconditionally.
   const prewarmedRef = useRef(false);
   useEffect(() => {
-    if (!prewarmedRef.current && kioskCfg?.qrScannerEnabled) {
+    if (!prewarmedRef.current) {
       prewarmedRef.current = true;
       prewarmLicenseLookup(brandLocation);
     }
-  }, [kioskCfg, brandLocation]);
+  }, [brandLocation]);
 
   const badgeFor = (m: PartyMember) => {
     if (isRace) {
@@ -1428,11 +1566,11 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       )}
 
       {/* license-scan progress + outcome (hardware scanner kiosks only) */}
-      {licenseBusy && (
+      {(licenseBusy || matchChecking) && (
         <div className="flex items-center gap-[16px] rounded-2xl border-2 border-[#00e2e5]/40 bg-[#00e2e5]/10 px-[28px] py-[22px]">
           <span className="h-[28px] w-[28px] shrink-0 animate-spin rounded-full border-2 border-[#00e2e5]/30 border-t-[#00e2e5]" />
           <span className="text-[26px] font-bold text-[#7ff3f4]">
-            {t("peopleUi.checkingLicense")}
+            {licenseBusy ? t("peopleUi.checkingLicense") : t("peopleUi.checkingAccount")}
           </span>
         </div>
       )}
@@ -1800,7 +1938,11 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
               }
               className="k-btn-primary k-tap h-[80px] flex-1 text-[28px]"
             >
-              {busy ? t("peopleUi.settingUp") : t("peopleUi.continueToWaiver")}
+              {busy
+                ? matchChecking
+                  ? t("peopleUi.checkingAccount")
+                  : t("peopleUi.settingUp")
+                : t("peopleUi.continueToWaiver")}
             </button>
           </div>
         </div>
@@ -2021,7 +2163,11 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                         onClick={() => void submitGuardianNew()}
                         className="k-btn-primary k-tap h-[80px] flex-1 text-[28px]"
                       >
-                        {busy ? t("peopleUi.settingUp") : t("peopleUi.continueToWaiver")}
+                        {busy
+                          ? matchChecking
+                            ? t("peopleUi.checkingAccount")
+                            : t("peopleUi.settingUp")
+                          : t("peopleUi.continueToWaiver")}
                       </button>
                     </div>
                   </div>
@@ -2196,6 +2342,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
             const lic = licenseMatches.license;
             setLicenseMatches(null);
             if (lic) {
+              // "None of these" is an explicit decision — the next submit of
+              // this EXACT identity creates instead of re-running the gate.
+              matchSkipKeyRef.current = matchGateKey(lic.firstName, lic.lastName, lic.dobIso);
               openNewFormFromLicense(lic);
             } else {
               // Member QR path — no scanned name/DOB to prefill; blank form.

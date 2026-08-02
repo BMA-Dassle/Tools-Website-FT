@@ -14,8 +14,17 @@ import type { PersonData } from "~/components/features/booking/steps/race/Return
 import type { AamvaLicense, MemberQr } from "../qr-scanner";
 import type { LicenseMatch } from "./types";
 
-export async function fetchLicenseMatches(
-  license: AamvaLicense,
+/** The identity fields the lookup needs — a license carries them, and so does
+ *  a typed New Member / Set up form (the search-before-create gate). */
+export interface NameDobConfirm {
+  lastName: string;
+  dobIso: string;
+  /** Ranking only — never filters (see lookup.server.ts). */
+  firstName?: string;
+}
+
+export async function fetchNameDobMatches(
+  confirm: NameDobConfirm,
   location: "fasttrax" | "headpinz" | "naples",
 ): Promise<LicenseMatch[] | null> {
   try {
@@ -23,9 +32,9 @@ export async function fetchLicenseMatches(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        lastName: license.lastName,
-        firstName: license.firstName,
-        dobIso: license.dobIso,
+        lastName: confirm.lastName,
+        firstName: confirm.firstName,
+        dobIso: confirm.dobIso,
         location,
       }),
     });
@@ -35,6 +44,16 @@ export async function fetchLicenseMatches(
   } catch {
     return null;
   }
+}
+
+export async function fetchLicenseMatches(
+  license: AamvaLicense,
+  location: "fasttrax" | "headpinz" | "naples",
+): Promise<LicenseMatch[] | null> {
+  return fetchNameDobMatches(
+    { lastName: license.lastName, firstName: license.firstName, dobIso: license.dobIso },
+    location,
+  );
 }
 
 /** SMS-Timing member QR (the app's personal QR) → the member's account(s).
