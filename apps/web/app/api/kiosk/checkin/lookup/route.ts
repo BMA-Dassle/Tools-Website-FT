@@ -192,6 +192,7 @@ export async function POST(req: NextRequest) {
           activitiesLabel: summary.activitiesLabel,
           kind,
           express: isExpressBooking({ record: summary.record, racingOnly: kind === "racing" }),
+          vip: summary.moneyGroup.some((r) => !!r.comboSpecialId),
         },
       ],
     });

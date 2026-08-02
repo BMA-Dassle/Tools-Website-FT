@@ -24,6 +24,10 @@ export interface CheckinBrowseRow {
    *  the badge and tapping it only explains where to go: no last-4 gate, no OTP,
    *  no check-in (see `express.ts`). Racing-only; never a combo. */
   express: boolean;
+  /** VIP combo booking (combo_special_id stamped on the money group at
+   *  booking) — the row wears the gold ★ VIP pill. Per-RECORD truth, never a
+   *  category check; decorative only (tap behavior is unchanged). */
+  vip: boolean;
 }
 
 /** A PROVEN match (scan possession or phone-OTP) — opens directly. */

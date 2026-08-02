@@ -570,6 +570,9 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
     kinds: Set<string>;
     guestName: string;
     earliest: string;
+    /** VIP combo id from whichever leg carries it (stamped on both combo
+     *  legs) — free off the rows already fetched, no extra round trip. */
+    comboSpecialId: string | null;
   }
   const groups = new Map<string, Grp>();
   for (const row of rows) {
@@ -588,12 +591,14 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
       g.kinds.add(row.productKind);
       if (!g.guestName && row.guestName) g.guestName = row.guestName;
       if (timeKey(evt) < timeKey(g.earliest)) g.earliest = evt;
+      if (!g.comboSpecialId && row.comboSpecialId) g.comboSpecialId = row.comboSpecialId;
     } else {
       groups.set(billId, {
         billId,
         kinds: new Set([row.productKind]),
         guestName: row.guestName ?? "",
         earliest: evt,
+        comboSpecialId: row.comboSpecialId ?? null,
       });
     }
   }
@@ -623,6 +628,9 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
       activitiesLabel,
       kind,
       express: isExpressBooking({ record, racingOnly: kind === "racing" }),
+      // VIP is per-record truth off the group's own combo stamp — today only
+      // the VIP packs set combo_special_id (admin board uses the same read).
+      vip: !!g.comboSpecialId,
     });
   }
   return out;
