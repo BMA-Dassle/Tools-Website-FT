@@ -109,6 +109,66 @@ export interface GzGroup {
   qty: number;
 }
 
+/** The slice of a validate-response item the ghost builders need. */
+export interface UnspentItem {
+  index: number;
+  redeemVia: "gamezone" | "cart";
+  label: string;
+  coverageName?: string;
+  tokens?: number;
+}
+
+/**
+ * "0 of M" ghost rows (owner 2026-08-02: a row stepped down to zero stays
+ * visible as zero-of-max instead of vanishing, so "+" can bring it back
+ * without a re-scan). One ghost per voucher cart KIND (code + coverageName)
+ * that has NO applied leg right now. Label comes from the validate item —
+ * the applied rows' label for the same kind. Session-local by construction:
+ * ghosts only exist while the code's validate result is held.
+ */
+export function ghostCartGroups(
+  unspentByCode: Record<string, UnspentItem[]>,
+  applied: readonly CartLeg[],
+): CartGroup[] {
+  const appliedKinds = new Set(applied.map((l) => `${l.code}|${l.name ?? ""}`));
+  const out: CartGroup[] = [];
+  const seen = new Set<string>();
+  for (const [code, items] of Object.entries(unspentByCode)) {
+    for (const i of items) {
+      if (i.redeemVia !== "cart" || !i.coverageName) continue;
+      const key = `${code}|${i.coverageName}`;
+      if (appliedKinds.has(key) || seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        code,
+        label: i.label,
+        name: i.coverageName,
+        error: null,
+        itemIndexes: [],
+        qty: 0,
+        native: true,
+      });
+    }
+  }
+  return out;
+}
+
+/** Game-card counterpart: a code with unspent gz legs but nothing pending. */
+export function ghostGzGroups(
+  unspentByCode: Record<string, UnspentItem[]>,
+  pending: readonly PendingGzCard[],
+): GzGroup[] {
+  const pendingCodes = new Set(pending.map((c) => c.code));
+  const out: GzGroup[] = [];
+  for (const [code, items] of Object.entries(unspentByCode)) {
+    if (pendingCodes.has(code)) continue;
+    const gz = items.filter((i) => i.redeemVia === "gamezone");
+    if (gz.length === 0) continue;
+    out.push({ code, tokens: gz[0].tokens ?? 0, qty: 0 });
+  }
+  return out;
+}
+
 /** Collapse pending game-card legs by code + token value. */
 export function groupGzCards(cards: readonly PendingGzCard[]): GzGroup[] {
   const out: GzGroup[] = [];

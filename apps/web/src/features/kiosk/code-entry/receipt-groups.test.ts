@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { groupCartLegs, groupGzCards, groupUsedLegs } from "./receipt-groups";
+import {
+  ghostCartGroups,
+  ghostGzGroups,
+  groupCartLegs,
+  groupGzCards,
+  groupUsedLegs,
+  type UnspentItem,
+} from "./receipt-groups";
 
 describe("groupCartLegs", () => {
   it("collapses identical native legs into one qty row with sorted indexes", () => {
@@ -49,6 +56,40 @@ describe("groupUsedLegs", () => {
       { code: "HPWA", label: "100 bonus tokens", qty: 2 },
       { code: "HPWA", label: "Shuffly comp", qty: 1 },
     ]);
+  });
+});
+
+describe("ghost rows (stepped to zero stays visible as 0 of M)", () => {
+  const UNSPENT: Record<string, UnspentItem[]> = {
+    HPWA: [
+      { index: 0, redeemVia: "cart", label: "Laser Tag comp", coverageName: "Laser Tag" },
+      { index: 1, redeemVia: "cart", label: "Laser Tag comp", coverageName: "Laser Tag" },
+      { index: 2, redeemVia: "cart", label: "Shuffly comp", coverageName: "Shuffly" },
+      { index: 3, redeemVia: "gamezone", label: "100 bonus tokens", tokens: 100 },
+    ],
+  };
+
+  it("ghostCartGroups: a kind with zero applied legs becomes one qty-0 row; applied kinds don't", () => {
+    const out = ghostCartGroups(UNSPENT, [
+      { code: "HPWA", label: "Laser Tag comp", name: "Laser Tag", itemIndex: 0 },
+    ]);
+    expect(out).toEqual([
+      {
+        code: "HPWA",
+        label: "Shuffly comp",
+        name: "Shuffly",
+        error: null,
+        itemIndexes: [],
+        qty: 0,
+        native: true,
+      },
+    ]);
+    expect(ghostCartGroups(UNSPENT, [])).toHaveLength(2); // both kinds ghost, deduped per kind
+  });
+
+  it("ghostGzGroups: unspent gz legs with nothing pending ghost at qty 0; pending suppresses", () => {
+    expect(ghostGzGroups(UNSPENT, [])).toEqual([{ code: "HPWA", tokens: 100, qty: 0 }]);
+    expect(ghostGzGroups(UNSPENT, [{ code: "HPWA", tokens: 100 }])).toEqual([]);
   });
 });
 

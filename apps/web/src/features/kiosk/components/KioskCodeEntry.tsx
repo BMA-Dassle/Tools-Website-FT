@@ -38,6 +38,8 @@ import { useWedgeScan } from "../checkin/wedge-scan";
 import { classifyKioskCode, type KioskCodeKind } from "../code-entry/classify";
 import { receiptPlan } from "../code-entry/receipt-plan";
 import {
+  ghostCartGroups,
+  ghostGzGroups,
   groupCartLegs,
   groupGzCards,
   groupUsedLegs,
@@ -734,8 +736,18 @@ export function KioskCodeEntry({
       // 2026-08-02: a 7-guest VIP voucher rendered 14 rows). Grouping rules
       // live in receipt-groups.ts (tested); "+" is honest — it re-checks the
       // voucher's unspent legs before promising another one.
-      const gzGroups = groupGzCards(gzCards);
-      const cartGroups = groupCartLegs(cartLabels);
+      // Ghost rows: a group stepped down to zero stays visible as "0 of M"
+      // (owner 2026-08-02) — synthesized from the validate results, so they
+      // only appear for kinds this kiosk could actually re-add (the same
+      // flag gates the original dispatch).
+      const gzGroups = [
+        ...groupGzCards(gzCards),
+        ...(kioskVoucherGzEnabled() && onGzCardAddOne ? ghostGzGroups(unspentByCode, gzCards) : []),
+      ];
+      const cartGroups = [
+        ...groupCartLegs(cartLabels),
+        ...(voucherRedeem && onNativeCartItemAdd ? ghostCartGroups(unspentByCode, cartLabels) : []),
+      ];
       const usedGroups = groupUsedLegs(spentByCode);
       const ensureUnspent = async (code: string): Promise<NativeValidateItem[]> =>
         unspentByCode[code] ?? (await fetchUnspentItems(code));
@@ -755,6 +767,7 @@ export function KioskCodeEntry({
         return items.filter((i) => i.redeemVia === "gamezone").length;
       };
       const stepCartDown = (g: CartGroup) => {
+        if (g.qty === 0) return; // ghost row — nothing to remove
         // Highest leg first, so the surviving indexes stay contiguous-ish and
         // a later "+" re-adds what was just dropped.
         const last = g.itemIndexes[g.itemIndexes.length - 1];
@@ -780,10 +793,11 @@ export function KioskCodeEntry({
         onNativeCartItemAdd?.(g.code, { itemIndex: next.index, coverageName: next.coverageName });
       };
       const stepGzDown = (g: GzGroup) => {
-        // Last leg → whole-code removal (frees the code for a clean re-scan);
-        // otherwise drop one leg. Mixed token values on one code would make
-        // "one leg of this code" ambiguous, but no mint does that today.
-        if (g.qty <= 1) {
+        if (g.qty === 0) return; // ghost row — nothing to remove
+        // Last leg → whole-code removal (the ghost row keeps it visible as
+        // "0 of M"); otherwise drop one leg. Mixed token values on one code
+        // would make "one leg of this code" ambiguous, but no mint does that.
+        if (g.qty === 1) {
           removeGzCard(g.code);
           return;
         }
@@ -909,10 +923,10 @@ export function KioskCodeEntry({
               addOpen ? "max-h-[560px]" : "min-h-0 flex-1"
             }`}
           >
-            {gzCards.length > 0 && (
+            {gzGroups.length > 0 && (
               <section>
                 <div className="k-eyebrow text-[#f800c6]">
-                  {t("codeEntry.voucherGz.printingTitle", { n: gzCards.length })}
+                  {t("codeEntry.voucherGz.printingTitle", { n: Math.max(gzCards.length, 1) })}
                 </div>
                 <div className="mt-[4px] text-[20px] text-white/45">
                   {canDispenseCards
@@ -927,9 +941,15 @@ export function KioskCodeEntry({
                     return (
                       <li
                         key={`${g.code}-${g.tokens}`}
-                        className="flex items-center justify-between gap-[16px] rounded-[16px] border border-white/12 bg-white/[0.04] px-[24px] py-[12px]"
+                        className={`flex items-center justify-between gap-[16px] rounded-[16px] border px-[24px] py-[12px] ${
+                          g.qty === 0
+                            ? "border-white/8 bg-white/[0.02]"
+                            : "border-white/12 bg-white/[0.04]"
+                        }`}
                       >
-                        <span className="min-w-0 truncate text-[28px] text-white/90">
+                        <span
+                          className={`min-w-0 truncate text-[28px] ${g.qty === 0 ? "text-white/40" : "text-white/90"}`}
+                        >
                           {g.tokens > 0
                             ? t("codeEntry.voucherGz.cardTokens", { tokens: g.tokens })
                             : t("codeEntry.voucherGz.gameCardGeneric")}
@@ -938,7 +958,7 @@ export function KioskCodeEntry({
                           )}
                         </span>
                         <span className="flex shrink-0 items-center gap-[14px]">
-                          {g.tokens > 0 && (
+                          {g.tokens > 0 && g.qty > 0 && (
                             <span className="text-[24px] text-[#46d68c]">
                               {t("codeEntry.voucherGz.inPlay", {
                                 amount: tokensInPlay(g.tokens * g.qty),
@@ -948,6 +968,7 @@ export function KioskCodeEntry({
                           <button
                             type="button"
                             onClick={() => stepGzDown(g)}
+                            disabled={g.qty === 0}
                             aria-label={t("codeEntry.voucherGz.removeOne")}
                             className={stepBtn}
                           >
@@ -969,9 +990,7 @@ export function KioskCodeEntry({
                 </ul>
               </section>
             )}
-            {(cartLabels.length > 0 ||
-              appliedPromo ||
-              Object.values(spentByCode).some((legs) => legs.length > 0)) && (
+            {(cartGroups.length > 0 || appliedPromo || usedGroups.length > 0) && (
               <section>
                 <div className="k-eyebrow text-[#46d68c]">
                   {t("codeEntry.voucherGz.appliedSectionTitle")}
@@ -983,28 +1002,35 @@ export function KioskCodeEntry({
                       className={`flex items-center justify-between gap-[16px] rounded-[16px] border px-[24px] py-[12px] ${
                         g.error
                           ? "border-[#ff8c7a]/40 bg-[#ff8c7a]/[0.08]"
-                          : "border-[#46d68c]/25 bg-[#46d68c]/[0.08]"
+                          : g.qty === 0
+                            ? "border-white/8 bg-white/[0.02]"
+                            : "border-[#46d68c]/25 bg-[#46d68c]/[0.08]"
                       }`}
                     >
-                      <span className="min-w-0 truncate text-[28px] text-white/90">
+                      <span
+                        className={`min-w-0 truncate text-[28px] ${g.qty === 0 ? "text-white/40" : "text-white/90"}`}
+                      >
                         {g.label}
                         {g.native && !g.error && qtyLabel(g.qty, cartMax(g)) && (
                           <span className="text-white/50">{`  ${qtyLabel(g.qty, cartMax(g))}`}</span>
                         )}
                       </span>
                       <span className="flex shrink-0 items-center gap-[14px]">
-                        <span
-                          className={`text-[22px] ${g.error ? "text-[#ffb3a6]" : "text-white/50"}`}
-                        >
-                          {g.error
-                            ? t("codeEntry.voucherGz.rowNeedsHelp")
-                            : t("codeEntry.voucherGz.comesOff")}
-                        </span>
+                        {g.qty > 0 && (
+                          <span
+                            className={`text-[22px] ${g.error ? "text-[#ffb3a6]" : "text-white/50"}`}
+                          >
+                            {g.error
+                              ? t("codeEntry.voucherGz.rowNeedsHelp")
+                              : t("codeEntry.voucherGz.comesOff")}
+                          </span>
+                        )}
                         {g.native && !g.error ? (
                           <>
                             <button
                               type="button"
                               onClick={() => stepCartDown(g)}
+                              disabled={g.qty === 0}
                               aria-label={t("codeEntry.voucherGz.removeOne")}
                               className={stepBtn}
                             >
