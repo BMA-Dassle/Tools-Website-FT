@@ -14,6 +14,13 @@ import { notifyVideoReady, cameraHistoryEntryFromMatch } from "@/lib/video-notif
 import { getBlockState } from "@/lib/video-block";
 import { logCronRun } from "@/lib/sms-log";
 import { verifyCron } from "@/lib/cron-auth";
+import {
+  drainDuePendingMatches,
+  pendingMatchDepth,
+  orderedMatchingEnabled,
+  type DrainResult,
+} from "@/lib/video-pending-match";
+import { logVideoDecision } from "@/lib/video-decision-log";
 
 /**
  * GET /api/cron/video-match
@@ -138,6 +145,26 @@ export async function GET(req: NextRequest) {
   // run, which is harmless — the run is bounded and idempotent.
   //
   // ?force=1 bypasses the heartbeat check for manual debug runs.
+  //
+  // Ordered-matching drain runs on EVERY tick regardless of the
+  // heartbeat — buffered first sightings from the webhook need a
+  // quiet-tail backstop (the last events of the night have no later
+  // webhook call to trigger their drain). Cheap when nothing is due.
+  let cronDrain: DrainResult | undefined;
+  if (!dryRun && orderedMatchingEnabled()) {
+    try {
+      cronDrain = await drainDuePendingMatches({ source: "cron" });
+      if (cronDrain.drained > 0) {
+        console.log(
+          `[video-match] ordered drain processed ${cronDrain.drained} (held ${cronDrain.held}):`,
+          cronDrain.decisions,
+        );
+      }
+    } catch (err) {
+      console.error("[video-match] ordered drain failed:", err);
+    }
+  }
+
   if (!dryRun && !force) {
     try {
       const lastEvent = await redis.get("vt3:bridge:last-event");
@@ -155,6 +182,8 @@ export async function GET(req: NextRequest) {
               skipped: "bridge-alive",
               lastBridgeEvent: lastEvent,
               ageSeconds: Math.round(ageMs / 1000),
+              pendingDrain: cronDrain,
+              pendingDepth: await pendingMatchDepth(),
               elapsedMs: Date.now() - started,
             },
             { headers: { "Cache-Control": "no-store" } },
@@ -188,6 +217,7 @@ export async function GET(req: NextRequest) {
   let skippedOld = 0;
   let skippedNotReady = 0; // match row exists + still waiting on VT3
   let heldDuplicate = 0; // every eligible assignment already has a video — held for review
+  let skippedJunk = 0; // duration under the junk floor — quarantined to review, never matched
   let savedPending = 0; // NEW match, saved with pendingNotify=true
   let deferredSent = 0; // pending match turned ready, notify fired on this tick
   let matched = 0; // new match + immediate notify (VT3 already ready)
@@ -251,6 +281,32 @@ export async function GET(req: NextRequest) {
       try {
         const entry = cameraHistoryEntryFromMatch(record);
         const n = await notifyVideoReady(record, entry);
+        // Durable forensics — mirrors the processor's doFireNotify log.
+        // "no-contact" marks the silent skip (racer + guardian both
+        // unreachable) that previously left no trace anywhere.
+        void logVideoDecision({
+          source: "cron",
+          eventType: "notify",
+          decision: n.sms.attempted || n.email.attempted ? "fired" : "no-contact",
+          videoCode: record.videoCode,
+          videoId: record.videoId,
+          cameraNumber: record.cameraNumber,
+          systemName: record.systemNumber,
+          videoCreatedAt: record.capturedAt,
+          durationS: record.duration,
+          videoStatus: record.videoStatus,
+          sessionId: record.sessionId,
+          personId: record.personId,
+          racer: `${record.firstName} ${record.lastName}`.trim(),
+          heatNumber: record.heatNumber,
+          track: record.track,
+          notifySmsOk: n.sms.attempted ? n.sms.ok : undefined,
+          notifySmsTo: n.sms.sentTo,
+          notifySmsError: n.sms.error,
+          notifyEmailOk: n.email.attempted ? n.email.ok : undefined,
+          notifyEmailTo: n.email.sentTo,
+          viaGuardian: n.recipient === "guardian" || undefined,
+        });
         const nowIso = new Date().toISOString();
         if (n.sms.attempted) {
           record.notifySmsOk = n.sms.ok;
@@ -342,6 +398,27 @@ export async function GET(req: NextRequest) {
           if (wasBlocked && !isBlocked) {
             const neverNotified = !existing.notifySmsSentAt && !existing.notifyEmailSentAt;
             if (neverNotified) existing.pendingNotify = true;
+          }
+
+          if (!dryRun) {
+            void logVideoDecision({
+              source: "cron",
+              eventType: "block-flip",
+              decision: isBlocked ? "blocked" : "unblocked",
+              videoCode: v.code,
+              videoId: existing.videoId,
+              cameraNumber: existing.cameraNumber,
+              systemName: existing.systemNumber,
+              videoCreatedAt: existing.capturedAt,
+              durationS: existing.duration,
+              videoStatus: existing.videoStatus,
+              sessionId: existing.sessionId,
+              personId: existing.personId,
+              racer: `${existing.firstName} ${existing.lastName}`.trim(),
+              heatNumber: existing.heatNumber,
+              track: existing.track,
+              details: { level: blockState.level, reason: blockState.reason },
+            });
           }
         }
 
@@ -551,6 +628,14 @@ export async function GET(req: NextRequest) {
           heldDuplicate++;
           continue;
         }
+        if (attempt.outcome === "junk-short") {
+          // Quarantined dock-bump clip — review record written by the
+          // helper; never matches, never notifies. Deterministic, so
+          // advance the cursor.
+          if (v.id > highestId) highestId = v.id;
+          skippedJunk++;
+          continue;
+        }
         if (attempt.outcome === "already-processed") {
           skippedAlreadyMatched++;
           continue;
@@ -647,7 +732,8 @@ export async function GET(req: NextRequest) {
         skippedOld +
         skippedNotReady +
         skippedBlocked +
-        heldDuplicate,
+        heldDuplicate +
+        skippedJunk,
       errors,
     });
 
@@ -672,6 +758,9 @@ export async function GET(req: NextRequest) {
         skippedNoAssignment,
         skippedNotReady,
         heldDuplicate,
+        skippedJunk,
+        pendingDrain: cronDrain,
+        pendingDepth: await pendingMatchDepth().catch(() => 0),
         errors,
         matches,
       },

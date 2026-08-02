@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { processVideoEvent, videoEventFromWebhookPayload } from "@/lib/video-event-processor";
+import {
+  bufferPendingMatch,
+  drainDuePendingMatches,
+  orderedMatchingEnabled,
+} from "@/lib/video-pending-match";
 
 /**
  * VT3 video event webhook — receives push events forwarded by the
@@ -155,22 +160,30 @@ export async function POST(req: NextRequest) {
   redis.set("vt3:bridge:last-event", new Date().toISOString(), "EX", 3600).catch(() => void 0);
 
   // ── Live processing path ──
-  // Run the per-video processor inline so this push event tries to
-  // create the match / fire the SMS without waiting for the next
-  // 2-min cron tick. The cron continues to run in parallel — both
-  // paths converge on the same Redis state via SET-NX guards in
-  // saveVideoMatch + the notify-fired lock. Whichever runs first
-  // wins; the other sees "already done" and short-circuits.
+  // PATH-1 work (existing match: overlay refresh, block sync,
+  // deferred notify) runs inline — it's order-insensitive and
+  // latency-critical. NEW-match creation is order-SENSITIVE (the
+  // matcher assigns identity by position, so arrival order decides
+  // who gets which video — see lib/video-pending-match.ts), so with
+  // ordered matching on (default), first sightings are buffered and
+  // processed oldest-created_at-first by the drain below after a
+  // settle window. VIDEO_MATCH_ORDERED=false reverts to the old
+  // inline behavior.
   //
   // Best-effort: a processor failure logs but doesn't fail the
-  // webhook (the cron is the safety net). We don't wait on the
-  // processor's full result before returning to the bridge — fire
-  // and let it run concurrently with the response.
+  // webhook (the cron is the safety net).
   let processedDecision: string | undefined;
+  const ordered = orderedMatchingEnabled();
   try {
     const eventInput = videoEventFromWebhookPayload(payload, innerType);
-    const result = await processVideoEvent(eventInput, { source: "webhook" });
+    const result = await processVideoEvent(eventInput, {
+      source: "webhook",
+      skipCreate: ordered,
+    });
     processedDecision = result.decision;
+    if (ordered && result.decision === "skip-buffered") {
+      await bufferPendingMatch(eventInput);
+    }
     console.log(
       `[vt3-webhook] code=${videoCode} inner=${innerType} → decision=${result.decision}` +
         (result.notifyFired
@@ -179,6 +192,26 @@ export async function POST(req: NextRequest) {
     );
   } catch (err) {
     console.error(`[vt3-webhook] processVideoEvent threw for code=${videoCode}:`, err);
+  }
+
+  // Opportunistic ordered drain — processes any buffered first
+  // sightings that have settled. Cheap when nothing is due, and the
+  // NX drain lock makes concurrent webhook invocations no-ops. The
+  // video-match cron also drains every tick as the quiet-tail
+  // backstop (last events of the night have no later webhook call
+  // to piggyback on).
+  if (ordered) {
+    try {
+      const drained = await drainDuePendingMatches({ source: "webhook" });
+      if (drained.drained > 0) {
+        console.log(
+          `[vt3-webhook] ordered drain processed ${drained.drained} (held ${drained.held}):`,
+          drained.decisions,
+        );
+      }
+    } catch (err) {
+      console.error("[vt3-webhook] ordered drain failed:", err);
+    }
   }
 
   return NextResponse.json({

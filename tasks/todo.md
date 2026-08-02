@@ -1,5 +1,40 @@
 # Open Tasks
 
+## Video match hardening — branch `feat/video-match-hardening` (2026-08-02)
+
+Root causes proven by the 8/2 investigation (live Redis forensics, 7/10–7/28 corpus:
+8,687 matched / 846 unmatched): junk short clips (0–120s) get matched + SMS'd and steal
+racer slots (152 matched junk, 39 proven thefts); the webhook processes VT3 events in
+arrival order while only the cron sorts by `created_at`, so out-of-order uploads swap
+pairs of racers; held videos are nameless and never notify. Scope of THIS PR (matcher
+correctness only — admin UX / Neon persistence / SMS-Timing reconcile are later PRs):
+
+- [ ] **Junk quarantine** — videos with duration < `VIDEO_JUNK_MIN_S` (default 120s)
+      never auto-match/notify; recorded to the review bucket with new reason
+      `"junk-short"`. Kill switch `VIDEO_JUNK_QUARANTINE=false` (default ON per house
+      flag rule).
+- [ ] **Junk→real auto-swap** — when a real (≥ threshold) video walks to a slot occupied
+      by a junk-grade one, displace the junk to the review bucket and take the slot;
+      notify fires for the real video. Same kill switch.
+- [ ] **Ordered matching** — webhook no longer creates matches inline in arrival order.
+      New-match events buffer in `video-pending:*` (merged per code), and a locked drain
+      processes them oldest-`created_at`-first after a `VIDEO_MATCH_SETTLE_S` (90s)
+      settle window, per-camera order enforced. Drain runs opportunistically on webhook
+      calls + every cron tick (including the bridge-alive early exit). PATH-1 updates
+      (overlay/block/deferred notify) stay inline — they're order-insensitive. Kill
+      switch `VIDEO_MATCH_ORDERED=false` reverts to inline behavior. Side fix: a
+      sample-uploaded-first video (no created_at) now buffers + matches instead of
+      being dropped until the bridge goes quiet.
+- [ ] Admin: render the `junk-short` reason chip on review rows (list route already
+      passes `reason` through).
+- [ ] Vitest units for the pure logic: junk classification bounds, buffered-event merge,
+      drain ordering (per-camera holds, settle window, created_at/id tiebreak).
+- [ ] `scripts/video-match-shadow.mts` — local monitor: `--replay` (what would the new
+      rules have done over today's live corpus) + `--watch` (post-merge verification:
+      junk-matched must go to zero, buffer depth, drain lag). Read-only.
+- [ ] tsc + eslint + vitest green; shadow replay run against live Saturday traffic;
+      push branch → PR. Merge = go-live (kill switches only, no dark flags).
+
 ## Kiosk attract motion — HeadPinz first (2026-07-26, branch `feat/kiosk-hp-attract`)
 
 Owner-picked scope after the demo artifacts (claude.ai/code/artifact/4fc7ccbb + 290a6377).

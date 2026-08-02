@@ -60,6 +60,59 @@ export function isVideoReadyForNotify(signals: NotifyReadinessSignals | undefine
   return !!signals.sampleUploadTime;
 }
 
+/**
+ * Junk-clip quarantine (2026-08-02 hardening).
+ *
+ * Cameras bumped on the dock / powered on in someone's hand produce
+ * 0–60s "videos" that VT3 uploads like any other. The 7/10–7/28 live
+ * corpus had 152 of them MATCHED to racers (one 1-second clip was
+ * SMS'd, carrier-delivered, and viewed — the Jessica May complaint),
+ * and 39 provable cases where the junk consumed the racer's one slot
+ * so their real video sat in the review bucket unsent.
+ *
+ * Threshold rationale: real races cluster ≥600s (96.8% of matched);
+ * legitimately SHORT videos are crash-shortened heats, and the
+ * shortest crash video in the corpus was 133s. <120s was 100% junk.
+ * Tune via VIDEO_JUNK_MIN_S; kill via VIDEO_JUNK_QUARANTINE=false
+ * (kill switch only — defaults ON per the house flag rule).
+ */
+export function junkMinDurationS(): number {
+  const raw = parseInt(process.env.VIDEO_JUNK_MIN_S || "120", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 120;
+}
+
+export function junkQuarantineEnabled(): boolean {
+  return process.env.VIDEO_JUNK_QUARANTINE !== "false";
+}
+
+/** True when a duration marks a video as junk-grade (quarantine on,
+ *  duration known, and under the floor). Unknown durations are NOT
+ *  junk — we can't judge them; the junk→real swap covers the case
+ *  where one later matches and turns out tiny. */
+export function isJunkDuration(duration?: number | null): boolean {
+  if (!junkQuarantineEnabled()) return false;
+  return (
+    typeof duration === "number" && Number.isFinite(duration) && duration < junkMinDurationS()
+  );
+}
+
+/** True when `incoming` (a real, known-length video) should displace
+ *  `occupantDuration` (a junk-grade clip) from a racer's slot. Both
+ *  sides must be KNOWN: we never displace for an unknown-length
+ *  incoming video, and never displace a real occupant. */
+export function shouldDisplaceJunk(
+  occupantDuration: number | null | undefined,
+  incomingDuration: number | null | undefined,
+): boolean {
+  if (!junkQuarantineEnabled()) return false;
+  return (
+    isJunkDuration(occupantDuration) &&
+    typeof incomingDuration === "number" &&
+    Number.isFinite(incomingDuration) &&
+    incomingDuration >= junkMinDurationS()
+  );
+}
+
 export interface VideoMatch {
   sessionId: string | number;
   personId: string | number;
@@ -247,8 +300,11 @@ export interface UnmatchedVideo {
    *  "duplicate-assignment" = every eligible assignment for this
    *  camera already holds a different video, so auto-sending would
    *  either text the wrong racer or overwrite a correct match — held
-   *  for staff to send manually instead. */
-  reason?: "duplicate-assignment";
+   *  for staff to send manually instead.
+   *  "junk-short" = duration under the junk floor (dock-bump / test
+   *  clip) — quarantined so it can't consume a racer's slot or fire
+   *  an SMS; staff can still send manually if it's somehow real. */
+  reason?: "duplicate-assignment" | "junk-short";
   /** The videoCode already saved on the slot this video would have
    *  taken. Gives staff the "which video got there first" context. */
   existingVideoCode?: string;
@@ -438,6 +494,91 @@ export async function saveVideoMatch(m: VideoMatch): Promise<SaveVideoMatchOutco
  */
 export async function updateVideoMatch(m: VideoMatch): Promise<void> {
   await redis.set(matchKey(m.sessionId, m.personId), JSON.stringify(m), "EX", TTL_SECONDS);
+}
+
+/**
+ * Swap a junk-grade occupant out of a racer's slot and install the
+ * real video in its place (2026-08-02 hardening — see isJunkDuration).
+ *
+ * Caller contract: `occupant` is the record currently in the slot for
+ * (replacement.sessionId, replacement.personId), verified junk-grade
+ * via shouldDisplaceJunk, and `replacement.videoCode` has NO existing
+ * match (the caller reached PATH 2). Deliberately NOT NX-guarded —
+ * this is an intentional overwrite of a slot we just read.
+ *
+ * Writes, in order:
+ *   1. the displaced junk into the review bucket (reason "junk-short",
+ *      suggested = the slot's racer so staff keep the context)
+ *   2. the replacement record onto the slot key
+ *   3. a by-code sentinel for the replacement code
+ *   4. deletes the junk code's sentinel (future events for it re-land
+ *      in the review bucket via the quarantine gate)
+ *   5. match-log index refresh + unmatched-bucket cleanup for the
+ *      replacement code
+ */
+export async function displaceVideoMatch(
+  occupant: VideoMatch,
+  replacement: VideoMatch,
+): Promise<void> {
+  const displaced: UnmatchedVideo = {
+    videoId: occupant.videoId,
+    videoCode: occupant.videoCode,
+    systemNumber: occupant.systemNumber,
+    cameraNumber: occupant.cameraNumber,
+    customerUrl: occupant.customerUrl,
+    thumbnailUrl: occupant.thumbnailUrl,
+    capturedAt: occupant.capturedAt,
+    duration: occupant.duration,
+    matchedAt: occupant.capturedAt,
+    videoStatus: occupant.videoStatus,
+    sampleUploadTime: occupant.sampleUploadTime ?? null,
+    lastWebhookEventAt: new Date().toISOString(),
+    viewed: occupant.viewed,
+    firstViewedAt: occupant.firstViewedAt,
+    lastViewedAt: occupant.lastViewedAt,
+    purchased: occupant.purchased,
+    purchaseType: occupant.purchaseType,
+    unlockedAt: occupant.unlockedAt,
+    reason: "junk-short",
+    existingVideoCode: replacement.videoCode,
+    suggested: {
+      sessionId: replacement.sessionId,
+      personId: replacement.personId,
+      firstName: replacement.firstName,
+      lastName: replacement.lastName,
+      heatNumber: replacement.heatNumber,
+      track: replacement.track,
+      sessionName: replacement.sessionName,
+      phone: replacement.phone || replacement.mobilePhone || replacement.homePhone,
+      email: replacement.email,
+    },
+  };
+  await recordUnmatchedVideo(displaced);
+
+  await redis.set(
+    matchKey(replacement.sessionId, replacement.personId),
+    JSON.stringify(replacement),
+    "EX",
+    TTL_SECONDS,
+  );
+  await redis.set(
+    seenVideoKey(replacement.videoCode),
+    JSON.stringify({
+      sessionId: replacement.sessionId,
+      personId: replacement.personId,
+      matchedAt: replacement.matchedAt,
+    }),
+    "EX",
+    TTL_SECONDS,
+  );
+  await redis.del(seenVideoKey(occupant.videoCode)).catch(() => void 0);
+
+  const score = new Date(replacement.matchedAt).getTime();
+  if (Number.isFinite(score)) {
+    await redis.zadd(MATCH_LOG_KEY, score, `${replacement.sessionId}:${replacement.personId}`);
+    await redis.zremrangebyrank(MATCH_LOG_KEY, 0, -20001);
+  }
+  await removeUnmatchedVideo(replacement.videoCode).catch(() => void 0);
 }
 
 export async function hasVideoBeenMatched(videoCode: string): Promise<boolean> {

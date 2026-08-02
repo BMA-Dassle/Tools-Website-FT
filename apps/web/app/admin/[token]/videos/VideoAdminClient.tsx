@@ -93,7 +93,7 @@ type VideoRow = {
    *  already had a video (usually: the next racer's heat never got
    *  scanned). `suggested` is the newest eligible assignment's
    *  snapshot — the best contact lead staff have. */
-  reason?: "duplicate-assignment";
+  reason?: "duplicate-assignment" | "junk-short";
   existingVideoCode?: string;
   suggested?: {
     sessionId: string | number;
@@ -590,6 +590,13 @@ export default function VideoAdminClient({
                         >
                           ⚠ needs review
                         </span>
+                      ) : e.reason === "junk-short" ? (
+                        <span
+                          className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-zinc-500/20 text-zinc-400"
+                          title={`Quarantined — ${e.duration ?? "?"}s clip (dock bump / test recording). Never auto-matched or texted${e.suggested ? `; came off ${e.suggested.firstName} ${e.suggested.lastName}'s camera window` : ""}. Send manually only if it's somehow a real race.`}
+                        >
+                          🗑 junk clip
+                        </span>
                       ) : (
                         <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
                           unmatched
@@ -838,6 +845,13 @@ export default function VideoAdminClient({
                               >
                                 ⚠ needs review
                               </span>
+                            ) : e.reason === "junk-short" ? (
+                              <span
+                                className="text-xs uppercase px-1.5 py-0.5 rounded bg-zinc-500/20 text-zinc-400"
+                                title={`Quarantined — ${e.duration ?? "?"}s clip (dock bump / test recording). Never auto-matched or texted${e.suggested ? `; came off ${e.suggested.firstName} ${e.suggested.lastName}'s camera window` : ""}. Send manually only if it's somehow a real race.`}
+                              >
+                                🗑 junk clip
+                              </span>
                             ) : (
                               <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
                                 unmatched
@@ -1013,6 +1027,12 @@ function ResendModal({
               likely belongs to whoever raced AFTER them (camera wasn&apos;t re-scanned). The
               prefilled contact is the suggested racer&apos;s — confirm the recipient before
               sending.
+            </div>
+          ) : entry.reason === "junk-short" ? (
+            <div className="rounded-lg border border-zinc-500/40 bg-zinc-500/10 px-3 py-2.5 mb-3 text-xs text-zinc-300">
+              Quarantined junk clip — only {entry.duration ?? "?"}s long (dock bump / test
+              recording). It was deliberately never matched or texted. Only send this if
+              you&apos;ve watched it and it&apos;s somehow a real race.
             </div>
           ) : (
             <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 mb-3 text-xs text-amber-200">

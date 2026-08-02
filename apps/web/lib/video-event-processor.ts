@@ -6,6 +6,9 @@ import {
   isVideoReadyForNotify,
   recordUnmatchedVideo,
   getVideoForRacer,
+  isJunkDuration,
+  shouldDisplaceJunk,
+  displaceVideoMatch,
   type VideoMatch,
   type UnmatchedVideo,
 } from "@/lib/video-match";
@@ -13,6 +16,7 @@ import { listAssignmentsAtTime, type CameraHistoryEntry } from "@/lib/camera-ass
 import { getBlockState, type BlockState } from "@/lib/video-block";
 import { notifyVideoReady, cameraHistoryEntryFromMatch } from "@/lib/video-notify";
 import { setVideoDisabled, linkCustomerEmail } from "@/lib/vt3";
+import { logVideoDecision } from "@/lib/video-decision-log";
 
 /**
  * Per-video event processor — the "what should happen for this video"
@@ -112,6 +116,8 @@ export type ProcessDecision =
   // PATH 2 — new match
   | "skip-no-camera-id"
   | "skip-no-assignment"
+  | "skip-junk-short" // duration under the junk floor — quarantined to review, never matched
+  | "skip-buffered" // caller runs ordered matching; no existing match, so the event goes to the pending buffer
   | "held-duplicate-assignment"
   | "lost-create-race"
   | "saved-pending"
@@ -175,6 +181,11 @@ export interface ProcessOpts {
   /** When true, log decision but skip Redis writes / notify sends.
    *  Used by cron's dry-run mode. */
   dryRun?: boolean;
+  /** When true, PATH 2 (new-match creation) is not attempted — the
+   *  caller buffers first-sighting events for the ordered drain in
+   *  lib/video-pending-match.ts instead. PATH 1 (existing-match
+   *  updates) runs normally; it is order-insensitive. */
+  skipCreate?: boolean;
 }
 
 /**
@@ -204,12 +215,42 @@ async function acquireNotifyLock(code: string, source: ProcessSource): Promise<b
  * cron's `fireNotify` closure exactly, so behavior is identical
  * regardless of which path triggered.
  */
-async function doFireNotify(record: VideoMatch): Promise<{
+async function doFireNotify(
+  record: VideoMatch,
+  source: ProcessSource = "webhook",
+): Promise<{
   smsOk?: boolean;
   emailOk?: boolean;
 }> {
   const entry = cameraHistoryEntryFromMatch(record);
   const n = await notifyVideoReady(record, entry);
+  // Durable forensics — one row per automated notify attempt. The
+  // "no-contact" decision is the previously-INVISIBLE silent skip
+  // (racer + guardian both unreachable) that read as "missing video"
+  // to guests with no trace anywhere.
+  void logVideoDecision({
+    source,
+    eventType: "notify",
+    decision: n.sms.attempted || n.email.attempted ? "fired" : "no-contact",
+    videoCode: record.videoCode,
+    videoId: record.videoId,
+    cameraNumber: record.cameraNumber,
+    systemName: record.systemNumber,
+    videoCreatedAt: record.capturedAt,
+    durationS: record.duration,
+    videoStatus: record.videoStatus,
+    sessionId: record.sessionId,
+    personId: record.personId,
+    racer: `${record.firstName} ${record.lastName}`.trim(),
+    heatNumber: record.heatNumber,
+    track: record.track,
+    notifySmsOk: n.sms.attempted ? n.sms.ok : undefined,
+    notifySmsTo: n.sms.sentTo,
+    notifySmsError: n.sms.error,
+    notifyEmailOk: n.email.attempted ? n.email.ok : undefined,
+    notifyEmailTo: n.email.sentTo,
+    viaGuardian: n.recipient === "guardian" || undefined,
+  });
   const nowIso = new Date().toISOString();
   if (n.sms.attempted) {
     record.notifySmsOk = n.sms.ok;
@@ -281,12 +322,21 @@ export function buildUnmatchedRecord(
 }
 
 export type MatchAttempt =
-  | { outcome: "saved"; record: VideoMatch; blockState: BlockState }
+  | {
+      outcome: "saved";
+      record: VideoMatch;
+      blockState: BlockState;
+      /** Set when this save displaced a junk-grade clip out of the slot. */
+      displacedJunkCode?: string;
+    }
   /** By-code sentinel taken — the other path owns this video. */
   | { outcome: "already-processed" }
   /** Every eligible assignment already holds a different video —
    *  recorded to the review bucket, nothing sent. */
   | { outcome: "held-duplicate"; suggested: CameraHistoryEntry; existingVideoCode?: string }
+  /** Duration under the junk floor — quarantined to the review bucket
+   *  (reason "junk-short"), never matched, never notified. */
+  | { outcome: "junk-short" }
   | { outcome: "no-assignment" };
 
 /**
@@ -328,6 +378,74 @@ export async function matchVideoToAssignment(
     candidates = await listAssignmentsAtTime(systemKey, event.created_at);
   }
 
+  // Durable forensics base — every match outcome below appends one
+  // row to video_decision_log (fire-and-forget) so complaints that
+  // arrive after the Redis TTLs can still be reconstructed.
+  const logBase = {
+    source: source as string,
+    eventType: "match" as const,
+    videoCode: code,
+    videoId: event.id,
+    cameraNumber: event.camera ?? undefined,
+    systemName: systemKey || cameraKey,
+    videoCreatedAt: event.created_at,
+    durationS: event.duration,
+    videoStatus: event.status,
+    candidateCount: candidates.length,
+  };
+
+  // ── Junk quarantine ──
+  // Dock-bump / handling clips (duration under the junk floor) must
+  // never consume a racer's one slot or fire an SMS. Recorded to the
+  // review bucket with reason "junk-short"; the newest candidate (if
+  // any) rides along as `suggested` so staff see whose camera it came
+  // from. No by-code sentinel is written — a later event for the same
+  // code just overwrites this record (latest wins, same as
+  // no-assignment rows).
+  if (isJunkDuration(event.duration)) {
+    if (!dryRun) {
+      const newest = candidates[candidates.length - 1];
+      await recordUnmatchedVideo(
+        buildUnmatchedRecord(event, {
+          reason: "junk-short",
+          suggested: newest
+            ? {
+                sessionId: newest.sessionId,
+                personId: newest.personId,
+                firstName: newest.firstName,
+                lastName: newest.lastName,
+                heatNumber: newest.heatNumber,
+                track: newest.track,
+                sessionName: newest.sessionName,
+                phone: newest.phone || newest.mobilePhone || newest.homePhone,
+                email: newest.email,
+              }
+            : undefined,
+        }),
+      ).catch((err) =>
+        console.warn(
+          `[video-event-processor:${source}] recordUnmatchedVideo(${code}) failed:`,
+          err,
+        ),
+      );
+      console.log(
+        `[video-event-processor:${source}] quarantined ${code} as junk-short ` +
+          `(${event.duration}s on ${cameraKey || systemKey || "?"})`,
+      );
+      void logVideoDecision({
+        ...logBase,
+        decision: "junk-short",
+        sessionId: newest?.sessionId,
+        personId: newest?.personId,
+        racer: newest ? `${newest.firstName} ${newest.lastName}`.trim() : undefined,
+        heatNumber: newest?.heatNumber,
+        track: newest?.track,
+        details: { cameraKey, junkContext: "quarantined-before-match" },
+      });
+    }
+    return { outcome: "junk-short" };
+  }
+
   if (candidates.length === 0) {
     // No camera-assign for the kart at capture time — but we still want
     // the admin UI's "all videos for the day" view to surface this row
@@ -342,64 +460,134 @@ export async function matchVideoToAssignment(
           err,
         ),
       );
+      void logVideoDecision({
+        ...logBase,
+        decision: "no-assignment",
+        details: { cameraKey },
+      });
     }
     return { outcome: "no-assignment" };
   }
 
+  // Record construction shared by the plain-save path and the
+  // junk-displacement path — overlay captured on initial save so the
+  // admin record has correct viewed/purchased state from the very
+  // first sighting.
+  const buildRecordFor = (assignment: CameraHistoryEntry, blockState: BlockState): VideoMatch => ({
+    sessionId: assignment.sessionId,
+    personId: assignment.personId,
+    firstName: assignment.firstName,
+    lastName: assignment.lastName,
+    systemNumber: systemKey,
+    cameraNumber: event.camera ?? undefined,
+    videoId: event.id,
+    videoCode: code,
+    customerUrl: `https://vt3.io/?code=${code}`,
+    thumbnailUrl: event.thumbnailUrl,
+    capturedAt: event.created_at,
+    duration: event.duration,
+    matchedAt: new Date().toISOString(),
+    sessionName: assignment.sessionName,
+    scheduledStart: assignment.scheduledStart,
+    track: assignment.track,
+    raceType: assignment.raceType,
+    heatNumber: assignment.heatNumber,
+    email: assignment.email,
+    phone: assignment.phone,
+    mobilePhone: assignment.mobilePhone,
+    homePhone: assignment.homePhone,
+    acceptSmsCommercial: assignment.acceptSmsCommercial,
+    guardian: assignment.guardian ?? undefined,
+    // Blocked matches are NOT pendingNotify — we never intend to
+    // notify until they're explicitly unblocked.
+    pendingNotify: !ready && !blockState.blocked,
+    videoStatus: event.status ?? undefined,
+    sampleUploadTime: event.sampleUploadTime ?? undefined,
+    uploadTime: event.uploadTime ?? undefined,
+    blocked: blockState.blocked || undefined,
+    blockLevel: blockState.level,
+    blockReason: blockState.reason,
+    blockedAt: blockState.blocked ? blockState.blockedAt : undefined,
+    ...extractOverlay(event),
+  });
+
   for (const assignment of candidates) {
     const occupant = await getVideoForRacer(assignment.sessionId, assignment.personId);
-    if (occupant && occupant.videoCode !== code) continue; // slot filled — next candidate
+    if (occupant && occupant.videoCode !== code) {
+      // ── Junk→real swap ──
+      // A junk-grade clip is sitting in this racer's slot and the
+      // incoming video is verified full-length: the junk stole the
+      // slot (the pre-quarantine failure mode). Displace it to the
+      // review bucket and install the real video — restoring the
+      // pairing the walk would have produced had the junk never
+      // matched. The notify path downstream then treats this as a
+      // fresh save, so the racer gets the REAL video's SMS.
+      if (shouldDisplaceJunk(occupant.duration, event.duration)) {
+        const blockState = await getBlockState({
+          sessionId: assignment.sessionId,
+          personId: assignment.personId,
+          videoCode: code,
+        });
+        const record = buildRecordFor(assignment, blockState);
+        if (dryRun) {
+          return { outcome: "saved", record, blockState, displacedJunkCode: occupant.videoCode };
+        }
+        await displaceVideoMatch(occupant, record);
+        console.log(
+          `[video-event-processor:${source}] displaced junk ${occupant.videoCode} ` +
+            `(${occupant.duration}s) with ${code} (${event.duration}s) for ` +
+            `${assignment.firstName} ${assignment.lastName} (heat ${assignment.heatNumber ?? "?"})`,
+        );
+        void logVideoDecision({
+          ...logBase,
+          decision: "saved-displaced-junk",
+          sessionId: assignment.sessionId,
+          personId: assignment.personId,
+          racer: `${assignment.firstName} ${assignment.lastName}`.trim(),
+          heatNumber: assignment.heatNumber,
+          track: assignment.track,
+          displacedCode: occupant.videoCode,
+          details: {
+            cameraKey,
+            displacedDurationS: occupant.duration,
+            blocked: blockState.blocked || undefined,
+            ready,
+          },
+        });
+        return { outcome: "saved", record, blockState, displacedJunkCode: occupant.videoCode };
+      }
+      continue; // slot filled by a real video — next candidate
+    }
 
     const blockState = await getBlockState({
       sessionId: assignment.sessionId,
       personId: assignment.personId,
       videoCode: code,
     });
-
-    // Capture overlay on initial save so the admin record has correct
-    // viewed/purchased state from the very first sighting.
-    const record: VideoMatch = {
-      sessionId: assignment.sessionId,
-      personId: assignment.personId,
-      firstName: assignment.firstName,
-      lastName: assignment.lastName,
-      systemNumber: systemKey,
-      cameraNumber: event.camera ?? undefined,
-      videoId: event.id,
-      videoCode: code,
-      customerUrl: `https://vt3.io/?code=${code}`,
-      thumbnailUrl: event.thumbnailUrl,
-      capturedAt: event.created_at,
-      duration: event.duration,
-      matchedAt: new Date().toISOString(),
-      sessionName: assignment.sessionName,
-      scheduledStart: assignment.scheduledStart,
-      track: assignment.track,
-      raceType: assignment.raceType,
-      heatNumber: assignment.heatNumber,
-      email: assignment.email,
-      phone: assignment.phone,
-      mobilePhone: assignment.mobilePhone,
-      homePhone: assignment.homePhone,
-      acceptSmsCommercial: assignment.acceptSmsCommercial,
-      guardian: assignment.guardian ?? undefined,
-      // Blocked matches are NOT pendingNotify — we never intend to
-      // notify until they're explicitly unblocked.
-      pendingNotify: !ready && !blockState.blocked,
-      videoStatus: event.status ?? undefined,
-      sampleUploadTime: event.sampleUploadTime ?? undefined,
-      uploadTime: event.uploadTime ?? undefined,
-      blocked: blockState.blocked || undefined,
-      blockLevel: blockState.level,
-      blockReason: blockState.reason,
-      blockedAt: blockState.blocked ? blockState.blockedAt : undefined,
-      ...extractOverlay(event),
-    };
+    const record = buildRecordFor(assignment, blockState);
 
     if (dryRun) return { outcome: "saved", record, blockState };
 
     const saved = await saveVideoMatch(record);
-    if (saved === "saved") return { outcome: "saved", record, blockState };
+    if (saved === "saved") {
+      void logVideoDecision({
+        ...logBase,
+        decision: "saved",
+        sessionId: assignment.sessionId,
+        personId: assignment.personId,
+        racer: `${assignment.firstName} ${assignment.lastName}`.trim(),
+        heatNumber: assignment.heatNumber,
+        track: assignment.track,
+        details: {
+          cameraKey,
+          assignedAt: assignment.assignedAt,
+          scheduledStart: assignment.scheduledStart,
+          blocked: blockState.blocked || undefined,
+          ready,
+        },
+      });
+      return { outcome: "saved", record, blockState };
+    }
     if (saved === "already-processed") return { outcome: "already-processed" };
     // "duplicate-assignment" — a concurrent video claimed this slot
     // between our occupancy check and the NX write. Advance to the
@@ -440,6 +628,17 @@ export async function matchVideoToAssignment(
         `eligible assignment(s) on ${cameraKey || systemKey} already have videos ` +
         `(newest: ${suggested.firstName} ${suggested.lastName} → ${existingVideoCode ?? "?"})`,
     );
+    void logVideoDecision({
+      ...logBase,
+      decision: "held-duplicate",
+      sessionId: suggested.sessionId,
+      personId: suggested.personId,
+      racer: `${suggested.firstName} ${suggested.lastName}`.trim(),
+      heatNumber: suggested.heatNumber,
+      track: suggested.track,
+      existingCode: existingVideoCode,
+      details: { cameraKey, suggestedIsPreviousRacer: true },
+    });
   }
   return { outcome: "held-duplicate", suggested, existingVideoCode };
 }
@@ -514,6 +713,27 @@ export async function processVideoEvent(
         const neverNotified = !existing.notifySmsSentAt && !existing.notifyEmailSentAt;
         if (neverNotified) existing.pendingNotify = true;
       }
+
+      if (!dryRun) {
+        void logVideoDecision({
+          source,
+          eventType: "block-flip",
+          decision: isBlocked ? "blocked" : "unblocked",
+          videoCode: code,
+          videoId: existing.videoId,
+          cameraNumber: existing.cameraNumber,
+          systemName: existing.systemNumber,
+          videoCreatedAt: existing.capturedAt,
+          durationS: existing.duration,
+          videoStatus: existing.videoStatus,
+          sessionId: existing.sessionId,
+          personId: existing.personId,
+          racer: `${existing.firstName} ${existing.lastName}`.trim(),
+          heatNumber: existing.heatNumber,
+          track: existing.track,
+          details: { level: blockState.level, reason: blockState.reason },
+        });
+      }
     }
 
     // 3. Status-field refresh on pending records — admin UI shows
@@ -575,7 +795,7 @@ export async function processVideoEvent(
         console.error(`[video-event-processor:${source}] linkCustomerEmail(${code}) failed:`, err);
       }
     }
-    const fired = await doFireNotify(existing);
+    const fired = await doFireNotify(existing, source);
     return {
       decision: "fired-deferred-notify",
       source,
@@ -587,6 +807,12 @@ export async function processVideoEvent(
   }
 
   // ── PATH 2 — no existing match. Try to create. ──
+
+  // Ordered-matching callers buffer first sightings instead of
+  // creating matches in arrival order — see lib/video-pending-match.ts.
+  if (opts.skipCreate) {
+    return { decision: "skip-buffered", source, videoCode: code };
+  }
 
   // sample-uploaded events without created_at can't run an
   // assignment lookup. Skip — cron will catch up via its 500-video
@@ -613,6 +839,14 @@ export async function processVideoEvent(
   });
   if (attempt.outcome === "no-assignment") {
     return { decision: "skip-no-assignment", source, videoCode: code };
+  }
+  if (attempt.outcome === "junk-short") {
+    return {
+      decision: "skip-junk-short",
+      source,
+      videoCode: code,
+      notes: `duration ${event.duration ?? "?"}s under junk floor — quarantined to review`,
+    };
   }
   if (attempt.outcome === "held-duplicate") {
     return {
@@ -684,7 +918,7 @@ export async function processVideoEvent(
   if (matchRecord.vt3CustomerLinked) {
     await updateVideoMatch(matchRecord).catch(() => void 0);
   }
-  const fired = await doFireNotify(matchRecord);
+  const fired = await doFireNotify(matchRecord, source);
   return {
     decision: "saved-and-notified",
     source,
