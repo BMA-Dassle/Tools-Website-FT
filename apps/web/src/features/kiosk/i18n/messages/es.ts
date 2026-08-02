@@ -316,6 +316,12 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.voucherGz.scanNext": "Agrega otro vale o cupón",
   "codeEntry.voucherGz.scanNextSub": "Escanéalo bajo la pantalla — o escribe el código:",
   "codeEntry.voucherGz.promoRow": "se aplica al pagar",
+  "codeEntry.voucherGz.partyTitle": "¿Quién vino de tu reserva?",
+  "codeEntry.voucherGz.partySub":
+    "Toca a todos los que juegan hoy — tendremos sus nombres listos en cada paso.",
+  "codeEntry.voucherGz.partyWaiverOk": "Exención firmada",
+  "codeEntry.voucherGz.partyWaiverNeeded": "Falta la exención",
+  "codeEntry.voucherGz.partyInGroup": "En tu grupo",
   "codeEntry.pendingCards.chip":
     "{n, plural, one {Tarjeta de juego por recoger} other {# tarjetas de juego por recoger}}",
   "codeEntry.voucherGz.finishCards":

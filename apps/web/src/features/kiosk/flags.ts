@@ -60,7 +60,9 @@ export function kioskCheckinEnabled(): boolean {
  * resolves to its booking via vouchers.bill_id (possession = proof, same
  * posture as the emailed reservation QR — owner 2026-07-25) and the party
  * panel offers "Load your party" so nobody re-types names the booking already
- * knows. Gates BOTH the server resolution arm and the client banner. Set the
+ * knows. Gates BOTH the server resolution arm and the client banner — and the
+ * code-entry receipt's "Who's here from your booking?" chips (KioskCodeEntry),
+ * which ride the same lookup rail. Set the
  * literal "false" in Vercel + redeploy to turn it off (build-baked). Read at
  * call time so tests can stub process.env.
  */

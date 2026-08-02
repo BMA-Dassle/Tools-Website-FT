@@ -343,6 +343,14 @@ export const en = {
   // The session promo shown INLINE on the receipt (a coupon scanned/typed
   // mid-receipt must never replace the guest's card list).
   "codeEntry.voucherGz.promoRow": "applies at checkout",
+  // "Who's here from your booking?" — a reservation-linked voucher offers the
+  // booking's people as tap-to-include chips (prefills the session party).
+  "codeEntry.voucherGz.partyTitle": "Who’s here from your booking?",
+  "codeEntry.voucherGz.partySub":
+    "Tap everyone playing today — we’ll have their names ready at every step.",
+  "codeEntry.voucherGz.partyWaiverOk": "Waiver signed",
+  "codeEntry.voucherGz.partyWaiverNeeded": "Waiver needed",
+  "codeEntry.voucherGz.partyInGroup": "In your group",
   // Categories tile back to the receipt while cards are still undispensed.
   "codeEntry.pendingCards.chip":
     "{n, plural, one {Game card to pick up} other {# game cards to pick up}}",

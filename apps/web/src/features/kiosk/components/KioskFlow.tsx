@@ -1906,6 +1906,13 @@ export function KioskFlow({
         onClearPromo={() => dispatch({ type: "applyPromo", promo: null })}
         // A kiosk without a dispenser must never promise to print a card.
         canDispenseCards={gameZoneCapability(config) === "full"}
+        // "Who's here from your booking?" — a reservation-linked voucher
+        // offers its party on the receipt; a tapped chip lands the person on
+        // the SESSION party, so every later people step is prefilled. The
+        // receipt only ever removes members its own chips added.
+        party={session.party}
+        onPartyAdd={(member) => dispatch({ type: "addPartyMember", member })}
+        onPartyRemove={(id) => dispatch({ type: "removePartyMember", id })}
       />,
     );
   }

@@ -30,13 +30,22 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppliedPromo } from "~/features/discount-codes";
+import type { PartyMember } from "~/features/booking";
 import { useKioskConfig } from "../KioskConfigContext";
 import { kioskDeviceKey } from "../config";
 import { useQrScanner } from "../qr-scanner/useQrScanner";
 import { useWedgeScan } from "../checkin/wedge-scan";
 import { classifyKioskCode, type KioskCodeKind } from "../code-entry/classify";
 import { receiptPlan } from "../code-entry/receipt-plan";
-import { kioskVoucherGzEnabled } from "../flags";
+import {
+  mergeRosters,
+  personChipState,
+  type VoucherPartyPerson,
+} from "../code-entry/voucher-party";
+import { fetchBindableParty, lookupByScan } from "../checkin/service";
+import { prefillPartyMembers } from "../checkin/party-prefill";
+import type { CheckinPartyMember } from "../checkin/types";
+import { kioskVoucherGzEnabled, kioskVoucherPrefillEnabled } from "../flags";
 import { clarityEvent, clarityTag } from "~/lib/clarity";
 import { useT, type Translate } from "../i18n";
 
@@ -126,6 +135,9 @@ export function KioskCodeEntry({
   appliedPromo = null,
   onClearPromo,
   canDispenseCards = true,
+  party = [],
+  onPartyAdd,
+  onPartyRemove,
 }: {
   /** Valid promo → parent dispatches applyPromo; this screen shows the
    *  success panel and the CTA returns to the categories. */
@@ -178,6 +190,15 @@ export function KioskCodeEntry({
    *  "GAME ZONE CARDS NOT AVAILABLE ON THIS KIOSK" yet the flow offered
    *  "get my card"). */
   canDispenseCards?: boolean;
+  /** The session party — the "Who's here from your booking?" chips derive
+   *  selected/disabled state from it (session truth, remount-proof). */
+  party?: PartyMember[];
+  /** Parent dispatches addPartyMember — a tapped booking-roster chip lands the
+   *  person on the session party, so every later people step is prefilled. */
+  onPartyAdd?: (member: PartyMember) => void;
+  /** Parent dispatches removePartyMember — called ONLY for members this
+   *  screen's chips added (removePartyMember cascade-clears assignments). */
+  onPartyRemove?: (id: string) => void;
 }) {
   const t = useT();
   const { config } = useKioskConfig();
@@ -245,6 +266,52 @@ export function KioskCodeEntry({
   const processedNativeRef = useRef<Set<string>>(
     new Set([...pendingGzCards, ...appliedCartVouchers].map((c) => c.code)),
   );
+
+  // ── "Who's here from your booking?" — reservation-linked voucher → party ──
+  // A booking-minted voucher (vouchers.bill_id) resolves to its party through
+  // the check-in lookup rail (possession = proof, same posture as the emailed
+  // reservation QR). Rosters are informational fetch results (like
+  // spentByCode); the SELECTION itself lives on the session party — only the
+  // "this screen added them" distinction is local, and losing it to a remount
+  // degrades safe (the chip turns into an un-removable "In your group").
+  const [voucherRosters, setVoucherRosters] = useState<Record<string, CheckinPartyMember[]>>({});
+  const rosterFetchedRef = useRef<Set<string>>(new Set());
+  /** person.key → the PartyMember.id THIS screen's chips added — the only
+   *  members a chip may remove (removePartyMember cascade-clears assignments). */
+  const [addedIds, setAddedIds] = useState<Record<string, string>>({});
+
+  const loadVoucherRoster = useCallback(
+    async (code: string) => {
+      const center = config?.center;
+      if (!center || !onPartyAdd || !kioskVoucherPrefillEnabled()) return;
+      if (rosterFetchedRef.current.has(code)) return;
+      rosterFetchedRef.current.add(code); // before any await — StrictMode-safe
+      // Fire-and-forget: every failure (unlinked comp, voided, cancelled
+      // booking, rate limit, network) silently means "no section" — the scan
+      // path and the receipt never wait on this.
+      const found = await lookupByScan(center, code);
+      const proofToken = found.ok ? found.matches?.[0]?.proofToken : undefined;
+      if (!proofToken) return;
+      const members = await fetchBindableParty(center, proofToken);
+      if (!members || members.length === 0) return;
+      console.log(
+        `[kiosk] receipt party offered: ${members.length} guest(s) from booking voucher ${code}`,
+      );
+      clarityEvent("kiosk:receipt:party-offered");
+      setVoucherRosters((prev) => ({ ...prev, [code]: members }));
+    },
+    [config?.center, onPartyAdd],
+  );
+
+  // Restore the section with the rest of the receipt: the parent's surviving
+  // codes re-offer their booking party after Back / a remount.
+  useEffect(() => {
+    for (const code of processedNativeRef.current) {
+      if (classifyKioskCode(code).kind === "native-voucher") void loadVoucherRoster(code);
+    }
+    // Mount-only: later scans call loadVoucherRoster directly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** One line per rejected code — reason + kind, never silent. */
   const logReject = (kind: string, code: string, reason: string) => {
@@ -388,6 +455,10 @@ export function KioskCodeEntry({
             setError(t(NATIVE_ERR_KEY[data.reason ?? ""] ?? "codeEntry.err.generic"));
             return;
           }
+          // Booking-linked voucher? Offer its party on the receipt (async,
+          // never blocks the legs below — even a fully-spent voucher still
+          // tells us who the booking's people are).
+          void loadVoucherRoster(code);
           // Already-used legs → struck-through "used" rows on the receipt, so
           // a re-scan EXPLAINS where a leg went instead of it silently missing.
           // Informational only (no action, nothing to lose) — local state is
@@ -500,6 +571,7 @@ export function KioskCodeEntry({
     [
       appliedVoucherCodes,
       config,
+      loadVoucherRoster,
       onApplied,
       onVoucherAccepted,
       onNativeCartItems,
@@ -591,6 +663,30 @@ export function KioskCodeEntry({
       const removeCartVoucher = (code: string, itemIndex?: number | null) => {
         onCartVoucherRemove?.(code, itemIndex);
         processedNativeRef.current.delete(code);
+      };
+      // Booking party chips — the decisions live in voucher-party.ts (tested);
+      // this only maps chip verdicts to copy and dispatches.
+      const partyPeople = onPartyAdd ? mergeRosters(voucherRosters) : [];
+      const togglePerson = (person: VoucherPartyPerson) => {
+        const chip = personChipState(person, party, addedIds);
+        if (chip.state === "in-group") return; // not ours to remove
+        if (chip.state === "added" && chip.memberId) {
+          console.log(`[kiosk] receipt party: removed ${person.firstName}`);
+          clarityEvent("kiosk:receipt:party-remove");
+          onPartyRemove?.(chip.memberId);
+          setAddedIds((prev) => {
+            const next = { ...prev };
+            delete next[person.key];
+            return next;
+          });
+          return;
+        }
+        const [member] = prefillPartyMembers(party, [person]);
+        if (!member) return; // session truth says they're already on — no-op
+        console.log(`[kiosk] receipt party: added ${person.firstName}`);
+        clarityEvent("kiosk:receipt:party-add");
+        onPartyAdd?.(member);
+        setAddedIds((prev) => ({ ...prev, [person.key]: member.id }));
       };
       const totalTokens = gzCards.reduce((sum, c) => sum + c.tokens, 0);
       const totalBits = [
@@ -767,6 +863,62 @@ export function KioskCodeEntry({
                     </li>
                   )}
                 </ul>
+              </section>
+            )}
+            {/* Who's here from your booking? — the voucher's reservation
+                offers its people as tap-to-include chips. Selection lands on
+                the SESSION party (prefills every later people step); waiver
+                signing still happens where it always has. */}
+            {partyPeople.length > 0 && (
+              <section>
+                <div className="k-eyebrow text-[#00e2e5]">
+                  {t("codeEntry.voucherGz.partyTitle")}
+                </div>
+                <div className="mt-[4px] text-[20px] text-white/45">
+                  {t("codeEntry.voucherGz.partySub")}
+                </div>
+                <div className="mt-[14px] flex flex-wrap gap-[14px]">
+                  {partyPeople.map((person) => {
+                    const chip = personChipState(person, party, addedIds);
+                    const name = [person.firstName, person.lastName].filter(Boolean).join(" ");
+                    return (
+                      <button
+                        key={person.key}
+                        type="button"
+                        disabled={chip.state === "in-group"}
+                        aria-pressed={chip.state !== "idle"}
+                        onClick={() => togglePerson(person)}
+                        className={`k-tap rounded-[18px] border px-[24px] py-[12px] text-left ${
+                          chip.state === "added"
+                            ? "border-[#46d68c] bg-[#46d68c]/[0.08]"
+                            : chip.state === "in-group"
+                              ? "border-[#46d68c]/40 bg-[#46d68c]/[0.05] opacity-60"
+                              : "border-white/20 bg-white/[0.04]"
+                        }`}
+                      >
+                        <span className="block text-[26px] leading-[1.2] text-white/90">
+                          {chip.state !== "idle" ? "✓ " : ""}
+                          {name}
+                        </span>
+                        <span
+                          className={`block text-[18px] leading-[1.3] ${
+                            chip.state === "in-group"
+                              ? "text-white/40"
+                              : person.waiverValid
+                                ? "text-[#46d68c]"
+                                : "text-[#e8b14c]"
+                          }`}
+                        >
+                          {chip.state === "in-group"
+                            ? t("codeEntry.voucherGz.partyInGroup")
+                            : person.waiverValid
+                              ? t("codeEntry.voucherGz.partyWaiverOk")
+                              : t("codeEntry.voucherGz.partyWaiverNeeded")}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </section>
             )}
           </div>
