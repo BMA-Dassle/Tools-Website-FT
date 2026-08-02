@@ -99,24 +99,41 @@ export interface ExperienceAvailabilityResult {
   firstOpen: ExperienceFirstOpen;
 }
 
+/** Compute output: the servable result plus which keys' probes THREW (as
+ *  opposed to cleanly reporting "nothing left"). The route substitutes its
+ *  last known same-day value for failed keys, so a vendor blip re-serves the
+ *  last real answer instead of flapping a sold-out tile back open. */
+export interface ExperienceComputeResult extends ExperienceAvailabilityResult {
+  failed: Array<keyof ExperienceAvailability>;
+}
+
 /** open=false locks the tile; firstOpen (when known) feeds its availability
- *  line. A vendor blip resolves to `{ open: true }` with no firstOpen — never
- *  false-lock, never invent a count. */
+ *  line. A vendor blip resolves to `{ open: true, failed: true }` with no
+ *  firstOpen — never false-lock, never invent a count. */
 interface SlotAvailability {
   open: boolean;
   firstOpen?: FirstOpen;
+  /** The probe THREW (vendor blip) — this open:true is a default, not data. */
+  failed?: boolean;
 }
 
 /** Resolve a first-open-slot probe into a tile's availability, failing OPEN
- *  (available, no count) on any throw so a vendor blip never locks the tile. */
+ *  (available, no count, marked failed) on any throw so a vendor blip never
+ *  locks the tile. The failure is logged — silent catches here left us blind
+ *  to how often sold-out tiles flapped back open (2026-08-01). */
 async function resolveSlotAvailability(
+  label: string,
   probe: Promise<FirstOpen | null>,
 ): Promise<SlotAvailability> {
   try {
     const slot = await probe;
     return { open: slot !== null, firstOpen: slot ?? undefined };
-  } catch {
-    return { open: true };
+  } catch (err) {
+    console.error(
+      `[kiosk-avail] ${label} probe failed — failing open:`,
+      err instanceof Error ? err.message : err,
+    );
+    return { open: true, failed: true };
   }
 }
 
@@ -402,7 +419,7 @@ async function uqFirstOpenToday(dateYmd: string): Promise<FirstOpen | null> {
  *  line; a blip yields open-with-no-count (never a fabricated "0 left"). */
 export async function computeExperienceAvailability(
   center: CenterCode,
-): Promise<ExperienceAvailabilityResult> {
+): Promise<ExperienceComputeResult> {
   // Same 2 AM-ET business-day rollover the kiosk (and the rest of the app) use,
   // so a post-midnight session still resolves to today's operating date.
   const dateYmd = businessDayYmdET();
@@ -428,24 +445,35 @@ export async function computeExperienceAvailability(
   // the vendors are hit at most once per TTL per center.
   const [combo, uq, race, duckPin, gel, laser, shufFt, shufHp, bowling, kbf] = await Promise.all([
     experiencesOn
-      ? resolveSlotAvailability(comboFirstOpenToday(center, dateYmd))
+      ? resolveSlotAvailability("race-bowl", comboFirstOpenToday(center, dateYmd))
       : Promise.resolve(OPEN_NO_COUNT),
     experiencesOn
-      ? resolveSlotAvailability(uqFirstOpenToday(dateYmd))
+      ? resolveSlotAvailability("ultimate-qualifier", uqFirstOpenToday(dateYmd))
       : Promise.resolve(OPEN_NO_COUNT),
-    fm ? resolveSlotAvailability(racingFirstOpenToday(dateYmd)) : Promise.resolve(OPEN_NO_COUNT),
+    fm
+      ? resolveSlotAvailability("race", racingFirstOpenToday(dateYmd))
+      : Promise.resolve(OPEN_NO_COUNT),
     // Duckpin migrated to QAMF (FastTrax center 11542) — its old BMI page is
     // stale, so read availability from QAMF like the other lanes (time-only).
     fm
-      ? resolveSlotAvailability(qamfFirstOpenToday(FASTTRAX_QAMF_CENTER_ID, dateYmd, "open,hourly"))
+      ? resolveSlotAvailability(
+          "duck-pin",
+          qamfFirstOpenToday(FASTTRAX_QAMF_CENTER_ID, dateYmd, "open,hourly"),
+        )
       : Promise.resolve(OPEN_NO_COUNT),
-    resolveSlotAvailability(attractionFirstOpenToday("gel-blaster", nexusLoc, dateYmd)),
-    resolveSlotAvailability(attractionFirstOpenToday("laser-tag", nexusLoc, dateYmd)),
+    resolveSlotAvailability("gel-blaster", attractionFirstOpenToday("gel-blaster", nexusLoc, dateYmd)),
+    resolveSlotAvailability("laser-tag", attractionFirstOpenToday("laser-tag", nexusLoc, dateYmd)),
     fm
-      ? resolveSlotAvailability(attractionFirstOpenToday("shuffly", "fasttrax", dateYmd))
+      ? resolveSlotAvailability(
+          "shuffly-fasttrax",
+          attractionFirstOpenToday("shuffly", "fasttrax", dateYmd),
+        )
       : Promise.resolve(OPEN_NO_COUNT),
     fm
-      ? resolveSlotAvailability(attractionFirstOpenToday("shuffly", "headpinz", dateYmd))
+      ? resolveSlotAvailability(
+          "shuffly-headpinz",
+          attractionFirstOpenToday("shuffly", "headpinz", dateYmd),
+        )
       : Promise.resolve(OPEN_NO_COUNT),
     // HeadPinz bowling: we sell the 1.5-hour booking, so the tile must reflect
     // when a 90-min booking genuinely fits — probing without a duration surfaced
@@ -453,13 +481,27 @@ export async function computeExperienceAvailability(
     // late-night fallback is a separate follow-up (both systems must align).
     hpCenterId != null
       ? resolveSlotAvailability(
+          "bowling",
           qamfFirstOpenToday(hpCenterId, dateYmd, "open,hourly", { durationMinutes: 90 }),
         )
       : Promise.resolve(OPEN_NO_COUNT),
     hpCenterId != null
-      ? resolveSlotAvailability(qamfFirstOpenToday(hpCenterId, dateYmd, "kbf"))
+      ? resolveSlotAvailability("kbf", qamfFirstOpenToday(hpCenterId, dateYmd, "kbf"))
       : Promise.resolve(OPEN_NO_COUNT),
   ]);
+
+  const slots: Record<keyof ExperienceAvailability, SlotAvailability> = {
+    "race-bowl": combo,
+    "ultimate-qualifier": uq,
+    bowling,
+    kbf,
+    race,
+    "duck-pin": duckPin,
+    "gel-blaster": gel,
+    "laser-tag": laser,
+    "shuffly-fasttrax": shufFt,
+    "shuffly-headpinz": shufHp,
+  };
 
   return {
     available: {
@@ -489,5 +531,35 @@ export async function computeExperienceAvailability(
       bowling: bowling.firstOpen,
       kbf: kbf.firstOpen,
     },
+    failed: (Object.keys(slots) as Array<keyof ExperienceAvailability>).filter(
+      (k) => slots[k].failed,
+    ),
   };
+}
+
+/** Substitute the LAST KNOWN value for every key whose probe threw this round.
+ *  A clean "nothing left" (probe resolved null) still locks immediately; only
+ *  a thrown probe falls back, so a vendor blip re-serves the last real answer
+ *  instead of flapping a sold-out tile back open for a whole cache TTL
+ *  (2026-08-01: gel-blaster/KBF selectable at 11:30 PM with nothing left).
+ *  The caller guards that `last` is from the SAME business day — carrying
+ *  last night's locks into a fresh morning would false-lock everything. */
+export function mergeLastKnown(
+  computed: ExperienceComputeResult,
+  last: ExperienceAvailabilityResult | null,
+): ExperienceAvailabilityResult {
+  const { available, firstOpen, failed } = computed;
+  if (!last || failed.length === 0) return { available, firstOpen };
+  const mergedAvailable = { ...available };
+  const mergedFirstOpen = { ...firstOpen };
+  for (const key of failed) {
+    // A last-known entry from an older deploy may lack a newly added key —
+    // leave the fail-open default rather than writing undefined into a bool.
+    if (typeof last.available[key] !== "boolean") continue;
+    mergedAvailable[key] = last.available[key];
+    const lastSlot = last.firstOpen[key as keyof ExperienceFirstOpen];
+    if (lastSlot) mergedFirstOpen[key as keyof ExperienceFirstOpen] = lastSlot;
+    else delete mergedFirstOpen[key as keyof ExperienceFirstOpen];
+  }
+  return { available: mergedAvailable, firstOpen: mergedFirstOpen };
 }

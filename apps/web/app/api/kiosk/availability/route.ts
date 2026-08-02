@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import {
   computeExperienceAvailability,
+  mergeLastKnown,
   type ExperienceAvailability,
   type ExperienceAvailabilityResult,
 } from "~/features/kiosk/service/experience-availability";
 import type { CenterCode } from "~/features/booking";
+import { businessDayYmdET } from "@/lib/race-business-day";
 
 /**
  * Cached kiosk Experience availability. Kiosks poll this cheap endpoint; the
@@ -31,6 +33,16 @@ const TTL_SECONDS = 180;
 // stale entry: v2 added firstOpen; v3 adds race-bowl / ultimate-qualifier
 // firstOpen (experiences "Next available · N slots").
 const cacheKey = (c: string) => `kiosk:avail:v3:${c}`;
+
+// Last KNOWN result per center — outlives the 3-min cache so degraded paths
+// (a probe that threw, a single-flight loser whose leader is slow, Redis-read
+// errors in loadAvailability) can re-serve the last real answer instead of
+// DEFAULT_RESULT's everything-open-no-lines, which flapped sold-out tiles
+// back to selectable for minutes at a time (2026-08-01, gel-blaster/KBF at
+// 11:30 PM). Stamped with the business day: a value from LAST night must
+// never lock a fresh morning — same-day only, else ignored.
+const lastKnownKey = (c: string) => `kiosk:avail:last:v1:${c}`;
+const LAST_KNOWN_TTL_SECONDS = 21_600; // 6h — spans a vendor outage, dies overnight
 
 const DEFAULT_AVAILABLE: ExperienceAvailability = {
   "race-bowl": true,
@@ -72,6 +84,20 @@ function readCache(cached: string | null): ExperienceAvailabilityResult | null {
     // Ignore anything missing the v2 `available` shape (defensive — the key
     // bump should already prevent an old flat-boolean entry here).
     return parsed?.available ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The last real computed result for this center, or null when there is none,
+ *  it's from a different business day, or Redis is unreachable. */
+async function readLastKnown(center: CenterCode): Promise<ExperienceAvailabilityResult | null> {
+  try {
+    const raw = await redis.get(lastKnownKey(center));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { dateYmd?: string } & ExperienceAvailabilityResult;
+    if (!parsed?.available || parsed.dateYmd !== businessDayYmdET()) return null;
+    return { available: parsed.available, firstOpen: parsed.firstOpen ?? {} };
   } catch {
     return null;
   }
@@ -120,17 +146,35 @@ async function loadAvailability(center: CenterCode): Promise<ExperienceAvailabil
 
     if (!leader) {
       // Someone else is computing. Wait briefly for their result; if it doesn't
-      // land in time (slow or dead leader), fail open rather than piling another
-      // full fan-out onto the vendors — DEFAULT_RESULT is the route's existing
-      // no-false-lock fallback, and the client keeps its last-known tiles.
+      // land in time (slow or dead leader), serve the last real answer rather
+      // than piling another full fan-out onto the vendors. DEFAULT_RESULT
+      // (everything open, no lines) is the LAST resort only — served straight
+      // to clients, it re-opened sold-out tiles for a whole poll interval.
       const waited = await waitForLeaderResult(key);
-      return waited ?? DEFAULT_RESULT;
+      return waited ?? (await readLastKnown(center)) ?? DEFAULT_RESULT;
     }
 
     try {
-      const result = await computeExperienceAvailability(center);
+      const computed = await computeExperienceAvailability(center);
+      // Probes that THREW fall back to this center's last same-day value —
+      // a vendor blip re-serves the last real answer; a clean "nothing left"
+      // (no throw) still locks immediately.
+      const last = computed.failed.length > 0 ? await readLastKnown(center) : null;
+      if (computed.failed.length > 0) {
+        console.error(
+          `[kiosk-avail] ${center}: probe(s) failed [${computed.failed.join(", ")}] — ` +
+            (last ? "substituting last known same-day values" : "no last known value, failing open"),
+        );
+      }
+      const result = mergeLastKnown(computed, last);
       try {
         await redis.set(key, JSON.stringify(result), "EX", TTL_SECONDS);
+        await redis.set(
+          lastKnownKey(center),
+          JSON.stringify({ dateYmd: businessDayYmdET(), ...result }),
+          "EX",
+          LAST_KNOWN_TTL_SECONDS,
+        );
       } catch {
         /* Redis unavailable — serve uncached. */
       }
@@ -153,8 +197,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "valid center required" }, { status: 400 });
   }
   const { available, firstOpen } = await loadAvailability(center as CenterCode).catch(
-    // Never false-lock: any failure reports everything available, no counts.
-    () => DEFAULT_RESULT,
+    // Never false-lock: on failure serve the last real same-day answer, or —
+    // only when there is none — everything available, no counts.
+    async () => (await readLastKnown(center as CenterCode)) ?? DEFAULT_RESULT,
   );
   return NextResponse.json({ center, items: available, firstOpen });
 }
