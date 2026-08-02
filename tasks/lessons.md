@@ -2838,3 +2838,23 @@ another doesn't, present both and let the owner pick.
 
 The tell you're doing it wrong: the words "and Next is blocked until..." about
 a flow the owner never asked to change.
+
+## "Everyone on a booking" means BMI projectPersons, not just heats (2026-08-02)
+
+The voucher receipt's new "Who's here from your booking?" chips reused the
+check-in party rail (`listBindableParty`) and offered ONE person for a 5-guest
+VIP booking. The rail unioned record racers, Neon heats, waiver-link signers,
+and the contact — but count-based bookings carry only "Adult N" slot labels in
+heats, so everyone the guest had actually REGISTERED on the booking (web
+waiver registration, staff adds) was invisible. The owner's correction: "check
+out the code that pulls in people into waiver from a booking — it should pull
+every person on it."
+
+**Rule:** a "people on this reservation" feature must union **BMI
+projectPersons** — `getReservationDetail(locationId, projectId).persons_list`,
+`projectId = officeProjectIdFromBillId(billId)`, trying each of
+`CENTER_TO_BMI_LOCATION_IDS[center]` (the FM server hosts two venues) — the
+same source `/api/waiver/context` and the kiosk waiver roster read. And filter
+placeholder slot labels ("Adult 1") even when they carry a personId: the
+whitley incident put those labels INTO BMI's people list, so an id is not
+proof of a real name.
