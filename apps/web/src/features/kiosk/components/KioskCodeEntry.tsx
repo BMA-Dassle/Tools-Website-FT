@@ -238,6 +238,11 @@ export function KioskCodeEntry({
   const keepFieldFocus = (e: { preventDefault: () => void }) => e.preventDefault();
   // Back with unprinted cards → inline "they won't print later" warning.
   const [leaveWarn, setLeaveWarn] = useState(false);
+  // "Add another" starts as a compact button (owner 2026-08-02: the always-
+  // open panel ate the bottom of the screen and clipped the list). Expanding
+  // it re-caps the list so the input stays in the TOP half (OSK-safe); the
+  // SCANNER works either way — only typing needs the panel open.
+  const [addOpen, setAddOpen] = useState(false);
 
   // Observability (owner 2026-07-30 "build full logging into all this"):
   // console lines carry the [kiosk] prefix staff read in DevTools/remote
@@ -392,6 +397,7 @@ export function KioskCodeEntry({
               onGzCardsAdd?.([{ code, tokens: 0 }]);
               setPanel({ kind: "voucher-gamecard" });
               setValue(""); // accepted — a lingering code invites double-taps
+              setAddOpen(false);
               return;
             }
             // One code bundling several products (e.g. game card + laser tag).
@@ -410,10 +416,12 @@ export function KioskCodeEntry({
             // itself comes from session truth via appliedCartVouchers.
             setPanel({ kind: "voucher-gamecard" });
             setValue("");
+            setAddOpen(false);
           } catch {
             onVoucherAccepted(code);
             setPanel({ kind: "voucher-gamecard" });
             setValue("");
+            setAddOpen(false);
           } finally {
             checkingRef.current = false;
             setChecking(false);
@@ -492,6 +500,7 @@ export function KioskCodeEntry({
           if (newGzCards.length > 0 || didApplyCart) {
             setPanel({ kind: "voucher-gamecard" });
             setValue("");
+            setAddOpen(false);
           } else {
             // Valid voucher, but nothing on it this kiosk can honour right now
             // (e.g. cart legs with redemption off) — say so, don't show an
@@ -556,6 +565,7 @@ export function KioskCodeEntry({
           // had no way to scan the next code.
           setPanel({ kind: "voucher-gamecard" });
           setValue("");
+          setAddOpen(false);
         } else {
           logReject("promo", code, data.reason ?? "invalid");
           const key = ERR_KEY[data.reason ?? ""] ?? ("codeEntry.err.unknown" as const);
@@ -740,9 +750,14 @@ export function KioskCodeEntry({
             <div className="mt-[8px] text-[30px] text-white/70">{totalBits.join("  ·  ")}</div>
           )}
 
-          {/* What they've scanned — capped so the add-another panel below
-              stays in the top half of the screen; long lists scroll here. */}
-          <div className="kiosk-scroll mt-[28px] max-h-[560px] space-y-[26px] overflow-y-auto text-left">
+          {/* What they've scanned. With the add-another panel COLLAPSED the
+              list takes the freed space; expanding the panel re-caps the list
+              so the input lands in the top half (OSK never covers it). */}
+          <div
+            className={`kiosk-scroll mt-[28px] space-y-[26px] overflow-y-auto text-left ${
+              addOpen ? "max-h-[560px]" : "min-h-0 flex-1"
+            }`}
+          >
             {gzCards.length > 0 && (
               <section>
                 <div className="k-eyebrow text-[#f800c6]">
@@ -923,46 +938,79 @@ export function KioskCodeEntry({
             )}
           </div>
 
-          {/* Add another — scan and type share ONE box, directly under the
-              list (owner: the split dashed-box + floating input read as
-              clutter). The scanner stays live the whole time. */}
-          <div className="mt-[24px] rounded-[20px] border border-[#00e2e5]/30 bg-[#00e2e5]/[0.05] px-[28px] py-[22px] text-left">
-            <div className="text-[28px] font-extrabold text-[#00e2e5]">
-              {t("codeEntry.voucherGz.scanNext")}
+          {/* Add another — a compact BUTTON until the guest wants to type
+              (owner 2026-08-02: the always-open panel clipped the list).
+              Scan and type still share this one box when open; the scanner
+              stays live in both states. */}
+          {addOpen ? (
+            <div className="mt-[24px] rounded-[20px] border border-[#00e2e5]/30 bg-[#00e2e5]/[0.05] px-[28px] py-[22px] text-left">
+              <div className="flex items-start justify-between gap-[16px]">
+                <div>
+                  <div className="text-[28px] font-extrabold text-[#00e2e5]">
+                    {t("codeEntry.voucherGz.scanNext")}
+                  </div>
+                  <div className="mt-[2px] text-[20px] text-white/50">
+                    {t("codeEntry.voucherGz.scanNextSub")}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddOpen(false);
+                    setError(null);
+                    setInfo(null);
+                  }}
+                  aria-label={t("codeEntry.voucherGz.addClose")}
+                  className="k-tap px-[8px] text-[28px] leading-none text-white/40"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="mt-[14px] flex gap-[14px]">
+                <input
+                  type="text"
+                  value={value}
+                  onChange={(e) => {
+                    setError(null);
+                    setInfo(null);
+                    setValue(e.target.value.toUpperCase());
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") submit();
+                  }}
+                  aria-label={t("codeEntry.inputLabel")}
+                  placeholder={t("codeEntry.placeholder")}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className="k-num h-[76px] min-w-0 flex-1 rounded-[16px] border border-white/20 bg-[#040d24] px-[22px] font-mono text-[28px] uppercase tracking-[0.08em] text-white placeholder:text-white/30 focus:border-[#00e2e5]/60 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onPointerDown={keepFieldFocus}
+                  onClick={submit}
+                  disabled={!value.trim() || checking}
+                  className="k-tap shrink-0 rounded-[16px] border border-white/20 px-[30px] text-[24px] text-white/80 disabled:opacity-40"
+                >
+                  {t("codeEntry.apply")}
+                </button>
+              </div>
             </div>
-            <div className="mt-[2px] text-[20px] text-white/50">
-              {t("codeEntry.voucherGz.scanNextSub")}
-            </div>
-            <div className="mt-[14px] flex gap-[14px]">
-              <input
-                type="text"
-                value={value}
-                onChange={(e) => {
-                  setError(null);
-                  setInfo(null);
-                  setValue(e.target.value.toUpperCase());
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") submit();
-                }}
-                aria-label={t("codeEntry.inputLabel")}
-                placeholder={t("codeEntry.placeholder")}
-                autoComplete="off"
-                autoCorrect="off"
-                spellCheck={false}
-                className="k-num h-[76px] min-w-0 flex-1 rounded-[16px] border border-white/20 bg-[#040d24] px-[22px] font-mono text-[28px] uppercase tracking-[0.08em] text-white placeholder:text-white/30 focus:border-[#00e2e5]/60 focus:outline-none"
-              />
-              <button
-                type="button"
-                onPointerDown={keepFieldFocus}
-                onClick={submit}
-                disabled={!value.trim() || checking}
-                className="k-tap shrink-0 rounded-[16px] border border-white/20 px-[30px] text-[24px] text-white/80 disabled:opacity-40"
-              >
-                {t("codeEntry.apply")}
-              </button>
-            </div>
-          </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setAddOpen(true)}
+              aria-expanded={false}
+              className="k-tap mt-[24px] w-full rounded-[20px] border border-[#00e2e5]/30 bg-[#00e2e5]/[0.05] px-[28px] py-[20px] text-left"
+            >
+              <span className="block text-[28px] font-extrabold text-[#00e2e5]">
+                ＋ {t("codeEntry.voucherGz.scanNext")}
+              </span>
+              <span className="mt-[2px] block text-[20px] text-white/50">
+                {t("codeEntry.voucherGz.scanNextCollapsedSub")}
+              </span>
+            </button>
+          )}
 
           <div
             className="mt-[12px] min-h-[40px] text-center text-[24px] text-[#ff8c7a]"

@@ -338,8 +338,13 @@ export const en = {
   // Errored voucher row — the receipt is the ONLY surface that shows these.
   "codeEntry.voucherGz.rowNeedsHelp": "needs help — see Guest Services",
   // The "add another" panel — scan and type share one box on the receipt.
+  // Collapsed to a button by default (owner 2026-08-02: the open panel
+  // clipped the list); scanning works in both states, typing opens it.
   "codeEntry.voucherGz.scanNext": "Add another voucher or coupon",
   "codeEntry.voucherGz.scanNextSub": "Scan it under the screen — or type the code:",
+  "codeEntry.voucherGz.scanNextCollapsedSub":
+    "Scanning works anytime — tap here to type a code instead",
+  "codeEntry.voucherGz.addClose": "Close",
   // The session promo shown INLINE on the receipt (a coupon scanned/typed
   // mid-receipt must never replace the guest's card list).
   "codeEntry.voucherGz.promoRow": "applies at checkout",
