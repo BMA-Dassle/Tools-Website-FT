@@ -15,6 +15,21 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.12.0 — SCAN ANYWHERE on the way in (owner 2026-08-02). The four screens a
+ *         guest sees before choosing anything — the attract loop, "What are we
+ *         doing today?", and the Attractions / Experiences shelves — now
+ *         listen to the QR reader and route what they read: a reservation QR
+ *         goes straight into check-in (no find screen), a voucher opens "Your
+ *         codes", a Game Zone card opens its balance. Previously the reader
+ *         was only live DEEP inside flows, so a guest holding a code at the
+ *         attract screen had to guess which button led to a listening screen.
+ *         One precedence router (entry-scan/classify-entry.ts) composes the
+ *         two existing classifiers — order matters: a 16-digit game card and
+ *         an 8-char coupon both look like reservation short codes, and a
+ *         W-number looks like a promo. An HPW voucher is decided by DATA, not
+ *         shape: booking-minted (carries vouchers.bill_id) → check-in with the
+ *         party prefilled; standalone comp → redeem. Gift cards and licences
+ *         get a brief toast and stay put until they have screens to land on.
  * 1.11.6 — SEARCH BEFORE CREATE on every person-minting surface (owner
  *         2026-08-01, the Gipson check-in: 13 person records for two guests
  *         because every path created blind). New Member / Set up / new-
@@ -452,7 +467,9 @@
  * 1.1.0 — serial-COM MSR swipe reader (reload-only kiosks) + Windows
  *         touch-keyboard suppression on OSK fields.
  */
-export const KIOSK_VERSION = "1.11.6";
+import { clearEntryScan } from "./entry-scan/handoff";
+
+export const KIOSK_VERSION = "1.12.0";
 
 let bootVersion: string | null = null;
 let captured = false;
@@ -511,6 +528,12 @@ export async function kioskUpdateAvailable(): Promise<boolean> {
  * else soft-nav via the caller's router.replace so fullscreen is preserved.
  */
 export async function resetToKiosk(softNav: () => void, path = "/kiosk"): Promise<void> {
+  // Between-guest boundary: drop any entry-screen scan that was stashed but
+  // never consumed (its destination was flag-dark, or the guest walked away
+  // mid-navigation). One place covers every reset path — otherwise a leftover
+  // reservation scan could replay into the NEXT guest's session. Imported from
+  // the module, not the barrel, so this stays free of React components.
+  clearEntryScan();
   if (await kioskUpdateAvailable()) {
     window.location.href = path;
   } else {

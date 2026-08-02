@@ -150,6 +150,7 @@ export function KioskCodeEntry({
   party = [],
   onPartyAdd,
   onPartyRemove,
+  initialScan,
 }: {
   /** Valid promo → parent dispatches applyPromo; this screen shows the
    *  success panel and the CTA returns to the categories. */
@@ -220,6 +221,11 @@ export function KioskCodeEntry({
   /** Parent dispatches removePartyMember — called ONLY for members this
    *  screen's chips added (removePartyMember cascade-clears assignments). */
   onPartyRemove?: (id: string) => void;
+  /** A payload already scanned on an ENTRY screen (attract / the category
+   *  chooser) that routed here. Replayed through `handleRaw` exactly once on
+   *  mount, so the guest never scans the same thing twice. Undefined on every
+   *  normal open. See features/kiosk/entry-scan/handoff.ts. */
+  initialScan?: string;
 }) {
   const t = useT();
   const { config } = useKioskConfig();
@@ -666,6 +672,16 @@ export function KioskCodeEntry({
     },
     [panel, routeClassified],
   );
+
+  /** Replay a scan that happened on an entry screen before we existed. Ref-
+   *  guarded rather than keyed on `initialScan` so a StrictMode double-mount
+   *  (or any re-render with the same prop) can't validate the code twice. */
+  const replayedRef = useRef(false);
+  useEffect(() => {
+    if (replayedRef.current || !initialScan) return;
+    replayedRef.current = true;
+    handleRaw(initialScan);
+  }, [initialScan, handleRaw]);
 
   /** The voucher list is the one panel that KEEPS LISTENING; every other result
    *  panel is terminal, so scanning into it would be noise. */

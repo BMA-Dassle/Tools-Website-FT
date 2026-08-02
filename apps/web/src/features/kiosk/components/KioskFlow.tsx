@@ -86,6 +86,13 @@ import {
   KIOSK_STEP_REGISTRY,
 } from "../state/registry";
 import { KioskCategories } from "./KioskCategories";
+import {
+  EntryScanListener,
+  EntryScanToast,
+  consumeEntryScan,
+  useEntryScanRouter,
+  type EntryScanHandoff,
+} from "../entry-scan";
 import { KioskCodeEntry } from "./KioskCodeEntry";
 import { KioskVoucherSummary } from "./KioskVoucherSheet";
 import {
@@ -323,7 +330,9 @@ export function KioskFlow({
   // Bookable-today availability for the Experiences (VIP combo + Ultimate
   // Qualifier), from the cached server endpoint — locks their entry points when
   // nothing fits today.
-  const { available: availableForLive, firstOpenFor } = useKioskAvailability(config?.center ?? null);
+  const { available: availableForLive, firstOpenFor } = useKioskAvailability(
+    config?.center ?? null,
+  );
   // TEST kiosk 99 (owner 2026-08-01): its operating day flips at calendar
   // midnight, but the server availability compute stays on the 2 AM business
   // day — overnight, yesterday's slots are all in the past and every tile
@@ -614,6 +623,38 @@ export function KioskFlow({
     });
   };
 
+  // A scan that happened on the ATTRACT screen and routed into this flow. Read
+  // in an effect, never during render: `consumeEntryScan` clears the key as it
+  // reads, and a render-phase read would lose the payload on StrictMode's
+  // second pass. Held in state for the life of the session; each destination
+  // screen guards its own replay. The set is deferred a microtask so the effect
+  // body stays setState-free (hooks-lint) — same shape as the ?goto= seeding.
+  const [entryScanHandoff, setEntryScanHandoff] = useState<EntryScanHandoff | null>(null);
+  useEffect(() => {
+    const handoff = consumeEntryScan();
+    if (handoff) void Promise.resolve().then(() => setEntryScanHandoff(handoff));
+  }, []);
+
+  // Scan-to-start on the chooser + the two shelves. Same router the attract
+  // screen uses; only the navigation differs — from here the code screen and
+  // Game Zone open IN PLACE, no route change. `codeEntryAvailable` mirrors the
+  // `onOpenCodeEntry` door condition below so the scan and the tap can never
+  // disagree about whether that screen exists.
+  const entryScan = useEntryScanRouter({
+    config,
+    codeEntryAvailable: promoEnabled || voucherRedeem,
+    goCheckin: () => router.push("/kiosk/checkin"),
+    goCodeEntry: () => {
+      clarityEvent("kiosk:code:open");
+      setCodeEntryOpen(true);
+    },
+    goGameCard: () => {
+      clarityEvent("kiosk:gamezone:open");
+      setGzVoucherCodes(null);
+      setGzOpen(true);
+    },
+  });
+
   // Post-hydration seeding: center from device config; ?goto= deep link.
   useEffect(() => {
     if (!hydrated || !config) return;
@@ -626,6 +667,23 @@ export function KioskFlow({
         if (kioskRacePacksEnabled() && config.brand === "fasttrax") {
           clarityEvent("kiosk:packs:open");
           void Promise.resolve().then(() => setPacksOpen(true));
+        }
+        return;
+      }
+      // Scan-to-start landings from the attract screen. The scanned payload
+      // itself rides sessionStorage (entry-scan/handoff.ts) — the param only
+      // names the destination, so a bearer code never enters the URL or
+      // history. Same microtask defer as `packs` (hooks-lint: no setState in
+      // an effect body).
+      if (goto === "codes") {
+        if (promoEnabled || voucherRedeem) {
+          void Promise.resolve().then(() => setCodeEntryOpen(true));
+        }
+        return;
+      }
+      if (goto === "gamezone") {
+        if (gameZoneCapability(config) !== "none") {
+          void Promise.resolve().then(() => setGzOpen(true));
         }
         return;
       }
@@ -1841,6 +1899,10 @@ export function KioskFlow({
   if (codeEntryOpen) {
     return chrome(
       <KioskCodeEntry
+        // A voucher scanned back on the attract screen or the chooser. Read
+        // ONCE from the hand-off stash (consume clears it), so the guest
+        // doesn't scan the same code twice and a Back/re-open starts clean.
+        initialScan={entryScanHandoff?.target === "code-entry" ? entryScanHandoff.raw : undefined}
         onApplied={(promo) => dispatch({ type: "applyPromo", promo })}
         voucherRedeem={voucherRedeem}
         appliedVoucherCodes={appliedVouchers.map((v) => v.code)}
@@ -1945,6 +2007,11 @@ export function KioskFlow({
           brand={config.brand}
           capability={gameZoneCapability(config) === "reload" ? "reload" : "full"}
           initialVoucherCodes={gzVoucherCodes}
+          // A game card scanned on the attract screen or the chooser — opens
+          // straight on its balance rather than asking for the card again.
+          initialCardAccount={
+            entryScanHandoff?.target === "game-card" ? entryScanHandoff.value : null
+          }
           // Per-code truth from the dispense run: a DISPENSED card leaves the
           // pending list; a failed one stays, so the categories tile keeps
           // offering the way back (claim was released — retry is safe).
@@ -1993,83 +2060,94 @@ export function KioskFlow({
   // ── Category chooser (no active item) ──
   if (!activeItem) {
     return chrome(
-      <KioskCategories
-        brand={config.brand}
-        center={config.center}
-        session={session}
-        vipComboAvailable={vipAvailable}
-        uqAvailable={uqAvailable}
-        offeringAvailable={availableFor}
-        offeringFirstOpen={firstOpenFor}
-        onPickOffering={pickOffering}
-        onPickCombo={pickCombo}
-        onPickPackageExperience={pickPackageExperience}
-        onOpenCart={() => setCartActive(true)}
-        onOpenGameZone={() => {
-          clarityEvent("kiosk:gamezone:open");
-          setGzVoucherCodes(null);
-          setGzOpen(true);
-        }}
-        // Race packs were a quick chip on the attract screen; they now sit on
-        // the Experiences shelf beside the VIP combo and the Ultimate Qualifier
-        // (owner 2026-07-28). Deliberately the SAME destination ?goto=packs
-        // seeds, so the two entry points cannot drift apart.
-        onOpenRacePacks={() => {
-          clarityEvent("kiosk:packs:open");
-          setPacksOpen(true);
-        }}
-        // "Not booking" side doors, moved off the attract screen (owner
-        // 2026-07-28). Flag + venue gating lives HERE — a callback only arrives
-        // when the door applies — so KioskCategories stays presentational and
-        // the rules are not duplicated across two components. Check-in and the
-        // race grid are Fort-Myers-only: the two FM venues share the center
-        // code, and racing never advertises at Naples.
-        onOpenCheckin={
-          config.center === "fort-myers" && kioskCheckinEnabled()
-            ? () => router.push("/kiosk/checkin")
-            : undefined
-        }
-        onOpenRaceGrid={
-          config.center === "fort-myers" && kioskRaceInfoEnabled()
-            ? () => {
-                clarityEvent("kiosk:raceinfo:open");
-                router.push("/kiosk/race-info");
-              }
-            : undefined
-        }
-        onOpenWaiver={
-          kioskGroupWaiverEnabled()
-            ? () => {
-                clarityEvent("kiosk:waiver:open");
-                router.push("/kiosk/waiver");
-              }
-            : undefined
-        }
-        onOpenCodeEntry={
-          // The coupon/voucher screen is ONE unified surface — it already
-          // classifies promo codes, vouchers, game cards and gift cards. Open
-          // it whenever EITHER capability is on (owner 2026-07-30: migrate the
-          // promo entry onto the voucher screen), so a booking guest can scan a
-          // voucher mid-flow. `kioskPromoEnabled` stays a kill switch for the
-          // promo PRICING system; it no longer gates whether the door opens.
-          promoEnabled || voucherRedeem
-            ? () => {
-                clarityEvent("kiosk:code:open");
-                setCodeEntryOpen(true);
-              }
-            : undefined
-        }
-        appliedPromo={promoEnabled ? session.appliedPromo : null}
-        onClearPromo={() => dispatch({ type: "applyPromo", promo: null })}
-        appliedVouchers={voucherRedeem ? appliedVouchers : []}
-        // The voucher chip now opens the ONE receipt (the standalone sheet is
-        // gone — owner 2026-07-30: "why is it using a different screen?").
-        onOpenVoucherSheet={() => setCodeEntryOpen(true)}
-        // Scanned-but-undispensed game cards — the way BACK to "Get my cards"
-        // after any back-out. Opens the coupon screen, which restores the
-        // receipt from this same list.
-        pendingGzCardCount={pendingGzCards.length}
-      />,
+      <>
+        {/* Scan-to-start, covering all three states of this screen — the
+            "What are we doing today?" cards and both shelves (KioskCategories
+            switches them on local `cat` state, so one mount here serves all
+            three). This branch is the RIGHT place and the shared `chrome`
+            wrapper is the wrong one: code entry, Game Zone, the cart and
+            checkout all return EARLIER in this chain and hold the serial port
+            with their own listeners, and port opens are exclusive. */}
+        <EntryScanListener onScan={entryScan.handleScan} onLicense={entryScan.handleLicense} />
+        <EntryScanToast miss={entryScan.miss} busy={entryScan.busy} onDone={entryScan.clearMiss} />
+        <KioskCategories
+          brand={config.brand}
+          center={config.center}
+          session={session}
+          vipComboAvailable={vipAvailable}
+          uqAvailable={uqAvailable}
+          offeringAvailable={availableFor}
+          offeringFirstOpen={firstOpenFor}
+          onPickOffering={pickOffering}
+          onPickCombo={pickCombo}
+          onPickPackageExperience={pickPackageExperience}
+          onOpenCart={() => setCartActive(true)}
+          onOpenGameZone={() => {
+            clarityEvent("kiosk:gamezone:open");
+            setGzVoucherCodes(null);
+            setGzOpen(true);
+          }}
+          // Race packs were a quick chip on the attract screen; they now sit on
+          // the Experiences shelf beside the VIP combo and the Ultimate Qualifier
+          // (owner 2026-07-28). Deliberately the SAME destination ?goto=packs
+          // seeds, so the two entry points cannot drift apart.
+          onOpenRacePacks={() => {
+            clarityEvent("kiosk:packs:open");
+            setPacksOpen(true);
+          }}
+          // "Not booking" side doors, moved off the attract screen (owner
+          // 2026-07-28). Flag + venue gating lives HERE — a callback only arrives
+          // when the door applies — so KioskCategories stays presentational and
+          // the rules are not duplicated across two components. Check-in and the
+          // race grid are Fort-Myers-only: the two FM venues share the center
+          // code, and racing never advertises at Naples.
+          onOpenCheckin={
+            config.center === "fort-myers" && kioskCheckinEnabled()
+              ? () => router.push("/kiosk/checkin")
+              : undefined
+          }
+          onOpenRaceGrid={
+            config.center === "fort-myers" && kioskRaceInfoEnabled()
+              ? () => {
+                  clarityEvent("kiosk:raceinfo:open");
+                  router.push("/kiosk/race-info");
+                }
+              : undefined
+          }
+          onOpenWaiver={
+            kioskGroupWaiverEnabled()
+              ? () => {
+                  clarityEvent("kiosk:waiver:open");
+                  router.push("/kiosk/waiver");
+                }
+              : undefined
+          }
+          onOpenCodeEntry={
+            // The coupon/voucher screen is ONE unified surface — it already
+            // classifies promo codes, vouchers, game cards and gift cards. Open
+            // it whenever EITHER capability is on (owner 2026-07-30: migrate the
+            // promo entry onto the voucher screen), so a booking guest can scan a
+            // voucher mid-flow. `kioskPromoEnabled` stays a kill switch for the
+            // promo PRICING system; it no longer gates whether the door opens.
+            promoEnabled || voucherRedeem
+              ? () => {
+                  clarityEvent("kiosk:code:open");
+                  setCodeEntryOpen(true);
+                }
+              : undefined
+          }
+          appliedPromo={promoEnabled ? session.appliedPromo : null}
+          onClearPromo={() => dispatch({ type: "applyPromo", promo: null })}
+          appliedVouchers={voucherRedeem ? appliedVouchers : []}
+          // The voucher chip now opens the ONE receipt (the standalone sheet is
+          // gone — owner 2026-07-30: "why is it using a different screen?").
+          onOpenVoucherSheet={() => setCodeEntryOpen(true)}
+          // Scanned-but-undispensed game cards — the way BACK to "Get my cards"
+          // after any back-out. Opens the coupon screen, which restores the
+          // receipt from this same list.
+          pendingGzCardCount={pendingGzCards.length}
+        />
+      </>,
     );
   }
 

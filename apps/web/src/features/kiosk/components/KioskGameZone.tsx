@@ -300,6 +300,7 @@ export function KioskGameZone({
   onAddToVisit,
   onCardFault,
   initialVoucherCodes = null,
+  initialCardAccount = null,
   onVoucherOutcome,
 }: {
   center: CenterCode;
@@ -325,6 +326,11 @@ export function KioskGameZone({
   /** Comp vouchers already scanned on the coupon screen — they land straight in
    *  the basket so the guest never scans the same code twice. */
   initialVoucherCodes?: string[] | null;
+  /** A game card already scanned on an ENTRY screen (attract / the category
+   *  chooser). Opens straight on the balance check with the lookup already
+   *  running — the same landing an MSR swipe produces (`onMsrSwipe`), so the
+   *  guest never presents the card twice. */
+  initialCardAccount?: string | null;
   /** Per-code result of a voucher dispense run — the flow drops DISPENSED codes
    *  from its pending list and keeps failed ones offering a way back. */
   onVoucherOutcome?: (outcomes: { code: string; loaded: boolean }[]) => void;
@@ -335,7 +341,9 @@ export function KioskGameZone({
   // MSR release wrongly jumped straight to reload, hiding balance check).
   // EXCEPT when a comp voucher was already scanned on the coupon screen: go
   // straight to redemption.
-  const [mode, setMode] = useState<Mode>(initialVoucherCodes?.length ? "voucher" : "choose");
+  const [mode, setMode] = useState<Mode>(
+    initialVoucherCodes?.length ? "voucher" : initialCardAccount ? "balance" : "choose",
+  );
 
   // ── Comp-voucher redemption state ──
   // A BASKET, not one code at a time (owner 2026-07-29: "it would make sense to
@@ -699,6 +707,20 @@ export function KioskGameZone({
       setBalCard({ accountNumber: acct, status: "bad" });
     }
   };
+  // A card scanned on an entry screen: land it exactly where an MSR swipe
+  // would (balance check, lookup already running). Ref-guarded so a StrictMode
+  // double-mount doesn't fire two lookups; `balTyped` mirrors the swipe path so
+  // the account shows in the field.
+  const seededCardRef = useRef(false);
+  useEffect(() => {
+    if (seededCardRef.current || !initialCardAccount) return;
+    seededCardRef.current = true;
+    setBalTyped(initialCardAccount);
+    void fetchBalance(initialCardAccount);
+    // fetchBalance is redefined every render; the ref guard is the real gate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCardAccount]);
+
   const readBalanceCard = async () => {
     setBalCard({ accountNumber: "", status: "reading" });
     const r = await dispenser.acceptAndRead({ timeoutMs: 30_000 });

@@ -34,6 +34,7 @@ import { RacingWhatsNext } from "../components/RacingWhatsNext";
 import { useKioskConfig } from "../KioskConfigContext";
 import { isTestKiosk, kioskId } from "../config";
 import { resetToKiosk } from "../version";
+import { consumeEntryScan } from "../entry-scan/handoff";
 import { useT } from "../i18n";
 import {
   bindParty,
@@ -437,6 +438,23 @@ export function KioskCheckinFlow() {
   };
 
   const wedge = useWedgeScan(onScan);
+
+  // Arrived here from a scan on the attract screen or the category chooser:
+  // replay it through the SAME path a scan on the find screen takes, so the
+  // guest skips straight to their itinerary (or the OTP row) without being
+  // asked to scan again. Waits for config — `center` drives the lookup and
+  // defaults to fort-myers before hydration. Ref-guarded against StrictMode.
+  const entryScanRef = useRef(false);
+  useEffect(() => {
+    if (entryScanRef.current || !hydrated || !config) return;
+    entryScanRef.current = true;
+    const handoff = consumeEntryScan("checkin");
+    // Deferred a microtask: onScan sets busy/error synchronously before its
+    // first await, and an effect body must stay setState-free (hooks-lint).
+    if (handoff) void Promise.resolve().then(() => onScan(handoff.raw));
+    // onScan is redefined every render; the ref guard is the real gate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, config]);
 
   const sendPhone = async () => {
     if (phone.replace(/\D/g, "").length < 10) {

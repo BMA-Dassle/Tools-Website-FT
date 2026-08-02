@@ -46,6 +46,7 @@ import { ATTRACT_POLL_MS, useKioskAvailability } from "../hooks/useKioskAvailabi
 import { clarityEvent, clarityTag } from "~/lib/clarity";
 import { captureKioskBootVersion, kioskUpdateAvailable } from "../version";
 import { DeviceCheckCard } from "./DeviceCheckCard";
+import { EntryScanListener, EntryScanToast, useEntryScanRouter } from "../entry-scan";
 import { clickableDivProps } from "@/lib/a11y";
 
 export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }) {
@@ -229,6 +230,28 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
     return () => clearInterval(t);
   }, []);
 
+  // Scan-to-start. The reader is already listening here, so a guest holding a
+  // reservation QR, a voucher or a game card can skip the menu entirely. Must
+  // sit ABOVE the early returns below — it's a hook.
+  const entryScan = useEntryScanRouter({
+    config,
+    goCheckin: () => {
+      clarityTag("kiosk_entry", "scan-checkin");
+      clarityEvent("kiosk:attract:scan");
+      router.push("/kiosk/checkin");
+    },
+    goCodeEntry: () => {
+      clarityTag("kiosk_entry", "scan-voucher");
+      clarityEvent("kiosk:attract:scan");
+      router.push("/kiosk/flow?goto=codes");
+    },
+    goGameCard: () => {
+      clarityTag("kiosk_entry", "scan-gamecard");
+      clarityEvent("kiosk:attract:scan");
+      router.push("/kiosk/flow?goto=gamezone");
+    },
+  });
+
   // While the cloud fallback resolves, hold the loader instead of flashing
   // the staff setup card at a guest.
   if (booting && !config) {
@@ -289,6 +312,11 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
           away, and the chooser is where a guest stops to read anyway
           (owner 2026-07-28). */}
       {attractLayout === "adzone" && <LanguageSwitcher />}
+      {/* Scan-to-start. Mounted once here so it covers BOTH attract layouts,
+          and only on this route — /kiosk/flow holds the serial port with its
+          own listener (port opens are exclusive). Renders nothing. */}
+      <EntryScanListener onScan={entryScan.handleScan} onLicense={entryScan.handleLicense} />
+      <EntryScanToast miss={entryScan.miss} busy={entryScan.busy} onDone={entryScan.clearMiss} />
       {/* Hidden staff entry — 5 taps top-left corner → admin (no visible affordance) */}
       <button
         type="button"
