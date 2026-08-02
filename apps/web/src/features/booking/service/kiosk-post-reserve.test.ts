@@ -10,16 +10,22 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { runKioskPostReserve, type KioskPostReserveArgs } from "./kiosk-post-reserve";
-import { appendProjectPrivateNote } from "@/lib/bmi-office-actions";
+import { appendProjectPrivateNote, fetchProject, setProjectState } from "@/lib/bmi-office-actions";
 
 vi.mock("@/lib/bmi-office-actions", () => ({
   appendProjectPrivateNote: vi.fn(async () => true),
   setProjectState: vi.fn(async () => true),
+  fetchProject: vi.fn(async () => ({ stateId: "-3" })),
+  officeProjectIdFromBillId: (billId: string) => {
+    const tail = (Number(billId.slice(-10)) + 1).toString();
+    return billId.slice(0, -tail.length) + tail;
+  },
   KIOSK_CONFIRMATION_STATE_IDS: {
     "fort-myers": "55397028",
     fasttrax: "55397028",
     naples: "8489113",
   },
+  VIP_CONFIRMATION_STATE_IDS: { "fort-myers": "55466363", fasttrax: "55466363" },
 }));
 
 type ScheduleResult = { personId: string; heatStart: string; status: string };
@@ -208,6 +214,66 @@ describe("runKioskPostReserve session assignment", () => {
     expect(bodies[0].racers.map((r) => r.personId)).toEqual(["55700064"]);
     const memo = memoCalls().find((n) => n.includes("AUTO CHECK-IN INCOMPLETE"));
     expect(memo).toContain("New Kid");
+  });
+});
+
+/**
+ * §4's confirmation-state write — the ONE state a kiosk racing booking lands in.
+ * Owner 2026-08-02: an Ultimate VIP Experience goes to "Confirmation - VIP"
+ * INSTEAD of "Confirmation - Kiosk". Guard against both regressions: a VIP
+ * booking silently keeping the kiosk state, and a plain booking losing it.
+ */
+describe("runKioskPostReserve confirmation state (§4)", () => {
+  const stateWrites = () =>
+    vi.mocked(setProjectState).mock.calls.map((c) => String(c[0].stateId));
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.mocked(setProjectState).mockClear();
+    vi.mocked(fetchProject).mockResolvedValue({ stateId: "-3" });
+    stubFetch([{ inserted: 1, results: [] }]);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    vi.mocked(appendProjectPrivateNote).mockClear();
+  });
+
+  it("plain kiosk racing booking → Confirmation - Kiosk (unchanged)", async () => {
+    await run(baseArgs([racer("Derek Runion", "55700064")]));
+    expect(stateWrites()).toEqual(["55397028"]);
+  });
+
+  it("VIP combo at the kiosk → Confirmation - VIP, and NEVER the kiosk state", async () => {
+    await run({
+      ...baseArgs([racer("Derek Runion", "55700064")]),
+      comboSpecialId: "race-bowl-v2",
+    });
+    expect(stateWrites()).toEqual(["55466363"]);
+  });
+
+  it("VIP already in its state → no write at all, and no kiosk fallback", async () => {
+    vi.mocked(fetchProject).mockResolvedValue({ stateId: "55466363" });
+    await run({ ...baseArgs([racer("Derek Runion", "55700064")]), comboSpecialId: "race-bowl" });
+    expect(stateWrites()).toEqual([]);
+  });
+
+  it("VIP stamp left-alone (project already cancelled) → falls back to the kiosk state", async () => {
+    // -4 is not claimable, so the VIP stamp declines. The reservation must still
+    // end up carrying a skip-the-desk marker rather than nothing.
+    vi.mocked(fetchProject).mockResolvedValue({ stateId: "-4" });
+    await run({ ...baseArgs([racer("Derek Runion", "55700064")]), comboSpecialId: "race-bowl-v2" });
+    expect(stateWrites()).toEqual(["55397028"]);
+  });
+
+  it("VIP stamp claims a project the reserve rail left on the kiosk state", async () => {
+    vi.mocked(fetchProject).mockResolvedValue({ stateId: "55397028" });
+    await run({ ...baseArgs([racer("Derek Runion", "55700064")]), comboSpecialId: "race-bowl-v2" });
+    expect(stateWrites()).toEqual(["55466363"]);
   });
 });
 

@@ -314,6 +314,13 @@ async function verifyPostConfirm(
       "-100": "Pending online",
       "-101": "Payment started",
       "-102": "Paid online",
+      // Custom (client-key-scoped) states staff actually work from. Without these
+      // a debug dump prints a bare 8-digit id. Ids: lib/bmi-office-actions.ts
+      // KIOSK_CONFIRMATION_STATE_IDS / VIP_CONFIRMATION_STATE_IDS.
+      "3274635": "Confirmation + Waiver",
+      "55397028": "Confirmation - Kiosk",
+      "55466363": "Confirmation - VIP",
+      "8489113": "Confirmation - Kiosk (Naples)",
     };
 
     const logEntry = {

@@ -20,6 +20,7 @@ import { reserveBaseKey } from "~/features/booking/service/reserve-idempotency";
 import { SQUARE_LOCATIONS } from "~/features/booking/data/square-catalog-map";
 import { verifyCron } from "@/lib/cron-auth";
 import { patchHeatSetups, type HeatSetupInput } from "~/features/booking/service/session-setup";
+import { stampVipStateIfCombo } from "~/features/combos/vip-state.server";
 
 /**
  * GET /api/cron/race-confirm-reconcile
@@ -101,6 +102,20 @@ async function setPandoraConfirmation(r: BowlingReservation, bmiBillId: string):
     console.log(
       `[race-confirm-reconcile] Pandora project ${projectId} state → -3: ${res.ok ? "OK" : res.status}`,
     );
+    // An Ultimate VIP Experience must land back on "Confirmation - VIP", not
+    // plain Confirmation — otherwise this recovery silently demotes the very
+    // rows staff filter on (owner 2026-08-02). The -3 above still does the real
+    // work (it clears BMI's auto-cancel); the VIP id goes on top through the
+    // Office API, with the self-heal that out-waits this Pandora write's async
+    // propagation. Read-then-compare, so a cancelled/arrived row is untouched.
+    await stampVipStateIfCombo({
+      comboSpecialId: r.comboSpecialId,
+      centerCode: r.productKind === "race" ? "fasttrax" : r.centerCode,
+      officeProjectId: projectId,
+      tag: "race-confirm-reconcile",
+      label: "Confirmation - VIP (reconcile)",
+      ensureAttempts: 4,
+    });
   } catch (err) {
     console.error("[race-confirm-reconcile] Pandora state update failed (non-fatal):", err);
   }

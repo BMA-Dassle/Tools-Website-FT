@@ -85,7 +85,7 @@ import {
   type NativeCartVoucherRef,
 } from "~/features/game-cards/service/native-cart-vouchers";
 import { activeComboSpecial, comboOrderGroups } from "~/features/combos/combo-pricing";
-import { getComboSpecial } from "~/features/combos/combo-specials";
+import { getComboSpecial, isVipComboBooking } from "~/features/combos/combo-specials";
 import { wallClockMs } from "~/features/combos/combo-itinerary";
 import { notifyComboBooked } from "~/features/combos/combo-notify";
 import { mintComboVoucherIfNeeded } from "~/features/combos/combo-voucher";
@@ -3096,6 +3096,9 @@ async function unifiedReserveInner(
               isNewRacer: session.party.some((m) => m.isNewRacer),
               povQty: kioskPovQty,
               povCodes: povCodesResult ?? [],
+              // Redirects the rail's dead-last state write to "Confirmation - VIP"
+              // for a VIP pack sold at the kiosk (owner 2026-08-02).
+              comboSpecialId: session.comboSpecialId ?? null,
             });
           } catch (e) {
             console.error("[kiosk-post] failed (non-fatal):", e);
@@ -3151,6 +3154,35 @@ async function unifiedReserveInner(
           after(flipKioskState);
         } catch {
           void flipKioskState();
+        }
+      }
+
+      // ── VIP combo → BMI "Confirmation - VIP" state (owner 2026-08-02) ──
+      // Every Ultimate VIP Experience reads "Confirmation - VIP" in BMI. The
+      // KIOSK rail is excluded here on purpose: runKioskPostReserve §4 already
+      // owns the dead-last state write for kiosk racing bookings and picks the
+      // VIP id itself, so stamping here too would just race it. This branch is
+      // the WEB/express path. Deferred + never throwing, exactly like the blocks
+      // above; the stamp carries its own self-heal against the inline `-3`
+      // Pandora write landing late (see vip-state.server.ts).
+      if (!session.context?.kiosk && isVipComboBooking(session.comboSpecialId)) {
+        const stampVip = async () => {
+          const { stampVipStateIfCombo } = await import("~/features/combos/vip-state.server");
+          await stampVipStateIfCombo({
+            comboSpecialId: session.comboSpecialId,
+            centerCode,
+            officeProjectId,
+            tag: "unified-reserve",
+            label: "Confirmation - VIP (booking)",
+            // No rail delay ahead of this one, so the reassert window IS the
+            // propagation guard — match the attraction block's wider window.
+            ensureAttempts: 4,
+          });
+        };
+        try {
+          after(stampVip);
+        } catch {
+          void stampVip();
         }
       }
     } catch (err) {

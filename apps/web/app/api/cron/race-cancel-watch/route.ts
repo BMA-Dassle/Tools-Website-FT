@@ -14,6 +14,18 @@ import {
   type RebuildRacerHeat,
   type ApiCall,
 } from "~/features/booking/service/bmi-rebuild";
+import { getBowlingReservationByBillId } from "@/lib/bowling-db";
+
+/** The old bill's `combo_special_id`, so a rebuilt Ultimate VIP Experience is
+ *  put back on "Confirmation - VIP" instead of plain -3 (owner 2026-08-02).
+ *  Null on any lookup miss — a rebuild must never fail over a badge. */
+async function comboIdForBill(billId: string): Promise<string | null> {
+  try {
+    return (await getBowlingReservationByBillId(billId))?.comboSpecialId ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * GET /api/cron/race-cancel-watch
@@ -402,6 +414,7 @@ export async function GET(req: NextRequest) {
       contact: rec.contact,
       pandoraLocationId: RACE_PANDORA_LOCATION,
       pandoraKey: process.env.SWAGGER_ADMIN_KEY,
+      comboSpecialId: await comboIdForBill(manualBill),
       dryRun,
     });
     if (!dryRun && rb.ok) {
@@ -500,6 +513,7 @@ export async function GET(req: NextRequest) {
           contact: rec.contact,
           pandoraLocationId: RACE_PANDORA_LOCATION,
           pandoraKey: process.env.SWAGGER_ADMIN_KEY,
+          comboSpecialId: await comboIdForBill(dep.billId),
         });
         apiCalls.push(...rb.apiCalls);
         if (rb.ok) {

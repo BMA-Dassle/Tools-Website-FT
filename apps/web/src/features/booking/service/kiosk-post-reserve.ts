@@ -39,6 +39,8 @@ import {
   setProjectState,
   KIOSK_CONFIRMATION_STATE_IDS,
 } from "@/lib/bmi-office-actions";
+import { isVipComboBooking } from "~/features/combos/combo-specials";
+import { stampVipStateIfCombo } from "~/features/combos/vip-state.server";
 import { kioskPovCodesEnabled } from "~/features/kiosk/flags";
 import type { BookingSession, RaceItem } from "../state/types";
 import type { ContactInfo } from "../types";
@@ -120,6 +122,10 @@ export interface KioskPostReserveArgs {
    *  this is empty (inline claim failed), the rail retries the claim itself —
    *  it's idempotent per billId, so no double-issue. */
   povCodes?: string[];
+  /** `session.comboSpecialId` — set when the kiosk sold an Ultimate VIP
+   *  Experience. Redirects §4's confirmation-state write from the kiosk id to
+   *  "Confirmation - VIP" (owner 2026-08-02: VIP wins over kiosk). */
+  comboSpecialId?: string | null;
 }
 
 /**
@@ -494,7 +500,7 @@ export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<v
     console.error("[kiosk-post] session assignment failed (non-fatal):", err);
   }
 
-  // ── 4. BMI Office confirmation state → "Confirmation Kiosk" (LAST) ──
+  // ── 4. BMI Office confirmation state (LAST) ─────────────────────────
   // Runs DEAD LAST — after the notification, memo, and the Pandora session
   // assignment — because the confirmation state is the write that must WIN.
   // The reserve flow set the project to `-3 Confirmation` via PANDORA before
@@ -504,6 +510,28 @@ export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<v
   // (1) run last so the `-3` has ~15s+ to propagate first, and (2) ensureAttempts
   // re-reads + re-asserts across a further window so any residual late-lander is
   // corrected. State ids are PER LOCATION (FM 55397028 / Naples 8489113).
+  //
+  // An Ultimate VIP Experience sold at the kiosk lands in "Confirmation - VIP"
+  // INSTEAD (owner 2026-08-02: VIP wins over kiosk wherever they collide). This
+  // is the same single write with a different id, so the propagation defenses
+  // above cover it identically — never add a second write here.
+  if (isVipComboBooking(args.comboSpecialId)) {
+    const result = await stampVipStateIfCombo({
+      comboSpecialId: args.comboSpecialId,
+      centerCode,
+      officeProjectId,
+      tag: "kiosk-post",
+      label: "Confirmation - VIP (kiosk booking)",
+    });
+    // A VIP row that fell to "left-alone"/"failed" would otherwise sit in plain
+    // -3 with no kiosk marker either. Fall through to the kiosk id so the
+    // reservation still carries a skip-the-desk state rather than nothing.
+    if (result.outcome === "stamped" || result.outcome === "already") return;
+    console.warn(
+      `[kiosk-post] VIP state not applied (${result.outcome}) for project ${officeProjectId} — falling back to the kiosk state`,
+    );
+  }
+
   const kioskStateId =
     KIOSK_CONFIRMATION_STATE_IDS[centerCode] ?? KIOSK_CONFIRMATION_STATE_IDS["fort-myers"];
   try {

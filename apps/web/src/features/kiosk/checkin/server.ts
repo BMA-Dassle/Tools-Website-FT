@@ -35,6 +35,8 @@ import {
   appendProjectPrivateNote,
   KIOSK_CONFIRMATION_STATE_IDS,
 } from "@/lib/bmi-office-actions";
+import { isVipComboBooking } from "~/features/combos/combo-specials";
+import { stampVipStateIfCombo } from "~/features/combos/vip-state.server";
 import { kioskCheckinAttachEnabled, kioskVoucherPrefillEnabled } from "../flags";
 import { listJoinsForProject } from "../data/kiosk-waiver-joins-db";
 import { officeProjectIdFromBillId } from "@/lib/bmi-office-ids";
@@ -1343,8 +1345,26 @@ export async function completeCheckin(args: {
     // Unlike -5 "Arrived", this is NOT an arrival state, so it does not trigger
     // race-dayof-pay to settle the day-of order early. Custom ids (no leading
     // "-") go Office-API-first in setProjectState; Pandora 200-no-ops them.
+    //
+    // An Ultimate VIP Experience stays in "Confirmation - VIP" through check-in
+    // (owner 2026-08-02: VIP wins over kiosk wherever they collide). The party's
+    // waivers-signed / here-now fact still lands in the composed staff memo
+    // below, which is written on the same rail either way.
+    const comboSpecialId = group.find((r) => r.comboSpecialId)?.comboSpecialId ?? null;
     const kioskStateId = KIOSK_CONFIRMATION_STATE_IDS[stateCenterCode];
-    if (attachEnabled && hasRacing && officeProjectId && kioskStateId) {
+    if (attachEnabled && hasRacing && officeProjectId && isVipComboBooking(comboSpecialId)) {
+      const result = await stampVipStateIfCombo({
+        comboSpecialId,
+        centerCode: stateCenterCode,
+        officeProjectId,
+        tag: "kiosk-checkin",
+        label: "Confirmation - VIP (check-in)",
+        // Nothing is writing -3 at check-in time, so no propagation race to
+        // out-wait — one read-then-compare write is enough.
+        ensureAttempts: 0,
+      });
+      stateStamped = result.outcome === "stamped" || result.outcome === "already";
+    } else if (attachEnabled && hasRacing && officeProjectId && kioskStateId) {
       try {
         await setProjectState({
           centerCode: stateCenterCode,

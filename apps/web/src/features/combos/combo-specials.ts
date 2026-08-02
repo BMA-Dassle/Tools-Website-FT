@@ -587,6 +587,27 @@ export function comboAdminLabel(comboSpecialId: string | null | undefined): stri
   return getComboSpecial(comboSpecialId)?.adminShortLabel ?? "VIP";
 }
 
+/**
+ * Is this booking an Ultimate VIP Experience? Drives the BMI "Confirmation -
+ * VIP" state stamp (`~/features/combos/vip-state.server`) as well as any other
+ * "treat this as VIP" decision.
+ *
+ * Every combo special shipped to date IS a VIP pack — `race-bowl` and
+ * `race-bowl-v2` are both literally named "Ultimate VIP Experience" — and
+ * `comboAdminLabel` above already assumes the same for ids that have left the
+ * registry, so historical rows keep their badge. Keying off "has a
+ * comboSpecialId" therefore also covers legacy rows a registry lookup misses.
+ *
+ * If a non-VIP combo special ever ships, give `ComboSpecial` a `vip: false`
+ * and gate HERE — this is the single predicate every VIP rail consults.
+ *
+ * Pure (no BMI/Office imports) so server rails can branch on it without
+ * dragging the node `https` chain in behind a lazy import.
+ */
+export function isVipComboBooking(comboSpecialId: string | null | undefined): boolean {
+  return typeof comboSpecialId === "string" && comboSpecialId.length > 0;
+}
+
 /** Is the combo within its availability window (if it has one)? */
 export function comboAvailableOn(combo: ComboSpecial, dateYmd: string | Date): boolean {
   const a = combo.availability;

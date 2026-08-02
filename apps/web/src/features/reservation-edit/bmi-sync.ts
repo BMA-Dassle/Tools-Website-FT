@@ -19,6 +19,7 @@ import { getBowlingReservation, type BowlingReservation } from "@/lib/bowling-db
 import { bmiBookingTarget, type RaceTier } from "~/features/booking/service/race-products";
 import { ATTRACTIONS, type LocationKey } from "@/lib/attractions-data";
 import { resolveCenter } from "~/features/cancellation/centers";
+import { stampVipStateIfCombo } from "~/features/combos/vip-state.server";
 
 import type { EditPlan } from "./plan";
 import type { RaceAddPlan } from "./reprice";
@@ -84,16 +85,28 @@ const persistHeatsMeta = async (reservationId: number, heats: HeatMeta[]): Promi
   `;
 };
 
-/** Re-confirm the bill as a $0 credit + re-assert Pandora -3 (never auto-cancel). */
-const reconfirmBill = async (origin: string, clientKey: string, billId: string): Promise<void> => {
+/**
+ * Re-confirm the bill as a $0 credit + re-assert Pandora -3 (never auto-cancel).
+ *
+ * `comboSpecialId` is the anchor's — an Ultimate VIP Experience is put BACK on
+ * "Confirmation - VIP" afterwards, because a bare -3 here would demote every
+ * edited VIP reservation to plain Confirmation (owner 2026-08-02). Every caller
+ * passes it; the anchor is in scope at all three sites.
+ */
+const reconfirmBill = async (
+  origin: string,
+  clientKey: string,
+  billId: string,
+  comboSpecialId?: string | null,
+): Promise<void> => {
   const confirmBody = `{"id":"${crypto.randomUUID()}","paymentTime":"${new Date().toISOString()}","amount":0,"orderId":${billId},"depositKind":2}`;
   const confirm = await proxyCall(origin, clientKey, "POST", "payment/confirm", confirmBody);
   if (confirm.status >= 400) {
     throw new Error(`BMI re-confirm failed (${confirm.status}): ${confirm.text.slice(0, 120)}`);
   }
   const pandoraKey = process.env.SWAGGER_ADMIN_KEY;
+  const projectId = (BigInt(billId) + BigInt(1)).toString();
   if (pandoraKey) {
-    const projectId = (BigInt(billId) + BigInt(1)).toString();
     await fetch("https://bma-pandora-api.azurewebsites.net/v2/bmi/reservation/state", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${pandoraKey}` },
@@ -107,6 +120,17 @@ const reconfirmBill = async (origin: string, clientKey: string, billId: string):
       /* best-effort — the sweep re-asserts too */
     });
   }
+  // Restore the VIP state on top of the -3 just written. Self-heal window
+  // covers that Pandora write's async propagation; read-then-compare means a
+  // cancelled or arrived project is left alone.
+  await stampVipStateIfCombo({
+    comboSpecialId,
+    centerCode: "fasttrax",
+    officeProjectId: projectId,
+    tag: "reservation-edit",
+    label: "Confirmation - VIP (edit re-confirm)",
+    ensureAttempts: 4,
+  });
 };
 
 export interface BmiSyncResult {
@@ -293,7 +317,7 @@ export const syncBmiRaceEdit = async (params: {
       }
     }
 
-    await reconfirmBill(origin, clientKey, billId);
+    await reconfirmBill(origin, clientKey, billId, anchor.comboSpecialId);
 
     // Verify-after: the bill grew by exactly the booked line count (license
     // build products ride the same line, so lines == heats booked).
@@ -335,7 +359,7 @@ export const syncBmiRaceEdit = async (params: {
     removedCount++;
   }
 
-  await reconfirmBill(origin, clientKey, billId);
+  await reconfirmBill(origin, clientKey, billId, anchor.comboSpecialId);
 
   const keep = heatsMeta.filter((_, i) => !removed.some((r) => r.index === i));
   await persistHeatsMeta(raceRow.id, keep);
@@ -507,7 +531,7 @@ export const syncBmiAttractionEdit = async (params: {
       newLineId = book.text.match(/"billLineId"\s*:\s*(\d+)/)?.[1] ?? null;
     }
 
-    await reconfirmBill(origin, clientKey, billId);
+    await reconfirmBill(origin, clientKey, billId, anchor.comboSpecialId);
 
     bookings[change.index] = {
       ...booking,

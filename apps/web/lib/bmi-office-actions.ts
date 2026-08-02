@@ -177,6 +177,24 @@ export const KIOSK_CONFIRMATION_STATE_IDS: Record<string, string> = {
   naples: "8489113",
 };
 
+/** BMI "Confirmation - VIP" custom state ids — PER LOCATION (owner 2026-08-02).
+ *  Enumerated live off the Office `metadata` blob's `projectStates[]`:
+ *  headpinzftmyers carries `{name:"Confirmation - VIP", id:"55466363", kind:2}`
+ *  and headpinznaples carries NO VIP entry at all. Same client-key scoping trap
+ *  as the kiosk ids above — so Naples is deliberately ABSENT here rather than
+ *  aliased to the FM id, and every caller degrades to plain Confirmation (-3)
+ *  when the lookup misses. Racing (and therefore every VIP combo) is Fort
+ *  Myers-only today, so the miss is unreachable in practice; it stays a lookup
+ *  so a future Naples state is a one-line data change.
+ *
+ *  Stamped by `~/features/combos/vip-state` on every rail that books or checks
+ *  in an Ultimate VIP Experience. Read tasks/lessons.md § "A status field IS a
+ *  claim" before adding a writer. */
+export const VIP_CONFIRMATION_STATE_IDS: Record<string, string> = {
+  "fort-myers": "55466363",
+  fasttrax: "55466363",
+};
+
 // billId ↔ Office projectId arithmetic lives in lib/bmi-office-ids.ts — PURE, so
 // client components (the confirmation pages build reservation-scoped waiver
 // links) can import it without dragging this module's node `https`/`crypto`

@@ -4,6 +4,9 @@ import { neon } from "@neondatabase/serverless";
 import { parseWithRawIds } from "@ft/db";
 import redis from "@/lib/redis";
 import { verifyCron } from "@/lib/cron-auth";
+import { billIdFromOfficeProjectId } from "@/lib/bmi-office-ids";
+import { getBowlingReservationByBillId } from "@/lib/bowling-db";
+import { stampVipStateIfCombo } from "~/features/combos/vip-state.server";
 
 /**
  * GET /api/cron/bmi-cancel-sweep
@@ -412,6 +415,27 @@ async function sweepCenter(
             `state=${pStateId}(${stateNames[pStateId] || "?"}) ` +
             `cancelledBy=${cancelledByName} gate=${reason}`,
         );
+
+        // A recovered Ultimate VIP Experience belongs on "Confirmation - VIP",
+        // not the plain -3 just written (owner 2026-08-02) — otherwise this
+        // safety net is also a silent VIP demoter. The sweep works from BMI
+        // projects, so resolve the combo id through Neon: bill id = project - 1.
+        // Read-then-compare inside the stamp, non-fatal, and only reached on a
+        // successful recovery.
+        try {
+          const billId = billIdFromOfficeProjectId(String(p.id));
+          const row = billId ? await getBowlingReservationByBillId(billId) : null;
+          await stampVipStateIfCombo({
+            comboSpecialId: row?.comboSpecialId,
+            centerCode: "fasttrax",
+            officeProjectId: String(p.id),
+            tag: "bmi-cancel-sweep",
+            label: "Confirmation - VIP (sweep recovery)",
+            ensureAttempts: 4,
+          });
+        } catch (err) {
+          console.error(`[bmi-cancel-sweep] VIP re-stamp failed for project ${p.id}:`, err);
+        }
 
         // Persist to Redis for BMI evidence
         try {

@@ -8,7 +8,7 @@ import {
   signedConfirmationUrl,
   verifyBillSignature as verifyBillSignatureShared,
 } from "@/lib/booking-confirmation-link";
-import { getComboSpecial } from "~/features/combos/combo-specials";
+import { getComboSpecial, isVipComboBooking } from "~/features/combos/combo-specials";
 import {
   buildVipEmailFields,
   buildVipSmsBody,
@@ -384,19 +384,38 @@ export async function POST(req: NextRequest) {
     // notif dedup above. Kiosk bookings are excluded — kiosk-post-reserve
     // already stamps the state on that rail. Best-effort: a vendor hiccup
     // never blocks the confirmation send.
+    //
+    // A VIP combo booked express lands in "Confirmation - VIP" instead (owner
+    // 2026-08-02: VIP wins over kiosk). unified-reserve stamps the same id on
+    // this booking's own rail; both writes are read-then-compare idempotent, so
+    // whichever lands second reports "already" — belt-and-braces, not a race.
+    // Note the knock-on: `revertExpressKioskState` only reverts FROM the kiosk
+    // id, so a demoted express VIP is correctly left alone — it never made the
+    // "waivers are done" claim in the state column to begin with.
     if (isExpressLane && !kioskMode && billId) {
-      try {
-        const { setProjectState, officeProjectIdFromBillId, KIOSK_CONFIRMATION_STATE_IDS } =
-          await import("@/lib/bmi-office-actions");
-        const centerCode = location === "naples" ? "naples" : "fort-myers";
-        await setProjectState({
+      const centerCode = location === "naples" ? "naples" : "fort-myers";
+      if (isVipComboBooking(comboSpecialId)) {
+        const { stampVipStateIfCombo } = await import("~/features/combos/vip-state.server");
+        await stampVipStateIfCombo({
+          comboSpecialId: String(comboSpecialId),
           centerCode,
-          projectId: officeProjectIdFromBillId(String(billId)),
-          stateId: KIOSK_CONFIRMATION_STATE_IDS[centerCode],
-          label: "Kiosk confirmation (express lane)",
+          billId: String(billId),
+          tag: "booking-confirmation",
+          label: "Confirmation - VIP (express lane)",
         });
-      } catch (err) {
-        console.error("[booking-confirmation] express-lane kiosk state failed (non-fatal):", err);
+      } else {
+        try {
+          const { setProjectState, officeProjectIdFromBillId, KIOSK_CONFIRMATION_STATE_IDS } =
+            await import("@/lib/bmi-office-actions");
+          await setProjectState({
+            centerCode,
+            projectId: officeProjectIdFromBillId(String(billId)),
+            stateId: KIOSK_CONFIRMATION_STATE_IDS[centerCode],
+            label: "Kiosk confirmation (express lane)",
+          });
+        } catch (err) {
+          console.error("[booking-confirmation] express-lane kiosk state failed (non-fatal):", err);
+        }
       }
     }
 

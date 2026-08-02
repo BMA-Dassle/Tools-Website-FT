@@ -16,6 +16,8 @@
  */
 import { stringifyWithRawIds } from "@ft/db";
 import { bmiBookingTarget } from "./race-products";
+import { isVipComboBooking } from "~/features/combos/combo-specials";
+import { stampVipStateIfCombo } from "~/features/combos/vip-state.server";
 
 export interface RebuildRacerHeat {
   productId: string;
@@ -95,6 +97,11 @@ export async function rebuildRaceBill(params: {
   contact: RebuildContact;
   pandoraLocationId?: string;
   pandoraKey?: string;
+  /** The OLD reservation's `combo_special_id`. Required (not optional) so a new
+   *  caller has to decide rather than silently drop it: a rebuilt Ultimate VIP
+   *  Experience must land on "Confirmation - VIP", not the plain -3 written
+   *  below (owner 2026-08-02). Pass null for everything else. */
+  comboSpecialId: string | null;
   /** When true: run availability + proposal matching only (read-only) and report
    *  whether every heat can be re-booked — never books/registers/confirms. For
    *  verifying the matching logic against a real booking without side effects. */
@@ -313,6 +320,32 @@ export async function rebuildRaceBill(params: {
         responseBody: pText,
         ms: Date.now() - t0,
       });
+
+      // 5b) Ultimate VIP Experience → put the REBUILT project on
+      //     "Confirmation - VIP" (owner 2026-08-02). Without this, every
+      //     auto-rebuilt VIP booking silently reappears as plain Confirmation.
+      //     Logged into apiCalls like every other step so the BMI evidence
+      //     bundle shows the final state we asked for.
+      if (isVipComboBooking(params.comboSpecialId)) {
+        const tVip = Date.now();
+        const vip = await stampVipStateIfCombo({
+          comboSpecialId: params.comboSpecialId,
+          centerCode: "fasttrax",
+          officeProjectId: projectId,
+          tag: "bmi-rebuild",
+          label: "Confirmation - VIP (rebuild)",
+          ensureAttempts: 4,
+        });
+        apiCalls.push({
+          step: "office/state-vip",
+          method: "PUT",
+          endpoint: "project (Confirmation - VIP)",
+          requestBody: `projectId=${projectId} stateID=55466363`,
+          status: vip.outcome === "stamped" || vip.outcome === "already" ? 200 : 0,
+          responseBody: JSON.stringify(vip),
+          ms: Date.now() - tVip,
+        });
+      }
     }
 
     // 6) Verify-after — the new bill must have products whose heat times match
