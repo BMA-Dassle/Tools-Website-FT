@@ -377,7 +377,7 @@ export default function GroupEventsPage() {
                 Adult Birthday Party
               </h3>
               <p className="font-body text-white/65" style={{ fontSize: "13px", lineHeight: 1.55 }}>
-                13+ and 59&quot; height on the karts, full bar at Nemo&apos;s, private rooms,
+                18+ and 59&quot; height on the karts, full bar at Nemo&apos;s, private rooms,
                 bowling and arcade.
               </p>
             </button>
