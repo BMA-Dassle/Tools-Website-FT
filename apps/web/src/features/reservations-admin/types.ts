@@ -94,6 +94,10 @@ export interface Reservation {
       track?: string;
       heatId?: string | null;
       assignedTo?: string;
+      /** raceHeatsMetadata stamps these at booking (checkout.ts) — the board
+       *  labels fallback race steps from them (jr/adult sessions differ). */
+      tier?: string | null;
+      category?: string | null;
     }>;
     [k: string]: unknown;
   };

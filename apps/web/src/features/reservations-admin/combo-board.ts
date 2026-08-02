@@ -98,17 +98,37 @@ export interface ComboGroup {
     totalCents: number;
   }>;
   totalCents: number;
+  /** Pre-discount package value: charged total + the legs' stamped promo
+   *  savings. A 100% comp charges $0 but the package is still worth this. */
+  grossCents: number;
   schedule: ComboScheduleStep[];
   inactive: boolean;
 }
 
 /**
- * VIP combos — group the legs (race + bowling) of one combo together.
- * The combo always books ONE deposit order, but its DAY-OF revenue splits
- * into two orders (racing → FastTrax FM, bowling → HeadPinz FM). So we
- * correlate on the shared square_deposit_order_id, which survives that split;
- * fall back to the day-of order id for pre-deposit-era rows. The bowling leg
- * carries the real lane + slot time, the race leg(s) are the karting heats.
+ * Grouping key correlating a combo's legs. A paid combo books ONE deposit
+ * order whose id both legs share (it survives the day-of racing/bowling
+ * split), so that's the primary key. A $0 comp (100% promo) captures NO
+ * deposit — its legs carry only their two DIFFERENT day-of order ids — so
+ * deposit-less combo legs correlate on combo + guest + event date instead
+ * (the one thing both legs of one visit share). The theoretical collision —
+ * the same guest booking the SAME combo twice for the SAME day — merges into
+ * one card; display-only and far rarer than every comp splitting in two.
+ * Last resorts (no combo id / no guest) keep the old order-id fallbacks.
+ */
+export function comboGroupKey(r: Reservation): string {
+  if (r.squareDepositOrderId) return r.squareDepositOrderId;
+  const guest = (r.guestPhone ?? "").replace(/\D/g, "") || (r.guestName ?? "").trim().toLowerCase();
+  if (r.comboSpecialId && guest) {
+    return `combo|${r.comboSpecialId}|${guest}|${(r.eventAt ?? r.bookedAt).slice(0, 10)}`;
+  }
+  return r.squareDayofOrderId || r.bmiBillId || `id-${r.id}`;
+}
+
+/**
+ * VIP combos — group the legs (race + bowling) of one combo together via
+ * comboGroupKey. The bowling leg carries the real lane + slot time, the race
+ * leg(s) are the karting heats.
  */
 export function buildComboGroups(
   vipReservations: Reservation[],
@@ -117,7 +137,7 @@ export function buildComboGroups(
 ): ComboGroup[] {
   const byOrder = new Map<string, Reservation[]>();
   for (const r of vipReservations) {
-    const key = r.squareDepositOrderId || r.squareDayofOrderId || r.bmiBillId || `id-${r.id}`;
+    const key = comboGroupKey(r);
     const arr = byOrder.get(key) ?? [];
     arr.push(r);
     byOrder.set(key, arr);
@@ -197,35 +217,52 @@ export function buildComboGroups(
     } else {
       // heatId IS the heat's block-start ISO (booking state types),
       // persisted in the race leg's booking_metadata.heats — which also
-      // stamps each heat's track at booking time.
+      // stamps each heat's track/tier/category at booking time. One step per
+      // DISTINCT physical session — a jr/adult party books separate start
+      // times per tier (4+ sessions), so never cap at Starter+Intermediate.
       const heatTimes = Array.from(
         new Map(
           races
             .flatMap((r) => r.bookingMetadata?.heats ?? [])
-            .filter((h): h is { heatId: string; track?: string } => !!h.heatId)
-            .map((h) => [h.heatId, h] as const),
+            .filter((h): h is { heatId: string; track?: string; tier?: string; category?: string } =>
+              !!h.heatId,
+            )
+            .map((h) => [`${h.heatId}|${h.category ?? ""}|${h.tier ?? ""}`, h] as const),
         ).values(),
       )
-        .map((h) => ({ iso: h.heatId, track: h.track, ms: etWallMs(h.heatId) }))
+        .map((h) => ({
+          iso: h.heatId,
+          track: h.track,
+          tier: h.tier,
+          category: h.category,
+          ms: etWallMs(h.heatId),
+        }))
         .filter((h) => !Number.isNaN(h.ms))
         .sort((a, b) => a.ms - b.ms);
-      raceSteps = [
-        {
+      raceSteps = heatTimes.map((h, i) => {
+        // Old rows pre-date the tier stamp — fall back to the booked-order
+        // assumption (earliest = Starter, next = Intermediate).
+        const tier = h.tier ?? (i === 0 ? "starter" : "intermediate");
+        const tierLabel =
+          tier === "intermediate"
+            ? "Intermediate Race"
+            : tier === "starter"
+              ? "Starter Race"
+              : `${tier[0].toUpperCase()}${tier.slice(1)} Race`;
+        return {
           icon: "🏁",
-          label: withTrack("Starter Race", trackTag(heatTimes[0]?.track)),
-          iso: heatTimes[0]?.iso ?? null,
+          label: withTrack(`${h.category === "junior" ? "Junior " : ""}${tierLabel}`, trackTag(h.track)),
+          iso: h.iso,
           loc: "FastTrax",
           durationMin: RACE_STEP_MIN,
-        },
-      ];
-      if (heatTimes[1]) {
-        raceSteps.push({
-          icon: "🏁",
-          label: withTrack("Intermediate Race", trackTag(heatTimes[1].track)),
-          iso: heatTimes[1].iso,
-          loc: "FastTrax",
-          durationMin: RACE_STEP_MIN,
-        });
+        };
+      });
+      if (!raceSteps.length) {
+        // Race leg exists but no heat metadata at all — keep the placeholder
+        // Starter row so the itinerary still shows the race is part of the visit.
+        raceSteps = [
+          { icon: "🏁", label: "Starter Race", iso: null, loc: "FastTrax", durationMin: RACE_STEP_MIN },
+        ];
       }
     }
     const expectsIntermediate = (meta?.includes ?? []).some((s) => /intermediate/i.test(s));
@@ -246,7 +283,15 @@ export function buildComboGroups(
         legStatus: bowling.status,
       });
     }
-    if (raceSteps.length < 2 && expectsIntermediate) {
+    // Is the Intermediate actually on the schedule? Live BMI truth keeps the
+    // old ≥2-heats rule (a didn't-qualify Intermediate gets CONVERTED to a
+    // second Starter — two heats means the plan is complete either way). The
+    // metadata fallback keys on LABELS instead: a jr+adult party books two
+    // Starter sessions, which is 2+ steps with the Intermediate still unbooked.
+    const hasIntermediate = liveHeats.length
+      ? raceSteps.length >= 2
+      : raceSteps.some((s) => /intermediate/i.test(s.label));
+    if (expectsIntermediate && !hasIntermediate) {
       // Intermediate is qualify-gated — booked later if the racer qualifies.
       steps.push({
         icon: "🏁",
@@ -327,11 +372,32 @@ export function buildComboGroups(
       totalCents: dayofOrders.length
         ? dayofOrders.reduce((s, o) => s + o.totalCents, 0)
         : Math.max(0, ...sorted.map((l) => l.totalCents ?? 0)),
+      // Pre-discount value = charged + stamped promo savings. Savings are
+      // stamped once per Neon ROW (unified-reserve puts the cart-wide share
+      // on the race anchor, the bowling rail its own share), so summing the
+      // distinct legs never double-counts.
+      grossCents:
+        (dayofOrders.length
+          ? dayofOrders.reduce((s, o) => s + o.totalCents, 0)
+          : Math.max(0, ...sorted.map((l) => l.totalCents ?? 0))) +
+        sorted.reduce((s, l) => s + (l.promoSavingsCents ?? 0), 0),
       schedule,
       inactive,
     };
   });
-  return groups.sort((a, b) => a.anchor.bookedAt.localeCompare(b.anchor.bookedAt));
+  // Order the cards by VISIT time — the first timed itinerary step. The old
+  // anchor.bookedAt compare put race-anchored groups at the TOP of the page:
+  // a race row's booked_at is the BOOKING timestamp (e.g. 4 AM), not the heat
+  // time, and lexically comparing naive-ET against zoned ISO strings crosses
+  // frames anyway. etWallMs puts both shapes in one frame.
+  const groupSortMs = (g: ComboGroup): number => {
+    const first = g.schedule.find((s) => s.iso);
+    const ms = first?.iso ? etWallMs(first.iso) : NaN;
+    if (!Number.isNaN(ms)) return ms;
+    const fallback = etWallMs(g.anchor.eventAt ?? g.anchor.bookedAt);
+    return Number.isNaN(fallback) ? Number.POSITIVE_INFINITY : fallback;
+  };
+  return groups.sort((a, b) => groupSortMs(a) - groupSortMs(b));
 }
 
 /** Schedule entry a main-list VIP row resolves its combo through. */
@@ -385,7 +451,7 @@ export function mergeComboRows(
   const out: Array<Reservation & { comboMerge?: ComboMergeInfo }> = [];
   for (const r of filtered) {
     if (r.comboSpecialId) {
-      const k = r.squareDepositOrderId || r.squareDayofOrderId || `id-${r.id}`;
+      const k = comboGroupKey(r);
       const arr = comboLegs.get(k);
       if (arr) arr.push(r);
       else comboLegs.set(k, [r]);

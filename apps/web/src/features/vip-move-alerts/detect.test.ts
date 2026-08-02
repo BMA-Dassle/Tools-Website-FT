@@ -46,6 +46,7 @@ function mkGroup(schedule: ComboScheduleStep[], over: Partial<ComboGroup> = {}):
     centerCode: "TXBSQN0FEKQ11",
     dayofOrders: [],
     totalCents: 0,
+    grossCents: 0,
     schedule,
     inactive: false,
     ...over,

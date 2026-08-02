@@ -180,36 +180,58 @@ function VoucherBadge({ code, voided, items }: VipVoucherSummary) {
           {formatVoucherCode(code)}
         </a>
         {/* What's left on it — used items struck through so a manager answers
-            "do they still have their laser tag?" without leaving the board. */}
-        {items.length > 0 && (
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "2px 12px",
-              marginTop: 4,
-              fontSize: "0.72rem",
-            }}
-          >
-            {items.map((it, i) => (
-              <span
-                key={i}
-                style={
-                  it.spent
-                    ? {
-                        color: "var(--ba-muted)",
-                        opacity: 0.55,
-                        textDecoration: "line-through",
-                      }
-                    : { color: "var(--ba-fg)", opacity: 0.85 }
-                }
+            "do they still have their laser tag?" without leaving the board.
+            Collapsed by TYPE with quantities (owner 8/2): a 7-guest voucher
+            mints 15 duplicate items — "7× 100 bonus tokens" reads, a wall of
+            fifteen chips doesn't. Available and used tallied separately. */}
+        {items.length > 0 &&
+          (() => {
+            const byLabel = new Map<string, { avail: number; spent: number }>();
+            for (const it of items) {
+              const c = byLabel.get(it.label) ?? { avail: 0, spent: 0 };
+              if (it.spent) c.spent += 1;
+              else c.avail += 1;
+              byLabel.set(it.label, c);
+            }
+            const qty = (n: number) => (n > 1 ? `${n}× ` : "");
+            return (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "2px 12px",
+                  marginTop: 4,
+                  fontSize: "0.72rem",
+                }}
               >
-                {it.spent ? "" : "✓ "}
-                {it.label}
-              </span>
-            ))}
-          </div>
-        )}
+                {[...byLabel.entries()].flatMap(([label, c]) => [
+                  ...(c.avail > 0
+                    ? [
+                        <span key={`${label}-avail`} style={{ color: "var(--ba-fg)", opacity: 0.85 }}>
+                          ✓ {qty(c.avail)}
+                          {label}
+                        </span>,
+                      ]
+                    : []),
+                  ...(c.spent > 0
+                    ? [
+                        <span
+                          key={`${label}-spent`}
+                          style={{
+                            color: "var(--ba-muted)",
+                            opacity: 0.55,
+                            textDecoration: "line-through",
+                          }}
+                        >
+                          {qty(c.spent)}
+                          {label}
+                        </span>,
+                      ]
+                    : []),
+                ])}
+              </div>
+            );
+          })()}
       </div>
     </div>
   );
@@ -303,7 +325,26 @@ export default function VipComboCards({
                   </span>
                 )}
               </div>
-              <div style={{ fontWeight: 700, color: "#22c55e" }}>{dollars(g.totalCents)}</div>
+              {/* Charged total — except a 100% comp charges $0, and staff need
+                  the package's ACTUAL price on the tile (owner 8/2), so show
+                  the pre-promo value with a "comped" tag instead of $0.00. */}
+              {g.totalCents === 0 && g.grossCents > 0 ? (
+                <div
+                  style={{ fontWeight: 700, color: "#22c55e" }}
+                  title={`Comped — ${dollars(g.grossCents)} package, $0 charged${
+                    g.legs.find((l) => l.promoCode)?.promoCode
+                      ? ` (promo ${g.legs.find((l) => l.promoCode)?.promoCode})`
+                      : ""
+                  }`}
+                >
+                  {dollars(g.grossCents)}{" "}
+                  <span style={{ fontSize: "0.68rem", fontWeight: 600, color: "var(--ba-muted)" }}>
+                    comped
+                  </span>
+                </div>
+              ) : (
+                <div style={{ fontWeight: 700, color: "#22c55e" }}>{dollars(g.totalCents)}</div>
+              )}
             </div>
 
             {/* Guest line */}

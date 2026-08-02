@@ -327,6 +327,101 @@ describe("buildComboGroups", () => {
     const raceLeg = g.races[0];
     expect(raceLeg.bmiBillId).toBe("18014567890123456789");
   });
+
+  // ── $0 comp (100% promo): NO deposit order exists ─────────────────────────
+  // Live case 2026-08-02 (Henrry Gomez VIP V2 comp): the two legs carried only
+  // their two DIFFERENT day-of order ids, split into two cards (bowling-only
+  // "Starter TBD" + a race-only card), and the race card sorted to the top of
+  // the page on its 4 AM booking timestamp.
+
+  /** A comped combo: same guest + event date, no deposit order, different day-of orders. */
+  function compCombo() {
+    const race = res({
+      productKind: "race",
+      comboSpecialId: "race-bowl",
+      squareDayofOrderId: "RACEORD-COMP",
+      bmiBillId: "63000000007006612",
+      totalCents: 0,
+      promoSavingsCents: 69300,
+      promoCode: "VIPCOMP-HG-0802",
+      bookedAt: "2026-07-06T08:09:30.000Z", // 4:09 AM ET BOOKING timestamp, not the heat time
+      eventAt: "2026-07-06T18:00:00",
+      guestName: "Henrry Gomez",
+      guestPhone: "7866097355",
+      playerCount: 14, // heat-slot count, NOT people
+      bookingMetadata: {
+        heats: [
+          { heatId: "2026-07-06T18:00:00", track: "Blue Track", tier: "starter", category: "junior" },
+          { heatId: "2026-07-06T18:00:00", track: "Blue Track", tier: "starter", category: "junior" },
+          { heatId: "2026-07-06T18:12:00", track: "Blue Track", tier: "starter", category: "adult" },
+          { heatId: "2026-07-06T20:36:00", track: "Blue Track", tier: "intermediate", category: "junior" },
+          { heatId: "2026-07-06T20:48:00", track: "Blue Track", tier: "intermediate", category: "adult" },
+        ],
+      },
+    });
+    const bowl = res({
+      productKind: "open",
+      comboSpecialId: "race-bowl",
+      squareDayofOrderId: "BOWLORD-COMP",
+      totalCents: 0,
+      bookedAt: "2026-07-06T22:45:00.000Z", // 6:45 PM ET slot
+      eventAt: "2026-07-06T18:45:00",
+      guestName: "Henrry Gomez",
+      guestPhone: "7866097355",
+      playerCount: 7,
+      dayofOrderLane: "9, 10",
+    });
+    return { race, bowl };
+  }
+
+  it("comp legs (no deposit order) group on combo+guest+event date into ONE card", () => {
+    const { race, bowl } = compCombo();
+    const groups = buildComboGroups([race, bowl], META, NOW_DURING);
+    expect(groups).toHaveLength(1);
+    const g = groups[0];
+    expect(g.legs).toHaveLength(2);
+    expect(g.anchor.id).toBe(bowl.id); // bowling leg anchors → 7p, not 14p
+    expect(g.playerCount).toBe(7);
+    expect(g.dayofOrders.map((o) => o.orderId).sort()).toEqual(["BOWLORD-COMP", "RACEORD-COMP"]);
+  });
+
+  it("comp card carries the pre-promo package value as grossCents", () => {
+    const { race, bowl } = compCombo();
+    const g = buildComboGroups([race, bowl], META, NOW_DURING)[0];
+    expect(g.totalCents).toBe(0);
+    expect(g.grossCents).toBe(69300);
+  });
+
+  it("a paid combo's grossCents equals its charged total (no stamped savings)", () => {
+    const { race, bowl } = splitCombo();
+    const g = buildComboGroups([race, bowl], META, NOW_DURING)[0];
+    expect(g.grossCents).toBe(g.totalCents);
+  });
+
+  it("metadata fallback renders EVERY distinct session (jr/adult splits), labeled by tier+category", () => {
+    const { race, bowl } = compCombo();
+    const g = buildComboGroups([race, bowl], META, NOW_DURING)[0];
+    expect(g.schedule.map((s) => s.label)).toEqual([
+      "Junior Starter Race · Blue",
+      "Starter Race · Blue",
+      "VIP Bowling",
+      "Junior Intermediate Race · Blue",
+      "Intermediate Race · Blue",
+    ]);
+    // Intermediates ARE booked — no phantom pending step.
+    expect(g.schedule.some((s) => s.pending)).toBe(false);
+  });
+
+  it("groups sort by first VISIT step, not the race leg's 4 AM booking timestamp", () => {
+    const { race } = compCombo(); // race-only group (no bowling leg yet)
+    const { race: paidRace, bowl: paidBowl } = splitCombo(); // heats at 1:00 PM ET
+    const groups = buildComboGroups([race, paidRace, paidBowl], META, NOW_DURING);
+    expect(groups).toHaveLength(2);
+    // Paid combo's first heat is 1 PM; the comp's first heat is 6 PM — the
+    // comp belongs at the BOTTOM even though it was booked at 4 AM.
+    expect(groups[0].guestName).toBe("Priya Natarajan");
+    expect(groups[1].guestName).toBe("Henrry Gomez");
+  });
 });
 
 describe("buildComboScheduleIndex + mergeComboRows", () => {
