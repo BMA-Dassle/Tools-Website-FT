@@ -327,7 +327,8 @@ export default function VipComboCards({
               </div>
               {/* Charged total — except a 100% comp charges $0, and staff need
                   the package's ACTUAL price on the tile (owner 8/2), so show
-                  the pre-promo value with a "comped" tag instead of $0.00. */}
+                  the pre-promo value instead of $0.00. No visible tag (owner
+                  8/2); the comp detail lives in the hover tooltip. */}
               {g.totalCents === 0 && g.grossCents > 0 ? (
                 <div
                   style={{ fontWeight: 700, color: "#22c55e" }}
@@ -337,10 +338,7 @@ export default function VipComboCards({
                       : ""
                   }`}
                 >
-                  {dollars(g.grossCents)}{" "}
-                  <span style={{ fontSize: "0.68rem", fontWeight: 600, color: "var(--ba-muted)" }}>
-                    comped
-                  </span>
+                  {dollars(g.grossCents)}
                 </div>
               ) : (
                 <div style={{ fontWeight: 700, color: "#22c55e" }}>{dollars(g.totalCents)}</div>
