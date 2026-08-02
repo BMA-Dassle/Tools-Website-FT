@@ -45,7 +45,7 @@ import {
 } from "~/components/features/booking/steps/race/ReturningRacerLookup";
 import { useKioskConfig } from "../KioskConfigContext";
 import { isMegaTuesdayToday } from "../assets";
-import { kioskHasCamera, kioskId } from "../config";
+import { isTestKiosk, kioskHasCamera, kioskId } from "../config";
 import { KioskWaiverPhoto } from "../components/KioskWaiverPhoto";
 import { formatPersonName, normalizeEmail } from "~/lib/helpers/name-format";
 import { kioskMobileJoinEnabled } from "../flags";
@@ -517,8 +517,10 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     }
     // Every new player gives a mobile number (owner rule); the main person also
     // gives an email so their contact is complete and no YOUR INFO step is needed.
+    // Test kiosk 99 skips the requirement (owner 2026-08-02) — Pandora accepts
+    // a phone-less create, so nothing downstream breaks.
     const digits = phone.replace(/\D/g, "");
-    if (digits.length < 10) {
+    if (!isTestKiosk(kioskCfg) && digits.length < 10) {
       setFormError(t("people.err.phone"));
       return;
     }
@@ -947,7 +949,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       setGError(t("peopleUi.gErr.mustBe18"));
       return;
     }
-    if (gPhone.replace(/\D/g, "").length < 10) {
+    if (!isTestKiosk(kioskCfg) && gPhone.replace(/\D/g, "").length < 10) {
       setGError(t("peopleUi.gErr.enterPhone"));
       return;
     }
@@ -1963,6 +1965,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           </div>
           <ReturningRacerLookup
             wide
+            otpBypassKioskId={isTestKiosk(kioskCfg) && kioskCfg ? kioskId(kioskCfg) : undefined}
             onVerified={handleVerified}
             onVerifiedMultiple={handleVerifiedMultiple}
             onSwitchToNew={() => {
@@ -2189,6 +2192,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                       </button>
                     </div>
                     <ReturningRacerLookup
+                      otpBypassKioskId={
+                        isTestKiosk(kioskCfg) && kioskCfg ? kioskId(kioskCfg) : undefined
+                      }
                       onVerified={(p) => void handleGuardianVerified(p)}
                       onSwitchToNew={() => {
                         setGError(null);

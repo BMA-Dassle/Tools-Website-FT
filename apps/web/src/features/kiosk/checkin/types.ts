@@ -8,8 +8,10 @@
  * contact). Only then does the itinerary route return names/contact.
  */
 
-/** How the guest proved this reservation is theirs. */
-export type CheckinVerifiedVia = "code" | "qr" | "otp" | "browse-otp";
+/** How the guest proved this reservation is theirs. `test-bypass` is the
+ *  kiosk-99 OTP skip (server env allowlist) — recorded honestly so a bypassed
+ *  check-in is never mistaken for a proven one in the events table. */
+export type CheckinVerifiedVia = "code" | "qr" | "otp" | "browse-otp" | "test-bypass";
 
 /** One "today at this center" browse row — deliberately PII-lean. */
 export interface CheckinBrowseRow {
@@ -46,6 +48,12 @@ export interface CheckinLookupRequest {
   scan?: string; // raw wedge/typed payload: /s URL, W#####, r{billId}, native code
   phone?: string; // guest typed their OWN phone (already OTP-verified client-side)
   browse?: boolean; // list today's reservations
+  /** Open a browse row directly WITHOUT the last-4/OTP gate — honored ONLY
+   *  when `kioskId` is on the server's test-bypass allowlist. */
+  ref?: string;
+  /** Sender's kiosk id ("center:number") — grants nothing unless the server
+   *  env KIOSK_CHECKIN_OTP_BYPASS_KIOSK_IDS lists it (default: unset, off). */
+  kioskId?: string;
 }
 
 export interface CheckinLookupResponse {

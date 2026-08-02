@@ -55,6 +55,12 @@ interface Props {
    *  cards out two-across. Web / phone-join leave it off (mobile, single col). */
   wide?: boolean;
   autoCode?: string | null;
+  /** Test-kiosk OTP skip (kiosk 99, owner 2026-08-02): when set, phone/email
+   *  lookup fetches accounts directly, passing this kioskId — the server
+   *  honors it only via its env allowlist (KIOSK_CHECKIN_OTP_BYPASS_KIOSK_IDS)
+   *  and any refusal falls back to the normal OTP. Accounts reached this way
+   *  are NEVER marked phoneVerified (rewards still re-verify). */
+  otpBypassKioskId?: string;
   /** Intro line on the method chooser. Defaults preserve the racing copy —
    *  the kiosk mobile-join page overrides it (attraction sessions must not
    *  say "racer"). */
@@ -115,13 +121,15 @@ async function searchCandidates(queries: string | string[]): Promise<SearchCandi
 
 async function fetchAccountDetails(
   unique: SearchCandidate[],
-  proof: { verify?: string; code?: string },
+  proof: { verify?: string; code?: string; kioskId?: string },
 ): Promise<FoundAccount[]> {
   const proofQs = proof.verify
     ? `&verify=${encodeURIComponent(proof.verify)}`
     : proof.code
       ? `&code=${encodeURIComponent(proof.code)}`
-      : "";
+      : proof.kioskId
+        ? `&kioskId=${encodeURIComponent(proof.kioskId)}`
+        : "";
   const details = await Promise.all(
     unique.map(async (r) => {
       try {
@@ -198,6 +206,7 @@ export function ReturningRacerLookup({
   onSwitchToNew,
   wide = false,
   autoCode,
+  otpBypassKioskId,
   introText = "Find your account to unlock your earned speeds",
   switchToNewLabel = "Actually, I'm a new racer →",
 }: Props) {
@@ -216,6 +225,9 @@ export function ReturningRacerLookup({
   // Search hits held between "code sent" and "code verified" — PII details
   // are only fetched once the OTP verifies (server enforces this too).
   const [candidates, setCandidates] = useState<SearchCandidate[]>([]);
+  // Accounts were reached through the test-kiosk bypass — the phone was never
+  // OTP-proven, so buildPerson must not claim phoneVerified.
+  const [otpSkipped, setOtpSkipped] = useState(false);
 
   const autoCodeUsed = useRef(false);
 
@@ -248,8 +260,9 @@ export function ReturningRacerLookup({
       // Phone mode only reaches here AFTER handleSmsVerify succeeded, so the
       // phone above is OTP-proven (email mode proves the email, not a phone).
       // Every returned account shares the OTP'd phone/email, so the proof holds
-      // for each of them in a multi-select add.
-      phoneVerified: mode === "phone" || undefined,
+      // for each of them in a multi-select add. The test-kiosk bypass path
+      // proves NOTHING — it never sets this.
+      phoneVerified: (mode === "phone" && !otpSkipped) || undefined,
       races: a.races,
       loginCode: a.loginCode,
       memberships: a.memberships,
@@ -297,6 +310,20 @@ export function ReturningRacerLookup({
         return;
       }
       setCandidates(found);
+      // Test kiosk 99: fetch accounts directly — the server honors the
+      // kioskId only via its env allowlist; a refusal (empty result) falls
+      // back to the normal text-a-code path.
+      if (otpBypassKioskId) {
+        setPhase("verifying");
+        const direct = await fetchAccountDetails(found, { kioskId: otpBypassKioskId });
+        if (direct.length > 0) {
+          setOtpSkipped(true);
+          setAccounts(direct);
+          setPhase("phone-verified");
+          return;
+        }
+        setPhase("looking");
+      }
       const smsRes = await fetch("/api/sms-verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -327,6 +354,17 @@ export function ReturningRacerLookup({
         return;
       }
       setCandidates(found);
+      if (otpBypassKioskId) {
+        setPhase("verifying");
+        const direct = await fetchAccountDetails(found, { kioskId: otpBypassKioskId });
+        if (direct.length > 0) {
+          setOtpSkipped(true);
+          setAccounts(direct);
+          setPhase("phone-verified");
+          return;
+        }
+        setPhase("looking");
+      }
       const otpRes = await fetch("/api/sms-verify", {
         method: "POST",
         headers: { "content-type": "application/json" },

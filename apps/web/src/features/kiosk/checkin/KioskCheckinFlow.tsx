@@ -32,7 +32,7 @@ import { IdleWatcher } from "../components/IdleWatcher";
 import { BrandedLoader } from "../components/BrandedLoader";
 import { RacingWhatsNext } from "../components/RacingWhatsNext";
 import { useKioskConfig } from "../KioskConfigContext";
-import { kioskId } from "../config";
+import { isTestKiosk, kioskId } from "../config";
 import { resetToKiosk } from "../version";
 import { useT } from "../i18n";
 import {
@@ -43,6 +43,7 @@ import {
   fetchItinerary,
   lookupBrowse,
   lookupByPhone,
+  lookupByRefBypass,
   lookupByScan,
   sendContactOtp,
   sendOwnPhoneOtp,
@@ -369,11 +370,23 @@ export function KioskCheckinFlow() {
   // don't check in here and we must not text them a code. Everyone else proves
   // the booking is theirs with the last 4 of the number on file first, so a tap
   // can't blind-OTP an arbitrary guest.
-  const openRow = (row: CheckinBrowseRow) => {
+  const openRow = async (row: CheckinBrowseRow) => {
     setError(null);
     if (row.express) {
       setExpressFor({ label: row.label, timeLabel: row.timeLabel });
       return;
+    }
+    // Test kiosk 99: try the server's env-allowlisted bypass first — a row
+    // opens with no last-4 and no OTP. Any refusal (env unset, expired ref)
+    // falls through to the normal verify path.
+    if (isTestKiosk(config) && config) {
+      setBusy(true);
+      const direct = await lookupByRefBypass(center, row.ref, kioskId(config));
+      setBusy(false);
+      if (direct.ok && direct.matches?.[0]) {
+        void openItinerary(direct.matches[0].proofToken);
+        return;
+      }
     }
     setPendingRef(row.ref);
     setLast4("");
@@ -415,7 +428,7 @@ export function KioskCheckinFlow() {
       return;
     }
     if (res.ok && res.rows && res.rows[0]) {
-      openRow(res.rows[0]);
+      void openRow(res.rows[0]);
       return;
     }
     setError(
@@ -432,6 +445,27 @@ export function KioskCheckinFlow() {
     }
     setBusy(true);
     setError(null);
+    // Test kiosk 99: skip the own-phone OTP when the server's env allowlist
+    // agrees — the lookup answers directly. A needs-otp refusal (env unset)
+    // falls through to the normal text-a-code flow.
+    if (isTestKiosk(config) && config) {
+      const direct = await lookupByPhone(center, phone, kioskId(config));
+      if (direct.ok && direct.matches && direct.matches.length > 0) {
+        setBusy(false);
+        if (direct.matches.length === 1) {
+          void openItinerary(direct.matches[0].proofToken);
+          return;
+        }
+        setMatches(direct.matches);
+        setStage("matches");
+        return;
+      }
+      if (direct.ok === false && direct.reason === "not-found") {
+        setBusy(false);
+        setError(t("checkin.err.noReservations"));
+        return;
+      }
+    }
     const sent = await sendOwnPhoneOtp(phone);
     setBusy(false);
     if (!sent) {
@@ -675,7 +709,7 @@ export function KioskCheckinFlow() {
                 <button
                   key={r.ref}
                   type="button"
-                  onClick={() => openRow(r)}
+                  onClick={() => void openRow(r)}
                   aria-label={
                     r.express
                       ? t("checkin.express.pillAria", { label: r.label, time: r.timeLabel })

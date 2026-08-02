@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import https from "https";
 import { randomUUID } from "crypto";
 import redis from "@/lib/redis";
+import { checkinOtpBypassAllowed } from "~/features/kiosk/checkin/server";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -279,8 +280,22 @@ export async function GET(req: NextRequest) {
 
       const internal = isInternal(req);
       const loginCode = (searchParams.get("code") || "").trim().toLowerCase();
+      // Test-kiosk OTP bypass (kiosk 99, owner 2026-08-02): honored ONLY when
+      // the claimed kioskId is on the server's env allowlist
+      // (KIOSK_CHECKIN_OTP_BYPASS_KIOSK_IDS — default unset, off). Same
+      // spoofability trade-off as the check-in bypass: list it only while
+      // testing.
+      const testBypass = checkinOtpBypassAllowed(searchParams.get("kioskId"));
+      if (testBypass) {
+        console.warn(
+          `[bmi-office] OTP TEST-BYPASS person fetch by ${searchParams.get("kioskId")} (${clientIp(req)})`,
+        );
+      }
       const preAuthed =
-        internal || (await hasVerifiedSession(req)) || (await verifyParamOk(searchParams));
+        internal ||
+        testBypass ||
+        (await hasVerifiedSession(req)) ||
+        (await verifyParamOk(searchParams));
       if (!preAuthed && !loginCode) {
         return NextResponse.json(
           { error: "Verification required", verificationRequired: true },

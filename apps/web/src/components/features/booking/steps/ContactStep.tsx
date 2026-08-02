@@ -32,17 +32,22 @@ import { useT } from "~/features/kiosk/i18n";
 const inputClass =
   "w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-white/30 outline-none transition-colors focus:border-[#00E2E5]/60";
 
-export function contactIsComplete(contact: {
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-  phone?: string;
-}): boolean {
+export function contactIsComplete(
+  contact: {
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+    phone?: string;
+  },
+  /** `requirePhone: false` is the kiosk-99 test relaxation ONLY (owner
+   *  2026-08-02) — every web caller keeps the default. */
+  opts?: { requirePhone?: boolean },
+): boolean {
   return (
     !!contact.firstName?.trim() &&
     !!contact.lastName?.trim() &&
     !!contact.email?.includes("@") &&
-    (contact.phone ?? "").replace(/\D/g, "").length >= 10
+    (opts?.requirePhone === false || (contact.phone ?? "").replace(/\D/g, "").length >= 10)
   );
 }
 

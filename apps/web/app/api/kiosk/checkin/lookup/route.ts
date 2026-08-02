@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  checkinOtpBypassAllowed,
   isCenterSlug,
   rateLimited,
   resolveScanToBillId,
@@ -135,6 +136,42 @@ export async function POST(req: NextRequest) {
     return NextResponse.json<CheckinLookupResponse>({ ok: true, rows });
   }
 
+  // Test-bypass row open (kiosk 99): a browse ref mints a proof directly,
+  // skipping the last-4 + contact-OTP gates — ONLY for a kioskId on the
+  // server's env allowlist (default unset → this branch always refuses).
+  if (typeof body.ref === "string" && body.ref.trim()) {
+    if (!checkinOtpBypassAllowed(body.kioskId)) {
+      return NextResponse.json<CheckinLookupResponse>(
+        { ok: false, reason: "invalid" },
+        { status: 403 },
+      );
+    }
+    const handle = await readRef(body.ref.trim());
+    if (!handle || handle.center !== center) {
+      return NextResponse.json<CheckinLookupResponse>({ ok: false, reason: "not-found" });
+    }
+    const summary = await loadSummary(handle.billId);
+    if (!summary) {
+      return NextResponse.json<CheckinLookupResponse>({ ok: false, reason: "not-found" });
+    }
+    if (summary.cancelled) {
+      return NextResponse.json<CheckinLookupResponse>({ ok: false, reason: "cancelled" });
+    }
+    console.warn(`[kiosk-checkin] OTP TEST-BYPASS row open by ${String(body.kioskId)} (${ip})`);
+    const proofToken = await mintProof(handle.billId, center, "test-bypass");
+    return NextResponse.json<CheckinLookupResponse>({
+      ok: true,
+      matches: [
+        {
+          proofToken,
+          label: summary.label,
+          timeLabel: summary.timeLabel,
+          activitiesLabel: summary.activitiesLabel,
+        },
+      ],
+    });
+  }
+
   // Scan / typed code. A signature-carrying input (/s short link or a full
   // signed URL) is real possession and opens directly. An enumerable input
   // (native code / r{billId} / W-number) resolves the reservation but must be
@@ -199,8 +236,13 @@ export async function POST(req: NextRequest) {
   }
 
   // Phone — the guest verified their OWN number via /api/sms-verify first.
+  // Test-bypass kiosks (env allowlist) skip that verification.
   if (typeof body.phone === "string" && body.phone.trim()) {
-    if (!(await phoneIsVerified(body.phone))) {
+    const bypass = checkinOtpBypassAllowed(body.kioskId);
+    if (bypass) {
+      console.warn(`[kiosk-checkin] OTP TEST-BYPASS phone lookup by ${String(body.kioskId)} (${ip})`);
+    }
+    if (!bypass && !(await phoneIsVerified(body.phone))) {
       return NextResponse.json<CheckinLookupResponse>({ ok: false, reason: "needs-otp" });
     }
     const matches = await matchByPhone(center, body.phone);

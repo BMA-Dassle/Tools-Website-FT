@@ -185,6 +185,26 @@ export async function readProof(
   }
 }
 
+/**
+ * Test-kiosk OTP bypass — an env ALLOWLIST of kioskIds (comma-separated, e.g.
+ * "fort-myers:99") whose check-in lookups skip the own-phone OTP and the
+ * browse last-4/OTP gate (owner 2026-08-02: kiosk 99 shouldn't force phone or
+ * OTP). Default UNSET = no bypass anywhere. The kioskId in the request body is
+ * client-declared and therefore spoofable — that's why this is a server-side
+ * env decision, opted into deliberately and killable without a deploy of the
+ * kiosk. While a kioskId is listed, anyone who guesses it can open today's
+ * reservations at that center without OTP — list it only while testing.
+ */
+export function checkinOtpBypassAllowed(kioskId: unknown): boolean {
+  if (typeof kioskId !== "string" || !kioskId) return false;
+  const raw = process.env.KIOSK_CHECKIN_OTP_BYPASS_KIOSK_IDS ?? "";
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .includes(kioskId);
+}
+
 /** Lax per-IP limiter (fail-open — venue kiosks + phones share one NAT). */
 export async function rateLimited(bucket: string, ip: string, max: number): Promise<boolean> {
   try {

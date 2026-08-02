@@ -15,7 +15,7 @@
  */
 import { sql, isDbConfigured } from "@/lib/db";
 
-export type VerifiedVia = "code" | "qr" | "otp" | "browse-otp";
+export type VerifiedVia = "code" | "qr" | "otp" | "browse-otp" | "test-bypass";
 export type BmiStateStatus = "pending" | "set" | "failed";
 export type PersonAttachStatus = "pending" | "attached" | "failed" | "skipped";
 export type ScheduleStatus = "pending" | "inserted" | "already_linked" | "failed" | "n/a";

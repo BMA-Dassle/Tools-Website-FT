@@ -38,9 +38,30 @@ export async function lookupByScan(center: string, scan: string): Promise<Checki
   }
 }
 
-export async function lookupByPhone(center: string, phone: string): Promise<CheckinLookupResponse> {
+export async function lookupByPhone(
+  center: string,
+  phone: string,
+  /** Test-bypass kioskId — server honors it only via its env allowlist. */
+  kioskId?: string,
+): Promise<CheckinLookupResponse> {
   try {
-    const res = await postLookup({ center, phone });
+    const res = await postLookup({ center, phone, ...(kioskId ? { kioskId } : {}) });
+    return (await res.json()) as CheckinLookupResponse;
+  } catch {
+    return { ok: false, reason: "invalid" };
+  }
+}
+
+/** Test-bypass row open (kiosk 99): browse ref → proof, no last-4/OTP. The
+ *  server refuses unless the kioskId is on its env allowlist — callers fall
+ *  back to the normal verify path on any failure. */
+export async function lookupByRefBypass(
+  center: string,
+  ref: string,
+  kioskId: string,
+): Promise<CheckinLookupResponse> {
+  try {
+    const res = await postLookup({ center, ref, kioskId });
     return (await res.json()) as CheckinLookupResponse;
   } catch {
     return { ok: false, reason: "invalid" };

@@ -15,6 +15,8 @@ import type { Dispatch } from "react";
 import type { Action } from "~/features/booking/state/machine";
 import type { BookingSession } from "~/features/booking";
 import { contactIsComplete } from "~/components/features/booking/steps/ContactStep";
+import { useKioskConfig } from "../KioskConfigContext";
+import { isTestKiosk } from "../config";
 import { useT } from "../i18n";
 
 const FIELD_CLS =
@@ -28,15 +30,18 @@ export function KioskBookingAsCard({
   dispatch: Dispatch<Action>;
 }) {
   const t = useT();
+  const { config: kioskCfg } = useKioskConfig();
+  // Test kiosk 99 books without a phone (owner 2026-08-02).
+  const requirePhone = !isTestKiosk(kioskCfg);
   const c = session.contact;
-  const [editing, setEditing] = useState(() => !contactIsComplete(c));
+  const [editing, setEditing] = useState(() => !contactIsComplete(c, { requirePhone }));
   const [firstName, setFirstName] = useState(c.firstName ?? "");
   const [lastName, setLastName] = useState(c.lastName ?? "");
   const [email, setEmail] = useState(c.email ?? "");
   const [phone, setPhone] = useState(c.phone ?? "");
   const [smsOptIn, setSmsOptIn] = useState(c.smsOptIn ?? true);
 
-  const draftValid = contactIsComplete({ firstName, lastName, email, phone });
+  const draftValid = contactIsComplete({ firstName, lastName, email, phone }, { requirePhone });
 
   const save = () => {
     if (!draftValid) return;

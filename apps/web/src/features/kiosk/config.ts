@@ -183,6 +183,19 @@ export function kioskDeviceKey(cfg: Pick<KioskConfig, "center" | "brand" | "kios
   return `${venueSlug(cfg)}:${cfg.kioskNumber ?? 1}`;
 }
 
+/**
+ * The TEST kiosk — kiosk number 99 by owner convention. Existing 99-only
+ * behaviors (midnight rollover, availability-lock ignore, VIP tile always
+ * visible) check the number inline; NEW relaxations go through this helper so
+ * "what does 99 skip" greps to one symbol. Owner 2026-08-02: 99 also skips
+ * the required booking phone and check-in OTPs (the OTP skip additionally
+ * needs the server-side KIOSK_CHECKIN_OTP_BYPASS_KIOSK_IDS env allowlist —
+ * a client claiming to be kiosk 99 grants nothing by itself).
+ */
+export function isTestKiosk(cfg: Pick<KioskConfig, "kioskNumber"> | null | undefined): boolean {
+  return cfg?.kioskNumber === 99;
+}
+
 const STORAGE_KEY = "kiosk_config";
 
 /** Version STAMPED onto newly-written envelopes. It is purely cosmetic: readStorage

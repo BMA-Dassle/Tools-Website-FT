@@ -32,6 +32,8 @@ import {
   itemSortMs,
 } from "~/components/features/booking/CartView";
 import { contactIsComplete } from "~/components/features/booking/steps/ContactStep";
+import { useKioskConfig } from "../KioskConfigContext";
+import { isTestKiosk } from "../config";
 import { activeComboSpecial, comboChargeLines } from "~/features/combos/combo-pricing";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { KioskBookingAsCard } from "./KioskBookingAsCard";
@@ -147,7 +149,12 @@ export function KioskCheckoutScreen({
     appliedCount === 1 ? voucherDisplayName(allocatedVouchers[0]?.name) : String(appliedCount);
 
   const itemsReady = items.length > 0 && allItemsReady(session);
-  const contactOk = contactIsComplete(session.contact);
+  // Test kiosk 99 books without a phone (owner 2026-08-02) — the reserve
+  // path already tolerates an empty guest.phone.
+  const { config: kioskCfg } = useKioskConfig();
+  const contactOk = contactIsComplete(session.contact, {
+    requirePhone: !isTestKiosk(kioskCfg),
+  });
 
   return (
     <>

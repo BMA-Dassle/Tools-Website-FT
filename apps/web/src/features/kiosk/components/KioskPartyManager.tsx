@@ -44,7 +44,7 @@ import {
 } from "~/components/features/booking/steps/race/ReturningRacerLookup";
 import { useKioskConfig } from "../KioskConfigContext";
 import { useT } from "../i18n";
-import { kioskHasCamera, kioskId } from "../config";
+import { isTestKiosk, kioskHasCamera, kioskId } from "../config";
 import { useMobileJoin } from "../hooks/useMobileJoin";
 import { ageFromIso } from "../join/phone/join-helpers";
 import { mergeJoinedGuests } from "../join/merge";
@@ -672,7 +672,7 @@ export function KioskPartyManager({
       setGError(t("party.gErr.mustBe18"));
       return;
     }
-    if (gPhone.replace(/\D/g, "").length < 10) {
+    if (!isTestKiosk(kioskCfg) && gPhone.replace(/\D/g, "").length < 10) {
       setGError(t("party.gErr.enterPhone"));
       return;
     }
@@ -933,8 +933,9 @@ export function KioskPartyManager({
     }
     // Every new player gives a mobile number (owner rule); the main person also
     // gives an email so their contact is complete and no YOUR INFO step is needed.
+    // Test kiosk 99 skips the requirement (owner 2026-08-02).
     const digits = phone.replace(/\D/g, "");
-    if (digits.length < 10) {
+    if (!isTestKiosk(kioskCfg) && digits.length < 10) {
       setFormError(t("party.err.phone"));
       return;
     }
@@ -2024,6 +2025,7 @@ export function KioskPartyManager({
           </div>
           <ReturningRacerLookup
             wide
+            otpBypassKioskId={isTestKiosk(kioskCfg) && kioskCfg ? kioskId(kioskCfg) : undefined}
             onVerified={handleVerified}
             onVerifiedMultiple={handleVerifiedMultiple}
             onSwitchToNew={() => {
@@ -2211,6 +2213,9 @@ export function KioskPartyManager({
                 {guardianFlow.stage === "lookup" && (
                   <ReturningRacerLookup
                     wide
+                    otpBypassKioskId={
+                      isTestKiosk(kioskCfg) && kioskCfg ? kioskId(kioskCfg) : undefined
+                    }
                     onVerified={(person) => void handleGuardianVerified(person)}
                     onSwitchToNew={() => {
                       resetGuardianForm();
