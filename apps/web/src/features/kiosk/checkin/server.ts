@@ -28,6 +28,8 @@ import {
 } from "@/lib/bowling-db";
 import { ATTRACTIONS } from "@/lib/attractions-data";
 import { registerProjectPersonServer } from "~/features/kiosk/waiver/bmi-attach";
+import { CENTER_TO_BMI_LOCATION_IDS } from "~/features/kiosk/waiver/locations";
+import { getReservationDetail } from "~/features/daily-events/service";
 import {
   setProjectState,
   appendProjectPrivateNote,
@@ -1441,6 +1443,32 @@ export async function listBindableParty(billId: string): Promise<CheckinPartyMem
     }
   } catch {
     /* joins unavailable — the booking-sourced rows above still stand */
+  }
+  // Everyone REGISTERED on the booking's Office project (BMI projectPersons) —
+  // the same source the /waiver page rosters from a booking (owner 2026-08-02:
+  // "it should pull every person on it"). Racer rows above only know who's on
+  // a HEAT; people added to the project (web waiver registration, staff adds,
+  // bowling-side guests) were invisible without this. The FM BMI server hosts
+  // two venues, so try each of the center's locations until the project
+  // answers; every failure is fail-open (the other sources still stand).
+  if (summary.center) {
+    const projectId = officeProjectIdFromBillId(billId);
+    for (const locationId of CENTER_TO_BMI_LOCATION_IDS[summary.center] ?? []) {
+      try {
+        const detail = await getReservationDetail(locationId, projectId);
+        const people = detail.persons_list ?? [];
+        for (const p of people) {
+          const full = [p.firstName ?? "", p.name ?? ""].join(" ").trim();
+          // Slot labels that rode into BMI's people list ("Adult 1", the
+          // whitley incident) are junk even WITH a personId — never offer them.
+          if (!full || isPlaceholderRacerName(full)) continue;
+          rows.push({ full, personId: String(p.personId ?? p.id ?? "") || null });
+        }
+        if (people.length > 0) break;
+      } catch {
+        /* project not at this venue / BMI hiccup — next location or fail open */
+      }
+    }
   }
   const seen = new Set<string>();
   const uniq = rows.filter((r) => {
