@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { addPendingCards, clearDispensedCards, removePendingCard } from "./pending-cards";
+import {
+  addOnePendingCard,
+  addPendingCards,
+  clearDispensedCards,
+  removeOnePendingCard,
+  removePendingCard,
+} from "./pending-cards";
 
 const A = { code: "HPW-A", tokens: 100 };
 const B = { code: "HPW-B", tokens: 50 };
@@ -60,5 +66,20 @@ describe("clearDispensedCards", () => {
 
   it("ignores outcomes for codes not in the list (GZ walk-up baskets)", () => {
     expect(clearDispensedCards([A], [{ code: "HPW-Z", loaded: true }])).toEqual([A]);
+  });
+});
+
+describe("qty stepper legs (owner 2026-08-02)", () => {
+  it("removeOnePendingCard drops exactly one leg of the code", () => {
+    const threeLegs = [A, { code: "HPW-A", tokens: 100 }, B];
+    expect(removeOnePendingCard(threeLegs, "HPW-A")).toEqual([{ code: "HPW-A", tokens: 100 }, B]);
+    expect(removeOnePendingCard([B], "HPW-A")).toEqual([B]);
+  });
+
+  it("addOnePendingCard appends without the whole-code dedupe", () => {
+    expect(addOnePendingCard([A], { code: "HPW-A", tokens: 100 })).toEqual([
+      A,
+      { code: "HPW-A", tokens: 100 },
+    ]);
   });
 });

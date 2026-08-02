@@ -38,6 +38,13 @@ import { useWedgeScan } from "../checkin/wedge-scan";
 import { classifyKioskCode, type KioskCodeKind } from "../code-entry/classify";
 import { receiptPlan } from "../code-entry/receipt-plan";
 import {
+  groupCartLegs,
+  groupGzCards,
+  groupUsedLegs,
+  type CartGroup,
+  type GzGroup,
+} from "../code-entry/receipt-groups";
+import {
   mergeRosters,
   personChipState,
   type VoucherPartyPerson,
@@ -132,6 +139,9 @@ export function KioskCodeEntry({
   onGzCardRemove,
   appliedCartVouchers = [],
   onCartVoucherRemove,
+  onNativeCartItemAdd,
+  onGzCardAddOne,
+  onGzCardRemoveOne,
   appliedPromo = null,
   onClearPromo,
   canDispenseCards = true,
@@ -173,12 +183,21 @@ export function KioskCodeEntry({
   appliedCartVouchers?: {
     code: string;
     label: string;
+    /** Raw coverage name (native legs) — the qty "+" matches unspent legs of
+     *  the same kind in the validate response by this, never by display label. */
+    name?: string | null;
     error?: string | null;
     /** Native leg's item index — set = this row's ✕ removes ONE leg. */
     itemIndex?: number | null;
   }[];
   /** Remove an on-order voucher (whole code) — parent unwinds BMI/session. */
   onCartVoucherRemove?: (code: string, itemIndex?: number | null) => void;
+  /** Re-apply ONE native leg (the qty "+") — parent dispatches applyVoucher,
+   *  which upserts by (code, itemIndex). */
+  onNativeCartItemAdd?: (code: string, item: { itemIndex: number; coverageName: string }) => void;
+  /** Qty stepper on the game-card rows: append / drop ONE leg of a code. */
+  onGzCardAddOne?: (card: { code: string; tokens: number }) => void;
+  onGzCardRemoveOne?: (code: string) => void;
   /** The session promo — rendered INLINE on the receipt; a promo scanned while
    *  the receipt is up must never replace it. */
   appliedPromo?: AppliedPromo | null;
@@ -210,6 +229,10 @@ export function KioskCodeEntry({
   const [spentByCode, setSpentByCode] = useState<
     Record<string, { index: number; label: string }[]>
   >({});
+  // code → its UNSPENT items from the last validate — what the qty "+" checks
+  // before promising another leg. Local like spentByCode; a remount just costs
+  // "+" one re-validate to repopulate.
+  const [unspentByCode, setUnspentByCode] = useState<Record<string, NativeValidateItem[]>>({});
   const [error, setError] = useState<string | null>(null);
   // Routed-but-not-a-problem scans (gift card / game card) while the receipt is
   // up read as a calm info line, not the red error line and not a panel swap.
@@ -238,6 +261,10 @@ export function KioskCodeEntry({
   const keepFieldFocus = (e: { preventDefault: () => void }) => e.preventDefault();
   // Back with unprinted cards → inline "they won't print later" warning.
   const [leaveWarn, setLeaveWarn] = useState(false);
+  // "Start picking" with a booking party offered but NOBODY selected → ask
+  // first (owner 2026-08-02). Print/Done paths are exempt — cards don't care
+  // who's playing.
+  const [pickWarn, setPickWarn] = useState(false);
   // "Add another" starts as a compact button (owner 2026-08-02: the always-
   // open panel ate the bottom of the screen and clipped the list). Expanding
   // it re-caps the list so the input stays in the TOP half (OSK-safe); the
@@ -473,6 +500,7 @@ export function KioskCodeEntry({
           // fine; a remount just drops the rows until the next scan.
           setSpentByCode((prev) => ({ ...prev, [code]: data.spentItems ?? [] }));
           const items = data.items ?? [];
+          setUnspentByCode((prev) => ({ ...prev, [code]: items }));
           const cart = items.filter((i) => i.redeemVia === "cart" && i.coverageName);
           const gz = items.filter((i) => i.redeemVia === "gamezone");
 
@@ -674,10 +702,89 @@ export function KioskCodeEntry({
         onCartVoucherRemove?.(code, itemIndex);
         processedNativeRef.current.delete(code);
       };
+      // Identical legs collapse to one qty row with a −/+ stepper (owner
+      // 2026-08-02: a 7-guest VIP voucher rendered 14 rows). Grouping rules
+      // live in receipt-groups.ts (tested); "+" is honest — it re-checks the
+      // voucher's unspent legs before promising another one.
+      const gzGroups = groupGzCards(gzCards);
+      const cartGroups = groupCartLegs(cartLabels);
+      const usedGroups = groupUsedLegs(spentByCode);
+      const ensureUnspent = async (code: string): Promise<NativeValidateItem[]> => {
+        if (unspentByCode[code]) return unspentByCode[code];
+        try {
+          const res = await fetch("/api/game-cards/voucher-redeem", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "validate", code }),
+          });
+          const data: {
+            ok?: boolean;
+            items?: NativeValidateItem[];
+            spentItems?: { index: number; label: string }[];
+          } = await res.json().catch(() => ({}));
+          if (!res.ok || data.ok !== true) return [];
+          const items = data.items ?? [];
+          setUnspentByCode((prev) => ({ ...prev, [code]: items }));
+          setSpentByCode((prev) => ({ ...prev, [code]: data.spentItems ?? [] }));
+          return items;
+        } catch {
+          return [];
+        }
+      };
+      const stepCartDown = (g: CartGroup) => {
+        // Highest leg first, so the surviving indexes stay contiguous-ish and
+        // a later "+" re-adds what was just dropped.
+        const last = g.itemIndexes[g.itemIndexes.length - 1];
+        clarityEvent("kiosk:receipt:qty-remove");
+        removeCartVoucher(g.code, last);
+      };
+      const stepCartUp = async (g: CartGroup) => {
+        const items = await ensureUnspent(g.code);
+        const applied = new Set(g.itemIndexes);
+        const next = items.find(
+          (i) =>
+            i.redeemVia === "cart" &&
+            !!i.coverageName &&
+            (i.coverageName ?? null) === g.name &&
+            !applied.has(i.index),
+        );
+        if (!next?.coverageName) {
+          setInfo(t("codeEntry.voucherGz.noMoreLegs"));
+          return;
+        }
+        console.log(`[kiosk] receipt qty +1: cart leg#${next.index} on ${g.code}`);
+        clarityEvent("kiosk:receipt:qty-add");
+        onNativeCartItemAdd?.(g.code, { itemIndex: next.index, coverageName: next.coverageName });
+      };
+      const stepGzDown = (g: GzGroup) => {
+        // Last leg → whole-code removal (frees the code for a clean re-scan);
+        // otherwise drop one leg. Mixed token values on one code would make
+        // "one leg of this code" ambiguous, but no mint does that today.
+        if (g.qty <= 1) {
+          removeGzCard(g.code);
+          return;
+        }
+        clarityEvent("kiosk:receipt:qty-remove");
+        onGzCardRemoveOne?.(g.code);
+      };
+      const stepGzUp = async (g: GzGroup) => {
+        const items = await ensureUnspent(g.code);
+        const gzAvail = items.filter((i) => i.redeemVia === "gamezone").length;
+        const pendingForCode = gzCards.filter((c) => c.code === g.code).length;
+        if (pendingForCode >= gzAvail) {
+          setInfo(t("codeEntry.voucherGz.noMoreLegs"));
+          return;
+        }
+        console.log(`[kiosk] receipt qty +1: gz leg on ${g.code}`);
+        clarityEvent("kiosk:receipt:qty-add");
+        onGzCardAddOne?.({ code: g.code, tokens: g.tokens });
+      };
+      const stepBtn = "k-tap h-[56px] w-[56px] rounded-full border border-white/20 text-[30px] leading-none text-white/70";
       // Booking party chips — the decisions live in voucher-party.ts (tested);
       // this only maps chip verdicts to copy and dispatches.
       const partyPeople = onPartyAdd ? mergeRosters(voucherRosters) : [];
       const togglePerson = (person: VoucherPartyPerson) => {
+        setPickWarn(false);
         const chip = personChipState(person, party, addedIds);
         if (chip.state === "in-group") return; // not ours to remove
         if (chip.state === "added" && chip.memberId) {
@@ -728,6 +835,19 @@ export function KioskCodeEntry({
         clarityEvent(`kiosk:receipt:${why}`);
         onBack();
       };
+      // Booking party offered but nobody tapped — "Start picking" asks first
+      // (print/done don't care who's playing).
+      const partyUnpicked =
+        partyPeople.length > 0 &&
+        partyPeople.every((p) => personChipState(p, party, addedIds).state === "idle");
+      const startPicking = () => {
+        if (partyUnpicked) {
+          clarityEvent("kiosk:receipt:pick-warn");
+          setPickWarn(true);
+          return;
+        }
+        leaveTo("start-picking");
+      };
       const finish =
         plan.primary === "print"
           ? { label: t("codeEntry.voucherGz.printNow", { n: cardCount }), onClick: startPrint }
@@ -737,7 +857,7 @@ export function KioskCodeEntry({
                 onClick: startPrint,
               }
             : plan.primary === "start-picking"
-              ? { label: t("codeEntry.applied.cta"), onClick: () => leaveTo("start-picking") }
+              ? { label: t("codeEntry.applied.cta"), onClick: startPicking }
               : { label: t("codeEntry.voucherGz.done"), onClick: () => leaveTo("done") };
       const warnOnBack = plan.warnOnBack;
       return (
@@ -769,29 +889,40 @@ export function KioskCodeEntry({
                     : t("codeEntry.voucherGz.printingSubElsewhere")}
                 </div>
                 <ul className="mt-[14px] space-y-[10px]">
-                  {gzCards.map((c, i) => (
+                  {gzGroups.map((g) => (
                     <li
-                      key={`${c.code}-${i}`}
-                      className="flex items-center justify-between gap-[16px] rounded-[16px] border border-white/12 bg-white/[0.04] px-[24px] py-[16px]"
+                      key={`${g.code}-${g.tokens}`}
+                      className="flex items-center justify-between gap-[16px] rounded-[16px] border border-white/12 bg-white/[0.04] px-[24px] py-[12px]"
                     >
                       <span className="min-w-0 truncate text-[28px] text-white/90">
-                        {c.tokens > 0
-                          ? t("codeEntry.voucherGz.cardTokens", { tokens: c.tokens })
+                        {g.tokens > 0
+                          ? t("codeEntry.voucherGz.cardTokens", { tokens: g.tokens })
                           : t("codeEntry.voucherGz.gameCardGeneric")}
+                        {g.qty > 1 && <span className="text-white/50">{`  ×${g.qty}`}</span>}
                       </span>
-                      <span className="flex shrink-0 items-center gap-[16px]">
-                        {c.tokens > 0 && (
+                      <span className="flex shrink-0 items-center gap-[14px]">
+                        {g.tokens > 0 && (
                           <span className="text-[24px] text-[#46d68c]">
-                            {t("codeEntry.voucherGz.inPlay", { amount: tokensInPlay(c.tokens) })}
+                            {t("codeEntry.voucherGz.inPlay", {
+                              amount: tokensInPlay(g.tokens * g.qty),
+                            })}
                           </span>
                         )}
                         <button
                           type="button"
-                          onClick={() => removeGzCard(c.code)}
-                          aria-label={t("promo.banner.clear")}
-                          className="k-tap px-[8px] text-[28px] leading-none text-white/40"
+                          onClick={() => stepGzDown(g)}
+                          aria-label={t("codeEntry.voucherGz.removeOne")}
+                          className={stepBtn}
                         >
-                          ✕
+                          −
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void stepGzUp(g)}
+                          aria-label={t("codeEntry.voucherGz.addOne")}
+                          className={stepBtn}
+                        >
+                          ＋
                         </button>
                       </span>
                     </li>
@@ -807,52 +938,75 @@ export function KioskCodeEntry({
                   {t("codeEntry.voucherGz.appliedSectionTitle")}
                 </div>
                 <ul className="mt-[14px] space-y-[10px]">
-                  {cartLabels.map((v, i) => (
+                  {cartGroups.map((g) => (
                     <li
-                      key={`${v.code}-${i}`}
-                      className={`flex items-center justify-between gap-[16px] rounded-[16px] border px-[24px] py-[16px] ${
-                        v.error
+                      key={`${g.code}-${g.label}-${g.itemIndexes[0] ?? "bmi"}${g.error ? "-err" : ""}`}
+                      className={`flex items-center justify-between gap-[16px] rounded-[16px] border px-[24px] py-[12px] ${
+                        g.error
                           ? "border-[#ff8c7a]/40 bg-[#ff8c7a]/[0.08]"
                           : "border-[#46d68c]/25 bg-[#46d68c]/[0.08]"
                       }`}
                     >
-                      <span className="min-w-0 truncate text-[28px] text-white/90">{v.label}</span>
-                      <span className="flex shrink-0 items-center gap-[16px]">
+                      <span className="min-w-0 truncate text-[28px] text-white/90">
+                        {g.label}
+                        {g.qty > 1 && <span className="text-white/50">{`  ×${g.qty}`}</span>}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-[14px]">
                         <span
-                          className={`text-[22px] ${v.error ? "text-[#ffb3a6]" : "text-white/50"}`}
+                          className={`text-[22px] ${g.error ? "text-[#ffb3a6]" : "text-white/50"}`}
                         >
-                          {v.error
+                          {g.error
                             ? t("codeEntry.voucherGz.rowNeedsHelp")
                             : t("codeEntry.voucherGz.comesOff")}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => removeCartVoucher(v.code, v.itemIndex)}
-                          aria-label={t("promo.banner.clear")}
-                          className="k-tap px-[8px] text-[28px] leading-none text-white/40"
-                        >
-                          ✕
-                        </button>
+                        {g.native && !g.error ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => stepCartDown(g)}
+                              aria-label={t("codeEntry.voucherGz.removeOne")}
+                              className={stepBtn}
+                            >
+                              −
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void stepCartUp(g)}
+                              aria-label={t("codeEntry.voucherGz.addOne")}
+                              className={stepBtn}
+                            >
+                              ＋
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => removeCartVoucher(g.code, g.itemIndexes[0] ?? null)}
+                            aria-label={t("promo.banner.clear")}
+                            className="k-tap px-[8px] text-[28px] leading-none text-white/40"
+                          >
+                            ✕
+                          </button>
+                        )}
                       </span>
                     </li>
                   ))}
                   {/* Already-used legs — struck through, no ✕ (nothing to
                       remove; the claim lives in the ledger). */}
-                  {Object.entries(spentByCode).flatMap(([code, legs]) =>
-                    legs.map((leg) => (
-                      <li
-                        key={`used-${code}-${leg.index}`}
-                        className="flex items-center justify-between gap-[16px] rounded-[16px] border border-white/10 bg-white/[0.03] px-[24px] py-[16px]"
-                      >
-                        <span className="min-w-0 truncate text-[28px] text-white/35 line-through">
-                          {leg.label}
-                        </span>
-                        <span className="shrink-0 text-[22px] text-white/35">
-                          {t("codeEntry.voucherGz.rowUsed")}
-                        </span>
-                      </li>
-                    )),
-                  )}
+                  {usedGroups.map((g) => (
+                    <li
+                      key={`used-${g.code}-${g.label}`}
+                      className="flex items-center justify-between gap-[16px] rounded-[16px] border border-white/10 bg-white/[0.03] px-[24px] py-[12px]"
+                    >
+                      <span className="min-w-0 truncate text-[28px] text-white/35 line-through">
+                        {g.label}
+                        {g.qty > 1 && <span>{`  ×${g.qty}`}</span>}
+                      </span>
+                      <span className="shrink-0 text-[22px] text-white/35">
+                        {t("codeEntry.voucherGz.rowUsed")}
+                      </span>
+                    </li>
+                  ))}
                   {/* The session promo, INLINE — scanning a coupon mid-receipt
                       lands here instead of replacing the card list. */}
                   {appliedPromo && (
@@ -1047,6 +1201,33 @@ export function KioskCodeEntry({
                 </button>
                 <button type="button" onClick={startPrint} className="k-btn-primary k-tap">
                   {t("codeEntry.voucherGz.printNow", { n: cardCount })}
+                </button>
+              </div>
+            </div>
+          ) : pickWarn ? (
+            /* Nobody from the booking picked — one gentle ask before leaving
+               to the activity picker; "Pick people" just returns to the chips. */
+            <div className="mt-auto rounded-[20px] border border-[#00e2e5]/40 bg-[#00e2e5]/[0.06] px-[28px] py-[20px]">
+              <div className="text-center text-[26px] leading-[1.35] text-white/85">
+                {t("codeEntry.voucherGz.pickWarn")}
+              </div>
+              <div className="mt-[16px] flex gap-[24px]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    clarityEvent("kiosk:receipt:pick-warn-skip");
+                    leaveTo("start-picking");
+                  }}
+                  className="k-btn-ghost k-tap"
+                >
+                  {t("codeEntry.voucherGz.pickWarnGo")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPickWarn(false)}
+                  className="k-btn-primary k-tap"
+                >
+                  {t("codeEntry.voucherGz.pickWarnStay")}
                 </button>
               </div>
             </div>

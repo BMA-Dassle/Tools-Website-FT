@@ -345,6 +345,15 @@ export const en = {
   "codeEntry.voucherGz.scanNextCollapsedSub":
     "Scanning works anytime — tap here to type a code instead",
   "codeEntry.voucherGz.addClose": "Close",
+  // Qty stepper on grouped receipt rows (identical legs collapse to ×N).
+  "codeEntry.voucherGz.addOne": "Add one back",
+  "codeEntry.voucherGz.removeOne": "Remove one",
+  "codeEntry.voucherGz.noMoreLegs": "That's everything this voucher has.",
+  // "Start picking" with a booking party offered but nobody tapped.
+  "codeEntry.voucherGz.pickWarn":
+    "You haven't picked who's playing today — tapping your people above means no retyping names later.",
+  "codeEntry.voucherGz.pickWarnGo": "Continue anyway",
+  "codeEntry.voucherGz.pickWarnStay": "Pick people",
   // The session promo shown INLINE on the receipt (a coupon scanned/typed
   // mid-receipt must never replace the guest's card list).
   "codeEntry.voucherGz.promoRow": "applies at checkout",

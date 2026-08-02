@@ -318,6 +318,13 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.voucherGz.scanNextCollapsedSub":
     "Puedes escanear en cualquier momento — toca aquí para escribir un código",
   "codeEntry.voucherGz.addClose": "Cerrar",
+  "codeEntry.voucherGz.addOne": "Agregar uno de vuelta",
+  "codeEntry.voucherGz.removeOne": "Quitar uno",
+  "codeEntry.voucherGz.noMoreLegs": "Eso es todo lo que tiene este vale.",
+  "codeEntry.voucherGz.pickWarn":
+    "Aún no elegiste quién juega hoy — tocar a tu gente arriba evita escribir sus nombres después.",
+  "codeEntry.voucherGz.pickWarnGo": "Continuar de todos modos",
+  "codeEntry.voucherGz.pickWarnStay": "Elegir personas",
   "codeEntry.voucherGz.promoRow": "se aplica al pagar",
   "codeEntry.voucherGz.partyTitle": "¿Quién vino de tu reserva?",
   "codeEntry.voucherGz.partySub":

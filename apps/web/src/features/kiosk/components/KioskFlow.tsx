@@ -89,8 +89,10 @@ import { KioskCategories } from "./KioskCategories";
 import { KioskCodeEntry } from "./KioskCodeEntry";
 import { KioskVoucherSummary } from "./KioskVoucherSheet";
 import {
+  addOnePendingCard,
   addPendingCards,
   clearDispensedCards,
+  removeOnePendingCard,
   removePendingCard,
   type PendingGzCard,
 } from "../code-entry/pending-cards";
@@ -1887,9 +1889,26 @@ export function KioskFlow({
         appliedCartVouchers={appliedVouchers.map((v) => ({
           code: v.code,
           label: voucherDisplayName(v.name),
+          name: v.name ?? null,
           error: v.error ?? null,
           itemIndex: v.issuer === "native" && typeof v.itemIndex === "number" ? v.itemIndex : null,
         }))}
+        // Qty "+" re-applies ONE native leg — applyVoucher upserts by
+        // (code, itemIndex), so a double-tap can't duplicate it.
+        onNativeCartItemAdd={(code, it) =>
+          dispatch({
+            type: "applyVoucher",
+            voucher: { code, issuer: "native", itemIndex: it.itemIndex, name: it.coverageName },
+          })
+        }
+        onGzCardAddOne={(card) => {
+          console.log(`[kiosk] gz card leg +1 from receipt: ${card.code}`);
+          setPendingGzCards((prev) => addOnePendingCard(prev, card));
+        }}
+        onGzCardRemoveOne={(code) => {
+          console.log(`[kiosk] gz card leg -1 from receipt: ${code}`);
+          setPendingGzCards((prev) => removeOnePendingCard(prev, code));
+        }}
         onCartVoucherRemove={(code, itemIndex) => {
           console.log(
             `[kiosk] order voucher removed from receipt: ${code}${itemIndex != null ? ` leg#${itemIndex}` : ""}`,

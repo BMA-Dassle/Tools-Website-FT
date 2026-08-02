@@ -24,6 +24,20 @@ export function removePendingCard(prev: PendingGzCard[], code: string): PendingG
   return prev.filter((c) => c.code !== code);
 }
 
+/** Remove ONE leg of a code — the receipt's qty "−" (owner 2026-08-02). */
+export function removeOnePendingCard(prev: PendingGzCard[], code: string): PendingGzCard[] {
+  const i = prev.findIndex((c) => c.code === code);
+  if (i === -1) return prev;
+  return [...prev.slice(0, i), ...prev.slice(i + 1)];
+}
+
+/** Append ONE leg, bypassing the whole-code dedupe — the receipt's qty "+".
+ *  The caller has already verified against the validate response that the
+ *  voucher holds more unspent gz legs than are pending. */
+export function addOnePendingCard(prev: PendingGzCard[], card: PendingGzCard): PendingGzCard[] {
+  return [...prev, card];
+}
+
 /** Apply a dispense run's per-LEG outcomes. ONE loaded outcome clears ONE leg
  *  of that code — the server spends a single gz item per claim
  *  (`claimNativeVoucher` takes "the FIRST unspent Game Zone item"), and the
