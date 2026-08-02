@@ -9,14 +9,14 @@ arrival order while only the cron sorts by `created_at`, so out-of-order uploads
 pairs of racers; held videos are nameless and never notify. Scope of THIS PR (matcher
 correctness only — admin UX / Neon persistence / SMS-Timing reconcile are later PRs):
 
-- [ ] **Junk quarantine** — videos with duration < `VIDEO_JUNK_MIN_S` (default 120s)
+- [x] **Junk quarantine** — videos with duration < `VIDEO_JUNK_MIN_S` (default 120s)
       never auto-match/notify; recorded to the review bucket with new reason
       `"junk-short"`. Kill switch `VIDEO_JUNK_QUARANTINE=false` (default ON per house
       flag rule).
-- [ ] **Junk→real auto-swap** — when a real (≥ threshold) video walks to a slot occupied
+- [x] **Junk→real auto-swap** — when a real (≥ threshold) video walks to a slot occupied
       by a junk-grade one, displace the junk to the review bucket and take the slot;
       notify fires for the real video. Same kill switch.
-- [ ] **Ordered matching** — webhook no longer creates matches inline in arrival order.
+- [x] **Ordered matching** — webhook no longer creates matches inline in arrival order.
       New-match events buffer in `video-pending:*` (merged per code), and a locked drain
       processes them oldest-`created_at`-first after a `VIDEO_MATCH_SETTLE_S` (90s)
       settle window, per-camera order enforced. Drain runs opportunistically on webhook
@@ -25,15 +25,26 @@ correctness only — admin UX / Neon persistence / SMS-Timing reconcile are late
       switch `VIDEO_MATCH_ORDERED=false` reverts to inline behavior. Side fix: a
       sample-uploaded-first video (no created_at) now buffers + matches instead of
       being dropped until the bridge goes quiet.
-- [ ] Admin: render the `junk-short` reason chip on review rows (list route already
+- [x] Admin: render the `junk-short` reason chip on review rows (list route already
       passes `reason` through).
-- [ ] Vitest units for the pure logic: junk classification bounds, buffered-event merge,
+- [x] Vitest units (19 green) for the pure logic: junk classification bounds, buffered-event merge,
       drain ordering (per-camera holds, settle window, created_at/id tiebreak).
-- [ ] `scripts/video-match-shadow.mts` — local monitor: `--replay` (what would the new
+- [x] `scripts/video-match-shadow.mts` — local monitor: `--replay` (what would the new
       rules have done over today's live corpus) + `--watch` (post-merge verification:
       junk-matched must go to zero, buffer depth, drain lag). Read-only.
-- [ ] tsc + eslint + vitest green; shadow replay run against live Saturday traffic;
-      push branch → PR. Merge = go-live (kill switches only, no dark flags).
+- [x] tsc + eslint + a11y-gate green; 19 new units green; shadow --replay validated on
+      8/2 LIVE traffic (4 junk matches incl. 1 texted guest, 3 swap repairs identified,
+      cam61 flagged flaky with 39 junk clips); branch pushed + rebased on 384194fd.
+      NOTE: 6 pre-existing failures on main (guest-survey-db.test.ts × 5 — seed is 30
+      questions, test expects 22; steps-v3-gating.test.ts × 1) — unrelated, present at
+      base, flagged to owners.
+- [ ] **Owner: open PR + merge = go-live.** Post-merge: run
+      `npx tsx scripts/video-match-shadow.mts --watch` from apps/web — junk-matched
+      must stay 0, quarantined rows appear, pending buffer drains <5 min. Also new
+      Neon table `video_decision_log` auto-creates on first write.
+- [ ] ALSO ADDED (owner request mid-build): durable Neon `video_decision_log` — every
+      match outcome w/ candidate context, notify results (incl. silent no-contact
+      skips), block flips, buffer entries, drain summaries. Fire-and-forget writes.
 
 ## Kiosk attract motion — HeadPinz first (2026-07-26, branch `feat/kiosk-hp-attract`)
 
