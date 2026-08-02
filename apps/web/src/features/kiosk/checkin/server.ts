@@ -34,6 +34,8 @@ import {
   KIOSK_CONFIRMATION_STATE_IDS,
 } from "@/lib/bmi-office-actions";
 import { kioskCheckinAttachEnabled, kioskVoucherPrefillEnabled } from "../flags";
+import { listJoinsForProject } from "../data/kiosk-waiver-joins-db";
+import { officeProjectIdFromBillId } from "@/lib/bmi-office-ids";
 import { getVoucher } from "~/features/game-cards/data/vouchers-db";
 import {
   openCheckinEvent,
@@ -1416,6 +1418,21 @@ export async function listBindableParty(billId: string): Promise<CheckinPartyMem
     for (const h of neonHeats(summary.moneyGroup)) {
       rows.push({ full: (h.racer ?? "").trim(), personId: h.bmiPersonId ?? null });
     }
+  }
+  // Everyone who SIGNED through the booking's /waiver link (owner 2026-08-01:
+  // "this is where you pull the info from rather than asking again") — the
+  // link's pid keys kiosk_waiver_joins by projectId = billId + 1, and the
+  // signers arrive with real names + person ids. Count-based bookings carry
+  // only slot labels above, so without this the party who pre-signed on their
+  // phones was invisible to "Load your party" (the Gipson check-in).
+  try {
+    const joins = await listJoinsForProject(officeProjectIdFromBillId(billId));
+    for (const j of joins) {
+      const full = [j.firstName ?? "", j.lastName ?? ""].join(" ").trim() || j.displayName.trim();
+      rows.push({ full, personId: j.personId ?? null });
+    }
+  } catch {
+    /* joins unavailable — the booking-sourced rows above still stand */
   }
   const seen = new Set<string>();
   const uniq = rows.filter((r) => {
