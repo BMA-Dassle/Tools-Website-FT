@@ -33,7 +33,7 @@ import { centerCodeFor } from "~/config/intercard-centers";
 import { formatPersonName } from "~/lib/helpers/name-format";
 import { after } from "next/server";
 import { captureCardFromDeposit, type PaymentSourceKind } from "~/features/card-vault";
-import { confirmBmiPayment, bmiBillIsLive } from "./bmi-confirm";
+import { confirmBmiPayment, getBmiBillStatus } from "./bmi-confirm";
 import { reserveBaseKey } from "./reserve-idempotency";
 import { describeDroppedLeg, partitionBookableLegs } from "./bookable";
 import { nowRounded5EtIso } from "./bowl-now";
@@ -1414,10 +1414,18 @@ async function unifiedReserveInner(
   // write. Fail-open on a transient overview error: a BMI hiccup must never block
   // a legitimate paying customer, and the auto-cancel case returns a clean empty
   // overview (caught), not an error.
+  // BMI's own outstanding MONEY deposit on the bill (totalToDeposit), captured
+  // from the same overview the liveness guard fetches. The confirm step pays
+  // exactly this on a MIXED bill (zero-model races + real-priced attraction) —
+  // see the confirm block. null = overview unavailable (confirm falls back to
+  // the locally computed attraction total).
+  let bmiMoneyDueCents: number | null = null;
   if (hasBmi && session.bmiBillId) {
     let live = true;
     try {
-      live = await bmiBillIsLive(resolveBmiClientKey(session), session.bmiBillId);
+      const billStatus = await getBmiBillStatus(resolveBmiClientKey(session), session.bmiBillId);
+      live = billStatus.live;
+      bmiMoneyDueCents = billStatus.moneyDueCents;
     } catch (err) {
       console.error("[unifiedReserve] bill liveness check errored (failing open):", err);
     }
@@ -2722,6 +2730,26 @@ async function unifiedReserveInner(
     // item confirmed at $0 = money leak. Packages/combos now pass this (their
     // heats resolve $0 build pairs); a legacy/add-on item correctly fails it.
     const useZeroModel = raceItems.length > 0 && raceItems.every(raceUsesZeroBmiModel);
+    // MIXED bill (zero-model races + BMI-priced attraction lines on ONE bill):
+    // the races deposit in credits, but the attraction lines owe real MONEY on
+    // the BMI side — BMI flipped the Nexus gel/laser products to require a money
+    // deposit (~2026-07-22), and a bill left with `totalToDeposit > 0` gets its
+    // line SCHEDULES released by BMI shortly after (the guest silently drops off
+    // the arena dayplanner; staff re-add by hand — W57040/W56953, 2026-08-01).
+    // Pay BMI's own outstanding amount (captured by the liveness guard). When
+    // the overview didn't yield it, fall back to the attraction lines' full
+    // price + FL tax — the exact figure BMI bills for them. Overpaying BMI's
+    // ledger is impossible on the primary path (we pay its own number) and the
+    // guest's real money lives on Square either way.
+    const attractionBmiCents = attractionItems.reduce(
+      (s, a) => (a.productId ? s + Math.round(a.price * 100) * a.qty : s),
+      0,
+    );
+    const mixedMoneyDueCents =
+      useZeroModel && attractionBmiCents > 0
+        ? (bmiMoneyDueCents ??
+          attractionBmiCents + Math.round(calculateTax(attractionBmiCents / 100) * 100))
+        : 0;
     const centerCode = session.center ?? "fort-myers";
     const bookingKind: ReservationProductKind = raceItems.length > 0 ? "race" : "attraction";
 
@@ -2852,11 +2880,20 @@ async function unifiedReserveInner(
 
     audit.step = "bmi-confirm";
     try {
+      // Race-only $0-model → $0 credit (unchanged). Attraction-only → the full
+      // Square order total as money (unchanged). MIXED → the attraction lines'
+      // money due, as money — never $0 credit (see mixedMoneyDueCents above).
+      if (mixedMoneyDueCents > 0) {
+        console.log(
+          `[unified-reserve] mixed bill ${bmiBillId}: confirming attraction money due ${mixedMoneyDueCents}¢` +
+            ` (bmi totalToDeposit=${bmiMoneyDueCents ?? "unknown"})`,
+        );
+      }
       const bmiResult = await confirmBmiPayment({
         clientKey,
         bmiBillId,
-        amountCents: useZeroModel ? 0 : dayofTotalCents,
-        asCredit: useZeroModel,
+        amountCents: useZeroModel ? mixedMoneyDueCents : dayofTotalCents,
+        asCredit: useZeroModel && mixedMoneyDueCents === 0,
       });
       bmiReservationNumber = bmiResult.reservationNumber;
       bmiReservationCode = bmiResult.reservationCode;

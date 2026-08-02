@@ -151,11 +151,13 @@ export const SQUARE_CATALOG_MAP: Record<string, string> = {
   "43746981": SQ.POV,
 
   // ── Gel Blaster ────────────────────────────────────────────────────
-  "8976680": SQ.GEL_BLASTER, // HeadPinz FM
+  "43370936": SQ.GEL_BLASTER, // HeadPinz FM — $0-key twin the booking flow sells (2026-08-01)
+  "8976680": SQ.GEL_BLASTER, // HeadPinz FM — retail-priced legacy id
   "7565025": SQ.GEL_BLASTER, // Naples
 
   // ── Laser Tag ──────────────────────────────────────────────────────
-  "8976685": SQ.LASER_TAG, // HeadPinz FM
+  "43370955": SQ.LASER_TAG, // HeadPinz FM — $0-key twin the booking flow sells (2026-08-01)
+  "8976685": SQ.LASER_TAG, // HeadPinz FM — retail-priced legacy id
   "7565567": SQ.LASER_TAG, // Naples
 
   // ── Duck Pin Bowling ───────────────────────────────────────────────

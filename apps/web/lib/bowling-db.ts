@@ -2229,12 +2229,20 @@ export async function getPendingBmiConfirms(): Promise<BowlingReservation[]> {
   if (!isDbConfigured()) return [];
   await ensureBowlingSchema();
   const q = sql();
+  // Age floor: reserve writes the anchor as confirm_pending BEFORE its own BMI
+  // confirm, and promotes it seconds later. A cron tick landing inside that
+  // window re-confirmed a bill the live reserve was confirming at that moment
+  // (double payment/confirm — W57040, 2026-08-01: both sources ran the confirm
+  // rail 5s apart). confirmBmiPayment is NOT idempotent, so rows only become
+  // cron-eligible once they are old enough that the live reserve is certainly
+  // done (route maxDuration is 60s; 3 minutes is comfortably past it).
   const rows = await q`
     SELECT * FROM bowling_reservations
     WHERE product_kind IN ('race', 'attraction')
       AND status IN ('confirm_pending', 'confirm_failed')
       AND bmi_bill_id IS NOT NULL
       AND qamf_confirm_attempts < ${MAX_QAMF_CONFIRM_ATTEMPTS}
+      AND inserted_at < now() - interval '3 minutes'
     ORDER BY inserted_at ASC
     LIMIT 20
   `;

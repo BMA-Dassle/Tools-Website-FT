@@ -1,5 +1,47 @@
 # Lessons Learned
 
+## A vendor can change product config under a hardcoded confirm — BMI's unpaid money deposit releases SCHEDULES, not products (2026-08-01)
+
+**What happened:** Kiosk booking W57040 (5 races + gel-blaster ×4) confirmed fine, guest
+paid $233.13 on Square — and ~10 minutes later every planning row vanished off the BMI
+reservation; staff re-added products/schedule by hand. Same evening, W56953's laser leg
+did the same. Investigation (bmi:api:log + Neon + live BMI overviews of all 30 mixed
+carts in 60 days) showed: the gel line WAS booked and never removed; what died was every
+line's `scheduledTime`, and the bill showed `totalToDeposit: $51.12 / totalPaid: 0`.
+
+**Root cause — two layers:**
+1. BMI flipped the Nexus gel/laser products to REQUIRE a money deposit ~2026-07-22
+   (old bills' price rows carry `shortName: null`, new ones `"m"`). No code of ours
+   changed; the vendor config moved under us.
+2. `unifiedReserveInner`'s STRICT $0 gate (`useZeroModel`) inspects only RACE items, so
+   a MIXED cart (zero-model races + real-priced attraction on ONE bill) confirmed the
+   whole bill as a $0 CREDIT — leaving the attraction's money outstanding. BMI treats an
+   outstanding money deposit as unpaid capacity and RELEASES the lines' schedules
+   (products stay; the guest silently drops off the arena dayplanner). Attraction-only
+   carts always confirmed with real money → never affected. Every damaged bill since 7/24
+   is in the `toDeposit > 0` group; every healthy one is at 0.
+
+**The rules:**
+- A "confirm as $0" gate must prove the WHOLE BILL is $0-model, not just one item kind.
+  Pay BMI exactly its own `totalToDeposit` (now surfaced by `getBmiBillStatus`) — never
+  assume which deposit kind a product wants; the vendor can change it without notice.
+- `totalToDeposit > 0` on a confirmed BMI bill is a time bomb, not cosmetics: BMI
+  un-schedules unpaid lines hours-to-minutes later. Treat any confirmed bill with money
+  due as an incident.
+- A reconcile cron that "drives forward" pending rows MUST have an age floor — the same
+  night, race-confirm-reconcile picked up W57040's anchor 4s after insert and
+  double-confirmed against the live reserve (confirmBmiPayment is NOT idempotent).
+
+Fix (owner directive: "use the 0 key for those products"): FM gel/laser now book their
+$0-KEY TWIN products — 43370936 / 43370955, the "QAMF Booking" variants that sell into
+the SAME Nexus sessions with a single $0 money key (verified by live book+cancel probe).
+Square owns the money (race $0-model convention); guest price stays in
+`attractions-data`. The money-due confirm (`unified-reserve.ts` + `race-confirm-reconcile`
+pay BMI's own `totalToDeposit`) stays as the safety net for the still-real-priced BMI
+attraction products (FT/HP shuffly, FT duckpin, both Naples Nexus products) and
+in-flight pre-deploy sessions. Plus: 3-min age floor on `getPendingBmiConfirms`, and
+`apps/web/scripts/backfill-mixed-bill-deposits.mjs` settles already-booked unpaid bills.
+
 ## A cache in front of deadline-bounded work must never cache the ABSENCE of the result (2026-07-31)
 
 **What happened:** `/api/waiver/context` cached its summary for 120s and ran the Pandora
