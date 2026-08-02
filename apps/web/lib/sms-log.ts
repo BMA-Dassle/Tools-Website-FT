@@ -35,6 +35,7 @@ export interface SmsLogEntry {
     | "bowling-confirm"
     | "bowling-pre-arrival"
     | "bowling-lane-ready"
+    | "vip-almost-here"
     | "guest-survey"
     | "group-event-rsvp"
     | "cancel-refund"

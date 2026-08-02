@@ -178,9 +178,14 @@ export function buildComboGroups(
         const base =
           h.name?.replace(/\s+(red|blue|mega)(\s+track)?$/i, "").trim() ||
           (i === 0 ? "Starter Race" : "Intermediate Race");
+        // Session identity — the resolved Pandora heat number IS the session's
+        // name everywhere else (track boards, guest SMS), so staff can match
+        // the step to the called session at a glance (owner 2026-08-01).
+        // Same-day live resolution only; historical/unresolved heats omit it.
+        const heatTag = typeof h.heatNumber === "number" ? ` · Heat ${h.heatNumber}` : "";
         return {
           icon: "🏁",
-          label: withTrack(base, trackTag(h.name)),
+          label: withTrack(base, trackTag(h.name)) + heatTag,
           iso: h.start,
           loc: "FastTrax",
           durationMin: Number.isFinite(realMin) && realMin > 0 ? realMin : RACE_STEP_MIN,

@@ -1798,6 +1798,74 @@ export async function isVipComboPersonOnDate(personId: string, date: string): Pr
   }
 }
 
+/** A VIP combo racer's race-leg row — enough to badge the person AND append
+ *  a line to the booking memo (bmi-notes appendBookingMemoLine). */
+export interface VipComboPersonLeg {
+  /** BMI personId as a STRING (never Number() a BMI id). */
+  bmiPersonId: string;
+  /** Neon bowling_reservations.id (serial int — not a BMI id). */
+  reservationId: number;
+  /** RAW string bill id (17-digit — string end to end). */
+  bmiBillId?: string;
+  bmiReservationNumber?: string;
+  centerCode: string;
+  productKind: ReservationProductKind;
+}
+
+/**
+ * Batched isVipComboPersonOnDate — one query for a whole roster. The check-in
+ * alerts cron feeds every called racer's Pandora personId through this to pick
+ * VIP-Room vs Karting-counter copy, then uses the returned race-leg identifiers
+ * to log the sent SMS on the booking memo. Same JSONB shape + status filter as
+ * the single-person probe; same fail-open contract (error/unconfigured DB →
+ * empty map → generic copy, never a broken alert).
+ */
+export async function vipComboPersonLegsOnDate(
+  personIds: string[],
+  date: string,
+): Promise<Map<string, VipComboPersonLeg>> {
+  const out = new Map<string, VipComboPersonLeg>();
+  if (!isDbConfigured()) return out;
+  const ids = Array.from(new Set(personIds.filter((p) => /^\d+$/.test(p))));
+  if (ids.length === 0 || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return out;
+  try {
+    await ensureBowlingSchema();
+    const q = sql();
+    const rows = await q`
+      SELECT DISTINCT ON (t.e->>'bmiPersonId')
+             t.e->>'bmiPersonId' AS person_id,
+             r.id, r.bmi_bill_id, r.bmi_reservation_number,
+             r.center_code, r.product_kind
+      FROM bowling_reservations r
+      CROSS JOIN LATERAL jsonb_array_elements(
+        CASE WHEN jsonb_typeof(r.booking_metadata->'heats')='array'
+             THEN r.booking_metadata->'heats' ELSE '[]'::jsonb END) AS t(e)
+      WHERE r.combo_special_id IS NOT NULL
+        AND r.product_kind = 'race'
+        AND r.status NOT IN ('cancelled','no_show')
+        AND t.e->>'bmiPersonId' = ANY(${ids})
+        AND left(t.e->>'heatId', 10) = ${date}
+      ORDER BY t.e->>'bmiPersonId', r.id
+    `;
+    for (const raw of rows) {
+      const r = raw as Record<string, unknown>;
+      if (typeof r.person_id !== "string") continue;
+      out.set(r.person_id, {
+        bmiPersonId: r.person_id,
+        reservationId: Number(r.id),
+        bmiBillId: (r.bmi_bill_id as string) ?? undefined,
+        bmiReservationNumber: (r.bmi_reservation_number as string) ?? undefined,
+        centerCode: String(r.center_code ?? ""),
+        productKind: (r.product_kind as ReservationProductKind) ?? "race",
+      });
+    }
+    return out;
+  } catch (e) {
+    console.warn("[bowling-db] vipComboPersonLegsOnDate failed:", e);
+    return out;
+  }
+}
+
 /**
  * All reservations (kbf/open/race/attraction) belonging to a VERIFIED contact,
  * for the customer account dashboard. Authorization is the contact itself — the

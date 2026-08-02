@@ -64,6 +64,7 @@ export interface QueuedSend {
     | "bowling-confirm"
     | "bowling-pre-arrival"
     | "bowling-lane-ready"
+    | "vip-almost-here"
     | "cancel-refund"
     | "cancel-credit"
     | "other";

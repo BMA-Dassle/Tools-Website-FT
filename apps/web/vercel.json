@@ -89,6 +89,10 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/vip-almost-here",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/refund-alerts",
       "schedule": "*/5 * * * *"
     },

@@ -19,17 +19,22 @@ import type { BowlingReservation } from "@/lib/bowling-db";
 import { resolveBmiProject } from "~/features/cancellation/bmi-cancel";
 import { resolveCenter } from "~/features/cancellation/centers";
 
+/** The reservation fields the memo chain needs — any leg row qualifies. */
+export type BookingMemoTarget = Pick<
+  BowlingReservation,
+  "id" | "bmiBillId" | "bmiReservationNumber" | "centerCode" | "productKind"
+>;
+
 /**
- * Append the edited note to the reservation's BMI project private log.
- * Best-effort: returns true only when the append succeeded. No-ops (false)
- * for rows without a BMI bill.
+ * Append one timestamped line to the reservation's BMI project private log.
+ * The generic rail behind syncNoteToBmi — also used by the guest-comms crons
+ * to log sent SMS on the booking memo (owner 2026-08-01). Best-effort:
+ * returns true only when the append succeeded. No-ops (false) for rows
+ * without a BMI bill.
  */
-export async function syncNoteToBmi(
-  reservation: Pick<
-    BowlingReservation,
-    "id" | "bmiBillId" | "bmiReservationNumber" | "centerCode" | "productKind"
-  >,
-  note: string,
+export async function appendBookingMemoLine(
+  reservation: BookingMemoTarget,
+  line: string,
 ): Promise<boolean> {
   if (!reservation.bmiBillId) return false;
   try {
@@ -52,7 +57,7 @@ export async function syncNoteToBmi(
     return await appendProjectPrivateNote({
       centerCode: center.pandoraStateSlug,
       projectId: resolved.projectId,
-      note: `[${noteTimestamp()}] Portal note: ${note}`,
+      note: `[${noteTimestamp()}] ${line}`,
       billId: reservation.bmiBillId,
     });
   } catch (err) {
@@ -62,4 +67,16 @@ export async function syncNoteToBmi(
     );
     return false;
   }
+}
+
+/**
+ * Append the edited note to the reservation's BMI project private log.
+ * Best-effort: returns true only when the append succeeded. No-ops (false)
+ * for rows without a BMI bill.
+ */
+export async function syncNoteToBmi(
+  reservation: BookingMemoTarget,
+  note: string,
+): Promise<boolean> {
+  return appendBookingMemoLine(reservation, `Portal note: ${note}`);
 }

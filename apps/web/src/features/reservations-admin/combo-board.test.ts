@@ -219,6 +219,27 @@ describe("buildComboGroups", () => {
     expect(races[0].durationMin).toBeCloseTo(9, 5); // real 9-min session, not the 30-min rule
   });
 
+  it("appends the resolved session heat number to live race labels (session identity)", () => {
+    const { race, bowl } = splitCombo({
+      liveHeats: [
+        {
+          start: "2026-07-06T17:00:00",
+          stop: "2026-07-06T17:09:00",
+          name: "Starter Race Red",
+          heatNumber: 42,
+        },
+        // Unresolved heat (no same-day session match) keeps the plain label.
+        { start: "2026-07-06T19:24:00", stop: "2026-07-06T19:33:00", name: "Starter Race Blue" },
+      ],
+    });
+    const g = buildComboGroups([race, bowl], META, NOW_DURING)[0];
+    const races = g.schedule.filter((s) => s.label.includes("Race"));
+    expect(races.map((s) => s.label)).toEqual([
+      "Starter Race · Red · Heat 42",
+      "Starter Race · Blue",
+    ]);
+  });
+
   it("adds a pending Intermediate step when the registry expects one and only one heat is booked", () => {
     const { race, bowl } = splitCombo();
     race.bookingMetadata = { heats: [{ heatId: "2026-07-06T17:00:00", track: "Red Track" }] };

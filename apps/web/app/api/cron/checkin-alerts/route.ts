@@ -20,6 +20,8 @@ import {
 import { logSms, logCronRun } from "@/lib/sms-log";
 import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
 import { verifyCron } from "@/lib/cron-auth";
+import { vipComboPersonLegsOnDate, type VipComboPersonLeg } from "@/lib/bowling-db";
+import { appendBookingMemoLine } from "~/features/reservations-admin/bmi-notes";
 
 /**
  * Flow B — "Now checking in" alert cron.
@@ -67,6 +69,11 @@ interface Candidate {
    *  confirmed booking whose session assignment hasn't landed. Stamped onto the
    *  minted ticket so the page shows "e-ticket updating" not "no longer valid". */
   pendingAssignment?: boolean;
+  /** True when this racer is on an Ultimate VIP combo booking TODAY (Neon
+   *  combo_special_id join on booking_metadata.heats[].bmiPersonId — same
+   *  lookup the admin scanner uses to badge VIP guests). VIP parties meet in
+   *  the infield VIP Room, not at the Karting counter. */
+  isVip?: boolean;
 }
 
 async function fetchCurrentRaces(): Promise<CurrentRaces> {
@@ -518,10 +525,17 @@ function racerLabel(m: { firstName: string; lastName: string }): string {
 // punctuation. Trimmed the lockers reminder which lived purely to
 // blow segment count anyway.
 
+// Where the party checks in. Ultimate VIP combo parties meet in the infield
+// VIP Room, everyone else at the Karting counter (owner 2026-08-01). Both
+// strings MUST stay ASCII — see the GSM-7 block above.
+const KARTING_WHERE_SMS = `Head to Karting (1st Floor) now:`;
+const VIP_WHERE_SMS = `Meet us in the VIP Room in the infield (1st Floor):`;
+
 function buildSingleSmsBody(
   race: CurrentRace,
   member: GroupTicketMember,
   shortUrl: string,
+  vip = false,
 ): string {
   // URL embedded into the action line — keeping it on its own line
   // (the old shape) made some carriers / iOS render it as a separate
@@ -530,13 +544,13 @@ function buildSingleSmsBody(
     `FastTrax: NOW CHECKING IN`,
     `${race.raceType} Heat ${race.heatNumber} | ${timeET(race.scheduledStart)}`,
     racerLabel(member),
-    `Head to Karting (1st Floor) now:`,
+    vip ? VIP_WHERE_SMS : KARTING_WHERE_SMS,
     shortUrl,
     `Have this open for check-in`,
   ].join("\n");
 }
 
-function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): string {
+function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string, vip = false): string {
   const bySession = new Map<string, GroupTicketMember[]>();
   const sorted = [...members].sort(
     (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
@@ -554,7 +568,7 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
     );
     for (const m of group) lines.push(`- ${racerLabel(m)}`);
   }
-  lines.push(`Head to Karting (1st Floor) now:`);
+  lines.push(vip ? VIP_WHERE_SMS : KARTING_WHERE_SMS);
   lines.push(shortUrl);
   lines.push(`Have this open for check-in`);
   return lines.join("\n");
@@ -565,10 +579,16 @@ function buildGroupSmsBody(members: GroupTicketMember[], shortUrl: string): stri
  * the parent needs to know whose race is up + send their kid to
  * Karting NOW. Action first, then per-kid line.
  */
-function buildGuardianSingleSmsBody(member: GroupTicketMember, shortUrl: string): string {
+function buildGuardianSingleSmsBody(
+  member: GroupTicketMember,
+  shortUrl: string,
+  vip = false,
+): string {
   return [
     `FastTrax: NOW CHECKING IN`,
-    `Your racer's heat is up - head to Karting (1st Floor) now:`,
+    vip
+      ? `Your racer's heat is up - meet us in the VIP Room in the infield (1st Floor):`
+      : `Your racer's heat is up - head to Karting (1st Floor) now:`,
     shortUrl,
     `Have this open for check-in`,
     `${racerLabel(member)} | ${member.track} Heat ${member.heatNumber} | ${timeET(member.scheduledStart)}`,
@@ -580,13 +600,19 @@ function buildGuardianSingleSmsBody(member: GroupTicketMember, shortUrl: string)
  * multiple kids' heats are called in the same cron tick (rare but
  * possible across tracks). Same urgency framing.
  */
-function buildGuardianGroupSmsBody(members: GroupTicketMember[], shortUrl: string): string {
+function buildGuardianGroupSmsBody(
+  members: GroupTicketMember[],
+  shortUrl: string,
+  vip = false,
+): string {
   const sorted = [...members].sort(
     (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
   );
   const lines: string[] = [
     `FastTrax: NOW CHECKING IN`,
-    `Your racers are up - head to Karting (1st Floor) now:`,
+    vip
+      ? `Your racers are up - meet us in the VIP Room in the infield (1st Floor):`
+      : `Your racers are up - head to Karting (1st Floor) now:`,
     shortUrl,
     `Have this open for check-in`,
   ];
@@ -596,7 +622,17 @@ function buildGuardianGroupSmsBody(members: GroupTicketMember[], shortUrl: strin
   return lines.join("\n");
 }
 
-function buildEmailHtml(race: CurrentRace, firstName: string, shortUrl: string): string {
+// Email flavor of the where-to-go line. VIP drops the "skip guest services"
+// clause — the VIP Room IS the check-in point for combo parties.
+const KARTING_WHERE_EMAIL = `Head straight to the <strong>Karting counter on the 1st Floor</strong>. Skip guest services if you've already checked in.`;
+const VIP_WHERE_EMAIL = `Meet us in the <strong>VIP Room in the infield on the 1st Floor</strong> — we'll check you in there.`;
+
+function buildEmailHtml(
+  race: CurrentRace,
+  firstName: string,
+  shortUrl: string,
+  vip = false,
+): string {
   return `<!doctype html>
 <html><body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#1a1a1a">
   <table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 12px">
@@ -608,7 +644,7 @@ function buildEmailHtml(race: CurrentRace, firstName: string, shortUrl: string):
         </td></tr>
         <tr><td style="padding:26px 28px">
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.5">Hey ${firstName} — your <strong>${race.trackName} ${race.raceType} Race ${race.heatNumber}</strong> is now checking in.</p>
-          <p style="margin:0 0 20px 0;font-size:15px;line-height:1.5">Head straight to the <strong>Karting counter on the 1st Floor</strong>. Skip guest services if you've already checked in.</p>
+          <p style="margin:0 0 20px 0;font-size:15px;line-height:1.5">${vip ? VIP_WHERE_EMAIL : KARTING_WHERE_EMAIL}</p>
           <p style="text-align:center;margin:24px 0">
             <a href="${shortUrl}" style="display:inline-block;background:#fd5b56;color:#ffffff;padding:14px 28px;border-radius:999px;text-decoration:none;font-weight:bold;font-size:15px;letter-spacing:1px;text-transform:uppercase">View Your E-Ticket</a>
           </p>
@@ -629,6 +665,7 @@ function buildGroupEmailHtml(
   members: GroupTicketMember[],
   shortUrl: string,
   recipient: "racer" | "guardian",
+  vip = false,
 ): string {
   const sorted = [...members].sort(
     (a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime(),
@@ -660,7 +697,7 @@ function buildGroupEmailHtml(
         <tr><td style="padding:26px 28px">
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.5">${intro}</p>
           <table width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 20px 0;font-size:15px">${rows}</table>
-          <p style="margin:0 0 20px 0;font-size:15px;line-height:1.5">Head straight to the <strong>Karting counter on the 1st Floor</strong>. Skip guest services if you've already checked in.</p>
+          <p style="margin:0 0 20px 0;font-size:15px;line-height:1.5">${vip ? VIP_WHERE_EMAIL : KARTING_WHERE_EMAIL}</p>
           <p style="text-align:center;margin:24px 0">
             <a href="${shortUrl}" style="display:inline-block;background:#fd5b56;color:#ffffff;padding:14px 28px;border-radius:999px;text-decoration:none;font-weight:bold;font-size:15px;letter-spacing:1px;text-transform:uppercase">View E-Tickets</a>
           </p>
@@ -696,6 +733,45 @@ function memberFromCandidate(c: Candidate): GroupTicketMember {
 
 function personDedupKey(c: Candidate): string {
   return `alert:checkin:${c.race.sessionId}:${c.participant.personId}`;
+}
+
+/**
+ * Booking-memo trail for VIP check-in SMS (owner 2026-08-01): after a
+ * successful VIP-flavored send, append one line per covered combo reservation
+ * to its BMI project private log so the desk sees exactly what the guest was
+ * told. Best-effort — a memo failure never fails the send path.
+ */
+async function logVipCheckinMemo(
+  vipLegs: Map<string, VipComboPersonLeg>,
+  members: Candidate[],
+  phone: string,
+): Promise<void> {
+  try {
+    const byReservation = new Map<number, { leg: VipComboPersonLeg; names: string[] }>();
+    for (const c of members) {
+      const leg = vipLegs.get(String(c.participant.personId));
+      if (!leg) continue;
+      const entry = byReservation.get(leg.reservationId) ?? { leg, names: [] };
+      const name = `${c.participant.firstName || ""} ${c.participant.lastName || ""}`.trim();
+      if (name) entry.names.push(name);
+      byReservation.set(leg.reservationId, entry);
+    }
+    for (const { leg, names } of byReservation.values()) {
+      await appendBookingMemoLine(
+        {
+          id: leg.reservationId,
+          bmiBillId: leg.bmiBillId,
+          bmiReservationNumber: leg.bmiReservationNumber,
+          centerCode: leg.centerCode,
+          productKind: leg.productKind,
+        },
+        `VIP check-in SMS sent to ${phone} (meet in the VIP Room, infield 1st floor)` +
+          (names.length ? ` — ${names.join(", ")}` : ""),
+      );
+    }
+  } catch (err) {
+    console.warn("[checkin-alerts] VIP booking-memo log failed:", err);
+  }
 }
 
 export async function GET(req: NextRequest) {
@@ -799,6 +875,21 @@ export async function GET(req: NextRequest) {
       sessionResults.push({ track: trackKey, sessionId });
     }
 
+    // VIP combo badge — ONE batched Neon lookup for the whole called roster.
+    // Pandora personId === booking_metadata.heats[].bmiPersonId (same join the
+    // admin scanner uses). Fail-open: DB trouble → empty map → everyone gets
+    // the generic Karting-counter copy, the alert itself never breaks.
+    let vipLegs = new Map<string, VipComboPersonLeg>();
+    if (candidates.length) {
+      vipLegs = await vipComboPersonLegsOnDate(
+        candidates.map((c) => String(c.participant.personId)),
+        todayETYmd(),
+      );
+      for (const c of candidates) {
+        c.isVip = vipLegs.has(String(c.participant.personId));
+      }
+    }
+
     // Resolve each candidate via the new picker (racer first, guardian
     // fallback for minors). Bucket SMS by destination phone, email by
     // destination email. No-consent racers (own phone opted out, no
@@ -880,6 +971,10 @@ export async function GET(req: NextRequest) {
     for (const [phone, fresh] of freshSmsByPhone) {
       const all = allByPhone.get(phone) || fresh;
       const isGuardianFlavored = all.some((c) => c.resolved?.recipient === "guardian");
+      // Any VIP racer in the bucket → VIP Room copy. Combo parties book
+      // together, so a mixed bucket is a same-party edge; VIP Room staff
+      // redirect the stray case (owner 2026-08-01).
+      const anyVip = all.some((c) => c.isVip);
       const guardianFirstName = all.find((c) => c.resolved?.recipient === "guardian")?.resolved
         ?.contactFirstName;
 
@@ -914,8 +1009,8 @@ export async function GET(req: NextRequest) {
           const { code, url } = await shortenUrl(`${BASE}/t/${ticketId}`);
           const member = memberFromCandidate(c);
           const body = isGuardianFlavored
-            ? buildGuardianSingleSmsBody(member, url)
-            : buildSingleSmsBody(c.race, member, url);
+            ? buildGuardianSingleSmsBody(member, url, anyVip)
+            : buildSingleSmsBody(c.race, member, url, anyVip);
           const ok = await sendSms(phone, body, {
             sessionIds: [c.race.sessionId],
             personIds: [c.participant.personId],
@@ -928,6 +1023,7 @@ export async function GET(req: NextRequest) {
             sent++;
             singleSmsSends++;
             sessionsWithSends.add(c.race.sessionId);
+            if (anyVip) await logVipCheckinMemo(vipLegs, all, phone);
           } else {
             errors++;
           }
@@ -960,8 +1056,8 @@ export async function GET(req: NextRequest) {
         });
         const { code, url } = await shortenUrl(`${BASE}/g/${groupId}`);
         const body = isGuardianFlavored
-          ? buildGuardianGroupSmsBody(members, url)
-          : buildGroupSmsBody(members, url);
+          ? buildGuardianGroupSmsBody(members, url, anyVip)
+          : buildGroupSmsBody(members, url, anyVip);
         const ok = await sendSms(phone, body, {
           sessionIds: Array.from(new Set(members.map((m) => m.sessionId))),
           personIds: members.map((m) => m.personId),
@@ -976,6 +1072,7 @@ export async function GET(req: NextRequest) {
           }
           sent += fresh.length;
           groupedSmsSends++;
+          if (anyVip) await logVipCheckinMemo(vipLegs, all, phone);
         } else {
           errors += fresh.length;
         }
@@ -1104,6 +1201,7 @@ export async function GET(req: NextRequest) {
     for (const [emailKey, fresh] of freshEmailByEmail) {
       const all = allByEmail.get(emailKey) || fresh;
       const isGuardianFlavored = all.some((c) => c.resolved?.recipient === "guardian");
+      const anyVip = all.some((c) => c.isVip);
       const displayEmail = fresh[0].resolved?.email || emailKey;
 
       if (all.length === 1) {
@@ -1135,11 +1233,15 @@ export async function GET(req: NextRequest) {
           const ticketId = await upsertRaceTicket(ticket);
           const { url } = await shortenUrl(`${BASE}/t/${ticketId}`);
           const subject = isGuardianFlavored
-            ? `Your racer's heat is checking in — head to Karting 1st Floor`
-            : `Your heat is checking in — head to Karting 1st Floor`;
+            ? anyVip
+              ? `Your racer's heat is checking in — meet us in the VIP Room (1st Floor)`
+              : `Your racer's heat is checking in — head to Karting 1st Floor`
+            : anyVip
+              ? `Your heat is checking in — meet us in the VIP Room (1st Floor)`
+              : `Your heat is checking in — head to Karting 1st Floor`;
           const html = isGuardianFlavored
-            ? buildGroupEmailHtml([memberFromCandidate(c)], url, "guardian")
-            : buildEmailHtml(c.race, c.participant.firstName || "Racer", url);
+            ? buildGroupEmailHtml([memberFromCandidate(c)], url, "guardian", anyVip)
+            : buildEmailHtml(c.race, c.participant.firstName || "Racer", url, anyVip);
           const ok = await sendEmail(displayEmail, subject, html);
           if (ok) {
             await redis.set(personDedupKey(c), "1", "EX", DEDUP_TTL);
@@ -1181,9 +1283,18 @@ export async function GET(req: NextRequest) {
         });
         const { url } = await shortenUrl(`${BASE}/g/${groupId}`);
         const subject = isGuardianFlavored
-          ? `Your racers' heats are checking in — head to Karting 1st Floor`
-          : `Your heats are checking in — head to Karting 1st Floor`;
-        const html = buildGroupEmailHtml(members, url, isGuardianFlavored ? "guardian" : "racer");
+          ? anyVip
+            ? `Your racers' heats are checking in — meet us in the VIP Room (1st Floor)`
+            : `Your racers' heats are checking in — head to Karting 1st Floor`
+          : anyVip
+            ? `Your heats are checking in — meet us in the VIP Room (1st Floor)`
+            : `Your heats are checking in — head to Karting 1st Floor`;
+        const html = buildGroupEmailHtml(
+          members,
+          url,
+          isGuardianFlavored ? "guardian" : "racer",
+          anyVip,
+        );
         const ok = await sendEmail(displayEmail, subject, html);
         if (ok) {
           for (const c of fresh) {
