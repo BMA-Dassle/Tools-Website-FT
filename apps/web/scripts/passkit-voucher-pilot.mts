@@ -59,10 +59,11 @@ const BASE = process.env.PASSKIT_API_URL || "https://api.pub2.passkit.io";
 const KEY = process.env.PASSKIT_API_KEY!;
 const SECRET = process.env.PASSKIT_API_SECRET!;
 const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://headpinz.com").replace(/\/$/, "");
-// Created 2026-08-03 by this pilot. Move to env before this goes anywhere near
-// a route — preview and production must not share a campaign.
-const CAMPAIGN_ID = process.env.PASSKIT_VOUCHER_CAMPAIGN_ID || "5ZmFoKJyWxD4kAFLr1uHoa";
-const OFFER_ID = process.env.PASSKIT_VOUCHER_OFFER_ID || "4Al5xm9HjoqBZd5PUtE9Xr";
+// Ids come from the registry (src/config/passkit.ts), not env — see that file
+// for why. Keep this script and the app reading the SAME source.
+const { PASSKIT_VOUCHER } = await import("../src/config/passkit.ts");
+const CAMPAIGN_ID = PASSKIT_VOUCHER.campaignId;
+const OFFER_ID = PASSKIT_VOUCHER.offerId;
 
 const b64u = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
 function jwt(): string {

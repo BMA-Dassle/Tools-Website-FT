@@ -274,11 +274,9 @@ also means § 1's licence-pass break-even is the only number that can actually m
 - Spanish `.lproj` for the pass copy.
 - Add the sync to the mint path (Neon first, PassKit best-effort) and mirror `redeemCoupon`
   *after* our own claim succeeds — never before, never as a gate.
-- **An installed pass may not pick up design changes (see § 8 risk).** Touching coupon metadata left
-  `passMetaData.lastUpdatedAt` at `null`, so I could not confirm an update push ever fired —
-  delete-and-re-add was the only reliable way to see edits. Settle how updates actually propagate
-  BEFORE the licence pass in § 3B, whose entire value proposition is pushing "next race" onto a
-  pass someone already holds.
+- **Update pushes DO reach an installed pass — CONFIRMED ON DEVICE 2026-08-03** (owner: "it
+  updated"). A metadata write reached an already-installed pass with no delete-and-re-add. See § 9
+  for the misleading telemetry that made this look broken.
 
 ---
 
@@ -331,10 +329,20 @@ and the SMS link. The existing QR stays — it is the fallback for guests who do
 
 **Schema:** `ALTER TABLE vouchers ADD COLUMN passkit_coupon_id text` (nullable).
 
-**Env**, all three environments, and **different campaign/offer/template ids for preview vs
-production** so preview traffic cannot mutate real guest passes:
-`PASSKIT_API_URL`, `PASSKIT_API_KEY`, `PASSKIT_API_SECRET`, `PASSKIT_VOUCHER_CAMPAIGN_ID`,
-`PASSKIT_VOUCHER_OFFER_ID`, `PASSKIT_VOUCHER_TEMPLATE_ID`.
+**Env — credentials only** (all three environments):
+`PASSKIT_API_URL`, `PASSKIT_API_KEY`, `PASSKIT_API_SECRET`.
+
+Campaign / offer / template ids are **hard-coded in `src/config/passkit.ts`**, not env (owner
+decision 2026-08-03: "you will have more"). They are stable identifiers, not secrets — useless
+without the key, they never rotate, and several more programs are queued (racing licence, deal
+packs, arena tickets). Three env vars per program × three environments is nine entries to keep in
+sync, where a single typo fails at runtime in a way nobody notices until a guest taps a button. In
+code they are reviewable, diffable and typo-checked by `tsc`.
+
+Consequence accepted: preview shares production's campaign. Safe **for vouchers specifically**
+because a pass is keyed on `externalId` = the real `HPW…` code and creation is idempotent, so a
+preview tap produces the same single pass production would. Do not extend that reasoning to a
+program where preview could mint objects production has to live with.
 
 ### PR2 — lifecycle mirroring
 
@@ -351,12 +359,11 @@ Pass copy is guest-facing, so the EN+ES rule applies: `localizedLabel` / `locali
 produce a second `.lproj` in the pkpass (this is the same mechanism behind the `custom.foo.label`
 keys in § 7). Also the button copy on `/v/{code}` and in the email.
 
-### Must be resolved before PR2 is worth shipping
+### Update propagation — RESOLVED 2026-08-03
 
-**Update propagation to an installed pass is unproven** (§ 7 open items). PR2's entire point is
-that the pass flips to "redeemed" in the guest's Wallet — if pushes don't reliably fire, the pass
-silently lies about its own state, which is worse than not mirroring at all. Settle this first.
-It is also the gating question for the licence pass in § 3B.
+Confirmed on device: a metadata write reaches an already-installed pass without a re-add. PR2 is
+buildable as written, and § 3B's premise (push "next race" onto a pass the racer already holds)
+holds up. See § 9 for why the API telemetry says otherwise.
 
 ### Test list
 
@@ -428,21 +435,27 @@ syncVoucherPass(code):
 - No pass yet issued (guest never tapped Add to Wallet) → no-op. Cheap: skip on
   `passkit_coupon_id IS NULL` rather than calling PassKit to find out.
 
-### BLOCKER — push propagation is still unproven, and now it's on the critical path
+### Push propagation works — and PassKit's own telemetry lies about it
 
-`coupon.updated` moves on every metadata write (confirmed: `06:17:45` → `06:28:17`), but
-`passMetaData.lastUpdatedAt` stays `null` and `lifecycleEvents` never gains an update event —
-it still reads `["RENDERED","INSTALLED_APPLE","APPLE_PASS_CREATED","GOOGLE_PAY_RECORD_CREATED"]`
-on a pass that has been installed since `06:05:18` and edited repeatedly since.
+**CONFIRMED ON DEVICE 2026-08-03.** A metadata write reached an already-installed pass, no
+delete-and-re-add. Live mirroring is real, so PR2 ships and § 3B's licence pass is viable.
 
-That is evidence, not proof — those fields may simply not be wired for coupons. **The decisive
-test is on the device:** the live demo voucher has been set to a simulated half-redeemed state
-(`1× Laser Tag + 100 Tokens`). If Wallet shows that **without a delete-and-re-add**, pushes work
-and PR2 is buildable as written. If it doesn't, PR2 is not shippable — a pass that says
-"2× Laser Tag" after one has been used is worse than a pass that never claimed to know — and this
-becomes a PassKit support ticket with a clean repro.
+**Do not use these fields to check whether a push fired — they are not wired for coupons:**
 
-Same question gates § 3B, whose whole premise is pushing "next race" to an already-held pass.
+| Field | What it did | Reality |
+|---|---|---|
+| `passMetaData.lastUpdatedAt` | stayed `null` across ~8 writes | pass updated anyway |
+| `passMetaData.lifecycleEvents` | never gained an update event; stuck at `["RENDERED","INSTALLED_APPLE","APPLE_PASS_CREATED","GOOGLE_PAY_RECORD_CREATED"]` | pass updated anyway |
+| `coupon.updated` | DID move on every write | the only field that tracks anything |
+
+Chasing `lastUpdatedAt` cost real time and nearly got the whole mirror written off as unshippable.
+**The only reliable check is a device**, or `coupon.updated` for "did my write land".
+
+The alert a guest actually sees comes from the field's `changeMessage` (set to
+`"Voucher updated: %@ left"` on the REMAINING field), which Apple surfaces on the lock screen when
+the value changes. There is **no REST endpoint for an arbitrary push** — `…/coupon/{id}/push`,
+`…/coupon/push`, `/passes/{id}/push`, `/push` and `…/coupon/notify` all answer 404/501, so
+free-text pass messages are gRPC or portal only. Field-change alerts are the mechanism we have.
 
 ### Latent bug to fix before rollout
 

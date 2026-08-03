@@ -46,7 +46,7 @@ import sharp from "sharp";
 const BASE = process.env.PASSKIT_API_URL || "https://api.pub2.passkit.io";
 const KEY = process.env.PASSKIT_API_KEY!;
 const SECRET = process.env.PASSKIT_API_SECRET!;
-const TEMPLATE_ID = process.env.PASSKIT_VOUCHER_TEMPLATE_ID || "6HiVKEm5GaiU2AoBsGZqM8";
+const TEMPLATE_ID = (await import("../src/config/passkit.ts")).PASSKIT_VOUCHER.templateId;
 
 /** Pass background. Every image is flattened onto exactly this. */
 const BG_HEX = "#0c1226";

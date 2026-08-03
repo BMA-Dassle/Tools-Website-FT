@@ -61,6 +61,7 @@
 // the item-state projection lives in pass-content.ts and is shared instead.
 import { getVoucher, logVoucherEvent, setVoucherPassId } from "../data/vouchers-db";
 import { spentItemIndexes } from "../data/voucher-claims-db";
+import { PASSKIT_VOUCHER } from "~/config/passkit";
 import { isPassKitConfigured, passkit, PassKitError, passUrls } from "~/lib/api/passkit";
 import {
   buildPassMeta,
@@ -74,18 +75,6 @@ import {
  *  PassKit traffic in an emergency without a deploy. */
 export function walletPassesEnabled(): boolean {
   return process.env.PASSKIT_SYNC !== "false" && isPassKitConfigured();
-}
-
-function campaignId(): string {
-  const id = process.env.PASSKIT_VOUCHER_CAMPAIGN_ID;
-  if (!id) throw new Error("PassKit: PASSKIT_VOUCHER_CAMPAIGN_ID not set");
-  return id;
-}
-
-function offerId(): string {
-  const id = process.env.PASSKIT_VOUCHER_OFFER_ID;
-  if (!id) throw new Error("PassKit: PASSKIT_VOUCHER_OFFER_ID not set");
-  return id;
 }
 
 function siteOrigin(): string {
@@ -142,7 +131,7 @@ async function findByExternalId(code: string): Promise<CouponResponse | null> {
   try {
     return await passkit<CouponResponse>(
       "GET",
-      `/coupon/singleUse/coupon/externalId/${campaignId()}/${encodeURIComponent(code)}`,
+      `/coupon/singleUse/coupon/externalId/${PASSKIT_VOUCHER.campaignId}/${encodeURIComponent(code)}`,
     );
   } catch (err) {
     if (err instanceof PassKitError && err.isNotFound) return null;
@@ -174,8 +163,8 @@ export async function issueVoucherPass(code: string): Promise<IssueResult> {
     let coupon: CouponResponse;
     try {
       coupon = await passkit<CouponResponse>("POST", "/coupon/singleUse/coupon", {
-        campaignId: campaignId(),
-        offerId: offerId(),
+        campaignId: PASSKIT_VOUCHER.campaignId,
+        offerId: PASSKIT_VOUCHER.offerId,
         // OUR code is the external id — that is what makes this idempotent.
         externalId: row.code,
         ...(row.expiresAt ? { expiryDate: new Date(row.expiresAt).toISOString() } : {}),
