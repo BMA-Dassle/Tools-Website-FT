@@ -406,6 +406,11 @@ async function processQueueItem(
         // Totals are identical here, but a resend should still pull through any
         // product rename / override-name / reorder so the contract matches BMI.
         line_items: item.products,
+        // Re-derived every pass — see the is_tax_exempt note in updateGfQuoteDetails.
+        // Rarely differs on this branch, but the guard above compares product
+        // COUNT rather than contents, so an equal-length product swap that adds
+        // "GF Tax Exempt" lands here.
+        is_tax_exempt: taxExempt,
         guest_first_name: item.customer.first,
         guest_last_name: item.customer.last,
         guest_email: item.customer.email,
@@ -582,6 +587,13 @@ async function processQueueItem(
     if (lineSig(existing.line_items) !== lineSig(item.products)) changes.push("line_items");
     if (paymentSig(existing.prior_payments) !== paymentSig(item.payments))
       changes.push("prior_payments");
+    // Tax-exempt status must be in the change set, not just in the write below:
+    // "GF Tax Exempt" is a $0 line item, so flipping an already-tax-free event
+    // (a comped or all-service-charge bill) to exempt moves NO money — every
+    // other comparison here matches and the run would return "no changes",
+    // resending the contract while leaving the flag stale forever.
+    if (existing.is_tax_exempt !== taxExempt)
+      changes.push(`tax_exempt: ${existing.is_tax_exempt} → ${taxExempt}`);
 
     // Nothing actually changed → sales flipped a paid, unchanged event to "Send
     // Contract", which is an explicit resend request (owner rule 2026-07-14: a
@@ -646,6 +658,7 @@ async function processQueueItem(
       balance_cents: balanceCents,
       line_items: item.products,
       prior_payments: item.payments,
+      is_tax_exempt: taxExempt,
       planner_first: item.planner.first,
       planner_last: item.planner.last,
       planner_email: item.planner.email,
@@ -882,6 +895,7 @@ async function processQueueItem(
       balance_cents: balanceCents,
       line_items: activeProducts,
       prior_payments: item.payments,
+      is_tax_exempt: taxExempt,
       planner_first: item.planner.first,
       planner_last: item.planner.last,
       planner_email: item.planner.email,

@@ -1078,6 +1078,16 @@ export async function updateGfQuoteDetails(
     balance_cents?: number;
     line_items?: unknown[];
     prior_payments?: unknown[];
+    /** Derived live from BMI products by `isTaxExempt(...)` on every dispatch
+     *  pass. Writable here because sales routinely add the "GF Tax Exempt" line
+     *  AFTER the first send and re-flip to "Send Contract" — the money already
+     *  self-healed (tax_cents is recomputed each pass) but this flag was only
+     *  ever written at insert, so the contract page skipped the exemption-document
+     *  upload and the signed PDF recorded "Tax exemption document on file: No"
+     *  on a $0-tax contract. The inverse is worse: a stale TRUE hard-blocks the
+     *  guest from signing until they upload a DR-14 they don't need. See
+     *  tasks/lessons.md § "A derived flag written only at INSERT rots". */
+    is_tax_exempt?: boolean;
     planner_first?: string;
     planner_last?: string;
     planner_email?: string;
@@ -1116,6 +1126,7 @@ export async function updateGfQuoteDetails(
       balance_cents = COALESCE(${fields.balance_cents ?? null}, balance_cents),
       line_items = COALESCE(${fields.line_items ? JSON.stringify(fields.line_items) : null}::jsonb, line_items),
       prior_payments = COALESCE(${fields.prior_payments ? JSON.stringify(fields.prior_payments) : null}::jsonb, prior_payments),
+      is_tax_exempt = COALESCE(${fields.is_tax_exempt ?? null}::boolean, is_tax_exempt),
       planner_first = COALESCE(${fields.planner_first ?? null}, planner_first),
       planner_last = COALESCE(${fields.planner_last ?? null}, planner_last),
       planner_email = COALESCE(${fields.planner_email ?? null}, planner_email),

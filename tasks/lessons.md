@@ -2858,3 +2858,44 @@ same source `/api/waiver/context` and the kiosk waiver roster read. And filter
 placeholder slot labels ("Adult 1") even when they carry a personId: the
 whitley incident put those labels INTO BMI's people list, so an id is not
 proof of a real name.
+
+## A derived flag written only at INSERT rots — and can hard-block a signature (2026-08-03)
+
+Sales flipped three HPFM quotes to "Send Contract" and reported "not sending".
+The pipeline was fine (cron every 60s, `0 in send-contract state(s)` all
+morning — the state flip never persisted in BMI, upstream of us). But chasing it
+surfaced a real bug: `is_tax_exempt` was written **only** by `insertGfQuote` and
+never again, while `taxCents` is re-derived from `isTaxExempt(item.products)` on
+every dispatch pass. Add or remove BMI's `GF Tax Exempt` line after the first
+send and the money self-heals while the flag lies — permanently.
+
+Both directions do damage, and the second is worse than cosmetic:
+
+- **Flag FALSE, exempt in BMI** → contract charges $0 tax, but the page never
+  asks for the DR-14 and the signed PDF records "Tax exemption document on file:
+  No". Found 12 such rows, ~$25k signed with no certificate on file (Naples
+  Airport Authority $12,224.34, FGCU, YMCA Collier, Boys & Girls Club, …).
+- **Flag TRUE, no exempt line** → `taxValid` in `ContractClient` is
+  `taxExempt === "no" || (taxExempt === "yes" && Boolean(taxFileUrl))`, and the
+  radio DEFAULTS to "yes" off the flag. The guest is **hard-blocked from signing**
+  until they upload a DR-14 they don't have and don't need. Three unsigned quotes
+  were stuck this way, incl. JW Group 3447 — opened six times, never signed,
+  read as "the contract isn't sending".
+
+**Rule:** any column derived from BMI products must be re-derived and rewritten
+on every sync pass, not just at insert. Concretely: add it to
+`updateGfQuoteDetails`, pass it at **every** call site, and — the part that's
+easy to miss — add it to the post-sign `changes[]` comparison set. `GF Tax
+Exempt` is a $0 line, so toggling it on an already-tax-free event moves no money;
+every other comparison matches, the pass returns "no changes", and the flag stays
+stale forever behind a gate that looks like it's working.
+
+The same class of bug is already documented one section over for
+`approval_required` (2026-07-24, stale post-paid marker). That one got a
+self-heal block; this one didn't. When you find the third, stop patching
+per-field and re-derive the whole derived set.
+
+**Corollary for triage:** "it's not sending" from sales can mean sent-but-unsignable.
+Check `contract_sent_at` and the audit log's `page_view` rows before believing the
+dispatch path is at fault — JW Group had six page views and zero `signed` events,
+which named the real problem immediately.
