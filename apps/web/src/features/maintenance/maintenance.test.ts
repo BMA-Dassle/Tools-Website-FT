@@ -145,6 +145,17 @@ describe("the waiver guard is ARMED for an Office outage", () => {
     expect(isProductPaused("contract")).toBe(false);
   });
 
+  it("MASTER OFF SWITCH: MAINTENANCE_VENDOR_<X>=false beats the ad-hoc list", () => {
+    // Whoever puts a vendor back on sale needs ONE lever that always works. If
+    // the ad-hoc list could override the off switch, clearing an outage would
+    // silently depend on remembering a second, unrelated variable.
+    officeDown();
+    process.env.MAINTENANCE_VENDOR_BMI_OFFICE = "false";
+    expect(isVendorDown("bmi-office")).toBe(false);
+    expect(isProductPaused("waiver")).toBe(false);
+    expect(maintenanceRedirectForPath("/waiver")).toBeNull();
+  });
+
   it("ignores junk in the ad-hoc list", () => {
     process.env.MAINTENANCE_VENDORS_DOWN = "not-a-vendor, ,bmi-office";
     expect(isVendorDown("bmi-office")).toBe(true);

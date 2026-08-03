@@ -136,14 +136,20 @@ function genericOutage(vendor: VendorKey): VendorOutage {
 
 /**
  * Outages that are in force right now: declared entries whose switch is still on,
- * plus any vendor named in MAINTENANCE_VENDORS_DOWN. A declared entry wins, so
- * naming a vendor in both keeps the tailored copy.
+ * plus any vendor named in MAINTENANCE_VENDORS_DOWN. A declared entry wins over an
+ * ad-hoc one, so naming a vendor in both keeps the tailored copy.
+ *
+ * `MAINTENANCE_VENDOR_<X>="false"` is the MASTER OFF SWITCH and beats everything,
+ * including MAINTENANCE_VENDORS_DOWN. Whoever is putting a vendor back on sale at
+ * 11pm needs one lever that always works — having to also remember to edit a
+ * second, unrelated variable is how you get a "why is it still down?" round trip
+ * (the exact failure the house flag rule was written after).
  */
 export function activeOutages(): VendorOutage[] {
   const declared = OUTAGES.filter((o) => outageEnabled(o.vendor));
   const seen = new Set(declared.map((o) => o.vendor));
   const adHoc = adHocVendorsDown()
-    .filter((v) => !seen.has(v))
+    .filter((v) => !seen.has(v) && outageEnabled(v))
     .map(genericOutage);
   return [...declared, ...adHoc];
 }
