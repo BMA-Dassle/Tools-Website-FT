@@ -12,7 +12,11 @@ import {
 } from "@tabler/icons-react";
 import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
 import type { WalletPlatform } from "~/features/game-cards/wallet/platform";
-import { formatVoucherExpiry, groupVoucherItems } from "~/features/game-cards/vouchers/display";
+import {
+  formatVoucherExpiry,
+  groupVoucherItems,
+  voucherGroupLabel,
+} from "~/features/game-cards/vouchers/display";
 import type { VoucherStatus } from "~/features/game-cards/service/native-voucher";
 
 /**
@@ -227,8 +231,7 @@ export function VoucherRedeemView({
                     className="flex items-center justify-between gap-3 text-lg"
                   >
                     <span className={g.spent > 0 ? "text-white/35 line-through" : "text-white"}>
-                      {!g.summed && g.total > 1 ? `${g.total} × ` : ""}
-                      {g.label}
+                      {voucherGroupLabel(g)}
                     </span>
                     <span className="shrink-0 text-sm text-white/50">
                       {g.spent > 0

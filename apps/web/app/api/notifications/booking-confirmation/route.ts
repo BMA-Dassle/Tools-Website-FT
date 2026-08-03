@@ -16,7 +16,7 @@ import {
   vipEmailSubject,
 } from "~/features/combos/vip-welcome";
 import { getVoucherByBillId } from "~/features/game-cards/data/vouchers-db";
-import { groupVoucherItems, voucherItemDisplayLabel } from "~/features/game-cards/vouchers/display";
+import { groupVoucherItems, voucherGroupLabel } from "~/features/game-cards/vouchers/display";
 import { qrAttachment, voucherRedeemUrl } from "~/features/game-cards/service/voucher-mail";
 import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
 
@@ -516,7 +516,7 @@ export async function POST(req: NextRequest) {
               ${groupVoucherItems(v.items.map((item, index) => ({ item, index, spent: false })))
                 .map(
                   (g) =>
-                    `<p style="margin:2px 0;color:#e8d9b0;font-size:13px;">&#10003;&nbsp;&nbsp;${g.total > 1 ? `${g.total} &times; ` : ""}${g.label}</p>`,
+                    `<p style="margin:2px 0;color:#e8d9b0;font-size:13px;">&#10003;&nbsp;&nbsp;${voucherGroupLabel(g).replace(/×/g, "&times;")}</p>`,
                 )
                 .join("")}
               <p style="color:#8d7a4d;font-size:12px;line-height:1.6;margin:10px 0 0 0;">
@@ -852,10 +852,13 @@ export async function POST(req: NextRequest) {
           emailAttachments.push(qr.attachment);
           vipVoucherSectionHtml = buildVipVoucherSectionHtml({
             codeDisplay: formatVoucherCode(vipVoucher.code),
-            // Guest-facing labels, not the internal ones: "$10 Game Card" and
-            // "Laser Tag", never "100 bonus tokens" / "laser tag". Same helper the
-            // /v page uses, so the email and the page agree.
-            itemLabels: vipVoucher.items.map(voucherItemDisplayLabel),
+            // GROUPED, and grouped by the same rule as the /v page: token legs
+            // sum into one "400 Tokens" row while admissions stay countable
+            // ("4 × Laser Tag"). A 7-guest grant used to render fifteen-plus
+            // near-identical lines here.
+            itemLabels: groupVoucherItems(
+              vipVoucher.items.map((item, index) => ({ item, index, spent: false })),
+            ).map(voucherGroupLabel),
             expiresAt: vipVoucher.expiresAt,
             redeemUrl: voucherRedeemUrl(vipVoucher.code),
             qrCid: qr.cid,

@@ -155,6 +155,21 @@ export function groupVoucherItems(
   return out;
 }
 
+/**
+ * The finished row text for a group — the ONE place the summed-vs-counted rule
+ * lives.
+ *
+ * Token legs already carry their total in the label ("400 Tokens"), so prefixing
+ * a count would read "4 × 400 Tokens". Admissions are the opposite: four laser
+ * legs are four separate sessions and must stay countable. That distinction was
+ * inline in the /v page and nothing stopped the VIP email from getting it wrong
+ * differently, which is exactly what happened.
+ */
+export function voucherGroupLabel(group: VoucherItemGroup): string {
+  if (group.summed || group.total <= 1) return group.label;
+  return `${group.total} × ${group.label}`;
+}
+
 /** Long-form date in ET — the timezone every voucher expiry is expressed in. */
 export function formatVoucherExpiry(expiresAt: string | null): string | null {
   if (!expiresAt) return null;
