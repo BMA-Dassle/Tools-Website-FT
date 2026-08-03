@@ -88,9 +88,13 @@ describe("bowling v3 registry gating", () => {
       expect.arrayContaining(["kiosk-bowling-people", "bowling-experience", "bowling-time"]),
     );
     for (const id of [...CLASSIC_IDS, "bowling-date"]) expect(ids).not.toContain(id);
-    // roster details + shoes still present
-    expect(ids).toContain("bowling-shoes");
+    // Roster details still present — and it now OWNS the shoes. The kiosk's
+    // shoe-quantity step was removed (ceb4357a, 2026-07-25: the kiosk asked
+    // "how many shoes" AND then per-bowler sizes, so a guest could rent 1 pair
+    // and enter 4). The registry `replaceStep`s bowling-shoes with
+    // KioskBowlingDetailsStep, which derives the count from the sizes.
     expect(ids).toContain("kiosk-bowling-details");
+    expect(ids).not.toContain("bowling-shoes");
   });
 
   it("kiosk KBF registry gates the same way", () => {
