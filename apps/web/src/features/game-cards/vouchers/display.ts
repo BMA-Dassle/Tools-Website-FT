@@ -170,6 +170,27 @@ export function voucherGroupLabel(group: VoucherItemGroup): string {
   return `${group.total} × ${group.label}`;
 }
 
+/**
+ * Everything a list of items carries, as ONE line with like legs combined.
+ *
+ * The sentence form of `groupVoucherItems` — for anywhere a voucher's value has
+ * to fit in prose rather than a table: a staff alert, an email's value line, a
+ * text message. Without it a combined 4-pack reads "100 bonus tokens + laser tag
+ * or gel blaster + 100 bonus tokens + laser tag or gel blaster + …" (owner
+ * screenshot 2026-08-03), which is the same complaint the kiosk receipt and the
+ * /v page already answered by grouping.
+ *
+ * Every leg counts as unspent: this describes what a voucher WAS MINTED with,
+ * which is what a mint receipt, a purchase receipt and a booking alert are all
+ * talking about. Remaining-value surfaces (the pass, the /v page) group the
+ * spent legs separately and must keep calling `groupVoucherItems` themselves.
+ */
+export function summariseVoucherItems(items: readonly VoucherItem[]): string {
+  return groupVoucherItems(items.map((item, index) => ({ index, item, spent: false })))
+    .map(voucherGroupLabel)
+    .join(" + ");
+}
+
 /** Long-form date in ET — the timezone every voucher expiry is expressed in. */
 export function formatVoucherExpiry(expiresAt: string | null): string | null {
   if (!expiresAt) return null;

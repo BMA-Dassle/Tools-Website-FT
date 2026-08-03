@@ -27,7 +27,7 @@
  */
 
 import type { VoucherItem } from "../data/vouchers-db";
-import { formatVoucherExpiry, groupVoucherItems } from "../vouchers/display";
+import { formatVoucherExpiry, groupVoucherItems, voucherGroupLabel } from "../vouchers/display";
 
 /** Per-item state, matching `VoucherItemState` from the voucher service. */
 export interface RemainingInput {
@@ -88,9 +88,9 @@ export function remainingItems(states: RemainingInput[]): RemainingInput[] {
  */
 export function summariseRemaining(states: RemainingInput[]): string {
   const groups = groupVoucherItems(states.filter((s) => !s.spent));
-  // `summed` groups already state their whole value (token totals add up), so a
-  // "N ×" prefix would double-count them — see groupVoucherItems.
-  const parts = groups.map((g) => (!g.summed && g.total > 1 ? `${g.total} × ${g.label}` : g.label));
+  // `voucherGroupLabel` owns the summed-vs-counted rule: token totals already add
+  // up in the label, so prefixing "N ×" would double-count them.
+  const parts = groups.map(voucherGroupLabel);
   const full = parts.join(" + ");
   if (full.length <= MAX_VALUE_CHARS || parts.length < 2) return full;
   // Summarise rather than let the OS cut a price or a product name in half.

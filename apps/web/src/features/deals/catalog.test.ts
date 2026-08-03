@@ -171,10 +171,9 @@ describe("dealExpiryFrom", () => {
 
 describe("dealVoucherSummary", () => {
   it("collapses duplicate legs and prices Game Zone value as dollars of tokens", () => {
-    // itemsSummary (built for the kiosk's per-leg receipt) reads
-    // "laser tag + laser tag + 100 bonus tokens + 100 bonus tokens" in a
-    // sentence — repetitive, lower-cased, and denominated in our internal unit
-    // rather than the dollars the buyer just paid.
+    // itemsSummary groups the same legs generically ("200 Tokens + 2 × Laser
+    // Tag") because all it has is the legs. A seller knows the product was sold
+    // as N packs, so it can name the Game Zone rail the buyer saw.
     expect(dealVoucherSummary(getDeal("laser-tag-game-card-pack")!)).toBe(
       "2 × Laser Tag + 200 Game Zone Tokens",
     );

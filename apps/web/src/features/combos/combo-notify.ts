@@ -13,8 +13,8 @@ import { sendEmail } from "@/lib/sendgrid";
 import type { BookingSession, BowlingItem, RaceItem } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
 import type { VoucherItem } from "~/features/game-cards/data/vouchers-db";
-import { itemsSummary } from "~/features/game-cards/service/voucher-mail";
 import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
+import { summariseVoucherItems } from "~/features/game-cards/vouchers/display";
 
 import { listComboGroupsForDate } from "./combo-existing.server";
 import { chipHourOfIso, classifyGroupMatch } from "./combo-group-match";
@@ -186,7 +186,7 @@ export async function notifyComboBooked(args: {
       `<p style="margin:0 0 4px"><strong>Itinerary</strong></p>`,
       `<ol style="margin:0 0 12px;padding-left:20px">${itinerary.map((r) => `<li>${r}</li>`).join("")}</ol>`,
       args.voucher
-        ? `<p style="margin:0 0 12px"><strong>Voucher</strong> <span style="font-family:monospace">${formatVoucherCode(args.voucher.code)}</span> — ${itemsSummary(args.voucher.items)}${
+        ? `<p style="margin:0 0 12px"><strong>Voucher</strong> <span style="font-family:monospace">${formatVoucherCode(args.voucher.code)}</span> — ${summariseVoucherItems(args.voucher.items)}${
             args.voucher.expiresAt
               ? ` · valid through ${new Date(args.voucher.expiresAt).toLocaleDateString("en-US", { timeZone: "America/New_York" })}`
               : ""
@@ -208,7 +208,7 @@ export async function notifyComboBooked(args: {
         (groupNote ? `\n** ${groupNote.text} **\n\n` : "") +
         itinerary.map((r, i) => `${i + 1}. ${r}`).join("\n") +
         (args.voucher
-          ? `\nVoucher ${formatVoucherCode(args.voucher.code)} — ${itemsSummary(args.voucher.items)}`
+          ? `\nVoucher ${formatVoucherCode(args.voucher.code)} — ${summariseVoucherItems(args.voucher.items)}`
           : "") +
         `\nBMI bill ${args.bmiBillId ?? "—"} · Square order ${args.squareDayofOrderId}`,
     });

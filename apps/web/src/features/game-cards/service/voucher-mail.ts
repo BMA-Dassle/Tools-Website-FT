@@ -23,9 +23,10 @@
 import QRCode from "qrcode";
 import { sendEmail } from "@/lib/sendgrid";
 import { twilioSend } from "@/lib/twilio-send";
+import { adminBoardUrl, renderAdminEmail } from "~/lib/helpers/admin-email";
 import { formatVoucherCode } from "../vouchers/codes";
-import { voucherItemLabel, type VoucherItem } from "../data/vouchers-db";
-import { logVoucherEvent, markVoucherSent } from "../data/vouchers-db";
+import { summariseVoucherItems } from "../vouchers/display";
+import { logVoucherEvent, markVoucherSent, type VoucherItem } from "../data/vouchers-db";
 
 /** Public origin for /v/{code} links. */
 function siteOrigin(): string {
@@ -36,9 +37,20 @@ export function voucherRedeemUrl(code: string): string {
   return `${siteOrigin()}/v/${encodeURIComponent(code)}`;
 }
 
-/** "100 bonus tokens" / "100 bonus tokens + laser tag" */
+/**
+ * What a voucher carries, in one line, LIKE LEGS COMBINED — "400 Tokens + 4 ×
+ * Laser Tag", never "100 bonus tokens + laser tag + 100 bonus tokens + …".
+ *
+ * A thin alias for the display layer's `summariseVoucherItems`, kept because
+ * "the value line of a voucher email" is what every caller here means. It used
+ * to join raw `voucherItemLabel` output, which is the KIOSK's per-leg receipt
+ * label: a combined 4-pack came out as an eight-term repetition in the VIP staff
+ * alert (owner screenshot 2026-08-03: "combine like items"). Grouping already
+ * existed for the /v page, the kiosk receipt and the wallet pass; the emails
+ * were the last surface not using it.
+ */
 export function itemsSummary(items: VoucherItem[]): string {
-  return items.map(voucherItemLabel).join(" + ");
+  return summariseVoucherItems(items);
 }
 
 function esc(s: string): string {
@@ -205,10 +217,10 @@ export async function emailPurchasedVouchers(args: {
   /** What ONE code carries. */
   items: VoucherItem[];
   /**
-   * Guest-facing override for the value line. `itemsSummary` is built for the
-   * kiosk receipt (one row per removable leg) and reads badly in a sentence —
-   * "laser tag + laser tag + 100 bonus tokens + 100 bonus tokens". A seller that
-   * knows its product passes something the buyer recognises.
+   * Override for the value line. `itemsSummary` groups like legs and names them
+   * generically ("400 Tokens + 4 × Laser Tag"); a seller that knows its product
+   * can say it the way the buyer bought it ("2 × Laser Tag + 200 Game Zone
+   * Tokens" — see `dealVoucherSummary`).
    */
   valueSummary?: string;
   expiresAt?: string | null;
@@ -381,7 +393,15 @@ export async function smsPurchasedVouchers(args: {
  *
  * Recipients are an env list so adding someone is a Vercel change, not a deploy.
  * "for now" is the operative phrase — this is a launch-watching email, and the
- * sales board at /admin/{token}/deals is the durable answer.
+ * sales board is the durable answer, so the whole mail is built around one
+ * button that OPENS it: a real, tokenised `/admin/{token}/deals` URL from
+ * `adminBoardUrl`, not the `<token>` placeholder this shipped with (owner
+ * 2026-08-03: "should contain real URL with admin token"). Chrome comes from the
+ * shared admin-email shell, so it reads on a phone and looks like the board it
+ * links to.
+ *
+ * The mail carries an admin token, which is a bearer credential — it may only
+ * ever go to the internal recipient list.
  */
 export async function notifyStaffDealSale(args: {
   dealName: string;
@@ -406,42 +426,35 @@ export async function notifyStaffDealSale(args: {
     ? [args.utm.utm_source, args.utm.utm_campaign].filter(Boolean).join(" / ") ||
       (args.utm.gclid ? "google ads" : "direct")
     : "direct";
-  const delivery = args.combined && args.qty > 1 ? `1 code (${args.qty} packs combined)` : `${args.codes.length} code(s)`;
+  const delivery =
+    args.combined && args.qty > 1
+      ? `1 code (${args.qty} packs combined)`
+      : `${args.codes.length} code${args.codes.length === 1 ? "" : "s"}`;
 
-  const rows: [string, string][] = [
-    ["Deal", `${args.dealName} × ${args.qty}`],
-    ["Location", args.locationLabel],
-    ["Paid", money],
-    ["Buyer", `${args.buyerName ? `${esc(args.buyerName)} — ` : ""}${esc(args.buyerEmail)}`],
-    ["Delivery", delivery],
-    ["Codes", args.codes.map(formatVoucherCode).join(", ") || "—"],
-    ["Source", esc(source)],
-    ["Order", `#${args.purchaseId}`],
-  ];
-
-  const html = `
-    <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111">
-      <h2 style="margin:0 0 4px">Deal pack sold — ${money}</h2>
-      <p style="margin:0 0 14px;color:#555">${esc(args.dealName)} × ${args.qty} · ${esc(args.locationLabel)}</p>
-      <table style="border-collapse:collapse;font-size:14px">
-        ${rows
-          .map(
-            ([k, v]) =>
-              `<tr><td style="padding:3px 14px 3px 0;color:#777">${k}</td><td style="padding:3px 0"><strong>${v}</strong></td></tr>`,
-          )
-          .join("")}
-      </table>
-      <p style="margin:16px 0 0;font-size:13px;color:#555">
-        Sales board: <a href="${esc(siteOrigin())}/admin/&lt;token&gt;/deals">/admin/&lt;token&gt;/deals</a>
-      </p>
-    </div>`;
+  const boardUrl = adminBoardUrl("deals");
+  const { html, text } = renderAdminEmail({
+    title: "Deal pack sold",
+    headlineValue: money,
+    subtitle: `${args.dealName} × ${args.qty} · ${args.locationLabel}`,
+    rows: [
+      { label: "Buyer", value: args.buyerName?.trim() || "—" },
+      { label: "Email", value: args.buyerEmail, href: `mailto:${args.buyerEmail}` },
+      { label: "Delivery", value: delivery },
+      { label: "Codes", value: args.codes.map(formatVoucherCode).join(", ") || "—", mono: true },
+      { label: "Source", value: source },
+      { label: "Order", value: `#${args.purchaseId}` },
+    ],
+    cta: { label: "Open the sales board", url: boardUrl },
+    // No token, no button — so say where to go rather than leave a dead end.
+    footnote: boardUrl ? null : "Sales board: /admin/{admin token}/deals",
+  });
 
   const res = await sendEmail({
     to: to[0],
     ...(to.length > 1 ? { cc: to.slice(1) } : {}),
     subject: `Deal pack sold — ${args.dealName} × ${args.qty} (${money})`,
     html,
-    text: rows.map(([k, v]) => `${k}: ${v.replace(/<[^>]*>/g, "")}`).join("\n"),
+    text,
     categories: ["deal_sale_staff"],
   });
   return res.ok ? { ok: true } : { ok: false, error: res.error };

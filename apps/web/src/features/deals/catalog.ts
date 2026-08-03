@@ -377,13 +377,13 @@ export function dealExpiryFrom(purchasedAt: Date, months: number): string {
 /**
  * Guest-facing summary of what ONE pack carries — for the purchase receipt.
  *
- * Not `itemsSummary(items)`: that joins raw `voucherItemLabel` output, which is
- * built for the kiosk receipt where each leg is its own removable row. Joined
- * into a sentence it reads "laser tag + laser tag + 100 bonus tokens + 100 bonus
- * tokens" — repetitive, lower-cased, and priced in tokens, which is our internal
- * unit rather than the thing the buyer just paid dollars for.
+ * Not `itemsSummary(items)`: that groups like legs too, but generically ("400
+ * Tokens + 4 × Laser Tag") because it works from the legs alone. A seller knows
+ * more than the legs — it knows the product was sold as N packs — so this says
+ * "2 × Laser Tag + 200 Game Zone Tokens", naming the Game Zone rail the buyer
+ * saw on the deal page.
  *
- * Collapses duplicates into counts and states game-card value in money.
+ * Collapses duplicates into counts; tokens add up rather than repeat.
  */
 export function dealVoucherSummary(deal: DealCatalogEntry, packs = 1): string {
   const items = dealVoucherItems(deal, packs);

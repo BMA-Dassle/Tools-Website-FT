@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { formatVoucherExpiry, groupVoucherItems, voucherItemDisplayLabel } from "./display";
+import {
+  formatVoucherExpiry,
+  groupVoucherItems,
+  summariseVoucherItems,
+  voucherItemDisplayLabel,
+} from "./display";
 import type { VoucherItem } from "../data/vouchers-db";
 
 const gz = (bonusTokens: number): VoucherItem => ({
@@ -104,6 +109,33 @@ describe("groupVoucherItems", () => {
 
   it("is empty for an empty voucher", () => {
     expect(groupVoucherItems([])).toEqual([]);
+  });
+});
+
+describe("summariseVoucherItems", () => {
+  it("combines like legs — the VIP staff alert's eight-term repetition", () => {
+    // Owner screenshot 2026-08-03: a 4-guest VIP voucher read "100 bonus tokens
+    // + laser tag or gel blaster + 100 bonus tokens + laser tag or gel blaster +
+    // 100 bonus tokens + laser tag or gel blaster + 100 bonus tokens + laser tag
+    // or gel blaster + shuffly".
+    const choice: VoucherItem = {
+      kind: "attraction-choice",
+      slugs: ["laser-tag", "gel-blaster"],
+      qty: 1,
+    };
+    const items = [gz(100), choice, gz(100), choice, gz(100), choice, gz(100), choice];
+    expect(summariseVoucherItems(items)).toBe("400 Tokens + 4 × Laser Tag or Gel Blasters");
+  });
+
+  it("counts admissions but SUMS tokens — four laser legs are four sessions", () => {
+    expect(summariseVoucherItems([attraction("laser-tag"), attraction("laser-tag"), gz(150)])).toBe(
+      "2 × Laser Tag + 150 Tokens",
+    );
+  });
+
+  it("leaves a single-leg voucher alone, and an empty one empty", () => {
+    expect(summariseVoucherItems([gz(100)])).toBe("100 Tokens");
+    expect(summariseVoucherItems([])).toBe("");
   });
 });
 
