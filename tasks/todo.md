@@ -74,12 +74,18 @@ right listing; overall-5-but-one-area-2 → no CTA; reopened link → CTA; and
 `GET /api/admin/guest-survey/stats` → `reviewClicks.clickers` incremented (and
 `review_click_count` on the row), which also proves the idempotent ALTERs ran against prod.
 
-**FastTrax caveat (owner decision).** FastTrax has no Google place id, so it uses an
-owner-supplied Google **search-results** URL verbatim — it opens the reviews PANEL, not the
-star form (one extra tap), and its session params (`sca_esv`/`ved`/`biw`/`bih`/`dpr`) may
-stop resolving over time. Swap `{ url }` → `{ placeId: "ChIJ…" }` in `review-links.ts` when
-an id is available; that is the ONLY edit needed. Get one from Google's Place ID Finder or
-the Business Profile "Ask for reviews" `g.page/r/…/review` link.
+**FastTrax place id — RESOLVED 2026-08-02.** All three centers now go straight to the star
+form. FastTrax = `ChIJ3w3IFwAV24gRAVrB_FB6JE4`, derived from the feature id in Google's own
+Maps URL for the 14501 Global Pkwy listing (`0x88db150017c80ddf:0x4e247a50fcc15a01`,
+CID 5630759922376464897). A place id is base64url over the FID pair; the conversion was
+validated by round-tripping both known HeadPinz ids byte-for-byte first. The interim
+search-results URL is gone.
+
+Two traps if this ever needs re-deriving: HeadPinz Fort Myers (`0x88dda5…`) is across the
+same parking lot, and a CLOSED FastTrax exists at 17455 Summerlin Rd. The distinct
+`0x88db15…` prefix is the tell. A unit test now asserts **every** mapped center resolves to
+a `writereview?placeid=` URL, so a future `{ url }` fallback fails the build rather than
+silently costing guests an extra tap.
 
 Follow-ups (out of scope, not started):
 - `emails/race-results.html:548` sends FastTrax racers to HeadPinz Fort Myers' place id.

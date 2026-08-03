@@ -28,9 +28,12 @@ import {
 /**
  * How we reach a center's review surface.
  *
- * `placeId` is STRONGLY preferred: the `writereview` endpoint opens Google's
- * star-rating form directly, which is the whole point of the ask. `url` is an
- * escape hatch for a center with no known place id.
+ * `placeId` is the only form that opens Google's star-rating form directly,
+ * which is the whole point of the ask — every center uses it today, and the
+ * unit test enforces that. `url` remains as an escape hatch for a center with
+ * no obtainable place id; if you reach for it, expect the test to make you
+ * justify it, because a search-results URL only opens the reviews PANEL and
+ * costs the guest an extra tap at exactly the moment they agreed to help.
  */
 export type ReviewTarget = { placeId: string } | { url: string };
 
@@ -40,19 +43,17 @@ const WRITE_REVIEW_BASE = "https://search.google.com/local/writereview?placeid="
 export const REVIEW_TARGETS: Record<string, ReviewTarget> = {
   [HEADPINZ_FM_CENTER_CODE]: { placeId: "ChIJw7rUvBSl3YgRZnV1tR0aK9s" },
   [HEADPINZ_NAPLES_CENTER_CODE]: { placeId: "ChIJq6qqNOSi3YgREP2LHBrr1g4" },
-  // FastTrax has no known Google place id. Owner-supplied URL, stored VERBATIM
-  // — the `si=` blob is an opaque Google entity reference and the remaining
-  // params were not verified against live behavior, so we do not trim them.
+  // FastTrax Entertainment, 14501 Global Pkwy. Derived from the feature id in
+  // Google's own Maps URL for the listing:
+  //   FID 0x88db150017c80ddf:0x4e247a50fcc15a01  (CID 5630759922376464897)
+  // A place id is base64url over that FID pair, verified by round-tripping
+  // both HeadPinz ids above byte-for-byte before trusting this one.
   //
-  // KNOWN LIMITATION: this is a search-results URL, so it opens the reviews
-  // PANEL rather than the star form — racers tap once more than bowlers do,
-  // and the session params (sca_esv/ved/biw/bih/dpr) may stop resolving over
-  // time. Swap to `{ placeId: "ChIJ…" }` the moment a real id is available;
-  // that is the only edit required. Get one from Google's Place ID Finder, or
-  // use the Business Profile "Ask for reviews" g.page/r/…/review short link.
-  [FASTTRAX_CENTER_CODE]: {
-    url: "https://www.google.com/search?sca_esv=c76ec80322be5402&q=fasttrax+entertainment+reviews&si=APenkKm7iecQ4G6P-TsbSMFKIQtv3EFIqRAFw-i8uEbk55Z-_3mNF0KxJPs4_DX2H2FiParcY4b4kDPfnFjBxO5nIRoNBg8SZcUa3pzfhHYATJEJ5bJH-j4FOzEQNvfIe2Qk8ywPSjlsk6GvNvKsJi6nnNuB1H0hPA%3D%3D&sa=X&ved=2ahUKEwi86_OSs4OWAxUWv4kEHdX1B04QyNoBKAB6BAgXEAA&ictx=1&biw=1324&bih=772&dpr=1.25",
-  },
+  // NOTE the distinct 0x88db15… prefix: HeadPinz Fort Myers (0x88dda5…) is
+  // across the same parking lot, and a CLOSED FastTrax exists at 17455
+  // Summerlin Rd. If this ever needs re-deriving, confirm the listing is the
+  // Global Pkwy one before copying anything.
+  [FASTTRAX_CENTER_CODE]: { placeId: "ChIJ3w3IFwAV24gRAVrB_FB6JE4" },
 };
 
 /** Resolve a target to its absolute URL. */
