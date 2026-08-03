@@ -5,9 +5,12 @@
  * (lib/notes-grammar.ts): key from env, never hardcoded.
  */
 
-const GATEWAY_KEY = process.env.ANTHROPIC_API_KEY || process.env.VERCEL_AI_GATEWAY_KEY || "";
-const GATEWAY_URL = "https://ai-gateway.vercel.sh/v1/messages";
-const MODEL_HAIKU = "anthropic/claude-3-5-haiku-20241022";
+import {
+  AI_GATEWAY_MODEL,
+  AI_GATEWAY_URL,
+  aiGatewayHeaders,
+  aiGatewayKey,
+} from "~/lib/api/ai-gateway";
 
 export interface EventMetadataExtraction {
   foodOutTime: string | null;
@@ -53,18 +56,17 @@ Event Notes:
 ${notes.substring(0, 2000)}`;
 
   try {
-    if (!GATEWAY_KEY) throw new Error("AI gateway key not configured");
+    const gatewayKey = aiGatewayKey();
+    if (!gatewayKey) throw new Error("AI gateway key not configured");
 
-    const res = await fetch(GATEWAY_URL, {
+    const res = await fetch(AI_GATEWAY_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${GATEWAY_KEY}`,
-        "anthropic-version": "2023-06-01",
-      },
+      headers: aiGatewayHeaders(gatewayKey),
       body: JSON.stringify({
-        model: MODEL_HAIKU,
+        model: AI_GATEWAY_MODEL,
         max_tokens: 256,
+        // Haiku 4.5 still accepts sampling params (they're rejected on Opus 4.7+
+        // and Sonnet 5) — keep the low temperature, this call must return parseable JSON.
         temperature: 0.1,
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: userPrompt }],

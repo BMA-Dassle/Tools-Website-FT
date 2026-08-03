@@ -1,5 +1,9 @@
-const GATEWAY_KEY = process.env.ANTHROPIC_API_KEY || process.env.VERCEL_AI_GATEWAY_KEY || "";
-const GATEWAY_URL = "https://ai-gateway.vercel.sh/v1/messages";
+import {
+  AI_GATEWAY_MODEL,
+  AI_GATEWAY_URL,
+  aiGatewayHeaders,
+  aiGatewayKey,
+} from "~/lib/api/ai-gateway";
 
 const SYSTEM_PROMPT = `You are a light editor for event planning notes at a family entertainment center. These notes are read by customers and must be professional but accurate.
 
@@ -19,18 +23,15 @@ STRICT RULES:
 Return ONLY the edited text. No explanations, no commentary.`;
 
 export async function cleanupNotesGrammar(notes: string): Promise<string> {
-  if (!GATEWAY_KEY || !notes.trim()) return notes;
+  const gatewayKey = aiGatewayKey();
+  if (!gatewayKey || !notes.trim()) return notes;
 
   try {
-    const res = await fetch(GATEWAY_URL, {
+    const res = await fetch(AI_GATEWAY_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${GATEWAY_KEY}`,
-        "anthropic-version": "2023-06-01",
-      },
+      headers: aiGatewayHeaders(gatewayKey),
       body: JSON.stringify({
-        model: "anthropic/claude-3-5-haiku-20241022",
+        model: AI_GATEWAY_MODEL,
         max_tokens: 1024,
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: notes }],

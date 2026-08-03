@@ -1,5 +1,9 @@
-const GATEWAY_KEY = process.env.ANTHROPIC_API_KEY || process.env.VERCEL_AI_GATEWAY_KEY || "";
-const GATEWAY_URL = "https://ai-gateway.vercel.sh/v1/messages";
+import {
+  AI_GATEWAY_MODEL,
+  AI_GATEWAY_URL,
+  aiGatewayHeaders,
+  aiGatewayKey,
+} from "~/lib/api/ai-gateway";
 
 const SYSTEM_PROMPT = `You format event names for a family entertainment center's contract system.
 
@@ -26,22 +30,19 @@ EXAMPLES:
 Return ONLY the formatted name. No explanations.`;
 
 export async function formatEventName(rawName: string): Promise<string> {
-  if (!GATEWAY_KEY || !rawName.trim()) {
-    console.log(`[event-name-format] skipping: keySet=${!!GATEWAY_KEY} rawName="${rawName}"`);
+  const gatewayKey = aiGatewayKey();
+  if (!gatewayKey || !rawName.trim()) {
+    console.log(`[event-name-format] skipping: keySet=${!!gatewayKey} rawName="${rawName}"`);
     return rawName;
   }
   console.log(`[event-name-format] calling AI Gateway for: "${rawName}"`);
 
   try {
-    const res = await fetch(GATEWAY_URL, {
+    const res = await fetch(AI_GATEWAY_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${GATEWAY_KEY}`,
-        "anthropic-version": "2023-06-01",
-      },
+      headers: aiGatewayHeaders(gatewayKey),
       body: JSON.stringify({
-        model: "anthropic/claude-3-5-haiku-20241022",
+        model: AI_GATEWAY_MODEL,
         max_tokens: 100,
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: rawName }],
