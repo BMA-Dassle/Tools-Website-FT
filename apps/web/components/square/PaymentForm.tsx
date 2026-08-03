@@ -104,7 +104,13 @@ interface PaymentFormProps {
   /** Override Square location: "fasttrax" | "headpinz" | "naples". Auto-detects from hostname if not set. */
   locationId?: string;
   onSuccess: (result: PaymentResult) => void;
-  onError: (error: string) => void;
+  /**
+   * OPTIONAL, and currently never invoked — this component renders its own
+   * `errorMessage` box directly above the pay button instead. A caller that ALSO
+   * displays what it throws from `onTokenize` will show the same sentence twice
+   * (the deals checkout did, 2026-08-03). Let this component own decline display.
+   */
+  onError?: (error: string) => void;
   onCancel?: () => void;
   // Card-on-file (returning racers only — OTP verified)
   squareCustomerId?: string;
@@ -185,7 +191,6 @@ export default function PaymentForm({
   contact,
   locationId: locationIdProp,
   onSuccess,
-  onError,
   onCancel,
   squareCustomerId,
   savedCards = [],

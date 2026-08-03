@@ -164,7 +164,10 @@ export default function DealBuyPanel({
   const [smsOptIn, setSmsOptIn] = useState(false);
   const [agreed, setAgreed] = useState(false);
 
-  const [payError, setPayError] = useState<string | null>(null);
+  // NO local pay-error state. PaymentForm renders whatever `onTokenize` throws, in
+  // its own box directly above the pay button. Mirroring it here too is what put the
+  // same decline on screen twice on 2026-08-03 — one box above the card fields and an
+  // identical one below them.
   const [result, setResult] = useState<PurchaseResult | null>(null);
 
   // A stable synthetic id for the payment form's logging/keying. Deal packs have
@@ -230,12 +233,10 @@ export default function DealBuyPanel({
       saveCardConsent: boolean;
     }) => {
       if (!location || !quote) return;
-      setPayError(null);
       const nonce = cardNonce ?? savedCardId;
-      if (!nonce) {
-        setPayError("We couldn't read that card. Please try again.");
-        throw new Error("no nonce");
-      }
+      // Everything thrown from here is shown to the buyer verbatim by PaymentForm,
+      // so throw the guest-facing sentence — never an internal string like "no nonce".
+      if (!nonce) throw new Error("We couldn't read that card. Please try again.");
       const res = await fetch("/api/deals/purchase", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -253,11 +254,10 @@ export default function DealBuyPanel({
         }),
       });
       const data = await res.json();
-      if (!res.ok || !data.ok) {
-        setPayError(data.error || "That payment didn't go through.");
-        // Rethrow so PaymentForm re-enables its button for another attempt.
-        throw new Error(data.error || "purchase failed");
-      }
+      // `data.error` is already guest-facing — the purchase service phrases declines
+      // through `checkoutDeclineMessage`. Throwing re-enables PaymentForm's button
+      // AND is how the message reaches the screen.
+      if (!res.ok || !data.ok) throw new Error(data.error || "That payment didn't go through.");
       const purchased = data as PurchaseResult;
 
       // Leave the purchase page entirely (owner 2026-08-03) and land on the
@@ -521,8 +521,6 @@ export default function DealBuyPanel({
         </span>
       </label>
 
-      {payError && <ErrorBox>{payError}</ErrorBox>}
-
       {readyToPay && quote && location ? (
         <PaymentForm
           amount={quote.totalCents / 100}
@@ -532,7 +530,6 @@ export default function DealBuyPanel({
           locationId={location === "naples" ? "naples" : "headpinz"}
           onTokenize={handleTokenize}
           onSuccess={() => {}}
-          onError={(msg) => setPayError(msg)}
         />
       ) : (
         <p className="text-center text-xs text-white/40">

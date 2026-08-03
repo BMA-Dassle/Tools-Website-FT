@@ -31,6 +31,7 @@
  */
 
 import { randomBytes } from "crypto";
+import { checkoutDeclineMessage } from "@/lib/square-decline";
 import { authorizeMultiTender, SquarePaymentError } from "@/lib/square-gift-card";
 import { mintVouchers } from "~/features/game-cards/service/native-voucher";
 import {
@@ -74,23 +75,11 @@ export class DealPurchaseError extends Error {
 }
 
 /**
- * Card-decline copy, matching the table the game-card purchase path uses. Square
- * codes are not guest-readable and "GENERIC_DECLINE" in a checkout is how you
- * get a support call.
+ * Card-decline copy comes from `@/lib/square-decline` (CHECKOUT voice), NOT a table
+ * local to this feature. The private seven-code table that used to live here lacked
+ * `TRANSACTION_LIMIT`, so a real issuer decline on 2026-08-03 rendered as the generic
+ * "try another" and the buyer retried the same doomed card four times.
  */
-const FRIENDLY_DECLINE: Record<string, string> = {
-  INSUFFICIENT_FUNDS: "Card declined — insufficient funds. Try a different card.",
-  GENERIC_DECLINE: "Card declined. Please try a different card.",
-  CVV_FAILURE: "CVV check failed. Please re-enter your card details.",
-  CARD_EXPIRED: "Card expired. Please use a different card.",
-  CARD_DECLINED: "Card declined. Please try a different card.",
-  CARD_DECLINED_VERIFICATION_REQUIRED: "Additional verification required. Please try again.",
-  ADDRESS_VERIFICATION_FAILURE: "Billing ZIP didn't match. Please re-enter your card details.",
-};
-
-function friendlyDecline(err: SquarePaymentError): string {
-  return FRIENDLY_DECLINE[err.code] ?? "We couldn't process that card. Please try another.";
-}
 
 export interface DealPurchaseResult {
   purchaseId: number;
@@ -361,7 +350,7 @@ export async function purchaseDeal(input: DealPurchaseInput): Promise<DealPurcha
     const detail = err instanceof Error ? err.message : String(err);
     await markDealPurchaseChargeFailed(row.id, detail);
     if (err instanceof SquarePaymentError) {
-      throw new DealPurchaseError(err.code, friendlyDecline(err), 402);
+      throw new DealPurchaseError(err.code, checkoutDeclineMessage(err.code), 402);
     }
     throw new DealPurchaseError("CHARGE_FAILED", "We couldn't process that payment.", 502);
   }
