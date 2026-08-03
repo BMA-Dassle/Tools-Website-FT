@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isNativeVoucherCode, normalizeVoucherCode } from "~/features/game-cards/vouchers/codes";
 import { issueVoucherPass } from "~/features/game-cards/wallet/voucher-pass";
+import { walletPlatformFromUserAgent } from "~/features/game-cards/wallet/platform";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,20 +63,21 @@ export async function GET(
   // may be sending it to someone, or they use Google Wallet on iOS), and
   // second-guessing them with the user agent would hand them the wrong file.
   // Without the param we fall back to sniffing, which is what the email links do.
-  const platform = req.nextUrl.searchParams.get("platform");
-  const ua = req.headers.get("user-agent") ?? "";
+  const stated = req.nextUrl.searchParams.get("platform");
+  // Same detector the page uses to decide WHICH button to show, so the button a
+  // guest tapped and the file they receive cannot disagree.
+  const platform =
+    stated === "apple" || stated === "google"
+      ? stated
+      : walletPlatformFromUserAgent(req.headers.get("user-agent"));
   const target =
     platform === "apple"
       ? result.urls.apple
       : platform === "google"
         ? result.urls.google
-        : /iPhone|iPad|iPod|Macintosh/i.test(ua)
-          ? result.urls.apple
-          : /Android/i.test(ua)
-            ? result.urls.google
-            : // Desktop with no preference stated: PassKit's landing page offers
-              // both and renders a QR to hop to a phone.
-              result.urls.landing;
+        : // Desktop or unknown, with no preference stated: PassKit's landing page
+          // offers both and renders a QR to hop to a phone.
+          result.urls.landing;
 
   return NextResponse.redirect(target, {
     // A pass URL is per-voucher and its content changes as legs are redeemed —

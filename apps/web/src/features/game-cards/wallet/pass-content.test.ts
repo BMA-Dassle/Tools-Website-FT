@@ -18,26 +18,27 @@ const states = (items: VoucherItem[], spentIdx: number[] = []) =>
   voucherItemStates(items, new Set(spentIdx));
 
 describe("summariseRemaining", () => {
-  it("speaks DOLLARS, not tokens — tokens are an Intercard detail", () => {
+  it("speaks TOKENS, and token legs ADD UP rather than being counted", () => {
     // The real deal-pack shape (HPW8B7HDFMN): 2 laser legs + 2 × 100 bonus
     // tokens. The pass must not say "200 Tokens" when the deal sells "$20".
     const line = summariseRemaining(states([laser, laser, card10, card10]));
-    expect(line).toBe("2 × Laser Tag + 2 × $10 Game Card");
-    expect(line).not.toMatch(/token/i);
+    expect(line).toBe("2 × Laser Tag + 200 Tokens");
   });
 
   it("is worded identically to how /v renders the same voucher", () => {
-    // /v does: groupVoucherItems(...) then `${g.total > 1 ? g.total + ' × ' : ''}${g.label}`.
-    // Two surfaces, one voucher — they must not disagree.
+    // /v does: groupVoucherItems(...) then
+    // `${!g.summed && g.total > 1 ? g.total + ' × ' : ''}${g.label}`.
+    // Two surfaces, one voucher — they must not disagree. `summed` is the part
+    // that matters: token groups already state the whole balance.
     const s = states([laser, laser, card10, card10]);
     const asPageRenders = groupVoucherItems(s)
-      .map((g) => (g.total > 1 ? `${g.total} × ${g.label}` : g.label))
+      .map((g) => (!g.summed && g.total > 1 ? `${g.total} × ${g.label}` : g.label))
       .join(" + ");
     expect(summariseRemaining(s)).toBe(asPageRenders);
   });
 
   it("drops the multiplier for a single leg", () => {
-    expect(summariseRemaining(states([laser, card10]))).toBe("Laser Tag + $10 Game Card");
+    expect(summariseRemaining(states([laser, card10]))).toBe("Laser Tag + 100 Tokens");
   });
 
   it("uses the attraction catalog name, not the raw slug", () => {
@@ -56,7 +57,7 @@ describe("summariseRemaining", () => {
   it("counts only UNSPENT legs — the whole point of the pass", () => {
     // Half redeemed: one laser leg and one card leg gone.
     expect(summariseRemaining(states([laser, laser, card10, card10], [0, 2]))).toBe(
-      "Laser Tag + $10 Game Card",
+      "Laser Tag + 100 Tokens",
     );
   });
 
@@ -117,7 +118,7 @@ describe("buildPassMeta", () => {
     // /v/{code} is what code-entry/classify.ts pulls the code back out of.
     expect(meta.redeemUrl).toBe("https://headpinz.com/v/HPW8B7HDFMN");
     expect(meta.code).toBe("HPW-8B7H-DFMN");
-    expect(meta.voucherValue).toBe("Laser Tag + $10 Game Card");
+    expect(meta.voucherValue).toBe("Laser Tag + 100 Tokens");
     // ET, so a 11:59 PM ET expiry doesn't read as the next day.
     expect(meta.expires).toBe("August 3, 2027");
   });

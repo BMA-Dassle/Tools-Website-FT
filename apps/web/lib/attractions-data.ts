@@ -111,7 +111,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       description: "Batallas de gel blaster de alta tecnología en una arena luminosa e inmersiva",
     },
     building: "HeadPinz",
-    durationLabel: "15 min session",
+    durationLabel: "7 min session · 20 min experience",
     products: [
       {
         productId: "8976680",
@@ -153,7 +153,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       description: "Laser tag de varios niveles con chalecos hápticos e iluminación inmersiva",
     },
     building: "HeadPinz",
-    durationLabel: "15 min session",
+    durationLabel: "7 min session · 20 min experience",
     products: [
       {
         productId: "8976685",

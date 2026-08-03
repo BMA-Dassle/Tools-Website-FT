@@ -48,9 +48,8 @@ describe("deal catalog shape", () => {
   it("every game-card denomination is on the MINT allowlist", async () => {
     // mintVouchers throws on an off-allowlist denomination, so a bad number here
     // would break the purchase at capture time — after the guest has paid.
-    const { NATIVE_GRANT_DENOMINATIONS } = await import(
-      "~/features/game-cards/service/native-voucher"
-    );
+    const { NATIVE_GRANT_DENOMINATIONS } =
+      await import("~/features/game-cards/service/native-voucher");
     for (const deal of DEAL_CATALOG) {
       for (const item of deal.items) {
         if (item.kind === "gamezone") {
@@ -72,12 +71,8 @@ describe("deal catalog shape", () => {
     // Pinned literally: these were read off the Square Catalog API, and a
     // dashboard column clipped them (the laser id's 9th char is P, not F). A typo
     // here fails at order-create, after the buyer has filled the form in.
-    expect(getDeal("laser-tag-game-card-pack")!.squareCatalogId).toBe(
-      "FGDAFYAVPFJ2GRRZQXNHZJB6",
-    );
-    expect(getDeal("gel-blaster-game-card-pack")!.squareCatalogId).toBe(
-      "B6ST5YMWFNLL66PVQXVXXYFY",
-    );
+    expect(getDeal("laser-tag-game-card-pack")!.squareCatalogId).toBe("FGDAFYAVPFJ2GRRZQXNHZJB6");
+    expect(getDeal("gel-blaster-game-card-pack")!.squareCatalogId).toBe("B6ST5YMWFNLL66PVQXVXXYFY");
     // Square catalog ids are 24 chars here — a clipped paste is the likely error.
     for (const deal of DEAL_CATALOG) {
       expect(deal.squareCatalogId).toHaveLength(24);
@@ -101,8 +96,8 @@ describe("dealValue — the advertised strikethrough", () => {
   it("prices the laser pack at $44 à la carte, a 22% saving", () => {
     const v = dealValue(getDeal("laser-tag-game-card-pack")!, "headpinz");
     expect(v.lines).toEqual([
-      { label: "2 × Laser Tag (15 min session)", cents: 2000 },
-      { label: "2 × game card ($10 + $10 of play)", cents: 2000 },
+      { label: "2 × Laser Tag (7 min session · 20 min experience)", cents: 2000 },
+      { label: "200 Game Zone Tokens", cents: 2000 },
       { label: "2 × new-card activation fee", cents: 400 },
     ]);
     expect(v.compareAtCents).toBe(4400);
@@ -114,8 +109,8 @@ describe("dealValue — the advertised strikethrough", () => {
   it("prices the gel pack at $58 à la carte, a 22% saving", () => {
     const v = dealValue(getDeal("gel-blaster-game-card-pack")!, "headpinz");
     expect(v.lines).toEqual([
-      { label: "2 × Gel Blasters (15 min session)", cents: 2400 },
-      { label: "2 × game card ($15 + $15 of play)", cents: 3000 },
+      { label: "2 × Gel Blasters (7 min session · 20 min experience)", cents: 2400 },
+      { label: "300 Game Zone Tokens", cents: 3000 },
       { label: "2 × new-card activation fee", cents: 400 },
     ]);
     expect(v.compareAtCents).toBe(5800);
@@ -169,24 +164,22 @@ describe("dealExpiryFrom", () => {
       });
       const want = new Date(purchased);
       want.setFullYear(want.getFullYear() + 1);
-      expect(shown).toBe(
-        `${want.getMonth() + 1}/${want.getDate()}/${want.getFullYear()}`,
-      );
+      expect(shown).toBe(`${want.getMonth() + 1}/${want.getDate()}/${want.getFullYear()}`);
     }
   });
 });
 
 describe("dealVoucherSummary", () => {
-  it("collapses duplicate legs and prices game cards in money", () => {
+  it("collapses duplicate legs and prices Game Zone value as dollars of tokens", () => {
     // itemsSummary (built for the kiosk's per-leg receipt) reads
     // "laser tag + laser tag + 100 bonus tokens + 100 bonus tokens" in a
     // sentence — repetitive, lower-cased, and denominated in our internal unit
     // rather than the dollars the buyer just paid.
     expect(dealVoucherSummary(getDeal("laser-tag-game-card-pack")!)).toBe(
-      "2 × Laser Tag + 2 × $10 game card ($20 of arcade play)",
+      "2 × Laser Tag + 200 Game Zone Tokens",
     );
     expect(dealVoucherSummary(getDeal("gel-blaster-game-card-pack")!)).toBe(
-      "2 × Gel Blasters + 2 × $15 game card ($30 of arcade play)",
+      "2 × Gel Blasters + 300 Game Zone Tokens",
     );
   });
 });
@@ -221,12 +214,8 @@ describe("dealVoucherItems — combining packs onto one code", () => {
 
   it("scales the guest-facing summary with the pack count", () => {
     const deal = getDeal("laser-tag-game-card-pack")!;
-    expect(dealVoucherSummary(deal, 3)).toBe(
-      "6 × Laser Tag + 6 × $10 game card ($60 of arcade play)",
-    );
+    expect(dealVoucherSummary(deal, 3)).toBe("6 × Laser Tag + 600 Game Zone Tokens");
     // Still every denomination the mint allowlist accepts.
-    expect(dealVoucherSummary(deal, 1)).toBe(
-      "2 × Laser Tag + 2 × $10 game card ($20 of arcade play)",
-    );
+    expect(dealVoucherSummary(deal, 1)).toBe("2 × Laser Tag + 200 Game Zone Tokens");
   });
 });
