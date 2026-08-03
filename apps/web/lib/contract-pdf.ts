@@ -762,8 +762,21 @@ export async function generateContractPdf(
   ctx.y -= 6;
   ctx = ensureSpace(ctx, 24);
   t(ctx, "TAX EXEMPT:", M, ctx.y, { font: fb, sz: 9, color: C.textMuted });
-  const taxStatus = quote.is_tax_exempt ? "Yes — Tax exemption document on file" : "No";
-  t(ctx, taxStatus, M + 85, ctx.y, { sz: 9, color: C.textPrimary });
+  // Report the DOCUMENT, not the flag. `is_tax_exempt` only says the BMI products
+  // are exempt; it is not evidence we hold a DR-14. Printing "document on file"
+  // off the flag alone put that claim on signed PDFs for ~$25k of exempt business
+  // where no certificate had ever been uploaded (2026-08-03) — the contract page
+  // skips its upload gate whenever the flag is stale, so the PDF was the only
+  // record and it asserted the opposite of the truth. An audit reads this line.
+  const taxStatus = quote.is_tax_exempt
+    ? quote.tax_file_url
+      ? "Yes — Tax exemption document on file"
+      : "Yes — EXEMPTION DOCUMENT NOT ON FILE"
+    : "No";
+  t(ctx, taxStatus, M + 85, ctx.y, {
+    sz: 9,
+    color: quote.is_tax_exempt && !quote.tax_file_url ? C.red : C.textPrimary,
+  });
   ctx.y -= 24;
 
   // ── Signature ──

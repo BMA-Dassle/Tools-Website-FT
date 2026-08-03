@@ -264,6 +264,82 @@ export async function notifyContractDataIssues(params: ContractDataIssueParams):
   }
 }
 
+export interface TaxExemptNoCertificateParams {
+  centerName: string;
+  reservationId: string;
+  eventNumber: string | null;
+  eventName: string;
+  eventDateDisplay: string | null;
+  guestName: string;
+  guestEmail: string;
+  plannerEmail: string | null;
+  totalCents: number;
+  /** Contract page — where staff can hand the guest the DR-14 upload. */
+  contractUrl?: string;
+  /** True once the guest has signed: the upload gate can no longer catch this. */
+  signed: boolean;
+}
+
+/**
+ * Post a "tax exempt but no DR-14 on file" alert to Teams.
+ *
+ * The contract page hard-requires the certificate at SIGN time (`taxValid` in
+ * ContractClient), so a correctly-flagged event cannot be signed without one.
+ * This covers the cases that gate can never see:
+ *   - the event was made exempt in BMI AFTER the guest signed
+ *   - the flag was stale at sign time, so the guest was never asked
+ *     (12 events, ~$25k, discovered 2026-08-03)
+ *
+ * Callers derive the exempt condition from `line_items` — NOT `is_tax_exempt` —
+ * because that flag is exactly what goes stale. Products are re-synced on every
+ * dispatch pass, so they are the trustworthy signal.
+ *
+ * Best-effort and re-armed weekly per (reservation, signed-state): this is a
+ * nag, not a notification. It should keep reappearing until the document
+ * actually lands, unlike the 6h data-issue throttle.
+ */
+export async function notifyTaxExemptNoCertificate(
+  params: TaxExemptNoCertificateParams,
+): Promise<boolean> {
+  const dedupKey = `gf:alert:taxdoc:${params.reservationId}:${params.signed ? "signed" : "unsigned"}`;
+  if (!(await shouldAlert(dedupKey, 7 * 24 * 60 * 60))) return false;
+
+  const card = buildAlertCard({
+    eyebrow: `⚠ TAX EXEMPT — NO DR-14 ON FILE · BMI #${params.reservationId}`,
+    title: params.eventName || "(unnamed event)",
+    subtitle:
+      `${params.centerName} · Planner: ${params.plannerEmail || "unassigned"} · ` +
+      (params.signed ? "Already signed — collect the certificate" : "Collect before the event"),
+    headerStyle: "warning",
+    facts: [
+      { title: "Event #", value: params.eventNumber || "—" },
+      { title: "Date", value: params.eventDateDisplay || "—" },
+      { title: "Guest", value: params.guestName.trim() || "—" },
+      { title: "Email", value: params.guestEmail || "—" },
+      { title: "Total", value: `$${(params.totalCents / 100).toFixed(2)}` },
+      { title: "Tax charged", value: "$0.00 (exempt)" },
+    ],
+    issues: [
+      "BMI products include “GF Tax Exempt”, so no sales tax was charged.",
+      "No DR-14 exemption certificate has been uploaded for this event.",
+      params.signed
+        ? "The contract is already signed, so the guest will not be asked automatically — request the certificate directly."
+        : "The guest will be asked to upload it when they sign.",
+    ],
+    contractUrl: params.contractUrl,
+  });
+
+  try {
+    await sendAdaptiveCardToChannel(resolveChatId(params.plannerEmail), card, {
+      summaryText: `⚠ ${params.eventName || "Event"}: tax exempt with no DR-14 on file`,
+    });
+    return true;
+  } catch (err) {
+    console.error(`[gf-alert] tax-doc card failed for reservation=${params.reservationId}:`, err);
+    return false;
+  }
+}
+
 export interface DispatchErrorParams {
   reservationId: string;
   centerCode?: string;

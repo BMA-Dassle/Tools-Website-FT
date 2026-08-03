@@ -15,8 +15,11 @@ import { verifyCron } from "@/lib/cron-auth";
  *
  * Its ONLY contract responsibility is detecting cancellations in BMI Office
  * (stateId = -4): cancel the quote, refund any Square payments, and notify.
- * It also performs two pieces of unrelated self-healing: sending waiver
- * reminders for deposited events, and backfilling missing day-of Square orders.
+ * It also performs three pieces of unrelated self-healing / detection: sending
+ * waiver reminders for deposited events, alerting staff when a tax-exempt event
+ * has no DR-14 certificate on file, and backfilling missing day-of Square orders.
+ * The tax-doc check is DETECTION ONLY — it posts a staff card and never touches
+ * the contract, which keeps it inside the rule below.
  *
  * It intentionally does NOT touch a sent/signed contract's content, never sends
  * a "Contract Updated" email, and never flips a contract to resign_required.
@@ -122,6 +125,63 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Compliance nag: exempt in BMI, no DR-14 on file.
+  //
+  // Keyed on `line_items` containing "GF Tax Exempt", NOT on `is_tax_exempt` —
+  // that flag is precisely what went stale and produced this hole (12 events,
+  // ~$25k, 2026-08-03). Products are re-synced on every dispatch pass, so they
+  // are the trustworthy signal; a check that trusts the derived flag would have
+  // stayed silent through the exact incident it exists to prevent.
+  //
+  // Detection only. This cron must never send or alter a contract (see the
+  // header) — the card goes to STAFF, who collect the certificate out of band.
+  // Bounded to the last year so it covers the open tax year without re-litigating
+  // history, LIMIT 5 per run so a backlog trickles instead of storming a planner,
+  // and re-armed weekly inside the notifier until the document lands.
+  let taxDocAlerts = 0;
+  if (!dryRun) {
+    try {
+      const missingTaxDoc = (await q`
+        SELECT * FROM group_function_quotes
+        WHERE tax_file_url IS NULL
+          AND status NOT IN ('cancelled', 'denied', 'expired')
+          AND event_date > NOW() - INTERVAL '1 year'
+          AND EXISTS (
+            SELECT 1 FROM jsonb_array_elements(line_items) li
+            WHERE li->>'name' = 'GF Tax Exempt'
+          )
+        ORDER BY total_cents DESC
+        LIMIT 5
+      `) as GroupFunctionQuote[];
+
+      for (const tq of missingTaxDoc) {
+        try {
+          const { notifyTaxExemptNoCertificate } = await import("@/lib/group-function-alert");
+          const posted = await notifyTaxExemptNoCertificate({
+            centerName: tq.center_name,
+            reservationId: tq.bmi_reservation_id,
+            eventNumber: tq.event_number,
+            eventName: tq.event_name || "",
+            eventDateDisplay: tq.event_date_display,
+            guestName: `${tq.guest_first_name || ""} ${tq.guest_last_name || ""}`.trim(),
+            guestEmail: tq.guest_email,
+            plannerEmail: tq.planner_email,
+            totalCents: tq.total_cents,
+            contractUrl: tq.contract_short_id
+              ? `${tq.base_url || "https://headpinz.com"}/contract/${tq.contract_short_id}`
+              : undefined,
+            signed: Boolean(tq.contract_signed_at),
+          });
+          if (posted) taxDocAlerts++;
+        } catch (err) {
+          console.error(`[group-quote-sync] tax-doc alert failed for quote=${tq.id}:`, err);
+        }
+      }
+    } catch (err) {
+      console.error("[group-quote-sync] tax-doc query failed:", err);
+    }
+  }
+
   // Self-heal: create any missing day-of Square orders. createDayofOrder is best-effort at
   // deposit time and was never retried, so a transient Square failure (or line_items not yet
   // synced) left events with no day-of order — silently excluding them from the day-of payout
@@ -164,6 +224,7 @@ export async function GET(req: NextRequest) {
   console.log(
     `[group-quote-sync] checked=${quotes.length} cancelled=${cancelled}` +
       (waiversSent > 0 ? ` waivers=${waiversSent}` : "") +
+      (taxDocAlerts > 0 ? ` taxDocAlerts=${taxDocAlerts}` : "") +
       (dayofBackfilled > 0 ? ` dayofBackfilled=${dayofBackfilled}` : ""),
   );
 
@@ -172,6 +233,7 @@ export async function GET(req: NextRequest) {
     checked: quotes.length,
     cancelled,
     waiversSent,
+    taxDocAlerts,
     dayofBackfilled,
     results,
   });
