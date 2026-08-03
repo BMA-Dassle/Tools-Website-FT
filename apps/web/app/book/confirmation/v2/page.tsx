@@ -239,11 +239,15 @@ function VipVoucherDetailCard({
   accent,
   qr,
   state,
+  title = "Your VIP Voucher",
 }: {
   code: string;
   accent: string;
   qr: string | null;
   state: { expiresAt: string | null; items: Array<{ index: number; label: string; spent: boolean }> } | null;
+  /** "Your VIP Voucher" for a combo GRANT; plainer when the guest redeemed a
+   *  voucher they already held (a prepaid deal pack). */
+  title?: string;
 }) {
   const expiry = state?.expiresAt
     ? new Date(state.expiresAt).toLocaleDateString("en-US", {
@@ -259,7 +263,7 @@ function VipVoucherDetailCard({
       style={{ borderColor: accent, backgroundColor: "rgba(212,175,55,0.08)" }}
     >
       <p className="font-display text-sm uppercase tracking-widest" style={{ color: accent }}>
-        Your VIP Voucher
+        {title}
       </p>
       <p
         className="mx-auto mt-3 inline-block rounded-xl px-4 py-2 font-mono text-2xl tracking-[0.12em] text-white"
@@ -1797,7 +1801,22 @@ export default function ConfirmationPage() {
   // V2 grant: the reserve stamps the minted voucher code onto the booking
   // record (unified-reserve → vipVoucherCode). Absent on v1 combos and when
   // the mint deferred to the recovery cron (the guest then gets it by email).
-  const vipVoucherCode = (bookingRec?.vipVoucherCode as string | null | undefined) ?? null;
+  //
+  // Two ways a booking has a voucher, and the tile serves both:
+  //   GRANTED — the combo mint created one for this booking (vipVoucherCode).
+  //   REDEEMED — the guest SPENT a voucher they already held (a prepaid deal
+  //     pack), stamped as redeemedVoucherCodes by unified-reserve. Worth showing
+  //     because those codes usually have value LEFT on them (a deal pack's two
+  //     game cards survive booking its two laser tag sessions), and the tile
+  //     already renders live per-item Available/Used state.
+  // A granted code wins when somehow both are present — it is this booking's own.
+  const redeemedVoucherCodes = Array.isArray(bookingRec?.redeemedVoucherCodes)
+    ? (bookingRec.redeemedVoucherCodes as string[])
+    : [];
+  const vipVoucherCode =
+    (bookingRec?.vipVoucherCode as string | null | undefined) ?? redeemedVoucherCodes[0] ?? null;
+  /** Granted vouchers are "your VIP voucher"; a redeemed one is just theirs. */
+  const voucherIsGrant = !!bookingRec?.vipVoucherCode;
 
   return (
     <div className="min-h-screen bg-[#000418]">
@@ -1963,13 +1982,16 @@ export default function ConfirmationPage() {
           {/* V2 VIP voucher lives as a hub tile + detail view below (mock
               approved 2026-07-31). Single-activity bookings can't reach the
               hub, so they keep an inline detail card as the fallback. */}
-          {!isMulti && comboSpecial && vipVoucherCode && !bookingCancelled && (
+          {/* No longer requires a combo: a REDEEMED voucher (prepaid deal pack)
+              belongs here too, and usually still has value left on it. */}
+          {!isMulti && vipVoucherCode && !bookingCancelled && (
             <div className="mx-auto mb-6 max-w-2xl">
               <VipVoucherDetailCard
                 code={vipVoucherCode}
-                accent={comboSpecial.accentColor}
+                accent={comboSpecial?.accentColor ?? "#FFD700"}
                 qr={voucherQr}
                 state={voucherState}
+                title={voucherIsGrant ? "Your VIP Voucher" : "Your Voucher"}
               />
             </div>
           )}
@@ -2361,8 +2383,10 @@ export default function ConfirmationPage() {
 
                 {/* V2 voucher tile — the pack's take-home. No time slot, so it
                     sorts last; tapping opens the voucher detail like any other
-                    activity (mock approved 2026-07-31). */}
-                {comboSpecial && vipVoucherCode && !bookingCancelled && (
+                    activity (mock approved 2026-07-31). Combo-independent: a
+                    REDEEMED voucher earns the same tile, since what is left on it
+                    is exactly what the guest needs reminding of. */}
+                {vipVoucherCode && !bookingCancelled && (
                   <button
                     type="button"
                     onClick={() => setVoucherOpen(true)}
@@ -2454,6 +2478,7 @@ export default function ConfirmationPage() {
                 accent={comboSpecial?.accentColor ?? "#FFD700"}
                 qr={voucherQr}
                 state={voucherState}
+                title={voucherIsGrant ? "Your VIP Voucher" : "Your Voucher"}
               />
             </div>
           ) : (

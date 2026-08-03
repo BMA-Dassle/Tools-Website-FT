@@ -2137,6 +2137,37 @@ async function unifiedReserveInner(
     await markNativeCartVouchersCharged({ vouchers: nativeClaimed, baseKey }).catch((err) =>
       console.error("[voucher] markNativeCartVouchersCharged failed (non-fatal):", err),
     );
+
+    // Stamp the redeemed code(s) onto the booking record so the confirmation can
+    // show the voucher and what is LEFT on it.
+    //
+    // Until now only the combo MINT stamped a code (`vipVoucherCode`, below), so a
+    // guest who booked by spending a prepaid deal pack got a confirmation that
+    // never mentioned the voucher they had just partly used — no reminder that two
+    // game cards are still on it. The confirmation's voucher tile already renders
+    // live per-item Available/Used state; it just had nothing to key on.
+    //
+    // Distinct codes in scan order. Best-effort merge, same pattern and the same
+    // 90-day TTL as the combo stamp — a Redis hiccup must never fail a captured
+    // booking.
+    const redeemedCodes = Array.from(new Set(nativeClaimed.map((v) => v.code)));
+    if (session.bmiBillId && redeemedCodes.length > 0) {
+      try {
+        const key = `bookingrecord:${session.bmiBillId}`;
+        const existing = await redis.get(key);
+        if (existing) {
+          const rec = typeof existing === "string" ? JSON.parse(existing) : existing;
+          await redis.set(
+            key,
+            JSON.stringify({ ...rec, redeemedVoucherCodes: redeemedCodes }),
+            "EX",
+            60 * 60 * 24 * 90,
+          );
+        }
+      } catch (err) {
+        console.error("[voucher] redeemed-code stamp failed (non-fatal):", err);
+      }
+    }
   }
 
   // ── V2 combo voucher grant: mint ONE code per booking ─────────────
