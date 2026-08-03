@@ -27,12 +27,16 @@
 import { randomBytes } from "crypto";
 import { authorizeMultiTender, SquarePaymentError } from "@/lib/square-gift-card";
 import { mintVouchers } from "~/features/game-cards/service/native-voucher";
-import { emailPurchasedVouchers } from "~/features/game-cards/service/voucher-mail";
+import {
+  emailPurchasedVouchers,
+  smsPurchasedVouchers,
+} from "~/features/game-cards/service/voucher-mail";
 import { voidNativeVoucher } from "~/features/game-cards/service/native-voucher";
 import {
   DEAL_LOCATION_INFO,
   dealExpiryFrom,
   dealVoucherItems,
+  dealVoucherSummary,
   getDeal,
   type DealCatalogEntry,
   type DealLocationKey,
@@ -192,6 +196,7 @@ export async function fulfilDealPurchase(row: DealPurchaseRow): Promise<{
     productName: deal.name,
     codes,
     items: dealVoucherItems(deal),
+    valueSummary: dealVoucherSummary(deal),
     expiresAt,
     scheduleUrl: absoluteUrl(dealScheduleUrl({ deal, location: row.locationKey, codes })),
     scheduleLabel: `Pick your ${deal.scheduleSlug === "gel-blaster" ? "gel blaster" : "laser tag"} time`,
@@ -204,6 +209,25 @@ export async function fulfilDealPurchase(row: DealPurchaseRow): Promise<{
     console.error(`[deals] purchase ${row.id} email failed (cron will retry):`, mail.error);
     await recordDealPurchaseError(row.id, `email failed: ${mail.error ?? "unknown"}`);
     return { codes, mintPending: false, emailPending: true };
+  }
+
+  // Opt-in text. The buy panel says "Text me my voucher code too", so not sending
+  // one is a broken promise — but it must not gate `sent`: the email carried the
+  // codes, and re-running fulfilment to retry a text would re-send that email.
+  // A failure is logged and left alone.
+  if (row.smsOptIn && row.buyerPhone) {
+    const sms = await smsPurchasedVouchers({
+      phone: row.buyerPhone,
+      productName: deal.name,
+      codes,
+    }).catch((err: unknown) => ({
+      ok: false as const,
+      error: err instanceof Error ? err.message : String(err),
+    }));
+    if (!sms.ok) {
+      console.error(`[deals] purchase ${row.id} SMS failed (email did land):`, sms.error);
+      await recordDealPurchaseError(row.id, `sms failed: ${sms.error ?? "unknown"}`);
+    }
   }
 
   await markDealPurchaseSent(row.id);

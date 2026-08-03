@@ -4,6 +4,7 @@ import {
   DEAL_LOCATIONS,
   dealExpiryFrom,
   dealIsSellable,
+  dealVoucherSummary,
   dealValue,
   getDeal,
   isDealLocation,
@@ -144,11 +145,47 @@ describe("dealValue — the advertised strikethrough", () => {
 });
 
 describe("dealExpiryFrom", () => {
-  it("is 12 months out, end of day ET", () => {
-    expect(dealExpiryFrom(new Date("2026-08-02T14:30:00Z"), 12)).toBe("2027-08-02T23:59:59-05:00");
+  it("uses the REAL ET offset so the date never rolls (DST)", () => {
+    // The bug this guards: a hardcoded -05:00 means 23:59:59 EST is 00:59:59
+    // EDT the FOLLOWING morning, so a pack bought 3 Aug rendered as expiring
+    // 4 Aug in every surface that formats in America/New_York. An off-by-one on
+    // a printed expiry is something a guest argues with staff about.
+    expect(dealExpiryFrom(new Date("2026-08-02T14:30:00Z"), 12)).toBe("2027-08-02T23:59:59-04:00");
+    // Winter really is -05:00.
+    expect(dealExpiryFrom(new Date("2026-01-15T12:00:00Z"), 12)).toBe("2027-01-15T23:59:59-05:00");
   });
 
-  it("rolls the year and clamps a short month the way Date does", () => {
-    expect(dealExpiryFrom(new Date("2026-01-15T12:00:00Z"), 12)).toBe("2027-01-15T23:59:59-05:00");
+  it("still reads as the intended day once formatted in ET", () => {
+    // The assertion that actually matters — what the guest sees.
+    for (const iso of ["2026-08-03T12:00:00Z", "2026-12-20T12:00:00Z"]) {
+      const purchased = new Date(iso);
+      const expires = dealExpiryFrom(purchased, 12);
+      const shown = new Date(expires).toLocaleDateString("en-US", {
+        timeZone: "America/New_York",
+        month: "numeric",
+        day: "numeric",
+        year: "numeric",
+      });
+      const want = new Date(purchased);
+      want.setFullYear(want.getFullYear() + 1);
+      expect(shown).toBe(
+        `${want.getMonth() + 1}/${want.getDate()}/${want.getFullYear()}`,
+      );
+    }
+  });
+});
+
+describe("dealVoucherSummary", () => {
+  it("collapses duplicate legs and prices game cards in money", () => {
+    // itemsSummary (built for the kiosk's per-leg receipt) reads
+    // "laser tag + laser tag + 100 bonus tokens + 100 bonus tokens" in a
+    // sentence — repetitive, lower-cased, and denominated in our internal unit
+    // rather than the dollars the buyer just paid.
+    expect(dealVoucherSummary(getDeal("laser-tag-game-card-pack")!)).toBe(
+      "2 × Laser Tag + 2 × $10 game card ($20 of arcade play)",
+    );
+    expect(dealVoucherSummary(getDeal("gel-blaster-game-card-pack")!)).toBe(
+      "2 × Gel Blasters + 2 × $15 game card ($30 of arcade play)",
+    );
   });
 });

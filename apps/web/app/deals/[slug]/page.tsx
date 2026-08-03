@@ -120,7 +120,10 @@ function productJsonLd(deal: DealCatalogEntry, value: ReturnType<typeof dealValu
     "@id": `${url}#product`,
     name: deal.name,
     description: deal.seo.description,
-    image: [deal.media.hero],
+    // Google wants MULTIPLE images per product and picks per surface, so send the
+    // hero plus the gallery rather than one. Deduped because the hero is usually
+    // also the first gallery entry.
+    image: Array.from(new Set([deal.media.hero, ...deal.media.gallery.map((g) => g.url)])),
     brand: { "@type": "Brand", name: "HeadPinz" },
     category: "Family Entertainment",
     offers: {

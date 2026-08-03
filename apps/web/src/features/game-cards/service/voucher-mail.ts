@@ -179,12 +179,19 @@ export async function emailPurchasedVouchers(args: {
   codes: string[];
   /** What ONE code carries. */
   items: VoucherItem[];
+  /**
+   * Guest-facing override for the value line. `itemsSummary` is built for the
+   * kiosk receipt (one row per removable leg) and reads badly in a sentence —
+   * "laser tag + laser tag + 100 bonus tokens + 100 bonus tokens". A seller that
+   * knows its product passes something the buyer recognises.
+   */
+  valueSummary?: string;
   expiresAt?: string | null;
   /** Where to send them to book the timed half, when the pack has one. */
   scheduleUrl?: string | null;
   scheduleLabel?: string | null;
 }): Promise<{ ok: boolean; error?: string }> {
-  const value = itemsSummary(args.items);
+  const value = args.valueSummary?.trim() || itemsSummary(args.items);
   const many = args.codes.length > 1;
   const expiry = args.expiresAt
     ? new Date(args.expiresAt).toLocaleDateString("en-US", {
@@ -279,6 +286,56 @@ export async function emailPurchasedVouchers(args: {
       channel: "email",
       reason: "purchase",
       productName: args.productName,
+    }).catch(() => {});
+  }
+  return { ok: true };
+}
+
+/**
+ * Text a buyer their purchased voucher link(s).
+ *
+ * Separate from the email because it is opt-in and because the constraint is
+ * different: each SMS segment costs money, so this carries links rather than
+ * codes-plus-instructions. The link is the same `/v/{code}` page the email's QR
+ * encodes and the booking confirmation's voucher card points at — one canonical
+ * place a guest sees their code, whichever channel got them there.
+ *
+ * Multi-pack: up to 3 links inline (each code is an independent bearer
+ * instrument, so a buyer splitting packs between friends wants them all),
+ * beyond that it points at the email rather than sending a wall of URLs.
+ */
+export async function smsPurchasedVouchers(args: {
+  phone: string;
+  productName: string;
+  codes: string[];
+  /** Sending DID. Defaults to the configured number. */
+  fromOverride?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  if (args.codes.length === 0) return { ok: false, error: "no codes" };
+
+  const MAX_INLINE = 3;
+  const many = args.codes.length > 1;
+  const head = many
+    ? `Your ${args.codes.length} ${args.productName} vouchers are ready.`
+    : `Your ${args.productName} voucher is ready.`;
+
+  const body =
+    args.codes.length <= MAX_INLINE
+      ? [head, ...args.codes.map((c) => `${formatVoucherCode(c)} ${voucherRedeemUrl(c)}`)].join("\n")
+      : [
+          head,
+          `${formatVoucherCode(args.codes[0])} ${voucherRedeemUrl(args.codes[0])}`,
+          `The other ${args.codes.length - 1} codes are in your email.`,
+        ].join("\n");
+
+  const res = await twilioSend(args.phone, body, args.fromOverride);
+  if (!res.ok) return { ok: false, error: res.error ?? "sms failed" };
+
+  for (const code of args.codes.slice(0, MAX_INLINE)) {
+    await logVoucherEvent(code, "send", {
+      to: args.phone,
+      channel: "sms",
+      reason: "purchase",
     }).catch(() => {});
   }
   return { ok: true };

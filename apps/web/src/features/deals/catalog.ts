@@ -338,6 +338,25 @@ export function dealValue(deal: DealCatalogEntry, location: DealLocationKey): De
   };
 }
 
+/**
+ * Eastern-time UTC offset on a given calendar day, from the real tz database.
+ *
+ * Needed because a hardcoded offset makes an end-of-day timestamp land on the
+ * WRONG DAY for half the year: `23:59:59-05:00` in August is `00:59:59-04:00`
+ * the following morning, so a voucher bought on 3 Aug renders as expiring 4 Aug
+ * everywhere that formats it in `America/New_York`. Off-by-one on a printed
+ * expiry date is the kind of thing a guest argues with staff about.
+ */
+function etOffsetFor(ymd: string): "-04:00" | "-05:00" {
+  // 17:00Z is ~midday ET on either offset, so it can never land on the wrong day.
+  const midday = new Date(`${ymd}T17:00:00Z`);
+  const short = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    timeZoneName: "short",
+  }).format(midday);
+  return short.includes("EDT") ? "-04:00" : "-05:00";
+}
+
 /** `expires_at` for a pack bought now: N months out, end of that day in ET. */
 export function dealExpiryFrom(purchasedAt: Date, months: number): string {
   const d = new Date(purchasedAt);
@@ -345,9 +364,47 @@ export function dealExpiryFrom(purchasedAt: Date, months: number): string {
   const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
     d.getDate(),
   ).padStart(2, "0")}`;
-  // -05:00 matches comboVoucherExpiry's convention (ET, standard offset) so
-  // every voucher in the system expires on the same clock.
-  return `${ymd}T23:59:59-05:00`;
+  return `${ymd}T23:59:59${etOffsetFor(ymd)}`;
+}
+
+/**
+ * Guest-facing summary of what ONE pack carries — for the purchase receipt.
+ *
+ * Not `itemsSummary(items)`: that joins raw `voucherItemLabel` output, which is
+ * built for the kiosk receipt where each leg is its own removable row. Joined
+ * into a sentence it reads "laser tag + laser tag + 100 bonus tokens + 100 bonus
+ * tokens" — repetitive, lower-cased, and priced in tokens, which is our internal
+ * unit rather than the thing the buyer just paid dollars for.
+ *
+ * Collapses duplicates into counts and states game-card value in money.
+ */
+export function dealVoucherSummary(deal: DealCatalogEntry): string {
+  const parts: string[] = [];
+
+  const admissions = deal.items.filter((i) => i.kind === "attraction");
+  const bySlug = new Map<string, number>();
+  for (const item of admissions) {
+    if (item.kind !== "attraction") continue;
+    bySlug.set(item.slug, (bySlug.get(item.slug) ?? 0) + item.qty);
+  }
+  for (const [slug, qty] of bySlug) {
+    const name = ATTRACTIONS[slug]?.shortName ?? slug.replace(/-/g, " ");
+    parts.push(`${qty} × ${name}`);
+  }
+
+  const cards = deal.items.filter((i) => i.kind === "gamezone");
+  if (cards.length > 0) {
+    const each = gameZoneItemDollars(cards[0]);
+    const uniform = cards.every((c) => gameZoneItemDollars(c) === each);
+    const total = cards.reduce((sum, c) => sum + gameZoneItemDollars(c), 0);
+    parts.push(
+      uniform
+        ? `${cards.length} × $${each} game card ($${total} of arcade play)`
+        : `${cards.length} game cards ($${total} of arcade play)`,
+    );
+  }
+
+  return parts.join(" + ");
 }
 
 /** The voucher items for `qty` packs — one voucher PER pack, so this is just
