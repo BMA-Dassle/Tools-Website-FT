@@ -103,6 +103,13 @@ export interface KioskCategoriesProps {
   /** The soonest bookable slot per tile (same keys as offeringAvailable),
    *  rendered as the tile's "3 lanes · 9:30 PM" line. Undefined = no line. */
   offeringFirstOpen?: (id: string) => FirstOpen | undefined;
+  /** True when a tile is off sale because its VENDOR is down (maintenance mode),
+   *  not because the day ran out. Same keys as offeringAvailable, plus
+   *  "race-pack" for the Experiences-shelf pack banner. It changes only the
+   *  SENTENCE — the lock itself already comes through offeringAvailable — because
+   *  "nothing left today, the front desk can help with walk-ins" is the wrong
+   *  thing to tell a guest whose problem is our vendor. Defaults none. */
+  offeringVendorPaused?: (id: string) => boolean;
   onPickOffering: (offering: ActivityOffering) => void;
   onPickCombo: (combo: ComboSpecial) => void;
   /** Launch racing with a package FAMILY preselected (Experiences package tile). */
@@ -142,6 +149,7 @@ export function KioskCategories({
   uqAvailable = true,
   offeringAvailable = () => true,
   offeringFirstOpen = () => undefined,
+  offeringVendorPaused = () => false,
   onPickOffering,
   onPickCombo,
   onPickPackageExperience,
@@ -327,10 +335,23 @@ export function KioskCategories({
   // Any race-bowl* pack (v1 or the 7/31 V2) is THE VIP tile — same feasibility
   // poll, same lockout.
   const isVipPack = (id: string) => id.startsWith("race-bowl");
+  // A combo's availability key is the WIRE key "race-bowl" for any VIP pack
+  // (v1 or the 7/31 v2) — see the firstOpen lookup below for why.
+  const comboAvailKey = (c: ComboSpecial) => (isVipPack(c.id) ? "race-bowl" : c.id);
+  // A combo is locked when its vendor is down OR (for a VIP pack) no feasible
+  // chain fits today. The VIP pack spans BOTH vendors — BMI race legs into a
+  // QAMF lane — so either one dark takes it off the shelf (owner 2026-08-03:
+  // "vip depends on both"); the registry encodes that, this just reads it.
+  const comboLocked = (c: ComboSpecial) =>
+    offeringVendorPaused(comboAvailKey(c)) || (isVipPack(c.id) && !vipComboAvailable);
+  // Race packs are normally never time-gated (a pack is credit to spend later,
+  // so it has no runway to run out of) — but they are SOLD through BMI, so a
+  // vendor outage does lock them.
+  const racePacksPaused = offeringVendorPaused("race-pack");
   const anyExperienceAvailable =
-    combos.some((c) => !isVipPack(c.id) || vipComboAvailable) ||
+    combos.some((c) => !comboLocked(c)) ||
     (showQualifier && uqAvailable) ||
-    showRacePacks;
+    (showRacePacks && !racePacksPaused);
   // The availability key for a tile: shuffly is per BUILDING (FT vs HP side,
   // separate BMI products), so it keys by the side this kiosk's brand books.
   const offeringKey = (o: ActivityOffering) =>
@@ -338,6 +359,28 @@ export function KioskCategories({
   // Same all-locked rule the Experiences card follows: when every attraction
   // tile inside is out of runway for the day, lock the landing card itself.
   const anyAttractionAvailable = offerings.some((o) => offeringAvailable(offeringKey(o)));
+  // Which sentence a locked tile carries. A vendor outage is not "we sold out" —
+  // there is nothing the front desk can book either, so the guest is sent to
+  // Guest Services rather than told to try a walk-in.
+  const lockNote = (id: string, kind: "attraction" | "experience"): string => {
+    if (offeringVendorPaused(id)) return t("categories.disabled.vendorOutage");
+    // Literal keys, not a template — MessageKey is a union of string literals and
+    // an interpolated key is not checkable against it.
+    return kind === "attraction"
+      ? t("categories.disabled.attraction")
+      : t("categories.disabled.experience");
+  };
+  // A CATEGORY card takes the outage sentence only when EVERY tile behind it is
+  // vendor-paused — otherwise "see Guest Services" would be printed over a shelf
+  // that still has bookable lanes in it.
+  const expKeys = [
+    ...combos.map(comboAvailKey),
+    ...(showQualifier ? ["ultimate-qualifier"] : []),
+    ...(showRacePacks ? ["race-pack"] : []),
+  ];
+  const expAllPaused = expKeys.length > 0 && expKeys.every((k) => offeringVendorPaused(k));
+  const attrAllPaused =
+    offerings.length > 0 && offerings.every((o) => offeringVendorPaused(offeringKey(o)));
   // (The old "Your visit so far" strip is gone — KioskFlow's chrome now shows
   // the persistent signed-in + cart session banner on every screen instead.)
 
@@ -364,7 +407,11 @@ export function KioskCategories({
             title={t("categories.exp.title")}
             blurb={t("categories.exp.blurb")}
             disabled={!anyExperienceAvailable}
-            disabledNote={t("categories.disabled.experience")}
+            disabledNote={
+              expAllPaused
+                ? t("categories.disabled.vendorOutage")
+                : t("categories.disabled.experience")
+            }
             onClick={() => setCat("exp")}
           />
           <CategoryCard
@@ -378,7 +425,11 @@ export function KioskCategories({
                 : t("categories.attr.blurb.default")
             }
             disabled={!anyAttractionAvailable}
-            disabledNote={t("categories.disabled.attraction")}
+            disabledNote={
+              attrAllPaused
+                ? t("categories.disabled.vendorOutage")
+                : t("categories.disabled.attraction")
+            }
             onClick={() => setCat("attr")}
           />
           {gameZone === "none" ? (
@@ -471,9 +522,9 @@ export function KioskCategories({
           {cat === "exp" && (
             <div className="flex flex-col gap-[24px]">
               {combos.map((combo) => {
-                // The VIP combo locks out when today has no feasible race →
-                // VIP-lane → race itinerary (polled every 5 min).
-                const locked = isVipPack(combo.id) && !vipComboAvailable;
+                // Locked when a vendor it needs is down, or (VIP pack) today has
+                // no feasible race → VIP-lane → race itinerary (polled every 5 min).
+                const locked = comboLocked(combo);
                 return (
                   <ShelfBanner
                     key={combo.id}
@@ -501,13 +552,9 @@ export function KioskCategories({
                     // "race-bowl" regardless of which pack entry is live (v1 or
                     // the 7/31 race-bowl-v2), so look it up by that key — the
                     // raw v2 id has no entry and silently dropped the line.
-                    firstOpen={
-                      locked
-                        ? undefined
-                        : offeringFirstOpen(isVipPack(combo.id) ? "race-bowl" : combo.id)
-                    }
+                    firstOpen={locked ? undefined : offeringFirstOpen(comboAvailKey(combo))}
                     disabled={locked}
-                    disabledNote={t("categories.disabled.experience")}
+                    disabledNote={lockNote(comboAvailKey(combo), "experience")}
                     onClick={() => onPickCombo(combo)}
                   />
                 );
@@ -542,7 +589,13 @@ export function KioskCategories({
                   }
                   firstOpen={uqAvailable ? offeringFirstOpen("ultimate-qualifier") : undefined}
                   disabled={!uqAvailable}
-                  disabledNote={t("categories.qualifier.disabled")}
+                  // Vendor outage wins the copy: "not enough time left today to
+                  // fit both races" would be a lie when the truth is BMI is dark.
+                  disabledNote={
+                    offeringVendorPaused("ultimate-qualifier")
+                      ? t("categories.disabled.vendorOutage")
+                      : t("categories.qualifier.disabled")
+                  }
                   onClick={() => onPickPackageExperience("ultimate-qualifier")}
                 />
               )}
@@ -560,6 +613,11 @@ export function KioskCategories({
                   title="Race Packs"
                   blurb={t("categories.racePacks.blurb")}
                   priceLine={t("categories.racePacks.priceLine", { price: "$49.99" })}
+                  // The one thing that CAN lock a pack: packs sell through BMI
+                  // (booking/sell + person/register*), so a BMI outage takes them
+                  // off the shelf even though they have no time window.
+                  disabled={racePacksPaused}
+                  disabledNote={t("categories.disabled.vendorOutage")}
                   onClick={() => onOpenRacePacks?.()}
                 />
               )}
@@ -583,7 +641,7 @@ export function KioskCategories({
                   // instead of dead-ending the guest inside a flow with
                   // nothing to book (owner 2026-07-19).
                   disabled={!offeringAvailable(offeringKey(o))}
-                  disabledNote={t("categories.disabled.attraction")}
+                  disabledNote={lockNote(offeringKey(o), "attraction")}
                   firstOpen={offeringFirstOpen(offeringKey(o))}
                   // Gold "Code applies" badge — same scope predicate the web
                   // landing badges with.

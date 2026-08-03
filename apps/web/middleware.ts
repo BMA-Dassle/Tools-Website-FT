@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { HEADPINZ_FM_CENTER_CODE, HEADPINZ_NAPLES_CENTER_CODE } from "@/lib/qamf-centers";
 import { googleReviewUrl } from "~/lib/constants/review-links";
+import { maintenanceRedirectForPath, SERVICE_NOTICE_PATH } from "~/features/maintenance";
 
 /**
  * Hostname-based routing for dual-branded site:
@@ -473,6 +474,37 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(`https://headpinz.com${cleanPath}`, 301);
   }
 
+  // ── Vendor outage gate (maintenance mode) ──────────────────────────────
+  // A vendor being down takes its whole product line off sale, not one page:
+  // ONE gate here catches every booking entry — v1 links, v2 links, the /hp
+  // variants, marketing "Book Now" buttons, emailed/QR/bookmarked deep links —
+  // and sends the guest to a notice that says what's wrong and what IS open.
+  // Runs BEFORE the V1→V2 cutover so a paused v1 URL goes to the notice instead
+  // of bouncing through a v2 flow it can't finish. Registry: the maintenance
+  // feature; post-purchase /confirmation + /checkin paths are never matched.
+  // The waiver flow is wired in here too, but keyed to a DIFFERENT vendor
+  // (bmi-office — the reservation/account lookup both waiver flows open with;
+  // the signature itself goes to Pandora). Office was healthy through the
+  // 2026-08-03 booking outage, so this is armed, not active. NOT the
+  // /kiosk/waiver twin: the kiosk has its own chrome and its own Spanish, so it
+  // shows a kiosk-native notice instead of being bounced to a web page (and the
+  // /kiosk early-return below would keep it out of here regardless).
+  if (
+    pathname === "/book" ||
+    pathname.startsWith("/book/") ||
+    pathname === "/waiver" ||
+    pathname.startsWith("/waiver/") ||
+    (isHeadPinz && (pathname === "/hp/book" || pathname.startsWith("/hp/book/")))
+  ) {
+    const paused = maintenanceRedirectForPath(pathname);
+    if (paused) {
+      const url = request.nextUrl.clone();
+      url.pathname = paused.path;
+      url.searchParams.set("a", paused.product);
+      return NextResponse.redirect(url, 307);
+    }
+  }
+
   // ── Booking V1 → V2 cutover ────────────────────────────────────────────
   // v2 is the booking system: redirect every legacy booking entry into its v2
   // flow. ONE redirect here replaces editing ~90 scattered links — it also
@@ -540,6 +572,13 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/cancellation-policy/") ||
     pathname === "/privacy-policy" ||
     pathname.startsWith("/privacy-policy/") ||
+    // Vendor-outage notice — the redirect target of the maintenance gate above.
+    // Brand chrome is host-aware; guests of BOTH brands get sent here, so the
+    // /hp rewrite must not turn it into a 404 on headpinz.com. The path is
+    // deliberately not under /book (that prefix already bypasses the rewrite,
+    // which would have served FastTrax chrome to HeadPinz visitors). Pinned to
+    // the feature's own constant so the route and this registration can't drift.
+    pathname === SERVICE_NOTICE_PATH ||
     pathname.startsWith("/event/") ||
     // July-4 USA250 promo landing — advertised on both brand homepages via the
     // promo popup, routes to the right per-venue booking page. Brand chrome is
@@ -688,6 +727,11 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/v/")) {
       requestHeaders.set("x-no-mobile-bar", "1");
     }
+    // Vendor-outage notice: a floating "Book Now" bar on the page that just told
+    // the guest we can't book is the one control that must not be there.
+    if (pathname === SERVICE_NOTICE_PATH) {
+      requestHeaders.set("x-no-mobile-bar", "1");
+    }
     // July-4 promo landing: full-bleed marketing hero with its own dual-brand
     // logos — suppress the HeadPinz Nav/Footer entirely (like the chooser splash).
     if (pathname === "/july4") {
@@ -831,6 +875,8 @@ export async function middleware(request: NextRequest) {
   const suppressMobileBar =
     pathname.startsWith("/t/") ||
     pathname.startsWith("/g/") ||
+    // Vendor-outage notice — see the HeadPinz-host twin above.
+    pathname === SERVICE_NOTICE_PATH ||
     // Any booking confirmation screen — the top-level /book/confirmation
     // as well as the per-flow nested confirmations
     // (/book/checkout/confirmation, /book/race/confirmation,

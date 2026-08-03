@@ -32,6 +32,11 @@ export interface KioskAvailability {
   /** The soonest bookable slot for the tile's availability line, or undefined
    *  when the server carries no count for it. */
   firstOpenFor: (id: string) => FirstOpen | undefined;
+  /** The item is off sale because its VENDOR is down (maintenance mode), not
+   *  because the day ran out. Both lock the tile; only this one sends the guest
+   *  to Guest Services instead of the front desk for a walk-in. Defaults false —
+   *  a payload from before the outage field existed reads as "no outage". */
+  vendorPaused: (id: string) => boolean;
 }
 
 export interface UseKioskAvailabilityOptions {
@@ -47,6 +52,7 @@ export function useKioskAvailability(
 ): KioskAvailability {
   const [items, setItems] = useState<Record<string, boolean>>({});
   const [firstOpen, setFirstOpen] = useState<Record<string, FirstOpen>>({});
+  const [paused, setPaused] = useState<string[]>([]);
   const pollMs = options?.pollMs ?? DEFAULT_POLL_MS;
 
   useEffect(() => {
@@ -61,6 +67,10 @@ export function useKioskAvailability(
         if (data?.items && typeof data.items === "object") setItems(data.items);
         // firstOpen is optional — a payload without it just leaves lines off.
         if (data?.firstOpen && typeof data.firstOpen === "object") setFirstOpen(data.firstOpen);
+        // Vendor outages. Always assigned (not `if (length)`) so a RECOVERY —
+        // the server dropping back to an empty list — unlocks the tiles instead
+        // of leaving the outage note up until the kiosk is reloaded.
+        setPaused(Array.isArray(data?.paused) ? (data.paused as string[]) : []);
       } catch {
         /* keep last known value — never false-lock on a fetch blip */
       }
@@ -76,5 +86,6 @@ export function useKioskAvailability(
   return {
     available: (id: string) => items[id] ?? true,
     firstOpenFor: (id: string) => firstOpen[id],
+    vendorPaused: (id: string) => paused.includes(id),
   };
 }

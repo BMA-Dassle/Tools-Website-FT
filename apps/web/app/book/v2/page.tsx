@@ -18,6 +18,7 @@ import {
   worldCupWindowActive,
 } from "~/features/world-cup";
 import { fixturesWithLiveTeams } from "~/features/world-cup/live-teams";
+import { activeOutages, isProductPaused } from "~/features/maintenance";
 import { PromoLanding } from "./PromoLanding";
 
 /**
@@ -127,6 +128,26 @@ export default async function BookV2LandingPage({
       }
     : null;
 
+  // Vendor outage (maintenance mode): middleware already blocks the per-activity
+  // routes, so this is purely so the LANDING tells the truth — a card that looks
+  // bookable and then bounces to a notice reads as a broken site. Resolved
+  // server-side (the registry reads server-only env) and handed down as ids;
+  // shuffly is keyed per building here because that is how the registry keys it.
+  const pausedActivityIds = new Set(
+    [
+      ...initialOfferings.map((o) => o.slug),
+      ...combos.map((c) => (c.id.startsWith("race-bowl") ? "race-bowl" : c.id)),
+      "shuffly-fasttrax",
+      "shuffly-headpinz",
+    ].filter((id) => isProductPaused(id)),
+  );
+  // Shuffly's catalog slug is building-agnostic; treat it as paused when either
+  // building's product is, since one landing serves both sides of the campus.
+  if (pausedActivityIds.has("shuffly-fasttrax") || pausedActivityIds.has("shuffly-headpinz")) {
+    pausedActivityIds.add("shuffly");
+  }
+  const outage = activeOutages()[0] ?? null;
+
   return (
     <PromoLanding
       entryBrand={entryBrand}
@@ -138,6 +159,8 @@ export default async function BookV2LandingPage({
       allOfferings={initialOfferings}
       combos={combos}
       worldCup={worldCup}
+      pausedIds={[...pausedActivityIds]}
+      outageNotice={outage ? { heading: outage.web.heading, body: outage.web.body } : null}
     />
   );
 }

@@ -67,6 +67,12 @@ export const es: Record<CoreKey, string> = {
     "No disponible en este momento — vuelve más tarde o pregunta a un encargado.",
   "categories.disabled.attraction":
     "No queda nada para reservar hoy — la recepción puede ayudarte con visitas sin cita.",
+  "categories.disabled.vendorOutage":
+    "No disponible temporalmente — uno de nuestros proveedores tiene un problema en su sistema. Por favor, visita Servicio al Cliente.",
+  "outage.heading": "No disponible temporalmente",
+  "outage.body":
+    "Uno de nuestros proveedores tiene un problema en su sistema, así que esto no está disponible en este momento. Por favor, visita Servicio al Cliente — pueden ayudarte en persona.",
+  "outage.back": "Volver al inicio",
   "categories.backToCategories": "Todas las categorías",
   "categories.pick.experience": "Elige tu experiencia",
   "categories.pick.attraction": "Elige una atracción",

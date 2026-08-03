@@ -81,6 +81,13 @@ export interface PromoLandingProps {
    *  tournament window is over, the brand isn't HeadPinz, or every in-scope
    *  center's kill switch is off. Computed server-side in page.tsx. */
   worldCup?: WorldCupTileData | null;
+  /** Offering slugs / combo ids whose VENDOR is down (maintenance mode) —
+   *  resolved server-side from ~/features/maintenance. Their cards render locked
+   *  and unclickable. Middleware would bounce a click to /service-notice anyway;
+   *  showing the lock here is what keeps the landing honest. */
+  pausedIds?: string[];
+  /** Outage banner copy, or null when everything is up. */
+  outageNotice?: { heading: string; body: string } | null;
 }
 
 export function PromoLanding({
@@ -92,8 +99,11 @@ export function PromoLanding({
   initialOfferings,
   combos = [],
   worldCup = null,
+  pausedIds = [],
+  outageNotice = null,
 }: PromoLandingProps) {
   const router = useRouter();
+  const paused = new Set(pausedIds);
   const brandClass = entryBrand === "fasttrax" ? "brand-fasttrax" : "brand-headpinz";
   const accent = entryBrand === "fasttrax" ? FT_ACCENT : HP_ACCENT;
 
@@ -373,6 +383,25 @@ export function PromoLanding({
         </div>
       </section>
 
+      {/* Vendor outage banner — above everything, because it changes what the
+          grid below means. Amber (not red): the site works, one vendor doesn't. */}
+      {outageNotice && (
+        <section className="px-4 pb-6 sm:pb-8">
+          <div
+            className="mx-auto max-w-2xl rounded-2xl border px-5 py-4"
+            style={{ borderColor: "#f59e0b40", backgroundColor: "#f59e0b0f" }}
+          >
+            <p
+              className="mb-1 font-bold uppercase"
+              style={{ color: "#f59e0b", fontSize: "11px", letterSpacing: "2.5px" }}
+            >
+              {outageNotice.heading}
+            </p>
+            <p className="font-body text-sm leading-relaxed text-white/70">{outageNotice.body}</p>
+          </div>
+        </section>
+      )}
+
       {hasCart ? (
         /* Cart checkout bar — replaces promo input when items are booked.
            "Clear cart" (owner ask): mid-flow exits stranded customers with a
@@ -511,7 +540,14 @@ export function PromoLanding({
         <div className="mx-auto max-w-5xl">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
             {combos.map((combo) => (
-              <ComboCard key={combo.id} combo={combo} gold={HP_GOLD} />
+              <ComboCard
+                key={combo.id}
+                combo={combo}
+                gold={HP_GOLD}
+                // The VIP pack's availability id is the wire key "race-bowl"
+                // regardless of which registry entry is live (v1 / the 7/31 v2).
+                paused={paused.has(combo.id.startsWith("race-bowl") ? "race-bowl" : combo.id)}
+              />
             ))}
             {/* World Cup VIP Bowling — compact time-boxed tile after the combo
                 specials (owner 7/6: "small box second row", Ultimate VIP keeps
@@ -526,6 +562,7 @@ export function PromoLanding({
                 voucherSlugs={voucher?.slugs ?? null}
                 accent={accent}
                 gold={HP_GOLD}
+                paused={paused.has(o.slug)}
               />
             ))}
           </div>
@@ -669,6 +706,54 @@ function WorldCupCard({ worldCup, gold }: { worldCup: WorldCupTileData; gold: st
   );
 }
 
+/**
+ * Card outer element: a Link normally, an inert div while the activity's vendor
+ * is down (maintenance mode). One shell for both card types so the locked
+ * treatment can't drift between them — and so a locked card is genuinely not a
+ * link, rather than a link styled to look dead (which still navigates on Enter
+ * for a keyboard user and still gets crawled).
+ */
+function CardShell({
+  href,
+  paused,
+  className,
+  style,
+  children,
+}: {
+  href: string;
+  paused: boolean;
+  className: string;
+  style?: React.CSSProperties;
+  children: React.ReactNode;
+}) {
+  if (paused) {
+    return (
+      <div
+        aria-disabled="true"
+        className={`${className} opacity-55 saturate-50`}
+        style={{ ...style, boxShadow: undefined }}
+      >
+        {children}
+      </div>
+    );
+  }
+  return (
+    <Link href={href} className={className} style={style}>
+      {children}
+    </Link>
+  );
+}
+
+/** Replaces a locked card's CTA. Says the same thing the notice page says, in
+ *  one line, so the guest doesn't have to click to learn they can't. */
+function UnavailableCta() {
+  return (
+    <div className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] py-3 text-sm font-bold text-white/55">
+      Temporarily unavailable
+    </div>
+  );
+}
+
 /** Gold checkmark bullet for the combo "What's included" lists. */
 function ComboCheck({ gold }: { gold: string }) {
   return (
@@ -686,17 +771,28 @@ function ComboCheck({ gold }: { gold: string }) {
  *  both venue logos (a combo spans FastTrax racing + HeadPinz bowling).
  *  Premium combos render DOUBLE: two grid columns on sm+ and a much taller
  *  image band on mobile, so the tile dominates the grid. */
-function ComboCard({ combo, gold }: { combo: ComboSpecial; gold: string }) {
+function ComboCard({
+  combo,
+  gold,
+  paused = false,
+}: {
+  combo: ComboSpecial;
+  gold: string;
+  /** A vendor the combo needs is down. The Ultimate VIP spans BMI racing AND a
+   *  QAMF lane, so either one dark locks it. */
+  paused?: boolean;
+}) {
   const fmtPrice = (cents: number) =>
     Number.isInteger(cents / 100) ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`;
   const premium = !!combo.premium;
 
   return (
-    <Link
+    <CardShell
       href={`/book/combo/${combo.id}/v2`}
-      className={`group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left transition-all duration-300 hover:bg-white/6 ${
-        premium ? "sm:col-span-2" : ""
-      }`}
+      paused={paused}
+      className={`group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left transition-all duration-300 ${
+        paused ? "" : "hover:bg-white/6"
+      } ${premium ? "sm:col-span-2" : ""}`}
       style={{
         borderColor: `${gold}55`,
         boxShadow: premium ? `0 0 32px ${gold}2e` : `0 0 24px ${gold}1a`,
@@ -839,29 +935,33 @@ function ComboCard({ combo, gold }: { combo: ComboSpecial; gold: string }) {
           />
         </div>
 
-        <div
-          className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-colors"
-          style={{
-            backgroundColor: combo.accentColor,
-            color: combo.premium ? "#0a1628" : "#ffffff",
-          }}
-        >
-          {combo.premium ? "Book the VIP Experience" : "Book This Combo"}
-          <svg
-            className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2.5}
+        {paused ? (
+          <UnavailableCta />
+        ) : (
+          <div
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-colors"
+            style={{
+              backgroundColor: combo.accentColor,
+              color: combo.premium ? "#0a1628" : "#ffffff",
+            }}
           >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-          </svg>
-        </div>
+            {combo.premium ? "Book the VIP Experience" : "Book This Combo"}
+            <svg
+              className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.5}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+            </svg>
+          </div>
+        )}
       </div>
 
       {/* Bottom color bar */}
       <div className="h-0.5 w-full" style={{ backgroundColor: combo.accentColor }} />
-    </Link>
+    </CardShell>
   );
 }
 
@@ -872,6 +972,7 @@ function AttractionCard({
   voucherSlugs = null,
   accent,
   gold,
+  paused = false,
 }: {
   offering: ActivityOffering;
   href: string;
@@ -881,6 +982,8 @@ function AttractionCard({
   voucherSlugs?: string[] | null;
   accent: string;
   gold: string;
+  /** This activity's vendor is down (maintenance mode) — lock the card. */
+  paused?: boolean;
 }) {
   const inScope = applied
     ? isOfferingInPromoScope(offering, applied)
@@ -890,9 +993,12 @@ function AttractionCard({
   const cardColor = offering.accentColor ?? accent;
 
   return (
-    <Link
+    <CardShell
       href={href}
-      className="group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left transition-all duration-300 hover:bg-white/6"
+      paused={paused}
+      className={`group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left transition-all duration-300 ${
+        paused ? "" : "hover:bg-white/6"
+      }`}
       style={{
         borderColor: inScope ? `${gold}55` : "rgba(255,255,255,0.10)",
         boxShadow: inScope ? `0 0 24px ${gold}1a` : undefined,
@@ -975,25 +1081,29 @@ function AttractionCard({
           );
         })()}
 
-        <div
-          className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-colors"
-          style={{ backgroundColor: cardColor, color: "#ffffff" }}
-        >
-          Book Now
-          <svg
-            className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2.5}
+        {paused ? (
+          <UnavailableCta />
+        ) : (
+          <div
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-colors"
+            style={{ backgroundColor: cardColor, color: "#ffffff" }}
           >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-          </svg>
-        </div>
+            Book Now
+            <svg
+              className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.5}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+            </svg>
+          </div>
+        )}
       </div>
 
       {/* Bottom color bar */}
       <div className="h-0.5 w-full" style={{ backgroundColor: cardColor }} />
-    </Link>
+    </CardShell>
   );
 }

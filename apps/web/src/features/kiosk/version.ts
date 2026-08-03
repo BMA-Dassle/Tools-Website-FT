@@ -15,6 +15,29 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.13.0 — VENDOR MAINTENANCE MODE (owner 2026-08-03, live BMI booking outage).
+ *         A vendor being down now takes its whole product line off sale with its
+ *         own sentence, instead of every tile quietly failing mid-flow.
+ *         Modeled per VENDOR, not per attraction (~/features/maintenance), and
+ *         "BMI" is deliberately TWO vendors: the public-booking API (selling) and
+ *         the Office API (reservation/account lookup). On 8/3 only the SELLING
+ *         rail was dark — so racing, laser tag, gel blasters, Shuffle Showdown,
+ *         race packs, the Ultimate Qualifier and the Ultimate VIP combo locked
+ *         (the VIP needs BMI heats AND a QAMF lane — either one down locks it),
+ *         while bowling, duckpin, KBF, Game Zone, CHECK-IN and waivers kept
+ *         working. Lumping the two BMI hosts together would have needlessly
+ *         killed check-in.
+ *         Locked tiles read "Temporarily unavailable — one of our vendors is
+ *         having a system issue. Please see Guest Services." (EN+ES) — NOT the
+ *         end-of-day note, because the front desk is on the same vendor and
+ *         "ask about a walk-in" would be a dead end. The Experiences and
+ *         Attractions category cards lock too when everything behind them is out.
+ *         Paused products are no longer PROBED at all: a dead vendor answers in
+ *         timeouts, which was burning the whole availability compute and taking
+ *         the working bowling/KBF lines down with it. Kiosk 99's clock-artifact
+ *         override does NOT bypass an outage.
+ *         Clear with MAINTENANCE_VENDOR_BMI="false" (no redeploy; tiles unlock
+ *         within one 3-min availability TTL).
  * 1.12.1 — the voucher receipt says it's looking for your group. A booking-
  *         linked voucher resolves its party through BMI, which can take the
  *         better part of a minute (owner 2026-08-02) — the chips used to just
@@ -478,7 +501,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.12.1";
+export const KIOSK_VERSION = "1.13.0";
 
 let bootVersion: string | null = null;
 let captured = false;

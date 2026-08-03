@@ -7,6 +7,7 @@ import {
   type ExperienceAvailabilityResult,
 } from "~/features/kiosk/service/experience-availability";
 import type { CenterCode } from "~/features/booking";
+import { pausedProductIds } from "~/features/maintenance";
 import { businessDayYmdET } from "@/lib/race-business-day";
 
 /**
@@ -31,8 +32,10 @@ const VALID_CENTERS: CenterCode[] = ["fort-myers", "naples"];
 const TTL_SECONDS = 180;
 // Bump the version whenever the cached SHAPE changes so a rollout never reads a
 // stale entry: v2 added firstOpen; v3 adds race-bowl / ultimate-qualifier
-// firstOpen (experiences "Next available · N slots").
-const cacheKey = (c: string) => `kiosk:avail:v3:${c}`;
+// firstOpen (experiences "Next available · N slots"); v4 lands the vendor-outage
+// gate — without a bump, a pre-outage entry would keep every BMI tile selectable
+// for a whole TTL after the guard deployed.
+const cacheKey = (c: string) => `kiosk:avail:v4:${c}`;
 
 // Last KNOWN result per center — outlives the 3-min cache so degraded paths
 // (a probe that threw, a single-flight loser whose leader is slow, Redis-read
@@ -201,5 +204,26 @@ export async function GET(req: NextRequest) {
     // only when there is none — everything available, no counts.
     async () => (await readLastKnown(center as CenterCode)) ?? DEFAULT_RESULT,
   );
-  return NextResponse.json({ center, items: available, firstOpen });
+
+  // ── Vendor outage overlay ───────────────────────────────────────────────
+  // Applied AFTER the cache/fallback layers, not inside the compute, so it holds
+  // on EVERY path: a cache hit, a single-flight loser, the last-known
+  // substitution, and the fail-open DEFAULT_RESULT above — each of which could
+  // otherwise serve "open" for a product whose vendor is dark. It also means
+  // flipping MAINTENANCE_VENDOR_* takes effect on the next poll instead of
+  // waiting out a TTL.
+  //
+  // `paused` is sent alongside `items` because the kiosk has two different
+  // things to tell a guest standing in the building: "nothing left to book
+  // today" (items=false) and "our vendor is down, see Guest Services"
+  // (paused). Same lock, different sentence.
+  const paused = pausedProductIds();
+  const items: Record<string, boolean> = { ...available };
+  const firstOpenOut: Record<string, unknown> = { ...firstOpen };
+  for (const id of paused) {
+    items[id] = false;
+    // Never ship a "next available" line for something that can't be sold.
+    delete firstOpenOut[id];
+  }
+  return NextResponse.json({ center, items, firstOpen: firstOpenOut, paused });
 }

@@ -33,6 +33,7 @@ import {
   type LocationKey,
 } from "~/features/booking/service/attractions";
 import { getStaticProducts } from "@/app/book/race/data";
+import { isProductPaused } from "~/features/maintenance";
 import { kioskExperienceAvailEnabled } from "../flags";
 import type { FirstOpen } from "./first-available";
 import { FASTTRAX_QAMF_CENTER_ID } from "@/lib/qamf-centers";
@@ -115,6 +116,23 @@ interface SlotAvailability {
   firstOpen?: FirstOpen;
   /** The probe THREW (vendor blip) — this open:true is a default, not data. */
   failed?: boolean;
+}
+
+/** A vendor outage closes the tile WITHOUT probing. Not just a display choice:
+ *  a dead vendor answers with timeouts, and probing it anyway burns the whole
+ *  60s compute budget — taking the tiles that still WORK (bowling/KBF lines,
+ *  which are on a different vendor) down with it. `failed` stays false so the
+ *  route does not substitute a pre-outage last-known "open". */
+const CLOSED_VENDOR_OUTAGE: SlotAvailability = { open: false };
+
+/** Run a tile's probe, unless its vendor is down — then close it immediately.
+ *  Keyed by the SAME id the maintenance registry uses, which is why the kiosk
+ *  availability keys and the registry's product ids are one vocabulary. */
+function gateOnVendor(
+  id: keyof ExperienceAvailability,
+  probe: () => Promise<SlotAvailability>,
+): Promise<SlotAvailability> {
+  return isProductPaused(id) ? Promise.resolve(CLOSED_VENDOR_OUTAGE) : probe();
 }
 
 /** Resolve a first-open-slot probe into a tile's availability, failing OPEN
@@ -444,50 +462,70 @@ export async function computeExperienceAvailability(
   // the Redis-cached /api/kiosk/availability compute (3m TTL, single-flight), so
   // the vendors are hit at most once per TTL per center.
   const [combo, uq, race, duckPin, gel, laser, shufFt, shufHp, bowling, kbf] = await Promise.all([
-    experiencesOn
-      ? resolveSlotAvailability("race-bowl", comboFirstOpenToday(center, dateYmd))
-      : Promise.resolve(OPEN_NO_COUNT),
-    experiencesOn
-      ? resolveSlotAvailability("ultimate-qualifier", uqFirstOpenToday(dateYmd))
-      : Promise.resolve(OPEN_NO_COUNT),
-    fm
-      ? resolveSlotAvailability("race", racingFirstOpenToday(dateYmd))
-      : Promise.resolve(OPEN_NO_COUNT),
+    gateOnVendor("race-bowl", () =>
+      experiencesOn
+        ? resolveSlotAvailability("race-bowl", comboFirstOpenToday(center, dateYmd))
+        : Promise.resolve(OPEN_NO_COUNT),
+    ),
+    gateOnVendor("ultimate-qualifier", () =>
+      experiencesOn
+        ? resolveSlotAvailability("ultimate-qualifier", uqFirstOpenToday(dateYmd))
+        : Promise.resolve(OPEN_NO_COUNT),
+    ),
+    gateOnVendor("race", () =>
+      fm
+        ? resolveSlotAvailability("race", racingFirstOpenToday(dateYmd))
+        : Promise.resolve(OPEN_NO_COUNT),
+    ),
     // Duckpin migrated to QAMF (FastTrax center 11542) — its old BMI page is
     // stale, so read availability from QAMF like the other lanes (time-only).
-    fm
-      ? resolveSlotAvailability(
-          "duck-pin",
-          qamfFirstOpenToday(FASTTRAX_QAMF_CENTER_ID, dateYmd, "open,hourly"),
-        )
-      : Promise.resolve(OPEN_NO_COUNT),
-    resolveSlotAvailability("gel-blaster", attractionFirstOpenToday("gel-blaster", nexusLoc, dateYmd)),
-    resolveSlotAvailability("laser-tag", attractionFirstOpenToday("laser-tag", nexusLoc, dateYmd)),
-    fm
-      ? resolveSlotAvailability(
-          "shuffly-fasttrax",
-          attractionFirstOpenToday("shuffly", "fasttrax", dateYmd),
-        )
-      : Promise.resolve(OPEN_NO_COUNT),
-    fm
-      ? resolveSlotAvailability(
-          "shuffly-headpinz",
-          attractionFirstOpenToday("shuffly", "headpinz", dateYmd),
-        )
-      : Promise.resolve(OPEN_NO_COUNT),
+    gateOnVendor("duck-pin", () =>
+      fm
+        ? resolveSlotAvailability(
+            "duck-pin",
+            qamfFirstOpenToday(FASTTRAX_QAMF_CENTER_ID, dateYmd, "open,hourly"),
+          )
+        : Promise.resolve(OPEN_NO_COUNT),
+    ),
+    gateOnVendor("gel-blaster", () =>
+      resolveSlotAvailability("gel-blaster", attractionFirstOpenToday("gel-blaster", nexusLoc, dateYmd)),
+    ),
+    gateOnVendor("laser-tag", () =>
+      resolveSlotAvailability("laser-tag", attractionFirstOpenToday("laser-tag", nexusLoc, dateYmd)),
+    ),
+    gateOnVendor("shuffly-fasttrax", () =>
+      fm
+        ? resolveSlotAvailability(
+            "shuffly-fasttrax",
+            attractionFirstOpenToday("shuffly", "fasttrax", dateYmd),
+          )
+        : Promise.resolve(OPEN_NO_COUNT),
+    ),
+    gateOnVendor("shuffly-headpinz", () =>
+      fm
+        ? resolveSlotAvailability(
+            "shuffly-headpinz",
+            attractionFirstOpenToday("shuffly", "headpinz", dateYmd),
+          )
+        : Promise.resolve(OPEN_NO_COUNT),
+    ),
     // HeadPinz bowling: we sell the 1.5-hour booking, so the tile must reflect
     // when a 90-min booking genuinely fits — probing without a duration surfaced
     // an earlier 1-hour slot as "next available" (owner 2026-07-25). The 1-hour
     // late-night fallback is a separate follow-up (both systems must align).
-    hpCenterId != null
-      ? resolveSlotAvailability(
-          "bowling",
-          qamfFirstOpenToday(hpCenterId, dateYmd, "open,hourly", { durationMinutes: 90 }),
-        )
-      : Promise.resolve(OPEN_NO_COUNT),
-    hpCenterId != null
-      ? resolveSlotAvailability("kbf", qamfFirstOpenToday(hpCenterId, dateYmd, "kbf"))
-      : Promise.resolve(OPEN_NO_COUNT),
+    gateOnVendor("bowling", () =>
+      hpCenterId != null
+        ? resolveSlotAvailability(
+            "bowling",
+            qamfFirstOpenToday(hpCenterId, dateYmd, "open,hourly", { durationMinutes: 90 }),
+          )
+        : Promise.resolve(OPEN_NO_COUNT),
+    ),
+    gateOnVendor("kbf", () =>
+      hpCenterId != null
+        ? resolveSlotAvailability("kbf", qamfFirstOpenToday(hpCenterId, dateYmd, "kbf"))
+        : Promise.resolve(OPEN_NO_COUNT),
+    ),
   ]);
 
   const slots: Record<keyof ExperienceAvailability, SlotAvailability> = {
