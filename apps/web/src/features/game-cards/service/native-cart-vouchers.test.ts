@@ -17,6 +17,16 @@ vi.mock("../data/voucher-claims-db", () => ({
 vi.mock("../data/vouchers-db", () => ({
   logVoucherEvent: vi.fn(async () => {}),
   hasChargedRedeemEvent: vi.fn(async () => false),
+  // Live by default: not voided, no expiry. The claim path now validates the
+  // voucher ROW before taking a claim (claimVoucher is only a CAS on
+  // voucher_claims and knows nothing about expiry or voiding), so every test in
+  // this file needs a row to come back.
+  getVoucher: vi.fn(async (code: string) => ({
+    code,
+    items: [],
+    expiresAt: null,
+    voidedAt: null,
+  })),
 }));
 
 async function mods() {
@@ -262,5 +272,98 @@ describe("sweepStaleCartClaims (abandoned checkouts hand the codes back)", () =>
     expect(summary).toMatchObject({ candidates: 2, released: 2 });
     expect(claims.releaseVoucherClaim).not.toHaveBeenCalled();
     expect(claims.markVoucherClaimSpent).not.toHaveBeenCalled();
+  });
+});
+
+describe("the voucher ROW is validated before any claim is taken", () => {
+  /**
+   * claimVoucher is only an atomic CAS on voucher_claims — it knows nothing about
+   * the voucher. Expiry and voiding were checked ONLY on the entry surfaces, and a
+   * session outlives those: a 12-month pack that lapsed mid-checkout still
+   * discounted the cart, and a voucher voided from the admin board (which is how a
+   * refund claws the value back) still worked. These pin the gate shut.
+   */
+  it("refuses an EXPIRED voucher and never touches the claims table", async () => {
+    const { svc, claims, vouchers } = await mods();
+    (vouchers.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: laser.code,
+      items: [],
+      expiresAt: "2020-01-01T00:00:00-05:00",
+      voidedAt: null,
+    });
+
+    const res = await svc.claimNativeCartVouchers({
+      vouchers: [laser],
+      baseKey: BASE,
+      locationCode: 12,
+    });
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.reason).toBe("expired");
+      expect(res.conflictCode).toBe(laser.code);
+    }
+    expect(claims.claimVoucher).not.toHaveBeenCalled();
+  });
+
+  it("refuses a VOIDED voucher — the refund path depends on this", async () => {
+    const { svc, claims, vouchers } = await mods();
+    (vouchers.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: laser.code,
+      items: [],
+      expiresAt: null,
+      voidedAt: "2026-08-03T00:00:00-04:00",
+    });
+
+    const res = await svc.claimNativeCartVouchers({
+      vouchers: [laser],
+      baseKey: BASE,
+      locationCode: 12,
+    });
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toBe("voided");
+    expect(claims.claimVoucher).not.toHaveBeenCalled();
+  });
+
+  it("fails CLOSED when the registry is unreadable", async () => {
+    // An unverifiable voucher must not silently reduce a charge.
+    const { svc, claims, vouchers } = await mods();
+    (vouchers.getVoucher as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("neon down"));
+
+    const res = await svc.claimNativeCartVouchers({
+      vouchers: [laser],
+      baseKey: BASE,
+      locationCode: 12,
+    });
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.reason).toBe("unknown");
+    expect(claims.claimVoucher).not.toHaveBeenCalled();
+  });
+
+  it("reads the row ONCE per distinct code, not per leg", async () => {
+    const { svc, claims, vouchers } = await mods();
+    // Restore a live row explicitly: clearAllMocks() resets recorded CALLS but
+    // NOT an implementation installed by mockResolvedValue/mockRejectedValue, so
+    // the "registry unreadable" case above would otherwise leak into this one.
+    (vouchers.getVoucher as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: laser.code,
+      items: [],
+      expiresAt: null,
+      voidedAt: null,
+    });
+    (claims.claimVoucher as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true, claim: {} });
+
+    const legA = { ...laser, itemIndex: 0 };
+    const legB = { ...laser, itemIndex: 1 };
+    const res = await svc.claimNativeCartVouchers({
+      vouchers: [legA, legB],
+      baseKey: BASE,
+      locationCode: 12,
+    });
+
+    expect(res.ok).toBe(true);
+    expect(vouchers.getVoucher).toHaveBeenCalledTimes(1);
   });
 });

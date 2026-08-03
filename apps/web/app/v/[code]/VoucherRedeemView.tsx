@@ -3,6 +3,10 @@
 import { useState } from "react";
 import { CENTER_LIST } from "~/config/intercard-centers";
 import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
+import {
+  formatVoucherExpiry,
+  voucherItemDisplayLabel,
+} from "~/features/game-cards/vouchers/display";
 import type { VoucherStatus } from "~/features/game-cards/service/native-voucher";
 
 /**
@@ -16,21 +20,33 @@ import type { VoucherStatus } from "~/features/game-cards/service/native-voucher
  * code at a kiosk instead of being dead-ended — that path DOES issue a card.
  */
 
-/** Refusal → guest copy. Every reason is phrased: nobody is standing there. */
+/** Refusal → guest copy. Every reason is phrased: nobody is standing there.
+ *
+ *  NOTHING here sends a guest to Guest Services. Redemption happens at a KIOSK
+ *  (owner 2026-08-03: "NOT redeemable at guest services you must see kiosk") —
+ *  the desk cannot dispense a card or apply these codes, so pointing someone
+ *  there sends them to be turned around. */
 const REASON_COPY: Record<string, string> = {
   bad_format: "That code doesn’t look right — check it and try again.",
   unknown: "We couldn’t find that voucher.",
   voided: "That voucher was cancelled. Please contact us and we’ll sort it out.",
   expired: "That voucher has expired.",
-  used: "That voucher has already been used.",
-  not_redeemable: "That voucher can’t be loaded onto a card — bring it to Guest Services.",
+  used: "Everything on this voucher has been used.",
+  not_redeemable: "There’s nothing on this voucher to load onto a card.",
   card_not_found: "We couldn’t find that card number. Check the number on the back of your card.",
   card_lookup_failed: "We couldn’t reach the card system just now — please try again shortly.",
   rate_limited: "Too many tries. Give it a few minutes and try again.",
   storage: "Something went wrong on our end — nothing was used. Please try again.",
 };
 
-export function VoucherRedeemView({ status }: { status: VoucherStatus }) {
+export function VoucherRedeemView({
+  status,
+  qrDataUri = null,
+}: {
+  status: VoucherStatus;
+  /** Server-rendered QR of this voucher's /v URL. Null only if generation failed. */
+  qrDataUri?: string | null;
+}) {
   const [account, setAccount] = useState("");
   const [locationCode, setLocationCode] = useState(CENTER_LIST[0].code);
   const [busy, setBusy] = useState(false);
@@ -79,6 +95,9 @@ export function VoucherRedeemView({ status }: { status: VoucherStatus }) {
   const voided = !!status.voidedAt;
   // Server-resolved (see VoucherStatus.expired) — never read the clock here.
   const expired = status.expired;
+  const expiryText = formatVoucherExpiry(status.expiresAt);
+  /** Nothing left to do with it — used to dim the QR rather than imply it scans. */
+  const allDone = status.items.every((i) => i.spent);
 
   const submit = async () => {
     const acct = account.trim();
@@ -124,16 +143,54 @@ export function VoucherRedeemView({ status }: { status: VoucherStatus }) {
         <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/45">
           Game Zone voucher
         </p>
+        {/* THE QR IS THE PRIMARY REDEMPTION MECHANISM, so it leads.
+            It was missing entirely, which left a guest to type 11 characters on a
+            kiosk keyboard — and for anyone without a card it is the ONLY way to
+            get one, since a phone can't dispense. Dimmed when the voucher can no
+            longer be used, so a dead code never looks scannable. */}
+        {qrDataUri && (
+          <div
+            className={`mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-5 ${
+              voided || expired || allDone ? "opacity-40" : ""
+            }`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element -- data URI, no loader */}
+            <img
+              src={qrDataUri}
+              alt={`QR code for voucher ${formatVoucherCode(status.code)}`}
+              className="mx-auto h-48 w-48 rounded-xl bg-white p-2"
+            />
+            <p className="mt-3 text-sm font-semibold text-white">
+              Scan this at any HeadPinz kiosk
+            </p>
+            <p className="mt-1 text-sm text-white/55">
+              The kiosk prints your game cards with the credit already on them. Look for the
+              &ldquo;Coupon or voucher?&rdquo; button on the welcome screen.
+            </p>
+          </div>
+        )}
+
         <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.06] px-5 py-4 font-mono text-2xl tracking-[0.12em] text-white">
           {formatVoucherCode(status.code)}
         </div>
+        <p className="mt-2 text-xs text-white/45">
+          Can&apos;t scan? Type this code at the kiosk instead.
+        </p>
+
+        {/* Expiry, stated plainly — a prepaid voucher's shelf life is a term of
+            the sale, and it was never shown here. */}
+        {expiryText && (
+          <p className={`mt-4 text-sm ${expired ? "text-red-300" : "text-white/60"}`}>
+            {expired ? `Expired ${expiryText}` : `Valid through ${expiryText}`}
+          </p>
+        )}
 
         {/* What's on it, line by line. */}
         <ul className="mt-6 space-y-2">
           {status.items.map((i) => (
             <li key={i.index} className="flex items-center justify-between gap-3 text-lg">
               <span className={i.spent ? "text-white/35 line-through" : "text-white"}>
-                {i.label}
+                {voucherItemDisplayLabel(i.item)}
               </span>
               <span className="shrink-0 text-sm text-white/50">
                 {i.spent
@@ -144,7 +201,9 @@ export function VoucherRedeemView({ status }: { status: VoucherStatus }) {
                       ? // Bookable below — saying "at Guest Services" sent guests
                         // to a desk for something they can do themselves.
                         "book below"
-                      : "at Guest Services"}
+                      : // A race leg: applied to the booking at checkout. Still not
+                        // Guest Services — the desk cannot redeem any of these.
+                        "apply when booking"}
               </span>
             </li>
           ))}
@@ -209,9 +268,18 @@ export function VoucherRedeemView({ status }: { status: VoucherStatus }) {
           </div>
         ) : (
           <>
-            <h1 className="mt-8 text-2xl font-extrabold text-white">Load it on your card</h1>
+            {/* SECONDARY path, and now labelled as one. It reads "Already have a
+                HeadPinz game card?" because the old heading — "Load it on your
+                card" with no context — was the first thing on the page and
+                implied you needed a card to use the voucher at all. You don't:
+                the QR above gets you new ones. This just saves a trip for someone
+                who already carries one. */}
+            <h1 className="mt-8 text-2xl font-extrabold text-white">
+              Already have a HeadPinz game card?
+            </h1>
             <p className="mt-1 text-white/60">
-              Enter the number printed on the back of your game card.
+              Add the credit straight to it — no need to pick up a new card. Enter the number
+              printed on the back.
             </p>
 
             <label className="mt-5 block text-sm font-semibold text-white/70" htmlFor="v-acct">

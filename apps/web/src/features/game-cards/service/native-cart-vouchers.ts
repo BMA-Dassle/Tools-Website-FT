@@ -27,7 +27,7 @@ import {
   markVoucherClaimSpent,
   releaseVoucherClaim,
 } from "../data/voucher-claims-db";
-import { hasChargedRedeemEvent, logVoucherEvent } from "../data/vouchers-db";
+import { getVoucher, hasChargedRedeemEvent, logVoucherEvent } from "../data/vouchers-db";
 
 /** One native voucher line applied to the booking (from session.appliedVouchers). */
 export interface NativeCartVoucherRef {
@@ -45,7 +45,7 @@ function cartTxnId(baseKey: string, code: string, itemIndex: number): string {
 export type NativeCartClaimResult =
   | { ok: true; claimed: NativeCartVoucherRef[] }
   /** A code was already spent by SOMEONE ELSE — reserve must hard-fail on it. */
-  | { ok: false; conflictCode: string };
+  | { ok: false; conflictCode: string; reason?: "spent" | "expired" | "voided" | "unknown" };
 
 /**
  * Claim every native cart voucher on the session for THIS reserve. All-or-fail:
@@ -64,6 +64,38 @@ export async function claimNativeCartVouchers(args: {
   substitutes?: Map<string, NativeCartVoucherRef[]>;
 }): Promise<NativeCartClaimResult> {
   const claimed: NativeCartVoucherRef[] = [];
+
+  /**
+   * VALIDATE THE VOUCHER ROW BEFORE CLAIMING ANYTHING.
+   *
+   * `claimVoucher` is only an atomic compare-and-set on `voucher_claims` — it
+   * knows nothing about the voucher itself. Without this, an EXPIRED or VOIDED
+   * code still covered a cart at charge time, because the entry surfaces are the
+   * only place expiry was ever checked and a session outlives them: a 12-month
+   * pack that lapsed mid-checkout still discounted, and a voucher voided from the
+   * admin board (which is how a refund claws the value back) still worked.
+   *
+   * Checked once per distinct code — a multi-leg voucher shares one row — and the
+   * cheap read happens before the destructive step, same ordering as
+   * `claimNativeVoucher`.
+   */
+  const distinctCodes = Array.from(new Set(args.vouchers.map((v) => v.code)));
+  for (const code of distinctCodes) {
+    let row: Awaited<ReturnType<typeof getVoucher>>;
+    try {
+      row = await getVoucher(code);
+    } catch (err) {
+      // Fail CLOSED: an unverifiable voucher must not silently reduce a charge.
+      console.error("[voucher-cart] registry read failed:", err);
+      return { ok: false, conflictCode: code, reason: "unknown" };
+    }
+    if (!row) return { ok: false, conflictCode: code, reason: "unknown" };
+    if (row.voidedAt) return { ok: false, conflictCode: code, reason: "voided" };
+    if (row.expiresAt && Date.parse(row.expiresAt) <= Date.now()) {
+      return { ok: false, conflictCode: code, reason: "expired" };
+    }
+  }
+
   const claimOne = async (v: NativeCartVoucherRef): Promise<boolean> => {
     const txnId = cartTxnId(args.baseKey, v.code, v.itemIndex);
     const res = await claimVoucher({

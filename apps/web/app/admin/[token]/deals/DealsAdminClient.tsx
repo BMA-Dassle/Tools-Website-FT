@@ -98,7 +98,12 @@ export default function DealsAdminClient({ token }: { token: string }) {
     setBusyId(purchaseId);
     setNote(null);
     try {
-      const res = await fetch("/api/admin/deals", {
+      // `?token=` is REQUIRED even though the body carries it too. The
+      // middleware admin gate runs before the route and cannot read a request
+      // body, so it fails closed to 404 on a POST whose token is body-only —
+      // Resend and Void both 404'd until this was added. The sibling
+      // discount-codes client puts it on the URL for the same reason.
+      const res = await fetch(`/api/admin/deals?token=${encodeURIComponent(token)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action, token, purchaseId, reason: reason?.trim() }),
