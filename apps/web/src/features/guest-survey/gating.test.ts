@@ -6,6 +6,7 @@ import {
   ratingSubject,
   lowRatedSubjects,
   adaptiveClosingPrompt,
+  isPositiveSentiment,
   type AnswerMap,
 } from "./gating";
 
@@ -198,5 +199,86 @@ describe("adaptiveClosingPrompt", () => {
     );
     expect(p).toContain("your racing experience, the food & drinks, and our track crew");
     expect(p).toContain("make those better");
+  });
+});
+
+describe("isPositiveSentiment", () => {
+  // Mirrors the real seed: baseline #1 = overall rating, baseline #2 = recommend.
+  const overall = aQuestion({
+    id: 10,
+    tag: "baseline",
+    ordinal: 1,
+    question: "How was your visit overall?",
+    kind: "rating_1_5",
+  });
+  const recommend = aQuestion({
+    id: 11,
+    tag: "baseline",
+    ordinal: 2,
+    question: "Would you recommend us to a friend?",
+    kind: "yes_no",
+  });
+  const food = aQuestion({
+    id: 12,
+    tag: "food_drink",
+    ordinal: 2,
+    question: "Rate the food & drinks",
+    kind: "rating_1_5",
+  });
+  const managerCheck = aQuestion({
+    id: 13,
+    tag: "food_drink",
+    ordinal: 6,
+    question: "Did a manager check on you during your visit?",
+    kind: "yes_no",
+  });
+  const all = [overall, recommend, food, managerCheck];
+
+  it("passes a straight-5s survey with an explicit recommendation", () => {
+    expect(isPositiveSentiment(all, { "10": 5, "11": "Yes", "12": 5, "13": "Yes" })).toBe(true);
+  });
+
+  it("passes a 4 overall with the recommend question left blank", () => {
+    expect(isPositiveSentiment(all, { "10": 4, "12": 4 })).toBe(true);
+  });
+
+  it("fails when any other rating is low, even with a 5 overall", () => {
+    // The guest who loved the visit but rated the food a 2 — don't send them
+    // to a public review form.
+    expect(isPositiveSentiment(all, { "10": 5, "11": "Yes", "12": 2 })).toBe(false);
+  });
+
+  it("treats exactly 3 on another rating as low", () => {
+    expect(isPositiveSentiment(all, { "10": 5, "12": 3 })).toBe(false);
+  });
+
+  it("fails a middling overall rating", () => {
+    expect(isPositiveSentiment(all, { "10": 3, "12": 5 })).toBe(false);
+  });
+
+  it("fails an explicit 'No' on the recommend question", () => {
+    expect(isPositiveSentiment(all, { "10": 5, "11": "No", "12": 5 })).toBe(false);
+  });
+
+  it("fail-closes when the overall rating is unanswered", () => {
+    expect(isPositiveSentiment(all, { "11": "Yes", "12": 5, "13": "Yes" })).toBe(false);
+  });
+
+  it("fail-closes when the overall question isn't in the set at all", () => {
+    expect(isPositiveSentiment([recommend, food], { "11": "Yes", "12": 5 })).toBe(false);
+  });
+
+  it("fail-closes on an empty answer map", () => {
+    expect(isPositiveSentiment(all, {})).toBe(false);
+  });
+
+  it("ignores a same-ordinal question in another tag when locating baseline #1", () => {
+    // bowling #1 is also ordinal 1 — it must not stand in for the overall rating.
+    const bowling = aQuestion({ id: 20, tag: "bowling", ordinal: 1, kind: "rating_1_5" });
+    expect(isPositiveSentiment([bowling, recommend], { "20": 5, "11": "Yes" })).toBe(false);
+  });
+
+  it("does not treat a non-numeric overall answer as a passing rating", () => {
+    expect(isPositiveSentiment(all, { "10": "5", "12": 5 } as AnswerMap)).toBe(false);
   });
 });

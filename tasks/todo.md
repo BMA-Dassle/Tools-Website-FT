@@ -1,5 +1,92 @@
 # Open Tasks
 
+## Google review ask on the survey reward screen — branch `feat/survey-google-review` (2026-08-02)
+
+The guest survey ends on the reward-confirmation screen (500 Pinz / $5 e-gift card) —
+the highest-goodwill moment we have with a guest, previously spent on nothing. Adds a
+"Got 10 more seconds?" Google review CTA there, shown ONLY to guests whose own answers
+say the visit went well.
+
+- [x] **`src/lib/constants/review-links.ts`** — single source of truth for per-center
+      Google review destinations, keyed by Square location id (= `guest_surveys.center_code`).
+      `{ placeId }` builds the `writereview` URL that opens the star form directly;
+      `{ url }` is a full-URL escape hatch. Unknown center → `null` → no ask (fail-closed,
+      so a new center never gets pointed at another center's listing).
+- [x] **Positive-sentiment gate** — `isPositiveSentiment()` in `features/guest-survey/gating.ts`,
+      beside the existing `LOW_RATING_THRESHOLD` so there is ONE definition of a bad visit.
+      Requires: overall (baseline #1) answered and ≥ 4, no `rating_1_5` anywhere ≤ 3,
+      and recommend (baseline #2) ≠ "No". Questions addressed by (tag, ordinal), never by
+      text, so seed copy edits can't silently disable the gate. Fail-closed on a missing or
+      unanswered overall question. Plus `toAnswerMap()` to narrow a stored `responses_json`
+      blob honestly (drops non-scalars rather than letting an object stringify to
+      "[object Object]" inside a comparison).
+- [x] **`GET /api/surveys/[token]/review`** — tracked 302 hop. The CTA links here, not
+      straight at Google, so the click is recorded server-side (the CTA opens in a new tab,
+      which is exactly the case a client beacon drops) and sentiment is RE-VERIFIED against
+      the stored responses — a hand-crafted URL can't harvest the link. Records a
+      `marketing_touches` 'converted' touch with `meta.stage: "review_click"`, matching the
+      reward route's `reward_issued` shape, so existing admin stats pick it up with no
+      schema change. Non-happy / incomplete / unmapped-center all 302 to the brand home,
+      never an error page.
+- [x] **`GoogleReviewCta.tsx`** — own client component. `target="_blank"` is required, not
+      cosmetic: on the gift-card screen it sits below the QR, GAN and GS-XXXX promo code,
+      and navigating away in place would take all of that off the guest's screen. Styled
+      accent-OUTLINED so it never competes with "Add to Apple Wallet". Fires
+      `clarityEvent("survey:review_click")`.
+- [x] Rendered once in `RewardConfirmation` (covers both the Pinz and gift-card branches),
+      and on `ThanksAlreadyPanel` for a reopened link — a happy guest who closed the tab on
+      the reward screen gets a second chance, gated on the same stored answers.
+- [x] **Middleware dedupe** — `/review` + `/review/naples` now build their targets from
+      `googleReviewUrl(...)` instead of duplicating the two place ids inline. Behavior
+      identical (asserted in the unit test).
+- [x] **Click tracking on the survey row** (owner ask: "keep track of how many people click
+      it"). New `guest_surveys` columns `review_click_count` / `review_first_click_at` /
+      `review_last_click_at`, added to the DDL **plus idempotent ALTERs** so prod picks them
+      up on the next `ensureGuestSurveySchema()` — no migration step. Incremented by
+      `recordGuestSurveyReviewClick()` as a single atomic `SET count = count + 1` (the
+      increment happens in Postgres, so a double-tap or two open tabs can't lose a count).
+      **Awaited** in the route, unlike the fire-and-forget touch: a serverless teardown the
+      instant we return a redirect can drop a detached write, and this is the number ops
+      reads. Wrapped in try/catch — a lost count beats a broken link.
+      Counted rather than booleaned because the CTA opens in a new tab, so the reward screen
+      survives behind it and repeat taps are real.
+- [x] **Admin stats** — `getGuestSurveyStats` gains
+      `reviewClicks: { clickers, clicks, clickRate }` (clickers = distinct people, the
+      headline; `clickRate` divides by **completed**, not sent, because the CTA only exists
+      after submit), plus `reviewClickers` on `byDay` and `byCenter` so you can see which
+      center's guests actually review. `/api/admin/guest-survey/stats` spreads the object,
+      so it surfaces with no route change.
+- [x] Incidental: `theme.ts` extracted from `SurveyForm.tsx` so server + client can share
+      the palette. Side effect — the terminal panels (`ThanksAlreadyPanel` / `ExpiredPanel`)
+      were hardcoding the HeadPinz background even for FastTrax racing surveys; they now
+      follow the brand theme like the form `Shell` already did.
+- [x] 49 units green (11 sentiment, 7 review-links, 12 review-route incl. hand-crafted-URL
+      bypass attempts and the counting-fails-still-redirects case); full suite 2885 green;
+      tsc clean; eslint exit 0; zero jsx-a11y in changed files; `next build` **compiled successfully**
+      (verifies the middleware edge bundle with its new imports + the client/server
+      boundaries). Build's type-check step then failed only on pre-existing UNTRACKED WIP
+      leftovers in the working tree (`scripts/*.mts` ×4, `VipExperiencePopupClient.tsx`) —
+      not on main, not in this commit.
+
+**NOT smoked live.** Needs a two-brand phone pass: happy path → CTA appears → lands on the
+right listing; overall-5-but-one-area-2 → no CTA; reopened link → CTA; and
+`/api/surveys/<unhappy-token>/review` → home, not Google. Then confirm the count landed:
+`GET /api/admin/guest-survey/stats` → `reviewClicks.clickers` incremented (and
+`review_click_count` on the row), which also proves the idempotent ALTERs ran against prod.
+
+**FastTrax caveat (owner decision).** FastTrax has no Google place id, so it uses an
+owner-supplied Google **search-results** URL verbatim — it opens the reviews PANEL, not the
+star form (one extra tap), and its session params (`sca_esv`/`ved`/`biw`/`bih`/`dpr`) may
+stop resolving over time. Swap `{ url }` → `{ placeId: "ChIJ…" }` in `review-links.ts` when
+an id is available; that is the ONLY edit needed. Get one from Google's Place ID Finder or
+the Business Profile "Ask for reviews" `g.page/r/…/review` link.
+
+Follow-ups (out of scope, not started):
+- `emails/race-results.html:548` sends FastTrax racers to HeadPinz Fort Myers' place id.
+- `pickBrand()` in `api/surveys/[token]/reward/route.ts` + `send-sms/route.ts` does
+  `centerCode in CENTER_META ? "HeadPinz" : "FastTrax"`, but `CENTER_META` *contains*
+  FastTrax — so racing reward SMS is branded "HeadPinz".
+
 ## Video match hardening — branch `feat/video-match-hardening` (2026-08-02)
 
 Root causes proven by the 8/2 investigation (live Redis forensics, 7/10–7/28 corpus:

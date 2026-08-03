@@ -10,57 +10,13 @@ import {
   visibleQuestions,
   lowRatedSubjects,
   adaptiveClosingPrompt,
+  isPositiveSentiment,
   type AnswerMap,
 } from "~/features/guest-survey/gating";
+import { GoogleReviewCta } from "./GoogleReviewCta";
+import { THEMES, type SurveyBrand, type Theme } from "./theme";
 
-/**
- * Survey brand. "headpinz" (bowling, the original/live path) and "fasttrax"
- * (racing). The form is identical in structure — only the palette, the
- * fixed-nav clearance, and a couple of loyalty-program labels differ.
- */
-export type SurveyBrand = "headpinz" | "fasttrax";
-
-interface Theme {
-  /** Page background — matches the body bg the root layout sets per brand. */
-  bg: string;
-  /** Question / reward card panel. */
-  card: string;
-  /** Hairline border on cards + inputs. */
-  border: string;
-  /** Accent: selected pills, primary button, error text. */
-  accent: string;
-  /** Translucent accent fill behind selected pills. */
-  accentFill: string;
-  /** Muted secondary text. */
-  muted: string;
-  /** Tailwind top-padding that clears the brand's fixed nav. */
-  navClear: string;
-  /** Loyalty program name shown on the Pinz reward. */
-  rewardsProgram: string;
-}
-
-const THEMES: Record<SurveyBrand, Theme> = {
-  headpinz: {
-    bg: "#0a1628",
-    card: "rgba(7,16,39,0.95)",
-    border: "rgba(255,255,255,0.08)",
-    accent: "#fd5b56", // coral
-    accentFill: "rgba(253,91,86,0.18)",
-    muted: "rgba(255,255,255,0.65)",
-    navClear: "pt-36 sm:pt-44",
-    rewardsProgram: "HeadPinz Rewards",
-  },
-  fasttrax: {
-    bg: "#000418",
-    card: "rgba(10,16,36,0.92)",
-    border: "rgba(255,255,255,0.08)",
-    accent: "#E53935", // ft-red
-    accentFill: "rgba(229,57,53,0.18)",
-    muted: "rgba(255,255,255,0.65)",
-    navClear: "pt-28 sm:pt-36",
-    rewardsProgram: "FastTrax Rewards",
-  },
-};
+export type { SurveyBrand };
 
 interface SurveyFormProps {
   token: string;
@@ -68,6 +24,13 @@ interface SurveyFormProps {
   questions: GuestSurveyQuestion[];
   /** Defaults to "headpinz" so the live bowling survey is unchanged. */
   brand?: SurveyBrand;
+  /**
+   * This center's Google review destination, resolved SERVER-side in page.tsx
+   * from the survey row's center_code (see ~/lib/constants/review-links).
+   * `null`/absent = no mapped destination for the center, so no review ask.
+   * The client never holds the center-code → URL mapping.
+   */
+  reviewUrl?: string | null;
 }
 
 type SubmitState =
@@ -104,7 +67,13 @@ interface RewardSummary {
  * Q1=Yes, and the racing slow-down explainer reveals only when the racer
  * says they didn't understand.
  */
-export function SurveyForm({ token, centerName, questions, brand = "headpinz" }: SurveyFormProps) {
+export function SurveyForm({
+  token,
+  centerName,
+  questions,
+  brand = "headpinz",
+  reviewUrl = null,
+}: SurveyFormProps) {
   const t = THEMES[brand];
   const [answers, setAnswers] = useState<AnswerMap>({});
   const [submitState, setSubmitState] = useState<SubmitState>({ kind: "idle" });
@@ -153,6 +122,11 @@ export function SurveyForm({ token, centerName, questions, brand = "headpinz" }:
   // Subjects scored 3-or-below — drives the adaptive prompt on the
   // `low_rating_followup` closing question (recomputed live as ratings change).
   const lowSubjects = useMemo(() => lowRatedSubjects(questions, answers), [questions, answers]);
+  // Whether we may ask this guest for a public Google review. Answers are
+  // frozen once the survey is submitted, so the value read on the confirmation
+  // screen is the submitted truth. The redirect route re-checks it server-side
+  // against the stored responses — this only controls whether we render.
+  const positive = useMemo(() => isPositiveSentiment(questions, answers), [questions, answers]);
   const answeredCount = visible.filter((q) => answers[String(q.id)] != null).length;
   const canSubmit = answeredCount > 0 && submitState.kind === "idle";
 
@@ -212,6 +186,7 @@ export function SurveyForm({ token, centerName, questions, brand = "headpinz" }:
           reward={submitState.reward}
           centerName={centerName}
           token={token}
+          reviewUrl={positive ? reviewUrl : null}
         />
       </Shell>
     );
@@ -577,29 +552,59 @@ interface RewardConfirmationProps {
   reward: RewardSummary;
   centerName: string;
   token: string;
+  /**
+   * Google review URL when — and only when — we may ask this guest: the
+   * caller has already applied the positive-sentiment gate, so a non-null
+   * value here means "render the ask". Single guard point for both reward
+   * branches.
+   */
+  reviewUrl?: string | null;
 }
 
-function RewardConfirmation({ t, reward, centerName, token }: RewardConfirmationProps) {
-  if (reward.kind === "pinz") {
-    return (
-      <div>
-        <h1 className="font-heading text-3xl font-bold mb-3">You got Pinz!</h1>
-        <p className="text-white/85 leading-relaxed mb-2">
-          <strong>{reward.value} Pinz</strong> added to your {t.rewardsProgram} account.
+function RewardConfirmation({
+  t,
+  reward,
+  centerName,
+  token,
+  reviewUrl = null,
+}: RewardConfirmationProps) {
+  return (
+    <div>
+      {reward.kind === "pinz" ? (
+        <PinzConfirmation t={t} reward={reward} centerName={centerName} />
+      ) : (
+        <GiftCardConfirmation t={t} reward={reward} centerName={centerName} token={token} />
+      )}
+      {reviewUrl ? <GoogleReviewCta t={t} token={token} /> : null}
+    </div>
+  );
+}
+
+function PinzConfirmation({
+  t,
+  reward,
+  centerName,
+}: {
+  t: Theme;
+  reward: RewardSummary;
+  centerName: string;
+}) {
+  return (
+    <div>
+      <h1 className="font-heading text-3xl font-bold mb-3">You got Pinz!</h1>
+      <p className="text-white/85 leading-relaxed mb-2">
+        <strong>{reward.value} Pinz</strong> added to your {t.rewardsProgram} account.
+      </p>
+      {typeof reward.newBalance === "number" ? (
+        <p className="text-white/70 text-sm">
+          New balance: <strong className="text-white">{reward.newBalance} Pinz</strong>
         </p>
-        {typeof reward.newBalance === "number" ? (
-          <p className="text-white/70 text-sm">
-            New balance: <strong className="text-white">{reward.newBalance} Pinz</strong>
-          </p>
-        ) : null}
-        <p className="text-white/70 text-sm mt-4">
-          Use them on a future visit at {centerName}. Thanks for the feedback!
-        </p>
-      </div>
-    );
-  }
-  // gift_card
-  return <GiftCardConfirmation t={t} reward={reward} centerName={centerName} token={token} />;
+      ) : null}
+      <p className="text-white/70 text-sm mt-4">
+        Use them on a future visit at {centerName}. Thanks for the feedback!
+      </p>
+    </div>
+  );
 }
 
 function GiftCardConfirmation({

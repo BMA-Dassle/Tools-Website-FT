@@ -166,6 +166,9 @@ function defaultsHappyPath(): void {
     completedAt: null,
     expiresAt: "2026-05-27T20:00:00.000Z",
     createdAt: "2026-05-20T20:00:00.000Z",
+    reviewClickCount: 0,
+    reviewFirstClickAt: null,
+    reviewLastClickAt: null,
   });
 }
 
@@ -266,6 +269,9 @@ describe("enqueueBowlingSurvey — guard skips (no touch recorded)", () => {
       completedAt: null,
       expiresAt: "2026-05-26T20:00:00.000Z",
       createdAt: "2026-05-19T20:00:00.000Z",
+      reviewClickCount: 0,
+      reviewFirstClickAt: null,
+      reviewLastClickAt: null,
     });
 
     const result = await enqueueBowlingSurvey(baseInput());
@@ -504,6 +510,9 @@ describe("enqueueRacingSurvey", () => {
       completedAt: null,
       expiresAt: "2026-06-21T20:00:00.000Z",
       createdAt: "2026-06-14T20:00:00.000Z",
+      reviewClickCount: 0,
+      reviewFirstClickAt: null,
+      reviewLastClickAt: null,
     });
 
     const result = await enqueueRacingSurvey(racingInput());
@@ -553,6 +562,9 @@ describe("enqueueRacingSurvey", () => {
       completedAt: null,
       expiresAt: "2026-06-20T20:00:00.000Z",
       createdAt: "2026-06-13T20:00:00.000Z",
+      reviewClickCount: 0,
+      reviewFirstClickAt: null,
+      reviewLastClickAt: null,
     });
 
     const result = await enqueueRacingSurvey(racingInput());

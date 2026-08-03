@@ -47,11 +47,23 @@ export async function ensureGuestSurveySchema(): Promise<void> {
       opened_at           TIMESTAMPTZ,
       completed_at        TIMESTAMPTZ,
       expires_at          TIMESTAMPTZ NOT NULL,
-      created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      -- Google review CTA (shown on the reward screen to positive guests only).
+      -- Counted rather than booleaned: a guest can tap the CTA more than once
+      -- (it opens in a new tab, so the reward screen stays put behind it), and
+      -- "how many people clicked" wants the distinct-survey count while
+      -- repeat taps are still worth seeing.
+      review_click_count    INTEGER   NOT NULL DEFAULT 0,
+      review_first_click_at TIMESTAMPTZ,
+      review_last_click_at  TIMESTAMPTZ
     )
   `;
   await q`CREATE INDEX IF NOT EXISTS gs_customer_sent ON guest_surveys(square_customer_id, sent_at DESC)`;
   await q`CREATE UNIQUE INDEX IF NOT EXISTS gs_origin_ref ON guest_surveys(origin, origin_ref)`;
+  // Idempotent ALTERs for already-bootstrapped environments (prod predates these).
+  await q`ALTER TABLE guest_surveys ADD COLUMN IF NOT EXISTS review_click_count    INTEGER NOT NULL DEFAULT 0`;
+  await q`ALTER TABLE guest_surveys ADD COLUMN IF NOT EXISTS review_first_click_at TIMESTAMPTZ`;
+  await q`ALTER TABLE guest_surveys ADD COLUMN IF NOT EXISTS review_last_click_at  TIMESTAMPTZ`;
 
   // ── guest_survey_questions ───────────────────────────────────────
   // Tag values: 'baseline' | 'bowling' | 'fnb_service' | 'food_drink' |
@@ -191,6 +203,10 @@ export interface GuestSurveyRow {
   completedAt: string | null;
   expiresAt: string;
   createdAt: string;
+  /** Times this guest tapped the "Rate us on Google" CTA. 0 = never. */
+  reviewClickCount: number;
+  reviewFirstClickAt: string | null;
+  reviewLastClickAt: string | null;
 }
 
 export interface GuestSurveyPromoCode {
@@ -244,6 +260,13 @@ function rowToSurvey(row: Record<string, unknown>): GuestSurveyRow {
     completedAt: row.completed_at ? (row.completed_at as Date).toISOString() : null,
     expiresAt: (row.expires_at as Date).toISOString(),
     createdAt: (row.created_at as Date).toISOString(),
+    reviewClickCount: (row.review_click_count as number) ?? 0,
+    reviewFirstClickAt: row.review_first_click_at
+      ? (row.review_first_click_at as Date).toISOString()
+      : null,
+    reviewLastClickAt: row.review_last_click_at
+      ? (row.review_last_click_at as Date).toISOString()
+      : null,
   };
 }
 
@@ -579,9 +602,29 @@ export interface GuestSurveyStats {
     issued: number; // pinz + gift_card
     redeemed: number; // gift cards with redeemed_at set
   };
+  /**
+   * "Rate us on Google" CTA performance.
+   *
+   * `clickers` is how many PEOPLE clicked (surveys with >= 1 click) — the
+   * headline number. `clicks` counts repeat taps too. `clickRate` is clickers
+   * over completed surveys, because the CTA only exists after submit, so
+   * dividing by `sent` would understate it.
+   */
+  reviewClicks: { clickers: number; clicks: number; clickRate: number };
   byTag: Array<{ tag: string; sent: number; completed: number }>;
-  byDay: Array<{ day: string; sent: number; opened: number; completed: number }>;
-  byCenter: Array<{ centerCode: string; sent: number; completed: number }>;
+  byDay: Array<{
+    day: string;
+    sent: number;
+    opened: number;
+    completed: number;
+    reviewClickers: number;
+  }>;
+  byCenter: Array<{
+    centerCode: string;
+    sent: number;
+    completed: number;
+    reviewClickers: number;
+  }>;
 }
 
 export async function getGuestSurveyStats(opts: {
@@ -600,6 +643,7 @@ export async function getGuestSurveyStats(opts: {
     },
     funnel: { sent: 0, opened: 0, completed: 0, openRate: 0, completionRate: 0 },
     rewards: { pinz: 0, gift_card: 0, declined: 0, issued: 0, redeemed: 0 },
+    reviewClicks: { clickers: 0, clicks: 0, clickRate: 0 },
     byTag: [],
     byDay: [],
     byCenter: [],
@@ -616,7 +660,9 @@ export async function getGuestSurveyStats(opts: {
       COUNT(*) FILTER (WHERE completed_at IS NOT NULL)::int                        AS completed,
       COUNT(*) FILTER (WHERE reward_kind = 'pinz')::int                            AS reward_pinz,
       COUNT(*) FILTER (WHERE reward_kind = 'gift_card')::int                       AS reward_gift_card,
-      COUNT(*) FILTER (WHERE reward_kind = 'declined')::int                        AS reward_declined
+      COUNT(*) FILTER (WHERE reward_kind = 'declined')::int                        AS reward_declined,
+      COUNT(*) FILTER (WHERE review_click_count > 0)::int                           AS review_clickers,
+      COALESCE(SUM(review_click_count), 0)::int                                    AS review_clicks
     FROM guest_surveys s
     WHERE (${opts.since ?? null}::timestamptz IS NULL OR s.sent_at >= ${opts.since ?? null}::timestamptz)
       AND (${opts.until ?? null}::timestamptz IS NULL OR s.sent_at <= ${opts.until ?? null}::timestamptz)
@@ -660,7 +706,8 @@ export async function getGuestSurveyStats(opts: {
       (s.sent_at AT TIME ZONE 'America/New_York')::date::text                AS day,
       COUNT(*)::int                                                          AS sent,
       COUNT(*) FILTER (WHERE opened_at IS NOT NULL)::int                     AS opened,
-      COUNT(*) FILTER (WHERE completed_at IS NOT NULL)::int                  AS completed
+      COUNT(*) FILTER (WHERE completed_at IS NOT NULL)::int                  AS completed,
+      COUNT(*) FILTER (WHERE review_click_count > 0)::int                     AS review_clickers
     FROM guest_surveys s
     WHERE (${opts.since ?? null}::timestamptz IS NULL OR s.sent_at >= ${opts.since ?? null}::timestamptz)
       AND (${opts.until ?? null}::timestamptz IS NULL OR s.sent_at <= ${opts.until ?? null}::timestamptz)
@@ -676,7 +723,8 @@ export async function getGuestSurveyStats(opts: {
     SELECT
       s.center_code                                                          AS center_code,
       COUNT(*)::int                                                          AS sent,
-      COUNT(*) FILTER (WHERE s.completed_at IS NOT NULL)::int                AS completed
+      COUNT(*) FILTER (WHERE s.completed_at IS NOT NULL)::int                AS completed,
+      COUNT(*) FILTER (WHERE s.review_click_count > 0)::int                   AS review_clickers
     FROM guest_surveys s
     WHERE (${opts.since ?? null}::timestamptz IS NULL OR s.sent_at >= ${opts.since ?? null}::timestamptz)
       AND (${opts.until ?? null}::timestamptz IS NULL OR s.sent_at <= ${opts.until ?? null}::timestamptz)
@@ -710,17 +758,45 @@ export async function getGuestSurveyStats(opts: {
       issued: (f.reward_pinz ?? 0) + (f.reward_gift_card ?? 0),
       redeemed,
     },
+    reviewClicks: {
+      clickers: f.review_clickers ?? 0,
+      clicks: f.review_clicks ?? 0,
+      // Over COMPLETED, not sent — the CTA only exists after submit.
+      clickRate: completed ? +((f.review_clickers ?? 0) / completed).toFixed(4) : 0,
+    },
     byTag: (tagRows as Array<{ tag: string; sent: number; completed: number }>).map((r) => ({
       tag: r.tag,
       sent: r.sent,
       completed: r.completed,
     })),
-    byDay: (dayRows as Array<{ day: string; sent: number; opened: number; completed: number }>).map(
-      (r) => ({ day: r.day, sent: r.sent, opened: r.opened, completed: r.completed }),
-    ),
-    byCenter: (centerRows as Array<{ center_code: string; sent: number; completed: number }>).map(
-      (r) => ({ centerCode: r.center_code, sent: r.sent, completed: r.completed }),
-    ),
+    byDay: (
+      dayRows as Array<{
+        day: string;
+        sent: number;
+        opened: number;
+        completed: number;
+        review_clickers: number;
+      }>
+    ).map((r) => ({
+      day: r.day,
+      sent: r.sent,
+      opened: r.opened,
+      completed: r.completed,
+      reviewClickers: r.review_clickers ?? 0,
+    })),
+    byCenter: (
+      centerRows as Array<{
+        center_code: string;
+        sent: number;
+        completed: number;
+        review_clickers: number;
+      }>
+    ).map((r) => ({
+      centerCode: r.center_code,
+      sent: r.sent,
+      completed: r.completed,
+      reviewClickers: r.review_clickers ?? 0,
+    })),
   };
 }
 
@@ -892,6 +968,33 @@ export async function saveGuestSurveyResponses(opts: {
         completed_at   = COALESCE(completed_at, NOW())
     WHERE token = ${opts.token}
   `;
+}
+
+/**
+ * Count a tap on the "Rate us on Google" CTA.
+ *
+ * Single atomic UPDATE — the increment happens in the database, not by
+ * read-modify-write in the route, so two taps racing (double-tap, or the
+ * reward screen and a reopened link in two tabs) can't lose a count.
+ *
+ * Returns the new total, or 0 when the DB isn't configured / the token is
+ * unknown. Callers treat a failure as non-fatal: the guest still gets
+ * redirected to Google.
+ */
+export async function recordGuestSurveyReviewClick(token: string): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  await ensureGuestSurveySchema();
+  const q = sql();
+  const rows = await q`
+    UPDATE guest_surveys
+    SET review_click_count    = review_click_count + 1,
+        review_first_click_at = COALESCE(review_first_click_at, NOW()),
+        review_last_click_at  = NOW()
+    WHERE token = ${token}
+    RETURNING review_click_count
+  `;
+  if (!rows.length) return 0;
+  return (rows[0] as { review_click_count: number }).review_click_count ?? 0;
 }
 
 export async function saveGuestSurveyReward(opts: {
