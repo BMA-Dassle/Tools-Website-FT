@@ -97,24 +97,45 @@ Paused products are **not probed**. A dead vendor answers in timeouts, which was
 burning the kiosk availability compute's 60s budget and taking the *working*
 bowling/KBF availability lines down with it.
 
-## Operating it
+## Operating it — ONE variable
 
-**Clear the outage (BMI booking back up):**
-`MAINTENANCE_VENDOR_BMI = "false"` in Vercel. Runtime, server-only var — **no
-redeploy** (deliberately not `NEXT_PUBLIC_*`, which is build-baked). Web unlocks
-on the next request; kiosk tiles within one availability TTL (≤3 min), because the
-paused overlay is applied *after* the cache. Then delete the entry in
-`outages.ts` in a follow-up PR so the registry stays honest.
+```
+MAINTENANCE_VENDORS_DOWN = bmi
+```
 
-**Declare a new outage without a deploy:**
-`MAINTENANCE_VENDORS_DOWN = "bmi-office"` (comma-separated). Uses generic copy
-built from `VENDOR_LABEL` — enough to stop the bleeding mid-incident; follow up
-with a tailored `OUTAGES` entry. Added precisely because the scope of this
-incident changed five times in fifteen minutes.
+That is the entire control surface. It lists the vendors that are **down**:
 
-House-rule note: every flag here defaults ON (`!== "false"`) and only ever turns
-something off, satisfying "flags are kill switches only". What it turns off is the
-outage guard, which is why the guard is live the moment this merges.
+| Value | Meaning |
+| --- | --- |
+| *(unset / empty)* | Nothing down — everything sells |
+| `bmi` | Today's outage: the BMI booking API |
+| `bmi,bmi-office` | Both BMI rails down (adds waivers) |
+| `qamf` | Bowling / duckpin / KBF down |
+
+Valid names: `bmi`, `bmi-office`, `pandora`, `qamf`, `intercard`. Case, spaces and
+underscores-for-hyphens are tolerated (`BMI_OFFICE` works). Runtime, server-only
+var — **no redeploy** (deliberately not `NEXT_PUBLIC_*`, which is build-baked).
+Web reacts on the next request; kiosk tiles within one availability TTL (≤3 min),
+because the paused overlay is applied *after* the cache.
+
+**Why this shape.** The first cut declared outages in CODE and *cleared* them with
+per-vendor `MAINTENANCE_VENDOR_<X>="false"` switches — a default-on design that is
+safer (a forgotten variable cannot leave us selling something broken) but had two
+concepts pointing in opposite directions. Mid-incident the owner could not tell
+which variable did what, twice. Reasoning about it at 11pm beat the extra safety:
+*"have everything as off by default then tell me what to flip on."*
+
+**The cost, stated plainly.** Activation now fails OPEN: no variable means we keep
+selling. A typo means the same. Mitigation is a loud `console.error` naming the bad
+token and the valid values, so a mistake is findable in Vercel's runtime logs
+instead of silent — and a test pins the fail-open behavior so it stays a known
+property rather than a surprise. A misspelled name never breaks the *rest* of the
+list; the vendors that parse still go down.
+
+House-rule note: this is not the "opt-in feature gate" the CLAUDE.md flag rule
+forbids. The maintenance feature is unconditional code that always ships on; this
+variable carries operational INPUT — which vendor is broken today, a fact only a
+human knows.
 
 ## Verification
 
@@ -144,5 +165,8 @@ outage guard, which is why the guard is live the moment this merges.
 - Marketing pages still show racing/laser/gel content and price cards. Their
   "Book Now" buttons all land on the notice, which is correct — but if the outage
   runs long, consider an inline notice on `/racing` and `/attractions`.
-- `MAINTENANCE_VENDOR_BMI` is not yet set anywhere; the outage is live because it
-  is **declared** in `outages.ts`. Nothing to configure to turn it on.
+- **`MAINTENANCE_VENDORS_DOWN=bmi` MUST be set in Vercel for today's outage to be
+  in force.** Since the env-driven refactor, an unset variable means everything
+  sells. Verify with `fasttraxent.com/book/race` → it must land on
+  `/service-notice`. If it renders the booking wizard, the variable is missing or
+  misspelled (check the runtime logs for the `[maintenance]` line).

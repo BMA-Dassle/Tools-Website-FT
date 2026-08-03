@@ -36,8 +36,10 @@
  *         timeouts, which was burning the whole availability compute and taking
  *         the working bowling/KBF lines down with it. Kiosk 99's clock-artifact
  *         override does NOT bypass an outage.
- *         Clear with MAINTENANCE_VENDOR_BMI="false" (no redeploy; tiles unlock
- *         within one 3-min availability TTL).
+ *         Controlled by ONE env var: MAINTENANCE_VENDORS_DOWN lists the vendors
+ *         that are down ("bmi" today; comma-separated for more). Unset = nothing
+ *         down, everything sells. No redeploy — tiles lock/unlock within one
+ *         3-min availability TTL.
  * 1.12.1 — the voucher receipt says it's looking for your group. A booking-
  *         linked voucher resolves its party through BMI, which can take the
  *         better part of a minute (owner 2026-08-02) — the chips used to just
