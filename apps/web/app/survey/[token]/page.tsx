@@ -7,11 +7,13 @@ import {
 } from "@/lib/guest-survey-db";
 import { recordTouch } from "~/features/marketing";
 import { CENTER_META } from "@/lib/bowling-lane-ready-notify";
+import { googleReviewUrl } from "~/lib/constants/review-links";
+import { isPositiveSentiment, toAnswerMap } from "~/features/guest-survey/gating";
 import HeadPinzNav from "@/components/headpinz/Nav";
 import HeadPinzFooter from "@/components/headpinz/Footer";
 import { SurveyForm } from "./SurveyForm";
-
-const HP_BG = "#0a1628";
+import { GoogleReviewCta } from "./GoogleReviewCta";
+import { THEMES, type Theme } from "./theme";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +38,11 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
   // headpinz.com still renders FastTrax, and vice-versa.
   const isRacing = survey.origin === "racing";
   const centerName = CENTER_META[survey.centerCode]?.name ?? (isRacing ? "FastTrax" : "HeadPinz");
+  const theme = THEMES[isRacing ? "fasttrax" : "headpinz"];
+  // Google review destination for this center, resolved here so center_code is
+  // interpreted in exactly one place (same as centerName above) and the client
+  // never carries the center-code → URL mapping. null = no ask for this center.
+  const reviewUrl = googleReviewUrl(survey.centerCode);
   const hdrs = await headers();
   // HeadPinz chrome (HP Nav/Footer added by this page) applies to bowling
   // only. For FastTrax racing the root layout already renders the FT
@@ -43,16 +50,26 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
   const isHeadPinz = hdrs.get("x-brand") === "headpinz" && !isRacing;
 
   if (survey.completedAt) {
+    // Reopened link. The guest may never have seen the review ask (closed the
+    // tab on the reward screen), so offer it again — gated on the SAME stored
+    // answers the redirect route re-checks.
+    const askForReview =
+      reviewUrl && isPositiveSentiment(survey.questions, toAnswerMap(survey.responses));
     return (
       <BrandShell isHeadPinz={isHeadPinz}>
-        <ThanksAlreadyPanel centerName={centerName} />
+        <ThanksAlreadyPanel
+          t={theme}
+          centerName={centerName}
+          token={token}
+          askForReview={Boolean(askForReview)}
+        />
       </BrandShell>
     );
   }
   if (new Date(survey.expiresAt) <= new Date()) {
     return (
       <BrandShell isHeadPinz={isHeadPinz}>
-        <ExpiredPanel centerName={centerName} />
+        <ExpiredPanel t={theme} centerName={centerName} />
       </BrandShell>
     );
   }
@@ -79,6 +96,7 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
         centerName={centerName}
         brand={isRacing ? "fasttrax" : "headpinz"}
         questions={survey.questions as GuestSurveyQuestion[]}
+        reviewUrl={reviewUrl}
       />
     </BrandShell>
   );
@@ -90,17 +108,19 @@ export default async function SurveyPage({ params }: SurveyPageProps) {
  * HeadPinzNav is FIXED at the top of the viewport — booking pages clear
  * it by giving their content `pt-28 sm:pt-36` (112-144px). The survey
  * page must do the same or the nav cuts off the first question. That
- * padding lives on each shell (form Shell + terminal ShellWrap).
+ * padding lives on each shell (form Shell + terminal ShellWrap), driven by
+ * the brand theme's `navClear`.
  *
- * For FastTrax (future racing surveys) we'll add a matching FT branch
- * here when PR-GS4 lands.
+ * FastTrax racing needs no branch here: the root layout already renders the
+ * FT Nav/Footer, so this falls through to bare children and the inner shells
+ * carry the FT palette.
  */
 function BrandShell({ isHeadPinz, children }: { isHeadPinz: boolean; children: React.ReactNode }) {
   if (!isHeadPinz) {
     return <>{children}</>;
   }
   return (
-    <div style={{ backgroundColor: HP_BG }} className="min-h-screen">
+    <div style={{ backgroundColor: THEMES.headpinz.bg }} className="min-h-screen">
       <HeadPinzNav />
       {children}
       <HeadPinzFooter />
@@ -112,35 +132,45 @@ function BrandShell({ isHeadPinz, children }: { isHeadPinz: boolean; children: R
 // Terminal panels (server-rendered, no client JS)
 // ─────────────────────────────────────────────────────────────────
 
-function ShellWrap({ children }: { children: React.ReactNode }) {
-  // pt-28 / sm:pt-36 clears the fixed HeadPinzNav — same offset booking
-  // pages use (apps/web/app/hp/book/page.tsx). Without this the nav
-  // overlaps the page heading.
+function ShellWrap({ t, children }: { t: Theme; children: React.ReactNode }) {
+  // navClear clears the brand's fixed nav — same offsets the form Shell in
+  // SurveyForm.tsx uses. Without it the nav overlaps the page heading.
   return (
     <main
-      className="text-white font-body pt-36 sm:pt-44"
-      style={{ backgroundColor: HP_BG, paddingBottom: "32px" }}
+      className={`text-white font-body ${t.navClear}`}
+      style={{ backgroundColor: t.bg, paddingBottom: "32px" }}
     >
       <div className="w-full max-w-md mx-auto px-4">{children}</div>
     </main>
   );
 }
 
-function ThanksAlreadyPanel({ centerName }: { centerName: string }) {
+function ThanksAlreadyPanel({
+  t,
+  centerName,
+  token,
+  askForReview,
+}: {
+  t: Theme;
+  centerName: string;
+  token: string;
+  askForReview: boolean;
+}) {
   return (
-    <ShellWrap>
+    <ShellWrap t={t}>
       <h1 className="font-heading text-3xl font-bold mb-3">Thanks!</h1>
       <p className="text-white/80 leading-relaxed">
         You&apos;ve already submitted this survey. We appreciate the feedback — see you at{" "}
         {centerName} soon!
       </p>
+      {askForReview ? <GoogleReviewCta t={t} token={token} /> : null}
     </ShellWrap>
   );
 }
 
-function ExpiredPanel({ centerName }: { centerName: string }) {
+function ExpiredPanel({ t, centerName }: { t: Theme; centerName: string }) {
   return (
-    <ShellWrap>
+    <ShellWrap t={t}>
       <h1 className="font-heading text-3xl font-bold mb-3">This survey has expired</h1>
       <p className="text-white/80 leading-relaxed">
         Survey links are valid for 7 days. Thanks anyway — hope to see you back at {centerName}{" "}

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { HEADPINZ_FM_CENTER_CODE, HEADPINZ_NAPLES_CENTER_CODE } from "@/lib/qamf-centers";
+import { googleReviewUrl } from "~/lib/constants/review-links";
 
 /**
  * Hostname-based routing for dual-branded site:
@@ -446,18 +448,16 @@ export async function middleware(request: NextRequest) {
       return NextResponse.redirect("https://headpinz.com/naples", 301);
     }
 
-    // /review → Google Business Profile review (Fort Myers default, /review/naples for Naples)
+    // /review → Google Business Profile review (Fort Myers default, /review/naples
+    // for Naples). Place ids live in ~/lib/constants/review-links — the same map
+    // the guest-survey review CTA resolves against, so the two surfaces can
+    // never drift apart. Both targets are non-null there; `?? "/"` only
+    // satisfies the type checker.
     if (pathname.toLowerCase() === "/review") {
-      return NextResponse.redirect(
-        "https://search.google.com/local/writereview?placeid=ChIJw7rUvBSl3YgRZnV1tR0aK9s",
-        302,
-      );
+      return NextResponse.redirect(googleReviewUrl(HEADPINZ_FM_CENTER_CODE) ?? "/", 302);
     }
     if (pathname.toLowerCase() === "/review/naples") {
-      return NextResponse.redirect(
-        "https://search.google.com/local/writereview?placeid=ChIJq6qqNOSi3YgREP2LHBrr1g4",
-        302,
-      );
+      return NextResponse.redirect(googleReviewUrl(HEADPINZ_NAPLES_CENTER_CODE) ?? "/", 302);
     }
   }
 

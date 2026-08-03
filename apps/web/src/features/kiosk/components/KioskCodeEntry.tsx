@@ -52,6 +52,7 @@ import {
   type VoucherPartyPerson,
 } from "../code-entry/voucher-party";
 import { fetchBindableParty, lookupByScan } from "../checkin/service";
+import { BrandedLoader } from "./BrandedLoader";
 import { prefillPartyMembers } from "../checkin/party-prefill";
 import type { CheckinPartyMember } from "../checkin/types";
 import { kioskVoucherGzEnabled, kioskVoucherPrefillEnabled } from "../flags";
@@ -338,6 +339,13 @@ export function KioskCodeEntry({
   // degrades safe (the chip turns into an un-removable "In your group").
   const [voucherRosters, setVoucherRosters] = useState<Record<string, CheckinPartyMember[]>>({});
   const rosterFetchedRef = useRef<Set<string>>(new Set());
+  /** How many roster lookups are in flight. The two-hop rail (scan → proof
+   *  token → BMI party) can take the better part of a minute on a cold bill,
+   *  and the guest was staring at a receipt with no hint that their people
+   *  were on the way (owner 2026-08-02) — the receipt shows the branded loader
+   *  while this is > 0. A counter, not a boolean: several scanned vouchers
+   *  each fetch their own roster. */
+  const [rostersLoading, setRostersLoading] = useState(0);
   /** person.key → the PartyMember.id THIS screen's chips added — the only
    *  members a chip may remove (removePartyMember cascade-clears assignments). */
   const [addedIds, setAddedIds] = useState<Record<string, string>>({});
@@ -348,19 +356,26 @@ export function KioskCodeEntry({
       if (!center || !onPartyAdd || !kioskVoucherPrefillEnabled()) return;
       if (rosterFetchedRef.current.has(code)) return;
       rosterFetchedRef.current.add(code); // before any await — StrictMode-safe
-      // Fire-and-forget: every failure (unlinked comp, voided, cancelled
-      // booking, rate limit, network) silently means "no section" — the scan
-      // path and the receipt never wait on this.
-      const found = await lookupByScan(center, code);
-      const proofToken = found.ok ? found.matches?.[0]?.proofToken : undefined;
-      if (!proofToken) return;
-      const members = await fetchBindableParty(center, proofToken);
-      if (!members || members.length === 0) return;
-      console.log(
-        `[kiosk] receipt party offered: ${members.length} guest(s) from booking voucher ${code}`,
-      );
-      clarityEvent("kiosk:receipt:party-offered");
-      setVoucherRosters((prev) => ({ ...prev, [code]: members }));
+      setRostersLoading((n) => n + 1);
+      try {
+        // Fire-and-forget: every failure (unlinked comp, voided, cancelled
+        // booking, rate limit, network) silently means "no section" — the scan
+        // path and the receipt never wait on this.
+        const found = await lookupByScan(center, code);
+        const proofToken = found.ok ? found.matches?.[0]?.proofToken : undefined;
+        if (!proofToken) return;
+        const members = await fetchBindableParty(center, proofToken);
+        if (!members || members.length === 0) return;
+        console.log(
+          `[kiosk] receipt party offered: ${members.length} guest(s) from booking voucher ${code}`,
+        );
+        clarityEvent("kiosk:receipt:party-offered");
+        setVoucherRosters((prev) => ({ ...prev, [code]: members }));
+      } finally {
+        // finally, not after the awaits: every early return above (and any
+        // throw) must clear the loader or it spins forever.
+        setRostersLoading((n) => n - 1);
+      }
     },
     [config?.center, onPartyAdd],
   );
@@ -844,6 +859,9 @@ export function KioskCodeEntry({
       // Booking party chips — the decisions live in voucher-party.ts (tested);
       // this only maps chip verdicts to copy and dispatches.
       const partyPeople = onPartyAdd ? mergeRosters(voucherRosters) : [];
+      // A roster lookup still running: the section renders NOW with the loader
+      // so the wait is visible, and the chips fill in underneath it.
+      const partyLoading = !!onPartyAdd && rostersLoading > 0;
       const togglePerson = (person: VoucherPartyPerson) => {
         setPickWarn(false);
         const chip = personChipState(person, party, addedIds);
@@ -1125,14 +1143,31 @@ export function KioskCodeEntry({
                 offers its people as tap-to-include chips. Selection lands on
                 the SESSION party (prefills every later people step); waiver
                 signing still happens where it always has. */}
-            {partyPeople.length > 0 && (
+            {(partyPeople.length > 0 || partyLoading) && (
               <section>
+                {/* Until a roster actually lands, the header stays
+                    non-committal: plenty of vouchers have no booking behind
+                    them, and this section disappears again when the lookup
+                    comes back empty. Promising "your booking" and then
+                    yanking it would read as a bug. */}
                 <div className="k-eyebrow text-[#00e2e5]">
-                  {t("codeEntry.voucherGz.partyTitle")}
+                  {partyPeople.length > 0
+                    ? t("codeEntry.voucherGz.partyTitle")
+                    : t("codeEntry.voucherGz.partyLoadingTitle")}
                 </div>
                 <div className="mt-[4px] text-[20px] text-white/45">
-                  {t("codeEntry.voucherGz.partySub")}
+                  {partyPeople.length > 0
+                    ? t("codeEntry.voucherGz.partySub")
+                    : t("codeEntry.voucherGz.partyLoadingSub")}
                 </div>
+                {partyLoading && (
+                  <div className="mt-[14px] flex items-center gap-[22px]" role="status">
+                    <BrandedLoader brand={config?.brand ?? "fasttrax"} size={120} />
+                    <span className="text-[26px] text-white/60">
+                      {t("codeEntry.voucherGz.partyLoading")}
+                    </span>
+                  </div>
+                )}
                 <div className="mt-[14px] flex flex-wrap gap-[14px]">
                   {partyPeople.map((person) => {
                     const chip = personChipState(person, party, addedIds);

@@ -20,6 +20,7 @@ import { Analytics } from "@vercel/analytics/next";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import MiniCart from "@/components/booking/MiniCart";
 import { MiniCartV2 } from "~/components/features/booking/MiniCartV2";
+import { VipExperiencePopup } from "~/components/features/combos/VipExperiencePopup";
 import { FASTTRAX_OG, FASTTRAX_OG_IMAGE, HEADPINZ_OG, HEADPINZ_OG_IMAGE } from "@/lib/seo";
 
 /* FastTrax fonts */
@@ -287,6 +288,11 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         {showMobileBar && <MobileBookBar />}
         {showHpMobileBar && <HeadPinzMobileBookBar />}
         {showChrome && <ChatWidgetManager />}
+        {/* Ultimate VIP Experience ad. FastTrax public pages only (the combo is
+            a Fort Myers product and the creative is set in FastTrax type);
+            never on admin, kiosks or chrome-free promo landings. The component
+            also suppresses the booking flow — see SUPPRESSED_PREFIXES. */}
+        {showChrome && !isKiosk && <VipExperiencePopup />}
         <SpeedInsights />
         <Analytics />
         <ClarityAnalytics />

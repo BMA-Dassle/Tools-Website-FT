@@ -15,6 +15,15 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.12.1 — the voucher receipt says it's looking for your group. A booking-
+ *         linked voucher resolves its party through BMI, which can take the
+ *         better part of a minute (owner 2026-08-02) — the chips used to just
+ *         appear out of nowhere, with nothing on screen meanwhile. Now the
+ *         section renders as soon as the lookup starts, with the branded logo
+ *         loader under a header that doesn't promise a booking we haven't
+ *         found yet ("Checking your voucher"); it flips to "Who's here from
+ *         your booking?" when the roster lands, and disappears when the
+ *         voucher has no booking behind it.
  * 1.12.0 — SCAN ANYWHERE on the way in (owner 2026-08-02). The four screens a
  *         guest sees before choosing anything — the attract loop, "What are we
  *         doing today?", and the Attractions / Experiences shelves — now
@@ -469,7 +478,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.12.0";
+export const KIOSK_VERSION = "1.12.1";
 
 let bootVersion: string | null = null;
 let captured = false;

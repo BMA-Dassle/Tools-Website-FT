@@ -331,6 +331,10 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.voucherGz.partyTitle": "¿Quién vino de tu reserva?",
   "codeEntry.voucherGz.partySub":
     "Toca a todos los que juegan hoy — tendremos sus nombres listos en cada paso.",
+  "codeEntry.voucherGz.partyLoadingTitle": "Revisando tu vale",
+  "codeEntry.voucherGz.partyLoadingSub":
+    "Si este vale tiene una reserva, traeremos a todos los que están en ella.",
+  "codeEntry.voucherGz.partyLoading": "Buscando a tu grupo…",
   "codeEntry.voucherGz.partyWaiverOk": "Exención firmada",
   "codeEntry.voucherGz.partyWaiverNeeded": "Falta la exención",
   "codeEntry.voucherGz.partyInGroup": "En tu grupo",
