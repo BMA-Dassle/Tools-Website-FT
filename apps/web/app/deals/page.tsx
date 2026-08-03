@@ -10,7 +10,8 @@ import { DEAL_CATALOG, dealValue } from "~/features/deals";
 /**
  * Deal-pack hub.
  *
- * Internal URL: /hp/deals · Public URL: https://headpinz.com/deals
+ * URL: /deals — top-level, served on every host with HeadPinz branding forced.
+ * See the sibling [slug]/page.tsx header for why it is not at /hp/deals.
  *
  * Unlinked from site navigation but fully indexable — see the sibling
  * [slug]/page.tsx header for why that combination is deliberate. This page

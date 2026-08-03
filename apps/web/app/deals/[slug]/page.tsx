@@ -29,10 +29,16 @@ import DealBuyPanel from "./DealBuyPanel";
 /**
  * Prepaid deal-pack landing page.
  *
- * Internal URL: /hp/deals/{slug}
- * Public URL:   https://headpinz.com/deals/{slug}
- *               (middleware rewrites /deals/* → /hp/deals/*, the same generic
- *               /hp rewrite that serves /alternatives and /things-to-do-*)
+ * URL: /deals/{slug} — a TOP-LEVEL route, served on every host.
+ *
+ * It deliberately does NOT live at /hp/deals. That rewrite only fires when the
+ * hostname contains "headpinz.com", so on a Vercel preview alias
+ * (…-headpinz.vercel.app) or any bare deployment URL the page 404'd with FastTrax
+ * chrome — and an ad or an emailed link must not depend on which hostname it
+ * lands on. `/deals` is registered in `isSharedTopLevelRoute` (middleware.ts) and
+ * middleware FORCES `x-brand: headpinz` on both hosts: these are HeadPinz
+ * products, so the brand comes from the product, not the host. The canonical
+ * always points at headpinz.com/deals/{slug} regardless of where it was served.
  *
  * UNLINKED BUT INDEXABLE (owner decision). It appears in no nav, footer or
  * on-page link anywhere on the site — you cannot browse to it — but it is fully

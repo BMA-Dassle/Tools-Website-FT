@@ -567,6 +567,19 @@ export async function middleware(request: NextRequest) {
     // these must not be /hp-rewritten (404 otherwise).
     pathname.startsWith("/t/") ||
     pathname.startsWith("/g/") ||
+    // Prepaid deal packs (/deals, /deals/{slug}). A HeadPinz product, but a
+    // TOP-LEVEL route rather than /hp/deals, because the /hp rewrite only fires
+    // when the HOST contains "headpinz.com" — so on a Vercel preview host
+    // (…-headpinz.vercel.app) or any other alias, /deals 404'd with FastTrax
+    // chrome. Ads and emails must not depend on which hostname they land on.
+    // Brand is FORCED to headpinz below on both hosts (these are HeadPinz
+    // products; a FastTrax-chromed deal page is wrong anywhere), and the
+    // canonical always points at headpinz.com/deals/…
+    //
+    // Trailing slash is REQUIRED on the prefix test — a bare startsWith("/deals")
+    // would also swallow any future /deals-something sibling.
+    pathname === "/deals" ||
+    pathname.startsWith("/deals/") ||
     // Voucher redemption landing (/v/{code}) — our own Game Zone vouchers are
     // emailed/texted to guests, so the link can be opened on EITHER brand
     // domain. Brand-neutral, code-in-path; without this the /hp rewrite 404s
@@ -684,6 +697,23 @@ export async function middleware(request: NextRequest) {
     if (pathname === "/waiver" || pathname.startsWith("/waiver/")) {
       requestHeaders.set("x-no-chrome", "1");
     }
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  // Prepaid deal packs on ANY NON-headpinz.com host (FastTrax, a Vercel preview
+  // alias, a bare deployment URL): force HeadPinz chrome anyway.
+  //
+  // Unlike /july4, this is NOT host-aware. The packs sell HeadPinz laser tag, gel
+  // blasters and HeadPinz game cards — FastTrax sells none of them — so a
+  // FastTrax-branded deal page is wrong on every host, not just an odd one. Brand
+  // comes from the PRODUCT here, the same way /survey and /contract take theirs
+  // from the record rather than the hostname.
+  //
+  // (The headpinz.com host already returned above with the brand set; only other
+  // hosts reach this.)
+  if (pathname === "/deals" || pathname.startsWith("/deals/")) {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-brand", "headpinz");
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
