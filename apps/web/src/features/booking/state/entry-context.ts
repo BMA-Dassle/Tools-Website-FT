@@ -104,6 +104,18 @@ export interface EntryContext {
    * lane instead of letting QAMF auto-assign. Only meaningful with `playNow`.
    */
   pinnedLane?: number;
+  /**
+   * Prepaid voucher codes carried in from `?voucher=HPW-…` (comma-separated for
+   * a multi-pack buy) — the hand-off from a deal-pack purchase, and from the
+   * "Book this now" button on a voucher's own /v/{code} page.
+   *
+   * Codes only, not resolved coverage: the checkout applies them through the
+   * SAME native-peek path a typed code takes, so there is one implementation of
+   * "what can this voucher cover" rather than a seeded shortcut that can drift
+   * from it. Discovery has to be a server call anyway — the legs depend on which
+   * items are already spent.
+   */
+  voucherCodes?: string[];
 }
 
 /** Convenience: an empty context. Used when the entry URL carried nothing. */

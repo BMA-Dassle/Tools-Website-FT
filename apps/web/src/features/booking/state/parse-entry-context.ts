@@ -13,6 +13,7 @@
  *   ?referrer=NAME / ?ref / ?utm_source → referrer
  *   ?location=naples|fort-myers|...     → center (CenterCode)
  *   ?experience=world-cup               → worldCup (match-picker bowling mode)
+ *   ?voucher=HPW-AAAA-BBBB[,…]          → voucherCodes (prepaid deal-pack hand-off)
  *
  * Unknown params are silently ignored. The parser is intentionally
  * tolerant — marketing links should never 500 a wizard.
@@ -22,8 +23,17 @@
  * the merged context to BookingFlow.
  */
 import { normalizeLocationSlug } from "@/lib/attractions-data";
+import {
+  isNativeVoucherCode,
+  normalizeVoucherCode,
+} from "~/features/game-cards/vouchers/codes";
 import type { ContactInfo, CenterCode } from "../types";
 import { EMPTY_ENTRY_CONTEXT, type EntryContext } from "./entry-context";
+
+/** Cap on `?voucher=` codes. A URL is attacker-controlled and each code becomes
+ *  a server peek at checkout; 10 is the per-buyer purchase limit, so a legitimate
+ *  hand-off can never need more. */
+const MAX_SEEDED_VOUCHERS = 10;
 
 /** Map a `?location=` slug to a v2 CenterCode (FT / HP Fort Myers → fort-myers, Naples → naples). */
 function locationToCenter(raw: string | undefined): CenterCode | null {
@@ -84,6 +94,24 @@ export function parseEntryContextFromSearchParams(sp: RawSearchParams): EntryCon
   if (laneRaw) {
     const lane = Number.parseInt(laneRaw, 10);
     if (Number.isInteger(lane) && lane > 0) out.pinnedLane = lane;
+  }
+
+  // Prepaid voucher hand-off (`?voucher=HPW-AAAA-BBBB` or a comma-separated
+  // list for a multi-pack buy). Only well-formed HPW codes are kept, deduped,
+  // and capped — this value comes off a URL, so a hostile one must not become an
+  // unbounded fan-out of server peeks at checkout. Codes are normalised the same
+  // way the manual field normalises typed input.
+  const voucherRaw = first(sp.voucher);
+  if (voucherRaw) {
+    const codes = Array.from(
+      new Set(
+        voucherRaw
+          .split(",")
+          .map((c) => normalizeVoucherCode(c))
+          .filter((c) => isNativeVoucherCode(c)),
+      ),
+    ).slice(0, MAX_SEEDED_VOUCHERS);
+    if (codes.length > 0) out.voucherCodes = codes;
   }
 
   const firstName = first(sp.firstName);

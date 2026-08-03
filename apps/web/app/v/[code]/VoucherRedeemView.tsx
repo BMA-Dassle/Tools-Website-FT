@@ -44,6 +44,38 @@ export function VoucherRedeemView({ status }: { status: VoucherStatus }) {
   const redeemable = status.items.filter((i) => i.redeemable && !i.spent);
   const alreadySpent = status.items.filter((i) => i.spent);
   const notHere = status.items.filter((i) => !i.redeemable && !i.spent);
+
+  /**
+   * Unspent attraction legs, grouped by what they book.
+   *
+   * These are NOT redeemable on this page — a laser-tag entitlement is spent by
+   * covering a line in a booking cart, not by crediting a card — but "at Guest
+   * Services" was the only thing we ever said about them, which sent guests to a
+   * desk for something they can do themselves. The cart-coverage rail exists, so
+   * link straight into the booking wizard with the code pre-applied.
+   *
+   * An `attraction-choice` leg (laser tag OR gel blaster) offers each option; the
+   * coverage planner covers whichever one actually ends up in the cart.
+   */
+  const bookable = (() => {
+    const bySlug = new Map<string, number>();
+    for (const i of notHere) {
+      const slugs =
+        i.item.kind === "attraction"
+          ? [i.item.slug]
+          : i.item.kind === "attraction-choice"
+            ? i.item.slugs
+            : [];
+      for (const slug of slugs) bySlug.set(slug, (bySlug.get(slug) ?? 0) + 1);
+    }
+    return [...bySlug.entries()].map(([slug, count]) => ({ slug, count }));
+  })();
+
+  const prettySlug = (slug: string) =>
+    slug
+      .split("-")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
   const voided = !!status.voidedAt;
   // Server-resolved (see VoucherStatus.expired) — never read the clock here.
   const expired = status.expired;
@@ -104,11 +136,44 @@ export function VoucherRedeemView({ status }: { status: VoucherStatus }) {
                 {i.label}
               </span>
               <span className="shrink-0 text-sm text-white/50">
-                {i.spent ? "used" : i.redeemable ? "ready" : "at Guest Services"}
+                {i.spent
+                  ? "used"
+                  : i.redeemable
+                    ? "ready"
+                    : i.item.kind === "attraction" || i.item.kind === "attraction-choice"
+                      ? // Bookable below — saying "at Guest Services" sent guests
+                        // to a desk for something they can do themselves.
+                        "book below"
+                      : "at Guest Services"}
               </span>
             </li>
           ))}
         </ul>
+
+        {/* Book the timed half — available whatever the card half is doing, and
+            regardless of expiry/void state below (those blocks own the CARD
+            action only, so they must not hide this one). */}
+        {bookable.length > 0 && !voided && !expired && (
+          <div className="mt-7 rounded-2xl border border-[#fd5b56]/35 bg-[#fd5b56]/[0.08] p-5">
+            <h2 className="text-lg font-bold text-white">Pick your time</h2>
+            <p className="mt-1 text-sm text-white/65">
+              Your code comes with you — it&apos;s applied at checkout, so there&apos;s nothing more
+              to pay.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {bookable.map(({ slug, count }) => (
+                <a
+                  key={slug}
+                  href={`/book/${slug}/v2?voucher=${encodeURIComponent(status.code)}`}
+                  className="rounded-full bg-[#fd5b56] px-5 py-2.5 text-sm font-bold tracking-widest text-white uppercase transition hover:brightness-110"
+                >
+                  Book {prettySlug(slug)}
+                  {count > 1 ? ` (${count})` : ""}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
 
         {done ? (
           <div className="mt-8 rounded-2xl border-2 border-[#46d68c]/40 bg-[#46d68c]/[0.1] p-5">
@@ -136,7 +201,10 @@ export function VoucherRedeemView({ status }: { status: VoucherStatus }) {
             <p className="text-lg text-white/70">
               {alreadySpent.length > 0 && notHere.length === 0
                 ? REASON_COPY.used
-                : REASON_COPY.not_redeemable}
+                : bookable.length > 0
+                  ? // Don't send them to a desk: the button above is the action.
+                    "There's nothing on this voucher to load onto a card — use the button above to book your session."
+                  : REASON_COPY.not_redeemable}
             </p>
           </div>
         ) : (

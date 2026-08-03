@@ -298,6 +298,48 @@ export function CheckoutStep({
     });
   }
 
+  // Prepaid deal-pack hand-off: `?voucher=HPW-…` seeded the codes onto the
+  // session context, and this applies them once we reach checkout.
+  //
+  // It goes through the SAME native-peek endpoint the typed field uses, so there
+  // is one implementation of "what can this voucher cover" — a seeded shortcut
+  // would drift from the manual path, and the answer genuinely depends on
+  // server state (which items are already spent).
+  //
+  // One entry per COVERABLE LEG, because planVoucherCoverage awards a single
+  // attraction unit per entry: a pack carrying two laser-tag items must become
+  // two entries or the guest is charged for the second session. Failures are
+  // silent by design — the guest can still type the code and get a real error
+  // message, and a broken seed must never block a checkout.
+  const seededVouchersDone = useRef(false);
+  useEffect(() => {
+    const seeded = session.context?.voucherCodes ?? [];
+    if (seededVouchersDone.current || seeded.length === 0) return;
+    seededVouchersDone.current = true;
+    const already = new Set(sessionVouchers(session).map((v) => v.code));
+    const pending = seeded.filter((c) => !already.has(c));
+    if (pending.length === 0) return;
+    void Promise.allSettled(
+      pending.map(async (code) => {
+        const res = await fetch("/api/booking/v2/voucher", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "native-peek", code }),
+        });
+        const data = await res.json().catch(() => null);
+        if (!data?.ok || !Array.isArray(data.legs)) return;
+        for (const leg of data.legs as { itemIndex: number; name: string }[]) {
+          dispatch({
+            type: "applyVoucher",
+            voucher: { code, issuer: "native", itemIndex: leg.itemIndex, name: leg.name },
+          });
+        }
+      }),
+    );
+    // Runs once per mount; `session` is read for the already-applied set only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Live credit-balance refresh at checkout (owner 2026-07-19: kiosk checkout
   // offered no credits option): members can arrive with MISSING or STALE
   // creditBalances — the kiosk's linked-family add never fetches them, and

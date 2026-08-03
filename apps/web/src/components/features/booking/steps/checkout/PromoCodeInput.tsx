@@ -4,7 +4,35 @@ import { useState } from "react";
 import { clarityTag, clarityEvent } from "~/lib/clarity";
 import type { AppliedPromo } from "~/features/discount-codes";
 import { BMI_VOUCHER_RE, voucherDisplayName } from "~/features/booking/service/voucher-redeem";
+import { isNativeVoucherCode } from "~/features/game-cards/vouchers/codes";
 import type { AppliedVoucherState } from "~/features/booking/state/types";
+
+/**
+ * Guest-facing copy for a refused HPW voucher. `gamezone_only` is the one worth
+ * distinguishing: the code is perfectly good and still holds value, it just
+ * cannot reduce a booking total — so send them to a kiosk rather than implying
+ * the voucher is broken.
+ */
+function nativeVoucherError(reason: unknown, gameZoneLegs?: number): string {
+  switch (reason) {
+    case "unknown":
+      return "We couldn't find that voucher — double-check the code.";
+    case "expired":
+      return "That voucher has expired.";
+    case "voided":
+      return "That voucher is no longer valid. Please see Guest Services.";
+    case "used":
+      return "Everything on that voucher has already been used.";
+    case "gamezone_only":
+      return gameZoneLegs && gameZoneLegs > 0
+        ? "That voucher is for game cards — scan it at any kiosk to collect them."
+        : "That voucher can't be used on this booking.";
+    case "not_redeemable":
+      return "That voucher can't be used on this booking.";
+    default:
+      return "Couldn't apply that voucher. Try again or see the front desk.";
+  }
+}
 
 /** Voucher support (flag-gated by the caller) — the SAME rail the kiosk code
  *  entry uses (/api/booking/v2/voucher): a BMI voucher number typed into this
@@ -46,6 +74,55 @@ export function PromoCodeInput({ appliedCode, onApply, onClear, voucher }: Promo
   async function handleApply() {
     const code = input.trim().toUpperCase().replace(/\s+/g, "");
     if (!code) return;
+
+    // OUR OWN (HPW) voucher — e.g. a prepaid deal pack. Unlike a BMI voucher
+    // there is nothing to "apply": no comp line, no bill needed. We only ask the
+    // server what the code can cover, then put one session entry per COVERABLE
+    // LEG on the cart. The destructive claim happens inside reserve.
+    //
+    // ONE ENTRY PER LEG IS LOAD-BEARING. planVoucherCoverage awards a single
+    // attraction unit per entry, so a deal pack carrying two laser-tag items
+    // must become two entries; pushing one entry per CODE would cover one
+    // session and silently charge the guest for the second.
+    if (voucher && isNativeVoucherCode(code)) {
+      if (appliedVouchers.some((v) => v.code === code)) {
+        setError("That voucher is already on this order.");
+        return;
+      }
+      setChecking(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/booking/v2/voucher", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "native-peek", code }),
+        });
+        const data = await res.json().catch(() => null);
+        if (data?.ok && Array.isArray(data.legs) && data.legs.length > 0) {
+          clarityEvent("voucher:applied");
+          for (const leg of data.legs as { itemIndex: number; name: string }[]) {
+            voucher.onApplied({
+              code,
+              issuer: "native",
+              itemIndex: leg.itemIndex,
+              // `name` is what voucherTarget() keys coverage off — the server
+              // sends the canonical coverage name ("Laser Tag" / "Gel Blaster").
+              name: leg.name,
+            });
+          }
+          setInput("");
+        } else {
+          clarityEvent("voucher:rejected");
+          setError(nativeVoucherError(data?.reason, data?.gameZoneLegs));
+        }
+      } catch {
+        setError("Couldn't apply that voucher. Try again.");
+      } finally {
+        setChecking(false);
+      }
+      return;
+    }
+
     // BMI voucher number? Route it down the voucher rail instead (same
     // endpoint + ledger the kiosk uses) — vouchers are BMI's, not our
     // discount codes, and they apply to the live bill.
@@ -148,20 +225,40 @@ export function PromoCodeInput({ appliedCode, onApply, onClear, voucher }: Promo
     voucher.onCleared(v.code);
   }
 
+  /**
+   * ONE CHIP PER CODE, not per entry.
+   *
+   * A native voucher contributes one entry per coverable leg (a deal pack puts
+   * two laser-tag entries on the session), which is exactly what the coverage
+   * planner needs but wrong to render literally: the guest holds ONE voucher and
+   * would otherwise see two identical rows sharing a React key. Group by code and
+   * show the leg count instead. Removal already clears by code, so one Remove
+   * per chip matches what actually happens.
+   */
+  const voucherGroups = appliedVouchers.reduce<
+    { code: string; first: AppliedVoucherState; legs: number }[]
+  >((acc, v) => {
+    const existing = acc.find((g) => g.code === v.code);
+    if (existing) existing.legs += 1;
+    else acc.push({ code: v.code, first: v, legs: 1 });
+    return acc;
+  }, []);
+
   const voucherChips =
-    appliedVouchers.length > 0 ? (
+    voucherGroups.length > 0 ? (
       <div className="mb-2 space-y-2">
-        {appliedVouchers.map((v) => (
+        {voucherGroups.map(({ code, first: v, legs }) => (
           <div
-            key={v.code}
+            key={code}
             className="flex items-center justify-between rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-3"
           >
             <div className="text-sm">
               <span className="font-semibold text-amber-300">
+                {legs > 1 ? `${legs} × ` : ""}
                 {voucherDisplayName(v.name)}
                 {v.pending ? " (applies at booking)" : v.error ? " — could not apply" : " applied"}
               </span>
-              <span className="ml-2 font-mono text-xs text-white/50">…{v.code.slice(-4)}</span>
+              <span className="ml-2 font-mono text-xs text-white/50">…{code.slice(-4)}</span>
             </div>
             <button
               type="button"

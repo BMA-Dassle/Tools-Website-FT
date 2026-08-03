@@ -99,3 +99,42 @@ describe("bowlingV3 preview param", () => {
     expect(parseEntryContextFromSearchParams({ bowlingV3: "" })).toBe(EMPTY_ENTRY_CONTEXT);
   });
 });
+
+describe("?voucher= prepaid deal-pack hand-off", () => {
+  it("normalises a single hyphenated code", () => {
+    expect(parseEntryContextFromSearchParams({ voucher: "hpw-4k7m-9pqr" })).toEqual({
+      voucherCodes: ["HPW4K7M9PQR"],
+    });
+  });
+
+  it("accepts a comma-separated list for a multi-pack buy", () => {
+    expect(
+      parseEntryContextFromSearchParams({ voucher: "HPW-4K7M-9PQR,HPW-AAAA-BBBB" }),
+    ).toEqual({ voucherCodes: ["HPW4K7M9PQR", "HPWAAAABBBB"] });
+  });
+
+  it("drops anything that isn't a well-formed HPW code", () => {
+    // The value comes off a URL. A BMI-shaped code belongs on the other rail, and
+    // junk must not reach the peek endpoint at all.
+    expect(parseEntryContextFromSearchParams({ voucher: "SUMMER26" })).toBe(EMPTY_ENTRY_CONTEXT);
+    expect(parseEntryContextFromSearchParams({ voucher: "A2B3C4D5E6F7G8H9J2K3M4N5" })).toBe(
+      EMPTY_ENTRY_CONTEXT,
+    );
+    expect(parseEntryContextFromSearchParams({ voucher: "" })).toBe(EMPTY_ENTRY_CONTEXT);
+    // Mixed: keep the good one, drop the rest.
+    expect(parseEntryContextFromSearchParams({ voucher: "junk,HPW-4K7M-9PQR,,x" })).toEqual({
+      voucherCodes: ["HPW4K7M9PQR"],
+    });
+  });
+
+  it("dedupes and caps the list so a hostile URL can't fan out server peeks", () => {
+    expect(
+      parseEntryContextFromSearchParams({ voucher: "HPW-4K7M-9PQR,HPW-4K7M-9PQR" }),
+    ).toEqual({ voucherCodes: ["HPW4K7M9PQR"] });
+
+    // 12 distinct valid codes → capped at the 10 a buyer could legitimately hold.
+    const many = Array.from({ length: 12 }, (_, i) => `HPW4K7M9PQ${i.toString(36).toUpperCase()}`);
+    const parsed = parseEntryContextFromSearchParams({ voucher: many.join(",") });
+    expect(parsed.voucherCodes?.length).toBeLessThanOrEqual(10);
+  });
+});

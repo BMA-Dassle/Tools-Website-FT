@@ -6,6 +6,8 @@ import {
   voucherClientKeyForCenter,
 } from "~/features/booking/service/bmi-voucher.server";
 import { BMI_VOUCHER_RE, voucherTarget } from "~/features/booking/service/voucher-redeem";
+import { isNativeVoucherCode } from "~/features/game-cards/vouchers/codes";
+import { validateNativeVoucher } from "~/features/game-cards/service/native-voucher";
 import { getClientIp } from "@/lib/admin-auth";
 import redis from "@/lib/redis";
 
@@ -22,6 +24,18 @@ import redis from "@/lib/redis";
  *           → { ok: true, name, voucherOrderItemId } | { ok: false, reason }
  *   remove: { action: "remove", billId, code, voucherOrderItemId, center? }
  *           → { ok: boolean }
+ *   peek:   { action: "peek", code, center? }
+ *           → { ok: true, name, names, target } | { ok: false, reason }
+ *
+ * Plus ONE action for OUR OWN (`HPW…`) vouchers, which are not BMI's and have no
+ * comp line to apply:
+ *
+ *   native-peek: { action: "native-peek", code }
+ *           → { ok: true, legs: [{itemIndex, name, label}], gameZoneLegs, spentLegs }
+ *           | { ok: false, reason }
+ *
+ * A native voucher's legs are returned INDIVIDUALLY because coverage is awarded
+ * per applied session entry, not per code — see the comment at the action.
  *
  * Safety posture: applying is NON-destructive — BMI does not lock a code at
  * apply (probe-verified 2026-07-27), and the comp line only turns into money
@@ -34,7 +48,7 @@ const RATE_LIMIT_WINDOW_SEC = 300;
 const RATE_LIMIT_MAX = 30;
 
 interface VoucherBody {
-  action?: "apply" | "remove" | "peek";
+  action?: "apply" | "remove" | "peek" | "native-peek";
   billId?: string;
   code?: string;
   voucherOrderItemId?: string;
@@ -52,13 +66,6 @@ export async function POST(req: NextRequest) {
 
   const billId = (body.billId ?? "").trim();
   const code = (body.code ?? "").trim().toUpperCase();
-  if (!BMI_VOUCHER_RE.test(code)) {
-    return NextResponse.json({ ok: false, reason: "bad_request" }, { status: 400 });
-  }
-  // peek needs no bill; apply/remove do.
-  if (body.action !== "peek" && !/^\d+$/.test(billId)) {
-    return NextResponse.json({ ok: false, reason: "bad_request" }, { status: 400 });
-  }
 
   const ip = getClientIp(req) ?? "unknown";
   try {
@@ -70,6 +77,57 @@ export async function POST(req: NextRequest) {
     }
   } catch (err) {
     console.warn("[booking/v2/voucher] redis rate-limit unavailable:", err);
+  }
+
+  // ── OUR OWN (HPW) vouchers ────────────────────────────────────────────
+  // Handled BEFORE the BMI shape guard below, which would 400 an HPW code.
+  //
+  // There is deliberately no "apply" for a native voucher: it has no BMI comp
+  // line to add, so nothing is applied anywhere. The cart discounts from the
+  // session's applied legs (planVoucherCoverage) and the destructive claim is
+  // taken inside reserve, right before money moves. This action therefore only
+  // DISCOVERS what a code can cover — non-destructive, needs no bill.
+  if (body.action === "native-peek") {
+    if (!isNativeVoucherCode(code)) {
+      return NextResponse.json({ ok: false, reason: "bad_format" }, { status: 400 });
+    }
+    const res = await validateNativeVoucher(code);
+    if (!res.ok) return NextResponse.json({ ok: false, reason: res.reason });
+
+    // ONE LEG PER APPLIED ENTRY IS THE WHOLE POINT. planVoucherCoverage awards a
+    // single attraction unit per entry in session.appliedVouchers, so a pack
+    // carrying two laser-tag items has to become TWO entries or only one gets
+    // covered and the guest is silently charged for the second. Returning the
+    // legs individually (each with its itemIndex) is what lets the caller do
+    // that — and itemIndex is also the identity voucher_claims is unique on.
+    const legs = res.items
+      .filter((i) => i.redeemVia === "cart")
+      .map((i) => ({ itemIndex: i.index, name: i.coverageName ?? "", label: i.label }));
+    const gameZoneLegs = res.items.filter((i) => i.redeemVia === "gamezone").length;
+
+    if (legs.length === 0) {
+      // Live and worth something, just not here — a game-card-only voucher is
+      // redeemed at a kiosk, not by discounting a booking.
+      return NextResponse.json({
+        ok: false,
+        reason: gameZoneLegs > 0 ? "gamezone_only" : "not_redeemable",
+        gameZoneLegs,
+      });
+    }
+    return NextResponse.json({
+      ok: true,
+      legs,
+      gameZoneLegs,
+      spentLegs: res.spentItems.map((s) => ({ itemIndex: s.index, label: s.label })),
+    });
+  }
+
+  if (!BMI_VOUCHER_RE.test(code)) {
+    return NextResponse.json({ ok: false, reason: "bad_request" }, { status: 400 });
+  }
+  // peek needs no bill; apply/remove do.
+  if (body.action !== "peek" && !/^\d+$/.test(billId)) {
+    return NextResponse.json({ ok: false, reason: "bad_request" }, { status: 400 });
   }
 
   const clientKey = voucherClientKeyForCenter(body.center);
