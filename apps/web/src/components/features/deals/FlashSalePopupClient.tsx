@@ -220,7 +220,12 @@ export function FlashSalePopupClient({ content }: { content: FlashSaleContent })
             aria-live="off"
           >
             <IconClockHour4 size={15} className="text-[#fd5b56]" aria-hidden="true" />
-            Ends in <DealCountdown endsAt={content.endsAt} onExpire={handleExpire} />
+            <DealCountdown
+              endsAt={content.endsAt}
+              datePrefix="Ends "
+              clockPrefix="Ends in "
+              onExpire={handleExpire}
+            />
           </p>
         </div>
 
@@ -243,7 +248,10 @@ export function FlashSalePopupClient({ content }: { content: FlashSaleContent })
                 />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-bold text-white">{deal.name}</p>
+                {/* Two lines, not `truncate`. At 390px "Laser Tag + Game Card
+                    Pack" clips to "Laser Tag + Game Car…" — and the product
+                    name is the one thing on this card that has to survive. */}
+                <p className="line-clamp-2 text-sm font-bold text-white">{deal.name}</p>
                 <p className="mt-0.5 text-xs" style={{ color: deal.accent }}>
                   + {deal.bonusLabel}
                 </p>

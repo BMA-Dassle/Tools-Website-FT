@@ -51,7 +51,13 @@ export default function DealOfferNote({ endsAt, bonusLabel, accentColor }: DealO
     >
       <IconClockHour4 size={16} aria-hidden="true" />
       <span>
-        Includes {bonusLabel} through <DealCountdown endsAt={endsAt} onExpire={handleExpire} />
+        Includes {bonusLabel}{" "}
+        <DealCountdown
+          endsAt={endsAt}
+          datePrefix="through "
+          clockPrefix="for another "
+          onExpire={handleExpire}
+        />
       </span>
     </p>
   );

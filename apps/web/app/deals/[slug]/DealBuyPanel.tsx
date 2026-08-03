@@ -531,9 +531,11 @@ export default function DealBuyPanel({
             {offer.endsAt && (
               <p className="flex items-center gap-2 text-sm text-white/80">
                 <IconClockHour4 size={15} style={{ color: accentColor }} aria-hidden="true" />
-                <span>
-                  Ends in <DealCountdown endsAt={offer.endsAt} />
-                </span>
+                <DealCountdown
+                  endsAt={offer.endsAt}
+                  datePrefix="Ends "
+                  clockPrefix="Ends in "
+                />
               </p>
             )}
             {showRemaining && (

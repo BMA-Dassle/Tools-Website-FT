@@ -35,12 +35,28 @@ import {
 export interface DealCountdownProps {
   /** Fully-offset ISO instant from `DealOffer.endsAt`. */
   endsAt: string;
+  /**
+   * Words before a DATE ("Ends ", "through "). The component owns the
+   * preposition because only it knows which of the two forms it is about to
+   * render, and the two need different English: a parent that hardcodes
+   * "Ends in" gets "Ends in Thursday, August 6" for the two days before the
+   * clock appears. Caught by screenshotting the popup, not by any test.
+   */
+  datePrefix?: string;
+  /** Words before a CLOCK ("Ends in ", "for another "). */
+  clockPrefix?: string;
   /** Called once when the deadline passes, so a parent can re-price. */
   onExpire?: () => void;
   className?: string;
 }
 
-export default function DealCountdown({ endsAt, onExpire, className }: DealCountdownProps) {
+export default function DealCountdown({
+  endsAt,
+  datePrefix = "",
+  clockPrefix = "",
+  onExpire,
+  className,
+}: DealCountdownProps) {
   const [remainingMs, setRemainingMs] = useState<number | null>(null);
 
   useEffect(() => {
@@ -76,11 +92,22 @@ export default function DealCountdown({ endsAt, onExpire, className }: DealCount
     <time dateTime={endsAt} className={className}>
       {clock ? (
         <>
-          <span aria-hidden="true">{clock}</span>
-          <span className="sr-only">until {dateLabel}</span>
+          <span aria-hidden="true">
+            {clockPrefix}
+            {clock}
+          </span>
+          {/* The clock itself is aria-hidden and never announced; assistive tech
+              gets the deadline once, as a date, instead of a per-second barrage. */}
+          <span className="sr-only">
+            {datePrefix}
+            {dateLabel}
+          </span>
         </>
       ) : (
-        dateLabel
+        <>
+          {datePrefix}
+          {dateLabel}
+        </>
       )}
     </time>
   );
