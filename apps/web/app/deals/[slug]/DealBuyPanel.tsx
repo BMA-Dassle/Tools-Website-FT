@@ -31,6 +31,23 @@ import { DEAL_LOCATION_INFO, isDealLocation, type DealLocationKey } from "~/feat
 /** Bump when the terms text below changes — stored with the purchase. */
 export const DEAL_TERMS_VERSION = "deal-terms-2026-08";
 
+/**
+ * The panel sits ON the hero photograph, so it needs its own opaque surface.
+ * `Card`'s default is `bg-white/[0.03]` — 3% white, which over a bright photo is
+ * effectively nothing: the form fields read as floating labels over someone's
+ * face. `/reload` hit this exact problem and solved it the same way.
+ *
+ * The `!` prefixes are REQUIRED. Card composes this string after its own classes,
+ * but Tailwind resolves by stylesheet order, not class order, so a plain
+ * `bg-[…]` loses to `bg-white/[0.03]`. Importance is what actually wins.
+ *
+ * Kept near-opaque rather than fully solid (0.96 + blur) so a hint of the photo's
+ * colour still bleeds through the edges and it reads as part of the page.
+ */
+const PANEL_SURFACE =
+  "space-y-5 p-6 shadow-[0_24px_60px_rgba(0,0,0,0.55)] backdrop-blur-md " +
+  "!bg-[rgba(6,10,26,0.96)] !border-white/15";
+
 interface Quote {
   subtotalCents: number;
   taxCents: number;
@@ -252,7 +269,7 @@ export default function DealBuyPanel({
   /* ── success ────────────────────────────────────────────────────────── */
   if (result) {
     return (
-      <Card className="space-y-5 p-6">
+      <Card className={PANEL_SURFACE}>
         <div className="flex items-center gap-3">
           <span
             className="flex h-10 w-10 items-center justify-center rounded-full"
@@ -328,7 +345,7 @@ export default function DealBuyPanel({
 
   /* ── buy ────────────────────────────────────────────────────────────── */
   return (
-    <Card className="space-y-5 p-6">
+    <Card className={PANEL_SURFACE}>
       <div>
         <h2 className="font-display text-2xl text-white">Get this deal</h2>
         <p className="mt-1 text-sm text-white/55">

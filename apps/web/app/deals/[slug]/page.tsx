@@ -231,7 +231,13 @@ export default async function DealPage({
                 "linear-gradient(to bottom, #000 0%, #000 55%, rgba(0,0,0,0.35) 85%, transparent 100%)",
             }}
           />
-          <div className="absolute inset-0 bg-[#00041b]/72" />
+          <div className="absolute inset-0 bg-[#00041b]/70" />
+          {/* Copy-side scrim. The base wash alone left the small trust row sitting
+              directly on the bright vest glow. This darkens the left (text) half
+              and fades out before the photo's focal point, so legibility comes
+              from a gradient rather than from flattening the whole image — the
+              imagery is the reason someone stops scrolling. */}
+          <div className="absolute inset-0 bg-gradient-to-r from-[#00041b]/85 via-[#00041b]/45 to-transparent" />
           <div
             className="absolute inset-0"
             style={{
