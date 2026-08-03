@@ -54,6 +54,9 @@ async function reconfirmBmi(
     projectId: quote.bmi_reservation_id,
     lineItems: (quote.line_items || []) as Array<{ name: string }>,
     amountDollars: (recordPaymentCents ?? 0) / 100,
+    source: "gf-resign-settle",
+    quoteId: quote.id,
+    sourceRef: `quote-${quote.id}-resign-${recordPaymentCents ?? 0}`,
   });
 }
 

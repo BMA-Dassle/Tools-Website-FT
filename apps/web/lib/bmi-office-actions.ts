@@ -366,6 +366,8 @@ export async function updateProjectStatus(params: {
 
 // ── Record payment ──────────────────────────────────────────────────
 
+import type { ProjectPaymentFailureSource } from "@/lib/bmi-project-payment-retry";
+
 export async function recordProjectPayment(params: {
   centerCode: string;
   projectId: string;
@@ -1152,32 +1154,71 @@ export async function confirmAndRecordBmiPayment(params: {
   /** Optional private-note line (path-specific context: GAN, "balance", "delta", etc.). */
   note?: string;
   contractUrl?: string;
+  /** Which flow is calling — tags the retry row so the sweep and the admin board
+   *  can tell a deposit from an auto-charged balance. */
+  source?: ProjectPaymentFailureSource;
+  /** GF quote id, so a queued retry can recompute the true gap from
+   *  `collected_cents` rather than trusting the amount we were handed. */
+  quoteId?: number | null;
+  /** Stable per-payment reference for the retry queue's idempotency key —
+   *  the Square payment id where the caller has one. */
+  sourceRef?: string;
 }): Promise<void> {
+  // Each step is isolated. Previously a single try wrapped all three, so a
+  // failing state update silently skipped the payment AND the note — the widest
+  // possible blast radius from the narrowest failure.
   try {
     await updateProjectStatus({
       centerCode: params.centerCode,
       projectId: params.projectId,
       hasWaiverActivities: hasWaiverRequiredActivities(params.lineItems),
     });
-    if (params.amountDollars > 0) {
+  } catch (err) {
+    console.error(`[bmi-office] project state update failed for ${params.projectId}:`, err);
+  }
+
+  if (params.amountDollars > 0) {
+    const amountCents = Math.round(params.amountDollars * 100);
+    try {
       await recordProjectPayment({
         centerCode: params.centerCode,
         projectId: params.projectId,
         amountDollars: params.amountDollars,
       });
+    } catch (err) {
+      // The card is already charged. Never throw — but never drop it either:
+      // queue it so the sweep posts it once BMI is healthy again.
+      console.error(
+        `[bmi-office] recordProjectPayment failed for project ${params.projectId}:`,
+        err,
+      );
+      try {
+        const { enqueueProjectPaymentFailure } = await import("@/lib/bmi-project-payment-retry");
+        await enqueueProjectPaymentFailure({
+          source: params.source ?? "manual",
+          sourceRef: params.sourceRef ?? `project-${params.projectId}-${amountCents}`,
+          quoteId: params.quoteId ?? null,
+          centerCode: params.centerCode,
+          projectId: params.projectId,
+          amountCents,
+          initialError: err instanceof Error ? err.message.slice(0, 300) : String(err),
+        });
+      } catch (enqueueErr) {
+        console.error(`[bmi-office] could not queue unposted payment:`, enqueueErr);
+      }
     }
-    if (params.note) {
+  }
+
+  if (params.note) {
+    try {
       await appendProjectPrivateNote({
         centerCode: params.centerCode,
         projectId: params.projectId,
         note: `[${noteTimestamp()}] ${params.note}`,
         contractUrl: params.contractUrl,
       });
+    } catch (err) {
+      console.error(`[bmi-office] private note failed for project ${params.projectId}:`, err);
     }
-  } catch (err) {
-    console.error(
-      `[bmi-office] confirmAndRecordBmiPayment failed for project ${params.projectId}:`,
-      err,
-    );
   }
 }
