@@ -223,6 +223,8 @@ export const en = {
   "offer.free": "Free",
   "offer.perPersonVipLane": "/person · VIP lane",
   "offer.openAt": "Open at {time}",
+  // v3 Experience card (shared ExperienceCard.tsx — web falls back to EN)
+  "offer.selectedBadge": "Selected",
   "offer.intro.widened": "Nothing open at {time} — the next open times are below.",
   "offer.intro.around":
     "Around {time} · {players, plural, one {# bowler} other {# bowlers}} on {lanes, plural, one {# lane} other {# lanes}}.",
@@ -325,8 +327,7 @@ export const en = {
   // Receipt — the module's ONE hub: every value code (coupon, voucher, comp
   // game card) lands and lives here.
   "codeEntry.voucherGz.receiptTitle": "Your codes",
-  "codeEntry.voucherGz.printingTitle":
-    "{n, plural, one {Your game card} other {Your game cards}}",
+  "codeEntry.voucherGz.printingTitle": "{n, plural, one {Your game card} other {Your game cards}}",
   "codeEntry.voucherGz.printingSub": "Comes out at the Game Zone dispenser",
   "codeEntry.voucherGz.cardTokens": "{tokens}-token game card",
   "codeEntry.voucherGz.gameCardGeneric": "Game card",
@@ -372,8 +373,7 @@ export const en = {
     "{n, plural, one {Game card to pick up} other {# game cards to pick up}}",
   // The primary action: card-only → "Print my cards"; cart legs present →
   // "& continue" (there's an order to go back to); no dispenser → Done.
-  "codeEntry.voucherGz.finishCards":
-    "Print my {n, plural, one {card} other {# cards}} & continue",
+  "codeEntry.voucherGz.finishCards": "Print my {n, plural, one {card} other {# cards}} & continue",
   "codeEntry.voucherGz.printNow": "Print my {n, plural, one {card} other {# cards}}",
   "codeEntry.voucherGz.done": "Done",
   // This kiosk has no dispenser — cards are collected elsewhere; the voucher

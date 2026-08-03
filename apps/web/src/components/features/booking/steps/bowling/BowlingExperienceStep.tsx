@@ -63,9 +63,9 @@ const PINBOYZ_PREVIEW = true;
 // blues" — copper/rust rejected): a deeper electric blue beside Classic cyan.
 const PINBOYZ_BLUE = "#5D8BFF";
 const PINBOYZ_CREAM = "#F3E7CF";
-// Vintage display face for the PinBoyz tier (owner: "needs to look more
-// classic") — everything else keeps the site's font-display.
-const PINBOYZ_SERIF = 'Georgia, "Times New Roman", serif';
+// PinBoyz renders in the SAME display face as VIP/Classic (owner 2026-08-02:
+// "match the PinBoyz font to the vip/classic" — reverses the 2026-07-26
+// vintage Georgia serif). The blue/cream palette stays.
 // public/images/ is gitignored (blob-hosted) — promo/ is the committed spot.
 const PINBOYZ_PHOTO = "/promo/pinboyz-old-time-lanes.webp";
 // Classic banner photo — same shot the kiosk uses, routed through the
@@ -320,8 +320,7 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
 
   function renderCard(exp: BowlingExperienceWithDetails) {
     const isVip = exp.isVip;
-    const vintage = isPinboyz(exp);
-    const accent = vintage ? PINBOYZ_BLUE : isVip ? VIP_VIOLET : BLUE;
+    const accent = isPinboyz(exp) ? PINBOYZ_BLUE : isVip ? VIP_VIOLET : BLUE;
     const primaryItem = exp.items.find((i) => i.sortOrder === 0);
     const priceCents = primaryItem?.priceCents ?? 0;
     const perLane = isPerLaneExperience(exp);
@@ -366,12 +365,13 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
       exp.qamfOptionId ??
       null;
     const first = firstSlotFor(exp, defaultOptionId);
+    const firstLabel = first ? formatTime(first) : null;
     const hint = dayAvail.isLoading
       ? null
       : dayAvail.data == null
         ? null // hint fetch failed — hide rather than block (fail-open)
-        : first
-          ? `Next lane ${formatTime(first)}`
+        : firstLabel
+          ? `Next lane ${firstLabel}`
           : "Sold out this day";
 
     return (
@@ -385,8 +385,8 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         perLabel={perLabel}
         durations={durations}
         hint={hint}
+        hintTime={firstLabel}
         hintLoading={dayAvail.isLoading}
-        vintage={vintage}
         onSelect={(durationOpt) => selectExperience(exp, durationOpt)}
       />
     );
@@ -395,14 +395,13 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
   // One media banner per SECTION (owner 2026-07-19: the cards don't all need
   // video — put it under the section instead), with the section title overlaid.
   // Owner 2026-07-26: video is VIP-ONLY — Classic and PinBoyz banners are
-  // photos. PinBoyz gets the vintage serif title and NO color overlay on the
-  // photo beyond the standard legibility gradient (owner: no blue tint).
+  // photos, and the PinBoyz photo gets NO color overlay beyond the standard
+  // legibility gradient (owner: no blue tint).
   const sectionBanner = (
     label: string,
     meta: string,
     accent: string,
     media: { videoUrl?: string; imageUrl?: string },
-    vintage = false,
   ) => (
     <div
       className={`relative overflow-hidden rounded-2xl border border-white/10 ${
@@ -435,16 +434,8 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         }`}
       >
         <h3
-          className={
-            vintage
-              ? `font-bold uppercase ${kiosk ? "text-[30px]" : "text-lg"}`
-              : `font-display uppercase tracking-widest ${kiosk ? "text-[32px]" : "text-lg"}`
-          }
-          style={
-            vintage
-              ? { color: accent, fontFamily: PINBOYZ_SERIF, letterSpacing: "0.12em" }
-              : { color: accent }
-          }
+          className={`font-display uppercase tracking-widest ${kiosk ? "text-[32px]" : "text-lg"}`}
+          style={{ color: accent }}
         >
           {label}
         </h3>
@@ -453,10 +444,11 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
     </div>
   );
 
-  /** Segmented tier switcher — VIP → Classic → PinBoyz (owner order). */
+  /** Segmented tier switcher — VIP → Classic → PinBoyz (owner order). The
+   *  active tab reads from FORM, not just fill (Direction B, 2026-08-02):
+   *  bigger + extrabold + glow, while idle tabs drop to medium and dim. */
   const tierTabBtn = (tab: TierTab, label: string, sub: string | null, accent: string) => {
     const active = tierTab === tab;
-    const vintage = tab === "pinboyz";
     return (
       <button
         key={tab}
@@ -466,20 +458,26 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
         className={`flex-1 rounded-xl text-center transition-colors ${
           kiosk ? "k-tap px-[10px] py-[16px]" : "px-2 py-2.5"
         }`}
-        style={active ? { backgroundColor: accent, color: "#0a1628" } : undefined}
+        style={
+          active
+            ? { backgroundColor: accent, color: "#0a1628", boxShadow: `0 0 18px ${accent}59` }
+            : undefined
+        }
       >
         <span
-          className={`block font-bold uppercase ${
-            vintage ? "" : "font-display tracking-widest"
-          } ${kiosk ? "text-[26px]" : "text-sm"} ${active ? "" : "text-white/60"}`}
-          style={vintage ? { fontFamily: PINBOYZ_SERIF, letterSpacing: "0.1em" } : undefined}
+          className={`block font-display uppercase ${
+            active
+              ? `font-extrabold ${kiosk ? "text-[28px]" : "text-[15px]"}`
+              : `font-medium text-white/50 ${kiosk ? "text-[24px]" : "text-[13px]"}`
+          }`}
+          style={{ letterSpacing: "0.12em" }}
         >
           {label}
         </span>
         {sub && (
           <span
-            className={`block ${kiosk ? "text-[18px]" : "text-[10px]"} ${
-              active ? "opacity-70" : "text-white/35"
+            className={`block tabular-nums ${kiosk ? "text-[18px]" : "text-[10px]"} ${
+              active ? "font-semibold opacity-70" : "text-white/35"
             }`}
           >
             {sub}
@@ -607,8 +605,9 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
                 "PinBoyz — Old Time Lanes",
                 "Bowling the way it started",
                 PINBOYZ_CREAM,
-                { imageUrl: PINBOYZ_PHOTO },
-                true,
+                {
+                  imageUrl: PINBOYZ_PHOTO,
+                },
               )}
               {pinboyzPerks}
               {pinboyz.length > 0 ? (
@@ -626,11 +625,10 @@ const BowlingExperienceStepComponent: StepDef<BowlingLikeItem>["Component"] = ({
                 <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03]">
                   <div className={kiosk ? "p-[24px]" : "p-4"}>
                     <h3
-                      className={`font-bold uppercase ${kiosk ? "text-[34px]" : "text-lg"}`}
+                      className={`font-display font-extrabold uppercase ${kiosk ? "text-[44px]" : "text-2xl"}`}
                       style={{
                         color: PINBOYZ_CREAM,
-                        fontFamily: PINBOYZ_SERIF,
-                        letterSpacing: "0.1em",
+                        letterSpacing: kiosk ? "0.01em" : "0.04em",
                       }}
                     >
                       PinBoyz Lanes

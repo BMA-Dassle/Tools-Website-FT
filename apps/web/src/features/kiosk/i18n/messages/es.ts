@@ -209,6 +209,7 @@ export const es: Record<CoreKey, string> = {
   "offer.free": "Gratis",
   "offer.perPersonVipLane": "/persona · pista VIP",
   "offer.openAt": "Abre a las {time}",
+  "offer.selectedBadge": "Seleccionado",
   "offer.intro.widened": "Nada abierto a las {time} — los próximos horarios están abajo.",
   "offer.intro.around":
     "Alrededor de las {time} · {players, plural, one {# jugador} other {# jugadores}} en {lanes, plural, one {# pista} other {# pistas}}.",
@@ -337,8 +338,7 @@ export const es: Record<CoreKey, string> = {
     "{n, plural, one {Tarjeta de juego por recoger} other {# tarjetas de juego por recoger}}",
   "codeEntry.voucherGz.finishCards":
     "Imprimir {n, plural, one {mi tarjeta} other {mis # tarjetas}} y continuar",
-  "codeEntry.voucherGz.printNow":
-    "Imprimir {n, plural, one {mi tarjeta} other {mis # tarjetas}}",
+  "codeEntry.voucherGz.printNow": "Imprimir {n, plural, one {mi tarjeta} other {mis # tarjetas}}",
   "codeEntry.voucherGz.done": "Listo",
   "codeEntry.voucherGz.printingSubElsewhere":
     "Recógelas en el quiosco principal o en Servicios al Huésped — tu vale sigue válido",
