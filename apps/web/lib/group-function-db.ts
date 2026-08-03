@@ -1088,6 +1088,30 @@ export async function updateGfQuoteDetails(
      *  guest from signing until they upload a DR-14 they don't need. See
      *  tasks/lessons.md § "A derived flag written only at INSERT rots". */
     is_tax_exempt?: boolean;
+    /** ── Center identity ──────────────────────────────────────────────
+     *  Stamped at insert from the live BMI/Pandora "Location" selector
+     *  (lib/bmi-scan.ts resolves FastTrax vs HeadPinz Fort Myers off it on
+     *  every scan) and writable here because an event can MOVE between
+     *  centers after it is signed and paid: FastTrax and HeadPinz Fort Myers
+     *  share one BMI client (`headpinzftmyers`), so a move keeps the same
+     *  project id — the row is the only thing that has to follow it.
+     *
+     *  Left un-synced, every center-derived behaviour keeps pointing at the
+     *  old venue: the day-of Square order books revenue at the wrong
+     *  location, guest emails carry the wrong brand and base_url, and the
+     *  waiver / survey / review links name the wrong center. Same failure
+     *  shape as the is_tax_exempt note above — a derived field written only
+     *  at INSERT rots. Only `group-quote-dispatch` writes these, and only
+     *  when the resolved center actually differs. */
+    center_code?: string;
+    center_name?: string;
+    square_location_id?: string;
+    brand?: string;
+    base_url?: string;
+    /** New-mint prefix only; already-minted GANs are immutable and every
+     *  legacy prefix stays in KNOWN_DEPOSIT_GAN_PREFIXES forever (lib/gan.ts). */
+    gan_prefix?: string;
+    hermes_center?: string;
     planner_first?: string;
     planner_last?: string;
     planner_email?: string;
@@ -1127,6 +1151,13 @@ export async function updateGfQuoteDetails(
       line_items = COALESCE(${fields.line_items ? JSON.stringify(fields.line_items) : null}::jsonb, line_items),
       prior_payments = COALESCE(${fields.prior_payments ? JSON.stringify(fields.prior_payments) : null}::jsonb, prior_payments),
       is_tax_exempt = COALESCE(${fields.is_tax_exempt ?? null}::boolean, is_tax_exempt),
+      center_code = COALESCE(${fields.center_code ?? null}, center_code),
+      center_name = COALESCE(${fields.center_name ?? null}, center_name),
+      square_location_id = COALESCE(${fields.square_location_id ?? null}, square_location_id),
+      brand = COALESCE(${fields.brand ?? null}, brand),
+      base_url = COALESCE(${fields.base_url ?? null}, base_url),
+      gan_prefix = COALESCE(${fields.gan_prefix ?? null}, gan_prefix),
+      hermes_center = COALESCE(${fields.hermes_center ?? null}, hermes_center),
       planner_first = COALESCE(${fields.planner_first ?? null}, planner_first),
       planner_last = COALESCE(${fields.planner_last ?? null}, planner_last),
       planner_email = COALESCE(${fields.planner_email ?? null}, planner_email),

@@ -107,6 +107,23 @@ export function resolveCenter(hermesCenter: string) {
   return HERMES_CENTER_MAP[hermesCenter] ?? null;
 }
 
+/**
+ * Does this subject line mark a FastTrax event? Backstop for when the scan feed
+ * reports the shared Fort Myers host without the `_FT` discriminator.
+ *
+ * The authoritative signal is the project's BMI "Location" selector, which
+ * `lib/bmi-scan.ts` reads on every scan and encodes as an "FT " subject PREFIX.
+ * So match that prefix (or an explicit FastTrax mention) — never a bare `FT`
+ * substring, which also hits GIFT, LEFT, SOFT, CRAFT, DRAFT and AFTER. The
+ * asymmetry is what makes a loose match dangerous: this check can only ADD
+ * FastTrax, never remove it, so one false positive pins an event that moved to
+ * HeadPinz back to FastTrax on every subsequent pass.
+ */
+export function isFastTraxSubject(subject: string | undefined | null): boolean {
+  const s = (subject || "").trim();
+  return /^FT\b/.test(s) || /fast\s*trax/i.test(s);
+}
+
 // ── API calls ───────────────────────────────────────────────────────
 
 export async function fetchHermesEnrichedEvents(): Promise<HermesQueueItem[]> {

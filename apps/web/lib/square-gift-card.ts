@@ -1470,6 +1470,94 @@ export async function loadGiftCard(params: {
 /** Square caps a single gift card at $2,000. */
 export const GIFT_CARD_MAX_CENTS = 200_000;
 
+export interface DrainedGiftCard {
+  giftCardId: string;
+  drainedCents: number;
+  /** Balance still on the card afterwards — non-zero only when the drain failed. */
+  remainingCents: number;
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Zero out internal deposit gift cards via ADJUST_DECREMENT.
+ *
+ * These cards are an internal accounting instrument holding money the guest has
+ * ALREADY paid by card (see lib/gan.ts). When that card payment is refunded, the
+ * value on the card has to come off in the same breath or the same dollars exist
+ * twice: the guest has their refund AND a funded card our day-of cron would still
+ * redeem. Decrement FIRST, then refund — the ordering rule from the gift-card
+ * value-move lesson. Reason `PURCHASE_WAS_REFUNDED` is Square's own enum for it.
+ *
+ * Per-card outcome, never throws: the caller decides what a partial failure means
+ * (the cancellation path refunds anyway and alerts staff — a guest's money coming
+ * back must not wait on cleanup of an instrument they can't spend).
+ */
+export async function drainInternalDepositGiftCards(params: {
+  giftCardIds: string[];
+  locationId: string;
+  baseKey: string;
+  reason?: "PURCHASE_WAS_REFUNDED" | "SUPPORT_ISSUE" | "SUSPICIOUS_ACTIVITY";
+}): Promise<DrainedGiftCard[]> {
+  const out: DrainedGiftCard[] = [];
+  for (const giftCardId of params.giftCardIds) {
+    try {
+      const balanceCents = await getGiftCardBalanceCents(giftCardId);
+      if (balanceCents <= 0) {
+        out.push({ giftCardId, drainedCents: 0, remainingCents: 0, ok: true });
+        continue;
+      }
+      const res = await fetch(`${SQUARE_BASE}/gift-cards/activities`, {
+        method: "POST",
+        headers: sqHeaders(),
+        body: JSON.stringify({
+          // Salted with the amount: a card that was topped up after a failed
+          // drain must be drainable again, and Square replays a key forever.
+          idempotency_key: `gc-drain-${params.baseKey}-${balanceCents}`.slice(0, 128),
+          gift_card_activity: {
+            type: "ADJUST_DECREMENT",
+            location_id: params.locationId,
+            gift_card_id: giftCardId,
+            adjust_decrement_activity_details: {
+              amount_money: { amount: balanceCents, currency: "USD" },
+              reason: params.reason ?? "PURCHASE_WAS_REFUNDED",
+            },
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.errors) {
+        const sqErr = data.errors?.[0];
+        out.push({
+          giftCardId,
+          drainedCents: 0,
+          remainingCents: balanceCents,
+          ok: false,
+          error: sqErr ? `${sqErr.code}: ${sqErr.detail}` : `status ${res.status}`,
+        });
+        continue;
+      }
+      out.push({
+        giftCardId,
+        drainedCents: balanceCents,
+        remainingCents: data.gift_card_activity?.gift_card_balance_money?.amount ?? 0,
+        ok: true,
+      });
+    } catch (err) {
+      out.push({
+        giftCardId,
+        drainedCents: 0,
+        // Balance unknown (the read itself may have failed) — report it as
+        // possibly-still-funded so the caller alerts rather than assuming zero.
+        remainingCents: -1,
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return out;
+}
+
 /** Retrieve a gift card by its GAN. Returns null when no card exists for it. */
 export async function getGiftCardFromGan(
   gan: string,

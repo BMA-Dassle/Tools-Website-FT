@@ -1,5 +1,46 @@
 # Open Tasks
 
+## Group event moves between centers — FT → HeadPinz Fort Myers (2026-08-03)
+
+US Anesthesia Partners (**H3194**, BMI project **56000667**, 8/8 4:36 PM, $2,146.35)
+is moving from FastTrax to HeadPinz Fort Myers. Both share one BMI client
+(`headpinzftmyers`), so the move keeps the same project, contract, deposit and gift
+card — but the quote's center stamp was written only at INSERT, so nothing followed
+the event. See lessons.md § "A derived flag written only at INSERT rots" (third
+instance) and § "Refunding a deposit while its gift card stays funded pays twice".
+
+- [x] **`syncQuoteCenter`** (group-quote-dispatch) re-derives `center_code /
+      center_name / square_location_id / brand / base_url / gan_prefix /
+      hermes_center` on every "Send Contract" pass, gated on
+      `center_code`/`square_location_id` so ~170 legacy `gan_prefix` rows don't churn.
+      Audit-logs `center_moved`, writes a BMI private note, folds the move into the
+      post-sign `changes[]` set (a venue change can move zero money, which the
+      `changes.length === 0` early-exit would otherwise swallow).
+- [x] **`reconcileDayofOrder`** rebuilds on a **location** mismatch, not just a total
+      mismatch — a Square order's location is immutable — and cancels the superseded
+      order at its OWN location.
+- [x] **`isFastTraxSubject`** replaces `subject.includes("FT")` (also matched GIFT /
+      LEFT / SOFT / CRAFT / DRAFT / AFTER; the check can only ADD FastTrax, so a false
+      positive pinned a HeadPinz-bound event to FastTrax permanently). Tested.
+- [x] **Cancel path drains the deposit gift cards before refunding**
+      (`drainInternalDepositGiftCards`, `ADJUST_DECREMENT` / `PURCHASE_WAS_REFUNDED`),
+      so a cancel-and-rebook move can't refund the card AND leave the GC funded.
+      Drain failure pages staff (`notifyGiftCardDrainFailed`) and never blocks the refund.
+- [x] **`scripts/gf-center-move-check.mts`** — read-only: BMI location vs quote stamp vs
+      day-of order location vs gift-card balance. Run before and after the move.
+- [ ] **Not yet verified live** — nothing has moved yet. When sales flips H3194's BMI
+      Location to HeadPinz and re-flips the project to "Send Contract":
+      run `npx tsx scripts/gf-center-move-check.mts 56000667` and confirm all ✓.
+- [ ] **Deadline:** the T-72h balance charge fires **Aug 5 ~4:36 PM ET** on the card on
+      file, using the frozen `balance_cents`. Move + reprice before then or the balance
+      collects at FastTrax pricing and the difference has to be settled as a reprice delta.
+- [ ] **Unverified external behavior:** a cross-location gift-card `LOAD` (FT-minted card,
+      HPFM-located quote) is expected to work — Square gift cards are seller-wide, and
+      cross-location *redemption* is already proven in `group-dayof-pay` — but no card in
+      our own history has activities at two locations, so it is inference, not evidence.
+      If the T-72h load errors, `sumGiftCardLoadsForPayment` makes the retry idempotent;
+      the failure is loud (`balance_last_error`), not silent.
+
 ## Google review ask on the survey reward screen — branch `feat/survey-google-review` (2026-08-02)
 
 The guest survey ends on the reward-confirmation screen (500 Pinz / $5 e-gift card) —

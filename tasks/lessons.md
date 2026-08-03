@@ -2895,6 +2895,39 @@ The same class of bug is already documented one section over for
 self-heal block; this one didn't. When you find the third, stop patching
 per-field and re-derive the whole derived set.
 
+**The third arrived same-day: the CENTER stamp (2026-08-03).** US Anesthesia
+Partners (H3194, BMI 56000667, 8/8) is moving from FastTrax to HeadPinz Fort
+Myers. FastTrax and HPFM share one BMI client (`headpinzftmyers`), so a move
+keeps the same project, contract, deposit and gift card — and `lib/bmi-scan.ts`
+already re-reads the Pandora **Location** selector on every scan. But
+`center_code / center_name / square_location_id / brand / base_url / gan_prefix /
+hermes_center` were written **only** by `insertGfQuote`, so a moved event kept its
+old venue forever: the day-of Square order rings the whole event up at the venue
+it left, the balance order books there too, and every guest-facing string (brand,
+`base_url`, waiver / survey / Google-review links) names the wrong center. Fixed
+by re-deriving them in `syncQuoteCenter` (group-quote-dispatch) — gated on
+`center_code`/`square_location_id` only, because `gan_prefix` legitimately varies
+across ~170 legacy rows and diffing it would report a phantom change on every one.
+
+Two things the center case adds that the flag cases didn't:
+
+- **A Square order's location is immutable.** Re-pointing the row is not enough —
+  `reconcileDayofOrder` now rebuilds on a location mismatch, not just a total
+  mismatch, because a move often changes no money at all. It also cancels the
+  superseded order at **its own** location; passing the quote's freshly-updated
+  location would fail the cancel and leave two live orders for one event.
+- **The classifier that picks the venue must not be greedy.** The FastTrax
+  backstop was `subject.includes("FT")`, which also matches GIFT, LEFT, SOFT,
+  CRAFT, DRAFT, AFTER — and since the check can only ADD FastTrax and never
+  remove it, one false positive pins a HeadPinz-bound event to FastTrax on every
+  subsequent pass. Now anchored (`isFastTraxSubject`, tested).
+
+With the center stamp covered, the BMI-derived set is closed: everything
+`insertGfQuote` takes from BMI is now also writable by `updateGfQuoteDetails`. The
+insert-only remainder is identity (`bmi_reservation_id`), vestigial Hermes queue
+ids, and the dead PandaDoc template columns. A fourth instance means someone added
+a derived column without adding it to the update path — check that first.
+
 **Corollary for triage:** "it's not sending" from sales can mean sent-but-unsignable.
 Check `contract_sent_at` and the audit log's `page_view` rows before believing the
 dispatch path is at fault — JW Group had six page views and zero `signed` events,
@@ -2940,3 +2973,33 @@ the only thing preventing repetition. All five paths now share one
 
 **Corollary:** `catch { /* non-fatal */ }` deserves suspicion in review. Ask what
 repeats if that call fails. If the answer is "a guest-facing message", it is fatal.
+
+## Refunding a deposit while its gift card stays funded pays twice (2026-08-03)
+
+A group-function deposit is charged to a card and then **loaded onto an internal
+Square gift card** (GAN prefix `GFFT`/`GFHPFM`/`GFHPN` — see `lib/gan.ts`), which
+the day-of payout cron redeems against the event's Square order. The card is an
+accounting instrument for money the guest has already paid.
+
+`group-quote-sync` refunds both Square payments when BMI flips a project to
+Cancellation (stateId `-4`) — and never touched the gift cards. So every
+cancellation of a deposited event refunded the card **and** left a fully funded
+gift card behind: the same dollars, twice. Nothing had spent one yet only because
+a cancelled quote is excluded from the day-of payout query — one status change away
+from paying out.
+
+Found while making an FT → HPFM center move safe: if sales had executed the move
+as cancel-and-rebook instead of re-pointing the existing project, US Anesthesia
+Partners' $1,073.18 would have been refunded to the guest's card while
+`GFFT56000667` still held $1,073.18.
+
+**Rule:** decrement first, then credit. `drainInternalDepositGiftCards`
+(`ADJUST_DECREMENT`, reason `PURCHASE_WAS_REFUNDED`) now runs BEFORE the refunds.
+A failed drain does **not** block the refund — the guest's money has to come back,
+and `isInternalDepositGan` means they cannot spend the card themselves — so staff
+get paged (`notifyGiftCardDrainFailed`) to zero it by hand instead. The choice to
+make is which failure you can live with, and it is never "guest waits for money".
+
+**Corollary:** any code path that refunds a group-function or booking payment must
+answer "what happened to the gift card that payment funded?" A refund path written
+without that question is a double-pay waiting for a status change.

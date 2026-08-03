@@ -142,6 +142,8 @@ export type DayofReconcileResult =
       newOrderId: string;
       oldTotalCents: number;
       newTotalCents: number;
+      /** Set when the rebuild was driven by a center move, not a price change. */
+      relocatedFrom?: string;
     }
   | { action: "skipped_mismatch"; reason: string; attemptedTotalCents: number };
 
@@ -154,8 +156,16 @@ export type DayofReconcileResult =
  * against (the H1174 / #80 incident, 2026-06-16). This is called on every dispatch
  * pass that touches an existing event, so a resend reconciles the order.
  *
+ * It is ALSO what moves the money when an event changes venue. FastTrax and HeadPinz
+ * Fort Myers share one BMI client, so a move keeps the same project and the quote's
+ * `square_location_id` is re-synced in place (group-quote-dispatch) — but the day-of
+ * order was already created at the OLD location, and a Square order's location is
+ * immutable. A location mismatch therefore forces a rebuild even when the total is
+ * unchanged, or the event's whole day-of revenue rings up at the venue it left.
+ *
  * Behavior:
  *   - No existing day-of order        → no-op (the deposit flow owns first creation).
+ *   - Existing order at another location → rebuild (center move).
  *   - Existing order total ≈ contract → no-op (within 50c per-line rounding).
  *   - Otherwise rebuild from current line items, BUT only repoint if the rebuilt total
  *     matches total_cents (±50c). A divergence means the contract total itself is wrong
@@ -171,17 +181,29 @@ export async function reconcileDayofOrder(
   const existingId = quote.square_dayof_order_id;
   if (!existingId) return { action: "skipped_no_order" };
 
-  // What does the current order total? A canceled order forces a rebuild.
+  // What does the current order total, and where does it live? A canceled order
+  // forces a rebuild. `currentLocation` is also what we must cancel the old order
+  // AT — a Square order PUT has to carry that order's own location, so passing the
+  // quote's (already-updated) location would fail the cancel on a center move and
+  // leave two live orders for one event.
   let currentTotal = -1;
+  let currentLocation = "";
   try {
     const j = await (
       await fetch(`${SQUARE_BASE}/orders/${existingId}`, { headers: sqHeaders() })
     ).json();
-    if (j.order && j.order.state !== "CANCELED") currentTotal = j.order.total_money?.amount ?? -1;
+    if (j.order && j.order.state !== "CANCELED") {
+      currentTotal = j.order.total_money?.amount ?? -1;
+      currentLocation = j.order.location_id ?? "";
+    }
   } catch {
     /* fetch failure → treat as needing rebuild */
   }
+  const relocated = Boolean(
+    currentLocation && quote.square_location_id && currentLocation !== quote.square_location_id,
+  );
   if (
+    !relocated &&
     currentTotal >= 0 &&
     Math.abs(currentTotal - quote.total_cents) <= DAYOF_RECONCILE_TOLERANCE_CENTS
   ) {
@@ -208,7 +230,8 @@ export async function reconcileDayofOrder(
   }
 
   await updateGfQuoteDetails(quote.id, { square_dayof_order_id: dayof.id });
-  await cancelDayofOrder(existingId, quote.square_location_id).catch(() => {});
+  // Cancel the superseded order at ITS location (see currentLocation above).
+  await cancelDayofOrder(existingId, currentLocation || quote.square_location_id).catch(() => {});
   await appendAuditLog({
     quoteId: quote.id,
     event: "dayof_order_reconciled",
@@ -218,6 +241,9 @@ export async function reconcileDayofOrder(
       newOrderId: dayof.id,
       newTotalCents: dayof.totalCents,
       trigger: "dispatch_reconcile",
+      ...(relocated
+        ? { relocatedFrom: currentLocation, relocatedTo: quote.square_location_id }
+        : {}),
     },
   }).catch(() => {});
 
@@ -227,5 +253,6 @@ export async function reconcileDayofOrder(
     newOrderId: dayof.id,
     oldTotalCents: currentTotal,
     newTotalCents: dayof.totalCents,
+    ...(relocated ? { relocatedFrom: currentLocation } : {}),
   };
 }

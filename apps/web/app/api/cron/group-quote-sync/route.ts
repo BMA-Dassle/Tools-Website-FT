@@ -14,7 +14,9 @@ import { verifyCron } from "@/lib/cron-auth";
  * Group quote sync cron. Runs every 5 minutes.
  *
  * Its ONLY contract responsibility is detecting cancellations in BMI Office
- * (stateId = -4): cancel the quote, refund any Square payments, and notify.
+ * (stateId = -4): cancel the quote, zero the internal deposit gift cards, refund
+ * any Square payments, and notify. The drain runs BEFORE the refunds — refunding
+ * a card while its deposit gift card stays funded duplicates the money.
  * It also performs three pieces of unrelated self-healing / detection: sending
  * waiver reminders for deposited events, alerting staff when a tax-exempt event
  * has no DR-14 certificate on file, and backfilling missing day-of Square orders.
@@ -279,6 +281,46 @@ async function syncQuote(
 
     const refundedPayments: string[] = [];
 
+    // Zero the internal deposit gift cards BEFORE refunding the card that funded
+    // them. Those cards hold money the guest already paid; refunding the card
+    // payment while they stay funded makes the same dollars exist twice — the
+    // guest has their refund AND a live card the day-of payout cron would redeem.
+    // Decrement first, then credit (gift-card value-move rule).
+    //
+    // A failed drain does NOT block the refund: the guest's money has to come
+    // back, and the card is an internal instrument they cannot spend themselves
+    // (isInternalDepositGan blocks it at checkout). Staff get paged to zero it by
+    // hand instead — see notifyGiftCardDrainFailed.
+    const { parseGiftCardIds, parseGiftCardGans } = await import("@/lib/group-function-db");
+    const giftCardIds = parseGiftCardIds(quote.square_gift_card_id);
+    const giftCardGans = parseGiftCardGans(quote.square_gift_card_gan);
+    let drained: Array<{
+      giftCardId: string;
+      drainedCents: number;
+      remainingCents: number;
+      ok: boolean;
+      error?: string;
+    }> = [];
+    if (giftCardIds.length > 0) {
+      try {
+        const { drainInternalDepositGiftCards } = await import("@/lib/square-gift-card");
+        drained = await drainInternalDepositGiftCards({
+          giftCardIds,
+          locationId: quote.square_location_id,
+          baseKey: `gf-cancel-${quote.id}`,
+        });
+        const zeroed = drained.filter((d) => d.ok && d.drainedCents > 0);
+        if (zeroed.length > 0) {
+          console.log(
+            `[group-quote-sync] drained ${zeroed.length} deposit gift card(s) ` +
+              `$${(zeroed.reduce((s, d) => s + d.drainedCents, 0) / 100).toFixed(2)} for quote=${quote.id}`,
+          );
+        }
+      } catch (err) {
+        console.error(`[group-quote-sync] gift card drain error for quote=${quote.id}:`, err);
+      }
+    }
+
     // Refund deposit payment
     if (quote.square_deposit_payment_id) {
       try {
@@ -340,12 +382,47 @@ async function syncQuote(
       }
     }
 
+    // Any card we could not zero is money that now exists twice — page staff.
+    const stranded = drained
+      .filter((d) => !d.ok)
+      .map((d) => ({
+        // GANs are stored parallel to the ids, so index by the id's position.
+        gan: giftCardGans[giftCardIds.indexOf(d.giftCardId)] ?? "",
+        giftCardId: d.giftCardId,
+        balanceCents: d.remainingCents,
+        error: d.error,
+      }));
+    if (stranded.length > 0) {
+      console.error(
+        `[group-quote-sync] gift card(s) NOT zeroed on cancel quote=${quote.id}:`,
+        JSON.stringify(stranded),
+      );
+      try {
+        const { notifyGiftCardDrainFailed } = await import("@/lib/group-function-alert");
+        await notifyGiftCardDrainFailed({
+          reservationId: quote.bmi_reservation_id,
+          eventNumber: quote.event_number,
+          eventName: quote.event_name || "",
+          centerName: quote.center_name,
+          plannerEmail: quote.planner_email,
+          stranded,
+          refundedCents: quote.collected_cents,
+        });
+      } catch (err) {
+        console.error(`[group-quote-sync] drain alert failed for quote=${quote.id}:`, err);
+      }
+    }
+
     await (
       await import("@/lib/group-function-db")
     ).appendAuditLog({
       quoteId: quote.id,
       event: "cancelled_from_bmi",
-      metadata: { bmiStateId, refundedPayments },
+      metadata: {
+        bmiStateId,
+        refundedPayments,
+        giftCardsDrained: drained,
+      },
     });
 
     // Send cancellation email

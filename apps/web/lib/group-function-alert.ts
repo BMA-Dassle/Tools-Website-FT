@@ -340,6 +340,78 @@ export async function notifyTaxExemptNoCertificate(
   }
 }
 
+export interface GiftCardDrainFailedParams {
+  reservationId: string;
+  eventNumber: string | null;
+  eventName: string;
+  centerName: string | null;
+  plannerEmail?: string | null;
+  /** Cards we could NOT zero, with the balance still sitting on them. */
+  stranded: Array<{ gan: string; giftCardId: string; balanceCents: number; error?: string }>;
+  refundedCents: number;
+}
+
+/**
+ * A cancelled event's deposit was refunded to the card but its internal deposit
+ * gift card could not be zeroed — the same dollars now exist twice until someone
+ * adjusts the card down in the Square dashboard.
+ *
+ * Deliberately NOT de-duped away to nothing: keyed per (reservation, card) for 6h
+ * so it re-pings until fixed. The guest is never blocked on this — their refund
+ * has already gone out — but the value is live on an instrument our own day-of
+ * cron knows how to redeem, so it has to be reconciled by hand.
+ */
+export async function notifyGiftCardDrainFailed(
+  params: GiftCardDrainFailedParams,
+): Promise<boolean> {
+  if (params.stranded.length === 0) return false;
+  const dedupKey = `gf:alert:gcdrain:${params.reservationId}:${shortHash(
+    params.stranded.map((s) => s.giftCardId).join(","),
+  )}`;
+  if (!(await shouldAlert(dedupKey, 6 * 60 * 60))) return false;
+
+  const money = (c: number) => `$${(c / 100).toFixed(2)}`;
+  const card = buildAlertCard({
+    eyebrow: `⛔ GIFT CARD NOT ZEROED · BMI #${params.reservationId}`,
+    title: "Cancelled event refunded — deposit card still holds value",
+    subtitle: `${params.eventName || "Group event"}${
+      params.centerName ? ` · ${params.centerName}` : ""
+    }`,
+    headerStyle: "attention",
+    facts: [
+      { title: "BMI #", value: params.reservationId },
+      { title: "Event #", value: params.eventNumber || "—" },
+      { title: "Refunded to card", value: money(params.refundedCents) },
+      {
+        title: "Still on gift card",
+        value: money(params.stranded.reduce((s, x) => s + x.balanceCents, 0)),
+      },
+    ],
+    issues: [
+      ...params.stranded.map(
+        (s) =>
+          `${s.gan || s.giftCardId} still holds ${money(s.balanceCents)}` +
+          (s.error ? ` — ${s.error}` : ""),
+      ),
+      "Zero these cards in Square (Gift Cards → Adjust balance) so the refunded " +
+        "money is not also redeemable at the event.",
+    ],
+  });
+
+  try {
+    await sendAdaptiveCardToChannel(resolveChatId(params.plannerEmail), card, {
+      summaryText: `⛔ Deposit gift card still funded after refund — BMI #${params.reservationId}`,
+    });
+    return true;
+  } catch (err) {
+    console.error(
+      `[gf-alert] gift-card drain card failed for reservation=${params.reservationId}:`,
+      err,
+    );
+    return false;
+  }
+}
+
 export interface DispatchErrorParams {
   reservationId: string;
   centerCode?: string;

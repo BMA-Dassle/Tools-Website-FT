@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import {
   resolveCenter,
+  isFastTraxSubject,
   selectTemplate,
   isTaxExempt,
+  type CenterInfo,
   type HermesQueueItem,
 } from "@/lib/hermes-client";
 import {
@@ -157,6 +159,139 @@ async function reconcileDayofOrderSafe(quote: GroupFunctionQuote): Promise<void>
 }
 
 /**
+ * Re-point a quote at the center BMI currently says the event is at.
+ *
+ * FastTrax and HeadPinz Fort Myers share ONE BMI client (`headpinzftmyers`), so
+ * moving an event between them keeps the same project id, the same contract, and
+ * the same deposit — sales just changes the project's "Location" selector and
+ * swaps the products. `lib/bmi-scan.ts` already re-reads that selector on every
+ * scan, but the resulting center was only ever persisted at INSERT, so a moved
+ * event kept its original venue forever. Everything center-derived then pointed
+ * at the venue the event left: the day-of Square order (revenue rings up at the
+ * wrong location), the balance order, the guest emails' brand + base_url, and the
+ * waiver / survey / review links. Same failure shape as the is_tax_exempt rot.
+ *
+ * Gated on center_code / square_location_id ONLY. gan_prefix legitimately varies
+ * across historical rows (HPFM/HPN/GRPF pre-2026-06-23) and every legacy prefix
+ * stays valid forever, so diffing it would report a phantom change on ~170 old
+ * events; it is written only when the center genuinely moves, where a fresh mint
+ * SHOULD carry the new venue's prefix. Already-minted GANs are immutable and keep
+ * theirs — an event moved off FastTrax keeps spending its GFFT deposit card, which
+ * is safe: one Square merchant holds all locations, so the card's balance is
+ * redeemable anywhere, and group-dayof-pay deliberately pays at the ORDER's
+ * location rather than the quote's.
+ *
+ * Returns the human-readable change list (empty when nothing moved) so the caller
+ * can fold it into the contract-version diff. Mutates `quote` in place so the rest
+ * of the pass — BMI notes, guest notifications, day-of reconcile — uses the new
+ * center. Never throws: a center that cannot be written must not block the send.
+ */
+async function syncQuoteCenter(
+  quote: GroupFunctionQuote,
+  center: CenterInfo,
+  item: HermesQueueItem,
+): Promise<string[]> {
+  if (
+    quote.center_code === center.centerCode &&
+    quote.square_location_id === center.squareLocationId
+  ) {
+    return [];
+  }
+
+  const fields = {
+    center_code: center.centerCode,
+    center_name: item.centerName,
+    square_location_id: center.squareLocationId,
+    brand: center.brand,
+    base_url: center.baseUrl,
+    gan_prefix: center.ganPrefix,
+    hermes_center: item.center,
+  };
+  const changes = [
+    `center: ${quote.center_code} → ${fields.center_code}`,
+    `square_location: ${quote.square_location_id} → ${fields.square_location_id}`,
+  ];
+
+  try {
+    await updateGfQuoteDetails(quote.id, fields);
+  } catch (err) {
+    console.error(
+      `[group-quote-dispatch] center sync FAILED for reservation=${item.reservationId} ` +
+        `(${quote.center_code} → ${center.centerCode}):`,
+      err,
+    );
+    return [];
+  }
+
+  const previous = {
+    center_code: quote.center_code,
+    center_name: quote.center_name,
+    square_location_id: quote.square_location_id,
+    brand: quote.brand,
+    base_url: quote.base_url,
+    gan_prefix: quote.gan_prefix,
+    hermes_center: quote.hermes_center,
+  };
+  Object.assign(quote, fields);
+
+  const { appendAuditLog } = await import("@/lib/group-function-db");
+  appendAuditLog({
+    quoteId: quote.id,
+    event: "center_moved",
+    metadata: {
+      from: previous,
+      to: fields,
+      bmiLocation: item.location ?? null,
+      trigger: "dispatch_cron",
+      // The deposit already collected stays exactly where it was charged; only
+      // the day-of / balance orders follow the event. Recorded so a later
+      // reconciliation can see we deliberately did NOT re-issue anything.
+      giftCardGan: quote.square_gift_card_gan,
+      depositPaymentId: quote.square_deposit_payment_id,
+    },
+  }).catch((err) => console.error("[group-quote-dispatch] center-move audit error:", err));
+
+  try {
+    const { appendProjectPrivateNote, noteTimestamp } = await import("@/lib/bmi-office-actions");
+    await appendProjectPrivateNote({
+      centerCode: center.centerCode,
+      projectId: item.reservationId,
+      note:
+        `[${noteTimestamp()}] Event moved ${previous.center_name} → ${fields.center_name}. ` +
+        `Contract, deposit and gift card${
+          quote.square_gift_card_gan ? ` (${parseGansForNote(quote.square_gift_card_gan)})` : ""
+        } carry over unchanged; day-of order rebuilt at the new location.`,
+    });
+  } catch {
+    /* non-fatal */
+  }
+
+  // Relocate the day-of Square order NOW rather than relying on the branch we
+  // happen to fall into below. A Square order's location is immutable, so until
+  // it is rebuilt the event's entire day-of revenue is still queued to ring up at
+  // the venue it left — and only some branches reconcile. Idempotent: if the pass
+  // also changed products, the later reconcile just rebuilds again.
+  await reconcileDayofOrderSafe(quote);
+
+  console.log(
+    `[group-quote-dispatch] CENTER MOVED reservation=${item.reservationId} ` +
+      `${previous.center_code} (${previous.square_location_id}) → ` +
+      `${fields.center_code} (${fields.square_location_id})`,
+  );
+  return changes;
+}
+
+/** GANs are stored as a JSON array string; render them for a BMI note. */
+function parseGansForNote(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.join(", ") : String(raw);
+  } catch {
+    return raw;
+  }
+}
+
+/**
  * Move a project OUT of "Send Contract" and report whether it actually landed.
  *
  * THE LOOP-BREAKER. "Send Contract" is the only trigger for this cron, so the
@@ -248,12 +383,12 @@ async function exitSendContractWithResend(params: {
 async function processQueueItem(
   item: HermesQueueItem,
 ): Promise<{ reservationId: string; action: string }> {
-  // Hermes sometimes sends "10.48.0.14" for FastTrax events — detect via subject
+  // Hermes sometimes sends "10.48.0.14" for FastTrax events — detect via subject.
+  // Backstop only; see isFastTraxSubject for why the match is anchored and not a
+  // bare `includes("FT")` (which also fires on GIFT / LEFT / CRAFT / AFTER and
+  // would pin a HeadPinz-bound event to FastTrax permanently).
   let hermesCenter = item.center;
-  if (
-    hermesCenter === "10.48.0.14" &&
-    (item.subject?.includes("FT") || item.subject?.includes("FastTrax"))
-  ) {
+  if (hermesCenter === "10.48.0.14" && isFastTraxSubject(item.subject)) {
     hermesCenter = "10.48.0.14_FT";
   }
 
@@ -312,6 +447,11 @@ async function processQueueItem(
   ) {
     return { reservationId: item.reservationId, action: "debounced" };
   }
+
+  // Did the event change venue since we last saw it? Re-point the row FIRST, so
+  // every branch below (BMI notes, guest notifications, the day-of reconcile)
+  // works from the new center. No-ops unless the center actually moved.
+  const centerChanges = existing ? await syncQuoteCenter(existing, center, item) : [];
 
   // Data-quality gate. Required guest info — email, name, phone, and (at HPFM/FT)
   // the location selector — MUST be present before a contract goes out. When the
@@ -451,12 +591,13 @@ async function processQueueItem(
       await createContractVersion({
         quoteId: existing.id,
         snapshot: extractContractSnapshot(existing),
-        changes: dateChanged
-          ? [
-              `date/time: ${existing.event_date_display} → ${newEventDisplay}`,
-              "contact/notes update (pricing unchanged)",
-            ]
-          : ["contact/notes update (pricing unchanged)"],
+        changes: [
+          ...centerChanges,
+          ...(dateChanged
+            ? [`date/time: ${existing.event_date_display} → ${newEventDisplay}`]
+            : []),
+          "contact/notes update (pricing unchanged)",
+        ],
         trigger: "dispatch_cron",
       }).catch((err) => console.warn("[group-quote-dispatch] snapshot error:", err));
       await updateGfQuoteDetails(existing.id, {
@@ -609,7 +750,12 @@ async function processQueueItem(
     // below — a field that can change but isn't checked here would silently stop
     // syncing. event_date is compared via its display string (the raw timestamptz
     // round-trips through the DB in a different format and would always differ).
-    const changes: string[] = [];
+    // Seeded with any center move (already written above by syncQuoteCenter). It
+    // MUST be in this list: a venue change can move zero money — same products,
+    // same total — and the `changes.length === 0` early-exit below would then
+    // resend the contract while skipping the day-of reconcile that relocates the
+    // order to the new center.
+    const changes: string[] = [...centerChanges];
     if (priceChanged) changes.push(`total: ${existing.total_cents} → ${totalCents}`);
     if (existing.tax_cents !== taxCents) changes.push(`tax: ${existing.tax_cents} → ${taxCents}`);
     if (existing.deposit_due_cents !== depositDueCents)
@@ -924,10 +1070,12 @@ async function processQueueItem(
     await createContractVersion({
       quoteId: existing.id,
       snapshot: extractContractSnapshot(existing),
-      changes:
-        existing.total_cents !== totalCents
+      changes: [
+        ...centerChanges,
+        ...(existing.total_cents !== totalCents
           ? [`total: ${existing.total_cents} → ${totalCents}`]
-          : ["pre-sign re-dispatch"],
+          : ["pre-sign re-dispatch"]),
+      ],
       trigger: "dispatch_cron",
     }).catch((err) => console.warn("[group-quote-dispatch] snapshot error:", err));
     await updateGfQuoteDetails(existing.id, {
