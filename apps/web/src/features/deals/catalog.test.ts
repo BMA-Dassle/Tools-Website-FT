@@ -94,7 +94,7 @@ describe("deal catalog shape", () => {
 
 describe("dealValue — the advertised strikethrough", () => {
   it("prices the laser pack at $44 à la carte, a 22% saving", () => {
-    const v = dealValue(getDeal("laser-tag-game-card-pack")!, "headpinz");
+    const v = dealValue(getDeal("laser-tag-game-card-pack")!, "headpinz", 3400);
     expect(v.lines).toEqual([
       { label: "2 × Laser Tag (7 min session · 20 min experience)", cents: 2000 },
       { label: "200 Game Zone Tokens", cents: 2000 },
@@ -107,7 +107,7 @@ describe("dealValue — the advertised strikethrough", () => {
   });
 
   it("prices the gel pack at $58 à la carte, a 22% saving", () => {
-    const v = dealValue(getDeal("gel-blaster-game-card-pack")!, "headpinz");
+    const v = dealValue(getDeal("gel-blaster-game-card-pack")!, "headpinz", 4500);
     expect(v.lines).toEqual([
       { label: "2 × Gel Blasters (7 min session · 20 min experience)", cents: 2400 },
       { label: "300 Game Zone Tokens", cents: 3000 },
@@ -123,11 +123,46 @@ describe("dealValue — the advertised strikethrough", () => {
     // the point: an under-stated "value" is a false advertising claim.
     for (const deal of DEAL_CATALOG) {
       for (const location of deal.locations) {
-        const v = dealValue(deal, location);
+        const v = dealValue(deal, location, deal.priceCents);
         expect(v.compareAtCents).toBeGreaterThan(deal.priceCents);
         expect(v.savingsPct).toBeGreaterThan(0);
       }
     }
+  });
+
+  it("counts a limited-time bonus into the value, so the saving really does drop", () => {
+    // This is what makes "limited time" honest without touching the price. The
+    // bonus is real value, so it lifts the à-la-carte total and the advertised
+    // saving with it — and when the offer ends, the same $34 shows a smaller
+    // saving automatically, with no copy edit anywhere.
+    const laser = getDeal("laser-tag-game-card-pack")!;
+    const bonus = { kind: "gamezone" as const, tokens: 0, bonusTokens: 50, bonusCashDollars: 0 };
+
+    const withBonus = dealValue(laser, "headpinz", 3400, [bonus]);
+    const without = dealValue(laser, "headpinz", 3400);
+
+    expect(withBonus.priceCents).toBe(without.priceCents);
+    expect(withBonus.compareAtCents).toBe(4900);
+    expect(withBonus.savingsCents).toBe(1500);
+    expect(withBonus.savingsPct).toBe(30);
+    expect(without.savingsPct).toBe(22);
+
+    // The bonus is its own line, so the offer is visible in the table.
+    expect(withBonus.lines).toContainEqual({
+      label: "50 bonus Game Zone Tokens (limited time)",
+      cents: 500,
+    });
+  });
+
+  it("does not charge the value table an activation fee for bonus tokens", () => {
+    // Bonus tokens ride the cards the pack already includes. Counting another
+    // $2 activation fee would overstate the saving — the same instinct as the
+    // throw for a missing product: never inflate.
+    const laser = getDeal("laser-tag-game-card-pack")!;
+    const bonus = { kind: "gamezone" as const, tokens: 0, bonusTokens: 50, bonusCashDollars: 0 };
+    const v = dealValue(laser, "headpinz", 3400, [bonus]);
+    const fees = v.lines.filter((l) => l.label.includes("activation fee"));
+    expect(fees).toEqual([{ label: "2 × new-card activation fee", cents: 400 }]);
   });
 
   it("throws rather than under-stating when a product is missing at a location", () => {
@@ -136,7 +171,7 @@ describe("dealValue — the advertised strikethrough", () => {
       items: [{ kind: "attraction" as const, slug: "duck-pin", qty: 1 }],
     };
     // Duckpin is FastTrax-only — there is no Naples product.
-    expect(() => dealValue(bogus, "naples")).toThrow(/no duck-pin product at naples/);
+    expect(() => dealValue(bogus, "naples", 3400)).toThrow(/no duck-pin product at naples/);
   });
 });
 
@@ -180,6 +215,34 @@ describe("dealVoucherSummary", () => {
     expect(dealVoucherSummary(getDeal("gel-blaster-game-card-pack")!)).toBe(
       "2 × Gel Blasters + 300 Game Zone Tokens",
     );
+  });
+});
+
+describe("dealVoucherItems — the limited-time bonus", () => {
+  const bonus = { kind: "gamezone" as const, tokens: 0, bonusTokens: 50, bonusCashDollars: 0 };
+  const laser = getDeal("laser-tag-game-card-pack")!;
+
+  it("grants the bonus PER PACK, not once per order", () => {
+    // Three packs bought during a 50-token offer are owed three 50-token legs.
+    // Granting one would quietly short two thirds of what was advertised.
+    const items = dealVoucherItems(laser, 3, [bonus]);
+    expect(items.filter((i) => i.kind === "gamezone" && i.bonusTokens === 50)).toHaveLength(3);
+    // And the pack's own legs are still all there, three times over.
+    expect(items.filter((i) => i.kind === "attraction")).toHaveLength(6);
+    expect(items).toHaveLength(3 * 4 + 3);
+  });
+
+  it("appends rather than replaces, and changes nothing when there is no bonus", () => {
+    expect(dealVoucherItems(laser, 1, [])).toEqual(laser.items);
+    expect(dealVoucherItems(laser, 1)).toEqual(laser.items);
+    expect(dealVoucherItems(laser, 1, [bonus])).toEqual([...laser.items, bonus]);
+  });
+
+  it("describes the bonus in the receipt summary the buyer receives", () => {
+    // 200 pack tokens + 50 bonus. The receipt must describe the voucher that was
+    // actually minted, not the catalog pack.
+    expect(dealVoucherSummary(laser, 1, [bonus])).toBe("2 × Laser Tag + 250 Game Zone Tokens");
+    expect(dealVoucherSummary(laser, 1)).toBe("2 × Laser Tag + 200 Game Zone Tokens");
   });
 });
 

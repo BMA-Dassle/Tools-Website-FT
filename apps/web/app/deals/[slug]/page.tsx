@@ -15,7 +15,9 @@ import SeoFaq from "@/components/headpinz/SeoFaq";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { HEADPINZ_OG, HEADPINZ_OG_IMAGE } from "@/lib/seo";
 import { ATTRACTIONS, normalizeLocationSlug } from "@/lib/attractions-data";
+import DealOfferNote from "~/components/features/deals/DealOfferNote";
 import {
+  currentDealOffer,
   DEAL_CATALOG,
   DEAL_LOCATION_INFO,
   dealValue,
@@ -23,7 +25,10 @@ import {
   isDealLocation,
   type DealCatalogEntry,
   type DealLocationKey,
+  type DealOffer,
 } from "~/features/deals";
+import { dealsUrgencyUiEnabled } from "~/features/deals/flags";
+import { money, offerFinePrint } from "~/features/deals/format";
 import DealBuyPanel from "./DealBuyPanel";
 
 /**
@@ -108,9 +113,18 @@ export async function generateMetadata({
  * No aggregateRating: there are no real reviews for this pack, and inventing one
  * is both a policy violation and a manual-action risk.
  */
-function productJsonLd(deal: DealCatalogEntry, value: ReturnType<typeof dealValue>) {
+function productJsonLd(
+  deal: DealCatalogEntry,
+  value: ReturnType<typeof dealValue>,
+  offer: DealOffer,
+) {
   const url = canonicalFor(deal.slug);
-  // Offers need an end date; a rolling year keeps it valid without a content edit.
+  // Offers need an end date, and a rolling year is the HONEST one here: a
+  // limited offer changes what the pack contains, never what it costs, so the
+  // PRICE has no expiry to declare. Putting the offer's deadline here instead
+  // would tell Google the price expires on a date it demonstrably will not —
+  // structured data has to survive the same scrutiny as the visible page. The
+  // bonus does show up in `additionalProperty` below, via the value lines.
   const validUntil = new Date();
   validUntil.setFullYear(validUntil.getFullYear() + 1);
 
@@ -130,7 +144,7 @@ function productJsonLd(deal: DealCatalogEntry, value: ReturnType<typeof dealValu
       "@type": "Offer",
       url,
       priceCurrency: "USD",
-      price: (deal.priceCents / 100).toFixed(2),
+      price: (offer.unitPriceCents / 100).toFixed(2),
       priceValidUntil: validUntil.toISOString().slice(0, 10),
       availability: "https://schema.org/InStock",
       itemCondition: "https://schema.org/NewCondition",
@@ -140,7 +154,7 @@ function productJsonLd(deal: DealCatalogEntry, value: ReturnType<typeof dealValu
       // machine-readable and matches the on-page strikethrough.
       priceSpecification: {
         "@type": "UnitPriceSpecification",
-        price: (deal.priceCents / 100).toFixed(2),
+        price: (offer.unitPriceCents / 100).toFixed(2),
         priceCurrency: "USD",
         valueAddedTaxIncluded: false,
       },
@@ -189,9 +203,33 @@ export default async function DealPage({
       ? normalized
       : null;
 
+  // `?qty=` restores an abandoned basket from the recovery email. Clamped to the
+  // per-buyer cap and to a positive integer here rather than trusted: it arrives
+  // from a URL, and the panel's stepper has no business being handed a 0 or a
+  // 900. It only ever affects what is PRE-SELECTED — the price is still resolved
+  // server-side and re-quoted, so a hostile value cannot move money.
+  const qtyParam = typeof sp.qty === "string" ? Number.parseInt(sp.qty, 10) : NaN;
+  const initialQty = Number.isFinite(qtyParam)
+    ? Math.min(Math.max(qtyParam, 1), deal.maxPerBuyer)
+    : 1;
+
+  // The live price — launch offer or regular — resolved once and used for the
+  // hero, the value table, the Offer JSON-LD and the panel's opening state. The
+  // buy panel then re-quotes against the server on every change, and the charge
+  // path resolves again at the moment of the charge, so this render being an
+  // instant old can never become a charge at the wrong price.
+  const offer = await currentDealOffer(deal);
+  const urgencyUi = dealsUrgencyUiEnabled();
+  const offerTerms = offerFinePrint(offer);
+
   // Value is per location; dealValue throws if a product is missing there, so an
   // unsellable combination fails loudly rather than under-stating a saving.
-  const value = dealValue(deal, initialLocation ?? deal.locations[0]);
+  const value = dealValue(
+    deal,
+    initialLocation ?? deal.locations[0],
+    offer.unitPriceCents,
+    offer.bonusItems,
+  );
   const attraction = ATTRACTIONS[deal.scheduleSlug];
   const accent = attraction?.color ?? "#fd5b56";
   const cardItems = deal.items.filter((i) => i.kind === "gamezone");
@@ -207,7 +245,7 @@ export default async function DealPage({
     >
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(productJsonLd(deal, value)) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(productJsonLd(deal, value, offer)) }}
       />
       <BreadcrumbJsonLd
         items={[
@@ -265,7 +303,7 @@ export default async function DealPage({
 
               <div className="mt-8 flex flex-wrap items-end gap-x-5 gap-y-2">
                 <span className="font-display text-6xl text-white sm:text-7xl">
-                  ${(deal.priceCents / 100).toFixed(0)}
+                  {money(offer.unitPriceCents)}
                 </span>
                 <div className="pb-2">
                   <span className="block text-sm text-white/50">plus tax</span>
@@ -273,15 +311,34 @@ export default async function DealPage({
                     ${(value.compareAtCents / 100).toFixed(0)} value
                   </span>
                 </div>
+                {/* Dollars first, percent second. "Save $10" is the number
+                    someone feels; 22% is the number that justifies it. Both are
+                    computed from the live price by dealValue, so neither can
+                    drift from what the card is actually charged. */}
                 <span
                   className="mb-2 rounded-full px-3 py-1 text-xs font-bold tracking-widest uppercase"
                   style={{ background: accent, color: "#00041b" }}
                 >
-                  Save {value.savingsPct}%
+                  Save {money(value.savingsCents)} · {value.savingsPct}%
                 </span>
               </div>
 
+              {urgencyUi && offer.isOfferLive && offer.endsAt && offer.bonusLabel && (
+                <DealOfferNote
+                  endsAt={offer.endsAt}
+                  bonusLabel={offer.bonusLabel}
+                  accentColor={accent}
+                />
+              )}
+
+              {/* Delivery and reach lead; the twelve-month window follows. It is
+                  a genuine risk-remover and stays on the page, but leading with
+                  "you have a year" is an argument for buying later. */}
               <ul className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-white/60">
+                <li className="flex items-center gap-1.5">
+                  <IconQrcode size={15} style={{ color: accent }} />
+                  Emailed instantly
+                </li>
                 <li className="flex items-center gap-1.5">
                   <IconMapPin size={15} style={{ color: accent }} />
                   Good at either HeadPinz
@@ -289,10 +346,6 @@ export default async function DealPage({
                 <li className="flex items-center gap-1.5">
                   <IconCalendarEvent size={15} style={{ color: accent }} />
                   {deal.expiresMonths} months to use it
-                </li>
-                <li className="flex items-center gap-1.5">
-                  <IconQrcode size={15} style={{ color: accent }} />
-                  Emailed instantly
                 </li>
               </ul>
 
@@ -356,9 +409,11 @@ export default async function DealPage({
               <DealBuyPanel
                 slug={deal.slug}
                 dealName={deal.name}
-                priceCents={deal.priceCents}
+                initialOffer={offer}
+                urgencyUi={urgencyUi}
                 locations={deal.locations}
                 initialLocation={initialLocation}
+                initialQty={initialQty}
                 maxPerBuyer={deal.maxPerBuyer}
                 expiresMonths={deal.expiresMonths}
                 accentColor={accent}
@@ -401,7 +456,7 @@ export default async function DealPage({
                   This pack
                 </th>
                 <td className="py-3 text-right font-bold" style={{ color: accent }}>
-                  ${(deal.priceCents / 100).toFixed(2)} + tax
+                  ${(offer.unitPriceCents / 100).toFixed(2)} + tax
                 </td>
               </tr>
             </tbody>
@@ -520,6 +575,10 @@ export default async function DealPage({
             Prices shown exclude sales tax; your exact total appears before you enter card details.
           </li>
           <li>Limit {deal.maxPerBuyer} packs per person. Not redeemable for cash.</li>
+          {/* Not gated on the urgency-UI switch: this is the terms of an offer
+              the buyer is being charged under, and it stays on the page whether
+              or not the countdown is showing. */}
+          {offerTerms && <li>{offerTerms}</li>}
         </ul>
         <p className="mt-6 text-sm text-white/40">
           Other deals on this pack&apos;s sibling:{" "}

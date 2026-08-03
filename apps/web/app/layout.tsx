@@ -21,6 +21,7 @@ import { GoogleAnalytics } from "@next/third-parties/google";
 import MiniCart from "@/components/booking/MiniCart";
 import { MiniCartV2 } from "~/components/features/booking/MiniCartV2";
 import { VipExperiencePopup } from "~/components/features/combos/VipExperiencePopup";
+import { FlashSalePopup } from "~/components/features/deals/FlashSalePopup";
 import { FASTTRAX_OG, FASTTRAX_OG_IMAGE, HEADPINZ_OG, HEADPINZ_OG_IMAGE } from "@/lib/seo";
 
 /* FastTrax fonts */
@@ -293,6 +294,13 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             never on admin, kiosks or chrome-free promo landings. The component
             also suppresses the booking flow — see SUPPRESSED_PREFIXES. */}
         {showChrome && !isKiosk && <VipExperiencePopup />}
+        {/* Naples flash-sale ad for the prepaid deal packs. HeadPinz public
+            pages only, and the client half narrows it to Naples. Mutually
+            exclusive with the VIP popup above by construction — that one is
+            gated on showChrome (FastTrax), this on showHpChrome — so the two can
+            never stack on one page. Renders nothing at all unless a limited
+            offer is genuinely running; see FlashSalePopup. */}
+        {showHpChrome && !isKiosk && <FlashSalePopup />}
         <SpeedInsights />
         <Analytics />
         <ClarityAnalytics />

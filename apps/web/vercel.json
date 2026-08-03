@@ -17,6 +17,10 @@
       "schedule": "10,40 * * * *"
     },
     {
+      "path": "/api/cron/deal-abandon-email",
+      "schedule": "25 13-23,0-2 * * *"
+    },
+    {
       "path": "/api/cron/pov-pool-alert",
       "schedule": "0 */6 * * *"
     },

@@ -83,18 +83,26 @@ const { fulfilDealPurchase, dealScheduleUrl } = await import(
   "../src/features/deals/service/purchase.js"
 );
 const { quoteDeal } = await import("../src/features/deals/service/quote.js");
+const { currentDealOffer } = await import("../src/features/deals/service/offer.js");
 
 const deal = getDeal(SLUG);
 if (!deal) throw new Error(`unknown deal ${SLUG}`);
 const info = DEAL_LOCATION_INFO[LOCATION];
 
-// Price it through the SAME Square dry-run the page uses, so the row carries the
-// real tax and total for this location even though nothing is charged.
-const quote = await quoteDeal({ deal, location: LOCATION, qty: QTY });
-const value = dealValue(deal, LOCATION);
+// Resolve through the SAME offer resolver and price through the SAME Square
+// dry-run the page uses, so a sample minted during a limited offer carries the
+// bonus and the row reads back exactly like a real purchase would.
+const offer = await currentDealOffer(deal);
+const quote = await quoteDeal({
+  deal,
+  location: LOCATION,
+  qty: QTY,
+  unitPriceCents: offer.unitPriceCents,
+});
+const value = dealValue(deal, LOCATION, offer.unitPriceCents, offer.bonusItems);
 
 console.log(`\n${deal.name} ×${QTY} @ ${info.label}`);
-console.log(`  carries      ${dealVoucherSummary(deal, COMBINE ? QTY : 1)}`);
+console.log(`  carries      ${dealVoucherSummary(deal, COMBINE ? QTY : 1, offer.bonusItems)}`);
 console.log(`  delivery     ${COMBINE ? `ONE code for all ${QTY} pack(s)` : `${QTY} separate codes`}`);
 console.log(`  à la carte   $${(value.compareAtCents / 100).toFixed(2)}  (save ${value.savingsPct}%)`);
 console.log(
@@ -113,7 +121,7 @@ const row = await insertDealPurchase({
   centerCode: info.centerCode,
   qty: QTY,
   combine: COMBINE,
-  unitPriceCents: deal.priceCents,
+  unitPriceCents: offer.unitPriceCents,
   subtotalCents: quote.subtotalCents,
   taxCents: quote.taxCents,
   totalCents: quote.totalCents,
@@ -123,6 +131,7 @@ const row = await insertDealPurchase({
   smsOptIn: WITH_SMS && !!PHONE,
   // Marked so nobody mistakes this for revenue on the sales board.
   idempotencyKey: `sample-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+  bonusItems: offer.bonusItems,
   utm: { utm_source: "script", utm_campaign: "deal-pack-sample" },
   clickwrapVersion: "sample-no-charge",
 });

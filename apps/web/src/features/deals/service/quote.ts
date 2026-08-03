@@ -53,15 +53,24 @@ export class DealQuoteError extends Error {
 
 /**
  * The order body. ONE catalog-backed line, quantity = packs, price overridden
- * from the registry — the catalog id is for Square/QBO categorisation, never for
+ * by the caller — the catalog id is for Square/QBO categorisation, never for
  * pricing (same doctrine as token packages and race packs).
+ *
+ * `unitPriceCents` is REQUIRED and comes from `resolveDealOffer()`, never from
+ * `deal.priceCents`. It is threaded through every function in this file rather
+ * than resolved inside any of them, because the quote and the charge must be
+ * priced from the same resolve: re-resolving in `createDealOrder` would let a
+ * launch deadline expire *between* the quote and the order and produce two
+ * different bodies from one checkout — which is exactly what the shared builder
+ * exists to make impossible.
  */
 export function buildDealOrder(args: {
   deal: DealCatalogEntry;
   location: DealLocationKey;
   qty: number;
+  unitPriceCents: number;
 }): Record<string, unknown> {
-  const { deal, location, qty } = args;
+  const { deal, location, qty, unitPriceCents } = args;
   const catalogObjectId = dealSquareCatalogId(deal);
   if (!catalogObjectId) {
     // Refuse rather than fall back to an ad-hoc line: an uncategorised sale is
@@ -82,7 +91,7 @@ export function buildDealOrder(args: {
     line_items: [
       {
         quantity: String(qty),
-        base_price_money: { amount: deal.priceCents, currency: "USD" },
+        base_price_money: { amount: unitPriceCents, currency: "USD" },
         catalog_object_id: catalogObjectId,
         item_type: "ITEM",
         name: deal.name,
@@ -116,6 +125,7 @@ export async function quoteDeal(args: {
   deal: DealCatalogEntry;
   location: DealLocationKey;
   qty: number;
+  unitPriceCents: number;
 }): Promise<DealQuote> {
   const order = buildDealOrder(args);
   const { ok, data } = await squareFetch<{ order?: unknown; errors?: unknown }>(
@@ -125,7 +135,7 @@ export async function quoteDeal(args: {
   if (!ok || !data?.order) {
     throw new DealQuoteError("QUOTE_FAILED", `Square could not price this: ${squareErrorDetail(data)}`);
   }
-  const quote = totalsFromOrder(data.order, args.qty, args.deal.priceCents);
+  const quote = totalsFromOrder(data.order, args.qty, args.unitPriceCents);
   if (quote.totalCents <= 0) {
     throw new DealQuoteError("QUOTE_FAILED", "Square returned a zero total");
   }
@@ -142,6 +152,7 @@ export async function createDealOrder(args: {
   deal: DealCatalogEntry;
   location: DealLocationKey;
   qty: number;
+  unitPriceCents: number;
   baseKey: string;
 }): Promise<{ orderId: string; quote: DealQuote }> {
   const order = buildDealOrder(args);
@@ -156,7 +167,7 @@ export async function createDealOrder(args: {
       `Square order create failed: ${squareErrorDetail(data)}`,
     );
   }
-  return { orderId, quote: totalsFromOrder(data.order, args.qty, args.deal.priceCents) };
+  return { orderId, quote: totalsFromOrder(data.order, args.qty, args.unitPriceCents) };
 }
 
 /**

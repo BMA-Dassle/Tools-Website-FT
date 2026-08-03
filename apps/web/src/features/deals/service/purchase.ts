@@ -63,6 +63,7 @@ import {
 } from "../data/deal-purchases-db";
 import { checkGiftDate, formatGiftDate } from "../gift";
 import { checkBuyerCap } from "./cap";
+import { currentDealOffer } from "./offer";
 import { assertQuoteMatches, createDealOrder, DEAL_SQUARE_LOCATION, DealQuoteError } from "./quote";
 import type { DealPurchaseInput } from "../schemas";
 
@@ -165,7 +166,11 @@ export async function fulfilDealPurchase(row: DealPurchaseRow): Promise<{
       // else, which is exactly what the split option is for.
       const res = await mintVouchers({
         count: row.combine ? 1 : row.qty,
-        items: dealVoucherItems(deal, row.combine ? row.qty : 1),
+        // `row.bonusItems` — the limited offer FROZEN AT PURCHASE, not
+        // re-resolved. This cron can run long after the charge, and a buyer who
+        // paid while the offer was live is owed the bonus regardless of whether
+        // it is still running now. Same rule as `combine` above.
+        items: dealVoucherItems(deal, row.combine ? row.qty : 1, row.bonusItems),
         expiresAt,
         issuedSource: `deal:${deal.slug}`,
         // A gift belongs to the RECIPIENT the moment it's cut, even if it won't
@@ -218,7 +223,11 @@ export async function fulfilDealPurchase(row: DealPurchaseRow): Promise<{
 
   if (codes.length === 0) return { codes, mintPending: true, emailPending: true };
 
-  const valueSummary = dealVoucherSummary(deal, row.combine ? row.qty : 1);
+  // `row.bonusItems` — the limited offer frozen at purchase, the same list the
+  // mint used. Hoisted so the receipt, the SMS, the staff alert and the gift
+  // email all describe the voucher that was actually minted rather than a
+  // catalog pack without the extras.
+  const valueSummary = dealVoucherSummary(deal, row.combine ? row.qty : 1, row.bonusItems);
   const expiryLabel = expiresAt ? formatGiftDate(expiresAt) : null;
 
   /* ── a gift whose day hasn't come: receipt the buyer, park the row ──────
@@ -406,13 +415,26 @@ export async function purchaseDeal(input: DealPurchaseInput): Promise<DealPurcha
   }
 
   // ── 3. price the real order, refuse if it moved ─────────────────────────
+  // Resolve the price ONCE, here, and thread it through the order and the row.
+  // This is the charge-time re-evaluation the repo rule demands: whatever the
+  // panel was showing, the launch deadline and the allocation are re-checked at
+  // the moment of the charge, and `assertQuoteMatches` below refuses if that
+  // produced a different total than the buyer agreed to.
+  const offer = await currentDealOffer(deal);
+
   // 16 hex leaves room for Square's longest prefix inside the 45-char
   // idempotency-key limit (`deal-order-` = 11, so 11 + 16 = 27).
   const baseKey = randomBytes(8).toString("hex");
   let orderId: string;
   let quote: Awaited<ReturnType<typeof createDealOrder>>["quote"];
   try {
-    const created = await createDealOrder({ deal, location, qty: input.qty, baseKey });
+    const created = await createDealOrder({
+      deal,
+      location,
+      qty: input.qty,
+      unitPriceCents: offer.unitPriceCents,
+      baseKey,
+    });
     orderId = created.orderId;
     quote = created.quote;
     assertQuoteMatches(input.shownTotalCents, quote);
@@ -432,7 +454,10 @@ export async function purchaseDeal(input: DealPurchaseInput): Promise<DealPurcha
     centerCode: info.centerCode,
     qty: input.qty,
     combine: input.combine,
-    unitPriceCents: deal.priceCents,
+    unitPriceCents: offer.unitPriceCents,
+    // Freeze the live offer onto the row. Everything downstream — the mint, the
+    // receipt email, a cron re-run hours later — reads it from here.
+    bonusItems: offer.bonusItems,
     subtotalCents: quote.subtotalCents,
     taxCents: quote.taxCents,
     totalCents: quote.totalCents,

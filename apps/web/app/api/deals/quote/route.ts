@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { DealQuoteSchema } from "~/features/deals/schemas";
 import { getDeal, type DealLocationKey } from "~/features/deals";
+import { currentDealOffer } from "~/features/deals/service/offer";
 import { quoteDeal, DealQuoteError } from "~/features/deals/service/quote";
 import { getClientIp } from "@/lib/admin-auth";
 import redis from "@/lib/redis";
@@ -17,6 +18,13 @@ export const dynamic = "force-dynamic";
  *
  * Creates nothing: `/orders/calculate` is a dry run, so re-pricing on every
  * quantity change doesn't litter the merchant's order list with abandoned drafts.
+ *
+ * ALSO THE SOURCE OF THE LAUNCH-OFFER STATE. Both deal pages are
+ * `revalidate = 3600`, so anything they render server-side can be an hour stale
+ * — a packs-remaining counter cannot come from the page body. This route is
+ * `force-dynamic` and already re-runs on every location and quantity change, so
+ * it returns the resolved `offer` alongside the quote and the panel renders
+ * the live numbers from there.
  *
  * Rate-limited generously — this fires on quantity and location changes, and it
  * reveals only a price we publish on the page anyway.
@@ -56,8 +64,14 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const quote = await quoteDeal({ deal, location, qty: parsed.data.qty });
-    return NextResponse.json({ ok: true, quote });
+    const offer = await currentDealOffer(deal);
+    const quote = await quoteDeal({
+      deal,
+      location,
+      qty: parsed.data.qty,
+      unitPriceCents: offer.unitPriceCents,
+    });
+    return NextResponse.json({ ok: true, quote, offer });
   } catch (err) {
     if (err instanceof DealQuoteError) {
       // NOT_SELLABLE is the expected state before the owner supplies Square

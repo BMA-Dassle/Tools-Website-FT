@@ -78,6 +78,46 @@ export interface DealFaq {
   a: string;
 }
 
+/**
+ * A time- and/or inventory-limited BONUS on top of a pack. The price never moves.
+ *
+ * WHY A BONUS AND NOT A DISCOUNT (owner 2026-08-03: "I don't plan on raising the
+ * price"). An advertised deadline has to be attached to something that actually
+ * changes, or it is a lie — and a countdown to a price step-up the business will
+ * not perform is the exact fake-urgency pattern this page exists to beat rather
+ * than copy. Making the BONUS the thing that expires keeps the deadline
+ * completely true while leaving the price alone: $34 buys 2 laser tag + 200
+ * tokens + 50 bonus tokens today, and $34 buys 2 laser tag + 200 tokens after
+ * the date. Strictly less for the same money, which is what makes "limited time"
+ * an honest claim about the DEAL rather than a false one about the price. It is
+ * also cheaper than a discount — bonus play costs its marginal cost, a price cut
+ * costs cash.
+ *
+ * THE LIMIT IS THE POINT. An offer must carry a deadline, an allocation, or both
+ * — the type enforces at least one — because a bonus with neither is simply part
+ * of the pack. Whichever limit is reached first ends it.
+ *
+ * `endsAt` is a bare local timestamp — `YYYY-MM-DDTHH:mm:ss`, no offset. The
+ * Eastern offset is applied by `etOffsetFor` at resolve time, never hardcoded:
+ * `23:59:59-05:00` in August is `00:59:59-04:00` the next morning, and this repo
+ * has shipped that off-by-one twice already.
+ */
+interface DealLimitedOfferBase {
+  /**
+   * Extra voucher items granted PER PACK while the offer runs, appended to
+   * `DealCatalogEntry.items`. Any Game Zone denomination here must appear on
+   * BOTH `NATIVE_GRANT_DENOMINATIONS` and `COMP_TOKEN_DENOMINATIONS` — the mint
+   * throws loudly on the first, but the LOAD path re-derives through the second
+   * and an unrecognised value credits nothing at all, with no error.
+   */
+  bonusItems: VoucherItem[];
+  /** Short guest-facing name for the bonus, e.g. "50 bonus tokens per pack". */
+  label: string;
+}
+export type DealLimitedOffer =
+  | (DealLimitedOfferBase & { endsAt: string; allocation?: number | null })
+  | (DealLimitedOfferBase & { endsAt?: string | null; allocation: number });
+
 export interface DealCatalogEntry {
   /** URL slug — `headpinz.com/deals/<slug>`. Also the Square line name key. */
   slug: string;
@@ -85,8 +125,18 @@ export interface DealCatalogEntry {
   name: string;
   /** One-line hook under the H1. */
   tagline: string;
-  /** PRE-TAX price for ONE pack, in cents. The charge authority. */
+  /** PRE-TAX price for ONE pack, in cents. The charge authority, and stable —
+   *  a limited offer changes what the pack CONTAINS, never what it costs. */
   priceCents: number;
+  /**
+   * A limited-time bonus on top of the pack, or null for "just the pack".
+   *
+   * null is the default and means today's behaviour exactly: no countdown, no
+   * counter, no bonus. Turning one on is a single edit here — the pages, the
+   * value strikethrough, the minted voucher, the receipt and the recovery email
+   * all follow, the same way `squareCatalogId` gates sellability.
+   */
+  limitedOffer: DealLimitedOffer | null;
   /**
    * The voucher a single pack mints, verbatim. Order is identity — never
    * reorder or splice this array for a deal that has already sold, or an
@@ -139,6 +189,31 @@ export function gameZoneItemDollars(item: VoucherItem): number {
   return (item.tokens + item.bonusTokens) / 10;
 }
 
+/**
+ * The flash sale — 50 bonus tokens per pack, through Thursday 6 August 2026
+ * (owner 2026-08-03: "flash sale with countdown, good till Thursday").
+ *
+ * TO END IT EARLY, set this to `null` and deploy; to extend it, move `endsAt`.
+ * Either way the pages, the countdown, the Naples popup, the minted voucher and
+ * the recovery email all follow from this one constant, and the price is
+ * untouched by all of it.
+ *
+ * 50 is on both `NATIVE_GRANT_DENOMINATIONS` and `COMP_TOKEN_DENOMINATIONS`, so
+ * the mint validates it AND the load path can credit it. A denomination on only
+ * the first would mint a voucher that silently loads nothing.
+ *
+ * Deliberately runs at BOTH venues even though only Naples is advertised: the
+ * popup is the Naples-scoped thing, and a Fort Myers buyer who reaches the same
+ * page through search would otherwise be shown a bonus the checkout refuses. If
+ * this ever needs to be genuinely Naples-only, the offer needs a `locations`
+ * field and the resolver needs the buyer's venue — it does not have one today.
+ */
+const NAPLES_FLASH_SALE: DealLimitedOffer = {
+  bonusItems: [gameZone(50)],
+  label: "50 bonus tokens per pack",
+  endsAt: "2026-08-06T23:59:59",
+};
+
 const SHARED_FAQS: DealFaq[] = [
   {
     q: "How do I get my game cards?",
@@ -172,6 +247,7 @@ export const DEAL_CATALOG: readonly DealCatalogEntry[] = [
     name: "Laser Tag + Game Card Pack",
     tagline: "Two rounds of multi-level laser tag and $20 in Game Zone Tokens.",
     priceCents: 3400,
+    limitedOffer: NAPLES_FLASH_SALE,
     items: [admission("laser-tag"), admission("laser-tag"), gameZone(100), gameZone(100)],
     scheduleSlug: "laser-tag",
     locations: DEAL_LOCATIONS,
@@ -206,6 +282,7 @@ export const DEAL_CATALOG: readonly DealCatalogEntry[] = [
     name: "Gel Blaster + Game Card Pack",
     tagline: "Two gel blaster battles and $30 in Game Zone Tokens.",
     priceCents: 4500,
+    limitedOffer: NAPLES_FLASH_SALE,
     items: [admission("gel-blaster"), admission("gel-blaster"), gameZone(150), gameZone(150)],
     scheduleSlug: "gel-blaster",
     locations: DEAL_LOCATIONS,
@@ -290,11 +367,25 @@ export interface DealValue {
  *
  * Game Zone value is counted at face ($10 of tokens = $10) plus the $2 per-card
  * activation fee a walk-in would pay for a brand-new card, which a pack waives.
+ *
+ * `priceCents` and `bonusItems` are passed in rather than read off the deal,
+ * because what a buyer gets for their money right now depends on whether a
+ * limited offer is running. Resolve with `resolveDealOffer()` and hand the
+ * result in. This is what makes "limited time" true rather than decorative: the
+ * bonus counts toward the à-la-carte total, so the advertised saving genuinely
+ * DROPS the moment the offer ends — same price, less value, and the number on
+ * the page says so without anyone editing copy.
  */
-export function dealValue(deal: DealCatalogEntry, location: DealLocationKey): DealValue {
+export function dealValue(
+  deal: DealCatalogEntry,
+  location: DealLocationKey,
+  priceCents: number,
+  bonusItems: readonly VoucherItem[] = [],
+): DealValue {
   const lines: DealValueLine[] = [];
+  const items = [...deal.items, ...bonusItems];
 
-  const admissions = deal.items.filter((i) => i.kind === "attraction");
+  const admissions = items.filter((i) => i.kind === "attraction");
   if (admissions.length > 0) {
     // Every admission item on a pack is the same slug today; group by slug so a
     // future mixed pack still prices correctly.
@@ -329,17 +420,33 @@ export function dealValue(deal: DealCatalogEntry, location: DealLocationKey): De
       cents: Math.round(playCents),
     });
     lines.push({
+      // Counted off the PACK's cards only. Bonus tokens ride the cards the pack
+      // already includes — they are not another card, and charging the value
+      // table for an activation fee nobody would ever pay would overstate the
+      // saving. Same instinct as the throw above: never inflate.
       label: `${cardItems.length} × new-card activation fee`,
       cents: ACTIVATION_FEE_CENTS * cardItems.length,
     });
   }
 
+  // The bonus gets its own line so the limited offer is visible in the table
+  // rather than silently folded into a bigger number — and so the line, and the
+  // saving with it, disappears on its own the moment the offer ends.
+  const bonusCards = bonusItems.filter((i) => i.kind === "gamezone");
+  if (bonusCards.length > 0) {
+    const bonusTokens = bonusCards.reduce((n, i) => n + i.tokens + i.bonusTokens, 0);
+    lines.push({
+      label: `${bonusTokens} bonus Game Zone Tokens (limited time)`,
+      cents: Math.round(bonusCards.reduce((sum, i) => sum + gameZoneItemDollars(i) * 100, 0)),
+    });
+  }
+
   const compareAtCents = lines.reduce((sum, l) => sum + l.cents, 0);
-  const savingsCents = compareAtCents - deal.priceCents;
+  const savingsCents = compareAtCents - priceCents;
   return {
     lines,
     compareAtCents,
-    priceCents: deal.priceCents,
+    priceCents,
     savingsCents,
     savingsPct: compareAtCents > 0 ? Math.floor((savingsCents / compareAtCents) * 100) : 0,
   };
@@ -353,8 +460,12 @@ export function dealValue(deal: DealCatalogEntry, location: DealLocationKey): De
  * the following morning, so a voucher bought on 3 Aug renders as expiring 4 Aug
  * everywhere that formats it in `America/New_York`. Off-by-one on a printed
  * expiry date is the kind of thing a guest argues with staff about.
+ *
+ * Exported because launch-offer deadlines have the identical problem, one step
+ * worse: a sale advertised as ending "Sunday 11:59 PM" that a hardcoded offset
+ * actually ends at 10:59 PM cuts an hour off a price we advertised.
  */
-function etOffsetFor(ymd: string): "-04:00" | "-05:00" {
+export function etOffsetFor(ymd: string): "-04:00" | "-05:00" {
   // 17:00Z is ~midday ET on either offset, so it can never land on the wrong day.
   const midday = new Date(`${ymd}T17:00:00Z`);
   const short = new Intl.DateTimeFormat("en-US", {
@@ -385,8 +496,12 @@ export function dealExpiryFrom(purchasedAt: Date, months: number): string {
  *
  * Collapses duplicates into counts; tokens add up rather than repeat.
  */
-export function dealVoucherSummary(deal: DealCatalogEntry, packs = 1): string {
-  const items = dealVoucherItems(deal, packs);
+export function dealVoucherSummary(
+  deal: DealCatalogEntry,
+  packs = 1,
+  bonusItems: readonly VoucherItem[] = [],
+): string {
+  const items = dealVoucherItems(deal, packs, bonusItems);
   const parts: string[] = [];
 
   const bySlug = new Map<string, number>();
@@ -427,9 +542,22 @@ export function dealVoucherSummary(deal: DealCatalogEntry, packs = 1): string {
  * discrete legs is what makes N units redeemable — separately, on separate
  * visits. A single `qty: N` item would cover one unit and silently charge for the
  * rest (the trap already documented on DealCatalogEntry.items).
+ *
+ * `bonusItems` are the limited offer's extras, granted PER PACK — three packs
+ * bought during a 50-token offer carry three 50-token legs, not one. They MUST
+ * come from the purchase ROW rather than being re-derived from the catalog at
+ * fulfilment time: the reconcile cron can mint minutes or hours after the
+ * charge, by which point the offer may have ended, and a buyer who paid while it
+ * was running is owed the bonus regardless of when our cron got round to it.
+ * (Same rule the `combine` column exists for.)
  */
-export function dealVoucherItems(deal: DealCatalogEntry, packs = 1): VoucherItem[] {
+export function dealVoucherItems(
+  deal: DealCatalogEntry,
+  packs = 1,
+  bonusItems: readonly VoucherItem[] = [],
+): VoucherItem[] {
   const n = Math.max(1, Math.floor(packs));
-  if (n === 1) return deal.items;
-  return Array.from({ length: n }, () => deal.items).flat();
+  const perPack = bonusItems.length > 0 ? [...deal.items, ...bonusItems] : deal.items;
+  if (n === 1) return perPack;
+  return Array.from({ length: n }, () => perPack).flat();
 }
