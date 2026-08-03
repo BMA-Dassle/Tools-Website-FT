@@ -153,6 +153,137 @@ export async function emailMintBatch(args: {
   return res.ok ? { ok: true } : { ok: false, error: res.error };
 }
 
+/**
+ * Email a BOUGHT batch to the buyer — one mail, every code, each with its QR.
+ *
+ * Separate from both senders above because the audience is genuinely different
+ * again. `emailMintBatch` is an operator's working copy of a batch, and
+ * `sendVoucherToGuest` says "on us" — exactly the wrong thing to tell somebody
+ * who just paid. This is a purchase receipt that happens to carry bearer codes.
+ *
+ * ONE mail rather than N: a buyer taking several packs gets one thing to keep,
+ * and ten separate transactional sends to the same address in one second is how
+ * a sending domain earns a spam reputation. Each code stays independently
+ * forwardable, which is the point of a multi-pack buy — one per friend.
+ *
+ * Best-effort, like the others: the vouchers are already durable in Neon and the
+ * money is already captured, so a mail failure must never unwind either. It
+ * returns the error and the caller leaves the purchase row un-sent for the
+ * reconcile cron to retry.
+ */
+export async function emailPurchasedVouchers(args: {
+  to: string;
+  name?: string | null;
+  /** Product name, e.g. "Laser Tag + Game Card Pack". */
+  productName: string;
+  codes: string[];
+  /** What ONE code carries. */
+  items: VoucherItem[];
+  expiresAt?: string | null;
+  /** Where to send them to book the timed half, when the pack has one. */
+  scheduleUrl?: string | null;
+  scheduleLabel?: string | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  const value = itemsSummary(args.items);
+  const many = args.codes.length > 1;
+  const expiry = args.expiresAt
+    ? new Date(args.expiresAt).toLocaleDateString("en-US", {
+        timeZone: "America/New_York",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })
+    : null;
+
+  const qrs = await Promise.all(args.codes.map((c) => qrAttachment(c)));
+  const rows = args.codes
+    .map(
+      (c, i) =>
+        `<tr>` +
+        `<td style="padding:10px 16px 10px 0;vertical-align:middle">` +
+        `<img src="cid:${qrs[i].cid}" width="120" height="120" alt="QR code for ${esc(formatVoucherCode(c))}" ` +
+        `style="display:block;border:1px solid #e5e5e5;border-radius:8px"></td>` +
+        `<td style="padding:10px 0;vertical-align:middle">` +
+        `<div style="font-family:monospace;font-size:19px;letter-spacing:1px">${esc(formatVoucherCode(c))}</div>` +
+        `<div style="margin-top:4px;color:#555;font-size:13px">${esc(value)}</div>` +
+        `<div style="margin-top:6px"><a href="${esc(voucherRedeemUrl(c))}" style="color:#00898b;font-size:13px">View this voucher</a></div>` +
+        `</td></tr>`,
+    )
+    .join("");
+
+  const html = `
+    <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111">
+      <p style="margin:0 0 12px">${args.name ? `Thanks, ${esc(args.name)}! ` : "Thanks! "}Your
+        ${esc(args.productName)}${many ? "s are" : " is"} ready.</p>
+      <p style="margin:0 0 18px;color:#555">
+        ${many ? `${args.codes.length} vouchers, each carrying` : "Your voucher carries"}
+        <strong>${esc(value)}</strong>.
+        ${many ? "Each code works on its own, so you can pass one to a friend." : ""}
+      </p>
+      <table style="border-collapse:collapse;margin:0 0 22px">${rows}</table>
+      ${
+        args.scheduleUrl
+          ? `<p style="margin:0 0 18px">
+               <a href="${esc(args.scheduleUrl)}" style="background:#fd5b56;color:#fff;text-decoration:none;
+                  padding:13px 22px;border-radius:999px;display:inline-block;font-weight:600">
+                 ${esc(args.scheduleLabel || "Pick your time")}
+               </a>
+             </p>`
+          : ""
+      }
+      <p style="margin:0 0 8px;color:#555;font-size:14px"><strong>Getting your game cards:</strong>
+        scan the QR at any HeadPinz kiosk and it prints your cards with the play value already on
+        them. Already have a HeadPinz card? Open the voucher link and load it straight on.</p>
+      <p style="margin:0 0 8px;color:#555;font-size:14px">You don't have to use everything at once —
+        each item is redeemed separately, so whatever you haven't used stays on the code.</p>
+      ${
+        expiry
+          ? `<p style="margin:0;color:#888;font-size:13px">Valid through ${esc(expiry)}.</p>`
+          : ""
+      }
+    </div>`;
+
+  const text = [
+    `${args.name ? `Thanks, ${args.name}! ` : "Thanks! "}Your ${args.productName}${many ? "s are" : " is"} ready.`,
+    `${many ? `${args.codes.length} vouchers, each carrying` : "Your voucher carries"} ${value}.`,
+    "",
+    ...args.codes.map((c) => `${formatVoucherCode(c)} — ${voucherRedeemUrl(c)}`),
+    "",
+    ...(args.scheduleUrl ? [`${args.scheduleLabel || "Pick your time"}: ${args.scheduleUrl}`, ""] : []),
+    "Scan the QR at any HeadPinz kiosk to print your game cards, or open the voucher link to load a card you already have.",
+    ...(expiry ? [`Valid through ${expiry}.`] : []),
+  ].join("\n");
+
+  const res = await sendEmail({
+    to: args.to,
+    toName: args.name ?? undefined,
+    subject: many
+      ? `Your ${args.codes.length} ${args.productName} vouchers`
+      : `Your ${args.productName} voucher`,
+    html,
+    text,
+    categories: ["voucher_purchase"],
+    attachments: qrs.map((q) => q.attachment),
+  });
+  if (!res.ok) return { ok: false, error: res.error };
+
+  // Same audit trail every other send leaves, per code — so "was this ever
+  // delivered?" is answerable from voucher_events without joining the purchase.
+  for (const code of args.codes) {
+    await markVoucherSent(code, {
+      email: args.to,
+      ...(args.name ? { name: args.name } : {}),
+    }).catch(() => {});
+    await logVoucherEvent(code, "send", {
+      to: args.to,
+      channel: "email",
+      reason: "purchase",
+      productName: args.productName,
+    }).catch(() => {});
+  }
+  return { ok: true };
+}
+
 /** Send ONE voucher to a guest by email and/or SMS. */
 export async function sendVoucherToGuest(args: {
   code: string;
