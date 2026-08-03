@@ -82,6 +82,18 @@ describe("MAINTENANCE_VENDORS_DOWN parsing", () => {
     expect(qamf.web.body).toContain("outage");
     expect(qamf.kiosk.es).toContain("Servicio al Cliente");
   });
+
+  it("always carries a shortNote — a locked card must explain itself standalone", () => {
+    // "Temporarily unavailable" with no reason reads like the product was
+    // discontinued (owner 2026-08-03). Every vendor, tailored or generic, has to
+    // supply the one-liner the locked CTA renders, and it must say when to return.
+    down("bmi,bmi-office,pandora,qamf,intercard");
+    for (const o of activeOutages()) {
+      expect(o.web.shortNote, o.vendor).toBeTruthy();
+      expect(o.web.shortNote.length, o.vendor).toBeLessThan(120); // fits a card
+      expect(o.web.shortNote.toLowerCase(), o.vendor).toContain("check back");
+    }
+  });
 });
 
 describe("today's outage: MAINTENANCE_VENDORS_DOWN=bmi", () => {

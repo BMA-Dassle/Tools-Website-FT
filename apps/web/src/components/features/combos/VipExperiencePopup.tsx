@@ -25,6 +25,7 @@ import {
   type ComboLeg,
   type ComboSpecial,
 } from "~/features/combos/combo-specials";
+import { isProductPaused } from "~/features/maintenance";
 
 import {
   VipExperiencePopupClient,
@@ -92,6 +93,16 @@ export function VipExperiencePopup() {
 
   const combo = liveCombo();
   if (!combo) return null;
+
+  // VENDOR OUTAGE (maintenance mode): self-hide while a vendor the pack needs is
+  // down. This is an unsolicited popup that interrupts the whole site to sell one
+  // product — pitching it when its "Book the VIP Experience" button can only
+  // reach an outage notice is worse than showing nothing (owner 2026-08-03: "we
+  // have popup modal for VIP that might need to temp be off while system outage
+  // on bmi"). No new flag: it reads the SAME registry the cards and kiosk tiles
+  // read, keyed by the wire id "race-bowl" for any race-bowl* pack, so it comes
+  // back on its own the moment the outage clears.
+  if (isProductPaused(combo.id.startsWith("race-bowl") ? "race-bowl" : combo.id)) return null;
 
   const stops = combo.components.map(legToStop).filter((s): s is VipPopupStop => s !== null);
   // The creative is built around a two-venue itinerary. Anything else would

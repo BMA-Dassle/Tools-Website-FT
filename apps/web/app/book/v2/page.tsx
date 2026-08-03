@@ -18,7 +18,7 @@ import {
   worldCupWindowActive,
 } from "~/features/world-cup";
 import { fixturesWithLiveTeams } from "~/features/world-cup/live-teams";
-import { activeOutages, isProductPaused } from "~/features/maintenance";
+import { activeOutages, outageForProduct } from "~/features/maintenance";
 import { PromoLanding } from "./PromoLanding";
 
 /**
@@ -133,19 +133,23 @@ export default async function BookV2LandingPage({
   // bookable and then bounces to a notice reads as a broken site. Resolved
   // server-side (the registry reads server-only env) and handed down as ids;
   // shuffly is keyed per building here because that is how the registry keys it.
-  const pausedActivityIds = new Set(
-    [
-      ...initialOfferings.map((o) => o.slug),
-      ...combos.map((c) => (c.id.startsWith("race-bowl") ? "race-bowl" : c.id)),
-      "shuffly-fasttrax",
-      "shuffly-headpinz",
-    ].filter((id) => isProductPaused(id)),
-  );
+  //
+  // Carried down as a MAP of product id → the one-line reason, not just a list of
+  // ids: with two vendors down at once, a card must show the reason for ITS OWN
+  // vendor rather than whichever outage happens to be first in the banner.
+  const pausedNotes: Record<string, string> = {};
+  const notePaused = (id: string) => {
+    const note = outageForProduct(id)?.web.shortNote;
+    if (note) pausedNotes[id] = note;
+  };
+  for (const o of initialOfferings) notePaused(o.slug);
+  for (const c of combos) notePaused(c.id.startsWith("race-bowl") ? "race-bowl" : c.id);
+  notePaused("shuffly-fasttrax");
+  notePaused("shuffly-headpinz");
   // Shuffly's catalog slug is building-agnostic; treat it as paused when either
   // building's product is, since one landing serves both sides of the campus.
-  if (pausedActivityIds.has("shuffly-fasttrax") || pausedActivityIds.has("shuffly-headpinz")) {
-    pausedActivityIds.add("shuffly");
-  }
+  const shufflyNote = pausedNotes["shuffly-fasttrax"] ?? pausedNotes["shuffly-headpinz"];
+  if (shufflyNote) pausedNotes.shuffly = shufflyNote;
   const outage = activeOutages()[0] ?? null;
 
   return (
@@ -159,7 +163,7 @@ export default async function BookV2LandingPage({
       allOfferings={initialOfferings}
       combos={combos}
       worldCup={worldCup}
-      pausedIds={[...pausedActivityIds]}
+      pausedNotes={pausedNotes}
       outageNotice={outage ? { heading: outage.web.heading, body: outage.web.body } : null}
     />
   );

@@ -40,6 +40,18 @@ export interface VendorOutage {
     /** The phone answer, because the first thing a blocked guest does is call
      *  and the front desk is usually on the same vendor. */
     phoneNote: string;
+    /**
+     * ONE line for a locked CARD on the booking landing, under a "Temporarily
+     * unavailable" label. A locked card has to explain itself standalone: the
+     * banner at the top of the page carries the full story, but a guest scrolling
+     * a grid of tiles may never read it, and "Temporarily unavailable" alone reads
+     * like the product was discontinued rather than a passing outage (owner
+     * 2026-08-03, looking at the live VIP card: "could say a bit more like system
+     * issue, check back later today").
+     *
+     * Keep it to one sentence — it renders inside a button-sized box.
+     */
+    shortNote: string;
   };
   /** Guest copy for the KIOSK lock — EN + ES together (CLAUDE.md kiosk i18n
    *  rule), so one incident reads as one message in both languages. */
@@ -62,6 +74,7 @@ const VENDOR_COPY: Partial<Record<VendorKey, Omit<VendorOutage, "vendor">>> = {
         "One of our vendors is having a system outage, so racing, laser tag, gel blasters and Shuffle Showdown can’t be booked online at the moment. Nothing was charged and no reservation was made.",
       phoneNote:
         "Our team can’t book these over the phone either while the outage lasts — please check back a little later. Already have a reservation? It’s safe, your confirmation still applies, and you can check in as normal when you arrive.",
+      shortNote: "System issue with one of our vendors — please check back later today.",
     },
     kiosk: {
       en: "Temporarily unavailable — one of our vendors is having a system issue. Please see Guest Services.",
@@ -77,6 +90,7 @@ const VENDOR_COPY: Partial<Record<VendorKey, Omit<VendorOutage, "vendor">>> = {
         "One of our vendors is having a system outage, so we can’t pull up existing reservations or guest accounts at the moment. Your reservation itself is safe — we just can’t read it back to you online.",
       phoneNote:
         "Please see our team at Guest Services when you arrive — they can get you sorted without this. Bring your confirmation email or text if you have it.",
+      shortNote: "System issue with one of our vendors — please check back later today.",
     },
     kiosk: {
       en: "Temporarily unavailable — one of our vendors is having a system issue. Please see Guest Services.",
@@ -95,6 +109,7 @@ function genericCopy(vendor: VendorKey): Omit<VendorOutage, "vendor"> {
       body: `${who[0].toUpperCase()}${who.slice(1)} is having a system outage, so this can’t be completed online at the moment. Nothing was charged.`,
       phoneNote:
         "Our team is on the same system while the outage lasts — please check back a little later, or see Guest Services if you’re already here.",
+      shortNote: "System issue with one of our vendors — please check back later today.",
     },
     kiosk: {
       en: "Temporarily unavailable — one of our vendors is having a system issue. Please see Guest Services.",

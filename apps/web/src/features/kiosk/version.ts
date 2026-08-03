@@ -15,6 +15,17 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.13.1 — maintenance mode: a locked thing now says WHY, and the VIP popup gets
+ *         out of the way. "Temporarily unavailable" alone read like the product
+ *         had been discontinued, so every locked card/tile carries its vendor's
+ *         one-line reason — "System issue with one of our vendors — please check
+ *         back later today." The reason is resolved per PRODUCT, so with two
+ *         vendors down each surface shows its own vendor's cause rather than
+ *         whichever outage leads the banner. The unsolicited Ultimate VIP site
+ *         popup self-hides while the pack's vendor is down (no new flag — it
+ *         reads the same registry, so it returns on its own when the outage
+ *         clears); interrupting the site to sell a product whose Book button can
+ *         only reach an outage notice is worse than showing nothing.
  * 1.13.0 — VENDOR MAINTENANCE MODE (owner 2026-08-03, live BMI booking outage).
  *         A vendor being down now takes its whole product line off sale with its
  *         own sentence, instead of every tile quietly failing mid-flow.
@@ -503,7 +514,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.13.0";
+export const KIOSK_VERSION = "1.13.1";
 
 let bootVersion: string | null = null;
 let captured = false;

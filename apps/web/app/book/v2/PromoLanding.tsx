@@ -81,11 +81,20 @@ export interface PromoLandingProps {
    *  tournament window is over, the brand isn't HeadPinz, or every in-scope
    *  center's kill switch is off. Computed server-side in page.tsx. */
   worldCup?: WorldCupTileData | null;
-  /** Offering slugs / combo ids whose VENDOR is down (maintenance mode) —
-   *  resolved server-side from ~/features/maintenance. Their cards render locked
-   *  and unclickable. Middleware would bounce a click to /service-notice anyway;
-   *  showing the lock here is what keeps the landing honest. */
-  pausedIds?: string[];
+  /**
+   * Product id → the one-line reason it's unavailable, for every offering/combo
+   * whose VENDOR is down (maintenance mode). Presence in the map means paused, so
+   * those cards render locked and unclickable with the reason on the CTA.
+   *
+   * A MAP rather than a list of ids because the reason is per-VENDOR: with two
+   * vendors down at once, each card must show its own vendor's reason instead of
+   * whichever outage leads the banner. Resolved server-side in page.tsx (the
+   * registry reads server-only env).
+   *
+   * Middleware would bounce a click to /service-notice anyway; showing the lock
+   * here is what keeps the landing honest.
+   */
+  pausedNotes?: Record<string, string>;
   /** Outage banner copy, or null when everything is up. */
   outageNotice?: { heading: string; body: string } | null;
 }
@@ -99,11 +108,12 @@ export function PromoLanding({
   initialOfferings,
   combos = [],
   worldCup = null,
-  pausedIds = [],
+  pausedNotes = {},
   outageNotice = null,
 }: PromoLandingProps) {
   const router = useRouter();
-  const paused = new Set(pausedIds);
+  // Presence in the map means paused; the value is that vendor's one-line reason.
+  const pausedNote = (id: string): string | undefined => pausedNotes[id];
   const brandClass = entryBrand === "fasttrax" ? "brand-fasttrax" : "brand-headpinz";
   const accent = entryBrand === "fasttrax" ? FT_ACCENT : HP_ACCENT;
 
@@ -546,7 +556,7 @@ export function PromoLanding({
                 gold={HP_GOLD}
                 // The VIP pack's availability id is the wire key "race-bowl"
                 // regardless of which registry entry is live (v1 / the 7/31 v2).
-                paused={paused.has(combo.id.startsWith("race-bowl") ? "race-bowl" : combo.id)}
+                pausedNote={pausedNote(combo.id.startsWith("race-bowl") ? "race-bowl" : combo.id)}
               />
             ))}
             {/* World Cup VIP Bowling — compact time-boxed tile after the combo
@@ -562,7 +572,7 @@ export function PromoLanding({
                 voucherSlugs={voucher?.slugs ?? null}
                 accent={accent}
                 gold={HP_GOLD}
-                paused={paused.has(o.slug)}
+                pausedNote={pausedNote(o.slug)}
               />
             ))}
           </div>
@@ -744,12 +754,25 @@ function CardShell({
   );
 }
 
-/** Replaces a locked card's CTA. Says the same thing the notice page says, in
- *  one line, so the guest doesn't have to click to learn they can't. */
-function UnavailableCta() {
+/**
+ * Replaces a locked card's CTA, and explains itself STANDALONE.
+ *
+ * "Temporarily unavailable" on its own reads like the product was discontinued —
+ * a guest scrolling the grid may never read the banner at the top of the page
+ * (owner 2026-08-03, looking at the live VIP card: "could say a bit more like
+ * system issue, check back later today"). So the label carries the vendor's own
+ * one-line reason underneath it, and says when to come back.
+ *
+ * `note` comes from the outage registry, resolved per PRODUCT, so a card can
+ * never show another vendor's reason when two are down at once.
+ */
+function UnavailableCta({ note }: { note?: string }) {
   return (
-    <div className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.04] py-3 text-sm font-bold text-white/55">
-      Temporarily unavailable
+    <div className="w-full rounded-xl border border-white/15 bg-white/[0.04] px-4 py-3 text-center">
+      <div className="text-sm font-bold text-white/70">Temporarily unavailable</div>
+      {note && (
+        <div className="font-body mt-1 text-xs leading-snug text-white/45">{note}</div>
+      )}
     </div>
   );
 }
@@ -774,14 +797,16 @@ function ComboCheck({ gold }: { gold: string }) {
 function ComboCard({
   combo,
   gold,
-  paused = false,
+  pausedNote,
 }: {
   combo: ComboSpecial;
   gold: string;
-  /** A vendor the combo needs is down. The Ultimate VIP spans BMI racing AND a
-   *  QAMF lane, so either one dark locks it. */
-  paused?: boolean;
+  /** Set when a vendor the combo needs is down — the value is that vendor's
+   *  one-line reason, shown on the locked CTA. The Ultimate VIP spans BMI racing
+   *  AND a QAMF lane, so either one dark locks it. */
+  pausedNote?: string;
 }) {
+  const paused = pausedNote !== undefined;
   const fmtPrice = (cents: number) =>
     Number.isInteger(cents / 100) ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`;
   const premium = !!combo.premium;
@@ -936,7 +961,7 @@ function ComboCard({
         </div>
 
         {paused ? (
-          <UnavailableCta />
+          <UnavailableCta note={pausedNote} />
         ) : (
           <div
             className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-colors"
@@ -972,7 +997,7 @@ function AttractionCard({
   voucherSlugs = null,
   accent,
   gold,
-  paused = false,
+  pausedNote,
 }: {
   offering: ActivityOffering;
   href: string;
@@ -982,9 +1007,11 @@ function AttractionCard({
   voucherSlugs?: string[] | null;
   accent: string;
   gold: string;
-  /** This activity's vendor is down (maintenance mode) — lock the card. */
-  paused?: boolean;
+  /** Set when this activity's vendor is down — the value is the reason shown on
+   *  the locked CTA (maintenance mode). */
+  pausedNote?: string;
 }) {
+  const paused = pausedNote !== undefined;
   const inScope = applied
     ? isOfferingInPromoScope(offering, applied)
     : voucherSlugs
@@ -1082,7 +1109,7 @@ function AttractionCard({
         })()}
 
         {paused ? (
-          <UnavailableCta />
+          <UnavailableCta note={pausedNote} />
         ) : (
           <div
             className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-colors"
