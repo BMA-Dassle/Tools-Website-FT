@@ -3,10 +3,7 @@
 import { useState } from "react";
 import { CENTER_LIST } from "~/config/intercard-centers";
 import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
-import {
-  formatVoucherExpiry,
-  voucherItemDisplayLabel,
-} from "~/features/game-cards/vouchers/display";
+import { formatVoucherExpiry, groupVoucherItems } from "~/features/game-cards/vouchers/display";
 import type { VoucherStatus } from "~/features/game-cards/service/native-voucher";
 
 /**
@@ -96,6 +93,8 @@ export function VoucherRedeemView({
   // Server-resolved (see VoucherStatus.expired) — never read the clock here.
   const expired = status.expired;
   const expiryText = formatVoucherExpiry(status.expiresAt);
+  /** Identical legs collapsed to counted rows (kiosk receipt behaviour). */
+  const itemGroups = groupVoucherItems(status.items);
   /** Nothing left to do with it — used to dim the QR rather than imply it scans. */
   const allDone = status.items.every((i) => i.spent);
 
@@ -139,207 +138,223 @@ export function VoucherRedeemView({
     // invisible under the real chrome.)
     <>
       <div className="fixed inset-0 -z-10 bg-[#00041b]" aria-hidden="true" />
-      <main className="mx-auto flex min-h-screen max-w-md flex-col px-5 pb-16 pt-32 text-white sm:pt-36">
+      {/* Phone-first column, but NOT a 448px strip stranded on a desktop: from lg
+          the scannable half and the "what's on it / what to do" half sit side by
+          side, which is also the more useful shape — you hold the QR up while
+          reading the list. */}
+      <main className="mx-auto min-h-screen max-w-md px-5 pt-32 pb-16 text-white sm:pt-36 lg:max-w-5xl lg:pt-40">
         <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/45">
           Game Zone voucher
         </p>
-        {/* THE QR IS THE PRIMARY REDEMPTION MECHANISM, so it leads.
+
+        <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-12">
+          <div>
+            {/* THE QR IS THE PRIMARY REDEMPTION MECHANISM, so it leads.
             It was missing entirely, which left a guest to type 11 characters on a
             kiosk keyboard — and for anyone without a card it is the ONLY way to
             get one, since a phone can't dispense. Dimmed when the voucher can no
             longer be used, so a dead code never looks scannable. */}
-        {qrDataUri && (
-          <div
-            className={`mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-5 ${
-              voided || expired || allDone ? "opacity-40" : ""
-            }`}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element -- data URI, no loader */}
-            <img
-              src={qrDataUri}
-              alt={`QR code for voucher ${formatVoucherCode(status.code)}`}
-              className="mx-auto h-48 w-48 rounded-xl bg-white p-2"
-            />
-            <p className="mt-3 text-sm font-semibold text-white">
-              Scan this at any HeadPinz kiosk
-            </p>
-            <p className="mt-1 text-sm text-white/55">
-              The kiosk prints your game cards with the credit already on them. Look for the
-              &ldquo;Coupon or voucher?&rdquo; button on the welcome screen.
-            </p>
-          </div>
-        )}
+            {qrDataUri && (
+              <div
+                className={`mt-4 rounded-2xl border border-white/10 bg-white/[0.04] p-5 ${
+                  voided || expired || allDone ? "opacity-40" : ""
+                }`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element -- data URI, no loader */}
+                <img
+                  src={qrDataUri}
+                  alt={`QR code for voucher ${formatVoucherCode(status.code)}`}
+                  className="mx-auto h-48 w-48 rounded-xl bg-white p-2"
+                />
+                <p className="mt-3 text-sm font-semibold text-white">
+                  Scan this at any HeadPinz kiosk
+                </p>
+                <p className="mt-1 text-sm text-white/55">
+                  The kiosk prints your game cards with the credit already on them. Look for the
+                  &ldquo;Coupon or voucher?&rdquo; button on the welcome screen.
+                </p>
+              </div>
+            )}
 
-        <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.06] px-5 py-4 font-mono text-2xl tracking-[0.12em] text-white">
-          {formatVoucherCode(status.code)}
-        </div>
-        <p className="mt-2 text-xs text-white/45">
-          Can&apos;t scan? Type this code at the kiosk instead.
-        </p>
-
-        {/* Expiry, stated plainly — a prepaid voucher's shelf life is a term of
-            the sale, and it was never shown here. */}
-        {expiryText && (
-          <p className={`mt-4 text-sm ${expired ? "text-red-300" : "text-white/60"}`}>
-            {expired ? `Expired ${expiryText}` : `Valid through ${expiryText}`}
-          </p>
-        )}
-
-        {/* What's on it, line by line. */}
-        <ul className="mt-6 space-y-2">
-          {status.items.map((i) => (
-            <li key={i.index} className="flex items-center justify-between gap-3 text-lg">
-              <span className={i.spent ? "text-white/35 line-through" : "text-white"}>
-                {voucherItemDisplayLabel(i.item)}
-              </span>
-              <span className="shrink-0 text-sm text-white/50">
-                {i.spent
-                  ? "used"
-                  : i.redeemable
-                    ? "ready"
-                    : i.item.kind === "attraction" || i.item.kind === "attraction-choice"
-                      ? // Bookable below — saying "at Guest Services" sent guests
-                        // to a desk for something they can do themselves.
-                        "book below"
-                      : // A race leg: applied to the booking at checkout. Still not
-                        // Guest Services — the desk cannot redeem any of these.
-                        "apply when booking"}
-              </span>
-            </li>
-          ))}
-        </ul>
-
-        {/* Book the timed half — available whatever the card half is doing, and
-            regardless of expiry/void state below (those blocks own the CARD
-            action only, so they must not hide this one). */}
-        {bookable.length > 0 && !voided && !expired && (
-          <div className="mt-7 rounded-2xl border border-[#fd5b56]/35 bg-[#fd5b56]/[0.08] p-5">
-            <h2 className="text-lg font-bold text-white">Pick your time</h2>
-            <p className="mt-1 text-sm text-white/65">
-              Your code comes with you — it&apos;s applied at checkout, so there&apos;s nothing more
-              to pay.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {bookable.map(({ slug, count }) => (
-                <a
-                  key={slug}
-                  href={`/book/${slug}/v2?voucher=${encodeURIComponent(status.code)}`}
-                  className="rounded-full bg-[#fd5b56] px-5 py-2.5 text-sm font-bold tracking-widest text-white uppercase transition hover:brightness-110"
-                >
-                  Book {prettySlug(slug)}
-                  {count > 1 ? ` (${count})` : ""}
-                </a>
-              ))}
+            <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.06] px-5 py-4 font-mono text-2xl tracking-[0.12em] text-white">
+              {formatVoucherCode(status.code)}
             </div>
+            <p className="mt-2 text-xs text-white/45">
+              Can&apos;t scan? Type this code at the kiosk instead.
+            </p>
           </div>
-        )}
 
-        {done ? (
-          <div className="mt-8 rounded-2xl border-2 border-[#46d68c]/40 bg-[#46d68c]/[0.1] p-5">
-            <p className="text-xl font-bold text-[#46d68c]">
-              {done.pending ? "On its way" : "Loaded!"}
-            </p>
-            <p className="mt-1 text-white/80">
-              {done.bonusTokens} bonus tokens{" "}
-              {done.pending
-                ? "are being added to your card — it can take a few minutes to reach the floor."
-                : "are on your card."}
-            </p>
-            {done.balance && (
-              <p className="mt-2 text-sm text-white/55">
-                New balance: {done.balance.tokens} tokens + {done.balance.bonusTokens} bonus
+          <div className="lg:mt-0">
+            {/* Expiry, stated plainly — a prepaid voucher's shelf life is a term of
+            the sale, and it was never shown here. */}
+            {expiryText && (
+              <p className={`mt-4 text-sm ${expired ? "text-red-300" : "text-white/60"}`}>
+                {expired ? `Expired ${expiryText}` : `Valid through ${expiryText}`}
               </p>
             )}
-          </div>
-        ) : voided ? (
-          <p className="mt-8 text-lg text-white/70">{REASON_COPY.voided}</p>
-        ) : expired ? (
-          <p className="mt-8 text-lg text-white/70">{REASON_COPY.expired}</p>
-        ) : redeemable.length === 0 ? (
-          <div className="mt-8">
-            <p className="text-lg text-white/70">
-              {alreadySpent.length > 0 && notHere.length === 0
-                ? REASON_COPY.used
-                : bookable.length > 0
-                  ? // Don't send them to a desk: the button above is the action.
-                    "There's nothing on this voucher to load onto a card — use the button above to book your session."
-                  : REASON_COPY.not_redeemable}
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* SECONDARY path, and now labelled as one. It reads "Already have a
+
+            {/* What's on it — IDENTICAL LEGS COLLAPSED to one counted row, the same
+            way the kiosk receipt does it. A 3-pack combined voucher carries twelve
+            legs and listing them individually was a wall of repetition. */}
+            <ul className="mt-6 space-y-2">
+              {itemGroups.map((g) => (
+                <li
+                  key={`${g.label}-${g.spent > 0 ? "used" : "live"}-${g.indexes[0]}`}
+                  className="flex items-center justify-between gap-3 text-lg"
+                >
+                  <span className={g.spent > 0 ? "text-white/35 line-through" : "text-white"}>
+                    {g.total > 1 ? `${g.total} × ` : ""}
+                    {g.label}
+                  </span>
+                  <span className="shrink-0 text-sm text-white/50">
+                    {g.spent > 0
+                      ? "used"
+                      : g.route === "gamezone"
+                        ? "ready"
+                        : g.route === "attraction"
+                          ? // Bookable below — saying "at Guest Services" sent guests
+                            // to a desk for something they can do themselves.
+                            "book below"
+                          : // A race leg: applied to the booking at checkout. Still not
+                            // Guest Services — the desk cannot redeem any of these.
+                            "apply when booking"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+
+            {/* Book the timed half — available whatever the card half is doing, and
+            regardless of expiry/void state below (those blocks own the CARD
+            action only, so they must not hide this one). */}
+            {bookable.length > 0 && !voided && !expired && (
+              <div className="mt-7 rounded-2xl border border-[#fd5b56]/35 bg-[#fd5b56]/[0.08] p-5">
+                <h2 className="text-lg font-bold text-white">Pick your time</h2>
+                <p className="mt-1 text-sm text-white/65">
+                  Your code comes with you — it&apos;s applied at checkout, so there&apos;s nothing
+                  more to pay.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {bookable.map(({ slug, count }) => (
+                    <a
+                      key={slug}
+                      href={`/book/${slug}/v2?voucher=${encodeURIComponent(status.code)}`}
+                      className="rounded-full bg-[#fd5b56] px-5 py-2.5 text-sm font-bold tracking-widest text-white uppercase transition hover:brightness-110"
+                    >
+                      Book {prettySlug(slug)}
+                      {count > 1 ? ` (${count})` : ""}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {done ? (
+              <div className="mt-8 rounded-2xl border-2 border-[#46d68c]/40 bg-[#46d68c]/[0.1] p-5">
+                <p className="text-xl font-bold text-[#46d68c]">
+                  {done.pending ? "On its way" : "Loaded!"}
+                </p>
+                <p className="mt-1 text-white/80">
+                  {done.bonusTokens} bonus tokens{" "}
+                  {done.pending
+                    ? "are being added to your card — it can take a few minutes to reach the floor."
+                    : "are on your card."}
+                </p>
+                {done.balance && (
+                  <p className="mt-2 text-sm text-white/55">
+                    New balance: {done.balance.tokens} tokens + {done.balance.bonusTokens} bonus
+                  </p>
+                )}
+              </div>
+            ) : voided ? (
+              <p className="mt-8 text-lg text-white/70">{REASON_COPY.voided}</p>
+            ) : expired ? (
+              <p className="mt-8 text-lg text-white/70">{REASON_COPY.expired}</p>
+            ) : redeemable.length === 0 ? (
+              <div className="mt-8">
+                <p className="text-lg text-white/70">
+                  {alreadySpent.length > 0 && notHere.length === 0
+                    ? REASON_COPY.used
+                    : bookable.length > 0
+                      ? // Don't send them to a desk: the button above is the action.
+                        "There's nothing on this voucher to load onto a card — use the button above to book your session."
+                      : REASON_COPY.not_redeemable}
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* SECONDARY path, and now labelled as one. It reads "Already have a
                 HeadPinz game card?" because the old heading — "Load it on your
                 card" with no context — was the first thing on the page and
                 implied you needed a card to use the voucher at all. You don't:
                 the QR above gets you new ones. This just saves a trip for someone
                 who already carries one. */}
-            <h1 className="mt-8 text-2xl font-extrabold text-white">
-              Already have a HeadPinz game card?
-            </h1>
-            <p className="mt-1 text-white/60">
-              Add the credit straight to it — no need to pick up a new card. Enter the number
-              printed on the back.
-            </p>
+                <h1 className="mt-8 text-2xl font-extrabold text-white">
+                  Already have a HeadPinz game card?
+                </h1>
+                <p className="mt-1 text-white/60">
+                  Add the credit straight to it — no need to pick up a new card. Enter the number
+                  printed on the back.
+                </p>
 
-            <label className="mt-5 block text-sm font-semibold text-white/70" htmlFor="v-acct">
-              Card number
-            </label>
-            <input
-              id="v-acct"
-              type="text"
-              inputMode="numeric"
-              autoComplete="off"
-              value={account}
-              onChange={(e) => {
-                setError(null);
-                // Card numbers are digits only and stay STRINGS end to end
-                // (Intercard accounts exceed float-safe range upstream).
-                setAccount(e.target.value.replace(/\D/g, ""));
-              }}
-              placeholder="1063464"
-              className="mt-1 w-full rounded-xl border-2 border-white/15 bg-[#040d24] px-4 py-3 font-mono text-xl text-white placeholder:text-white/30 focus:border-[#00e2e5] focus:outline-none"
-            />
+                <label className="mt-5 block text-sm font-semibold text-white/70" htmlFor="v-acct">
+                  Card number
+                </label>
+                <input
+                  id="v-acct"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={account}
+                  onChange={(e) => {
+                    setError(null);
+                    // Card numbers are digits only and stay STRINGS end to end
+                    // (Intercard accounts exceed float-safe range upstream).
+                    setAccount(e.target.value.replace(/\D/g, ""));
+                  }}
+                  placeholder="1063464"
+                  className="mt-1 w-full rounded-xl border-2 border-white/15 bg-[#040d24] px-4 py-3 font-mono text-xl text-white placeholder:text-white/30 focus:border-[#00e2e5] focus:outline-none"
+                />
 
-            <label className="mt-4 block text-sm font-semibold text-white/70" htmlFor="v-loc">
-              Where do you play?
-            </label>
-            <select
-              id="v-loc"
-              value={locationCode}
-              onChange={(e) => setLocationCode(Number(e.target.value))}
-              className="mt-1 w-full rounded-xl border-2 border-white/15 bg-[#040d24] px-4 py-3 text-lg text-white focus:border-[#00e2e5] focus:outline-none"
-            >
-              {CENTER_LIST.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
+                <label className="mt-4 block text-sm font-semibold text-white/70" htmlFor="v-loc">
+                  Where do you play?
+                </label>
+                <select
+                  id="v-loc"
+                  value={locationCode}
+                  onChange={(e) => setLocationCode(Number(e.target.value))}
+                  className="mt-1 w-full rounded-xl border-2 border-white/15 bg-[#040d24] px-4 py-3 text-lg text-white focus:border-[#00e2e5] focus:outline-none"
+                >
+                  {CENTER_LIST.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
 
-            <div
-              className="mt-3 min-h-[24px] text-sm text-[#ff8c7a]"
-              role="alert"
-              aria-live="polite"
-            >
-              {error ?? ""}
-            </div>
+                <div
+                  className="mt-3 min-h-[24px] text-sm text-[#ff8c7a]"
+                  role="alert"
+                  aria-live="polite"
+                >
+                  {error ?? ""}
+                </div>
 
-            <button
-              type="button"
-              onClick={submit}
-              disabled={!account.trim() || busy}
-              className="mt-2 w-full rounded-full bg-[#00e2e5] px-6 py-4 text-lg font-bold text-[#04252b] disabled:opacity-40"
-            >
-              {busy ? "Loading…" : "Load my card"}
-            </button>
+                <button
+                  type="button"
+                  onClick={submit}
+                  disabled={!account.trim() || busy}
+                  className="mt-2 w-full rounded-full bg-[#00e2e5] px-6 py-4 text-lg font-bold text-[#04252b] disabled:opacity-40"
+                >
+                  {busy ? "Loading…" : "Load my card"}
+                </button>
 
-            <p className="mt-6 text-sm text-white/45">
-              No game card yet? Scan this code at any kiosk and one comes out, already
-              loaded.
-            </p>
-          </>
-        )}
+                <p className="mt-6 text-sm text-white/45">
+                  No game card yet? Scan this code at any kiosk and one comes out, already loaded.
+                </p>
+              </>
+            )}
+          </div>
+        </div>
       </main>
     </>
   );
