@@ -3093,3 +3093,54 @@ race-safe without a lock.
 wrote a parallel summariser and the pass said "200 Tokens" where the product says "$20 Game Card" —
 the exact shape of [extracted component misses later fixes]. Two surfaces showing one voucher must
 not word it two ways.
+
+## Platform badges are ASSETS you download, not buttons you build (2026-08-03)
+
+Both `/v/[code]` and the voucher email shipped a hand-rolled pill reading **"Add to Apple or
+Google Wallet"** — our font, our border radius, our copy. Owner caught it: *"shouldn't we be using
+the actual real logos for those?"* Yes, and the same is true of every platform badge we will ever
+add (App Store, Google Play, Apple/Google Pay).
+
+**Two separate mistakes were in that one pill.**
+
+1. **The wordmark was re-set in our own type.** Both vendors publish downloadable artwork
+   specifically so nobody does this. Google's guidelines are explicit: *"Do not create your own Add
+   to Google Wallet buttons or alter the font, color, button radius, or padding within the button in
+   any way."*
+2. **Two brands were merged into one control.** Neither vendor ships a combined badge — every file
+   in both packs is single-platform — so a single "Apple **or** Google" button could not have been
+   legitimate artwork at any size. Each badge gets its own link, stating its own platform.
+
+**Where the files actually are** (both are a click-through-terms download, so this is worth
+writing down):
+
+- **Google** — direct, no session needed:
+  `https://developers.google.com/static/wallet/download-assets/add-to-wallet-{svg,png,axml}.zip`.
+  ~45 locales including **`esUS`**. Two shapes per locale: `wallet-button` (one-line, 283x50) and
+  `add-wallet-badge` (two-line, 199x55). Only one colour, `#1F1F1F` — there is **no light variant**.
+- **Apple** — the download link on
+  `developer.apple.com/wallet/add-to-apple-wallet-guidelines/` is `href=""` with the real target
+  hidden in **`rel="/file/?file=wallet&agree=Yes"`**, which is why it looks like the page has no
+  asset. Fetch `https://developer.apple.com/file/?file=wallet&agree=Yes` (56 MB). 45 locales
+  (English is **`US_UK`**, Latin-American Spanish is **`ESMX`**), each as RGB SVG + RGB EPS + CMYK
+  EPS. **No PNG at all**, and only one variant — the black fill already carries a `#A6A6A6`
+  hairline, which is what makes it work on dark.
+
+**Three things that will bite the next time:**
+
+- **Email needs PNG, not SVG.** Gmail and Outlook do not render SVG in mail. Rasterise the vendor's
+  own SVG at 2x and serve it at half size via explicit `width`/`height`. Converting format is fine;
+  redrawing is not. Apple forces this anyway by shipping no PNG.
+- **Pick the shapes that pair.** Apple ships only a two-line badge, so use Google's two-line
+  `add-wallet-badge` (181x50 at our height) rather than its one-line button (283x50). Mismatched
+  widths read as a bug. Never stretch one to match the other — the wordmarks are different lengths.
+- **A light host surface is the legal way to fix contrast.** Apple's badge is drawn for light
+  backgrounds and Google's only variant is near-black, so both sit muddily on our `#00041b` pages.
+  The clear-space rules (Google 8 dp, Apple .1X) govern the space *around* a badge, so wrapping the
+  pair in a white panel is allowed where restyling either badge is not. Render at ≥50px tall to
+  clear Google's 48 dp minimum.
+
+**Also: check what main already has before editing a stale tree.** The working tree this was first
+written in was 47 commits behind `origin/main`, where the page had *already* been split into two
+per-platform buttons using `?platform=`. Committing the stale file would have reverted that. Build
+the change in a worktree off `origin/main`, not on top of whatever the shared tree happens to hold.

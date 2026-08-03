@@ -1,0 +1,6 @@
+# Vendor badge artwork — Apple's and Google's files, not ours. Git must not
+# translate line endings or try to merge them: a "helpful" normalisation is a
+# modified trademark, and the whole point of downloading these instead of
+# drawing them is that they ship byte for byte. Scoped to this directory so it
+# cannot affect line-ending behaviour anywhere else in the repo.
+* -text

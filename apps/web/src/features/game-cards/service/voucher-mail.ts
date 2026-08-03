@@ -476,11 +476,32 @@ export async function sendVoucherToGuest(args: {
             View my voucher
           </a>
         </p>
+        <!-- The vendors' own badge artwork, one link each. What was here before —
+             a single CSS pill reading "Add to Apple or Google Wallet" — was wrong
+             twice over: it re-set both wordmarks in our own type, which both
+             vendors publish files specifically to prevent, and it merged two
+             brands into one control that neither of them ships. /v/ already
+             renders these as separate buttons; the email now matches it, and each
+             href states its platform so the redirect never has to sniff.
+
+             PNG, NOT SVG — Gmail and Outlook do not render SVG in mail. These are
+             @2x rasters of the official SVGs (a format conversion, not a redraw;
+             Apple ships only SVG and EPS), served at half their pixel size via
+             explicit width/height so they stay sharp on retina. Absolute URLs,
+             because a mail client has no origin to resolve against. alt carries
+             the full label, since most clients block images until asked. -->
         <p style="margin:0 0 12px">
-          <a href="${esc(url)}/wallet" style="border:1px solid #d0d0d6;color:#111;
-             text-decoration:none;padding:11px 20px;border-radius:999px;display:inline-block;
-             font-weight:600">
-            Add to Apple or Google Wallet
+          <a href="${esc(url)}/wallet?platform=apple"
+             style="text-decoration:none;display:inline-block;margin:0 8px 8px 0">
+            <img src="${esc(siteOrigin())}/brand/wallet/apple-wallet-en@2x.png"
+                 width="158" height="50" alt="Add to Apple Wallet"
+                 style="display:block;border:0;width:158px;height:50px">
+          </a>
+          <a href="${esc(url)}/wallet?platform=google"
+             style="text-decoration:none;display:inline-block;margin:0 0 8px 0">
+            <img src="${esc(siteOrigin())}/brand/wallet/google-wallet-en@2x.png"
+                 width="181" height="50" alt="Add to Google Wallet"
+                 style="display:block;border:0;width:181px;height:50px">
           </a>
         </p>
         <p style="margin:0 0 12px">
