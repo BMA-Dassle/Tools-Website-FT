@@ -119,13 +119,17 @@ describe("GET /api/surveys/[token]/review", () => {
     expect(mockedRecordTouch.mock.calls[0][0].meta).toMatchObject({ stage: "review_click" });
   });
 
-  it("sends a racing guest to the FastTrax destination, not the HeadPinz one", async () => {
+  it("sends a racing guest to FastTrax's own star form, not the HeadPinz one", async () => {
     mockedGet.mockResolvedValue(completedSurvey(HAPPY, FASTTRAX_CENTER_CODE));
     const res = await GET(makeReq(), makeCtx(TOKEN));
 
     expect(res.status).toBe(302);
     const loc = res.headers.get("location") ?? "";
-    expect(loc).toContain("fasttrax");
+    expect(loc).toBe(
+      "https://search.google.com/local/writereview?placeid=ChIJ3w3IFwAV24gRAVrB_FB6JE4",
+    );
+    // HeadPinz Fort Myers is across the same parking lot — a racer's review
+    // must never land on its listing.
     expect(loc).not.toContain("ChIJw7rUvBSl3YgRZnV1tR0aK9s");
   });
 

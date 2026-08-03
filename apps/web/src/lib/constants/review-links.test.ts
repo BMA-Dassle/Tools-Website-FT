@@ -34,9 +34,24 @@ describe("googleReviewUrl", () => {
     );
   });
 
-  it("resolves FastTrax to an absolute Google URL", () => {
-    const url = googleReviewUrl(FASTTRAX_CENTER_CODE);
-    expect(url).toMatch(/^https:\/\/www\.google\.com\//);
+  it("sends FastTrax to its own star form, not HeadPinz's", () => {
+    // Place id derived from FID 0x88db150017c80ddf:0x4e247a50fcc15a01. The
+    // 0x88db15… prefix is what distinguishes it from HeadPinz Fort Myers
+    // (0x88dda5…) across the same parking lot.
+    expect(googleReviewUrl(FASTTRAX_CENTER_CODE)).toBe(
+      "https://search.google.com/local/writereview?placeid=ChIJ3w3IFwAV24gRAVrB_FB6JE4",
+    );
+  });
+
+  it("takes EVERY mapped center straight to the star form", () => {
+    // The whole point of the CTA: a guest who agreed to spend 10 seconds lands
+    // on the rating widget, not a search-results or profile page that costs
+    // them another tap. A `{ url }` escape hatch would fail this on purpose.
+    for (const code of Object.keys(REVIEW_TARGETS)) {
+      expect(googleReviewUrl(code)).toMatch(
+        /^https:\/\/search\.google\.com\/local\/writereview\?placeid=[A-Za-z0-9_-]+$/,
+      );
+    }
   });
 
   it("never points two centers at the same destination", () => {
