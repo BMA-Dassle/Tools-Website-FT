@@ -29,6 +29,7 @@ import { stashEntryScan } from "./handoff";
 import { lookupByScan } from "../checkin/service";
 import { gameZoneCapability, type KioskConfig } from "../config";
 import { kioskCheckinEnabled, kioskPromoEnabled } from "../flags";
+import { voucherRedeemEnabled } from "~/features/booking/service/voucher-redeem";
 
 /** Why the scan produced nothing — picks the toast copy. */
 export type EntryScanMiss =
@@ -40,10 +41,13 @@ export type EntryScanMiss =
 
 export interface EntryScanRouterHost {
   config: KioskConfig | null;
-  /** Override the coupon/voucher gate. Defaults to `kioskPromoEnabled()`.
-   *  `KioskFlow` passes its own `promoEnabled`, which also honours the
-   *  `?kioskPromo=1` preview opt-in — without this the router would refuse a
-   *  voucher on the very screen that has the code entry open behind it. */
+  /** Override the coupon/voucher gate. Defaults to the SAME condition that
+   *  opens the door elsewhere — `kioskPromoEnabled() || voucherRedeemEnabled()`
+   *  (see KioskFlow's `onOpenCodeEntry`). Getting this wrong is not theoretical:
+   *  defaulting to the promo flag alone made the attract screen refuse a voucher
+   *  on kiosks where the code screen was perfectly reachable, because voucher
+   *  redemption is on by default and promo (then) was not. `KioskFlow` passes
+   *  its own value so the `?kioskPromo=1` preview opt-in is honoured too. */
   codeEntryAvailable?: boolean;
   /** Navigate to `/kiosk/checkin` (the payload is already stashed). */
   goCheckin: () => void;
@@ -75,7 +79,7 @@ export function useEntryScanRouter(host: EntryScanRouterHost) {
     const h = hostRef.current;
 
     const checkinOn = kioskCheckinEnabled();
-    const codeEntryOn = h.codeEntryAvailable ?? kioskPromoEnabled();
+    const codeEntryOn = h.codeEntryAvailable ?? (kioskPromoEnabled() || voucherRedeemEnabled());
     const gameZoneOn = gameZoneCapability(h.config) !== "none";
 
     // NEVER log `raw` — a scan is a bearer credential (PCI-adjacent house rule

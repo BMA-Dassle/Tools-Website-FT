@@ -240,18 +240,27 @@ export function kioskWelcomeRotateEnabled(): boolean {
 /**
  * Coupon / promo codes on the kiosk (owner 2026-07-27, reversing the 2026-07-21
  * "no promo input" call — entry moved to the CATEGORY screen, mirroring the
- * website's /book/v2 attraction selector) — OPT-IN, defaults OFF. Gates the
- * "Coupon or voucher?" chip on KioskCategories and the code-entry screen. The
- * pricing seams have been live the whole time (the kiosk cart runs
- * promoFactor/applyPromoToBillLines transitively), so enabling this only adds
- * the ENTRY point. Set the literal "true" in Vercel + redeploy to show it
- * (NEXT_PUBLIC_* values are build-baked — scope the var to Preview too or
- * preview builds bake it off). Preview opt-in without env changes:
- * /kiosk/flow?kioskPromo=1 (same pattern as ?bowlingV3=1). Read at call time
- * (never module scope) so tests can stub process.env.
+ * website's /book/v2 attraction selector). Gates the "Coupon or voucher?" chip
+ * on KioskCategories, the code-entry screen, and the applied-promo row.
+ *
+ * Kill switch, **defaults ON** (owner instruction 2026-08-02: "make sure those
+ * flags are on by default"). Set NEXT_PUBLIC_KIOSK_PROMO=false in Vercel +
+ * redeploy to hide it (NEXT_PUBLIC_* values are build-baked).
+ *
+ * Was an opt-in `=== "true"` until 2026-08-02, which violated the repo's
+ * flags-are-kill-switches-only rule and left the entry-screen scan router
+ * refusing a voucher on kiosks where the code screen was in fact reachable
+ * (the door already opened on `voucherRedeemEnabled()`, which is on by
+ * default — the two gates disagreed).
+ *
+ * Turning this on adds only the ENTRY point: the pricing seams have been live
+ * the whole time (the kiosk cart runs promoFactor/applyPromoToBillLines
+ * transitively). Preview opt-in without env changes is still
+ * /kiosk/flow?kioskPromo=1. Read at call time (never module scope) so tests
+ * can stub process.env.
  */
 export function kioskPromoEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_KIOSK_PROMO === "true";
+  return process.env.NEXT_PUBLIC_KIOSK_PROMO !== "false";
 }
 
 /**
