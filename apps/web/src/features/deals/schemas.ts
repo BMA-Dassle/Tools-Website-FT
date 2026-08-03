@@ -44,6 +44,13 @@ export const DealPurchaseSchema = z.object({
   slug: dealSlug,
   location: dealLocation,
   qty: z.number().int().min(1).max(MAX_QTY),
+  /**
+   * TRUE (default) = all packs on ONE voucher code. FALSE = one code per pack.
+   * Defaults to combining because that is what a single buyer wants, and it costs
+   * them nothing: legs are claimed independently, so one code still shares.
+   * Separate codes only help when the packs go to different people.
+   */
+  combine: z.boolean().default(true),
   /** The total the buy panel displayed, in cents. Compared, never trusted. */
   shownTotalCents: z.number().int().positive(),
   buyer: z.object({

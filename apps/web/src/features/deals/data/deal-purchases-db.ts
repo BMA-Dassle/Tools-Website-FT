@@ -49,6 +49,9 @@ export interface DealPurchaseRow {
   /** Intercard center code the game-card value loads against (12 FM / 6 Naples). */
   centerCode: number;
   qty: number;
+  /** TRUE = one voucher carrying all `qty` packs. FALSE = one voucher per pack
+   *  (only wanted when the packs go to different people). */
+  combine: boolean;
   unitPriceCents: number;
   subtotalCents: number;
   taxCents: number;
@@ -134,6 +137,11 @@ function ensureSchema(): Promise<void> {
       ON deal_purchases (status, created_at) WHERE status IN ('charged', 'minted')
     `;
     await q`CREATE INDEX IF NOT EXISTS deal_purchases_batch ON deal_purchases (voucher_batch_id)`;
+    // Added after the table shipped, so it MUST be an ALTER — the CREATE above is
+    // IF NOT EXISTS and never runs again on an existing table. Defaults TRUE: one
+    // code for one buyer is the default, and the fulfilment path reads this column
+    // (not the request) so a cron re-run mints the same shape.
+    await q`ALTER TABLE deal_purchases ADD COLUMN IF NOT EXISTS combine BOOLEAN NOT NULL DEFAULT TRUE`;
   })();
   return schemaReady;
 }
@@ -147,6 +155,7 @@ function decode(r: any): DealPurchaseRow {
     locationKey: String(r.location_key) as DealLocationKey,
     centerCode: Number(r.center_code),
     qty: Number(r.qty),
+    combine: r.combine !== false,
     unitPriceCents: Number(r.unit_price_cents),
     subtotalCents: Number(r.subtotal_cents),
     taxCents: Number(r.tax_cents),
@@ -179,6 +188,7 @@ export interface InsertDealPurchaseArgs {
   locationKey: DealLocationKey;
   centerCode: number;
   qty: number;
+  combine?: boolean;
   unitPriceCents: number;
   subtotalCents: number;
   taxCents: number;
@@ -206,12 +216,12 @@ export async function insertDealPurchase(args: InsertDealPurchaseArgs): Promise<
   const q = sql();
   const rows = await q`
     INSERT INTO deal_purchases (
-      deal_slug, location_key, center_code, qty,
+      deal_slug, location_key, center_code, qty, combine,
       unit_price_cents, subtotal_cents, tax_cents, total_cents,
       buyer_name, buyer_email, buyer_phone, sms_opt_in,
       idempotency_key, utm, clickwrap_version
     ) VALUES (
-      ${args.dealSlug}, ${args.locationKey}, ${args.centerCode}, ${args.qty},
+      ${args.dealSlug}, ${args.locationKey}, ${args.centerCode}, ${args.qty}, ${args.combine ?? true},
       ${args.unitPriceCents}, ${args.subtotalCents}, ${args.taxCents}, ${args.totalCents},
       ${args.buyerName ?? null}, ${args.buyerEmail},
       ${canonicalizePhone(args.buyerPhone)}, ${args.smsOptIn ?? false},

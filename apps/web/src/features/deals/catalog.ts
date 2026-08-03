@@ -378,12 +378,12 @@ export function dealExpiryFrom(purchasedAt: Date, months: number): string {
  *
  * Collapses duplicates into counts and states game-card value in money.
  */
-export function dealVoucherSummary(deal: DealCatalogEntry): string {
+export function dealVoucherSummary(deal: DealCatalogEntry, packs = 1): string {
+  const items = dealVoucherItems(deal, packs);
   const parts: string[] = [];
 
-  const admissions = deal.items.filter((i) => i.kind === "attraction");
   const bySlug = new Map<string, number>();
-  for (const item of admissions) {
+  for (const item of items) {
     if (item.kind !== "attraction") continue;
     bySlug.set(item.slug, (bySlug.get(item.slug) ?? 0) + item.qty);
   }
@@ -392,7 +392,7 @@ export function dealVoucherSummary(deal: DealCatalogEntry): string {
     parts.push(`${qty} × ${name}`);
   }
 
-  const cards = deal.items.filter((i) => i.kind === "gamezone");
+  const cards = items.filter((i) => i.kind === "gamezone");
   if (cards.length > 0) {
     const each = gameZoneItemDollars(cards[0]);
     const uniform = cards.every((c) => gameZoneItemDollars(c) === each);
@@ -407,8 +407,24 @@ export function dealVoucherSummary(deal: DealCatalogEntry): string {
   return parts.join(" + ");
 }
 
-/** The voucher items for `qty` packs — one voucher PER pack, so this is just
- *  the single-pack list; `mintVouchers({count: qty})` does the repetition. */
-export function dealVoucherItems(deal: DealCatalogEntry): VoucherItem[] {
-  return deal.items;
+/**
+ * The item list for a voucher carrying `packs` packs.
+ *
+ * COMBINED (the default) mints ONE code with every pack's items on it: 3 laser
+ * packs become 6 laser-tag legs and 6 game-card legs under a single code. That is
+ * almost always what a buyer wants — one thing to keep, one QR to scan, and legs
+ * are claimed independently anyway so a combined voucher shares exactly as well
+ * as separate ones do. Separate codes only matter when the packs are going to
+ * DIFFERENT people, which is the one case the split option exists for.
+ *
+ * Items are repeated rather than given a qty>1, deliberately: a claim is unique
+ * per `(code, itemIndex)`, and coverage awards one unit per applied entry, so N
+ * discrete legs is what makes N units redeemable — separately, on separate
+ * visits. A single `qty: N` item would cover one unit and silently charge for the
+ * rest (the trap already documented on DealCatalogEntry.items).
+ */
+export function dealVoucherItems(deal: DealCatalogEntry, packs = 1): VoucherItem[] {
+  const n = Math.max(1, Math.floor(packs));
+  if (n === 1) return deal.items;
+  return Array.from({ length: n }, () => deal.items).flat();
 }

@@ -144,6 +144,8 @@ export default function DealBuyPanel({
     () => initialLocation ?? initialLocationFromUrl(locations),
   );
   const [qty, setQty] = useState(1);
+  /** Default TRUE: one code for one buyer. Splitting is only for gifting packs on. */
+  const [combine, setCombine] = useState(true);
   /**
    * The quote is stored WITH the inputs that produced it, and only rendered when
    * those still match. Two things fall out of that: no setState in the effect
@@ -247,6 +249,7 @@ export default function DealBuyPanel({
           slug,
           location,
           qty,
+          combine,
           // Echoed so the server can refuse if the total moved while we sat here.
           shownTotalCents: quote.totalCents,
           buyer: { name: name.trim(), email: email.trim(), phone: phone.trim(), smsOptIn },
@@ -263,7 +266,7 @@ export default function DealBuyPanel({
       }
       setResult(data as PurchaseResult);
     },
-    [slug, location, qty, quote, name, email, phone, smsOptIn],
+    [slug, location, qty, combine, quote, name, email, phone, smsOptIn],
   );
 
   /* ── success ────────────────────────────────────────────────────────── */
@@ -294,10 +297,16 @@ export default function DealBuyPanel({
         ) : (
           <>
             <div className="space-y-2">
+              {/* Three genuinely different situations, so three sentences —
+                  a combined multi-pack voucher must SAY it covers everything and
+                  that sharing still works, or the buyer wonders where the rest
+                  went. */}
               <p className="text-sm text-white/70">
-                {result.codes.length === 1
-                  ? "Here's your voucher:"
-                  : `Here are your ${result.codes.length} vouchers — each one works on its own, so you can pass one to a friend:`}
+                {result.codes.length > 1
+                  ? `Here are your ${result.codes.length} vouchers — one per pack, so you can pass a whole pack to someone else:`
+                  : result.qty > 1
+                    ? `Here's your voucher — it covers all ${result.qty} packs. Everything on it is used separately, so your group can still split it across people and visits:`
+                    : "Here's your voucher:"}
               </p>
               {result.codes.map((code) => (
                 <Link
@@ -396,6 +405,69 @@ export default function DealBuyPanel({
         accentColor={accentColor}
         onChange={setQty}
       />
+
+      {/* One code or several — only a question when there's more than one pack.
+          Combined is the default and the honest recommendation: legs are redeemed
+          independently, so ONE code still splits across visits and across people.
+          Separate codes buy exactly one thing — handing a whole pack to someone
+          else — so that is how the option is described rather than as a vague
+          preference. */}
+      {qty > 1 && (
+        <fieldset className="rounded-lg border border-white/10 bg-white/[0.02] p-4">
+          <legend className="px-1 text-xs font-bold tracking-widest text-white/45 uppercase">
+            How should we send them?
+          </legend>
+          <div className="mt-1 space-y-2.5">
+            {/* The LABEL carries only its own short text, one level deep — the
+                explanation is a sibling wired up with aria-describedby. Nesting a
+                heading span plus a paragraph span inside the label put the text
+                past jsx-a11y/label-has-associated-control's depth limit and failed
+                the a11y gate; it also over-stated the label, since the help text
+                isn't the control's name. */}
+            <div>
+              <label
+                htmlFor="deal-combine-one"
+                className="flex cursor-pointer items-center gap-2.5 text-sm font-semibold text-white"
+              >
+                <input
+                  id="deal-combine-one"
+                  type="radio"
+                  name="deal-combine"
+                  checked={combine}
+                  onChange={() => setCombine(true)}
+                  aria-describedby="deal-combine-one-hint"
+                  className="h-4 w-4 shrink-0"
+                />
+                One code for all {qty} packs
+              </label>
+              <p id="deal-combine-one-hint" className="mt-1 pl-[26px] text-xs text-white/55">
+                Recommended — one QR to keep. You can still share it: everything on it is used
+                separately, so your group can split it across people and visits.
+              </p>
+            </div>
+            <div>
+              <label
+                htmlFor="deal-combine-split"
+                className="flex cursor-pointer items-center gap-2.5 text-sm font-semibold text-white"
+              >
+                <input
+                  id="deal-combine-split"
+                  type="radio"
+                  name="deal-combine"
+                  checked={!combine}
+                  onChange={() => setCombine(false)}
+                  aria-describedby="deal-combine-split-hint"
+                  className="h-4 w-4 shrink-0"
+                />
+                {qty} separate codes
+              </label>
+              <p id="deal-combine-split-hint" className="mt-1 pl-[26px] text-xs text-white/55">
+                Only needed if you&apos;re giving whole packs to other people — one code each.
+              </p>
+            </div>
+          </div>
+        </fieldset>
+      )}
 
       {/* Total */}
       <div className="rounded-lg border border-white/10 bg-white/[0.02] p-4">

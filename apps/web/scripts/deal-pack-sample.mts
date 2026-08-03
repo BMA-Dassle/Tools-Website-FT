@@ -70,6 +70,8 @@ const EMAIL = process.env.EMAIL || "eric@headpinz.com";
 const PHONE = process.env.PHONE || "";
 const NAME = process.env.NAME || "Eric Osborn";
 const LOCATION = (process.env.LOCATION || "headpinz") as "headpinz" | "naples";
+/** Default TRUE, matching the buy panel: all packs on one code. */
+const COMBINE = process.env.COMBINE !== "0";
 
 const { getDeal, dealValue, dealVoucherSummary, DEAL_LOCATION_INFO } = await import(
   "../src/features/deals/catalog.js"
@@ -92,7 +94,8 @@ const quote = await quoteDeal({ deal, location: LOCATION, qty: QTY });
 const value = dealValue(deal, LOCATION);
 
 console.log(`\n${deal.name} ×${QTY} @ ${info.label}`);
-console.log(`  carries      ${dealVoucherSummary(deal)}`);
+console.log(`  carries      ${dealVoucherSummary(deal, COMBINE ? QTY : 1)}`);
+console.log(`  delivery     ${COMBINE ? `ONE code for all ${QTY} pack(s)` : `${QTY} separate codes`}`);
 console.log(`  à la carte   $${(value.compareAtCents / 100).toFixed(2)}  (save ${value.savingsPct}%)`);
 console.log(
   `  quoted       $${(quote.subtotalCents / 100).toFixed(2)} + $${(quote.taxCents / 100).toFixed(2)} tax = $${(quote.totalCents / 100).toFixed(2)}`,
@@ -109,6 +112,7 @@ const row = await insertDealPurchase({
   locationKey: LOCATION,
   centerCode: info.centerCode,
   qty: QTY,
+  combine: COMBINE,
   unitPriceCents: deal.priceCents,
   subtotalCents: quote.subtotalCents,
   taxCents: quote.taxCents,

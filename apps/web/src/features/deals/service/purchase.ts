@@ -1,5 +1,11 @@
 /**
- * Buy a deal pack: charge once, mint one voucher per pack, email the codes.
+ * Buy a deal pack: charge once, mint the voucher(s), email the codes.
+ *
+ * By DEFAULT several packs COMBINE onto one code (owner 2026-08-03: "default
+ * combine"). Legs are claimed per `(code, itemIndex)`, so combining costs the
+ * buyer nothing — a combined voucher is still redeemable across multiple visits
+ * and by multiple people. Separate codes matter only when packs are going to
+ * DIFFERENT people, which is the one thing splitting buys.
  *
  * DOCTRINE — persist-first, recover-forward. In order:
  *
@@ -147,9 +153,18 @@ export async function fulfilDealPurchase(row: DealPurchaseRow): Promise<{
   if (!row.voucherBatchId) {
     let minted: { batchId: string; codes: string[] } | null = null;
     try {
+      // COMBINED (default) = ONE code carrying every pack; SPLIT = one per pack.
+      // Read off the ROW, never the request, so a cron re-run mints the same shape
+      // the buyer was promised.
+      //
+      // Combining does not reduce what they can do with it: legs are claimed
+      // independently per (code, itemIndex), so a combined voucher is redeemable
+      // across as many visits and as many people as separate codes would be. The
+      // only thing separate codes buy is the ability to hand ONE pack to someone
+      // else, which is exactly what the split option is for.
       const res = await mintVouchers({
-        count: row.qty,
-        items: dealVoucherItems(deal),
+        count: row.combine ? 1 : row.qty,
+        items: dealVoucherItems(deal, row.combine ? row.qty : 1),
         expiresAt,
         issuedSource: `deal:${deal.slug}`,
         issuedTo: {
@@ -157,7 +172,9 @@ export async function fulfilDealPurchase(row: DealPurchaseRow): Promise<{
           ...(row.buyerPhone ? { phone: row.buyerPhone } : {}),
           ...(row.buyerName ? { name: row.buyerName } : {}),
         },
-        batchLabel: `${deal.name} — purchase #${row.id}`,
+        batchLabel: `${deal.name} — purchase #${row.id}${
+          row.combine && row.qty > 1 ? ` (${row.qty} packs combined)` : ""
+        }`,
       });
       minted = { batchId: res.batchId, codes: res.vouchers.map((v) => v.code) };
     } catch (err) {
@@ -195,8 +212,8 @@ export async function fulfilDealPurchase(row: DealPurchaseRow): Promise<{
     name: row.buyerName,
     productName: deal.name,
     codes,
-    items: dealVoucherItems(deal),
-    valueSummary: dealVoucherSummary(deal),
+    items: dealVoucherItems(deal, row.combine ? row.qty : 1),
+    valueSummary: dealVoucherSummary(deal, row.combine ? row.qty : 1),
     expiresAt,
     scheduleUrl: absoluteUrl(dealScheduleUrl({ deal, location: row.locationKey, codes })),
     scheduleLabel: `Pick your ${deal.scheduleSlug === "gel-blaster" ? "gel blaster" : "laser tag"} time`,
@@ -295,6 +312,7 @@ export async function purchaseDeal(input: DealPurchaseInput): Promise<DealPurcha
     locationKey: location,
     centerCode: info.centerCode,
     qty: input.qty,
+    combine: input.combine,
     unitPriceCents: deal.priceCents,
     subtotalCents: quote.subtotalCents,
     taxCents: quote.taxCents,

@@ -4,6 +4,7 @@ import {
   DEAL_LOCATIONS,
   dealExpiryFrom,
   dealIsSellable,
+  dealVoucherItems,
   dealVoucherSummary,
   dealValue,
   getDeal,
@@ -186,6 +187,46 @@ describe("dealVoucherSummary", () => {
     );
     expect(dealVoucherSummary(getDeal("gel-blaster-game-card-pack")!)).toBe(
       "2 × Gel Blasters + 2 × $15 game card ($30 of arcade play)",
+    );
+  });
+});
+
+describe("dealVoucherItems — combining packs onto one code", () => {
+  it("repeats the pack's legs, one discrete leg per redeemable unit", () => {
+    // Repeated legs rather than qty>1 on purpose: a claim is unique per
+    // (code, itemIndex) and coverage awards ONE unit per applied entry, so N
+    // discrete legs is what makes N units separately redeemable. A single
+    // qty:N item would cover one and silently charge for the rest.
+    const deal = getDeal("laser-tag-game-card-pack")!;
+    const three = dealVoucherItems(deal, 3);
+    expect(three).toHaveLength(deal.items.length * 3);
+    expect(three.filter((i) => i.kind === "attraction")).toHaveLength(6);
+    expect(three.filter((i) => i.kind === "gamezone")).toHaveLength(6);
+    for (const item of three) {
+      if (item.kind === "attraction") expect(item.qty).toBe(1);
+    }
+  });
+
+  it("one pack returns the registry list untouched", () => {
+    const deal = getDeal("gel-blaster-game-card-pack")!;
+    expect(dealVoucherItems(deal, 1)).toBe(deal.items);
+    expect(dealVoucherItems(deal)).toBe(deal.items);
+  });
+
+  it("treats a nonsense pack count as one", () => {
+    const deal = getDeal("laser-tag-game-card-pack")!;
+    expect(dealVoucherItems(deal, 0)).toHaveLength(deal.items.length);
+    expect(dealVoucherItems(deal, -2)).toHaveLength(deal.items.length);
+  });
+
+  it("scales the guest-facing summary with the pack count", () => {
+    const deal = getDeal("laser-tag-game-card-pack")!;
+    expect(dealVoucherSummary(deal, 3)).toBe(
+      "6 × Laser Tag + 6 × $10 game card ($60 of arcade play)",
+    );
+    // Still every denomination the mint allowlist accepts.
+    expect(dealVoucherSummary(deal, 1)).toBe(
+      "2 × Laser Tag + 2 × $10 game card ($20 of arcade play)",
     );
   });
 });
