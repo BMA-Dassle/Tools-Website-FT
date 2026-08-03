@@ -66,12 +66,31 @@ export const VENDOR_LABEL: Record<VendorKey, string> = {
  *             Office. A guest who cannot be identified cannot be signed, so this
  *             is Office-gated even though Pandora would accept the signature.
  *
- * DELIBERATELY ABSENT — check-in and e-tickets. Both ride Office too, both were
- * verified working through this outage, and the owner ruled them out of scope
- * explicitly (2026-08-03: "dont do anything with eticket or check in. its
- * working"). They are NOT classified here, so nothing in this feature can reach
- * them: an unclassified id fails open by design (see vendorsForProduct). Do not
- * "complete" the map by adding them.
+ * BOTH rails:
+ *   checkin   kiosk self-service check-in. Needs Office to FIND the reservation
+ *             (bill → project) and the BOOKING API to finish it:
+ *             registerProjectPerson to attach a person to the reservation, the
+ *             racer schedule write, and the "Confirmation Kiosk" state stamp all
+ *             go to api.bmileisure.com/public-booking (see
+ *             features/kiosk/waiver/bmi-attach.ts).
+ *
+ *             Gated even though check-in LOOKS healthy during a booking-API
+ *             outage, and that is the point. Those writes are Neon-first with a
+ *             CONTAINED failure mode — a rejected attach is recorded on the Neon
+ *             row as 'failed' and deliberately never surfaced to the guest
+ *             (kioskCheckinAttachEnabled, default ON). So with the booking rail
+ *             dark the kiosk cheerfully says "you're checked in" while BMI
+ *             records nothing: the racer is never scheduled onto the session and
+ *             staff never see the state stamp, so they walk to the track and are
+ *             not on the grid. A confident false success is worse than a closed
+ *             door (owner 2026-08-03: "Race reservation check in on kiosk should
+ *             also be down because no way to create new people").
+ *
+ * DELIBERATELY ABSENT — E-TICKETS. Owner ruled them out of scope explicitly
+ * ("dont do anything with eticket"), and they are display-only: a ticket renders
+ * a QR from a record we already hold. They are NOT classified here, so nothing in
+ * this feature can reach them — an unclassified id fails open by design (see
+ * vendorsForProduct). Do not "complete" the map by adding them.
  *
  * BOTH selling + lanes:
  *   race-bowl  Ultimate VIP: race → VIP lane → race.
@@ -98,6 +117,7 @@ const STATIC_VENDORS_BY_PRODUCT: Record<string, VendorKey[]> = {
   "shuffly-fasttrax": ["bmi"],
   "shuffly-headpinz": ["bmi"],
   "race-bowl": ["bmi", "qamf"],
+  checkin: ["bmi", "bmi-office"],
   waiver: ["bmi-office"],
   contract: ["pandora"],
   bowling: ["qamf"],

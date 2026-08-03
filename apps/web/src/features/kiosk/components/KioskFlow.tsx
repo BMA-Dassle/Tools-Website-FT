@@ -2109,8 +2109,15 @@ export function KioskFlow({
           // the rules are not duplicated across two components. Check-in and the
           // race grid are Fort-Myers-only: the two FM venues share the center
           // code, and racing never advertises at Naples.
+          // Vendor outage: check-in's finishing writes (registerProjectPerson,
+          // racer schedule, state stamp) are on the BMI booking rail and fail
+          // SILENTLY by design, so a dark rail means the kiosk would confirm a
+          // check-in that BMI never recorded. Withdraw the door rather than
+          // advertise it; /kiosk/checkin guards itself server-side for the scan
+          // and typed-URL routes, so this is the tidy front door, not the
+          // enforcement.
           onOpenCheckin={
-            config.center === "fort-myers" && kioskCheckinEnabled()
+            config.center === "fort-myers" && kioskCheckinEnabled() && !vendorPaused("checkin")
               ? () => router.push("/kiosk/checkin")
               : undefined
           }

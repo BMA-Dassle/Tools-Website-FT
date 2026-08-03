@@ -99,9 +99,13 @@ describe("MAINTENANCE_VENDORS_DOWN parsing", () => {
 describe("today's outage: MAINTENANCE_VENDORS_DOWN=bmi", () => {
   beforeEach(() => down("bmi"));
 
-  it("takes exactly the BMI selling rail off sale", () => {
+  it("takes exactly the products that need the BMI booking rail off sale", () => {
+    // `checkin` is here because it needs the booking API to FINISH (attach +
+    // schedule + state stamp), not just Office to look up. `waiver` is NOT: its
+    // lookup is Office and its signing is Pandora, both healthy.
     expect(pausedProductIds().sort()).toEqual(
       [
+        "checkin",
         "gel-blaster",
         "laser-tag",
         "race",
@@ -135,15 +139,37 @@ describe("today's outage: MAINTENANCE_VENDORS_DOWN=bmi", () => {
     expect(isProductPaused("contract")).toBe(false);
   });
 
-  // Owner 2026-08-03: "dont do anything with eticket or check in. its working."
-  // They are not classified at all, so no value of the env var can reach them.
-  it("cannot touch check-in or e-tickets, whatever is listed as down", () => {
+  // E-tickets stay out of scope entirely (owner: "dont do anything with
+  // eticket") — display-only, and not classified, so no value of the env var can
+  // reach them. Pinned so nobody "completes" the map later.
+  it("cannot touch e-tickets, whatever is listed as down", () => {
     down("bmi,bmi-office,pandora,qamf,intercard");
-    for (const id of ["checkin", "eticket"]) {
-      expect(vendorsForProduct(id)).toEqual([]);
-      expect(isProductPaused(id)).toBe(false);
+    expect(vendorsForProduct("eticket")).toEqual([]);
+    expect(isProductPaused("eticket")).toBe(false);
+    for (const p of ["/t/abc123", "/g/abc123"]) {
+      expect(maintenanceRedirectForPath(p)).toBeNull();
     }
-    for (const p of ["/kiosk/checkin", "/t/abc123", "/g/abc123", "/book/bowling/checkin"]) {
+  });
+
+  // Kiosk check-in needs BOTH rails: Office to find the reservation, the booking
+  // API to finish it. Its BMI writes fail silently by design, so a dark booking
+  // rail means the kiosk confirms a check-in BMI never recorded — a confident
+  // false success, worse than a closed door (owner 2026-08-03).
+  it("takes kiosk check-in down with EITHER BMI rail", () => {
+    expect(vendorsForProduct("checkin")).toEqual(["bmi", "bmi-office"]);
+    expect(isProductPaused("checkin")).toBe(true); // today: booking rail down
+    down("bmi-office");
+    expect(isProductPaused("checkin")).toBe(true); // lookup rail down
+    down("qamf");
+    expect(isProductPaused("checkin")).toBe(false); // neither BMI rail down
+  });
+
+  it("still never redirects a check-in URL — the kiosk page guards itself", () => {
+    // Enforcement is the /kiosk/checkin server component, not the middleware
+    // gate: the kiosk needs its own chrome and Spanish, and /book/bowling/checkin
+    // is QAMF lane check-in that must keep working regardless.
+    down("bmi,bmi-office");
+    for (const p of ["/kiosk/checkin", "/book/bowling/checkin", "/hp/book/bowling/checkin"]) {
       expect(maintenanceRedirectForPath(p)).toBeNull();
     }
   });

@@ -15,6 +15,20 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.13.2 — RACE RESERVATION CHECK-IN goes down with the BMI booking outage too
+ *         (owner 2026-08-03: "should also be down because no way to create new
+ *         people"). It looked healthy — finding a reservation is the Office API,
+ *         which is up — but FINISHING one is not: registerProjectPerson (attach a
+ *         person to the reservation), the racer schedule write and the
+ *         "Confirmation Kiosk" state stamp all go to the dark public-booking API.
+ *         Those writes are Neon-first with a deliberately CONTAINED failure mode
+ *         that is never surfaced to the guest, so the kiosk was confirming
+ *         check-ins BMI never recorded: the racer never reaches the grid and
+ *         staff never see the stamp. A confident false success is worse than a
+ *         closed door. Modeled as needing BOTH BMI rails, so it also goes down in
+ *         an Office-only outage. The chooser's door is withdrawn and the page
+ *         guards itself server-side, so a typed URL or a scanned reservation QR
+ *         lands on the outage screen instead of a dead end.
  * 1.13.1 — maintenance mode: a locked thing now says WHY, and the VIP popup gets
  *         out of the way. "Temporarily unavailable" alone read like the product
  *         had been discontinued, so every locked card/tile carries its vendor's
@@ -514,7 +528,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.13.1";
+export const KIOSK_VERSION = "1.13.2";
 
 let bootVersion: string | null = null;
 let captured = false;
