@@ -62,12 +62,15 @@ describe("buildDealOrder", () => {
   });
 
   it("refuses to build an order for a deal with no Square catalog id", () => {
-    // An ad-hoc line would charge fine and be invisible in QBO forever — there
-    // is no way to attach categorisation to a captured payment after the fact.
-    const deal = getDeal("laser-tag-game-card-pack")!;
-    expect(deal.squareCatalogId).toBeNull();
+    // An ad-hoc line would charge fine and be invisible in QBO forever — there is
+    // no way to attach categorisation to a captured payment after the fact. The
+    // shipped deals all have ids now, so this guards the NEXT deal added to the
+    // registry before its Square item exists.
+    const deal = { ...getDeal("laser-tag-game-card-pack")!, squareCatalogId: null };
     expect(() => buildDealOrder({ deal, location: "headpinz", qty: 1 })).toThrow(DealQuoteError);
-    expect(() => buildDealOrder({ deal, location: "headpinz", qty: 1 })).toThrow(/no Square catalog id/);
+    expect(() => buildDealOrder({ deal, location: "headpinz", qty: 1 })).toThrow(
+      /no Square catalog id/,
+    );
   });
 });
 

@@ -58,11 +58,27 @@ describe("deal catalog shape", () => {
     }
   });
 
-  it("is not sellable until the owner supplies a Square catalog id", () => {
-    // Charging without a catalog id would book revenue that is invisible in QBO
-    // and cannot be retro-fitted onto a captured payment.
+  it("is sellable — every deal carries a Square catalog id", () => {
+    // Charging without one books revenue that is invisible in QBO and cannot be
+    // retro-fitted onto a captured payment, so buildDealOrder refuses.
     for (const deal of DEAL_CATALOG) {
-      expect(dealIsSellable(deal)).toBe(false);
+      expect(dealIsSellable(deal), `${deal.slug} has no Square catalog id`).toBe(true);
+    }
+  });
+
+  it("points at the live Square variations, not item ids", () => {
+    // Pinned literally: these were read off the Square Catalog API, and a
+    // dashboard column clipped them (the laser id's 9th char is P, not F). A typo
+    // here fails at order-create, after the buyer has filled the form in.
+    expect(getDeal("laser-tag-game-card-pack")!.squareCatalogId).toBe(
+      "FGDAFYAVPFJ2GRRZQXNHZJB6",
+    );
+    expect(getDeal("gel-blaster-game-card-pack")!.squareCatalogId).toBe(
+      "B6ST5YMWFNLL66PVQXVXXYFY",
+    );
+    // Square catalog ids are 24 chars here — a clipped paste is the likely error.
+    for (const deal of DEAL_CATALOG) {
+      expect(deal.squareCatalogId).toHaveLength(24);
     }
   });
 

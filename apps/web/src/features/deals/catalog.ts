@@ -32,6 +32,7 @@
  */
 
 import { ATTRACTIONS, type AttractionSlug, type LocationKey } from "@/lib/attractions-data";
+import { SQUARE_CATALOG_IDS } from "~/features/booking/data/square-catalog-map";
 import { ACTIVATION_FEE_CENTS } from "~/features/game-cards/constants";
 import type { VoucherItem } from "~/features/game-cards/data/vouchers-db";
 
@@ -170,7 +171,7 @@ export const DEAL_CATALOG: readonly DealCatalogEntry[] = [
     locations: DEAL_LOCATIONS,
     maxPerBuyer: 10,
     expiresMonths: 12,
-    squareCatalogId: null,
+    squareCatalogId: SQUARE_CATALOG_IDS.DEAL_LASER_TAG_PACK,
     media: {
       hero: LASER_PHOTO,
       gallery: [
@@ -204,7 +205,7 @@ export const DEAL_CATALOG: readonly DealCatalogEntry[] = [
     locations: DEAL_LOCATIONS,
     maxPerBuyer: 10,
     expiresMonths: 12,
-    squareCatalogId: null,
+    squareCatalogId: SQUARE_CATALOG_IDS.DEAL_GEL_BLASTER_PACK,
     media: {
       hero: GEL_PHOTO,
       gallery: [
