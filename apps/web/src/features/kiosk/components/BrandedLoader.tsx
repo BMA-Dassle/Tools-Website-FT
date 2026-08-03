@@ -22,6 +22,9 @@ export function BrandedLoader({
   size?: number;
 }) {
   const badge = Math.round(size * 0.64);
+  // Badge padding scales with `size` (32px at the 300 default) — a fixed p-8
+  // ate the whole badge at inline sizes and the logo collapsed to nothing.
+  const badgePad = Math.round(size * 0.107);
   return (
     <div className="flex flex-col items-center gap-10 text-center" role="status" aria-live="polite">
       <div className="relative grid place-items-center" style={{ width: size, height: size }}>
@@ -45,8 +48,8 @@ export function BrandedLoader({
           </defs>
         </svg>
         <div
-          className="grid place-items-center rounded-full border border-white/10 bg-[#0d1a36] p-8"
-          style={{ width: badge, height: badge }}
+          className="grid place-items-center rounded-full border border-white/10 bg-[#0d1a36]"
+          style={{ width: badge, height: badge, padding: badgePad }}
         >
           <BrandLogo brand={brand} className="max-h-full max-w-full object-contain" />
         </div>

@@ -365,6 +365,13 @@ export const en = {
   "codeEntry.voucherGz.partyTitle": "Who’s here from your booking?",
   "codeEntry.voucherGz.partySub":
     "Tap everyone playing today — we’ll have their names ready at every step.",
+  // The roster lookup runs through BMI and can take most of a minute — the
+  // section shows the branded loader meanwhile, under a header that doesn't
+  // promise a booking we haven't found yet.
+  "codeEntry.voucherGz.partyLoadingTitle": "Checking your voucher",
+  "codeEntry.voucherGz.partyLoadingSub":
+    "If there’s a booking on this voucher, we’ll bring in everyone on it.",
+  "codeEntry.voucherGz.partyLoading": "Looking for your group…",
   "codeEntry.voucherGz.partyWaiverOk": "Waiver signed",
   "codeEntry.voucherGz.partyWaiverNeeded": "Waiver needed",
   "codeEntry.voucherGz.partyInGroup": "In your group",
