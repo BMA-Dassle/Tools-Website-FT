@@ -682,6 +682,12 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/account")) {
       requestHeaders.set("x-no-mobile-bar", "1");
     }
+    // A voucher page is a focused redemption screen — the guest is holding a QR
+    // up to a kiosk. A "Book Now" bar pinned over it competes with the one action
+    // that matters and covers the bottom of the code (owner 2026-08-03).
+    if (pathname.startsWith("/v/")) {
+      requestHeaders.set("x-no-mobile-bar", "1");
+    }
     // July-4 promo landing: full-bleed marketing hero with its own dual-brand
     // logos — suppress the HeadPinz Nav/Footer entirely (like the chooser splash).
     if (pathname === "/july4") {
@@ -740,7 +746,9 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/survey/") ||
     pathname.startsWith("/contract/") ||
     pathname.startsWith("/event/") ||
-    pathname.startsWith("/account")
+    pathname.startsWith("/account") ||
+    // Voucher redemption — see the matching HP-host case above.
+    pathname.startsWith("/v/")
   ) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-no-mobile-bar", "1");
