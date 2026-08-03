@@ -35,6 +35,7 @@ import { checkoutDeclineMessage } from "@/lib/square-decline";
 import { authorizeMultiTender, SquarePaymentError } from "@/lib/square-gift-card";
 import { mintVouchers } from "~/features/game-cards/service/native-voucher";
 import {
+  emailDealGiftReceipt,
   emailPurchasedVouchers,
   notifyStaffDealSale,
   smsPurchasedVouchers,
@@ -55,10 +56,12 @@ import {
   markDealPurchaseCharged,
   markDealPurchaseChargeFailed,
   markDealPurchaseMinted,
+  markDealPurchaseScheduled,
   markDealPurchaseSent,
   recordDealPurchaseError,
   type DealPurchaseRow,
 } from "../data/deal-purchases-db";
+import { checkGiftDate, formatGiftDate } from "../gift";
 import { checkBuyerCap } from "./cap";
 import { assertQuoteMatches, createDealOrder, DEAL_SQUARE_LOCATION, DealQuoteError } from "./quote";
 import type { DealPurchaseInput } from "../schemas";
@@ -99,6 +102,12 @@ export interface DealPurchaseResult {
   emailPending: boolean;
   /** Deep link into the booking wizard with the first code pre-applied. */
   scheduleUrl: string | null;
+  /** Bought for someone else. */
+  isGift: boolean;
+  /** Who it's for, for the confirmation copy. */
+  recipientName: string | null;
+  /** ISO instant the recipient hears about it; null = they already have. */
+  giftSendAt: string | null;
 }
 
 /** Where to send a buyer who wants to book the timed half of their pack now. */
@@ -130,6 +139,8 @@ export async function fulfilDealPurchase(row: DealPurchaseRow): Promise<{
   codes: string[];
   mintPending: boolean;
   emailPending: boolean;
+  /** True when this is a gift parked until its send date — nothing is owed. */
+  deliveryScheduled?: boolean;
 }> {
   const deal = getDeal(row.dealSlug);
   if (!deal) {
@@ -157,11 +168,22 @@ export async function fulfilDealPurchase(row: DealPurchaseRow): Promise<{
         items: dealVoucherItems(deal, row.combine ? row.qty : 1),
         expiresAt,
         issuedSource: `deal:${deal.slug}`,
-        issuedTo: {
-          email: row.buyerEmail,
-          ...(row.buyerPhone ? { phone: row.buyerPhone } : {}),
-          ...(row.buyerName ? { name: row.buyerName } : {}),
-        },
+        // A gift belongs to the RECIPIENT the moment it's cut, even if it won't
+        // be delivered for months. `issuedTo` is who the voucher is for, not who
+        // paid — the purchase row already records the buyer, and a staff resend
+        // that went back to the giver instead of the recipient would be wrong.
+        issuedTo:
+          row.isGift && row.recipientEmail
+            ? {
+                email: row.recipientEmail,
+                ...(row.recipientPhone ? { phone: row.recipientPhone } : {}),
+                ...(row.recipientName ? { name: row.recipientName } : {}),
+              }
+            : {
+                email: row.buyerEmail,
+                ...(row.buyerPhone ? { phone: row.buyerPhone } : {}),
+                ...(row.buyerName ? { name: row.buyerName } : {}),
+              },
         batchLabel: `${deal.name} — purchase #${row.id}${
           row.combine && row.qty > 1 ? ` (${row.qty} packs combined)` : ""
         }`,
@@ -196,16 +218,63 @@ export async function fulfilDealPurchase(row: DealPurchaseRow): Promise<{
 
   if (codes.length === 0) return { codes, mintPending: true, emailPending: true };
 
+  const valueSummary = dealVoucherSummary(deal, row.combine ? row.qty : 1);
+  const expiryLabel = expiresAt ? formatGiftDate(expiresAt) : null;
+
+  /* ── a gift whose day hasn't come: receipt the buyer, park the row ──────
+     THE DATE IS THE GATE, and it is re-checked here rather than trusted from
+     the caller's query. `listUnfinishedDealPurchases` already excludes parked
+     gifts by status, but a gift whose buyer receipt failed sits in `minted` and
+     IS swept — so without this check every sweep would deliver a Christmas
+     present in August. Same shape as the GF loop-breaker (7a5e044f): a gate,
+     not a side effect. */
+  if (row.isGift && row.giftSendAt && Date.parse(row.giftSendAt) > Date.now()) {
+    const receipt = await emailDealGiftReceipt({
+      to: row.buyerEmail,
+      buyerName: row.buyerName,
+      recipientName: row.recipientName ?? "them",
+      recipientEmail: row.recipientEmail ?? "",
+      productName: deal.name,
+      codes,
+      valueSummary,
+      sendDateLabel: formatGiftDate(row.giftSendAt),
+      expiresLabel: expiryLabel,
+    }).catch((err: unknown) => ({
+      ok: false as const,
+      error: err instanceof Error ? err.message : String(err),
+    }));
+
+    if (!receipt.ok) {
+      // Leave it in `minted`. That is the ONE state the reconcile sweep retries,
+      // and the buyer has been told nothing yet — advancing to `scheduled` here
+      // would silently swallow their only confirmation.
+      console.error(`[deals] gift ${row.id} buyer receipt failed (cron retries):`, receipt.error);
+      await recordDealPurchaseError(row.id, `gift receipt failed: ${receipt.error ?? "unknown"}`);
+      return { codes, mintPending: false, emailPending: true };
+    }
+
+    await markDealPurchaseScheduled(row.id);
+    notifyStaffOnce(row, deal, codes);
+    return { codes, mintPending: false, emailPending: false, deliveryScheduled: true };
+  }
+
+  /* ── delivery ───────────────────────────────────────────────────────────
+     A gift goes to the RECIPIENT; everything else goes to the buyer. This is
+     also the path a parked gift lands on once its date passes, which is why the
+     branch reads off the row rather than off anything the request carried. */
+  const giftMode = row.isGift && !!row.recipientEmail;
+
   const mail = await emailPurchasedVouchers({
-    to: row.buyerEmail,
-    name: row.buyerName,
+    to: giftMode ? row.recipientEmail! : row.buyerEmail,
+    name: giftMode ? row.recipientName : row.buyerName,
     productName: deal.name,
     codes,
     items: dealVoucherItems(deal, row.combine ? row.qty : 1),
-    valueSummary: dealVoucherSummary(deal, row.combine ? row.qty : 1),
+    valueSummary,
     expiresAt,
     scheduleUrl: absoluteUrl(dealScheduleUrl({ deal, location: row.locationKey, codes })),
     scheduleLabel: `Pick your ${deal.scheduleSlug === "gel-blaster" ? "gel blaster" : "laser tag"} time`,
+    ...(giftMode ? { gift: { fromName: row.buyerName, message: row.giftMessage } } : {}),
   }).catch((err: unknown) => ({
     ok: false as const,
     error: err instanceof Error ? err.message : String(err),
@@ -217,15 +286,18 @@ export async function fulfilDealPurchase(row: DealPurchaseRow): Promise<{
     return { codes, mintPending: false, emailPending: true };
   }
 
-  // Opt-in text. The buy panel says "Text me my voucher code too", so not sending
-  // one is a broken promise — but it must not gate `sent`: the email carried the
-  // codes, and re-running fulfilment to retry a text would re-send that email.
-  // A failure is logged and left alone.
-  if (row.smsOptIn && row.buyerPhone) {
+  // Text. For a normal purchase this is the buyer's "text me my code too" opt-in;
+  // for a gift it is the recipient's number, which the buyer chose to supply and
+  // which is optional for exactly that reason. Either way it must not gate `sent`:
+  // the email carried the codes, and re-running fulfilment to retry a text would
+  // re-send that email. A failure is logged and left alone.
+  const smsTo = giftMode ? row.recipientPhone : row.smsOptIn ? row.buyerPhone : null;
+  if (smsTo) {
     const sms = await smsPurchasedVouchers({
-      phone: row.buyerPhone,
+      phone: smsTo,
       productName: deal.name,
       codes,
+      ...(giftMode ? { giftFromName: row.buyerName } : {}),
     }).catch((err: unknown) => ({
       ok: false as const,
       error: err instanceof Error ? err.message : String(err),
@@ -236,29 +308,61 @@ export async function fulfilDealPurchase(row: DealPurchaseRow): Promise<{
     }
   }
 
-  // Staff heads-up (owner 2026-08-03: "when these sell can you email jacob and i
-  // for now"). Fired AFTER the buyer's mail and fully detached from it: a
-  // staff-notify failure must never mark the guest's delivery unsent or trigger a
-  // resend of their codes. Guarded so a cron re-run of an already-`sent` purchase
-  // doesn't email staff a second time about the same sale.
-  if (row.status !== "sent") {
-    const deal2 = getDeal(row.dealSlug);
-    void notifyStaffDealSale({
-      dealName: deal2?.name ?? row.dealSlug,
-      qty: row.qty,
-      combined: row.combine,
-      locationLabel: DEAL_LOCATION_INFO[row.locationKey]?.label ?? row.locationKey,
-      totalCents: row.totalCents,
+  // The buyer of a send-now gift still needs proof of purchase and their own copy
+  // of the codes. Best-effort only — the recipient already has the goods, so a
+  // failed receipt must not re-run delivery and text somebody twice.
+  if (giftMode && !row.giftSendAt) {
+    void emailDealGiftReceipt({
+      to: row.buyerEmail,
       buyerName: row.buyerName,
-      buyerEmail: row.buyerEmail,
+      recipientName: row.recipientName ?? "them",
+      recipientEmail: row.recipientEmail ?? "",
+      productName: deal.name,
       codes,
-      purchaseId: row.id,
-      utm: row.utm,
-    }).catch((err: unknown) => console.error("[deals] staff notify failed (non-fatal):", err));
+      valueSummary,
+      sendDateLabel: null,
+      expiresLabel: expiryLabel,
+    }).catch((err: unknown) => console.error(`[deals] gift ${row.id} buyer receipt failed:`, err));
   }
+
+  // Staff heads-up (owner 2026-08-03: "when these sell can you email jacob and i
+  // for now"). Fired AFTER the guest's mail and fully detached from it: a
+  // staff-notify failure must never mark the delivery unsent or trigger a resend
+  // of the codes. Guarded so neither a cron re-run of an already-`sent` purchase
+  // nor the release of a parked gift emails staff twice about one sale.
+  notifyStaffOnce(row, deal, codes);
 
   await markDealPurchaseSent(row.id);
   return { codes, mintPending: false, emailPending: false };
+}
+
+/**
+ * Tell staff about a sale, at most once per purchase.
+ *
+ * `charged` and `minted` are the only states that mean "this sale is new to
+ * staff". A `scheduled` row was announced when it was bought — releasing it on
+ * its delivery date is not a second sale — and a `sent` row is a cron re-run.
+ */
+function notifyStaffOnce(row: DealPurchaseRow, deal: DealCatalogEntry, codes: string[]): void {
+  if (row.status !== "charged" && row.status !== "minted") return;
+  void notifyStaffDealSale({
+    dealName: deal.name,
+    qty: row.qty,
+    combined: row.combine,
+    locationLabel: DEAL_LOCATION_INFO[row.locationKey]?.label ?? row.locationKey,
+    totalCents: row.totalCents,
+    buyerName: row.buyerName,
+    buyerEmail: row.buyerEmail,
+    codes,
+    purchaseId: row.id,
+    utm: row.utm,
+    ...(row.isGift
+      ? {
+          giftTo: row.recipientName ?? row.recipientEmail ?? "someone",
+          giftSendAt: row.giftSendAt,
+        }
+      : {}),
+  }).catch((err: unknown) => console.error("[deals] staff notify failed (non-fatal):", err));
 }
 
 function siteOrigin(): string {
@@ -281,6 +385,14 @@ export async function purchaseDeal(input: DealPurchaseInput): Promise<DealPurcha
   if (!deal.locations.includes(location)) {
     throw new DealPurchaseError("WRONG_LOCATION", `${deal.name} isn't available at that location.`);
   }
+
+  /* ── 1b. gift date ──────────────────────────────────────────────────────
+     Re-validated here, never trusted from the picker: the min/max the panel
+     renders are a convenience, and this decides whether real money buys a
+     delivery that lands after the voucher has already expired. */
+  const giftCheck = checkGiftDate(input.gift?.sendDate, { expiresMonths: deal.expiresMonths });
+  if (!giftCheck.ok) throw new DealPurchaseError("BAD_GIFT_DATE", giftCheck.message, 400);
+  const giftSendAt = input.gift ? giftCheck.sendAt : null;
 
   // ── 2. cap ─────────────────────────────────────────────────────────────
   const cap = await checkBuyerCap({
@@ -331,6 +443,12 @@ export async function purchaseDeal(input: DealPurchaseInput): Promise<DealPurcha
     idempotencyKey: baseKey,
     utm: input.utm && Object.keys(input.utm).length > 0 ? input.utm : null,
     clickwrapVersion: input.clickwrapVersion ?? null,
+    isGift: !!input.gift,
+    recipientName: input.gift?.recipientName ?? null,
+    recipientEmail: input.gift?.recipientEmail ?? null,
+    recipientPhone: input.gift?.recipientPhone ?? null,
+    giftMessage: input.gift?.message ?? null,
+    giftSendAt,
   });
 
   // ── 5. charge ──────────────────────────────────────────────────────────
@@ -384,5 +502,8 @@ export async function purchaseDeal(input: DealPurchaseInput): Promise<DealPurcha
     mintPending: fulfilled.mintPending,
     emailPending: fulfilled.emailPending,
     scheduleUrl: dealScheduleUrl({ deal, location, codes: fulfilled.codes }),
+    isGift: !!input.gift,
+    recipientName: input.gift?.recipientName ?? null,
+    giftSendAt,
   };
 }

@@ -15,9 +15,16 @@
  * The `olderThanSeconds` grace exists so the cron never fights a request that is
  * still mid-flight: a purchase that captured two seconds ago is very likely
  * being fulfilled right now.
+ *
+ * IT ALSO RELEASES SCHEDULED GIFTS. A gift bought for a future date is minted and
+ * receipted at purchase, then parked in `scheduled` until `gift_send_at`. This
+ * sweep is what wakes it up — no separate cron, because the work is the same work
+ * (finish a paid purchase) and a second schedule is a second thing to forget.
+ * At `10,40 * * * *` a gift timed for 8:00 AM ET goes out by 8:10, which is well
+ * inside what "on the day" means to a recipient.
  */
 
-import { listUnfinishedDealPurchases } from "../data/deal-purchases-db";
+import { listDueGiftDeliveries, listUnfinishedDealPurchases } from "../data/deal-purchases-db";
 import { fulfilDealPurchase } from "./purchase";
 
 /** Don't touch a purchase younger than this — the request may still be working. */
@@ -30,22 +37,30 @@ export interface DealSweepSummary {
   stillPending: number;
   /** Purchase ids that remain unfinished after this pass, for alerting. */
   unresolved: number[];
+  /** Scheduled gifts whose day arrived and were delivered on this pass. */
+  giftsDelivered: number;
+  /** Due gifts that failed to deliver — the next pass retries them. */
+  giftsFailed: number[];
 }
 
 export async function sweepUnfulfilledDealPurchases(
   opts: { dryRun?: boolean } = {},
 ): Promise<DealSweepSummary> {
   const rows = await listUnfinishedDealPurchases(GRACE_SECONDS);
+  const due = await listDueGiftDeliveries();
   const summary: DealSweepSummary = {
-    scanned: rows.length,
+    scanned: rows.length + due.length,
     minted: 0,
     emailed: 0,
     stillPending: 0,
     unresolved: [],
+    giftsDelivered: 0,
+    giftsFailed: [],
   };
   if (opts.dryRun) {
     summary.stillPending = rows.length;
     summary.unresolved = rows.map((r) => r.id);
+    summary.giftsFailed = due.map((r) => r.id);
     return summary;
   }
 
@@ -67,9 +82,31 @@ export async function sweepUnfulfilledDealPurchases(
     }
   }
 
+  /* ── scheduled gifts whose day has come ────────────────────────────────
+     Same `fulfilDealPurchase`, no second delivery implementation: the row is
+     already minted, so it walks straight past the mint and into the delivery
+     branch, and the future-date gate no longer holds because the date is now in
+     the past. `markDealPurchaseSent` moves it scheduled → sent, so a gift can
+     only ever be released once. */
+  for (const row of due) {
+    try {
+      const res = await fulfilDealPurchase(row);
+      if (res.emailPending || res.mintPending) summary.giftsFailed.push(row.id);
+      else summary.giftsDelivered += 1;
+    } catch (err) {
+      console.error(`[deal-reconcile] gift ${row.id} delivery failed:`, err);
+      summary.giftsFailed.push(row.id);
+    }
+  }
+
   if (summary.unresolved.length > 0) {
     console.error(
       `[deal-reconcile] ${summary.unresolved.length} paid purchase(s) still unfulfilled: ${summary.unresolved.join(", ")}`,
+    );
+  }
+  if (summary.giftsFailed.length > 0) {
+    console.error(
+      `[deal-reconcile] ${summary.giftsFailed.length} due gift(s) undelivered: ${summary.giftsFailed.join(", ")}`,
     );
   }
   return summary;
