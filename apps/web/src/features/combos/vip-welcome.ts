@@ -203,11 +203,23 @@ export function buildVipVoucherSectionHtml(args: {
   /** Inline QR attachment content id. */
   qrCid: string;
 }): string {
-  const items = args.itemLabels
-    .map(
-      (l) =>
-        `<tr><td style="padding: 3px 0; font-size: 13px; color: #333; line-height: 1.5;"><span style="color: #B8860B; font-weight: bold;">&#10003;</span>&nbsp;&nbsp;${l.replace(/&(?!amp;|mdash;)/g, "&amp;")}</td></tr>`,
-    )
+  // COLLAPSE IDENTICAL LABELS INTO A QTY (owner 2026-08-03: "its just a long
+  // list of what is include do by qty and format right"). A 7-guest VIP grant
+  // carries a game card and an attraction choice PER GUEST, so this rendered
+  // fifteen-plus rows repeating the same three lines — the same complaint the
+  // kiosk receipt and the /v page each answered by grouping. First-appearance
+  // order preserved; the caller supplies the label text.
+  const grouped: { label: string; qty: number }[] = [];
+  for (const label of args.itemLabels) {
+    const existing = grouped.find((g) => g.label === label);
+    if (existing) existing.qty += 1;
+    else grouped.push({ label, qty: 1 });
+  }
+  const items = grouped
+    .map(({ label, qty }) => {
+      const text = `${qty > 1 ? `${qty} &times; ` : ""}${label.replace(/&(?!amp;|mdash;|times;)/g, "&amp;")}`;
+      return `<tr><td style="padding: 3px 0; font-size: 13px; color: #333; line-height: 1.5;"><span style="color: #B8860B; font-weight: bold;">&#10003;</span>&nbsp;&nbsp;${text}</td></tr>`;
+    })
     .join("");
   const expiry = args.expiresAt
     ? new Date(args.expiresAt).toLocaleDateString("en-US", {

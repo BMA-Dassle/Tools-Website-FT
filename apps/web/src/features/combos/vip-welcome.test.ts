@@ -218,3 +218,48 @@ describe("buildVipEmailFields — V2 pack 'Included With Your VIP Experience'", 
     expect(perksHtml).toContain("Starter Race");
   });
 });
+
+describe("buildVipVoucherSectionHtml — repeated items collapse to a qty", () => {
+  const base = {
+    codeDisplay: "HPW-4K7M-9PQR",
+    expiresAt: "2027-08-03T23:59:59-04:00",
+    redeemUrl: "https://headpinz.com/v/HPW4K7M9PQR",
+    qrCid: "qr-x",
+  };
+
+  it("renders one row per DISTINCT item with a count", () => {
+    // A 3-guest VIP grant repeats the per-guest items, which rendered as six
+    // near-identical lines (owner 2026-08-03: "its just a long list of what is
+    // include do by qty and format right").
+    const html = buildVipVoucherSectionHtml({
+      ...base,
+      itemLabels: [
+        "$10 Game Card",
+        "Laser Tag or Gel Blasters",
+        "$10 Game Card",
+        "Laser Tag or Gel Blasters",
+        "$10 Game Card",
+        "Laser Tag or Gel Blasters",
+        "1 Hour of Shuffly",
+      ],
+    });
+    expect(html).toContain("3 &times; $10 Game Card");
+    expect(html).toContain("3 &times; Laser Tag or Gel Blasters");
+    // Singletons carry no count.
+    expect(html).toContain("&nbsp;&nbsp;1 Hour of Shuffly");
+    expect(html).not.toContain("1 &times;");
+    // Three distinct rows, not seven.
+    expect(html.match(/&#10003;/g)).toHaveLength(3);
+  });
+
+  it("keeps a single-item voucher unprefixed", () => {
+    const html = buildVipVoucherSectionHtml({ ...base, itemLabels: ["$10 Game Card"] });
+    expect(html).toContain("&nbsp;&nbsp;$10 Game Card");
+    expect(html).not.toContain("&times;");
+  });
+
+  it("still escapes a bare ampersand in a label", () => {
+    const html = buildVipVoucherSectionHtml({ ...base, itemLabels: ["chips & salsa", "chips & salsa"] });
+    expect(html).toContain("2 &times; chips &amp; salsa");
+  });
+});

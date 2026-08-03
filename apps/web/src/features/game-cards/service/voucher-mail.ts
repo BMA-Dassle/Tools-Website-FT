@@ -370,6 +370,83 @@ export async function smsPurchasedVouchers(args: {
   return { ok: true };
 }
 
+/**
+ * Tell staff a deal pack just sold (owner 2026-08-03: "when these sell can you
+ * email jacob and i for now").
+ *
+ * Deliberately a SEPARATE send, not a bcc on the buyer's receipt: the buyer's mail
+ * carries their bearer codes, and staff want the money facts and the ad source,
+ * which are none of the buyer's business and would look odd in their inbox. It
+ * also means a staff-notify failure can never affect the guest's delivery.
+ *
+ * Recipients are an env list so adding someone is a Vercel change, not a deploy.
+ * "for now" is the operative phrase — this is a launch-watching email, and the
+ * sales board at /admin/{token}/deals is the durable answer.
+ */
+export async function notifyStaffDealSale(args: {
+  dealName: string;
+  qty: number;
+  combined: boolean;
+  locationLabel: string;
+  totalCents: number;
+  buyerName?: string | null;
+  buyerEmail: string;
+  codes: string[];
+  purchaseId: number;
+  utm?: Record<string, string> | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  const to = (process.env.DEAL_SALE_NOTIFY_EMAILS || "eric@headpinz.com,jacob@headpinz.com")
+    .split(",")
+    .map((e) => e.trim())
+    .filter(Boolean);
+  if (to.length === 0) return { ok: false, error: "no recipients configured" };
+
+  const money = `$${(args.totalCents / 100).toFixed(2)}`;
+  const source = args.utm
+    ? [args.utm.utm_source, args.utm.utm_campaign].filter(Boolean).join(" / ") ||
+      (args.utm.gclid ? "google ads" : "direct")
+    : "direct";
+  const delivery = args.combined && args.qty > 1 ? `1 code (${args.qty} packs combined)` : `${args.codes.length} code(s)`;
+
+  const rows: [string, string][] = [
+    ["Deal", `${args.dealName} × ${args.qty}`],
+    ["Location", args.locationLabel],
+    ["Paid", money],
+    ["Buyer", `${args.buyerName ? `${esc(args.buyerName)} — ` : ""}${esc(args.buyerEmail)}`],
+    ["Delivery", delivery],
+    ["Codes", args.codes.map(formatVoucherCode).join(", ") || "—"],
+    ["Source", esc(source)],
+    ["Order", `#${args.purchaseId}`],
+  ];
+
+  const html = `
+    <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111">
+      <h2 style="margin:0 0 4px">Deal pack sold — ${money}</h2>
+      <p style="margin:0 0 14px;color:#555">${esc(args.dealName)} × ${args.qty} · ${esc(args.locationLabel)}</p>
+      <table style="border-collapse:collapse;font-size:14px">
+        ${rows
+          .map(
+            ([k, v]) =>
+              `<tr><td style="padding:3px 14px 3px 0;color:#777">${k}</td><td style="padding:3px 0"><strong>${v}</strong></td></tr>`,
+          )
+          .join("")}
+      </table>
+      <p style="margin:16px 0 0;font-size:13px;color:#555">
+        Sales board: <a href="${esc(siteOrigin())}/admin/&lt;token&gt;/deals">/admin/&lt;token&gt;/deals</a>
+      </p>
+    </div>`;
+
+  const res = await sendEmail({
+    to: to[0],
+    ...(to.length > 1 ? { cc: to.slice(1) } : {}),
+    subject: `Deal pack sold — ${args.dealName} × ${args.qty} (${money})`,
+    html,
+    text: rows.map(([k, v]) => `${k}: ${v.replace(/<[^>]*>/g, "")}`).join("\n"),
+    categories: ["deal_sale_staff"],
+  });
+  return res.ok ? { ok: true } : { ok: false, error: res.error };
+}
+
 /** Send ONE voucher to a guest by email and/or SMS. */
 export async function sendVoucherToGuest(args: {
   code: string;

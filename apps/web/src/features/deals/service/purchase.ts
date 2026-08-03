@@ -35,6 +35,7 @@ import { authorizeMultiTender, SquarePaymentError } from "@/lib/square-gift-card
 import { mintVouchers } from "~/features/game-cards/service/native-voucher";
 import {
   emailPurchasedVouchers,
+  notifyStaffDealSale,
   smsPurchasedVouchers,
 } from "~/features/game-cards/service/voucher-mail";
 import { voidNativeVoucher } from "~/features/game-cards/service/native-voucher";
@@ -193,8 +194,7 @@ export async function fulfilDealPurchase(row: DealPurchaseRow): Promise<{
       );
       for (const code of minted.codes) {
         await voidNativeVoucher(code, `duplicate mint for deal purchase ${row.id}`).catch(
-          (err: unknown) =>
-            console.error(`[deals] could not void surplus voucher ${code}:`, err),
+          (err: unknown) => console.error(`[deals] could not void surplus voucher ${code}:`, err),
         );
       }
       const fresh = await getDealPurchase(row.id);
@@ -247,6 +247,27 @@ export async function fulfilDealPurchase(row: DealPurchaseRow): Promise<{
     }
   }
 
+  // Staff heads-up (owner 2026-08-03: "when these sell can you email jacob and i
+  // for now"). Fired AFTER the buyer's mail and fully detached from it: a
+  // staff-notify failure must never mark the guest's delivery unsent or trigger a
+  // resend of their codes. Guarded so a cron re-run of an already-`sent` purchase
+  // doesn't email staff a second time about the same sale.
+  if (row.status !== "sent") {
+    const deal2 = getDeal(row.dealSlug);
+    void notifyStaffDealSale({
+      dealName: deal2?.name ?? row.dealSlug,
+      qty: row.qty,
+      combined: row.combine,
+      locationLabel: DEAL_LOCATION_INFO[row.locationKey]?.label ?? row.locationKey,
+      totalCents: row.totalCents,
+      buyerName: row.buyerName,
+      buyerEmail: row.buyerEmail,
+      codes,
+      purchaseId: row.id,
+      utm: row.utm,
+    }).catch((err: unknown) => console.error("[deals] staff notify failed (non-fatal):", err));
+  }
+
   await markDealPurchaseSent(row.id);
   return { codes, mintPending: false, emailPending: false };
 }
@@ -269,10 +290,7 @@ export async function purchaseDeal(input: DealPurchaseInput): Promise<DealPurcha
 
   const location = input.location as DealLocationKey;
   if (!deal.locations.includes(location)) {
-    throw new DealPurchaseError(
-      "WRONG_LOCATION",
-      `${deal.name} isn't available at that location.`,
-    );
+    throw new DealPurchaseError("WRONG_LOCATION", `${deal.name} isn't available at that location.`);
   }
 
   // ── 2. cap ─────────────────────────────────────────────────────────────
