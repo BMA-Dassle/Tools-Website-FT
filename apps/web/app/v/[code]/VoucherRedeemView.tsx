@@ -182,6 +182,21 @@ export function VoucherRedeemView({
             <p className="mt-2 text-xs text-white/45">
               Can&apos;t scan? Type this code at the kiosk instead.
             </p>
+
+            {/* Same job as the QR above — carry the code with you — so it lives
+            beside it. A plain <a> to OUR route, never straight to PassKit: the
+            route re-checks Neon at tap time (voided / expired / spent) and
+            creates the pass on first ask, because PassKit bills single-use
+            passes AT ISSUANCE and most guests never add one. Hidden once the
+            voucher can no longer be used, matching the dimmed QR. */}
+            {!voided && !expired && !allDone && (
+              <a
+                href={`/v/${status.code}/wallet`}
+                className="mt-4 flex items-center justify-center rounded-full border border-white/20 bg-white/[0.08] px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.14]"
+              >
+                Add to Apple or Google Wallet
+              </a>
+            )}
           </div>
 
           <div className="lg:mt-0">

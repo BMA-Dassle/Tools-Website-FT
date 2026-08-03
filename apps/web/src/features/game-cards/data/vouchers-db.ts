@@ -100,6 +100,11 @@ export interface VoucherRow {
   expiresAt: string | null;
   voidedAt: string | null;
   voidedReason: string | null;
+  /** PassKit coupon id, once a guest has actually added the wallet pass. NULL
+   *  for the majority who never do — passes are issued lazily on the tap
+   *  because PassKit bills single-use AT ISSUANCE. A CACHE, not the authority:
+   *  getCouponByExternalId can always rebuild it from the code. */
+  passkitCouponId: string | null;
   createdBy: string | null;
   createdAt: string;
 }
@@ -140,6 +145,8 @@ function ensureSchema(): Promise<void> {
       CREATE UNIQUE INDEX IF NOT EXISTS vouchers_bill_id_uniq
       ON vouchers (bill_id) WHERE bill_id IS NOT NULL
     `;
+    // Wallet pass id. Additive and nullable — most vouchers never get one.
+    await q`ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS passkit_coupon_id TEXT`;
     await q`
       CREATE TABLE IF NOT EXISTS voucher_events (
         id BIGSERIAL PRIMARY KEY,
@@ -172,6 +179,7 @@ function decode(r: any): VoucherRow {
     expiresAt: r.expires_at ? String(r.expires_at) : null,
     voidedAt: r.voided_at ? String(r.voided_at) : null,
     voidedReason: r.voided_reason ?? null,
+    passkitCouponId: r.passkit_coupon_id ? String(r.passkit_coupon_id) : null,
     createdBy: r.created_by ?? null,
     createdAt: String(r.created_at),
   };
@@ -313,6 +321,17 @@ export async function voidVoucher(code: string, reason: string): Promise<void> {
     UPDATE vouchers SET voided_at = NOW(), voided_reason = ${reason}
     WHERE code = ${code} AND voided_at IS NULL
   `;
+}
+
+/**
+ * Cache the PassKit coupon id after a guest adds the wallet pass. Not guarded:
+ * re-issuing after a pass is deleted upstream should be able to repoint the row.
+ */
+export async function setVoucherPassId(code: string, passkitCouponId: string): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureSchema();
+  const q = sql();
+  await q`UPDATE vouchers SET passkit_coupon_id = ${passkitCouponId} WHERE code = ${code}`;
 }
 
 /** Record who a voucher was sent to (email/SMS delivery). */
