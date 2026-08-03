@@ -79,6 +79,28 @@ export async function qrAttachment(code: string): Promise<{
 }
 
 /**
+ * The same QR as a data URI, for rendering in a PAGE rather than an email.
+ *
+ * Encodes the identical `/v/{code}` payload as `qrAttachment`, so a QR is a QR
+ * wherever the guest meets it — the confirmation screen, the voucher page, the
+ * email. Generated server-side and handed down as a string, which keeps the
+ * `qrcode` library out of the client bundle.
+ */
+export async function voucherQrDataUri(code: string): Promise<string | null> {
+  try {
+    return await QRCode.toDataURL(voucherRedeemUrl(code), {
+      errorCorrectionLevel: "H",
+      margin: 1,
+      width: 512,
+    });
+  } catch (err) {
+    // A missing QR degrades to code-plus-instructions; never fail the caller.
+    console.error("[voucher] QR generation failed:", err);
+    return null;
+  }
+}
+
+/**
  * Email a freshly-minted batch to the person who minted it.
  *
  * Best-effort by design: the vouchers are already durable in Neon, so a mail

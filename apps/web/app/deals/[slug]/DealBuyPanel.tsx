@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { IconCheck, IconGift, IconMapPin, IconTicket } from "@tabler/icons-react";
 import PaymentForm from "@/components/square/PaymentForm";
 import Card from "~/components/ui/Card";
@@ -79,8 +78,6 @@ export interface DealBuyPanelProps {
   maxPerBuyer: number;
   expiresMonths: number;
   accentColor: string;
-  /** Label for the "pick your time" CTA on the confirmation. */
-  scheduleLabel: string;
 }
 
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -96,9 +93,7 @@ function splitName(full: string): { firstName: string; lastName: string } {
  * `normalizeLocationSlug`, and ignores anything this deal isn't sold at.
  * Returns null during SSR so the server and first client render agree.
  */
-function initialLocationFromUrl(
-  allowed: readonly DealLocationKey[],
-): DealLocationKey | null {
+function initialLocationFromUrl(allowed: readonly DealLocationKey[]): DealLocationKey | null {
   if (typeof window === "undefined") return null;
   const raw = new URLSearchParams(window.location.search).get("location");
   const normalized = normalizeLocationSlug(raw);
@@ -134,7 +129,6 @@ export default function DealBuyPanel({
   maxPerBuyer,
   expiresMonths,
   accentColor,
-  scheduleLabel,
 }: DealBuyPanelProps) {
   /**
    * The server already resolved `?location=`; the URL fallback only covers a
@@ -162,8 +156,7 @@ export default function DealBuyPanel({
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [notSellable, setNotSellable] = useState(false);
 
-  const quote =
-    quoted && quoted.location === location && quoted.qty === qty ? quoted.quote : null;
+  const quote = quoted && quoted.location === location && quoted.qty === qty ? quoted.quote : null;
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -219,7 +212,8 @@ export default function DealBuyPanel({
   }, [slug, location, qty]);
 
   const contactComplete = useMemo(
-    () => name.trim().length > 1 && /.+@.+\..+/.test(email) && phone.replace(/\D/g, "").length >= 10,
+    () =>
+      name.trim().length > 1 && /.+@.+\..+/.test(email) && phone.replace(/\D/g, "").length >= 10,
     [name, email, phone],
   );
   const readyToPay = !!location && !!quote && contactComplete && agreed && !quoting;
@@ -264,12 +258,37 @@ export default function DealBuyPanel({
         // Rethrow so PaymentForm re-enables its button for another attempt.
         throw new Error(data.error || "purchase failed");
       }
-      setResult(data as PurchaseResult);
+      const purchased = data as PurchaseResult;
+
+      // Leave the purchase page entirely (owner 2026-08-03). A panel that swapped
+      // itself for a success view lost the codes on a refresh or a back-tap and
+      // left the buyer looking at a form for something they'd already paid for.
+      //
+      // The codes travel in the URL because they are bearer instruments already
+      // carried that way (/v/{code}, the emailed links) — so the confirmation
+      // survives a refresh, needs no lookup token, and can be forwarded. A
+      // purchase id would be enumerable and would leak what a stranger paid.
+      //
+      // Codes empty = the mint deferred to the reconcile cron. There is nothing to
+      // show yet, so fall back to the in-panel notice rather than a bare page.
+      if (purchased.codes.length > 0) {
+        const params = new URLSearchParams({
+          codes: purchased.codes.join(","),
+          deal: slug,
+          ...(location ? { location } : {}),
+        });
+        window.location.href = `/deals/thanks?${params.toString()}`;
+        return;
+      }
+      setResult(purchased);
     },
     [slug, location, qty, combine, quote, name, email, phone, smsOptIn],
   );
 
-  /* ── success ────────────────────────────────────────────────────────── */
+  /* ── mint deferred ─────────────────────────────────────────────────────
+     The ONLY in-panel outcome left. A successful purchase leaves for
+     /deals/thanks; this covers the case where the charge landed but the mint
+     deferred to the reconcile cron, so there are no codes to put on a page yet. */
   if (result) {
     return (
       <Card className={PANEL_SURFACE}>
@@ -281,7 +300,7 @@ export default function DealBuyPanel({
             <IconCheck size={22} stroke={3} />
           </span>
           <div>
-            <h2 className="font-display text-2xl text-white">You&apos;re all set</h2>
+            <h2 className="font-display text-2xl text-white">Payment received</h2>
             <p className="text-sm text-white/60">
               {money(result.totalCents)} charged · {result.qty}{" "}
               {result.qty === 1 ? "pack" : "packs"}
@@ -289,64 +308,15 @@ export default function DealBuyPanel({
           </div>
         </div>
 
-        {result.mintPending ? (
-          <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100">
-            Your payment went through. We&apos;re still cutting your voucher codes — they&apos;ll be
-            in your inbox within a few minutes. Nothing else is needed from you.
-          </div>
-        ) : (
-          <>
-            <div className="space-y-2">
-              {/* Three genuinely different situations, so three sentences —
-                  a combined multi-pack voucher must SAY it covers everything and
-                  that sharing still works, or the buyer wonders where the rest
-                  went. */}
-              <p className="text-sm text-white/70">
-                {result.codes.length > 1
-                  ? `Here are your ${result.codes.length} vouchers — one per pack, so you can pass a whole pack to someone else:`
-                  : result.qty > 1
-                    ? `Here's your voucher — it covers all ${result.qty} packs. Everything on it is used separately, so your group can still split it across people and visits:`
-                    : "Here's your voucher:"}
-              </p>
-              {result.codes.map((code) => (
-                <Link
-                  key={code}
-                  href={`/v/${code}`}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-white/15 bg-white/[0.04] px-4 py-3 transition-colors hover:border-white/35"
-                >
-                  <span className="font-mono text-base tracking-wider text-white">{code}</span>
-                  <span className="text-xs whitespace-nowrap text-white/50">View &amp; redeem →</span>
-                </Link>
-              ))}
-            </div>
-            {result.emailPending && (
-              <p className="text-xs text-amber-200/80">
-                We had trouble emailing these — save this page or screenshot the codes. We&apos;ll
-                keep retrying the email.
-              </p>
-            )}
-          </>
-        )}
+        <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100">
+          We&apos;re still cutting your voucher{result.qty === 1 ? "" : "s"} — they&apos;ll be in
+          your inbox within a few minutes, with the QR code and everything you need. Nothing else is
+          needed from you, and you don&apos;t have to keep this page open.
+        </div>
 
-        {result.scheduleUrl && (
-          <a
-            href={result.scheduleUrl}
-            className="block rounded-full px-6 py-3 text-center text-sm font-bold tracking-widest uppercase transition hover:brightness-110"
-            style={{ background: accentColor, color: "#00041b" }}
-          >
-            {scheduleLabel}
-          </a>
-        )}
         <p className="text-xs text-white/45">
-          No rush — your game cards and sessions stay on the voucher
-          {result.expiresAt
-            ? ` until ${new Date(result.expiresAt).toLocaleDateString("en-US", {
-                month: "long",
-                day: "numeric",
-                year: "numeric",
-              })}`
-            : ""}
-          . Booking later is fine; nothing expires the moment you leave this page.
+          If it hasn&apos;t arrived in 10 minutes, give us a call and quote order #
+          {result.purchaseId} — we can resend it.
         </p>
       </Card>
     );
