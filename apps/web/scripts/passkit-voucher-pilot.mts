@@ -61,7 +61,7 @@ const SECRET = process.env.PASSKIT_API_SECRET!;
 const SITE = (process.env.NEXT_PUBLIC_SITE_URL || "https://headpinz.com").replace(/\/$/, "");
 // Ids come from the registry (src/config/passkit.ts), not env — see that file
 // for why. Keep this script and the app reading the SAME source.
-const { PASSKIT_VOUCHER } = await import("../src/config/passkit.ts");
+const { PASSKIT_VOUCHER } = await import("../src/config/passkit");
 const CAMPAIGN_ID = PASSKIT_VOUCHER.campaignId;
 const OFFER_ID = PASSKIT_VOUCHER.offerId;
 
