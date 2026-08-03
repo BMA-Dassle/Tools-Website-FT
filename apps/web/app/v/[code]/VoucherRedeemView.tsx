@@ -227,7 +227,7 @@ export function VoucherRedeemView({
                     className="flex items-center justify-between gap-3 text-lg"
                   >
                     <span className={g.spent > 0 ? "text-white/35 line-through" : "text-white"}>
-                      {g.total > 1 ? `${g.total} × ` : ""}
+                      {!g.summed && g.total > 1 ? `${g.total} × ` : ""}
                       {g.label}
                     </span>
                     <span className="shrink-0 text-sm text-white/50">

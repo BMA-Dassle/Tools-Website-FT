@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  formatVoucherExpiry,
-  groupVoucherItems,
-  voucherItemDisplayLabel,
-} from "./display";
+import { formatVoucherExpiry, groupVoucherItems, voucherItemDisplayLabel } from "./display";
 import type { VoucherItem } from "../data/vouchers-db";
 
 const gz = (bonusTokens: number): VoucherItem => ({
@@ -27,10 +23,10 @@ describe("voucherItemDisplayLabel", () => {
     expect(voucherItemDisplayLabel(attraction("gel-blaster"))).toBe("Gel Blasters");
   });
 
-  it("prices game cards in dollars, not tokens", () => {
+  it("prices Game Zone value in dollars OF TOKENS — the card is just the carrier", () => {
     // "100 bonus tokens" is Intercard's unit; the buyer paid dollars.
-    expect(voucherItemDisplayLabel(gz(100))).toBe("$10 Game Card");
-    expect(voucherItemDisplayLabel(gz(150))).toBe("$15 Game Card");
+    expect(voucherItemDisplayLabel(gz(100))).toBe("100 Tokens");
+    expect(voucherItemDisplayLabel(gz(150))).toBe("150 Tokens");
   });
 
   it("title-cases an unknown slug rather than leaking it raw", () => {
@@ -39,7 +35,11 @@ describe("voucherItemDisplayLabel", () => {
 
   it("renders a choice leg and a qty>1 leg", () => {
     expect(
-      voucherItemDisplayLabel({ kind: "attraction-choice", slugs: ["laser-tag", "gel-blaster"], qty: 1 }),
+      voucherItemDisplayLabel({
+        kind: "attraction-choice",
+        slugs: ["laser-tag", "gel-blaster"],
+        qty: 1,
+      }),
     ).toBe("Laser Tag or Gel Blasters");
     expect(voucherItemDisplayLabel(attraction("laser-tag", 3))).toBe("3 × Laser Tag");
   });
@@ -65,9 +65,14 @@ describe("groupVoucherItems", () => {
     ];
     const groups = groupVoucherItems(entries(items));
     expect(groups).toHaveLength(2);
-    expect(groups[0]).toMatchObject({ label: "Laser Tag", route: "attraction", total: 6, spent: 0 });
+    expect(groups[0]).toMatchObject({
+      label: "Laser Tag",
+      route: "attraction",
+      total: 6,
+      spent: 0,
+    });
     expect(groups[1]).toMatchObject({
-      label: "$10 Game Card",
+      label: "600 Tokens",
       route: "gamezone",
       total: 6,
       spent: 0,
@@ -85,18 +90,15 @@ describe("groupVoucherItems", () => {
     expect(groups.find((g) => g.spent > 0)).toMatchObject({ total: 1, spent: 1 });
   });
 
-  it("does not merge different denominations", () => {
+  it("MERGES denominations into one token balance — a guest has one balance, not rows", () => {
+    // 100 + 150 + 100 = one 350-token balance across three legs. Splitting by
+    // denomination would ask the guest to do arithmetic to know what they have.
     const groups = groupVoucherItems(entries([gz(100), gz(150), gz(100)]));
-    expect(groups.map((g) => [g.label, g.total])).toEqual([
-      ["$10 Game Card", 2],
-      ["$15 Game Card", 1],
-    ]);
+    expect(groups.map((g) => [g.label, g.total, g.summed])).toEqual([["350 Tokens", 3, true]]);
   });
 
   it("routes race legs separately from attractions", () => {
-    const groups = groupVoucherItems(
-      entries([{ kind: "race", qty: 1 }, attraction("laser-tag")]),
-    );
+    const groups = groupVoucherItems(entries([{ kind: "race", qty: 1 }, attraction("laser-tag")]));
     expect(groups.map((g) => g.route)).toEqual(["race", "attraction"]);
   });
 

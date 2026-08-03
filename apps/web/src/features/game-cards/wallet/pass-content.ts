@@ -88,7 +88,9 @@ export function remainingItems(states: RemainingInput[]): RemainingInput[] {
  */
 export function summariseRemaining(states: RemainingInput[]): string {
   const groups = groupVoucherItems(states.filter((s) => !s.spent));
-  const parts = groups.map((g) => (g.total > 1 ? `${g.total} × ${g.label}` : g.label));
+  // `summed` groups already state their whole value (token totals add up), so a
+  // "N ×" prefix would double-count them — see groupVoucherItems.
+  const parts = groups.map((g) => (!g.summed && g.total > 1 ? `${g.total} × ${g.label}` : g.label));
   const full = parts.join(" + ");
   if (full.length <= MAX_VALUE_CHARS || parts.length < 2) return full;
   // Summarise rather than let the OS cut a price or a product name in half.

@@ -9,8 +9,8 @@ const BLUE = "#00E2E5";
 type BowlingLikeItem = BowlingItem | KbfItem;
 
 const ACTIVITIES = [
-  { name: "Laser Tag", duration: "15 min session", color: "#8652FF" },
-  { name: "Gel Blaster", duration: "15 min session", color: "#00E2E5" },
+  { name: "Laser Tag", duration: "7 min session · 20 min experience", color: "#8652FF" },
+  { name: "Gel Blaster", duration: "7 min session · 20 min experience", color: "#00E2E5" },
 ];
 
 /**

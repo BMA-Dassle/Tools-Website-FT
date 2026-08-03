@@ -49,7 +49,13 @@ export function isDealLocation(v: string): v is DealLocationKey {
 /** Guest-facing venue names + the Intercard center code value loads against. */
 export const DEAL_LOCATION_INFO: Record<
   DealLocationKey,
-  { label: string; shortLabel: string; address: string; centerCode: number; center: "fort-myers" | "naples" }
+  {
+    label: string;
+    shortLabel: string;
+    address: string;
+    centerCode: number;
+    center: "fort-myers" | "naples";
+  }
 > = {
   headpinz: {
     label: "HeadPinz Fort Myers",
@@ -136,7 +142,7 @@ export function gameZoneItemDollars(item: VoucherItem): number {
 const SHARED_FAQS: DealFaq[] = [
   {
     q: "How do I get my game cards?",
-    a: "Scan the QR code on your voucher at any HeadPinz kiosk and it will print your cards with the play value already loaded. If you already have a HeadPinz game card, you can load the value onto it online instead from your voucher page — no need for a new card.",
+    a: "Scan the QR code on your voucher at any HeadPinz kiosk and it will print your cards with the tokens already loaded. If you already have a HeadPinz game card, you can load the tokens onto it online instead from your voucher page — no need for a new card.",
   },
   {
     q: "Do I have to use everything on the same visit?",
@@ -152,7 +158,7 @@ const SHARED_FAQS: DealFaq[] = [
   },
   {
     q: "Can I use this at either HeadPinz?",
-    a: "Pick the location you plan to visit when you buy, so we load your game card value at the right center.",
+    a: "Pick the location you plan to visit when you buy, so we load your tokens at the right center.",
   },
 ];
 
@@ -164,7 +170,7 @@ export const DEAL_CATALOG: readonly DealCatalogEntry[] = [
   {
     slug: "laser-tag-game-card-pack",
     name: "Laser Tag + Game Card Pack",
-    tagline: "Two rounds of multi-level laser tag and $20 of arcade play.",
+    tagline: "Two rounds of multi-level laser tag and $20 in Game Zone Tokens.",
     priceCents: 3400,
     items: [admission("laser-tag"), admission("laser-tag"), gameZone(100), gameZone(100)],
     scheduleSlug: "laser-tag",
@@ -182,7 +188,7 @@ export const DEAL_CATALOG: readonly DealCatalogEntry[] = [
     seo: {
       title: "Laser Tag Deal — 2 Players + $20 Arcade Play for $34",
       description:
-        "Two Nexus Laser Tag sessions plus two $10 game cards for $34 at HeadPinz Fort Myers and Naples. A $44 value, and the cards are included — no activation fee.",
+        "Two Nexus Laser Tag sessions plus $20 in Game Zone Tokens for $34 at HeadPinz Fort Myers and Naples. A $44 value, and the game cards are included — no activation fee.",
       keywords: [
         "laser tag deal fort myers",
         "laser tag fort myers",
@@ -198,7 +204,7 @@ export const DEAL_CATALOG: readonly DealCatalogEntry[] = [
   {
     slug: "gel-blaster-game-card-pack",
     name: "Gel Blaster + Game Card Pack",
-    tagline: "Two gel blaster battles and $30 of arcade play.",
+    tagline: "Two gel blaster battles and $30 in Game Zone Tokens.",
     priceCents: 4500,
     items: [admission("gel-blaster"), admission("gel-blaster"), gameZone(150), gameZone(150)],
     scheduleSlug: "gel-blaster",
@@ -216,7 +222,7 @@ export const DEAL_CATALOG: readonly DealCatalogEntry[] = [
     seo: {
       title: "Gel Blaster Deal — 2 Players + $30 Arcade Play for $45",
       description:
-        "Two Nexus Gel Blaster sessions plus two $15 game cards for $45 at HeadPinz Fort Myers and Naples. A $58 value, and the cards are included — no activation fee.",
+        "Two Nexus Gel Blaster sessions plus $30 in Game Zone Tokens for $45 at HeadPinz Fort Myers and Naples. A $58 value, and the game cards are included — no activation fee.",
       keywords: [
         "gel blaster fort myers",
         "gel blaster naples fl",
@@ -282,7 +288,7 @@ export interface DealValue {
  *   2. Attraction prices are per-location (`AttractionProductDef.location`), so
  *      Fort Myers and Naples can legitimately differ.
  *
- * Game Zone value is counted at face ($10 of play = $10) plus the $2 per-card
+ * Game Zone value is counted at face ($10 of tokens = $10) plus the $2 per-card
  * activation fee a walk-in would pay for a brand-new card, which a pack waives.
  */
 export function dealValue(deal: DealCatalogEntry, location: DealLocationKey): DealValue {
@@ -316,9 +322,10 @@ export function dealValue(deal: DealCatalogEntry, location: DealLocationKey): De
   if (cardItems.length > 0) {
     const playCents = cardItems.reduce((sum, i) => sum + gameZoneItemDollars(i) * 100, 0);
     lines.push({
-      label: `${cardItems.length} × game card (${cardItems
-        .map((i) => `$${gameZoneItemDollars(i)}`)
-        .join(" + ")} of play)`,
+      // Tokens, not "play" or "game card": the card is the carrier, the tokens
+      // are the thing bought (owner 2026-08-03). The dollar value stays in the
+      // price column beside it, so the line still reads as a price comparison.
+      label: `${cardItems.reduce((n, i) => n + i.tokens + i.bonusTokens, 0)} Game Zone Tokens`,
       cents: Math.round(playCents),
     });
     lines.push({
@@ -394,14 +401,12 @@ export function dealVoucherSummary(deal: DealCatalogEntry, packs = 1): string {
 
   const cards = items.filter((i) => i.kind === "gamezone");
   if (cards.length > 0) {
-    const each = gameZoneItemDollars(cards[0]);
-    const uniform = cards.every((c) => gameZoneItemDollars(c) === each);
-    const total = cards.reduce((sum, c) => sum + gameZoneItemDollars(c), 0);
-    parts.push(
-      uniform
-        ? `${cards.length} × $${each} game card ($${total} of arcade play)`
-        : `${cards.length} game cards ($${total} of arcade play)`,
-    );
+    // Tokens ADD UP — six 100-token legs are "600 Tokens", not "6 × 100 Tokens"
+    // (owner 2026-08-03). Same rule as groupVoucherItems, so a pack's blurb and
+    // the voucher the buyer receives describe the value identically. Denomination
+    // doesn't need stating: nobody spends a "card", they spend tokens.
+    const tokens = cards.reduce((sum, c) => sum + c.tokens + c.bonusTokens, 0);
+    parts.push(`${tokens} Game Zone Tokens`);
   }
 
   return parts.join(" + ");
