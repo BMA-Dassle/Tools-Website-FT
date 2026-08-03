@@ -28,6 +28,22 @@ import { formatVoucherCode } from "../vouchers/codes";
 import { summariseVoucherItems } from "../vouchers/display";
 import { logVoucherEvent, markVoucherSent, type VoucherItem } from "../data/vouchers-db";
 
+/**
+ * Audit copy of everything a CUSTOMER receives — the same inbox the booking,
+ * bowling, cancellation and video mails already BCC, so a guest saying "I never
+ * got it" is answerable from one place instead of SendGrid's activity feed.
+ *
+ * Customer-facing sends only. The staff sends in this file (`emailMintBatch`,
+ * `notifyStaffDealSale`) are already addressed to staff, so copying them here
+ * would just duplicate mail nobody reads.
+ *
+ * Worth knowing what this inbox now holds: these mails carry LIVE BEARER CODES.
+ * Anyone with the code can redeem the voucher, so vendorcases is effectively a
+ * store of unspent value — treat access to it accordingly, and prefer voiding a
+ * leaked code (which /v/ re-checks at tap time) over assuming the mail is private.
+ */
+const AUDIT_BCC = "vendorcases@dassle.us";
+
 /** Public origin for /v/{code} links. */
 function siteOrigin(): string {
   return (process.env.NEXT_PUBLIC_SITE_URL || "https://headpinz.com").replace(/\/$/, "");
@@ -308,6 +324,7 @@ export async function emailPurchasedVouchers(args: {
       : `Your ${args.productName} voucher`,
     html,
     text,
+    bcc: AUDIT_BCC,
     categories: ["voucher_purchase"],
     attachments: qrs.map((q) => q.attachment),
   });
@@ -545,6 +562,7 @@ export async function sendVoucherToGuest(args: {
       subject: `${value} on us`,
       html,
       text: `${value} on us. Code ${pretty}. Load it on your card: ${url} — or scan it at any kiosk for a new card.`,
+      bcc: AUDIT_BCC,
       categories: ["voucher_guest"],
       attachments: [qr.attachment],
     });
