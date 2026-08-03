@@ -390,6 +390,28 @@ export async function listUnfinishedDealPurchases(
   return rows.map(decode);
 }
 
+/**
+ * The purchase a voucher batch belongs to, if any.
+ *
+ * This is the SAFETY GATE for showing a voucher's batch siblings on the public
+ * `/v/{code}` page. `vouchers.batch_id` also groups an admin comp mint — one
+ * batch can be 500 codes destined for 500 different people — so listing siblings
+ * off the batch alone would hand whoever holds one code everybody else's bearer
+ * instruments. A purchase row means the batch was bought by ONE buyer, which is
+ * the only case where the other codes are legitimately theirs to see.
+ */
+export async function getDealPurchaseByBatchId(
+  batchId: string,
+): Promise<DealPurchaseRow | null> {
+  if (!isDbConfigured()) return null;
+  await ensureSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM deal_purchases WHERE voucher_batch_id = ${batchId} LIMIT 1
+  `;
+  return rows[0] ? decode(rows[0]) : null;
+}
+
 /** Newest-first list for the admin board. */
 export async function listDealPurchases(args: {
   dealSlug?: string;

@@ -260,24 +260,21 @@ export default function DealBuyPanel({
       }
       const purchased = data as PurchaseResult;
 
-      // Leave the purchase page entirely (owner 2026-08-03). A panel that swapped
-      // itself for a success view lost the codes on a refresh or a back-tap and
-      // left the buyer looking at a form for something they'd already paid for.
+      // Leave the purchase page entirely (owner 2026-08-03) and land on the
+      // voucher's OWN page. There is no separate confirmation route: /v/{code}
+      // already carries the QR, the code, the contents and the instructions, and a
+      // second page duplicating all of that earned nothing (owner: "why do we need
+      // both these?"). `?bought=1` only changes the greeting.
       //
-      // The codes travel in the URL because they are bearer instruments already
-      // carried that way (/v/{code}, the emailed links) — so the confirmation
-      // survives a refresh, needs no lookup token, and can be forwarded. A
-      // purchase id would be enumerable and would leak what a stranger paid.
+      // A short, shareable URL is the side benefit — it is the same link the email
+      // and the QR use, so a refresh, a forward, or scanning your own screen all
+      // land in the same place. Sibling codes from a split purchase are discovered
+      // server-side from the batch, so they do not need to ride the URL.
       //
-      // Codes empty = the mint deferred to the reconcile cron. There is nothing to
-      // show yet, so fall back to the in-panel notice rather than a bare page.
+      // Codes empty = the mint deferred to the reconcile cron. Nothing to show yet,
+      // so fall back to the in-panel notice rather than a 404.
       if (purchased.codes.length > 0) {
-        const params = new URLSearchParams({
-          codes: purchased.codes.join(","),
-          deal: slug,
-          ...(location ? { location } : {}),
-        });
-        window.location.href = `/deals/thanks?${params.toString()}`;
+        window.location.href = `/v/${purchased.codes[0]}?bought=1`;
         return;
       }
       setResult(purchased);
