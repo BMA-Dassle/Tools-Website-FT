@@ -39,8 +39,14 @@ import { claimVoucher, releaseVoucherClaim, spentItemIndexes } from "../data/vou
 import { markChargeFailed, startCompedTxn } from "../data/transactions-log";
 import { VOUCHER_PACKAGE_PREFIX } from "../vouchers/grants";
 
-/** Denominations the mint UI offers. Mirrors the sellable token packages. */
-export const NATIVE_GRANT_DENOMINATIONS = [50, 100, 200, 300, 500, 1000] as const;
+/**
+ * Denominations the mint UI offers. MUST equal `COMP_TOKEN_DENOMINATIONS` in
+ * ../vouchers/grants.ts — that one is what the load path re-derives value
+ * through, so a denomination present here but missing there mints a voucher
+ * that credits nothing. See the long note on that constant; a test pins them
+ * together.
+ */
+export const NATIVE_GRANT_DENOMINATIONS = [50, 100, 150, 200, 300, 500, 1000] as const;
 
 export type NativeVoucherRefusal =
   | "bad_format"
