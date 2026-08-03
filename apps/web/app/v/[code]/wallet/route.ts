@@ -55,14 +55,27 @@ export async function GET(
   }
 
   // Straight to the platform file so the guest doesn't pay an extra tap on
-  // PassKit's own landing page. Desktop keeps the landing page, which offers
-  // both and renders a QR.
+  // PassKit's own landing page.
+  //
+  // `?platform=` wins over sniffing, because the page shows an Apple button AND
+  // a Google button: a guest who taps "Google Wallet" on an iPhone means it (they
+  // may be sending it to someone, or they use Google Wallet on iOS), and
+  // second-guessing them with the user agent would hand them the wrong file.
+  // Without the param we fall back to sniffing, which is what the email links do.
+  const platform = req.nextUrl.searchParams.get("platform");
   const ua = req.headers.get("user-agent") ?? "";
-  const target = /iPhone|iPad|iPod|Macintosh/i.test(ua)
-    ? result.urls.apple
-    : /Android/i.test(ua)
-      ? result.urls.google
-      : result.urls.landing;
+  const target =
+    platform === "apple"
+      ? result.urls.apple
+      : platform === "google"
+        ? result.urls.google
+        : /iPhone|iPad|iPod|Macintosh/i.test(ua)
+          ? result.urls.apple
+          : /Android/i.test(ua)
+            ? result.urls.google
+            : // Desktop with no preference stated: PassKit's landing page offers
+              // both and renders a QR to hop to a phone.
+              result.urls.landing;
 
   return NextResponse.redirect(target, {
     // A pass URL is per-voucher and its content changes as legs are redeemed —
