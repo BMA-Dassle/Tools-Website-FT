@@ -317,7 +317,6 @@ export default async function DealPage({
                 maxPerBuyer={deal.maxPerBuyer}
                 expiresMonths={deal.expiresMonths}
                 accentColor={accent}
-                scheduleLabel={`Pick your ${attraction?.shortName.toLowerCase() ?? "session"} time`}
               />
             </div>
           </div>
