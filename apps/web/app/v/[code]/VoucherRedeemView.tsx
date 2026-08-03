@@ -31,6 +31,13 @@ import type { VoucherStatus } from "~/features/game-cards/service/native-voucher
  *  (owner 2026-08-03: "NOT redeemable at guest services you must see kiosk") —
  *  the desk cannot dispense a card or apply these codes, so pointing someone
  *  there sends them to be turned around. */
+/** The two wallets, named explicitly so the route never has to guess from a
+ *  user agent — see app/v/[code]/wallet/route.ts. */
+const WALLETS = [
+  { platform: "apple", label: "Add to Apple Wallet" },
+  { platform: "google", label: "Add to Google Wallet" },
+] as const;
+
 const REASON_COPY: Record<string, string> = {
   bad_format: "That code doesn’t look right — check it and try again.",
   unknown: "We couldn’t find that voucher.",
@@ -175,6 +182,26 @@ export function VoucherRedeemView({
               <p className="mt-2 text-xs text-white/45">
                 Can&apos;t scan? Type this code at the kiosk instead.
               </p>
+
+              {/* Same job as the QR and code above — carry it with you — so it
+              sits with them. A plain <a> to OUR route, never straight to
+              PassKit: the route re-checks Neon at tap time (voided / expired /
+              spent) and creates the pass on first ask, because PassKit bills
+              single-use passes AT ISSUANCE and most guests never add one. Hidden
+              once the voucher can no longer be used, matching the dimmed QR. */}
+              {!voided && !expired && !allDone && (
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  {WALLETS.map((w) => (
+                    <a
+                      key={w.platform}
+                      href={`/v/${status.code}/wallet?platform=${w.platform}`}
+                      className="flex items-center justify-center rounded-full border border-white/20 bg-white/[0.08] px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.14]"
+                    >
+                      {w.label}
+                    </a>
+                  ))}
+                </div>
+              )}
               {/* Expiry, stated plainly — a prepaid voucher's shelf life is a term of
             the sale, and it was never shown here. */}
               {expiryText && (

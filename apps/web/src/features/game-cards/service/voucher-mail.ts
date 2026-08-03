@@ -281,7 +281,9 @@ export async function emailPurchasedVouchers(args: {
     "",
     ...args.codes.map((c) => `${formatVoucherCode(c)} — ${voucherRedeemUrl(c)}`),
     "",
-    ...(args.scheduleUrl ? [`${args.scheduleLabel || "Pick your time"}: ${args.scheduleUrl}`, ""] : []),
+    ...(args.scheduleUrl
+      ? [`${args.scheduleLabel || "Pick your time"}: ${args.scheduleUrl}`, ""]
+      : []),
     "Scan the QR at any HeadPinz kiosk to print your game cards with the credit already on them.",
     ...(expiry ? [`Valid through ${expiry}.`] : []),
   ].join("\n");
@@ -346,7 +348,9 @@ export async function smsPurchasedVouchers(args: {
 
   const body =
     args.codes.length <= MAX_INLINE
-      ? [head, ...args.codes.map((c) => `${formatVoucherCode(c)} ${voucherRedeemUrl(c)}`)].join("\n")
+      ? [head, ...args.codes.map((c) => `${formatVoucherCode(c)} ${voucherRedeemUrl(c)}`)].join(
+          "\n",
+        )
       : [
           head,
           `${formatVoucherCode(args.codes[0])} ${voucherRedeemUrl(args.codes[0])}`,
@@ -393,6 +397,13 @@ export async function sendVoucherToGuest(args: {
           <a href="${esc(url)}" style="background:#00b3b6;color:#fff;text-decoration:none;
              padding:12px 20px;border-radius:999px;display:inline-block;font-weight:600">
             View my voucher
+          </a>
+        </p>
+        <p style="margin:0 0 12px">
+          <a href="${esc(url)}/wallet" style="border:1px solid #d0d0d6;color:#111;
+             text-decoration:none;padding:11px 20px;border-radius:999px;display:inline-block;
+             font-weight:600">
+            Add to Apple or Google Wallet
           </a>
         </p>
         <p style="margin:0 0 12px">

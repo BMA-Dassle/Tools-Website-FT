@@ -20,6 +20,7 @@
  * one net-new correctness bit, and it's what `alreadyOurs` checks.
  */
 
+import { syncVoucherPass } from "../wallet/voucher-pass";
 import {
   claimVoucher,
   getClaimsByCode,
@@ -139,7 +140,18 @@ export async function claimNativeCartVouchers(args: {
     await releaseNativeCartVouchers({ vouchers: claimed, baseKey: args.baseKey }).catch(() => {});
     return { ok: false, conflictCode: v.code };
   }
+  await syncPassesFor(claimed);
   return { ok: true, claimed };
+}
+
+/**
+ * Mirror remaining value onto each affected wallet pass, once per CODE — a
+ * booking can spend several legs of one voucher and PassKit only needs telling
+ * once. Never throws (syncVoucherPass swallows its own errors) and no-ops for
+ * vouchers the guest never added to a wallet, which is most of them.
+ */
+async function syncPassesFor(refs: NativeCartVoucherRef[]): Promise<void> {
+  for (const code of new Set(refs.map((r) => r.code))) await syncVoucherPass(code);
 }
 
 /** True when the live claim on (code,item) is one THIS reserve already made.
@@ -172,6 +184,9 @@ export async function releaseNativeCartVouchers(args: {
       "reserve rolled back",
     ).catch(() => {});
   }
+  // Legs came back — the pass has to go back UP, or the guest sees value they
+  // still hold reported as gone.
+  await syncPassesFor(args.vouchers);
 }
 
 /**
@@ -206,6 +221,9 @@ export async function markNativeCartVouchersCharged(args: {
       charged: true,
     }).catch(() => {});
   }
+  // Terminal for these legs. If this was the LAST redeemable leg, the sync flips
+  // the coupon to REDEEMED so the pass stops looking live.
+  await syncPassesFor(args.vouchers);
 }
 
 export interface StaleCartClaimSweepSummary {
@@ -249,6 +267,9 @@ export async function sweepStaleCartClaims(args: {
       );
       if (!args.dryRun) {
         await releaseVoucherClaim(row.code, row.txnId, "stale cart claim sweep");
+        // The sweep is the OTHER writer that restores legs. Without this an
+        // abandoned checkout leaves the pass permanently under-reporting.
+        await syncVoucherPass(row.code);
       }
       summary.released++;
     } catch (err) {

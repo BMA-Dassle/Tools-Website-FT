@@ -400,9 +400,7 @@ export async function listUnfinishedDealPurchases(
  * instruments. A purchase row means the batch was bought by ONE buyer, which is
  * the only case where the other codes are legitimately theirs to see.
  */
-export async function getDealPurchaseByBatchId(
-  batchId: string,
-): Promise<DealPurchaseRow | null> {
+export async function getDealPurchaseByBatchId(batchId: string): Promise<DealPurchaseRow | null> {
   if (!isDbConfigured()) return null;
   await ensureSchema();
   const q = sql();
