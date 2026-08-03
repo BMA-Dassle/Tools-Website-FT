@@ -1,0 +1,240 @@
+<title>Package Sales Report — FastTrax Fort Myers</title>
+<style>
+  :root {
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --hairline: #e1e0d9;
+    --rule: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --bar: #2a78d6;
+    --since-bg: #eef3fa;
+    --since-ink: #1c5cab;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --ink: #ffffff;
+      --ink-2: #c3c2b7;
+      --muted: #898781;
+      --hairline: #2c2c2a;
+      --rule: #383835;
+      --border: rgba(255, 255, 255, 0.10);
+      --bar: #3987e5;
+      --since-bg: #14243a;
+      --since-ink: #86b6ef;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --hairline: #2c2c2a;
+    --rule: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --bar: #3987e5;
+    --since-bg: #14243a;
+    --since-ink: #86b6ef;
+    color-scheme: dark;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--page);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 40px 24px 64px; }
+
+  .masthead { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px;
+    flex-wrap: wrap; border-bottom: 2px solid var(--ink); padding-bottom: 16px; }
+  .masthead h1 { font-size: 26px; font-weight: 650; letter-spacing: -0.01em; text-wrap: balance; }
+  .masthead .sub { color: var(--ink-2); font-size: 14px; margin-top: 4px; }
+  .masthead .meta { text-align: right; color: var(--muted); font-size: 12px; line-height: 1.55; }
+  .masthead .meta b { color: var(--ink-2); font-weight: 600; }
+
+  .hero { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margin: 28px 0 6px; }
+  .hero .big { font-size: 52px; font-weight: 650; letter-spacing: -0.02em; }
+  .hero .caption { color: var(--ink-2); font-size: 14px; max-width: 340px; }
+  .heroline { color: var(--muted); font-size: 12.5px; margin-bottom: 24px; max-width: 72ch; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 18px; display: flex; flex-direction: column; }
+  .tile .label { color: var(--ink); font-size: 14px; font-weight: 650; }
+  .tile .desc { color: var(--ink-2); font-size: 12px; line-height: 1.45; margin-top: 4px; }
+  .tile .since { display: block; background: var(--since-bg); color: var(--since-ink);
+    border-radius: 6px; padding: 6px 10px; margin: 10px 0 4px;
+    font-size: 12.5px; font-weight: 650; letter-spacing: 0.01em; }
+  .tile .since small { display: block; font-weight: 500; font-size: 11px; opacity: 0.85; }
+  .tile .value { font-size: 30px; font-weight: 650; letter-spacing: -0.015em; margin: 8px 0 4px; }
+  .tile .unit { font-size: 16px; font-weight: 500; color: var(--ink-2); }
+  .tile .rows { margin-top: auto; border-top: 1px solid var(--hairline); padding-top: 8px; }
+  .tile .rows div { display: flex; justify-content: space-between; gap: 8px; color: var(--ink-2); font-size: 12px; padding: 1.5px 0; }
+  .tile .rows div b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  .chart { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 18px 20px 16px; margin-bottom: 28px; }
+  @media print {
+    .chart { break-before: page; page-break-before: always; }
+  }
+  .chart h2 { font-size: 15px; font-weight: 650; }
+  .chart .note { color: var(--muted); font-size: 12px; margin: 2px 0 14px; }
+  .brow { display: flex; align-items: center; margin: 11px 0; }
+  .blabel { width: 160px; flex: none; color: var(--ink-2); font-size: 12.5px; padding-right: 10px; }
+  .btrack { flex: 1; display: flex; align-items: center; min-width: 0; }
+  .bseg { height: 18px; border-radius: 0 4px 4px 0; background: var(--bar); }
+  .bval { margin-left: 8px; font-size: 12.5px; color: var(--ink-2); font-weight: 600; white-space: nowrap; }
+
+  h2.sec { font-size: 17px; font-weight: 650; margin: 0 0 10px; }
+  h3.sec { font-size: 14.5px; font-weight: 650; margin: 30px 0 8px; }
+  .tscroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 560px; }
+  th { text-align: left; color: var(--ink-2); font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--rule); padding: 7px 10px 7px 0; }
+  td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--hairline); font-size: 13px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.since-cell { font-weight: 650; }
+  tr.total td { font-weight: 650; border-top: 1.5px solid var(--rule); border-bottom: none; }
+  tr.subtle td { color: var(--muted); }
+
+  .notes { color: var(--ink-2); font-size: 12.5px; max-width: 78ch; }
+  .notes p { margin-bottom: 7px; }
+  .notes b { color: var(--ink); }
+  .foot { margin-top: 40px; padding-top: 12px; border-top: 1px solid var(--hairline);
+    color: var(--muted); font-size: 11.5px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+</style>
+
+<div class="wrap">
+  <div class="masthead">
+    <div>
+      <h1>Package Sales Report</h1>
+      <div class="sub">Ultimate Qualifier &middot; Rookie Pack &middot; Ultimate VIP Experience &middot; Combo</div>
+    </div>
+    <div class="meta">
+      <div><b>FastTrax &mdash; Fort Myers</b></div>
+      <div>Launch through Aug 2, 2026</div>
+      <div>Prepared Aug 2, 2026</div>
+    </div>
+  </div>
+
+  <div class="hero">
+    <div class="big">$229,946</div>
+    <div class="caption">total package revenue across the three products on sale &mdash; 1,518 bookings, 4,108 guests</div>
+  </div>
+  <div class="heroline">Web and kiosk sales combined. All sales are Fort Myers &mdash; Naples has zero sales of these products. All package pricing is per person; weekend prices shown, discounted Mon&ndash;Thu.</div>
+
+  <div class="tiles">
+    <div class="tile">
+      <div class="label">Ultimate Qualifier</div>
+      <div class="desc">First-time racer pack: Starter race + Intermediate race, license, POV video, and an appetizer at Nemo&rsquo;s (1 per 3 people).</div>
+      <span class="since">Selling since Apr 28, 2026<small>96 days on sale</small></span>
+      <div class="value">$135,286</div>
+      <div class="rows">
+        <div><span>Bookings</span><b>873</b></div>
+        <div><span>Racers</span><b>2,340</b></div>
+        <div><span>Weekend / person</span><b>$63.97</b></div>
+      </div>
+    </div>
+    <div class="tile">
+      <div class="label">Rookie Pack</div>
+      <div class="desc">First race + license + POV video, with an appetizer at Nemo&rsquo;s (1 per 3 people).</div>
+      <span class="since">Selling since Apr 28, 2026<small>96 days on sale</small></span>
+      <div class="value">$32,142<span class="unit">+</span></div>
+      <div class="rows">
+        <div><span>Bookings</span><b>386+</b></div>
+        <div><span>Racers</span><b>948+</b></div>
+        <div><span>Weekend / person</span><b>$36.98</b></div>
+      </div>
+    </div>
+    <div class="tile">
+      <div class="label">Ultimate VIP Experience</div>
+      <div class="desc">Starter + Intermediate races, license, POV video, Game Zone credit, and 1.5 hours of VIP bowling.</div>
+      <span class="since">Selling since Jun 8, 2026<small>55 days on sale</small></span>
+      <div class="value">$62,518</div>
+      <div class="rows">
+        <div><span>Bookings</span><b>259</b></div>
+        <div><span>Guests</span><b>820</b></div>
+        <div><span>Weekend / person</span><b>$99</b></div>
+      </div>
+    </div>
+    <div class="tile">
+      <div class="label">Combo</div>
+      <div class="desc">Groupon replacement: Game Zone + Gel Blasters bundle.</div>
+      <span class="since">Starting this week<small>launches week of Aug 3, 2026</small></span>
+      <div class="value">&mdash;</div>
+      <div class="rows">
+        <div><span>Bookings</span><b>&mdash;</b></div>
+        <div><span>Sales data</span><b>none yet</b></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="chart">
+    <h2>Revenue by product</h2>
+    <div class="note">Gross since each product&rsquo;s launch, web and kiosk combined.</div>
+    <div class="brow">
+      <div class="blabel">Ultimate Qualifier</div>
+      <div class="btrack">
+        <div class="bseg" style="width: 70%"></div>
+        <div class="bval">$135,286</div>
+      </div>
+    </div>
+    <div class="brow">
+      <div class="blabel">Ultimate VIP Experience</div>
+      <div class="btrack">
+        <div class="bseg" style="width: 32.4%"></div>
+        <div class="bval">$62,518</div>
+      </div>
+    </div>
+    <div class="brow">
+      <div class="blabel">Rookie Pack</div>
+      <div class="btrack">
+        <div class="bseg" style="width: 16.6%"></div>
+        <div class="bval">$32,142+</div>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="sec">Totals since start</h2>
+  <div class="tscroll">
+  <table>
+    <thead>
+      <tr>
+        <th>Product</th><th>Selling since</th>
+        <th class="num">Bookings</th><th class="num">Guests</th><th class="num">Revenue</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Ultimate Qualifier</td><td class="since-cell">Apr 28, 2026</td><td class="num">873</td><td class="num">2,340</td><td class="num">$135,286</td></tr>
+      <tr><td>Rookie Pack</td><td class="since-cell">Apr 28, 2026</td><td class="num">386+</td><td class="num">948+</td><td class="num">$32,142+</td></tr>
+      <tr><td>Ultimate VIP Experience</td><td class="since-cell">Jun 8, 2026</td><td class="num">259</td><td class="num">820</td><td class="num">$62,518</td></tr>
+      <tr class="subtle"><td>Combo (Game Zone + Gel Blasters)</td><td class="since-cell">Week of Aug 3, 2026</td><td class="num" colspan="3">launches this week &mdash; no sales yet</td></tr>
+      <tr class="total"><td>Total</td><td></td><td class="num">1,518</td><td class="num">4,108</td><td class="num">$229,946</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3 class="sec">Notes</h3>
+  <div class="notes">
+    <p><b>VIP revenue is actual</b> (charged order totals, tax-inclusive, post-discount); net of the 18 later-canceled bookings it is <b>$59,032</b>. Average charged per guest rose from $76.18 on V1 pricing to $91.97 on V2 ($79/$99, live Aug 1).</p>
+    <p><b>Ultimate Qualifier and Rookie Pack revenue is computed</b> as the fixed package price &times; racers sold (pre-tax; promo discounts and a small number of cancellations not netted out).</p>
+    <p><b>Rookie Pack is understated:</b> kiosk Rookie Pack sales exist but aren&rsquo;t separately recorded, so its figures are web sales only &mdash; hence the &ldquo;+&rdquo;.</p>
+    <p>Kiosk selling began Jul 18, 2026; kiosk contributes $8,885 of Ultimate Qualifier and $990 of VIP revenue within the totals above. All figures as of Aug 2, 2026.</p>
+  </div>
+
+  <div class="foot">
+    <span>FastTrax Entertainment &mdash; internal sales summary</span>
+    <span>Figures as of Aug 2, 2026</span>
+  </div>
+</div>
