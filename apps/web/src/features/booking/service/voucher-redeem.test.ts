@@ -198,6 +198,41 @@ describe("planVoucherCoverage", () => {
     expect(plan.picks.filter((p) => p.attractionItemId).length).toBe(2);
   });
 
+  it("TWO LEGS OF ONE CODE cover two units — the prepaid deal-pack case", () => {
+    // A deal pack is ONE voucher carrying two laser-tag items, and coverage is
+    // awarded per APPLIED ENTRY rather than per code. So the entry surface has to
+    // expand the code into one entry per leg (distinguished by itemIndex); if it
+    // pushed a single entry per code, the guest would get one session free and be
+    // silently charged full price for the second.
+    const code = "HPW4K7M9PQR";
+    const plan = planVoucherCoverage(
+      makeSession(
+        [laserItem("a1", 10, 2)],
+        [
+          { code, issuer: "native" as const, itemIndex: 0, name: "Laser Tag" },
+          { code, issuer: "native" as const, itemIndex: 1, name: "Laser Tag" },
+        ],
+      ),
+      new Set(),
+    );
+    expect(plan.attractionUnits.get("a1")).toBe(2);
+    expect(plan.picks.filter((p) => p.attractionItemId).length).toBe(2);
+  });
+
+  it("and the WRONG answer, pinned: one entry per code covers only one unit", () => {
+    // Guards the regression directly. If someone "simplifies" the entry surface
+    // to one dispatch per code, this is the number that changes — and it is the
+    // difference between a $0 checkout and a $10 charge the guest didn't expect.
+    const plan = planVoucherCoverage(
+      makeSession(
+        [laserItem("a1", 10, 2)],
+        [{ code: "HPW4K7M9PQR", issuer: "native" as const, itemIndex: 0, name: "Laser Tag" }],
+      ),
+      new Set(),
+    );
+    expect(plan.attractionUnits.get("a1")).toBe(1);
+  });
+
   it("a Game Zone card comp prices NOTHING in the cart", () => {
     // It's fulfilled by dispensing a card on the Intercard rail. If this ever
     // starts discounting, the guest gets a free card AND a free race.

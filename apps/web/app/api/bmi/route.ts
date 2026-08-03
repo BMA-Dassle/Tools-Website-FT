@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import https from "https";
 import redis from "@/lib/redis";
 import { mirrorMemoIntoNotesByBillId } from "@/lib/bowling-db";
+import { bmiWriteBlocked } from "~/features/maintenance";
 
 // ── Config from env ───────────────────────────────────────────────────────────
 
@@ -373,6 +374,24 @@ export async function POST(req: NextRequest) {
 
   if (!endpoint || !ALLOWED_POST.some((e) => endpoint.startsWith(e))) {
     return NextResponse.json({ error: "Endpoint not allowed" }, { status: 403 });
+  }
+
+  // ── Vendor outage (maintenance mode) ────────────────────────────────────
+  // The LAST line of defence while BMI is down: refuse the writes that OPEN a
+  // sale, so a cached page, a tab left open mid-flow, or a surface we missed
+  // can never create a bill we can't fulfil. Only booking/book + booking/sell
+  // are refused — payment/confirm, removeItem, memo and the DELETE cancel stay
+  // open so an already-charged session can finish and abandoned holds can still
+  // be released (blocking teardown is how holds get stranded on heats).
+  if (bmiWriteBlocked(endpoint)) {
+    console.warn(`[bmi.maintenance] refused ${endpoint} — vendor outage active`);
+    return NextResponse.json(
+      {
+        error: "Booking is temporarily unavailable — our booking vendor is having an outage.",
+        maintenance: true,
+      },
+      { status: 503 },
+    );
   }
 
   try {

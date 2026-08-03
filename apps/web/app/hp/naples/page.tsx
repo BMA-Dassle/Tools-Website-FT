@@ -930,7 +930,11 @@ export default function NaplesPage() {
               Book Bowling
             </Link>
             <Link
-              href="/hp/book/laser-tag"
+              // ?location=naples is REQUIRED: session.center is the only thing
+              // that routes an attraction booking to the Naples BMI tenant, and
+              // without it resolveAttractionContext falls through to Fort Myers —
+              // the 2026-07-20 misroute, invisible to Naples staff.
+              href="/hp/book/laser-tag?location=naples"
               className="inline-flex items-center bg-white/10 hover:bg-white/20 border border-white/20 hover:border-[#fd5b56]/40 text-white font-body font-bold text-sm uppercase tracking-wider px-8 py-3 rounded-full transition-all hover:scale-105"
             >
               Book Laser Tag

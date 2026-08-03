@@ -83,6 +83,32 @@ describe("gameCardGrantFromPackageId", () => {
   });
 });
 
+describe("the 150-token denomination (prepaid deal packs)", () => {
+  it("honours 150 — the $15 game card bundled on a deal pack", () => {
+    expect(gameCardGrantFromCompName("Complimentary 150 Token Game Card")).toEqual({
+      packageId: "gzv-150",
+      tokens: 0,
+      bonusTokens: 150,
+      bonusCashDollars: 0,
+      label: "150 bonus tokens",
+    });
+    expect(gameCardGrantFromPackageId("gzv-150")?.bonusTokens).toBe(150);
+  });
+
+  it("stays in lockstep with the MINT allowlist", async () => {
+    // The two arrays guard DIFFERENT ends of the same value. `mintVouchers`
+    // validates against NATIVE_GRANT_DENOMINATIONS; the LOAD path re-derives
+    // what to credit through COMP_TOKEN_DENOMINATIONS (this file, via
+    // gameCardGrantFromPackageId → service/credit-plan.ts).
+    //
+    // Add a denomination to the mint side only and the failure is SILENT: the
+    // voucher mints, the guest scans it, a card is dispensed, and it carries
+    // zero value. Nothing throws. Hence this equality.
+    const { NATIVE_GRANT_DENOMINATIONS } = await import("../service/native-voucher");
+    expect([...NATIVE_GRANT_DENOMINATIONS]).toEqual([...COMP_TOKEN_DENOMINATIONS]);
+  });
+});
+
 describe("isVoucherPackageId", () => {
   it("separates comp rows from sellable packages", () => {
     expect(isVoucherPackageId("gzv-100")).toBe(true);

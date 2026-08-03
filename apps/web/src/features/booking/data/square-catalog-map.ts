@@ -61,6 +61,17 @@ const SQ = {
   // Game-card token reloads — one item, price overridden per package
   // (game-cards feature). Shared here to keep catalog IDs centralized.
   GAME_TOKENS: "7DTI6O5RRGIRIUHAW2NO3S2U",
+  // Prepaid deal packs (features/deals) — ONE line per pack so the bundle is
+  // countable and separable in QBO instead of dissolving into the attraction and
+  // token buckets. Both are VARIABLE-price variations present at all locations;
+  // the price is overridden per pack from the deals registry, same as every other
+  // id here. Read off the live Square catalog 2026-08-03 (search-catalog-items
+  // "Game Zone"), NOT transcribed — the owner's dashboard column clipped them and
+  // the 9th character of the laser id is a P, not the F it appeared to be.
+  //   item Q5EVKU2QKKBJT2CUQEGDOS3H "Game Zone + Gel Blaster Combo"
+  //   item QJLX7BUH4URQVNRN6533K2YZ "Game Zone + Laser Tag Combo"
+  DEAL_GEL_BLASTER_PACK: "B6ST5YMWFNLL66PVQXVXXYFY",
+  DEAL_LASER_TAG_PACK: "FGDAFYAVPFJ2GRRZQXNHZJB6",
 } as const;
 
 export { SQ as SQUARE_CATALOG_IDS };

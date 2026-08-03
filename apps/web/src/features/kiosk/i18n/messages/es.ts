@@ -67,6 +67,12 @@ export const es: Record<CoreKey, string> = {
     "No disponible en este momento — vuelve más tarde o pregunta a un encargado.",
   "categories.disabled.attraction":
     "No queda nada para reservar hoy — la recepción puede ayudarte con visitas sin cita.",
+  "categories.disabled.vendorOutage":
+    "No disponible temporalmente — uno de nuestros proveedores tiene un problema en su sistema. Por favor, visita Servicio al Cliente.",
+  "outage.heading": "No disponible temporalmente",
+  "outage.body":
+    "Uno de nuestros proveedores tiene un problema en su sistema, así que esto no está disponible en este momento. Por favor, visita Servicio al Cliente — pueden ayudarte en persona.",
+  "outage.back": "Volver al inicio",
   "categories.backToCategories": "Todas las categorías",
   "categories.pick.experience": "Elige tu experiencia",
   "categories.pick.attraction": "Elige una atracción",
@@ -331,6 +337,10 @@ export const es: Record<CoreKey, string> = {
   "codeEntry.voucherGz.partyTitle": "¿Quién vino de tu reserva?",
   "codeEntry.voucherGz.partySub":
     "Toca a todos los que juegan hoy — tendremos sus nombres listos en cada paso.",
+  "codeEntry.voucherGz.partyLoadingTitle": "Revisando tu vale",
+  "codeEntry.voucherGz.partyLoadingSub":
+    "Si este vale tiene una reserva, traeremos a todos los que están en ella.",
+  "codeEntry.voucherGz.partyLoading": "Buscando a tu grupo…",
   "codeEntry.voucherGz.partyWaiverOk": "Exención firmada",
   "codeEntry.voucherGz.partyWaiverNeeded": "Falta la exención",
   "codeEntry.voucherGz.partyInGroup": "En tu grupo",

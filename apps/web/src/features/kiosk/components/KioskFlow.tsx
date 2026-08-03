@@ -330,15 +330,22 @@ export function KioskFlow({
   // Bookable-today availability for the Experiences (VIP combo + Ultimate
   // Qualifier), from the cached server endpoint — locks their entry points when
   // nothing fits today.
-  const { available: availableForLive, firstOpenFor } = useKioskAvailability(
-    config?.center ?? null,
-  );
+  const {
+    available: availableForLive,
+    firstOpenFor,
+    vendorPaused,
+  } = useKioskAvailability(config?.center ?? null);
   // TEST kiosk 99 (owner 2026-08-01): its operating day flips at calendar
   // midnight, but the server availability compute stays on the 2 AM business
   // day — overnight, yesterday's slots are all in the past and every tile
   // locks. Ignore the locks on the test kiosk only; the slot steps fetch REAL
   // availability for the flipped date, so nothing unbookable gets booked.
-  const availableFor = config?.kioskNumber === 99 ? () => true : availableForLive;
+  //
+  // A VENDOR OUTAGE is exempt from that override. The kiosk-99 bypass exists for
+  // a clock artifact, not to sell a product whose vendor is dark — 99 is a real
+  // kiosk on the floor that takes real card-present payments.
+  const availableFor =
+    config?.kioskNumber === 99 ? (id: string) => !vendorPaused(id) : availableForLive;
   const vipAvailable = availableFor("race-bowl");
   const uqAvailable = availableFor("ultimate-qualifier");
 
@@ -2078,6 +2085,7 @@ export function KioskFlow({
           uqAvailable={uqAvailable}
           offeringAvailable={availableFor}
           offeringFirstOpen={firstOpenFor}
+          offeringVendorPaused={vendorPaused}
           onPickOffering={pickOffering}
           onPickCombo={pickCombo}
           onPickPackageExperience={pickPackageExperience}
@@ -2101,8 +2109,15 @@ export function KioskFlow({
           // the rules are not duplicated across two components. Check-in and the
           // race grid are Fort-Myers-only: the two FM venues share the center
           // code, and racing never advertises at Naples.
+          // Vendor outage: check-in's finishing writes (registerProjectPerson,
+          // racer schedule, state stamp) are on the BMI booking rail and fail
+          // SILENTLY by design, so a dark rail means the kiosk would confirm a
+          // check-in that BMI never recorded. Withdraw the door rather than
+          // advertise it; /kiosk/checkin guards itself server-side for the scan
+          // and typed-URL routes, so this is the tidy front door, not the
+          // enforcement.
           onOpenCheckin={
-            config.center === "fort-myers" && kioskCheckinEnabled()
+            config.center === "fort-myers" && kioskCheckinEnabled() && !vendorPaused("checkin")
               ? () => router.push("/kiosk/checkin")
               : undefined
           }
@@ -2115,7 +2130,12 @@ export function KioskFlow({
               : undefined
           }
           onOpenWaiver={
-            kioskGroupWaiverEnabled()
+            // Vendor outage: a waiver signs onto a Pandora person, so with BMI
+            // dark there is nothing to sign against. The door is withdrawn rather
+            // than left to dead-end — /kiosk/waiver ALSO guards itself server-side
+            // for typed-URL and mid-flow arrivals, so this is the tidy front door,
+            // not the enforcement.
+            kioskGroupWaiverEnabled() && !vendorPaused("waiver")
               ? () => {
                   clarityEvent("kiosk:waiver:open");
                   router.push("/kiosk/waiver");

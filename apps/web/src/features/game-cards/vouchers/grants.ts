@@ -38,10 +38,25 @@
  */
 
 /**
- * Token denominations a comp voucher may grant. Mirrors the sellable packages
- * in ../constants.ts — a comp can only ever be worth something we also sell.
+ * Token denominations a comp voucher may grant. Mostly mirrors the sellable
+ * packages in ../constants.ts — a comp is normally only worth something we also
+ * sell.
+ *
+ * `150` is the deliberate exception. The prepaid deal packs (features/deals)
+ * bundle a "$15 game card", which is 150 tokens at our 10¢/token rate, and
+ * there is no `tok-150` on the sellable grid because $15 isn't a package we
+ * offer à la carte. It is still a denomination we HONOUR, so it belongs here.
+ *
+ * This list and `NATIVE_GRANT_DENOMINATIONS` (service/native-voucher.ts) must
+ * stay in sync, and the reason is worth spelling out: the mint validates
+ * against that one, while the LOAD path re-derives the grant through this one
+ * (`gameCardGrantFromPackageId` → `grantForTokens`, called by
+ * service/credit-plan.ts). Add a denomination to only the mint side and a
+ * voucher mints happily, then credits NOTHING when the card is dispensed —
+ * silent, and the guest walks away with an empty card. `grants.test.ts` pins
+ * the two arrays together so that can't happen again.
  */
-export const COMP_TOKEN_DENOMINATIONS = [50, 100, 200, 300, 500, 1000] as const;
+export const COMP_TOKEN_DENOMINATIONS = [50, 100, 150, 200, 300, 500, 1000] as const;
 
 /** Synthetic package id prefix. Voucher grants are NOT in TOKEN_PACKAGES (that
  *  array is the sellable grid and a $0 tile must never render in it), so the

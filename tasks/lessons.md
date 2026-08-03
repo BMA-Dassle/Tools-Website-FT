@@ -3003,3 +3003,45 @@ make is which failure you can live with, and it is never "guest waits for money"
 **Corollary:** any code path that refunds a group-function or booking payment must
 answer "what happened to the gift card that payment funded?" A refund path written
 without that question is a double-pay waiting for a status change.
+
+## Wallet passes mirror claim state INLINE, never on a cron (2026-08-03)
+
+Voucher wallet passes (PassKit) are a **downstream projection of `voucher_claims`**, and the
+mirror runs **in the same request that moved the claim** — kiosk redemption, web credit, cart
+claim, release, spend, void. Not a cron, not a queue, not "the next sweep will catch it".
+
+**Why inline is the requirement, not an optimisation.** A guest who just handed over a leg at a
+kiosk is still standing there holding the phone. If the pass still shows the pre-redemption value
+when they look down, the reasonable conclusion is that they were charged twice. Latency here is a
+support call and a refund request, not a cosmetic lag. (Owner rule 2026-08-03: "if a voucher is
+used on kiosk or web we should be able to update that pass live not wait for a cron or anything".)
+
+**The rules, enforced in `features/game-cards/wallet/voucher-pass.ts`:**
+
+1. **Inline, same request.** `syncVoucherPass(code)` is awaited from the redemption paths
+   themselves. The only cron that calls it is the stale-cart-claim sweep — and only because a
+   sweep release IS a claim movement, so it syncs inline within that iteration.
+2. **Every writer of claim state syncs** — take, release, spend, void. All four. A new claim
+   writer that forgets leaves the pass permanently wrong, and **under-reporting is the dangerous
+   direction**: to the guest it looks like value vanished. Releases (abandoned checkout) must push
+   the remaining value back UP.
+3. **A sync failure is never a redemption failure.** Every export swallows its own errors. Neon
+   already holds the truth. A stale pass self-heals on the guest's next Add-to-Wallet tap, which
+   re-pushes current state.
+4. **Never read the pass to decide anything.** Write-only from our side. `voucher_claims` is the
+   single authority — its one atomic CAS per item is what makes redemption race-safe, and a second
+   opinion living on someone's phone would be a second writer.
+5. **No pass, no call.** Skip on `passkit_coupon_id IS NULL`. Most guests never add one, and this
+   runs on the redemption hot path.
+
+**Corollary — issue lazily.** PassKit bills single-use passes AT ISSUANCE, not at install, so a
+pass is created only when a guest taps Add to Wallet (`GET /v/[code]/wallet`). Pre-creating one per
+minted voucher would bill us for every voucher whose email is never opened. Idempotency is free:
+`externalId` is our own `HPW…` code and PassKit 409s a duplicate, so create-then-recover-on-409 is
+race-safe without a lock.
+
+**Guest-facing wording lives in ONE place.** The pass reuses `vouchers/display.ts`
+(`groupVoucherItems`, `voucherItemDisplayLabel`) rather than re-deriving labels. First attempt
+wrote a parallel summariser and the pass said "200 Tokens" where the product says "$20 Game Card" —
+the exact shape of [extracted component misses later fixes]. Two surfaces showing one voucher must
+not word it two ways.

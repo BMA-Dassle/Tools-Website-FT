@@ -17,11 +17,7 @@
  */
 
 import { randomInt, randomUUID } from "crypto";
-import {
-  generateVoucherCode,
-  isNativeVoucherCode,
-  normalizeVoucherCode,
-} from "../vouchers/codes";
+import { generateVoucherCode, isNativeVoucherCode, normalizeVoucherCode } from "../vouchers/codes";
 import {
   gameZoneGrant,
   getVoucher,
@@ -36,11 +32,19 @@ import {
   type VoucherRow,
 } from "../data/vouchers-db";
 import { claimVoucher, releaseVoucherClaim, spentItemIndexes } from "../data/voucher-claims-db";
+import { isFullySpent, isRedeemableItem, voucherItemStates } from "../wallet/pass-content";
+import { syncVoucherPass, voidVoucherPass } from "../wallet/voucher-pass";
 import { markChargeFailed, startCompedTxn } from "../data/transactions-log";
 import { VOUCHER_PACKAGE_PREFIX } from "../vouchers/grants";
 
-/** Denominations the mint UI offers. Mirrors the sellable token packages. */
-export const NATIVE_GRANT_DENOMINATIONS = [50, 100, 200, 300, 500, 1000] as const;
+/**
+ * Denominations the mint UI offers. MUST equal `COMP_TOKEN_DENOMINATIONS` in
+ * ../vouchers/grants.ts — that one is what the load path re-derives value
+ * through, so a denomination present here but missing there mints a voucher
+ * that credits nothing. See the long note on that constant; a test pins them
+ * together.
+ */
+export const NATIVE_GRANT_DENOMINATIONS = [50, 100, 150, 200, 300, 500, 1000] as const;
 
 export type NativeVoucherRefusal =
   | "bad_format"
@@ -104,12 +108,13 @@ export async function getVoucherStatus(code: string): Promise<VoucherStatus | nu
   const voucher = await getVoucher(c);
   if (!voucher) return null;
   const spent = await spentItemIndexes(c);
-  const items: VoucherItemState[] = voucher.items.map((item, index) => ({
-    index,
-    item,
-    label: voucherItemLabel(item),
-    spent: spent.has(index),
-    redeemable: item.kind === "gamezone",
+  // Shared projection (wallet/pass-content.ts) so this page and the wallet pass
+  // can never disagree about which legs are left.
+  const states = voucherItemStates(voucher.items, spent);
+  const items: VoucherItemState[] = states.map((s) => ({
+    ...s,
+    label: voucherItemLabel(s.item),
+    redeemable: isRedeemableItem(s.item),
   }));
   return {
     code: c,
@@ -117,7 +122,7 @@ export async function getVoucherStatus(code: string): Promise<VoucherStatus | nu
     expiresAt: voucher.expiresAt,
     voidedAt: voucher.voidedAt,
     expired: !!voucher.expiresAt && Date.parse(voucher.expiresAt) <= Date.now(),
-    fullySpent: items.filter((i) => i.redeemable).every((i) => i.spent),
+    fullySpent: isFullySpent(states),
   };
 }
 
@@ -249,7 +254,9 @@ export async function validateNativeVoucher(code: string): Promise<ValidateResul
     label: items[0].label,
     remainingGameZoneItems: items.filter((i) => i.redeemVia === "gamezone").length,
     items,
-    spentItems: status.items.filter((i) => i.spent).map((i) => ({ index: i.index, label: i.label })),
+    spentItems: status.items
+      .filter((i) => i.spent)
+      .map((i) => ({ index: i.index, label: i.label })),
   };
 }
 
@@ -418,7 +425,10 @@ export async function claimNativeVoucher(input: {
   try {
     voucher = await getVoucher(code);
   } catch (err) {
-    console.error("[native-voucher] registry read failed:", err instanceof Error ? err.message : err);
+    console.error(
+      "[native-voucher] registry read failed:",
+      err instanceof Error ? err.message : err,
+    );
     return { ok: false, reason: "storage" };
   }
   if (!voucher) return { ok: false, reason: "unknown" };
@@ -471,7 +481,10 @@ export async function claimNativeVoucher(input: {
       kioskId: input.kioskId ?? null,
     });
   } catch (err) {
-    console.error("[native-voucher] claim store unavailable:", err instanceof Error ? err.message : err);
+    console.error(
+      "[native-voucher] claim store unavailable:",
+      err instanceof Error ? err.message : err,
+    );
     return { ok: false, reason: "storage" };
   }
   if (!claimed.ok) return { ok: false, reason: "used" };
@@ -495,7 +508,10 @@ export async function claimNativeVoucher(input: {
     });
   } catch (err) {
     await releaseVoucherClaim(code, txnId, "ledger row insert failed").catch(() => {});
-    console.error("[native-voucher] ledger insert failed:", err instanceof Error ? err.message : err);
+    console.error(
+      "[native-voucher] ledger insert failed:",
+      err instanceof Error ? err.message : err,
+    );
     return { ok: false, reason: "storage" };
   }
 
@@ -506,6 +522,11 @@ export async function claimNativeVoucher(input: {
     accountNumber: input.accountNumber ?? null,
     locationCode: input.locationCode,
   });
+
+  // Mirror what's LEFT onto the guest's wallet pass. Awaited, but structurally
+  // unable to fail this redemption: syncVoucherPass swallows its own errors and
+  // no-ops when the guest never added a pass (the common case).
+  await syncVoucherPass(code);
 
   // What the guest still holds — a multi-item voucher isn't finished, and the
   // screens must be able to say so instead of implying it's used up.
@@ -535,6 +556,9 @@ export async function releaseNativeVoucher(input: {
   await releaseVoucherClaim(code, input.txnId, input.reason);
   await markChargeFailed(input.txnId, `voucher released: ${input.reason}`);
   await logVoucherEvent(code, "release", { txnId: input.txnId, reason: input.reason });
+  // A release RESTORES a leg, so the pass has to go back UP. Skipping this is
+  // the one miss that silently robs a guest: the pass would under-report forever.
+  await syncVoucherPass(code);
 }
 
 /** Void an unspent voucher (misprint, wrong recipient, fraud). */
@@ -542,4 +566,5 @@ export async function voidNativeVoucher(code: string, reason: string): Promise<v
   const c = normalizeVoucherCode(code);
   await voidVoucher(c, reason);
   await logVoucherEvent(c, "void", { reason });
+  await voidVoucherPass(c);
 }

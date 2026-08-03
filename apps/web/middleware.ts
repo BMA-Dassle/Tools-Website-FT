@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { HEADPINZ_FM_CENTER_CODE, HEADPINZ_NAPLES_CENTER_CODE } from "@/lib/qamf-centers";
 import { googleReviewUrl } from "~/lib/constants/review-links";
+import { maintenanceRedirectForPath, SERVICE_NOTICE_PATH } from "~/features/maintenance";
 
 /**
  * Hostname-based routing for dual-branded site:
@@ -473,6 +474,37 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(`https://headpinz.com${cleanPath}`, 301);
   }
 
+  // ── Vendor outage gate (maintenance mode) ──────────────────────────────
+  // A vendor being down takes its whole product line off sale, not one page:
+  // ONE gate here catches every booking entry — v1 links, v2 links, the /hp
+  // variants, marketing "Book Now" buttons, emailed/QR/bookmarked deep links —
+  // and sends the guest to a notice that says what's wrong and what IS open.
+  // Runs BEFORE the V1→V2 cutover so a paused v1 URL goes to the notice instead
+  // of bouncing through a v2 flow it can't finish. Registry: the maintenance
+  // feature; post-purchase /confirmation + /checkin paths are never matched.
+  // The waiver flow is wired in here too, but keyed to a DIFFERENT vendor
+  // (bmi-office — the reservation/account lookup both waiver flows open with;
+  // the signature itself goes to Pandora). Office was healthy through the
+  // 2026-08-03 booking outage, so this is armed, not active. NOT the
+  // /kiosk/waiver twin: the kiosk has its own chrome and its own Spanish, so it
+  // shows a kiosk-native notice instead of being bounced to a web page (and the
+  // /kiosk early-return below would keep it out of here regardless).
+  if (
+    pathname === "/book" ||
+    pathname.startsWith("/book/") ||
+    pathname === "/waiver" ||
+    pathname.startsWith("/waiver/") ||
+    (isHeadPinz && (pathname === "/hp/book" || pathname.startsWith("/hp/book/")))
+  ) {
+    const paused = maintenanceRedirectForPath(pathname);
+    if (paused) {
+      const url = request.nextUrl.clone();
+      url.pathname = paused.path;
+      url.searchParams.set("a", paused.product);
+      return NextResponse.redirect(url, 307);
+    }
+  }
+
   // ── Booking V1 → V2 cutover ────────────────────────────────────────────
   // v2 is the booking system: redirect every legacy booking entry into its v2
   // flow. ONE redirect here replaces editing ~90 scattered links — it also
@@ -540,6 +572,13 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/cancellation-policy/") ||
     pathname === "/privacy-policy" ||
     pathname.startsWith("/privacy-policy/") ||
+    // Vendor-outage notice — the redirect target of the maintenance gate above.
+    // Brand chrome is host-aware; guests of BOTH brands get sent here, so the
+    // /hp rewrite must not turn it into a 404 on headpinz.com. The path is
+    // deliberately not under /book (that prefix already bypasses the rewrite,
+    // which would have served FastTrax chrome to HeadPinz visitors). Pinned to
+    // the feature's own constant so the route and this registration can't drift.
+    pathname === SERVICE_NOTICE_PATH ||
     pathname.startsWith("/event/") ||
     // July-4 USA250 promo landing — advertised on both brand homepages via the
     // promo popup, routes to the right per-venue booking page. Brand chrome is
@@ -567,6 +606,19 @@ export async function middleware(request: NextRequest) {
     // these must not be /hp-rewritten (404 otherwise).
     pathname.startsWith("/t/") ||
     pathname.startsWith("/g/") ||
+    // Prepaid deal packs (/deals, /deals/{slug}). A HeadPinz product, but a
+    // TOP-LEVEL route rather than /hp/deals, because the /hp rewrite only fires
+    // when the HOST contains "headpinz.com" — so on a Vercel preview host
+    // (…-headpinz.vercel.app) or any other alias, /deals 404'd with FastTrax
+    // chrome. Ads and emails must not depend on which hostname they land on.
+    // Brand is FORCED to headpinz below on both hosts (these are HeadPinz
+    // products; a FastTrax-chromed deal page is wrong anywhere), and the
+    // canonical always points at headpinz.com/deals/…
+    //
+    // Trailing slash is REQUIRED on the prefix test — a bare startsWith("/deals")
+    // would also swallow any future /deals-something sibling.
+    pathname === "/deals" ||
+    pathname.startsWith("/deals/") ||
     // Voucher redemption landing (/v/{code}) — our own Game Zone vouchers are
     // emailed/texted to guests, so the link can be opened on EITHER brand
     // domain. Brand-neutral, code-in-path; without this the /hp rewrite 404s
@@ -669,6 +721,17 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/account")) {
       requestHeaders.set("x-no-mobile-bar", "1");
     }
+    // A voucher page is a focused redemption screen — the guest is holding a QR
+    // up to a kiosk. A "Book Now" bar pinned over it competes with the one action
+    // that matters and covers the bottom of the code (owner 2026-08-03).
+    if (pathname.startsWith("/v/")) {
+      requestHeaders.set("x-no-mobile-bar", "1");
+    }
+    // Vendor-outage notice: a floating "Book Now" bar on the page that just told
+    // the guest we can't book is the one control that must not be there.
+    if (pathname === SERVICE_NOTICE_PATH) {
+      requestHeaders.set("x-no-mobile-bar", "1");
+    }
     // July-4 promo landing: full-bleed marketing hero with its own dual-brand
     // logos — suppress the HeadPinz Nav/Footer entirely (like the chooser splash).
     if (pathname === "/july4") {
@@ -684,6 +747,23 @@ export async function middleware(request: NextRequest) {
     if (pathname === "/waiver" || pathname.startsWith("/waiver/")) {
       requestHeaders.set("x-no-chrome", "1");
     }
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  // Prepaid deal packs on ANY NON-headpinz.com host (FastTrax, a Vercel preview
+  // alias, a bare deployment URL): force HeadPinz chrome anyway.
+  //
+  // Unlike /july4, this is NOT host-aware. The packs sell HeadPinz laser tag, gel
+  // blasters and HeadPinz game cards — FastTrax sells none of them — so a
+  // FastTrax-branded deal page is wrong on every host, not just an odd one. Brand
+  // comes from the PRODUCT here, the same way /survey and /contract take theirs
+  // from the record rather than the hostname.
+  //
+  // (The headpinz.com host already returned above with the brand set; only other
+  // hosts reach this.)
+  if (pathname === "/deals" || pathname.startsWith("/deals/")) {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-brand", "headpinz");
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
@@ -710,7 +790,9 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/survey/") ||
     pathname.startsWith("/contract/") ||
     pathname.startsWith("/event/") ||
-    pathname.startsWith("/account")
+    pathname.startsWith("/account") ||
+    // Voucher redemption — see the matching HP-host case above.
+    pathname.startsWith("/v/")
   ) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-no-mobile-bar", "1");
@@ -793,6 +875,8 @@ export async function middleware(request: NextRequest) {
   const suppressMobileBar =
     pathname.startsWith("/t/") ||
     pathname.startsWith("/g/") ||
+    // Vendor-outage notice — see the HeadPinz-host twin above.
+    pathname === SERVICE_NOTICE_PATH ||
     // Any booking confirmation screen — the top-level /book/confirmation
     // as well as the per-flow nested confirmations
     // (/book/checkout/confirmation, /book/race/confirmation,

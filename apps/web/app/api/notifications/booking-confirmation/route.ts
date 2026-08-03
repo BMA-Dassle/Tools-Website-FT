@@ -15,7 +15,8 @@ import {
   buildVipVoucherSectionHtml,
   vipEmailSubject,
 } from "~/features/combos/vip-welcome";
-import { getVoucherByBillId, voucherItemLabel } from "~/features/game-cards/data/vouchers-db";
+import { getVoucherByBillId } from "~/features/game-cards/data/vouchers-db";
+import { groupVoucherItems, voucherGroupLabel } from "~/features/game-cards/vouchers/display";
 import { qrAttachment, voucherRedeemUrl } from "~/features/game-cards/service/voucher-mail";
 import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
 
@@ -76,7 +77,14 @@ async function sendEmail(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      personalizations: [{ to: [{ email: to }], bcc: [{ email: "vendorcases@dassle.us" }] }],
+      personalizations: [
+        {
+          to: [{ email: to }],
+          // vendorcases is the standing audit copy; tyler@ added 2026-08-03 per
+          // owner so he sees VIP confirmations as they go out.
+          bcc: [{ email: "vendorcases@dassle.us" }, { email: "tyler@headpinz.com" }],
+        },
+      ],
       from: { email: FROM_EMAIL, name: fromName || FROM_NAME },
       subject,
       content: [{ type: "text/html", value: html }],
@@ -505,7 +513,12 @@ export async function POST(req: NextRequest) {
               <p style="margin:0 0 8px;color:#f0b341;font-size:15px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;">Your VIP Voucher</p>
               <p style="font-family:monospace;font-size:22px;font-weight:bold;color:#fff;margin:0 0 10px;letter-spacing:2px;">${formatVoucherCode(v.code)}</p>
               <img src="cid:${qr.cid}" width="150" height="150" alt="Scan this voucher at any kiosk" style="display:block;border:1px solid #B8860B;border-radius:8px;margin:0 0 10px;">
-              ${v.items.map((it) => `<p style="margin:2px 0;color:#e8d9b0;font-size:13px;">&#10003;&nbsp;&nbsp;${voucherItemLabel(it)}</p>`).join("")}
+              ${groupVoucherItems(v.items.map((item, index) => ({ item, index, spent: false })))
+                .map(
+                  (g) =>
+                    `<p style="margin:2px 0;color:#e8d9b0;font-size:13px;">&#10003;&nbsp;&nbsp;${voucherGroupLabel(g).replace(/×/g, "&times;")}</p>`,
+                )
+                .join("")}
               <p style="color:#8d7a4d;font-size:12px;line-height:1.6;margin:10px 0 0 0;">
                 Scan the QR at any kiosk or open ${voucherRedeemUrl(v.code)} —
                 ${expiry ? `valid through ${expiry} (1 year from your race date), ` : ""}not transferable. Attractions redeem when available.
@@ -839,7 +852,13 @@ export async function POST(req: NextRequest) {
           emailAttachments.push(qr.attachment);
           vipVoucherSectionHtml = buildVipVoucherSectionHtml({
             codeDisplay: formatVoucherCode(vipVoucher.code),
-            itemLabels: vipVoucher.items.map(voucherItemLabel),
+            // GROUPED, and grouped by the same rule as the /v page: token legs
+            // sum into one "400 Tokens" row while admissions stay countable
+            // ("4 × Laser Tag"). A 7-guest grant used to render fifteen-plus
+            // near-identical lines here.
+            itemLabels: groupVoucherItems(
+              vipVoucher.items.map((item, index) => ({ item, index, spent: false })),
+            ).map(voucherGroupLabel),
             expiresAt: vipVoucher.expiresAt,
             redeemUrl: voucherRedeemUrl(vipVoucher.code),
             qrCid: qr.cid,

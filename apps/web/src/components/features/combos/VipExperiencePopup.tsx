@@ -25,6 +25,7 @@ import {
   type ComboLeg,
   type ComboSpecial,
 } from "~/features/combos/combo-specials";
+import { isProductPaused } from "~/features/maintenance";
 
 import {
   VipExperiencePopupClient,
@@ -60,7 +61,9 @@ function legToStop(leg: ComboLeg): VipPopupStop | null {
     const starter = leg.tier === "starter";
     return {
       name: `${leg.tier.charAt(0).toUpperCase()}${leg.tier.slice(1)} Race`,
-      note: starter ? "Qualify on the big track" : "Come back and beat your time",
+      // Say what the leg is FOR. The Starter gates the second race, and that is
+      // the one thing a guest actually needs to know before booking.
+      note: starter ? "Qualify for race two" : "Beat your Starter time",
       venue: "FastTrax",
       accent: "track",
     };
@@ -68,7 +71,7 @@ function legToStop(leg: ComboLeg): VipPopupStop | null {
   if (leg.kind === "bowling") {
     return {
       name: `${hours(leg.durationMinutes)} ${leg.vip ? "VIP " : ""}Bowling`,
-      note: leg.vip ? "Your own semi-private suite" : "Your lane, your crew",
+      note: leg.vip ? "Semi-private VIP suite" : "Your own lane",
       venue: "HeadPinz",
       accent: "lanes",
     };
@@ -90,6 +93,16 @@ export function VipExperiencePopup() {
 
   const combo = liveCombo();
   if (!combo) return null;
+
+  // VENDOR OUTAGE (maintenance mode): self-hide while a vendor the pack needs is
+  // down. This is an unsolicited popup that interrupts the whole site to sell one
+  // product — pitching it when its "Book the VIP Experience" button can only
+  // reach an outage notice is worse than showing nothing (owner 2026-08-03: "we
+  // have popup modal for VIP that might need to temp be off while system outage
+  // on bmi"). No new flag: it reads the SAME registry the cards and kiosk tiles
+  // read, keyed by the wire id "race-bowl" for any race-bowl* pack, so it comes
+  // back on its own the moment the outage clears.
+  if (isProductPaused(combo.id.startsWith("race-bowl") ? "race-bowl" : combo.id)) return null;
 
   const stops = combo.components.map(legToStop).filter((s): s is VipPopupStop => s !== null);
   // The creative is built around a two-venue itinerary. Anything else would

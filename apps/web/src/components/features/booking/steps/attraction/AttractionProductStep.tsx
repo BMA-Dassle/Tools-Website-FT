@@ -7,6 +7,7 @@ import {
   type AttractionProductDef,
 } from "~/features/booking/service/attractions";
 import { useLocale, type Translate } from "~/features/kiosk/i18n";
+import QtyStepper from "~/components/ui/QtyStepper";
 
 /**
  * The attraction's own page: what this attraction IS (name + description) and
@@ -256,6 +257,11 @@ function SingleProductWithQty({
   );
 }
 
+/**
+ * Thin wrapper over the shared `ui/QtyStepper`, supplying this step's
+ * translated labels. The stepper itself is brand- and locale-agnostic so the
+ * deal-pack buy panel can reuse it without inheriting "how many people?".
+ */
 function QtyStepperBlock({
   qty,
   maxQty,
@@ -270,30 +276,15 @@ function QtyStepperBlock({
   const t = useLocale().t;
 
   return (
-    <div className="flex items-center justify-between rounded-lg bg-white/[0.03] px-4 py-3">
-      <span className="text-sm text-white/60">{t("attraction.howMany")}</span>
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => onChange(Math.max(1, qty - 1))}
-          disabled={qty <= 1}
-          aria-label={t("attraction.fewerPeople")}
-          className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/20 text-lg text-white/50 transition-colors hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          -
-        </button>
-        <span className="w-6 text-center text-sm font-bold text-white">{qty}</span>
-        <button
-          type="button"
-          onClick={() => onChange(Math.min(maxQty, qty + 1))}
-          disabled={qty >= maxQty}
-          aria-label={t("attraction.morePeople")}
-          className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/20 text-lg text-white/50 transition-colors hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
-        >
-          +
-        </button>
-      </div>
-    </div>
+    <QtyStepper
+      qty={qty}
+      max={maxQty}
+      accentColor={accentColor}
+      label={t("attraction.howMany")}
+      decrementLabel={t("attraction.fewerPeople")}
+      incrementLabel={t("attraction.morePeople")}
+      onChange={onChange}
+    />
   );
 }
 

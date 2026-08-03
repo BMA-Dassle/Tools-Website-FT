@@ -13,6 +13,8 @@ import {
 import { clearBookingSession, peekBookingSession } from "~/features/booking/hooks";
 import { abandonBooking } from "~/features/booking/service/checkout";
 import type { AppliedPromo } from "~/features/discount-codes";
+import { isNativeVoucherCode } from "~/features/game-cards/vouchers/codes";
+import { BMI_VOUCHER_RE, voucherTarget } from "~/features/booking/service/voucher-redeem";
 import type { ComboSpecial } from "~/features/combos";
 import type { WorldCupTeamRef } from "~/features/world-cup";
 
@@ -79,6 +81,22 @@ export interface PromoLandingProps {
    *  tournament window is over, the brand isn't HeadPinz, or every in-scope
    *  center's kill switch is off. Computed server-side in page.tsx. */
   worldCup?: WorldCupTileData | null;
+  /**
+   * Product id → the one-line reason it's unavailable, for every offering/combo
+   * whose VENDOR is down (maintenance mode). Presence in the map means paused, so
+   * those cards render locked and unclickable with the reason on the CTA.
+   *
+   * A MAP rather than a list of ids because the reason is per-VENDOR: with two
+   * vendors down at once, each card must show its own vendor's reason instead of
+   * whichever outage leads the banner. Resolved server-side in page.tsx (the
+   * registry reads server-only env).
+   *
+   * Middleware would bounce a click to /service-notice anyway; showing the lock
+   * here is what keeps the landing honest.
+   */
+  pausedNotes?: Record<string, string>;
+  /** Outage banner copy, or null when everything is up. */
+  outageNotice?: { heading: string; body: string } | null;
 }
 
 export function PromoLanding({
@@ -90,8 +108,12 @@ export function PromoLanding({
   initialOfferings,
   combos = [],
   worldCup = null,
+  pausedNotes = {},
+  outageNotice = null,
 }: PromoLandingProps) {
   const router = useRouter();
+  // Presence in the map means paused; the value is that vendor's one-line reason.
+  const pausedNote = (id: string): string | undefined => pausedNotes[id];
   const brandClass = entryBrand === "fasttrax" ? "brand-fasttrax" : "brand-headpinz";
   const accent = entryBrand === "fasttrax" ? FT_ACCENT : HP_ACCENT;
 
@@ -130,6 +152,9 @@ export function PromoLanding({
     () => "race",
   );
   const [rejected, setRejected] = useState(seedRejected);
+  const [voucher, setVoucher] = useState<AppliedVoucher | null>(null);
+  /** Guest copy for a voucher that is live but not usable on THIS surface. */
+  const [voucherNote, setVoucherNote] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [clearingCart, setClearingCart] = useState(false);
 
@@ -152,43 +177,172 @@ export function PromoLanding({
     }
   }
 
+  /**
+   * One field, three kinds of code. Classification happens LOCALLY and
+   * most-specific-first, the same precedence rule the kiosk scan surface lives
+   * by (kiosk/entry-scan/classify-entry.ts): both voucher shapes are exact, and
+   * the promo validator is the greedy catch-all, so testing it first would
+   * swallow every voucher as an invalid discount code.
+   *
+   *   HPW…  → our own voucher     → native-peek, covers specific attractions
+   *   24-ch → a BMI voucher       → peek, one comp line
+   *   else  → discount code       → the promo validator
+   */
   async function submitCode(e?: React.FormEvent) {
     e?.preventDefault();
     const code = input.trim().toUpperCase();
     if (!code) {
-      setApplied(null);
-      setRejected(false);
-      router.replace("/book/v2");
+      clearCode();
       return;
     }
     setSubmitting(true);
+    setRejected(false);
     try {
-      const res = await fetch("/api/booking/v2/promo", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ code }),
-      });
-      const data = await res.json();
-      if (data.valid && data.promo) {
-        setApplied(data.promo as AppliedPromo);
-        setRejected(false);
-        router.replace(`/book/v2?code=${encodeURIComponent(code)}`);
+      if (isNativeVoucherCode(code)) {
+        await resolveNativeVoucher(code);
+      } else if (BMI_VOUCHER_RE.test(code.replace(/\s+/g, ""))) {
+        await resolveBmiVoucher(code);
       } else {
-        setApplied(null);
-        setRejected(true);
+        await resolvePromo(code);
       }
     } catch (err) {
       console.error("[promo-landing] validate failed:", err);
       setApplied(null);
+      setVoucher(null);
       setRejected(true);
     } finally {
       setSubmitting(false);
     }
   }
 
+  async function resolvePromo(code: string) {
+    const res = await fetch("/api/booking/v2/promo", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    const data = await res.json();
+    if (data.valid && data.promo) {
+      setApplied(data.promo as AppliedPromo);
+      setVoucher(null);
+      router.replace(`/book/v2?code=${encodeURIComponent(code)}`);
+    } else {
+      setApplied(null);
+      setVoucher(null);
+      setRejected(true);
+    }
+  }
+
+  /**
+   * Our own voucher. `native-peek` returns ONE LEG PER COVERED ENTRY, and each
+   * leg's coverage name maps to the attraction slugs it can pay for — the same
+   * `voucherTarget` the reserve path uses, so what we highlight here is exactly
+   * what checkout will actually cover.
+   */
+  async function resolveNativeVoucher(code: string) {
+    const res = await fetch("/api/booking/v2/voucher", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "native-peek", code }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      setApplied(null);
+      setVoucher(null);
+      // A game-card-only voucher is live and worth money, just not bookable —
+      // saying "invalid" would tell the guest their money is gone.
+      setRejected(true);
+      // GAME ZONE CREDIT IS NEVER CONSUMED ON WEB (owner rule 2026-08-03).
+      // There is no dispenser on a phone and no way to verify a card is in the
+      // guest's hand, so booking must not touch a game-card leg — it says where
+      // the credit IS redeemable and leaves the voucher untouched. `native-peek`
+      // is a read; nothing is claimed by reaching this branch.
+      setVoucherNote(
+        data.reason === "gamezone_only"
+          ? "That's game-card credit — bring it to any HeadPinz kiosk and it'll print your cards. It can't be used to book a time."
+          : null,
+      );
+      return;
+    }
+    // `native-peek` already returns ONLY `redeemVia === "cart"` legs, so game
+    // Zone legs never reach here. Belt-and-braces filter anyway: if that route
+    // ever widens, web must not start covering card credit silently.
+    const legs: { itemIndex: number; name: string; label: string }[] = (data.legs ?? []).filter(
+      (l: { name?: string }) => voucherTarget(l.name).kind !== "gamecard",
+    );
+    if (legs.length === 0) {
+      setApplied(null);
+      setVoucher(null);
+      setRejected(true);
+      setVoucherNote(
+        "That's game-card credit — bring it to any HeadPinz kiosk and it'll print your cards. It can't be used to book a time.",
+      );
+      return;
+    }
+    const slugs = [
+      ...new Set(
+        legs.flatMap((l) => {
+          const t = voucherTarget(l.name);
+          return t.kind === "attraction" ? t.slugs : t.kind === "race" ? ["race"] : [];
+        }),
+      ),
+    ];
+    setApplied(null);
+    setVoucherNote(null);
+    setVoucher({
+      code,
+      slugs,
+      // Legs are individual on purpose; the guest cares how MANY they have.
+      summary: summariseLegs(legs.map((l) => l.label)),
+    });
+    router.replace(`/book/v2?voucher=${encodeURIComponent(code)}`);
+  }
+
+  /** A BMI-issued voucher: one comp line, so one coverage target. */
+  async function resolveBmiVoucher(code: string) {
+    const res = await fetch("/api/booking/v2/voucher", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "peek", code, ...(center ? { center } : {}) }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      setApplied(null);
+      setVoucher(null);
+      setRejected(true);
+      return;
+    }
+    const names: string[] = (data.names?.length ? data.names : [data.name].filter(Boolean)).filter(
+      (n: string) => voucherTarget(n).kind !== "gamecard",
+    );
+    if (names.length === 0) {
+      setApplied(null);
+      setVoucher(null);
+      setRejected(true);
+      setVoucherNote(
+        "That's game-card credit — bring it to any HeadPinz kiosk and it'll print your cards. It can't be used to book a time.",
+      );
+      return;
+    }
+    const slugs = [
+      ...new Set(
+        names.flatMap((n) => {
+          const t = voucherTarget(n);
+          return t.kind === "attraction" ? t.slugs : t.kind === "race" ? ["race"] : [];
+        }),
+      ),
+    ];
+    setApplied(null);
+    setVoucherNote(null);
+    setVoucher({ code, slugs, summary: summariseLegs(names) });
+    router.replace(`/book/v2?voucher=${encodeURIComponent(code)}`);
+  }
+
   function clearCode() {
     setInput("");
     setApplied(null);
+    setVoucher(null);
+    setVoucherNote(null);
     setRejected(false);
     router.replace("/book/v2");
   }
@@ -198,6 +352,9 @@ export function PromoLanding({
     // picked activity seeds the right complex (Naples → Naples clientKey).
     const params = new URLSearchParams();
     if (applied) params.set("code", applied.code);
+    // Vouchers ride their own param — CheckoutStep seeds the codes from
+    // `?voucher=` and applies them at checkout. A voucher is never a `code`.
+    if (voucher) params.set("voucher", voucher.code);
     if (center) params.set("location", center);
     const qs = params.toString();
     return `/book/${slug}/v2${qs ? `?${qs}` : ""}`;
@@ -231,10 +388,29 @@ export function PromoLanding({
           >
             {hasCart
               ? `${cartItemCount} activit${cartItemCount === 1 ? "y" : "ies"} booked. Add more or head to checkout.`
-              : "Choose your activity to get started. Have a promo code? Drop it in first and we'll mark which experiences it's good for."}
+              : "Choose your activity to get started. Have a voucher or promo code? Drop it in first and we'll mark which experiences it's good for."}
           </p>
         </div>
       </section>
+
+      {/* Vendor outage banner — above everything, because it changes what the
+          grid below means. Amber (not red): the site works, one vendor doesn't. */}
+      {outageNotice && (
+        <section className="px-4 pb-6 sm:pb-8">
+          <div
+            className="mx-auto max-w-2xl rounded-2xl border px-5 py-4"
+            style={{ borderColor: "#f59e0b40", backgroundColor: "#f59e0b0f" }}
+          >
+            <p
+              className="mb-1 font-bold uppercase"
+              style={{ color: "#f59e0b", fontSize: "11px", letterSpacing: "2.5px" }}
+            >
+              {outageNotice.heading}
+            </p>
+            <p className="font-body text-sm leading-relaxed text-white/70">{outageNotice.body}</p>
+          </div>
+        </section>
+      )}
 
       {hasCart ? (
         /* Cart checkout bar — replaces promo input when items are booked.
@@ -285,25 +461,25 @@ export function PromoLanding({
                   className="block font-bold uppercase text-white/40"
                   style={{ fontSize: "11px", letterSpacing: "2.5px" }}
                 >
-                  Promo code
+                  Voucher or promo code
                 </span>
                 <input
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value.toUpperCase())}
-                  placeholder="MAY20WEEKDAY"
+                  placeholder="HPW-XXXX-XXXX or MAY20WEEKDAY"
                   autoComplete="off"
                   className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/4 px-4 py-3 text-sm uppercase tracking-wider text-white placeholder-white/30 focus:bg-white/8 focus:outline-none"
-                  style={{ borderColor: applied ? `${accent}55` : undefined }}
+                  style={{ borderColor: applied || voucher ? `${accent}55` : undefined }}
                 />
               </label>
               <button
                 type="submit"
-                disabled={submitting || input.trim() === (applied?.code ?? "")}
+                disabled={submitting || input.trim() === (applied?.code ?? voucher?.code ?? "")}
                 className="rounded-full px-6 py-3 font-body text-sm font-bold uppercase tracking-wider transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
                 style={{ backgroundColor: accent, color: "#0a1628" }}
               >
-                {submitting ? "…" : applied ? "Update" : "Apply"}
+                {submitting ? "…" : applied || voucher ? "Update" : "Apply"}
               </button>
             </form>
 
@@ -336,10 +512,33 @@ export function PromoLanding({
                 </button>
               </div>
             )}
-            {rejected && !applied && (
+            {voucher && (
+              <div
+                className="mt-3 flex items-center justify-between gap-3 rounded-xl border px-4 py-3"
+                style={{ borderColor: `${accent}40`, backgroundColor: `${accent}12` }}
+              >
+                <div className="text-sm" style={{ color: accent }}>
+                  <span className="font-bold">{voucher.code}</span> applied —{" "}
+                  <span className="font-semibold">{voucher.summary}</span>{" "}
+                  <span className="text-white/50">
+                    {voucher.slugs.length > 0
+                      ? "— covered experiences marked below. Nothing more to pay for them."
+                      : "— pick your experience below."}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearCode}
+                  className="text-xs text-white/50 transition-colors hover:text-white"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+            {rejected && !applied && !voucher && (
               <p className="mt-3 text-center text-sm text-amber-400/80">
-                We couldn&apos;t apply that code. It may be expired, fully used, or not yet active.
-                Pick an activity below to continue without it.
+                {voucherNote ??
+                  "We couldn't apply that code. It may be expired, fully used, or not yet active. Pick an activity below to continue without it."}
               </p>
             )}
           </div>
@@ -351,7 +550,14 @@ export function PromoLanding({
         <div className="mx-auto max-w-5xl">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
             {combos.map((combo) => (
-              <ComboCard key={combo.id} combo={combo} gold={HP_GOLD} />
+              <ComboCard
+                key={combo.id}
+                combo={combo}
+                gold={HP_GOLD}
+                // The VIP pack's availability id is the wire key "race-bowl"
+                // regardless of which registry entry is live (v1 / the 7/31 v2).
+                pausedNote={pausedNote(combo.id.startsWith("race-bowl") ? "race-bowl" : combo.id)}
+              />
             ))}
             {/* World Cup VIP Bowling — compact time-boxed tile after the combo
                 specials (owner 7/6: "small box second row", Ultimate VIP keeps
@@ -363,14 +569,39 @@ export function PromoLanding({
                 offering={o}
                 href={tileHref(o.slug)}
                 applied={applied}
+                voucherSlugs={voucher?.slugs ?? null}
                 accent={accent}
                 gold={HP_GOLD}
+                pausedNote={pausedNote(o.slug)}
               />
             ))}
           </div>
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * A voucher applied on the landing. Unlike a promo it carries no discount
+ * mechanic — it pays for whole entries at checkout — so the only things worth
+ * holding are the code, what it covers, and which tiles to mark.
+ */
+interface AppliedVoucher {
+  code: string;
+  /** Attraction slugs (plus "race") this voucher can pay for. */
+  slugs: string[];
+  /** "2 × Laser Tag" — collapsed, not one row per leg. */
+  summary: string;
+}
+
+/** Collapse repeated leg labels into counted parts: "2 × Laser Tag + Race". */
+function summariseLegs(labels: string[]): string {
+  const counts = new Map<string, number>();
+  for (const l of labels) if (l) counts.set(l, (counts.get(l) ?? 0) + 1);
+  return (
+    [...counts].map(([label, n]) => (n > 1 ? `${n} × ${label}` : label)).join(" + ") ||
+    "your voucher"
   );
 }
 
@@ -485,6 +716,67 @@ function WorldCupCard({ worldCup, gold }: { worldCup: WorldCupTileData; gold: st
   );
 }
 
+/**
+ * Card outer element: a Link normally, an inert div while the activity's vendor
+ * is down (maintenance mode). One shell for both card types so the locked
+ * treatment can't drift between them — and so a locked card is genuinely not a
+ * link, rather than a link styled to look dead (which still navigates on Enter
+ * for a keyboard user and still gets crawled).
+ */
+function CardShell({
+  href,
+  paused,
+  className,
+  style,
+  children,
+}: {
+  href: string;
+  paused: boolean;
+  className: string;
+  style?: React.CSSProperties;
+  children: React.ReactNode;
+}) {
+  if (paused) {
+    return (
+      <div
+        aria-disabled="true"
+        className={`${className} opacity-55 saturate-50`}
+        style={{ ...style, boxShadow: undefined }}
+      >
+        {children}
+      </div>
+    );
+  }
+  return (
+    <Link href={href} className={className} style={style}>
+      {children}
+    </Link>
+  );
+}
+
+/**
+ * Replaces a locked card's CTA, and explains itself STANDALONE.
+ *
+ * "Temporarily unavailable" on its own reads like the product was discontinued —
+ * a guest scrolling the grid may never read the banner at the top of the page
+ * (owner 2026-08-03, looking at the live VIP card: "could say a bit more like
+ * system issue, check back later today"). So the label carries the vendor's own
+ * one-line reason underneath it, and says when to come back.
+ *
+ * `note` comes from the outage registry, resolved per PRODUCT, so a card can
+ * never show another vendor's reason when two are down at once.
+ */
+function UnavailableCta({ note }: { note?: string }) {
+  return (
+    <div className="w-full rounded-xl border border-white/15 bg-white/[0.04] px-4 py-3 text-center">
+      <div className="text-sm font-bold text-white/70">Temporarily unavailable</div>
+      {note && (
+        <div className="font-body mt-1 text-xs leading-snug text-white/45">{note}</div>
+      )}
+    </div>
+  );
+}
+
 /** Gold checkmark bullet for the combo "What's included" lists. */
 function ComboCheck({ gold }: { gold: string }) {
   return (
@@ -502,17 +794,30 @@ function ComboCheck({ gold }: { gold: string }) {
  *  both venue logos (a combo spans FastTrax racing + HeadPinz bowling).
  *  Premium combos render DOUBLE: two grid columns on sm+ and a much taller
  *  image band on mobile, so the tile dominates the grid. */
-function ComboCard({ combo, gold }: { combo: ComboSpecial; gold: string }) {
+function ComboCard({
+  combo,
+  gold,
+  pausedNote,
+}: {
+  combo: ComboSpecial;
+  gold: string;
+  /** Set when a vendor the combo needs is down — the value is that vendor's
+   *  one-line reason, shown on the locked CTA. The Ultimate VIP spans BMI racing
+   *  AND a QAMF lane, so either one dark locks it. */
+  pausedNote?: string;
+}) {
+  const paused = pausedNote !== undefined;
   const fmtPrice = (cents: number) =>
     Number.isInteger(cents / 100) ? `$${cents / 100}` : `$${(cents / 100).toFixed(2)}`;
   const premium = !!combo.premium;
 
   return (
-    <Link
+    <CardShell
       href={`/book/combo/${combo.id}/v2`}
-      className={`group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left transition-all duration-300 hover:bg-white/6 ${
-        premium ? "sm:col-span-2" : ""
-      }`}
+      paused={paused}
+      className={`group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left transition-all duration-300 ${
+        paused ? "" : "hover:bg-white/6"
+      } ${premium ? "sm:col-span-2" : ""}`}
       style={{
         borderColor: `${gold}55`,
         boxShadow: premium ? `0 0 32px ${gold}2e` : `0 0 24px ${gold}1a`,
@@ -589,9 +894,7 @@ function ComboCard({ combo, gold }: { combo: ComboSpecial; gold: string }) {
           >
             What&apos;s included
           </p>
-          <ul
-            className={`grid grid-cols-1 gap-x-6 gap-y-1 ${premium ? "sm:grid-cols-2" : ""}`}
-          >
+          <ul className={`grid grid-cols-1 gap-x-6 gap-y-1 ${premium ? "sm:grid-cols-2" : ""}`}>
             {[...combo.includes, ...(combo.perks ?? [])].map((item) => (
               <li key={item} className="flex items-start gap-2 text-sm leading-snug text-white/80">
                 <ComboCheck gold={gold} />
@@ -614,9 +917,7 @@ function ComboCard({ combo, gold }: { combo: ComboSpecial; gold: string }) {
             >
               {combo.voucherIncludes.title ?? "Plus vouchers to your favorite attractions"}
             </p>
-            <ul
-              className={`grid grid-cols-1 gap-x-6 gap-y-1 ${premium ? "sm:grid-cols-2" : ""}`}
-            >
+            <ul className={`grid grid-cols-1 gap-x-6 gap-y-1 ${premium ? "sm:grid-cols-2" : ""}`}>
               {combo.voucherIncludes.items.map((item) => (
                 <li
                   key={item}
@@ -659,29 +960,33 @@ function ComboCard({ combo, gold }: { combo: ComboSpecial; gold: string }) {
           />
         </div>
 
-        <div
-          className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-colors"
-          style={{
-            backgroundColor: combo.accentColor,
-            color: combo.premium ? "#0a1628" : "#ffffff",
-          }}
-        >
-          {combo.premium ? "Book the VIP Experience" : "Book This Combo"}
-          <svg
-            className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2.5}
+        {paused ? (
+          <UnavailableCta note={pausedNote} />
+        ) : (
+          <div
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-colors"
+            style={{
+              backgroundColor: combo.accentColor,
+              color: combo.premium ? "#0a1628" : "#ffffff",
+            }}
           >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-          </svg>
-        </div>
+            {combo.premium ? "Book the VIP Experience" : "Book This Combo"}
+            <svg
+              className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.5}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+            </svg>
+          </div>
+        )}
       </div>
 
       {/* Bottom color bar */}
       <div className="h-0.5 w-full" style={{ backgroundColor: combo.accentColor }} />
-    </Link>
+    </CardShell>
   );
 }
 
@@ -689,22 +994,38 @@ function AttractionCard({
   offering,
   href,
   applied,
+  voucherSlugs = null,
   accent,
   gold,
+  pausedNote,
 }: {
   offering: ActivityOffering;
   href: string;
   applied: AppliedPromo | null;
+  /** Slugs a voucher covers, or null. Marked the SAME way a promo is — from the
+   *  guest's side "this code works here" is one idea, not two. */
+  voucherSlugs?: string[] | null;
   accent: string;
   gold: string;
+  /** Set when this activity's vendor is down — the value is the reason shown on
+   *  the locked CTA (maintenance mode). */
+  pausedNote?: string;
 }) {
-  const inScope = applied ? isOfferingInPromoScope(offering, applied) : false;
+  const paused = pausedNote !== undefined;
+  const inScope = applied
+    ? isOfferingInPromoScope(offering, applied)
+    : voucherSlugs
+      ? voucherSlugs.includes(offering.kind === "race" ? "race" : offering.slug)
+      : false;
   const cardColor = offering.accentColor ?? accent;
 
   return (
-    <Link
+    <CardShell
       href={href}
-      className="group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left transition-all duration-300 hover:bg-white/6"
+      paused={paused}
+      className={`group relative flex flex-col overflow-hidden rounded-2xl border bg-white/3 text-left transition-all duration-300 ${
+        paused ? "" : "hover:bg-white/6"
+      }`}
       style={{
         borderColor: inScope ? `${gold}55` : "rgba(255,255,255,0.10)",
         boxShadow: inScope ? `0 0 24px ${gold}1a` : undefined,
@@ -787,25 +1108,29 @@ function AttractionCard({
           );
         })()}
 
-        <div
-          className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-colors"
-          style={{ backgroundColor: cardColor, color: "#ffffff" }}
-        >
-          Book Now
-          <svg
-            className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2.5}
+        {paused ? (
+          <UnavailableCta note={pausedNote} />
+        ) : (
+          <div
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold transition-colors"
+            style={{ backgroundColor: cardColor, color: "#ffffff" }}
           >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-          </svg>
-        </div>
+            Book Now
+            <svg
+              className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.5}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+            </svg>
+          </div>
+        )}
       </div>
 
       {/* Bottom color bar */}
       <div className="h-0.5 w-full" style={{ backgroundColor: cardColor }} />
-    </Link>
+    </CardShell>
   );
 }

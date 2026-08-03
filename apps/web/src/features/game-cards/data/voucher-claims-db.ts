@@ -279,8 +279,23 @@ export async function getClaimsByCode(code: string): Promise<VoucherClaimRow[]> 
   return rows.map(decode);
 }
 
-/** The item indexes currently SPENT on this code. */
+/**
+ * The item indexes NOT available on this code.
+ *
+ * `claimed` AND `spent` both count. Only `released` frees an item — which is
+ * exactly the condition the claim CAS above guards on (`WHERE status =
+ * 'released'`), so this predicate and that statement have to agree or the two
+ * disagree about the same voucher.
+ *
+ * This matched `claimed` only, which meant a cart claim that reached `spent`
+ * (its charge CAPTURED) read as available again: `/v/{code}` offered value the
+ * guest had already used, `fullySpent` never became true, and the dispense
+ * picker would choose that leg and then be refused by the CAS with a confusing
+ * error instead of moving on to the next unspent one.
+ */
 export async function spentItemIndexes(code: string): Promise<Set<number>> {
   const rows = await getClaimsByCode(code);
-  return new Set(rows.filter((r) => r.status === "claimed").map((r) => r.itemIndex));
+  return new Set(
+    rows.filter((r) => r.status === "claimed" || r.status === "spent").map((r) => r.itemIndex),
+  );
 }

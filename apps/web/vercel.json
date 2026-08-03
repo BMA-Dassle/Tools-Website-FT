@@ -13,6 +13,10 @@
       "schedule": "15,45 * * * *"
     },
     {
+      "path": "/api/cron/deal-voucher-reconcile",
+      "schedule": "10,40 * * * *"
+    },
+    {
       "path": "/api/cron/pov-pool-alert",
       "schedule": "0 */6 * * *"
     },

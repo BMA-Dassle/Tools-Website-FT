@@ -15,6 +15,65 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.13.2 — RACE RESERVATION CHECK-IN goes down with the BMI booking outage too
+ *         (owner 2026-08-03: "should also be down because no way to create new
+ *         people"). It looked healthy — finding a reservation is the Office API,
+ *         which is up — but FINISHING one is not: registerProjectPerson (attach a
+ *         person to the reservation), the racer schedule write and the
+ *         "Confirmation Kiosk" state stamp all go to the dark public-booking API.
+ *         Those writes are Neon-first with a deliberately CONTAINED failure mode
+ *         that is never surfaced to the guest, so the kiosk was confirming
+ *         check-ins BMI never recorded: the racer never reaches the grid and
+ *         staff never see the stamp. A confident false success is worse than a
+ *         closed door. Modeled as needing BOTH BMI rails, so it also goes down in
+ *         an Office-only outage. The chooser's door is withdrawn and the page
+ *         guards itself server-side, so a typed URL or a scanned reservation QR
+ *         lands on the outage screen instead of a dead end.
+ * 1.13.1 — maintenance mode: a locked thing now says WHY, and the VIP popup gets
+ *         out of the way. "Temporarily unavailable" alone read like the product
+ *         had been discontinued, so every locked card/tile carries its vendor's
+ *         one-line reason — "System issue with one of our vendors — please check
+ *         back later today." The reason is resolved per PRODUCT, so with two
+ *         vendors down each surface shows its own vendor's cause rather than
+ *         whichever outage leads the banner. The unsolicited Ultimate VIP site
+ *         popup self-hides while the pack's vendor is down (no new flag — it
+ *         reads the same registry, so it returns on its own when the outage
+ *         clears); interrupting the site to sell a product whose Book button can
+ *         only reach an outage notice is worse than showing nothing.
+ * 1.13.0 — VENDOR MAINTENANCE MODE (owner 2026-08-03, live BMI booking outage).
+ *         A vendor being down now takes its whole product line off sale with its
+ *         own sentence, instead of every tile quietly failing mid-flow.
+ *         Modeled per VENDOR, not per attraction (~/features/maintenance), and
+ *         "BMI" is deliberately TWO vendors: the public-booking API (selling) and
+ *         the Office API (reservation/account lookup). On 8/3 only the SELLING
+ *         rail was dark — so racing, laser tag, gel blasters, Shuffle Showdown,
+ *         race packs, the Ultimate Qualifier and the Ultimate VIP combo locked
+ *         (the VIP needs BMI heats AND a QAMF lane — either one down locks it),
+ *         while bowling, duckpin, KBF, Game Zone, CHECK-IN and waivers kept
+ *         working. Lumping the two BMI hosts together would have needlessly
+ *         killed check-in.
+ *         Locked tiles read "Temporarily unavailable — one of our vendors is
+ *         having a system issue. Please see Guest Services." (EN+ES) — NOT the
+ *         end-of-day note, because the front desk is on the same vendor and
+ *         "ask about a walk-in" would be a dead end. The Experiences and
+ *         Attractions category cards lock too when everything behind them is out.
+ *         Paused products are no longer PROBED at all: a dead vendor answers in
+ *         timeouts, which was burning the whole availability compute and taking
+ *         the working bowling/KBF lines down with it. Kiosk 99's clock-artifact
+ *         override does NOT bypass an outage.
+ *         Controlled by ONE env var: MAINTENANCE_VENDORS_DOWN lists the vendors
+ *         that are down ("bmi" today; comma-separated for more). Unset = nothing
+ *         down, everything sells. No redeploy — tiles lock/unlock within one
+ *         3-min availability TTL.
+ * 1.12.1 — the voucher receipt says it's looking for your group. A booking-
+ *         linked voucher resolves its party through BMI, which can take the
+ *         better part of a minute (owner 2026-08-02) — the chips used to just
+ *         appear out of nowhere, with nothing on screen meanwhile. Now the
+ *         section renders as soon as the lookup starts, with the branded logo
+ *         loader under a header that doesn't promise a booking we haven't
+ *         found yet ("Checking your voucher"); it flips to "Who's here from
+ *         your booking?" when the roster lands, and disappears when the
+ *         voucher has no booking behind it.
  * 1.12.0 — SCAN ANYWHERE on the way in (owner 2026-08-02). The four screens a
  *         guest sees before choosing anything — the attract loop, "What are we
  *         doing today?", and the Attractions / Experiences shelves — now
@@ -469,7 +528,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.12.0";
+export const KIOSK_VERSION = "1.13.2";
 
 let bootVersion: string | null = null;
 let captured = false;

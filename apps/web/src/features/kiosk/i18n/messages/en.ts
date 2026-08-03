@@ -71,6 +71,21 @@ export const en = {
     "Not available right now — please check back or ask an attendant.",
   "categories.disabled.attraction":
     "Nothing left to book today — the front desk can help with walk-ins.",
+  // VENDOR OUTAGE (maintenance mode) — deliberately different from the two notes
+  // above. Those mean "we sold out today", so they point at the front desk for a
+  // walk-in. This one means one of our vendors' systems is down: the desk cannot
+  // book it either, so the guest is sent to Guest Services, who can explain and
+  // work around it. Registry: ~/features/maintenance.
+  "categories.disabled.vendorOutage":
+    "Temporarily unavailable — one of our vendors is having a system issue. Please see Guest Services.",
+  // Full-screen version of the same message (KioskVendorOutage), for a whole
+  // SCREEN withdrawn rather than a tile locked — e.g. the group/online waiver
+  // flow if the reservation-lookup vendor goes dark. Generic on purpose: any
+  // kiosk surface can use it.
+  "outage.heading": "Temporarily unavailable",
+  "outage.body":
+    "One of our vendors is having a system issue, so this isn’t available right now. Please see Guest Services — they can help you in person.",
+  "outage.back": "Back to start",
   "categories.backToCategories": "All categories",
   "categories.pick.experience": "Pick your experience",
   "categories.pick.attraction": "Pick an attraction",
@@ -365,6 +380,13 @@ export const en = {
   "codeEntry.voucherGz.partyTitle": "Who’s here from your booking?",
   "codeEntry.voucherGz.partySub":
     "Tap everyone playing today — we’ll have their names ready at every step.",
+  // The roster lookup runs through BMI and can take most of a minute — the
+  // section shows the branded loader meanwhile, under a header that doesn't
+  // promise a booking we haven't found yet.
+  "codeEntry.voucherGz.partyLoadingTitle": "Checking your voucher",
+  "codeEntry.voucherGz.partyLoadingSub":
+    "If there’s a booking on this voucher, we’ll bring in everyone on it.",
+  "codeEntry.voucherGz.partyLoading": "Looking for your group…",
   "codeEntry.voucherGz.partyWaiverOk": "Waiver signed",
   "codeEntry.voucherGz.partyWaiverNeeded": "Waiver needed",
   "codeEntry.voucherGz.partyInGroup": "In your group",
