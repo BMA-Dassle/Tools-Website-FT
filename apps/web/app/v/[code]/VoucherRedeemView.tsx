@@ -10,6 +10,7 @@ import {
 } from "@tabler/icons-react";
 import { CENTER_LIST } from "~/config/intercard-centers";
 import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
+import type { WalletPlatform } from "~/features/game-cards/wallet/platform";
 import { formatVoucherExpiry, groupVoucherItems } from "~/features/game-cards/vouchers/display";
 import type { VoucherStatus } from "~/features/game-cards/service/native-voucher";
 
@@ -35,7 +36,7 @@ import type { VoucherStatus } from "~/features/game-cards/service/native-voucher
 const WALLETS = [
   { platform: "apple", label: "Add to Apple Wallet" },
   { platform: "google", label: "Add to Google Wallet" },
-] as const;
+] as const satisfies readonly { platform: WalletPlatform; label: string }[];
 
 const REASON_COPY: Record<string, string> = {
   bad_format: "That code doesn’t look right — check it and try again.",
@@ -55,6 +56,7 @@ export function VoucherRedeemView({
   qrDataUri = null,
   justBought = false,
   siblingCodes = [],
+  walletPlatform = null,
 }: {
   status: VoucherStatus;
   /** Server-rendered QR of this voucher's /v URL. Null only if generation failed. */
@@ -64,6 +66,9 @@ export function VoucherRedeemView({
   /** Other codes from the SAME purchase. Server-gated on a purchase row so an
    *  admin comp batch can never leak strangers' codes here. */
   siblingCodes?: string[];
+  /** Wallet this device has, detected server-side. `null` = desktop/unknown, so
+   *  show BOTH and let the guest choose. */
+  walletPlatform?: WalletPlatform | null;
 }) {
   const [account, setAccount] = useState("");
   const [locationCode, setLocationCode] = useState(CENTER_LIST[0].code);
@@ -234,16 +239,18 @@ export function VoucherRedeemView({
               single-use passes AT ISSUANCE and most guests never add one. Hidden
               once the voucher can no longer be used, matching the dimmed QR. */}
               {!voided && !expired && !allDone && (
-                <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  {WALLETS.map((w) => (
-                    <a
-                      key={w.platform}
-                      href={`/v/${status.code}/wallet?platform=${w.platform}`}
-                      className="flex items-center justify-center rounded-full border border-white/20 bg-white/[0.08] px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.14]"
-                    >
-                      {w.label}
-                    </a>
-                  ))}
+                <div className={`mt-4 grid gap-2 ${walletPlatform ? "" : "sm:grid-cols-2"}`}>
+                  {WALLETS.filter((w) => !walletPlatform || w.platform === walletPlatform).map(
+                    (w) => (
+                      <a
+                        key={w.platform}
+                        href={`/v/${status.code}/wallet?platform=${w.platform}`}
+                        className="flex items-center justify-center rounded-full border border-white/20 bg-white/[0.08] px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.14]"
+                      >
+                        {w.label}
+                      </a>
+                    ),
+                  )}
                 </div>
               )}
               {/* Expiry, stated plainly — a prepaid voucher's shelf life is a term of

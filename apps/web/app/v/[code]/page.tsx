@@ -1,9 +1,11 @@
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { getVoucherStatus } from "~/features/game-cards/service/native-voucher";
 import { getVoucher, listVoucherBatch } from "~/features/game-cards/data/vouchers-db";
 import { isNativeVoucherCode } from "~/features/game-cards/vouchers/codes";
 import { voucherQrDataUri } from "~/features/game-cards/service/voucher-mail";
 import { getDealPurchaseByBatchId } from "~/features/deals/data/deal-purchases-db";
+import { walletPlatformFromUserAgent } from "~/features/game-cards/wallet/platform";
 import { VoucherRedeemView } from "./VoucherRedeemView";
 
 export const runtime = "nodejs";
@@ -51,6 +53,19 @@ export default async function VoucherPage({
   const qrDataUri = await voucherQrDataUri(status.code);
 
   /**
+   * Which wallet this device actually has, resolved on the SERVER.
+   *
+   * Server-side because the alternative — detecting in the browser — renders both
+   * buttons and then removes one, which is a visible flicker on the exact screen
+   * a guest reaches straight after paying. `dynamic = "force-dynamic"` above means
+   * there is no cached HTML to get this wrong for the next visitor.
+   *
+   * `null` on desktop and anything unrecognised, which shows BOTH buttons — see
+   * wallet/platform.ts for why guessing there would be worse.
+   */
+  const walletPlatform = walletPlatformFromUserAgent((await headers()).get("user-agent"));
+
+  /**
    * Sibling codes from the SAME purchase, when there are any.
    *
    * Gated on a `deal_purchases` row, NOT merely on a shared `batch_id`. A batch
@@ -83,6 +98,7 @@ export default async function VoucherPage({
       qrDataUri={qrDataUri}
       justBought={justBought}
       siblingCodes={siblingCodes}
+      walletPlatform={walletPlatform}
     />
   );
 }
