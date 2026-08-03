@@ -13,6 +13,8 @@ import {
 import { clearBookingSession, peekBookingSession } from "~/features/booking/hooks";
 import { abandonBooking } from "~/features/booking/service/checkout";
 import type { AppliedPromo } from "~/features/discount-codes";
+import { isNativeVoucherCode } from "~/features/game-cards/vouchers/codes";
+import { BMI_VOUCHER_RE, voucherTarget } from "~/features/booking/service/voucher-redeem";
 import type { ComboSpecial } from "~/features/combos";
 import type { WorldCupTeamRef } from "~/features/world-cup";
 
@@ -130,6 +132,9 @@ export function PromoLanding({
     () => "race",
   );
   const [rejected, setRejected] = useState(seedRejected);
+  const [voucher, setVoucher] = useState<AppliedVoucher | null>(null);
+  /** Guest copy for a voucher that is live but not usable on THIS surface. */
+  const [voucherNote, setVoucherNote] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [clearingCart, setClearingCart] = useState(false);
 
@@ -152,43 +157,172 @@ export function PromoLanding({
     }
   }
 
+  /**
+   * One field, three kinds of code. Classification happens LOCALLY and
+   * most-specific-first, the same precedence rule the kiosk scan surface lives
+   * by (kiosk/entry-scan/classify-entry.ts): both voucher shapes are exact, and
+   * the promo validator is the greedy catch-all, so testing it first would
+   * swallow every voucher as an invalid discount code.
+   *
+   *   HPW…  → our own voucher     → native-peek, covers specific attractions
+   *   24-ch → a BMI voucher       → peek, one comp line
+   *   else  → discount code       → the promo validator
+   */
   async function submitCode(e?: React.FormEvent) {
     e?.preventDefault();
     const code = input.trim().toUpperCase();
     if (!code) {
-      setApplied(null);
-      setRejected(false);
-      router.replace("/book/v2");
+      clearCode();
       return;
     }
     setSubmitting(true);
+    setRejected(false);
     try {
-      const res = await fetch("/api/booking/v2/promo", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ code }),
-      });
-      const data = await res.json();
-      if (data.valid && data.promo) {
-        setApplied(data.promo as AppliedPromo);
-        setRejected(false);
-        router.replace(`/book/v2?code=${encodeURIComponent(code)}`);
+      if (isNativeVoucherCode(code)) {
+        await resolveNativeVoucher(code);
+      } else if (BMI_VOUCHER_RE.test(code.replace(/\s+/g, ""))) {
+        await resolveBmiVoucher(code);
       } else {
-        setApplied(null);
-        setRejected(true);
+        await resolvePromo(code);
       }
     } catch (err) {
       console.error("[promo-landing] validate failed:", err);
       setApplied(null);
+      setVoucher(null);
       setRejected(true);
     } finally {
       setSubmitting(false);
     }
   }
 
+  async function resolvePromo(code: string) {
+    const res = await fetch("/api/booking/v2/promo", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+    const data = await res.json();
+    if (data.valid && data.promo) {
+      setApplied(data.promo as AppliedPromo);
+      setVoucher(null);
+      router.replace(`/book/v2?code=${encodeURIComponent(code)}`);
+    } else {
+      setApplied(null);
+      setVoucher(null);
+      setRejected(true);
+    }
+  }
+
+  /**
+   * Our own voucher. `native-peek` returns ONE LEG PER COVERED ENTRY, and each
+   * leg's coverage name maps to the attraction slugs it can pay for — the same
+   * `voucherTarget` the reserve path uses, so what we highlight here is exactly
+   * what checkout will actually cover.
+   */
+  async function resolveNativeVoucher(code: string) {
+    const res = await fetch("/api/booking/v2/voucher", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "native-peek", code }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      setApplied(null);
+      setVoucher(null);
+      // A game-card-only voucher is live and worth money, just not bookable —
+      // saying "invalid" would tell the guest their money is gone.
+      setRejected(true);
+      // GAME ZONE CREDIT IS NEVER CONSUMED ON WEB (owner rule 2026-08-03).
+      // There is no dispenser on a phone and no way to verify a card is in the
+      // guest's hand, so booking must not touch a game-card leg — it says where
+      // the credit IS redeemable and leaves the voucher untouched. `native-peek`
+      // is a read; nothing is claimed by reaching this branch.
+      setVoucherNote(
+        data.reason === "gamezone_only"
+          ? "That's game-card credit — bring it to any HeadPinz kiosk and it'll print your cards. It can't be used to book a time."
+          : null,
+      );
+      return;
+    }
+    // `native-peek` already returns ONLY `redeemVia === "cart"` legs, so game
+    // Zone legs never reach here. Belt-and-braces filter anyway: if that route
+    // ever widens, web must not start covering card credit silently.
+    const legs: { itemIndex: number; name: string; label: string }[] = (data.legs ?? []).filter(
+      (l: { name?: string }) => voucherTarget(l.name).kind !== "gamecard",
+    );
+    if (legs.length === 0) {
+      setApplied(null);
+      setVoucher(null);
+      setRejected(true);
+      setVoucherNote(
+        "That's game-card credit — bring it to any HeadPinz kiosk and it'll print your cards. It can't be used to book a time.",
+      );
+      return;
+    }
+    const slugs = [
+      ...new Set(
+        legs.flatMap((l) => {
+          const t = voucherTarget(l.name);
+          return t.kind === "attraction" ? t.slugs : t.kind === "race" ? ["race"] : [];
+        }),
+      ),
+    ];
+    setApplied(null);
+    setVoucherNote(null);
+    setVoucher({
+      code,
+      slugs,
+      // Legs are individual on purpose; the guest cares how MANY they have.
+      summary: summariseLegs(legs.map((l) => l.label)),
+    });
+    router.replace(`/book/v2?voucher=${encodeURIComponent(code)}`);
+  }
+
+  /** A BMI-issued voucher: one comp line, so one coverage target. */
+  async function resolveBmiVoucher(code: string) {
+    const res = await fetch("/api/booking/v2/voucher", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "peek", code, ...(center ? { center } : {}) }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      setApplied(null);
+      setVoucher(null);
+      setRejected(true);
+      return;
+    }
+    const names: string[] = (data.names?.length ? data.names : [data.name].filter(Boolean)).filter(
+      (n: string) => voucherTarget(n).kind !== "gamecard",
+    );
+    if (names.length === 0) {
+      setApplied(null);
+      setVoucher(null);
+      setRejected(true);
+      setVoucherNote(
+        "That's game-card credit — bring it to any HeadPinz kiosk and it'll print your cards. It can't be used to book a time.",
+      );
+      return;
+    }
+    const slugs = [
+      ...new Set(
+        names.flatMap((n) => {
+          const t = voucherTarget(n);
+          return t.kind === "attraction" ? t.slugs : t.kind === "race" ? ["race"] : [];
+        }),
+      ),
+    ];
+    setApplied(null);
+    setVoucherNote(null);
+    setVoucher({ code, slugs, summary: summariseLegs(names) });
+    router.replace(`/book/v2?voucher=${encodeURIComponent(code)}`);
+  }
+
   function clearCode() {
     setInput("");
     setApplied(null);
+    setVoucher(null);
+    setVoucherNote(null);
     setRejected(false);
     router.replace("/book/v2");
   }
@@ -198,6 +332,9 @@ export function PromoLanding({
     // picked activity seeds the right complex (Naples → Naples clientKey).
     const params = new URLSearchParams();
     if (applied) params.set("code", applied.code);
+    // Vouchers ride their own param — CheckoutStep seeds the codes from
+    // `?voucher=` and applies them at checkout. A voucher is never a `code`.
+    if (voucher) params.set("voucher", voucher.code);
     if (center) params.set("location", center);
     const qs = params.toString();
     return `/book/${slug}/v2${qs ? `?${qs}` : ""}`;
@@ -231,7 +368,7 @@ export function PromoLanding({
           >
             {hasCart
               ? `${cartItemCount} activit${cartItemCount === 1 ? "y" : "ies"} booked. Add more or head to checkout.`
-              : "Choose your activity to get started. Have a promo code? Drop it in first and we'll mark which experiences it's good for."}
+              : "Choose your activity to get started. Have a voucher or promo code? Drop it in first and we'll mark which experiences it's good for."}
           </p>
         </div>
       </section>
@@ -285,25 +422,25 @@ export function PromoLanding({
                   className="block font-bold uppercase text-white/40"
                   style={{ fontSize: "11px", letterSpacing: "2.5px" }}
                 >
-                  Promo code
+                  Voucher or promo code
                 </span>
                 <input
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value.toUpperCase())}
-                  placeholder="MAY20WEEKDAY"
+                  placeholder="HPW-XXXX-XXXX or MAY20WEEKDAY"
                   autoComplete="off"
                   className="mt-1.5 w-full rounded-xl border border-white/10 bg-white/4 px-4 py-3 text-sm uppercase tracking-wider text-white placeholder-white/30 focus:bg-white/8 focus:outline-none"
-                  style={{ borderColor: applied ? `${accent}55` : undefined }}
+                  style={{ borderColor: applied || voucher ? `${accent}55` : undefined }}
                 />
               </label>
               <button
                 type="submit"
-                disabled={submitting || input.trim() === (applied?.code ?? "")}
+                disabled={submitting || input.trim() === (applied?.code ?? voucher?.code ?? "")}
                 className="rounded-full px-6 py-3 font-body text-sm font-bold uppercase tracking-wider transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:scale-100"
                 style={{ backgroundColor: accent, color: "#0a1628" }}
               >
-                {submitting ? "…" : applied ? "Update" : "Apply"}
+                {submitting ? "…" : applied || voucher ? "Update" : "Apply"}
               </button>
             </form>
 
@@ -336,10 +473,33 @@ export function PromoLanding({
                 </button>
               </div>
             )}
-            {rejected && !applied && (
+            {voucher && (
+              <div
+                className="mt-3 flex items-center justify-between gap-3 rounded-xl border px-4 py-3"
+                style={{ borderColor: `${accent}40`, backgroundColor: `${accent}12` }}
+              >
+                <div className="text-sm" style={{ color: accent }}>
+                  <span className="font-bold">{voucher.code}</span> applied —{" "}
+                  <span className="font-semibold">{voucher.summary}</span>{" "}
+                  <span className="text-white/50">
+                    {voucher.slugs.length > 0
+                      ? "— covered experiences marked below. Nothing more to pay for them."
+                      : "— pick your experience below."}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearCode}
+                  className="text-xs text-white/50 transition-colors hover:text-white"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+            {rejected && !applied && !voucher && (
               <p className="mt-3 text-center text-sm text-amber-400/80">
-                We couldn&apos;t apply that code. It may be expired, fully used, or not yet active.
-                Pick an activity below to continue without it.
+                {voucherNote ??
+                  "We couldn't apply that code. It may be expired, fully used, or not yet active. Pick an activity below to continue without it."}
               </p>
             )}
           </div>
@@ -363,6 +523,7 @@ export function PromoLanding({
                 offering={o}
                 href={tileHref(o.slug)}
                 applied={applied}
+                voucherSlugs={voucher?.slugs ?? null}
                 accent={accent}
                 gold={HP_GOLD}
               />
@@ -371,6 +532,29 @@ export function PromoLanding({
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * A voucher applied on the landing. Unlike a promo it carries no discount
+ * mechanic — it pays for whole entries at checkout — so the only things worth
+ * holding are the code, what it covers, and which tiles to mark.
+ */
+interface AppliedVoucher {
+  code: string;
+  /** Attraction slugs (plus "race") this voucher can pay for. */
+  slugs: string[];
+  /** "2 × Laser Tag" — collapsed, not one row per leg. */
+  summary: string;
+}
+
+/** Collapse repeated leg labels into counted parts: "2 × Laser Tag + Race". */
+function summariseLegs(labels: string[]): string {
+  const counts = new Map<string, number>();
+  for (const l of labels) if (l) counts.set(l, (counts.get(l) ?? 0) + 1);
+  return (
+    [...counts].map(([label, n]) => (n > 1 ? `${n} × ${label}` : label)).join(" + ") ||
+    "your voucher"
   );
 }
 
@@ -589,9 +773,7 @@ function ComboCard({ combo, gold }: { combo: ComboSpecial; gold: string }) {
           >
             What&apos;s included
           </p>
-          <ul
-            className={`grid grid-cols-1 gap-x-6 gap-y-1 ${premium ? "sm:grid-cols-2" : ""}`}
-          >
+          <ul className={`grid grid-cols-1 gap-x-6 gap-y-1 ${premium ? "sm:grid-cols-2" : ""}`}>
             {[...combo.includes, ...(combo.perks ?? [])].map((item) => (
               <li key={item} className="flex items-start gap-2 text-sm leading-snug text-white/80">
                 <ComboCheck gold={gold} />
@@ -614,9 +796,7 @@ function ComboCard({ combo, gold }: { combo: ComboSpecial; gold: string }) {
             >
               {combo.voucherIncludes.title ?? "Plus vouchers to your favorite attractions"}
             </p>
-            <ul
-              className={`grid grid-cols-1 gap-x-6 gap-y-1 ${premium ? "sm:grid-cols-2" : ""}`}
-            >
+            <ul className={`grid grid-cols-1 gap-x-6 gap-y-1 ${premium ? "sm:grid-cols-2" : ""}`}>
               {combo.voucherIncludes.items.map((item) => (
                 <li
                   key={item}
@@ -689,16 +869,24 @@ function AttractionCard({
   offering,
   href,
   applied,
+  voucherSlugs = null,
   accent,
   gold,
 }: {
   offering: ActivityOffering;
   href: string;
   applied: AppliedPromo | null;
+  /** Slugs a voucher covers, or null. Marked the SAME way a promo is — from the
+   *  guest's side "this code works here" is one idea, not two. */
+  voucherSlugs?: string[] | null;
   accent: string;
   gold: string;
 }) {
-  const inScope = applied ? isOfferingInPromoScope(offering, applied) : false;
+  const inScope = applied
+    ? isOfferingInPromoScope(offering, applied)
+    : voucherSlugs
+      ? voucherSlugs.includes(offering.kind === "race" ? "race" : offering.slug)
+      : false;
   const cardColor = offering.accentColor ?? accent;
 
   return (
