@@ -8,10 +8,13 @@
  *   worse day. Codes are the bearer instrument, so this mail is internal-only
  *   and never sent to a guest address by the mint path.
  *
- *   GUEST VOUCHER. Exactly ONE code, with what it's worth and the two ways to
- *   redeem it: tap the link (credits a card they already have) or scan it at a
- *   kiosk (dispenses a new one). No marketing chrome, no unsubscribe group —
- *   this is transactional.
+ *   GUEST VOUCHER. Exactly ONE code, with what it's worth and how to redeem it:
+ *   scan the QR at a kiosk, which dispenses the card already loaded. No marketing
+ *   chrome, no unsubscribe group — this is transactional.
+ *
+ * REDEMPTION IS KIOSK-ONLY (owner 2026-08-03). The /v page's "load it onto a card
+ * you already have" form was removed, so no copy here may offer it — an email that
+ * promises a button the page no longer has is worse than one that says less.
  *
  * SMS is intentionally terse: a code, a value, a link. Long marketing copy in a
  * text costs money per segment and gets read less.
@@ -150,7 +153,7 @@ export async function emailMintBatch(args: {
       <p style="margin:0 0 6px;color:#555;font-size:13px">
         Scan a QR at the kiosk, or type the code. Guests can also open
         <span style="font-family:monospace">${esc(siteOrigin())}/v/&lt;code&gt;</span>
-        to load a card they already have.
+        to see what is left on theirs.
       </p>
       <p style="margin:0;color:#888;font-size:12px">Batch ${esc(args.batchId)}</p>
     </div>`;
@@ -262,7 +265,7 @@ export async function emailPurchasedVouchers(args: {
       }
       <p style="margin:0 0 8px;color:#555;font-size:14px"><strong>Getting your game cards:</strong>
         scan the QR at any HeadPinz kiosk and it prints your cards with the play value already on
-        them. Already have a HeadPinz card? Open the voucher link and load it straight on.</p>
+        them.</p>
       <p style="margin:0 0 8px;color:#555;font-size:14px">You don't have to use everything at once —
         each item is redeemed separately, so whatever you haven't used stays on the code.</p>
       ${
@@ -281,7 +284,7 @@ export async function emailPurchasedVouchers(args: {
     ...(args.scheduleUrl
       ? [`${args.scheduleLabel || "Pick your time"}: ${args.scheduleUrl}`, ""]
       : []),
-    "Scan the QR at any HeadPinz kiosk to print your game cards, or open the voucher link to load a card you already have.",
+    "Scan the QR at any HeadPinz kiosk to print your game cards with the credit already on them.",
     ...(expiry ? [`Valid through ${expiry}.`] : []),
   ].join("\n");
 
@@ -393,7 +396,7 @@ export async function sendVoucherToGuest(args: {
         <p style="margin:0 0 12px">
           <a href="${esc(url)}" style="background:#00b3b6;color:#fff;text-decoration:none;
              padding:12px 20px;border-radius:999px;display:inline-block;font-weight:600">
-            Load it on my card
+            View my voucher
           </a>
         </p>
         <p style="margin:0 0 12px">

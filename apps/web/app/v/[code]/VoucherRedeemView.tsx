@@ -1,6 +1,8 @@
-"use client";
-
-import { useState } from "react";
+/**
+ * Server component. It was "use client" only for the card-load form's state; with
+ * that gone the whole view is presentation over props, so rendering it on the
+ * server keeps it out of the client bundle entirely.
+ */
 import {
   IconCalendarEvent,
   IconCheck,
@@ -8,7 +10,6 @@ import {
   IconMail,
   IconQrcode,
 } from "@tabler/icons-react";
-import { CENTER_LIST } from "~/config/intercard-centers";
 import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
 import type { WalletPlatform } from "~/features/game-cards/wallet/platform";
 import { formatVoucherExpiry, groupVoucherItems } from "~/features/game-cards/vouchers/display";
@@ -70,18 +71,6 @@ export function VoucherRedeemView({
    *  show BOTH and let the guest choose. */
   walletPlatform?: WalletPlatform | null;
 }) {
-  const [account, setAccount] = useState("");
-  const [locationCode, setLocationCode] = useState(CENTER_LIST[0].code);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<{
-    bonusTokens: number;
-    balance?: { tokens: number; bonusTokens: number };
-    pending?: boolean;
-  } | null>(null);
-
-  const redeemable = status.items.filter((i) => i.redeemable && !i.spent);
-  const alreadySpent = status.items.filter((i) => i.spent);
   const notHere = status.items.filter((i) => !i.redeemable && !i.spent);
 
   /**
@@ -123,39 +112,6 @@ export function VoucherRedeemView({
   const itemGroups = groupVoucherItems(status.items);
   /** Nothing left to do with it — used to dim the QR rather than imply it scans. */
   const allDone = status.items.every((i) => i.spent);
-
-  const submit = async () => {
-    const acct = account.trim();
-    if (!acct || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/game-cards/voucher-redeem", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          action: "to-card",
-          code: status.code,
-          accountNumber: acct,
-          locationCode,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.ok !== true) {
-        setError(REASON_COPY[data.reason ?? ""] ?? REASON_COPY.storage);
-        return;
-      }
-      setDone({
-        bonusTokens: data.credited?.bonusTokens ?? 0,
-        balance: data.balance,
-        pending: data.pending,
-      });
-    } catch {
-      setError(REASON_COPY.storage);
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     // Renders INSIDE the brand chrome (fixed nav + dark site bg). Mirror the
@@ -360,7 +316,7 @@ export function VoucherRedeemView({
                       <span className="font-semibold text-white">Game cards — at a kiosk.</span>{" "}
                       Scan the QR at any HeadPinz kiosk and it prints your cards with the credit
                       already on them; look for &ldquo;Coupon or voucher?&rdquo; on the welcome
-                      screen. Already have a HeadPinz card? Use the form below and skip the new one.
+                      screen.
                     </p>
                   </div>
                 )}
@@ -404,111 +360,20 @@ export function VoucherRedeemView({
                 </p>
               </div>
             )}
-            {done ? (
-              <div className="mt-8 rounded-2xl border-2 border-[#46d68c]/40 bg-[#46d68c]/[0.1] p-5">
-                <p className="text-xl font-bold text-[#46d68c]">
-                  {done.pending ? "On its way" : "Loaded!"}
-                </p>
-                <p className="mt-1 text-white/80">
-                  {done.bonusTokens} bonus tokens{" "}
-                  {done.pending
-                    ? "are being added to your card — it can take a few minutes to reach the floor."
-                    : "are on your card."}
-                </p>
-                {done.balance && (
-                  <p className="mt-2 text-sm text-white/55">
-                    New balance: {done.balance.tokens} tokens + {done.balance.bonusTokens} bonus
-                  </p>
-                )}
-              </div>
-            ) : voided ? (
-              <p className="mt-8 text-lg text-white/70">{REASON_COPY.voided}</p>
+            {/* Status notices only. The "load it onto a card you already have"
+                form is GONE (owner 2026-08-03: "get rid of this for now I don't
+                like it"), which makes redemption kiosk-only — consistent with
+                "NOT redeemable at guest services you must see kiosk". The
+                `to-card` action on /api/game-cards/voucher-redeem is deliberately
+                left in place: this removes an entry point, not a capability, so
+                putting it back is a UI change rather than a rebuild. */}
+            {voided ? (
+              <p className="mt-6 text-lg text-white/70">{REASON_COPY.voided}</p>
             ) : expired ? (
-              <p className="mt-8 text-lg text-white/70">{REASON_COPY.expired}</p>
-            ) : redeemable.length === 0 ? (
-              <div className="mt-8">
-                <p className="text-lg text-white/70">
-                  {alreadySpent.length > 0 && notHere.length === 0
-                    ? REASON_COPY.used
-                    : bookable.length > 0
-                      ? // Don't send them to a desk: the button above is the action.
-                        "There's nothing on this voucher to load onto a card — use the button above to book your session."
-                      : REASON_COPY.not_redeemable}
-                </p>
-              </div>
-            ) : (
-              <>
-                {/* SECONDARY path, and now labelled as one. It reads "Already have a
-                HeadPinz game card?" because the old heading — "Load it on your
-                card" with no context — was the first thing on the page and
-                implied you needed a card to use the voucher at all. You don't:
-                the QR above gets you new ones. This just saves a trip for someone
-                who already carries one. */}
-                <h1 className="mt-8 text-2xl font-extrabold text-white">
-                  Already have a HeadPinz game card?
-                </h1>
-                <p className="mt-1 text-white/60">
-                  Add the credit straight to it — no need to pick up a new card. Enter the number
-                  printed on the back.
-                </p>
-
-                <label className="mt-5 block text-sm font-semibold text-white/70" htmlFor="v-acct">
-                  Card number
-                </label>
-                <input
-                  id="v-acct"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  value={account}
-                  onChange={(e) => {
-                    setError(null);
-                    // Card numbers are digits only and stay STRINGS end to end
-                    // (Intercard accounts exceed float-safe range upstream).
-                    setAccount(e.target.value.replace(/\D/g, ""));
-                  }}
-                  placeholder="1063464"
-                  className="mt-1 w-full rounded-xl border-2 border-white/15 bg-[#040d24] px-4 py-3 font-mono text-xl text-white placeholder:text-white/30 focus:border-[#00e2e5] focus:outline-none"
-                />
-
-                <label className="mt-4 block text-sm font-semibold text-white/70" htmlFor="v-loc">
-                  Where do you play?
-                </label>
-                <select
-                  id="v-loc"
-                  value={locationCode}
-                  onChange={(e) => setLocationCode(Number(e.target.value))}
-                  className="mt-1 w-full rounded-xl border-2 border-white/15 bg-[#040d24] px-4 py-3 text-lg text-white focus:border-[#00e2e5] focus:outline-none"
-                >
-                  {CENTER_LIST.map((c) => (
-                    <option key={c.code} value={c.code}>
-                      {c.label}
-                    </option>
-                  ))}
-                </select>
-
-                <div
-                  className="mt-3 min-h-[24px] text-sm text-[#ff8c7a]"
-                  role="alert"
-                  aria-live="polite"
-                >
-                  {error ?? ""}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={submit}
-                  disabled={!account.trim() || busy}
-                  className="mt-2 w-full rounded-full bg-[#00e2e5] px-6 py-4 text-lg font-bold text-[#04252b] disabled:opacity-40"
-                >
-                  {busy ? "Loading…" : "Load my card"}
-                </button>
-
-                <p className="mt-6 text-sm text-white/45">
-                  No game card yet? Scan this code at any kiosk and one comes out, already loaded.
-                </p>
-              </>
-            )}
+              <p className="mt-6 text-lg text-white/70">{REASON_COPY.expired}</p>
+            ) : allDone ? (
+              <p className="mt-6 text-lg text-white/70">{REASON_COPY.used}</p>
+            ) : null}
           </div>
         </div>
       </main>
