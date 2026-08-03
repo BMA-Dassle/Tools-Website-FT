@@ -2899,3 +2899,44 @@ per-field and re-derive the whole derived set.
 Check `contract_sent_at` and the audit log's `page_view` rows before believing the
 dispatch path is at fault — JW Group had six page views and zero `signed` events,
 which named the real problem immediately.
+
+## A swallowed loop-breaker turns a vendor outage into guest spam (2026-08-03)
+
+BMI Office started returning **403 on writes while reads stayed healthy**. Every
+group-function contract send fell back to Pandora, which returns 200 and
+**silently no-ops CUSTOM state ids** — a pathology already documented twice in
+this file. So the project never left "Send Contract", the dispatch cron re-scanned
+it on the next pass, and re-emailed the guest. Result over 45 minutes:
+
+    Sanibel Harbour   25 emails      Happy Birthday Danny!  24 emails
+    Garland           25 emails      RG Architects          14 emails
+
+~88 duplicate contract emails to four guests. It self-resolved only when the
+vendor's writes recovered.
+
+Two independent faults had to line up, and both were ours:
+
+1. **`setProjectState` reported success it could not prove.** For a custom state
+   id it returned normally as soon as *either* path claimed success — and the
+   Pandora path's claim is known-worthless for exactly these ids. A function whose
+   whole job is "make the state be X" must READ BACK that the state is X. It now
+   re-reads (retried, because Pandora propagates to Firebird asynchronously) and
+   THROWS otherwise. Read failures are judged per path: an unreadable verify after
+   an Office PUT is assumed good (proven path), after a Pandora write it is treated
+   as failure.
+
+2. **All four send paths emailed FIRST and moved the state afterwards, inside
+   `try {} catch { /* non-fatal */ }`.** The one path that got it right —
+   `exitSendContractWithResend` — even carried a comment explaining why state must
+   precede the email ("a BMI hiccup can never turn the cron into a repeating email
+   to the guest"). The invariant was written down and three siblings ignored it.
+
+**Rule:** when a state change is what stops a loop, it is not a side effect — it
+is the gate. Perform it BEFORE the irreversible action (email/SMS/charge), verify
+it landed, and abort the action if it did not. "Non-fatal" is the wrong label for
+the only thing preventing repetition. All five paths now share one
+`leaveSendContract()` helper that returns a boolean, and the run summary logs
+`stateMoveFailed=N` so a write outage reads as "contracts queued", not silence.
+
+**Corollary:** `catch { /* non-fatal */ }` deserves suspicion in review. Ask what
+repeats if that call fails. If the answer is "a guest-facing message", it is fatal.

@@ -219,6 +219,13 @@ export async function setProjectState(params: {
    *  the built-in `-3` / web callers below are unchanged. */
   ensureAttempts?: number;
   ensureGapMs?: number;
+  /** Custom-state only: how many times to re-read the state to CONFIRM the write
+   *  landed before throwing (default 3, gap `confirmGapMs` = 1200ms). Distinct
+   *  from `ensureAttempts`, which re-ASSERTS a state that drifted after landing;
+   *  this decides whether it ever landed at all. Lower it only where a caller
+   *  genuinely does not care whether the write took. */
+  confirmAttempts?: number;
+  confirmGapMs?: number;
 }): Promise<void> {
   const clientKey = CLIENT_KEYS[params.centerCode] || "headpinzftmyers";
   const locationId = PANDORA_LOCATION_IDS[params.centerCode] || "TXBSQN0FEKQ11";
@@ -296,22 +303,53 @@ export async function setProjectState(params: {
   // first — that path is proven for them.
   const isCustomState = !params.stateId.startsWith("-");
   if (isCustomState) {
-    let landed = false;
+    let wroteVia: "office" | "pandora" | null = null;
     try {
       await viaOfficeApi();
-      landed = true;
+      wroteVia = "office";
     } catch (err) {
       console.warn("[bmi-office] Office-API state update failed, trying Pandora:", err);
     }
-    if (!landed) {
+    if (!wroteVia) {
       if (await viaPandora()) {
         console.log(
-          `[bmi-office] project ${params.projectId} state → ${params.stateId} via Pandora (fallback)${params.label ? ` (${params.label})` : ""}`,
+          `[bmi-office] project ${params.projectId} state → ${params.stateId} via Pandora (fallback, UNVERIFIED)${params.label ? ` (${params.label})` : ""}`,
         );
-        landed = true;
+        wroteVia = "pandora";
       } else {
         throw new Error(`state ${params.stateId} update failed on both paths`);
       }
+    }
+
+    // CONFIRM the write landed. A 200 is not proof for a custom state id, and
+    // resolving on an unproven write is how this function lied to its callers:
+    // on 2026-08-03 a BMI Office write outage (403 on PUT /project, reads fine)
+    // sent every group-function send down the Pandora fallback, which reported
+    // success while the project never left "Send Contract". The dispatch cron
+    // took that as its loop-breaker, emailed the guest, and repeated on the next
+    // pass — ~88 duplicate contract emails to 4 guests over 45 minutes.
+    //
+    // Retried with a gap because a Pandora write propagates to Firebird
+    // ASYNCHRONOUSLY (same reason ensureAttempts exists below).
+    //
+    // Read failures are judged per PATH, because the two are not equally
+    // trustworthy for custom ids: the Office PUT is the proven path, so an
+    // unreadable verify leaves it assumed-good; Pandora demonstrably 200s and
+    // no-ops these, so silence there is treated as failure. Positively reading a
+    // DIFFERENT state throws either way.
+    const confirmAttempts = params.confirmAttempts ?? 3;
+    const confirmGapMs = params.confirmGapMs ?? 1200;
+    let observed: string | null = null;
+    for (let i = 0; i < confirmAttempts; i++) {
+      observed = await readOfficeState();
+      if (observed === params.stateId) break;
+      if (i < confirmAttempts - 1) await new Promise((r) => setTimeout(r, confirmGapMs));
+    }
+    if (observed !== params.stateId && !(observed === null && wroteVia === "office")) {
+      throw new Error(
+        `state ${params.stateId} written via ${wroteVia} but project ${params.projectId} reads ` +
+          `${observed ?? "unreadable"} — treating as NOT landed`,
+      );
     }
     // Self-heal against a late-landing cross-backend `-3` write (the kiosk
     // propagation race). Watch the state across a short window; each time it has
@@ -564,7 +602,9 @@ export async function removeProjectPersonRow(params: {
   const after = await httpsRequest("GET", `/api/${clientKey}/project/${projectId}`, headers);
   if (after.status >= 400) throw new Error(`verify GET failed: ${after.status}`);
   const stillThere = rowsOf(parseRawIds(after.body)).some((r) => r.personId === personId);
-  return stillThere ? { removed: false, reason: "still-present" } : { removed: true, rowId: row.id };
+  return stillThere
+    ? { removed: false, reason: "still-present" }
+    : { removed: true, rowId: row.id };
 }
 
 // ── Update project name ────────────────────────────────────────────

@@ -115,6 +115,10 @@ export async function GET(req: NextRequest) {
     `[group-quote-dispatch] scanned=${scannedItems.length} processed=${results.length} ` +
       `created=${results.filter((r) => r.action === "created").length} ` +
       `resent=${results.filter((r) => r.action === "resent").length} ` +
+      // Surfaced on its own: a run that is all state_move_failed means BMI writes
+      // are down and contracts are queued, not lost. Silence here was what made
+      // the 2026-08-03 resend loop invisible until guests complained.
+      `stateMoveFailed=${results.filter((r) => r.action === "state_move_failed").length} ` +
       `errors=${results.filter((r) => r.action === "error").length}`,
   );
 
@@ -153,6 +157,53 @@ async function reconcileDayofOrderSafe(quote: GroupFunctionQuote): Promise<void>
 }
 
 /**
+ * Move a project OUT of "Send Contract" and report whether it actually landed.
+ *
+ * THE LOOP-BREAKER. "Send Contract" is the only trigger for this cron, so the
+ * state move is the single thing that stops the next pass re-processing — and
+ * therefore re-emailing. Every guest-facing send must be gated on this returning
+ * true, and it must run BEFORE the email, never after.
+ *
+ * Learned the hard way on 2026-08-03: all three send paths emailed first and then
+ * moved the state inside `try {} catch { /* non-fatal *\/ }`. When BMI Office
+ * started 403-ing writes, `setProjectState` fell back to Pandora — which 200s and
+ * silently no-ops CUSTOM state ids — so the move never landed, the failure was
+ * swallowed as "non-fatal", and the cron re-emailed every pass: ~88 duplicate
+ * contract emails to 4 guests (Sanibel 25, Garland 25, Danny 24, RG Architects 14)
+ * over 45 minutes. `setProjectState` now verifies and throws instead of lying;
+ * this makes the caller side honour it.
+ *
+ * Returns false on failure rather than throwing: the project stays in "Send
+ * Contract", nothing is written, and the next pass retries cleanly once BMI
+ * recovers. A contract that goes out one minute late is strictly better than one
+ * that goes out twenty-five times.
+ */
+async function leaveSendContract(params: {
+  item: HermesQueueItem;
+  centerCode: string;
+  stateId: string;
+  label: string;
+}): Promise<boolean> {
+  try {
+    const { setProjectState } = await import("@/lib/bmi-office-actions");
+    await setProjectState({
+      centerCode: params.centerCode,
+      projectId: params.item.reservationId,
+      stateId: params.stateId,
+      label: params.label,
+    });
+    return true;
+  } catch (err) {
+    console.warn(
+      `[group-quote-dispatch] LOOP GUARD: state move did not land for ${params.item.reservationId} ` +
+        `— skipping the guest email and retrying next pass:`,
+      err,
+    );
+    return false;
+  }
+}
+
+/**
  * Exit "Send Contract" for a post-payment event and re-notify the guest.
  *
  * Owner rule (2026-07-14): flipping a project to "Send Contract" must ALWAYS
@@ -177,21 +228,15 @@ async function exitSendContractWithResend(params: {
   const scanCenter = CENTERS.find((c) => params.item.center.startsWith(c.hermesCenter));
   if (!scanCenter) return false;
   const awaitingResign = params.quote.status === "resign_required";
-  try {
-    const { setProjectState } = await import("@/lib/bmi-office-actions");
-    await setProjectState({
-      centerCode: params.centerCode,
-      projectId: params.item.reservationId,
-      stateId: awaitingResign ? scanCenter.pendingSignedContractStateId : "-3",
-      label: awaitingResign ? "Pending Signed Contract (awaiting re-sign)" : "Confirmation",
-    });
-  } catch (err) {
-    console.warn(
-      `[group-quote-dispatch] resend state move failed for ${params.item.reservationId} — email skipped, will retry:`,
-      err,
-    );
-    return false;
-  }
+  // Shares the one loop-breaker helper with every other send path, so all five
+  // log the same LOOP GUARD line and obey the same state-before-email rule.
+  const moved = await leaveSendContract({
+    item: params.item,
+    centerCode: params.centerCode,
+    stateId: awaitingResign ? scanCenter.pendingSignedContractStateId : "-3",
+    label: awaitingResign ? "Pending Signed Contract (awaiting re-sign)" : "Confirmation",
+  });
+  if (!moved) return false;
   const notify =
     awaitingResign || params.kind === "updated" ? notifyContractUpdated : notifyContractSent;
   notify(params.quote).catch((err) =>
@@ -382,6 +427,21 @@ async function processQueueItem(
       existingProducts.length === item.products.length;
 
     if (pricingUnchanged) {
+      // LOOP-BREAKER FIRST, before any write or email (see leaveSendContract).
+      // This is the path that resent Sanibel/Garland/Danny 24-25 times each on
+      // 2026-08-03: it emailed, then moved the state, then swallowed the failure.
+      const scanCenterFirst = CENTERS.find((c) => item.center.startsWith(c.hermesCenter));
+      if (
+        scanCenterFirst &&
+        !(await leaveSendContract({
+          item,
+          centerCode: center.centerCode,
+          stateId: scanCenterFirst.pendingSignedContractStateId,
+          label: "Pending Signed Contract",
+        }))
+      ) {
+        return { reservationId: item.reservationId, action: "state_move_failed" };
+      }
       // Pricing is unchanged, but the date/time still can be (the planner moved
       // the event without touching products). Always write the current BMI date
       // — otherwise a date-only resend leaves the contract page showing the old
@@ -429,21 +489,7 @@ async function processQueueItem(
         );
         await reconcileDayofOrderSafe(refreshedQuote);
       }
-      // Transition back to Pending Signed Contract
-      try {
-        const { setProjectState } = await import("@/lib/bmi-office-actions");
-        const scanCenter = CENTERS.find((c) => item.center.startsWith(c.hermesCenter));
-        if (scanCenter) {
-          await setProjectState({
-            centerCode: center.centerCode,
-            projectId: item.reservationId,
-            stateId: scanCenter.pendingSignedContractStateId,
-            label: "Pending Signed Contract",
-          });
-        }
-      } catch {
-        /* non-fatal */
-      }
+      // (State already moved above — it is the loop-breaker and must precede the email.)
       // Log to BMI private notes
       try {
         const { appendProjectPrivateNote, noteTimestamp } =
@@ -686,6 +732,27 @@ async function processQueueItem(
         existing.status === "resign_required");
 
     if (resignFlow) {
+      // LOOP-BREAKER FIRST. The re-sign request IS a contract send, so it carries
+      // the same rule as every other send path: if the project cannot be moved out
+      // of "Send Contract", do not email — otherwise each pass re-asks the guest to
+      // re-sign (see leaveSendContract). The state move used to happen AFTER the
+      // notify, inside a catch that only warned.
+      //
+      // Confirmation is NOT touched here, so the JW Marriott un-confirm bug
+      // (2026-06-22) cannot recur: a signed event only reaches this line because a
+      // human already flipped it to "Send Contract".
+      const scanCenterResign = CENTERS.find((c) => item.center.startsWith(c.hermesCenter));
+      if (
+        scanCenterResign &&
+        !(await leaveSendContract({
+          item,
+          centerCode: center.centerCode,
+          stateId: scanCenterResign.pendingSignedContractStateId,
+          label: "Pending Signed Contract (resign requested)",
+        }))
+      ) {
+        return { reservationId: item.reservationId, action: "state_move_failed" };
+      }
       const q = (await import("@/lib/db")).sql();
       await q`UPDATE group_function_quotes SET status = 'resign_required', updated_at = NOW() WHERE id = ${existing.id}`;
       firePortalWebhookAsync("document.resign_required", {
@@ -706,30 +773,10 @@ async function processQueueItem(
         /* non-fatal */
       }
 
-      // The re-sign request IS a contract send — move the project to "Pending
-      // Signed Contract" like every other send path. Leaving it in "Send Contract"
-      // parked it there until the guest re-signed (resign-settle → Confirmation is
-      // the only other exit) and re-processed it every 2 minutes (Entechus 47106840
-      // + Hayes 54033582, 2026-07-13). Confirmation is NOT touched here, so the
-      // JW Marriott un-confirm bug (2026-06-22) cannot recur: a signed event only
-      // reaches this line because a human already flipped it to "Send Contract".
-      try {
-        const { setProjectState } = await import("@/lib/bmi-office-actions");
-        const scanCenter = CENTERS.find((c) => item.center.startsWith(c.hermesCenter));
-        if (scanCenter) {
-          await setProjectState({
-            centerCode: center.centerCode,
-            projectId: item.reservationId,
-            stateId: scanCenter.pendingSignedContractStateId,
-            label: "Pending Signed Contract (resign requested)",
-          });
-        }
-      } catch (err) {
-        console.warn(
-          `[group-quote-dispatch] failed to set Pending Signed Contract after resign request for ${item.reservationId}:`,
-          err,
-        );
-      }
+      // (State already moved above, before the notify — it is the loop-breaker.
+      // Leaving the project in "Send Contract" parked it there until the guest
+      // re-signed and re-processed it every pass: Entechus 47106840 + Hayes
+      // 54033582, 2026-07-13.)
 
       console.log(
         `[group-quote-dispatch] PRICE CHANGED for reservation=${item.reservationId} — resign_required ` +
@@ -952,9 +999,29 @@ async function processQueueItem(
   // Check if post-paid account (requires management approval before sending).
   // isPostPaid is already computed above from the same products.
   if (isPostPaid && !existing?.approved_at) {
+    // LOOP-BREAKER FIRST here too. No guest email on this path — the approval
+    // request is staff-facing — but an unlanded state move still re-requests
+    // approval on every pass, which is how a Teams channel gets buried.
+    //
+    // The approval/decision happens out-of-band via /api/group-function/approve;
+    // a decline leaves the project here. Sales re-flipping to "Send Contract" is
+    // what clears the denial and re-requests approval (see the reset block above).
+    const scanCenterHold = CENTERS.find((c) => item.center.startsWith(c.hermesCenter));
+    if (
+      scanCenterHold &&
+      !(await leaveSendContract({
+        item,
+        centerCode: center.centerCode,
+        stateId: scanCenterHold.pendingSignedContractStateId,
+        label: "Pending Signed Contract (pending approval)",
+      }))
+    ) {
+      return { reservationId: item.reservationId, action: "state_move_failed" };
+    }
+
     // Hold for approval — don't send the contract yet. Stamp
     // hermes_last_processed_at so the debounce suppresses any re-scan that
-    // arrives before the BMI state change below has propagated.
+    // arrives before the BMI state change has propagated.
     const q = (await import("@/lib/db")).sql();
     await q`UPDATE group_function_quotes SET
       contract_short_id = ${contractShortId},
@@ -971,29 +1038,7 @@ async function processQueueItem(
       );
     }
 
-    // Move the BMI project out of "Send Contract" → "Pending Signed Contract"
-    // so the scan stops re-triggering this approval request every run. The
-    // approval/decision happens out-of-band via /api/group-function/approve;
-    // a decline leaves the project here. Sales re-flipping the project back to
-    // "Send Contract" is what clears the denial and re-requests approval (see
-    // the reset block above).
-    try {
-      const { setProjectState } = await import("@/lib/bmi-office-actions");
-      const scanCenter = CENTERS.find((c) => item.center.startsWith(c.hermesCenter));
-      if (scanCenter) {
-        await setProjectState({
-          centerCode: center.centerCode,
-          projectId: item.reservationId,
-          stateId: scanCenter.pendingSignedContractStateId,
-          label: "Pending Signed Contract",
-        });
-      }
-    } catch (err) {
-      console.warn(
-        `[group-quote-dispatch] failed to move ${item.reservationId} out of Send Contract (pending approval):`,
-        err,
-      );
-    }
+    // (State already moved above, before the approval request was recorded.)
 
     firePortalWebhookAsync("approval.needed", {
       documentId: contractShortId,
@@ -1006,6 +1051,23 @@ async function processQueueItem(
       `[group-quote-dispatch] POST-PAID: pending approval for reservation=${item.reservationId} shortId=${contractShortId}`,
     );
     return { reservationId: item.reservationId, action: "pending_approval" };
+  }
+
+  // LOOP-BREAKER FIRST, before the contract is marked sent and before the guest is
+  // emailed (see leaveSendContract). Nothing is recorded if this fails, so the next
+  // pass re-runs this path from the top — that is why it sits ahead of
+  // updateGfContractSent rather than merely ahead of the notify.
+  const scanCenterSend = CENTERS.find((c) => item.center.startsWith(c.hermesCenter));
+  if (
+    scanCenterSend &&
+    !(await leaveSendContract({
+      item,
+      centerCode: center.centerCode,
+      stateId: scanCenterSend.pendingSignedContractStateId,
+      label: "Pending Signed Contract",
+    }))
+  ) {
+    return { reservationId: item.reservationId, action: "state_move_failed" };
   }
 
   // Mark contract as sent
@@ -1066,24 +1128,7 @@ async function processQueueItem(
     /* non-fatal */
   }
 
-  // Transition BMI state from "Send Contract" → "Pending Signed Contract"
-  try {
-    const { setProjectState } = await import("@/lib/bmi-office-actions");
-    const scanCenter = CENTERS.find((c) => item.center.startsWith(c.hermesCenter));
-    if (scanCenter) {
-      await setProjectState({
-        centerCode: center.centerCode,
-        projectId: item.reservationId,
-        stateId: scanCenter.pendingSignedContractStateId,
-        label: "Pending Signed Contract",
-      });
-    }
-  } catch (err) {
-    console.warn(
-      `[group-quote-dispatch] failed to set Pending Signed Contract for ${item.reservationId}:`,
-      err,
-    );
-  }
+  // (State already moved above, ahead of the send — it is the loop-breaker.)
 
   console.log(
     `[group-quote-dispatch] contract created for reservation=${item.reservationId} shortId=${contractShortId}`,
