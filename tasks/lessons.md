@@ -1,5 +1,53 @@
 # Lessons Learned
 
+## "Non-fatal" must mean deferred, not discarded — a swallowed vendor write silently lost $2,113.95 (2026-08-03)
+
+**What happened:** Pandora's BMI **Office auth** endpoint (`user=API2`) returned ASP.NET
+`Runtime Error` 500s for roughly six hours. `confirmAndRecordBmiPayment` is deliberately
+non-fatal — the guest's card is already charged when it runs, so a BMI hiccup must never
+surface as a payment error (the guest would pay twice). But "non-fatal" was implemented as
+a bare `catch` + `console.error`: no retry, no queue, no alert. Two events' payments were
+collected on the card and never reached BMI — 3373 Fireservice $1,772.56 and 3437 FSW
+$341.39, the latter three days before its event. Nothing surfaced them. They were found
+only by diffing our `collected_cents` against BMI's live payment ledger after the fact.
+
+Two aggravating details:
+
+- **A single `try` wrapped three independent steps** (state → payment → note), so the
+  narrowest failure had the widest blast radius: a failing state update skipped the payment
+  AND the note. Isolate each vendor call in its own try.
+- **State updates survived the outage and payments did not**, because `setProjectState` has
+  a Pandora fallback and `recordProjectPayment` is Office-only. A partial fallback makes an
+  outage *look* handled in the logs while money quietly goes missing.
+
+**The rule:** if you swallow an error on a path where money already moved, you owe the
+system a durable record of what still needs to happen. Non-fatal means **enqueue and
+retry**, never "log and forget." Pattern to copy: `lib/bmi-deposit-retry.ts` +
+`/api/cron/deposit-retry-sweep` (Neon table, UPSERT idempotency key, escalating backoff,
+park after `MAX_RETRY_ATTEMPTS` and keep reporting parked rows on every run — including the
+idle run, so "gave up" never looks like "all clear").
+
+**The trap when you build the retry — a failed POST is not proof the write didn't land.**
+A timeout can follow a payment BMI recorded fine; blind retry double-posts real money into
+a center's books. The sweep must re-read the vendor's ledger and post
+`min(collected - recorded, vendorBalance, thisRow'sAmount)`, resolving as `already-square`
+when that is ≤ 0. Capping by the row's own amount is what lets two queued failures on one
+event (deposit + balance) settle independently instead of cannibalising each other.
+
+**Also — not every gap is a gap.** The first scan flagged 15 events short in BMI totalling
+$16,646.25. Only 2 were real. The other 13 had `square_settled_order_id` or `dayof_paid_at`
+set: that money settled on a POS check inside BMI's own POS, and `group-square-settled-close`
+writes a *note* only, by design. Recording project payments for those would have
+double-counted $14,532.30. Always classify a reconciliation diff by *how* the money was
+taken before "fixing" it.
+
+Fix: `lib/bmi-project-payment-retry.ts` + `/api/cron/bmi-payment-retry-sweep` (every 5 min),
+`confirmAndRecordBmiPayment` steps isolated and the payment step enqueuing on failure, all
+four GF call sites passing `source`/`quoteId`/`sourceRef`. Guard pinned in
+`lib/__tests__/bmi-project-payment-retry.test.ts`. Forensics kept as
+`scripts/bmi-outage-recon.mts` (log-independent ledger diff),
+`scripts/bmi-outage-gap-classify.mts` (real vs POS-settled), `scripts/bmi-outage-remediate.mts`.
+
 ## A cache in front of deadline-bounded work must never cache the ABSENCE of the result (2026-07-31)
 
 **What happened:** `/api/waiver/context` cached its summary for 120s and ran the Pandora

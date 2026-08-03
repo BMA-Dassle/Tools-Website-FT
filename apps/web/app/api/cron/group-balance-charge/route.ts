@@ -284,6 +284,9 @@ async function processBalanceCharge(
         projectId: quote.bmi_reservation_id,
         lineItems: (quote.line_items || []) as Array<{ name: string }>,
         amountDollars: quote.balance_cents / 100,
+        source: "gf-balance-charge-cron",
+        quoteId: quote.id,
+        sourceRef: balancePaymentId,
       });
 
       console.log(

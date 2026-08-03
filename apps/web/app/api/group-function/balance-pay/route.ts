@@ -236,6 +236,9 @@ export async function POST(req: NextRequest) {
       projectId: quote.bmi_reservation_id,
       lineItems: (quote.line_items || []) as Array<{ name: string }>,
       amountDollars: quote.balance_cents / 100,
+      source: "gf-balance-pay",
+      quoteId: quote.id,
+      sourceRef: balancePaymentId,
     });
 
     console.log(

@@ -322,6 +322,9 @@ async function finalizeDeposit(a: FinalizeDepositArgs): Promise<{
       projectId: quote.bmi_reservation_id,
       lineItems: (quote.line_items || []) as Array<{ name: string }>,
       amountDollars: a.depositCents / 100,
+      source: "gf-deposit",
+      quoteId: quote.id,
+      sourceRef: `quote-${quote.id}-deposit`,
       note: `Deposit paid: $${(a.depositCents / 100).toFixed(2)} | GAN: ${giftCardGan} | Balance: $${(balanceCents / 100).toFixed(2)}`,
       contractUrl: `${quote.base_url || "https://fasttraxent.com"}/contract/${quote.contract_short_id}`,
     });
@@ -1074,6 +1077,9 @@ async function handleLegacyDeposit(
         projectId: quote.bmi_reservation_id,
         lineItems: (quote.line_items || []) as Array<{ name: string }>,
         amountDollars: chargeCents / 100,
+        source: "gf-deposit",
+        quoteId: quote.id,
+        sourceRef: `quote-${quote.id}-legacy-deposit`,
         note: legacyNote,
         contractUrl: `${quote.base_url || "https://fasttraxent.com"}/contract/${quote.contract_short_id}`,
       });

@@ -73,6 +73,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/bmi-payment-retry-sweep",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/bowling-confirm-retry",
       "schedule": "*/5 * * * *"
     },
