@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getGuestSurveyByToken } from "@/lib/guest-survey-db";
+import { getGuestSurveyByToken, recordGuestSurveyReviewClick } from "@/lib/guest-survey-db";
 import { googleReviewUrl } from "~/lib/constants/review-links";
 import { isPositiveSentiment, toAnswerMap } from "~/features/guest-survey/gating";
 import { recordTouch } from "~/features/marketing";
@@ -57,6 +57,17 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
   if (!reviewUrl) {
     console.warn(`[surveys/${token}/review] no review destination for center ${survey.centerCode}`);
     return NextResponse.redirect(home, 302);
+  }
+
+  // Count the click ON THE SURVEY ROW. AWAITED, unlike the touch below: this
+  // is the number ops actually reads, and a fire-and-forget write can be lost
+  // when the serverless function is torn down the moment we return the
+  // redirect. It's one indexed UPDATE by unique token. Wrapped so a DB blip
+  // still sends the guest to Google — a lost count beats a broken link.
+  try {
+    await recordGuestSurveyReviewClick(token);
+  } catch (err) {
+    console.warn(`[surveys/${token}/review] click count failed (non-fatal):`, err);
   }
 
   // marketing_touches 'converted' with review metadata — fire-and-forget,

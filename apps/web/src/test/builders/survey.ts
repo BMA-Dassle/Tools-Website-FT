@@ -59,6 +59,9 @@ export function aGuestSurvey(overrides: Partial<GuestSurveyRow> = {}): GuestSurv
     completedAt: null,
     expiresAt: "2026-05-27T20:00:00.000Z",
     createdAt: "2026-05-20T20:00:00.000Z",
+    reviewClickCount: 0,
+    reviewFirstClickAt: null,
+    reviewLastClickAt: null,
     ...overrides,
   };
 }

@@ -39,12 +39,30 @@ say the visit went well.
 - [x] **Middleware dedupe** — `/review` + `/review/naples` now build their targets from
       `googleReviewUrl(...)` instead of duplicating the two place ids inline. Behavior
       identical (asserted in the unit test).
+- [x] **Click tracking on the survey row** (owner ask: "keep track of how many people click
+      it"). New `guest_surveys` columns `review_click_count` / `review_first_click_at` /
+      `review_last_click_at`, added to the DDL **plus idempotent ALTERs** so prod picks them
+      up on the next `ensureGuestSurveySchema()` — no migration step. Incremented by
+      `recordGuestSurveyReviewClick()` as a single atomic `SET count = count + 1` (the
+      increment happens in Postgres, so a double-tap or two open tabs can't lose a count).
+      **Awaited** in the route, unlike the fire-and-forget touch: a serverless teardown the
+      instant we return a redirect can drop a detached write, and this is the number ops
+      reads. Wrapped in try/catch — a lost count beats a broken link.
+      Counted rather than booleaned because the CTA opens in a new tab, so the reward screen
+      survives behind it and repeat taps are real.
+- [x] **Admin stats** — `getGuestSurveyStats` gains
+      `reviewClicks: { clickers, clicks, clickRate }` (clickers = distinct people, the
+      headline; `clickRate` divides by **completed**, not sent, because the CTA only exists
+      after submit), plus `reviewClickers` on `byDay` and `byCenter` so you can see which
+      center's guests actually review. `/api/admin/guest-survey/stats` spreads the object,
+      so it surfaces with no route change.
 - [x] Incidental: `theme.ts` extracted from `SurveyForm.tsx` so server + client can share
       the palette. Side effect — the terminal panels (`ThanksAlreadyPanel` / `ExpiredPanel`)
       were hardcoding the HeadPinz background even for FastTrax racing surveys; they now
       follow the brand theme like the form `Shell` already did.
-- [x] 37 units green (11 sentiment, 7 review-links); full suite 2873 green; tsc clean;
-      eslint exit 0; zero jsx-a11y in changed files; `next build` **compiled successfully**
+- [x] 49 units green (11 sentiment, 7 review-links, 12 review-route incl. hand-crafted-URL
+      bypass attempts and the counting-fails-still-redirects case); full suite 2885 green;
+      tsc clean; eslint exit 0; zero jsx-a11y in changed files; `next build` **compiled successfully**
       (verifies the middleware edge bundle with its new imports + the client/server
       boundaries). Build's type-check step then failed only on pre-existing UNTRACKED WIP
       leftovers in the working tree (`scripts/*.mts` ×4, `VipExperiencePopupClient.tsx`) —
@@ -52,7 +70,9 @@ say the visit went well.
 
 **NOT smoked live.** Needs a two-brand phone pass: happy path → CTA appears → lands on the
 right listing; overall-5-but-one-area-2 → no CTA; reopened link → CTA; and
-`/api/surveys/<unhappy-token>/review` → home, not Google.
+`/api/surveys/<unhappy-token>/review` → home, not Google. Then confirm the count landed:
+`GET /api/admin/guest-survey/stats` → `reviewClicks.clickers` incremented (and
+`review_click_count` on the row), which also proves the idempotent ALTERs ran against prod.
 
 **FastTrax caveat (owner decision).** FastTrax has no Google place id, so it uses an
 owner-supplied Google **search-results** URL verbatim — it opens the reviews PANEL, not the
