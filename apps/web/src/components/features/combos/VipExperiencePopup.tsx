@@ -60,7 +60,9 @@ function legToStop(leg: ComboLeg): VipPopupStop | null {
     const starter = leg.tier === "starter";
     return {
       name: `${leg.tier.charAt(0).toUpperCase()}${leg.tier.slice(1)} Race`,
-      note: starter ? "Qualify on the big track" : "Come back and beat your time",
+      // Say what the leg is FOR. The Starter gates the second race, and that is
+      // the one thing a guest actually needs to know before booking.
+      note: starter ? "Qualify for race two" : "Beat your Starter time",
       venue: "FastTrax",
       accent: "track",
     };
@@ -68,7 +70,7 @@ function legToStop(leg: ComboLeg): VipPopupStop | null {
   if (leg.kind === "bowling") {
     return {
       name: `${hours(leg.durationMinutes)} ${leg.vip ? "VIP " : ""}Bowling`,
-      note: leg.vip ? "Your own semi-private suite" : "Your lane, your crew",
+      note: leg.vip ? "Semi-private VIP suite" : "Your own lane",
       venue: "HeadPinz",
       accent: "lanes",
     };

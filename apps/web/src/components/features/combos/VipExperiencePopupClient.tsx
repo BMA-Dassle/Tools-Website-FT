@@ -173,7 +173,7 @@ export function VipExperiencePopupClient({ content }: { content: VipPopupContent
   if (!open || suppressed) return null;
 
   return (
-    <div className="fixed inset-0 z-[130] flex items-end justify-center sm:items-center">
+    <div className="fixed inset-0 z-[130] flex items-center justify-center">
       <button
         type="button"
         aria-label="Dismiss"
@@ -260,8 +260,8 @@ export function VipExperiencePopupClient({ content }: { content: VipPopupContent
             {/* Dropped below `sm` — the sheet needs the height more than it
                 needs this line, and the headline plus the rail already say it. */}
             <p className="-mt-[3px] hidden max-w-[54ch] text-[13.5px] leading-[1.5] text-[#bdb7a8] sm:block">
-              The <strong className="font-semibold text-white">{content.name}</strong> runs your
-              whole night across both buildings — and it books as one reservation, on one bill.
+              The <strong className="font-semibold text-white">{content.name}</strong> is one
+              booking for both buildings. Pick a start time and we schedule the rest.
             </p>
 
             <Rail stops={content.stops} />
@@ -270,17 +270,20 @@ export function VipExperiencePopupClient({ content }: { content: VipPopupContent
             {/* Table-stakes inclusions. The sheet gets the short form on one
                 line; the vouchers above are what actually differentiates. */}
             <p className="border-t border-white/10 pt-1.5 text-[9.5px] leading-[1.35] text-[#8d887b] sm:pt-[11px] sm:text-[11.5px] sm:leading-[1.5]">
-              <b className="font-semibold text-[#bdb7a8]">In the price too:</b>{" "}
-              <span className="sm:hidden">license, POV video, shoes &amp; chips.</span>
+              <b className="font-semibold text-[#bdb7a8]">Also included:</b>{" "}
+              <span className="sm:hidden">racing license, POV video, shoes, chips &amp; salsa.</span>
               <span className="hidden sm:inline">
-                racing license, POV race video, bowling shoes and chips &amp; salsa.
+                racing license, POV race video, bowling shoes, chips &amp; salsa.
               </span>
             </p>
           </div>
 
           {/* Pinned footer — outside the scroll area, so the button is never
               something you have to scroll to find. */}
-          <div className="shrink-0 px-[15px] pb-[calc(0.7rem_+_env(safe-area-inset-bottom))] pt-1 sm:px-6 sm:pb-[20px] sm:pt-2">
+          {/* No safe-area padding: this app does not set viewport-fit=cover, so
+              env(safe-area-inset-*) is always 0 here — and the card is centred
+              with a margin, not flush to the bottom edge. */}
+          <div className="shrink-0 px-[15px] pb-3 pt-1 sm:px-6 sm:pb-[20px] sm:pt-2">
             <Link
               href={content.href}
               onClick={dismiss}
@@ -299,7 +302,7 @@ export function VipExperiencePopupClient({ content }: { content: VipPopupContent
               onClick={dismiss}
               className="mt-2 hidden w-full text-center text-[12px] text-[#8d887b] underline decoration-[#bdb7a859] underline-offset-[3px] transition-colors hover:text-[#bdb7a8] sm:block"
             >
-              Maybe another night
+              No thanks
             </button>
             <p className="mt-1.5 text-center text-[9.5px] leading-[1.4] tabular-nums text-[#6f6a5f] sm:mt-2 sm:text-[10.5px] sm:leading-[1.5]">
               {/* The sheet's medallion has no room for the day tier, so it lands
@@ -313,17 +316,14 @@ export function VipExperiencePopupClient({ content }: { content: VipPopupContent
         </div>
       </div>
 
+      {/* One keyframe set for both breakpoints now that the card is centred at
+          every size — a translateY rise reads as a bottom sheet, which this no
+          longer is. */}
       <style>{`
         @keyframes vipFade { from { opacity: 0 } to { opacity: 1 } }
         @keyframes vipRise {
-          from { opacity: 0; transform: translateY(26px) }
-          to   { opacity: 1; transform: translateY(0) }
-        }
-        @media (min-width: 640px) {
-          @keyframes vipRise {
-            from { opacity: 0; transform: scale(.965) }
-            to   { opacity: 1; transform: scale(1) }
-          }
+          from { opacity: 0; transform: scale(.965) }
+          to   { opacity: 1; transform: scale(1) }
         }
       `}</style>
     </div>
@@ -456,7 +456,7 @@ function Rail({ stops }: { stops: VipPopupStop[] }) {
       {/* Hidden on the sheet: the gold dots and the two-venue diptych already
           read as "here is the plan", and the label costs a whole line. */}
       <p className="mb-1.5 hidden text-[9px] font-semibold uppercase tracking-[.2em] text-[#8d887b] sm:mb-[7px] sm:block">
-        Your booked times
+        Your schedule
       </p>
       <ol className="relative grid grid-cols-3">
         <span
