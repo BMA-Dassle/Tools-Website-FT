@@ -2,6 +2,7 @@ import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
 import { listAlternatives } from "@/lib/alternatives-data";
 import { getAllPosts } from "@/lib/blog/posts";
+import { DEAL_CATALOG, dealIsSellable } from "~/features/deals";
 
 /**
  * Per-domain sitemap. Both fasttraxent.com and headpinz.com hit the same
@@ -138,6 +139,32 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified: new Date(`${p.meta.updatedAt ?? p.meta.publishedAt}T00:00:00Z`),
       changeFrequency: "monthly" as const,
       priority: 0.65,
+    })),
+    // Prepaid deal packs. Unlinked from every nav and footer on purpose — you
+    // cannot browse to them — but indexable, because they have to rank for
+    // "laser tag deal fort myers" as well as serve paid clicks. The sitemap is
+    // therefore their ONLY discovery path.
+    //
+    // Gated on dealIsSellable so listing follows the product: a deal with no
+    // Square catalog id cannot be bought, and indexing a page that answers
+    // "on sale shortly" earns a thin-content impression and a wasted crawl. Fill
+    // the catalog id in and the URLs appear here on the next request — the
+    // launch act is one field, not a second edit to remember.
+    ...(DEAL_CATALOG.some(dealIsSellable)
+      ? [
+          {
+            url: `${hp}/deals`,
+            lastModified: now,
+            changeFrequency: "weekly" as const,
+            priority: 0.8,
+          },
+        ]
+      : []),
+    ...DEAL_CATALOG.filter(dealIsSellable).map((d) => ({
+      url: `${hp}/deals/${d.slug}`,
+      lastModified: now,
+      changeFrequency: "weekly" as const,
+      priority: 0.85,
     })),
   ];
 

@@ -1,0 +1,235 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+
+/**
+ * Deal-pack sales board.
+ *
+ * Deliberately small. It answers the three questions ops will actually have —
+ * how many sold, did anyone's voucher fail to send, and can you resend it — and
+ * nothing else. Money movement is not a button here: a Square refund has to be
+ * itemised through a return order, so voiding vouchers and refunding a card stay
+ * two separate, deliberate acts.
+ */
+
+interface Purchase {
+  id: number;
+  dealSlug: string;
+  locationKey: string;
+  qty: number;
+  totalCents: number;
+  buyerName: string | null;
+  buyerEmail: string;
+  buyerPhone: string | null;
+  status: string;
+  codes: string[];
+  utm: Record<string, string> | null;
+  lastError: string | null;
+  refundedAt: string | null;
+  createdAt: string;
+}
+
+interface Totals {
+  slug: string;
+  name: string;
+  packsSold: number;
+  grossCents: number;
+  refunded: number;
+  unfulfilled: number;
+}
+
+const money = (c: number) => `$${(c / 100).toFixed(2)}`;
+
+/** Rows needing attention get colour; everything else stays quiet. */
+function statusTone(p: Purchase): string {
+  if (p.refundedAt) return "text-white/35 line-through";
+  if (p.status === "charge_failed") return "text-red-300";
+  if (p.status === "charged" || p.status === "minted") return "text-amber-300";
+  if (p.status === "sent") return "text-emerald-300";
+  return "text-white/50";
+}
+
+export default function DealsAdminClient({ token }: { token: string }) {
+  const [purchases, setPurchases] = useState<Purchase[]>([]);
+  const [totals, setTotals] = useState<Totals[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  /**
+   * Every state write happens AFTER the first await, so this is safe to call
+   * straight from an effect — a synchronous setState in an effect body cascades a
+   * render, which is what react-hooks/set-state-in-effect is warning about.
+   * `loading` already starts true for the first fetch, and a refresh after
+   * resend/void keeps the table on screen (that action has its own row spinner).
+   */
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/admin/deals?token=${encodeURIComponent(token)}`);
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || "Could not load purchases.");
+      setPurchases(data.purchases as Purchase[]);
+      setTotals(data.totals as Totals[]);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load purchases.");
+    } finally {
+      setLoading(false);
+    }
+  }, [token]);
+
+  // Initial load. The rule flags any setState reachable from an effect, which
+  // every data-fetching boundary trips — see the identical documented
+  // suppression in DiscountCodesClient. Nothing here writes state before the
+  // first await, so there is no cascading render to avoid; the rule is a
+  // heuristic, not a correctness gate for this shape.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  }, [load]);
+
+  async function act(purchaseId: number, action: "resend" | "void") {
+    const reason =
+      action === "void"
+        ? window.prompt("Why are these vouchers being voided? (recorded on the purchase)")
+        : null;
+    if (action === "void" && (!reason || reason.trim().length < 3)) return;
+    setBusyId(purchaseId);
+    setNote(null);
+    try {
+      const res = await fetch("/api/admin/deals", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action, token, purchaseId, reason: reason?.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || "That didn't work.");
+      setNote(data.note ?? (action === "resend" ? "Sent." : "Voided."));
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "That didn't work.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-[#0a1628] px-4 py-8 font-[family-name:var(--font-admin-poppins)] text-white sm:px-8">
+      <h1 className="text-2xl font-bold">Deal packs</h1>
+      <p className="mt-1 text-sm text-white/50">Prepaid voucher bundles sold on headpinz.com/deals</p>
+
+      {/* Rollup */}
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        {totals.map((t) => (
+          <div key={t.slug} className="rounded-xl border border-white/12 bg-white/[0.04] p-5">
+            <h2 className="font-bold">{t.name}</h2>
+            <p className="mt-2 text-3xl font-bold">{t.packsSold}</p>
+            <p className="text-sm text-white/50">
+              packs · {money(t.grossCents)} gross
+              {t.refunded > 0 ? ` · ${t.refunded} refunded` : ""}
+            </p>
+            {t.unfulfilled > 0 && (
+              <p className="mt-2 text-sm text-amber-300">
+                {t.unfulfilled} awaiting codes or email — the reconcile cron retries every 30 min
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {error && (
+        <div className="mt-6 rounded-lg border border-red-400/40 bg-red-400/10 p-4 text-sm text-red-200">
+          {error}
+        </div>
+      )}
+      {note && (
+        <div className="mt-6 rounded-lg border border-emerald-400/40 bg-emerald-400/10 p-4 text-sm text-emerald-100">
+          {note}
+        </div>
+      )}
+
+      {/* Purchases */}
+      <div className="mt-8 overflow-x-auto">
+        <table className="w-full min-w-[900px] text-sm">
+          <thead>
+            <tr className="border-b border-white/15 text-left text-xs tracking-widest text-white/40 uppercase">
+              <th className="py-2 pr-4">When</th>
+              <th className="py-2 pr-4">Buyer</th>
+              <th className="py-2 pr-4">Deal</th>
+              <th className="py-2 pr-4">Qty</th>
+              <th className="py-2 pr-4">Paid</th>
+              <th className="py-2 pr-4">Status</th>
+              <th className="py-2 pr-4">Codes</th>
+              <th className="py-2 pr-4">Source</th>
+              <th className="py-2">
+                <span className="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {purchases.map((p) => (
+              <tr key={p.id} className="border-b border-white/8 align-top">
+                <td className="py-3 pr-4 whitespace-nowrap text-white/55">
+                  {new Date(p.createdAt).toLocaleString("en-US", { timeZone: "America/New_York" })}
+                </td>
+                <td className="py-3 pr-4">
+                  <div className="text-white">{p.buyerName ?? "—"}</div>
+                  <div className="text-xs text-white/45">{p.buyerEmail}</div>
+                  {p.buyerPhone && <div className="text-xs text-white/45">{p.buyerPhone}</div>}
+                </td>
+                <td className="py-3 pr-4 text-white/70">
+                  {p.dealSlug.replace("-game-card-pack", "")}
+                  <div className="text-xs text-white/40">{p.locationKey}</div>
+                </td>
+                <td className="py-3 pr-4 text-white/70">{p.qty}</td>
+                <td className="py-3 pr-4 whitespace-nowrap text-white/70">
+                  {money(p.totalCents)}
+                </td>
+                <td className={`py-3 pr-4 whitespace-nowrap ${statusTone(p)}`}>
+                  {p.refundedAt ? "voided" : p.status}
+                  {p.lastError && (
+                    <div className="mt-1 max-w-[220px] text-xs text-red-300/80">{p.lastError}</div>
+                  )}
+                </td>
+                <td className="py-3 pr-4 font-mono text-xs text-white/60">
+                  {p.codes.length === 0 ? "—" : p.codes.join(", ")}
+                </td>
+                <td className="py-3 pr-4 text-xs text-white/45">
+                  {p.utm
+                    ? [p.utm.utm_source, p.utm.utm_campaign].filter(Boolean).join(" / ") ||
+                      (p.utm.gclid ? "google ads" : "—")
+                    : "direct"}
+                </td>
+                <td className="py-3 whitespace-nowrap">
+                  <button
+                    type="button"
+                    disabled={busyId === p.id}
+                    onClick={() => void act(p.id, "resend")}
+                    className="mr-3 text-xs text-cyan-300 underline-offset-2 hover:underline disabled:opacity-40"
+                  >
+                    Resend
+                  </button>
+                  {!p.refundedAt && (
+                    <button
+                      type="button"
+                      disabled={busyId === p.id}
+                      onClick={() => void act(p.id, "void")}
+                      className="text-xs text-red-300 underline-offset-2 hover:underline disabled:opacity-40"
+                    >
+                      Void
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!loading && purchases.length === 0 && (
+          <p className="py-10 text-center text-white/40">No deal packs sold yet.</p>
+        )}
+        {loading && <p className="py-10 text-center text-white/40">Loading…</p>}
+      </div>
+    </main>
+  );
+}
