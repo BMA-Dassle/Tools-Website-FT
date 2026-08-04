@@ -72,3 +72,67 @@ export function findExternalRefunds(
   out.sort((a, b) => a.refund.createdAt.localeCompare(b.refund.createdAt));
   return out;
 }
+
+/* ───────────────────── deal packs (non-reservation sales) ───────────────── */
+
+/**
+ * The deal-pack half of the same problem.
+ *
+ * A refund against a `deal_purchases` payment matches no reservation, and
+ * `findExternalRefunds` DROPS unmatched refunds as "not one of ours". So until
+ * this existed, a human refunding a deal pack in the Square Dashboard was
+ * completely invisible — the same silent-zero-monitoring hole that was already
+ * fixed once for edit payments.
+ *
+ * Kept as a PARALLEL type rather than widening `ReservationLite` into a union:
+ * the card builder and every existing test are shaped around reservations, and
+ * an additive path cannot regress the rail that already works.
+ */
+export interface DealPurchaseLite {
+  id: number;
+  buyerName: string | null;
+  buyerEmail: string | null;
+  dealSlug: string;
+  totalCents: number;
+  refundedCents: number;
+}
+
+export interface ExternalDealRefund {
+  refund: RefundLite;
+  purchase: DealPurchaseLite;
+}
+
+/**
+ * Sanctioned = we recorded the id, full stop.
+ *
+ * NO legacy fallback, unlike the reservation rail. The `deal_refunds` ledger
+ * exists from the first line of this feature and every refund it issues writes
+ * its Square id there before resolving, so "we did this" is always answerable
+ * exactly. A cancelled-with-an-amount style heuristic here would only create a
+ * way for a real Dashboard refund to pass as ours.
+ */
+export function isSanctionedDealRefund(
+  refund: RefundLite,
+  recordedRefundIds: ReadonlySet<string>,
+): boolean {
+  return recordedRefundIds.has(refund.id);
+}
+
+/** Deal-pack refunds nobody in this system issued, oldest first. */
+export function findExternalDealRefunds(
+  refunds: RefundLite[],
+  purchasesByPaymentId: ReadonlyMap<string, DealPurchaseLite>,
+  recordedRefundIds: ReadonlySet<string>,
+): ExternalDealRefund[] {
+  const out: ExternalDealRefund[] = [];
+  for (const refund of refunds) {
+    // Failed/rejected refunds never moved money — nothing to yell about.
+    if (refund.status === "FAILED" || refund.status === "REJECTED") continue;
+    const purchase = purchasesByPaymentId.get(refund.paymentId);
+    if (!purchase) continue;
+    if (isSanctionedDealRefund(refund, recordedRefundIds)) continue;
+    out.push({ refund, purchase });
+  }
+  out.sort((a, b) => a.refund.createdAt.localeCompare(b.refund.createdAt));
+  return out;
+}
