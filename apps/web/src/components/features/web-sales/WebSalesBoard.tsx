@@ -19,6 +19,7 @@ import SaleDetailDrawer from "./SaleDetailDrawer";
 import SaleTable from "./SaleTable";
 import SummaryCards from "./SummaryCards";
 import WebSaleResendModal from "./modals/WebSaleResendModal";
+import WebSaleRefundModal from "./modals/WebSaleRefundModal";
 import WebSaleVoidModal from "./modals/WebSaleVoidModal";
 import { isProblemRow } from "./format";
 import { parseFilters, serializeFilters, toApiQuery, type BoardFilters } from "./filters";
@@ -84,11 +85,12 @@ export default function WebSalesBoard({
   );
   const [resendTarget, setResendTarget] = useState<SaleDetail | null>(null);
   const [voidTarget, setVoidTarget] = useState<SaleDetail | null>(null);
+  const [refundTarget, setRefundTarget] = useState<SaleDetail | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   /** Bumped after an action so the drawer refetches what it changed. */
   const [detailNonce, setDetailNonce] = useState(0);
 
-  const anyOverlayOpen = selectedSaleId !== null || resendTarget !== null || voidTarget !== null;
+  const anyOverlayOpen = selectedSaleId !== null || resendTarget !== null || voidTarget !== null || refundTarget !== null;
 
   // Modals are position:fixed and contribute nothing to scrollHeight, so the
   // portal iframe would collapse under one without this.
@@ -356,6 +358,7 @@ export default function WebSalesBoard({
           onAction={(action, detail) => {
             if (action === "resend") setResendTarget(detail);
             if (action === "void") setVoidTarget(detail);
+            if (action === "refund") setRefundTarget(detail);
           }}
         />
       )}
@@ -371,6 +374,20 @@ export default function WebSalesBoard({
           onSent={(note) => {
             setToast(note);
             setTimeout(() => setToast(null), 5000);
+            setDetailNonce((n) => n + 1);
+            void load();
+          }}
+        />
+      )}
+
+      {refundTarget && (
+        <WebSaleRefundModal
+          detail={refundTarget}
+          token={token}
+          onClose={() => setRefundTarget(null)}
+          onRefunded={(note) => {
+            setToast(note);
+            setTimeout(() => setToast(null), 8000);
             setDetailNonce((n) => n + 1);
             void load();
           }}

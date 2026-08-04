@@ -107,10 +107,36 @@ export const VoidSchema = ActionBase.extend({
   reason: z.string().trim().min(3).max(300),
 });
 
+export const RefundDryRunSchema = ActionBase.extend({
+  action: z.literal("refund_dryrun"),
+  destination: z.enum(["card", "gift_card"]),
+  /** `null` on mount = plan the default selection (every untouched pack). */
+  unitKeys: z.array(z.string().min(1).max(200)).max(100).nullable().default(null),
+});
+
+export const RefundExecuteSchema = ActionBase.extend({
+  action: z.literal("refund_execute"),
+  destination: z.enum(["card", "gift_card"]),
+  unitKeys: z.array(z.string().min(1).max(200)).min(1).max(100),
+  reason: z.string().trim().min(3).max(300),
+  /** sha256 hex of the plan that was displayed. Mismatch = 409 plan_stale. */
+  planHash: z.string().length(64),
+});
+
+/**
+ * Dry-run and execute are SEPARATE members, not one action with a flag.
+ *
+ * Splitting them lets zod enforce that executing requires a reason, a
+ * destination, a plan hash and a non-empty selection, while previewing requires
+ * none of it. A shared shape would push all four checks into the handler, where
+ * they are easier to forget on a money path.
+ */
 export const ActionSchema = z.discriminatedUnion("action", [
   ResendSchema,
   PreviewSchema,
   VoidSchema,
+  RefundDryRunSchema,
+  RefundExecuteSchema,
 ]);
 
 export type ActionInput = z.infer<typeof ActionSchema>;

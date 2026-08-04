@@ -38,6 +38,12 @@ import {
 } from "~/features/deals/data/deal-purchases-search";
 import { packLabel, packLegMap, packUnitKey, PackShapeError } from "~/features/deals/service/pack-legs";
 import { dealScheduleUrl, fulfilDealPurchase } from "~/features/deals/service/purchase";
+import {
+  DEAL_REFUND_REASON,
+  isReservedRefundReason,
+  type DealRefundPlan,
+} from "~/features/deals/service/refund-plan";
+import { planDealRefund, runDealRefund } from "~/features/deals/service/refund-service";
 import { getVoucherStatus, voidNativeVoucher } from "~/features/game-cards/service/native-voucher";
 import {
   emailPurchasedVouchers,
@@ -542,6 +548,39 @@ async function dealResend(row: DealPurchaseRow, args: ResendArgs): Promise<Resen
   };
 }
 
+/* ──────────────────────────────── refunds ──────────────────────────────── */
+
+/**
+ * Map the deal-specific plan onto the board's generic shape.
+ *
+ * The shell renders `RefundPlan` and knows nothing about packs; the deals plan
+ * knows nothing about the board. This is the only place the two meet, which is
+ * what keeps a future adapter free to have entirely different units.
+ */
+function toGenericPlan(plan: DealRefundPlan) {
+  return {
+    planHash: plan.planHash,
+    units: plan.units.map((u) => ({
+      key: u.unitKey,
+      label: u.label,
+      refundableCents: u.refundableCents,
+      spentLegLabels: u.spentLegLabels,
+      alreadyRefunded: u.alreadyRefunded,
+    })),
+    defaultUnitKeys: plan.defaultUnitKeys,
+    selectedUnitKeys: plan.selectedUnitKeys,
+    selectedTotalCents: plan.selectedTotalCents,
+    paidCents: plan.paidCents,
+    refundedCents: plan.refundedCents,
+    destinations: plan.destinations,
+    warnings: plan.warnings,
+    steps: plan.steps,
+    blocked: plan.blocked,
+  };
+}
+
+export { DEAL_REFUND_REASON };
+
 /* ───────────────────────────────── void ────────────────────────────────── */
 
 /**
@@ -631,7 +670,7 @@ export const dealsAdapter: WebSaleAdapter = {
    * here even when a row declares the capability, so a half-built verb can never
    * surface a button that does nothing.
    */
-  actions: ["resend", "void"],
+  actions: ["resend", "refund", "void"],
   resendChannels: ["email", "sms", "both"],
 
   async list(q: SaleListQuery): Promise<WebSaleRow[]> {
@@ -707,6 +746,82 @@ export const dealsAdapter: WebSaleAdapter = {
     const row = await getDealPurchase(Number(args.ref));
     if (!row) throw new Error("not_found");
     return dealResend(row, args);
+  },
+
+  async planRefund({ ref, unitKeys }) {
+    const row = await getDealPurchase(Number(ref));
+    if (!row) throw new Error("not_found");
+    // Destination is chosen in the modal; the plan is built for the card rail and
+    // re-planned when the operator picks the gift card, because the two differ in
+    // both warnings and available destinations.
+    return toGenericPlan(await planDealRefund({ row, destination: "card", unitKeys }));
+  },
+
+  async executeRefund(a) {
+    const row = await getDealPurchase(Number(a.ref));
+    if (!row) throw new Error("not_found");
+    if (isReservedRefundReason(a.reason)) {
+      // Another domain's immutable journal key. Refusing here is cheaper than a
+      // manual correction that cannot be made.
+      throw new Error(
+        "That reason is reserved for reservation/group deposits — use different wording.",
+      );
+    }
+
+    // REBUILD the plan from fresh reads and compare the hash. The spent set is
+    // live: a guest can redeem the very code being refunded while the modal is
+    // open, and this is the only thing that notices.
+    const fresh = await planDealRefund({
+      row,
+      destination: a.destination,
+      unitKeys: a.unitKeys,
+      override: true,
+    });
+    if (fresh.blocked) throw new Error(fresh.blocked.message);
+    if (fresh.planHash !== a.planHash) {
+      throw new Error("plan_stale");
+    }
+
+    const result = await runDealRefund({
+      row,
+      plan: fresh,
+      reason: a.reason,
+      actor: a.actor,
+      override: true,
+    });
+
+    await recordSaleAction({
+      source: "deals",
+      ref: String(row.id),
+      action: "refund",
+      actor: a.actor,
+      detail: {
+        destination: result.destination,
+        cents: result.refundedCents,
+        packs: fresh.selectedPackIndexes.length,
+        squareRefundIds: result.squareRefundIds,
+        gan: result.giftCard?.gan ?? null,
+        reason: a.reason,
+      },
+    });
+
+    return {
+      refundIds: result.squareRefundIds,
+      refundedCents: result.refundedCents,
+      destination: result.destination,
+      ...(result.giftCard
+        ? {
+            giftCard: {
+              giftCardId: result.giftCard.giftCardId,
+              gan: result.giftCard.gan,
+              amountCents: result.refundedCents,
+            },
+          }
+        : {}),
+      voidedLegs: result.voidedCodes.length,
+      notified: { email: false, sms: false },
+      warnings: result.warnings,
+    };
   },
 
   async void({ ref, reason, actor }) {

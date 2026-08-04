@@ -17,6 +17,7 @@
 import { neon } from "@neondatabase/serverless";
 import redis from "@/lib/redis";
 import { sendAdaptiveCardToChannel } from "@/lib/teams-bot";
+import { recordedDealRefundIds } from "~/features/deals/data/deal-refunds-db";
 import {
   DAILY_SEND_CAP,
   DEDUP_TTL_S,
@@ -172,6 +173,16 @@ async function recordedCascadeRefundIds(): Promise<Set<string>> {
     );
   } catch (err) {
     console.warn("[refund-alerts] edit-events read failed:", err);
+  }
+  try {
+    // Deal-pack refunds. WITHOUT this the watchdog yells at its own refunds —
+    // the same silent-zero-monitoring hole that was already fixed once for edit
+    // payments. Any NEW refund ledger must be added here, or it gets flagged as
+    // an unsanctioned Dashboard refund every single time.
+    for (const id of await recordedDealRefundIds(60)) out.add(id);
+  } catch (err) {
+    // Table may not exist yet in a fresh env — treat as no recorded ids.
+    console.warn("[refund-alerts] deal-refunds read failed:", err);
   }
   return out;
 }

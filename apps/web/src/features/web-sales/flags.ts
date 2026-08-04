@@ -32,3 +32,25 @@ export function disabledSaleSources(): Set<SaleSourceId> {
   );
   return new Set(SALE_SOURCE_IDS.filter((id) => wanted.has(id)));
 }
+
+/**
+ * Money movement, all destinations.
+ *
+ * OFF still renders the full refund plan — it only refuses to execute. Learning
+ * a feature is disabled at the moment you click the money button is the worst
+ * possible time to find out; the preview says so up front instead.
+ */
+export function webSalesRefundsEnabled(): boolean {
+  return process.env.WEB_SALES_REFUNDS !== "false";
+}
+
+/**
+ * The cross-tender gift-card destination specifically.
+ *
+ * Separate from the master switch because it is the newer, stranger rail: it is
+ * the one refund Square will not let us itemize, so being able to drop just that
+ * destination while leaving card refunds working is worth its own flag.
+ */
+export function webSalesGiftCardRefundEnabled(): boolean {
+  return process.env.WEB_SALES_REFUND_TO_GC !== "false";
+}

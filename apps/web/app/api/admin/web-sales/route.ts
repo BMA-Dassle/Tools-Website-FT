@@ -31,10 +31,11 @@ export const maxDuration = 120;
  *   POST { action: "preview_resend" }     → what the message would say
  *   POST { action: "resend" }             → send it, optionally somewhere else
  *   POST { action: "void" }               → kill the value, leave the money
+ *   POST { action: "refund_dryrun" }      → what a refund would do (no money)
+ *   POST { action: "refund_execute" }     → do it
  *
- * The refund verbs arrive with the PRs that implement them. An action
- * this build does not know is a 400 from the zod union rather than a stub that
- * looks like it did something.
+ * An action this build does not know is a 400 from the zod union rather than a
+ * stub that looks like it did something.
  *
  * AUTH is `ADMIN_CAMERA_TOKEN` on the query string, matching every sibling admin
  * route. `middleware.ts` already gates `/api/admin/*` on the same token and fails
@@ -211,6 +212,36 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, preview });
     }
 
+    if (parsed.data.action === "refund_dryrun") {
+      if (!adapter.planRefund) {
+        return NextResponse.json({ ok: false, error: "unsupported" }, { status: 409 });
+      }
+      // ALWAYS allowed, even with the kill switch off — the plan carries
+      // `blocked` so the refusal is visible in the preview rather than at the
+      // moment someone clicks the money button.
+      const plan = await adapter.planRefund({
+        ref: parsed.data.ref,
+        unitKeys: parsed.data.unitKeys,
+      });
+      return NextResponse.json({ ok: true, plan });
+    }
+
+    if (parsed.data.action === "refund_execute") {
+      if (!adapter.executeRefund || !adapter.actions.includes("refund")) {
+        return NextResponse.json({ ok: false, error: "unsupported" }, { status: 409 });
+      }
+      const result = await adapter.executeRefund({
+        ref: parsed.data.ref,
+        unitKeys: parsed.data.unitKeys,
+        destination: parsed.data.destination,
+        reason: parsed.data.reason,
+        planHash: parsed.data.planHash,
+        notifyGuest: false,
+        actor,
+      });
+      return NextResponse.json({ ok: true, result });
+    }
+
     if (parsed.data.action === "void") {
       if (!adapter.void || !adapter.actions.includes("void")) {
         return NextResponse.json({ ok: false, error: "unsupported" }, { status: 409 });
@@ -241,6 +272,12 @@ export async function POST(req: NextRequest) {
     const message = err instanceof Error ? err.message : String(err);
     if (message === "not_found") {
       return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+    }
+    // The plan the operator saw no longer describes reality — usually a guest
+    // redeemed a leg while the modal was open. The client refetches and shows
+    // the new picture instead of executing against a stale world.
+    if (message === "plan_stale") {
+      return NextResponse.json({ ok: false, error: "plan_stale" }, { status: 409 });
     }
     console.error("[web-sales] action failed:", err);
     return NextResponse.json({ ok: false, error: "action_failed", detail: message }, { status: 502 });
