@@ -296,14 +296,59 @@ export default async function DealPage({
                 </li>
               </ul>
 
+              {/* Mobile-only jump to the panel. On desktop the panel is already
+                  beside this copy, so a "get this deal" button that scrolls to
+                  something in view is noise. */}
               <a
                 href="#buy"
-                className="mt-9 inline-flex items-center gap-2 rounded-full px-8 py-4 text-sm font-bold tracking-widest uppercase transition hover:brightness-110"
+                className="mt-9 inline-flex items-center gap-2 rounded-full px-8 py-4 text-sm font-bold tracking-widest uppercase transition hover:brightness-110 lg:hidden"
                 style={{ background: accent, color: "#00041b" }}
               >
                 Get this deal
                 <IconArrowRight size={17} />
               </a>
+
+              {/* ── What's in the pack ────────────────────────────────────
+                  Lives HERE, beside the price, rather than in a section of its
+                  own below the fold. Two reasons, one of them visual: the buy
+                  panel is a tall form, and without this the desktop hero ran a
+                  short copy column against a ~420px-taller panel, leaving half
+                  the screen as empty photograph. The other is that this is the
+                  argument for the price — it belongs next to the number, not a
+                  scroll away from it. Stacked rather than side-by-side so the
+                  column fills the panel's height instead of staying squat. */}
+              <div className="mt-10 space-y-3 lg:mt-12">
+                <h2 className="text-xs font-bold tracking-widest text-white/45 uppercase">
+                  What&apos;s in the pack
+                </h2>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+                  <div className="rounded-2xl border border-white/12 bg-[#00041b]/60 p-5 backdrop-blur-sm">
+                    <div className="flex items-center gap-2.5">
+                      <IconBolt size={22} style={{ color: accent }} />
+                      <h3 className="font-bold text-white">
+                        2 × {attraction?.name ?? deal.scheduleSlug}
+                      </h3>
+                    </div>
+                    <p className="mt-2 text-sm text-white/60">
+                      {attraction?.description}. {attraction?.durationLabel ?? "Timed session"} each
+                      — book a time right after checkout or whenever suits you.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-white/12 bg-[#00041b]/60 p-5 backdrop-blur-sm">
+                    <div className="flex items-center gap-2.5">
+                      <IconDeviceGamepad2 size={22} style={{ color: accent }} />
+                      <h3 className="font-bold text-white">
+                        {cardItems.length} × game cards · ${playDollars} of play
+                      </h3>
+                    </div>
+                    <p className="mt-2 text-sm text-white/60">
+                      Scan your code at any kiosk and it prints the cards with the credit already
+                      loaded. The cards themselves are on us — no $2 activation fee, unlike buying
+                      one at the counter.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Buy panel — sticky alongside the hero on desktop. */}
@@ -323,34 +368,11 @@ export default async function DealPage({
         </div>
       </section>
 
-      {/* ── What you get ─────────────────────────────────────────────── */}
-      <section className="mx-auto max-w-6xl px-4 py-16">
-        <h2 className="font-display text-3xl text-white sm:text-4xl">What&apos;s in the pack</h2>
-        <div className="mt-8 grid gap-4 sm:grid-cols-2">
-          <div className="rounded-2xl border border-white/12 bg-white/[0.04] p-6">
-            <IconBolt size={26} style={{ color: accent }} />
-            <h3 className="mt-3 text-lg font-bold text-white">
-              2 × {attraction?.name ?? deal.scheduleSlug}
-            </h3>
-            <p className="mt-2 text-sm text-white/60">
-              {attraction?.description}. {attraction?.durationLabel ?? "Timed session"} each — book a
-              time right after checkout or whenever suits you.
-            </p>
-          </div>
-          <div className="rounded-2xl border border-white/12 bg-white/[0.04] p-6">
-            <IconDeviceGamepad2 size={26} style={{ color: accent }} />
-            <h3 className="mt-3 text-lg font-bold text-white">
-              {cardItems.length} × game cards · ${playDollars} of play
-            </h3>
-            <p className="mt-2 text-sm text-white/60">
-              Scan your code at any kiosk and it prints the cards with the credit already loaded. The
-              cards themselves are on us — no $2 activation fee, unlike buying one at the counter.
-            </p>
-          </div>
-        </div>
-
+      {/* ── What it's worth ──────────────────────────────────────────── */}
+      <section className="mx-auto max-w-4xl px-4 py-16">
+        <h2 className="font-display text-3xl text-white sm:text-4xl">What it&apos;s worth</h2>
         {/* Value table — the argument for the strikethrough, itemised. */}
-        <div className="mt-10 overflow-x-auto">
+        <div className="mt-8 overflow-x-auto">
           <table className="w-full min-w-[420px] text-sm">
             <caption className="pb-3 text-left text-xs tracking-widest text-white/40 uppercase">
               What this costs à la carte

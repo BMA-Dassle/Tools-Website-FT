@@ -689,7 +689,7 @@ export default function DealBuyPanel({
                 {giftDate && giftDate !== giftWindow.min
                   ? `We'll email it the morning of ${formatGiftDate(giftDate)}.`
                   : "We'll send it as soon as you pay."}{" "}
-                The voucher is good for {expiresMonths} months from today either way.
+                The voucher is good for {expiresMonths}&nbsp;months from today either way.
               </p>
             </div>
           </div>
@@ -705,10 +705,15 @@ export default function DealBuyPanel({
           className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--deal-accent)]"
         />
         <span>
-          I understand this is a prepaid voucher: it&apos;s good for {expiresMonths} months from
-          today at the HeadPinz I picked, each item on it can be used once, and it isn&apos;t
-          refundable once redeemed. Laser tag and gel blaster run as timed sessions subject to
-          availability.
+          {/* &nbsp; is deliberate, and load-bearing. A plain space here renders as
+              "12months": the text node after {expiresMonths} spans several source
+              lines, so JSX line-normalisation eats its leading whitespace. It is
+              also the typographically correct character — a quantity should never
+              be split from its unit across a line break. */}
+          I understand this is a prepaid voucher: it&apos;s good for {expiresMonths}&nbsp;months
+          from today at the HeadPinz I picked, each item on it can be used once, and it
+          isn&apos;t refundable once redeemed. Laser tag and gel blaster run as timed sessions
+          subject to availability.
         </span>
       </label>
 
