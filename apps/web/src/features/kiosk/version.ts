@@ -15,6 +15,20 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.16.7 — "None of these" no longer eats the phone + email (owner 2026-08-04:
+ *         "when new player does search to see if you have existing account then
+ *         you click none of these and it returns — it removes mobile phone and
+ *         email"). The search-before-create gate interrupts a submit the guest
+ *         has ALREADY filled in; the form is still mounted behind the picker
+ *         with every field intact, but "None of these" ran the license-SCAN
+ *         path — resetForm() then refill from name+DOB — so the two fields the
+ *         scan can't supply came back blank, and the guest re-typed them (or
+ *         hit the phone/email validation wall). The picker now knows which door
+ *         it came in by (`fromForm`): from the form it just RESUMES the submit
+ *         the gate interrupted, so the create runs with what was typed; from a
+ *         license scan it still builds the form. Fixed in BOTH roster twins —
+ *         KioskPeopleStep (booking) and KioskPartyManager (standalone race-pack
+ *         + check-in flows).
  * 1.16.6 — three owner notes from the live pass (2026-08-04):
  *           · the single-race row was misleading: it read "Starter race / Pay for
  *             the races you run today / $25.98", but that row is ALSO the only way
@@ -758,7 +772,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.16.6";
+export const KIOSK_VERSION = "1.16.7";
 
 let bootVersion: string | null = null;
 let captured = false;

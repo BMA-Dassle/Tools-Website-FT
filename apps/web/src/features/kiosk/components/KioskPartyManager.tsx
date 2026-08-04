@@ -328,6 +328,9 @@ export function KioskPartyManager({
   const [licenseMatches, setLicenseMatches] = useState<{
     license: AamvaLicense | null;
     matches: LicenseMatch[];
+    /** Gate opened from the typed New-player form (not a license scan) — the
+     *  form is still mounted underneath with the guest's phone + email. */
+    fromForm?: boolean;
   } | null>(null);
   const [scanNote, setScanNote] = useState<string | null>(null);
   // Search-before-create gate (owner 2026-08-01 — see KioskPeopleStep twin):
@@ -977,9 +980,13 @@ export function KioskPartyManager({
           return;
         }
         if (verdict.kind === "pick") {
+          // See the KioskPeopleStep twin: `fromForm` keeps "None of these" from
+          // rebuilding the form out of name+DOB and losing the typed phone +
+          // email (owner 2026-08-04).
           setLicenseMatches({
             license: { firstName: gateFirst, lastName: gateLast, dobIso: gateDobIso },
             matches: verdict.matches,
+            fromForm: true,
           });
           return;
         }
@@ -2072,12 +2079,19 @@ export function KioskPartyManager({
           }}
           onNewInstead={() => {
             const lic = licenseMatches.license;
+            const fromForm = licenseMatches.fromForm;
             setLicenseMatches(null);
             if (lic) {
               // "None of these" is an explicit decision — the next submit of
               // this EXACT identity creates instead of re-running the gate.
               matchSkipKeyRef.current = matchGateKey(lic.firstName, lic.lastName, lic.dobIso);
-              openNewFormFromLicense(lic);
+              if (fromForm) {
+                // The gate interrupted a submit the guest had already filled
+                // out — answering it resumes that submit (KioskPeopleStep twin).
+                void submitNew();
+              } else {
+                openNewFormFromLicense(lic);
+              }
             } else {
               // Member QR path — no scanned name/DOB to prefill; blank form.
               resetForm();
