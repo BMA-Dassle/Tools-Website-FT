@@ -573,14 +573,43 @@ export async function confirmRaceOrder(billId: string): Promise<string | null> {
 // ── cancel: cancel the BMI bill ─────────────────────────────────────────
 
 /**
+ * Did the cancel actually take? A cancelled bill carries no lines. This is the
+ * only signal worth trusting: BMI's cancel replies with a bare `true`, so any
+ * mismatch between what the proxy forwards and what this file expects turns a
+ * SUCCESSFUL cancel into a logged failure (that is exactly what happened —
+ * 2026-08-04, bill 63000000007234468: three "not confirmed" attempts, while the
+ * Office project showed products:0 and all 13 schedule rows at stateId -4, i.e.
+ * cancelled by us and holding nothing). Returns null when the read itself is
+ * unavailable — never guess from an unreachable endpoint.
+ */
+async function billIsEmpty(billId: string, clientKey?: string): Promise<boolean | null> {
+  try {
+    const params = new URLSearchParams({ endpoint: `order/${billId}/overview` });
+    if (clientKey) params.set("clientKey", clientKey);
+    const res = await fetch(`/api/bmi?${params}`);
+    if (!res.ok) return null;
+    const data = (await res.json().catch(() => null)) as { lines?: unknown[] } | null;
+    return Array.isArray(data?.lines) ? data.lines.length === 0 : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Cancel the whole BMI bill (releases every held heat/slot + the attached
- * contact). Returns true only when BMI confirmed the cancel — the abandon
- * paths (kiosk start-over/idle-timeout, web start-new-booking) depend on this
- * landing, or the reservation keeps blocking its heat until BMI's ~20-min
- * auto-expire. So: verify the response (`{success:true}`), retry transient
- * failures, target the bill's own tenant via `clientKey`, and send with
- * `keepalive` so a navigation (kiosk self-update hard reload) can't kill an
- * in-flight attempt. Never throws.
+ * contact). The abandon paths (kiosk start-over/idle-timeout, web
+ * start-new-booking) depend on this landing, or the reservation keeps blocking
+ * its heat until BMI's ~20-min auto-expire. So: retry transient failures, target
+ * the bill's own tenant via `clientKey`, send with `keepalive` so a navigation
+ * (kiosk self-update hard reload) can't kill an in-flight attempt — and when the
+ * RESPONSE never confirms, check the EFFECT before crying failure.
+ *
+ * BMI answers a cancel with raw `true`. The proxy JSON-parses that, so the body
+ * is the boolean `true`, not `{success:true}` — this function used to demand the
+ * latter and therefore could never return true, no matter how well the cancel
+ * worked. Both shapes are accepted now (a kiosk tab runs stale JS for days, so
+ * old client + new proxy and vice versa both have to work), and the read-back
+ * below is the backstop for any future shape drift. Never throws.
  */
 export async function cancelRaceOrder(billId: string, clientKey?: string): Promise<boolean> {
   const params = new URLSearchParams({ endpoint: `bill/${billId}/cancel` });
@@ -589,15 +618,32 @@ export async function cancelRaceOrder(billId: string, clientKey?: string): Promi
   for (let i = 1; i <= attempts; i++) {
     try {
       const res = await fetch(`/api/bmi?${params}`, { method: "DELETE", keepalive: true });
-      const body = (await res.json().catch(() => null)) as { success?: boolean } | null;
-      if (res.ok && body?.success === true) return true;
+      const body: unknown = await res.json().catch(() => null);
+      const confirmed =
+        body === true ||
+        (typeof body === "object" && body !== null && (body as { success?: boolean }).success);
+      if (res.ok && confirmed) return true;
       console.warn(`[race.cancel] attempt ${i}/${attempts} not confirmed:`, billId, res.status);
     } catch (err) {
       console.warn(`[race.cancel] attempt ${i}/${attempts} failed:`, billId, err);
     }
     if (i < attempts) await new Promise((r) => setTimeout(r, 1000 * i));
   }
-  console.error("[race.cancel] bill cancel NOT confirmed after retries:", billId);
+  // Nothing confirmed — but "not confirmed" is not "not cancelled". Read the
+  // bill: empty means the cancel landed and only the acknowledgement was lost.
+  const empty = await billIsEmpty(billId, clientKey);
+  if (empty === true) {
+    console.warn(
+      "[race.cancel] no confirmation, but the bill is empty — cancel took effect:",
+      billId,
+    );
+    return true;
+  }
+  console.error(
+    "[race.cancel] bill cancel NOT confirmed after retries:",
+    billId,
+    empty === false ? "— bill STILL HAS LINES, heats remain held" : "(bill read unavailable)",
+  );
   return false;
 }
 

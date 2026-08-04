@@ -79,9 +79,55 @@ describe("cancelRaceOrder", () => {
   });
 
   it("gives up after 3 attempts and reports false — never throws", async () => {
+    // 3 cancel attempts + the read-back (also failing here → no verdict).
     fetchMock.mockResolvedValue(res({ success: false }, 500));
     expect(await withTimers(cancelRaceOrder("123"))).toBe(false);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  /**
+   * THE SHAPE BUG (2026-08-04). BMI answers a cancel with raw `true`; the proxy
+   * JSON-parses it, so the body is the boolean `true` — never `{success:true}`.
+   * Every test above mocked the shape the CODE wanted, so a suite that was fully
+   * green sat on top of a cancel that could never report success. Production
+   * logged "[race.cancel] bill cancel NOT confirmed after retries" on every
+   * kiosk start-over while the Office project showed the bill fully cancelled.
+   */
+  it("accepts BMI's bare `true` body — the shape the proxy actually returns", async () => {
+    fetchMock.mockResolvedValueOnce(res(true));
+    expect(await cancelRaceOrder("123")).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("bare `false` retries like success:false", async () => {
+    fetchMock.mockResolvedValueOnce(res(false)).mockResolvedValueOnce(res(true));
+    expect(await withTimers(cancelRaceOrder("123"))).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("no confirmation, but the bill reads EMPTY → the cancel took effect", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      url.includes("overview") ? res({ lines: [] }) : res(null, 502),
+    );
+    expect(await withTimers(cancelRaceOrder("123"))).toBe(true);
+    // 3 cancels then one overview read.
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock.mock.calls[3][0]).toContain("endpoint=order%2F123%2Foverview");
+  });
+
+  it("no confirmation and the bill STILL HAS LINES → false (heats really are held)", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      url.includes("overview") ? res({ lines: [{ orderItemId: "1" }] }) : res(null, 502),
+    );
+    expect(await withTimers(cancelRaceOrder("123"))).toBe(false);
+  });
+
+  it("the read-back honors the tenant", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      url.includes("overview") ? res({ lines: [] }) : res(null, 502),
+    );
+    await withTimers(cancelRaceOrder("123", "headpinznaples"));
+    expect(fetchMock.mock.calls[3][0]).toContain("clientKey=headpinznaples");
   });
 });
 
@@ -137,8 +183,19 @@ describe("abandonBooking", () => {
     expect(cancelCalls()).toHaveLength(2);
   });
 
-  it("reports false when the cancel never confirms", async () => {
+  it("an unconfirmed cancel over an EMPTY bill still counts as released", async () => {
+    // What the kiosk hit for real: the acknowledgement never arrived, but the
+    // bill holds nothing. Screaming "could not confirm hold release" here sent
+    // staff hunting for phantom holds (2026-08-04).
     route({ cancel: () => res({ success: false }) });
+    expect(await withTimers(abandonBooking(session({ bmiBillId: "99" })))).toBe(true);
+  });
+
+  it("reports false when the cancel never confirms AND lines survive", async () => {
+    route({
+      cancel: () => res({ success: false }),
+      overview: () => res({ lines: [{ name: "Race Heat", kind: 1 }] }),
+    });
     expect(await withTimers(abandonBooking(session({ bmiBillId: "99" })))).toBe(false);
   });
 
