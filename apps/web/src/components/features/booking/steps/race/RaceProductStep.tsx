@@ -21,6 +21,7 @@ import { eligiblePackages, getPackage } from "~/features/booking/service/package
 import { ComboUpsellCard } from "../combo/ComboUpsellCard";
 import { PackageCard } from "./PackageCard";
 import { RacePackTeaser, racePackTeaserVisible } from "./RacePackTeaser";
+import { payModeStepVisible } from "./RacePayModeStep";
 import {
   coveredMembersPreview,
   kioskRacePacksEnabled,
@@ -188,6 +189,10 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     "item" | "session" | "onChange" | "requestAdvance"
   >) => {
     const t = useT();
+    // Page 1 (RacePayModeStep) owns the bundles + credit packs when it exists —
+    // this screen is then purely "which race". Same seam the pay-mode step's own
+    // isVisible uses, so the two can't both claim (or both drop) them.
+    const payModeOwnsMoney = payModeStepVisible(item, session, category);
     const racersInCategory = racersOfCategory(session.party, category);
     const racerCount = racersInCategory.length;
 
@@ -245,6 +250,21 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
       return combineTrackVariants(filtered);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [item.date, racerType, racerCount, memberships.join("|")]);
+
+    // LOCKED TIERS are shown, not hidden (owner 2026-08-04: "show all of them
+    // but grey out the ones totally not available"). `products` above is already
+    // qualification-filtered, so a tier missing from it is a tier this party
+    // can't book yet — we still render it, greyed, with what unlocks it. The
+    // ladder is the reason the Ultimate Qualifier exists, so hiding the rungs
+    // hid the pitch. Derived from the EXISTING-racer catalog because the
+    // new-racer set is Starter-only by construction.
+    const tiersOfferedToday = useMemo(() => {
+      const all = productsForSchedule(scheduleForDate(item.date as string), "existing").filter(
+        (p) => p.category === category && (!p.packType || p.packType === "none"),
+      );
+      return [...new Set(all.map((p) => p.tier))].sort((a, b) => TIER_ORDER[a] - TIER_ORDER[b]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [item.date]);
 
     const sorted = [...products].sort((a, b) => {
       const ta = TIER_ORDER[a.tier];
@@ -490,7 +510,7 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
           </div>
         )}
 
-        {packages.length > 0 && (
+        {!payModeOwnsMoney && packages.length > 0 && (
           <div className="space-y-3">
             {packages.map((pkg) => (
               <div key={pkg.id} className="space-y-2">
@@ -576,7 +596,8 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
             still sells on every screen, and a covered racer (fresh pack via
             "Race today", or banked credits from any past visit) still gets the
             guidance + divider so the page reads as one directed step. */}
-        {packages.length === 0 &&
+        {!payModeOwnsMoney &&
+          packages.length === 0 &&
           (category === "adult" || !hasAdults) &&
           (racePackTeaserVisible(session) || showCoverageGuidance) && (
             <div className="space-y-3">
@@ -592,13 +613,32 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
             </div>
           )}
 
+        {payModeOwnsMoney && showCoverageGuidance && (
+          <CoverageBanner names={coveredNames} source={coverageSource} credits={bannerCredits} />
+        )}
+
         <div className="space-y-6" ref={singlesRef}>
           {selectedPkg && (
             <p className="text-xs leading-relaxed text-amber-400/75">
               Your {selectedPkg.name} includes your race — picking a single race below replaces it.
             </p>
           )}
-          {groupByTier(sorted).map(([tier, tierProducts]) => {
+          {(() => {
+            const bookable = new Map(groupByTier(sorted));
+            const rungs: RaceTier[] = tiersOfferedToday.length
+              ? tiersOfferedToday
+              : [...bookable.keys()];
+            return rungs;
+          })().map((tier) => {
+            const bookable = new Map(groupByTier(sorted));
+            const tierProducts = bookable.get(tier);
+            // Not qualified for this rung yet — show it greyed with what unlocks
+            // it, in its place on the ladder.
+            if (!tierProducts) {
+              return (
+                <LockedTierRung key={`locked-${tier}`} tier={tier} category={category} t={t} />
+              );
+            }
             // A tier carries at most one single race (Red+Blue collapsed by
             // combineTrackVariants, or a lone Mega/junior product) and at most
             // one 3-pack. They render as ONE card — the pack is a pricing
@@ -659,6 +699,57 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     );
   };
   return Component;
+}
+
+/**
+ * A tier the party can't book yet — rendered in place on the ladder, greyed,
+ * with the rung that unlocks it (owner 2026-08-04). No price and no tap target:
+ * quoting money for something unbuyable invites a "why can't I pick it" tap.
+ * The requirement comes from the ladder itself (Starter → Intermediate → Pro),
+ * so it stays true if a tier is ever added between them.
+ */
+function LockedTierRung({
+  tier,
+  category,
+  t,
+}: {
+  tier: RaceTier;
+  category: Category;
+  t: ReturnType<typeof useT>;
+}) {
+  const below: Record<RaceTier, RaceTier | null> = {
+    starter: null,
+    intermediate: "starter",
+    pro: "intermediate",
+  };
+  const needs = below[tier];
+  return (
+    <div aria-disabled className="opacity-45">
+      <div className="mb-2 flex items-center gap-2.5">
+        <span className={`text-xs font-bold tracking-[0.16em] uppercase ${TIER_HEADING[tier]}`}>
+          {TIER_LABEL[tier]}
+        </span>
+        <div className="h-px flex-1 bg-white/10" />
+        <span className="text-xs whitespace-nowrap text-white/35">{tierMeta(tier, category)}</span>
+      </div>
+      <div className="rounded-xl border border-dashed border-white/15 bg-white/[0.02] p-4">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-base font-bold text-white/70">
+            {t("raceTier.locked.title", { tier: TIER_LABEL[tier] })}
+          </span>
+          <span className="shrink-0 text-[11px] font-bold tracking-wider text-white/35 uppercase">
+            {t("raceTier.locked.badge")}
+          </span>
+        </div>
+        <p className="mt-1 text-xs leading-relaxed text-white/45">{TIER_DESCRIPTIONS[tier]}</p>
+        {needs && (
+          <p className="mt-2 text-xs font-semibold text-[#00E2E5]/80">
+            {t("raceTier.locked.unlock", { tier: TIER_LABEL[needs] })}
+          </p>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /** Track names a product runs on (combined cards carry trackProducts), in the
@@ -1012,7 +1103,11 @@ export const RaceProductStepAdult: StepDef<RaceItem> = {
   id: "race-product-adult",
   title: "Adult Race",
   Component: makeProductStepComponent("adult"),
-  isVisible: (_item, session) => hasCategory(session, "adult"),
+  // With page 1 in play, a chosen bundle skips this screen — it already IS the
+  // race. (No page 1 = today's single screen, which keeps showing both.)
+  isVisible: (item, session) =>
+    hasCategory(session, "adult") &&
+    !(payModeStepVisible(item, session, "adult") && !!item.packageIdAdult),
   canAdvance: (item, session) => {
     if (!hasCategory(session, "adult")) return true;
     if (item.packageIdAdult) return true;
@@ -1035,7 +1130,9 @@ export const RaceProductStepJunior: StepDef<RaceItem> = {
   id: "race-product-junior",
   title: "Junior Race",
   Component: makeProductStepComponent("junior"),
-  isVisible: (_item, session) => hasCategory(session, "junior"),
+  isVisible: (item, session) =>
+    hasCategory(session, "junior") &&
+    !(payModeStepVisible(item, session, "junior") && !!item.packageIdJunior),
   canAdvance: (item, session) => {
     if (!hasCategory(session, "junior")) return true;
     if (item.packageIdJunior) return true;

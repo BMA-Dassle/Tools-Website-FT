@@ -43,6 +43,8 @@ import {
   type PersonData,
 } from "~/components/features/booking/steps/race/ReturningRacerLookup";
 import { useKioskConfig } from "../KioskConfigContext";
+import { racerLicenseState } from "~/features/booking/service/license";
+import { LICENSE_PRICE } from "~/features/booking/service/race-pricing";
 import { useT } from "../i18n";
 import { isTestKiosk, kioskHasCamera, kioskId } from "../config";
 import { useMobileJoin } from "../hooks/useMobileJoin";
@@ -326,6 +328,9 @@ export function KioskPartyManager({
   const [licenseMatches, setLicenseMatches] = useState<{
     license: AamvaLicense | null;
     matches: LicenseMatch[];
+    /** Gate opened from the typed New-player form (not a license scan) — the
+     *  form is still mounted underneath with the guest's phone + email. */
+    fromForm?: boolean;
   } | null>(null);
   const [scanNote, setScanNote] = useState<string | null>(null);
   // Search-before-create gate (owner 2026-08-01 — see KioskPeopleStep twin):
@@ -975,9 +980,13 @@ export function KioskPartyManager({
           return;
         }
         if (verdict.kind === "pick") {
+          // See the KioskPeopleStep twin: `fromForm` keeps "None of these" from
+          // rebuilding the form out of name+DOB and losing the typed phone +
+          // email (owner 2026-08-04).
           setLicenseMatches({
             license: { firstName: gateFirst, lastName: gateLast, dobIso: gateDobIso },
             matches: verdict.matches,
+            fromForm: true,
           });
           return;
         }
@@ -1717,6 +1726,25 @@ export function KioskPartyManager({
                           : t("party.status.accountWaiverNeeded")}
                       </span>
                     )}
+                    {/* LICENCE, stated per racer. The tier badge above says
+                        "Starter only" (a qualification fact) and staff/guests read
+                        it as "needs a licence" — so the two now say themselves.
+                        `licenseActive` is the verified read; unknown stays silent
+                        rather than guessing at money (owner 2026-08-04: "then why
+                        didn't 1 2 get forced a license"). */}
+                    {isRace &&
+                      m.bmiPersonId &&
+                      (racerLicenseState(m) === "active" ? (
+                        <span className="text-white/45">{t("party.license.onFile")}</span>
+                      ) : racerLicenseState(m) === "none" ? (
+                        <span className="font-semibold text-[#f0b341]">
+                          {t("party.license.needed", { price: `$${LICENSE_PRICE.toFixed(2)}` })}
+                        </span>
+                      ) : m.isNewRacer ? (
+                        <span className="font-semibold text-[#f0b341]">
+                          {t("party.license.needed", { price: `$${LICENSE_PRICE.toFixed(2)}` })}
+                        </span>
+                      ) : null)}
                     {guardian && (
                       <span className="text-white/45">
                         {t("party.guardianLabel", { name: guardian.firstName })}
@@ -2051,12 +2079,19 @@ export function KioskPartyManager({
           }}
           onNewInstead={() => {
             const lic = licenseMatches.license;
+            const fromForm = licenseMatches.fromForm;
             setLicenseMatches(null);
             if (lic) {
               // "None of these" is an explicit decision — the next submit of
               // this EXACT identity creates instead of re-running the gate.
               matchSkipKeyRef.current = matchGateKey(lic.firstName, lic.lastName, lic.dobIso);
-              openNewFormFromLicense(lic);
+              if (fromForm) {
+                // The gate interrupted a submit the guest had already filled
+                // out — answering it resumes that submit (KioskPeopleStep twin).
+                void submitNew();
+              } else {
+                openNewFormFromLicense(lic);
+              }
             } else {
               // Member QR path — no scanned name/DOB to prefill; blank form.
               resetForm();

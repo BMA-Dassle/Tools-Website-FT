@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { PORTAL_DARK } from "~/components/features/admin-skin/theme";
+import { PORTAL_BLUE_SOFT, PORTAL_DARK } from "~/components/features/admin-skin/theme";
 
 /**
  * Deal-pack sales board.
@@ -176,6 +176,24 @@ export default function DealsAdminClient({ token }: { token: string }) {
     >
       <h1 className="text-2xl font-bold">Deal packs</h1>
       <p className="mt-1 text-sm text-white/50">Prepaid voucher bundles sold on headpinz.com/deals</p>
+
+      {/*
+        A funnel, NOT a redirect. This board stays: it is the surface staff reach
+        for during a promo, and bookmarks and the sale-alert emails point at it.
+        The web-sales board is the superset — same sales, plus search, a date
+        range, a detail drawer, resend-to-a-different-address, and refunds — so
+        the link tells staff where the extra verbs live without moving anyone's
+        cheese.
+      */}
+      <a
+        href={`/admin/${encodeURIComponent(token)}/web-sales?source=deals`}
+        className="mt-3 inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold no-underline"
+        style={{ borderColor: PORTAL_DARK.border, color: PORTAL_BLUE_SOFT }}
+      >
+        Open in Web sales
+        <span aria-hidden>&rarr;</span>
+        <span className="font-normal text-white/40">search · refunds · resend to another address</span>
+      </a>
 
       {/* Rollup */}
       <div className="mt-6 grid gap-3 sm:grid-cols-2">

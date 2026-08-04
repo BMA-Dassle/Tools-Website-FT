@@ -25,7 +25,7 @@
 // auto-sum helper agree on a single number.
 
 export const LICENSE_PRICE = 4.99;
-export const POV_PRICE = 5;
+export const POV_PRICE = 4.99;
 // "Retail" anchors for savings comparisons. POV at the counter is
 // $2 more per racer than the prepay-online price; the appetizer
 // carries a real menu value at Nemo's. Used by the picker card +
@@ -67,6 +67,10 @@ export interface PackageTrackOption {
    *  resolves and the cold-start fallback when BMI is unreachable. */
   price: number;
 }
+
+/** Race / qualification tiers. Declared here rather than imported so the
+ *  registry stays dependency-free (race-products mirrors the same union). */
+export type PackageTier = "starter" | "intermediate" | "pro";
 
 export interface PackageRaceComponent {
   /** 1-indexed sequence — drives the order in PackageHeatPicker. */
@@ -135,6 +139,10 @@ export interface PackageDefinition {
   /** Free-appetizer redeem code shown on the confirmation page.
    *  Same for Rookie Pack and Ultimate Qualifier today (RACEAPP);
    *  the field exists so future packages can diverge. */
+  /** Nemo's appetizer promo code. The Rookie Pack dropped it 2026-08-04 (owner);
+   *  the Ultimate Qualifier keeps it. Everything downstream — the picker
+   *  checklist, the cart row, the confirmation block and the email call-out — is
+   *  driven off this field, so removing it here removes it everywhere. */
   appetizerCode?: string;
   /** Per-package qualifier for the appetizer offer. Rookie Pack is
    *  "1 per group"; Ultimate Qualifier is "1 per 3 purchases". */
@@ -159,6 +167,23 @@ export interface PackageDefinition {
    *  premium, 20 = secondary, etc. Plain races render below all
    *  packages regardless of value here. */
   displayOrder?: number;
+
+  /** THE house recommendation for this category — the kiosk's pay-mode screen
+   *  gives it the hero card and the "FastTrax recommended" ribbon, and every
+   *  other bundle renders as a secondary row beneath it (owner 2026-08-03: "the
+   *  Ultimate Qualifier is the FastTrax recommended experience"). Data, not a
+   *  UI heuristic, so moving the ribbon is a registry edit. At most one per
+   *  category should carry it; the first match wins. */
+  recommended?: boolean;
+
+  /** Offer this bundle only while the category's racers are qualified at or
+   *  BELOW this tier. The Ultimate Qualifier's whole point is earning the
+   *  Intermediate unlock, so it is pointless once someone already holds it —
+   *  but it is very much for a returning racer who has only ever run Starter
+   *  (owner 2026-08-04: "these combos really shouldn't be filtered by new
+   *  racer... if everyone is still only starter you should present them").
+   *  Omitted = no qualification ceiling. */
+  maxQualifiedTier?: PackageTier;
 
   /** Optional disclaimer modal shown when the user picks the package
    *  card. All `acks` checkboxes must be ticked before they can
@@ -191,8 +216,6 @@ const ULTIMATE_QUALIFIER_ENABLED =
 
 // Shared appetizer items per package — factored out so the picker
 // card, confirmation page, and email all pull from the same list.
-const RP_APPETIZER_NOTE = "1 per 3 purchases";
-const RP_APPETIZER_ITEMS = ["Bruschetta - Regular", "Fried Zucchini Sticks", "Mac & Cheese Bites"];
 const UQ_APPETIZER_NOTE = "1 per 3 purchases";
 const UQ_APPETIZER_ITEMS = ["Bruschetta - Regular", "Fried Zucchini Sticks", "Mac & Cheese Bites"];
 
@@ -215,8 +238,9 @@ const UQ_DISCLAIMERS: PackageDefinition["disclaimers"] = {
     "** ULTIMATE QUALIFIER ** Customer is a NEW racer — has NOT yet qualified for Intermediate. STAFF: verify level-up before assigning kart to the Intermediate race. If customer did not qualify: offer additional Starter (if available) OR issue race credit. NO cash refunds — customer acknowledged disclaimer at booking.",
 };
 
+// No appetizer since 2026-08-04 (owner) — the Ultimate Qualifier keeps one.
 const ROOKIE_LONG =
-  "Your first race plus everything you need to remember it: FastTrax license, ViewPoint POV camera footage, and a free appetizer at Nemo's upstairs (1 per 3 purchases, dine-in only).";
+  "Your first race plus everything you need to remember it: FastTrax license and ViewPoint POV camera footage of your run.";
 
 const PACKAGES: PackageDefinition[] = [
   // ── Rookie Pack — Mega (Tuesday) ──────────────────────────────────────────
@@ -226,8 +250,9 @@ const PACKAGES: PackageDefinition[] = [
   // race). Pricing auto-sums from the components.
   {
     id: "rookie-pack-mega",
+    maxQualifiedTier: "starter",
     name: "Rookie Pack",
-    shortDescription: "Starter Mega + License + POV + free appetizer",
+    shortDescription: "Starter Mega + License + POV",
     longDescription: ROOKIE_LONG,
     enabled: ROOKIE_PACK_ENABLED,
     racerType: "new",
@@ -249,9 +274,6 @@ const PACKAGES: PackageDefinition[] = [
     ],
     includesLicense: true,
     includesPov: true,
-    appetizerCode: "RACEAPP",
-    appetizerNote: RP_APPETIZER_NOTE,
-    appetizerItems: RP_APPETIZER_ITEMS,
     cartLineKey: "rookie-pack",
     displayOrder: 20,
   },
@@ -264,8 +286,9 @@ const PACKAGES: PackageDefinition[] = [
   // desk).
   {
     id: "rookie-pack-weekday",
+    maxQualifiedTier: "starter",
     name: "Rookie Pack",
-    shortDescription: "Starter Race + License + POV + free appetizer",
+    shortDescription: "Starter Race + License + POV",
     longDescription: ROOKIE_LONG,
     enabled: ROOKIE_PACK_ENABLED,
     racerType: "new",
@@ -285,9 +308,6 @@ const PACKAGES: PackageDefinition[] = [
     ],
     includesLicense: true,
     includesPov: true,
-    appetizerCode: "RACEAPP",
-    appetizerNote: RP_APPETIZER_NOTE,
-    appetizerItems: RP_APPETIZER_ITEMS,
     cartLineKey: "rookie-pack",
     displayOrder: 20,
   },
@@ -298,8 +318,9 @@ const PACKAGES: PackageDefinition[] = [
   // $15.99 (vs. $20.99 adult).
   {
     id: "rookie-pack-weekday-junior",
+    maxQualifiedTier: "starter",
     name: "Rookie Pack",
-    shortDescription: "Junior Starter Blue + License + POV + free appetizer",
+    shortDescription: "Junior Starter Blue + License + POV",
     longDescription: ROOKIE_LONG,
     enabled: ROOKIE_PACK_ENABLED,
     racerType: "new",
@@ -319,9 +340,6 @@ const PACKAGES: PackageDefinition[] = [
     ],
     includesLicense: true,
     includesPov: true,
-    appetizerCode: "RACEAPP",
-    appetizerNote: RP_APPETIZER_NOTE,
-    appetizerItems: RP_APPETIZER_ITEMS,
     cartLineKey: "rookie-pack-weekday-junior",
     displayOrder: 20,
   },
@@ -332,8 +350,9 @@ const PACKAGES: PackageDefinition[] = [
   // SKUs.
   {
     id: "rookie-pack-weekend",
+    maxQualifiedTier: "starter",
     name: "Rookie Pack",
-    shortDescription: "Starter Race + License + POV + free appetizer",
+    shortDescription: "Starter Race + License + POV",
     longDescription: ROOKIE_LONG,
     enabled: ROOKIE_PACK_ENABLED,
     racerType: "new",
@@ -353,9 +372,6 @@ const PACKAGES: PackageDefinition[] = [
     ],
     includesLicense: true,
     includesPov: true,
-    appetizerCode: "RACEAPP",
-    appetizerNote: RP_APPETIZER_NOTE,
-    appetizerItems: RP_APPETIZER_ITEMS,
     cartLineKey: "rookie-pack",
     displayOrder: 20,
   },
@@ -364,8 +380,9 @@ const PACKAGES: PackageDefinition[] = [
   // Junior weekend Starter is $19.99.
   {
     id: "rookie-pack-weekend-junior",
+    maxQualifiedTier: "starter",
     name: "Rookie Pack",
-    shortDescription: "Junior Starter Blue + License + POV + free appetizer",
+    shortDescription: "Junior Starter Blue + License + POV",
     longDescription: ROOKIE_LONG,
     enabled: ROOKIE_PACK_ENABLED,
     racerType: "new",
@@ -385,9 +402,6 @@ const PACKAGES: PackageDefinition[] = [
     ],
     includesLicense: true,
     includesPov: true,
-    appetizerCode: "RACEAPP",
-    appetizerNote: RP_APPETIZER_NOTE,
-    appetizerItems: RP_APPETIZER_ITEMS,
     cartLineKey: "rookie-pack-weekend-junior",
     displayOrder: 20,
   },
@@ -399,8 +413,9 @@ const PACKAGES: PackageDefinition[] = [
   // per-schedule ids above instead.
   {
     id: "rookie-pack",
+    maxQualifiedTier: "starter",
     name: "Rookie Pack",
-    shortDescription: "Starter race + license + POV + free appetizer",
+    shortDescription: "Starter race + license + POV",
     longDescription: ROOKIE_LONG,
     enabled: false,
     racerType: "new",
@@ -409,9 +424,6 @@ const PACKAGES: PackageDefinition[] = [
     races: [],
     includesLicense: true,
     includesPov: true,
-    appetizerCode: "RACEAPP",
-    appetizerNote: RP_APPETIZER_NOTE,
-    appetizerItems: RP_APPETIZER_ITEMS,
     price: LICENSE_PRICE + POV_PRICE,
     cartLineKey: "rookie-pack",
   },
@@ -434,6 +446,8 @@ const PACKAGES: PackageDefinition[] = [
   // probe before launch and update if BMI moved it elsewhere.
   {
     id: "ultimate-qualifier-mega",
+    maxQualifiedTier: "starter",
+    recommended: true,
     name: "Ultimate Qualifier",
     shortDescription: "Starter Mega + Intermediate Mega + license + POV + free appetizer",
     longDescription: UQ_LONG,
@@ -494,6 +508,8 @@ const PACKAGES: PackageDefinition[] = [
   // launch — see the Mega-variant comment for the probe pattern.
   {
     id: "ultimate-qualifier-weekday",
+    maxQualifiedTier: "starter",
+    recommended: true,
     name: "Ultimate Qualifier",
     shortDescription: "Starter + Intermediate + License + POV + free appetizer",
     longDescription: UQ_LONG,
@@ -545,6 +561,8 @@ const PACKAGES: PackageDefinition[] = [
   // when the live BMI fetch hasn't resolved yet.
   {
     id: "ultimate-qualifier-weekday-junior",
+    maxQualifiedTier: "starter",
+    recommended: true,
     name: "Ultimate Qualifier",
     shortDescription:
       "Junior Starter Blue + Junior Intermediate Blue + License + POV + free appetizer",
@@ -594,6 +612,8 @@ const PACKAGES: PackageDefinition[] = [
   // Intermediate page (25850598). Verify before launch.
   {
     id: "ultimate-qualifier-weekend",
+    maxQualifiedTier: "starter",
+    recommended: true,
     name: "Ultimate Qualifier",
     shortDescription: "Starter + Intermediate + License + POV + free appetizer",
     longDescription: UQ_LONG,
@@ -643,6 +663,8 @@ const PACKAGES: PackageDefinition[] = [
   // Intermediate page (25850598) — verify before launch.
   {
     id: "ultimate-qualifier-weekend-junior",
+    maxQualifiedTier: "starter",
+    recommended: true,
     name: "Ultimate Qualifier",
     shortDescription:
       "Junior Starter Blue + Junior Intermediate Blue + License + POV + free appetizer",
@@ -749,7 +771,15 @@ export interface EligibilityContext {
   racerType: "new" | "existing" | null | undefined;
   schedule: Schedule | null | undefined;
   category?: "adult" | "junior";
+  /** The tier the category's racers already qualify for (the union — the most
+   *  qualified racer wins), from `qualifiedTierForCategory`. Gates bundles that
+   *  exist to EARN a qualification: pass "starter" for a group that has only
+   *  ever run Starter, even when they are returning racers. Omitted = "starter"
+   *  (nothing qualified), which keeps existing callers behaving as before. */
+  qualifiedTier?: PackageTier;
 }
+
+const QUAL_RANK: Record<PackageTier, number> = { starter: 0, intermediate: 1, pro: 2 };
 
 /** Filters the registry to packages bookable in the current context.
  *  Used by the product picker to render its "packages" row. Sorted
@@ -759,6 +789,12 @@ export function eligiblePackages(ctx: EligibilityContext): PackageDefinition[] {
   return PACKAGES.filter((p) => {
     if (!p.enabled) return false;
     if (p.racerType !== "any" && ctx.racerType && p.racerType !== ctx.racerType) return false;
+    if (
+      p.maxQualifiedTier &&
+      QUAL_RANK[ctx.qualifiedTier ?? "starter"] > QUAL_RANK[p.maxQualifiedTier]
+    ) {
+      return false;
+    }
     if (ctx.schedule && !p.schedules.includes(ctx.schedule)) return false;
     if (p.category !== "any" && ctx.category && p.category !== ctx.category) return false;
     return true;

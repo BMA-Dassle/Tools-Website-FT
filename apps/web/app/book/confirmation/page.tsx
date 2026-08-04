@@ -582,13 +582,11 @@ export default function ConfirmationPage() {
             });
           }
         } catch {
-          if (bookingRecord?.rookiePack === true) {
-            setAppetizerInfo({
-              note: "1 per group",
-              items: ["Bruschetta", "GF Mac & Cheese Bites", "Fried Zucchini Sticks"],
-              packageLabel: "Rookie Pack",
-            });
-          }
+          // No hardcoded fallback. This used to assert a Rookie Pack appetizer
+          // when the registry import failed — which is now simply untrue (the
+          // Rookie Pack dropped its appetizer 2026-08-04; the Ultimate Qualifier
+          // keeps one). Promising a freebie the bar won't honour is worse than
+          // showing nothing, and the registry is the only thing that knows.
         }
 
         // Build race groups — group racers by heat for display tiles

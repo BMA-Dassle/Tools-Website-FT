@@ -412,7 +412,7 @@ export default function BookRacePage() {
         attraction: "racing",
         attractionName: "Racing",
         product: {
-          name: "Rookie Pack (License + POV + Free App)",
+          name: "Rookie Pack (License + POV)",
           price: LICENSE_PRICE + (selectedPov.price || 0),
           bookingMode: "per-person",
         },

@@ -63,24 +63,32 @@ export function KioskBookingAsCard({
 
   if (!editing) {
     return (
+      // Collapsed to two lines (owner 2026-08-04): the eyebrow sits inline with
+      // the name, and the contact details + the SMS confirmation share one dim
+      // line instead of stacking four. It is a summary of something already
+      // captured — it should read as a receipt line, not a section.
       <button
         type="button"
         onClick={() => setEditing(true)}
-        className="k-glass k-tap flex w-full items-center justify-between gap-[24px] p-[32px] text-left"
+        className="k-glass k-tap flex w-full items-center justify-between gap-[24px] px-[28px] py-[18px] text-left"
       >
         <div className="min-w-0">
-          <p className="k-eyebrow">{t("bookingAs.label")}</p>
-          <p className="mt-[6px] truncate text-[34px] font-bold text-white">
-            {c.firstName} {c.lastName}
+          <p className="flex min-w-0 items-baseline gap-[14px]">
+            <span className="shrink-0 text-[19px] font-bold tracking-[0.22em] text-[#00e2e5] uppercase">
+              {t("bookingAs.label")}
+            </span>
+            <span className="truncate text-[28px] font-bold text-white">
+              {c.firstName} {c.lastName}
+            </span>
           </p>
-          <p className="truncate text-[24px] text-white/50">
+          <p className="mt-[2px] truncate text-[21px] text-white/45">
             {[c.email, c.phone].filter(Boolean).join(" · ")}
+            {(c.smsOptIn ?? true) ? (
+              <span className="text-[#46d68c]"> · {t("bookingAs.textOn")}</span>
+            ) : null}
           </p>
-          {(c.smsOptIn ?? true) && (
-            <p className="mt-[4px] text-[22px] text-[#46d68c]">{t("bookingAs.textOn")}</p>
-          )}
         </div>
-        <span className="shrink-0 text-[26px] font-bold uppercase tracking-wider text-[#00e2e5]">
+        <span className="shrink-0 text-[24px] font-bold tracking-wider text-[#00e2e5] uppercase">
           {t("bookingAs.change")}
         </span>
       </button>

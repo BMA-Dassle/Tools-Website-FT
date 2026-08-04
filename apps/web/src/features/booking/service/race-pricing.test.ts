@@ -64,7 +64,7 @@ describe("upsell price constants", () => {
   });
 
   it("exposes POV_PRICE + POV_CHECKIN_PRICE (deferred feature — kept for forward-compat)", () => {
-    expect(POV_PRICE).toBe(5);
+    expect(POV_PRICE).toBe(4.99); // owner 2026-08-04: POV moved $5.00 → $4.99
     expect(POV_CHECKIN_PRICE).toBe(7);
   });
 });

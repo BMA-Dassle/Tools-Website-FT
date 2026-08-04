@@ -1339,9 +1339,7 @@ export default function OrderSummary({
                                 {racers} racer{racers === 1 ? "" : "s"}
                               </span>
                             </div>
-                            <p className="text-white/70 text-xs">
-                              License + POV Video + Free Appetizer
-                            </p>
+                            <p className="text-white/70 text-xs">License + POV Video</p>
                           </div>
                           {onCancelRookiePack && state.status === "booked" && (
                             <button
@@ -1382,23 +1380,6 @@ export default function OrderSummary({
                             <span className="text-white/50">
                               ${(povPerRacer * racers).toFixed(2)}
                             </span>
-                          </li>
-                          <li>
-                            <div className="flex items-baseline justify-between gap-2">
-                              <span>
-                                <span className="text-emerald-400">✓</span> Free Appetizer at
-                                Nemo&apos;s{" "}
-                                <span className="text-white/40">
-                                  (1 per 3 purchases · race day only)
-                                </span>
-                              </span>
-                              <span className="text-emerald-300 font-semibold">FREE</span>
-                            </div>
-                            <ul className="ml-5 mt-0.5 space-y-0 text-[11px] text-white/40 list-disc list-inside marker:text-amber-400/40">
-                              <li>Bruschetta - Regular</li>
-                              <li>Fried Zucchini Sticks</li>
-                              <li>Mac &amp; Cheese Bites</li>
-                            </ul>
                           </li>
                         </ul>
                         <div className="flex items-baseline justify-between text-xs pt-2 border-t border-white/[0.06]">

@@ -9,7 +9,7 @@ const POV_VIDEO =
  * Rookie Pack — staged feature behind NEXT_PUBLIC_ROOKIE_PACK_ENABLED.
  * When enabled AND the racer is new (no existing license), shows a
  * radio at the top:
- *   ◉ Rookie Pack (default) — license + POV + free appetizer code
+ *   ◉ Rookie Pack (default) — license + POV (the appetizer was dropped 2026-08-04)
  *   ○ License only           — license only, no POV
  * The license is already auto-sold for new racers in app/book/race/page.tsx
  * regardless of this flag, so the bundle adds zero new BMI SKUs — it's
@@ -103,7 +103,7 @@ export default function PovUpsell({
           <button
             type="button"
             onClick={() => setRookieChoice("pack")}
-            aria-label="Select Rookie Pack — license, POV video, and free appetizer"
+            aria-label="Select Rookie Pack — license and POV video"
             aria-pressed={rookieChoice === "pack"}
             className={`w-full text-left rounded-xl border-2 p-5 transition-colors ${
               rookieChoice === "pack"
@@ -148,22 +148,6 @@ export default function PovUpsell({
                       <span className="text-white/40">(per racer · $7 at check-in)</span>
                     </span>
                   </li>
-                  <li>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-emerald-400">✓</span>
-                      <span>
-                        Free Appetizer at Nemo&apos;s{" "}
-                        <span className="text-white/40">
-                          (1 per 3 purchases · dine-in · race day only)
-                        </span>
-                      </span>
-                    </div>
-                    <ul className="ml-5 mt-0.5 space-y-0 text-[11px] text-white/40 list-disc list-inside marker:text-amber-400/40">
-                      <li>Bruschetta - Regular</li>
-                      <li>Fried Zucchini Sticks</li>
-                      <li>Mac &amp; Cheese Bites</li>
-                    </ul>
-                  </li>
                 </ul>
                 <p className="text-[11px] text-amber-400/80 mt-2">
                   Save up to $20 vs paying separately
@@ -175,7 +159,7 @@ export default function PovUpsell({
           <button
             type="button"
             onClick={() => setRookieChoice("license-only")}
-            aria-label="Select License only — skip POV and appetizer"
+            aria-label="Select License only — skip the POV video"
             aria-pressed={rookieChoice === "license-only"}
             className={`w-full text-left rounded-xl border-2 p-4 transition-colors ${
               rookieChoice === "license-only"
@@ -202,9 +186,7 @@ export default function PovUpsell({
                     <span className="text-white/30 text-xs font-normal ml-1">/racer</span>
                   </span>
                 </div>
-                <p className="text-xs text-white/40">
-                  Required race license. Skip the video + appetizer.
-                </p>
+                <p className="text-xs text-white/40">Required race license. Skip the video.</p>
               </div>
             </div>
           </button>

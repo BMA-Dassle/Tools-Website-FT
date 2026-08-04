@@ -103,6 +103,49 @@ exempt — Ultimate Qualifier legitimately books above current tier) all route t
   adult 13+; the code buckets 13 as adult (`age < 13`), which silently strips a 13-year-old junior
   pro of their junior-tier access. Owner decision still open (flagged 2026-07-30).
 
+## The waiver gate that never gated: 32 racers booked heats with no waiver (2026-07-30)
+
+Owner, hours before the Christmas in July FM open house (7/30, racing 4:30–5:30): "None of
+the waivers for the christmas in july submitted." Reality on inspection was worse than a
+clean zero and better than a total loss — of 63 RSVPs carrying a BMI personId, **27 had a
+valid waiver and 33 had none**, and every one of the 33 had walked the racer funnel
+(name → DOB → waiver) and, in 30 cases, come out the other side holding a booked heat.
+
+**Root cause — the gate is decorative.** In `app/event/[slug]/page.tsx`, `waiverValid` is
+*read* in exactly three places: the step router, a green/amber "Waiver Signed / Waiver
+Pending" badge, and its own setter. **No booking path consults it.** Worse, the session
+restore sets `setWaiverValid(true)` on the sole evidence of a personId in `sessionStorage`
+("They already signed if they have a personId in session"). So the failure mode is a
+one-liner: guest signs → Pandora cold-starts and 5xx's → guest closes the tab → guest comes
+back → restored as `waiverValid: true` → straight to the dashboard → books a heat. The
+badge says "Waiver Signed." BMI says nothing. Nobody finds out until race day.
+
+**Remediation:** `apps/web/scripts/xmas-waiver-backfill.mts` — reuses
+`signWaiverDigital()` + the `method: "backfill"` audit row built for the Health Net
+incident (2026-06-18). 32 signed, **32/32 verified by BMI readback**, 32 audit rows in
+`waiver_acceptances`, every one carrying a real `waiverID`.
+
+**Rules:**
+- **A boolean named `xValid` that no branch reads is not a gate, it's a label.** Before
+  trusting any "required before participating" step, grep the flag and find the branch that
+  *refuses*. If the only readers are a setter and a badge, there is no gate.
+- **Never restore a compliance flag from client storage.** `sessionStorage` proves the guest
+  was here before, never that an upstream write landed. Re-probe the system of record
+  (`waiverExpiry` on the person) on restore — the cheap GET is the whole point.
+- **Verify a backfill by readback, not by response.** Sign → re-GET the person → assert a
+  future `waiverExpiry`. `logWaiverAcceptance()` swallows its own errors by design, so a
+  clean run log proves nothing about the audit trail; query the table.
+- **A waiver signature must carry the guest's FULL legal name.** The RSVP record stores an
+  abbreviated display name ("Jacob E.") — signing that is signing nothing. Pull
+  `firstName`/`lastName` off the BMI person record.
+- **Refuse to guess on legal records.** The backfill skips minors, unknown birthdates, and
+  any person it cannot read, and reports them by name for the desk. 3 guests (2 with a
+  17-digit BMI id stored in `personId` instead of the short Pandora id, 1 persistent 500)
+  were handed to check-in rather than signed blind.
+- **Pandora waivers are center-wide, not location-scoped.** Verified live: a waiver written
+  at HeadPinz FM (`TXBSQN0FEKQ11`) reads back identically at FastTrax (`LAB52GY480CJF`).
+  `pandoraLocation: "headpinz"` on a racing event is correct, not a bug to "fix."
+
 ## A readiness gate that covers 3 of 4 item kinds is a hole, not a gate — and a $0 cart leg still calls a vendor (2026-07-28)
 
 **What happened:** A FastTrax kiosk captured **$234.21** (race + 4 race packs, BMI bill
@@ -160,6 +203,44 @@ verify balance and replay as success; vendor bodies keep 1200 chars. Plus
 - **Our own log, or it didn't happen.** Vercel runtime-log queries time out past ~3 minutes of
   window, retention is short, and there is no "what happened to bill X". Every money fan-out gets a
   Neon audit row with the FULL error, written before the charge and closed either way.
+
+## A status field IS a claim — revoke it with the same reach you granted it (2026-07-28)
+
+Owner report (W54793, racing that night): the sweep caught "no valid waiver," wrote
+`** NO VALID WAIVER ** … send to Guest Services / kiosk to sign before racing` into the
+BMI memo, cleared `fastLane` on the Redis record — and left the reservation sitting in
+**"Confirmation - Kiosk"**. That custom state is only ever reached, on the kiosk rail,
+*after* everyone has signed; staff read it as "waivers are done, send them to the karts."
+The row contradicted its own memo, and nothing on the operational screens sided with the memo.
+
+**Root cause:** express lane is granted in TWO places — `fastLane` on the booking record
+*and* the kiosk confirmation state stamped by
+`app/api/notifications/booking-confirmation` (owner 2026-07-21, express skips Guest
+Services so staff work it from the kiosk state). The demotion only knew about the first
+one. A grant with two limbs and a revoke with one leaves the louder limb standing.
+
+**Fix:** `~/features/booking/service/express-revoke.ts` owns the state half —
+`revertExpressKioskState()` reads the project, and reverts to plain Confirmation (`-3`)
+**only if** it is still in the kiosk state (so `-4` cancelled, `-5` arrived, a waiver
+state, or an already-plain `-3` are never clobbered — a blind `-3` would revive a cancel
+or un-check-in a guest standing at the counter). `scripts/express-raceday-reverify.mts`
+now writes memo + flag + state together, is re-runnable (an `expressRevokedAt` marker
+keeps half-done rows in scope; the memo rewrite strips its own prior headline instead of
+stacking a second one), and reports the live state in dry-run.
+
+**Rules:**
+- **When a warning and a status field disagree, the status field wins in the room.** Staff
+  work from the list column, not the memo body. A demotion that leaves the status asserting
+  the opposite of the memo has not demoted anything.
+- **Enumerate every surface a flag was written to before you write the revoke.** Grep the
+  grant (`fastLane` → record, express-session index, BMI state, race-day email, kiosk
+  badge) and handle each, or state which ones you deliberately left.
+- **Revert a state only from the value you set.** Read-then-compare; never blind-write the
+  "default" state. Cancelled/arrived rows are someone else's now.
+- **A remediation sweep must be idempotent and self-healing.** Gate on "was ever express,"
+  not "is express" — otherwise the rows a half-finished earlier pass created are exactly
+  the rows the next run can no longer see.
+
 
 ## A deterministic Square idempotency key locks a customer out after a card DECLINE (2026-07-25)
 

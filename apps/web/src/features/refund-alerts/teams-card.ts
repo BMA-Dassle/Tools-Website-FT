@@ -6,7 +6,7 @@
  * rule. v1.4 schema — sendAdaptiveCardToChannel is card-only. No emoji
  * (staff-facing).
  */
-import type { ExternalRefund } from "./detect";
+import type { ExternalDealRefund, ExternalRefund } from "./detect";
 
 const CENTER_LABEL: Record<string, string> = {
   "fort-myers": "Fort Myers",
@@ -139,5 +139,97 @@ export function buildRefundAlertCard(
     actions: opts?.boardUrl
       ? [{ type: "Action.OpenUrl", title: "Open reservations board", url: opts.boardUrl }]
       : [],
+  };
+}
+
+/* ───────────────────── deal packs (non-reservation sales) ───────────────── */
+
+/**
+ * Its own card, deliberately.
+ *
+ * The reservation card is built around a booking — lanes, a time, a board link
+ * keyed on a reservation id. A voucher pack has none of those, so widening that
+ * card would mean a column of blanks and a link that goes nowhere. This says the
+ * few things that are true instead, and links to the sale on the web-sales board.
+ */
+export function dealRefundSummaryText(entries: ExternalDealRefund[]): string {
+  if (entries.length === 1) {
+    const e = entries[0];
+    const who = e.purchase.buyerName ?? e.purchase.buyerEmail ?? "a guest";
+    return `Incorrect refund: ${dollars(e.refund.amountCents)} for ${who}'s deal pack was done in Square`;
+  }
+  return `${entries.length} deal-pack refunds were done in Square, not on the web-sales board`;
+}
+
+export function buildDealRefundAlertCard(
+  entries: ExternalDealRefund[],
+  opts?: { boardUrl?: string | null },
+): Record<string, unknown> {
+  const body: Array<Record<string, unknown>> = [
+    {
+      type: "Container",
+      style: "attention",
+      bleed: true,
+      items: [
+        {
+          type: "TextBlock",
+          text: "REFUND POLICY VIOLATION — DEAL PACK",
+          weight: "Bolder",
+          size: "Small",
+          spacing: "None",
+          wrap: true,
+        },
+        {
+          type: "TextBlock",
+          text:
+            entries.length === 1
+              ? "A deal-pack refund was issued in Square instead of on the web-sales board."
+              : `${entries.length} deal-pack refunds were issued in Square instead of on the web-sales board.`,
+          size: "Small",
+          isSubtle: true,
+          wrap: true,
+        },
+      ],
+    },
+  ];
+
+  for (const e of entries) {
+    const who = e.purchase.buyerName ?? e.purchase.buyerEmail ?? "unknown buyer";
+    body.push({
+      type: "FactSet",
+      facts: [
+        { title: "Buyer", value: who },
+        { title: "Deal", value: e.purchase.dealSlug },
+        { title: "Refunded", value: dollars(e.refund.amountCents) },
+        { title: "Paid", value: dollars(e.purchase.totalCents) },
+        { title: "Reason", value: e.refund.reason ?? "—" },
+        { title: "Refund id", value: e.refund.id },
+        // The sale, so whoever reads this can open it rather than go hunting.
+        { title: "Sale", value: `deals:${e.purchase.id}` },
+      ],
+    });
+  }
+
+  // A refund the board did not issue means our ledger does not know about it, so
+  // the purchase's refunded total is now understated. Say so — it is the part a
+  // reader would otherwise have to work out.
+  body.push({
+    type: "TextBlock",
+    text: "This refund is not in our ledger, so the sale still reads as un-refunded on the board. Reconcile it by hand.",
+    size: "Small",
+    isSubtle: true,
+    wrap: true,
+  });
+
+  const actions = opts?.boardUrl
+    ? [{ type: "Action.OpenUrl", title: "Open web sales", url: opts.boardUrl }]
+    : [];
+
+  return {
+    type: "AdaptiveCard",
+    $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+    version: "1.4",
+    body,
+    ...(actions.length ? { actions } : {}),
   };
 }

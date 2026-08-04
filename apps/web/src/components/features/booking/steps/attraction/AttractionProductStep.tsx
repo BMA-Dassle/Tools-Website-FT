@@ -52,6 +52,14 @@ const AttractionProductStepComponent: StepDef<AttractionItem>["Component"] = ({
 
   const products = ctx.config.products.filter((p) => p.location === ctx.location);
   const isPerPerson = ctx.config.bookingMode === "per-person";
+  // Roster written by the kiosk's "Who's playing?" step (waiver-gated
+  // attractions only). Its length IS the quantity.
+  const roster = item.participants ?? [];
+  const rosterOwnsCount = roster.length > 0;
+  const rosterNames = roster
+    .map((id) => session.party.find((m) => m.id === id)?.firstName)
+    .filter(Boolean)
+    .join(" · ");
   const name = (isEs ? ctx.config.es?.name : null) ?? ctx.config.name;
   const description = (isEs ? ctx.config.es?.description : null) ?? ctx.config.description;
 
@@ -81,9 +89,24 @@ const AttractionProductStepComponent: StepDef<AttractionItem>["Component"] = ({
         <p className="mt-1 text-sm text-white/50">{description}</p>
       </div>
 
+      {/* KIOSK: the people step already asked WHO (writing item.participants and
+          keeping item.qty in sync), so asking "how many people?" here asked the
+          same question twice and let the two disagree — owner 2026-08-04. With a
+          roster present the count is shown, not edited; Back to that step is how
+          you change it. Duckpin and web have no roster, so they keep the
+          stepper. */}
+      {rosterOwnsCount && (
+        <p className="rounded-xl border border-white/12 bg-white/[0.03] px-4 py-3 text-sm text-white/60">
+          {t("attraction.roster", {
+            count: roster.length,
+            names: rosterNames,
+          })}
+        </p>
+      )}
+
       {/* Product cards */}
       <div className="space-y-3">
-        {products.length === 1 && isPerPerson ? (
+        {products.length === 1 && isPerPerson && !rosterOwnsCount ? (
           <SingleProductWithQty
             product={products[0]}
             selected={item.productId === products[0].productId}
@@ -108,7 +131,7 @@ const AttractionProductStepComponent: StepDef<AttractionItem>["Component"] = ({
       </div>
 
       {/* Qty stepper for multi-product per-person attractions */}
-      {isPerPerson && products.length > 1 && item.productId && (
+      {isPerPerson && products.length > 1 && item.productId && !rosterOwnsCount && (
         <QtyStepperBlock
           qty={item.qty}
           maxQty={ctx.config.maxGroupSize}

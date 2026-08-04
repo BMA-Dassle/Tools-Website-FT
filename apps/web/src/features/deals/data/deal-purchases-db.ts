@@ -25,6 +25,9 @@
 
 import { sql, isDbConfigured } from "@ft/db";
 import { canonicalizePhone } from "@/lib/participant-contact";
+// The void/refund columns live in their own module (see the header there for why).
+// One-directional: that file imports nothing from this one, so there is no cycle.
+import { ensureDealMoneyColumns } from "./deal-purchases-money";
 import type { VoucherItem } from "~/features/game-cards/data/vouchers-db";
 import type { DealLocationKey } from "../catalog";
 
@@ -290,6 +293,17 @@ function decode(r: any): DealPurchaseRow {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+/**
+ * The row decoder, for read-path modules that query this table directly — see
+ * `deal-purchases-search.ts`.
+ *
+ * Exported rather than duplicated. A second decoder silently drops every column
+ * added after it was written, which is not hypothetical: the gift columns landed
+ * on this table after the admin board shipped. One decoder means a new column
+ * reaches every reader the moment it reaches this file.
+ */
+export { decode as decodeDealPurchaseRow };
+
 export interface InsertDealPurchaseArgs {
   dealSlug: string;
   locationKey: DealLocationKey;
@@ -499,10 +513,27 @@ export async function markDealPurchaseRefunded(id: number, reason: string): Prom
  * How many packs of THIS deal a buyer already holds, all time.
  *
  * Identity is email OR phone, because a determined buyer will vary one of them.
- * Refunded purchases don't count — a refund gives the allowance back. Neither do
- * declines (`charge_failed`) or abandoned attempts (`pending`), which is why the
- * status filter is an allowlist rather than "not failed": a `pending` row is a
- * card form someone opened and walked away from, and it must not consume a slot.
+ * Declines (`charge_failed`) and abandoned attempts (`pending`) never count,
+ * which is why the status filter is an allowlist rather than "not failed": a
+ * `pending` row is a card form someone opened and walked away from, and it must
+ * not consume a slot.
+ *
+ * WHAT A REFUND GIVES BACK, precisely: `qty - refunded_packs`. Refund one pack of
+ * three and the buyer gets exactly one slot back, not all three. `refunded_packs`
+ * is the SETTLED projection, so an in-flight refund returns nothing yet — correct,
+ * because the allowance should come back when the money does.
+ *
+ * A VOID zeroes the whole row: the guest kept nothing. That is a separate
+ * exclusion rather than being folded into `refunded_packs`, because voiding is
+ * not a money event.
+ *
+ * `refunded_at` is the LEGACY column and is read here only for rows written
+ * before the void/refund split; `ensureDealMoneyColumns` backfills it into
+ * `vouchers_voided_at`, but this query must survive the window before that
+ * migration has run on a given database — and must keep working if a stale
+ * writer somewhere still sets it.
+ *
+ * `GREATEST(0, …)` so a data bug can never hand out negative allowance.
  */
 export async function countPacksForBuyer(args: {
   dealSlug: string;
@@ -513,6 +544,9 @@ export async function countPacksForBuyer(args: {
     throw new Error("DB not configured — cannot enforce the per-buyer cap");
   }
   await ensureSchema();
+  // The cap reads columns this module does not create. Without this the query
+  // throws on a database that has not seen a refund yet.
+  await ensureDealMoneyColumns();
   const q = sql();
   const email = args.email.trim().toLowerCase();
   const phone = canonicalizePhone(args.phone);
@@ -522,18 +556,20 @@ export async function countPacksForBuyer(args: {
   // phone index usable.
   const rows = phone
     ? await q`
-        SELECT COALESCE(SUM(qty), 0)::int AS packs
+        SELECT COALESCE(SUM(GREATEST(0, qty - refunded_packs)), 0)::int AS packs
         FROM deal_purchases
         WHERE deal_slug = ${args.dealSlug}
           AND status = ANY(${paid})
+          AND vouchers_voided_at IS NULL
           AND refunded_at IS NULL
           AND (lower(buyer_email) = ${email} OR buyer_phone = ${phone})
       `
     : await q`
-        SELECT COALESCE(SUM(qty), 0)::int AS packs
+        SELECT COALESCE(SUM(GREATEST(0, qty - refunded_packs)), 0)::int AS packs
         FROM deal_purchases
         WHERE deal_slug = ${args.dealSlug}
           AND status = ANY(${paid})
+          AND vouchers_voided_at IS NULL
           AND refunded_at IS NULL
           AND lower(buyer_email) = ${email}
       `;

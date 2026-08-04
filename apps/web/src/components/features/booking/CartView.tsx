@@ -30,6 +30,7 @@ import {
 import { redeemedHeatSet } from "~/features/booking/data/race-credits";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
+import { racerNeedsLicense } from "~/features/booking/service/license";
 import { useT } from "~/features/kiosk/i18n";
 import { racePackTeaserVisible } from "./steps/race/RacePackTeaser";
 import { PackAssignmentList, RacePackPicker } from "./steps/race/RacePackPicker";
@@ -84,6 +85,9 @@ export interface CartViewProps {
   onUpdateRacePacks?: (itemId: string, creditPacks: KioskPackSelection[] | undefined) => void;
   /** KIOSK: drop a premium package off a race item, keeping the booking. */
   onRemovePackage?: (itemId: string, category: "adult" | "junior") => void;
+  /** KIOSK: reopen the package screen for this item/category so the guest can
+   *  swap bundles instead of removing one and rebuilding. */
+  onChangePackage?: (itemId: string, category: "adult" | "junior") => void;
 }
 
 export function CartView({
@@ -99,6 +103,7 @@ export function CartView({
   onRemoveGameCards,
   onUpdateRacePacks,
   onRemovePackage,
+  onChangePackage,
 }: CartViewProps) {
   // Back-to-landing prefers the validated `appliedPromo.code` (set when the
   // code resolved + matched scope), falls back to the raw `?code=` from
@@ -167,6 +172,7 @@ export function CartView({
                 onRemoveHeat={onRemoveHeat}
                 onUpdateRacePacks={onUpdateRacePacks}
                 onRemovePackage={onRemovePackage}
+                onChangePackage={onChangePackage}
               />
             ))}
         </ul>
@@ -408,6 +414,7 @@ export function CartItemCard({
   onRemoveHeat,
   onUpdateRacePacks,
   onRemovePackage,
+  onChangePackage,
 }: {
   item: SessionItem;
   session: BookingSession;
@@ -416,6 +423,7 @@ export function CartItemCard({
   onRemoveHeat?: (itemId: string, productId: string, heatId: string) => void;
   onUpdateRacePacks?: (itemId: string, creditPacks: KioskPackSelection[] | undefined) => void;
   onRemovePackage?: (itemId: string, category: "adult" | "junior") => void;
+  onChangePackage?: (itemId: string, category: "adult" | "junior") => void;
 }) {
   if (item.kind === "race") {
     return (
@@ -427,6 +435,7 @@ export function CartItemCard({
         onRemoveHeat={onRemoveHeat}
         onUpdateRacePacks={onUpdateRacePacks}
         onRemovePackage={onRemovePackage}
+        onChangePackage={onChangePackage}
       />
     );
   }
@@ -485,6 +494,7 @@ function RaceCartCard({
   onRemoveHeat,
   onUpdateRacePacks,
   onRemovePackage,
+  onChangePackage,
 }: {
   item: RaceItem;
   session: BookingSession;
@@ -497,6 +507,7 @@ function RaceCartCard({
    *  deletes the whole race. Web hosts don't pass it (their guests can walk back
    *  to the product step freely). */
   onRemovePackage?: (itemId: string, category: "adult" | "junior") => void;
+  onChangePackage?: (itemId: string, category: "adult" | "junior") => void;
 }) {
   const t = useT();
   // Per-category packages (adult/junior variants are separate ids); `pkg` is
@@ -659,15 +670,30 @@ function RaceCartCard({
                   ? `${catPkg.name} (${cat === "adult" ? "Adult" : "Junior"})`
                   : catPkg.name;
               return (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => onRemovePackage(item.id, cat)}
-                  className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-[11px] font-semibold text-white/60 transition-colors hover:border-red-400/40 hover:text-red-300"
-                >
-                  <span aria-hidden>✕</span>
-                  {t("racePackage.remove", { name: label })}
-                </button>
+                <div key={cat} className="mt-2 flex items-stretch gap-2">
+                  {/* Change first: swapping bundles is the common intent, and
+                      removing to rebuild was the only way to do it (owner
+                      2026-08-04). It reopens the package screen for THIS
+                      category with the current pick still selected. */}
+                  {onChangePackage && (
+                    <button
+                      type="button"
+                      onClick={() => onChangePackage(item.id, cat)}
+                      className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[#00E2E5]/40 px-3 py-2 text-[11px] font-semibold text-[#00E2E5] transition-colors hover:bg-[#00E2E5]/10"
+                    >
+                      {t("racePackage.change")}
+                      <span aria-hidden>›</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onRemovePackage(item.id, cat)}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-[11px] font-semibold text-white/60 transition-colors hover:border-red-400/40 hover:text-red-300"
+                  >
+                    <span aria-hidden>✕</span>
+                    {t("racePackage.remove", { name: label })}
+                  </button>
+                </div>
               );
             })}
         </div>
@@ -735,6 +761,7 @@ function RacePackCartBlock({
   session: BookingSession;
   onChange: (packs: KioskPackSelection[] | undefined) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const picks = item.creditPacks ?? [];
   const skus = kioskPackSkus();
@@ -745,14 +772,20 @@ function RacePackCartBlock({
   return (
     <div className="mt-3 border-t border-white/10 pt-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[10px] font-bold tracking-wider uppercase text-amber-400">Race packs</p>
+        <p className="text-[10px] font-bold tracking-wider uppercase text-amber-400">
+          {t("racePack.cart.eyebrow")}
+        </p>
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
           className="rounded-lg border border-amber-400/40 px-3 py-1.5 text-xs font-semibold text-amber-300 transition-colors hover:bg-amber-400/10"
         >
-          {open ? "Done" : picks.length > 0 ? "Add / edit" : "+ Add race pack"}
+          {open
+            ? t("racePack.cart.done")
+            : picks.length > 0
+              ? t("racePack.cart.addEdit")
+              : t("racePack.cart.add")}
         </button>
       </div>
 
@@ -774,16 +807,16 @@ function RacePackCartBlock({
           <PackAssignmentList picks={picks} eligible={eligible} onChange={onChange} />
           {missing.length > 0 && (
             <p className="text-xs text-amber-300/80">
-              {missingNames} {missing.length === 1 ? "doesn't" : "don't"} have a pack yet — tap{" "}
-              <strong>Add / edit</strong> to add one.
+              {t("racePack.cart.missingLead", {
+                names: missingNames,
+                count: missing.length,
+              })}{" "}
+              <strong>{t("racePack.cart.addEdit")}</strong> {t("racePack.cart.missingTail")}
             </p>
           )}
         </div>
       ) : (
-        <p className="mt-2 text-xs text-white/45">
-          Prepay 3 races at a discount — today&rsquo;s race is covered, the rest bank to their
-          account and never expire.
-        </p>
+        <p className="mt-2 text-xs text-white/45">{t("racePack.cart.blurb")}</p>
       )}
     </div>
   );
@@ -802,6 +835,13 @@ function AttractionCartCard({
 }) {
   const config = item.slug ? ATTRACTIONS[item.slug] : null;
   const isPerPerson = config?.bookingMode === "per-person";
+  // WHO is on this attraction. The kiosk collects a roster for waiver-gated
+  // attractions (item.participants) but the card only ever showed a head count,
+  // so the review screen couldn't answer "who's on it" (owner 2026-08-04).
+  const participantNames = (item.participants ?? [])
+    .map((id) => session.party.find((m) => m.id === id)?.firstName)
+    .filter(Boolean)
+    .join(" · ");
 
   const product = config?.products.find((p) => p.productId === item.productId);
   const title = product?.name ?? findOffering(item.slug ?? "")?.displayName ?? "Attraction";
@@ -833,10 +873,16 @@ function AttractionCartCard({
             {dateLabel && <span>{dateLabel}</span>}
             {dateLabel && timeLabel && <span className="text-white/20">·</span>}
             {timeLabel && <span>{timeLabel}</span>}
-            {isPerPerson && item.qty > 1 && (
+            {isPerPerson && item.qty > 1 && !participantNames && (
               <>
                 <span className="text-white/20">·</span>
                 <span>{item.qty} people</span>
+              </>
+            )}
+            {participantNames && (
+              <>
+                <span className="text-white/20">·</span>
+                <span className="text-white/75">{participantNames}</span>
               </>
             )}
           </div>
@@ -1029,9 +1075,13 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
     const racingIds = new Set(
       item.heats.filter((h) => h.heatId && h.assignedTo).map((h) => h.assignedTo!),
     );
+    // Verified licence state — same helper the charge builder uses, so the
+    // estimate can't quote a total the checkout won't charge.
     const nonPackageNewRacers = session.party.filter(
       (m) =>
-        m.isNewRacer && racingIds.has(m.id) && !packageIdForCategory(item, m.category ?? "adult"),
+        racerNeedsLicense(m) &&
+        racingIds.has(m.id) &&
+        !packageIdForCategory(item, m.category ?? "adult"),
     ).length;
     const raceAddonFactor = promoFactor(
       { domain: "racing", visitDate: item.date },

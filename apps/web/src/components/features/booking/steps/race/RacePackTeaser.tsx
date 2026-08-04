@@ -5,14 +5,20 @@
  * race product step, same collapsed-teaser grammar (owner mockup 2026-07-18:
  * https://claude.ai/code/artifact/50e2252a-52ca-4363-9b4e-87e131e31bd0).
  *
- * Sells the CREDIT packs (3-race only on the kiosk; Mon–Thu hidden Fri–Sun —
- * `kioskPackSkus`). The tiles + "who's this pack for?" MULTI-SELECT live in the
- * shared RacePackPicker (also composed by the cart's race-packs block): a
- * one-person party assigns implicitly; a bigger party checks off everyone who
- * gets one and applies in ONE tap (manager report 2026-07-27 — the old
- * one-name-per-tap flow left a 4-person group with a pack on only one racer).
- * One pack per racer (replace semantics). Selections are POINTERS on
- * `item.creditPacks` — all money re-derives server-side (race-pack-kiosk.ts).
+ * Sells the CREDIT packs — the WHOLE catalog, 3/5/10 races (owner 2026-08-03;
+ * Mon–Thu SKUs hidden Fri–Sun — `kioskPackSkus`). It used to offer 3-packs only,
+ * which meant a returning racer mid-booking could not buy a 5- or 10-pack at
+ * all: this is the only pack surface inside a booking, and the bigger packs
+ * lived exclusively in the standalone attract flow. Every size/price/label here
+ * is DERIVED from the catalog — nothing about "3" is written into the copy.
+ *
+ * The tiles + "who's this pack for?" MULTI-SELECT live in the shared
+ * RacePackPicker (also composed by the cart's race-packs block): a one-person
+ * party assigns implicitly; a bigger party checks off everyone who gets one and
+ * applies in ONE tap (manager report 2026-07-27 — the old one-name-per-tap flow
+ * left a 4-person group with a pack on only one racer). One pack per racer
+ * (replace semantics). Selections are POINTERS on `item.creditPacks` — all
+ * money re-derives server-side (race-pack-kiosk.ts).
  *
  * Renders nothing off-kiosk / with the kill switch off / in combo sessions.
  */
@@ -20,6 +26,7 @@ import { useState } from "react";
 import type { BookingSession, RaceItem } from "~/features/booking";
 import { kioskRacePacksEnabled, kioskPackSkus } from "~/features/booking/service/race-pack-kiosk";
 import { activeComboSpecial } from "~/features/combos/combo-pricing";
+import { useT } from "~/features/kiosk/i18n";
 import { RacePackPicker, SINGLE_RACE_BASELINE } from "./RacePackPicker";
 
 /** The teaser's render gate, exported so the product step can decide whether
@@ -41,6 +48,7 @@ export function RacePackTeaser({
   session: BookingSession;
   onChange: (patch: Partial<RaceItem>) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
 
   if (!racePackTeaserVisible(session)) return null;
@@ -50,6 +58,9 @@ export function RacePackTeaser({
   const picks = item.creditPacks ?? [];
   const cheapest = skus[0];
   const maxSave = Math.max(...skus.map((p) => p.raceCount * SINGLE_RACE_BASELINE - p.price));
+  // "3 · 5 · 10" — the sizes actually on sale right now, deduped in catalog
+  // order (smallest first). A digit list needs no translation.
+  const sizes = [...new Set(skus.map((p) => p.raceCount))].join(" · ");
 
   return (
     <div>
@@ -62,22 +73,21 @@ export function RacePackTeaser({
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400">
-                3-Race Pack
+                {t("racePack.teaser.name")}
               </span>
               <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-bold text-amber-400">
-                3 RACES
+                {t("racePack.teaser.badge", { sizes })}
               </span>
             </div>
             <span className="shrink-0 text-base font-bold text-amber-400 tabular-nums">
-              from ${cheapest.price.toFixed(2)}
+              {t("racePack.teaser.from", { price: `$${cheapest.price.toFixed(2)}` })}
             </span>
           </div>
           <p className="mt-1.5 text-xs leading-relaxed text-white/55">
-            Prepay 3 races at a discount — race today, the rest bank on your account and never
-            expire.
+            {t("racePack.teaser.blurb")}
           </p>
           <span className="mt-1 inline-block text-xs font-bold text-amber-400">
-            Save up to ${maxSave.toFixed(2)}
+            {t("racePack.teaser.saveUpTo", { amount: `$${maxSave.toFixed(2)}` })}
           </span>
         </button>
         <button
@@ -92,7 +102,7 @@ export function RacePackTeaser({
           >
             ›
           </span>
-          Choose your pack
+          {t("racePack.teaser.choose")}
         </button>
 
         {open && (
@@ -105,9 +115,10 @@ export function RacePackTeaser({
             />
 
             <p className="mt-3 border-t border-white/10 pt-2.5 text-[11px] leading-relaxed text-white/45">
-              <span className="font-bold text-emerald-400">✓</span> Credits load right after payment
-              and never expire. One pack per racer · non-transferable · savings vs the $
-              {SINGLE_RACE_BASELINE.toFixed(2)} single race.
+              <span className="font-bold text-emerald-400">✓</span>{" "}
+              {t("racePack.teaser.fineprint", {
+                price: `$${SINGLE_RACE_BASELINE.toFixed(2)}`,
+              })}
             </p>
           </div>
         )}

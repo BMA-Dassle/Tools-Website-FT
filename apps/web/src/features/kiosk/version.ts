@@ -15,7 +15,7 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
- * 1.14.0 — RACERS SIGN IN BY SCANNING, FROM THE ENTRY SCREENS. A racing licence
+ * 1.17.0 — RACERS SIGN IN BY SCANNING, FROM THE ENTRY SCREENS. A racing licence
  *         (our `/r/{code}` wallet barcode) or the SMS-Timing app's personal QR
  *         now works on the attract screen and the category chooser/shelves, not
  *         just deep inside the people step. The scan resolves to a PERSON, so
@@ -27,6 +27,223 @@
  *         Both handles are URLs on purpose: a bare 13-char login code is
  *         indistinguishable from a reservation short code and from a promo, so
  *         it deliberately gets NO verdict.
+ * 1.16.7 — "None of these" no longer eats the phone + email (owner 2026-08-04:
+ *         "when new player does search to see if you have existing account then
+ *         you click none of these and it returns — it removes mobile phone and
+ *         email"). The search-before-create gate interrupts a submit the guest
+ *         has ALREADY filled in; the form is still mounted behind the picker
+ *         with every field intact, but "None of these" ran the license-SCAN
+ *         path — resetForm() then refill from name+DOB — so the two fields the
+ *         scan can't supply came back blank, and the guest re-typed them (or
+ *         hit the phone/email validation wall). The picker now knows which door
+ *         it came in by (`fromForm`): from the form it just RESUMES the submit
+ *         the gate interrupted, so the create runs with what was typed; from a
+ *         license scan it still builds the form. Fixed in BOTH roster twins —
+ *         KioskPeopleStep (booking) and KioskPartyManager (standalone race-pack
+ *         + check-in flows).
+ * 1.16.6 — three owner notes from the live pass (2026-08-04):
+ *           · the single-race row was misleading: it read "Starter race / Pay for
+ *             the races you run today / $25.98", but that row is ALSO the only way
+ *             through for a guest whose race is already covered by banked credits,
+ *             a comp, or the pack they just added. Now "Single race · Pay per race
+ *             — or use credits, comps, or a pack · from $X / racer" (owner's own
+ *             wording). It names NO tier — page 2 asks for the tier, and a guest
+ *             who hasn't seen that screen reads "Starter" as a product being sold.
+ *             The price keeps the licence in it when every racer owes one, so the
+ *             +$delta chips on the bundle rows still add up against it.
+ *           · the "★ FastTrax recommended" pill hangs 16px above the hero card and
+ *             was covering the intro line. The card now carries its own top margin.
+ *           · POV moved $5.00 → $4.99. Both constants (v1 lib/packages.ts and v2
+ *             race-pricing.ts) plus RacePovStep, which had SHADOWED all three price
+ *             constants with local copies — it now imports them, so the screen can
+ *             never quote a price the charge does not use. Derived totals shift a
+ *             penny: Rookie Pack $30.98 → $30.97, Ultimate Qualifier $51.97 →
+ *             $51.96, the rookie licence+POV line $9.99 → $9.98, and the upsell's
+ *             "save vs check-in" $2 → $2.01.
+ * 1.16.5 — appetizer audit (owner 2026-08-04: "double check rookie pack has app
+ *         taken out — emails, web and kiosk and confirmation pages? Leave it in
+ *         for ultimate qualifier"). 1.14.3 pulled the FIELD; this pass found two
+ *         places that still promised it:
+ *           · the Rookie Pack's OWN copy — `shortDescription` ("… + free
+ *             appetizer") and ROOKIE_LONG, which the picker card renders. Fixed;
+ *             the Ultimate Qualifier's copy untouched.
+ *           · both confirmation pages had a hardcoded CATCH fallback that asserted
+ *             a Rookie Pack appetizer if the registry import failed. Removed — a
+ *             freebie the bar won't honour is worse than showing nothing.
+ *         Verified clean and data-driven: registry (6 rookie variants no code, all
+ *         5 UQ variants keep theirs), the email call-out (`emailPkg.appetizerCode`),
+ *         both confirmation cards, the v1 cart + picker rows, and both POV steps.
+ *         Also: the top strip is ONE line with only what it needs — who's signed
+ *         in, plus the hold clock inline on the right (owner: "take out number of
+ *         players … as well as racing on right. Just need to show signed in").
+ * 1.16.4 — two more owner notes from the live pass (2026-08-04). The Mega Tuesday
+ *         junior warning moved ABOVE the intro line — a rule that stops a racer
+ *         from booking at all shouldn't sit under a sentence about waivers. And
+ *         the signed-in banner collapsed to ONE line with the cart link removed:
+ *         the footer util strip already carries a Cart pill on every screen, so a
+ *         second door up there cost a band of the fold and bought nothing. It is
+ *         no longer a button — it states who is signed in and what is in the
+ *         visit.
+ * 1.16.3 — SIGN-IN decides the licence too, closing the other half of 1.16.0.
+ *         `licenseActive` was only written by the mid-session qualification
+ *         refresh, so a lapsed returning racer signed in and never refreshed still
+ *         fell back to the `isNewRacer` flag — the same hole, one path over. The
+ *         kiosk sign-in lookup (license/lookup.server.ts) already reads the Office
+ *         person's memberships to derive the tier; it now derives the licence from
+ *         the SAME read and carries it onto the party member through every add
+ *         path (scan match, phone/name match, roster patch).
+ * 1.16.2 — the licence chip lands on the roster the kiosk ACTUALLY renders.
+ *         1.16.1 put it in KioskPartyManager (`party.*` keys); the race people
+ *         step on screen is KioskPeopleStep (`peopleUi.*`), a separate kiosk-native
+ *         component — so the owner refreshed and saw nothing. Both carry it now;
+ *         KioskPartyManager still serves the standalone race-pack flow, check-in
+ *         and the group waiver.
+ * 1.16.1 — the roster says the LICENCE, not just the tier (owner 2026-08-04:
+ *         "then why didn't 1 2 get forced a license"). The badge said "Starter
+ *         only" — a qualification fact — and it reads as "needs a licence", so
+ *         there was no way to see that a racer flagged new already holds one.
+ *         Each racer now carries "Licence on file" or "+ $4.99 licence" from the
+ *         same verified state the charge uses; an unverified returning racer stays
+ *         silent rather than guessing at money.
+ * 1.16.0 — A LAPSED LICENCE CAN NO LONGER SLIP THROUGH (owner 2026-08-04: "two
+ *         people are new racers and one isn't but it's allowing me to skip by
+ *         licensing"). The $4.99 Square line AND the +licence BMI build product
+ *         (the ONLY thing that records a licence) both keyed off `isNewRacer`, a
+ *         client flag set by how a person was added to the roster — so a
+ *         returning racer whose annual licence had expired raced with nothing
+ *         charged and nothing recorded. Both now read one verified signal,
+ *         `licenseActive`, computed server-side from the Office person's
+ *         memberships (name contains "license", `stops` in the future) during the
+ *         qualification refresh: verified-licensed never pays, verified-lapsed
+ *         pays, unverified falls back to the old flag so an Office outage can't
+ *         surprise-charge a regular. `licensePrepaid` (race-pack hand-off) still
+ *         wins over everything.
+ *         Deliberately NOT inferred from the `memberships` NAME list: two of this
+ *         repo's own test fixtures populate that list narrowly, which would have
+ *         charged a licensed racer $4.99 — the failing tests caught it.
+ *         Mixed parties also stop hiding the licence: page 1 shows "+ $4.99
+ *         license for Max" instead of folding it into a per-racer price that only
+ *         some racers pay, and the cart estimate reads the same helper as the
+ *         charge so the two can't drift.
+ *         Also fixed the console error the owner reported: IdleWatcher called
+ *         onReset() from inside a setState updater, i.e. during render, which set
+ *         state in KioskFlow mid-render. A reset is an event — it now runs in the
+ *         interval callback.
+ * 1.15.1 — attractions stop asking twice, and the review screen says WHO
+ *         (owner 2026-08-04). The kiosk's "Who's playing?" step already writes
+ *         `item.participants` and keeps `item.qty` in sync for waiver-gated
+ *         attractions (gel blaster, laser tag) — then the shared web product step
+ *         asked "how many people?" anyway, so the same question was asked twice
+ *         and the two could disagree. With a roster present the count is now
+ *         SHOWN, not edited ("3 players — Ava · Max · Kenyon"); duckpin and web
+ *         have no roster and keep their stepper.
+ *         The cart / review card showed a bare head count for an attraction, so
+ *         it could not answer "who's on it" — it now lists the names.
+ *         Wizard step bodies float VERTICALLY CENTRED until they outgrow the body
+ *         (`justify-content: safe center`, the rule the cart already used): short
+ *         steps sit in the reach band, tall ones top-align and scroll as before.
+ * 1.15.0 — THE QUALIFICATION LADDER IS VISIBLE, and page 1 stops naming a race
+ *         the guest hasn't chosen (owner 2026-08-04).
+ *         Race screen: every rung now renders in ladder order. A tier the party
+ *         isn't qualified for is greyed, priceless and untappable, with what
+ *         unlocks it ("Qualify in Starter first to race this level") — hiding the
+ *         rungs hid the reason the Ultimate Qualifier exists. Derived from the
+ *         existing-racer catalog, so a first-timer sees Intermediate and Pro
+ *         greyed rather than not at all.
+ *         Package screen: the single-race row said "Starter Race Mega" — it
+ *         presumed the tier they pick on the NEXT screen and leaked the schedule
+ *         variant. It now names a tier only when the category is restricted to
+ *         exactly one (a first-timer, or a returning racer who has only ever run
+ *         Starter) and otherwise reads "One race", priced "from" when the tiers
+ *         differ.
+ *         Bundle eligibility gains a qualification CEILING in the registry
+ *         (`maxQualifiedTier`) so it can stop keying on "new racer" — see the
+ *         next release for the returning-Starter-only pricing.
+ * 1.14.4 — REWARDS WERE NEVER ON THE KIOSK (owner 2026-08-04: "something happen
+ *         to rewards on this page?"). Not a regression — a flag. The merged
+ *         cart+checkout screen carries the rewards section; it shipped behind
+ *         `NEXT_PUBLIC_KIOSK_MERGED_CHECKOUT === "true"`, an OPT-IN gate the
+ *         owner's 2026-07-31 rule forbids, and with the var unset every kiosk
+ *         fell back to the legacy two-screen path — where CheckoutStep is
+ *         rendered with `hideRewards`. So the checkout promised "unlock rewards"
+ *         under a screen that had none. The flag is now a KILL SWITCH, default
+ *         ON (`!== "false"`), which also folds contact confirmation into the one
+ *         review screen as designed. Note the merged screen has no promo-code
+ *         input (owner decision 2026-07-21) — say the word if that should come
+ *         back now that it is the only checkout.
+ *         "BACK TO CART" NOW REACHES THE CART on both paths: the legacy branch
+ *         only closed checkout and landed "per render precedence", i.e. the
+ *         category chooser or mid-flow — a button that named its destination and
+ *         went somewhere else.
+ * 1.14.3 — four notes from the owner's live pass on page 1 (2026-08-04).
+ *         STEPS NO LONGER CHANGE AFTER A TAP: two steps hide themselves once a
+ *         bundle is chosen (the product step — the bundle owns the race — and the
+ *         POV upsell, which the bundle includes), so the live count took "Step 3
+ *         of 6" to "Step 3 of 4" the instant a card was tapped. The bar now
+ *         measures the PLANNED path (visibility evaluated with the bundle choice
+ *         neutralised), so a choice can skip a segment but never remove one, and
+ *         the redundant "Step X of Y" line is gone.
+ *         A CREDIT PACK AND "PAY PER RACE" ARE ONE SLOT: they could both light up,
+ *         which read as two purchases. Choosing one now clears the other, and the
+ *         pack row shows "1 pack added" so nothing disappears silently.
+ *         MORE ROOM UP TOP: head padding 44→28px, progress margin 36→20px, step
+ *         title 74→60px (it was the biggest thing on a screen it isn't the subject
+ *         of), banner padding trimmed. ~110px more, every flow screen.
+ *         The Qualifier's spot is saved "for later", not "for tonight".
+ *         Separately, per owner: THE ROOKIE PACK NO LONGER INCLUDES THE FREE
+ *         APPETIZER (web + kiosk). Removed from all six rookie variants in the
+ *         registry, which drops it from the picker checklist, the cart row, the
+ *         confirmation block and the email call-out in one edit; the four v1
+ *         places that hardcoded it were updated too. The Ultimate Qualifier keeps
+ *         its appetizer. No price changes — the appetizer was never in
+ *         packagePerRacerPrice, only in the retail comparison, so the displayed
+ *         savings shrink and nothing charged moves. The Rookie Pack still includes
+ *         the licence.
+ * 1.14.2 — nothing is pre-picked and nothing jumps (owner 2026-08-04). The
+ *         single-race row used to derive its "selected" ring from "no bundle
+ *         selected", so the screen opened already showing a choice the guest had
+ *         not made; it is now an explicit local pick. Tapping anything used to
+ *         auto-advance a beat later — bundles, the single race — which took the
+ *         screen away mid-read. The footer Continue is now the only way forward,
+ *         so a guest can look at all four prices, change their mind, and remove a
+ *         bundle without the screen moving under them.
+ *         Also freed ~140px above the fold: this step dropped its eyebrow (the
+ *         chrome already stacks a brand row, the progress bars and the step
+ *         title) and shrank its headline 40px → 32px, and `.k-flow-head` lost
+ *         28px of top padding on EVERY flow screen.
+ * 1.14.1 — page 1 gets the owner's approved layout (five design passes, 8/3–8/4):
+ *         the HOUSE RECOMMENDATION leads as a hero card — a new registry flag,
+ *         `recommended: true` on the five Ultimate Qualifier variants, so moving
+ *         the ribbon is a data edit, not a code change — with its race count set
+ *         huge. Every other bundle is a thin row carrying a +$delta against the
+ *         cheapest way to race (a first-timer's real decision is the difference,
+ *         not the total: the licence is unavoidable, so the Rookie Pack is +$5).
+ *         The plain single race is the last row; race packs collapse to ONE line
+ *         until tapped. Type moved to the KIOSK's scale (body 21px, hero 34px,
+ *         price 40px) — the shared booking components are web-sized, which read
+ *         tiny beside 112px buttons.
+ *         The pack picker itself stops rendering a cross product: a day segment
+ *         (Mon–Thu / Any-day) plus ONE row of size tiles, instead of six
+ *         near-identical cards. That fixes the teaser and the cart block too.
+ *         A bundle preselected from the Experiences shelf now renders even when
+ *         it is not in today's eligible list — otherwise the guest could neither
+ *         see nor remove what they were buying.
+ * 1.14.0 — TWO PAGES INSTEAD OF ONE on the race step (owner 2026-08-03: "split to
+ *         packages first then race type"). Page 1 asks HOW — single races, a
+ *         prepaid 3/5/10 credit pack, or a bundle (Rookie Pack / Ultimate
+ *         Qualifier) — and page 2 is nothing but the tier list. The old screen
+ *         carried all three at once, and at six pack SKUs the tier cards sat
+ *         below the fold.
+ *         Per CATEGORY, like the product and heat steps it precedes: a bundle IS
+ *         a per-category purchase. Picking a bundle SKIPS page 2 (the bundle owns
+ *         the race) and goes to its heat picker; Back lands on page 1, where the
+ *         1.13.4 Remove lives. Picking "just today's races" clears any bundle, so
+ *         the tier list is always reachable. Page 1 hides itself when there is
+ *         nothing to choose (no packs offered, no eligible bundle) and never
+ *         appears on web, so nothing gains a speed bump it doesn't need.
+ *         Both screens read ONE seam (`payModeStepVisible`) to decide who owns
+ *         the pack/bundle blocks, so they cannot both show — or both drop — them.
+ *         NOT a flag: this branch IS the gate until the owner picks a layout.
  * 1.13.4 — a PREMIUM PACKAGE CAN BE TAKEN OFF AGAIN (owner report 2026-08-03:
  *         "users have no way of removing rookie pack"). Tapping Rookie Pack (or
  *         the Ultimate Qualifier) was one-way: the card auto-advances to the heat
@@ -42,6 +259,18 @@
  *         added alongside it survive and the package's BMI-held lines are released
  *         instead of orphaning on the bill. Removing the last thing on the item
  *         removes the item, same rule per-heat removal already followed.
+ * 1.13.3 — 5- and 10-RACE PACKS sell inside the booking (owner 2026-08-03: "the
+ *         kiosk doesn't let existing racers purchase a 5 or 10 pack"). The race
+ *         product step's pack teaser was 3-packs only, and mid-booking it is the
+ *         ONLY pack surface — the bigger packs lived exclusively in the
+ *         standalone attract flow, reachable only by abandoning the booking and
+ *         paying on a second reader tap. The ledger agrees: of every 5/10 pack
+ *         ever sold, not one came from a booking. Both surfaces now read ONE
+ *         catalog (3/5/10 × Mon–Thu/Any-Day, Mon–Thu still hidden Fri–Sun), so
+ *         they cannot drift apart again, and the teaser derives its sizes,
+ *         prices and savings from that catalog instead of hardcoding "3".
+ *         The teaser + picker copy also moved into the i18n catalog (EN+ES) —
+ *         it had been hardcoded English on a Spanish-capable screen.
  * 1.13.2 — RACE RESERVATION CHECK-IN goes down with the BMI booking outage too
  *         (owner 2026-08-03: "should also be down because no way to create new
  *         people"). It looked healthy — finding a reservation is the Office API,
@@ -555,7 +784,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.14.0";
+export const KIOSK_VERSION = "1.17.0";
 
 let bootVersion: string | null = null;
 let captured = false;

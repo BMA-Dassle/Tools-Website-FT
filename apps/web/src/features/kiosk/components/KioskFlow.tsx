@@ -165,16 +165,6 @@ const ATTRACTION_LABEL_KEYS: Record<string, MessageKey> = {
   shuffly: "flow.activity.shuffleboard",
 };
 
-/** Short cart labels for the session banner. Module scope (not a render-body
- *  const) so an earlier closure can never hit it in its TDZ — see
- *  tasks/lessons.md; `t` is threaded in instead of reaching for the hook. */
-function itemLabel(t: Translate, kind: string): string {
-  if (kind === "race") return t("flow.activity.racing");
-  if (kind === "bowling") return t("flow.activity.bowling");
-  if (kind === "kbf") return t("flow.activity.kbf");
-  return t("flow.activity.generic");
-}
-
 /** Guest-facing activity name for an item — wizard header + exit-confirm copy. */
 function activityLabelFor(t: Translate, item: SessionItem): string {
   if (item.kind === "race") return t("flow.activity.racing");
@@ -866,7 +856,7 @@ export function KioskFlow({
   // 2026-07-19: auto-enroll the new racer(s) in the FULL Rookie Pack (license +
   // POV + appetizer) and skip that step (see skipLicenseForMixedParty in the
   // registry). The license already charges per new racer; POV needs povQuantity;
-  // the appetizer needs rookiePack. Gated on the Rookie flow flag.
+  // the bundled line needs rookiePack. Gated on the Rookie flow flag.
   // Game Zone cards never ride an EMPTY cart (owner 2026-07-21: "if you remove
   // all attractions the cards need removed too") — they pay with the booking
   // deposit, so there's nothing to charge them against. handleRemoveItem clears
@@ -1123,6 +1113,22 @@ export function KioskFlow({
     await releaseHeatBmiLines(session, removed);
   };
 
+  // Reopen the PACKAGE SCREEN (page 1) for one category so a guest can swap
+  // bundles from the cart instead of removing one and walking the wizard again
+  // (owner 2026-08-04). Lands on the step by id, so a registry reorder can't
+  // send them somewhere arbitrary; if that step isn't visible for this item
+  // (nothing to choose), fall back to a plain Edit rather than a dead tap.
+  const handleChangePackage = (itemId: string, category: "adult" | "junior") => {
+    const item = session.items.find((i) => i.id === itemId);
+    if (!item) return;
+    const visible = KIOSK_STEP_REGISTRY[item.kind].filter((s) => s.isVisible(item, session));
+    const index = visible.findIndex((s) => s.id === `race-pay-mode-${category}`);
+    setCartActive(false);
+    setCheckoutActive(false);
+    dispatch({ type: "setActiveItem", id: itemId });
+    if (index >= 0) dispatch({ type: "goto", index });
+  };
+
   // Drop a premium package (Rookie Pack / Ultimate Qualifier) from the CART and
   // keep the booking. The product step has the same control on its selected
   // card; the cart needs its own because a guest who has already left the wizard
@@ -1361,44 +1367,44 @@ export function KioskFlow({
   // (navigating away mid-payment would be risky, and it's redundant there).
   const mainGuest = session.party.find((m) => m.isBillingCustomer) ?? session.party[0];
   const hasGameCards = !!session.gameCardPurchase?.cards.length;
+  // ONE row, and only two facts on it: WHO is signed in, and how long the hold
+  // has left (owner 2026-08-04: "can take out number of players from that top
+  // line as well as racing on right. Just need to show signed in"). The guest
+  // count and the activity list were both restating what the screen under them
+  // already shows, and the cart link duplicated the footer's Cart pill. The hold
+  // countdown rides the right in `inline` mode — same warn/urgent colours and
+  // Extend affordance it had as its own band.
   const sessionBanner =
-    (session.party.length > 0 || cartCount > 0 || hasGameCards) &&
+    (session.party.length > 0 || cartCount > 0 || hasGameCards || showHoldBar) &&
     !cartActive &&
     !checkoutActive &&
     !upsellActive ? (
-      <button
-        type="button"
-        onClick={requestOpenCart}
-        disabled={cartCount === 0}
-        className="k-glass k-tap mx-[48px] mt-[20px] flex shrink-0 items-center justify-between gap-[20px] px-[28px] py-[16px] text-left"
-      >
-        <span className="flex min-w-0 items-center gap-[14px] text-[24px] text-white/75">
+      <div className="k-glass mx-[48px] mt-[12px] flex shrink-0 items-center gap-[18px] px-[28px] py-[10px] text-left">
+        <span className="flex min-w-0 flex-1 items-center gap-[14px] text-[22px] text-white/70">
           <span
-            className="h-[14px] w-[14px] shrink-0 rounded-full bg-[#46d68c]"
+            className="h-[12px] w-[12px] shrink-0 rounded-full bg-[#46d68c]"
             aria-hidden="true"
           />
           {mainGuest ? (
             <span className="truncate">
               {t("flow.banner.signedIn")}{" "}
               <strong className="text-white">{mainGuest.firstName}</strong>
-              {session.party.length > 1
-                ? ` ${t("flow.banner.plusGuests", { count: session.party.length - 1 })}`
-                : ""}
             </span>
           ) : (
             <span className="truncate">{t("flow.banner.visitInProgress")}</span>
           )}
         </span>
-        {(cartCount > 0 || hasGameCards) && (
-          <span className="shrink-0 text-[24px] font-bold text-[#00e2e5]">
-            {[
-              ...session.items.map((i) => itemLabel(t, i.kind)),
-              ...(hasGameCards ? [t("flow.banner.gameCards")] : []),
-            ].join(" · ")}{" "}
-            · {t("flow.banner.viewCart")}
-          </span>
+        {showHoldBar && (
+          <KioskHoldBar
+            ref={timerRef}
+            inline
+            bmiBillId={session.bmiBillId}
+            qamfHoldId={qamfHoldId}
+            qamfCenterId={qamfCenterId}
+            onExpired={handleReservationExpired}
+          />
         )}
-      </button>
+      </div>
     ) : null;
 
   // Exit-confirm sheet (owner 2026-07-18: "are you sure" before Start over /
@@ -1549,15 +1555,6 @@ export function KioskFlow({
         />
       ) : null}
       <div className="relative z-[2] flex min-h-0 flex-1 flex-col">
-        {showHoldBar && (
-          <KioskHoldBar
-            ref={timerRef}
-            bmiBillId={session.bmiBillId}
-            qamfHoldId={qamfHoldId}
-            qamfCenterId={qamfCenterId}
-            onExpired={handleReservationExpired}
-          />
-        )}
         {sessionBanner}
         {children}
       </div>
@@ -1658,12 +1655,14 @@ export function KioskFlow({
         <CheckoutStep
           session={session}
           dispatch={dispatch}
-          // Merged flow: Back (review/error) returns to the merged review
-          // screen; legacy keeps today's behavior (close checkout, land per
-          // render precedence).
+          // Back goes to the CART — in both paths. The legacy branch used to
+          // only close checkout and "land per render precedence", which meant a
+          // button labelled "Back to cart" dropped the guest on the category
+          // chooser or mid-flow instead (owner 2026-08-04: "back to cart here
+          // doesn't return to cart").
           onBack={() => {
             setCheckoutActive(false);
-            if (mergedCheckout) setCartActive(true);
+            setCartActive(true);
           }}
           // Merged flow: contact + rewards were confirmed on the merged
           // screen — book immediately, land on review.
@@ -1729,6 +1728,7 @@ export function KioskFlow({
             dispatch({ type: "updateItem", id, patch: { creditPacks } as Partial<SessionItem> })
           }
           onRemovePackage={(id, category) => void handleRemovePackage(id, category)}
+          onChangePackage={handleChangePackage}
           onReviewAndPay={() => {
             // Upsell page (owner 2026-07-21): between Review & Pay and the pay
             // screen — BOWLING carts only for now (owner: "they need bowling
@@ -1831,6 +1831,7 @@ export function KioskFlow({
             dispatch({ type: "updateItem", id, patch: { creditPacks } as Partial<SessionItem> })
           }
           onRemovePackage={(id, category) => void handleRemovePackage(id, category)}
+          onChangePackage={handleChangePackage}
         />
       </div>,
     );
@@ -2203,6 +2204,22 @@ export function KioskFlow({
   const steps = KIOSK_STEP_REGISTRY[activeItem.kind].filter((s) =>
     s.isVisible(activeItem, session),
   );
+  // The PROGRESS BAR measures the planned path, not the live one. Two steps hide
+  // themselves once a bundle is chosen — the product step (the bundle owns the
+  // race) and the POV upsell (the bundle includes it) — so a live count took
+  // "Step 3 of 6" to "Step 3 of 4" the instant a guest tapped a card (owner
+  // 2026-08-04: "steps change after click"). Evaluating visibility against the
+  // item with its bundle choice neutralised gives a stable denominator: a choice
+  // can now skip a segment, never remove one.
+  const plannedSteps =
+    activeItem.kind === "race"
+      ? KIOSK_STEP_REGISTRY[activeItem.kind].filter((s) =>
+          s.isVisible(
+            { ...activeItem, packageIdAdult: null, packageIdJunior: null } as typeof activeItem,
+            session,
+          ),
+        )
+      : steps;
   const rawCursor = session.cursors[activeItem.id] ?? 0;
 
   // Combo: the schedule-confirm modal books the races + lane and self-advances
@@ -2535,12 +2552,11 @@ export function KioskFlow({
           </div>
         </div>
         <div className="k-prog">
-          {steps.map((s, i) => (
-            <span key={s.id} className={i <= stepIndex ? "done" : ""} />
-          ))}
-        </div>
-        <div className="k-prog-label k-num">
-          {t("flow.stepOf", { current: stepIndex + 1, total: steps.length })}
+          {plannedSteps.map((s) => {
+            const at = plannedSteps.findIndex((x) => x.id === currentStep.id);
+            const mine = plannedSteps.findIndex((x) => x.id === s.id);
+            return <span key={s.id} className={mine <= at ? "done" : ""} />;
+          })}
         </div>
         <h1 className="k-display k-fh-title">
           {STEP_TITLE_KEYS[currentStep.title]

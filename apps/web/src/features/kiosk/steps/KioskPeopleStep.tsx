@@ -66,6 +66,8 @@ import { LicenseMatchPicker } from "../components/LicenseMatchPicker";
 import { ageFromIso } from "../join/phone/join-helpers";
 import { mergeJoinedGuests } from "../join/merge";
 import { KioskSignInBoxes } from "../components/KioskSignInBoxes";
+import { racerLicenseState } from "~/features/booking/service/license";
+import { LICENSE_PRICE } from "~/features/booking/service/race-pricing";
 import { useT } from "../i18n";
 
 /** Waiver-gated attraction slugs (duckpin is exempt — uses the party-count step). */
@@ -216,6 +218,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
   const [licenseMatches, setLicenseMatches] = useState<{
     license: AamvaLicense | null;
     matches: LicenseMatch[];
+    /** Gate opened from the typed New-player form (not a license scan) — the
+     *  form is still mounted underneath with the guest's phone + email. */
+    fromForm?: boolean;
   } | null>(null);
   const [scanNote, setScanNote] = useState<string | null>(null);
   // Search-before-create gate (owner 2026-08-01: "pull those people in — load
@@ -559,9 +564,14 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           return;
         }
         if (verdict.kind === "pick") {
+          // `fromForm` matters on the way back out: the form is still mounted
+          // behind this picker with everything the guest typed, so "None of
+          // these" must NOT rebuild it from name+DOB (that wiped the phone and
+          // email — owner 2026-08-04). A license SCAN has no form to return to.
           setLicenseMatches({
             license: { firstName: cleanFirst, lastName: cleanLast, dobIso: gateDobIso },
             matches: verdict.matches,
+            fromForm: true,
           });
           return;
         }
@@ -696,6 +706,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
               lastName: formatPersonName(mRest.join(" ")) || member.lastName,
               bmiPersonId: m.personId,
               memberships: m.memberships,
+              licenseActive: m.licenseActive,
               isMinor: rAge < 18,
               category: rAge < 13 ? "junior" : "adult",
               dobIso: bdIso,
@@ -1094,6 +1105,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           isNewRacer: false,
           category: "adult",
           memberships: person.memberships,
+          licenseActive: person.licenseActive,
           bmiPersonId: person.personId,
           waiverValid: ownValid,
           phone: person.phone || undefined,
@@ -1292,6 +1304,7 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       dobIso: bdIso,
       bmiPersonId: person.personId,
       memberships: person.memberships,
+      licenseActive: person.licenseActive,
       waiverValid: person.waiverValid,
       creditBalances: person.creditBalances,
       isBillingCustomer: isMain,
@@ -1552,10 +1565,6 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
 
   return (
     <div className="space-y-[24px]">
-      <p className="text-[26px] text-white/55">
-        {party.length > 0 ? t("peopleUi.introSignedIn") : t("peopleUi.introAddEveryone")}
-      </p>
-
       {/* Mega Tuesday junior rule (owner 2026-07-21) — the kiosk books TODAY,
           so on Mega days first-time Juniors can't race at all. Racing only. */}
       {isRace && isMegaTuesdayToday() && (
@@ -1574,6 +1583,10 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           </div>
         </div>
       )}
+
+      <p className="text-[26px] text-white/55">
+        {party.length > 0 ? t("peopleUi.introSignedIn") : t("peopleUi.introAddEveryone")}
+      </p>
 
       {blockReason && (
         <div className="flex items-start gap-[18px] rounded-2xl border-2 border-[#f0b341]/60 bg-[#f0b341]/12 px-[28px] py-[22px]">
@@ -1694,6 +1707,21 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                           : t("peopleUi.accountWaiverNeeded")}
                       </span>
                     )}
+                    {/* LICENCE per racer. The badge above says "Starter only" — a
+                        QUALIFICATION fact that reads as a licence fact, so a
+                        correct skip and a bug looked identical (owner 2026-08-04:
+                        "then why didn't 1 2 get forced a license"). Same verified
+                        state the charge uses; unverified + returning stays silent
+                        rather than guessing at money. */}
+                    {isRace &&
+                      m.bmiPersonId &&
+                      (racerLicenseState(m) === "active" ? (
+                        <span className="text-white/45">{t("peopleUi.licenseOnFile")}</span>
+                      ) : racerLicenseState(m) === "none" || m.isNewRacer ? (
+                        <span className="font-semibold text-[#f0b341]">
+                          {t("peopleUi.licenseNeeded", { price: `$${LICENSE_PRICE.toFixed(2)}` })}
+                        </span>
+                      ) : null)}
                     {guardian && (
                       <span className="text-white/45">
                         {t("peopleUi.guardianLabel", { name: guardian.firstName })}
@@ -2369,12 +2397,22 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           }}
           onNewInstead={() => {
             const lic = licenseMatches.license;
+            const fromForm = licenseMatches.fromForm;
             setLicenseMatches(null);
             if (lic) {
               // "None of these" is an explicit decision — the next submit of
               // this EXACT identity creates instead of re-running the gate.
               matchSkipKeyRef.current = matchGateKey(lic.firstName, lic.lastName, lic.dobIso);
-              openNewFormFromLicense(lic);
+              if (fromForm) {
+                // The guest already filled the form and tapped Continue; the
+                // gate interrupted THAT submit. Answering it resumes the submit
+                // rather than dumping them back on a half-cleared form —
+                // rebuilding from name+DOB is exactly what lost the phone and
+                // email (owner 2026-08-04).
+                void submitNew();
+              } else {
+                openNewFormFromLicense(lic);
+              }
             } else {
               // Member QR path — no scanned name/DOB to prefill; blank form.
               guardAdd(() => {

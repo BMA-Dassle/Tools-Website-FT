@@ -23,6 +23,7 @@ import { ageFromIso } from "../join/phone/join-helpers";
 interface RefreshRow {
   id: string;
   memberships?: string[];
+  licenseActive?: boolean;
   creditBalances?: Array<{ kind: string; balance: number }>;
   waiverValid?: boolean;
   birthdate?: string;
@@ -30,6 +31,7 @@ interface RefreshRow {
 
 export interface QualificationPatch {
   memberships?: string[];
+  licenseActive?: boolean;
   creditBalances?: Array<{ kind: string; balance: number }>;
   waiverValid?: boolean;
   dobIso?: string;
@@ -43,6 +45,7 @@ export interface QualificationPatch {
 export function buildQualificationPatch(row: RefreshRow): QualificationPatch {
   const patch: QualificationPatch = {};
   if (Array.isArray(row.memberships)) patch.memberships = row.memberships;
+  if (typeof row.licenseActive === "boolean") patch.licenseActive = row.licenseActive;
   if (Array.isArray(row.creditBalances)) patch.creditBalances = row.creditBalances;
   if (typeof row.waiverValid === "boolean") patch.waiverValid = row.waiverValid;
   if (row.birthdate) {

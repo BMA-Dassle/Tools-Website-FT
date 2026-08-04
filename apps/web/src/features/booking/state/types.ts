@@ -123,6 +123,11 @@ export interface PartyMember {
    * racer is identified. Drives tier filtering in `filterProducts` — without
    * this, even verified Pro racers see Starter-only products.
    */
+  /** Verified with BMI: an UNEXPIRED licence membership is on file. Written by
+   *  the qualification refresh / returning-racer sign-in; undefined = not read.
+   *  THE money signal for the $4.99 licence and the +licence BMI build product
+   *  (service/license.ts) — `isNewRacer` alone let a lapsed licence through. */
+  licenseActive?: boolean;
   memberships?: string[];
   /** Pandora waiver validity — true when the racer has a current, unexpired waiver.
    *  Drives Express Lane eligibility (skip Guest Services at check-in). */
@@ -283,7 +288,7 @@ export interface RaceItem extends BookingItemBase {
   packageIdAdult: string | null;
   packageIdJunior: string | null;
   /**
-   * Number of POV cameras to pre-pay ($5/each online vs $7 at check-in).
+   * Number of POV cameras to pre-pay ($4.99/each online vs $7 at check-in).
    * BMI sells POV as a flat qty SKU (productId 43746981), no per-racer
    * attribution. For new racers in the Rookie Pack flow, this equals the
    * count of new racers. For existing-racer flow, the qty stepper sets
@@ -294,7 +299,7 @@ export interface RaceItem extends BookingItemBase {
    * Idempotency guard for the $0 POV BMI line (product 50361293) + the package
    * disclaimer memo, both written once in `bookHeatsOnAdvance` after the heats
    * book. Prevents a back-then-forward wizard re-advance from selling POV /
-   * writing the memo twice. The $5/racer POV money is charged on Square, not here.
+   * writing the memo twice. The POV money is charged on Square, not here.
    */
   povSold?: boolean;
   /**
@@ -877,6 +882,7 @@ export function newPartyMember(args: {
   isNewRacer?: boolean;
   category?: "adult" | "junior";
   isBillingCustomer?: boolean;
+  licenseActive?: boolean;
   memberships?: string[];
   waiverValid?: boolean;
   creditBalances?: Array<{ kind: string; balance: number }>;
@@ -895,6 +901,7 @@ export function newPartyMember(args: {
     isNewRacer: args.isNewRacer ?? true,
     category: args.category,
     isBillingCustomer: args.isBillingCustomer,
+    licenseActive: args.licenseActive,
     memberships: args.memberships,
     waiverValid: args.waiverValid,
     creditBalances: args.creditBalances,

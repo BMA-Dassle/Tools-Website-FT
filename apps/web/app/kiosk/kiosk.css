@@ -579,7 +579,10 @@
 }
 .kiosk-canvas .k-flow-head {
   flex: none;
-  padding: 72px 64px 0;
+  /* 72px → 44px (owner 2026-08-04: "free up some space up top"). The head already
+     stacks a brand row, the step progress and the step title before any content;
+     28px of it was pure air above the fold on every flow screen. */
+  padding: 28px 64px 0;
 }
 .kiosk-canvas .k-fh-top {
   display: flex;
@@ -597,7 +600,7 @@
 .kiosk-canvas .k-prog {
   display: flex;
   gap: 10px;
-  margin-top: 36px;
+  margin-top: 20px;
 }
 .kiosk-canvas .k-prog span {
   height: 10px;
@@ -614,8 +617,11 @@
   color: var(--k-dim);
 }
 .kiosk-canvas .k-fh-title {
-  margin-top: 28px;
-  font-size: 74px;
+  /* 74px/28px → 60px/16px (owner 2026-08-04). The step title shares the fold with
+     the screen's own headline; at 74px it was the biggest thing on a screen it
+     wasn't the subject of. */
+  margin-top: 16px;
+  font-size: 60px;
 }
 .kiosk-canvas .k-flow-body {
   flex: 1;
@@ -851,13 +857,19 @@
    vertically in the reach band. `safe` centering falls back to top-align + scroll
    when the content is taller than the body, so a long cart never clips its top.
    align-items:center keeps the mx-auto max-w-* cards centered horizontally. */
-.kiosk-canvas .k-flow-body.kiosk-zoom {
+.kiosk-canvas .k-flow-body.kiosk-zoom,
+/* Wizard steps get the same treatment (owner 2026-08-04: "should this stuff
+   float in middle unless it gets too big?"). `safe center` IS that rule: centred
+   while it fits, top-aligned + scrolling the moment it doesn't — so a short step
+   sits in the reach band and a tall one never clips its own heading. */
+.kiosk-canvas .k-flow-body.kiosk-step-content {
   display: flex;
   flex-direction: column;
   justify-content: safe center;
 }
 /* Children stay full-width (their own mx-auto max-w-* keeps the card centered
    exactly as in the prior block layout — only the VERTICAL position changes). */
-.kiosk-canvas .k-flow-body.kiosk-zoom > * {
+.kiosk-canvas .k-flow-body.kiosk-zoom > *,
+.kiosk-canvas .k-flow-body.kiosk-step-content > * {
   width: 100%;
 }

@@ -7,7 +7,7 @@
  * person_id is a raw BMI id string — NEVER Number() it (BMI ID precision rule).
  */
 import { sql, isDbConfigured } from "@/lib/db";
-import type { ResolvedKioskPack } from "../service/race-pack-kiosk";
+import type { PackSurface, ResolvedKioskPack } from "../service/race-pack-kiosk";
 
 let ensured = false;
 async function ensureTable(): Promise<void> {
@@ -41,7 +41,8 @@ async function ensureTable(): Promise<void> {
  *  proceed to charge on an unpersisted grant obligation. */
 export async function upsertPackPurchases(args: {
   purchaseKey: string;
-  surface: "booking" | "standalone";
+  /** Which flow sold it — the ledger's own label, never a catalog switch. */
+  surface: PackSurface;
   packs: ResolvedKioskPack[];
 }): Promise<void> {
   if (args.packs.length === 0) return;

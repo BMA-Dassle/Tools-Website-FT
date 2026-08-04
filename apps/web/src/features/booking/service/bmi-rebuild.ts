@@ -170,6 +170,11 @@ export async function rebuildRaceBill(params: {
       if (!heat.heatStart || !heat.productId) continue;
       const racerKey = heat.personId ?? `${heat.firstName}:${heat.track}`;
       const isNewRacer = !heat.personId;
+      // REBUILD path: a heat row with no personId is a brand-new person, so it
+      // needs the +licence build product; a row WITH one was already recorded on
+      // the original booking, so it rebuilds as raceOnly. (Verified-membership
+      // licence state lives in the session — see service/license.ts — which this
+      // path doesn't have.)
       const withLicense = isNewRacer && !firstHeatSeen.has(racerKey);
       firstHeatSeen.add(racerKey);
 

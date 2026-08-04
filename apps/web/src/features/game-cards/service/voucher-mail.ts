@@ -244,6 +244,27 @@ export async function emailPurchasedVouchers(args: {
   scheduleUrl?: string | null;
   scheduleLabel?: string | null;
   /**
+   * What `voucher_events.detail.reason` records for this send. Defaults to the
+   * original purchase (or gift).
+   *
+   * An admin resend passes its own value, because `to` is already free-form: a
+   * staff member redirecting a voucher to a corrected address would otherwise be
+   * indistinguishable in the audit trail from the original purchase send, and
+   * "did the buyer ever actually get this?" is exactly the question that trail
+   * exists to answer.
+   */
+  eventReason?: string;
+  /**
+   * Build the message and return it WITHOUT sending or logging.
+   *
+   * This is how the admin resend modal shows staff what is about to go out. It
+   * is a mode on the real function rather than a separate builder on purpose: a
+   * preview assembled by a second code path drifts from the send the first time
+   * anyone edits one of them, and a preview staff have learned to trust while it
+   * quietly lies is worse than no preview at all.
+   */
+  preview?: boolean;
+  /**
    * Present when this voucher was bought FOR the addressee by somebody else.
    *
    * Same template, different voice — a gift email that opens "Thanks! Your
@@ -252,7 +273,7 @@ export async function emailPurchasedVouchers(args: {
    * is identical, which is the whole reason this is a flag and not a fork.
    */
   gift?: { fromName?: string | null; message?: string | null };
-}): Promise<{ ok: boolean; error?: string }> {
+}): Promise<{ ok: boolean; error?: string; subject?: string; text?: string }> {
   const value = args.valueSummary?.trim() || itemsSummary(args.items);
   const many = args.codes.length > 1;
   const gift = args.gift;
@@ -356,16 +377,23 @@ export async function emailPurchasedVouchers(args: {
     ...(expiry ? [`Valid through ${expiry}.`] : []),
   ].join("\n");
 
+  const subject = gift
+    ? giftFrom
+      ? `${giftFrom} sent you a ${args.productName}!`
+      : `You've been sent a ${args.productName}!`
+    : many
+      ? `Your ${args.codes.length} ${args.productName} vouchers`
+      : `Your ${args.productName} voucher`;
+
+  // Preview short-circuits AFTER the message is fully built and BEFORE anything
+  // leaves the building — so what the modal shows is what the send would use,
+  // by construction rather than by discipline.
+  if (args.preview) return { ok: true, subject, text };
+
   const res = await sendEmail({
     to: args.to,
     toName: args.name ?? undefined,
-    subject: gift
-      ? giftFrom
-        ? `${giftFrom} sent you a ${args.productName}!`
-        : `You've been sent a ${args.productName}!`
-      : many
-        ? `Your ${args.codes.length} ${args.productName} vouchers`
-        : `Your ${args.productName} voucher`,
+    subject,
     html,
     text,
     bcc: AUDIT_BCC,
@@ -384,7 +412,7 @@ export async function emailPurchasedVouchers(args: {
     await logVoucherEvent(code, "send", {
       to: args.to,
       channel: "email",
-      reason: gift ? "gift" : "purchase",
+      reason: args.eventReason ?? (gift ? "gift" : "purchase"),
       productName: args.productName,
       ...(giftFrom ? { giftFrom } : {}),
     }).catch(() => {});
@@ -419,7 +447,11 @@ export async function smsPurchasedVouchers(args: {
    * sender is what makes it legible.
    */
   giftFromName?: string | null;
-}): Promise<{ ok: boolean; error?: string }> {
+  /** See `emailPurchasedVouchers.eventReason` — an admin resend names itself. */
+  eventReason?: string;
+  /** Build the body and return it WITHOUT sending — see the email twin. */
+  preview?: boolean;
+}): Promise<{ ok: boolean; error?: string; text?: string }> {
   if (args.codes.length === 0) return { ok: false, error: "no codes" };
 
   const MAX_INLINE = 3;
@@ -442,6 +474,8 @@ export async function smsPurchasedVouchers(args: {
           `The other ${args.codes.length - 1} codes are in your email.`,
         ].join("\n");
 
+  if (args.preview) return { ok: true, text: body };
+
   const res = await twilioSend(args.phone, body, args.fromOverride);
   if (!res.ok) return { ok: false, error: res.error ?? "sms failed" };
 
@@ -449,7 +483,7 @@ export async function smsPurchasedVouchers(args: {
     await logVoucherEvent(code, "send", {
       to: args.phone,
       channel: "sms",
-      reason: giftFrom ? "gift" : "purchase",
+      reason: args.eventReason ?? (giftFrom ? "gift" : "purchase"),
       ...(giftFrom ? { giftFrom } : {}),
     }).catch(() => {});
   }
