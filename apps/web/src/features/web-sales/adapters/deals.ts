@@ -27,12 +27,18 @@ import {
 } from "~/features/deals";
 import { getDealPurchase, type DealPurchaseRow } from "~/features/deals/data/deal-purchases-db";
 import {
+  getDealMoneyState,
+  getDealMoneyStates,
+  markDealVouchersVoided,
+  type DealMoneyState,
+} from "~/features/deals/data/deal-purchases-money";
+import {
   searchDealPurchases,
   summarizeDealPurchases,
 } from "~/features/deals/data/deal-purchases-search";
 import { packLabel, packLegMap, packUnitKey, PackShapeError } from "~/features/deals/service/pack-legs";
 import { dealScheduleUrl, fulfilDealPurchase } from "~/features/deals/service/purchase";
-import { getVoucherStatus } from "~/features/game-cards/service/native-voucher";
+import { getVoucherStatus, voidNativeVoucher } from "~/features/game-cards/service/native-voucher";
 import {
   emailPurchasedVouchers,
   smsPurchasedVouchers,
@@ -122,9 +128,9 @@ const PAID_FOR_ACTIONS = new Set(["charged", "minted", "scheduled", "sent"]);
  * as an absent one. A button that vanishes is a support ticket; a disabled button
  * that says "never charged — nothing to send" is an answer.
  */
-export function dealCapabilities(row: DealPurchaseRow): SaleCapability[] {
+export function dealCapabilities(row: DealPurchaseRow, money?: DealMoneyState | null): SaleCapability[] {
   const paid = PAID_FOR_ACTIONS.has(row.status);
-  const voided = row.refundedAt !== null;
+  const voided = isVoided(row, money);
 
   const resend: SaleCapability = { action: "resend", label: "Resend" };
   if (!paid) resend.blockedReason = "That purchase was never charged — nothing to send.";
@@ -153,7 +159,19 @@ function dealSublabel(row: DealPurchaseRow): string {
   return parts.join(" · ");
 }
 
-export function projectDealRow(row: DealPurchaseRow): WebSaleRow {
+/**
+ * Voided-ness, from whichever column carries it.
+ *
+ * New voids write `vouchers_voided_at` only; the legacy `refunded_at` is
+ * backfilled into it but still present on rows written before that migration and
+ * on any writer that has not been updated yet. Reading both is what stops a
+ * fresh void from rendering as an ordinary live sale.
+ */
+function isVoided(row: DealPurchaseRow, money?: DealMoneyState | null): boolean {
+  return !!money?.vouchersVoidedAt || row.refundedAt !== null;
+}
+
+export function projectDealRow(row: DealPurchaseRow, money?: DealMoneyState | null): WebSaleRow {
   const deal = getDeal(row.dealSlug);
   const info = DEAL_LOCATION_INFO[row.locationKey as DealLocationKey];
   const status = dealStatusView(row);
@@ -184,9 +202,7 @@ export function projectDealRow(row: DealPurchaseRow): WebSaleRow {
       taxCents: row.taxCents,
     },
     status: { code: row.status, ...status },
-    refund: row.refundedAt
-      ? { kind: "voided", at: row.refundedAt, reason: row.refundReason }
-      : { kind: "none" },
+    refund: buildRefundState(row, money),
     attribution: { label: dealAttributionLabel(row.utm), utm: row.utm },
     venue: {
       key: row.locationKey,
@@ -201,8 +217,32 @@ export function projectDealRow(row: DealPurchaseRow): WebSaleRow {
     searchTerms: [...row.codes, row.voucherBatchId, row.idempotencyKey].filter(
       (v): v is string => typeof v === "string" && v.length > 0,
     ),
-    capabilities: dealCapabilities(row),
+    capabilities: dealCapabilities(row, money),
   };
+}
+
+/**
+ * Refund state, keeping a VOID distinct from money coming back.
+ *
+ * Money is checked first: a purchase can be refunded and then have its leftover
+ * vouchers voided, and the refund is the more consequential fact. A void with no
+ * refunded cents is exactly what it says — value killed, charge untouched.
+ */
+function buildRefundState(row: DealPurchaseRow, money?: DealMoneyState | null): WebSaleRow["refund"] {
+  if (money && money.refundedCents > 0) {
+    return {
+      kind: money.fullyRefundedAt ? "full" : "partial",
+      refundedCents: money.refundedCents,
+      at: money.fullyRefundedAt,
+      // The destination lives on the refund ledger, not here — the board shows
+      // the amount, and the drawer shows where it went.
+      destination: null,
+    };
+  }
+  const voidedAt = money?.vouchersVoidedAt ?? row.refundedAt;
+  return voidedAt
+    ? { kind: "voided", at: voidedAt, reason: money?.vouchersVoidedReason ?? row.refundReason }
+    : { kind: "none" };
 }
 
 /* ─────────────────────── detail: legs, timeline, facts ─────────────────── */
@@ -502,6 +542,69 @@ async function dealResend(row: DealPurchaseRow, args: ResendArgs): Promise<Resen
   };
 }
 
+/* ───────────────────────────────── void ────────────────────────────────── */
+
+/**
+ * Kill the value; leave the money exactly where it is.
+ *
+ * This is NOT a refund and must never be confused with one. It is for the cases
+ * where the guest should not keep the vouchers but the charge stands or is being
+ * handled elsewhere — fraud, a code posted publicly, a contested charge we are
+ * defending. The money verbs live in their own PRs with their own ledger.
+ *
+ * Already-redeemed legs stay redeemed. `voidNativeVoucher` only stamps the
+ * voucher; it deliberately does not touch `voucher_claims`, because the guest
+ * genuinely had that value and rewriting the claim would desync Intercard, which
+ * has already dispensed against it.
+ *
+ * Per-code failures are logged and the loop continues. A partial void followed
+ * by a hard abort would leave some codes live and no record of why, which is
+ * strictly worse than voiding what we can and recording the rest.
+ */
+async function dealVoid(
+  row: DealPurchaseRow,
+  reason: string,
+  actor: string,
+): Promise<{ voided: number; note: string }> {
+  const deal = getDeal(row.dealSlug);
+  const failures: string[] = [];
+  let voided = 0;
+
+  for (const code of row.codes) {
+    try {
+      await voidNativeVoucher(code, `admin void: ${reason}`);
+      voided += 1;
+    } catch (err) {
+      failures.push(code);
+      console.error(`[web-sales] could not void ${code}:`, err);
+    }
+  }
+
+  // Persist the void state even when some codes failed — the record of intent
+  // matters more than the completeness of the sweep, and the failures are named
+  // in the note so staff can finish by hand.
+  await markDealVouchersVoided(row.id, reason);
+  await recordSaleAction({
+    source: "deals",
+    ref: String(row.id),
+    action: "void",
+    actor,
+    detail: { reason, voided, failed: failures },
+  });
+
+  const name = deal?.name ?? row.dealSlug;
+  return {
+    voided,
+    note:
+      failures.length > 0
+        ? `Voided ${voided} of ${row.codes.length} codes for ${name}. Failed: ${failures.join(", ")}.`
+        : // Say plainly that no money moved. The single-product board's note said
+          // the same thing, and it is the sentence that stops a void being
+          // mistaken for a refund.
+          `Vouchers voided for ${name}. No money moved — refund the card separately if that is what you meant.`,
+  };
+}
+
 /* ──────────────────────────────── the adapter ──────────────────────────── */
 
 const STATUS_FILTERS = [
@@ -528,7 +631,7 @@ export const dealsAdapter: WebSaleAdapter = {
    * here even when a row declares the capability, so a half-built verb can never
    * surface a button that does nothing.
    */
-  actions: ["resend"],
+  actions: ["resend", "void"],
   resendChannels: ["email", "sms", "both"],
 
   async list(q: SaleListQuery): Promise<WebSaleRow[]> {
@@ -542,7 +645,9 @@ export const dealsAdapter: WebSaleAdapter = {
       before: q.before,
       limit: q.limit,
     });
-    return rows.map(projectDealRow);
+    // One batched read for the whole page rather than a query per row.
+    const money = await getDealMoneyStates(rows.map((r) => r.id));
+    return rows.map((r) => projectDealRow(r, money.get(r.id) ?? null));
   },
 
   async summarize(q: Omit<SaleListQuery, "before" | "limit">): Promise<SaleSummary> {
@@ -579,9 +684,13 @@ export const dealsAdapter: WebSaleAdapter = {
   async detail(ref: string): Promise<SaleDetail | null> {
     const row = await getDealPurchase(Number(ref));
     if (!row) return null;
-    const [legs, actions] = await Promise.all([dealLegs(row), listSaleActions("deals", ref)]);
+    const [legs, actions, money] = await Promise.all([
+      dealLegs(row),
+      listSaleActions("deals", ref),
+      getDealMoneyState(row.id),
+    ]);
     return {
-      row: projectDealRow(row),
+      row: projectDealRow(row, money),
       legs,
       timeline: dealTimeline(row, actions),
       facts: dealFacts(row),
@@ -598,5 +707,11 @@ export const dealsAdapter: WebSaleAdapter = {
     const row = await getDealPurchase(Number(args.ref));
     if (!row) throw new Error("not_found");
     return dealResend(row, args);
+  },
+
+  async void({ ref, reason, actor }) {
+    const row = await getDealPurchase(Number(ref));
+    if (!row) throw new Error("not_found");
+    return dealVoid(row, reason, actor);
   },
 };

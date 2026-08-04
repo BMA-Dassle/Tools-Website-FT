@@ -30,8 +30,9 @@ export const maxDuration = 120;
  *   GET  ?token=…&detail=<source>:<ref>   → { ok, detail }
  *   POST { action: "preview_resend" }     → what the message would say
  *   POST { action: "resend" }             → send it, optionally somewhere else
+ *   POST { action: "void" }               → kill the value, leave the money
  *
- * The refund and void verbs arrive with the PRs that implement them. An action
+ * The refund verbs arrive with the PRs that implement them. An action
  * this build does not know is a 400 from the zod union rather than a stub that
  * looks like it did something.
  *
@@ -208,6 +209,19 @@ export async function POST(req: NextRequest) {
         channel: parsed.data.channel,
       });
       return NextResponse.json({ ok: true, preview });
+    }
+
+    if (parsed.data.action === "void") {
+      if (!adapter.void || !adapter.actions.includes("void")) {
+        return NextResponse.json({ ok: false, error: "unsupported" }, { status: 409 });
+      }
+      const result = await adapter.void({
+        ref: parsed.data.ref,
+        unitKeys: null,
+        reason: parsed.data.reason,
+        actor,
+      });
+      return NextResponse.json({ ok: true, result });
     }
 
     if (!adapter.resend || !adapter.actions.includes("resend")) {

@@ -1,10 +1,9 @@
 /**
  * Web-sales request schemas.
  *
- * Only the LIST query lives here today. The action schemas (resend, refund
- * dry-run, refund execute, void) arrive with the PRs that implement them —
- * shipping a validator for an endpoint that does not exist is dead code that
- * reads like a promise.
+ * The list query and the action bodies. Refund schemas arrive with the PR that
+ * implements them — shipping a validator for an endpoint that does not exist is
+ * dead code that reads like a promise.
  *
  * Everything a caller can send is clamped. These values reach SQL parameters and
  * an admin UI, and the token that guards this route is a single shared secret
@@ -61,13 +60,6 @@ export const ListQuerySchema = z
 
 export type ListQueryInput = z.infer<typeof ListQuerySchema>;
 
-/**
- * Parse a `URLSearchParams` into the schema's shape, preserving repeated keys.
- *
- * `Object.fromEntries(searchParams)` silently keeps only the LAST value of a
- * repeated key, which would turn `?source=a&source=b` into just `b` — a filter
- * quietly narrowing itself is worse than one that errors.
- */
 /* ─────────────────────────────── actions ──────────────────────────────── */
 
 /**
@@ -105,10 +97,31 @@ export const PreviewSchema = ActionBase.extend({
   channel: z.enum(["sms", "email", "both"]),
 });
 
-export const ActionSchema = z.discriminatedUnion("action", [ResendSchema, PreviewSchema]);
+export const VoidSchema = ActionBase.extend({
+  action: z.literal("void"),
+  /**
+   * Enforced HERE, not only in the modal. The single-product board checked the
+   * length in the browser, which anyone posting directly could skip — and a void
+   * with no recorded reason is an unexplained destruction of value.
+   */
+  reason: z.string().trim().min(3).max(300),
+});
+
+export const ActionSchema = z.discriminatedUnion("action", [
+  ResendSchema,
+  PreviewSchema,
+  VoidSchema,
+]);
 
 export type ActionInput = z.infer<typeof ActionSchema>;
 
+/**
+ * Parse a `URLSearchParams` into the schema's shape, preserving repeated keys.
+ *
+ * `Object.fromEntries(searchParams)` silently keeps only the LAST value of a
+ * repeated key, which would turn `?source=a&source=b` into just `b` — a filter
+ * quietly narrowing itself is worse than one that errors.
+ */
 export function searchParamsToObject(params: URLSearchParams): Record<string, string | string[]> {
   const out: Record<string, string | string[]> = {};
   for (const key of new Set(params.keys())) {
