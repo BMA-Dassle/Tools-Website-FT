@@ -1655,12 +1655,14 @@ export function KioskFlow({
         <CheckoutStep
           session={session}
           dispatch={dispatch}
-          // Merged flow: Back (review/error) returns to the merged review
-          // screen; legacy keeps today's behavior (close checkout, land per
-          // render precedence).
+          // Back goes to the CART — in both paths. The legacy branch used to
+          // only close checkout and "land per render precedence", which meant a
+          // button labelled "Back to cart" dropped the guest on the category
+          // chooser or mid-flow instead (owner 2026-08-04: "back to cart here
+          // doesn't return to cart").
           onBack={() => {
             setCheckoutActive(false);
-            if (mergedCheckout) setCartActive(true);
+            setCartActive(true);
           }}
           // Merged flow: contact + rewards were confirmed on the merged
           // screen — book immediately, land on review.

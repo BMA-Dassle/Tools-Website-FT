@@ -15,6 +15,22 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.14.4 — REWARDS WERE NEVER ON THE KIOSK (owner 2026-08-04: "something happen
+ *         to rewards on this page?"). Not a regression — a flag. The merged
+ *         cart+checkout screen carries the rewards section; it shipped behind
+ *         `NEXT_PUBLIC_KIOSK_MERGED_CHECKOUT === "true"`, an OPT-IN gate the
+ *         owner's 2026-07-31 rule forbids, and with the var unset every kiosk
+ *         fell back to the legacy two-screen path — where CheckoutStep is
+ *         rendered with `hideRewards`. So the checkout promised "unlock rewards"
+ *         under a screen that had none. The flag is now a KILL SWITCH, default
+ *         ON (`!== "false"`), which also folds contact confirmation into the one
+ *         review screen as designed. Note the merged screen has no promo-code
+ *         input (owner decision 2026-07-21) — say the word if that should come
+ *         back now that it is the only checkout.
+ *         "BACK TO CART" NOW REACHES THE CART on both paths: the legacy branch
+ *         only closed checkout and landed "per render precedence", i.e. the
+ *         category chooser or mid-flow — a button that named its destination and
+ *         went somewhere else.
  * 1.14.3 — four notes from the owner's live pass on page 1 (2026-08-04).
  *         STEPS NO LONGER CHANGE AFTER A TAP: two steps hide themselves once a
  *         bundle is chosen (the product step — the bundle owns the race — and the
@@ -624,7 +640,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.14.3";
+export const KIOSK_VERSION = "1.14.4";
 
 let bootVersion: string | null = null;
 let captured = false;

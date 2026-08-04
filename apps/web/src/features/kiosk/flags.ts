@@ -155,15 +155,20 @@ export function kioskGzCartEnabled(): boolean {
 /**
  * Merged cart+checkout screen (owner 2026-07-21): ONE "review your order"
  * screen replaces the separate cart + contact-confirm screens (contact is
- * already captured at player-add) and re-adds HeadPinz/FastTrax Rewards on
- * the kiosk — OPT-IN, defaults OFF (v2 cutover rule: the two-screen path
- * stays the default until ops signs off on a live kiosk). Set the literal
- * "true" in Vercel + redeploy to enable (NEXT_PUBLIC_* values are
- * build-baked — scope the var to Preview too or preview builds bake it off).
+ * already captured at player-add) and carries HeadPinz/FastTrax Rewards.
+ *
+ * KILL SWITCH — default ON. It shipped as an opt-in `=== "true"` gate, which is
+ * exactly what the owner's 2026-07-31 flag rule forbids ("flags are kill
+ * switches only, never opt-in gates"), and the cost was invisible: with the var
+ * unset, every kiosk fell back to the legacy two-screen path, where CheckoutStep
+ * is rendered with `hideRewards` — so the rewards section built for this screen
+ * had never appeared, while the checkout subtitle still promised "unlock
+ * rewards" (owner 2026-08-04: "something happen to rewards on this page?").
+ * `NEXT_PUBLIC_KIOSK_MERGED_CHECKOUT=false` restores the legacy path.
  * Read at call time (never module scope) so tests can stub process.env.
  */
 export function kioskMergedCheckoutEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_KIOSK_MERGED_CHECKOUT === "true";
+  return process.env.NEXT_PUBLIC_KIOSK_MERGED_CHECKOUT !== "false";
 }
 
 /**
