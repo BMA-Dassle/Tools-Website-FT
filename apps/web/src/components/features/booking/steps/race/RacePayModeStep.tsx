@@ -50,6 +50,7 @@ import {
   kioskPackSkus,
   kioskRacePacksEnabled,
 } from "~/features/booking/service/race-pack-kiosk";
+import { racerNeedsLicense } from "~/features/booking/service/license";
 import { useT, type Translate } from "~/features/kiosk/i18n";
 import { racePackTeaserVisible } from "./RacePackTeaser";
 import { RacePackPicker } from "./RacePackPicker";
@@ -173,6 +174,10 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
       ).filter((p) => !p.packType || p.packType === "none");
     })();
     const cheapestSingle = singles.length > 0 ? singles[0] : null;
+    // WHO owes a licence, verified (service/license.ts) — not "is the whole party
+    // new". A mixed group used to see a bare $20.99 with no mention of the $4.99
+    // each first-timer adds at checkout (owner 2026-08-04).
+    const owesLicense = racers.filter((m) => racerNeedsLicense(m));
     // NEVER show the product name here: it presumes the tier the guest hasn't
     // picked yet and leaks the schedule variant ("Starter Race Mega") — owner
     // 2026-08-04. Name a tier only when the category is restricted to exactly
@@ -180,9 +185,10 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
     // otherwise this row is simply "one race", priced "from".
     const singleTiers = [...new Set(singles.map((p) => p.tier))];
     const singlePriceVaries = new Set(singles.map((p) => p.price)).size > 1;
+    const allOweLicense = racers.length > 0 && owesLicense.length === racers.length;
     const baseline =
       cheapestSingle != null
-        ? Math.min(...singles.map((p) => p.price)) + (allNew ? LICENSE_PRICE : 0)
+        ? Math.min(...singles.map((p) => p.price)) + (allOweLicense ? LICENSE_PRICE : 0)
         : null;
 
     const covered = coveredMembersPreview(item, session.party, item.date);
@@ -382,11 +388,20 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
                   ? t("racePack.teaser.from", { price: money(baseline) })
                   : money(baseline)}
               </span>
-              {allNew && (
+              {allOweLicense ? (
                 <span className="mt-1 block text-[16px] text-white/45">
                   {t("payMode.incl.prefix", { list: t("payMode.incl.license") })}
                 </span>
-              )}
+              ) : owesLicense.length > 0 ? (
+                <span className="mt-1 block text-[16px] text-white/45">
+                  {t("payMode.license.plus", {
+                    price: money(LICENSE_PRICE),
+                    names: owesLicense
+                      .map((m) => (m as { firstName: string }).firstName)
+                      .join(" & "),
+                  })}
+                </span>
+              ) : null}
             </span>
           </button>
         )}

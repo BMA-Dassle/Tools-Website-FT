@@ -31,6 +31,7 @@ import { LICENSE_PRICE, calculateTax } from "./race-pricing";
 import { redemptionsFromSession } from "../data/race-credits";
 import { bmiAdapter } from "../data/bmi";
 import { registerContact, registerProjectPersons } from "./bmi-register";
+import { racerNeedsLicense } from "./license";
 import { CURRENT_POLICY_VERSION } from "@/lib/clickwrap";
 import { getService } from "./index";
 import type { PaymentSourceKind } from "~/features/card-vault/types";
@@ -1089,12 +1090,11 @@ export function buildRaceChargeLines(
   );
   const newRacerCount = session.party.filter(
     (m) =>
-      m.isNewRacer &&
-      // licensePrepaid = the license was already bought + registered (race-pack
-      // "Race today" hand-off); never charge the $4.99 twice.
-      !m.licensePrepaid &&
-      racingMemberIds.has(m.id) &&
-      !packageRacerIds.has(m.id),
+      // VERIFIED licence state, not the client's new-racer flag: a returning
+      // racer whose annual licence lapsed owes one, and a "new" racer who
+      // already holds one does not (see service/license.ts). licensePrepaid is
+      // folded in there — the race-pack "Race today" hand-off already bought it.
+      racerNeedsLicense(m) && racingMemberIds.has(m.id) && !packageRacerIds.has(m.id),
   ).length;
   // Rookie Pack FLAG flow (the license/POV step opt-in + the kiosk mixed-party
   // auto-enroll — distinct from the PACKAGE flow, whose bundle line already

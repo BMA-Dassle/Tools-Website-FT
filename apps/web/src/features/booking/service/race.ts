@@ -12,6 +12,7 @@
  * The license/POV sells use raw JSON template literals because their
  * payload shapes differ from the adapter's booking/book format.
  */
+import { racerNeedsLicense } from "./license";
 import type { Dispatch } from "react";
 import type { Action } from "../state/machine";
 import type { BookingSession, PartyMember, RaceItem, RaceHeatAssignment } from "../state/types";
@@ -111,9 +112,12 @@ function licenseHeatIndices(session: BookingSession, item: RaceItem): Set<number
     const memberId = item.heats[i].assignedTo;
     if (!memberId || seen.has(memberId)) continue;
     const member = session.party.find((m) => m.id === memberId);
-    // licensePrepaid racers already bought + registered their license (race-pack
-    // "Race today" hand-off) — never book a SECOND withLicense grant for them.
-    if (!member?.isNewRacer || member.licensePrepaid) continue;
+    // VERIFIED licence state, the same source the $4.99 Square line reads
+    // (service/license.ts): a returning racer whose annual licence lapsed books
+    // the +licence twin, and a racer who already holds one never does.
+    // licensePrepaid (race-pack "Race today" hand-off) counts as holding one, so
+    // it can't book a SECOND grant.
+    if (!member || !racerNeedsLicense(member)) continue;
     seen.add(memberId);
     indices.add(i);
   }

@@ -15,6 +15,30 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.16.0 — A LAPSED LICENCE CAN NO LONGER SLIP THROUGH (owner 2026-08-04: "two
+ *         people are new racers and one isn't but it's allowing me to skip by
+ *         licensing"). The $4.99 Square line AND the +licence BMI build product
+ *         (the ONLY thing that records a licence) both keyed off `isNewRacer`, a
+ *         client flag set by how a person was added to the roster — so a
+ *         returning racer whose annual licence had expired raced with nothing
+ *         charged and nothing recorded. Both now read one verified signal,
+ *         `licenseActive`, computed server-side from the Office person's
+ *         memberships (name contains "license", `stops` in the future) during the
+ *         qualification refresh: verified-licensed never pays, verified-lapsed
+ *         pays, unverified falls back to the old flag so an Office outage can't
+ *         surprise-charge a regular. `licensePrepaid` (race-pack hand-off) still
+ *         wins over everything.
+ *         Deliberately NOT inferred from the `memberships` NAME list: two of this
+ *         repo's own test fixtures populate that list narrowly, which would have
+ *         charged a licensed racer $4.99 — the failing tests caught it.
+ *         Mixed parties also stop hiding the licence: page 1 shows "+ $4.99
+ *         license for Max" instead of folding it into a per-racer price that only
+ *         some racers pay, and the cart estimate reads the same helper as the
+ *         charge so the two can't drift.
+ *         Also fixed the console error the owner reported: IdleWatcher called
+ *         onReset() from inside a setState updater, i.e. during render, which set
+ *         state in KioskFlow mid-render. A reset is an event — it now runs in the
+ *         interval callback.
  * 1.15.1 — attractions stop asking twice, and the review screen says WHO
  *         (owner 2026-08-04). The kiosk's "Who's playing?" step already writes
  *         `item.participants` and keeps `item.qty` in sync for waiver-gated
@@ -670,7 +694,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.15.1";
+export const KIOSK_VERSION = "1.16.0";
 
 let bootVersion: string | null = null;
 let captured = false;

@@ -46,6 +46,7 @@ export interface QualificationRow {
   id: string;
   /** Active, relevant membership names (tier/discount inputs). Absent = fetch failed. */
   memberships?: string[];
+  licenseActive?: boolean;
   /** Credit kinds + balances (same shape as the sign-in snapshot). Absent = fetch failed. */
   creditBalances?: Array<{ kind: string; balance: number }>;
   /** Live waiver validity. Absent = the Pandora read failed / person not found
@@ -69,6 +70,21 @@ function membershipsFromPerson(person: Record<string, unknown>): string[] {
     )
     .map((m) => m.name as string)
     .filter((n, i, a) => a.indexOf(n) === i);
+}
+
+/** Does this Office person hold an UNEXPIRED licence membership? Mirrors
+ *  `personHasActiveLicense` (race-pack rail) — name contains "license", `stops`
+ *  in the future or absent. */
+function hasActiveLicense(person: Record<string, unknown>): boolean {
+  const raw = person.memberships;
+  if (!Array.isArray(raw)) return false;
+  const now = Date.now();
+  return (raw as Array<{ stops?: string; name?: string }>).some(
+    (m) =>
+      typeof m?.name === "string" &&
+      m.name.toLowerCase().includes("license") &&
+      (!m.stops || new Date(m.stops).getTime() > now),
+  );
 }
 
 /** Pandora person read → waiver validity + birthdate; null when the read
@@ -119,7 +135,13 @@ export async function gatherQualifications(
         fetchWaiverStatus(m.pandoraPersonId || m.bmiPersonId, locationKey),
       ]);
       const row: QualificationRow = { id: m.id };
-      if (person) row.memberships = membershipsFromPerson(person);
+      if (person) {
+        row.memberships = membershipsFromPerson(person);
+        // Same read, one extra fact: is an UNEXPIRED licence on file? Explicit,
+        // because the money path must not infer it from the filtered name list
+        // (service/license.ts explains why).
+        row.licenseActive = hasActiveLicense(person);
+      }
       if (deposits) row.creditBalances = creditBalancesFromDeposits(deposits);
       if (waiver) {
         row.waiverValid = waiver.waiverValid;

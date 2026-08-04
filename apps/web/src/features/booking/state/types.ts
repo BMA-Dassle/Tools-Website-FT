@@ -123,6 +123,11 @@ export interface PartyMember {
    * racer is identified. Drives tier filtering in `filterProducts` — without
    * this, even verified Pro racers see Starter-only products.
    */
+  /** Verified with BMI: an UNEXPIRED licence membership is on file. Written by
+   *  the qualification refresh / returning-racer sign-in; undefined = not read.
+   *  THE money signal for the $4.99 licence and the +licence BMI build product
+   *  (service/license.ts) — `isNewRacer` alone let a lapsed licence through. */
+  licenseActive?: boolean;
   memberships?: string[];
   /** Pandora waiver validity — true when the racer has a current, unexpired waiver.
    *  Drives Express Lane eligibility (skip Guest Services at check-in). */

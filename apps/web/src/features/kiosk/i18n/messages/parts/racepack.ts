@@ -112,6 +112,7 @@ export const racepackEn = {
   "payMode.raceWord": "{count, plural, one {race} other {races}}",
   "payMode.incl.prefix": "incl. {list}",
   "payMode.incl.license": "license",
+  "payMode.license.plus": "+ {price} license for {names}",
   "payMode.incl.video": "video",
   "payMode.incl.appetizer": "appetizer",
   "payMode.say.qualifier":
@@ -234,6 +235,7 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
   "payMode.raceWord": "{count, plural, one {carrera} other {carreras}}",
   "payMode.incl.prefix": "incluye {list}",
   "payMode.incl.license": "licencia",
+  "payMode.license.plus": "+ {price} de licencia para {names}",
   "payMode.incl.video": "video",
   "payMode.incl.appetizer": "aperitivo",
   "payMode.say.qualifier":

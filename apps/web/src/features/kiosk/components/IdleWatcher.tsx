@@ -62,19 +62,24 @@ export function IdleWatcher({
   }, [paused, armIdleTimer]);
 
   // Warning countdown. Deps are [warning] ONLY — see onResetRef above.
+  //
+  // The tick keeps its own ref count and does the side effects in the INTERVAL
+  // callback. They used to live inside the `setSecondsLeft` updater, which React
+  // runs during the render phase — so `onReset()` reached into KioskFlow and set
+  // state mid-render ("Cannot update a component while rendering a different
+  // component", owner console 2026-08-04). A reset is an event, not a derivation.
   useEffect(() => {
     if (!warning) return;
-    setSecondsLeft(WARNING_SECONDS);
+    let left = WARNING_SECONDS;
+    setSecondsLeft(left);
     const iv = setInterval(() => {
-      setSecondsLeft((s) => {
-        if (s <= 1) {
-          clearInterval(iv);
-          setWarning(false);
-          onResetRef.current();
-          return 0;
-        }
-        return s - 1;
-      });
+      left -= 1;
+      setSecondsLeft(Math.max(0, left));
+      if (left <= 0) {
+        clearInterval(iv);
+        setWarning(false);
+        onResetRef.current();
+      }
     }, 1000);
     return () => clearInterval(iv);
   }, [warning]);

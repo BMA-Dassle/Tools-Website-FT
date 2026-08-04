@@ -30,6 +30,7 @@ import {
 import { redeemedHeatSet } from "~/features/booking/data/race-credits";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
+import { racerNeedsLicense } from "~/features/booking/service/license";
 import { useT } from "~/features/kiosk/i18n";
 import { racePackTeaserVisible } from "./steps/race/RacePackTeaser";
 import { PackAssignmentList, RacePackPicker } from "./steps/race/RacePackPicker";
@@ -1074,9 +1075,13 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
     const racingIds = new Set(
       item.heats.filter((h) => h.heatId && h.assignedTo).map((h) => h.assignedTo!),
     );
+    // Verified licence state — same helper the charge builder uses, so the
+    // estimate can't quote a total the checkout won't charge.
     const nonPackageNewRacers = session.party.filter(
       (m) =>
-        m.isNewRacer && racingIds.has(m.id) && !packageIdForCategory(item, m.category ?? "adult"),
+        racerNeedsLicense(m) &&
+        racingIds.has(m.id) &&
+        !packageIdForCategory(item, m.category ?? "adult"),
     ).length;
     const raceAddonFactor = promoFactor(
       { domain: "racing", visitDate: item.date },
