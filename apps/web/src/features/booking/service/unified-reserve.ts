@@ -3101,7 +3101,20 @@ async function unifiedReserveInner(
       // flag so the web path is byte-identical. Lazy-imported so the module (and
       // its bmi-office-actions chain) never loads on the web path. Never throws
       // out of reserve — the booking is already confirmed + charged.
-      if (session.context?.kiosk && bmiReservationNumber && raceItems.length > 0) {
+      // Attractions are on this rail too (owner 2026-08-04). The gate used to be
+      // race-only, which is why a laser-tag-only kiosk booking reached NONE of
+      // it — no session assignment, no memo, no confirmation state. Every step
+      // below is activity-agnostic; only the row builders differ.
+      const kioskAttractionItems = session.items.filter(
+        (i): i is AttractionItem =>
+          i.kind === "attraction" &&
+          ((i.participants?.length ?? 0) > 0 || i.assignedTo.length > 0),
+      );
+      if (
+        session.context?.kiosk &&
+        bmiReservationNumber &&
+        (raceItems.length > 0 || kioskAttractionItems.length > 0)
+      ) {
         // Run the rail AFTER the response is sent (Next after()) so the guest
         // isn't held at the reader while the notification + memo + office-state +
         // the 8s-delayed Pandora session assignment fire. Vercel keeps the
@@ -3114,9 +3127,15 @@ async function unifiedReserveInner(
         const resCode = bmiReservationCode;
         const runKioskPost = async () => {
           try {
-            const { runKioskPostReserve, buildKioskRacers } = await import("./kiosk-post-reserve");
+            const { runKioskPostReserve, buildKioskRacers, buildKioskAttractionRows } =
+              await import("./kiosk-post-reserve");
             await runKioskPostReserve({
-              racers: buildKioskRacers(session, raceItems),
+              // ONE post carries both: FastTrax and HP Fort Myers share a BMI
+              // server, and `locationID` on /bmi/schedule is a server lookup.
+              racers: [
+                ...buildKioskRacers(session, raceItems),
+                ...buildKioskAttractionRows(session, kioskAttractionItems),
+              ],
               contact,
               bmiBillId,
               bmiReservationNumber: resNumber,

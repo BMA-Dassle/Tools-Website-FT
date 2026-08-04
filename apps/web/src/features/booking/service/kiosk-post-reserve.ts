@@ -21,9 +21,13 @@
  * Absolute-URL note (see lib/pandora-party-lead.ts header for the lesson):
  *   - Pandora session assignment calls Pandora DIRECTLY (no internal HTTP hop),
  *     mirroring the inline Pandora state flip in unified-reserve. This avoids an
- *     origin dependency entirely AND lets us target the FastTrax RACING location
- *     explicitly (the `/api/pandora/schedule` route hardcodes the wrong center
- *     as its fallback location id).
+ *     origin dependency entirely AND lets us pick the location per CENTER (the
+ *     `/api/pandora/schedule` route hardcodes one id as its fallback).
+ *
+ * Not race-only: everything here except `buildKioskRacers` is activity-agnostic.
+ * Attraction participants ride the same rail (`buildKioskAttractionRows`) — they
+ * were being registered as project persons and then never linked to their
+ * session, so staff ticked each guest by hand (owner 2026-08-04).
  *   - The guest confirmation notification reuses the rich
  *     `/api/notifications/booking-confirmation` route (email templates, QR,
  *     sales-log, VIP branching, Redis dedup) via an absolute URL built from
@@ -42,7 +46,8 @@ import {
 import { isVipComboBooking } from "~/features/combos/combo-specials";
 import { stampVipStateIfCombo } from "~/features/combos/vip-state.server";
 import { kioskPovCodesEnabled } from "~/features/kiosk/flags";
-import type { BookingSession, RaceItem } from "../state/types";
+import { ATTRACTIONS } from "@/lib/attractions-data";
+import type { AttractionItem, BookingSession, RaceItem } from "../state/types";
 import type { ContactInfo } from "../types";
 
 // Internal-route base — same constant the cron jobs use for server→internal
@@ -55,6 +60,35 @@ const PANDORA_BASE = "https://bma-pandora-api.azurewebsites.net/v2";
 // RACING lives at the FastTrax center, NOT the HeadPinz FM square id the
 // `/api/pandora/schedule` route defaults to. Assign racers to the racing center.
 const FASTTRAX_RACING_LOCATION_ID = "LAB52GY480CJF";
+
+/**
+ * `locationID` on POST /bmi/schedule is a SERVER lookup, not a venue scope —
+ * the vendor doc reads "Square location ID to lookup BMI server address".
+ * FastTrax and HeadPinz Fort Myers share one BMI server, so both racing heats
+ * and HP Arena attraction sessions on an FM booking ride ONE post under the
+ * racing id (owner 2026-08-04: "fort myers can share LAB52GY480CJF"). Naples is
+ * a different server and resolves to its own id.
+ */
+const PANDORA_LOCATION_BY_CENTER: Record<string, string> = {
+  "fort-myers": FASTTRAX_RACING_LOCATION_ID,
+  naples: "PPTR5G2N0QXF7",
+};
+
+/** Which BMI server this booking's session assignment must target. */
+export function pandoraLocationForCenter(center: string | null | undefined): string {
+  return PANDORA_LOCATION_BY_CENTER[center ?? ""] ?? FASTTRAX_RACING_LOCATION_ID;
+}
+
+/**
+ * `tier` is REQUIRED as a string by POST /bmi/schedule and an attraction has no
+ * tier — the field is a kart concept. Sending "starter" would write false racing
+ * data into the vendor's schedule, so attraction rows carry this placeholder and
+ * `track: null`. The endpoint skips rows it can't bind (per-row `status`,
+ * non-destructive, idempotent), so a rejection costs nothing and names itself in
+ * the log. Pending a vendor change to make tier/track optional (or to add a
+ * `kind` discriminator) — see the ask filed 2026-08-04.
+ */
+const ATTRACTION_TIER = "attraction";
 
 // The BMI→Pandora reservation sync lags the confirm by a few seconds; the web
 // waits 8s before its schedule POST for the same reason. We mirror that here so
@@ -161,6 +195,61 @@ export function buildKioskRacers(session: BookingSession, raceItems: RaceItem[])
         };
       }),
   );
+}
+
+/**
+ * Build participant→session rows for the ATTRACTIONS on this booking (laser tag,
+ * gel blaster, duckpin, shuffly) in the same shape the race rows use, so both
+ * ride one POST.
+ *
+ * Why this exists: attraction participants ARE registered as BMI project persons
+ * — they show up as rows in the Office session grid — but nothing ever linked
+ * them to the session, so the session column sat unchecked and staff ticked
+ * every guest by hand (owner 2026-08-04, W57593: three people on the project,
+ * `9:15 PM HP Arena` column empty). `buildKioskRacers` only walks race heats.
+ *
+ * The session window comes from the slot's own BMI proposal block — the vendor's
+ * real start and stop (21:15→21:30 on W57593), never a duration we guessed. A
+ * participant with no resolvable person id is dropped here rather than sent as a
+ * null: the rail's §2 escalation already names unlinked people on the memo, and
+ * an id-less row would just be skipped by the endpoint anyway.
+ */
+export function buildKioskAttractionRows(
+  session: BookingSession,
+  attractionItems: AttractionItem[],
+): KioskRacer[] {
+  return attractionItems.flatMap((item) => {
+    const blocks = item.slotProposal?.blocks ?? [];
+    const start = blocks[0]?.block?.start ?? null;
+    const stop = blocks[blocks.length - 1]?.block?.stop ?? null;
+    if (!start || !stop) return [];
+    const config = item.slug ? ATTRACTIONS[item.slug] : undefined;
+    const name = config?.name ?? "Attraction";
+    // `participants` is the kiosk's waiver-gated roster; `assignedTo` is the
+    // universal bill roster. Either identifies who is actually playing.
+    const memberIds = item.participants?.length ? item.participants : item.assignedTo;
+    return (memberIds ?? []).flatMap((id) => {
+      const member = session.party.find((m) => m.id === id);
+      const personId = member?.pandoraPersonId ?? member?.bmiPersonId ?? null;
+      if (!member || !personId) return [];
+      return [
+        {
+          racerName: member.lastName
+            ? `${member.firstName} ${member.lastName}`
+            : (member.firstName ?? "Guest"),
+          personId,
+          product: name,
+          productId: item.productId,
+          tier: ATTRACTION_TIER,
+          track: null,
+          category: member.category ?? "adult",
+          heatName: name,
+          heatStart: start,
+          heatStop: stop,
+        },
+      ];
+    });
+  });
 }
 
 /**
@@ -388,7 +477,7 @@ export async function runKioskPostReserve(args: KioskPostReserveArgs): Promise<v
       // (live 2026-07-18, W52076) gets retried instead of logged-and-lost.
       const postSchedule = async (batch: KioskRacer[]) => {
         const res = await fetch(
-          `${PANDORA_BASE}/bmi/schedule/${FASTTRAX_RACING_LOCATION_ID}/${bmiReservationNumber}`,
+          `${PANDORA_BASE}/bmi/schedule/${pandoraLocationForCenter(centerCode)}/${bmiReservationNumber}`,
           {
             method: "POST",
             headers: {

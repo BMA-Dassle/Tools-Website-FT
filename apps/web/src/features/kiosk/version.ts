@@ -15,6 +15,33 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.17.0 — attraction participants get assigned to their session, like racers do
+ *         (owner 2026-08-04: "I have reason to believe we're not assigning them
+ *         to the session via pandora like we do racing … assigning to session is
+ *         just like racing"). Proven on W57593: three people registered as BMI
+ *         project persons, `9:15 PM HP Arena` column unchecked — staff ticking
+ *         each guest by hand.
+ *         Two causes, both here:
+ *           · `buildKioskRacers` walks race heats only, so no attraction row ever
+ *             reached POST /bmi/schedule. New `buildKioskAttractionRows` builds
+ *             one row per participant using the slot's OWN proposal window (BMI's
+ *             real 21:15→21:30, never a guessed duration), junior/adult from the
+ *             member, and drops an id-less participant instead of sending null.
+ *           · the rail's gate was `raceItems.length > 0`, so a laser-tag-only
+ *             booking reached NONE of it — no assignment, no memo, no
+ *             confirmation state. Every step in the rail is activity-agnostic;
+ *             only the builders were race-specific. Gate now includes attractions.
+ *         `locationID` on that endpoint is a BMI SERVER lookup, not a venue scope
+ *         (vendor doc), and FastTrax + HP Fort Myers share a server (owner: "fort
+ *         myers can share LAB52GY480CJF") — so ONE post carries karts and the
+ *         arena together. Naples resolves to its own server id.
+ *         ⚠ NOT vendor-confirmed yet: /bmi/schedule REQUIRES `tier` and an
+ *         attraction has none, so rows carry the placeholder "attraction" with
+ *         `track: null`. The endpoint is idempotent and SKIPS rows it cannot bind
+ *         (per-row status), so a rejection writes nothing — and the rail already
+ *         escalates anyone left unlinked onto the reservation memo. A vendor ask
+ *         is filed to make tier/track optional (or add a `kind` discriminator)
+ *         and to expose a GET, which today 404s ("Cannot GET").
  * 1.16.9 — /api/bmi was ROUNDING every id it forwarded. Found by live-testing
  *         1.16.8's read-back against the dev server: BMI returned
  *         orderId 63000000007234468 and the proxy emitted ...460. The GET handler
@@ -805,7 +832,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.16.9";
+export const KIOSK_VERSION = "1.17.0";
 
 let bootVersion: string | null = null;
 let captured = false;
