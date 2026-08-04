@@ -21,6 +21,7 @@ import { eligiblePackages, getPackage } from "~/features/booking/service/package
 import { ComboUpsellCard } from "../combo/ComboUpsellCard";
 import { PackageCard } from "./PackageCard";
 import { RacePackTeaser, racePackTeaserVisible } from "./RacePackTeaser";
+import { payModeStepVisible } from "./RacePayModeStep";
 import {
   coveredMembersPreview,
   kioskRacePacksEnabled,
@@ -188,6 +189,10 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     "item" | "session" | "onChange" | "requestAdvance"
   >) => {
     const t = useT();
+    // Page 1 (RacePayModeStep) owns the bundles + credit packs when it exists —
+    // this screen is then purely "which race". Same seam the pay-mode step's own
+    // isVisible uses, so the two can't both claim (or both drop) them.
+    const payModeOwnsMoney = payModeStepVisible(item, session, category);
     const racersInCategory = racersOfCategory(session.party, category);
     const racerCount = racersInCategory.length;
 
@@ -490,7 +495,7 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
           </div>
         )}
 
-        {packages.length > 0 && (
+        {!payModeOwnsMoney && packages.length > 0 && (
           <div className="space-y-3">
             {packages.map((pkg) => (
               <div key={pkg.id} className="space-y-2">
@@ -576,7 +581,8 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
             still sells on every screen, and a covered racer (fresh pack via
             "Race today", or banked credits from any past visit) still gets the
             guidance + divider so the page reads as one directed step. */}
-        {packages.length === 0 &&
+        {!payModeOwnsMoney &&
+          packages.length === 0 &&
           (category === "adult" || !hasAdults) &&
           (racePackTeaserVisible(session) || showCoverageGuidance) && (
             <div className="space-y-3">
@@ -591,6 +597,10 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
               <SinglesDivider bright={kioskCompactPacks} nextStep={showCoverageGuidance} />
             </div>
           )}
+
+        {payModeOwnsMoney && showCoverageGuidance && (
+          <CoverageBanner names={coveredNames} source={coverageSource} credits={bannerCredits} />
+        )}
 
         <div className="space-y-6" ref={singlesRef}>
           {selectedPkg && (
@@ -1012,7 +1022,11 @@ export const RaceProductStepAdult: StepDef<RaceItem> = {
   id: "race-product-adult",
   title: "Adult Race",
   Component: makeProductStepComponent("adult"),
-  isVisible: (_item, session) => hasCategory(session, "adult"),
+  // With page 1 in play, a chosen bundle skips this screen — it already IS the
+  // race. (No page 1 = today's single screen, which keeps showing both.)
+  isVisible: (item, session) =>
+    hasCategory(session, "adult") &&
+    !(payModeStepVisible(item, session, "adult") && !!item.packageIdAdult),
   canAdvance: (item, session) => {
     if (!hasCategory(session, "adult")) return true;
     if (item.packageIdAdult) return true;
@@ -1035,7 +1049,9 @@ export const RaceProductStepJunior: StepDef<RaceItem> = {
   id: "race-product-junior",
   title: "Junior Race",
   Component: makeProductStepComponent("junior"),
-  isVisible: (_item, session) => hasCategory(session, "junior"),
+  isVisible: (item, session) =>
+    hasCategory(session, "junior") &&
+    !(payModeStepVisible(item, session, "junior") && !!item.packageIdJunior),
   canAdvance: (item, session) => {
     if (!hasCategory(session, "junior")) return true;
     if (item.packageIdJunior) return true;

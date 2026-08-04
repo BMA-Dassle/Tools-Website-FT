@@ -99,6 +99,23 @@ export const racepackEn = {
   "racePack.cart.missingTail": "to add one.",
   "racePack.cart.blurb":
     "Prepay your races at a discount — today’s race is covered, the rest bank to their account and never expire.",
+
+  // --- PAY-MODE step (page 1 of the split race flow: how, then which) ---
+  // {sizes} is the digit list of packs on sale today ("3 · 5 · 10").
+  "payMode.heading": "How are you paying?",
+  "payMode.sub": "Prepaid credits and bundles first — you’ll pick the actual race next.",
+  "payMode.single.title": "Just today’s races",
+  "payMode.single.sub": "Pay for the races you run today.",
+  "payMode.single.from": "from {price} / racer",
+  "payMode.pack.title": "Race pack — {sizes} races",
+  "payMode.pack.sub":
+    "Prepay at a discount. Today’s race is covered, the rest bank on the account and never expire.",
+  "payMode.pack.added":
+    "{count, plural, one {# pack added} other {# packs added}} — tap Continue to pick the race.",
+  "payMode.bundles": "Bundles",
+  "payMode.credits":
+    "{names} {count, plural, one {already has banked race credits} other {already have banked race credits}} — we’ll use them at checkout.",
+  "payMode.footnote": "Nothing to prepay? Tap Continue for single races.",
 } as const;
 
 export const racepackEs: Record<keyof typeof racepackEn, string> = {
@@ -194,4 +211,20 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
   "racePack.cart.missingTail": "para agregar uno.",
   "racePack.cart.blurb":
     "Prepaga tus carreras con descuento — la carrera de hoy queda cubierta y las demás quedan en su cuenta y nunca caducan.",
+
+  // --- Paso de forma de pago (página 1 del flujo dividido) ---
+  "payMode.heading": "¿Cómo vas a pagar?",
+  "payMode.sub": "Primero los créditos y los paquetes — la carrera se elige después.",
+  "payMode.single.title": "Solo las carreras de hoy",
+  "payMode.single.sub": "Paga las carreras que corras hoy.",
+  "payMode.single.from": "desde {price} / corredor",
+  "payMode.pack.title": "Race pack — {sizes} carreras",
+  "payMode.pack.sub":
+    "Prepaga con descuento. La carrera de hoy queda cubierta y las demás quedan en la cuenta y nunca caducan.",
+  "payMode.pack.added":
+    "{count, plural, one {# pack agregado} other {# packs agregados}} — toca Continuar para elegir la carrera.",
+  "payMode.bundles": "Paquetes",
+  "payMode.credits":
+    "{names} ya {count, plural, one {tiene créditos de carrera} other {tienen créditos de carrera}} — los usaremos al pagar.",
+  "payMode.footnote": "¿Nada que prepagar? Toca Continuar para carreras individuales.",
 };

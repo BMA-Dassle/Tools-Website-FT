@@ -75,6 +75,10 @@ import {
   RaceProductStepJunior,
 } from "~/components/features/booking/steps/race/RaceProductStep";
 import {
+  RacePayModeStepAdult,
+  RacePayModeStepJunior,
+} from "~/components/features/booking/steps/race/RacePayModeStep";
+import {
   RaceHeatPickerStepAdult,
   RaceHeatPickerStepJunior,
 } from "~/components/features/booking/steps/race/RaceHeatPickerStep";
@@ -217,8 +221,13 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     // Combo specials replace the product/heat pickers with the guided
     // itinerary (start time → schedule); both sets are isVisible-gated on
     // session.comboSpecialId so exactly one set renders.
+    // KIOSK: "how are you paying?" precedes "which race?" per category — the
+    // pay-mode step hides itself when there is nothing to choose (and always on
+    // web), so this insert is a no-op for those flows.
+    hiddenInCombo(RacePayModeStepAdult as StepDef),
     hiddenInCombo(RaceProductStepAdult as StepDef),
     hiddenInCombo(RaceHeatPickerStepAdult as StepDef),
+    hiddenInCombo(RacePayModeStepJunior as StepDef),
     hiddenInCombo(RaceProductStepJunior as StepDef),
     hiddenInCombo(RaceHeatPickerStepJunior as StepDef),
     ComboStartTimeStep as StepDef,

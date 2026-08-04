@@ -15,6 +15,22 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.14.0 — TWO PAGES INSTEAD OF ONE on the race step (owner 2026-08-03: "split to
+ *         packages first then race type"). Page 1 asks HOW — single races, a
+ *         prepaid 3/5/10 credit pack, or a bundle (Rookie Pack / Ultimate
+ *         Qualifier) — and page 2 is nothing but the tier list. The old screen
+ *         carried all three at once, and at six pack SKUs the tier cards sat
+ *         below the fold.
+ *         Per CATEGORY, like the product and heat steps it precedes: a bundle IS
+ *         a per-category purchase. Picking a bundle SKIPS page 2 (the bundle owns
+ *         the race) and goes to its heat picker; Back lands on page 1, where the
+ *         1.13.4 Remove lives. Picking "just today's races" clears any bundle, so
+ *         the tier list is always reachable. Page 1 hides itself when there is
+ *         nothing to choose (no packs offered, no eligible bundle) and never
+ *         appears on web, so nothing gains a speed bump it doesn't need.
+ *         Both screens read ONE seam (`payModeStepVisible`) to decide who owns
+ *         the pack/bundle blocks, so they cannot both show — or both drop — them.
+ *         NOT a flag: this branch IS the gate until the owner picks a layout.
  * 1.13.4 — a PREMIUM PACKAGE CAN BE TAKEN OFF AGAIN (owner report 2026-08-03:
  *         "users have no way of removing rookie pack"). Tapping Rookie Pack (or
  *         the Ultimate Qualifier) was one-way: the card auto-advances to the heat
@@ -555,7 +571,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.13.4";
+export const KIOSK_VERSION = "1.14.0";
 
 let bootVersion: string | null = null;
 let captured = false;
