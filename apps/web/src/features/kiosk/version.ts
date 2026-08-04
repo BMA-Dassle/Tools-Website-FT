@@ -15,6 +15,29 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.16.8 — the start-over cancel was working all along; the CHECK was broken.
+ *         `[race.cancel] bill cancel NOT confirmed after retries` +
+ *         `[kiosk] start-over could not confirm hold release` fire on every kiosk
+ *         start-over. Probed bill 63000000007234468 read-only (new
+ *         scripts/race-cancel-bill-probe.mts): its Office project has products:0
+ *         and all 13 schedule rows at stateId -4, userUpdatedId -17 — cancelled,
+ *         by us, holding nothing. The cancel LANDED every time.
+ *         Root cause: BMI answers a cancel with raw `true`. The proxy
+ *         JSON.parse'd it and forwarded the boolean, while `cancelRaceOrder`
+ *         demanded `{success:true}` — so `body?.success` was forever undefined
+ *         and NO cancel could ever report success. The suite was green because
+ *         every fixture mocked `{success:true}`, the shape the code wanted rather
+ *         than the one BMI sends.
+ *         Fixed on both sides: the proxy normalizes a boolean body to
+ *         `{success:<bool>}`, and the client accepts either shape (a kiosk tab
+ *         runs stale JS for days — old client + new proxy has to work too). Then
+ *         the real backstop: when nothing confirms, READ the bill. Empty = the
+ *         cancel took effect, log it and move on; lines still there = the loud
+ *         error it was always meant to be, now with "heats remain held" attached.
+ *         Note for future probes: the public-booking overview canNOT tell
+ *         cancelled from converted — every order past the open-cart stage reads
+ *         statusId -4 with zero lines, including live bookings (W56178/83/84).
+ *         Only the Office project distinguishes them.
  * 1.16.7 — "None of these" no longer eats the phone + email (owner 2026-08-04:
  *         "when new player does search to see if you have existing account then
  *         you click none of these and it returns — it removes mobile phone and
@@ -772,7 +795,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.16.7";
+export const KIOSK_VERSION = "1.16.8";
 
 let bootVersion: string | null = null;
 let captured = false;

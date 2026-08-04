@@ -578,8 +578,18 @@ export async function DELETE(req: NextRequest) {
     const logLine = `[bmi.delete] ${clientKey} ${endpoint} → ${upstream.status} ${text.slice(0, 120)}`;
     if (upstream.ok && text === "true") console.log(logLine);
     else console.error(logLine);
+    // Normalize the reply BEFORE it leaves the proxy. BMI's bare `true`
+    // JSON-parses to the boolean `true`, so callers that (reasonably) looked for
+    // `{success:true}` saw `undefined` and logged every successful cancel as a
+    // failure — for a year, on every kiosk start-over (2026-08-04, proven on
+    // bill 63000000007234468: three "not confirmed" attempts against an Office
+    // project that was already fully cancelled). A boolean body becomes
+    // `{success:<bool>}`; object bodies (BMI's error envelopes) pass through.
     try {
-      return NextResponse.json(JSON.parse(text), { status: upstream.status });
+      const parsed: unknown = JSON.parse(text);
+      return NextResponse.json(typeof parsed === "boolean" ? { success: parsed } : parsed, {
+        status: upstream.status,
+      });
     } catch {
       return NextResponse.json({ success: text === "true" }, { status: upstream.status });
     }
