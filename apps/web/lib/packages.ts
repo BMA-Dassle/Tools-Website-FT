@@ -238,8 +238,9 @@ const UQ_DISCLAIMERS: PackageDefinition["disclaimers"] = {
     "** ULTIMATE QUALIFIER ** Customer is a NEW racer — has NOT yet qualified for Intermediate. STAFF: verify level-up before assigning kart to the Intermediate race. If customer did not qualify: offer additional Starter (if available) OR issue race credit. NO cash refunds — customer acknowledged disclaimer at booking.",
 };
 
+// No appetizer since 2026-08-04 (owner) — the Ultimate Qualifier keeps one.
 const ROOKIE_LONG =
-  "Your first race plus everything you need to remember it: FastTrax license, ViewPoint POV camera footage, and a free appetizer at Nemo's upstairs (1 per 3 purchases, dine-in only).";
+  "Your first race plus everything you need to remember it: FastTrax license and ViewPoint POV camera footage of your run.";
 
 const PACKAGES: PackageDefinition[] = [
   // ── Rookie Pack — Mega (Tuesday) ──────────────────────────────────────────
@@ -251,7 +252,7 @@ const PACKAGES: PackageDefinition[] = [
     id: "rookie-pack-mega",
     maxQualifiedTier: "starter",
     name: "Rookie Pack",
-    shortDescription: "Starter Mega + License + POV + free appetizer",
+    shortDescription: "Starter Mega + License + POV",
     longDescription: ROOKIE_LONG,
     enabled: ROOKIE_PACK_ENABLED,
     racerType: "new",
@@ -287,7 +288,7 @@ const PACKAGES: PackageDefinition[] = [
     id: "rookie-pack-weekday",
     maxQualifiedTier: "starter",
     name: "Rookie Pack",
-    shortDescription: "Starter Race + License + POV + free appetizer",
+    shortDescription: "Starter Race + License + POV",
     longDescription: ROOKIE_LONG,
     enabled: ROOKIE_PACK_ENABLED,
     racerType: "new",
@@ -319,7 +320,7 @@ const PACKAGES: PackageDefinition[] = [
     id: "rookie-pack-weekday-junior",
     maxQualifiedTier: "starter",
     name: "Rookie Pack",
-    shortDescription: "Junior Starter Blue + License + POV + free appetizer",
+    shortDescription: "Junior Starter Blue + License + POV",
     longDescription: ROOKIE_LONG,
     enabled: ROOKIE_PACK_ENABLED,
     racerType: "new",
@@ -351,7 +352,7 @@ const PACKAGES: PackageDefinition[] = [
     id: "rookie-pack-weekend",
     maxQualifiedTier: "starter",
     name: "Rookie Pack",
-    shortDescription: "Starter Race + License + POV + free appetizer",
+    shortDescription: "Starter Race + License + POV",
     longDescription: ROOKIE_LONG,
     enabled: ROOKIE_PACK_ENABLED,
     racerType: "new",
@@ -381,7 +382,7 @@ const PACKAGES: PackageDefinition[] = [
     id: "rookie-pack-weekend-junior",
     maxQualifiedTier: "starter",
     name: "Rookie Pack",
-    shortDescription: "Junior Starter Blue + License + POV + free appetizer",
+    shortDescription: "Junior Starter Blue + License + POV",
     longDescription: ROOKIE_LONG,
     enabled: ROOKIE_PACK_ENABLED,
     racerType: "new",
@@ -414,7 +415,7 @@ const PACKAGES: PackageDefinition[] = [
     id: "rookie-pack",
     maxQualifiedTier: "starter",
     name: "Rookie Pack",
-    shortDescription: "Starter race + license + POV + free appetizer",
+    shortDescription: "Starter race + license + POV",
     longDescription: ROOKIE_LONG,
     enabled: false,
     racerType: "new",

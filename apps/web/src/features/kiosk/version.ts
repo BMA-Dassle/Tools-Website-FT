@@ -15,6 +15,22 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.16.5 — appetizer audit (owner 2026-08-04: "double check rookie pack has app
+ *         taken out — emails, web and kiosk and confirmation pages? Leave it in
+ *         for ultimate qualifier"). 1.14.3 pulled the FIELD; this pass found two
+ *         places that still promised it:
+ *           · the Rookie Pack's OWN copy — `shortDescription` ("… + free
+ *             appetizer") and ROOKIE_LONG, which the picker card renders. Fixed;
+ *             the Ultimate Qualifier's copy untouched.
+ *           · both confirmation pages had a hardcoded CATCH fallback that asserted
+ *             a Rookie Pack appetizer if the registry import failed. Removed — a
+ *             freebie the bar won't honour is worse than showing nothing.
+ *         Verified clean and data-driven: registry (6 rookie variants no code, all
+ *         5 UQ variants keep theirs), the email call-out (`emailPkg.appetizerCode`),
+ *         both confirmation cards, the v1 cart + picker rows, and both POV steps.
+ *         Also: the top strip is ONE line with only what it needs — who's signed
+ *         in, plus the hold clock inline on the right (owner: "take out number of
+ *         players … as well as racing on right. Just need to show signed in").
  * 1.16.4 — two more owner notes from the live pass (2026-08-04). The Mega Tuesday
  *         junior warning moved ABOVE the intro line — a rule that stops a racer
  *         from booking at all shouldn't sit under a sentence about waivers. And
@@ -723,7 +739,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.16.4";
+export const KIOSK_VERSION = "1.16.5";
 
 let bootVersion: string | null = null;
 let captured = false;

@@ -165,16 +165,6 @@ const ATTRACTION_LABEL_KEYS: Record<string, MessageKey> = {
   shuffly: "flow.activity.shuffleboard",
 };
 
-/** Short cart labels for the session banner. Module scope (not a render-body
- *  const) so an earlier closure can never hit it in its TDZ — see
- *  tasks/lessons.md; `t` is threaded in instead of reaching for the hook. */
-function itemLabel(t: Translate, kind: string): string {
-  if (kind === "race") return t("flow.activity.racing");
-  if (kind === "bowling") return t("flow.activity.bowling");
-  if (kind === "kbf") return t("flow.activity.kbf");
-  return t("flow.activity.generic");
-}
-
 /** Guest-facing activity name for an item — wizard header + exit-confirm copy. */
 function activityLabelFor(t: Translate, item: SessionItem): string {
   if (item.kind === "race") return t("flow.activity.racing");
@@ -863,7 +853,7 @@ export function KioskFlow({
   // 2026-07-19: auto-enroll the new racer(s) in the FULL Rookie Pack (license +
   // POV + appetizer) and skip that step (see skipLicenseForMixedParty in the
   // registry). The license already charges per new racer; POV needs povQuantity;
-  // the appetizer needs rookiePack. Gated on the Rookie flow flag.
+  // the bundled line needs rookiePack. Gated on the Rookie flow flag.
   // Game Zone cards never ride an EMPTY cart (owner 2026-07-21: "if you remove
   // all attractions the cards need removed too") — they pay with the booking
   // deposit, so there's nothing to charge them against. handleRemoveItem clears
@@ -1374,17 +1364,19 @@ export function KioskFlow({
   // (navigating away mid-payment would be risky, and it's redundant there).
   const mainGuest = session.party.find((m) => m.isBillingCustomer) ?? session.party[0];
   const hasGameCards = !!session.gameCardPurchase?.cards.length;
-  // ONE line, and no cart button (owner 2026-08-04: "don't need cart button up
-  // here and slip this down to one line"). The footer util strip already carries
-  // a Cart pill on every screen, so a second door up here bought nothing and cost
-  // a whole band of the fold. Not a button any more either — it states who is
-  // signed in and what is in the visit, nothing more.
+  // ONE row, and only two facts on it: WHO is signed in, and how long the hold
+  // has left (owner 2026-08-04: "can take out number of players from that top
+  // line as well as racing on right. Just need to show signed in"). The guest
+  // count and the activity list were both restating what the screen under them
+  // already shows, and the cart link duplicated the footer's Cart pill. The hold
+  // countdown rides the right in `inline` mode — same warn/urgent colours and
+  // Extend affordance it had as its own band.
   const sessionBanner =
-    (session.party.length > 0 || cartCount > 0 || hasGameCards) &&
+    (session.party.length > 0 || cartCount > 0 || hasGameCards || showHoldBar) &&
     !cartActive &&
     !checkoutActive &&
     !upsellActive ? (
-      <div className="k-glass mx-[48px] mt-[12px] flex shrink-0 items-center gap-[16px] px-[28px] py-[10px] text-left">
+      <div className="k-glass mx-[48px] mt-[12px] flex shrink-0 items-center gap-[18px] px-[28px] py-[10px] text-left">
         <span className="flex min-w-0 flex-1 items-center gap-[14px] text-[22px] text-white/70">
           <span
             className="h-[12px] w-[12px] shrink-0 rounded-full bg-[#46d68c]"
@@ -1394,21 +1386,20 @@ export function KioskFlow({
             <span className="truncate">
               {t("flow.banner.signedIn")}{" "}
               <strong className="text-white">{mainGuest.firstName}</strong>
-              {session.party.length > 1
-                ? ` ${t("flow.banner.plusGuests", { count: session.party.length - 1 })}`
-                : ""}
             </span>
           ) : (
             <span className="truncate">{t("flow.banner.visitInProgress")}</span>
           )}
         </span>
-        {(cartCount > 0 || hasGameCards) && (
-          <span className="shrink-0 truncate text-[22px] text-white/45">
-            {[
-              ...session.items.map((i) => itemLabel(t, i.kind)),
-              ...(hasGameCards ? [t("flow.banner.gameCards")] : []),
-            ].join(" · ")}
-          </span>
+        {showHoldBar && (
+          <KioskHoldBar
+            ref={timerRef}
+            inline
+            bmiBillId={session.bmiBillId}
+            qamfHoldId={qamfHoldId}
+            qamfCenterId={qamfCenterId}
+            onExpired={handleReservationExpired}
+          />
         )}
       </div>
     ) : null;
@@ -1561,15 +1552,6 @@ export function KioskFlow({
         />
       ) : null}
       <div className="relative z-[2] flex min-h-0 flex-1 flex-col">
-        {showHoldBar && (
-          <KioskHoldBar
-            ref={timerRef}
-            bmiBillId={session.bmiBillId}
-            qamfHoldId={qamfHoldId}
-            qamfCenterId={qamfCenterId}
-            onExpired={handleReservationExpired}
-          />
-        )}
         {sessionBanner}
         {children}
       </div>

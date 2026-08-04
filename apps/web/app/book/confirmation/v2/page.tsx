@@ -244,7 +244,10 @@ function VipVoucherDetailCard({
   code: string;
   accent: string;
   qr: string | null;
-  state: { expiresAt: string | null; items: Array<{ index: number; label: string; spent: boolean }> } | null;
+  state: {
+    expiresAt: string | null;
+    items: Array<{ index: number; label: string; spent: boolean }>;
+  } | null;
   /** "Your VIP Voucher" for a combo GRANT; plainer when the guest redeemed a
    *  voucher they already held (a prepaid deal pack). */
   title?: string;
@@ -281,11 +284,7 @@ function VipVoucherDetailCard({
       )}
       <p className="mt-2 text-xs text-white/50">
         Scan at any kiosk, or open{" "}
-        <a
-          href={`/v/${encodeURIComponent(code)}`}
-          className="underline"
-          style={{ color: accent }}
-        >
+        <a href={`/v/${encodeURIComponent(code)}`} className="underline" style={{ color: accent }}>
           your voucher page
         </a>
       </p>
@@ -777,13 +776,11 @@ export default function ConfirmationPage() {
             });
           }
         } catch {
-          if (bookingRecord?.rookiePack === true) {
-            setAppetizerInfo({
-              note: "1 per group",
-              items: ["Bruschetta", "GF Mac & Cheese Bites", "Fried Zucchini Sticks"],
-              packageLabel: "Rookie Pack",
-            });
-          }
+          // No hardcoded fallback. This used to assert a Rookie Pack appetizer
+          // when the registry import failed — which is now simply untrue (the
+          // Rookie Pack dropped its appetizer 2026-08-04; the Ultimate Qualifier
+          // keeps one). Promising a freebie the bar won't honour is worse than
+          // showing nothing, and the registry is the only thing that knows.
         }
 
         // Build race groups — group racers by heat for display tiles
@@ -2445,7 +2442,12 @@ export default function ConfirmationPage() {
                           {voucherState?.expiresAt
                             ? ` — thru ${new Date(voucherState.expiresAt).toLocaleDateString(
                                 "en-US",
-                                { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" },
+                                {
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                  timeZone: "America/New_York",
+                                },
                               )}`
                             : ""}
                         </p>
