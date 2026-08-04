@@ -236,6 +236,17 @@ function decode(r: any): DealPurchaseRow {
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+/**
+ * The row decoder, for read-path modules that query this table directly — see
+ * `deal-purchases-search.ts`.
+ *
+ * Exported rather than duplicated. A second decoder silently drops every column
+ * added after it was written, which is not hypothetical: the gift columns landed
+ * on this table after the admin board shipped. One decoder means a new column
+ * reaches every reader the moment it reaches this file.
+ */
+export { decode as decodeDealPurchaseRow };
+
 export interface InsertDealPurchaseArgs {
   dealSlug: string;
   locationKey: DealLocationKey;
