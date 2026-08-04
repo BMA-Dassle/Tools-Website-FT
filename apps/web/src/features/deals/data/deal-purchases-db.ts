@@ -31,16 +31,35 @@ import type { DealLocationKey } from "../catalog";
  * pending       → row written, nothing charged yet
  * charged       → money captured; vouchers may not exist yet
  * minted        → vouchers exist (`voucher_batch_id` set)
- * sent          → the buyer has been emailed their codes
+ * scheduled     → GIFTS ONLY: codes exist, the buyer has their receipt, and the
+ *                 recipient is waiting on `gift_send_at`
+ * sent          → the codes reached whoever they were bought for
  * charge_failed → terminal; the card was declined or the charge threw
  *
- * Only `charged | minted | sent` count against a buyer's cap — a declined
- * attempt must never consume someone's allowance.
+ * `scheduled` is a real state rather than "minted with a future date" because the
+ * reconcile sweep scans on status: a gift sitting in `minted` for eleven weeks
+ * would be picked up as unfinished work on every single pass. See
+ * `listUnfinishedDealPurchases`.
+ *
+ * Everything except `pending` and `charge_failed` counts against a buyer's cap —
+ * a declined attempt must never consume someone's allowance, but a gift bought
+ * for December absolutely does.
  */
-export type DealPurchaseStatus = "pending" | "charged" | "minted" | "sent" | "charge_failed";
+export type DealPurchaseStatus =
+  | "pending"
+  | "charged"
+  | "minted"
+  | "scheduled"
+  | "sent"
+  | "charge_failed";
 
 /** Statuses that represent money actually taken. */
-export const PAID_STATUSES: readonly DealPurchaseStatus[] = ["charged", "minted", "sent"] as const;
+export const PAID_STATUSES: readonly DealPurchaseStatus[] = [
+  "charged",
+  "minted",
+  "scheduled",
+  "sent",
+] as const;
 
 export interface DealPurchaseRow {
   id: number;
@@ -69,6 +88,18 @@ export interface DealPurchaseRow {
   voucherBatchId: string | null;
   /** The minted codes, for the confirmation screen, resends and audit. */
   codes: string[];
+  /** TRUE when this was bought for somebody else. Drives who gets the codes. */
+  isGift: boolean;
+  recipientName: string | null;
+  recipientEmail: string | null;
+  /** E.164, or null — a gift recipient's number is always optional. */
+  recipientPhone: string | null;
+  /** The buyer's note to the recipient, shown in the gift email + text. */
+  giftMessage: string | null;
+  /** When the recipient should hear about it. NULL = with the purchase. */
+  giftSendAt: string | null;
+  /** When the recipient actually got it. */
+  giftSentAt: string | null;
   /** Ad attribution — utm_* + gclid off the landing URL. */
   utm: Record<string, string> | null;
   clickwrapVersion: string | null;
@@ -142,6 +173,21 @@ function ensureSchema(): Promise<void> {
     // code for one buyer is the default, and the fulfilment path reads this column
     // (not the request) so a cron re-run mints the same shape.
     await q`ALTER TABLE deal_purchases ADD COLUMN IF NOT EXISTS combine BOOLEAN NOT NULL DEFAULT TRUE`;
+    // Gifting, added 2026-08-03. Same ALTER reasoning as `combine` above.
+    // `gift_send_at` NULL on a gift means "went out with the purchase"; a future
+    // value is the only thing that puts a row in `scheduled`.
+    await q`ALTER TABLE deal_purchases ADD COLUMN IF NOT EXISTS is_gift BOOLEAN NOT NULL DEFAULT FALSE`;
+    await q`ALTER TABLE deal_purchases ADD COLUMN IF NOT EXISTS recipient_name TEXT`;
+    await q`ALTER TABLE deal_purchases ADD COLUMN IF NOT EXISTS recipient_email TEXT`;
+    await q`ALTER TABLE deal_purchases ADD COLUMN IF NOT EXISTS recipient_phone TEXT`;
+    await q`ALTER TABLE deal_purchases ADD COLUMN IF NOT EXISTS gift_message TEXT`;
+    await q`ALTER TABLE deal_purchases ADD COLUMN IF NOT EXISTS gift_send_at TIMESTAMPTZ`;
+    await q`ALTER TABLE deal_purchases ADD COLUMN IF NOT EXISTS gift_sent_at TIMESTAMPTZ`;
+    // The dispatch sweep's only query: due gifts, oldest first.
+    await q`
+      CREATE INDEX IF NOT EXISTS deal_purchases_gift_due
+      ON deal_purchases (gift_send_at) WHERE status = 'scheduled'
+    `;
   })();
   return schemaReady;
 }
@@ -170,6 +216,13 @@ function decode(r: any): DealPurchaseRow {
     idempotencyKey: String(r.idempotency_key),
     voucherBatchId: r.voucher_batch_id ?? null,
     codes: Array.isArray(rawCodes) ? rawCodes.map(String) : [],
+    isGift: !!r.is_gift,
+    recipientName: r.recipient_name ?? null,
+    recipientEmail: r.recipient_email ?? null,
+    recipientPhone: r.recipient_phone ?? null,
+    giftMessage: r.gift_message ?? null,
+    giftSendAt: r.gift_send_at ? new Date(r.gift_send_at).toISOString() : null,
+    giftSentAt: r.gift_sent_at ? new Date(r.gift_sent_at).toISOString() : null,
     utm: r.utm ?? null,
     clickwrapVersion: r.clickwrap_version ?? null,
     lastError: r.last_error ?? null,
@@ -198,6 +251,13 @@ export interface InsertDealPurchaseArgs {
   buyerPhone?: string | null;
   smsOptIn?: boolean;
   idempotencyKey: string;
+  isGift?: boolean;
+  recipientName?: string | null;
+  recipientEmail?: string | null;
+  recipientPhone?: string | null;
+  giftMessage?: string | null;
+  /** ISO instant, already resolved from the buyer's chosen date. */
+  giftSendAt?: string | null;
   utm?: Record<string, string> | null;
   clickwrapVersion?: string | null;
 }
@@ -219,14 +279,19 @@ export async function insertDealPurchase(args: InsertDealPurchaseArgs): Promise<
       deal_slug, location_key, center_code, qty, combine,
       unit_price_cents, subtotal_cents, tax_cents, total_cents,
       buyer_name, buyer_email, buyer_phone, sms_opt_in,
-      idempotency_key, utm, clickwrap_version
+      idempotency_key, utm, clickwrap_version,
+      is_gift, recipient_name, recipient_email, recipient_phone,
+      gift_message, gift_send_at
     ) VALUES (
       ${args.dealSlug}, ${args.locationKey}, ${args.centerCode}, ${args.qty}, ${args.combine ?? true},
       ${args.unitPriceCents}, ${args.subtotalCents}, ${args.taxCents}, ${args.totalCents},
       ${args.buyerName ?? null}, ${args.buyerEmail},
       ${canonicalizePhone(args.buyerPhone)}, ${args.smsOptIn ?? false},
       ${args.idempotencyKey}, ${args.utm ? JSON.stringify(args.utm) : null},
-      ${args.clickwrapVersion ?? null}
+      ${args.clickwrapVersion ?? null},
+      ${args.isGift ?? false}, ${args.recipientName ?? null}, ${args.recipientEmail ?? null},
+      ${canonicalizePhone(args.recipientPhone)}, ${args.giftMessage ?? null},
+      ${args.giftSendAt ?? null}
     )
     RETURNING *
   `;
@@ -301,9 +366,61 @@ export async function markDealPurchaseSent(id: number): Promise<void> {
   const q = sql();
   await q`
     UPDATE deal_purchases
-    SET status = 'sent', sent_at = NOW()
+    SET status = 'sent',
+        sent_at = NOW(),
+        -- On a gift this IS the recipient delivery, so stamp both. COALESCE so a
+        -- re-run never rewrites the original delivery time.
+        gift_sent_at = CASE WHEN is_gift THEN COALESCE(gift_sent_at, NOW()) ELSE gift_sent_at END
     WHERE id = ${id} AND voucher_batch_id IS NOT NULL
   `;
+}
+
+/**
+ * Park a gift until its send date: codes exist, the buyer has been receipted,
+ * the recipient hasn't been told yet.
+ *
+ * Guarded on `gift_send_at IS NOT NULL` so this can never strand a non-gift (or
+ * a send-now gift) in a state nothing sweeps — `scheduled` is only reachable when
+ * there is a date to wake up on. Returns false if the guard rejected, which the
+ * caller treats as "leave it in `minted` and let reconcile try again".
+ */
+export async function markDealPurchaseScheduled(id: number): Promise<boolean> {
+  await ensureSchema();
+  const q = sql();
+  const rows = await q`
+    UPDATE deal_purchases
+    SET status = 'scheduled', sent_at = COALESCE(sent_at, NOW())
+    WHERE id = ${id}
+      AND voucher_batch_id IS NOT NULL
+      AND is_gift
+      AND gift_send_at IS NOT NULL
+      AND status IN ('charged', 'minted')
+    RETURNING id
+  `;
+  return rows.length > 0;
+}
+
+/**
+ * Scheduled gifts whose day has come.
+ *
+ * The `gift_send_at <= NOW()` comparison is the ONLY thing that releases a gift,
+ * and it lives in SQL rather than in JS so a clock-skewed serverless instance
+ * can't decide it's Christmas early.
+ */
+export async function listDueGiftDeliveries(limit = 50): Promise<DealPurchaseRow[]> {
+  if (!isDbConfigured()) return [];
+  await ensureSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM deal_purchases
+    WHERE status = 'scheduled'
+      AND refunded_at IS NULL
+      AND gift_send_at IS NOT NULL
+      AND gift_send_at <= NOW()
+    ORDER BY gift_send_at ASC
+    LIMIT ${limit}
+  `;
+  return rows.map(decode);
 }
 
 export async function recordDealPurchaseError(id: number, error: string): Promise<void> {

@@ -243,9 +243,21 @@ export async function emailPurchasedVouchers(args: {
   /** Where to send them to book the timed half, when the pack has one. */
   scheduleUrl?: string | null;
   scheduleLabel?: string | null;
+  /**
+   * Present when this voucher was bought FOR the addressee by somebody else.
+   *
+   * Same template, different voice — a gift email that opens "Thanks! Your
+   * voucher is ready" thanks the wrong person for a purchase they didn't make.
+   * Everything below the greeting (QR, value, redemption instructions, expiry)
+   * is identical, which is the whole reason this is a flag and not a fork.
+   */
+  gift?: { fromName?: string | null; message?: string | null };
 }): Promise<{ ok: boolean; error?: string }> {
   const value = args.valueSummary?.trim() || itemsSummary(args.items);
   const many = args.codes.length > 1;
+  const gift = args.gift;
+  const giftFrom = gift?.fromName?.trim() || null;
+  const giftNote = gift?.message?.trim() || null;
   const expiry = args.expiresAt
     ? new Date(args.expiresAt).toLocaleDateString("en-US", {
         timeZone: "America/New_York",
@@ -271,15 +283,33 @@ export async function emailPurchasedVouchers(args: {
     )
     .join("");
 
+  const greetingHtml = gift
+    ? `<p style="margin:0 0 12px;font-size:17px">${
+        giftFrom
+          ? `${esc(giftFrom)} sent you a <strong>${esc(args.productName)}</strong>!`
+          : `Someone sent you a <strong>${esc(args.productName)}</strong>!`
+      }</p>
+       ${
+         giftNote
+           ? `<blockquote style="margin:0 0 16px;padding:12px 16px;border-left:3px solid #fd5b56;
+                background:#faf7f7;color:#333;font-style:italic">${esc(giftNote)}</blockquote>`
+           : ""
+       }
+       <p style="margin:0 0 18px;color:#555">
+         ${many ? `You have ${args.codes.length} vouchers, each carrying` : "It carries"}
+         <strong>${esc(value)}</strong>. Nothing to pay — it's already covered.
+       </p>`
+    : `<p style="margin:0 0 12px">${args.name ? `Thanks, ${esc(args.name)}! ` : "Thanks! "}Your
+        ${esc(args.productName)}${many ? "s are" : " is"} ready.</p>
+       <p style="margin:0 0 18px;color:#555">
+         ${many ? `${args.codes.length} vouchers, each carrying` : "Your voucher carries"}
+         <strong>${esc(value)}</strong>.
+         ${many ? "Each code works on its own, so you can pass one to a friend." : ""}
+       </p>`;
+
   const html = `
     <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111">
-      <p style="margin:0 0 12px">${args.name ? `Thanks, ${esc(args.name)}! ` : "Thanks! "}Your
-        ${esc(args.productName)}${many ? "s are" : " is"} ready.</p>
-      <p style="margin:0 0 18px;color:#555">
-        ${many ? `${args.codes.length} vouchers, each carrying` : "Your voucher carries"}
-        <strong>${esc(value)}</strong>.
-        ${many ? "Each code works on its own, so you can pass one to a friend." : ""}
-      </p>
+      ${greetingHtml}
       <table style="border-collapse:collapse;margin:0 0 22px">${rows}</table>
       ${
         args.scheduleUrl
@@ -304,8 +334,18 @@ export async function emailPurchasedVouchers(args: {
     </div>`;
 
   const text = [
-    `${args.name ? `Thanks, ${args.name}! ` : "Thanks! "}Your ${args.productName}${many ? "s are" : " is"} ready.`,
-    `${many ? `${args.codes.length} vouchers, each carrying` : "Your voucher carries"} ${value}.`,
+    ...(gift
+      ? [
+          giftFrom
+            ? `${giftFrom} sent you a ${args.productName}!`
+            : `Someone sent you a ${args.productName}!`,
+          ...(giftNote ? [`"${giftNote}"`] : []),
+          `${many ? `You have ${args.codes.length} vouchers, each carrying` : "It carries"} ${value}. Nothing to pay — it's already covered.`,
+        ]
+      : [
+          `${args.name ? `Thanks, ${args.name}! ` : "Thanks! "}Your ${args.productName}${many ? "s are" : " is"} ready.`,
+          `${many ? `${args.codes.length} vouchers, each carrying` : "Your voucher carries"} ${value}.`,
+        ]),
     "",
     ...args.codes.map((c) => `${formatVoucherCode(c)} — ${voucherRedeemUrl(c)}`),
     "",
@@ -319,13 +359,17 @@ export async function emailPurchasedVouchers(args: {
   const res = await sendEmail({
     to: args.to,
     toName: args.name ?? undefined,
-    subject: many
-      ? `Your ${args.codes.length} ${args.productName} vouchers`
-      : `Your ${args.productName} voucher`,
+    subject: gift
+      ? giftFrom
+        ? `${giftFrom} sent you a ${args.productName}!`
+        : `You've been sent a ${args.productName}!`
+      : many
+        ? `Your ${args.codes.length} ${args.productName} vouchers`
+        : `Your ${args.productName} voucher`,
     html,
     text,
     bcc: AUDIT_BCC,
-    categories: ["voucher_purchase"],
+    categories: [gift ? "voucher_gift" : "voucher_purchase"],
     attachments: qrs.map((q) => q.attachment),
   });
   if (!res.ok) return { ok: false, error: res.error };
@@ -340,8 +384,9 @@ export async function emailPurchasedVouchers(args: {
     await logVoucherEvent(code, "send", {
       to: args.to,
       channel: "email",
-      reason: "purchase",
+      reason: gift ? "gift" : "purchase",
       productName: args.productName,
+      ...(giftFrom ? { giftFrom } : {}),
     }).catch(() => {});
   }
   return { ok: true };
@@ -366,14 +411,25 @@ export async function smsPurchasedVouchers(args: {
   codes: string[];
   /** Sending DID. Defaults to the configured number. */
   fromOverride?: string;
+  /**
+   * Buyer's name when this is a gift going to the RECIPIENT's phone.
+   *
+   * Worth the extra segment risk: an unexplained text with a voucher link, to a
+   * number that never opted in, reads as spam and gets reported. Naming the
+   * sender is what makes it legible.
+   */
+  giftFromName?: string | null;
 }): Promise<{ ok: boolean; error?: string }> {
   if (args.codes.length === 0) return { ok: false, error: "no codes" };
 
   const MAX_INLINE = 3;
   const many = args.codes.length > 1;
-  const head = many
-    ? `Your ${args.codes.length} ${args.productName} vouchers are ready.`
-    : `Your ${args.productName} voucher is ready.`;
+  const giftFrom = args.giftFromName?.trim() || null;
+  const head = giftFrom
+    ? `${giftFrom} sent you a ${args.productName}${many ? ` (${args.codes.length} of them)` : ""}!`
+    : many
+      ? `Your ${args.codes.length} ${args.productName} vouchers are ready.`
+      : `Your ${args.productName} voucher is ready.`;
 
   const body =
     args.codes.length <= MAX_INLINE
@@ -393,10 +449,104 @@ export async function smsPurchasedVouchers(args: {
     await logVoucherEvent(code, "send", {
       to: args.phone,
       channel: "sms",
-      reason: "purchase",
+      reason: giftFrom ? "gift" : "purchase",
+      ...(giftFrom ? { giftFrom } : {}),
     }).catch(() => {});
   }
   return { ok: true };
+}
+
+/**
+ * Receipt the BUYER of a gift — the one mail that goes to the person who paid.
+ *
+ * Carries no QR and leads with the delivery promise, because the buyer's question
+ * is "did it work and when does she get it?", not "how do I redeem this". The
+ * codes are still listed: they paid for them, and if the gift email bounces or the
+ * recipient loses it, this is the buyer's copy of a bearer instrument.
+ *
+ * For a SCHEDULED gift this is the only thing the buyer receives at purchase time,
+ * so the purchase path treats a failure here as a reason NOT to advance the row to
+ * `scheduled` — leaving it in `minted` for the reconcile sweep to retry.
+ */
+export async function emailDealGiftReceipt(args: {
+  to: string;
+  buyerName?: string | null;
+  recipientName: string;
+  recipientEmail: string;
+  productName: string;
+  codes: string[];
+  valueSummary?: string | null;
+  /** Formatted delivery date ("August 20, 2026"), or null when it went out now. */
+  sendDateLabel?: string | null;
+  expiresLabel?: string | null;
+  voucherUrl?: string | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  const many = args.codes.length > 1;
+  const when = args.sendDateLabel
+    ? `We'll email it to ${esc(args.recipientName)} on <strong>${esc(args.sendDateLabel)}</strong>.`
+    : `We've emailed it to <strong>${esc(args.recipientName)}</strong> (${esc(args.recipientEmail)}).`;
+
+  const codeRows = args.codes
+    .map(
+      (c) =>
+        `<li style="margin:0 0 6px"><span style="font-family:monospace;font-size:16px">${esc(
+          formatVoucherCode(c),
+        )}</span> — <a href="${esc(voucherRedeemUrl(c))}" style="color:#00898b">view</a></li>`,
+    )
+    .join("");
+
+  const html = `
+    <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#111">
+      <p style="margin:0 0 12px">${args.buyerName ? `Thanks, ${esc(args.buyerName)}! ` : "Thanks! "}Your
+        gift is all set.</p>
+      <p style="margin:0 0 18px;color:#555">${when}</p>
+      ${
+        args.valueSummary
+          ? `<p style="margin:0 0 18px;color:#555">${many ? "Each voucher carries" : "The voucher carries"}
+               <strong>${esc(args.valueSummary)}</strong>.</p>`
+          : ""
+      }
+      <p style="margin:0 0 8px;color:#555;font-size:14px"><strong>Your copy of the code${
+        many ? "s" : ""
+      }</strong> — keep this in case they lose the email:</p>
+      <ul style="margin:0 0 18px;padding-left:20px">${codeRows}</ul>
+      ${
+        args.expiresLabel
+          ? `<p style="margin:0;color:#888;font-size:13px">Valid through ${esc(
+              args.expiresLabel,
+            )} — the clock starts today, not on the delivery date.</p>`
+          : ""
+      }
+    </div>`;
+
+  const text = [
+    `${args.buyerName ? `Thanks, ${args.buyerName}! ` : "Thanks! "}Your gift is all set.`,
+    args.sendDateLabel
+      ? `We'll email it to ${args.recipientName} on ${args.sendDateLabel}.`
+      : `We've emailed it to ${args.recipientName} (${args.recipientEmail}).`,
+    "",
+    `Your copy of the code${many ? "s" : ""}:`,
+    ...args.codes.map((c) => `${formatVoucherCode(c)} — ${voucherRedeemUrl(c)}`),
+    ...(args.expiresLabel
+      ? ["", `Valid through ${args.expiresLabel} — the clock starts today, not on the delivery date.`]
+      : []),
+  ].join("\n");
+
+  const res = await sendEmail({
+    to: args.to,
+    toName: args.buyerName ?? undefined,
+    subject: args.sendDateLabel
+      ? `Your gift for ${args.recipientName} is scheduled`
+      : `Your gift for ${args.recipientName} is on its way`,
+    html,
+    text,
+    // Customer-facing, and it carries live bearer codes — same audit inbox as
+    // every other guest send, so "I never got my gift confirmation" is
+    // answerable from one place.
+    bcc: AUDIT_BCC,
+    categories: ["voucher_gift_receipt"],
+  });
+  return res.ok ? { ok: true } : { ok: false, error: res.error };
 }
 
 /**
@@ -431,6 +581,10 @@ export async function notifyStaffDealSale(args: {
   codes: string[];
   purchaseId: number;
   utm?: Record<string, string> | null;
+  /** Recipient label when the pack was bought as a gift. */
+  giftTo?: string | null;
+  /** ISO instant a scheduled gift goes out; null/absent = it already has. */
+  giftSendAt?: string | null;
 }): Promise<{ ok: boolean; error?: string }> {
   const to = (process.env.DEAL_SALE_NOTIFY_EMAILS || "eric@headpinz.com,jacob@headpinz.com")
     .split(",")
@@ -456,6 +610,27 @@ export async function notifyStaffDealSale(args: {
     rows: [
       { label: "Buyer", value: args.buyerName?.trim() || "—" },
       { label: "Email", value: args.buyerEmail, href: `mailto:${args.buyerEmail}` },
+      // Gift rows only when it IS one — a "Gift: —" line on every sale is noise.
+      // Values are RAW: renderAdminEmail's rowHtml escapes label and value itself,
+      // so pre-escaping here would render the entities literally.
+      ...(args.giftTo
+        ? [
+            {
+              label: "Gift to",
+              value: args.giftSendAt
+                ? `${args.giftTo} — scheduled for ${new Date(args.giftSendAt).toLocaleDateString(
+                    "en-US",
+                    {
+                      timeZone: "America/New_York",
+                      month: "long",
+                      day: "numeric",
+                      year: "numeric",
+                    },
+                  )}`
+                : `${args.giftTo} — sent now`,
+            },
+          ]
+        : []),
       { label: "Delivery", value: delivery },
       { label: "Codes", value: args.codes.map(formatVoucherCode).join(", ") || "—", mono: true },
       { label: "Source", value: source },

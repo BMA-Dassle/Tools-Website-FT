@@ -10,6 +10,7 @@ import Spinner from "~/components/ui/Spinner";
 import QtyStepper from "~/components/ui/QtyStepper";
 import { normalizeLocationSlug } from "@/lib/attractions-data";
 import { DEAL_LOCATION_INFO, isDealLocation, type DealLocationKey } from "~/features/deals";
+import { formatGiftDate, giftDateWindow } from "~/features/deals/gift";
 
 /**
  * The buy panel — the only interactive part of a deal page.
@@ -65,6 +66,10 @@ interface PurchaseResult {
   mintPending: boolean;
   emailPending: boolean;
   scheduleUrl: string | null;
+  isGift: boolean;
+  recipientName: string | null;
+  /** ISO instant the recipient hears about it; null = they already have. */
+  giftSendAt: string | null;
 }
 
 export interface DealBuyPanelProps {
@@ -164,7 +169,29 @@ export default function DealBuyPanel({
   const [smsOptIn, setSmsOptIn] = useState(false);
   const [agreed, setAgreed] = useState(false);
 
-  const [payError, setPayError] = useState<string | null>(null);
+  /* ── gift ───────────────────────────────────────────────────────────────
+     The recipient's PHONE is optional and their EMAIL is not: a gift text
+     goes to somebody who never opted in, so it is the buyer's deliberate
+     choice, never a required field. */
+  const [isGift, setIsGift] = useState(false);
+  const [recipientName, setRecipientName] = useState("");
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [recipientPhone, setRecipientPhone] = useState("");
+  const [giftMessage, setGiftMessage] = useState("");
+  const [giftDate, setGiftDate] = useState("");
+
+  /**
+   * Picker bounds. Computed once per mount rather than per render — it reads
+   * the clock, and a value that changes mid-session would let a date silently
+   * fall out of range between typing and paying. The server re-validates
+   * anyway; this is only here to stop the buyer picking something doomed.
+   */
+  const giftWindow = useMemo(() => giftDateWindow({ expiresMonths }), [expiresMonths]);
+
+  // NO local pay-error state. PaymentForm renders whatever `onTokenize` throws, in
+  // its own box directly above the pay button. Mirroring it here too is what put the
+  // same decline on screen twice on 2026-08-03 — one box above the card fields and an
+  // identical one below them.
   const [result, setResult] = useState<PurchaseResult | null>(null);
 
   // A stable synthetic id for the payment form's logging/keying. Deal packs have
@@ -216,7 +243,13 @@ export default function DealBuyPanel({
       name.trim().length > 1 && /.+@.+\..+/.test(email) && phone.replace(/\D/g, "").length >= 10,
     [name, email, phone],
   );
-  const readyToPay = !!location && !!quote && contactComplete && agreed && !quoting;
+  /** A gift can't be paid for until we know where it's going. */
+  const giftComplete = useMemo(
+    () => !isGift || (recipientName.trim().length > 0 && /.+@.+\..+/.test(recipientEmail)),
+    [isGift, recipientName, recipientEmail],
+  );
+  const readyToPay =
+    !!location && !!quote && contactComplete && giftComplete && agreed && !quoting;
 
   const handleTokenize = useCallback(
     async ({
@@ -230,12 +263,10 @@ export default function DealBuyPanel({
       saveCardConsent: boolean;
     }) => {
       if (!location || !quote) return;
-      setPayError(null);
       const nonce = cardNonce ?? savedCardId;
-      if (!nonce) {
-        setPayError("We couldn't read that card. Please try again.");
-        throw new Error("no nonce");
-      }
+      // Everything thrown from here is shown to the buyer verbatim by PaymentForm,
+      // so throw the guest-facing sentence — never an internal string like "no nonce".
+      if (!nonce) throw new Error("We couldn't read that card. Please try again.");
       const res = await fetch("/api/deals/purchase", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -247,17 +278,29 @@ export default function DealBuyPanel({
           // Echoed so the server can refuse if the total moved while we sat here.
           shownTotalCents: quote.totalCents,
           buyer: { name: name.trim(), email: email.trim(), phone: phone.trim(), smsOptIn },
+          ...(isGift
+            ? {
+                gift: {
+                  recipientName: recipientName.trim(),
+                  recipientEmail: recipientEmail.trim(),
+                  ...(recipientPhone.trim() ? { recipientPhone: recipientPhone.trim() } : {}),
+                  ...(giftMessage.trim() ? { message: giftMessage.trim() } : {}),
+                  // "Today" is not a schedule — omitting it means send now, which
+                  // is what an empty picker and today's date both mean.
+                  ...(giftDate && giftDate !== giftWindow.min ? { sendDate: giftDate } : {}),
+                },
+              }
+            : {}),
           cardNonce: nonce,
           clickwrapVersion: DEAL_TERMS_VERSION,
           utm: readUtm(),
         }),
       });
       const data = await res.json();
-      if (!res.ok || !data.ok) {
-        setPayError(data.error || "That payment didn't go through.");
-        // Rethrow so PaymentForm re-enables its button for another attempt.
-        throw new Error(data.error || "purchase failed");
-      }
+      // `data.error` is already guest-facing — the purchase service phrases declines
+      // through `checkoutDeclineMessage`. Throwing re-enables PaymentForm's button
+      // AND is how the message reaches the screen.
+      if (!res.ok || !data.ok) throw new Error(data.error || "That payment didn't go through.");
       const purchased = data as PurchaseResult;
 
       // Leave the purchase page entirely (owner 2026-08-03) and land on the
@@ -273,20 +316,45 @@ export default function DealBuyPanel({
       //
       // Codes empty = the mint deferred to the reconcile cron. Nothing to show yet,
       // so fall back to the in-panel notice rather than a 404.
-      if (purchased.codes.length > 0) {
+      //
+      // A GIFT STAYS HERE. /v/{code} is the RECIPIENT's page — it opens "your
+      // voucher is ready" and leads with a QR to redeem it, which is the wrong
+      // thing to show the person who just bought it for someone else. The buyer's
+      // question is "did it send, and when do they get it", so answer that.
+      if (!isGift && purchased.codes.length > 0) {
         window.location.href = `/v/${purchased.codes[0]}?bought=1`;
         return;
       }
       setResult(purchased);
     },
-    [slug, location, qty, combine, quote, name, email, phone, smsOptIn],
+    [
+      slug,
+      location,
+      qty,
+      combine,
+      quote,
+      name,
+      email,
+      phone,
+      smsOptIn,
+      isGift,
+      recipientName,
+      recipientEmail,
+      recipientPhone,
+      giftMessage,
+      giftDate,
+      giftWindow.min,
+    ],
   );
 
-  /* ── mint deferred ─────────────────────────────────────────────────────
-     The ONLY in-panel outcome left. A successful purchase leaves for
-     /deals/thanks; this covers the case where the charge landed but the mint
-     deferred to the reconcile cron, so there are no codes to put on a page yet. */
+  /* ── in-panel outcomes ─────────────────────────────────────────────────
+     A normal purchase leaves for /v/{code}. Two cases stay here: a GIFT (whose
+     buyer must not be shown the recipient's redemption page), and a purchase
+     whose mint deferred to the reconcile cron so there is no code to link yet. */
   if (result) {
+    const pending = result.codes.length === 0;
+    const giftDelayed = result.isGift && result.giftSendAt;
+    const who = result.recipientName?.trim() || "them";
     return (
       <Card className={PANEL_SURFACE}>
         <div className="flex items-center gap-3">
@@ -297,7 +365,9 @@ export default function DealBuyPanel({
             <IconCheck size={22} stroke={3} />
           </span>
           <div>
-            <h2 className="font-display text-2xl text-white">Payment received</h2>
+            <h2 className="font-display text-2xl text-white">
+              {result.isGift ? "Gift on its way" : "Payment received"}
+            </h2>
             <p className="text-sm text-white/60">
               {money(result.totalCents)} charged · {result.qty}{" "}
               {result.qty === 1 ? "pack" : "packs"}
@@ -305,11 +375,44 @@ export default function DealBuyPanel({
           </div>
         </div>
 
-        <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100">
-          We&apos;re still cutting your voucher{result.qty === 1 ? "" : "s"} — they&apos;ll be in
-          your inbox within a few minutes, with the QR code and everything you need. Nothing else is
-          needed from you, and you don&apos;t have to keep this page open.
-        </div>
+        {result.isGift && !pending && (
+          <div className="rounded-lg border border-white/15 bg-white/[0.04] p-4 text-sm text-white/80">
+            {giftDelayed ? (
+              <>
+                We&apos;ll email {who} on{" "}
+                <strong className="text-white">{formatGiftDate(result.giftSendAt!)}</strong>
+                {recipientPhone.trim() ? " and text them too" : ""}. Nothing for you to do — we
+                send it automatically.
+              </>
+            ) : (
+              <>
+                We&apos;ve emailed {who}
+                {recipientPhone.trim() ? " and sent them a text" : ""}. Your own receipt, with a
+                copy of the code{result.qty === 1 ? "" : "s"}, is in your inbox.
+              </>
+            )}
+          </div>
+        )}
+
+        {pending && (
+          <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 p-4 text-sm text-amber-100">
+            We&apos;re still cutting {result.isGift ? "the" : "your"} voucher
+            {result.qty === 1 ? "" : "s"} — {result.isGift ? "it" : "they"}&apos;ll be
+            {result.isGift ? " sent" : " in your inbox"} within a few minutes, with the QR code and
+            everything {result.isGift ? "they" : "you"} need. Nothing else is needed from you, and
+            you don&apos;t have to keep this page open.
+          </div>
+        )}
+
+        {result.isGift && !pending && (
+          <a
+            href={`/v/${result.codes[0]}`}
+            className="block rounded-lg border border-white/15 px-4 py-2.5 text-center text-sm
+              text-white/80 transition-colors hover:border-white/35 hover:text-white"
+          >
+            View your copy of the voucher
+          </a>
+        )}
 
         <p className="text-xs text-white/45">
           If it hasn&apos;t arrived in 10 minutes, give us a call and quote order #
@@ -494,15 +597,103 @@ export default function DealBuyPanel({
           onChange={(e) => setPhone(e.target.value)}
           autoComplete="tel"
         />
-        <label className="flex cursor-pointer items-start gap-2.5 text-xs text-white/55">
+        {!isGift && (
+          <label className="flex cursor-pointer items-start gap-2.5 text-xs text-white/55">
+            <input
+              type="checkbox"
+              checked={smsOptIn}
+              onChange={(e) => setSmsOptIn(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--deal-accent)]"
+            />
+            <span>Text me my voucher code too. Message rates may apply.</span>
+          </label>
+        )}
+      </div>
+
+      {/* ── Gift ──────────────────────────────────────────────────────────
+          Off by default: most buyers are buying for themselves, and a form
+          that opens asking who it's for makes the common case answer a
+          question it doesn't have. */}
+      <div className="space-y-3 rounded-lg border border-white/10 bg-white/[0.03] p-4">
+        <label className="flex cursor-pointer items-start gap-2.5 text-sm text-white/80">
           <input
             type="checkbox"
-            checked={smsOptIn}
-            onChange={(e) => setSmsOptIn(e.target.checked)}
+            checked={isGift}
+            onChange={(e) => setIsGift(e.target.checked)}
             className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--deal-accent)]"
           />
-          <span>Text me my voucher code too. Message rates may apply.</span>
+          <span className="flex items-center gap-1.5">
+            <IconGift size={16} />
+            This is a gift for someone else
+          </span>
         </label>
+
+        {isGift && (
+          <div className="space-y-3 pt-1">
+            <Input
+              label="Their name"
+              value={recipientName}
+              onChange={(e) => setRecipientName(e.target.value)}
+              autoComplete="off"
+            />
+            <Input
+              label="Their email (we send the voucher here)"
+              type="email"
+              value={recipientEmail}
+              onChange={(e) => setRecipientEmail(e.target.value)}
+              autoComplete="off"
+            />
+            <Input
+              label="Their mobile number (optional — we'll text it too)"
+              type="tel"
+              value={recipientPhone}
+              onChange={(e) => setRecipientPhone(e.target.value)}
+              autoComplete="off"
+            />
+            <div>
+              <label
+                htmlFor="gift-message"
+                className="mb-1.5 block text-xs font-medium text-white/70"
+              >
+                Add a message (optional)
+              </label>
+              <textarea
+                id="gift-message"
+                value={giftMessage}
+                maxLength={300}
+                rows={2}
+                onChange={(e) => setGiftMessage(e.target.value)}
+                placeholder="Happy birthday! Go have some fun."
+                className="w-full rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm
+                  text-white placeholder:text-white/30 focus:border-white/35 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="gift-send-date"
+                className="mb-1.5 block text-xs font-medium text-white/70"
+              >
+                When should we send it?
+              </label>
+              <input
+                id="gift-send-date"
+                type="date"
+                value={giftDate}
+                min={giftWindow.min}
+                max={giftWindow.max}
+                onChange={(e) => setGiftDate(e.target.value)}
+                className="w-full rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm
+                  text-white focus:border-white/35 focus:outline-none [color-scheme:dark]"
+              />
+              <p className="mt-1.5 text-xs text-white/45">
+                {giftDate && giftDate !== giftWindow.min
+                  ? `We'll email it the morning of ${formatGiftDate(giftDate)}.`
+                  : "We'll send it as soon as you pay."}{" "}
+                The voucher is good for {expiresMonths}&nbsp;months from today either way.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Terms — specific to a prepaid voucher, not the reservation policy. */}
@@ -514,14 +705,17 @@ export default function DealBuyPanel({
           className="mt-0.5 h-4 w-4 shrink-0 accent-[color:var(--deal-accent)]"
         />
         <span>
-          I understand this is a prepaid voucher: it&apos;s good for {expiresMonths} months from
-          today at the HeadPinz I picked, each item on it can be used once, and it isn&apos;t
-          refundable once redeemed. Laser tag and gel blaster run as timed sessions subject to
-          availability.
+          {/* &nbsp; is deliberate, and load-bearing. A plain space here renders as
+              "12months": the text node after {expiresMonths} spans several source
+              lines, so JSX line-normalisation eats its leading whitespace. It is
+              also the typographically correct character — a quantity should never
+              be split from its unit across a line break. */}
+          I understand this is a prepaid voucher: it&apos;s good for {expiresMonths}&nbsp;months
+          from today at the HeadPinz I picked, each item on it can be used once, and it
+          isn&apos;t refundable once redeemed. Laser tag and gel blaster run as timed sessions
+          subject to availability.
         </span>
       </label>
-
-      {payError && <ErrorBox>{payError}</ErrorBox>}
 
       {readyToPay && quote && location ? (
         <PaymentForm
@@ -532,7 +726,6 @@ export default function DealBuyPanel({
           locationId={location === "naples" ? "naples" : "headpinz"}
           onTokenize={handleTokenize}
           onSuccess={() => {}}
-          onError={(msg) => setPayError(msg)}
         />
       ) : (
         <p className="text-center text-xs text-white/40">

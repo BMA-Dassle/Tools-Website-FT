@@ -60,6 +60,31 @@ export const DealPurchaseSchema = z.object({
     phone: z.string().trim().min(7).max(30),
     smsOptIn: z.boolean().default(false),
   }),
+  /**
+   * Present when the buyer is sending this to someone else.
+   *
+   * The recipient's PHONE IS OPTIONAL and their email is not. A gift text goes to
+   * somebody who never gave us their number — one transactional "you've been sent
+   * a gift" message is defensible, a required field that quietly builds a list of
+   * non-consenting numbers is not. Email is the delivery of record; SMS is a
+   * nudge the buyer opts into on the recipient's behalf.
+   *
+   * `sendDate` is a calendar date (YYYY-MM-DD) in Eastern, not an instant — the
+   * buyer picks a DAY. Resolving it to a send time is `checkGiftDate`'s job, and
+   * it is re-validated server-side because the picker's min/max are only a hint.
+   */
+  gift: z
+    .object({
+      recipientName: z.string().trim().min(1).max(120),
+      recipientEmail: z.string().trim().toLowerCase().email().max(200),
+      recipientPhone: z.string().trim().max(30).optional(),
+      message: z.string().trim().max(300).optional(),
+      sendDate: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "Delivery date must be YYYY-MM-DD")
+        .optional(),
+    })
+    .optional(),
   /** Square card nonce, saved-card id, or wallet nonce. */
   cardNonce: z.string().min(1).max(4096),
   /** Terms-of-record version the buyer accepted. */
