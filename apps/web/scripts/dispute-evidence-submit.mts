@@ -140,7 +140,7 @@ for (const [disputeId, items] of Object.entries(PLAN)) {
   console.log(`\n--- dispute ${disputeId}`);
   for (const it of items) {
     const res = it.kind === "file" ? await uploadFile(disputeId, it) : await uploadText(disputeId, it);
-    const size = "mb" in res ? ` ${res.mb.toFixed(2)}MB` : "";
+    const size = "mb" in res && typeof res.mb === "number" ? ` ${res.mb.toFixed(2)}MB` : "";
     if (res.ok) {
       const id = res.body?.evidence?.id ?? res.body?.evidence?.evidence_id ?? "(no id)";
       console.log(`  OK   ${it.type.padEnd(38)}${size}  -> ${id}`);

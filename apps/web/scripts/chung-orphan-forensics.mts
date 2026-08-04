@@ -117,7 +117,7 @@ for (const t of ["booking_details", "booking_records", "race_bookings", "kiosk_s
     console.log(`\n(table ${t} does not exist — skipped)`);
     continue;
   }
-  const rows = (await q(
+  const rows = (await q.query(
     `SELECT * FROM ${t} WHERE created_at > now() - interval '4 hours' ORDER BY created_at DESC LIMIT 10`,
   )) as Array<Record<string, any>>;
   console.log(`\n════════════ ${t} (last 4h): ${rows.length} ════════════`);

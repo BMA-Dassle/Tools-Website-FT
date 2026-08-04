@@ -49,7 +49,7 @@ for (const t of tables) {
   if (seen.has(key)) continue;
   seen.add(key);
   try {
-    const rows = (await q(
+    const rows = (await q.query(
       `SELECT * FROM ${t.table_name} WHERE ${t.column_name}::text = ANY($1) LIMIT 10`,
       [IDS],
     )) as Array<Record<string, any>>;
