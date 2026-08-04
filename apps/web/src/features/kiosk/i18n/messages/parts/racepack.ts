@@ -104,8 +104,6 @@ export const racepackEn = {
   // --- PAY-MODE step (page 1: what you're buying, before which heat) ---
   // {sizes} = the pack sizes on sale today ("3, 5, 10"); {list} = the bundle's
   // own inclusions, built from its registry flags.
-  "payMode.eyebrow.first": "First time at FastTrax",
-  "payMode.eyebrow.today": "Racing today",
   "payMode.title.first": "Everyone starts on a Starter race",
   "payMode.title.today": "How much racing today?",
   "payMode.sub.first": "Even if you’ve raced elsewhere — one Starter run unlocks the faster karts.",
@@ -224,8 +222,6 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
     "Prepaga tus carreras con descuento — la carrera de hoy queda cubierta y las demás quedan en su cuenta y nunca caducan.",
 
   // --- Paso de forma de pago (página 1: qué compras, antes de qué carrera) ---
-  "payMode.eyebrow.first": "Primera vez en FastTrax",
-  "payMode.eyebrow.today": "Carreras de hoy",
   "payMode.title.first": "Todos empiezan con una carrera Starter",
   "payMode.title.today": "¿Cuántas carreras hoy?",
   "payMode.sub.first":

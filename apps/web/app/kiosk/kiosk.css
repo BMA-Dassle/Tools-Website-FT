@@ -579,7 +579,10 @@
 }
 .kiosk-canvas .k-flow-head {
   flex: none;
-  padding: 72px 64px 0;
+  /* 72px → 44px (owner 2026-08-04: "free up some space up top"). The head already
+     stacks a brand row, the step progress and the step title before any content;
+     28px of it was pure air above the fold on every flow screen. */
+  padding: 44px 64px 0;
 }
 .kiosk-canvas .k-fh-top {
   display: flex;

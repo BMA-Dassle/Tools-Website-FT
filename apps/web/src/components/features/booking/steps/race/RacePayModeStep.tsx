@@ -26,7 +26,7 @@
  *
  * KIOSK ONLY, and only when there is something to choose.
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { RaceItem, StepDef } from "~/features/booking";
 import { packageIdForCategory } from "~/features/booking";
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
@@ -120,14 +120,16 @@ function bundleSay(t: Translate, pkg: PackageDefinition): string {
 }
 
 function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"] {
-  const PayMode: StepDef<RaceItem>["Component"] = ({ item, session, onChange, requestAdvance }) => {
+  const PayMode: StepDef<RaceItem>["Component"] = ({ item, session, onChange }) => {
     const t = useT();
     const [packOpen, setPackOpen] = useState(false);
-    // Advancing waits for the pick to COMMIT to item state: the host's handleNext
-    // re-reads the item to choose the next step, and page 2's visibility depends
-    // on the field we just wrote. Same reason the product step defers its own
-    // package auto-advance.
-    const [advanceWhen, setAdvanceWhen] = useState<null | "bundle" | "single">(null);
+    // Choosing the plain single race writes nothing to the item (there is nothing
+    // to write — the tier comes next), so its highlight is LOCAL. Without it the
+    // row would have to derive "selected" from "no bundle selected", which paints
+    // a choice the guest never made (owner 2026-08-04: "don't auto select
+    // anything"). Nothing on this screen advances on tap either — the footer
+    // Continue is the only way forward.
+    const [singleChosen, setSingleChosen] = useState(false);
 
     const racers = racersOfCategory(session.party, category);
     const allNew = racerTypeFor(session.party, category) === "new";
@@ -174,28 +176,17 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
       .filter((m) => covered.get((m as { id: string }).id)?.source === "account-credits")
       .map((m) => (m as { firstName: string }).firstName);
 
-    useEffect(() => {
-      if (!advanceWhen) return;
-      const committed = advanceWhen === "bundle" ? !!selectedId : !selectedId;
-      if (!committed) return;
-      const timer = setTimeout(() => {
-        setAdvanceWhen(null);
-        requestAdvance?.();
-      }, 250);
-      return () => clearTimeout(timer);
-    }, [advanceWhen, selectedId, requestAdvance]);
-
     const dropBundle = () => {
+      setSingleChosen(false);
       const { patch, removed } = clearPackageForCategory(item, category);
       onChange(patch);
       if (removed.some((h) => h.bmiLineId)) void releaseHeatBmiLines(session, removed);
     };
 
     const chooseBundle = (pkg: PackageDefinition) => {
-      if (pkg.id === selectedId) {
-        requestAdvance?.();
-        return;
-      }
+      // Re-tapping the selected bundle is a no-op now that nothing auto-advances.
+      if (pkg.id === selectedId) return;
+      setSingleChosen(false);
       const { patch, removed } = clearPackageForCategory(item, category);
       onChange(
         category === "adult"
@@ -203,18 +194,13 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
           : { ...patch, packageIdJunior: pkg.id, productIdJunior: null, productTrackJunior: null },
       );
       if (removed.some((h) => h.bmiLineId)) void releaseHeatBmiLines(session, removed);
-      setAdvanceWhen("bundle");
     };
 
-    // Single races: clear any bundle first (its held heats are released) so page 2
-    // comes back, then advance once that has committed.
+    // Single races: clear any bundle (releasing its held heats) so page 2 comes
+    // back, and mark the row chosen. Continue does the rest.
     const chooseSingle = () => {
-      if (!selectedId) {
-        requestAdvance?.();
-        return;
-      }
-      dropBundle();
-      setAdvanceWhen("single");
+      if (selectedId) dropBundle();
+      setSingleChosen(true);
     };
 
     const money = (n: number) => `$${n.toFixed(2)}`;
@@ -239,15 +225,15 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
     );
 
     return (
-      <div className="mx-auto w-full max-w-[880px] space-y-4">
+      <div className="mx-auto w-full max-w-[880px] space-y-3">
+        {/* No eyebrow: the chrome above already stacks a brand row, the step
+            progress and the step title ("ADULT RACE"). A fourth header line was
+            pure air above the first tappable thing (owner 2026-08-04). */}
         <div>
-          <div className="text-[19px] font-extrabold uppercase tracking-[0.22em] text-[#00E2E5]">
-            {allNew ? t("payMode.eyebrow.first") : t("payMode.eyebrow.today")}
-          </div>
-          <h3 className="font-display mt-2 text-[40px] leading-none uppercase">
+          <h3 className="font-display text-[32px] leading-none uppercase">
             {allNew ? t("payMode.title.first") : t("payMode.title.today")}
           </h3>
-          <p className="mt-2 text-[21px] leading-snug text-white/50">
+          <p className="mt-1.5 text-[20px] leading-snug text-white/50">
             {allNew ? t("payMode.sub.first") : t("payMode.sub.today")}
           </p>
         </div>
@@ -353,9 +339,9 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
           <button
             type="button"
             onClick={chooseSingle}
-            aria-pressed={!selectedId}
+            aria-pressed={singleChosen}
             className={`flex w-full items-center gap-5 rounded-2xl border-2 px-6 py-4 text-left ${
-              !selectedId ? "border-[#00E2E5] bg-[#00E2E5]/7" : "border-white/13 bg-white/[0.03]"
+              singleChosen ? "border-[#00E2E5] bg-[#00E2E5]/7" : "border-white/13 bg-white/[0.03]"
             }`}
           >
             {countBadge(1)}

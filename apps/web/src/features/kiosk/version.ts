@@ -15,6 +15,18 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.14.2 — nothing is pre-picked and nothing jumps (owner 2026-08-04). The
+ *         single-race row used to derive its "selected" ring from "no bundle
+ *         selected", so the screen opened already showing a choice the guest had
+ *         not made; it is now an explicit local pick. Tapping anything used to
+ *         auto-advance a beat later — bundles, the single race — which took the
+ *         screen away mid-read. The footer Continue is now the only way forward,
+ *         so a guest can look at all four prices, change their mind, and remove a
+ *         bundle without the screen moving under them.
+ *         Also freed ~140px above the fold: this step dropped its eyebrow (the
+ *         chrome already stacks a brand row, the progress bars and the step
+ *         title) and shrank its headline 40px → 32px, and `.k-flow-head` lost
+ *         28px of top padding on EVERY flow screen.
  * 1.14.1 — page 1 gets the owner's approved layout (five design passes, 8/3–8/4):
  *         the HOUSE RECOMMENDATION leads as a hero card — a new registry flag,
  *         `recommended: true` on the five Ultimate Qualifier variants, so moving
@@ -588,7 +600,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.14.1";
+export const KIOSK_VERSION = "1.14.2";
 
 let bootVersion: string | null = null;
 let captured = false;
