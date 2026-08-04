@@ -50,11 +50,16 @@ const RACES = process.env.RACES || "31";
 /** No heat booked today. The live pass rewrites this field for free. */
 const NEXT_RACE = process.env.NEXT_RACE || "None booked";
 
-/** Racing action shot for the strip — the same asset the attractions page uses
- *  ("FastTrax racing action"). */
+/** The FastTrax track — the banked curve, with our own signage on the barrier.
+ *
+ *  DO NOT PICK THESE BY THEIR `alt` TEXT. The attractions page labels
+ *  DSC00281 "FastTrax racing action" and it is a photograph of BOWLING LANES;
+ *  it shipped on this pass until the owner caught it (2026-08-04). The only
+ *  two genuine racing frames in that set are DSC00273 (karts on track) and
+ *  this one. Look at the image before you change this line. */
 const STRIP_PHOTO =
   process.env.STRIP_PHOTO ||
-  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC00281.webp";
+  "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/DSC06577.webp";
 
 /** MEMBERSHIP-protocol template to dress as the licence. */
 const TEMPLATE_ID = process.env.TEMPLATE_ID || "75paqKfII1FIn9kImwIvi2";
@@ -274,7 +279,16 @@ async function main() {
     races: String(RACES),
     nextRace: NEXT_RACE,
     licenceUrl: `https://headpinz.com/r/${CODE}`,
-    memberName: fullName,
+    // UPPERCASED (owner 2026-08-04: "make racers name more bold").
+    //
+    // Apple exposes NO font-weight control — pass.json has no such property and
+    // PassKit's appleWalletFieldRenderOptions only carries alignment and
+    // date/number styling. Weight is fixed by field type, and a primary field
+    // is already the heaviest text on the card, so there is nothing to turn up.
+    // Case is the only lever left, and full caps genuinely reads heavier at the
+    // same point size. Applied to the DISPLAY value only — every other surface
+    // keeps the name as BMI has it.
+    memberName: fullName.toUpperCase(),
     waiver: waiverIso ? (waiverOk ? `Signed · ${fmtDate(waiverIso)}` : "Needs signing") : "—",
     lastVisit: fmtDate(person?.lastVisit) || "—",
   };
@@ -433,7 +447,7 @@ async function main() {
   //
   // Composited AFTER the scrim so the mark stays at full strength while the
   // photo under it is knocked back.
-  const markW = Math.round(STRIP_W * 0.42);
+  const markW = Math.round(STRIP_W * 0.3);
   const mark = await sharp(src)
     .trim()
     .resize(markW, null, { fit: "contain" })
@@ -442,18 +456,19 @@ async function main() {
   const markH = (await sharp(mark).metadata()).height ?? 0;
   const photoBuf = Buffer.from(await (await fetch(STRIP_PHOTO)).arrayBuffer());
   const strip = await sharp(photoBuf)
-    .resize(STRIP_W, STRIP_H, { fit: "cover", position: "top" }) // "attention" decapitates people
+    .resize(STRIP_W, STRIP_H, { fit: "cover", position: "centre" })
     .composite([
       { input: scrim, blend: "over" },
-      // CENTRED, not left: Apple already puts the (small, squared) header logo
-      // in the top-left corner immediately above the strip, and a second mark
-      // directly beneath it reads as a duplicate. Centre-weighting makes it the
-      // hero of the artwork instead, well above the racer's name in the dark
-      // lower third.
+      // BOTTOM-RIGHT, and this is not a taste decision. Apple lays the primary
+      // field (the racer's name) over the strip, LEFT-aligned and upper-middle
+      // — a centred mark there gets the name printed straight through it, which
+      // is exactly what happened on the first attempt (owner, 2026-08-04). The
+      // bottom-right corner is the one region a left-aligned primary field
+      // cannot reach.
       {
         input: mark,
-        top: Math.round(STRIP_H * 0.12),
-        left: Math.round((STRIP_W - markW) / 2),
+        top: STRIP_H - markH - Math.round(STRIP_H * 0.1),
+        left: STRIP_W - markW - Math.round(STRIP_W * 0.05),
       },
     ])
     .flatten({ background: BG })
