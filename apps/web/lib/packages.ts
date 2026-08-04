@@ -135,6 +135,10 @@ export interface PackageDefinition {
   /** Free-appetizer redeem code shown on the confirmation page.
    *  Same for Rookie Pack and Ultimate Qualifier today (RACEAPP);
    *  the field exists so future packages can diverge. */
+  /** Nemo's appetizer promo code. The Rookie Pack dropped it 2026-08-04 (owner);
+   *  the Ultimate Qualifier keeps it. Everything downstream — the picker
+   *  checklist, the cart row, the confirmation block and the email call-out — is
+   *  driven off this field, so removing it here removes it everywhere. */
   appetizerCode?: string;
   /** Per-package qualifier for the appetizer offer. Rookie Pack is
    *  "1 per group"; Ultimate Qualifier is "1 per 3 purchases". */
@@ -199,8 +203,6 @@ const ULTIMATE_QUALIFIER_ENABLED =
 
 // Shared appetizer items per package — factored out so the picker
 // card, confirmation page, and email all pull from the same list.
-const RP_APPETIZER_NOTE = "1 per 3 purchases";
-const RP_APPETIZER_ITEMS = ["Bruschetta - Regular", "Fried Zucchini Sticks", "Mac & Cheese Bites"];
 const UQ_APPETIZER_NOTE = "1 per 3 purchases";
 const UQ_APPETIZER_ITEMS = ["Bruschetta - Regular", "Fried Zucchini Sticks", "Mac & Cheese Bites"];
 
@@ -257,9 +259,6 @@ const PACKAGES: PackageDefinition[] = [
     ],
     includesLicense: true,
     includesPov: true,
-    appetizerCode: "RACEAPP",
-    appetizerNote: RP_APPETIZER_NOTE,
-    appetizerItems: RP_APPETIZER_ITEMS,
     cartLineKey: "rookie-pack",
     displayOrder: 20,
   },
@@ -293,9 +292,6 @@ const PACKAGES: PackageDefinition[] = [
     ],
     includesLicense: true,
     includesPov: true,
-    appetizerCode: "RACEAPP",
-    appetizerNote: RP_APPETIZER_NOTE,
-    appetizerItems: RP_APPETIZER_ITEMS,
     cartLineKey: "rookie-pack",
     displayOrder: 20,
   },
@@ -327,9 +323,6 @@ const PACKAGES: PackageDefinition[] = [
     ],
     includesLicense: true,
     includesPov: true,
-    appetizerCode: "RACEAPP",
-    appetizerNote: RP_APPETIZER_NOTE,
-    appetizerItems: RP_APPETIZER_ITEMS,
     cartLineKey: "rookie-pack-weekday-junior",
     displayOrder: 20,
   },
@@ -361,9 +354,6 @@ const PACKAGES: PackageDefinition[] = [
     ],
     includesLicense: true,
     includesPov: true,
-    appetizerCode: "RACEAPP",
-    appetizerNote: RP_APPETIZER_NOTE,
-    appetizerItems: RP_APPETIZER_ITEMS,
     cartLineKey: "rookie-pack",
     displayOrder: 20,
   },
@@ -393,9 +383,6 @@ const PACKAGES: PackageDefinition[] = [
     ],
     includesLicense: true,
     includesPov: true,
-    appetizerCode: "RACEAPP",
-    appetizerNote: RP_APPETIZER_NOTE,
-    appetizerItems: RP_APPETIZER_ITEMS,
     cartLineKey: "rookie-pack-weekend-junior",
     displayOrder: 20,
   },
@@ -417,9 +404,6 @@ const PACKAGES: PackageDefinition[] = [
     races: [],
     includesLicense: true,
     includesPov: true,
-    appetizerCode: "RACEAPP",
-    appetizerNote: RP_APPETIZER_NOTE,
-    appetizerItems: RP_APPETIZER_ITEMS,
     price: LICENSE_PRICE + POV_PRICE,
     cartLineKey: "rookie-pack",
   },

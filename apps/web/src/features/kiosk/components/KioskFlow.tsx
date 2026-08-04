@@ -1367,7 +1367,7 @@ export function KioskFlow({
         type="button"
         onClick={requestOpenCart}
         disabled={cartCount === 0}
-        className="k-glass k-tap mx-[48px] mt-[20px] flex shrink-0 items-center justify-between gap-[20px] px-[28px] py-[16px] text-left"
+        className="k-glass k-tap mx-[48px] mt-[12px] flex shrink-0 items-center justify-between gap-[20px] px-[28px] py-[12px] text-left"
       >
         <span className="flex min-w-0 items-center gap-[14px] text-[24px] text-white/75">
           <span
@@ -2200,6 +2200,22 @@ export function KioskFlow({
   const steps = KIOSK_STEP_REGISTRY[activeItem.kind].filter((s) =>
     s.isVisible(activeItem, session),
   );
+  // The PROGRESS BAR measures the planned path, not the live one. Two steps hide
+  // themselves once a bundle is chosen — the product step (the bundle owns the
+  // race) and the POV upsell (the bundle includes it) — so a live count took
+  // "Step 3 of 6" to "Step 3 of 4" the instant a guest tapped a card (owner
+  // 2026-08-04: "steps change after click"). Evaluating visibility against the
+  // item with its bundle choice neutralised gives a stable denominator: a choice
+  // can now skip a segment, never remove one.
+  const plannedSteps =
+    activeItem.kind === "race"
+      ? KIOSK_STEP_REGISTRY[activeItem.kind].filter((s) =>
+          s.isVisible(
+            { ...activeItem, packageIdAdult: null, packageIdJunior: null } as typeof activeItem,
+            session,
+          ),
+        )
+      : steps;
   const rawCursor = session.cursors[activeItem.id] ?? 0;
 
   // Combo: the schedule-confirm modal books the races + lane and self-advances
@@ -2532,12 +2548,11 @@ export function KioskFlow({
           </div>
         </div>
         <div className="k-prog">
-          {steps.map((s, i) => (
-            <span key={s.id} className={i <= stepIndex ? "done" : ""} />
-          ))}
-        </div>
-        <div className="k-prog-label k-num">
-          {t("flow.stepOf", { current: stepIndex + 1, total: steps.length })}
+          {plannedSteps.map((s) => {
+            const at = plannedSteps.findIndex((x) => x.id === currentStep.id);
+            const mine = plannedSteps.findIndex((x) => x.id === s.id);
+            return <span key={s.id} className={mine <= at ? "done" : ""} />;
+          })}
         </div>
         <h1 className="k-display k-fh-title">
           {STEP_TITLE_KEYS[currentStep.title]

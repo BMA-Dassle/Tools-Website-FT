@@ -15,7 +15,8 @@ import { raceItemFullyPackaged } from "~/features/booking";
  *    - `NEXT_PUBLIC_ROOKIE_PACK_ENABLED === "1"`
  *    - session.party has at least one new racer
  *    Two radio cards: "Rookie Pack" (default, recommended) bundles license +
- *    POV + free Nemo's appetizer code; "License only" opts out of POV.
+ *    POV; "License only" opts out of POV. (The Rookie Pack's appetizer was
+ *    dropped 2026-08-04 — owner.)
  *    Pack picks POV for every new racer in the party.
  *
  * 2. **Per-racer qty stepper** — existing-racer flow (no Rookie chooser).
@@ -109,7 +110,7 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({
             type="button"
             onClick={() => handlePackChoice("pack")}
             aria-pressed={rookieChoice === "pack"}
-            aria-label="Select Rookie Pack — license, POV video, and free appetizer"
+            aria-label="Select Rookie Pack — license and POV video"
             className={`w-full rounded-xl border-2 p-5 text-left transition-colors ${
               rookieChoice === "pack"
                 ? "border-[#00E2E5] bg-[#00E2E5]/10"
@@ -155,25 +156,9 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({
                       </span>
                     </span>
                   </li>
-                  <li>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-emerald-400">✓</span>
-                      <span>
-                        Free Appetizer at Nemo&apos;s{" "}
-                        <span className="text-white/40">
-                          (1 per 3 purchases · dine-in · race day only)
-                        </span>
-                      </span>
-                    </div>
-                    <ul className="ml-5 mt-0.5 list-inside list-disc space-y-0 text-[11px] text-white/40 marker:text-amber-400/40">
-                      <li>Bruschetta - Regular</li>
-                      <li>Fried Zucchini Sticks</li>
-                      <li>Mac &amp; Cheese Bites</li>
-                    </ul>
-                  </li>
                 </ul>
                 <p className="mt-2 text-[11px] text-amber-400/80">
-                  Save up to $20 vs paying separately
+                  Save ${POV_CHECKIN_PRICE - POV_PRICE} vs buying the video at check-in
                 </p>
               </div>
             </div>
@@ -183,7 +168,7 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({
             type="button"
             onClick={() => handlePackChoice("license-only")}
             aria-pressed={rookieChoice === "license-only"}
-            aria-label="Select License only — skip POV and appetizer"
+            aria-label="Select License only — skip the POV video"
             className={`w-full rounded-xl border-2 p-4 text-left transition-colors ${
               rookieChoice === "license-only"
                 ? "border-white/40 bg-white/[0.05]"
@@ -209,9 +194,7 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({
                     <span className="ml-1 text-xs font-normal text-white/30">/racer</span>
                   </span>
                 </div>
-                <p className="text-xs text-white/40">
-                  Required race license. Skip the video + appetizer.
-                </p>
+                <p className="text-xs text-white/40">Required race license. Skip the video.</p>
               </div>
             </div>
           </button>
@@ -323,7 +306,7 @@ export const RacePovStep: StepDef<RaceItem> = {
   Component: RacePovStepComponent,
   isVisible: (item, session) => {
     if (session.party.length === 0) return false;
-    // Packages bundle license + POV + appetizer — skip this step only when
+    // Packages bundle license + POV — skip this step only when
     // EVERY category in the party is packaged; a mixed package+single cart
     // still needs the POV upsell for the single-race side.
     if (raceItemFullyPackaged(item, session.party)) return false;

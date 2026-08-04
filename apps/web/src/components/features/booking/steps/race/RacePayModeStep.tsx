@@ -198,8 +198,15 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
 
     // Single races: clear any bundle (releasing its held heats) so page 2 comes
     // back, and mark the row chosen. Continue does the rest.
+    //
+    // A credit pack is the OTHER way to pay for the same race, so the two can't
+    // both be lit (owner 2026-08-04). Choosing "pay per race" drops the pack
+    // picks; choosing a pack clears this row below. Nothing is charged either
+    // way until checkout, so this only edits session pointers.
     const chooseSingle = () => {
       if (selectedId) dropBundle();
+      if (picks.length > 0) onChange({ creditPacks: undefined });
+      setPackOpen(false);
       setSingleChosen(true);
     };
 
@@ -208,9 +215,9 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
     const delta = (pkg: PackageDefinition) => (baseline != null ? perRacer(pkg) - baseline : null);
 
     const countBadge = (n: number, gold?: boolean) => (
-      <span className="w-[116px] shrink-0 text-center">
+      <span className="w-[84px] shrink-0 text-center">
         <span
-          className={`block text-[34px] font-extrabold italic leading-none ${gold ? "text-[#FFD98A]" : ""}`}
+          className={`block text-[30px] font-extrabold italic leading-none ${gold ? "text-[#FFD98A]" : ""}`}
         >
           {n}
         </span>
@@ -225,7 +232,7 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
     );
 
     return (
-      <div className="mx-auto w-full max-w-[880px] space-y-3">
+      <div className="mx-auto w-full max-w-[880px] space-y-2.5">
         {/* No eyebrow: the chrome above already stacks a brand row, the step
             progress and the step title ("ADULT RACE"). A fourth header line was
             pure air above the first tappable thing (owner 2026-08-04). */}
@@ -251,7 +258,7 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
               type="button"
               onClick={() => chooseBundle(hero)}
               aria-pressed={selectedId === hero.id}
-              className={`relative flex w-full items-center gap-6 rounded-[22px] border-2 border-[#f0b341] bg-linear-to-br from-[#f0b341]/20 to-[#f0b341]/5 px-6 pt-7 pb-6 text-left ${
+              className={`relative flex w-full items-center gap-6 rounded-[22px] border-2 border-[#f0b341] bg-linear-to-br from-[#f0b341]/20 to-[#f0b341]/5 px-5 pt-6 pb-5 text-left ${
                 selectedId === hero.id ? "ring-4 ring-[#f0b341]/45" : ""
               }`}
             >
@@ -260,15 +267,15 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
               </span>
               {countBadge(hero.races.length || 1, true)}
               <span className="min-w-0 flex-1">
-                <span className="font-display block text-[34px] leading-tight uppercase">
+                <span className="font-display block text-[30px] leading-tight uppercase">
                   {hero.name}
                 </span>
-                <span className="mt-2 block text-[22px] leading-snug text-white/70">
+                <span className="mt-1.5 block text-[20px] leading-snug text-white/70">
                   {bundleSay(t, hero)}
                 </span>
               </span>
               <span className="shrink-0 text-right">
-                <span className="block text-[40px] font-extrabold italic leading-none tabular-nums">
+                <span className="block text-[36px] font-extrabold italic leading-none tabular-nums">
                   {money(perRacer(hero))}
                 </span>
                 <span className="mt-1.5 block text-[17px] text-white/50">
@@ -298,7 +305,7 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
                 type="button"
                 onClick={() => chooseBundle(pkg)}
                 aria-pressed={selectedId === pkg.id}
-                className={`flex w-full items-center gap-5 rounded-2xl border-2 px-6 py-4 text-left ${
+                className={`flex w-full items-center gap-4 rounded-2xl border-2 px-5 py-3 text-left ${
                   selectedId === pkg.id
                     ? "border-[#00E2E5] bg-[#00E2E5]/7"
                     : "border-white/13 bg-white/[0.03]"
@@ -306,7 +313,7 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
               >
                 {countBadge(pkg.races.length || 1)}
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[25px] font-bold">{pkg.name}</span>
+                  <span className="block text-[23px] font-bold">{pkg.name}</span>
                   <span className="mt-0.5 block text-[19px] text-white/50">
                     {bundleSay(t, pkg)}
                   </span>
@@ -340,13 +347,13 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
             type="button"
             onClick={chooseSingle}
             aria-pressed={singleChosen}
-            className={`flex w-full items-center gap-5 rounded-2xl border-2 px-6 py-4 text-left ${
+            className={`flex w-full items-center gap-4 rounded-2xl border-2 px-5 py-3 text-left ${
               singleChosen ? "border-[#00E2E5] bg-[#00E2E5]/7" : "border-white/13 bg-white/[0.03]"
             }`}
           >
             {countBadge(1)}
             <span className="min-w-0 flex-1">
-              <span className="block text-[25px] font-bold">{cheapestSingle.name}</span>
+              <span className="block text-[23px] font-bold">{cheapestSingle.name}</span>
               <span className="mt-0.5 block text-[19px] text-white/50">
                 {allNew ? t("payMode.single.qualifies") : t("payMode.single.today")}
               </span>
@@ -371,9 +378,12 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
               type="button"
               onClick={() => setPackOpen((o) => !o)}
               aria-expanded={packOpen}
-              className={`flex w-full items-center gap-5 border-[1.5px] border-[#00E2E5]/32 bg-linear-to-br from-[#00E2E5]/8 to-[#00E2E5]/[0.02] px-6 py-4 text-left ${
-                packOpen ? "rounded-t-2xl" : "rounded-2xl"
-              }`}
+              aria-pressed={picks.length > 0}
+              className={`flex w-full items-center gap-4 border-[1.5px] px-5 py-3 text-left ${
+                picks.length > 0
+                  ? "border-[#00E2E5] bg-[#00E2E5]/10"
+                  : "border-[#00E2E5]/32 bg-linear-to-br from-[#00E2E5]/8 to-[#00E2E5]/[0.02]"
+              } ${packOpen ? "rounded-t-2xl" : "rounded-2xl"}`}
             >
               <span className="font-display shrink-0 text-[24px] uppercase text-[#9DF6F7]">
                 {t("payMode.pack.title")}
@@ -384,19 +394,26 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
                 })}
               </span>
               <span className="shrink-0 text-[21px] font-bold tabular-nums">
-                {t("racePack.teaser.from", { price: money(skus[0].price) })}
+                {picks.length > 0
+                  ? t("payMode.pack.chosen", { count: picks.length })
+                  : t("racePack.teaser.from", { price: money(skus[0].price) })}
               </span>
               <span aria-hidden className="shrink-0 text-[26px] text-[#9DF6F7]/70">
                 {packOpen ? "⌄" : "›"}
               </span>
             </button>
             {packOpen && (
-              <div className="rounded-b-2xl border-[1.5px] border-t-0 border-[#00E2E5]/32 bg-[#00E2E5]/[0.03] px-6 py-5">
+              <div className="rounded-b-2xl border-[1.5px] border-t-0 border-[#00E2E5]/32 bg-[#00E2E5]/[0.03] px-5 py-4">
                 <RacePackPicker
                   skus={skus}
                   eligible={eligible}
                   picks={picks}
-                  onChange={(next) => onChange({ creditPacks: next })}
+                  onChange={(next) => {
+                    // A pack IS the payment for today's race — it cancels the
+                    // "pay per race" row rather than stacking with it.
+                    if ((next?.length ?? 0) > 0) setSingleChosen(false);
+                    onChange({ creditPacks: next });
+                  }}
                 />
               </div>
             )}

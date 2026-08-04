@@ -115,12 +115,13 @@ export const racepackEn = {
   "payMode.incl.video": "video",
   "payMode.incl.appetizer": "appetizer",
   "payMode.say.qualifier":
-    "Starter now, then your Intermediate spot saved for tonight — faster karts, same visit.",
-  "payMode.say.rookie": "One Starter race with the in-kart video and a free appetizer.",
+    "Starter now, then your Intermediate spot saved for later — faster karts, same visit.",
+  "payMode.say.rookie": "One Starter race with the in-kart video of it.",
   "payMode.single.qualifies": "Qualifies you for Intermediate next visit",
   "payMode.single.today": "Pay for the races you run today",
   "payMode.pack.title": "Race packs",
   "payMode.pack.sub": "{sizes} prepaid races — bank them for later visits, never expire",
+  "payMode.pack.chosen": "{count, plural, one {# pack added} other {# packs added}}",
   "payMode.credits":
     "{names} {count, plural, one {already has banked race credits} other {already have banked race credits}} — we’ll use them at checkout.",
   "payMode.perRacer": "Prices are per racer · {names}",
@@ -234,12 +235,13 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
   "payMode.incl.video": "video",
   "payMode.incl.appetizer": "aperitivo",
   "payMode.say.qualifier":
-    "Starter ahora y te guardamos tu lugar de Intermediate para esta noche — karts más rápidos, misma visita.",
-  "payMode.say.rookie": "Una carrera Starter con el video desde el kart y un aperitivo gratis.",
+    "Starter ahora y te guardamos tu lugar de Intermediate para más tarde — karts más rápidos, misma visita.",
+  "payMode.say.rookie": "Una carrera Starter con el video desde el kart.",
   "payMode.single.qualifies": "Te califica para Intermediate en tu próxima visita",
   "payMode.single.today": "Paga las carreras que corras hoy",
   "payMode.pack.title": "Race packs",
   "payMode.pack.sub": "{sizes} carreras prepagadas — guárdalas para otras visitas, nunca caducan",
+  "payMode.pack.chosen": "{count, plural, one {# pack agregado} other {# packs agregados}}",
   "payMode.credits":
     "{names} ya {count, plural, one {tiene créditos de carrera} other {tienen créditos de carrera}} — los usaremos al pagar.",
   "payMode.perRacer": "Precios por corredor · {names}",

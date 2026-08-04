@@ -15,6 +15,30 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.14.3 — four notes from the owner's live pass on page 1 (2026-08-04).
+ *         STEPS NO LONGER CHANGE AFTER A TAP: two steps hide themselves once a
+ *         bundle is chosen (the product step — the bundle owns the race — and the
+ *         POV upsell, which the bundle includes), so the live count took "Step 3
+ *         of 6" to "Step 3 of 4" the instant a card was tapped. The bar now
+ *         measures the PLANNED path (visibility evaluated with the bundle choice
+ *         neutralised), so a choice can skip a segment but never remove one, and
+ *         the redundant "Step X of Y" line is gone.
+ *         A CREDIT PACK AND "PAY PER RACE" ARE ONE SLOT: they could both light up,
+ *         which read as two purchases. Choosing one now clears the other, and the
+ *         pack row shows "1 pack added" so nothing disappears silently.
+ *         MORE ROOM UP TOP: head padding 44→28px, progress margin 36→20px, step
+ *         title 74→60px (it was the biggest thing on a screen it isn't the subject
+ *         of), banner padding trimmed. ~110px more, every flow screen.
+ *         The Qualifier's spot is saved "for later", not "for tonight".
+ *         Separately, per owner: THE ROOKIE PACK NO LONGER INCLUDES THE FREE
+ *         APPETIZER (web + kiosk). Removed from all six rookie variants in the
+ *         registry, which drops it from the picker checklist, the cart row, the
+ *         confirmation block and the email call-out in one edit; the four v1
+ *         places that hardcoded it were updated too. The Ultimate Qualifier keeps
+ *         its appetizer. No price changes — the appetizer was never in
+ *         packagePerRacerPrice, only in the retail comparison, so the displayed
+ *         savings shrink and nothing charged moves. The Rookie Pack still includes
+ *         the licence.
  * 1.14.2 — nothing is pre-picked and nothing jumps (owner 2026-08-04). The
  *         single-race row used to derive its "selected" ring from "no bundle
  *         selected", so the screen opened already showing a choice the guest had
@@ -600,7 +624,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.14.2";
+export const KIOSK_VERSION = "1.14.3";
 
 let bootVersion: string | null = null;
 let captured = false;
