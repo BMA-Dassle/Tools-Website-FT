@@ -26,7 +26,7 @@
  * hides and the guest lands straight on the race list. Web keeps its single
  * screen (its cart/back-nav is free, so the split buys nothing there).
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { RaceItem, StepDef } from "~/features/booking";
 import { packageIdForCategory } from "~/features/booking";
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
@@ -91,6 +91,13 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
   const PayMode: StepDef<RaceItem>["Component"] = ({ item, session, onChange, requestAdvance }) => {
     const t = useT();
     const [packOpen, setPackOpen] = useState(false);
+    // Advancing is DEFERRED until the pick is committed to item state, the same
+    // reason the product step defers its package auto-advance: the host's
+    // handleNext re-reads the item to decide which step comes next, and page 2's
+    // visibility depends on the very field we just wrote. Advancing in the same
+    // tick would route off STALE state — a bundle pick would land on page 2
+    // (which then vanishes), and "just today's races" would skip past it.
+    const [advanceWhen, setAdvanceWhen] = useState<null | "bundle" | "singles">(null);
 
     const racers = racersOfCategory(session.party, category);
     const bundles = bundlesFor(item, session, category);
@@ -130,6 +137,18 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
       .filter((m) => covered.get((m as { id: string }).id)?.source === "account-credits")
       .map((m) => (m as { firstName: string }).firstName);
 
+    useEffect(() => {
+      if (!advanceWhen) return;
+      const committed = advanceWhen === "bundle" ? !!selectedBundleId : !selectedBundleId;
+      if (!committed) return;
+      // Short beat so the selection ring paints before the screen changes.
+      const timer = setTimeout(() => {
+        setAdvanceWhen(null);
+        requestAdvance?.();
+      }, 250);
+      return () => clearTimeout(timer);
+    }, [advanceWhen, selectedBundleId, requestAdvance]);
+
     const dropBundle = () => {
       const { patch, removed } = clearPackageForCategory(item, category);
       onChange(patch);
@@ -141,8 +160,12 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
     // to the tier list. Without the clear, the product step would still be hidden
     // and the guest would bounce back here.
     const chooseSingles = () => {
-      if (selectedBundleId) dropBundle();
-      requestAdvance?.();
+      if (!selectedBundleId) {
+        requestAdvance?.();
+        return;
+      }
+      dropBundle();
+      setAdvanceWhen("singles");
     };
 
     return (
@@ -258,7 +281,7 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
                     );
                     if (removed.some((h) => h.bmiLineId))
                       void releaseHeatBmiLines(session, removed);
-                    requestAdvance?.();
+                    setAdvanceWhen("bundle");
                   }}
                 />
                 {selectedBundleId === pkg.id && (
