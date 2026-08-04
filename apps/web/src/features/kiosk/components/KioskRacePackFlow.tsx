@@ -76,9 +76,9 @@ export function KioskRacePackFlow({
   >([]);
   const purchaseKeyRef = useRef<string | null>(null);
 
-  // Standalone surface sells ALL six SKUs — 3/5/10 × Mon–Thu/Any-Day (owner
-  // 2026-07-19); weekday SKUs still hide Fri–Sun.
-  const skus = kioskPackSkus(new Date(), "standalone");
+  // ALL six SKUs — 3/5/10 × Mon–Thu/Any-Day; weekday SKUs hide Fri–Sun. The
+  // in-booking teaser now offers the same catalog (owner 2026-08-03).
+  const skus = kioskPackSkus();
   const readerReady = !!config?.readerId;
 
   const assigned = party.filter((m) => picks[m.id] && m.bmiPersonId);

@@ -30,6 +30,7 @@ import {
 import { redeemedHeatSet } from "~/features/booking/data/race-credits";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
+import { useT } from "~/features/kiosk/i18n";
 import { racePackTeaserVisible } from "./steps/race/RacePackTeaser";
 import { PackAssignmentList, RacePackPicker } from "./steps/race/RacePackPicker";
 import { modalBackdropProps } from "@/lib/a11y";
@@ -697,6 +698,7 @@ function RacePackCartBlock({
   session: BookingSession;
   onChange: (packs: KioskPackSelection[] | undefined) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const picks = item.creditPacks ?? [];
   const skus = kioskPackSkus();
@@ -707,14 +709,20 @@ function RacePackCartBlock({
   return (
     <div className="mt-3 border-t border-white/10 pt-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[10px] font-bold tracking-wider uppercase text-amber-400">Race packs</p>
+        <p className="text-[10px] font-bold tracking-wider uppercase text-amber-400">
+          {t("racePack.cart.eyebrow")}
+        </p>
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
           className="rounded-lg border border-amber-400/40 px-3 py-1.5 text-xs font-semibold text-amber-300 transition-colors hover:bg-amber-400/10"
         >
-          {open ? "Done" : picks.length > 0 ? "Add / edit" : "+ Add race pack"}
+          {open
+            ? t("racePack.cart.done")
+            : picks.length > 0
+              ? t("racePack.cart.addEdit")
+              : t("racePack.cart.add")}
         </button>
       </div>
 
@@ -736,16 +744,16 @@ function RacePackCartBlock({
           <PackAssignmentList picks={picks} eligible={eligible} onChange={onChange} />
           {missing.length > 0 && (
             <p className="text-xs text-amber-300/80">
-              {missingNames} {missing.length === 1 ? "doesn't" : "don't"} have a pack yet — tap{" "}
-              <strong>Add / edit</strong> to add one.
+              {t("racePack.cart.missingLead", {
+                names: missingNames,
+                count: missing.length,
+              })}{" "}
+              <strong>{t("racePack.cart.addEdit")}</strong> {t("racePack.cart.missingTail")}
             </p>
           )}
         </div>
       ) : (
-        <p className="mt-2 text-xs text-white/45">
-          Prepay 3 races at a discount — today&rsquo;s race is covered, the rest bank to their
-          account and never expire.
-        </p>
+        <p className="mt-2 text-xs text-white/45">{t("racePack.cart.blurb")}</p>
       )}
     </div>
   );

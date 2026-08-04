@@ -3,6 +3,7 @@ import {
   applyPackSelection,
   computePackCoverage,
   coveredMembersPreview,
+  kioskPackSkus,
   resolveKioskPacks,
   type ResolvedKioskPack,
 } from "./race-pack-kiosk";
@@ -137,6 +138,18 @@ describe("computePackCoverage", () => {
     expect(cov.redemptions[0].personId).toBe("9m1");
   });
 
+  it("a bigger pack covers more of today: 4 heats all covered by a 5-pack", () => {
+    const heats = [heat("m1", "h1"), heat("m1", "h2"), heat("m1", "h3"), heat("m1", "h4")];
+    const cov = computePackCoverage(
+      raceSession(heats),
+      [packFor("m1", "5-race-anytime")],
+      new Set(),
+    );
+    expect(cov.usedByMember.get("m1")).toBe(4);
+    expect(cov.heats.size).toBe(4);
+    expect(cov.redemptions).toHaveLength(4);
+  });
+
   it("skips other members, already-redeemed heats, and combo pack products", () => {
     const redeemed = heat("m1", "h2");
     const heats = [
@@ -163,7 +176,41 @@ describe("computePackCoverage", () => {
   });
 });
 
+describe("kioskPackSkus", () => {
+  it("offers the WHOLE catalog — 3/5/10 × Mon–Thu + Any-Day — smallest first", () => {
+    const monday = new Date(2026, 6, 20);
+    expect(kioskPackSkus(monday).map((p) => p.slug)).toEqual([
+      "3-race-weekday",
+      "3-race-anytime",
+      "5-race-weekday",
+      "5-race-anytime",
+      "10-race-weekday",
+      "10-race-anytime",
+    ]);
+  });
+
+  it("hides every Mon–Thu SKU on a weekend day, bigger packs included", () => {
+    const saturday = new Date(2026, 6, 18);
+    expect(kioskPackSkus(saturday).map((p) => p.slug)).toEqual([
+      "3-race-anytime",
+      "5-race-anytime",
+      "10-race-anytime",
+    ]);
+  });
+});
+
 describe("resolveKioskPacks", () => {
+  it("resolves the bigger packs the in-booking teaser now sells (5 and 10)", () => {
+    const party = [{ id: "m1", firstName: "Eric", lastName: "O", bmiPersonId: "91" }];
+    const monday = new Date(2026, 6, 20);
+    expect(
+      resolveKioskPacks([{ slug: "5-race-anytime", memberId: "m1" }], party, monday)[0],
+    ).toMatchObject({ priceCents: 9999, label: "5-Race Pack (Anytime)" });
+    expect(
+      resolveKioskPacks([{ slug: "10-race-weekday", memberId: "m1" }], party, monday)[0],
+    ).toMatchObject({ priceCents: 15999, label: "10-Race Pack (Mon-Thu)" });
+  });
+
   it("resolves a valid selection and rejects an accountless member", () => {
     const party = [
       { id: "m1", firstName: "Eric", lastName: "O", bmiPersonId: "91" },

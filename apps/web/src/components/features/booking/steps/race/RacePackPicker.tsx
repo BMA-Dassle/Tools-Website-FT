@@ -9,10 +9,17 @@
  *     a pack on only ONE racer because the old picker took one name per tap,
  *     and the wizard walk back was a trap)
  *
+ * Every tile is rendered from the SKU it was handed — sizes, day types, prices
+ * and savings are catalog values, so the same component serves 2 tiles or all
+ * six (3/5/10 × Mon–Thu/Any-Day, owner 2026-08-03).
+ *
  * Selections are POINTERS on `item.creditPacks` — all money re-derives
  * server-side at charge time (race-pack-kiosk.ts), so applying here is pure
  * session state: no vendor calls. One pack per racer (replace semantics) is
  * kept, enforced again server-side in resolveKioskPacks.
+ *
+ * Guest-facing copy goes through the kiosk catalog (EN+ES). `useT` falls back to
+ * English outside a LocaleProvider, so composing this off-kiosk is safe.
  */
 import { useState } from "react";
 import {
@@ -20,6 +27,7 @@ import {
   type KioskPackSelection,
 } from "~/features/booking/service/race-pack-kiosk";
 import { getRacePack, type RacePack } from "~/features/booking/data/packs";
+import { useT, type Translate } from "~/features/kiosk/i18n";
 
 /** Savings baseline = the $26.99 single race (never fold the license in). */
 export const SINGLE_RACE_BASELINE = 26.99;
@@ -35,6 +43,11 @@ function nameOf(members: PackEligibleMember[], memberId: string): string {
   return m ? `${m.firstName} ${m.lastName ?? ""}`.trim() : "";
 }
 
+/** "Mon–Thu" / "Any day" in the guest's language. */
+function dayLabel(t: Translate, pack: RacePack): string {
+  return pack.dayType === "weekday" ? t("racePack.build.monThu") : t("racePack.build.anyDay");
+}
+
 /** Current assignments — one row per racer with a remove ×. Shared by the
  *  picker (below the tiles) and the cart block's collapsed summary. */
 export function PackAssignmentList({
@@ -46,6 +59,7 @@ export function PackAssignmentList({
   eligible: PackEligibleMember[];
   onChange: (next: KioskPackSelection[] | undefined) => void;
 }) {
+  const t = useT();
   if (picks.length === 0) return null;
   const remove = (memberId: string) => {
     const next = picks.filter((p) => p.memberId !== memberId);
@@ -55,19 +69,28 @@ export function PackAssignmentList({
     <div className="space-y-1.5">
       {picks.map((p) => {
         const sku = getRacePack(p.slug);
+        const name = nameOf(eligible, p.memberId);
         return (
           <div
             key={`${p.memberId}-${p.slug}`}
             className="flex items-center justify-between rounded-lg border border-[#00E2E5]/40 bg-[#00E2E5]/5 px-3 py-2 text-sm"
           >
             <span>
-              <span className="font-bold">{nameOf(eligible, p.memberId)}</span>
-              {` — ${sku?.raceCount ?? 3} races · `}
-              {sku?.dayType === "weekday" ? "Mon–Thu" : "Any day"} · ${(sku?.price ?? 0).toFixed(2)}
+              <span className="font-bold">{name}</span>
+              {/* An off-catalog slug can't reach here from the tiles (and would
+                  be refused at charge time) — still, render the name + the
+                  remove door rather than inventing a size for it. */}
+              {sku
+                ? ` — ${t("racePack.picker.assignment", {
+                    count: sku.raceCount,
+                    day: dayLabel(t, sku),
+                    price: `$${sku.price.toFixed(2)}`,
+                  })}`
+                : ""}
             </span>
             <button
               type="button"
-              aria-label={`Remove ${nameOf(eligible, p.memberId)}'s race pack`}
+              aria-label={t("racePack.picker.removeAria", { name })}
               onClick={() => remove(p.memberId)}
               className="ml-3 text-base leading-none text-white/50 transition-colors hover:text-red-300"
             >
@@ -76,9 +99,7 @@ export function PackAssignmentList({
           </div>
         );
       })}
-      <p className="text-xs text-white/45">
-        First credit covers today&rsquo;s race at checkout — the rest bank to their account.
-      </p>
+      <p className="text-xs text-white/45">{t("racePack.picker.firstCredit")}</p>
     </div>
   );
 }
@@ -107,6 +128,7 @@ export function RacePackPicker({
    *  that already has holders, else the first offered pack. */
   autoOpen?: boolean;
 }) {
+  const t = useT();
   // The tile whose "who's this for?" panel is open + the working set of
   // checked members. Seeded with the tile's CURRENT holders so the panel is
   // an edit surface: unchecking someone and applying removes their pack.
@@ -161,12 +183,13 @@ export function RacePackPicker({
   const applyDisabled = pendingCount === 0 && !pendingHadHolders;
   const applyLabel =
     pendingCount > 0
-      ? `Add ${pendingCount} pack${pendingCount === 1 ? "" : "s"} · $${(
-          pendingCount * (pendingSku?.price ?? 0)
-        ).toFixed(2)}`
+      ? t("racePack.picker.addPacks", {
+          count: pendingCount,
+          amount: `$${(pendingCount * (pendingSku?.price ?? 0)).toFixed(2)}`,
+        })
       : pendingHadHolders
-        ? "Remove pack"
-        : "Select racers";
+        ? t("racePack.picker.removePack")
+        : t("racePack.picker.selectRacers");
 
   return (
     <div>
@@ -191,18 +214,25 @@ export function RacePackPicker({
             >
               <div className="text-2xl font-extrabold italic">
                 {p.raceCount}
-                <span className="text-sm font-bold not-italic"> RACES</span>
+                <span className="text-sm font-bold not-italic">
+                  {" "}
+                  {t("racePack.picker.racesWord")}
+                </span>
               </div>
               <div className="mt-1 text-[10px] font-extrabold uppercase tracking-[0.2em] text-white/45">
-                {p.dayType === "weekday" ? "Mon–Thu" : "Any Day"}
+                {dayLabel(t, p)}
               </div>
               <div className="mt-1 text-xl font-extrabold tabular-nums">${p.price.toFixed(2)}</div>
               <div className="text-xs text-white/50">
-                ${(p.price / p.raceCount).toFixed(2)}/race
+                {t("racePack.build.perRace", { price: `$${(p.price / p.raceCount).toFixed(2)}` })}
               </div>
-              <div className="mt-0.5 text-xs font-bold text-amber-400">Save ${save.toFixed(2)}</div>
+              <div className="mt-0.5 text-xs font-bold text-amber-400">
+                {t("racePack.picker.save", { amount: `$${save.toFixed(2)}` })}
+              </div>
               {p.dayType === "weekday" && (
-                <div className="mt-0.5 text-[10px] text-white/40">Mon–Thu visits only</div>
+                <div className="mt-0.5 text-[10px] text-white/40">
+                  {t("racePack.picker.weekdayOnly")}
+                </div>
               )}
             </button>
           );
@@ -213,9 +243,9 @@ export function RacePackPicker({
       {pendingSlug && eligible.length > 1 && (
         <div className="mt-3 rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-3">
           <div className="text-[11px] font-bold uppercase tracking-widest text-[#00E2E5]">
-            Who&rsquo;s this pack for?{" "}
+            {t("racePack.picker.whoFor")}{" "}
             <span className="font-semibold normal-case tracking-normal text-white/45">
-              — select everyone who gets one
+              {t("racePack.picker.whoForHint")}
             </span>
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
@@ -229,7 +259,7 @@ export function RacePackPicker({
                   : "border-white/25 bg-white/5 text-white/70 hover:border-[#00E2E5] hover:text-white"
               }`}
             >
-              Everyone
+              {t("racePack.picker.everyone")}
             </button>
             {eligible.map((m) => {
               const on = pendingIds.includes(m.id);
@@ -264,7 +294,7 @@ export function RacePackPicker({
               onClick={() => setPendingSlug(null)}
               className="rounded-lg px-3 py-2 text-sm font-semibold text-white/50 transition-colors hover:text-white"
             >
-              Cancel
+              {t("racePack.picker.cancel")}
             </button>
             <button
               type="button"

@@ -88,8 +88,8 @@ function resolveStandalone(packs: StandalonePackInput[]): ResolvedKioskPack[] {
     }
   }
   // resolveKioskPacks does the rest fail-closed: offered-today check (day
-  // rule), one-pack-per-person, catalog re-derivation of every price. The
-  // standalone surface sells all six SKUs (owner 2026-07-19).
+  // rule), one-pack-per-person, catalog re-derivation of every price. Every
+  // kiosk surface sells the same six SKUs (owner 2026-08-03).
   return resolveKioskPacks(
     packs.map((p) => ({ slug: p.slug, memberId: p.personId })),
     packs.map((p) => ({
@@ -98,8 +98,6 @@ function resolveStandalone(packs: StandalonePackInput[]): ResolvedKioskPack[] {
       lastName: p.memberName.split(" ").slice(1).join(" ") || undefined,
       bmiPersonId: p.personId,
     })),
-    new Date(),
-    "standalone",
   );
 }
 

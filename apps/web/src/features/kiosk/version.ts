@@ -15,6 +15,18 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.13.3 — 5- and 10-RACE PACKS sell inside the booking (owner 2026-08-03: "the
+ *         kiosk doesn't let existing racers purchase a 5 or 10 pack"). The race
+ *         product step's pack teaser was 3-packs only, and mid-booking it is the
+ *         ONLY pack surface — the bigger packs lived exclusively in the
+ *         standalone attract flow, reachable only by abandoning the booking and
+ *         paying on a second reader tap. The ledger agrees: of every 5/10 pack
+ *         ever sold, not one came from a booking. Both surfaces now read ONE
+ *         catalog (3/5/10 × Mon–Thu/Any-Day, Mon–Thu still hidden Fri–Sun), so
+ *         they cannot drift apart again, and the teaser derives its sizes,
+ *         prices and savings from that catalog instead of hardcoding "3".
+ *         The teaser + picker copy also moved into the i18n catalog (EN+ES) —
+ *         it had been hardcoded English on a Spanish-capable screen.
  * 1.13.2 — RACE RESERVATION CHECK-IN goes down with the BMI booking outage too
  *         (owner 2026-08-03: "should also be down because no way to create new
  *         people"). It looked healthy — finding a reservation is the Office API,
@@ -528,7 +540,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.13.2";
+export const KIOSK_VERSION = "1.13.3";
 
 let bootVersion: string | null = null;
 let captured = false;

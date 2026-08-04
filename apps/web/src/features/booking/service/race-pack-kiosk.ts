@@ -7,8 +7,9 @@
  * products, no pack/3 bill lines, no settle-machinery involvement.
  *
  * Kiosk rules (owner):
- *   - 3-race packs ONLY (web keeps 5/10): Mon–Thu $49.99 / Any-Day $59.99.
- *   - Fri/Sat/Sun (center-local day) HIDE the Mon–Thu pack entirely.
+ *   - All six SKUs, the same catalog the web sells: 3/5/10 races × Mon–Thu /
+ *     Any-Day ($49.99 → $199.99).
+ *   - Fri/Sat/Sun (center-local day) HIDE the Mon–Thu packs entirely.
  *   - One pack → one person; new + returning racers both eligible.
  *   - Two surfaces: race product-step teaser (rides the booking's deposit
  *     order via the GZ extraLines seam) and a LOCKED standalone flow from the
@@ -40,22 +41,29 @@ export function racePackLicenseEnabled(): boolean {
   return process.env.NEXT_PUBLIC_RACE_PACK_LICENSE !== "false";
 }
 
-/** Where a pack is being sold — the two surfaces carry different catalogs
- *  (owner 2026-07-19): the in-race teaser stays 3-packs only (fast decision
- *  mid-booking), the standalone attract flow sells all six (3/5/10). */
+/** Which flow a pack was bought through — a LEDGER label (the `surface` column
+ *  on race_pack_purchases), not a catalog switch: both flows sell the same six
+ *  SKUs. `booking` = the race product-step teaser, riding the booking's own
+ *  deposit order; `standalone` = the locked attract-screen flow with its own
+ *  small reader order. */
 export type PackSurface = "booking" | "standalone";
 
-const KIOSK_PACK_SLUGS: Record<PackSurface, readonly string[]> = {
-  booking: ["3-race-weekday", "3-race-anytime"],
-  standalone: [
-    "3-race-weekday",
-    "3-race-anytime",
-    "5-race-weekday",
-    "5-race-anytime",
-    "10-race-weekday",
-    "10-race-anytime",
-  ],
-};
+/** THE kiosk pack catalog — one list for every surface (owner 2026-08-03).
+ *  The in-booking teaser used to be 3-packs only ("fast decision mid-booking",
+ *  owner 2026-07-19), which left a returning racer who wanted a 5- or 10-pack
+ *  with no door at all: mid-flow the teaser was the only pack surface, and the
+ *  bigger packs lived exclusively in the standalone flow — reachable only by
+ *  abandoning the booking and paying on a second reader tap. Zero 5/10 packs
+ *  ever sold through a booking; every one came from standalone. Keeping ONE
+ *  list is also what stops the two surfaces from drifting again. */
+const KIOSK_PACK_SLUGS: readonly string[] = [
+  "3-race-weekday",
+  "3-race-anytime",
+  "5-race-weekday",
+  "5-race-anytime",
+  "10-race-weekday",
+  "10-race-anytime",
+];
 
 /** Is the center's local day a weekend day for pack purposes? Owner rule:
  *  Fri/Sat/Sun — the Mon–Thu pack is HIDDEN (not warned) on those days.
@@ -68,15 +76,11 @@ export function isWeekendForPacks(now: Date = new Date()): boolean {
   return day === "Fri" || day === "Sat" || day === "Sun";
 }
 
-/** The packs the kiosk offers RIGHT NOW on a surface (day-filtered; smallest
- *  pack first, weekday before any-day within a size). */
-export function kioskPackSkus(
-  now: Date = new Date(),
-  surface: PackSurface = "booking",
-): RacePack[] {
+/** The packs the kiosk offers RIGHT NOW (day-filtered; smallest pack first,
+ *  weekday before any-day within a size). Same answer on every surface. */
+export function kioskPackSkus(now: Date = new Date()): RacePack[] {
   const weekend = isWeekendForPacks(now);
-  return KIOSK_PACK_SLUGS[surface]
-    .map((slug) => RACE_PACKS.find((p) => p.slug === slug))
+  return KIOSK_PACK_SLUGS.map((slug) => RACE_PACKS.find((p) => p.slug === slug))
     .filter((p): p is RacePack => !!p)
     .filter((p) => !(weekend && p.dayType === "weekday"))
     .sort((a, b) => a.raceCount - b.raceCount || a.price - b.price);
@@ -130,10 +134,9 @@ export function resolveKioskPacks(
   selections: KioskPackSelection[],
   party: Array<{ id: string; firstName: string; lastName?: string; bmiPersonId?: string | null }>,
   now: Date = new Date(),
-  surface: PackSurface = "booking",
 ): ResolvedKioskPack[] {
   if (selections.length === 0) return [];
-  const offered = new Set(kioskPackSkus(now, surface).map((p) => p.slug));
+  const offered = new Set(kioskPackSkus(now).map((p) => p.slug));
   const seen = new Set<string>();
   return selections.map((sel) => {
     const pack = getRacePack(sel.slug);
