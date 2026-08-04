@@ -1,6 +1,14 @@
 # PassKit (Apple / Google Wallet) — where it fits, what it costs
 
-Research doc, 2026-08-03. Not scheduled work. Decision needed on scope + sequencing.
+Research doc, 2026-08-03. Vouchers shipped; the programme is now **expanding**.
+
+**Branches in the wallet programme**
+
+| Branch | What it is | State |
+|---|---|---|
+| _(merged to main 8/3)_ | **Vouchers** — single-use coupon passes, § 7–9. `78b56dea` → `15d7f34e` | LIVE, never scanned at a kiosk |
+| **`feat/kiosk-racer-signin`** (`c3a71e11`) | **Expansion step 1 — the racer identity rail**, § 4. A racing licence or the SMS-Timing app QR now signs a racer in from the kiosk entry screens and checks them into their booking. Contains **no PassKit code**: it builds the rail the licence pass needs to be worth carrying, and stands on its own if the pass never ships. | committed, **not pushed / not merged / not device-smoked** |
+| _(next)_ | **Expansion step 2 — the racing-licence pass itself**, § 3B. Members API, all new. | **blocked** on three vendor questions — see § 3B |
 
 **Grounding — what is verified vs. inferred**
 
@@ -12,6 +20,8 @@ Research doc, 2026-08-03. Not scheduled work. Decision needed on scope + sequenc
 | Account is empty (no programs, 1 stock EVENT_TICKETING template) | **PROVEN LIVE** |
 | JWT `iat` must be backdated | **PROVEN LIVE** — measured window below |
 | FT license code resolves a racer server-side | **PROVEN LIVE** — see § 4 |
+| `person.tags[]` is append-only, ~1/visit; EVERY tag resolves uniquely, forever | **PROVEN LIVE 8/4** — 31 tags on person 409523, oldest last seen 2023-09-25, all unique. `scripts/racer-tag-semantics-probe.mts`. See § 4 |
+| Racers TYPE their login code at BMI — the pass cannot log them in there | **OWNER, 2026-08-04.** Shapes the whole licence-pass design; see § 4 |
 | Kiosk scan rail already accepts `/v/{code}` URLs | READ from `code-entry/classify.ts:92-93` |
 | Square already gives gift cards free wallet passes | READ from `features/marketing/rewards.ts:193-198` |
 | Multi-use billing is *recurring monthly*, not one-time | **INFERRED** — two PassKit pages word it differently. MUST confirm in writing. See § 3 risk. |
@@ -93,8 +103,15 @@ existing rail, with no new classifier verdict and no new precedence risk. And at
 volume (batches of ~5) it lands inside the 250/mo free allowance — the pilot costs the $39.50
 platform fee and nothing else.
 
-### B. Member program — "FastTrax Racing Licence" (multi-use)
+### B. Member program — "FastTrax Racing Licence" (multi-use) ← **next**
 One pass per racer, opt-in.
+
+> **Identity side UNBLOCKED 2026-08-04** by `feat/kiosk-racer-signin` (§ 4) — the barcode has a
+> payload (`/r/{code}`), the kiosk routes it, and it resolves a racer to their booking. What is
+> still gated is entirely vendor-side: the multi-use billing question in § 5, whether a duplicate
+> `externalId` 409s for a **member** (verified for coupons only, and a duplicate member is a
+> *recurring monthly* charge, not a one-off), and the fact that no wallet pass has ever been
+> scanned at a physical kiosk. Do not start the Members API work before those three.
 
 - `externalId` = BMI `personId`
 - Tiers = **Rookie / Intermediate / Pro** — these already exist and are already detected by
@@ -104,6 +121,19 @@ One pass per racer, opt-in.
 - Rolling expiry: push `expiry = last visit + 12 months` on every visit → lapsed racers
   auto-delete → **billing stops by itself.** Uses the vendor's own lifecycle instead of a sweep
   we'd have to write and monitor.
+- **The licence code is PINNED at issuance, not re-read** — `tags[]` is append-only and the newest
+  one changes every visit, but every tag resolves forever (§ 4 probe). Store the chosen code.
+- **Show the code as large readable text**, deliberately breaking the voucher pass's "the barcode
+  altText already prints it" rule (§ 7): racers TYPE this at BMI. Comment the reason in the
+  template script so nobody "fixes" it.
+- **"Valid until" needs `MAX(stops)`** over active `"License Fee"` memberships — one racer can
+  carry dozens, nearly all expired (§ 4 probe).
+- **Give this program its OWN preview ids.** The shared-campaign trade-off in § 8 is safe for
+  vouchers because creation is idempotent and free; a preview-minted *member* is a recurring
+  monthly charge production has to live with.
+- The transport (`src/lib/api/passkit.ts`) and `wallet/platform.ts` need **zero** changes; the
+  `PassKitProject` type in `src/config/passkit.ts` is coupon-shaped (`campaignId`/`offerId`/
+  `templateId`) and needs widening to a discriminated union for a `programId` + tiers.
 
 ### C. Later, cost-gated — Game Zone / Deal Pack card
 Only if the Intercard card genuinely gains something. Not in scope now.
@@ -118,9 +148,66 @@ Only if the Intercard card genuinely gains something. Not in scope now.
 
 ---
 
-## 4. "Can we use the FT licence number at check-in?" — yes, and most of it already works
+## 4. "Can we use the FT licence number at check-in?" — YES, AND IT IS BUILT
 
-Probed live against BMI Office with your code `3tn4d694p6z94`:
+> **STATUS 2026-08-04 — SHIPPED ON `feat/kiosk-racer-signin` (commit `c3a71e11`), not yet merged
+> or device-smoked.** This is **step 1 of expanding the wallet programme past vouchers**: the
+> racing-licence pass in § 3B needs a barcode that resolves a racer at a kiosk, and this branch
+> builds that rail *without* PassKit, exactly as the closing line of this section argued. § 3B is
+> now unblocked on the identity side and gated only on the vendor questions in § 5 / "Open before
+> this is more than a pilot".
+>
+> What the branch shipped, against the three-row table below:
+>
+> | Layer | Was | Now |
+> |---|---|---|
+> | licence code → person | works today | unchanged — `lookupMemberMatches` was always shape-agnostic; the blocker was the route's UUID-shaped `memberCode` guard, so a login code got its **own field + own guard** rather than widening that one |
+> | person → today's reservation | missing | `matchByRacerContacts` → `matchByContact`, extracted from `matchByPhone`. Goes through the SAME contact index the phone path uses; **no personId→booking join was added** — booking rows are keyed on the contact the guest gave us |
+> | entry-screen scan routing | needs a new branch | a `racer` verdict at pass 0 of `classifyEntryScan`, ahead of both classifiers |
+>
+> **The prediction in the last paragraph of this section was wrong, and the fix is better.** It
+> assumed a bare 13-char code and concluded the verdict would have to be the soft
+> `resolve-then-code-entry`. It does not: **both racer handles are URLs** — the SMS-Timing app QR
+> and our own `/r/{code}` — so `racer` is a HARD structural verdict with zero collision surface,
+> the same way `/v/{code}` is decidable while a bare `HPW` is not. A bare code still gets **no**
+> verdict, on purpose, and the tests assert that alongside both wrong single-classifier answers.
+>
+> **`/r/{code}` is the barcode payload for the § 3B licence pass.** It is our domain, it is
+> registered in `SHARED_TOP_LEVEL_ROUTES`, and in a phone camera it redirects into
+> `/book/race?code=` — the auto-login that already exists. One barcode, three jobs: kiosk scan,
+> camera deep-link, and printed text the racer types at BMI.
+>
+> **Owner correction 2026-08-04 that this whole design now rests on: racers TYPE their login code
+> at BMI.** So the pass **cannot log anyone in at a BMI/Conqueror surface** — it carries and
+> *displays* the code. That is a display feature, not an integration. Do not let a later revision
+> of this doc claim single-sign-on into Conqueror. It also means the § 3B pass must show the code
+> as large readable text, which is the exact opposite of the voucher pass's "don't repeat the code
+> as a face field" rule (§ 7) — different requirement, same pass family, so comment the reason.
+
+### The `tags[]` probe — run it before designing anything that prints a code
+
+`apps/web/scripts/racer-tag-semantics-probe.mts` (read-only, 2026-08-04, live vs person 409523).
+It settles what this section originally hand-waved as "your code":
+
+- **`person.tags[]` is APPEND-ONLY and grows ~1 per visit — Eric has 31.** There is no stable
+  "login code". `tags[0].tag` — what `license/lookup.server.ts` returns and what the level-up
+  email links — is merely the newest, so **the code we show a guest changes every visit**. The
+  `3tn4d694p6z94` quoted below is tag **#15**, from 2025-10-26; today's is `mgrm2g8o42wxc`.
+- **Every one of the 31 still resolves, uniquely, to the correct person — including one last seen
+  2023-09-25.** ~390 ms each, no collisions with other humans. So **a printed code never goes
+  stale**, and old deep-links keep working forever. This was the largest unquantified risk in the
+  licence-pass design and it is now closed.
+- **Therefore: PIN THE PRINTED CODE AT ISSUANCE** (store it on the pass row) and never re-read
+  `tags[0]` on sync. Re-reading would churn the number on the pass after every visit and break the
+  muscle memory of the racers who type it — for no benefit, since the old one still works.
+- Tag shapes vary: mostly 13-char lower-alnum, some **6-digit** (`973273`), and **the SMS-Timing
+  member-QR GUID is itself a tag** (`3f59bc35-…`) — readable, but with no special status. `races`
+  is computed as `tags.length`, which is why it tracks visits at all.
+- **Licence expiry needs MAX, not first-match**: 35 `"License Fee"` memberships on one person, 34
+  expired and one live to 2026-10-31. `personHasActiveLicense`'s `.some()` is correct for a
+  boolean; § 3B's "valid until" must take the max `stops` over active rows.
+
+The original probe, kept because it is what proved the rail in the first place:
 
 ```
 GET /api/headpinzftmyers/search/person?token=3tn4d694p6z94 → 200
@@ -142,9 +229,12 @@ into: `entry-scan/classify-entry.ts` is explicitly about **most-specific shape f
 catch-alls last**. A `licence` verdict has to be ordered ahead of the short-code catch-all, and
 it is not a pure shape decision (13 alnum chars is also a legal promo code), so it likely lands
 on the existing `resolve-then-code-entry` pattern rather than a hard verdict.
+_(Superseded — see the status box at the top of this section. Wrapping the code in a URL made it
+a hard verdict instead.)_
 
 **None of this requires PassKit.** Licence-at-check-in is worth doing on its own merits; the
 wallet pass is just the nicest place to put the barcode once it works.
+_(Held up: `feat/kiosk-racer-signin` ships the whole rail with zero PassKit code.)_
 
 ---
 
