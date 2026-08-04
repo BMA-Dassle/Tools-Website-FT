@@ -160,6 +160,12 @@ export const miscEn = {
   // order. Product nouns stay English per the glossary.
   "racePackage.remove": "Remove {name}",
   "racePackage.change": "Change",
+
+  // --- Locked race tiers on the race screen (RaceProductStep) ---
+  // {tier} is a product noun (Starter / Intermediate / Pro) — English in both.
+  "raceTier.locked.title": "{tier} Race",
+  "raceTier.locked.badge": "Not unlocked",
+  "raceTier.locked.unlock": "Qualify in {tier} first to race this level",
 } as const;
 
 export const miscEs: Record<keyof typeof miscEn, string> = {
@@ -298,4 +304,9 @@ export const miscEs: Record<keyof typeof miscEn, string> = {
   // --- Quitar un paquete premium (RaceProductStep + carrito del kiosco) ---
   "racePackage.remove": "Quitar {name}",
   "racePackage.change": "Cambiar",
+
+  // --- Niveles bloqueados en la pantalla de carreras ---
+  "raceTier.locked.title": "Carrera {tier}",
+  "raceTier.locked.badge": "No desbloqueado",
+  "raceTier.locked.unlock": "Califica en {tier} primero para correr este nivel",
 };

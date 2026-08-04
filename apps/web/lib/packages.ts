@@ -68,6 +68,10 @@ export interface PackageTrackOption {
   price: number;
 }
 
+/** Race / qualification tiers. Declared here rather than imported so the
+ *  registry stays dependency-free (race-products mirrors the same union). */
+export type PackageTier = "starter" | "intermediate" | "pro";
+
 export interface PackageRaceComponent {
   /** 1-indexed sequence — drives the order in PackageHeatPicker. */
   sequence: number;
@@ -172,6 +176,15 @@ export interface PackageDefinition {
    *  category should carry it; the first match wins. */
   recommended?: boolean;
 
+  /** Offer this bundle only while the category's racers are qualified at or
+   *  BELOW this tier. The Ultimate Qualifier's whole point is earning the
+   *  Intermediate unlock, so it is pointless once someone already holds it —
+   *  but it is very much for a returning racer who has only ever run Starter
+   *  (owner 2026-08-04: "these combos really shouldn't be filtered by new
+   *  racer... if everyone is still only starter you should present them").
+   *  Omitted = no qualification ceiling. */
+  maxQualifiedTier?: PackageTier;
+
   /** Optional disclaimer modal shown when the user picks the package
    *  card. All `acks` checkboxes must be ticked before they can
    *  continue. Used by Ultimate Qualifier to make clear the
@@ -236,6 +249,7 @@ const PACKAGES: PackageDefinition[] = [
   // race). Pricing auto-sums from the components.
   {
     id: "rookie-pack-mega",
+    maxQualifiedTier: "starter",
     name: "Rookie Pack",
     shortDescription: "Starter Mega + License + POV + free appetizer",
     longDescription: ROOKIE_LONG,
@@ -271,6 +285,7 @@ const PACKAGES: PackageDefinition[] = [
   // desk).
   {
     id: "rookie-pack-weekday",
+    maxQualifiedTier: "starter",
     name: "Rookie Pack",
     shortDescription: "Starter Race + License + POV + free appetizer",
     longDescription: ROOKIE_LONG,
@@ -302,6 +317,7 @@ const PACKAGES: PackageDefinition[] = [
   // $15.99 (vs. $20.99 adult).
   {
     id: "rookie-pack-weekday-junior",
+    maxQualifiedTier: "starter",
     name: "Rookie Pack",
     shortDescription: "Junior Starter Blue + License + POV + free appetizer",
     longDescription: ROOKIE_LONG,
@@ -333,6 +349,7 @@ const PACKAGES: PackageDefinition[] = [
   // SKUs.
   {
     id: "rookie-pack-weekend",
+    maxQualifiedTier: "starter",
     name: "Rookie Pack",
     shortDescription: "Starter Race + License + POV + free appetizer",
     longDescription: ROOKIE_LONG,
@@ -362,6 +379,7 @@ const PACKAGES: PackageDefinition[] = [
   // Junior weekend Starter is $19.99.
   {
     id: "rookie-pack-weekend-junior",
+    maxQualifiedTier: "starter",
     name: "Rookie Pack",
     shortDescription: "Junior Starter Blue + License + POV + free appetizer",
     longDescription: ROOKIE_LONG,
@@ -394,6 +412,7 @@ const PACKAGES: PackageDefinition[] = [
   // per-schedule ids above instead.
   {
     id: "rookie-pack",
+    maxQualifiedTier: "starter",
     name: "Rookie Pack",
     shortDescription: "Starter race + license + POV + free appetizer",
     longDescription: ROOKIE_LONG,
@@ -426,6 +445,7 @@ const PACKAGES: PackageDefinition[] = [
   // probe before launch and update if BMI moved it elsewhere.
   {
     id: "ultimate-qualifier-mega",
+    maxQualifiedTier: "starter",
     recommended: true,
     name: "Ultimate Qualifier",
     shortDescription: "Starter Mega + Intermediate Mega + license + POV + free appetizer",
@@ -487,6 +507,7 @@ const PACKAGES: PackageDefinition[] = [
   // launch — see the Mega-variant comment for the probe pattern.
   {
     id: "ultimate-qualifier-weekday",
+    maxQualifiedTier: "starter",
     recommended: true,
     name: "Ultimate Qualifier",
     shortDescription: "Starter + Intermediate + License + POV + free appetizer",
@@ -539,6 +560,7 @@ const PACKAGES: PackageDefinition[] = [
   // when the live BMI fetch hasn't resolved yet.
   {
     id: "ultimate-qualifier-weekday-junior",
+    maxQualifiedTier: "starter",
     recommended: true,
     name: "Ultimate Qualifier",
     shortDescription:
@@ -589,6 +611,7 @@ const PACKAGES: PackageDefinition[] = [
   // Intermediate page (25850598). Verify before launch.
   {
     id: "ultimate-qualifier-weekend",
+    maxQualifiedTier: "starter",
     recommended: true,
     name: "Ultimate Qualifier",
     shortDescription: "Starter + Intermediate + License + POV + free appetizer",
@@ -639,6 +662,7 @@ const PACKAGES: PackageDefinition[] = [
   // Intermediate page (25850598) — verify before launch.
   {
     id: "ultimate-qualifier-weekend-junior",
+    maxQualifiedTier: "starter",
     recommended: true,
     name: "Ultimate Qualifier",
     shortDescription:
@@ -746,7 +770,15 @@ export interface EligibilityContext {
   racerType: "new" | "existing" | null | undefined;
   schedule: Schedule | null | undefined;
   category?: "adult" | "junior";
+  /** The tier the category's racers already qualify for (the union — the most
+   *  qualified racer wins), from `qualifiedTierForCategory`. Gates bundles that
+   *  exist to EARN a qualification: pass "starter" for a group that has only
+   *  ever run Starter, even when they are returning racers. Omitted = "starter"
+   *  (nothing qualified), which keeps existing callers behaving as before. */
+  qualifiedTier?: PackageTier;
 }
+
+const QUAL_RANK: Record<PackageTier, number> = { starter: 0, intermediate: 1, pro: 2 };
 
 /** Filters the registry to packages bookable in the current context.
  *  Used by the product picker to render its "packages" row. Sorted
@@ -756,6 +788,12 @@ export function eligiblePackages(ctx: EligibilityContext): PackageDefinition[] {
   return PACKAGES.filter((p) => {
     if (!p.enabled) return false;
     if (p.racerType !== "any" && ctx.racerType && p.racerType !== ctx.racerType) return false;
+    if (
+      p.maxQualifiedTier &&
+      QUAL_RANK[ctx.qualifiedTier ?? "starter"] > QUAL_RANK[p.maxQualifiedTier]
+    ) {
+      return false;
+    }
     if (ctx.schedule && !p.schedules.includes(ctx.schedule)) return false;
     if (p.category !== "any" && ctx.category && p.category !== ctx.category) return false;
     return true;

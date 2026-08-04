@@ -15,6 +15,23 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.15.0 — THE QUALIFICATION LADDER IS VISIBLE, and page 1 stops naming a race
+ *         the guest hasn't chosen (owner 2026-08-04).
+ *         Race screen: every rung now renders in ladder order. A tier the party
+ *         isn't qualified for is greyed, priceless and untappable, with what
+ *         unlocks it ("Qualify in Starter first to race this level") — hiding the
+ *         rungs hid the reason the Ultimate Qualifier exists. Derived from the
+ *         existing-racer catalog, so a first-timer sees Intermediate and Pro
+ *         greyed rather than not at all.
+ *         Package screen: the single-race row said "Starter Race Mega" — it
+ *         presumed the tier they pick on the NEXT screen and leaked the schedule
+ *         variant. It now names a tier only when the category is restricted to
+ *         exactly one (a first-timer, or a returning racer who has only ever run
+ *         Starter) and otherwise reads "One race", priced "from" when the tiers
+ *         differ.
+ *         Bundle eligibility gains a qualification CEILING in the registry
+ *         (`maxQualifiedTier`) so it can stop keying on "new racer" — see the
+ *         next release for the returning-Starter-only pricing.
  * 1.14.4 — REWARDS WERE NEVER ON THE KIOSK (owner 2026-08-04: "something happen
  *         to rewards on this page?"). Not a regression — a flag. The merged
  *         cart+checkout screen carries the rewards section; it shipped behind
@@ -640,7 +657,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.14.4";
+export const KIOSK_VERSION = "1.15.0";
 
 let bootVersion: string | null = null;
 let captured = false;

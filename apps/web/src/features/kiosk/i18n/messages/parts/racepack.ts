@@ -117,6 +117,8 @@ export const racepackEn = {
   "payMode.say.qualifier":
     "Starter now, then your Intermediate spot saved for later — faster karts, same visit.",
   "payMode.say.rookie": "One Starter race with the in-kart video of it.",
+  "payMode.single.tierRace": "{tier} race",
+  "payMode.single.anyRace": "One race",
   "payMode.single.qualifies": "Qualifies you for Intermediate next visit",
   "payMode.single.today": "Pay for the races you run today",
   "payMode.pack.title": "Race packs",
@@ -237,6 +239,8 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
   "payMode.say.qualifier":
     "Starter ahora y te guardamos tu lugar de Intermediate para más tarde — karts más rápidos, misma visita.",
   "payMode.say.rookie": "Una carrera Starter con el video desde el kart.",
+  "payMode.single.tierRace": "Carrera {tier}",
+  "payMode.single.anyRace": "Una carrera",
   "payMode.single.qualifies": "Te califica para Intermediate en tu próxima visita",
   "payMode.single.today": "Paga las carreras que corras hoy",
   "payMode.pack.title": "Race packs",

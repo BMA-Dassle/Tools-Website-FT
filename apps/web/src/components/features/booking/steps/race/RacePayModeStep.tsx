@@ -56,6 +56,13 @@ import { RacePackPicker } from "./RacePackPicker";
 
 type Category = "adult" | "junior";
 
+/** Tier names are product nouns — English in both locales, like FastTrax. */
+const TIER_WORD: Record<"starter" | "intermediate" | "pro", string> = {
+  starter: "Starter",
+  intermediate: "Intermediate",
+  pro: "Pro",
+};
+
 function racersOfCategory<T extends { category?: Category }>(party: T[], category: Category): T[] {
   return party.filter((m) => (m.category ?? "adult") === category);
 }
@@ -166,6 +173,13 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
       ).filter((p) => !p.packType || p.packType === "none");
     })();
     const cheapestSingle = singles.length > 0 ? singles[0] : null;
+    // NEVER show the product name here: it presumes the tier the guest hasn't
+    // picked yet and leaks the schedule variant ("Starter Race Mega") — owner
+    // 2026-08-04. Name a tier only when the category is restricted to exactly
+    // one (a first-timer, or a returning racer who has only ever run Starter);
+    // otherwise this row is simply "one race", priced "from".
+    const singleTiers = [...new Set(singles.map((p) => p.tier))];
+    const singlePriceVaries = new Set(singles.map((p) => p.price)).size > 1;
     const baseline =
       cheapestSingle != null
         ? Math.min(...singles.map((p) => p.price)) + (allNew ? LICENSE_PRICE : 0)
@@ -353,14 +367,20 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
           >
             {countBadge(1)}
             <span className="min-w-0 flex-1">
-              <span className="block text-[23px] font-bold">{cheapestSingle.name}</span>
+              <span className="block text-[23px] font-bold">
+                {singleTiers.length === 1
+                  ? t("payMode.single.tierRace", { tier: TIER_WORD[singleTiers[0]] })
+                  : t("payMode.single.anyRace")}
+              </span>
               <span className="mt-0.5 block text-[19px] text-white/50">
                 {allNew ? t("payMode.single.qualifies") : t("payMode.single.today")}
               </span>
             </span>
             <span className="shrink-0 text-right">
               <span className="block text-[30px] font-extrabold italic leading-none tabular-nums">
-                {money(baseline)}
+                {singlePriceVaries
+                  ? t("racePack.teaser.from", { price: money(baseline) })
+                  : money(baseline)}
               </span>
               {allNew && (
                 <span className="mt-1 block text-[16px] text-white/45">
