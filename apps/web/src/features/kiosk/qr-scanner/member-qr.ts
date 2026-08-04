@@ -19,8 +19,24 @@ export interface MemberQr {
 }
 
 const HOST_RE = /^https?:\/\/smstim\.in\/?\?(.+)$/i;
-/** Codes observed are UUIDs; accept close variants, reject junk/injection. */
-const CODE_RE = /^[0-9a-f][0-9a-f-]{15,63}$/i;
+/**
+ * TWO code shapes ride this same wrapper, and both are real BMI tags:
+ *
+ *   36-char UUID  what the SMS-Timing APP emits (`3f59bc35-0548-…`)
+ *   6–32 alnum    what OUR wallet racing licence carries (`mgrm2g8o42wxc`)
+ *
+ * The licence deliberately uses the short code rather than the UUID: the UUID
+ * form is already covered by the app's own QR, and only racers with an app
+ * history have one — measured 2026-08-04, 11 of 20 racers' newest tag was a
+ * UUID and the rest had none at all. Every tag resolves uniquely and forever
+ * (`search/person?token=`), so both shapes are equally valid identities.
+ *
+ * Still deliberately narrow: this becomes an Office search TOKEN, and that
+ * search will happily answer other token shapes too (`LastName M/D/YYYY` finds
+ * people by name and birthday). Alphanumeric-only also keeps out the slashes
+ * and spaces that make the upstream 500 under undici.
+ */
+const CODE_RE = /^(?:[0-9a-f][0-9a-f-]{15,63}|[A-Za-z0-9]{6,32})$/i;
 const KEY_RE = /^[a-z0-9_-]{3,40}$/i;
 
 /** Parse one scan payload; null = not an SMS-Timing member QR. */

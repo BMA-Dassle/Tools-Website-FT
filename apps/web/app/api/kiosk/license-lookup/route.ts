@@ -81,8 +81,13 @@ export async function POST(req: NextRequest) {
   const loginCode = String(body.loginCode ?? "").trim();
   const racerCode = memberCode || loginCode;
   if (racerCode) {
+    // A member QR now carries EITHER shape: the app emits a 36-char UUID, our
+    // wallet racing licence emits the 6–32-char tag (owner 2026-08-04 — the
+    // UUID path is already covered by the app's own QR). Both are real BMI
+    // tags and both resolve uniquely, so the guard accepts either and stays
+    // narrow enough that neither becomes a person-search oracle.
     const shapeOk = memberCode
-      ? /^[0-9a-f][0-9a-f-]{15,63}$/i.test(memberCode)
+      ? /^[0-9a-f][0-9a-f-]{15,63}$/i.test(memberCode) || RACER_LOGIN_CODE_RE.test(memberCode)
       : RACER_LOGIN_CODE_RE.test(loginCode);
     if (!shapeOk) {
       return NextResponse.json<LicenseLookupResponse>(
