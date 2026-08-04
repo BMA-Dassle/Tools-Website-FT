@@ -35,7 +35,7 @@ import {
 const LICENSE_PRODUCT_ID = "43473520";
 const POV_PRODUCT_ID = "43746981";
 /** $0 POV build product — books POV as a $0 line so the bill stays a $0 credit
- *  under the $0 model; the $5/racer POV money is charged on Square. */
+ *  under the $0 model; the POV money ($4.99/racer) is charged on Square. */
 const POV_ZERO_PRODUCT_ID = "50361293";
 const ADDON_PAGE_ID = "42730172";
 
@@ -240,7 +240,7 @@ export async function bookHeatsOnAdvance(
   }
 
   // POV + package/combo memo — ONCE, after heats book (guarded by item.povSold).
-  // The $0 POV product keeps the bill a $0 credit; the $5/racer is charged on
+  // The $0 POV product keeps the bill a $0 credit; the POV money is charged on
   // Square (inside the package bundle, or as a standalone POV line). Packages set
   // includesPov (not povQuantity), so derive the qty from the package + racers.
   if (billId && !item.povSold) {
@@ -633,7 +633,8 @@ async function sellLicense(billId: string, quantity: number): Promise<boolean> {
 
 async function sellPov(billId: string, quantity: number, zeroModel = false): Promise<boolean> {
   // $0 model → the $0 POV product (50361293): POV is a $0 BMI line, money on
-  // Square. Legacy → the priced $5 product (43746981).
+  // Square. Legacy → the priced product (43746981), whose $5.00 lives in BMI's
+  // OWN catalog — our POV_PRICE move to $4.99 does not reach it.
   const productId = zeroModel ? POV_ZERO_PRODUCT_ID : POV_PRODUCT_ID;
   try {
     const res = await fetch("/api/sms?endpoint=booking%2Fsell", {
@@ -657,7 +658,7 @@ async function sellPov(billId: string, quantity: number, zeroModel = false): Pro
     console.log(
       "[race.sellPov] sold",
       quantity,
-      `POV camera(s) (${zeroModel ? "$0" : "$5"} product ${productId}) on bill`,
+      `POV camera(s) (${zeroModel ? "$0" : "BMI-priced"} product ${productId}) on bill`,
       billId,
     );
     return true;

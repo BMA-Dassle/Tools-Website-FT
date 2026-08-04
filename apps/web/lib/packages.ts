@@ -25,7 +25,7 @@
 // auto-sum helper agree on a single number.
 
 export const LICENSE_PRICE = 4.99;
-export const POV_PRICE = 5;
+export const POV_PRICE = 4.99;
 // "Retail" anchors for savings comparisons. POV at the counter is
 // $2 more per racer than the prepay-online price; the appetizer
 // carries a real menu value at Nemo's. Used by the picker card +

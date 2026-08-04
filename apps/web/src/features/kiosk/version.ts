@@ -15,6 +15,25 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.16.6 — three owner notes from the live pass (2026-08-04):
+ *           · the single-race row was misleading: it read "Starter race / Pay for
+ *             the races you run today / $25.98", but that row is ALSO the only way
+ *             through for a guest whose race is already covered by banked credits,
+ *             a comp, or the pack they just added. Now "Single race · Pay per race
+ *             — or use credits, comps, or a pack · from $X / racer" (owner's own
+ *             wording). It names NO tier — page 2 asks for the tier, and a guest
+ *             who hasn't seen that screen reads "Starter" as a product being sold.
+ *             The price keeps the licence in it when every racer owes one, so the
+ *             +$delta chips on the bundle rows still add up against it.
+ *           · the "★ FastTrax recommended" pill hangs 16px above the hero card and
+ *             was covering the intro line. The card now carries its own top margin.
+ *           · POV moved $5.00 → $4.99. Both constants (v1 lib/packages.ts and v2
+ *             race-pricing.ts) plus RacePovStep, which had SHADOWED all three price
+ *             constants with local copies — it now imports them, so the screen can
+ *             never quote a price the charge does not use. Derived totals shift a
+ *             penny: Rookie Pack $30.98 → $30.97, Ultimate Qualifier $51.97 →
+ *             $51.96, the rookie licence+POV line $9.99 → $9.98, and the upsell's
+ *             "save vs check-in" $2 → $2.01.
  * 1.16.5 — appetizer audit (owner 2026-08-04: "double check rookie pack has app
  *         taken out — emails, web and kiosk and confirmation pages? Leave it in
  *         for ultimate qualifier"). 1.14.3 pulled the FIELD; this pass found two
@@ -739,7 +758,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.16.5";
+export const KIOSK_VERSION = "1.16.6";
 
 let bootVersion: string | null = null;
 let captured = false;

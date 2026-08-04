@@ -155,7 +155,7 @@ export const SQUARE_CATALOG_MAP: Record<string, string> = {
   "43733133": SQ.JR_FRI_SUN, // Existing Starter Blue
   "43729633": SQ.JR_FRI_SUN, // Existing Int Blue
 
-  // ── POV / ViewPoint race video ($5 add-on) ─────────────────────────
+  // ── POV / ViewPoint race video (POV_PRICE add-on) ──────────────────
   // Standalone POV upsell line (checkout.ts POV_PRODUCT_ID). Without this it
   // booked ad-hoc (no category) and imported to QBO as a loose "POV Race Video"
   // item instead of rolling up under the POV catalog item.

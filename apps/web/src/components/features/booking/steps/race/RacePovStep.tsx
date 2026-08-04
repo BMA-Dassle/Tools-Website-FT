@@ -1,6 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import {
+  LICENSE_PRICE,
+  POV_CHECKIN_PRICE,
+  POV_PRICE,
+} from "~/features/booking/service/race-pricing";
 import type { RaceItem, StepDef } from "~/features/booking";
 import { raceItemFullyPackaged } from "~/features/booking";
 
@@ -38,9 +43,8 @@ import { raceItemFullyPackaged } from "~/features/booking";
 // POV video preview URL — verbatim from v1 PovUpsell:6.
 const POV_VIDEO =
   "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/videos/viewpoint-pov-suJzzax08ZbSJpcdNKQvT9nNvWlgFc.mp4";
-const LICENSE_PRICE = 4.99;
-const POV_PRICE = 5;
-const POV_CHECKIN_PRICE = 7;
+// Imported, never re-declared: local copies of these drifted from the charge
+// (this file held POV at $5 after the constant moved to $4.99).
 
 function isRookiePackEnabled(): boolean {
   return process.env.NEXT_PUBLIC_ROOKIE_PACK_ENABLED === "1";
@@ -158,7 +162,7 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({
                   </li>
                 </ul>
                 <p className="mt-2 text-[11px] text-amber-400/80">
-                  Save ${POV_CHECKIN_PRICE - POV_PRICE} vs buying the video at check-in
+                  Save ${(POV_CHECKIN_PRICE - POV_PRICE).toFixed(2)} vs buying the video at check-in
                 </p>
               </div>
             </div>
@@ -222,7 +226,7 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({
           social media.
         </p>
         <div className="flex items-center justify-center gap-3">
-          <span className="text-2xl font-bold text-[#00E2E5]">${POV_PRICE}</span>
+          <span className="text-2xl font-bold text-[#00E2E5]">${POV_PRICE.toFixed(2)}</span>
           <span className="text-sm text-white/30">/person</span>
           <span className="text-white/20">|</span>
           <span className="text-sm text-red-400/60 line-through">

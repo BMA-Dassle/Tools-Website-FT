@@ -325,7 +325,7 @@ describe("buildRaceChargeLines — license dedup + standalone POV", () => {
     const rookie = lines.find((l) => l.name === "Rookie Pack");
     expect(rookie).toBeDefined();
     expect(rookie!.quantity).toBe(1);
-    expect(rookie!.amount).toBe(4.99 + 5); // LICENSE_PRICE + POV_PRICE per new racer
+    expect(rookie!.amount).toBe(4.99 + 4.99); // LICENSE_PRICE + POV_PRICE per new racer
     expect(rookie!.bmiProductId).toBe("rookie-pack"); // → SQ.ROOKIE_PACK on the day-of order
     expect(lines.some((l) => l.name === "FastTrax License")).toBe(false);
     expect(lines.some((l) => l.name === "POV Race Video")).toBe(false); // consumed by the pack
@@ -364,7 +364,7 @@ describe("buildRaceChargeLines — license dedup + standalone POV", () => {
     expect(lines.find((l) => l.name === "FastTrax License")!.quantity).toBe(1);
   });
 
-  it("standalone POV adds a $5 × qty Square line (money lives on Square, not the $0 BMI line)", () => {
+  it("standalone POV adds a $4.99 × qty Square line (money lives on Square, not the $0 BMI line)", () => {
     const session = sessionWith(
       [
         raceItem({
@@ -378,7 +378,7 @@ describe("buildRaceChargeLines — license dedup + standalone POV", () => {
     const pov = buildRaceChargeLines(session).find((l) => l.name === "POV Race Video");
     expect(pov).toBeDefined();
     expect(pov!.quantity).toBe(2);
-    expect(pov!.amount).toBeCloseTo(10, 2);
+    expect(pov!.amount).toBeCloseTo(9.98, 2); // 2 × POV_PRICE
   });
 });
 

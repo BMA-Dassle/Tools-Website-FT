@@ -57,13 +57,6 @@ import { RacePackPicker } from "./RacePackPicker";
 
 type Category = "adult" | "junior";
 
-/** Tier names are product nouns — English in both locales, like FastTrax. */
-const TIER_WORD: Record<"starter" | "intermediate" | "pro", string> = {
-  starter: "Starter",
-  intermediate: "Intermediate",
-  pro: "Pro",
-};
-
 function racersOfCategory<T extends { category?: Category }>(party: T[], category: Category): T[] {
   return party.filter((m) => (m.category ?? "adult") === category);
 }
@@ -180,11 +173,8 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
     const owesLicense = racers.filter((m) => racerNeedsLicense(m));
     // NEVER show the product name here: it presumes the tier the guest hasn't
     // picked yet and leaks the schedule variant ("Starter Race Mega") — owner
-    // 2026-08-04. Name a tier only when the category is restricted to exactly
-    // one (a first-timer, or a returning racer who has only ever run Starter);
-    // otherwise this row is simply "one race", priced "from".
-    const singleTiers = [...new Set(singles.map((p) => p.tier))];
-    const singlePriceVaries = new Set(singles.map((p) => p.price)).size > 1;
+    // 2026-08-04. The row names neither the tier nor a price it can be sure of:
+    // page 2 picks the tier, and credits / comps / a pack can take today to $0.
     const allOweLicense = racers.length > 0 && owesLicense.length === racers.length;
     const baseline =
       cheapestSingle != null
@@ -273,7 +263,9 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
 
         {/* HERO — the house recommendation */}
         {hero && (
-          <div className="space-y-2">
+          // mt-4 clears the "recommended" pill: it hangs -16px above the card
+          // border and was covering the intro line (owner 2026-08-04).
+          <div className="mt-4 space-y-2">
             <button
               type="button"
               onClick={() => chooseBundle(hero)}
@@ -373,20 +365,24 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
           >
             {countBadge(1)}
             <span className="min-w-0 flex-1">
-              <span className="block text-[23px] font-bold">
-                {singleTiers.length === 1
-                  ? t("payMode.single.tierRace", { tier: TIER_WORD[singleTiers[0]] })
-                  : t("payMode.single.anyRace")}
-              </span>
+              {/* Never names a TIER: the tier is what page 2 asks for, and a
+                  guest who hasn't been there yet reads "Starter race" as a
+                  product they're being sold (owner 2026-08-04). */}
+              <span className="block text-[23px] font-bold">{t("payMode.single.anyRace")}</span>
+              {/* This row is ALSO the only path for a guest whose race is already
+                  covered — banked credits, a comp, or the pack they just added —
+                  so it can't read as "pay again" (owner 2026-08-04). */}
               <span className="mt-0.5 block text-[19px] text-white/50">
-                {allNew ? t("payMode.single.qualifies") : t("payMode.single.today")}
+                {t("payMode.single.orUse")}
               </span>
             </span>
             <span className="shrink-0 text-right">
+              {/* Always "from": the tiers on offer can differ in price, and
+                  credits / comps / a pack can take it to $0. `baseline` keeps the
+                  licence in it when every racer owes one, so the +$ deltas on the
+                  bundle rows above still add up against this number. */}
               <span className="block text-[30px] font-extrabold italic leading-none tabular-nums">
-                {singlePriceVaries
-                  ? t("racePack.teaser.from", { price: money(baseline) })
-                  : money(baseline)}
+                {t("payMode.single.fromRacer", { price: money(baseline) })}
               </span>
               {allOweLicense ? (
                 <span className="mt-1 block text-[16px] text-white/45">

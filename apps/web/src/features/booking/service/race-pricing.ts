@@ -80,5 +80,5 @@ export const LICENSE_PRICE = 4.99;
  * constant is ported for forward-compat so race-pricing math doesn't
  * fork later.
  */
-export const POV_PRICE = 5;
+export const POV_PRICE = 4.99;
 export const POV_CHECKIN_PRICE = 7;

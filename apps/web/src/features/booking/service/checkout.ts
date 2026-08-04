@@ -837,7 +837,7 @@ export async function reserveBooking(params: ReserveParams): Promise<ReserveResu
  *  SQ.LICENSE via NAME_CATALOG_MAP in the reserve route, so the unmapped id here
  *  is fine — it's just carried for traceability. */
 const LICENSE_PRODUCT_ID = "43473520";
-/** $5 POV camera SKU — carried for traceability on the standalone POV Square
+/** POV camera SKU — carried for traceability on the standalone POV Square
  *  line. The $0 BMI booking uses product 50361293 (race.ts), so the money lives
  *  only on Square; the name resolves to an ad-hoc line (no POV catalog object). */
 const POV_PRODUCT_ID = "43746981";
@@ -857,7 +857,7 @@ function distinctRacerCount(heats: RaceHeatAssignment[]): number {
  * estimate all consume, so displayed == charged by construction:
  *   - PACKAGE → one bundle line PER CATEGORY at that variant's
  *     `packagePerRacerPrice × racers` (already includes the $4.99 license +
- *     $5 POV per racer) — adult and junior variants price independently.
+ *     $4.99 POV per racer) — adult and junior variants price independently.
  *   - COMBO   → one line per pack at the pack TOTAL (`product.price × packs`,
  *     packs = distinct racers), NOT price × heats.
  *   - SINGLE  → one line per category product at the per-heat price × heats.
@@ -1015,7 +1015,7 @@ function earliestHeatStart(heats: RaceHeatAssignment[]): string | undefined {
  * Charge lines for the v2 $0 model: per-item race lines (package bundle / combo
  * pack / single) from `raceItemChargeLines`, plus session-level `FastTrax
  * License` ($4.99 × NON-package new racers — package license rides the bundle)
- * and standalone `POV Race Video` ($5 × non-package POV cameras). BMI holds the
+ * and standalone `POV Race Video` (POV_PRICE × non-package POV cameras). BMI holds the
  * heats + bundled license + POV at $0; these lines are what Square charges.
  *
  * Exported + `excludeHeats`-parameterized so BOTH reserve paths build the SAME

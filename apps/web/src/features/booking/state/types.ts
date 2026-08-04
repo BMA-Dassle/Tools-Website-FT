@@ -288,7 +288,7 @@ export interface RaceItem extends BookingItemBase {
   packageIdAdult: string | null;
   packageIdJunior: string | null;
   /**
-   * Number of POV cameras to pre-pay ($5/each online vs $7 at check-in).
+   * Number of POV cameras to pre-pay ($4.99/each online vs $7 at check-in).
    * BMI sells POV as a flat qty SKU (productId 43746981), no per-racer
    * attribution. For new racers in the Rookie Pack flow, this equals the
    * count of new racers. For existing-racer flow, the qty stepper sets
@@ -299,7 +299,7 @@ export interface RaceItem extends BookingItemBase {
    * Idempotency guard for the $0 POV BMI line (product 50361293) + the package
    * disclaimer memo, both written once in `bookHeatsOnAdvance` after the heats
    * book. Prevents a back-then-forward wizard re-advance from selling POV /
-   * writing the memo twice. The $5/racer POV money is charged on Square, not here.
+   * writing the memo twice. The POV money is charged on Square, not here.
    */
   povSold?: boolean;
   /**
