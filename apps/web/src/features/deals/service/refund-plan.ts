@@ -12,7 +12,12 @@
  */
 
 import { planHash as hashPlan } from "~/features/reservation-edit/hash";
-import { getDeal, dealSquareCatalogId, type DealCatalogEntry } from "../catalog";
+import {
+  dealSquareCatalogId,
+  dealVoucherItems,
+  getDeal,
+  type DealCatalogEntry,
+} from "../catalog";
 import type { DealPurchaseRow } from "../data/deal-purchases-db";
 import type { DealRefundDestination, DealRefundRow } from "../data/deal-refunds-db";
 import { PackShapeError, assertPackShape } from "./pack-legs";
@@ -263,9 +268,17 @@ export async function buildDealRefundPlan(args: BuildPlanArgs): Promise<DealRefu
     ),
   );
 
+  // ONE pack's items as SOLD — base items plus whatever bonus the limited offer
+  // froze onto this row. This is what sets the leg count, and it is not
+  // `deal.items.length` for an offer purchase.
+  const packItems = dealVoucherItems(deal, 1, row.bonusItems);
+
   const states = packStates({
-    deal,
+    items: packItems,
     location: row.locationKey,
+    // The price THIS buyer paid, not today's catalog price.
+    pricePaidCents: row.unitPriceCents,
+    dealSlug: row.dealSlug,
     combine: row.combine,
     qty: row.qty,
     codes: row.codes,
@@ -314,7 +327,7 @@ export async function buildDealRefundPlan(args: BuildPlanArgs): Promise<DealRefu
 
   /* ── presentation ───────────────────────────────────────────────────── */
 
-  const legLabels = deal.items.map((_, i) => `item ${i + 1}`);
+  const legLabels = packItems.map((_, i) => `item ${i + 1}`);
   const units: DealRefundPlanUnit[] = states.map((s) => ({
     unitKey: s.unitKey,
     label: s.unitLabel,

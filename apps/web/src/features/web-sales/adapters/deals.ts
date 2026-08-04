@@ -272,7 +272,9 @@ async function dealLegs(row: DealPurchaseRow): Promise<SaleLeg[]> {
       combine: row.combine,
       qty: row.qty,
       codes: row.codes,
-      itemsPerPack: deal.items.length,
+      // Base items plus the offer bonus frozen on the row — NOT deal.items.length,
+      // which is wrong for anything sold during a limited offer.
+      itemsPerPack: dealVoucherItems(deal, 1, row.bonusItems).length,
     });
   } catch (err) {
     // A purchase whose codes disagree with its shape has no defined mapping.

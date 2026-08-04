@@ -12,7 +12,7 @@ import { fetchOrderFacts, fetchPaymentFacts } from "~/features/cancellation/squa
 import { createReturnOrder, refundTenderPartial } from "~/features/reservation-edit/square-actions";
 import { spentItemIndexes } from "~/features/game-cards/data/voucher-claims-db";
 import { webSalesGiftCardRefundEnabled, webSalesRefundsEnabled } from "~/features/web-sales/flags";
-import { getDeal, type DealCatalogEntry } from "../catalog";
+import { dealVoucherItems, getDeal, type DealCatalogEntry } from "../catalog";
 import type { DealPurchaseRow } from "../data/deal-purchases-db";
 import { listDealRefunds, type DealRefundDestination } from "../data/deal-refunds-db";
 import { packLegMap } from "./pack-legs";
@@ -35,7 +35,17 @@ async function quotePacks(
   row: DealPurchaseRow,
   packs: number,
 ): Promise<number> {
-  const order = buildDealOrder({ deal, location: row.locationKey, qty: packs });
+  const order = buildDealOrder({
+    deal,
+    location: row.locationKey,
+    qty: packs,
+    // THE PRICE THE BUYER ACTUALLY PAID, off the row — never `deal.priceCents`.
+    // Deal pricing is now dynamic (limited-time offers), so today's catalog price
+    // can differ from what was charged. Quoting a return at the current price
+    // would refund the wrong amount for every historical sale made at an offer
+    // price, in whichever direction the price has since moved.
+    unitPriceCents: row.unitPriceCents,
+  });
   const { ok, data } = await squareFetch<{ order?: { total_money?: { amount?: number } } }>(
     "/orders/calculate",
     { method: "POST", body: JSON.stringify({ order }) },
@@ -96,7 +106,9 @@ export async function runDealRefund(args: {
 }): Promise<ExecuteRefundResult> {
   const deal = getDeal(args.row.dealSlug);
   if (!deal) throw new Error(`unknown deal ${args.row.dealSlug}`);
-  const itemsPerPack = deal.items.length;
+  // Base items PLUS the offer bonus frozen on the row. Using `deal.items.length`
+  // would mis-map every leg of a purchase made during a limited offer.
+  const itemsPerPack = dealVoucherItems(deal, 1, args.row.bonusItems).length;
 
   const allPacks = packLegMap({
     combine: args.row.combine,

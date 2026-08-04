@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { IconCheck, IconGift, IconMapPin, IconTicket } from "@tabler/icons-react";
 import PaymentForm from "@/components/square/PaymentForm";
 import Card from "~/components/ui/Card";
@@ -11,6 +12,7 @@ import QtyStepper from "~/components/ui/QtyStepper";
 import { normalizeLocationSlug } from "@/lib/attractions-data";
 import { DEAL_LOCATION_INFO, isDealLocation, type DealLocationKey } from "~/features/deals";
 import { formatGiftDate, giftDateWindow } from "~/features/deals/gift";
+import type { DealOffer } from "~/features/deals/service/offer";
 
 /**
  * The buy panel — the only interactive part of a deal page.
@@ -75,11 +77,21 @@ interface PurchaseResult {
 export interface DealBuyPanelProps {
   slug: string;
   dealName: string;
-  priceCents: number;
+  /**
+   * The server's resolve at render time. Seeds the price and the launch state so
+   * the panel is correct in the first HTML; every quote response replaces it.
+   */
+  initialOffer: DealOffer;
   /** Locations this deal is sold at. */
   locations: readonly DealLocationKey[];
   /** Resolved server-side from `?location=` so an ad can target one venue. */
   initialLocation: DealLocationKey | null;
+  /**
+   * Resolved server-side from `?qty=`, already clamped to the cap. The recovery
+   * email puts a buyer back in front of the basket they abandoned, so it must
+   * actually restore the quantity rather than silently reset to one.
+   */
+  initialQty: number;
   maxPerBuyer: number;
   expiresMonths: number;
   accentColor: string;
@@ -128,13 +140,15 @@ function readUtm(): Record<string, string> {
 export default function DealBuyPanel({
   slug,
   dealName,
-  priceCents,
+  initialOffer,
   locations,
   initialLocation,
+  initialQty,
   maxPerBuyer,
   expiresMonths,
   accentColor,
 }: DealBuyPanelProps) {
+  const router = useRouter();
   /**
    * The server already resolved `?location=`; the URL fallback only covers a
    * client-side navigation that lands here with a param the server never saw.
@@ -142,7 +156,7 @@ export default function DealBuyPanel({
   const [location, setLocation] = useState<DealLocationKey | null>(
     () => initialLocation ?? initialLocationFromUrl(locations),
   );
-  const [qty, setQty] = useState(1);
+  const [qty, setQty] = useState(initialQty);
   /** Default TRUE: one code for one buyer. Splitting is only for gifting packs on. */
   const [combine, setCombine] = useState(true);
   /**
@@ -160,6 +174,19 @@ export default function DealBuyPanel({
   const [quoting, setQuoting] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [notSellable, setNotSellable] = useState(false);
+  /**
+   * The launch state, refreshed by every quote. Seeded from the server render so
+   * the price and the countdown are right in the first paint, then replaced —
+   * the quote route resolves it per request, which is the only place it can come
+   * from live, since this page is `revalidate = 3600`.
+   */
+  const [offer, setOffer] = useState<DealOffer>(initialOffer);
+  /**
+   * Bumped to force a re-quote when nothing the buyer did has changed — the
+   * launch deadline passing is the only case, and without this the quote effect
+   * (keyed on slug/location/qty) would happily keep showing the old total.
+   */
+  const [repriceNonce, setRepriceNonce] = useState(0);
 
   const quote = quoted && quoted.location === location && quoted.qty === qty ? quoted.quote : null;
 
@@ -217,6 +244,7 @@ export default function DealBuyPanel({
         if (cancelled) return;
         if (res.ok && data.ok) {
           setQuoted({ location, qty, quote: data.quote as Quote });
+          if (data.offer) setOffer(data.offer as DealOffer);
           setNotSellable(false);
         } else {
           setQuoted(null);
@@ -236,7 +264,32 @@ export default function DealBuyPanel({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [slug, location, qty]);
+  }, [slug, location, qty, repriceNonce]);
+
+  /**
+   * The deadline passing, handled before the buyer hits it.
+   *
+   * `assertQuoteMatches` on the server is the guard that stops a stale total
+   * ever being charged, but arriving at it means a card submission that fails —
+   * a bad experience for someone whose only mistake was typing slowly. So the
+   * panel watches its own deadline and re-prices the moment it lands: one timer
+   * set to the exact instant, not a poll. `router.refresh()` brings the rest of
+   * the page (the hero price, the value table, the Offer JSON-LD) along with it,
+   * and React state — everything already typed in here — survives.
+   */
+  useEffect(() => {
+    if (!offer.isOfferLive || !offer.endsAt) return;
+    const msLeft = new Date(offer.endsAt).getTime() - Date.now();
+    if (Number.isNaN(msLeft)) return;
+    // setTimeout saturates above ~24.8 days; anything that far out will be
+    // re-armed by a later render long before it matters.
+    if (msLeft <= 0 || msLeft > 2_147_483_000) return;
+    const id = setTimeout(() => {
+      setRepriceNonce((n) => n + 1);
+      router.refresh();
+    }, msLeft + 1000);
+    return () => clearTimeout(id);
+  }, [offer.isOfferLive, offer.endsAt, router]);
 
   const contactComplete = useMemo(
     () =>
@@ -297,10 +350,22 @@ export default function DealBuyPanel({
         }),
       });
       const data = await res.json();
-      // `data.error` is already guest-facing — the purchase service phrases declines
-      // through `checkoutDeclineMessage`. Throwing re-enables PaymentForm's button
-      // AND is how the message reaches the screen.
-      if (!res.ok || !data.ok) throw new Error(data.error || "That payment didn't go through.");
+      if (!res.ok || !data.ok) {
+        if (data.code === "PRICE_CHANGED") {
+          // The offer ended between this panel rendering its total and the buyer
+          // submitting; the server already refused, so nothing was charged.
+          // Re-quote (rather than reload) so the new total is on screen behind
+          // the message, and every field they filled in survives.
+          setRepriceNonce((n) => n + 1);
+          router.refresh();
+        }
+        // `data.error` is already guest-facing — the purchase service phrases declines
+        // through `checkoutDeclineMessage`. Throwing re-enables PaymentForm's button
+        // AND is how the message reaches the screen. Deliberately the ONLY channel:
+        // also calling setPayError here is the double-message bug that
+        // "tell a declined buyer WHY, and only say it once" removed.
+        throw new Error(data.error || "That payment didn't go through.");
+      }
       const purchased = data as PurchaseResult;
 
       // Leave the purchase page entirely (owner 2026-08-03) and land on the
@@ -344,6 +409,7 @@ export default function DealBuyPanel({
       giftMessage,
       giftDate,
       giftWindow.min,
+      router,
     ],
   );
 
@@ -428,7 +494,7 @@ export default function DealBuyPanel({
       <div>
         <h2 className="font-display text-2xl text-white">Get this deal</h2>
         <p className="mt-1 text-sm text-white/55">
-          {money(priceCents)} per pack plus tax · limit {maxPerBuyer} per person
+          {money(offer.unitPriceCents)} per pack plus tax · limit {maxPerBuyer} per person
         </p>
       </div>
 

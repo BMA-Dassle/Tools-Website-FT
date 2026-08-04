@@ -31,7 +31,7 @@ beforeEach(() => {
 
 describe("buildDealOrder", () => {
   it("is ONE catalog line, quantity = packs, price overridden from the registry", () => {
-    const order = buildDealOrder({ deal: sellable("laser-tag-game-card-pack"), location: "headpinz", qty: 3 });
+    const order = buildDealOrder({ deal: sellable("laser-tag-game-card-pack"), location: "headpinz", qty: 3, unitPriceCents: 3400 });
     expect(order.location_id).toBe(DEAL_SQUARE_LOCATION.headpinz);
     const lines = order.line_items as Record<string, unknown>[];
     expect(lines).toHaveLength(1);
@@ -44,7 +44,7 @@ describe("buildDealOrder", () => {
   });
 
   it("taxes the WHOLE line — no split between the attraction and card halves", () => {
-    const order = buildDealOrder({ deal: sellable("gel-blaster-game-card-pack"), location: "headpinz", qty: 1 });
+    const order = buildDealOrder({ deal: sellable("gel-blaster-game-card-pack"), location: "headpinz", qty: 1, unitPriceCents: 4500 });
     const lines = order.line_items as Record<string, unknown>[];
     expect(lines[0].applied_taxes).toEqual([{ tax_uid: "line-tax" }]);
     // Lee County object, LINE_ITEM scope.
@@ -54,11 +54,25 @@ describe("buildDealOrder", () => {
   });
 
   it("uses the Collier County tax object for Naples", () => {
-    const order = buildDealOrder({ deal: sellable("laser-tag-game-card-pack"), location: "naples", qty: 1 });
+    const order = buildDealOrder({ deal: sellable("laser-tag-game-card-pack"), location: "naples", qty: 1, unitPriceCents: 3400 });
     expect(order.location_id).toBe(DEAL_SQUARE_LOCATION.naples);
     expect(order.taxes).toEqual([
       { uid: "line-tax", catalog_object_id: "BQNVIEEZQO2PX2FI72U6FEC4", scope: "LINE_ITEM" },
     ]);
+  });
+
+  it("charges the price it is handed, not the registry's regular price", () => {
+    // The launch-offer path in one assertion: whatever resolveDealOffer
+    // returned is what Square is asked to charge. If this ever falls back to
+    // deal.priceCents, a page advertising $34 charges $39.
+    const order = buildDealOrder({
+      deal: sellable("laser-tag-game-card-pack"),
+      location: "headpinz",
+      qty: 2,
+      unitPriceCents: 2900,
+    });
+    const lines = order.line_items as Record<string, unknown>[];
+    expect(lines[0].base_price_money).toEqual({ amount: 2900, currency: "USD" });
   });
 
   it("refuses to build an order for a deal with no Square catalog id", () => {
@@ -67,8 +81,8 @@ describe("buildDealOrder", () => {
     // shipped deals all have ids now, so this guards the NEXT deal added to the
     // registry before its Square item exists.
     const deal = { ...getDeal("laser-tag-game-card-pack")!, squareCatalogId: null };
-    expect(() => buildDealOrder({ deal, location: "headpinz", qty: 1 })).toThrow(DealQuoteError);
-    expect(() => buildDealOrder({ deal, location: "headpinz", qty: 1 })).toThrow(
+    expect(() => buildDealOrder({ deal, location: "headpinz", qty: 1, unitPriceCents: 3400 })).toThrow(DealQuoteError);
+    expect(() => buildDealOrder({ deal, location: "headpinz", qty: 1, unitPriceCents: 3400 })).toThrow(
       /no Square catalog id/,
     );
   });
@@ -81,7 +95,7 @@ describe("quoteDeal", () => {
       status: 200,
       data: { order: { total_money: { amount: 3621 }, total_tax_money: { amount: 221 } } },
     });
-    const quote = await quoteDeal({ deal: sellable("laser-tag-game-card-pack"), location: "headpinz", qty: 1 });
+    const quote = await quoteDeal({ deal: sellable("laser-tag-game-card-pack"), location: "headpinz", qty: 1, unitPriceCents: 3400 });
     expect(squareFetch).toHaveBeenCalledWith("/orders/calculate", expect.anything());
     expect(quote).toEqual({
       subtotalCents: 3400,
@@ -100,7 +114,7 @@ describe("quoteDeal", () => {
       status: 200,
       data: { order: { total_money: { amount: 4793 }, total_tax_money: { amount: 293 } } },
     });
-    const quote = await quoteDeal({ deal: sellable("gel-blaster-game-card-pack"), location: "headpinz", qty: 1 });
+    const quote = await quoteDeal({ deal: sellable("gel-blaster-game-card-pack"), location: "headpinz", qty: 1, unitPriceCents: 4500 });
     expect(quote.taxCents).toBe(293);
     expect(quote.totalCents).toBe(4793);
   });
@@ -113,7 +127,7 @@ describe("quoteDeal", () => {
       status: 200,
       data: { order: { total_money: { amount: 10863 }, total_tax_money: { amount: 663 } } },
     });
-    const quote = await quoteDeal({ deal: sellable("laser-tag-game-card-pack"), location: "headpinz", qty: 3 });
+    const quote = await quoteDeal({ deal: sellable("laser-tag-game-card-pack"), location: "headpinz", qty: 3, unitPriceCents: 3400 });
     expect(quote.subtotalCents).toBe(10200);
   });
 
@@ -124,7 +138,7 @@ describe("quoteDeal", () => {
       data: { errors: [{ detail: "Bad catalog id" }] },
     });
     await expect(
-      quoteDeal({ deal: sellable("laser-tag-game-card-pack"), location: "headpinz", qty: 1 }),
+      quoteDeal({ deal: sellable("laser-tag-game-card-pack"), location: "headpinz", qty: 1, unitPriceCents: 3400 }),
     ).rejects.toThrow(/Bad catalog id/);
   });
 
@@ -135,7 +149,7 @@ describe("quoteDeal", () => {
       data: { order: { total_money: { amount: 0 }, total_tax_money: { amount: 0 } } },
     });
     await expect(
-      quoteDeal({ deal: sellable("laser-tag-game-card-pack"), location: "headpinz", qty: 1 }),
+      quoteDeal({ deal: sellable("laser-tag-game-card-pack"), location: "headpinz", qty: 1, unitPriceCents: 3400 }),
     ).rejects.toThrow(/zero total/);
   });
 });
@@ -151,6 +165,7 @@ describe("createDealOrder", () => {
       deal: sellable("laser-tag-game-card-pack"),
       location: "headpinz",
       qty: 1,
+      unitPriceCents: 3400,
       baseKey: "0123456789abcdef",
     });
     expect(res.orderId).toBe("ORDER1");
@@ -163,7 +178,12 @@ describe("createDealOrder", () => {
 
   it("prices the SAME body the quote priced", async () => {
     // The whole point of a shared builder: quote and charge cannot diverge.
-    const args = { deal: sellable("gel-blaster-game-card-pack"), location: "naples" as const, qty: 2 };
+    const args = {
+      deal: sellable("gel-blaster-game-card-pack"),
+      location: "naples" as const,
+      qty: 2,
+      unitPriceCents: 4500,
+    };
     squareFetch.mockResolvedValue({
       ok: true,
       status: 200,

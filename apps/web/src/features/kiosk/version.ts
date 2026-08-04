@@ -15,6 +15,21 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.13.4 — a PREMIUM PACKAGE CAN BE TAKEN OFF AGAIN (owner report 2026-08-03:
+ *         "users have no way of removing rookie pack"). Tapping Rookie Pack (or
+ *         the Ultimate Qualifier) was one-way: the card auto-advances to the heat
+ *         picker, re-tapping it means "yes, this one", and the cart turned the
+ *         race card's title into the package name with only Edit / Remove — where
+ *         Remove deletes the WHOLE race. The only real escape was picking a single
+ *         race on the product step, discoverable via one amber sentence.
+ *         Now the selected package card carries an explicit Remove, and the kiosk
+ *         cart carries one per selected variant (a family can drop the junior
+ *         Rookie Pack and keep the adult one). Both run the SAME pure edit —
+ *         `clearPackageForCategory` — which nulls that category's package id and
+ *         drops only the heats the package itself was holding, so single races
+ *         added alongside it survive and the package's BMI-held lines are released
+ *         instead of orphaning on the bill. Removing the last thing on the item
+ *         removes the item, same rule per-heat removal already followed.
  * 1.13.2 — RACE RESERVATION CHECK-IN goes down with the BMI booking outage too
  *         (owner 2026-08-03: "should also be down because no way to create new
  *         people"). It looked healthy — finding a reservation is the Office API,
@@ -528,7 +543,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.13.2";
+export const KIOSK_VERSION = "1.13.4";
 
 let bootVersion: string | null = null;
 let captured = false;

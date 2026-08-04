@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { IconCircleCheck, IconDiscount2 } from "@tabler/icons-react";
-import type { RaceHeatAssignment, RaceItem, StepDef } from "~/features/booking";
+import type { RaceItem, StepDef } from "~/features/booking";
 import { packageIdForCategory } from "~/features/booking";
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
+import { clearPackageForCategory } from "~/features/booking/service/package-selection";
+import { useT } from "~/features/kiosk/i18n";
 import { membershipDiscountsForNames } from "~/features/booking/service/membership-discounts";
 import {
   filterProducts,
@@ -185,6 +187,7 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     ComponentProps<StepDef<RaceItem>["Component"]>,
     "item" | "session" | "onChange" | "requestAdvance"
   >) => {
+    const t = useT();
     const racersInCategory = racersOfCategory(session.party, category);
     const racerCount = racersInCategory.length;
 
@@ -322,48 +325,32 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     }, [item.creditPacks, packsUiOn]);
 
     // Package heats hold in BMI the moment they're tapped, so abandoning the
-    // outgoing package for a different selection must ALSO drop + release its
-    // held lines — or they orphan on the shared bill (charged nothing, still
-    // confirmed). Returns the cart minus the outgoing package's heats for this
-    // category; the caller merges it into the same onChange.
-    const dropOutgoingPackageHeats = (): {
-      heatsPatch: { heats: RaceHeatAssignment[] } | Record<string, never>;
-      removed: RaceHeatAssignment[];
-    } => {
-      const outgoing = getPackage(selectedPackageId);
-      if (!outgoing) return { heatsPatch: {}, removed: [] };
-      const ids = new Set(outgoing.races.flatMap((c) => c.tracks.map((t) => t.productId)));
-      const removed = item.heats.filter(
-        (h) =>
-          !!h.heatId &&
-          (h.category ?? "adult") === category &&
-          !!h.productId &&
-          ids.has(h.productId),
-      );
-      if (removed.length === 0) return { heatsPatch: {}, removed: [] };
-      const removedSet = new Set(removed);
-      return { heatsPatch: { heats: item.heats.filter((h) => !removedSet.has(h)) }, removed };
+    // outgoing package for any other selection must ALSO drop + release its held
+    // lines — or they orphan on the shared bill (charged nothing, still
+    // confirmed). `clearPackageForCategory` is the shared pure edit (the kiosk
+    // cart's Remove runs the identical one); the BMI release stays here.
+    const clearPackage = () => clearPackageForCategory(item, category);
+
+    // Take the package OFF the order and keep the guest on this step to choose
+    // something else. Without this, tapping a package was one-way: the card
+    // auto-advances, re-tapping it means "yes, this one", and the only escape was
+    // deleting the whole race item (owner report 2026-08-03 — "users have no way
+    // of removing rookie pack").
+    const removeSelectedPackage = () => {
+      const { patch, removed } = clearPackage();
+      onChange(patch);
+      if (removed.some((h) => h.bmiLineId)) void releaseHeatBmiLines(session, removed);
     };
 
     // Picking a single race also CLEARS this category's package — the two are
     // mutually exclusive per category, and a stale package id would price the
     // single heats at the package per-racer rate (checkout keys on the field).
     const setProductWithTrack = (productId: string, track: string | null) => {
-      const { heatsPatch, removed } = dropOutgoingPackageHeats();
+      const { patch, removed } = clearPackage();
       onChange(
         category === "adult"
-          ? {
-              productIdAdult: productId,
-              productTrackAdult: track,
-              packageIdAdult: null,
-              ...heatsPatch,
-            }
-          : {
-              productIdJunior: productId,
-              productTrackJunior: track,
-              packageIdJunior: null,
-              ...heatsPatch,
-            },
+          ? { ...patch, productIdAdult: productId, productTrackAdult: track }
+          : { ...patch, productIdJunior: productId, productTrackJunior: track },
       );
       if (removed.some((h) => h.bmiLineId)) void releaseHeatBmiLines(session, removed);
     };
@@ -506,55 +493,68 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
         {packages.length > 0 && (
           <div className="space-y-3">
             {packages.map((pkg) => (
-              <PackageCard
-                key={pkg.id}
-                pkg={pkg}
-                racerCount={racerCount}
-                date={item.date}
-                isSelected={selectedPackageId === pkg.id}
-                compact={kioskCompactPacks}
-                detailsOpen={openPackDetails === pkg.id}
-                onToggleDetails={() =>
-                  setOpenPackDetails((cur) => (cur === pkg.id ? null : pkg.id))
-                }
-                onSelect={() => {
-                  // Re-selecting the SAME package keeps its held heats —
-                  // looking around via back-nav must stay free. The re-tap
-                  // still advances ("yes, this one"): without it the second
-                  // tap dead-ends on an already-selected card.
-                  if (pkg.id === selectedPackageId) {
+              <div key={pkg.id} className="space-y-2">
+                <PackageCard
+                  pkg={pkg}
+                  racerCount={racerCount}
+                  date={item.date}
+                  isSelected={selectedPackageId === pkg.id}
+                  compact={kioskCompactPacks}
+                  detailsOpen={openPackDetails === pkg.id}
+                  onToggleDetails={() =>
+                    setOpenPackDetails((cur) => (cur === pkg.id ? null : pkg.id))
+                  }
+                  onSelect={() => {
+                    // Re-selecting the SAME package keeps its held heats —
+                    // looking around via back-nav must stay free. The re-tap
+                    // still advances ("yes, this one"): without it the second
+                    // tap dead-ends on an already-selected card.
+                    if (pkg.id === selectedPackageId) {
+                      setAdvancePending(true);
+                      return;
+                    }
+                    // Persist the package pick on THIS CATEGORY's field so
+                    // back-nav doesn't lose it + so saveBookingDetails forwards
+                    // it to the booking-record (drives sales_log.package_id).
+                    // Per-category fields keep a mixed party's adult and junior
+                    // variants (different SKUs AND prices) from overwriting
+                    // each other. A DIFFERENT package drops + releases the
+                    // outgoing one's held heats (they hold at tap time now).
+                    const { patch, removed } = clearPackage();
+                    onChange(
+                      category === "adult"
+                        ? {
+                            ...patch,
+                            packageIdAdult: pkg.id,
+                            productIdAdult: null,
+                            productTrackAdult: null,
+                          }
+                        : {
+                            ...patch,
+                            packageIdJunior: pkg.id,
+                            productIdJunior: null,
+                            productTrackJunior: null,
+                          },
+                    );
+                    if (removed.some((h) => h.bmiLineId)) {
+                      void releaseHeatBmiLines(session, removed);
+                    }
                     setAdvancePending(true);
-                    return;
-                  }
-                  // Persist the package pick on THIS CATEGORY's field so
-                  // back-nav doesn't lose it + so saveBookingDetails forwards
-                  // it to the booking-record (drives sales_log.package_id).
-                  // Per-category fields keep a mixed party's adult and junior
-                  // variants (different SKUs AND prices) from overwriting
-                  // each other. A DIFFERENT package drops + releases the
-                  // outgoing one's held heats (they hold at tap time now).
-                  const { heatsPatch, removed } = dropOutgoingPackageHeats();
-                  onChange(
-                    category === "adult"
-                      ? {
-                          packageIdAdult: pkg.id,
-                          productIdAdult: null,
-                          productTrackAdult: null,
-                          ...heatsPatch,
-                        }
-                      : {
-                          packageIdJunior: pkg.id,
-                          productIdJunior: null,
-                          productTrackJunior: null,
-                          ...heatsPatch,
-                        },
-                  );
-                  if (removed.some((h) => h.bmiLineId)) {
-                    void releaseHeatBmiLines(session, removed);
-                  }
-                  setAdvancePending(true);
-                }}
-              />
+                  }}
+                />
+                {/* THE way out of a package. Only under the selected one, so it
+                    reads as "undo what I just did" rather than a row of Xs. */}
+                {selectedPackageId === pkg.id && (
+                  <button
+                    type="button"
+                    onClick={removeSelectedPackage}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-white/15 px-3 py-2.5 text-xs font-semibold text-white/60 transition-colors hover:border-red-400/40 hover:text-red-300"
+                  >
+                    <span aria-hidden>✕</span>
+                    {t("racePackage.remove", { name: pkg.name })}
+                  </button>
+                )}
+              </div>
             ))}
             {/* KIOSK race packs (credit packs) — teaser under Rookie Pack, per the
                 owner-approved mockup. Renders nothing off-kiosk / flag off. */}

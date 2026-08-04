@@ -28,6 +28,7 @@ import { canonicalizePhone } from "@/lib/participant-contact";
 // The void/refund columns live in their own module (see the header there for why).
 // One-directional: that file imports nothing from this one, so there is no cycle.
 import { ensureDealMoneyColumns } from "./deal-purchases-money";
+import type { VoucherItem } from "~/features/game-cards/data/vouchers-db";
 import type { DealLocationKey } from "../catalog";
 
 /**
@@ -109,6 +110,11 @@ export interface DealPurchaseRow {
   lastError: string | null;
   refundedAt: string | null;
   refundReason: string | null;
+  /** When the abandoned-checkout recovery email went out. Non-null ⇒ never again. */
+  abandonEmailSentAt: string | null;
+  /** The limited offer's bonus items as they stood AT PURCHASE, per pack.
+   *  Fulfilment reads this, never the catalog — see the ALTER in ensureSchema. */
+  bonusItems: VoucherItem[];
   createdAt: string;
   chargedAt: string | null;
   mintedAt: string | null;
@@ -186,6 +192,29 @@ function ensureSchema(): Promise<void> {
     await q`ALTER TABLE deal_purchases ADD COLUMN IF NOT EXISTS gift_message TEXT`;
     await q`ALTER TABLE deal_purchases ADD COLUMN IF NOT EXISTS gift_send_at TIMESTAMPTZ`;
     await q`ALTER TABLE deal_purchases ADD COLUMN IF NOT EXISTS gift_sent_at TIMESTAMPTZ`;
+    // Same reason it must be an ALTER. Stamped when the abandoned-checkout
+    // recovery email goes out, and the only thing stopping a second one — a
+    // guest who walked away from a card form has not asked to hear from us
+    // twice.
+    await q`ALTER TABLE deal_purchases ADD COLUMN IF NOT EXISTS abandon_email_sent_at TIMESTAMPTZ`;
+    // The limited offer's bonus items, FROZEN AT PURCHASE. Fulfilment reads this
+    // column and never re-derives from the catalog: the reconcile cron can mint
+    // long after the charge, by which point the offer may have ended, and a
+    // buyer who paid while it was running is owed the bonus whenever our cron
+    // gets round to it. Exactly why `combine` is a column too.
+    await q`ALTER TABLE deal_purchases ADD COLUMN IF NOT EXISTS bonus_items JSONB NOT NULL DEFAULT '[]'::jsonb`;
+    // The launch-allocation counter runs on every quote, so it gets its own
+    // index rather than riding the buyer-identity ones (which lead with
+    // lower(buyer_email) and are useless for a whole-deal SUM).
+    await q`
+      CREATE INDEX IF NOT EXISTS deal_purchases_sold
+      ON deal_purchases (deal_slug, status) WHERE refunded_at IS NULL
+    `;
+    // The recovery sweep scans pending rows in a narrow age window.
+    await q`
+      CREATE INDEX IF NOT EXISTS deal_purchases_abandoned
+      ON deal_purchases (created_at) WHERE status = 'pending' AND abandon_email_sent_at IS NULL
+    `;
     // The dispatch sweep's only query: due gifts, oldest first.
     await q`
       CREATE INDEX IF NOT EXISTS deal_purchases_gift_due
@@ -196,6 +225,27 @@ function ensureSchema(): Promise<void> {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * Bonus items off the row.
+ *
+ * Falls back to an empty list on anything unreadable rather than throwing. This
+ * column is read on the fulfilment path, and a row that cannot be decoded must
+ * still mint the pack the buyer definitely paid for — losing a bonus is
+ * recoverable by hand, refusing to mint anything at all is not.
+ */
+function decodeBonusItems(raw: unknown): VoucherItem[] {
+  const parsed = typeof raw === "string" ? safeJson(raw) : raw;
+  return Array.isArray(parsed) ? (parsed as VoucherItem[]) : [];
+}
+
+function safeJson(s: string): unknown {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+
 function decode(r: any): DealPurchaseRow {
   const rawCodes = typeof r.codes === "string" ? JSON.parse(r.codes) : r.codes;
   return {
@@ -231,6 +281,10 @@ function decode(r: any): DealPurchaseRow {
     lastError: r.last_error ?? null,
     refundedAt: r.refunded_at ? new Date(r.refunded_at).toISOString() : null,
     refundReason: r.refund_reason ?? null,
+    abandonEmailSentAt: r.abandon_email_sent_at
+      ? new Date(r.abandon_email_sent_at).toISOString()
+      : null,
+    bonusItems: decodeBonusItems(r.bonus_items),
     createdAt: new Date(r.created_at).toISOString(),
     chargedAt: r.charged_at ? new Date(r.charged_at).toISOString() : null,
     mintedAt: r.minted_at ? new Date(r.minted_at).toISOString() : null,
@@ -256,6 +310,8 @@ export interface InsertDealPurchaseArgs {
   centerCode: number;
   qty: number;
   combine?: boolean;
+  /** The live offer's bonus items, per pack. Frozen onto the row at insert. */
+  bonusItems?: VoucherItem[];
   unitPriceCents: number;
   subtotalCents: number;
   taxCents: number;
@@ -293,7 +349,7 @@ export async function insertDealPurchase(args: InsertDealPurchaseArgs): Promise<
       deal_slug, location_key, center_code, qty, combine,
       unit_price_cents, subtotal_cents, tax_cents, total_cents,
       buyer_name, buyer_email, buyer_phone, sms_opt_in,
-      idempotency_key, utm, clickwrap_version,
+      idempotency_key, utm, clickwrap_version, bonus_items,
       is_gift, recipient_name, recipient_email, recipient_phone,
       gift_message, gift_send_at
     ) VALUES (
@@ -302,7 +358,7 @@ export async function insertDealPurchase(args: InsertDealPurchaseArgs): Promise<
       ${args.buyerName ?? null}, ${args.buyerEmail},
       ${canonicalizePhone(args.buyerPhone)}, ${args.smsOptIn ?? false},
       ${args.idempotencyKey}, ${args.utm ? JSON.stringify(args.utm) : null},
-      ${args.clickwrapVersion ?? null},
+      ${args.clickwrapVersion ?? null}, ${JSON.stringify(args.bonusItems ?? [])},
       ${args.isGift ?? false}, ${args.recipientName ?? null}, ${args.recipientEmail ?? null},
       ${canonicalizePhone(args.recipientPhone)}, ${args.giftMessage ?? null},
       ${args.giftSendAt ?? null}
@@ -518,6 +574,123 @@ export async function countPacksForBuyer(args: {
           AND lower(buyer_email) = ${email}
       `;
   return Number(rows[0]?.packs ?? 0);
+}
+
+/**
+ * How many packs of this deal have been sold, all time — the launch-allocation
+ * counter.
+ *
+ * Same status allowlist as `countPacksForBuyer`, and for the same reasons: a
+ * `pending` row is a card form somebody opened and walked away from, a
+ * `charge_failed` is a decline, and a refund gives the pack back. Counting any
+ * of them would burn through an advertised allocation without a sale behind it,
+ * which is the fake-scarcity failure mode in reverse — the counter would be
+ * lying about a limit we had not actually reached.
+ *
+ * Returns 0 rather than throwing when the DB is unreachable. That is the SAFE
+ * direction here and the opposite of the cap query's choice: an unreadable DB
+ * means we keep honouring the launch price we advertised, rather than silently
+ * charging everyone the higher one. The cap throws because failing open there
+ * gives away unlimited packs; failing open here only ever costs us the discount
+ * we already promised.
+ */
+export async function countPacksSold(dealSlug: string): Promise<number> {
+  if (!isDbConfigured()) return 0;
+  await ensureSchema();
+  const q = sql();
+  const paid = [...PAID_STATUSES];
+  const rows = await q`
+    SELECT COALESCE(SUM(qty), 0)::int AS packs
+    FROM deal_purchases
+    WHERE deal_slug = ${dealSlug}
+      AND status = ANY(${paid})
+      AND refunded_at IS NULL
+  `;
+  return Number(rows[0]?.packs ?? 0);
+}
+
+/**
+ * Abandoned checkouts worth one recovery email.
+ *
+ * A `pending` row is the persist-first record of somebody who typed their name,
+ * email and phone into the buy panel and then did not complete — we already
+ * hold every one of them, and until now did nothing with any of them.
+ *
+ * THE EXCLUSION THAT MATTERS: a decline creates a `pending` row and the retry
+ * creates ANOTHER one, so the same person can be sitting in here with a
+ * completed purchase alongside. Filtering on row status alone would email people
+ * who bought — the single most damaging thing this sweep could do. The NOT
+ * EXISTS clause is matched on email for the same deal, which is also what makes
+ * the sweep idempotent across a buyer's own repeated attempts.
+ *
+ * The age window is deliberately narrow at both ends: younger than `minAgeHours`
+ * and they may still be finishing, older than `maxAgeHours` and an email about
+ * a checkout they have forgotten reads as spam rather than a nudge.
+ */
+export async function listAbandonedDealPurchases(args: {
+  minAgeHours?: number;
+  maxAgeHours?: number;
+  limit?: number;
+} = {}): Promise<DealPurchaseRow[]> {
+  if (!isDbConfigured()) return [];
+  await ensureSchema();
+  const q = sql();
+  const minAge = args.minAgeHours ?? 1;
+  const maxAge = args.maxAgeHours ?? 24;
+  const limit = args.limit ?? 50;
+  const paid = [...PAID_STATUSES];
+  const rows = await q`
+    SELECT p.* FROM deal_purchases p
+    WHERE p.status = 'pending'
+      AND p.abandon_email_sent_at IS NULL
+      AND p.created_at < NOW() - (${minAge} * INTERVAL '1 hour')
+      AND p.created_at > NOW() - (${maxAge} * INTERVAL '1 hour')
+      AND NOT EXISTS (
+        SELECT 1 FROM deal_purchases done
+        WHERE done.deal_slug = p.deal_slug
+          AND lower(done.buyer_email) = lower(p.buyer_email)
+          AND done.status = ANY(${paid})
+          AND done.refunded_at IS NULL
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM deal_purchases mailed
+        WHERE mailed.deal_slug = p.deal_slug
+          AND lower(mailed.buyer_email) = lower(p.buyer_email)
+          AND mailed.abandon_email_sent_at IS NOT NULL
+      )
+    ORDER BY p.created_at ASC
+    LIMIT ${limit}
+  `;
+  return rows.map(decode);
+}
+
+/**
+ * Claim a row for the recovery email, atomically.
+ *
+ * A conditional UPDATE rather than read-then-write, the same fence the mint
+ * uses: two overlapping cron passes would otherwise both select the same row and
+ * both send. Returns false when someone else got there first, and the caller
+ * skips rather than sends.
+ */
+export async function claimAbandonEmail(id: number): Promise<boolean> {
+  if (!isDbConfigured()) return false;
+  await ensureSchema();
+  const q = sql();
+  const rows = await q`
+    UPDATE deal_purchases
+    SET abandon_email_sent_at = NOW()
+    WHERE id = ${id} AND abandon_email_sent_at IS NULL AND status = 'pending'
+    RETURNING id
+  `;
+  return rows.length > 0;
+}
+
+/** Undo a claim whose send then failed, so the next pass can retry it. */
+export async function releaseAbandonEmail(id: number): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureSchema();
+  const q = sql();
+  await q`UPDATE deal_purchases SET abandon_email_sent_at = NULL WHERE id = ${id}`;
 }
 
 /**

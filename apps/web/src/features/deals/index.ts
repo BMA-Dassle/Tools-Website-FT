@@ -12,6 +12,7 @@ export {
   DEAL_LOCATION_INFO,
   dealExpiryFrom,
   dealIsSellable,
+  etOffsetFor,
   dealSquareCatalogId,
   dealValue,
   dealVoucherItems,
@@ -22,6 +23,7 @@ export {
   isDealLocation,
   type DealCatalogEntry,
   type DealFaq,
+  type DealLimitedOffer,
   type DealLocationKey,
   type DealValue,
   type DealValueLine,
@@ -30,8 +32,20 @@ export {
 export { capDecision, checkBuyerCap, type CapDecision } from "./service/cap";
 
 export {
+  currentDealOffer,
+  dealOfferEndsAt,
+  dealNeedsSoldCount,
+  resolveDealOffer,
+  type DealOffer,
+} from "./service/offer";
+
+export {
   PAID_STATUSES,
+  claimAbandonEmail,
   countPacksForBuyer,
+  countPacksSold,
+  listAbandonedDealPurchases,
+  releaseAbandonEmail,
   getDealPurchase,
   insertDealPurchase,
   listDealPurchases,

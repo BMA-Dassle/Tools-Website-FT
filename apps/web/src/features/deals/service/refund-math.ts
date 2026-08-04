@@ -13,41 +13,58 @@
 
 import { ATTRACTIONS } from "@/lib/attractions-data";
 import type { VoucherItem } from "~/features/game-cards/data/vouchers-db";
-import { gameZoneItemDollars, type DealCatalogEntry, type DealLocationKey } from "../catalog";
+import { gameZoneItemDollars, type DealLocationKey } from "../catalog";
 import { packLegMap, packUnitKey, type PackLegs } from "./pack-legs";
 
 /**
- * What each leg of ONE pack is worth, pro-rata, summing EXACTLY to the pre-tax
- * pack price.
+ * What each leg of ONE pack is worth, pro-rata, summing EXACTLY to the price paid
+ * for one pack.
  *
- * NOT `priceCents / legCount`. A laser pack is [laser, laser, gz100, gz100] and
- * a laser session is worth more than $10 of tokens — splitting evenly would tell
- * staff a guest who burned both laser sessions had used half the pack when they
- * had used most of it, and the refund would be too generous by real money.
+ * NOT `price / legCount`. A gel pack is [gel, gel, gz150, gz150] and 150 tokens
+ * ($15) is worth more than a battle ($12) — splitting evenly would tell staff a
+ * guest who burned both token legs had used half the pack when they had used
+ * more, and the refund would be too generous by real money.
  *
- * Weights come from the live catalog, the same sources `dealValue` uses, so a
- * price change moves both together. The ACTIVATION FEE that `dealValue` adds for
+ * TAKES THE ITEMS AND THE PRICE, NOT THE CATALOG ENTRY. Both are now
+ * purchase-specific:
+ *
+ *   - a limited-time offer appends BONUS items, frozen on the row at purchase, so
+ *     a pack's leg count is not `deal.items.length`
+ *   - deal pricing is dynamic, so `deal.priceCents` is today's price and not
+ *     necessarily what this buyer paid
+ *
+ * Deriving either from the live catalog would mis-price every refund of a sale
+ * made during an offer.
+ *
+ * Weights still come from the live catalog — that is a comparison of what things
+ * are worth, not of what was charged. The ACTIVATION FEE `dealValue` adds for
  * marketing comparison is excluded: a waived fee is not consumable value, and
  * counting it would understate how much of a pack a guest actually burned.
  *
  * The last leg absorbs the rounding remainder so no cent is created or lost.
  */
-export function legPaidCents(deal: DealCatalogEntry, location: DealLocationKey): number[] {
-  const weights = deal.items.map((item) => legWeightCents(deal, item, location));
+export function legPaidCents(args: {
+  /** One pack's items, INCLUDING any frozen bonus items. */
+  items: readonly VoucherItem[];
+  location: DealLocationKey;
+  /** What one pack actually cost this buyer, pre-tax. */
+  pricePaidCents: number;
+  /** For error messages only. */
+  dealSlug: string;
+}): number[] {
+  const { items, location, pricePaidCents, dealSlug } = args;
+  if (items.length === 0) throw new Error(`deal ${dealSlug}: a pack with no items has no legs`);
+  const weights = items.map((item) => legWeightCents(dealSlug, item, location));
   const total = weights.reduce((a, b) => a + b, 0);
   if (total <= 0) {
-    throw new Error(`deal ${deal.slug}: cannot weight legs — total à-la-carte value is zero`);
+    throw new Error(`deal ${dealSlug}: cannot weight legs — total à-la-carte value is zero`);
   }
-  const out = weights.map((w) => Math.round((deal.priceCents * w) / total));
-  out[out.length - 1] += deal.priceCents - out.reduce((a, b) => a + b, 0);
+  const out = weights.map((w) => Math.round((pricePaidCents * w) / total));
+  out[out.length - 1] += pricePaidCents - out.reduce((a, b) => a + b, 0);
   return out;
 }
 
-function legWeightCents(
-  deal: DealCatalogEntry,
-  item: VoucherItem,
-  location: DealLocationKey,
-): number {
+function legWeightCents(dealSlug: string, item: VoucherItem, location: DealLocationKey): number {
   if (item.kind === "gamezone") return Math.round(gameZoneItemDollars(item) * 100);
   if (item.kind === "attraction") {
     const product = ATTRACTIONS[item.slug]?.products.find((p) => p.location === location);
@@ -55,11 +72,11 @@ function legWeightCents(
       // Loud, exactly like dealValue: a pack offered where its attraction has no
       // price is a catalog error, and guessing a weight here would quietly
       // mis-price every refund of it.
-      throw new Error(`deal ${deal.slug}: no ${item.slug} product at ${location}`);
+      throw new Error(`deal ${dealSlug}: no ${item.slug} product at ${location}`);
     }
     return Math.round(product.price * 100) * item.qty;
   }
-  throw new Error(`deal ${deal.slug}: cannot weight a leg of kind "${item.kind}"`);
+  throw new Error(`deal ${dealSlug}: cannot weight a leg of kind "${item.kind}"`);
 }
 
 export interface PackState extends PackLegs {
@@ -84,8 +101,13 @@ export interface PackState extends PackLegs {
  * ever disagree, two parts of the system disagree about the same voucher.
  */
 export function packStates(args: {
-  deal: DealCatalogEntry;
+  /** One pack's items, INCLUDING frozen bonus items — this is what sets the
+   *  leg count, and it is NOT `deal.items.length` for an offer purchase. */
+  items: readonly VoucherItem[];
   location: DealLocationKey;
+  /** What one pack actually cost, pre-tax. */
+  pricePaidCents: number;
+  dealSlug: string;
   combine: boolean;
   qty: number;
   codes: string[];
@@ -93,8 +115,13 @@ export function packStates(args: {
   /** Pack indexes an earlier refund already took back. */
   refundedPackIndexes?: number[];
 }): PackState[] {
-  const legValues = legPaidCents(args.deal, args.location);
-  const L = args.deal.items.length;
+  const legValues = legPaidCents({
+    items: args.items,
+    location: args.location,
+    pricePaidCents: args.pricePaidCents,
+    dealSlug: args.dealSlug,
+  });
+  const L = args.items.length;
   const refunded = new Set(args.refundedPackIndexes ?? []);
 
   return packLegMap({
@@ -112,7 +139,7 @@ export function packStates(args: {
       ...pack,
       spentSlots,
       spentCents,
-      unspentCents: args.deal.priceCents - spentCents,
+      unspentCents: args.pricePaidCents - spentCents,
       fullyUnspent: spentSlots.length === 0,
       alreadyRefunded: refunded.has(pack.pack),
       unitKey: packUnitKey(pack.code, pack.pack),

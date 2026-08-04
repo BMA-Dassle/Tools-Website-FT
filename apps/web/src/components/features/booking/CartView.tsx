@@ -30,6 +30,7 @@ import {
 import { redeemedHeatSet } from "~/features/booking/data/race-credits";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
+import { useT } from "~/features/kiosk/i18n";
 import { racePackTeaserVisible } from "./steps/race/RacePackTeaser";
 import { PackAssignmentList, RacePackPicker } from "./steps/race/RacePackPicker";
 import { modalBackdropProps } from "@/lib/a11y";
@@ -81,6 +82,8 @@ export interface CartViewProps {
    * web behavior unchanged (the block never renders).
    */
   onUpdateRacePacks?: (itemId: string, creditPacks: KioskPackSelection[] | undefined) => void;
+  /** KIOSK: drop a premium package off a race item, keeping the booking. */
+  onRemovePackage?: (itemId: string, category: "adult" | "junior") => void;
 }
 
 export function CartView({
@@ -95,6 +98,7 @@ export function CartView({
   onAllActivities,
   onRemoveGameCards,
   onUpdateRacePacks,
+  onRemovePackage,
 }: CartViewProps) {
   // Back-to-landing prefers the validated `appliedPromo.code` (set when the
   // code resolved + matched scope), falls back to the raw `?code=` from
@@ -162,6 +166,7 @@ export function CartView({
                 onRemove={() => onRemoveItem(item.id)}
                 onRemoveHeat={onRemoveHeat}
                 onUpdateRacePacks={onUpdateRacePacks}
+                onRemovePackage={onRemovePackage}
               />
             ))}
         </ul>
@@ -402,6 +407,7 @@ export function CartItemCard({
   onRemove,
   onRemoveHeat,
   onUpdateRacePacks,
+  onRemovePackage,
 }: {
   item: SessionItem;
   session: BookingSession;
@@ -409,6 +415,7 @@ export function CartItemCard({
   onRemove: () => void;
   onRemoveHeat?: (itemId: string, productId: string, heatId: string) => void;
   onUpdateRacePacks?: (itemId: string, creditPacks: KioskPackSelection[] | undefined) => void;
+  onRemovePackage?: (itemId: string, category: "adult" | "junior") => void;
 }) {
   if (item.kind === "race") {
     return (
@@ -419,6 +426,7 @@ export function CartItemCard({
         onRemove={onRemove}
         onRemoveHeat={onRemoveHeat}
         onUpdateRacePacks={onUpdateRacePacks}
+        onRemovePackage={onRemovePackage}
       />
     );
   }
@@ -476,6 +484,7 @@ function RaceCartCard({
   onRemove,
   onRemoveHeat,
   onUpdateRacePacks,
+  onRemovePackage,
 }: {
   item: RaceItem;
   session: BookingSession;
@@ -483,7 +492,13 @@ function RaceCartCard({
   onRemove: () => void;
   onRemoveHeat?: (itemId: string, productId: string, heatId: string) => void;
   onUpdateRacePacks?: (itemId: string, creditPacks: KioskPackSelection[] | undefined) => void;
+  /** KIOSK: drop a premium package (Rookie Pack / Ultimate Qualifier) off this
+   *  item and keep the booking. Without it the cart's only undo is Remove, which
+   *  deletes the whole race. Web hosts don't pass it (their guests can walk back
+   *  to the product step freely). */
+  onRemovePackage?: (itemId: string, category: "adult" | "junior") => void;
 }) {
+  const t = useT();
   // Per-category packages (adult/junior variants are separate ids); `pkg` is
   // the shared display handle — every real family shares its display name +
   // extras flags across variants, so the first non-null one drives the card.
@@ -632,6 +647,29 @@ function RaceCartCard({
           {item.addons.map((a) => (
             <ExtraRow key={a.id} icon="➕" label={addonLabel(a)} amount={estimateAddon(a)} />
           ))}
+          {/* Undo the bundle without losing the booking. One button per selected
+              variant, because adult and junior are separate purchases — a family
+              can drop the junior Rookie Pack and keep the adult one. */}
+          {onRemovePackage &&
+            (["adult", "junior"] as const).map((cat) => {
+              const catPkg = cat === "adult" ? pkgAdult : pkgJunior;
+              if (!catPkg) return null;
+              const label =
+                pkgAdult && pkgJunior
+                  ? `${catPkg.name} (${cat === "adult" ? "Adult" : "Junior"})`
+                  : catPkg.name;
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => onRemovePackage(item.id, cat)}
+                  className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-[11px] font-semibold text-white/60 transition-colors hover:border-red-400/40 hover:text-red-300"
+                >
+                  <span aria-hidden>✕</span>
+                  {t("racePackage.remove", { name: label })}
+                </button>
+              );
+            })}
         </div>
       ) : item.povQuantity > 0 || item.rookiePack === true || item.addons.length > 0 ? (
         <div className="mt-3 space-y-1 border-t border-white/10 pt-3 text-xs">

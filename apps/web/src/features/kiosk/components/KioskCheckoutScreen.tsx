@@ -60,6 +60,7 @@ export function KioskCheckoutScreen({
   onAllActivities,
   onReviewAndPay,
   onUpdateRacePacks,
+  onRemovePackage,
 }: {
   session: BookingSession;
   dispatch: Dispatch<Action>;
@@ -73,6 +74,9 @@ export function KioskCheckoutScreen({
   onAllActivities: () => void;
   onReviewAndPay: () => void;
   onUpdateRacePacks?: (itemId: string, creditPacks: KioskPackSelection[] | undefined) => void;
+  /** Drop a premium package off a race item, keeping the booking (forwarded to
+   *  the embedded cart's race card). */
+  onRemovePackage?: (itemId: string, category: "adult" | "junior") => void;
 }) {
   const t = useT();
   const items = [...session.items].sort((a, b) => itemSortMs(a) - itemSortMs(b));
@@ -187,6 +191,7 @@ export function KioskCheckoutScreen({
                     onRemove={() => onRemoveItem(item.id)}
                     onRemoveHeat={onRemoveHeat}
                     onUpdateRacePacks={onUpdateRacePacks}
+                    onRemovePackage={onRemovePackage}
                   />
                 ))}
               </ul>

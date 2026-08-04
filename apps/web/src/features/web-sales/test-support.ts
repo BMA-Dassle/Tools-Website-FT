@@ -81,6 +81,10 @@ export function makeDealPurchaseRow(patch: Partial<DealPurchaseRow> = {}): DealP
     lastError: null,
     refundedAt: null,
     refundReason: null,
+    abandonEmailSentAt: null,
+    // Frozen at purchase, so a limited-offer pack fulfils and refunds as sold
+    // rather than as the catalog reads today.
+    bonusItems: [],
     createdAt: "2026-08-03T19:18:17.000Z",
     chargedAt: "2026-08-03T19:18:19.000Z",
     mintedAt: "2026-08-03T19:18:21.000Z",
