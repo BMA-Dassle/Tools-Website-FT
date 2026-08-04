@@ -165,10 +165,21 @@ async function buildMatch(hit: SearchHit, confirm: MatchConfirm): Promise<Licens
   const tags = (office.tags || []).sort((a, b) =>
     (b.lastSeen || "").localeCompare(a.lastSeen || ""),
   );
-  const memberships = (office.memberships || [])
-    .filter((m) => (!m.stops || new Date(m.stops) > new Date()) && isRelevantMembership(m.name))
+  const activeMemberships = (office.memberships || []).filter(
+    (m) => !m.stops || new Date(m.stops) > new Date(),
+  );
+  const memberships = activeMemberships
+    .filter((m) => isRelevantMembership(m.name))
     .map((m) => m.name)
     .filter((n, i, a) => a.indexOf(n) === i);
+  // Verified licence state, decided HERE and not inferred downstream from the
+  // filtered name list (service/license.ts). Sign-in is where most kiosk racers
+  // are resolved, so without this a lapsed returning racer who never triggers a
+  // mid-session refresh still fell back to the `isNewRacer` flag — the exact
+  // hole 1.16.0 closed for the refresh path (owner 2026-08-04).
+  const licenseActive = activeMemberships.some(
+    (m) => typeof m.name === "string" && m.name.toLowerCase().includes("license"),
+  );
 
   // Display name: Office record → the scanned license itself (a legacy
   // duplicate can carry no first name at all).
@@ -196,6 +207,7 @@ async function buildMatch(hit: SearchHit, confirm: MatchConfirm): Promise<Licens
     lastSeenAt,
     races: (office.tags || []).length,
     memberships,
+    licenseActive,
     birthDate: office.birthDate ? String(office.birthDate).slice(0, 10) : (confirm.dobIso ?? null),
     // Filled by the qualification refresh at the people-step exit — the
     // deposits pull is deliberately not part of the lookup (latency).

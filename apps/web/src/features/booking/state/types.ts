@@ -882,6 +882,7 @@ export function newPartyMember(args: {
   isNewRacer?: boolean;
   category?: "adult" | "junior";
   isBillingCustomer?: boolean;
+  licenseActive?: boolean;
   memberships?: string[];
   waiverValid?: boolean;
   creditBalances?: Array<{ kind: string; balance: number }>;
@@ -900,6 +901,7 @@ export function newPartyMember(args: {
     isNewRacer: args.isNewRacer ?? true,
     category: args.category,
     isBillingCustomer: args.isBillingCustomer,
+    licenseActive: args.licenseActive,
     memberships: args.memberships,
     waiverValid: args.waiverValid,
     creditBalances: args.creditBalances,

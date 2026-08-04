@@ -19,6 +19,8 @@ export interface LicenseMatch {
   lastSeenAt: number;
   races: number;
   memberships: string[];
+  /** Verified: an UNEXPIRED licence membership is on file (service/license.ts). */
+  licenseActive?: boolean;
   birthDate: string | null;
   /** Always [] since the Office-search rewrite (latency) — the qualification
    *  refresh fills real balances at the people-step exit. */

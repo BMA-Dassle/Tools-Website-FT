@@ -19,6 +19,8 @@ export interface PersonData {
   races: number;
   loginCode: string;
   memberships: string[];
+  /** Verified at lookup: an UNEXPIRED licence membership is on file. */
+  licenseActive?: boolean;
   birthDate?: string | null;
   creditBalances?: Array<{ kind: string; balance: number }>;
   waiverValid?: boolean;

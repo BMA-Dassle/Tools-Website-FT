@@ -96,6 +96,7 @@ export function personDataFromMatch(m: LicenseMatch): PersonData {
     races: m.races,
     loginCode: m.loginCode,
     memberships: m.memberships,
+    licenseActive: m.licenseActive,
     birthDate: m.birthDate,
     creditBalances: m.creditBalances,
     // Absent since the Office-search rewrite — handleVerified then runs the

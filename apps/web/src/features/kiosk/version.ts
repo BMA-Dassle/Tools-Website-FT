@@ -15,6 +15,14 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.16.3 — SIGN-IN decides the licence too, closing the other half of 1.16.0.
+ *         `licenseActive` was only written by the mid-session qualification
+ *         refresh, so a lapsed returning racer signed in and never refreshed still
+ *         fell back to the `isNewRacer` flag — the same hole, one path over. The
+ *         kiosk sign-in lookup (license/lookup.server.ts) already reads the Office
+ *         person's memberships to derive the tier; it now derives the licence from
+ *         the SAME read and carries it onto the party member through every add
+ *         path (scan match, phone/name match, roster patch).
  * 1.16.2 — the licence chip lands on the roster the kiosk ACTUALLY renders.
  *         1.16.1 put it in KioskPartyManager (`party.*` keys); the race people
  *         step on screen is KioskPeopleStep (`peopleUi.*`), a separate kiosk-native
@@ -707,7 +715,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.16.2";
+export const KIOSK_VERSION = "1.16.3";
 
 let bootVersion: string | null = null;
 let captured = false;
