@@ -15,6 +15,26 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.16.10 — THE ON-SCREEN KEYBOARD NO LONGER BURIES THE FIELD YOU'RE TYPING IN
+ *         (owner 2026-08-04, the NEW PLAYER form: focusing Email left it half
+ *         behind the keys). The sheet is 454px (numeric/phone) to 556px
+ *         (qwerty/email) of the 1920px canvas and NOTHING reserved that space:
+ *         `.k-flow-body`'s scroll extent stops 24px past its last element, so
+ *         for anything in the bottom third `scrollIntoView` clamped at max
+ *         scroll and the field stayed under the keys — on a screen whose body
+ *         doesn't overflow at all there was no scroll range to use, either. No
+ *         `scroll-padding-bottom` existed anywhere, so "center" also counted the
+ *         occluded strip as visible.
+ *         While the sheet is open it now MEASURES itself and reserves its own
+ *         height on the focused field's scrolling ancestor — padding-bottom for
+ *         the scroll range, scroll-padding-bottom so "center" means the centre
+ *         of the UNCOVERED part — then scrolls, restoring both on close. The
+ *         ancestor is found by computed overflow, not by class, so every typing
+ *         surface is covered at once (the wizard body, the fixed-overlay
+ *         guardian form and account picker, check-in, the waiver flows) and so
+ *         is the next one someone writes; a short inner list that ends above the
+ *         sheet is left alone. `--k-osk-h` is published on the canvas for
+ *         screens that want to lay out around the keyboard.
  * 1.16.9 — /api/bmi was ROUNDING every id it forwarded. Found by live-testing
  *         1.16.8's read-back against the dev server: BMI returned
  *         orderId 63000000007234468 and the proxy emitted ...460. The GET handler
@@ -805,7 +825,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.16.9";
+export const KIOSK_VERSION = "1.16.10";
 
 let bootVersion: string | null = null;
 let captured = false;

@@ -18,6 +18,15 @@
  *
  * Keys use onPointerDown + preventDefault so the field never loses focus
  * while typing.
+ *
+ * The sheet is 454px (numeric/phone) to 556px (qwerty/email) of the 1920px
+ * canvas — nearly a third of the screen — and it covers whatever is under it.
+ * Nothing else in the kiosk knows that, so while it's open this host RESERVES
+ * its own height at the bottom of the focused field's scrolling ancestor (see
+ * the reserve effect). Without it the last fields of a form simply cannot be
+ * scrolled into view: `.k-flow-body`'s scroll extent stops 24px past the last
+ * element, so scrollIntoView clamps at max scroll and the field stays buried
+ * (owner 2026-08-04 — the Email field on the kiosk sign-in NEW PLAYER form).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
@@ -82,6 +91,31 @@ function stampSubtree(root: Document | HTMLElement) {
   });
 }
 
+/** Breathing room between the focused field and the top edge of the sheet. */
+const OSK_SCROLL_GAP = 24;
+
+/**
+ * Nearest SCROLLING ancestor — the element whose bottom the sheet covers, and
+ * therefore the one that has to grow.
+ *
+ * Deliberately NOT gated on "is it currently overflowing": a container that
+ * fits today still has its bottom third occluded once the sheet opens, and
+ * adding the reserve is exactly what makes it scrollable. Matching on computed
+ * overflow (not on a class) is what makes this work on every typing surface —
+ * `.k-flow-body`, the `fixed inset-0 overflow-y-auto` overlays (guardian form,
+ * LicenseMatchPicker), the check-in and waiver flows — including ones written
+ * after this code.
+ */
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = el.parentElement;
+  while (node && node !== document.body) {
+    const oy = getComputedStyle(node).overflowY;
+    if (oy === "auto" || oy === "scroll") return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
 /** Write through the native setter so React's onChange sees the edit. */
 function setNativeValue(el: EditableEl, value: string, caret: number) {
   const proto =
@@ -117,6 +151,9 @@ export function OnScreenKeyboardHost() {
   // 2026-07-19). Timing-independent: works even for a slow/firm Done press.
   const [shield, setShield] = useState(false);
   const shieldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The sheet itself — measured (not hardcoded) so the reserve tracks the real
+  // rendered height, which differs per layout (4 rows numeric vs 5 qwerty).
+  const sheetRef = useRef<HTMLDivElement>(null);
 
   const hide = useCallback(() => {
     setTarget(null);
@@ -130,8 +167,9 @@ export function OnScreenKeyboardHost() {
       if (hideTimer.current) clearTimeout(hideTimer.current);
       setTarget(el);
       setLayout(layoutForField({ type: el.getAttribute("type"), oskLayout: el.dataset.oskLayout }));
-      // Keep the field visible above the docked sheet.
-      setTimeout(() => el.scrollIntoView({ block: "center", behavior: "smooth" }), 50);
+      // Scrolling the field into view happens in the reserve effect below —
+      // AFTER the sheet's height has been reserved. Doing it here scrolled
+      // against the old (short) extent and the browser clamped it.
     };
     const onFocusOut = () => {
       // Grace period: focus bouncing between fields shouldn't flash the sheet.
@@ -158,6 +196,54 @@ export function OnScreenKeyboardHost() {
 
   // Route change = new screen = no stale keyboard.
   useEffect(() => hide(), [pathname, hide]);
+
+  // RESERVE the sheet's height while it's open, then bring the field up.
+  //
+  //  - padding-bottom on the field's scrolling ancestor buys the scroll RANGE
+  //    that lets a bottom-of-form field travel above the sheet at all;
+  //  - scroll-padding-bottom tells that scroller where its visible region now
+  //    ends, so `block: "center"` centers within the UNCOVERED part.
+  //
+  // Both are restored on close/unmount (cleanup also runs before each re-run,
+  // so the computed base padding read below is never a value we ourselves
+  // added — the reserve can't compound across fields).
+  //
+  // --k-osk-h is published on the canvas for screens that want to lay out
+  // around the sheet. Do NOT feed it back into a scroll container's padding:
+  // this effect already owns that, and the two would double up.
+  useEffect(() => {
+    const sheet = sheetRef.current;
+    if (!target || !sheet) return;
+    const h = sheet.offsetHeight;
+    const canvas = target.closest<HTMLElement>(".kiosk-canvas");
+    canvas?.style.setProperty("--k-osk-h", `${h}px`);
+    // Only the scroller the sheet actually overlaps needs the reserve — a short
+    // inner list that ends above the keyboard is left alone. Both rects are in
+    // screen space, so comparing them is valid even though the reserve itself
+    // is written in canvas px.
+    const found = scrollParent(target);
+    const scroller =
+      found && found.getBoundingClientRect().bottom > sheet.getBoundingClientRect().top + 1
+        ? found
+        : null;
+    const prevPad = scroller?.style.paddingBottom ?? "";
+    const prevScrollPad = scroller?.style.scrollPaddingBottom ?? "";
+    if (scroller) {
+      const basePad = parseFloat(getComputedStyle(scroller).paddingBottom) || 0;
+      scroller.style.paddingBottom = `${basePad + h}px`;
+      scroller.style.scrollPaddingBottom = `${h + OSK_SCROLL_GAP}px`;
+    }
+    // One frame for the new extent to lay out before scrolling into it.
+    const id = setTimeout(() => target.scrollIntoView({ block: "center", behavior: "smooth" }), 50);
+    return () => {
+      clearTimeout(id);
+      canvas?.style.removeProperty("--k-osk-h");
+      if (scroller) {
+        scroller.style.paddingBottom = prevPad;
+        scroller.style.scrollPaddingBottom = prevScrollPad;
+      }
+    };
+  }, [target, layout]);
 
   // Stamp inputmode="none" on every OSK-served field — existing DOM at mount,
   // then every field React adds later — so the Windows touch keyboard never
@@ -237,6 +323,7 @@ export function OnScreenKeyboardHost() {
 
   return (
     <div
+      ref={sheetRef}
       // Docks to the bottom of the SCALED 1080×1920 canvas (the canvas transform
       // is the containing block for position:fixed here), so sizes are canvas px
       // — they scale with everything else. z-[90]: ABOVE the in-flow modals (DOB
