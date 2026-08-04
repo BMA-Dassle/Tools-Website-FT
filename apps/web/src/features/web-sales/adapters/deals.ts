@@ -17,17 +17,38 @@
  * void in every report built on this board.
  */
 
-import { DEAL_LOCATION_INFO, getDeal, type DealLocationKey } from "~/features/deals";
-import type { DealPurchaseRow } from "~/features/deals/data/deal-purchases-db";
+import {
+  DEAL_LOCATION_INFO,
+  dealExpiryFrom,
+  dealVoucherSummary,
+  dealVoucherItems,
+  getDeal,
+  type DealLocationKey,
+} from "~/features/deals";
+import { getDealPurchase, type DealPurchaseRow } from "~/features/deals/data/deal-purchases-db";
 import {
   searchDealPurchases,
   summarizeDealPurchases,
 } from "~/features/deals/data/deal-purchases-search";
+import { packLabel, packLegMap, packUnitKey, PackShapeError } from "~/features/deals/service/pack-legs";
+import { dealScheduleUrl, fulfilDealPurchase } from "~/features/deals/service/purchase";
+import { getVoucherStatus } from "~/features/game-cards/service/native-voucher";
+import {
+  emailPurchasedVouchers,
+  smsPurchasedVouchers,
+} from "~/features/game-cards/service/voucher-mail";
+import { listSaleActions, recordSaleAction } from "../data/web-sales-audit-db";
 import { easternRangeToUtc } from "../service/dates";
 import type {
+  ResendArgs,
+  ResendOutcome,
   SaleCapability,
+  SaleDetail,
+  SaleFact,
+  SaleLeg,
   SaleListQuery,
   SaleSummary,
+  SaleTimelineEntry,
   SaleTone,
   WebSaleAdapter,
   WebSaleRow,
@@ -184,6 +205,303 @@ export function projectDealRow(row: DealPurchaseRow): WebSaleRow {
   };
 }
 
+/* ─────────────────────── detail: legs, timeline, facts ─────────────────── */
+
+/**
+ * The purchase's legs, grouped by PACK rather than by code.
+ *
+ * A combined 3-pack is one code carrying twelve legs; listing twelve flat rows
+ * is unreadable and, worse, is not the unit anything acts on — Square can only
+ * return whole units of an order line, so a refund is always "2 of 3 packs".
+ * Grouping here means the drawer and the refund modal describe the sale the same
+ * way.
+ */
+async function dealLegs(row: DealPurchaseRow): Promise<SaleLeg[]> {
+  const deal = getDeal(row.dealSlug);
+  if (!deal || row.codes.length === 0) return [];
+
+  let map;
+  try {
+    map = packLegMap({
+      combine: row.combine,
+      qty: row.qty,
+      codes: row.codes,
+      itemsPerPack: deal.items.length,
+    });
+  } catch (err) {
+    // A purchase whose codes disagree with its shape has no defined mapping.
+    // Say so in the drawer rather than inventing one.
+    if (err instanceof PackShapeError) {
+      console.error(`[web-sales] purchase ${row.id} has an unmappable pack shape:`, err.message);
+      return [];
+    }
+    throw err;
+  }
+
+  // One status read per distinct code, not per pack — a combined purchase would
+  // otherwise hit the same voucher `qty` times.
+  const statuses = new Map(
+    await Promise.all(
+      [...new Set(row.codes)].map(async (code) => [code, await getVoucherStatus(code)] as const),
+    ),
+  );
+
+  const legs: SaleLeg[] = [];
+  for (const { pack, code, legIndexes } of map) {
+    const status = statuses.get(code);
+    const unitKey = packUnitKey(code, pack);
+    const unitLabel =
+      row.qty > 1 ? `${packLabel(pack, row.qty)} · ${code}` : packLabel(pack, row.qty);
+
+    legIndexes.forEach((legIndex, slot) => {
+      const state = status?.items.find((i) => i.index === legIndex);
+      legs.push({
+        key: `${code}#${legIndex}`,
+        label: state?.label ?? `Item ${slot + 1}`,
+        spent: state?.spent ?? false,
+        // `voucher_claims` records when a leg was taken; the projection does not
+        // carry it, so the drawer shows spent-ness without a timestamp rather
+        // than guessing one.
+        spentAt: null,
+        // Real per-leg pricing arrives with the refund math, where it decides
+        // money. Here it only labels, so an honest zero beats a wrong number.
+        valueCents: 0,
+        unitKey,
+        unitLabel,
+      });
+    });
+  }
+  return legs;
+}
+
+/** Oldest first. Row timestamps, then whatever staff did from the board. */
+function dealTimeline(
+  row: DealPurchaseRow,
+  actions: Awaited<ReturnType<typeof listSaleActions>>,
+): SaleTimelineEntry[] {
+  const entries: SaleTimelineEntry[] = [];
+  const push = (at: string | null, label: string, detail?: string | null, tone?: SaleTone) => {
+    if (at) entries.push({ at, label, detail: detail ?? null, tone });
+  };
+
+  push(row.createdAt, "Purchase started", null, "muted");
+  push(row.chargedAt, "Card charged", row.squarePaymentId, "ok");
+  push(row.mintedAt, "Vouchers minted", row.codes.join(", ") || null, "ok");
+  push(row.sentAt, row.isGift ? "Buyer receipt sent" : "Codes emailed", row.buyerEmail, "ok");
+  push(row.giftSentAt, "Gift delivered to recipient", row.recipientEmail, "ok");
+  push(row.refundedAt, "Vouchers voided", row.refundReason, "danger");
+
+  for (const a of actions) {
+    const detail = a.detail ?? {};
+    const to = [detail.email, detail.phone].filter(Boolean).join(" · ") || null;
+    entries.push({
+      at: a.createdAt,
+      label: `Admin ${a.action}`,
+      detail: to,
+      tone: a.action === "void" ? "danger" : "pending",
+    });
+  }
+
+  return entries.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+}
+
+function dealFacts(row: DealPurchaseRow): SaleFact[] {
+  const deal = getDeal(row.dealSlug);
+  const facts: SaleFact[] = [];
+  const add = (label: string, value: string | null | undefined, opts: Partial<SaleFact> = {}) => {
+    if (value) facts.push({ label, value, ...opts });
+  };
+
+  add("Square order", row.squareOrderId, {
+    mono: true,
+    href: row.squareOrderId
+      ? `https://squareup.com/dashboard/orders/overview/${row.squareOrderId}`
+      : undefined,
+  });
+  add("Square payment", row.squarePaymentId, { mono: true });
+  add("Voucher batch", row.voucherBatchId, { mono: true });
+  add("Idempotency key", row.idempotencyKey, { mono: true });
+  add("Codes", row.codes.join(", ") || null, { mono: true });
+  add(
+    "Expires",
+    deal ? dealExpiryFrom(new Date(row.createdAt), deal.expiresMonths).slice(0, 10) : null,
+  );
+  add("Clickwrap", row.clickwrapVersion);
+  add("Gift message", row.giftMessage);
+  add("Gift scheduled for", row.giftSendAt?.slice(0, 10));
+  for (const [k, v] of Object.entries(row.utm ?? {})) add(k, v);
+  return facts;
+}
+
+/* ──────────────────────────────── resend ───────────────────────────────── */
+
+/**
+ * Who a resend goes to by DEFAULT.
+ *
+ * The recipient on a gift, the buyer otherwise. Sending a gift's codes back to
+ * the buyer would hand a bearer instrument to the wrong person — and the buyer
+ * already has their own receipt.
+ */
+export function dealResendDefaults(row: DealPurchaseRow): { email: string | null; phone: string | null } {
+  return row.isGift
+    ? { email: row.recipientEmail, phone: row.recipientPhone }
+    : { email: row.buyerEmail, phone: row.buyerPhone };
+}
+
+function dealMailArgs(row: DealPurchaseRow, to: string) {
+  const deal = getDeal(row.dealSlug);
+  const packsPerCode = row.combine ? row.qty : 1;
+  return {
+    to,
+    name: row.isGift ? row.recipientName : row.buyerName,
+    productName: deal?.name ?? row.dealSlug,
+    codes: row.codes,
+    items: deal ? dealVoucherItems(deal, packsPerCode) : [],
+    valueSummary: deal ? dealVoucherSummary(deal, packsPerCode) : undefined,
+    expiresAt: deal ? dealExpiryFrom(new Date(row.createdAt), deal.expiresMonths) : null,
+    scheduleUrl: deal
+      ? absoluteUrl(dealScheduleUrl({ deal, location: row.locationKey, codes: row.codes }))
+      : null,
+    scheduleLabel: deal
+      ? `Pick your ${deal.scheduleSlug === "gel-blaster" ? "gel blaster" : "laser tag"} time`
+      : null,
+    ...(row.isGift
+      ? { gift: { fromName: row.buyerName, message: row.giftMessage } }
+      : {}),
+  };
+}
+
+function absoluteUrl(path: string | null): string | null {
+  const origin = (process.env.NEXT_PUBLIC_SITE_URL || "https://headpinz.com").replace(/\/$/, "");
+  return path ? `${origin}${path}` : null;
+}
+
+/**
+ * What the resend would actually say.
+ *
+ * Built by the REAL send functions in preview mode, not by a second builder, so
+ * the modal cannot drift from the message.
+ */
+async function dealResendPreview(
+  row: DealPurchaseRow,
+  channel: "sms" | "email" | "both",
+): Promise<{ subject: string | null; text: string }> {
+  const deal = getDeal(row.dealSlug);
+  const to = dealResendDefaults(row);
+
+  if (channel === "sms") {
+    const sms = await smsPurchasedVouchers({
+      phone: to.phone ?? "+10000000000",
+      productName: deal?.name ?? row.dealSlug,
+      codes: row.codes,
+      ...(row.isGift ? { giftFromName: row.buyerName } : {}),
+      preview: true,
+    });
+    return { subject: null, text: sms.text ?? "" };
+  }
+
+  const mail = await emailPurchasedVouchers({
+    ...dealMailArgs(row, to.email ?? "preview@example.com"),
+    preview: true,
+  });
+  return { subject: mail.subject ?? null, text: mail.text ?? "" };
+}
+
+/**
+ * Send the codes again, optionally somewhere else.
+ *
+ * WHEN THERE IS NO OVERRIDE and the purchase is still unfulfilled, this defers
+ * to `fulfilDealPurchase` — the same idempotent mint-then-send the reconcile
+ * cron runs. That path is fenced on `voucher_batch_id IS NULL`, so it re-sends
+ * without cutting new codes, and it is the only thing that can rescue a row that
+ * never minted.
+ *
+ * WITH an override it calls the mail functions directly, because
+ * `fulfilDealPurchase` hardcodes the address on the row. Deliberately NOT a loop
+ * over a per-code send: that would fire three emails at a buyer who bought three
+ * separate packs and expects one.
+ */
+async function dealResend(row: DealPurchaseRow, args: ResendArgs): Promise<ResendOutcome> {
+  const deal = getDeal(row.dealSlug);
+  const fallback = dealResendDefaults(row);
+  const email = args.overrideEmail ?? fallback.email;
+  const phone = args.overridePhone ?? fallback.phone;
+  const wantEmail = args.channel === "email" || args.channel === "both";
+  const wantSms = args.channel === "sms" || args.channel === "both";
+  const redirected = !!args.overrideEmail || !!args.overridePhone;
+
+  await recordSaleAction({
+    source: "deals",
+    ref: String(row.id),
+    action: "resend",
+    actor: args.actor,
+    detail: { channel: args.channel, email, phone, redirected },
+  });
+
+  // Unfulfilled and going to the address on file → let the idempotent fulfilment
+  // path handle it, so a row that never minted gets its codes cut too.
+  if (!redirected && (row.status === "charged" || row.status === "minted")) {
+    const res = await fulfilDealPurchase(row);
+    return {
+      emailOk: !res.emailPending,
+      smsOk: null,
+      note: res.mintPending
+        ? "Still waiting on codes — the reconcile cron will keep trying."
+        : res.emailPending
+          ? "Codes exist but the email did not send."
+          : "Sent.",
+    };
+  }
+
+  if (row.codes.length === 0) {
+    throw new Error("No codes on this purchase yet — nothing to resend.");
+  }
+
+  let emailOk: boolean | null = null;
+  let smsOk: boolean | null = null;
+  const problems: string[] = [];
+
+  if (wantEmail) {
+    if (!email) {
+      problems.push("no email address");
+      emailOk = false;
+    } else {
+      const res = await emailPurchasedVouchers({
+        ...dealMailArgs(row, email),
+        eventReason: "admin-resend",
+      });
+      emailOk = res.ok;
+      if (!res.ok) problems.push(`email failed: ${res.error ?? "unknown"}`);
+    }
+  }
+
+  if (wantSms) {
+    if (!phone) {
+      problems.push("no phone number");
+      smsOk = false;
+    } else {
+      const res = await smsPurchasedVouchers({
+        phone,
+        productName: deal?.name ?? row.dealSlug,
+        codes: row.codes,
+        ...(row.isGift ? { giftFromName: row.buyerName } : {}),
+        eventReason: "admin-resend",
+      });
+      smsOk = res.ok;
+      if (!res.ok) problems.push(`SMS failed: ${res.error ?? "unknown"}`);
+    }
+  }
+
+  const sent = [emailOk === true ? `email → ${email}` : null, smsOk === true ? `SMS → ${phone}` : null]
+    .filter(Boolean)
+    .join(" · ");
+  return {
+    emailOk,
+    smsOk,
+    note: problems.length > 0 ? `${sent ? `${sent}. ` : ""}${problems.join("; ")}` : `Sent ${sent}.`,
+  };
+}
+
 /* ──────────────────────────────── the adapter ──────────────────────────── */
 
 const STATUS_FILTERS = [
@@ -205,14 +523,12 @@ export const dealsAdapter: WebSaleAdapter = {
     { key: "naples", label: DEAL_LOCATION_INFO.naples.label, brand: "headpinz" },
   ],
   /**
-   * Empty on purpose while this adapter is read-only.
-   *
-   * Capabilities are computed per row above and are fully tested, but the shell
-   * only renders an action listed HERE — so a board built on this PR shows no
-   * action buttons at all, which is exactly what a read-only board should do.
-   * Each action joins this list in the PR that implements its handler.
+   * Only what this adapter actually implements. `refund` and `void` join the
+   * list in the PRs that add their handlers — the shell hides any action absent
+   * here even when a row declares the capability, so a half-built verb can never
+   * surface a button that does nothing.
    */
-  actions: [],
+  actions: ["resend"],
   resendChannels: ["email", "sms", "both"],
 
   async list(q: SaleListQuery): Promise<WebSaleRow[]> {
@@ -260,9 +576,27 @@ export const dealsAdapter: WebSaleAdapter = {
     };
   },
 
-  async detail(): Promise<null> {
-    // Lands with the drawer PR, together with legs, timeline and facts. Returning
-    // null here is honest: the board has nothing extra to show yet.
-    return null;
+  async detail(ref: string): Promise<SaleDetail | null> {
+    const row = await getDealPurchase(Number(ref));
+    if (!row) return null;
+    const [legs, actions] = await Promise.all([dealLegs(row), listSaleActions("deals", ref)]);
+    return {
+      row: projectDealRow(row),
+      legs,
+      timeline: dealTimeline(row, actions),
+      facts: dealFacts(row),
+    };
+  },
+
+  async previewResend({ ref, channel }) {
+    const row = await getDealPurchase(Number(ref));
+    if (!row) throw new Error("not_found");
+    return dealResendPreview(row, channel);
+  },
+
+  async resend(args: ResendArgs): Promise<ResendOutcome> {
+    const row = await getDealPurchase(Number(args.ref));
+    if (!row) throw new Error("not_found");
+    return dealResend(row, args);
   },
 };

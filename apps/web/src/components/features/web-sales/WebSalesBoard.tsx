@@ -6,11 +6,19 @@ import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { ADMIN_SANS, PORTAL_BLUE, PORTAL_DARK, PORTAL_SKIN_CSS } from "~/components/features/admin-skin/theme";
 import { usePortalAutoHeight } from "~/components/features/admin-skin/usePortalAutoHeight";
 import { baThemeCss } from "~/components/features/reservations-admin/theme";
-import { defaultRange, todayEasternYmd, type SaleSummary, type WebSaleRow } from "~/features/web-sales";
+import {
+  defaultRange,
+  todayEasternYmd,
+  type SaleDetail,
+  type SaleSummary,
+  type WebSaleRow,
+} from "~/features/web-sales";
 import FilterBar, { type SourceMeta } from "./FilterBar";
 import SaleCardList from "./SaleCardList";
+import SaleDetailDrawer from "./SaleDetailDrawer";
 import SaleTable from "./SaleTable";
 import SummaryCards from "./SummaryCards";
+import WebSaleResendModal from "./modals/WebSaleResendModal";
 import { isProblemRow } from "./format";
 import { parseFilters, serializeFilters, toApiQuery, type BoardFilters } from "./filters";
 
@@ -69,22 +77,36 @@ export default function WebSalesBoard({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  // Third arg is "a modal is open" — always false until the drawer and action
-  // modals land, at which point it must be wired or the portal iframe collapses
-  // under a fixed-position modal.
-  usePortalAutoHeight("web-sales-resize", embedded, false);
+  /** `?sale=deals:412` — deep-linkable, so a staff alert can point at one sale. */
+  const [selectedSaleId, setSelectedSaleId] = useState<string | null>(
+    () => new URLSearchParams(initialSearch).get("sale"),
+  );
+  const [resendTarget, setResendTarget] = useState<SaleDetail | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  /** Bumped after an action so the drawer refetches what it changed. */
+  const [detailNonce, setDetailNonce] = useState(0);
+
+  const anyOverlayOpen = selectedSaleId !== null || resendTarget !== null;
+
+  // Modals are position:fixed and contribute nothing to scrollHeight, so the
+  // portal iframe would collapse under one without this.
+  usePortalAutoHeight("web-sales-resize", embedded, anyOverlayOpen);
 
   // The URL is the source of truth for filters, so a filtered board is linkable
   // and survives a reload. `replaceState` rather than a router push: typing in
   // the search box must not stack fifty history entries.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const qs = serializeFilters(filters, fallback);
+    const params = new URLSearchParams(serializeFilters(filters, fallback));
+    // The open sale rides in the URL too, so a drawer can be linked directly —
+    // which is what `notifyStaffDealSale` will point at.
+    if (selectedSaleId) params.set("sale", selectedSaleId);
+    const qs = params.toString();
     const next = `${window.location.pathname}${qs ? `?${qs}` : ""}`;
     if (next !== window.location.pathname + window.location.search) {
       window.history.replaceState(null, "", next);
     }
-  }, [filters, fallback]);
+  }, [filters, fallback, selectedSaleId]);
 
   /**
    * `filters` is a fresh object every render, so the fetch effect keys off a
@@ -140,9 +162,10 @@ export default function WebSalesBoard({
     };
   }, [apiQuery, load]);
 
-  // Visibility-aware refresh. Paused while paging so a poll cannot wipe out
-  // rows the operator just loaded.
-  useVisibleInterval(load, 30_000, !loadingMore);
+  // Visibility-aware refresh. Paused while paging (a poll would wipe out rows
+  // the operator just loaded) and while any overlay is open (the list must not
+  // shift under a drawer someone is reading).
+  useVisibleInterval(load, 30_000, !loadingMore && !anyOverlayOpen);
 
   const loadMore = useCallback(async () => {
     if (!nextCursor) return;
@@ -268,10 +291,10 @@ export default function WebSalesBoard({
 
       <div style={{ marginTop: 18 }}>
         <div className="ws-desktop">
-          <SaleTable rows={visible} />
+          <SaleTable rows={visible} onSelect={setSelectedSaleId} />
         </div>
         <div className="ws-mobile">
-          <SaleCardList rows={visible} />
+          <SaleCardList rows={visible} onSelect={setSelectedSaleId} />
         </div>
 
         {loading && rows.length === 0 && (
@@ -315,6 +338,63 @@ export default function WebSalesBoard({
           </p>
         )}
       </div>
+
+      {selectedSaleId && (
+        <SaleDetailDrawer
+          // Remount on a different sale or a forced refetch, so the drawer's
+          // state starts clean without a setState in its effect body.
+          key={`${selectedSaleId}:${detailNonce}`}
+          saleId={selectedSaleId}
+          token={token}
+          refreshKey={detailNonce}
+          supportedActions={
+            sources.find((s) => s.id === selectedSaleId.split(":")[0])?.actions ?? []
+          }
+          onClose={() => setSelectedSaleId(null)}
+          onAction={(action, detail) => {
+            if (action === "resend") setResendTarget(detail);
+          }}
+        />
+      )}
+
+      {resendTarget && (
+        <WebSaleResendModal
+          detail={resendTarget}
+          token={token}
+          channels={
+            sources.find((s) => s.id === resendTarget.row.source)?.resendChannels ?? ["email"]
+          }
+          onClose={() => setResendTarget(null)}
+          onSent={(note) => {
+            setToast(note);
+            setTimeout(() => setToast(null), 5000);
+            setDetailNonce((n) => n + 1);
+            void load();
+          }}
+        />
+      )}
+
+      {toast && (
+        <div
+          role="status"
+          style={{
+            position: "fixed",
+            bottom: 20,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 60,
+            maxWidth: "90vw",
+            padding: "10px 18px",
+            borderRadius: 10,
+            fontSize: 13,
+            color: "#bbf7d0",
+            background: "rgba(20,60,40,0.96)",
+            border: "1px solid rgba(34,197,94,0.4)",
+          }}
+        >
+          {toast}
+        </div>
+      )}
     </div>
   );
 }

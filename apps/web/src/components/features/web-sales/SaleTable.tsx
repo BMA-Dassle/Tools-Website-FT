@@ -30,7 +30,13 @@ const TD: React.CSSProperties = {
  * drawer where there is room to show which legs are still live. The search box
  * still finds a sale by code.
  */
-export default function SaleTable({ rows }: { rows: WebSaleRow[] }) {
+export default function SaleTable({
+  rows,
+  onSelect,
+}: {
+  rows: WebSaleRow[];
+  onSelect: (id: string) => void;
+}) {
   return (
     // Wide content scrolls inside its own container — the page body must never
     // scroll horizontally.
@@ -45,6 +51,9 @@ export default function SaleTable({ rows }: { rows: WebSaleRow[] }) {
             <th style={{ ...TH, textAlign: "right" }}>Paid</th>
             <th style={TH}>Status</th>
             <th style={TH}>Source</th>
+            <th style={TH}>
+              <span className="sr-only">Open</span>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -104,6 +113,28 @@ export default function SaleTable({ rows }: { rows: WebSaleRow[] }) {
                 <td style={{ ...TD, fontSize: 11, color: PORTAL_DARK.muted }}>
                   <div>{row.source}</div>
                   <div>{row.attribution.label}</div>
+                </td>
+
+                {/* A real button rather than a click handler on the <tr>: the
+                    row has to be reachable and operable from a keyboard, and
+                    the a11y gate enforces it. */}
+                <td style={{ ...TD, textAlign: "right", whiteSpace: "nowrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => onSelect(row.id)}
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      padding: "5px 11px",
+                      borderRadius: 7,
+                      cursor: "pointer",
+                      color: PORTAL_DARK.fg,
+                      background: "transparent",
+                      border: `1px solid ${PORTAL_DARK.border}`,
+                    }}
+                  >
+                    Open
+                  </button>
                 </td>
               </tr>
             );

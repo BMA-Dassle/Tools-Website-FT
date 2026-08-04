@@ -13,16 +13,32 @@ import { buyerLabel, money, recipientLabel, refundChip, whenLabel } from "./form
  * lane approach (owner 2026-08-03). The single-product board grew this layout
  * for that reason and it must not regress in the generalisation.
  */
-export default function SaleCardList({ rows }: { rows: WebSaleRow[] }) {
+export default function SaleCardList({
+  rows,
+  onSelect,
+}: {
+  rows: WebSaleRow[];
+  onSelect: (id: string) => void;
+}) {
   return (
     <div style={{ display: "grid", gap: 10 }}>
       {rows.map((row) => {
         const chip = refundChip(row);
         const recipient = recipientLabel(row);
         return (
-          <div
+          // The whole card is the tap target on a phone — but as a <button>, so
+          // it is keyboard-reachable rather than a div with an onClick.
+          <button
             key={row.id}
+            type="button"
+            onClick={() => onSelect(row.id)}
             style={{
+              display: "block",
+              width: "100%",
+              textAlign: "left",
+              cursor: "pointer",
+              color: "inherit",
+              font: "inherit",
               background: PORTAL_DARK.card,
               border: `1px solid ${PORTAL_DARK.border}`,
               borderRadius: 12,
@@ -78,7 +94,7 @@ export default function SaleCardList({ rows }: { rows: WebSaleRow[] }) {
             {row.status.problem && (
               <div style={{ marginTop: 8, fontSize: 12, color: "#fca5a5" }}>{row.status.problem}</div>
             )}
-          </div>
+          </button>
         );
       })}
     </div>

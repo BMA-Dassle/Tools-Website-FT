@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import {
+  ActionSchema,
   ListQuerySchema,
   MAX_RANGE_DAYS,
   adaptersFor,
@@ -9,6 +10,7 @@ import {
   daysBetweenYmd,
   decodeCursor,
   defaultRange,
+  getAdapter,
   listWebSales,
   searchParamsToObject,
   summarizeWebSales,
@@ -22,14 +24,16 @@ export const maxDuration = 120;
 /**
  * Admin: every non-reservation sale made on the website, one board.
  *
- * READ-ONLY in this build. The action verbs (resend, refund, void) arrive with
- * the PRs that implement them; there is deliberately no POST handler yet, so an
- * action posted here gets Next's automatic 405 rather than a stub that looks
- * like it did something.
- *
- *   GET ?token=…[&from&to&source&status&venue&q&cursor&limit&format]
+ *   GET  ?token=…[&from&to&source&status&venue&q&cursor&limit&format]
  *     → { ok, rows, nextCursor, summary, bySource, sources, errors }
  *     → text/csv when format=csv
+ *   GET  ?token=…&detail=<source>:<ref>   → { ok, detail }
+ *   POST { action: "preview_resend" }     → what the message would say
+ *   POST { action: "resend" }             → send it, optionally somewhere else
+ *
+ * The refund and void verbs arrive with the PRs that implement them. An action
+ * this build does not know is a 400 from the zod union rather than a stub that
+ * looks like it did something.
  *
  * AUTH is `ADMIN_CAMERA_TOKEN` on the query string, matching every sibling admin
  * route. `middleware.ts` already gates `/api/admin/*` on the same token and fails
@@ -56,6 +60,22 @@ const CSV_MAX_ROWS = 5000;
 export async function GET(req: NextRequest) {
   if (!authed(req.nextUrl.searchParams.get("token"))) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+
+  // `?detail=deals:412` — one sale's legs, timeline and facts for the drawer.
+  // A GET rather than a POST action because it is a read, and because it makes
+  // the `?sale=` deep link a single round trip on first paint.
+  const detailKey = req.nextUrl.searchParams.get("detail");
+  if (detailKey) {
+    const sep = detailKey.indexOf(":");
+    if (sep < 1) {
+      return NextResponse.json({ ok: false, error: "bad_request" }, { status: 400 });
+    }
+    const adapter = getAdapter(detailKey.slice(0, sep));
+    if (!adapter) return NextResponse.json({ ok: false, error: "unknown_source" }, { status: 404 });
+    const detail = await adapter.detail(detailKey.slice(sep + 1));
+    if (!detail) return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+    return NextResponse.json({ ok: true, detail });
   }
 
   const parsed = ListQuerySchema.safeParse(searchParamsToObject(req.nextUrl.searchParams));
@@ -143,9 +163,72 @@ export async function GET(req: NextRequest) {
       statusFilters: a.statusFilters,
       venues: a.venues,
       actions: a.actions,
+      resendChannels: a.resendChannels,
     })),
     // Surfaced, never swallowed: a source that failed shows as an error banner
     // rather than as a shorter list that looks complete.
     errors: [...page.errors, ...totals.errors],
   });
+}
+
+export async function POST(req: NextRequest) {
+  // Token on the QUERY STRING as well as the body: the middleware gate runs
+  // before this handler and cannot read a body, so a body-only token 404s.
+  if (!authed(req.nextUrl.searchParams.get("token"))) {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+
+  const body = await req.json().catch(() => null);
+  const parsed = ActionSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { ok: false, error: "bad_request", detail: parsed.error.issues[0]?.message },
+      { status: 400 },
+    );
+  }
+  if (!authed(parsed.data.token)) {
+    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
+  }
+
+  const adapter = getAdapter(parsed.data.source);
+  if (!adapter) {
+    return NextResponse.json({ ok: false, error: "unknown_source" }, { status: 404 });
+  }
+
+  // One shared admin token, no per-user identity — see web-sales-audit-db.ts.
+  const actor = "admin";
+
+  try {
+    if (parsed.data.action === "preview_resend") {
+      if (!adapter.previewResend) {
+        return NextResponse.json({ ok: false, error: "unsupported" }, { status: 409 });
+      }
+      const preview = await adapter.previewResend({
+        ref: parsed.data.ref,
+        channel: parsed.data.channel,
+      });
+      return NextResponse.json({ ok: true, preview });
+    }
+
+    if (!adapter.resend || !adapter.actions.includes("resend")) {
+      return NextResponse.json({ ok: false, error: "unsupported" }, { status: 409 });
+    }
+    const result = await adapter.resend({
+      ref: parsed.data.ref,
+      channel: parsed.data.channel,
+      overrideEmail: parsed.data.overrideEmail,
+      overridePhone: parsed.data.overridePhone,
+      actor,
+    });
+    // A partial failure is still a 200 with per-channel truth in the body — the
+    // same contract the videos resend route uses, and what the modal reads.
+    return NextResponse.json({ ok: true, result });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === "not_found") {
+      return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+    }
+    console.error("[web-sales] action failed:", err);
+    return NextResponse.json({ ok: false, error: "action_failed", detail: message }, { status: 502 });
+  }
 }

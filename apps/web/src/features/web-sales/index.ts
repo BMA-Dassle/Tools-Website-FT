@@ -35,7 +35,18 @@ export {
   type WebSaleRow,
 } from "./types";
 
-export { ListQuerySchema, MAX_RANGE_DAYS, searchParamsToObject, type ListQueryInput } from "./schemas";
+export {
+  ActionSchema,
+  ListQuerySchema,
+  MAX_RANGE_DAYS,
+  PreviewSchema,
+  ResendSchema,
+  searchParamsToObject,
+  type ActionInput,
+  type ListQueryInput,
+} from "./schemas";
+
+export { listSaleActions, recordSaleAction, type WebSaleActionKind } from "./data/web-sales-audit-db";
 
 export { adaptersFor, activeAdapters, allAdapters, getAdapter } from "./registry";
 

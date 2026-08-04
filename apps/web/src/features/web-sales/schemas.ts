@@ -68,6 +68,47 @@ export type ListQueryInput = z.infer<typeof ListQuerySchema>;
  * repeated key, which would turn `?source=a&source=b` into just `b` — a filter
  * quietly narrowing itself is worse than one that errors.
  */
+/* ─────────────────────────────── actions ──────────────────────────────── */
+
+/**
+ * Every action body carries the token TWICE — once here and once on the query
+ * string. The middleware admin gate runs before the route and cannot read a
+ * request body, so it fails closed to a 404 on a POST whose token is body-only.
+ * The deals board's Resend and Void both 404'd until the query param was added;
+ * this route inherits the same shape rather than rediscovering it.
+ */
+const ActionBase = z.object({
+  token: z.string().min(1),
+  source: SourceIdSchema,
+  /** Opaque, source-owned. Never parsed by the route. */
+  ref: z.string().min(1).max(300),
+});
+
+export const ResendSchema = ActionBase.extend({
+  action: z.literal("resend"),
+  channel: z.enum(["sms", "email", "both"]),
+  /** null = use the address on file. */
+  overrideEmail: z.string().trim().toLowerCase().email().max(200).nullable().default(null),
+  /**
+   * E.164 only. `AdminResendModal` already normalises what staff type, so a
+   * loosely-formatted number here means something bypassed the modal.
+   */
+  overridePhone: z
+    .string()
+    .regex(/^\+1\d{10}$/, "expected E.164, e.g. +12395551234")
+    .nullable()
+    .default(null),
+});
+
+export const PreviewSchema = ActionBase.extend({
+  action: z.literal("preview_resend"),
+  channel: z.enum(["sms", "email", "both"]),
+});
+
+export const ActionSchema = z.discriminatedUnion("action", [ResendSchema, PreviewSchema]);
+
+export type ActionInput = z.infer<typeof ActionSchema>;
+
 export function searchParamsToObject(params: URLSearchParams): Record<string, string | string[]> {
   const out: Record<string, string | string[]> = {};
   for (const key of new Set(params.keys())) {

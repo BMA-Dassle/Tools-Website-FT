@@ -18,6 +18,9 @@ export interface SourceMeta {
   label: string;
   statusFilters: ReadonlyArray<{ value: string; label: string }>;
   venues: ReadonlyArray<{ key: string; label: string }>;
+  /** What this source implements. The shell renders no action absent from here. */
+  actions: ReadonlyArray<"resend" | "refund" | "void">;
+  resendChannels: ReadonlyArray<"sms" | "email" | "both">;
 }
 
 const PRESET_LABEL: Record<DatePreset, string> = {

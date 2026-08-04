@@ -15,6 +15,7 @@ export {
   dealSquareCatalogId,
   dealValue,
   dealVoucherItems,
+  dealVoucherSummary,
   dealsForLocation,
   gameZoneItemDollars,
   getDeal,
