@@ -64,6 +64,8 @@ import { LicenseMatchPicker } from "../components/LicenseMatchPicker";
 import { ageFromIso } from "../join/phone/join-helpers";
 import { mergeJoinedGuests } from "../join/merge";
 import { KioskSignInBoxes } from "../components/KioskSignInBoxes";
+import { racerLicenseState } from "~/features/booking/service/license";
+import { LICENSE_PRICE } from "~/features/booking/service/race-pricing";
 import { useT } from "../i18n";
 
 /** Waiver-gated attraction slugs (duckpin is exempt — uses the party-count step). */
@@ -1671,6 +1673,21 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                           : t("peopleUi.accountWaiverNeeded")}
                       </span>
                     )}
+                    {/* LICENCE per racer. The badge above says "Starter only" — a
+                        QUALIFICATION fact that reads as a licence fact, so a
+                        correct skip and a bug looked identical (owner 2026-08-04:
+                        "then why didn't 1 2 get forced a license"). Same verified
+                        state the charge uses; unverified + returning stays silent
+                        rather than guessing at money. */}
+                    {isRace &&
+                      m.bmiPersonId &&
+                      (racerLicenseState(m) === "active" ? (
+                        <span className="text-white/45">{t("peopleUi.licenseOnFile")}</span>
+                      ) : racerLicenseState(m) === "none" || m.isNewRacer ? (
+                        <span className="font-semibold text-[#f0b341]">
+                          {t("peopleUi.licenseNeeded", { price: `$${LICENSE_PRICE.toFixed(2)}` })}
+                        </span>
+                      ) : null)}
                     {guardian && (
                       <span className="text-white/45">
                         {t("peopleUi.guardianLabel", { name: guardian.firstName })}

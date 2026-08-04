@@ -15,6 +15,12 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.16.2 — the licence chip lands on the roster the kiosk ACTUALLY renders.
+ *         1.16.1 put it in KioskPartyManager (`party.*` keys); the race people
+ *         step on screen is KioskPeopleStep (`peopleUi.*`), a separate kiosk-native
+ *         component — so the owner refreshed and saw nothing. Both carry it now;
+ *         KioskPartyManager still serves the standalone race-pack flow, check-in
+ *         and the group waiver.
  * 1.16.1 — the roster says the LICENCE, not just the tier (owner 2026-08-04:
  *         "then why didn't 1 2 get forced a license"). The badge said "Starter
  *         only" — a qualification fact — and it reads as "needs a licence", so
@@ -701,7 +707,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.16.1";
+export const KIOSK_VERSION = "1.16.2";
 
 let bootVersion: string | null = null;
 let captured = false;
