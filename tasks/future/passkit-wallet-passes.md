@@ -7,8 +7,8 @@ Research doc, 2026-08-03. Vouchers shipped; the programme is now **expanding**.
 | Branch | What it is | State |
 |---|---|---|
 | _(merged to main 8/3)_ | **Vouchers** — single-use coupon passes, § 7–9. `78b56dea` → `15d7f34e` | LIVE, never scanned at a kiosk |
-| **`feat/kiosk-racer-signin`** (`c3a71e11`) | **Expansion step 1 — the racer identity rail**, § 4. A racing licence or the SMS-Timing app QR now signs a racer in from the kiosk entry screens and checks them into their booking. Contains **no PassKit code**: it builds the rail the licence pass needs to be worth carrying, and stands on its own if the pass never ships. | committed, **not pushed / not merged / not device-smoked** |
-| _(next)_ | **Expansion step 2 — the racing-licence pass itself**, § 3B. Members API, all new. | **blocked** on three vendor questions — see § 3B |
+| **`feat/kiosk-racer-signin`** — step 1 (`c3a71e11`) | **The racer identity rail**, § 4. A racing licence or the SMS-Timing app QR now signs a racer in from the kiosk entry screens and checks them into their booking. Contains **no PassKit code**: it builds the rail the licence pass needs to be worth carrying, and stands on its own if the pass never ships. | pushed, **not merged / not device-smoked** |
+| _same branch_ — step 2 | **The racing-licence pass**, § 3B. First `/members/…` code in the repo (`scripts/passkit-licence-pass.mts`). Program, template and Eric's pass are LIVE at PassKit. | ONE pilot pass; **not rolled out** — multi-use billing still unanswered in writing |
 
 **Grounding — what is verified vs. inferred**
 
@@ -106,12 +106,62 @@ platform fee and nothing else.
 ### B. Member program — "FastTrax Racing Licence" (multi-use) ← **next**
 One pass per racer, opt-in.
 
-> **Identity side UNBLOCKED 2026-08-04** by `feat/kiosk-racer-signin` (§ 4) — the barcode has a
-> payload (`/r/{code}`), the kiosk routes it, and it resolves a racer to their booking. What is
-> still gated is entirely vendor-side: the multi-use billing question in § 5, whether a duplicate
-> `externalId` 409s for a **member** (verified for coupons only, and a duplicate member is a
-> *recurring monthly* charge, not a one-off), and the fact that no wallet pass has ever been
-> scanned at a physical kiosk. Do not start the Members API work before those three.
+> **BUILT AND LIVE 2026-08-04** — `scripts/passkit-licence-pass.mts`. Program
+> `4m1Y7wCXyloclQk0hqvjRS`, template `75paqKfII1FIn9kImwIvi2`, first member
+> `3a7OUURtB26IgbHsQXef0G` (Eric, personId 409523, code `mgrm2g8o42wxc`). Design signed off over
+> six iterations with the owner. **Only the ONE pilot pass exists — this is not rolled out**, and
+> the multi-use billing question in § 5 is still unanswered in writing, so do not raise the count
+> until it is.
+>
+> **The duplicate-`externalId` question is ANSWERED: members 409 exactly like coupons**
+> (`cannot create member record. external id already exists`). Create-or-recover is therefore
+> idempotent for members too — which matters far more here than for vouchers, because a duplicate
+> member is a *recurring monthly* charge rather than a one-off. `GET
+> /members/member/externalId/{programId}/{externalId}` recovers it; `PUT /members/member` pushes
+> current state. Still unproven: **no wallet pass has ever been scanned at a physical kiosk.**
+
+### Members API — five things that cost an hour each, none of them guessable
+
+1. **A production program needs `passTypeIdentifier`.** Ours is `pass.com.fasttrax.booking`
+   (`GET /certificates` → team 74Z5L3L3BT, valid to 2027-05-03). Without it: 400 *"you are
+   creating a program in production, a validate pass type identifier needs to be provided"*.
+2. **`status` is a repeated bitmask needing one value from TWO axes** — publish state AND
+   object-creation state: `["PROJECT_PUBLISHED", "PROJECT_ACTIVE_FOR_OBJECT_CREATION"]`. It
+   validates one axis per request, so you get two consecutive 500s each naming only the axis you
+   are currently missing. (The voucher campaign carries the same pair.)
+3. **Tiers are a SEPARATE resource.** The `tiers` array on `POST /members/program` is silently
+   ignored and the program comes back with none — `POST /members/tier` against the program id is
+   what binds the pass template. `tierIndex` **must be ≥ 1**: their Go `required` validator reads
+   0 as unset, so `tierIndex: 0` fails as *"required"* and sends you hunting a missing field. The
+   tier also carries its own `timezone`, separate from the program's `ianaTimezone`.
+4. **`POST /images` derives a separate `appleLogo`, and Apple Wallet renders THAT, not `logo`.**
+   Left alone it comes back 1:1. Point `appleLogo` at the wide image explicitly.
+5. **Dressing a stock template inherits its images.** The "Your special card" membership template
+   ships a `thumbnail`, and a GENERIC Apple pass renders a thumbnail on the right — so the licence
+   showed stock art until `thumbnail` was explicitly cleared. Clear every slot you do not set.
+
+### Apple layout constraints that decided this design
+
+- **`strip` and `thumbnail` are mutually exclusive.** storeCard/coupon take a full-width strip;
+  generic takes a right-side thumbnail; only eventTicket allows background + thumbnail. The
+  licence uses **storeCard + strip**, which is what a racing photo wants — and is only available
+  because the owner dropped the racer portrait (2026-08-04). A GENERIC pass silently ignores a
+  strip, so the pass style must be set alongside it.
+- **PassKit forces the header `logo` slot square** — upload 2072×660, get 660×660 back. A 3.14:1
+  wordmark then letterboxes to a third of the height and Apple renders it small, which is why the
+  brand read as missing. **The fix is to composite the mark into the strip artwork**, where we own
+  the aspect ratio: 672px on a 1600px strip, centred (left-aligned would sit directly under
+  Apple's own squared header logo and read as a duplicate).
+- **Apple lays PRIMARY_FIELDS over the strip** — the same trap that printed the voucher offer
+  across four kids' faces. The racer's name is a primary field here, so the strip's scrim is
+  driven to 97% background by the bottom third where that name lands.
+- **The strip is TEMPLATE-level, shared by every holder.** Fine for a logo and a generic track
+  shot; it means nothing racer-specific can ever live in the artwork. Anything individual has to
+  be a text field.
+
+**Racer photos are not viable yet.** `GET /v2/bmi/person/{locationId}/{personId}?picture=true`
+works and the payload is wrapped in `{success, data}`, but `pic` was **null on 4 of 5** records
+probed (Eric included; only Curtis Stavich 713365 had one). Owner dropped the portrait 2026-08-04.
 
 - `externalId` = BMI `personId`
 - Tiers = **Rookie / Intermediate / Pro** — these already exist and are already detected by
