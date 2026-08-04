@@ -31,9 +31,11 @@ console.log(`\n══ Pandora person ${PID} (full) ══`);
 console.log(JSON.stringify(pJson.data ?? pJson, null, 1));
 
 // ── BMI Office: person detail + same-name search ────────────────────────
-const { searchOfficePersons, fetchOfficePerson } = await import("@/lib/bmi-office-actions").catch(
-  () => ({}) as Record<string, undefined>,
-);
+// `searchOfficePersons` may or may not exist depending on when this ran — the
+// typeof guard below is the real check, so the import stays deliberately loose.
+const { searchOfficePersons, fetchOfficePerson } = (await import("@/lib/bmi-office-actions").catch(
+  () => ({}),
+)) as Record<string, ((...args: unknown[]) => Promise<unknown>) | undefined>;
 if (typeof searchOfficePersons === "function") {
   const hits = (await searchOfficePersons("fort-myers", NAME, 25).catch((e: Error) => {
     console.log(`office search failed: ${e.message}`);
