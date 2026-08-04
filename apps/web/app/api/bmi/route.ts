@@ -129,6 +129,17 @@ async function purgeAvailabilityCache(clientKey: string): Promise<void> {
   }
 }
 
+/** Forward an upstream JSON body EXACTLY as received — no parse, no re-encode,
+ *  so 17-digit BMI ids keep every digit. Anything that runs a BMI body through
+ *  JSON.parse before it reaches the caller is a precision bug waiting to be
+ *  found (see the GET handler's note). */
+function jsonPassthrough(text: string, status: number): NextResponse {
+  return new NextResponse(text, {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 // ── GET handler ───────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
@@ -161,7 +172,7 @@ export async function GET(req: NextRequest) {
     if (!upstream.ok && endpoint.includes("order")) {
       const errBody = await upstream.text();
       console.error(`[BMI GET ERROR] ${upstream.status}: ${errBody}`);
-      return NextResponse.json(JSON.parse(errBody), { status: upstream.status });
+      return jsonPassthrough(errBody, upstream.status);
     }
 
     // Image endpoint returns binary
@@ -173,8 +184,15 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const data = await upstream.json();
-    return NextResponse.json(data, { status: upstream.status });
+    // RAW TEXT, never re-serialized. `NextResponse.json(await upstream.json())`
+    // rounded every 17-digit id on the way through: proven live 2026-08-04 —
+    // BMI returned orderId 63000000007234468 and this handler emitted
+    // ...460. Callers that dig the id back out of the body text
+    // (`extractRawField`, `parseWithRawIds`) were therefore extracting a
+    // CORRUPTED id from a response that looked fine, and the same handler serves
+    // `person/*`, where the casualty is a personId. Byte-for-byte passthrough is
+    // the only safe shape — the precision rule in CLAUDE.md exists for this.
+    return jsonPassthrough(await upstream.text(), upstream.status);
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "BMI API error" },
