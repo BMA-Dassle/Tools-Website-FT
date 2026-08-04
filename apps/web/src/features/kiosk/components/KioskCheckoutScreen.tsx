@@ -61,6 +61,7 @@ export function KioskCheckoutScreen({
   onReviewAndPay,
   onUpdateRacePacks,
   onRemovePackage,
+  onChangePackage,
 }: {
   session: BookingSession;
   dispatch: Dispatch<Action>;
@@ -77,6 +78,8 @@ export function KioskCheckoutScreen({
   /** Drop a premium package off a race item, keeping the booking (forwarded to
    *  the embedded cart's race card). */
   onRemovePackage?: (itemId: string, category: "adult" | "junior") => void;
+  /** Reopen the package screen for this item/category (swap bundles). */
+  onChangePackage?: (itemId: string, category: "adult" | "junior") => void;
 }) {
   const t = useT();
   const items = [...session.items].sort((a, b) => itemSortMs(a) - itemSortMs(b));
@@ -192,6 +195,7 @@ export function KioskCheckoutScreen({
                     onRemoveHeat={onRemoveHeat}
                     onUpdateRacePacks={onUpdateRacePacks}
                     onRemovePackage={onRemovePackage}
+                    onChangePackage={onChangePackage}
                   />
                 ))}
               </ul>

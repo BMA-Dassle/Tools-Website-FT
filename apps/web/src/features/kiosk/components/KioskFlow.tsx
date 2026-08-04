@@ -1120,6 +1120,22 @@ export function KioskFlow({
     await releaseHeatBmiLines(session, removed);
   };
 
+  // Reopen the PACKAGE SCREEN (page 1) for one category so a guest can swap
+  // bundles from the cart instead of removing one and walking the wizard again
+  // (owner 2026-08-04). Lands on the step by id, so a registry reorder can't
+  // send them somewhere arbitrary; if that step isn't visible for this item
+  // (nothing to choose), fall back to a plain Edit rather than a dead tap.
+  const handleChangePackage = (itemId: string, category: "adult" | "junior") => {
+    const item = session.items.find((i) => i.id === itemId);
+    if (!item) return;
+    const visible = KIOSK_STEP_REGISTRY[item.kind].filter((s) => s.isVisible(item, session));
+    const index = visible.findIndex((s) => s.id === `race-pay-mode-${category}`);
+    setCartActive(false);
+    setCheckoutActive(false);
+    dispatch({ type: "setActiveItem", id: itemId });
+    if (index >= 0) dispatch({ type: "goto", index });
+  };
+
   // Drop a premium package (Rookie Pack / Ultimate Qualifier) from the CART and
   // keep the booking. The product step has the same control on its selected
   // card; the cart needs its own because a guest who has already left the wizard
@@ -1728,6 +1744,7 @@ export function KioskFlow({
             dispatch({ type: "updateItem", id, patch: { creditPacks } as Partial<SessionItem> })
           }
           onRemovePackage={(id, category) => void handleRemovePackage(id, category)}
+          onChangePackage={handleChangePackage}
           onReviewAndPay={() => {
             // Upsell page (owner 2026-07-21): between Review & Pay and the pay
             // screen — BOWLING carts only for now (owner: "they need bowling
@@ -1830,6 +1847,7 @@ export function KioskFlow({
             dispatch({ type: "updateItem", id, patch: { creditPacks } as Partial<SessionItem> })
           }
           onRemovePackage={(id, category) => void handleRemovePackage(id, category)}
+          onChangePackage={handleChangePackage}
         />
       </div>,
     );

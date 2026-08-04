@@ -84,6 +84,9 @@ export interface CartViewProps {
   onUpdateRacePacks?: (itemId: string, creditPacks: KioskPackSelection[] | undefined) => void;
   /** KIOSK: drop a premium package off a race item, keeping the booking. */
   onRemovePackage?: (itemId: string, category: "adult" | "junior") => void;
+  /** KIOSK: reopen the package screen for this item/category so the guest can
+   *  swap bundles instead of removing one and rebuilding. */
+  onChangePackage?: (itemId: string, category: "adult" | "junior") => void;
 }
 
 export function CartView({
@@ -99,6 +102,7 @@ export function CartView({
   onRemoveGameCards,
   onUpdateRacePacks,
   onRemovePackage,
+  onChangePackage,
 }: CartViewProps) {
   // Back-to-landing prefers the validated `appliedPromo.code` (set when the
   // code resolved + matched scope), falls back to the raw `?code=` from
@@ -167,6 +171,7 @@ export function CartView({
                 onRemoveHeat={onRemoveHeat}
                 onUpdateRacePacks={onUpdateRacePacks}
                 onRemovePackage={onRemovePackage}
+                onChangePackage={onChangePackage}
               />
             ))}
         </ul>
@@ -408,6 +413,7 @@ export function CartItemCard({
   onRemoveHeat,
   onUpdateRacePacks,
   onRemovePackage,
+  onChangePackage,
 }: {
   item: SessionItem;
   session: BookingSession;
@@ -416,6 +422,7 @@ export function CartItemCard({
   onRemoveHeat?: (itemId: string, productId: string, heatId: string) => void;
   onUpdateRacePacks?: (itemId: string, creditPacks: KioskPackSelection[] | undefined) => void;
   onRemovePackage?: (itemId: string, category: "adult" | "junior") => void;
+  onChangePackage?: (itemId: string, category: "adult" | "junior") => void;
 }) {
   if (item.kind === "race") {
     return (
@@ -427,6 +434,7 @@ export function CartItemCard({
         onRemoveHeat={onRemoveHeat}
         onUpdateRacePacks={onUpdateRacePacks}
         onRemovePackage={onRemovePackage}
+        onChangePackage={onChangePackage}
       />
     );
   }
@@ -485,6 +493,7 @@ function RaceCartCard({
   onRemoveHeat,
   onUpdateRacePacks,
   onRemovePackage,
+  onChangePackage,
 }: {
   item: RaceItem;
   session: BookingSession;
@@ -497,6 +506,7 @@ function RaceCartCard({
    *  deletes the whole race. Web hosts don't pass it (their guests can walk back
    *  to the product step freely). */
   onRemovePackage?: (itemId: string, category: "adult" | "junior") => void;
+  onChangePackage?: (itemId: string, category: "adult" | "junior") => void;
 }) {
   const t = useT();
   // Per-category packages (adult/junior variants are separate ids); `pkg` is
@@ -659,15 +669,30 @@ function RaceCartCard({
                   ? `${catPkg.name} (${cat === "adult" ? "Adult" : "Junior"})`
                   : catPkg.name;
               return (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => onRemovePackage(item.id, cat)}
-                  className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-[11px] font-semibold text-white/60 transition-colors hover:border-red-400/40 hover:text-red-300"
-                >
-                  <span aria-hidden>✕</span>
-                  {t("racePackage.remove", { name: label })}
-                </button>
+                <div key={cat} className="mt-2 flex items-stretch gap-2">
+                  {/* Change first: swapping bundles is the common intent, and
+                      removing to rebuild was the only way to do it (owner
+                      2026-08-04). It reopens the package screen for THIS
+                      category with the current pick still selected. */}
+                  {onChangePackage && (
+                    <button
+                      type="button"
+                      onClick={() => onChangePackage(item.id, cat)}
+                      className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[#00E2E5]/40 px-3 py-2 text-[11px] font-semibold text-[#00E2E5] transition-colors hover:bg-[#00E2E5]/10"
+                    >
+                      {t("racePackage.change")}
+                      <span aria-hidden>›</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onRemovePackage(item.id, cat)}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-[11px] font-semibold text-white/60 transition-colors hover:border-red-400/40 hover:text-red-300"
+                  >
+                    <span aria-hidden>✕</span>
+                    {t("racePackage.remove", { name: label })}
+                  </button>
+                </div>
               );
             })}
         </div>

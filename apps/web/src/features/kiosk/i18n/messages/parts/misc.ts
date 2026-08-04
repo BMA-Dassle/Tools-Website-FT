@@ -159,6 +159,7 @@ export const miscEn = {
   // Qualifier"), suffixed with Adult/Junior only when BOTH variants are on the
   // order. Product nouns stay English per the glossary.
   "racePackage.remove": "Remove {name}",
+  "racePackage.change": "Change",
 } as const;
 
 export const miscEs: Record<keyof typeof miscEn, string> = {
@@ -296,4 +297,5 @@ export const miscEs: Record<keyof typeof miscEn, string> = {
 
   // --- Quitar un paquete premium (RaceProductStep + carrito del kiosco) ---
   "racePackage.remove": "Quitar {name}",
+  "racePackage.change": "Cambiar",
 };
