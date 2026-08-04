@@ -66,12 +66,18 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // SMS-Timing member QR — {"memberCode": "<guid>", "memberClientKey"?: "…"}.
+  // SMS-Timing member QR — {"memberCode": "<code>", "memberClientKey"?: "…"}.
   // The code is the member's own secret (their app's QR) — same trust class
   // as the login-code path; a foreign clientKey yields no matches.
+  //
+  // The code is a BMI `person.tags[]` entry and comes in two shapes: the
+  // 36-char UUID the app emits, and the 6–32-char typed login code. Both are
+  // real tags, both resolve uniquely and forever. Kept alphanumeric-only so a
+  // `LastName M/D/YYYY` token can never turn this unauthenticated route into a
+  // person-search oracle. Mirrors CODE_RE in qr-scanner/member-qr.ts.
   const memberCode = String(body.memberCode ?? "").trim();
   if (memberCode) {
-    if (!/^[0-9a-f][0-9a-f-]{15,63}$/i.test(memberCode)) {
+    if (!/^(?:[0-9a-f][0-9a-f-]{15,63}|[A-Za-z0-9]{6,32})$/i.test(memberCode)) {
       return NextResponse.json<LicenseLookupResponse>(
         { ok: false, error: "Invalid member code" },
         { status: 400 },

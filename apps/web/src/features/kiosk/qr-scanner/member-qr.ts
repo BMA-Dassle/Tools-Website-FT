@@ -19,8 +19,24 @@ export interface MemberQr {
 }
 
 const HOST_RE = /^https?:\/\/smstim\.in\/?\?(.+)$/i;
-/** Codes observed are UUIDs; accept close variants, reject junk/injection. */
-const CODE_RE = /^[0-9a-f][0-9a-f-]{15,63}$/i;
+/**
+ * TWO code shapes ride this same wrapper, and both are real BMI tags:
+ *
+ *   36-char UUID  what the SMS-Timing APP emits (`3f59bc35-0548-…`)
+ *   6–32 alnum    the typed login code (`mgrm2g8o42wxc`, `973273`)
+ *
+ * Accepting only the UUID was wrong: a `person.tags[]` entry is a tag whatever
+ * its shape, and every one of them resolves uniquely and forever through
+ * `search/person?token=` (measured across 20 racers 2026-08-04 — tags come in
+ * 6, 13 and 36-char shapes, so nothing can key off length).
+ *
+ * Still deliberately narrow. The code becomes an Office search TOKEN, and that
+ * search answers other token shapes too — a `LastName M/D/YYYY` token finds
+ * people by name and birthday — so alphanumeric-only is what keeps this from
+ * being a person-search oracle on an unauthenticated kiosk route. It also
+ * excludes the slashes and spaces that make the upstream 500 under undici.
+ */
+const CODE_RE = /^(?:[0-9a-f][0-9a-f-]{15,63}|[A-Za-z0-9]{6,32})$/i;
 const KEY_RE = /^[a-z0-9_-]{3,40}$/i;
 
 /** Parse one scan payload; null = not an SMS-Timing member QR. */
