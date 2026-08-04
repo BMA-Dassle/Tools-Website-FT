@@ -15,6 +15,18 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.14.0 — RACERS SIGN IN BY SCANNING, FROM THE ENTRY SCREENS. A racing licence
+ *         (our `/r/{code}` wallet barcode) or the SMS-Timing app's personal QR
+ *         now works on the attract screen and the category chooser/shelves, not
+ *         just deep inside the people step. The scan resolves to a PERSON, so
+ *         it has two destinations and the server picks: a racer with a booking
+ *         here today goes straight into check-in with no OTP (possession of the
+ *         code is the identity — the bar the people-step sign-in already used),
+ *         and a racer with nothing booked has their identity carried into the
+ *         flow so the people step signs them in without a second scan.
+ *         Both handles are URLs on purpose: a bare 13-char login code is
+ *         indistinguishable from a reservation short code and from a promo, so
+ *         it deliberately gets NO verdict.
  * 1.13.4 — a PREMIUM PACKAGE CAN BE TAKEN OFF AGAIN (owner report 2026-08-03:
  *         "users have no way of removing rookie pack"). Tapping Rookie Pack (or
  *         the Ultimate Qualifier) was one-way: the card auto-advances to the heat
@@ -543,7 +555,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.13.4";
+export const KIOSK_VERSION = "1.14.0";
 
 let bootVersion: string | null = null;
 let captured = false;

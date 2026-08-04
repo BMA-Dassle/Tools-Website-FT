@@ -53,11 +53,13 @@ import { useMobileJoin } from "../hooks/useMobileJoin";
 import { useLicenseScan, type AamvaLicense, type MemberQr } from "../qr-scanner";
 import {
   fetchLicenseMatches,
-  fetchMemberMatches,
   fetchNameDobMatches,
+  fetchRacerMatches,
   personDataFromMatch,
   prewarmLicenseLookup,
 } from "../license/lookup-client";
+import { racerHandleFromRaw, type RacerHandle } from "../entry-scan/classify-entry";
+import { consumeEntryScan } from "../entry-scan/handoff";
 import { matchGateKey, matchGateVerdict } from "../license/match-gate";
 import type { LicenseMatch } from "../license/types";
 import { LicenseMatchPicker } from "../components/LicenseMatchPicker";
@@ -1445,15 +1447,16 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     void runLicenseLookup(lic);
   };
 
-  /** SMS-Timing member QR (the app's personal QR) — straight to lookup: the
-   *  code IS the identity, so there's no form-prefill fallback (we know no
-   *  name); a miss just points the guest at the normal sign-in. */
-  const runMemberLookup = async (qr: MemberQr) => {
+  /** A racer code — the SMS-Timing app QR, or a BMI login code off our
+   *  `/r/{code}` wallet-licence barcode. Straight to lookup: the code IS the
+   *  identity, so there's no form-prefill fallback (we know no name); a miss
+   *  just points the guest at the normal sign-in. */
+  const runMemberLookup = async (handle: RacerHandle) => {
     setLicenseBusy(true);
     setScanNote(null);
     setLookupOpen(false);
     try {
-      const matches = await fetchMemberMatches(qr);
+      const matches = await fetchRacerMatches(handle);
       if (matches === null) {
         setScanNote(t("peopleUi.scan.codeCheckFailed"));
       } else if (matches.length === 0) {
@@ -1480,6 +1483,26 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
     onLicense: handleLicense,
     onMemberQr: handleMemberQr,
   });
+
+  // A racer who scanned back on an ENTRY screen and had nothing booked. The
+  // hand-off rode sessionStorage to here (KioskFlow deliberately leaves the
+  // `racer` target alone), so they get signed in without scanning again —
+  // through the very same lookup a live scan uses.
+  //
+  // Ref-guarded rather than dependency-guarded: `consumeEntryScan` clears as it
+  // reads, so a StrictMode double-mount must not race it, and the read is
+  // deferred a microtask to keep the effect body setState-free (hooks-lint).
+  const racerHandoffRef = useRef(false);
+  useEffect(() => {
+    if (racerHandoffRef.current) return;
+    racerHandoffRef.current = true;
+    const handoff = consumeEntryScan("racer");
+    if (!handoff) return;
+    const handle = racerHandleFromRaw(handoff.raw);
+    if (handle) void Promise.resolve().then(() => runMemberLookup(handle));
+    // runMemberLookup is redefined every render; the ref guard is the real gate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Absorb the Office/Pandora cold start BEFORE anyone scans or types (one
   // shot per mount) — the search-before-create gate runs the same lookup on

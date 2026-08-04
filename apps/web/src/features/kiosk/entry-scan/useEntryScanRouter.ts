@@ -9,19 +9,27 @@
  * The host supplies three `go*` callbacks; this hook owns classification, the
  * one conditional lookup, flag gating, and the toast.
  *
- * HOW MANY ROUND TRIPS. Three of the four routable outcomes need ZERO network:
- * a game card, a BMI voucher, and a structurally-certain reservation handle
- * (signed URL, /s link, W-number) all go straight to their screen. A certain
- * reservation deliberately does NOT pre-resolve — the check-in flow runs the
- * same lookup on arrival and already has proper copy for every failure
- * (not found / cancelled / needs OTP) plus the phone and browse fallbacks, so
- * pre-flighting it here would only add latency and duplicate that copy.
+ * HOW MANY ROUND TRIPS. Most routable outcomes need ZERO network: a game card,
+ * a BMI voucher, and a structurally-certain reservation handle (signed URL, /s
+ * link, W-number) all go straight to their screen. A certain reservation
+ * deliberately does NOT pre-resolve — the check-in flow runs the same lookup on
+ * arrival and already has proper copy for every failure (not found / cancelled
+ * / needs OTP) plus the phone and browse fallbacks, so pre-flighting it here
+ * would only add latency and duplicate that copy.
  *
- * The single lookup is for `resolve-then-code-entry`: an `HPW` voucher (does it
- * carry a `bill_id`?) or a bare 6–16-char token (reservation short code, or a
- * coupon that merely looks like one). `ok === true` from the lookup means it IS
- * a reservation — including `reason: "needs-otp"`, which is an unproven-but-real
- * booking — so that is the whole test.
+ * TWO outcomes must spend a lookup, both for the same reason — the payload's
+ * DESTINATION is a database fact, not a code shape:
+ *
+ *   resolve-then-code-entry  an `HPW` voucher (does it carry a `bill_id`?) or a
+ *                            bare 6–16-char token (reservation short code, or a
+ *                            coupon that merely looks like one). `ok === true`
+ *                            means it IS a reservation — including
+ *                            `reason: "needs-otp"`, an unproven-but-real
+ *                            booking — so that is the whole test.
+ *   racer                    a licence/member code identifies a PERSON. Whether
+ *                            that person has a booking here today decides
+ *                            between check-in and sign-in, and only the server
+ *                            knows.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { classifyEntryScan, type UnsupportedReason } from "./classify-entry";
@@ -31,13 +39,17 @@ import { gameZoneCapability, type KioskConfig } from "../config";
 import { kioskCheckinEnabled, kioskPromoEnabled } from "../flags";
 import { voucherRedeemEnabled } from "~/features/booking/service/voucher-redeem";
 
-/** Why the scan produced nothing — picks the toast copy. */
+/** What the toast says — every outcome that does NOT change the screen, since
+ *  a screen change is its own feedback. Mostly misses; one success. */
 export type EntryScanMiss =
   | UnsupportedReason
   /** Recognised, but its destination is turned off on this kiosk. */
   | "no-destination"
   /** The lookup was rate-limited; the guest should just try again. */
-  | "try-again";
+  | "try-again"
+  /** A racer scanned on the chooser itself: their identity is stashed for the
+   *  people step, but they are already looking at the screen they need. */
+  | "racer-signed-in";
 
 export interface EntryScanRouterHost {
   config: KioskConfig | null;
@@ -55,6 +67,10 @@ export interface EntryScanRouterHost {
   goCodeEntry: () => void;
   /** Open Game Zone (the payload is already stashed). */
   goGameCard: () => void;
+  /** A racer identified themselves but has no booking here today — open the
+   *  activity flow so the people step can sign them in with the stashed code.
+   *  Omit on hosts that have nowhere to send them; the scan then just toasts. */
+  goRacerSignIn?: () => void;
 }
 
 export function useEntryScanRouter(host: EntryScanRouterHost) {
@@ -118,6 +134,42 @@ export function useEntryScanRouter(host: EntryScanRouterHost) {
           if (!checkinOn) return setMiss("no-destination");
           toCheckin();
           return;
+
+        case "racer": {
+          // A licence/member code resolves to a PERSON, so it has two possible
+          // destinations and only the server can pick: check-in if they have a
+          // booking here today, sign-in if they don't. `no-reservation` is the
+          // second case — we know exactly who they are and they simply have
+          // nothing booked, which is not a failure.
+          //
+          // With check-in switched off there is only one destination, so skip
+          // the round trip and let the people step be the authority on whether
+          // the code is real (it has its own copy for a code that resolves to
+          // nobody). That is also why the sign-in toast below stays neutral.
+          setBusy(true);
+          const center = h.config?.center ?? "";
+          const res =
+            checkinOn && center
+              ? await lookupByScan(center, route.raw)
+              : { ok: false as const, reason: "no-reservation" as const };
+          setBusy(false);
+
+          if (res.ok) return toCheckin();
+          // A cancelled booking IS theirs — check-in says so plainly.
+          if (res.reason === "cancelled") return toCheckin();
+          if (res.reason === "rate-limited") return setMiss("try-again");
+          if (res.reason !== "no-reservation") return setMiss("unknown");
+
+          // Known racer, nothing booked → carry the identity into the flow so
+          // the people step signs them in without a second scan.
+          stashEntryScan({ target: "racer", raw: route.raw, value: route.value });
+          if (h.goRacerSignIn) h.goRacerSignIn();
+          // No `goRacerSignIn` means the host IS the activity chooser, so there
+          // is nothing to navigate to and the screen change can't be the
+          // feedback — the toast has to be.
+          else setMiss("racer-signed-in");
+          return;
+        }
 
         case "resolve-then-code-entry": {
           // Both possible destinations are off — don't spend a lookup.

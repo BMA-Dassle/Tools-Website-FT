@@ -59,11 +59,32 @@ export async function fetchLicenseMatches(
 /** SMS-Timing member QR (the app's personal QR) → the member's account(s).
  *  Same return contract as fetchLicenseMatches. */
 export async function fetchMemberMatches(qr: MemberQr): Promise<LicenseMatch[] | null> {
+  return fetchRacerMatches({ code: qr.code, clientKey: qr.clientKey });
+}
+
+/**
+ * Any racer handle → the racer's account(s). Covers BOTH the SMS-Timing app QR
+ * (a UUID, with the clientKey it was issued under) and a bare BMI login code
+ * off our `/r/{code}` wallet-licence barcode.
+ *
+ * The two go on DIFFERENT request fields because the server guards their
+ * shapes separately — a login code fails the member-QR guard on length and on
+ * hex-ness, and loosening that guard to fit would widen the QR surface too.
+ * Only a QR has a clientKey, and that is exactly what tells them apart here.
+ */
+export async function fetchRacerMatches(handle: {
+  code: string;
+  clientKey?: string;
+}): Promise<LicenseMatch[] | null> {
   try {
     const res = await fetch("/api/kiosk/license-lookup", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ memberCode: qr.code, memberClientKey: qr.clientKey }),
+      body: JSON.stringify(
+        handle.clientKey
+          ? { memberCode: handle.code, memberClientKey: handle.clientKey }
+          : { loginCode: handle.code },
+      ),
     });
     if (!res.ok) return null;
     const data = (await res.json()) as { ok?: boolean; matches?: LicenseMatch[] };

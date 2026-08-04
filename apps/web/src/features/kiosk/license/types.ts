@@ -5,6 +5,23 @@
  */
 
 /**
+ * A BMI login code as accepted from a scan or a wallet-licence barcode —
+ * `person.tags[].tag` on the Office record (e.g. `3tn4d694p6z94`).
+ *
+ * DELIBERATELY NARROW. The code is handed straight to the Office token search,
+ * which will happily answer other token shapes too (`LastName M/D/YYYY` finds
+ * people by name and birthday), so an unbounded field here would be a general
+ * person-search oracle on an unauthenticated kiosk route. Alphanumeric-only
+ * also keeps out the slashes and spaces that make that upstream 500 under
+ * undici (see lookup.server.ts) and anything URL-significant.
+ *
+ * Length is bounded, not pinned: BMI mints these and we have only ever
+ * observed 13 characters. Widen it if a real code arrives that this rejects —
+ * do not widen the character class.
+ */
+export const RACER_LOGIN_CODE_RE = /^[A-Za-z0-9]{6,32}$/;
+
+/**
  * One matched account. Mirrors ReturningRacerLookup's FoundAccount (so the
  * existing AccountCard renders it structurally) plus the contact + waiver
  * status the lookup's Pandora probe already established.

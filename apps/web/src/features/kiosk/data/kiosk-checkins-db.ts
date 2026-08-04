@@ -15,7 +15,11 @@
  */
 import { sql, isDbConfigured } from "@/lib/db";
 
-export type VerifiedVia = "code" | "qr" | "otp" | "browse-otp" | "test-bypass";
+/** How the guest proved the reservation was theirs. Stored as plain TEXT (no
+ *  CHECK constraint), so adding a value needs no migration — but keep it in
+ *  lockstep with `CheckinVerifiedVia` in ../checkin/types.ts, which is the
+ *  wire-side twin and where each value is explained. */
+export type VerifiedVia = "code" | "qr" | "otp" | "browse-otp" | "test-bypass" | "racer";
 export type BmiStateStatus = "pending" | "set" | "failed";
 export type PersonAttachStatus = "pending" | "attached" | "failed" | "skipped";
 export type ScheduleStatus = "pending" | "inserted" | "already_linked" | "failed" | "n/a";

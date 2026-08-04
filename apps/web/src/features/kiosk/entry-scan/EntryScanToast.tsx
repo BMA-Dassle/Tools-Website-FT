@@ -30,6 +30,7 @@ const COPY: Record<EntryScanMiss, MessageKey> = {
   unknown: "entryscan.unknown",
   "no-destination": "entryscan.noDestination",
   "try-again": "entryscan.tryAgain",
+  "racer-signed-in": "entryscan.racerSignedIn",
 };
 
 export function EntryScanToast(props: {

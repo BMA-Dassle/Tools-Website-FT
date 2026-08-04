@@ -639,7 +639,10 @@ export function KioskFlow({
   // body stays setState-free (hooks-lint) — same shape as the ?goto= seeding.
   const [entryScanHandoff, setEntryScanHandoff] = useState<EntryScanHandoff | null>(null);
   useEffect(() => {
-    const handoff = consumeEntryScan();
+    // ONLY the two targets this component owns. A `racer` hand-off is addressed
+    // to the people step, which mounts several taps later — an untargeted read
+    // here would consume and discard it before the guest ever picks an activity.
+    const handoff = consumeEntryScan("code-entry", "game-card");
     if (handoff) void Promise.resolve().then(() => setEntryScanHandoff(handoff));
   }, []);
 

@@ -10,8 +10,16 @@
 
 /** How the guest proved this reservation is theirs. `test-bypass` is the
  *  kiosk-99 OTP skip (server env allowlist) — recorded honestly so a bypassed
- *  check-in is never mistaken for a proven one in the events table. */
-export type CheckinVerifiedVia = "code" | "qr" | "otp" | "browse-otp" | "test-bypass";
+ *  check-in is never mistaken for a proven one in the events table.
+ *
+ *  `racer` is a scanned racing licence / SMS-Timing member QR: the code is the
+ *  member's own secret, so possession of it is the identity (owner decision
+ *  2026-07-23/24, the same bar the people-step sign-in already applies). It is
+ *  its own value rather than reusing `qr` because the proof is INDIRECT — the
+ *  code proves who the guest is, and the booking is then found by their
+ *  contact details, which is a weaker link than a scanned reservation handle
+ *  and should be distinguishable in the events table. */
+export type CheckinVerifiedVia = "code" | "qr" | "otp" | "browse-otp" | "test-bypass" | "racer";
 
 /** One "today at this center" browse row — deliberately PII-lean. */
 export interface CheckinBrowseRow {
@@ -63,7 +71,16 @@ export interface CheckinLookupResponse {
   /** Browse rows (browse:true) — unproven; open via send-otp → confirm-otp. */
   rows?: CheckinBrowseRow[];
   error?: string;
-  reason?: "not-found" | "cancelled" | "needs-otp" | "invalid" | "rate-limited";
+  reason?:
+    | "not-found"
+    | "cancelled"
+    | "needs-otp"
+    | "invalid"
+    | "rate-limited"
+    /** A racer scan resolved to a real person who has NO booking here today.
+     *  Distinct from `not-found` because it is not a failure: the caller sends
+     *  them to sign-in instead of showing "we couldn't find that". */
+    | "no-reservation";
 }
 
 /** POST /api/kiosk/checkin/lookup?action=send-otp — text the booking contact.

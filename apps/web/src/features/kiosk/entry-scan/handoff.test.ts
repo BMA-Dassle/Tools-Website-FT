@@ -43,6 +43,22 @@ describe("entry-scan handoff", () => {
     expect(consumeEntryScan("game-card")).toMatchObject({ target: "game-card" });
   });
 
+  it("takes the payload when ANY of the named targets matches", () => {
+    stashEntryScan({ target: "game-card", raw: "1063464", value: "1063464" });
+    // KioskFlow owns two destinations and names both in one read.
+    expect(consumeEntryScan("code-entry", "game-card")).toMatchObject({ target: "game-card" });
+  });
+
+  it("lets a racer hand-off pass THROUGH KioskFlow to the people step", () => {
+    // The load-bearing case for entry-screen racer sign-in: the scan is stashed
+    // on the chooser, KioskFlow mounts and reads first, and the people step
+    // mounts several taps later. If KioskFlow's read cleared it, the racer
+    // would silently have to scan again.
+    stashEntryScan({ target: "racer", raw: "https://headpinz.com/r/3tn4d694p6z94", value: "x" });
+    expect(consumeEntryScan("code-entry", "game-card")).toBeNull();
+    expect(consumeEntryScan("racer")).toMatchObject({ target: "racer" });
+  });
+
   it("returns null when nothing is stashed", () => {
     expect(consumeEntryScan()).toBeNull();
   });

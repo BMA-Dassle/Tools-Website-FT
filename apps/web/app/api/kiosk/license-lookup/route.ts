@@ -5,7 +5,7 @@ import {
   lookupMemberMatches,
   warmLicenseLookup,
 } from "~/features/kiosk/license/lookup.server";
-import type { LicenseMatch } from "~/features/kiosk/license/types";
+import { RACER_LOGIN_CODE_RE, type LicenseMatch } from "~/features/kiosk/license/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -69,9 +69,22 @@ export async function POST(req: NextRequest) {
   // SMS-Timing member QR — {"memberCode": "<guid>", "memberClientKey"?: "…"}.
   // The code is the member's own secret (their app's QR) — same trust class
   // as the login-code path; a foreign clientKey yields no matches.
+  //
+  // A BMI LOGIN CODE COMES IN ON ITS OWN FIELD (`loginCode`), not this one.
+  // The guard below is UUID-shaped because that is what SMS-Timing's app
+  // emits, and a login code (`3tn4d694p6z94`) fails it on both counts — 13
+  // chars where it wants ≥16, and `t`/`n`/`p`/`z` where it wants hex. Widening
+  // it to fit would silently widen the member-QR surface too; the two codes
+  // are different secrets from different places, so they get different guards
+  // and land on the same shape-agnostic lookup.
   const memberCode = String(body.memberCode ?? "").trim();
-  if (memberCode) {
-    if (!/^[0-9a-f][0-9a-f-]{15,63}$/i.test(memberCode)) {
+  const loginCode = String(body.loginCode ?? "").trim();
+  const racerCode = memberCode || loginCode;
+  if (racerCode) {
+    const shapeOk = memberCode
+      ? /^[0-9a-f][0-9a-f-]{15,63}$/i.test(memberCode)
+      : RACER_LOGIN_CODE_RE.test(loginCode);
+    if (!shapeOk) {
       return NextResponse.json<LicenseLookupResponse>(
         { ok: false, error: "Invalid member code" },
         { status: 400 },
@@ -79,14 +92,22 @@ export async function POST(req: NextRequest) {
     }
     try {
       const matches = await lookupMemberMatches(
-        memberCode,
+        racerCode,
         String(body.memberClientKey ?? "").trim() || undefined,
       );
-      console.log(`[license-lookup] member-qr ${matches.length} match(es)`); // no PII
+      const via = memberCode ? "member-qr" : "login-code";
+      console.log(`[license-lookup] ${via} ${matches.length} match(es)`); // no PII
+      // An EMPTY result is ambiguous upstream: the Office person subsystem
+      // answers `[]` — not an error — for every token while it is down (four
+      // hours of it on 2026-08-03), so a real racer reads as "no account".
+      // Say so in the log; the guest-facing copy can't tell the difference.
+      if (matches.length === 0) {
+        console.warn(`[license-lookup] ${via} resolved nobody — Office search may be degraded`);
+      }
       return NextResponse.json<LicenseLookupResponse>({ ok: true, matches });
     } catch (err) {
       console.warn(
-        `[license-lookup] member-qr failed: ${err instanceof Error ? err.message : String(err)}`,
+        `[license-lookup] racer code failed: ${err instanceof Error ? err.message : String(err)}`,
       );
       return NextResponse.json<LicenseLookupResponse>(
         { ok: false, error: "Lookup unavailable" },
