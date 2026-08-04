@@ -15,6 +15,16 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.16.9 — /api/bmi was ROUNDING every id it forwarded. Found by live-testing
+ *         1.16.8's read-back against the dev server: BMI returned
+ *         orderId 63000000007234468 and the proxy emitted ...460. The GET handler
+ *         did `NextResponse.json(await upstream.json())` — a parse + re-encode,
+ *         exactly what CLAUDE.md's first hard rule forbids. Callers that dig the
+ *         id back out of the body (`extractRawField`, `parseWithRawIds`) were
+ *         pulling a CORRUPTED id out of a response that looked perfectly healthy,
+ *         and the same handler serves `person/*`, where the casualty is a
+ *         personId. Now a byte-for-byte text passthrough (`jsonPassthrough`);
+ *         re-verified live: 63000000007234468 arrives whole.
  * 1.16.8 — the start-over cancel was working all along; the CHECK was broken.
  *         `[race.cancel] bill cancel NOT confirmed after retries` +
  *         `[kiosk] start-over could not confirm hold release` fire on every kiosk
@@ -795,7 +805,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.16.8";
+export const KIOSK_VERSION = "1.16.9";
 
 let bootVersion: string | null = null;
 let captured = false;
