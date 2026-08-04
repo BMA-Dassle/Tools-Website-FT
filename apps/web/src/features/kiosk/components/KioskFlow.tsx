@@ -1374,20 +1374,20 @@ export function KioskFlow({
   // (navigating away mid-payment would be risky, and it's redundant there).
   const mainGuest = session.party.find((m) => m.isBillingCustomer) ?? session.party[0];
   const hasGameCards = !!session.gameCardPurchase?.cards.length;
+  // ONE line, and no cart button (owner 2026-08-04: "don't need cart button up
+  // here and slip this down to one line"). The footer util strip already carries
+  // a Cart pill on every screen, so a second door up here bought nothing and cost
+  // a whole band of the fold. Not a button any more either — it states who is
+  // signed in and what is in the visit, nothing more.
   const sessionBanner =
     (session.party.length > 0 || cartCount > 0 || hasGameCards) &&
     !cartActive &&
     !checkoutActive &&
     !upsellActive ? (
-      <button
-        type="button"
-        onClick={requestOpenCart}
-        disabled={cartCount === 0}
-        className="k-glass k-tap mx-[48px] mt-[12px] flex shrink-0 items-center justify-between gap-[20px] px-[28px] py-[12px] text-left"
-      >
-        <span className="flex min-w-0 items-center gap-[14px] text-[24px] text-white/75">
+      <div className="k-glass mx-[48px] mt-[12px] flex shrink-0 items-center gap-[16px] px-[28px] py-[10px] text-left">
+        <span className="flex min-w-0 flex-1 items-center gap-[14px] text-[22px] text-white/70">
           <span
-            className="h-[14px] w-[14px] shrink-0 rounded-full bg-[#46d68c]"
+            className="h-[12px] w-[12px] shrink-0 rounded-full bg-[#46d68c]"
             aria-hidden="true"
           />
           {mainGuest ? (
@@ -1403,15 +1403,14 @@ export function KioskFlow({
           )}
         </span>
         {(cartCount > 0 || hasGameCards) && (
-          <span className="shrink-0 text-[24px] font-bold text-[#00e2e5]">
+          <span className="shrink-0 truncate text-[22px] text-white/45">
             {[
               ...session.items.map((i) => itemLabel(t, i.kind)),
               ...(hasGameCards ? [t("flow.banner.gameCards")] : []),
-            ].join(" · ")}{" "}
-            · {t("flow.banner.viewCart")}
+            ].join(" · ")}
           </span>
         )}
-      </button>
+      </div>
     ) : null;
 
   // Exit-confirm sheet (owner 2026-07-18: "are you sure" before Start over /

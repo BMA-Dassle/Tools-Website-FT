@@ -1534,10 +1534,6 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
 
   return (
     <div className="space-y-[24px]">
-      <p className="text-[26px] text-white/55">
-        {party.length > 0 ? t("peopleUi.introSignedIn") : t("peopleUi.introAddEveryone")}
-      </p>
-
       {/* Mega Tuesday junior rule (owner 2026-07-21) — the kiosk books TODAY,
           so on Mega days first-time Juniors can't race at all. Racing only. */}
       {isRace && isMegaTuesdayToday() && (
@@ -1556,6 +1552,10 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
           </div>
         </div>
       )}
+
+      <p className="text-[26px] text-white/55">
+        {party.length > 0 ? t("peopleUi.introSignedIn") : t("peopleUi.introAddEveryone")}
+      </p>
 
       {blockReason && (
         <div className="flex items-start gap-[18px] rounded-2xl border-2 border-[#f0b341]/60 bg-[#f0b341]/12 px-[28px] py-[22px]">

@@ -15,6 +15,14 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.16.4 — two more owner notes from the live pass (2026-08-04). The Mega Tuesday
+ *         junior warning moved ABOVE the intro line — a rule that stops a racer
+ *         from booking at all shouldn't sit under a sentence about waivers. And
+ *         the signed-in banner collapsed to ONE line with the cart link removed:
+ *         the footer util strip already carries a Cart pill on every screen, so a
+ *         second door up there cost a band of the fold and bought nothing. It is
+ *         no longer a button — it states who is signed in and what is in the
+ *         visit.
  * 1.16.3 — SIGN-IN decides the licence too, closing the other half of 1.16.0.
  *         `licenseActive` was only written by the mid-session qualification
  *         refresh, so a lapsed returning racer signed in and never refreshed still
@@ -715,7 +723,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.16.3";
+export const KIOSK_VERSION = "1.16.4";
 
 let bootVersion: string | null = null;
 let captured = false;
