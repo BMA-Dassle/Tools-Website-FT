@@ -15,6 +15,19 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.15.1 — attractions stop asking twice, and the review screen says WHO
+ *         (owner 2026-08-04). The kiosk's "Who's playing?" step already writes
+ *         `item.participants` and keeps `item.qty` in sync for waiver-gated
+ *         attractions (gel blaster, laser tag) — then the shared web product step
+ *         asked "how many people?" anyway, so the same question was asked twice
+ *         and the two could disagree. With a roster present the count is now
+ *         SHOWN, not edited ("3 players — Ava · Max · Kenyon"); duckpin and web
+ *         have no roster and keep their stepper.
+ *         The cart / review card showed a bare head count for an attraction, so
+ *         it could not answer "who's on it" — it now lists the names.
+ *         Wizard step bodies float VERTICALLY CENTRED until they outgrow the body
+ *         (`justify-content: safe center`, the rule the cart already used): short
+ *         steps sit in the reach band, tall ones top-align and scroll as before.
  * 1.15.0 — THE QUALIFICATION LADDER IS VISIBLE, and page 1 stops naming a race
  *         the guest hasn't chosen (owner 2026-08-04).
  *         Race screen: every rung now renders in ladder order. A tier the party
@@ -657,7 +670,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.15.0";
+export const KIOSK_VERSION = "1.15.1";
 
 let bootVersion: string | null = null;
 let captured = false;

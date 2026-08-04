@@ -834,6 +834,13 @@ function AttractionCartCard({
 }) {
   const config = item.slug ? ATTRACTIONS[item.slug] : null;
   const isPerPerson = config?.bookingMode === "per-person";
+  // WHO is on this attraction. The kiosk collects a roster for waiver-gated
+  // attractions (item.participants) but the card only ever showed a head count,
+  // so the review screen couldn't answer "who's on it" (owner 2026-08-04).
+  const participantNames = (item.participants ?? [])
+    .map((id) => session.party.find((m) => m.id === id)?.firstName)
+    .filter(Boolean)
+    .join(" · ");
 
   const product = config?.products.find((p) => p.productId === item.productId);
   const title = product?.name ?? findOffering(item.slug ?? "")?.displayName ?? "Attraction";
@@ -865,10 +872,16 @@ function AttractionCartCard({
             {dateLabel && <span>{dateLabel}</span>}
             {dateLabel && timeLabel && <span className="text-white/20">·</span>}
             {timeLabel && <span>{timeLabel}</span>}
-            {isPerPerson && item.qty > 1 && (
+            {isPerPerson && item.qty > 1 && !participantNames && (
               <>
                 <span className="text-white/20">·</span>
                 <span>{item.qty} people</span>
+              </>
+            )}
+            {participantNames && (
+              <>
+                <span className="text-white/20">·</span>
+                <span className="text-white/75">{participantNames}</span>
               </>
             )}
           </div>

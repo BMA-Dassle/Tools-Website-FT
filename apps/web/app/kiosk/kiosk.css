@@ -857,13 +857,19 @@
    vertically in the reach band. `safe` centering falls back to top-align + scroll
    when the content is taller than the body, so a long cart never clips its top.
    align-items:center keeps the mx-auto max-w-* cards centered horizontally. */
-.kiosk-canvas .k-flow-body.kiosk-zoom {
+.kiosk-canvas .k-flow-body.kiosk-zoom,
+/* Wizard steps get the same treatment (owner 2026-08-04: "should this stuff
+   float in middle unless it gets too big?"). `safe center` IS that rule: centred
+   while it fits, top-aligned + scrolling the moment it doesn't — so a short step
+   sits in the reach band and a tall one never clips its own heading. */
+.kiosk-canvas .k-flow-body.kiosk-step-content {
   display: flex;
   flex-direction: column;
   justify-content: safe center;
 }
 /* Children stay full-width (their own mx-auto max-w-* keeps the card centered
    exactly as in the prior block layout — only the VERTICAL position changes). */
-.kiosk-canvas .k-flow-body.kiosk-zoom > * {
+.kiosk-canvas .k-flow-body.kiosk-zoom > *,
+.kiosk-canvas .k-flow-body.kiosk-step-content > * {
   width: 100%;
 }
