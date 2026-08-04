@@ -24,14 +24,23 @@ import {
   LOOKBACK_HOURS,
   refundAlertsChatId,
   reservationsBoardUrl,
+  webSalesBoardUrl,
 } from "./config";
 import {
+  findExternalDealRefunds,
   findExternalRefunds,
+  type DealPurchaseLite,
+  type ExternalDealRefund,
   type ExternalRefund,
   type RefundLite,
   type ReservationLite,
 } from "./detect";
-import { buildRefundAlertCard, refundAlertSummaryText } from "./teams-card";
+import {
+  buildDealRefundAlertCard,
+  buildRefundAlertCard,
+  dealRefundSummaryText,
+  refundAlertSummaryText,
+} from "./teams-card";
 
 const SQUARE_BASE = "https://connect.squareup.com/v2";
 const SQUARE_VERSION = "2024-12-18";
@@ -187,6 +196,43 @@ async function recordedCascadeRefundIds(): Promise<Set<string>> {
   return out;
 }
 
+/**
+ * Deal-pack purchases behind these payment ids.
+ *
+ * The other half of closing the monitoring hole: without this lookup a deal
+ * payment matches no subject and `findExternalDealRefunds` has nothing to work
+ * with, so a Dashboard refund on a voucher pack stays invisible.
+ */
+async function dealPurchasesByPaymentIds(
+  paymentIds: string[],
+): Promise<Map<string, DealPurchaseLite>> {
+  const map = new Map<string, DealPurchaseLite>();
+  if (!paymentIds.length || !process.env.DATABASE_URL) return map;
+  try {
+    const q = sql();
+    const rows = (await q`
+      SELECT id, buyer_name, buyer_email, deal_slug, total_cents,
+             COALESCE(refunded_cents, 0) AS refunded_cents, square_payment_id
+      FROM deal_purchases
+      WHERE square_payment_id = ANY(${paymentIds})
+    `) as Array<Record<string, unknown>>;
+    for (const r of rows) {
+      map.set(String(r.square_payment_id), {
+        id: Number(r.id),
+        buyerName: (r.buyer_name as string | null) ?? null,
+        buyerEmail: (r.buyer_email as string | null) ?? null,
+        dealSlug: String(r.deal_slug),
+        totalCents: Number(r.total_cents ?? 0),
+        refundedCents: Number(r.refunded_cents ?? 0),
+      });
+    }
+  } catch (err) {
+    // Fresh env without the table, or without the refund columns yet.
+    console.warn("[refund-alerts] deal-purchases read failed:", err);
+  }
+  return map;
+}
+
 /** Best-effort "who did it" lookup for Dashboard/POS refunds. */
 async function teamMemberNames(entries: ExternalRefund[]): Promise<Map<string, string>> {
   const names = new Map<string, string>();
@@ -243,6 +289,14 @@ export interface RunResult {
     amountCents: number;
     reason: string | null;
   }>;
+  /** Deal-pack refunds nobody in this system issued. */
+  dealViolations: Array<{
+    refundId: string;
+    purchaseId: number;
+    buyer: string | null;
+    amountCents: number;
+    reason: string | null;
+  }>;
   sent: boolean;
   skippedDedup: number;
   dryRun: boolean;
@@ -255,6 +309,7 @@ export async function runRefundAlerts(opts?: { dryRun?: boolean }): Promise<RunR
     refundsScanned: 0,
     matchedReservations: 0,
     violations: [],
+    dealViolations: [],
     sent: false,
     skippedDedup: 0,
     dryRun,
@@ -265,13 +320,28 @@ export async function runRefundAlerts(opts?: { dryRun?: boolean }): Promise<RunR
   result.refundsScanned = refunds.length;
   if (!refunds.length) return result;
 
-  const byPayment = await reservationsByPaymentIds([
-    ...new Set(refunds.map((r) => r.paymentId).filter(Boolean)),
+  const paymentIds = [...new Set(refunds.map((r) => r.paymentId).filter(Boolean))];
+  // Both lookups run REGARDLESS of the other finding anything. The previous
+  // early-return on an empty reservation match would have skipped deal detection
+  // entirely — and a day with deal refunds but no reservation refunds is exactly
+  // when that matters.
+  const [byPayment, dealsByPayment] = await Promise.all([
+    reservationsByPaymentIds(paymentIds),
+    dealPurchasesByPaymentIds(paymentIds),
   ]);
   result.matchedReservations = byPayment.size;
-  if (!byPayment.size) return result;
+  if (!byPayment.size && !dealsByPayment.size) return result;
 
   const recorded = await recordedCascadeRefundIds();
+  const externalDeals = findExternalDealRefunds(refunds, dealsByPayment, recorded);
+  result.dealViolations = externalDeals.map((e) => ({
+    refundId: e.refund.id,
+    purchaseId: e.purchase.id,
+    buyer: e.purchase.buyerName ?? e.purchase.buyerEmail,
+    amountCents: e.refund.amountCents,
+    reason: e.refund.reason,
+  }));
+
   const external = findExternalRefunds(refunds, byPayment, recorded);
   result.violations = external.map((e) => ({
     refundId: e.refund.id,
@@ -280,7 +350,7 @@ export async function runRefundAlerts(opts?: { dryRun?: boolean }): Promise<RunR
     amountCents: e.refund.amountCents,
     reason: e.refund.reason,
   }));
-  if (!external.length || dryRun) return result;
+  if ((!external.length && !externalDeals.length) || dryRun) return result;
 
   // Claim every violation's key FIRST, then send one combined card.
   const fresh: ExternalRefund[] = [];
@@ -288,18 +358,33 @@ export async function runRefundAlerts(opts?: { dryRun?: boolean }): Promise<RunR
     if (await claimOnce(`refund-alert:${e.refund.id}`)) fresh.push(e);
     else result.skippedDedup++;
   }
-  if (!fresh.length) return result;
+  const freshDeals: ExternalDealRefund[] = [];
+  for (const e of externalDeals) {
+    if (await claimOnce(`refund-alert:${e.refund.id}`)) freshDeals.push(e);
+    else result.skippedDedup++;
+  }
+  if (!fresh.length && !freshDeals.length) return result;
 
   const ymd = new Date().toISOString().slice(0, 10);
   if (!(await underDailyCap(ymd))) return result;
 
   try {
-    const names = await teamMemberNames(fresh);
-    await sendAdaptiveCardToChannel(
-      refundAlertsChatId(),
-      buildRefundAlertCard(fresh, { boardUrl: reservationsBoardUrl(), teamMemberNames: names }),
-      { summaryText: refundAlertSummaryText(fresh) },
-    );
+    if (fresh.length) {
+      const names = await teamMemberNames(fresh);
+      await sendAdaptiveCardToChannel(
+        refundAlertsChatId(),
+        buildRefundAlertCard(fresh, { boardUrl: reservationsBoardUrl(), teamMemberNames: names }),
+        { summaryText: refundAlertSummaryText(fresh) },
+      );
+    }
+    if (freshDeals.length) {
+      // Its own message rather than a widened card: the reservation card is
+      // shaped around a booking, and a voucher pack has no lanes, no time and no
+      // reservation id to link. Same channel, same dedup keys, same daily cap.
+      await sendAdaptiveCardToChannel(refundAlertsChatId(), buildDealRefundAlertCard(freshDeals, { boardUrl: webSalesBoardUrl() }), {
+        summaryText: dealRefundSummaryText(freshDeals),
+      });
+    }
     result.sent = true;
   } catch (err) {
     // Keys stay claimed on purpose — see the anti-spam contract up top.

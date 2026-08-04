@@ -35,6 +35,13 @@ export function reservationsBoardUrl(): string | null {
   return token ? `https://headpinz.com/admin/${token}/reservations` : null;
 }
 
+/** Deep link to the WEB SALES board — the deal-pack card's action button. Same
+ *  token embedding and same null-when-missing behaviour as its sibling above. */
+export function webSalesBoardUrl(): string | null {
+  const token = process.env.ADMIN_CAMERA_TOKEN;
+  return token ? `https://headpinz.com/admin/${token}/web-sales` : null;
+}
+
 /** How far back each run scans Square for refunds. Generous overlap with the
  *  cron cadence — the per-refund dedup key makes re-seeing a refund free, and
  *  a long window self-heals gaps from failed runs. */

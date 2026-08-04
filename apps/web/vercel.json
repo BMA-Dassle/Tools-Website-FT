@@ -17,6 +17,10 @@
       "schedule": "10,40 * * * *"
     },
     {
+      "path": "/api/cron/deal-refund-sweep",
+      "schedule": "*/10 * * * *"
+    },
+    {
       "path": "/api/cron/pov-pool-alert",
       "schedule": "0 */6 * * *"
     },
