@@ -27,7 +27,8 @@
  *
  * Trigger rules live here, not in the layout: 20s dwell or 40% scroll, once
  * per visitor per 14 days, and never over a flow where a popup would be
- * hostile (booking, kiosk, admin). `?vip=1` forces it for smoke-testing.
+ * hostile (booking, kiosk, admin, group-events/birthday inquiry pages on
+ * either brand). `?vip=1` forces it for smoke-testing.
  */
 
 import Image from "next/image";
@@ -64,6 +65,17 @@ const SCROLL_TRIGGER = 0.4;
  */
 const SUPPRESSED_PREFIXES = ["/book", "/kiosk", "/admin", "/checkout", "/e/", "/s/"];
 
+/**
+ * Route segments that never show it, on either brand. Group-events and
+ * birthday pages are lead-capture pages with their own forms and modals —
+ * interrupting a planner mid-inquiry to sell a walk-in combo loses the bigger
+ * sale. Matched by segment, not prefix, because the same pages live at
+ * /group-events (fasttraxent.com), /fort-myers|naples/group-events and
+ * /fort-myers|naples/birthdays (headpinz.com), and the internal /hp/... form
+ * in dev (owner 2026-08-04).
+ */
+const SUPPRESSED_SEGMENTS = ["group-events", "birthdays"];
+
 export interface VipPopupStop {
   name: string;
   note: string;
@@ -97,9 +109,11 @@ export function VipExperiencePopupClient({ content }: { content: VipPopupContent
   const cardRef = useRef<HTMLDivElement | null>(null);
   const restoreFocusTo = useRef<Element | null>(null);
 
-  const suppressed = SUPPRESSED_PREFIXES.some(
-    (p) => pathname === p || pathname.startsWith(p.endsWith("/") ? p : `${p}/`),
-  );
+  const segments = pathname.split("/");
+  const suppressed =
+    SUPPRESSED_PREFIXES.some(
+      (p) => pathname === p || pathname.startsWith(p.endsWith("/") ? p : `${p}/`),
+    ) || SUPPRESSED_SEGMENTS.some((s) => segments.includes(s));
 
   const dismiss = useCallback(() => {
     setOpen(false);
