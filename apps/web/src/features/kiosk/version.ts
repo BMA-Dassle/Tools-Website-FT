@@ -15,6 +15,13 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.16.1 — the roster says the LICENCE, not just the tier (owner 2026-08-04:
+ *         "then why didn't 1 2 get forced a license"). The badge said "Starter
+ *         only" — a qualification fact — and it reads as "needs a licence", so
+ *         there was no way to see that a racer flagged new already holds one.
+ *         Each racer now carries "Licence on file" or "+ $4.99 licence" from the
+ *         same verified state the charge uses; an unverified returning racer stays
+ *         silent rather than guessing at money.
  * 1.16.0 — A LAPSED LICENCE CAN NO LONGER SLIP THROUGH (owner 2026-08-04: "two
  *         people are new racers and one isn't but it's allowing me to skip by
  *         licensing"). The $4.99 Square line AND the +licence BMI build product
@@ -694,7 +701,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.16.0";
+export const KIOSK_VERSION = "1.16.1";
 
 let bootVersion: string | null = null;
 let captured = false;

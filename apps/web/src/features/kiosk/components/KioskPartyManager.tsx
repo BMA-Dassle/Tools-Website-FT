@@ -43,6 +43,8 @@ import {
   type PersonData,
 } from "~/components/features/booking/steps/race/ReturningRacerLookup";
 import { useKioskConfig } from "../KioskConfigContext";
+import { racerLicenseState } from "~/features/booking/service/license";
+import { LICENSE_PRICE } from "~/features/booking/service/race-pricing";
 import { useT } from "../i18n";
 import { isTestKiosk, kioskHasCamera, kioskId } from "../config";
 import { useMobileJoin } from "../hooks/useMobileJoin";
@@ -1717,6 +1719,25 @@ export function KioskPartyManager({
                           : t("party.status.accountWaiverNeeded")}
                       </span>
                     )}
+                    {/* LICENCE, stated per racer. The tier badge above says
+                        "Starter only" (a qualification fact) and staff/guests read
+                        it as "needs a licence" — so the two now say themselves.
+                        `licenseActive` is the verified read; unknown stays silent
+                        rather than guessing at money (owner 2026-08-04: "then why
+                        didn't 1 2 get forced a license"). */}
+                    {isRace &&
+                      m.bmiPersonId &&
+                      (racerLicenseState(m) === "active" ? (
+                        <span className="text-white/45">{t("party.license.onFile")}</span>
+                      ) : racerLicenseState(m) === "none" ? (
+                        <span className="font-semibold text-[#f0b341]">
+                          {t("party.license.needed", { price: `$${LICENSE_PRICE.toFixed(2)}` })}
+                        </span>
+                      ) : m.isNewRacer ? (
+                        <span className="font-semibold text-[#f0b341]">
+                          {t("party.license.needed", { price: `$${LICENSE_PRICE.toFixed(2)}` })}
+                        </span>
+                      ) : null)}
                     {guardian && (
                       <span className="text-white/45">
                         {t("party.guardianLabel", { name: guardian.firstName })}
