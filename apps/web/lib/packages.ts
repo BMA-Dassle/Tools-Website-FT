@@ -160,6 +160,14 @@ export interface PackageDefinition {
    *  packages regardless of value here. */
   displayOrder?: number;
 
+  /** THE house recommendation for this category — the kiosk's pay-mode screen
+   *  gives it the hero card and the "FastTrax recommended" ribbon, and every
+   *  other bundle renders as a secondary row beneath it (owner 2026-08-03: "the
+   *  Ultimate Qualifier is the FastTrax recommended experience"). Data, not a
+   *  UI heuristic, so moving the ribbon is a registry edit. At most one per
+   *  category should carry it; the first match wins. */
+  recommended?: boolean;
+
   /** Optional disclaimer modal shown when the user picks the package
    *  card. All `acks` checkboxes must be ticked before they can
    *  continue. Used by Ultimate Qualifier to make clear the
@@ -434,6 +442,7 @@ const PACKAGES: PackageDefinition[] = [
   // probe before launch and update if BMI moved it elsewhere.
   {
     id: "ultimate-qualifier-mega",
+    recommended: true,
     name: "Ultimate Qualifier",
     shortDescription: "Starter Mega + Intermediate Mega + license + POV + free appetizer",
     longDescription: UQ_LONG,
@@ -494,6 +503,7 @@ const PACKAGES: PackageDefinition[] = [
   // launch — see the Mega-variant comment for the probe pattern.
   {
     id: "ultimate-qualifier-weekday",
+    recommended: true,
     name: "Ultimate Qualifier",
     shortDescription: "Starter + Intermediate + License + POV + free appetizer",
     longDescription: UQ_LONG,
@@ -545,6 +555,7 @@ const PACKAGES: PackageDefinition[] = [
   // when the live BMI fetch hasn't resolved yet.
   {
     id: "ultimate-qualifier-weekday-junior",
+    recommended: true,
     name: "Ultimate Qualifier",
     shortDescription:
       "Junior Starter Blue + Junior Intermediate Blue + License + POV + free appetizer",
@@ -594,6 +605,7 @@ const PACKAGES: PackageDefinition[] = [
   // Intermediate page (25850598). Verify before launch.
   {
     id: "ultimate-qualifier-weekend",
+    recommended: true,
     name: "Ultimate Qualifier",
     shortDescription: "Starter + Intermediate + License + POV + free appetizer",
     longDescription: UQ_LONG,
@@ -643,6 +655,7 @@ const PACKAGES: PackageDefinition[] = [
   // Intermediate page (25850598) — verify before launch.
   {
     id: "ultimate-qualifier-weekend-junior",
+    recommended: true,
     name: "Ultimate Qualifier",
     shortDescription:
       "Junior Starter Blue + Junior Intermediate Blue + License + POV + free appetizer",

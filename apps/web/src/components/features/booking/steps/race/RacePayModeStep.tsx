@@ -1,37 +1,43 @@
 "use client";
 
 /**
- * KIOSK race step — page 1 of 2: HOW they're paying, before WHICH race.
+ * KIOSK race step — page 1 of 2: WHAT they're buying, before WHICH heat.
  *
- * The product step used to carry three decisions at once (bundles, prepaid
- * credit packs, and the tier list) on one portrait screen; with the pack catalog
- * at six SKUs the tier cards sat well below the fold. This step takes the money
- * decision — single races vs a credit pack vs a premium bundle — and the product
- * step keeps only "which race".
+ * Owner-approved layout (2026-08-03/04, "option 1" after five passes):
+ *   ─ one line of qualification context ("everyone starts on a Starter race")
+ *   ─ the HOUSE RECOMMENDATION as a hero card (registry `recommended` flag —
+ *     the Ultimate Qualifier today), with its race count huge
+ *   ─ every other bundle as a thin row carrying a +$delta against the cheapest
+ *     way to race, because a first-timer's real decision is the difference,
+ *     not the total
+ *   ─ the plain single race as the last row
+ *   ─ race packs collapsed to ONE line until tapped
  *
- * Per CATEGORY, exactly like the product and heat steps it precedes: adult and
- * junior are separate BMI SKUs at separate prices, and a package is a
- * per-category selection (`packageIdAdult` / `packageIdJunior`). A mixed party
- * therefore answers it once per category — the same shape the rest of the race
- * flow already has.
+ * Type is at the kiosk's own scale (body ~21px, hero 34px, price 40px — see
+ * kiosk.css), not the web scale the shared booking components use: this screen
+ * is read standing up, next to 112px buttons.
  *
- * Choosing a BUNDLE skips the product step entirely (the bundle owns the race,
- * so the next stop is its heat picker) — `RaceProductStep.isVisible` reads the
- * same `payModeStepVisible` seam, so page 2 can never disagree about whether
- * page 1 exists. Choosing "just today's races" CLEARS any bundle, so the guest
- * can always get back to the tier list.
+ * Per CATEGORY, like the product and heat steps it precedes: a bundle is a
+ * per-category purchase (`packageIdAdult` / `packageIdJunior`) and adult/junior
+ * are separate SKUs at separate prices. Picking a bundle SKIPS page 2 (the
+ * bundle owns the race) and lands on its heat picker; picking the single race —
+ * or removing the bundle — brings page 2 back. `RaceProductStep.isVisible` reads
+ * the same `payModeStepVisible` seam, so the two can never disagree.
  *
- * KIOSK ONLY, and only when there is something to choose: with no packs offered
- * and no eligible bundle this step would be a screen with one button, so it
- * hides and the guest lands straight on the race list. Web keeps its single
- * screen (its cart/back-nav is free, so the split buys nothing there).
+ * KIOSK ONLY, and only when there is something to choose.
  */
 import { useEffect, useState } from "react";
 import type { RaceItem, StepDef } from "~/features/booking";
 import { packageIdForCategory } from "~/features/booking";
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
 import { clearPackageForCategory } from "~/features/booking/service/package-selection";
-import { eligiblePackages } from "~/features/booking/service/packages";
+import {
+  eligiblePackages,
+  getPackage,
+  packagePerRacerPrice,
+  LICENSE_PRICE,
+  type PackageDefinition,
+} from "~/features/booking/service/packages";
 import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import {
   combineTrackVariants,
@@ -44,10 +50,9 @@ import {
   kioskPackSkus,
   kioskRacePacksEnabled,
 } from "~/features/booking/service/race-pack-kiosk";
-import { useT } from "~/features/kiosk/i18n";
-import { PackageCard } from "./PackageCard";
+import { useT, type Translate } from "~/features/kiosk/i18n";
 import { racePackTeaserVisible } from "./RacePackTeaser";
-import { RacePackPicker, SINGLE_RACE_BASELINE } from "./RacePackPicker";
+import { RacePackPicker } from "./RacePackPicker";
 
 type Category = "adult" | "junior";
 
@@ -55,19 +60,28 @@ function racersOfCategory<T extends { category?: Category }>(party: T[], categor
   return party.filter((m) => (m.category ?? "adult") === category);
 }
 
-/** Bundles this category can buy today (empty for a returning-racer category —
- *  Rookie Pack is new-racers-only, and the Ultimate Qualifier has its own
- *  schedule rules). */
+function racerTypeFor(
+  party: { category?: Category; isNewRacer: boolean }[],
+  category: Category,
+): RacerType {
+  const racers = racersOfCategory(party, category);
+  return racers.length > 0 && racers.every((m) => m.isNewRacer) ? "new" : "existing";
+}
+
+/** Bundles this category can buy today, house recommendation first. */
 function bundlesFor(
   item: RaceItem,
   session: { party: { category?: Category; isNewRacer: boolean }[] },
   category: Category,
-) {
+): PackageDefinition[] {
   if (!item.date) return [];
-  const racers = racersOfCategory(session.party, category);
-  if (racers.length === 0) return [];
-  const racerType: RacerType = racers.every((m) => m.isNewRacer) ? "new" : "existing";
-  return eligiblePackages({ racerType, schedule: scheduleForDate(item.date), category });
+  if (racersOfCategory(session.party, category).length === 0) return [];
+  const list = eligiblePackages({
+    racerType: racerTypeFor(session.party, category),
+    schedule: scheduleForDate(item.date),
+    category,
+  });
+  return [...list].sort((a, b) => Number(!!b.recommended) - Number(!!a.recommended));
 }
 
 /**
@@ -87,32 +101,60 @@ export function payModeStepVisible(
   return hasPacks || bundlesFor(item, session, category).length > 0;
 }
 
+/** "incl. license · video · appetizer" — built from the bundle's own flags. */
+function inclusions(t: Translate, pkg: PackageDefinition): string {
+  const parts = [
+    ...(pkg.includesLicense ? [t("payMode.incl.license")] : []),
+    ...(pkg.includesPov ? [t("payMode.incl.video")] : []),
+    ...(pkg.appetizerCode ? [t("payMode.incl.appetizer")] : []),
+  ];
+  return parts.length > 0 ? t("payMode.incl.prefix", { list: parts.join(" · ") }) : "";
+}
+
+/** The one-sentence pitch. Copy lives in the catalog per family so a new bundle
+ *  falls back to its own `shortDescription` instead of rendering nothing. */
+function bundleSay(t: Translate, pkg: PackageDefinition): string {
+  if (pkg.id.startsWith("ultimate-qualifier")) return t("payMode.say.qualifier");
+  if (pkg.id.startsWith("rookie-pack")) return t("payMode.say.rookie");
+  return pkg.shortDescription;
+}
+
 function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"] {
   const PayMode: StepDef<RaceItem>["Component"] = ({ item, session, onChange, requestAdvance }) => {
     const t = useT();
     const [packOpen, setPackOpen] = useState(false);
-    // Advancing is DEFERRED until the pick is committed to item state, the same
-    // reason the product step defers its package auto-advance: the host's
-    // handleNext re-reads the item to decide which step comes next, and page 2's
-    // visibility depends on the very field we just wrote. Advancing in the same
-    // tick would route off STALE state — a bundle pick would land on page 2
-    // (which then vanishes), and "just today's races" would skip past it.
-    const [advanceWhen, setAdvanceWhen] = useState<null | "bundle" | "singles">(null);
+    // Advancing waits for the pick to COMMIT to item state: the host's handleNext
+    // re-reads the item to choose the next step, and page 2's visibility depends
+    // on the field we just wrote. Same reason the product step defers its own
+    // package auto-advance.
+    const [advanceWhen, setAdvanceWhen] = useState<null | "bundle" | "single">(null);
 
     const racers = racersOfCategory(session.party, category);
-    const bundles = bundlesFor(item, session, category);
-    const selectedBundleId = packageIdForCategory(item, category);
+    const allNew = racerTypeFor(session.party, category) === "new";
+    const selectedId = packageIdForCategory(item, category);
+    const selected = getPackage(selectedId);
+    // A bundle preselected off the Experiences shelf (session.preferredPackageId)
+    // is NOT necessarily in today's eligible list — render it anyway, or the
+    // guest has no way to see (or remove) what they're buying.
+    const offered = bundlesFor(item, session, category);
+    const bundles =
+      selected && !offered.some((p) => p.id === selected.id) ? [selected, ...offered] : offered;
+    const hero = bundles.find((p) => p.recommended) ?? null;
+    const others = bundles.filter((p) => p !== hero);
+
     const packsOn = racePackTeaserVisible(session) && kioskRacePacksEnabled();
     const skus = packsOn ? kioskPackSkus() : [];
     const eligible = session.party.filter((m) => !!m.bmiPersonId);
     const picks = item.creditPacks ?? [];
 
-    // Cheapest single race for this category — the same registry the product step
-    // prices its tier cards from, so the two screens can't quote different money.
-    const cheapestSingle = (() => {
-      if (!item.date) return null;
-      const racerType: RacerType = racers.every((m) => m.isNewRacer) ? "new" : "existing";
-      const singles = combineTrackVariants(
+    // Cheapest single race for this category, from the same registry the product
+    // step prices its tier cards from — so the two screens can't quote different
+    // money. A first-timer's baseline includes the licence they must buy anyway;
+    // that's what makes the bundle deltas honest.
+    const singles = (() => {
+      if (!item.date) return [];
+      const racerType = racerTypeFor(session.party, category);
+      return combineTrackVariants(
         filterProducts(productsForSchedule(scheduleForDate(item.date), racerType), {
           racerType,
           adultCount: category === "adult" ? racers.length : 0,
@@ -120,18 +162,13 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
           memberships: racers.flatMap((m) => m.memberships ?? []),
         }).filter((p) => p.category === category),
       ).filter((p) => !p.packType || p.packType === "none");
-      return singles.length > 0 ? Math.min(...singles.map((p) => p.price)) : null;
     })();
+    const cheapestSingle = singles.length > 0 ? singles[0] : null;
+    const baseline =
+      cheapestSingle != null
+        ? Math.min(...singles.map((p) => p.price)) + (allNew ? LICENSE_PRICE : 0)
+        : null;
 
-    const sizes = [...new Set(skus.map((p) => p.raceCount))].join(" · ");
-    const cheapestPack = skus[0];
-    const maxSave =
-      skus.length > 0
-        ? Math.max(...skus.map((p) => p.raceCount * SINGLE_RACE_BASELINE - p.price))
-        : 0;
-
-    // Racers on this side who already hold banked credits — the "just today's
-    // races" card would otherwise read as though they're about to pay again.
     const covered = coveredMembersPreview(item, session.party, item.date);
     const creditNames = racers
       .filter((m) => covered.get((m as { id: string }).id)?.source === "account-credits")
@@ -139,167 +176,254 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
 
     useEffect(() => {
       if (!advanceWhen) return;
-      const committed = advanceWhen === "bundle" ? !!selectedBundleId : !selectedBundleId;
+      const committed = advanceWhen === "bundle" ? !!selectedId : !selectedId;
       if (!committed) return;
-      // Short beat so the selection ring paints before the screen changes.
       const timer = setTimeout(() => {
         setAdvanceWhen(null);
         requestAdvance?.();
       }, 250);
       return () => clearTimeout(timer);
-    }, [advanceWhen, selectedBundleId, requestAdvance]);
+    }, [advanceWhen, selectedId, requestAdvance]);
 
     const dropBundle = () => {
       const { patch, removed } = clearPackageForCategory(item, category);
       onChange(patch);
       if (removed.some((h) => h.bmiLineId)) void releaseHeatBmiLines(session, removed);
-      return removed;
     };
 
-    // Single races: clear any bundle first (its heats are released), then straight
-    // to the tier list. Without the clear, the product step would still be hidden
-    // and the guest would bounce back here.
-    const chooseSingles = () => {
-      if (!selectedBundleId) {
+    const chooseBundle = (pkg: PackageDefinition) => {
+      if (pkg.id === selectedId) {
+        requestAdvance?.();
+        return;
+      }
+      const { patch, removed } = clearPackageForCategory(item, category);
+      onChange(
+        category === "adult"
+          ? { ...patch, packageIdAdult: pkg.id, productIdAdult: null, productTrackAdult: null }
+          : { ...patch, packageIdJunior: pkg.id, productIdJunior: null, productTrackJunior: null },
+      );
+      if (removed.some((h) => h.bmiLineId)) void releaseHeatBmiLines(session, removed);
+      setAdvanceWhen("bundle");
+    };
+
+    // Single races: clear any bundle first (its held heats are released) so page 2
+    // comes back, then advance once that has committed.
+    const chooseSingle = () => {
+      if (!selectedId) {
         requestAdvance?.();
         return;
       }
       dropBundle();
-      setAdvanceWhen("singles");
+      setAdvanceWhen("single");
     };
 
+    const money = (n: number) => `$${n.toFixed(2)}`;
+    const perRacer = (pkg: PackageDefinition) => packagePerRacerPrice(pkg);
+    const delta = (pkg: PackageDefinition) => (baseline != null ? perRacer(pkg) - baseline : null);
+
+    const countBadge = (n: number, gold?: boolean) => (
+      <span className="w-[116px] shrink-0 text-center">
+        <span
+          className={`block text-[34px] font-extrabold italic leading-none ${gold ? "text-[#FFD98A]" : ""}`}
+        >
+          {n}
+        </span>
+        <span
+          className={`mt-1 block text-[13px] font-extrabold uppercase tracking-[0.14em] ${
+            gold ? "text-[#FFD98A]/70" : "text-white/45"
+          }`}
+        >
+          {t("payMode.raceWord", { count: n })}
+        </span>
+      </span>
+    );
+
     return (
-      <div className="mx-auto w-full max-w-[760px] space-y-5">
-        <div className="space-y-2 text-center">
-          <h3 className="font-display text-2xl tracking-widest text-white uppercase">
-            {t("payMode.heading")}
+      <div className="mx-auto w-full max-w-[880px] space-y-4">
+        <div>
+          <div className="text-[19px] font-extrabold uppercase tracking-[0.22em] text-[#00E2E5]">
+            {allNew ? t("payMode.eyebrow.first") : t("payMode.eyebrow.today")}
+          </div>
+          <h3 className="font-display mt-2 text-[40px] leading-none uppercase">
+            {allNew ? t("payMode.title.first") : t("payMode.title.today")}
           </h3>
-          <p className="mx-auto max-w-md text-sm text-white/40">{t("payMode.sub")}</p>
+          <p className="mt-2 text-[21px] leading-snug text-white/50">
+            {allNew ? t("payMode.sub.first") : t("payMode.sub.today")}
+          </p>
         </div>
 
         {creditNames.length > 0 && (
-          <p className="rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 p-3 text-center text-sm text-[#00E2E5]">
+          <p className="rounded-2xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 px-5 py-3 text-[19px] text-[#7FF0F1]">
             {t("payMode.credits", { names: creditNames.join(" & "), count: creditNames.length })}
           </p>
         )}
 
-        {/* 1 — pay per race. Also the "no thanks" for everything below it. */}
-        <button
-          type="button"
-          onClick={chooseSingles}
-          className="w-full rounded-xl border-2 border-[#00E2E5]/40 bg-[#00E2E5]/[0.04] p-4 text-left transition-colors hover:border-[#00E2E5]"
-        >
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <span className="text-base font-bold text-white">{t("payMode.single.title")}</span>
-            {cheapestSingle != null && (
-              <span className="text-sm font-bold text-[#00E2E5] tabular-nums">
-                {t("payMode.single.from", { price: `$${cheapestSingle.toFixed(2)}` })}
+        {/* HERO — the house recommendation */}
+        {hero && (
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => chooseBundle(hero)}
+              aria-pressed={selectedId === hero.id}
+              className={`relative flex w-full items-center gap-6 rounded-[22px] border-2 border-[#f0b341] bg-linear-to-br from-[#f0b341]/20 to-[#f0b341]/5 px-6 pt-7 pb-6 text-left ${
+                selectedId === hero.id ? "ring-4 ring-[#f0b341]/45" : ""
+              }`}
+            >
+              <span className="absolute -top-4 left-6 rounded-full bg-[#f0b341] px-4 py-1.5 text-[17px] font-extrabold uppercase italic text-[#241701]">
+                {t("payMode.recommended")}
               </span>
+              {countBadge(hero.races.length || 1, true)}
+              <span className="min-w-0 flex-1">
+                <span className="font-display block text-[34px] leading-tight uppercase">
+                  {hero.name}
+                </span>
+                <span className="mt-2 block text-[22px] leading-snug text-white/70">
+                  {bundleSay(t, hero)}
+                </span>
+              </span>
+              <span className="shrink-0 text-right">
+                <span className="block text-[40px] font-extrabold italic leading-none tabular-nums">
+                  {money(perRacer(hero))}
+                </span>
+                <span className="mt-1.5 block text-[17px] text-white/50">
+                  {inclusions(t, hero)}
+                </span>
+              </span>
+            </button>
+            {selectedId === hero.id && (
+              <button
+                type="button"
+                onClick={dropBundle}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 px-4 py-3 text-[17px] font-semibold text-white/60"
+              >
+                <span aria-hidden>✕</span>
+                {t("racePackage.remove", { name: hero.name })}
+              </button>
             )}
           </div>
-          <p className="mt-1 text-xs leading-relaxed text-white/55">{t("payMode.single.sub")}</p>
-        </button>
+        )}
 
-        {/* 2 — prepaid credit packs (3/5/10). Opens in place: assigning a pack to
-            two racers is two taps inside one card, not two screens. */}
+        {/* Other bundles — thin rows carrying the delta */}
+        {others.map((pkg) => {
+          const d = delta(pkg);
+          return (
+            <div key={pkg.id} className="space-y-2">
+              <button
+                type="button"
+                onClick={() => chooseBundle(pkg)}
+                aria-pressed={selectedId === pkg.id}
+                className={`flex w-full items-center gap-5 rounded-2xl border-2 px-6 py-4 text-left ${
+                  selectedId === pkg.id
+                    ? "border-[#00E2E5] bg-[#00E2E5]/7"
+                    : "border-white/13 bg-white/[0.03]"
+                }`}
+              >
+                {countBadge(pkg.races.length || 1)}
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[25px] font-bold">{pkg.name}</span>
+                  <span className="mt-0.5 block text-[19px] text-white/50">
+                    {bundleSay(t, pkg)}
+                  </span>
+                </span>
+                {d != null && d > 0 && (
+                  <span className="shrink-0 rounded-full bg-[#f0b341]/20 px-3.5 py-1 text-[19px] font-extrabold italic whitespace-nowrap text-[#FFD98A]">
+                    +{money(d)}
+                  </span>
+                )}
+                <span className="shrink-0 text-[30px] font-extrabold italic whitespace-nowrap tabular-nums">
+                  {money(perRacer(pkg))}
+                </span>
+              </button>
+              {selectedId === pkg.id && (
+                <button
+                  type="button"
+                  onClick={dropBundle}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 px-4 py-3 text-[17px] font-semibold text-white/60"
+                >
+                  <span aria-hidden>✕</span>
+                  {t("racePackage.remove", { name: pkg.name })}
+                </button>
+              )}
+            </div>
+          );
+        })}
+
+        {/* The plain single race */}
+        {cheapestSingle && baseline != null && (
+          <button
+            type="button"
+            onClick={chooseSingle}
+            aria-pressed={!selectedId}
+            className={`flex w-full items-center gap-5 rounded-2xl border-2 px-6 py-4 text-left ${
+              !selectedId ? "border-[#00E2E5] bg-[#00E2E5]/7" : "border-white/13 bg-white/[0.03]"
+            }`}
+          >
+            {countBadge(1)}
+            <span className="min-w-0 flex-1">
+              <span className="block text-[25px] font-bold">{cheapestSingle.name}</span>
+              <span className="mt-0.5 block text-[19px] text-white/50">
+                {allNew ? t("payMode.single.qualifies") : t("payMode.single.today")}
+              </span>
+            </span>
+            <span className="shrink-0 text-right">
+              <span className="block text-[30px] font-extrabold italic leading-none tabular-nums">
+                {money(baseline)}
+              </span>
+              {allNew && (
+                <span className="mt-1 block text-[16px] text-white/45">
+                  {t("payMode.incl.prefix", { list: t("payMode.incl.license") })}
+                </span>
+              )}
+            </span>
+          </button>
+        )}
+
+        {/* Race packs — one line until tapped */}
         {packsOn && skus.length > 0 && (
-          <div className="rounded-xl border border-amber-500/25 bg-linear-to-br from-amber-500/10 to-amber-500/5">
+          <div>
             <button
               type="button"
               onClick={() => setPackOpen((o) => !o)}
               aria-expanded={packOpen}
-              className="block w-full p-4 text-left"
+              className={`flex w-full items-center gap-5 border-[1.5px] border-[#00E2E5]/32 bg-linear-to-br from-[#00E2E5]/8 to-[#00E2E5]/[0.02] px-6 py-4 text-left ${
+                packOpen ? "rounded-t-2xl" : "rounded-2xl"
+              }`}
             >
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <span className="text-base font-bold text-amber-400">
-                  {t("payMode.pack.title", { sizes })}
-                </span>
-                <span className="text-sm font-bold text-amber-400 tabular-nums">
-                  {t("racePack.teaser.from", { price: `$${cheapestPack.price.toFixed(2)}` })}
-                </span>
-              </div>
-              <p className="mt-1 text-xs leading-relaxed text-white/55">{t("payMode.pack.sub")}</p>
-              <span className="mt-1 inline-block text-xs font-bold text-amber-400">
-                {t("racePack.teaser.saveUpTo", { amount: `$${maxSave.toFixed(2)}` })}
+              <span className="font-display shrink-0 text-[24px] uppercase text-[#9DF6F7]">
+                {t("payMode.pack.title")}
+              </span>
+              <span className="min-w-0 flex-1 text-[19px] text-white/50">
+                {t("payMode.pack.sub", {
+                  sizes: [...new Set(skus.map((p) => p.raceCount))].join(", "),
+                })}
+              </span>
+              <span className="shrink-0 text-[21px] font-bold tabular-nums">
+                {t("racePack.teaser.from", { price: money(skus[0].price) })}
+              </span>
+              <span aria-hidden className="shrink-0 text-[26px] text-[#9DF6F7]/70">
+                {packOpen ? "⌄" : "›"}
               </span>
             </button>
-            {(packOpen || picks.length > 0) && (
-              <div className="px-4 pb-4">
+            {packOpen && (
+              <div className="rounded-b-2xl border-[1.5px] border-t-0 border-[#00E2E5]/32 bg-[#00E2E5]/[0.03] px-6 py-5">
                 <RacePackPicker
                   skus={skus}
                   eligible={eligible}
                   picks={picks}
                   onChange={(next) => onChange({ creditPacks: next })}
                 />
-                {picks.length > 0 && (
-                  <p className="mt-3 text-xs font-semibold text-emerald-400">
-                    {t("payMode.pack.added", { count: picks.length })}
-                  </p>
-                )}
               </div>
             )}
           </div>
         )}
 
-        {/* 3 — premium bundles. Same cards as before, and picking one goes
-            straight to its heat picker (the bundle IS the race). */}
-        {bundles.length > 0 && (
-          <div className="space-y-3">
-            <p className="text-[10px] font-bold tracking-widest text-white/35 uppercase">
-              {t("payMode.bundles")}
-            </p>
-            {bundles.map((pkg) => (
-              <div key={pkg.id} className="space-y-2">
-                <PackageCard
-                  pkg={pkg}
-                  racerCount={racers.length}
-                  date={item.date}
-                  isSelected={selectedBundleId === pkg.id}
-                  compact
-                  detailsOpen={false}
-                  onToggleDetails={undefined}
-                  onSelect={() => {
-                    if (pkg.id === selectedBundleId) {
-                      requestAdvance?.();
-                      return;
-                    }
-                    const { patch, removed } = clearPackageForCategory(item, category);
-                    onChange(
-                      category === "adult"
-                        ? {
-                            ...patch,
-                            packageIdAdult: pkg.id,
-                            productIdAdult: null,
-                            productTrackAdult: null,
-                          }
-                        : {
-                            ...patch,
-                            packageIdJunior: pkg.id,
-                            productIdJunior: null,
-                            productTrackJunior: null,
-                          },
-                    );
-                    if (removed.some((h) => h.bmiLineId))
-                      void releaseHeatBmiLines(session, removed);
-                    setAdvanceWhen("bundle");
-                  }}
-                />
-                {selectedBundleId === pkg.id && (
-                  <button
-                    type="button"
-                    onClick={dropBundle}
-                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-white/15 px-3 py-2.5 text-xs font-semibold text-white/60 transition-colors hover:border-red-400/40 hover:text-red-300"
-                  >
-                    <span aria-hidden>✕</span>
-                    {t("racePackage.remove", { name: pkg.name })}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
+        {racers.length > 1 && (
+          <p className="text-center text-[18px] text-white/40">
+            {t("payMode.perRacer", {
+              names: racers.map((m) => (m as { firstName: string }).firstName).join(" & "),
+            })}
+          </p>
         )}
-
-        <p className="text-center text-xs text-white/40">{t("payMode.footnote")}</p>
       </div>
     );
   };

@@ -15,6 +15,23 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.14.1 — page 1 gets the owner's approved layout (five design passes, 8/3–8/4):
+ *         the HOUSE RECOMMENDATION leads as a hero card — a new registry flag,
+ *         `recommended: true` on the five Ultimate Qualifier variants, so moving
+ *         the ribbon is a data edit, not a code change — with its race count set
+ *         huge. Every other bundle is a thin row carrying a +$delta against the
+ *         cheapest way to race (a first-timer's real decision is the difference,
+ *         not the total: the licence is unavoidable, so the Rookie Pack is +$5).
+ *         The plain single race is the last row; race packs collapse to ONE line
+ *         until tapped. Type moved to the KIOSK's scale (body 21px, hero 34px,
+ *         price 40px) — the shared booking components are web-sized, which read
+ *         tiny beside 112px buttons.
+ *         The pack picker itself stops rendering a cross product: a day segment
+ *         (Mon–Thu / Any-day) plus ONE row of size tiles, instead of six
+ *         near-identical cards. That fixes the teaser and the cart block too.
+ *         A bundle preselected from the Experiences shelf now renders even when
+ *         it is not in today's eligible list — otherwise the guest could neither
+ *         see nor remove what they were buying.
  * 1.14.0 — TWO PAGES INSTEAD OF ONE on the race step (owner 2026-08-03: "split to
  *         packages first then race type"). Page 1 asks HOW — single races, a
  *         prepaid 3/5/10 credit pack, or a bundle (Rookie Pack / Ultimate
@@ -571,7 +588,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.14.0";
+export const KIOSK_VERSION = "1.14.1";
 
 let bootVersion: string | null = null;
 let captured = false;

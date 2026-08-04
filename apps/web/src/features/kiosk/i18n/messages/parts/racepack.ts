@@ -76,7 +76,8 @@ export const racepackEn = {
   // --- PICKER (tiles + who's-this-for panel + assignment rows) ---
   "racePack.picker.racesWord": "RACES",
   "racePack.picker.save": "Save {amount}",
-  "racePack.picker.weekdayOnly": "Mon–Thu visits only",
+  "racePack.picker.dayNoteWeekday": "Cheapest — good on Mon–Thu visits",
+  "racePack.picker.dayNoteAny": "Use them any day of the week",
   "racePack.picker.whoFor": "Who’s this pack for?",
   "racePack.picker.whoForHint": "— select everyone who gets one",
   "racePack.picker.everyone": "Everyone",
@@ -100,22 +101,31 @@ export const racepackEn = {
   "racePack.cart.blurb":
     "Prepay your races at a discount — today’s race is covered, the rest bank to their account and never expire.",
 
-  // --- PAY-MODE step (page 1 of the split race flow: how, then which) ---
-  // {sizes} is the digit list of packs on sale today ("3 · 5 · 10").
-  "payMode.heading": "How are you paying?",
-  "payMode.sub": "Prepaid credits and bundles first — you’ll pick the actual race next.",
-  "payMode.single.title": "Just today’s races",
-  "payMode.single.sub": "Pay for the races you run today.",
-  "payMode.single.from": "from {price} / racer",
-  "payMode.pack.title": "Race pack — {sizes} races",
-  "payMode.pack.sub":
-    "Prepay at a discount. Today’s race is covered, the rest bank on the account and never expire.",
-  "payMode.pack.added":
-    "{count, plural, one {# pack added} other {# packs added}} — tap Continue to pick the race.",
-  "payMode.bundles": "Bundles",
+  // --- PAY-MODE step (page 1: what you're buying, before which heat) ---
+  // {sizes} = the pack sizes on sale today ("3, 5, 10"); {list} = the bundle's
+  // own inclusions, built from its registry flags.
+  "payMode.eyebrow.first": "First time at FastTrax",
+  "payMode.eyebrow.today": "Racing today",
+  "payMode.title.first": "Everyone starts on a Starter race",
+  "payMode.title.today": "How much racing today?",
+  "payMode.sub.first": "Even if you’ve raced elsewhere — one Starter run unlocks the faster karts.",
+  "payMode.sub.today": "Prepay and save, or just pay for today. You’ll pick the race next.",
+  "payMode.recommended": "★ FastTrax recommended",
+  "payMode.raceWord": "{count, plural, one {race} other {races}}",
+  "payMode.incl.prefix": "incl. {list}",
+  "payMode.incl.license": "license",
+  "payMode.incl.video": "video",
+  "payMode.incl.appetizer": "appetizer",
+  "payMode.say.qualifier":
+    "Starter now, then your Intermediate spot saved for tonight — faster karts, same visit.",
+  "payMode.say.rookie": "One Starter race with the in-kart video and a free appetizer.",
+  "payMode.single.qualifies": "Qualifies you for Intermediate next visit",
+  "payMode.single.today": "Pay for the races you run today",
+  "payMode.pack.title": "Race packs",
+  "payMode.pack.sub": "{sizes} prepaid races — bank them for later visits, never expire",
   "payMode.credits":
     "{names} {count, plural, one {already has banked race credits} other {already have banked race credits}} — we’ll use them at checkout.",
-  "payMode.footnote": "Nothing to prepay? Tap Continue for single races.",
+  "payMode.perRacer": "Prices are per racer · {names}",
 } as const;
 
 export const racepackEs: Record<keyof typeof racepackEn, string> = {
@@ -186,7 +196,8 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
   // --- PICKER (tarjetas + panel de para quién + filas asignadas) ---
   "racePack.picker.racesWord": "CARRERAS",
   "racePack.picker.save": "Ahorra {amount}",
-  "racePack.picker.weekdayOnly": "Solo visitas lun–jue",
+  "racePack.picker.dayNoteWeekday": "Más barato — válido en visitas de lun–jue",
+  "racePack.picker.dayNoteAny": "Úsalas cualquier día de la semana",
   "racePack.picker.whoFor": "¿Para quién es este pack?",
   "racePack.picker.whoForHint": "— selecciona a todos los que reciben uno",
   "racePack.picker.everyone": "Todos",
@@ -212,19 +223,28 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
   "racePack.cart.blurb":
     "Prepaga tus carreras con descuento — la carrera de hoy queda cubierta y las demás quedan en su cuenta y nunca caducan.",
 
-  // --- Paso de forma de pago (página 1 del flujo dividido) ---
-  "payMode.heading": "¿Cómo vas a pagar?",
-  "payMode.sub": "Primero los créditos y los paquetes — la carrera se elige después.",
-  "payMode.single.title": "Solo las carreras de hoy",
-  "payMode.single.sub": "Paga las carreras que corras hoy.",
-  "payMode.single.from": "desde {price} / corredor",
-  "payMode.pack.title": "Race pack — {sizes} carreras",
-  "payMode.pack.sub":
-    "Prepaga con descuento. La carrera de hoy queda cubierta y las demás quedan en la cuenta y nunca caducan.",
-  "payMode.pack.added":
-    "{count, plural, one {# pack agregado} other {# packs agregados}} — toca Continuar para elegir la carrera.",
-  "payMode.bundles": "Paquetes",
+  // --- Paso de forma de pago (página 1: qué compras, antes de qué carrera) ---
+  "payMode.eyebrow.first": "Primera vez en FastTrax",
+  "payMode.eyebrow.today": "Carreras de hoy",
+  "payMode.title.first": "Todos empiezan con una carrera Starter",
+  "payMode.title.today": "¿Cuántas carreras hoy?",
+  "payMode.sub.first":
+    "Aunque hayas corrido en otro lugar — una carrera Starter aquí desbloquea los karts más rápidos.",
+  "payMode.sub.today": "Prepaga y ahorra, o paga solo lo de hoy. La carrera se elige después.",
+  "payMode.recommended": "★ Recomendado por FastTrax",
+  "payMode.raceWord": "{count, plural, one {carrera} other {carreras}}",
+  "payMode.incl.prefix": "incluye {list}",
+  "payMode.incl.license": "licencia",
+  "payMode.incl.video": "video",
+  "payMode.incl.appetizer": "aperitivo",
+  "payMode.say.qualifier":
+    "Starter ahora y te guardamos tu lugar de Intermediate para esta noche — karts más rápidos, misma visita.",
+  "payMode.say.rookie": "Una carrera Starter con el video desde el kart y un aperitivo gratis.",
+  "payMode.single.qualifies": "Te califica para Intermediate en tu próxima visita",
+  "payMode.single.today": "Paga las carreras que corras hoy",
+  "payMode.pack.title": "Race packs",
+  "payMode.pack.sub": "{sizes} carreras prepagadas — guárdalas para otras visitas, nunca caducan",
   "payMode.credits":
     "{names} ya {count, plural, one {tiene créditos de carrera} other {tienen créditos de carrera}} — los usaremos al pagar.",
-  "payMode.footnote": "¿Nada que prepagar? Toca Continuar para carreras individuales.",
+  "payMode.perRacer": "Precios por corredor · {names}",
 };

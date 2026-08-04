@@ -9,9 +9,12 @@
  *     a pack on only ONE racer because the old picker took one name per tap,
  *     and the wizard walk back was a trap)
  *
- * Every tile is rendered from the SKU it was handed — sizes, day types, prices
- * and savings are catalog values, so the same component serves 2 tiles or all
- * six (3/5/10 × Mon–Thu/Any-Day, owner 2026-08-03).
+ * SIZE and DAY TYPE are two questions, not six answers (owner 2026-08-03: the
+ * 3×2 grid of near-identical cards was "excessive"). A day segment picks Mon–Thu
+ * or Any-Day, then ONE row of size tiles prices that side of the catalog. On
+ * Fri–Sun the weekday SKUs aren't offered at all, so the segment hides itself and
+ * the row is simply the three Any-Day sizes. Everything is still catalog-derived:
+ * the component renders whatever SKUs it is handed.
  *
  * Selections are POINTERS on `item.creditPacks` — all money re-derives
  * server-side at charge time (race-pack-kiosk.ts), so applying here is pure
@@ -26,7 +29,7 @@ import {
   applyPackSelection,
   type KioskPackSelection,
 } from "~/features/booking/service/race-pack-kiosk";
-import { getRacePack, type RacePack } from "~/features/booking/data/packs";
+import { getRacePack, type RacePack, type RacePackDayType } from "~/features/booking/data/packs";
 import { useT, type Translate } from "~/features/kiosk/i18n";
 
 /** Savings baseline = the $26.99 single race (never fold the license in). */
@@ -191,12 +194,50 @@ export function RacePackPicker({
         ? t("racePack.picker.removePack")
         : t("racePack.picker.selectRacers");
 
+  // Which day type the size row is pricing. Seeded from an existing pick so the
+  // panel opens on what the guest already holds, else the cheapest side offered
+  // (catalog order puts Mon–Thu first).
+  const dayTypes = [...new Set(skus.map((p) => p.dayType))];
+  const heldDay = picks.map((p) => getRacePack(p.slug)?.dayType).find(Boolean);
+  const [day, setDay] = useState<RacePackDayType>(heldDay ?? dayTypes[0] ?? "anytime");
+  const shown = skus.filter((p) => p.dayType === day);
+
   return (
     <div>
+      {dayTypes.length > 1 && (
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <div className="inline-flex gap-1 rounded-full border border-white/12 bg-white/[0.06] p-1">
+            {dayTypes.map((d) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDay(d)}
+                aria-pressed={day === d}
+                className={`rounded-full px-4 py-2 text-sm font-bold transition-colors ${
+                  day === d ? "bg-[#00E2E5] text-[#04252b]" : "text-white/60 hover:text-white"
+                }`}
+              >
+                {d === "weekday" ? t("racePack.build.monThu") : t("racePack.build.anyDay")}
+              </button>
+            ))}
+          </div>
+          <span className="text-xs text-white/40">
+            {day === "weekday"
+              ? t("racePack.picker.dayNoteWeekday")
+              : t("racePack.picker.dayNoteAny")}
+          </span>
+        </div>
+      )}
       <div
-        className={`grid gap-3 ${skus.length > 1 ? "grid-cols-2" : "mx-auto max-w-[320px] grid-cols-1"}`}
+        className={`grid gap-3 ${
+          shown.length > 2
+            ? "grid-cols-3"
+            : shown.length === 2
+              ? "grid-cols-2"
+              : "mx-auto max-w-[320px] grid-cols-1"
+        }`}
       >
-        {skus.map((p) => {
+        {shown.map((p) => {
           const holders = picks.filter((x) => x.slug === p.slug);
           const selected = holders.length > 0 || pendingSlug === p.slug;
           const save = p.raceCount * SINGLE_RACE_BASELINE - p.price;
@@ -212,28 +253,17 @@ export function RacePackPicker({
                   : "border-white/10 bg-white/[0.03] hover:border-white/30"
               }`}
             >
-              <div className="text-2xl font-extrabold italic">
-                {p.raceCount}
-                <span className="text-sm font-bold not-italic">
-                  {" "}
-                  {t("racePack.picker.racesWord")}
-                </span>
+              <div className="text-3xl font-extrabold italic leading-none">{p.raceCount}</div>
+              <div className="mt-1 text-[11px] font-extrabold uppercase tracking-[0.16em] text-white/45">
+                {t("racePack.picker.racesWord")}
               </div>
-              <div className="mt-1 text-[10px] font-extrabold uppercase tracking-[0.2em] text-white/45">
-                {dayLabel(t, p)}
-              </div>
-              <div className="mt-1 text-xl font-extrabold tabular-nums">${p.price.toFixed(2)}</div>
-              <div className="text-xs text-white/50">
-                {t("racePack.build.perRace", { price: `$${(p.price / p.raceCount).toFixed(2)}` })}
-              </div>
-              <div className="mt-0.5 text-xs font-bold text-amber-400">
+              <div className="mt-2 text-2xl font-extrabold tabular-nums">${p.price.toFixed(2)}</div>
+              <div className="text-sm font-bold text-amber-400">
                 {t("racePack.picker.save", { amount: `$${save.toFixed(2)}` })}
               </div>
-              {p.dayType === "weekday" && (
-                <div className="mt-0.5 text-[10px] text-white/40">
-                  {t("racePack.picker.weekdayOnly")}
-                </div>
-              )}
+              <div className="text-xs text-white/45">
+                {t("racePack.build.perRace", { price: `$${(p.price / p.raceCount).toFixed(2)}` })}
+              </div>
             </button>
           );
         })}
