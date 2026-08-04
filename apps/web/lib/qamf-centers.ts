@@ -60,3 +60,28 @@ export const centerHasShoeRental = (centerId: number | null | undefined): boolea
 /** True for the FastTrax duckpin QAMF center. */
 export const isFastTraxDuckpinCenter = (centerId: number | null | undefined): boolean =>
   centerId === FASTTRAX_QAMF_CENTER_ID;
+
+/**
+ * Online booking lead (minutes) for FastTrax duckpin — walk-up friendly, per
+ * owner 2026-07-23: "bowl now, right up to the time it should start." Matches
+ * QAMF's 5-min BookedAt granularity so the next quarter-hour stays bookable
+ * until ~5 min before it starts. HeadPinz keeps the standard 15-min lead.
+ */
+export const FASTTRAX_DUCKPIN_LEAD_MINUTES = 5;
+
+/**
+ * FastTrax duckpin operating hours in 0-26h notation. Its OWN hours — never the
+ * Fort Myers bowling floor's (that runs to midnight/2 AM). Owner-confirmed
+ * 2026-07-23: open 11 AM daily; close 11 PM Sun–Thu, midnight Fri–Sat.
+ *
+ * This is why the hours must diverge from `fort-myers`: 11542 shares the FM
+ * complex, so before this the availability grid, last-start clamp, and
+ * close filter all used midnight and rejected genuinely-bookable late slots
+ * (the same failure mode as the 2026-07-19 last-start artifact). Every
+ * `centerHoursForDate` routes 11542 here so the whole booking stack agrees.
+ */
+export function fasttraxDuckpinHours(dateStr: string): { open: number; close: number } {
+  const dow = new Date(`${dateStr}T12:00:00`).getDay();
+  const isWeekend = dow === 5 || dow === 6;
+  return { open: 11, close: isWeekend ? 24 : 23 };
+}
