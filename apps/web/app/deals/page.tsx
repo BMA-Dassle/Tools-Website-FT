@@ -6,8 +6,7 @@ import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { HEADPINZ_OG, HEADPINZ_OG_IMAGE } from "@/lib/seo";
 import { ATTRACTIONS } from "@/lib/attractions-data";
 import { currentDealOffer, DEAL_CATALOG, dealValue } from "~/features/deals";
-import { dealsUrgencyUiEnabled } from "~/features/deals/flags";
-import { formatDealDeadlineShort, money } from "~/features/deals/format";
+import { money } from "~/features/deals/format";
 
 /**
  * Deal-pack hub.
@@ -57,7 +56,6 @@ export const metadata: Metadata = {
 };
 
 export default async function DealsHubPage() {
-  const urgencyUi = dealsUrgencyUiEnabled();
   // One resolve per deal, then the cards render from it. Two deals, and the
   // sold-count query only runs for a deal that actually has an allocation, so
   // this is zero queries in the common case.
@@ -92,10 +90,6 @@ export default async function DealsHubPage() {
           {priced.map(({ deal, offer }) => {
             const value = dealValue(deal, deal.locations[0], offer.unitPriceCents, offer.bonusItems);
             const accent = ATTRACTIONS[deal.scheduleSlug]?.color ?? "#fd5b56";
-            const deadlineBadge =
-              urgencyUi && offer.isOfferLive && offer.endsAt
-                ? `Bonus ends ${formatDealDeadlineShort(offer.endsAt)}`
-                : null;
             return (
               <Link
                 key={deal.slug}
@@ -117,16 +111,6 @@ export default async function DealsHubPage() {
                   >
                     Save {money(value.savingsCents)}
                   </span>
-                  {/* The deadline sits opposite the saving, in the photo's dark
-                      corner rather than the accent chip — one loud badge per
-                      card is the limit before it starts reading as a flash-sale
-                      site. Server-rendered as a date: a ticking clock belongs on
-                      the page you buy from, not on a catalog tile. */}
-                  {deadlineBadge && (
-                    <span className="absolute top-4 right-4 rounded-full bg-[#00041b]/80 px-3 py-1 text-xs font-bold tracking-widest text-white uppercase backdrop-blur-sm">
-                      {deadlineBadge}
-                    </span>
-                  )}
                 </div>
                 <div className="p-6">
                   <h2 className="font-display text-2xl text-white">{deal.name}</h2>

@@ -3,6 +3,7 @@ import { COMP_TOKEN_DENOMINATIONS } from "~/features/game-cards/vouchers/grants"
 import { NATIVE_GRANT_DENOMINATIONS } from "~/features/game-cards/service/native-voucher";
 import { DEAL_CATALOG, getDeal, type DealCatalogEntry } from "../catalog";
 import { dealNeedsSoldCount, dealOfferEndsAt, resolveDealOffer } from "./offer";
+import { NAPLES_OFFER_ENDS_AT } from "~/components/features/deals/naples-offer-window";
 
 /**
  * The offer resolver decides what a buyer is owed, so these tests are about
@@ -36,41 +37,47 @@ const fiftyTokens = (extra: Partial<{ endsAt: string; allocation: number }> = {}
 /** The catalog entry with any shipped offer stripped off. */
 const noOfferDeal: DealCatalogEntry = { ...laser, limitedOffer: null };
 
-describe("the shipped flash sale", () => {
-  it("carries a real deadline on every deal that runs it", () => {
-    // An offer with no limit is not an offer, it is the pack. The type enforces
-    // that one exists; this pins that the SHIPPED one is the deadline kind,
-    // because the Naples popup's countdown has nothing to render without it.
+describe("the shipped catalog", () => {
+  it("runs NO limited offer — the 50-token bonus was dropped", () => {
+    // Owner 2026-08-03: "we're ditching the 50 token thing and all the urgency
+    // UI." The mechanism below stays (tested, and the single price authority),
+    // but nothing is configured to use it. This is the guard against a bonus
+    // being switched back on without anyone deciding to.
     for (const deal of DEAL_CATALOG) {
-      if (!deal.limitedOffer) continue;
-      expect(deal.limitedOffer.endsAt ?? deal.limitedOffer.allocation).toBeDefined();
-      if (deal.limitedOffer.endsAt) {
-        expect(() => dealOfferEndsAt(deal.limitedOffer!.endsAt!)).not.toThrow();
-      }
+      expect(deal.limitedOffer).toBeNull();
     }
   });
 
-  it("describes in its label exactly what its items grant", () => {
-    // The label is what every guest-facing surface prints. A label saying "50
-    // bonus tokens" beside items granting 100 would be a promise the mint does
-    // not keep, and nothing else in the system would catch it.
+  it("still resolves a stable price for every shipped deal", () => {
     for (const deal of DEAL_CATALOG) {
-      const offer = deal.limitedOffer;
-      if (!offer) continue;
-      const tokens = offer.bonusItems
-        .filter((i) => i.kind === "gamezone")
-        .reduce((n, i) => n + (i.kind === "gamezone" ? i.tokens + i.bonusTokens : 0), 0);
-      if (tokens > 0) expect(offer.label).toContain(String(tokens));
+      const now = resolveDealOffer(deal, new Date("2026-08-04T12:00:00-04:00"), 0);
+      const later = resolveDealOffer(deal, new Date("2027-01-01T12:00:00-05:00"), 0);
+      expect(now.unitPriceCents).toBe(deal.priceCents);
+      expect(later.unitPriceCents).toBe(deal.priceCents);
+      expect(now.bonusItems).toEqual([]);
+      expect(now.isOfferLive).toBe(false);
     }
   });
+});
 
-  it("never moves the price on any shipped deal", () => {
-    for (const deal of DEAL_CATALOG) {
-      const during = resolveDealOffer(deal, new Date("2026-08-04T12:00:00-04:00"), 0);
-      const after = resolveDealOffer(deal, new Date("2027-01-01T12:00:00-05:00"), 0);
-      expect(during.unitPriceCents).toBe(deal.priceCents);
-      expect(after.unitPriceCents).toBe(deal.priceCents);
-    }
+describe("the Naples advertising window", () => {
+  it("has a deadline that parses as ET wall-clock", () => {
+    // The modal's own deadline, independent of the catalog. A typo here would
+    // make `new Date()` return Invalid Date, and every comparison against NaN is
+    // false — the window would read as "never closed". Fail at the typo.
+    expect(() => dealOfferEndsAt(NAPLES_OFFER_ENDS_AT)).not.toThrow();
+    expect(dealOfferEndsAt(NAPLES_OFFER_ENDS_AT)).toBe("2026-08-07T23:59:59-04:00");
+  });
+
+  it("closes at 11:59 PM Eastern on the advertised day", () => {
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      weekday: "long",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: false,
+    });
+    expect(fmt.format(new Date(dealOfferEndsAt(NAPLES_OFFER_ENDS_AT)))).toBe("Friday 23:59");
   });
 });
 

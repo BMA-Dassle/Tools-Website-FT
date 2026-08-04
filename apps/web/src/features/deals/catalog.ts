@@ -189,31 +189,6 @@ export function gameZoneItemDollars(item: VoucherItem): number {
   return (item.tokens + item.bonusTokens) / 10;
 }
 
-/**
- * The flash sale — 50 bonus tokens per pack, through Thursday 6 August 2026
- * (owner 2026-08-03: "flash sale with countdown, good till Thursday").
- *
- * TO END IT EARLY, set this to `null` and deploy; to extend it, move `endsAt`.
- * Either way the pages, the countdown, the Naples popup, the minted voucher and
- * the recovery email all follow from this one constant, and the price is
- * untouched by all of it.
- *
- * 50 is on both `NATIVE_GRANT_DENOMINATIONS` and `COMP_TOKEN_DENOMINATIONS`, so
- * the mint validates it AND the load path can credit it. A denomination on only
- * the first would mint a voucher that silently loads nothing.
- *
- * Deliberately runs at BOTH venues even though only Naples is advertised: the
- * popup is the Naples-scoped thing, and a Fort Myers buyer who reaches the same
- * page through search would otherwise be shown a bonus the checkout refuses. If
- * this ever needs to be genuinely Naples-only, the offer needs a `locations`
- * field and the resolver needs the buyer's venue — it does not have one today.
- */
-const NAPLES_FLASH_SALE: DealLimitedOffer = {
-  bonusItems: [gameZone(50)],
-  label: "50 bonus tokens per pack",
-  endsAt: "2026-08-06T23:59:59",
-};
-
 const SHARED_FAQS: DealFaq[] = [
   {
     q: "How do I get my game cards?",
@@ -247,7 +222,7 @@ export const DEAL_CATALOG: readonly DealCatalogEntry[] = [
     name: "Laser Tag + Game Card Pack",
     tagline: "Two rounds of multi-level laser tag and $20 in Game Zone Tokens.",
     priceCents: 3400,
-    limitedOffer: NAPLES_FLASH_SALE,
+    limitedOffer: null,
     items: [admission("laser-tag"), admission("laser-tag"), gameZone(100), gameZone(100)],
     scheduleSlug: "laser-tag",
     locations: DEAL_LOCATIONS,
@@ -282,7 +257,7 @@ export const DEAL_CATALOG: readonly DealCatalogEntry[] = [
     name: "Gel Blaster + Game Card Pack",
     tagline: "Two gel blaster battles and $30 in Game Zone Tokens.",
     priceCents: 4500,
-    limitedOffer: NAPLES_FLASH_SALE,
+    limitedOffer: null,
     items: [admission("gel-blaster"), admission("gel-blaster"), gameZone(150), gameZone(150)],
     scheduleSlug: "gel-blaster",
     locations: DEAL_LOCATIONS,

@@ -2,14 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { IconCheck, IconClockHour4, IconGift, IconMapPin, IconTicket } from "@tabler/icons-react";
+import { IconCheck, IconGift, IconMapPin, IconTicket } from "@tabler/icons-react";
 import PaymentForm from "@/components/square/PaymentForm";
 import Card from "~/components/ui/Card";
 import ErrorBox from "~/components/ui/ErrorBox";
 import Input from "~/components/ui/Input";
 import Spinner from "~/components/ui/Spinner";
 import QtyStepper from "~/components/ui/QtyStepper";
-import DealCountdown from "~/components/features/deals/DealCountdown";
 import { normalizeLocationSlug } from "@/lib/attractions-data";
 import { DEAL_LOCATION_INFO, isDealLocation, type DealLocationKey } from "~/features/deals";
 import { formatGiftDate, giftDateWindow } from "~/features/deals/gift";
@@ -75,15 +74,6 @@ interface PurchaseResult {
   giftSendAt: string | null;
 }
 
-/**
- * Above this fraction remaining, the packs-left line is hidden.
- *
- * "197 of 200 left" is an anti-signal — it says nobody is buying. The counter
- * only earns its place once it is genuinely getting low, which is also the only
- * point at which it is telling the buyer something they did not already know.
- */
-const REMAINING_VISIBLE_BELOW = 0.6;
-
 export interface DealBuyPanelProps {
   slug: string;
   dealName: string;
@@ -92,8 +82,6 @@ export interface DealBuyPanelProps {
    * the panel is correct in the first HTML; every quote response replaces it.
    */
   initialOffer: DealOffer;
-  /** Kill switch for the countdown and the packs-left line — display only. */
-  urgencyUi: boolean;
   /** Locations this deal is sold at. */
   locations: readonly DealLocationKey[];
   /** Resolved server-side from `?location=` so an ad can target one venue. */
@@ -153,7 +141,6 @@ export default function DealBuyPanel({
   slug,
   dealName,
   initialOffer,
-  urgencyUi,
   locations,
   initialLocation,
   initialQty,
@@ -303,16 +290,6 @@ export default function DealBuyPanel({
     }, msLeft + 1000);
     return () => clearTimeout(id);
   }, [offer.isOfferLive, offer.endsAt, router]);
-
-  /**
-   * Only show the counter once it means something. Below the threshold it is
-   * scarcity; above it, it is an advertisement that the deal is not selling.
-   */
-  const showRemaining =
-    offer.remaining !== null &&
-    offer.allocation !== null &&
-    offer.remaining > 0 &&
-    offer.remaining / offer.allocation < REMAINING_VISIBLE_BELOW;
 
   const contactComplete = useMemo(
     () =>
@@ -519,37 +496,6 @@ export default function DealBuyPanel({
         <p className="mt-1 text-sm text-white/55">
           {money(offer.unitPriceCents)} per pack plus tax · limit {maxPerBuyer} per person
         </p>
-        {/* The offer box. Every line is about the BONUS, never the price —
-            the price is the one thing that does not change when this expires,
-            and implying otherwise beside a live countdown would be the lie. */}
-        {urgencyUi && offer.isOfferLive && offer.bonusLabel && (
-          <div
-            className="mt-3 space-y-1.5 rounded-lg border p-3"
-            style={{ borderColor: `${accentColor}55`, background: `${accentColor}14` }}
-          >
-            <p className="text-sm font-bold text-white">Includes {offer.bonusLabel}</p>
-            {offer.endsAt && (
-              <p className="flex items-center gap-2 text-sm text-white/80">
-                <IconClockHour4 size={15} style={{ color: accentColor }} aria-hidden="true" />
-                <DealCountdown
-                  endsAt={offer.endsAt}
-                  datePrefix="Ends "
-                  clockPrefix="Ends in "
-                />
-              </p>
-            )}
-            {showRemaining && (
-              <p className="text-sm text-white/80">
-                <span className="font-semibold text-white">{offer.remaining}</span> of{" "}
-                {offer.allocation} bonus packs left.
-              </p>
-            )}
-            <p className="text-xs text-white/50">
-              The pack stays {money(offer.unitPriceCents)} either way — after this, it just
-              doesn&apos;t include the bonus.
-            </p>
-          </div>
-        )}
       </div>
 
       {/* Location */}

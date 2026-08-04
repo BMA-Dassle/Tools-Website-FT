@@ -15,7 +15,6 @@ import SeoFaq from "@/components/headpinz/SeoFaq";
 import { BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { HEADPINZ_OG, HEADPINZ_OG_IMAGE } from "@/lib/seo";
 import { ATTRACTIONS, normalizeLocationSlug } from "@/lib/attractions-data";
-import DealOfferNote from "~/components/features/deals/DealOfferNote";
 import {
   currentDealOffer,
   DEAL_CATALOG,
@@ -27,7 +26,6 @@ import {
   type DealLocationKey,
   type DealOffer,
 } from "~/features/deals";
-import { dealsUrgencyUiEnabled } from "~/features/deals/flags";
 import { money, offerFinePrint } from "~/features/deals/format";
 import DealBuyPanel from "./DealBuyPanel";
 
@@ -219,7 +217,6 @@ export default async function DealPage({
   // path resolves again at the moment of the charge, so this render being an
   // instant old can never become a charge at the wrong price.
   const offer = await currentDealOffer(deal);
-  const urgencyUi = dealsUrgencyUiEnabled();
   const offerTerms = offerFinePrint(offer);
 
   // Value is per location; dealValue throws if a product is missing there, so an
@@ -323,14 +320,6 @@ export default async function DealPage({
                 </span>
               </div>
 
-              {urgencyUi && offer.isOfferLive && offer.endsAt && offer.bonusLabel && (
-                <DealOfferNote
-                  endsAt={offer.endsAt}
-                  bonusLabel={offer.bonusLabel}
-                  accentColor={accent}
-                />
-              )}
-
               {/* Delivery and reach lead; the twelve-month window follows. It is
                   a genuine risk-remover and stays on the page, but leading with
                   "you have a year" is an argument for buying later. */}
@@ -410,7 +399,6 @@ export default async function DealPage({
                 slug={deal.slug}
                 dealName={deal.name}
                 initialOffer={offer}
-                urgencyUi={urgencyUi}
                 locations={deal.locations}
                 initialLocation={initialLocation}
                 initialQty={initialQty}

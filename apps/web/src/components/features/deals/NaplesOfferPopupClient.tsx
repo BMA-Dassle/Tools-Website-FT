@@ -1,70 +1,70 @@
 "use client";
 
 /**
- * HeadPinz Naples flash-sale popup — client half.
+ * HeadPinz Naples limited-time offer modal — client half.
  *
- * NAPLES ONLY. Scoped by `pathname.includes("naples")`, which is this repo's
- * established idiom for it (see HeadPinzNav) and deliberately matches both
- * `/naples/*` and the internal `/hp/naples/*` form, plus `?location=naples` so a
- * Naples-targeted ad landing anywhere on the site still counts. Fort Myers
- * visitors never see it.
+ * NAPLES ONLY. Scoped by `pathname.includes("naples")`, this repo's established
+ * idiom for it (see HeadPinzNav), which deliberately matches both `/naples/*`
+ * and the internal `/hp/naples/*` form — plus `?location=naples` so a
+ * Naples-targeted ad landing anywhere still counts. Fort Myers never sees it.
  *
- * IT NEVER OUTLIVES THE OFFER. The countdown owns the deadline: when it passes,
- * the popup closes itself and `router.refresh()` re-runs the server shell, which
- * finds no live offer and renders nothing. There is no path where a "flash sale"
- * banner survives the sale.
+ * IT CANNOT OUTLIVE THE OFFER. The countdown owns the deadline: when it passes
+ * the modal closes itself and `router.refresh()` re-runs the server shell, which
+ * finds the window closed and renders nothing. The shell also refuses to render
+ * past the deadline in the first place, so both a fresh load and a page left
+ * open overnight land in the same place.
  *
- * NOTHING HERE CLAIMS A PRICE IS RISING, because it isn't — `priceNote` says so
- * in as many words. An unsolicited popup gets exactly one chance with a guest,
- * and the version of it that says "$34 today only" and is still $34 on Friday
- * costs more trust than the sale earns.
+ * WHAT IT DOES NOT CLAIM: that a price is about to rise. It is not. What ends on
+ * Friday is this offer being extended to Naples visitors on a site that links to
+ * these packs from nowhere else — see the server shell for the full reasoning.
+ * `note` says so in plain words, in the footer, where it is read last.
  *
  * Trigger rules live here, not in the layout: 15s dwell or 35% scroll, once per
- * visitor per 3 days (shorter than the VIP popup's 14 — a sale that ends this
- * week has no business waiting a fortnight to be seen again), and never over a
- * flow where a popup would be hostile. `?flash=1` forces it for smoke-testing.
+ * visitor per 3 days, and never over a flow where a modal would be hostile.
+ * `?offer=1` forces it for smoke-testing.
  */
 
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { IconBolt, IconClockHour4, IconX } from "@tabler/icons-react";
+import { IconClockHour4, IconX } from "@tabler/icons-react";
 import DealCountdown from "./DealCountdown";
 
 const INK = "#00041b";
+const ACCENT = "#fd5b56";
 const BODY = "rgba(245,236,238,0.8)";
 
 /** localStorage key holding the epoch ms of the last dismissal. */
-const SEEN_KEY = "hp:flash-sale:seen";
+const SEEN_KEY = "hp:naples-offer:seen";
 const REPEAT_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
 const DWELL_MS = 15_000;
 const SCROLL_TRIGGER = 0.35;
 
 /**
- * Routes that never show it. `/deals` is in the list for a reason the others
- * aren't: popping an ad for the deals over the deals page is pure friction
- * between a guest and the thing they already came for.
+ * Routes that never show it. `/deals` is in the list for its own reason: popping
+ * an ad for the deals over the deals page is pure friction between a guest and
+ * the thing they already came for.
  */
 const SUPPRESSED_PREFIXES = ["/book", "/kiosk", "/admin", "/checkout", "/deals", "/e/", "/s/", "/v/"];
 
-export interface FlashSaleDeal {
+export interface NaplesOfferDeal {
   slug: string;
   name: string;
   priceLabel: string;
   savingsLabel: string;
-  bonusLabel: string;
+  savingsPct: number;
   accent: string;
   image: string;
 }
 
-export interface FlashSaleContent {
+export interface NaplesOfferContent {
   endsAt: string;
-  deals: FlashSaleDeal[];
-  priceNote: string;
+  deals: NaplesOfferDeal[];
+  note: string;
 }
 
-export function FlashSalePopupClient({ content }: { content: FlashSaleContent }) {
+export function NaplesOfferPopupClient({ content }: { content: NaplesOfferContent }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -85,8 +85,8 @@ export function FlashSalePopupClient({ content }: { content: FlashSaleContent })
     }
   }, []);
 
-  /** The deadline passed while it was on screen. Close, and let the server
-   *  shell re-decide (it will find no live offer and render nothing). */
+  /** Deadline passed while it was on screen: close, and let the server shell
+   *  re-decide (it will find the window closed and render nothing). */
   const handleExpire = useCallback(() => {
     setExpired(true);
     setOpen(false);
@@ -98,10 +98,10 @@ export function FlashSalePopupClient({ content }: { content: FlashSaleContent })
     if (suppressed) return;
 
     const params = new URLSearchParams(window.location.search);
-    const forced = params.has("flash");
+    const forced = params.has("offer");
 
-    // Naples gate. Pathname first — the same priority order HeadPinzNav uses —
-    // then an explicit ?location=, so an ad pointed at Naples still qualifies.
+    // Naples gate. Pathname first — the priority order HeadPinzNav uses — then
+    // an explicit ?location=, so an ad pointed at Naples still qualifies.
     const isNaples =
       pathname.includes("naples") || (params.get("location") ?? "").toLowerCase().includes("naples");
     if (!isNaples && !forced) return;
@@ -176,6 +176,8 @@ export function FlashSalePopupClient({ content }: { content: FlashSaleContent })
 
   if (!open || suppressed || expired) return null;
 
+  const utm = "utm_source=site&utm_medium=popup&utm_campaign=naples_limited_offer";
+
   return (
     <div className="fixed inset-0 z-[130] flex items-center justify-center">
       <button
@@ -189,7 +191,7 @@ export function FlashSalePopupClient({ content }: { content: FlashSaleContent })
         ref={cardRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="flash-sale-title"
+        aria-labelledby="naples-offer-title"
         tabIndex={-1}
         className="relative z-10 mx-4 flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/15 shadow-[0_30px_80px_rgba(0,0,0,0.6)] outline-none"
         style={{ background: INK }}
@@ -203,77 +205,65 @@ export function FlashSalePopupClient({ content }: { content: FlashSaleContent })
           <IconX size={18} />
         </button>
 
-        {/* Header — the flash and the clock, together. */}
         <div className="px-6 pt-7 pb-5 text-center" style={{ background: "rgba(253,91,86,0.12)" }}>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fd5b56] px-3 py-1 text-xs font-bold tracking-[0.18em] text-[#00041b] uppercase">
-            <IconBolt size={13} aria-hidden="true" />
-            Flash Sale · Naples
+            Limited Time · Naples
           </span>
           <h2
-            id="flash-sale-title"
+            id="naples-offer-title"
             className="font-display mt-3 text-3xl leading-tight text-white sm:text-4xl"
           >
-            Bonus tokens on every pack
+            Prepaid packs you won&apos;t find on our site
           </h2>
-          <p
-            className="mt-2 flex items-center justify-center gap-1.5 text-sm font-semibold text-white"
-            aria-live="off"
-          >
-            <IconClockHour4 size={15} className="text-[#fd5b56]" aria-hidden="true" />
+          <p className="mt-2 flex items-center justify-center gap-1.5 text-sm font-semibold text-white">
+            <IconClockHour4 size={15} style={{ color: ACCENT }} aria-hidden="true" />
             <DealCountdown
               endsAt={content.endsAt}
-              datePrefix="Ends "
-              clockPrefix="Ends in "
+              datePrefix="Offer ends "
+              clockPrefix="Offer ends in "
               onExpire={handleExpire}
             />
           </p>
         </div>
 
-        {/* Deals. Each one links to its own page with the venue preselected. */}
         <div className="flex-1 space-y-3 overflow-y-auto px-6 py-5">
           {content.deals.map((deal) => (
             <Link
               key={deal.slug}
-              href={`/deals/${deal.slug}?location=naples&utm_source=site&utm_medium=popup&utm_campaign=naples_flash_sale`}
+              href={`/deals/${deal.slug}?location=naples&${utm}`}
               onClick={dismiss}
               className="group flex items-center gap-4 rounded-xl border border-white/12 bg-white/[0.04] p-3 transition hover:border-white/30 hover:bg-white/[0.07]"
             >
               <div className="relative h-16 w-20 shrink-0 overflow-hidden rounded-lg">
-                <Image
-                  src={deal.image}
-                  alt=""
-                  fill
-                  sizes="80px"
-                  className="object-cover"
-                />
+                <Image src={deal.image} alt="" fill sizes="80px" className="object-cover" />
               </div>
               <div className="min-w-0 flex-1">
-                {/* Two lines, not `truncate`. At 390px "Laser Tag + Game Card
-                    Pack" clips to "Laser Tag + Game Car…" — and the product
-                    name is the one thing on this card that has to survive. */}
+                {/* Two lines, not `truncate` — at 390px the name is what clips,
+                    and the product name is the one thing that has to survive. */}
                 <p className="line-clamp-2 text-sm font-bold text-white">{deal.name}</p>
-                <p className="mt-0.5 text-xs" style={{ color: deal.accent }}>
-                  + {deal.bonusLabel}
-                </p>
-                <p className="mt-0.5 text-xs" style={{ color: BODY }}>
-                  {deal.priceLabel} plus tax · save {deal.savingsLabel}
+                <p className="mt-1 text-xs" style={{ color: BODY }}>
+                  {deal.priceLabel} plus tax ·{" "}
+                  <span className="font-semibold" style={{ color: deal.accent }}>
+                    save {deal.savingsLabel} ({deal.savingsPct}%)
+                  </span>
                 </p>
               </div>
             </Link>
           ))}
         </div>
 
-        {/* The honesty line, in the footer where it is read last and remembered. */}
         <div className="border-t border-white/10 px-6 py-4">
           <Link
-            href="/deals?location=naples&utm_source=site&utm_medium=popup&utm_campaign=naples_flash_sale"
+            href={`/deals?location=naples&${utm}`}
             onClick={dismiss}
             className="block rounded-full bg-[#fd5b56] px-6 py-3 text-center text-sm font-bold tracking-widest text-[#00041b] uppercase transition hover:brightness-110"
           >
             See the packs
           </Link>
+          {/* Says precisely what is limited — the offer being extended here, not
+              the price. Read last, remembered longest. */}
           <p className="mt-3 text-center text-[11px] leading-relaxed" style={{ color: BODY }}>
-            {content.priceNote}
+            {content.note}
           </p>
         </div>
       </div>
