@@ -47,8 +47,18 @@ const TIER = process.env.TIER || "Pro";
 const VALID_UNTIL = process.env.VALID_UNTIL || "Oct 31st, 2026";
 /** `tags.length`, which is what the app already shows as a race count. */
 const RACES = process.env.RACES || "31";
-/** No heat booked today. The live pass rewrites this field for free. */
-const NEXT_RACE = process.env.NEXT_RACE || "None booked";
+/**
+ * Next race, as `heatId|track` exactly as Neon stores them —
+ * `booking_metadata.heats[]` holds `heatId: "2026-08-04T14:30:00"` (centre-local,
+ * date AND time in one string) and `track: "Mega"`. Formatted for the face by
+ * `fmtNextRace` below.
+ *
+ * The value below is a REAL upcoming heat, but it is NOT Eric's: person 409523
+ * has zero booked race heats, so there is nothing true to show. It is here so
+ * the field can be seen in its final shape; the moment the resolver lands
+ * (person -> next heat) this constant goes away.
+ */
+const NEXT_RACE_RAW = process.env.NEXT_RACE_RAW || "2026-08-04T17:00:00|Mega|11|Starter";
 
 /** The FastTrax track — the banked curve, with our own signage on the barrier.
  *
@@ -179,6 +189,41 @@ const ordinal = (d: number) =>
         ? `${d}rd`
         : `${d}th`;
 
+/**
+ * FACE value — "Aug 4 · 2:30 PM · Mega". Deliberately terse.
+ *
+ * Apple truncates a secondary field to the card width even when it is the ONLY
+ * field on its row, and the first cut of this ("Tue Aug 4 · 2:30 PM · Mega",
+ * 26 chars) came back clipped on device (owner 2026-08-04). The weekday was the
+ * first thing out: it was my addition, not something asked for, and date/time/
+ * label were. The long form with the weekday still exists on the BACK of the
+ * pass, where nothing truncates.
+ *
+ * Parsed as LOCAL wall-clock (no trailing Z) — heatIds are already centre-local,
+ * so appending a timezone would shift every heat by the UTC offset.
+ */
+/** "Heat 11 · Starter" — the number and grade off the Pandora session
+ *  (`heatNumber` + `type`; its `name` is "11 - Mega Starter", the same three
+ *  facts pre-joined). Types seen live: Starter, Intermediate, Junior
+ *  Intermediate, Pro. */
+const fmtRaceLabel = (raw: string): string => {
+  const [, , heat, type] = String(raw || "").split("|");
+  const parts = [heat ? `Heat ${heat}` : "", (type || "").trim()].filter(Boolean);
+  return parts.join(" · ") || "—";
+};
+
+const fmtNextRace = (raw: string, long = false): string => {
+  const [heatId, track] = String(raw || "").split("|");
+  if (!heatId) return "None booked";
+  const dt = new Date(heatId);
+  if (Number.isNaN(dt.getTime())) return "None booked";
+  const mon = dt.toLocaleDateString("en-US", { month: "short" });
+  const time = dt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const label = (track || "").trim();
+  const day = long ? `${dt.toLocaleDateString("en-US", { weekday: "long" })}, ` : "";
+  return `${day}${mon} ${dt.getDate()} · ${time}${label ? ` · ${label}` : ""}`;
+};
+
 const fmtDate = (iso: string | null | undefined) => {
   if (!iso) return "";
   const dt = new Date(iso);
@@ -277,7 +322,9 @@ async function main() {
     tier: TIER,
     validUntil: VALID_UNTIL,
     races: String(RACES),
-    nextRace: NEXT_RACE,
+    nextRace: fmtNextRace(NEXT_RACE_RAW),
+    nextRaceLong: `${fmtNextRace(NEXT_RACE_RAW, true)} · ${fmtRaceLabel(NEXT_RACE_RAW)}`,
+    raceLabel: fmtRaceLabel(NEXT_RACE_RAW),
     licenceUrl: `https://headpinz.com/r/${CODE}`,
     // UPPERCASED (owner 2026-08-04: "make racers name more bold").
     //
@@ -329,10 +376,17 @@ async function main() {
       changeMessage: "You levelled up to %@",
     }),
     field({
-      uniqueName: "custom.validUntil",
-      label: "LICENCE VALID",
-      value: "${meta.validUntil}",
+      uniqueName: "custom.raceLabel",
+      label: "RACE",
+      value: "${meta.raceLabel}",
       section: "AUXILIARY_FIELDS",
+      priority: 0,
+    }),
+    field({
+      uniqueName: "custom.validUntil",
+      label: "Licence valid until",
+      value: "${meta.validUntil}",
+      section: "BACK_FIELDS",
       priority: 0,
     }),
     // No WAIVER field (owner 2026-08-04). Waiver state is a staff concern at
@@ -355,6 +409,13 @@ async function main() {
         "it is the same code you type on the BMI screens.",
       section: "BACK_FIELDS",
       priority: 0,
+    }),
+    field({
+      uniqueName: "custom.nextRaceLong",
+      label: "Next race",
+      value: "${meta.nextRaceLong}",
+      section: "BACK_FIELDS",
+      priority: 1,
     }),
     field({
       uniqueName: "custom.lastVisit",
