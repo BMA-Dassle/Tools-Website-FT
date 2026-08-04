@@ -115,6 +115,7 @@ import { KioskVipOverview } from "./KioskVipOverview";
 import { KioskGameZone } from "./KioskGameZone";
 import { KioskRacePackFlow } from "./KioskRacePackFlow";
 import { kioskRacePacksEnabled } from "~/features/booking/service/race-pack-kiosk";
+import { clearPackageForCategory } from "~/features/booking/service/package-selection";
 import { IdleWatcher } from "./IdleWatcher";
 import { useMobileJoinStatus } from "../hooks/useMobileJoin";
 import { closeMobileJoin } from "../join/kiosk-client";
@@ -1119,6 +1120,28 @@ export function KioskFlow({
     await releaseHeatBmiLines(session, removed);
   };
 
+  // Drop a premium package (Rookie Pack / Ultimate Qualifier) from the CART and
+  // keep the booking. The product step has the same control on its selected
+  // card; the cart needs its own because a guest who has already left the wizard
+  // would otherwise have to Edit back in (and before this, the only cart-side
+  // undo was Remove — which deletes the whole race). Same pure edit, same BMI
+  // release as the step, so the two surfaces can't diverge.
+  const handleRemovePackage = async (itemId: string, category: "adult" | "junior") => {
+    const item = session.items.find((i) => i.id === itemId);
+    if (!item || item.kind !== "race") return;
+    const { patch, removed } = clearPackageForCategory(item, category);
+    // The package's races were the ONLY thing booked → the item has nothing left
+    // to be; drop it whole (same rule handleRemoveHeat follows) so the cart never
+    // shows an empty race card.
+    const remaining = (patch.heats ?? item.heats).filter((h) => h.heatId);
+    if (remaining.length === 0 && !item.productIdAdult && !item.productIdJunior) {
+      await handleRemoveItem(itemId);
+      return;
+    }
+    dispatch({ type: "updateItem", id: itemId, patch: patch as Partial<SessionItem> });
+    if (removed.some((h) => h.bmiLineId)) await releaseHeatBmiLines(session, removed);
+  };
+
   // Game Zone cards count as a cart entry (owner 2026-07-18: race + cards
   // showed "1 item") — they're paid at the same checkout, so the pill/banner
   // must reflect them.
@@ -1702,6 +1725,7 @@ export function KioskFlow({
           onUpdateRacePacks={(id, creditPacks) =>
             dispatch({ type: "updateItem", id, patch: { creditPacks } as Partial<SessionItem> })
           }
+          onRemovePackage={(id, category) => void handleRemovePackage(id, category)}
           onReviewAndPay={() => {
             // Upsell page (owner 2026-07-21): between Review & Pay and the pay
             // screen — BOWLING carts only for now (owner: "they need bowling
@@ -1803,6 +1827,7 @@ export function KioskFlow({
           onUpdateRacePacks={(id, creditPacks) =>
             dispatch({ type: "updateItem", id, patch: { creditPacks } as Partial<SessionItem> })
           }
+          onRemovePackage={(id, category) => void handleRemovePackage(id, category)}
         />
       </div>,
     );

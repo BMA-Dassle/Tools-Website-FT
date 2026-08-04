@@ -4,7 +4,8 @@
  *  flow chrome (KioskWaiverFlow — legal body stays English), and the
  *  solo-bowler confirm sheet (KioskFlow). Add keys under the relevant
  *  namespaces (`signin.*`, `vip.*`, `bookingAs.*`, `license.*`,
- *  `waiverPhoto.*`, `waiverFlow.*`, `soloBowler.*`); mirror every key in es.
+ *  `waiverPhoto.*`, `waiverFlow.*`, `soloBowler.*`, `racePackage.*`); mirror every
+ *  key in es.
  *
  *  es values are a first-pass AI translation pending native-Spanish review.
  *  Locked glossary — NEVER translated: FastTrax, HeadPinz, Game Zone, Podium,
@@ -152,6 +153,12 @@ export const miscEn = {
   "soloBowler.addMore": "Add more bowlers",
   "soloBowler.continueNamed": "Just {name} today — continue",
   "soloBowler.continue": "Just 1 bowler — continue",
+
+  // --- Premium package removal (RaceProductStep card + kiosk cart) ---
+  // {name} is the package's own display name ("Rookie Pack", "Ultimate
+  // Qualifier"), suffixed with Adult/Junior only when BOTH variants are on the
+  // order. Product nouns stay English per the glossary.
+  "racePackage.remove": "Remove {name}",
 } as const;
 
 export const miscEs: Record<keyof typeof miscEn, string> = {
@@ -286,4 +293,7 @@ export const miscEs: Record<keyof typeof miscEn, string> = {
   "soloBowler.addMore": "Agregar más jugadores",
   "soloBowler.continueNamed": "Solo {name} hoy — continuar",
   "soloBowler.continue": "Solo 1 jugador — continuar",
+
+  // --- Quitar un paquete premium (RaceProductStep + carrito del kiosco) ---
+  "racePackage.remove": "Quitar {name}",
 };
