@@ -441,7 +441,7 @@ const PACKAGES: PackageDefinition[] = [
   // Mega first, then Intermediate Mega after the Starter ends, with
   // enough of a gap to qualify, watch the included POV video, and
   // grab the free appetizer. Both components are Mega-only, so the
-  // same-track relaxation always applies here: 30 min, not 60.
+  // same-track relaxation always applies here: 20 min, not 60.
   //
   // Intermediate productId 45810775 is a NEW BMI SKU minted for this
   // package only — separate from the standalone Intermediate Race
@@ -488,7 +488,11 @@ const PACKAGES: PackageDefinition[] = [
           // pageId before launch — see the comment above.
           { track: "Mega", productId: "45810775", pageId: "25850647", price: 20.99 },
         ],
-        minMinutesAfterEndOf: { ref: "starter", minutes: 60, sameTrackMinutes: 30 },
+        // Mega is single-track, so the same-track number is the ONLY one that
+        // can ever apply — and it's 20, not the 30 the Red/Blue variants use
+        // (owner 2026-08-04). Measured from the Starter's STOP, so a 10:10
+        // heat ending 10:17 opens the 10:40 Intermediate.
+        minMinutesAfterEndOf: { ref: "starter", minutes: 60, sameTrackMinutes: 20 },
       },
     ],
     includesLicense: true,
@@ -885,6 +889,23 @@ export function packageHeatGapMinutes(
   component: PackageRaceComponent,
 ): { ref: string; minutes: number; sameTrackMinutes?: number } | null {
   return component.minMinutesAfterEndOf ?? null;
+}
+
+/**
+ * The LOOSEST gap this component's rule can ever resolve to — the same-track
+ * relaxation where there is one, else the base. 0 when the component has no
+ * gap rule.
+ *
+ * Card gates and the kiosk availability tile use this to answer "could ANY
+ * pairing fit today?" without redoing the per-track math. It must be derived,
+ * not hardcoded: those gates carried a literal 30 until Mega dropped to 20
+ * (owner 2026-08-04), at which point a fixed floor would have greyed out a
+ * package the heat picker was still willing to book.
+ */
+export function packageLoosestGapMinutes(component: PackageRaceComponent): number {
+  const rule = component.minMinutesAfterEndOf;
+  if (!rule) return 0;
+  return Math.min(rule.minutes, rule.sameTrackMinutes ?? rule.minutes);
 }
 
 /** Derive the current schedule slot from a date. Tuesday = "mega",

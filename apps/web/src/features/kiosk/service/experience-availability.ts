@@ -41,16 +41,11 @@ import { apiBase } from "@/lib/api-base";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import {
   eligiblePackages,
+  packageLoosestGapMinutes,
   primaryTrack,
   scheduleForDate,
   type PackageDefinition,
 } from "@/lib/packages";
-
-/** The loosest gap the package heat picker ever allows — 60 drops to 30 when
- *  the second race stays on the first's track, and again late in the day via
- *  the picker's dead-end fallback; mirrors PackageCard's gate so availability
- *  matches the card. */
-const MIN_PACKAGE_GAP_MINUTES = 30;
 
 /** The kiosk race grids' LOOSEST lead (096feb91: 15 min starters / 10 all
  *  others) — the tile stays live while any grid could still show a heat. The
@@ -249,11 +244,13 @@ async function packageFirstOpen(
   const prev = heatsByRef[gateRace.minMinutesAfterEndOf.ref] ?? []; // the Starter (booked first)
   const next = heatsByRef[gateRace.ref] ?? []; // the Intermediate (must clear the gap)
   if (prev.length === 0 || next.length === 0) return null;
-  // Earliest FUTURE Starter heat that still has a valid Intermediate after it.
+  // Earliest FUTURE Starter heat that still has a valid Intermediate after it,
+  // judged at THIS package's loosest gap (see packageLoosestGapMinutes — Mega
+  // relaxes to 20 where Red/Blue relax to 30, so a shared constant would lock
+  // a Mega tile the picker would still book).
+  const loosestGap = packageLoosestGapMinutes(gateRace);
   const valid = prev.filter(
-    (p) =>
-      isFuture(p) &&
-      next.some((n) => !violatesMinGapAfter(p.stop, n.start, MIN_PACKAGE_GAP_MINUTES)),
+    (p) => isFuture(p) && next.some((n) => !violatesMinGapAfter(p.stop, n.start, loosestGap)),
   );
   const start = earliestOf(valid);
   return start ? { start: start.start, freeSpots: start.freeSpots } : null;

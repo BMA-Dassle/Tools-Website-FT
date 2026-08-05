@@ -4,19 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   type PackageDefinition,
   packageBundleTotal,
+  packageLoosestGapMinutes,
   packageRetailTotal,
   packageSavings,
   primaryTrack,
 } from "~/features/booking/service/packages";
 import { bmiAdapter } from "~/features/booking/data/bmi";
 import { violatesMinGapAfter } from "~/features/booking/service/conflict";
-
-// Loosest gap we'll ever allow between the two races of a multi-race package —
-// both the same-track relaxation (Ultimate Qualifier: 60 → 30 when the
-// Intermediate stays on the Starter's track) and PackageHeatPicker's late-night
-// fallback bottom out here. If not even this fits for the selected day, the
-// package is a guaranteed dead-end → disable it.
-const MIN_PACKAGE_GAP_MINUTES = 30;
 
 interface PackageCardProps {
   pkg: PackageDefinition;
@@ -52,20 +46,21 @@ export function PackageCard({
     loading: pricesLoading,
   } = usePackageAvailability(pkg, date, racers);
 
-  // Multi-race gate: a package with a min-gap rule (e.g. the Ultimate Qualifier:
-  // Intermediate ≥ 60 min after the Starter ends) is a dead-end late at night
-  // when no Starter→Intermediate pair fits even at the 30-min floor. Disable the
-  // card with a reason instead of letting the customer pick a Starter that can't
-  // be paired. (The heat picker drops 60→30 itself when 60 can't be satisfied.)
+  // Multi-race gate: a package with a min-gap rule (the Ultimate Qualifier's
+  // Intermediate after the Starter) is a dead-end late at night when no
+  // Starter→Intermediate pair fits even at that package's LOOSEST gap. Disable
+  // the card with a reason instead of letting the customer pick a Starter that
+  // can't be paired. The floor is derived per package, never hardcoded — the
+  // same-track relaxation differs by variant (Red/Blue 30, Mega 20), and a
+  // fixed 30 here would grey out a Mega card the picker would still book.
   const blocked = useMemo(() => {
     const gateRace = pkg.races.find((r) => r.minMinutesAfterEndOf);
     if (!gateRace?.minMinutesAfterEndOf || !heatsByRef) return false;
     const prev = heatsByRef[gateRace.minMinutesAfterEndOf.ref] ?? [];
     const next = heatsByRef[gateRace.ref] ?? [];
     if (prev.length === 0 || next.length === 0) return true;
-    const fits = prev.some((p) =>
-      next.some((n) => !violatesMinGapAfter(p.stop, n.start, MIN_PACKAGE_GAP_MINUTES)),
-    );
+    const loosest = packageLoosestGapMinutes(gateRace);
+    const fits = prev.some((p) => next.some((n) => !violatesMinGapAfter(p.stop, n.start, loosest)));
     return !fits;
   }, [pkg.races, heatsByRef]);
 

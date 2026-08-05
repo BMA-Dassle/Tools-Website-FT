@@ -21,6 +21,7 @@ export {
   packageSavings,
   packageFamilyFromPrice,
   packageHeatGapMinutes,
+  packageLoosestGapMinutes,
   primaryTrack,
   LICENSE_PRICE,
   POV_PRICE,

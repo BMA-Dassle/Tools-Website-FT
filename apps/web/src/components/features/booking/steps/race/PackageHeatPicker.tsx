@@ -23,6 +23,7 @@ import {
   type PackageDefinition,
   type PackageRaceComponent,
   packageHeatGapMinutes,
+  packageLoosestGapMinutes,
   packagePerRacerPrice,
 } from "~/features/booking/service/packages";
 import {
@@ -574,9 +575,10 @@ export function PackageHeatPicker({
   //      `sameTrackMinutes` (30). Owner 2026-08-04. Single-track variants
   //      (Mega, both juniors) are always "same track", so they're 30 flat.
   //   2. Late-night floor. When NO heat for this component can satisfy its
-  //      resolved gap after the referenced pick, everything falls back to 30 so
-  //      a late booking isn't dead-ended. The card-level gate (PackageCard)
-  //      already hid the package if not even 30 min fits, so this only loosens.
+  //      resolved gap after the referenced pick, everything falls back to the
+  //      package's LOOSEST gap so a late booking isn't dead-ended. Derived, not
+  //      a literal 30 — Mega relaxes to 20 where Red/Blue relax to 30, and the
+  //      card-level gate (PackageCard) hides the package on the same number.
   const effectiveGapByRefTrack = useMemo(() => {
     const m = new Map<string, number>();
     for (const comp of sortedComponents) {
@@ -591,9 +593,10 @@ export function PackageHeatPicker({
         compProposals.some(
           (tp) => !violatesMinGapAfter(prev.stop, tp.block.start, resolve(tp.track)),
         );
+      const loosest = packageLoosestGapMinutes(comp);
       for (const tp of compProposals) {
         const resolved = resolve(tp.track);
-        m.set(gapKey(comp.ref, tp.track), anyFits ? resolved : Math.min(resolved, 30));
+        m.set(gapKey(comp.ref, tp.track), anyFits ? resolved : Math.min(resolved, loosest));
       }
     }
     return m;

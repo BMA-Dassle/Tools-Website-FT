@@ -144,6 +144,15 @@ describe("packageGapMinutesFor", () => {
     expect(packageGapMinutesFor({ minutes: 60 }, "Red", "Blue")).toBe(60);
   });
 
+  it("honors a per-variant same-track number (Mega is 20, not 30)", () => {
+    const MEGA = { minutes: 60, sameTrackMinutes: 20 };
+    expect(packageGapMinutesFor(MEGA, "Mega", "Mega")).toBe(20);
+    // The owner's worked example: a 10:10 Starter runs 7 min, so it stops at
+    // 10:17 and the 10:40 Intermediate clears 20 but NOT the Red/Blue 30.
+    expect(violatesMinGapAfter("2026-06-02T10:17:00", "2026-06-02T10:40:00", 20)).toBe(false);
+    expect(violatesMinGapAfter("2026-06-02T10:17:00", "2026-06-02T10:40:00", 30)).toBe(true);
+  });
+
   it("feeds violatesMinGapAfter — same-track 45 min apart passes, cross-track doesn't", () => {
     const starterStop = "2026-06-01T15:20:00";
     const candidate = "2026-06-01T16:05:00"; // 45 min after the Starter ends
