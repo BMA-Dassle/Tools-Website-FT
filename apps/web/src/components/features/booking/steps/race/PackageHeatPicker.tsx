@@ -576,9 +576,11 @@ export function PackageHeatPicker({
   //      (Mega, both juniors) are always "same track", so they're 30 flat.
   //   2. Late-night floor. When NO heat for this component can satisfy its
   //      resolved gap after the referenced pick, everything falls back to the
-  //      package's LOOSEST gap so a late booking isn't dead-ended. Derived, not
-  //      a literal 30 — Mega relaxes to 20 where Red/Blue relax to 30, and the
-  //      card-level gate (PackageCard) hides the package on the same number.
+  //      package's LOOSEST gap so a late booking isn't dead-ended. Derived from
+  //      the rule rather than a literal 30, so a variant whose relaxation moves
+  //      can't leave this floor stricter than the rule it is meant to bound
+  //      (Mega briefly ran 20 on 2026-08-04); PackageCard gates on the same
+  //      number.
   const effectiveGapByRefTrack = useMemo(() => {
     const m = new Map<string, number>();
     for (const comp of sortedComponents) {

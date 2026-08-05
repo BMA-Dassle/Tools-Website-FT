@@ -144,13 +144,18 @@ describe("packageGapMinutesFor", () => {
     expect(packageGapMinutesFor({ minutes: 60 }, "Red", "Blue")).toBe(60);
   });
 
-  it("honors a per-variant same-track number (Mega is 20, not 30)", () => {
-    const MEGA = { minutes: 60, sameTrackMinutes: 20 };
-    expect(packageGapMinutesFor(MEGA, "Mega", "Mega")).toBe(20);
-    // The owner's worked example: a 10:10 Starter runs 7 min, so it stops at
-    // 10:17 and the 10:40 Intermediate clears 20 but NOT the Red/Blue 30.
-    expect(violatesMinGapAfter("2026-06-02T10:17:00", "2026-06-02T10:40:00", 20)).toBe(false);
+  it("honors whatever per-variant same-track number the rule carries", () => {
+    expect(packageGapMinutesFor({ minutes: 60, sameTrackMinutes: 20 }, "Mega", "Mega")).toBe(20);
+    expect(packageGapMinutesFor({ minutes: 60, sameTrackMinutes: 45 }, "Mega", "Mega")).toBe(45);
+  });
+
+  it("measures from the Starter's STOP, not its start", () => {
+    // The gap is anchored on the previous heat's END. A 10:10 Starter runs
+    // 7 min (HEAT_DURATION_MIN), so it stops at 10:17 and the 30-min rule
+    // opens 10:47 — a 10:40 Intermediate is still too soon, even though it is
+    // a full 30 min after the Starter's START. Asked directly, 2026-08-04.
     expect(violatesMinGapAfter("2026-06-02T10:17:00", "2026-06-02T10:40:00", 30)).toBe(true);
+    expect(violatesMinGapAfter("2026-06-02T10:17:00", "2026-06-02T10:47:00", 30)).toBe(false);
   });
 
   it("feeds violatesMinGapAfter — same-track 45 min apart passes, cross-track doesn't", () => {

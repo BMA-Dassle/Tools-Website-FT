@@ -245,9 +245,9 @@ async function packageFirstOpen(
   const next = heatsByRef[gateRace.ref] ?? []; // the Intermediate (must clear the gap)
   if (prev.length === 0 || next.length === 0) return null;
   // Earliest FUTURE Starter heat that still has a valid Intermediate after it,
-  // judged at THIS package's loosest gap (see packageLoosestGapMinutes — Mega
-  // relaxes to 20 where Red/Blue relax to 30, so a shared constant would lock
-  // a Mega tile the picker would still book).
+  // judged at THIS package's loosest gap (see packageLoosestGapMinutes). Derived
+  // rather than a shared constant: a floor stricter than the real rule locks a
+  // tile the picker would still book (near-miss 2026-08-04, Mega at 20).
   const loosestGap = packageLoosestGapMinutes(gateRace);
   const valid = prev.filter(
     (p) => isFuture(p) && next.some((n) => !violatesMinGapAfter(p.stop, n.start, loosestGap)),

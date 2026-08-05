@@ -232,7 +232,7 @@ const UQ_APPETIZER_ITEMS = ["Bruschetta - Regular", "Fried Zucchini Sticks", "Ma
 // long description, disclaimer body, and bill memo are factored out
 // here. Update once and every variant inherits it.
 const UQ_LONG =
-  "This is the premier FastTrax experience. Think you have what it takes to level up? This isn't for the faint of heart. You'll qualify in one of our Starter races, and if you level up, your Intermediate race will be waiting for you — scheduled at least half an hour later. While you wait, you can review the included POV video to get better and enjoy a free appetizer at Nemo's upstairs (1 per 3 purchases, dine-in only). This ultimate pack also includes your license.";
+  "This is the premier FastTrax experience. Think you have what it takes to level up? This isn't for the faint of heart. You'll qualify in one of our Starter races, and if you level up, your Intermediate race will be waiting for you — scheduled 30 minutes later on the same track, or an hour later if you switch tracks. While you wait, you can review the included POV video to get better and enjoy a free appetizer at Nemo's upstairs (1 per 3 purchases, dine-in only). This ultimate pack also includes your license.";
 
 const UQ_DISCLAIMERS: PackageDefinition["disclaimers"] = {
   title: "Heads Up — Ultimate Qualifier",
@@ -441,7 +441,7 @@ const PACKAGES: PackageDefinition[] = [
   // Mega first, then Intermediate Mega after the Starter ends, with
   // enough of a gap to qualify, watch the included POV video, and
   // grab the free appetizer. Both components are Mega-only, so the
-  // same-track relaxation always applies here: 20 min, not 60.
+  // same-track relaxation always applies here: 30 min, not 60.
   //
   // Intermediate productId 45810775 is a NEW BMI SKU minted for this
   // package only — separate from the standalone Intermediate Race
@@ -489,10 +489,10 @@ const PACKAGES: PackageDefinition[] = [
           { track: "Mega", productId: "45810775", pageId: "25850647", price: 20.99 },
         ],
         // Mega is single-track, so the same-track number is the ONLY one that
-        // can ever apply — and it's 20, not the 30 the Red/Blue variants use
-        // (owner 2026-08-04). Measured from the Starter's STOP, so a 10:10
-        // heat ending 10:17 opens the 10:40 Intermediate.
-        minMinutesAfterEndOf: { ref: "starter", minutes: 60, sameTrackMinutes: 20 },
+        // can ever apply. 30, same as the Red/Blue variants — briefly 20 on
+        // 2026-08-04, reverted the same day (owner). Measured from the
+        // Starter's STOP, so a 10:10 heat ending 10:17 opens 10:47, not 10:40.
+        minMinutesAfterEndOf: { ref: "starter", minutes: 60, sameTrackMinutes: 30 },
       },
     ],
     includesLicense: true,

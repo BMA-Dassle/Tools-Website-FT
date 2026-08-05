@@ -50,9 +50,10 @@ export function PackageCard({
   // Intermediate after the Starter) is a dead-end late at night when no
   // Starter→Intermediate pair fits even at that package's LOOSEST gap. Disable
   // the card with a reason instead of letting the customer pick a Starter that
-  // can't be paired. The floor is derived per package, never hardcoded — the
-  // same-track relaxation differs by variant (Red/Blue 30, Mega 20), and a
-  // fixed 30 here would grey out a Mega card the picker would still book.
+  // can't be paired. The floor is derived per package, never hardcoded: a
+  // literal here has to be re-checked every time a variant's relaxation moves,
+  // and if it is ever stricter than the real rule this greys out a card the
+  // heat picker would still book (near-miss 2026-08-04, Mega at 20).
   const blocked = useMemo(() => {
     const gateRace = pkg.races.find((r) => r.minMinutesAfterEndOf);
     if (!gateRace?.minMinutesAfterEndOf || !heatsByRef) return false;

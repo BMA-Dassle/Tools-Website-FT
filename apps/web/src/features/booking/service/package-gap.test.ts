@@ -22,15 +22,23 @@ describe("packageLoosestGapMinutes", () => {
     expect(packageLoosestGapMinutes({} as never)).toBe(0);
   });
 
-  it("reports 20 for the live Mega variant and 30 for the Red/Blue variants", () => {
+  // Pins the LIVE registry. Every Ultimate Qualifier variant relaxes to 30 on
+  // the same track (Mega ran 20 for part of 2026-08-04, reverted same day), so
+  // a variant silently losing its relaxation — and reverting to a 60-min gap —
+  // fails here rather than in front of a guest.
+  it("reports 30 for every live Ultimate Qualifier variant", () => {
     const gate = (id: string) => {
       const pkg = getPackageIgnoreFlag(id)!;
       return packageLoosestGapMinutes(pkg.races.find((r) => r.minMinutesAfterEndOf)!);
     };
-    expect(gate("ultimate-qualifier-mega")).toBe(20);
-    expect(gate("ultimate-qualifier-weekday")).toBe(30);
-    expect(gate("ultimate-qualifier-weekend")).toBe(30);
-    expect(gate("ultimate-qualifier-weekday-junior")).toBe(30);
-    expect(gate("ultimate-qualifier-weekend-junior")).toBe(30);
+    for (const id of [
+      "ultimate-qualifier-mega",
+      "ultimate-qualifier-weekday",
+      "ultimate-qualifier-weekend",
+      "ultimate-qualifier-weekday-junior",
+      "ultimate-qualifier-weekend-junior",
+    ]) {
+      expect(gate(id), id).toBe(30);
+    }
   });
 });
