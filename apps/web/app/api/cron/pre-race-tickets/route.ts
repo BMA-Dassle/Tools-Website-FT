@@ -26,6 +26,7 @@ import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
 import { sendEmail as sendGridEmail } from "@/lib/sendgrid";
 import { verifyCron } from "@/lib/cron-auth";
 import { warmRacerCodes } from "~/features/kiosk/license/code-cache";
+import { updateLicencePasses } from "~/features/racing/wallet/licence-pass";
 import { KARTING_CHECKIN_EMAIL_NOTE, KARTING_CHECKIN_SMS_NOTE } from "@/lib/karting-checkin-copy";
 
 /**
@@ -127,6 +128,30 @@ async function fetchSessions(resourceName: string): Promise<PandoraSession[]> {
   if (!res.ok) return [];
   const data = await res.json();
   return Array.isArray(data?.data) ? (data.data as PandoraSession[]) : [];
+}
+
+/**
+ * The NEXT RACE line on a wallet licence: "Aug 4 · 5:00 PM · Mega".
+ *
+ * Short on purpose — Apple truncates a secondary field to the card width even
+ * when it is the only field on its row, and a longer form came back clipped on
+ * device. Track and time earn their place ahead of the weekday.
+ *
+ * `scheduledStart` arrives with a trailing Z but is CENTRE-LOCAL wall clock,
+ * not UTC — Heat 11 runs at 17:00 local, not 17:00Z. Parsed as local; treating
+ * it as real UTC would shift every heat on every pass by the offset.
+ */
+function formatNextRaceForPass(
+  scheduledStart: string,
+  trackDisplay: string,
+  session: { heatNumber?: number; raceType?: string },
+): string {
+  const dt = new Date(String(scheduledStart).replace(/Z$/i, ""));
+  if (isNaN(dt.getTime())) return "None booked";
+  const mon = dt.toLocaleDateString("en-US", { month: "short" });
+  const time = dt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const label = trackDisplay || session.raceType || "";
+  return `${mon} ${dt.getDate()} · ${time}${label ? ` · ${label}` : ""}`;
 }
 
 async function fetchParticipants(sessionId: string | number): Promise<Participant[]> {
@@ -660,6 +685,22 @@ export async function GET(req: NextRequest) {
     // anyone read in the last 30 days, so it is one Office call per racer per
     // month, not one per run. Fire-and-forget — a cold cache only costs latency,
     // and this cron's real job is tickets.
+    // NEXT RACE onto any wallet licence these racers hold. Free — pass updates
+    // are unlimited under the platform fee — which is the whole argument for a
+    // licence replacing per-heat e-tickets: the same information, on a pass
+    // they already carry, at no per-race cost. Skips everyone without a pass in
+    // one Neon query, so a heat of non-holders costs nothing.
+    void updateLicencePasses(
+      candidates.map((c) => ({
+        personId: c.participant.personId,
+        nextRace: formatNextRaceForPass(c.session.scheduledStart, c.trackDisplay, c.session),
+      })),
+    )
+      .then((n) => {
+        if (n) console.log(`[pre-race-tickets] wallet next-race pushed to ${n} pass(es)`);
+      })
+      .catch(() => undefined);
+
     void warmRacerCodes(
       CLIENT_KEY,
       candidates.map((c) => c.participant.personId),

@@ -624,6 +624,11 @@ export async function middleware(request: NextRequest) {
     // domain. Brand-neutral, code-in-path; without this the /hp rewrite 404s
     // every voucher sent to a HeadPinz guest.
     pathname.startsWith("/v/") ||
+    // Racing-licence routes (/r/{loginCode}…) — the Add-to-Wallet hop and the
+    // barcode's own deep link. A racer can open either on EITHER brand host, and
+    // both only ever redirect, so they are brand-neutral. Without this the /hp
+    // rewrite 404s them for anyone who came in via headpinz.com.
+    pathname.startsWith("/r/") ||
     // Centralized cross-brand customer account portal (2FA login + Square
     // subscription payment management). Same route on both hosts; brand is
     // chrome-only. Without this the /hp rewrite turns it into a 404 on HeadPinz.

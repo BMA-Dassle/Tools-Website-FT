@@ -55,3 +55,36 @@ export const PASSKIT_PROJECTS = {
 } as const satisfies Record<string, PassKitProject>;
 
 export type PassKitProgram = keyof typeof PASSKIT_PROJECTS;
+
+/**
+ * A MEMBER program — a different PassKit object family from the coupon chain
+ * above, so it gets its own shape rather than being forced into
+ * `PassKitProject`: members have a program + tiers and no offer.
+ *
+ * BILLING IS THE OPPOSITE WAY ROUND, and it is the thing to remember here.
+ * A coupon bills ONCE at issuance; a member record bills EVERY MONTH it exists
+ * (~$0.045). So a licence must stay opt-in — never auto-issued across the racer
+ * table — and deleting a lapsed one actually stops the charge.
+ */
+export interface PassKitMemberProgram {
+  /** Members program — the container. */
+  programId: string;
+  /** Tier a new member is enrolled into. */
+  tierId: string;
+  /** Pass design. `scripts/passkit-licence-pass.mts` owns its content. */
+  templateId: string;
+}
+
+/**
+ * FastTrax Racing Licence. One pass per racer, `externalId` = BMI personId.
+ *
+ * `externalId` is the personId and NOT a login code, deliberately: a racer holds
+ * several codes (tags are append-only, ~one per visit) but exactly one identity,
+ * and a duplicate externalId is refused with a 409 — which is what makes issuing
+ * idempotent and stops a re-tap minting a second monthly-billed record.
+ */
+export const PASSKIT_LICENCE: PassKitMemberProgram = {
+  programId: "4m1Y7wCXyloclQk0hqvjRS",
+  tierId: "licence",
+  templateId: "75paqKfII1FIn9kImwIvi2",
+};

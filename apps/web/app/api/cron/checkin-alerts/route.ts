@@ -18,6 +18,7 @@ import {
   type Participant,
 } from "@/lib/participant-contact";
 import { logSms, logCronRun } from "@/lib/sms-log";
+import { updateLicencePasses } from "~/features/racing/wallet/licence-pass";
 import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
 import { verifyCron } from "@/lib/cron-auth";
 import { vipComboPersonLegsOnDate, type VipComboPersonLeg } from "@/lib/bowling-db";
@@ -865,6 +866,30 @@ export async function GET(req: NextRequest) {
       const freshExpress = expressHolders.filter((e) => !allPandoraPids.has(String(e.personId)));
 
       const trackDisplay = trackFromName(race.trackName)?.display || race.trackName;
+
+      // "CHECK IN NOW" onto any wallet licence on this roster.
+      //
+      // Sits alongside the SMS and email paths below as a THIRD channel, and
+      // the cheapest by far: pass updates are free and unlimited, where a text
+      // costs per message and this cron fires every minute against heats that
+      // run every ~10. Its lock-screen alert is the field's changeMessage, so
+      // the value has to read as a finished sentence — there is no REST call
+      // for an arbitrary push.
+      //
+      // Safe at this cadence: updateLicencePasses resolves the whole roster's
+      // pass-holders in ONE Neon query and pushes only when the value actually
+      // changed, so a re-run against the same open heat is a no-op.
+      void updateLicencePasses(
+        participants.map((p) => ({
+          personId: p.personId,
+          checkinStatus: `Check in now — ${trackDisplay} Heat ${race.heatNumber ?? ""}`.trim(),
+        })),
+      )
+        .then((n) => {
+          if (n) console.log(`[checkin-alerts] wallet check-in pushed to ${n} pass(es)`);
+        })
+        .catch(() => undefined);
+
       for (const p of participants) {
         candidates.push({ race, trackDisplay, participant: p });
       }
