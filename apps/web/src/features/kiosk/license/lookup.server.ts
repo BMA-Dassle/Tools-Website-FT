@@ -49,6 +49,7 @@ import {
   firstNameAffinity,
   lastSeenFromDescription,
 } from "~/features/booking/service/office-search";
+import { personIdForCode, rememberCodes } from "./code-cache";
 import type { LicenseMatch } from "./types";
 
 // Same host/key/version as app/api/bmi-office/route.ts — one Office DB serves
@@ -262,10 +263,33 @@ export async function lookupMemberMatches(
   qrClientKey?: string,
 ): Promise<LicenseMatch[]> {
   if (qrClientKey && qrClientKey !== CLIENT_KEY) return [];
+
+  // CACHE THE IMMUTABLE HALF ONLY. `code → personId` can never go stale (tags
+  // are append-only and resolve forever), so a hit skips the ~1 s token search
+  // outright. The person DETAIL is still read live every time, because name,
+  // phone and memberships all change — caching those would be the kind of
+  // stale-PII bug that is very hard to notice.
+  //
+  // Deliberately inside the shared resolver rather than at each call site, so
+  // every surface benefits at once: the race check-in desk, kiosk sign-in on
+  // the people step, the entry screens, and the booking-site racer lookup.
+  const cachedPersonId = await personIdForCode(code);
+  if (cachedPersonId) {
+    const cached = await buildMatch({ localId: cachedPersonId, description: "" }, {});
+    if (cached) return [cached];
+    // Cached id no longer resolves (merged/deleted record) — fall through to
+    // the authoritative search rather than telling the guest they don't exist.
+  }
+
   const hits = (await officeSearchPerson(code)).filter((h) => h?.localId).slice(0, MAX_CANDIDATES);
   const matches = (await Promise.all(hits.map((h) => buildMatch(h, {})))).filter(
     (m): m is LicenseMatch => m !== null,
   );
+  // Backfill on a miss, so the cache self-heals without waiting for the cron.
+  // Only when the code resolves to exactly ONE person: a code that returns
+  // several records is ambiguous, and pinning one of them here would silently
+  // hide the others from every later scan.
+  if (matches.length === 1) void rememberCodes(matches[0].personId, [code]);
   return matches.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
 }
 

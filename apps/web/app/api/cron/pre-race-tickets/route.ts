@@ -25,6 +25,7 @@ import { logSms, logCronRun } from "@/lib/sms-log";
 import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
 import { sendEmail as sendGridEmail } from "@/lib/sendgrid";
 import { verifyCron } from "@/lib/cron-auth";
+import { warmRacerCodes } from "~/features/kiosk/license/code-cache";
 import { KARTING_CHECKIN_EMAIL_NOTE, KARTING_CHECKIN_SMS_NOTE } from "@/lib/karting-checkin-copy";
 
 /**
@@ -44,6 +45,8 @@ import { KARTING_CHECKIN_EMAIL_NOTE, KARTING_CHECKIN_SMS_NOTE } from "@/lib/kart
 const BASE = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
 const VOX_API_KEY = process.env.VOX_API_KEY || "";
 const VOX_FROM = "+12394819666"; // FastTrax SMS sender
+/** Office clientKey — the login-code pre-warm reads tags from this BMI. */
+const CLIENT_KEY = process.env.BMI_CLIENT_KEY || "headpinzftmyers";
 const FASTTRAX_LOCATION_ID = "LAB52GY480CJF";
 const SHORT_TTL = 60 * 60 * 24 * 90; // 90 days
 const DEDUP_TTL = 60 * 60 * 24; // 24 hours
@@ -644,6 +647,31 @@ export async function GET(req: NextRequest) {
         }
       }
     }
+
+    // PRE-WARM the racer login-code map for everyone with an upcoming heat.
+    //
+    // A wallet racing licence carries a login code and nothing else, so the
+    // race check-in desk otherwise pays a ~1 s BMI Office token search on every
+    // scan just to learn who is holding it. These are exactly the racers about
+    // to be scanned, and we already have their personIds here — so the lookup
+    // is paid off the critical path, minutes before anyone walks up.
+    //
+    // Cheap despite this cron running every 2 minutes: warmRacerCodes skips
+    // anyone read in the last 30 days, so it is one Office call per racer per
+    // month, not one per run. Fire-and-forget — a cold cache only costs latency,
+    // and this cron's real job is tickets.
+    void warmRacerCodes(
+      CLIENT_KEY,
+      candidates.map((c) => c.participant.personId),
+    )
+      .then((r) => {
+        if (r.warmed || r.failed) {
+          console.log(
+            `[pre-race-tickets] login-code warm: ${r.warmed} new, ${r.skipped} fresh, ${r.failed} failed`,
+          );
+        }
+      })
+      .catch(() => undefined);
 
     // 2. Resolve each candidate to a destination contact (racer first,
     //    guardian fallback for minors), then bucket:
