@@ -3,6 +3,52 @@ import { parseMemberQr } from "./member-qr";
 
 const SAMPLE = 'https://smstim.in?["headpinzftmyers","3f59bc35-0548-46df-ba0c-f8cdedc6568d"]';
 
+describe("parseMemberQr — register/authenticate form", () => {
+  // The shape a REAL BMI register QR uses, and what our wallet racing licence
+  // carries. Byte-for-byte from a live register QR, 2026-08-04.
+  it("parses the authenticate url", () => {
+    expect(parseMemberQr("https://smstim.in/908/authenticate/?login_code=6pmyyfhg4397c")).toEqual({
+      clientKey: "",
+      code: "6pmyyfhg4397c",
+    });
+  });
+
+  it("parses the two licences we have issued", () => {
+    expect(
+      parseMemberQr("https://smstim.in/908/authenticate/?login_code=mgrm2g8o42wxc")?.code,
+    ).toBe("mgrm2g8o42wxc");
+    expect(
+      parseMemberQr("https://smstim.in/908/authenticate/?login_code=nkd59ba4ox8dy")?.code,
+    ).toBe("nkd59ba4ox8dy");
+  });
+
+  it("tolerates no trailing slash, other params, and a different site id", () => {
+    expect(parseMemberQr("https://smstim.in/12/authenticate?login_code=abc123")?.code).toBe(
+      "abc123",
+    );
+    expect(
+      parseMemberQr("https://smstim.in/908/authenticate/?lang=en&login_code=mgrm2g8o42wxc")?.code,
+    ).toBe("mgrm2g8o42wxc");
+  });
+
+  it("rejects an authenticate url with no code, or a junk code", () => {
+    expect(parseMemberQr("https://smstim.in/908/authenticate/")).toBeNull();
+    expect(parseMemberQr("https://smstim.in/908/authenticate/?login_code=")).toBeNull();
+    // Must never become an Office person-search oracle.
+    expect(
+      parseMemberQr("https://smstim.in/908/authenticate/?login_code=Osborn%202%2F12%2F1991"),
+    ).toBeNull();
+  });
+
+  it("does not confuse the two forms", () => {
+    // App payload has no path; register payload has one. Neither leaks.
+    expect(parseMemberQr("https://smstim.in/908/authenticate/?login_code=abc123")?.clientKey).toBe(
+      "",
+    );
+    expect(parseMemberQr(SAMPLE)?.clientKey).toBe("headpinzftmyers");
+  });
+});
+
 describe("parseMemberQr", () => {
   it("parses the live scan shape", () => {
     expect(parseMemberQr(SAMPLE)).toEqual({

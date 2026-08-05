@@ -1,8 +1,14 @@
 /**
- * SMS-Timing member QR — the personal QR in the BMI/SMS-Timing app. Scans as
- * ONE line shaped like:
+ * SMS-Timing member QR. TWO different payload shapes share the smstim.in host
+ * and both must sign a racer in:
  *
- *   https://smstim.in?["headpinzftmyers","3f59bc35-0548-46df-ba0c-f8cdedc6568d"]
+ *   APP       https://smstim.in?["headpinzftmyers","3f59bc35-0548-…"]
+ *   REGISTER  https://smstim.in/908/authenticate/?login_code=6pmyyfhg4397c
+ *
+ * The second is what a BMI register QR actually looks like and what our wallet
+ * racing licence carries — the register reads that form and rejects the app's.
+ * They are told apart by structure: the app payload is a bare query holding a
+ * JSON array, the register one has a real path.
  *
  * (clientKey + the member's unique code). Searching the BMI Office
  * `search/person` with that code as the token returns exactly the member's
@@ -39,9 +45,43 @@ const HOST_RE = /^https?:\/\/smstim\.in\/?\?(.+)$/i;
 const CODE_RE = /^(?:[0-9a-f][0-9a-f-]{15,63}|[A-Za-z0-9]{6,32})$/i;
 const KEY_RE = /^[a-z0-9_-]{3,40}$/i;
 
+/**
+ * The AUTHENTICATE url — what a real BMI REGISTER QR looks like (confirmed
+ * from a live one 2026-08-04):
+ *
+ *   https://smstim.in/908/authenticate/?login_code=6pmyyfhg4397c
+ *
+ * A completely different shape from the app payload above, on the same host: a
+ * real path with a numeric SITE id, and the code as a query param instead of
+ * the second element of a JSON array. Our wallet racing licence carries this
+ * one, because the register reads it and does not read the app's.
+ *
+ * No clientKey to check here, so the returned `clientKey` is empty — which
+ * `lookupMemberMatches` treats as "don't filter", and a foreign venue's code
+ * simply resolves to nobody in our Office search anyway.
+ */
+const AUTH_RE =
+  /^https?:\/\/smstim\.in\/(\d{1,10})\/authenticate\/?\?(?:[^#]*&)?login_code=([^&#\s]+)/i;
+
 /** Parse one scan payload; null = not an SMS-Timing member QR. */
 export function parseMemberQr(payload: string): MemberQr | null {
-  const m = payload.trim().match(HOST_RE);
+  const raw = payload.trim();
+
+  // Register/authenticate form first — it has a path, so it can never be
+  // confused with the app's bare `?[...]` payload.
+  const auth = raw.match(AUTH_RE);
+  if (auth) {
+    let code = auth[2];
+    try {
+      code = decodeURIComponent(code);
+    } catch {
+      /* already literal */
+    }
+    code = code.trim();
+    return CODE_RE.test(code) ? { clientKey: "", code } : null;
+  }
+
+  const m = raw.match(HOST_RE);
   if (!m) return null;
   let rest = m[1];
   // Scanner delivers raw brackets/quotes, but tolerate URL-encoded QRs too.
