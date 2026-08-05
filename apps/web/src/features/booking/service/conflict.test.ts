@@ -9,6 +9,7 @@ import {
   findHeatConflict,
   heatClockLabel,
   heatsConflict,
+  packageGapMinutesFor,
   violatesMinGapAfter,
   type BookedPersonHeat,
 } from "./conflict";
@@ -107,6 +108,51 @@ describe("violatesMinGapAfter", () => {
   it("returns false on un-parseable inputs (don't block on bad data)", () => {
     expect(violatesMinGapAfter("nope", "2026-06-01T16:00:00Z", 60)).toBe(false);
     expect(violatesMinGapAfter("2026-06-01T15:00:00Z", "nope", 60)).toBe(false);
+  });
+});
+
+describe("packageGapMinutesFor", () => {
+  // The Ultimate Qualifier rule as configured in lib/packages.ts.
+  const UQ = { minutes: 60, sameTrackMinutes: 30 };
+
+  it("relaxes to sameTrackMinutes when the candidate stays on the ref's track", () => {
+    expect(packageGapMinutesFor(UQ, "Red", "Red")).toBe(30);
+    expect(packageGapMinutesFor(UQ, "Blue", "Blue")).toBe(30);
+    expect(packageGapMinutesFor(UQ, "Mega", "Mega")).toBe(30);
+  });
+
+  it("keeps the full gap when the candidate switches tracks", () => {
+    expect(packageGapMinutesFor(UQ, "Red", "Blue")).toBe(60);
+    expect(packageGapMinutesFor(UQ, "Blue", "Red")).toBe(60);
+  });
+
+  it("normalizes the track like heatsConflict does ('Blue Track' ≡ 'Blue')", () => {
+    expect(packageGapMinutesFor(UQ, "Blue Track", "Blue")).toBe(30);
+    expect(packageGapMinutesFor(UQ, "blue", "BLUE TRACK")).toBe(30);
+    expect(packageGapMinutesFor(UQ, "Red_Track", "red")).toBe(30);
+  });
+
+  it("treats an unknown/empty track on either side as a track CHANGE (stricter)", () => {
+    expect(packageGapMinutesFor(UQ, null, null)).toBe(60);
+    expect(packageGapMinutesFor(UQ, "", "")).toBe(60);
+    expect(packageGapMinutesFor(UQ, "Red", null)).toBe(60);
+    expect(packageGapMinutesFor(UQ, undefined, "Red")).toBe(60);
+  });
+
+  it("stays track-agnostic when the rule has no sameTrackMinutes", () => {
+    expect(packageGapMinutesFor({ minutes: 60 }, "Red", "Red")).toBe(60);
+    expect(packageGapMinutesFor({ minutes: 60 }, "Red", "Blue")).toBe(60);
+  });
+
+  it("feeds violatesMinGapAfter — same-track 45 min apart passes, cross-track doesn't", () => {
+    const starterStop = "2026-06-01T15:20:00";
+    const candidate = "2026-06-01T16:05:00"; // 45 min after the Starter ends
+    expect(
+      violatesMinGapAfter(starterStop, candidate, packageGapMinutesFor(UQ, "Red", "Red")),
+    ).toBe(false);
+    expect(
+      violatesMinGapAfter(starterStop, candidate, packageGapMinutesFor(UQ, "Red", "Blue")),
+    ).toBe(true);
   });
 });
 

@@ -11,9 +11,11 @@ import {
 import { bmiAdapter } from "~/features/booking/data/bmi";
 import { violatesMinGapAfter } from "~/features/booking/service/conflict";
 
-// Loosest gap we'll ever allow between the two races of a multi-race package
-// (the late-night fallback applied in PackageHeatPicker). If not even this fits
-// for the selected day, the package is a guaranteed dead-end → disable it.
+// Loosest gap we'll ever allow between the two races of a multi-race package —
+// both the same-track relaxation (Ultimate Qualifier: 60 → 30 when the
+// Intermediate stays on the Starter's track) and PackageHeatPicker's late-night
+// fallback bottom out here. If not even this fits for the selected day, the
+// package is a guaranteed dead-end → disable it.
 const MIN_PACKAGE_GAP_MINUTES = 30;
 
 interface PackageCardProps {

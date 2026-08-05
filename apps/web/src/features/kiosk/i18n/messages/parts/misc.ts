@@ -161,6 +161,15 @@ export const miscEn = {
   "racePackage.remove": "Remove {name}",
   "racePackage.change": "Change",
 
+  // --- Package heat-gap note (PackageHeatPicker step banner) ---
+  // How long after the earlier race this one has to start. {ref} is the
+  // earlier component's ref ("starter") — a product noun, English in both.
+  // The `Split` variant renders when the guest can pick either track and the
+  // two numbers differ (Ultimate Qualifier: 30 same track, 60 across).
+  "racePackage.gapNote": "Must be {minutes} min after your {ref} race ends",
+  "racePackage.gapNoteSplit":
+    "Must be {minutes} min after your {ref} race ends on the same track — {crossMinutes} min if you switch tracks",
+
   // --- Locked race tiers on the race screen (RaceProductStep) ---
   // {tier} is a product noun (Starter / Intermediate / Pro) — English in both.
   "raceTier.locked.title": "{tier} Race",
@@ -304,6 +313,9 @@ export const miscEs: Record<keyof typeof miscEn, string> = {
   // --- Quitar un paquete premium (RaceProductStep + carrito del kiosco) ---
   "racePackage.remove": "Quitar {name}",
   "racePackage.change": "Cambiar",
+  "racePackage.gapNote": "Debe ser {minutes} min después de que termine tu carrera {ref}",
+  "racePackage.gapNoteSplit":
+    "Debe ser {minutes} min después de que termine tu carrera {ref} en la misma pista — {crossMinutes} min si cambias de pista",
 
   // --- Niveles bloqueados en la pantalla de carreras ---
   "raceTier.locked.title": "Carrera {tier}",

@@ -46,8 +46,10 @@ import {
   type PackageDefinition,
 } from "@/lib/packages";
 
-/** The loosest gap the package heat picker ever allows (it drops 60→30 late in
- *  the day); mirrors PackageCard's gate so availability matches the card. */
+/** The loosest gap the package heat picker ever allows — 60 drops to 30 when
+ *  the second race stays on the first's track, and again late in the day via
+ *  the picker's dead-end fallback; mirrors PackageCard's gate so availability
+ *  matches the card. */
 const MIN_PACKAGE_GAP_MINUTES = 30;
 
 /** The kiosk race grids' LOOSEST lead (096feb91: 15 min starters / 10 all
@@ -488,10 +490,16 @@ export async function computeExperienceAvailability(
         : Promise.resolve(OPEN_NO_COUNT),
     ),
     gateOnVendor("gel-blaster", () =>
-      resolveSlotAvailability("gel-blaster", attractionFirstOpenToday("gel-blaster", nexusLoc, dateYmd)),
+      resolveSlotAvailability(
+        "gel-blaster",
+        attractionFirstOpenToday("gel-blaster", nexusLoc, dateYmd),
+      ),
     ),
     gateOnVendor("laser-tag", () =>
-      resolveSlotAvailability("laser-tag", attractionFirstOpenToday("laser-tag", nexusLoc, dateYmd)),
+      resolveSlotAvailability(
+        "laser-tag",
+        attractionFirstOpenToday("laser-tag", nexusLoc, dateYmd),
+      ),
     ),
     gateOnVendor("shuffly-fasttrax", () =>
       fm

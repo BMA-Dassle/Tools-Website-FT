@@ -10,7 +10,7 @@
  * Core pieces a package describes:
  *   - which races it bundles (with cross-component heat-gap rules
  *     for things like "Intermediate must be ≥ 60 min after Starter
- *     ends")
+ *     ends — or 30 if it stays on the same track")
  *   - whether it includes the FastTrax license, POV, and/or a free
  *     appetizer code
  *   - eligibility (racerType, schedule, category)
@@ -95,8 +95,16 @@ export interface PackageRaceComponent {
   tracks: PackageTrackOption[];
   /** Heat-gap rule against an earlier component's STOP time.
    *  e.g. `{ ref: "starter", minutes: 60 }` means "this heat must
-   *  start ≥ 60 min after the starter heat ends". */
-  minMinutesAfterEndOf?: { ref: string; minutes: number };
+   *  start ≥ 60 min after the starter heat ends".
+   *
+   *  `sameTrackMinutes` relaxes the rule when the candidate heat is on
+   *  the SAME track as the referenced pick — there's no walk to the
+   *  other track, so the buffer only has to cover the qualify / POV
+   *  review / appetizer turnaround (owner 2026-08-04: Ultimate
+   *  Qualifier same-track drops 60 → 30). Omit it and `minutes` applies
+   *  regardless of track. Resolved by `packageGapMinutesFor` in
+   *  `heat-conflict.ts` / `features/booking/service/conflict.ts`. */
+  minMinutesAfterEndOf?: { ref: string; minutes: number; sameTrackMinutes?: number };
 }
 
 /** First track entry on a component — convenience for callers that
@@ -224,7 +232,7 @@ const UQ_APPETIZER_ITEMS = ["Bruschetta - Regular", "Fried Zucchini Sticks", "Ma
 // long description, disclaimer body, and bill memo are factored out
 // here. Update once and every variant inherits it.
 const UQ_LONG =
-  "This is the premier FastTrax experience. Think you have what it takes to level up? This isn't for the faint of heart. You'll qualify in one of our Starter races, and if you level up, your Intermediate race will be waiting for you — scheduled an hour later. While you wait, you can review the included POV video to get better and enjoy a free appetizer at Nemo's upstairs (1 per 3 purchases, dine-in only). This ultimate pack also includes your license.";
+  "This is the premier FastTrax experience. Think you have what it takes to level up? This isn't for the faint of heart. You'll qualify in one of our Starter races, and if you level up, your Intermediate race will be waiting for you — scheduled at least half an hour later. While you wait, you can review the included POV video to get better and enjoy a free appetizer at Nemo's upstairs (1 per 3 purchases, dine-in only). This ultimate pack also includes your license.";
 
 const UQ_DISCLAIMERS: PackageDefinition["disclaimers"] = {
   title: "Heads Up — Ultimate Qualifier",
@@ -430,9 +438,10 @@ const PACKAGES: PackageDefinition[] = [
 
   // ── Ultimate Qualifier (Mega) ─────────────────────────────────────────────
   // Premier package for Mega Tuesdays. Books two heats — Starter
-  // Mega first, then Intermediate Mega ≥ 60 min after the Starter
-  // ends so the racer has time to qualify, watch the included POV
-  // video, and grab their free appetizer.
+  // Mega first, then Intermediate Mega after the Starter ends, with
+  // enough of a gap to qualify, watch the included POV video, and
+  // grab the free appetizer. Both components are Mega-only, so the
+  // same-track relaxation always applies here: 30 min, not 60.
   //
   // Intermediate productId 45810775 is a NEW BMI SKU minted for this
   // package only — separate from the standalone Intermediate Race
@@ -479,7 +488,7 @@ const PACKAGES: PackageDefinition[] = [
           // pageId before launch — see the comment above.
           { track: "Mega", productId: "45810775", pageId: "25850647", price: 20.99 },
         ],
-        minMinutesAfterEndOf: { ref: "starter", minutes: 60 },
+        minMinutesAfterEndOf: { ref: "starter", minutes: 60, sameTrackMinutes: 30 },
       },
     ],
     includesLicense: true,
@@ -537,7 +546,7 @@ const PACKAGES: PackageDefinition[] = [
           { track: "Red", productId: "45810802", pageId: "25850629", price: 20.99 },
           { track: "Blue", productId: "45811366", pageId: "25850629", price: 20.99 },
         ],
-        minMinutesAfterEndOf: { ref: "starter", minutes: 60 },
+        minMinutesAfterEndOf: { ref: "starter", minutes: 60, sameTrackMinutes: 30 },
       },
     ],
     includesLicense: true,
@@ -591,7 +600,7 @@ const PACKAGES: PackageDefinition[] = [
           // NEW — Ultimate-Qualifier-only Junior Intermediate Blue (weekday).
           { track: "Blue", productId: "45811531", pageId: "25850629", price: 20.99 },
         ],
-        minMinutesAfterEndOf: { ref: "starter", minutes: 60 },
+        minMinutesAfterEndOf: { ref: "starter", minutes: 60, sameTrackMinutes: 30 },
       },
     ],
     includesLicense: true,
@@ -641,7 +650,7 @@ const PACKAGES: PackageDefinition[] = [
           { track: "Red", productId: "45811390", pageId: "25850598", price: 26.99 },
           { track: "Blue", productId: "45811415", pageId: "25850598", price: 26.99 },
         ],
-        minMinutesAfterEndOf: { ref: "starter", minutes: 60 },
+        minMinutesAfterEndOf: { ref: "starter", minutes: 60, sameTrackMinutes: 30 },
       },
     ],
     includesLicense: true,
@@ -693,7 +702,7 @@ const PACKAGES: PackageDefinition[] = [
           // NEW — Ultimate-Qualifier-only Junior Intermediate Blue (weekend).
           { track: "Blue", productId: "45811475", pageId: "25850598", price: 20.99 },
         ],
-        minMinutesAfterEndOf: { ref: "starter", minutes: 60 },
+        minMinutesAfterEndOf: { ref: "starter", minutes: 60, sameTrackMinutes: 30 },
       },
     ],
     includesLicense: true,
@@ -874,7 +883,7 @@ export function packageFamilyFromPrice(
 /** Pull the gap rule for a component, if any. */
 export function packageHeatGapMinutes(
   component: PackageRaceComponent,
-): { ref: string; minutes: number } | null {
+): { ref: string; minutes: number; sameTrackMinutes?: number } | null {
   return component.minMinutesAfterEndOf ?? null;
 }
 

@@ -136,6 +136,29 @@ export function violatesMinGapAfter(
   return candMs < prevMs + minutes * 60_000;
 }
 
+/**
+ * Effective package gap for ONE candidate heat: `sameTrackMinutes` when the
+ * candidate runs on the SAME track as the referenced pick, otherwise the base
+ * `minutes`. Tracks are compared with the same normalizer `heatsConflict` uses
+ * ("Blue Track" ≡ "Blue"); an empty/unknown track on either side counts as a
+ * track CHANGE and keeps the stricter number.
+ *
+ * Owner rule 2026-08-04: the Ultimate Qualifier's 60-min Starter→Intermediate
+ * buffer covers qualifying, the POV review, the appetizer AND the walk to the
+ * other track. Staying on one track drops the walk, so same-track pairs only
+ * need 30. Rules without `sameTrackMinutes` stay track-agnostic.
+ */
+export function packageGapMinutesFor(
+  rule: { minutes: number; sameTrackMinutes?: number },
+  refTrack: string | null | undefined,
+  candidateTrack: string | null | undefined,
+): number {
+  if (rule.sameTrackMinutes === undefined) return rule.minutes;
+  const a = normalizeTrack(refTrack);
+  const b = normalizeTrack(candidateTrack);
+  return a !== "" && a === b ? rule.sameTrackMinutes : rule.minutes;
+}
+
 /** Short tooltip explainer for the package gap rule. The component fills
  *  in the actual minutes / qualifier label at render time. */
 export function packageGapTooltip(minutes: number, refLabel: string): string {

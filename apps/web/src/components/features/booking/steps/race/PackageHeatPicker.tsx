@@ -31,8 +31,10 @@ import {
   collidesWithOtherCategory,
   crossCategoryCollisionMessage,
   HEAT_CONFLICT_TOOLTIP,
+  packageGapMinutesFor,
   packageGapTooltip,
 } from "~/features/booking/service/conflict";
+import { useT } from "~/features/kiosk/i18n";
 import { evaluateRaceRestrictions } from "~/features/booking/service/race-restriction-rules";
 import { scheduleForDate } from "~/features/booking/service/race-pricing";
 import { TRACK_BADGE, TRACK_CARD, DISABLED_CARD, TrackInfoBanner } from "./track-visuals";
@@ -106,6 +108,13 @@ function formatTime(iso: string): string {
     minute: "2-digit",
     hour12: true,
   });
+}
+
+/** Key for the resolved-gap lookup. The gap now varies by CANDIDATE TRACK (a
+ *  same-track Intermediate needs less buffer than one across the park), so the
+ *  component ref alone no longer identifies a single number. */
+function gapKey(componentRef: string, track: string | null): string {
+  return `${componentRef}|${track ?? ""}`;
 }
 
 function spotsLabel(free: number, capacity: number): { text: string; label: string } {
@@ -340,6 +349,11 @@ export function PackageHeatPicker({
   setBusy,
   requestAdvance,
 }: Props) {
+  // Kiosk i18n. Only the gap note is keyed so far — the rest of this picker's
+  // copy is still hardcoded English (pre-existing; see the TODO in the step
+  // banner region). Falls back to English with no LocaleProvider, so the web
+  // v2 flow renders unchanged.
+  const t = useT();
   // Availability is still fetched at FULL roster size (the query key omits
   // quantity, so a selection-sized fetch wouldn't refetch anyway); the
   // "enough spots" check below uses the live selected count.
@@ -551,29 +565,58 @@ export function PackageHeatPicker({
     );
   }, [allProposals, trackFilter, currentComponent]);
 
-  // Effective min-gap per component. Defaults to the configured value (e.g. the
-  // Ultimate Qualifier's 60 min after the Starter), but when NO heat for this
-  // component can satisfy that gap after the referenced pick, fall back to 30 min
-  // so a late-night booking isn't dead-ended. The card-level gate already hid the
-  // package if not even 30 min fits, so this only ever loosens 60 → 30.
-  const effectiveGapByRef = useMemo(() => {
+  // Effective min-gap per component AND candidate track. Two layers:
+  //
+  //   1. Track. The configured value (the Ultimate Qualifier's 60 min after the
+  //      Starter) is the cross-track number — it budgets the walk to the other
+  //      track on top of the qualify / POV / appetizer turnaround. A candidate
+  //      that STAYS on the Starter's track drops the walk and only owes
+  //      `sameTrackMinutes` (30). Owner 2026-08-04. Single-track variants
+  //      (Mega, both juniors) are always "same track", so they're 30 flat.
+  //   2. Late-night floor. When NO heat for this component can satisfy its
+  //      resolved gap after the referenced pick, everything falls back to 30 so
+  //      a late booking isn't dead-ended. The card-level gate (PackageCard)
+  //      already hid the package if not even 30 min fits, so this only loosens.
+  const effectiveGapByRefTrack = useMemo(() => {
     const m = new Map<string, number>();
     for (const comp of sortedComponents) {
       const gap = packageHeatGapMinutes(comp);
       if (!gap) continue;
       const prev = picks.get(gap.ref);
-      if (!prev) {
-        m.set(comp.ref, gap.minutes);
-        continue;
-      }
       const compProposals = allProposals.filter((tp) => tp.component.ref === comp.ref);
-      const anyFitsConfigured = compProposals.some(
-        (tp) => !violatesMinGapAfter(prev.stop, tp.block.start, gap.minutes),
-      );
-      m.set(comp.ref, anyFitsConfigured ? gap.minutes : Math.min(gap.minutes, 30));
+      const resolve = (track: string | null) =>
+        prev ? packageGapMinutesFor(gap, prev.track, track) : gap.minutes;
+      const anyFits =
+        !prev ||
+        compProposals.some(
+          (tp) => !violatesMinGapAfter(prev.stop, tp.block.start, resolve(tp.track)),
+        );
+      for (const tp of compProposals) {
+        const resolved = resolve(tp.track);
+        m.set(gapKey(comp.ref, tp.track), anyFits ? resolved : Math.min(resolved, 30));
+      }
     }
     return m;
   }, [sortedComponents, picks, allProposals]);
+
+  // Gap line for the current step's banner. Post-Starter the number depends on
+  // whether the guest stays on that track, so read the resolved grid values and
+  // spell both out rather than quoting the single configured 60.
+  const gapNote = useMemo(() => {
+    if (!currentComponent) return null;
+    const gap = packageHeatGapMinutes(currentComponent);
+    if (!gap) return null;
+    const mins = allProposals
+      .filter((tp) => tp.component.ref === currentComponent.ref)
+      .map(
+        (tp) => effectiveGapByRefTrack.get(gapKey(currentComponent.ref, tp.track)) ?? gap.minutes,
+      );
+    const lo = mins.length ? Math.min(...mins) : gap.minutes;
+    const hi = mins.length ? Math.max(...mins) : gap.minutes;
+    return lo !== hi
+      ? t("racePackage.gapNoteSplit", { minutes: lo, crossMinutes: hi, ref: gap.ref })
+      : t("racePackage.gapNote", { minutes: lo, ref: gap.ref });
+  }, [currentComponent, allProposals, effectiveGapByRefTrack, t]);
 
   // Wizard auto-advance, commit-gated: fires only on a render where every
   // package heat carries its bmiLineId — i.e. the hold's updateHeat dispatches
@@ -815,12 +858,7 @@ export function PackageHeatPicker({
               ? `Now pick your ${currentComponent.label}`
               : `Step ${currentComponent.sequence} of ${totalComponents} · Pick your ${currentComponent.label}`}
           </p>
-          {packageHeatGapMinutes(currentComponent) && (
-            <p className="mt-1 text-xs text-white/40">
-              Must be {packageHeatGapMinutes(currentComponent)!.minutes} min after your{" "}
-              {packageHeatGapMinutes(currentComponent)!.ref} race ends
-            </p>
-          )}
+          {gapNote && <p className="mt-1 text-xs text-white/40">{gapNote}</p>}
         </div>
       ) : allPicked ? (
         <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.06] px-4 py-2 text-center">
@@ -890,9 +928,12 @@ export function PackageHeatPicker({
               const blockStart = parseLocal(tp.block.start).getTime();
               const isThisHolding = holdingKey === `${tp.productId}|${tp.block.start}`;
 
-              // Gap rule (with the late-night 60→30 fallback from effectiveGapByRef)
+              // Gap rule, resolved for THIS card's track (same-track relaxation
+              // + the late-night floor) — see effectiveGapByRefTrack.
               const gap = packageHeatGapMinutes(component);
-              const gapMinutes = gap ? (effectiveGapByRef.get(component.ref) ?? gap.minutes) : 0;
+              const gapMinutes = gap
+                ? (effectiveGapByRefTrack.get(gapKey(component.ref, tp.track)) ?? gap.minutes)
+                : 0;
               const prevPick = gap ? picks.get(gap.ref) : null;
               const isGapViolation =
                 prevPick && gap

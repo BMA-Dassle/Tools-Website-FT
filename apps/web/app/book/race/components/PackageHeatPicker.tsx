@@ -8,14 +8,16 @@ import {
   heatsConflict,
   HEAT_CONFLICT_TOOLTIP,
   violatesMinGapAfter,
+  packageGapMinutesFor,
   packageGapTooltip,
 } from "@/lib/heat-conflict";
 import TrackInfoBanner from "./TrackInfoBanner";
 
 /**
  * Multi-component heat picker for packages with more than one race
- * (Ultimate Qualifier — Starter Mega → Intermediate Mega ≥ 60 min
- * later). Mirrors PackHeatPicker's UX: ONE merged grid showing all
+ * (Ultimate Qualifier — Starter → Intermediate ≥ 30 min later on the
+ * same track, ≥ 60 min if the customer switches tracks). Mirrors
+ * PackHeatPicker's UX: ONE merged grid showing all
  * heats from all components tagged with their tier, ProgressDots
  * tracking picks, SelectedHeats chips previewing the selection,
  * and a single Confirm CTA at the bottom.
@@ -25,8 +27,9 @@ import TrackInfoBanner from "./TrackInfoBanner";
  *     like the race-pack flow which picks any-N-from-same-product).
  *   - Clicking a heat from component X replaces the previous pick
  *     for X. Click again to deselect.
- *   - Cross-component rules: package gap (Intermediate ≥ 60 min
- *     after Starter STOP) + standard same/cross-track adjacency.
+ *   - Cross-component rules: package gap (Intermediate ≥ 30 min after
+ *     Starter STOP on the same track, ≥ 60 min across tracks — see
+ *     `packageGapMinutesFor`) + standard same/cross-track adjacency.
  *
  * Outputs `{ picks: PackagePick[] }` so handlePackageHeatsConfirm
  * doesn't change.
@@ -292,13 +295,17 @@ function HeatGrid({
         const tooSoon = cutoff > 0 && blockStart < cutoff;
 
         // Package gap rule against the referenced component's pick.
+        // Resolved PER CARD, not per component: staying on the Starter's
+        // track drops the Ultimate Qualifier's 60-min buffer to 30 (owner
+        // 2026-08-04) because there's no walk to the other track. A card on
+        // the OTHER track still owes the full 60.
         const gapRule = component.minMinutesAfterEndOf;
         const refPick = gapRule ? picks[gapRule.ref] : null;
         const gapAnchor =
           refPick && gapRule
             ? {
                 stop: refPick.block.stop,
-                minutes: gapRule.minutes,
+                minutes: packageGapMinutesFor(gapRule, refPick.trackOption.track, proposal._track),
                 refLabel: refPick.component.label,
               }
             : null;

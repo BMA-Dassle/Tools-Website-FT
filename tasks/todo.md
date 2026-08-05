@@ -918,3 +918,48 @@ Dropped per owner: party assignments, PandaDoc (replaced by native ContractSecti
 **Cleanup candidate discovered:** `lib/bmi-office-actions.ts` `fetchProject`/`fetchPersonsByIds`
 parse BMI payloads with plain JSON.parse — latent 17-digit precision hazard for OTHER callers
 (this feature deliberately does not reuse them). Fix in its own PR.
+
+## Ultimate Qualifier: same-track gap 60 → 30 (owner 2026-08-04) — DONE, unsmoked
+
+Owner: "Ultimate qualifier booking restriction if on same track can be dropped to 30 minutes.
+Both web and kiosk."
+
+The UQ Starter→Intermediate buffer (60 min) budgeted qualifying + POV review + appetizer AND the
+walk to the other track. Staying on one track drops the walk, so same-track pairs now need only
+30 min. Cross-track stays 60.
+
+- [x] `lib/packages.ts` — `minMinutesAfterEndOf` gains `sameTrackMinutes?`; all 5 UQ variants set
+      `{ ref: "starter", minutes: 60, sameTrackMinutes: 30 }`. Mega + both junior variants are
+      single-track, so they are effectively 30 flat.
+- [x] `packageGapMinutesFor(rule, refTrack, candidateTrack)` added to BOTH conflict modules
+      (v1 `lib/heat-conflict.ts`, v2 `src/features/booking/service/conflict.ts` — kept in
+      lockstep). Reuses each file's `normalizeTrack`, so "Blue Track" ≡ "Blue"; an empty/unknown
+      track on either side counts as a track CHANGE and keeps the stricter 60.
+- [x] **Web (v1, `/book/race`)** — `app/book/race/components/PackageHeatPicker.tsx` resolves the
+      gap PER CARD from `refPick.trackOption.track` vs `proposal._track`.
+- [x] **Kiosk + web v2** — `src/components/.../race/PackageHeatPicker.tsx`: `effectiveGapByRef`
+      (Map<ref, minutes>) became `effectiveGapByRefTrack` (Map<`ref|track`, minutes>). The
+      late-night dead-end fallback still floors at 30 and now evaluates each proposal against
+      its OWN resolved gap.
+- [x] Step-banner copy is now dynamic: one number when every track resolves the same, otherwise
+      "…30 min … on the same track — 60 min if you switch tracks". Keyed EN+ES as
+      `racePackage.gapNote` / `racePackage.gapNoteSplit` (kiosk i18n hard rule).
+- [x] `UQ_LONG` marketing copy: "scheduled an hour later" → "scheduled at least half an hour
+      later" (the old line is wrong for same-track now).
+- [x] No server-side change needed — `assertHeatBookable` enforces tier + restriction rules, NOT
+      the package gap. The gap is a picker-side rule in both flows.
+- [x] Gates: tsc clean, eslint 0 errors (4 pre-existing warnings), a11y-gate green, 1386 booking
+      + kiosk tests pass, `packageGapMinutesFor` unit-tested in `conflict.test.ts`.
+
+**Not done — needs a live pass:**
+- [ ] Web `/book/race`: UQ weekday adult, pick a Red Starter → Red Intermediate 30–59 min later
+      is now pickable; the same-time Blue Intermediate still reads "Available 60 min after…".
+- [ ] Kiosk: same check on the shared picker, plus the Spanish banner (switch locale on the
+      Intermediate step) and a single-track variant (Mega Tuesday / junior Blue) showing the
+      one-number "30 min" form.
+- [ ] Confirm ops actually want 30 min on Mega — that variant is single-track, so it went from a
+      hard 60 to a hard 30 with no cross-track escape hatch.
+
+**Pre-existing, NOT fixed here:** the v2 `PackageHeatPicker` is otherwise all hardcoded English
+(card status labels, tooltips, roster, banners) despite being a kiosk surface. Only the gap note
+is keyed. Worth its own i18n PR.
