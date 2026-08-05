@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
 import { parseCheckinQr } from "@/lib/qr-checkin";
+import { parseMemberQr } from "~/features/kiosk/qr-scanner/member-qr";
+import { lookupMemberMatches } from "~/features/kiosk/license/lookup.server";
 import {
   getDepositOverview,
   addDeposit,
@@ -474,6 +476,32 @@ async function fetchNextRace(
  * still points at wherever the racer actually is right now. Reused by both the
  * 4-part e-ticket QR move-correction and the bare paper-QR path.
  */
+/**
+ * Same idea as `resolveActiveSessionByParticipant`, keyed on personId — the
+ * only identity a WALLET RACING LICENCE carries.
+ *
+ * A licence says who the racer is, never which heat, so this scans the
+ * currently-checking-in sessions (races-current: blue/red/mega, ≤3 cached
+ * roster reads) and returns the one they are actually on. That is exactly the
+ * right semantic for a check-in desk: if their heat is not open yet there is
+ * nothing to check into, and because the answer is always a
+ * currently-checking-in session the headsock deduction below is reached under
+ * precisely the same condition as an e-ticket scan — no new exposure.
+ */
+async function resolveActiveSessionByPerson(
+  current: CurrentRaces,
+  personId: string,
+): Promise<{ sessionId: string } | null> {
+  for (const [, data] of Object.entries(current)) {
+    if (!data) continue;
+    const sid = data.sessionId == null ? "" : String(data.sessionId);
+    if (!sid) continue;
+    const match = await lookupGuest(sid, personId);
+    if (match.participant) return { sessionId: sid };
+  }
+  return null;
+}
+
 async function resolveActiveSessionByParticipant(
   current: CurrentRaces,
   participantId: string,
@@ -515,7 +543,72 @@ export async function POST(req: NextRequest) {
   // QRs and paper QRs — those stay on the racing path below.
   let qrLocationId: string | null = null;
 
+  // A WALLET RACING LICENCE. Checked FIRST, and it cannot collide with
+  // anything below: both licence shapes are smstim.in URLs, while every
+  // existing payload here is `FT:`/`HP:`-prefixed or bare digits.
+  //
+  // A licence identifies a PERSON, not a heat, so it cannot go through
+  // parseCheckinQr (which needs a sessionId baked in). It resolves to the heat
+  // the racer is checking into RIGHT NOW, then joins the standard path below
+  // completely unchanged — same BMI check-in write, same headsock rules.
+  let licenceCode: string | null = null;
   if (body.raw) {
+    const qr = parseMemberQr(body.raw.trim());
+    if (qr) {
+      licenceCode = qr.code;
+      const people = await lookupMemberMatches(qr.code, qr.clientKey || undefined).catch(
+        () => null,
+      );
+      if (people === null || people.length === 0) {
+        // `[]` is also what a degraded Office person subsystem returns — it
+        // answers empty rather than erroring (four hours of that on
+        // 2026-08-03), so this is logged rather than silently read as "no such
+        // racer". No PII in the log line.
+        console.warn(
+          `[admin-checkin] licence resolved ${people === null ? "ERROR" : "nobody"} — Office search may be degraded`,
+        );
+        return NextResponse.json({
+          success: false,
+          guest: null,
+          session: { track: null, raceType: null, heatNumber: null, scheduledStart: null },
+          currentlyCheckingIn: false,
+          headsock: { detected: false, deducted: false, balance: 0 },
+          nextRaceStatus: "unknown",
+          detail: "Licence not recognised",
+        });
+      }
+      // One human can hold several Office records; the live roster is the
+      // tie-breaker, which beats guessing by recency.
+      const current0 = await fetchCurrentRaces(req);
+      let picked: { personId: string; sessionId: string } | null = null;
+      for (const p of people) {
+        const live = await resolveActiveSessionByPerson(current0, String(p.personId));
+        if (live) {
+          picked = { personId: String(p.personId), sessionId: live.sessionId };
+          break;
+        }
+      }
+      if (!picked) {
+        // Known racer, no heat open. NOT an error, and deliberately no
+        // "next race" hint: sessions/next returns the next UNSTARTED session
+        // ever, which for real records is a stale 2023 arena match.
+        const m = people[0];
+        return NextResponse.json({
+          success: false,
+          guest: { firstName: m.fullName.split(/\s+/)[0] ?? "", lastName: m.fullName.split(/\s+/).slice(1).join(" ") },
+          session: { track: null, raceType: null, heatNumber: null, scheduledStart: null },
+          currentlyCheckingIn: false,
+          headsock: { detected: false, deducted: false, balance: 0 },
+          nextRaceStatus: "none",
+          detail: "No race checking in right now",
+        });
+      }
+      personId = picked.personId;
+      sessionId = picked.sessionId;
+    }
+  }
+
+  if (body.raw && !licenceCode) {
     const raw = body.raw.trim();
     const parsed = parseCheckinQr(raw);
     if (parsed) {
