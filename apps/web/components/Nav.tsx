@@ -5,33 +5,13 @@ import Link from "next/link";
 import Image from "next/image";
 import { trackBookingClick } from "@/lib/analytics";
 import { buildWaiverUrl } from "~/features/waiver/build-waiver-url";
-
-const schedule: Record<number, { day: string; open: string; close: string }> = {
-  0: { day: "SUNDAY", open: "11:00 AM", close: "11:00 PM" },
-  1: { day: "MONDAY", open: "1:00 PM", close: "11:00 PM" },
-  2: { day: "TUESDAY", open: "1:00 PM", close: "11:00 PM" },
-  3: { day: "WEDNESDAY", open: "1:00 PM", close: "11:00 PM" },
-  4: { day: "THURSDAY", open: "1:00 PM", close: "11:00 PM" },
-  5: { day: "FRIDAY", open: "1:00 PM", close: "12:00 AM" },
-  6: { day: "SATURDAY", open: "11:00 AM", close: "12:00 AM" },
-};
+import { fasttraxHoursToday, formatHoursRange } from "~/lib/constants/fasttrax-hours";
 
 function getTodayHours() {
-  const estDay = new Intl.DateTimeFormat("en-US", {
-    weekday: "long",
-    timeZone: "America/New_York",
-  }).format(new Date());
-  const dayIndex = [
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-  ].indexOf(estDay);
-  const entry = schedule[dayIndex];
-  return `${entry.day} ${entry.open} – ${entry.close}`;
+  // Hours (incl. the ET weekday and the 2026-08-10 late-open switchover) come
+  // from the shared registry — see src/lib/constants/fasttrax-hours.ts.
+  const today = fasttraxHoursToday();
+  return `${today.day} ${formatHoursRange(today)}`;
 }
 
 const links = [

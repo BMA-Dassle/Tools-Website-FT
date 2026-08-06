@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { PartyMember, RaceItem, StepDef } from "~/features/booking";
+import { isQualifiedForTier } from "~/features/booking/service/race-products";
 import { getGroupEventForDate, getPublicReopenTimeForDate } from "@/lib/group-events";
 
 /**
@@ -14,11 +15,12 @@ import { getGroupEventForDate, getPublicReopenTimeForDate } from "@/lib/group-ev
  * for private group events (`getGroupEventForDate`) render amber + unclickable.
  *
  * Inline warning surface (v1 page.tsx:2001-2068): when the customer picks a
- * Tuesday AND the party contains a new junior racer, the "Heads up — Mega
- * Tuesday" amber banner renders below the calendar and `canAdvance` blocks
- * Next until they pick a different date or change party. v1 calls Mega
- * Tuesdays the only day juniors can't run a starter race (Mega has no
- * Junior Starter product).
+ * Tuesday AND the party contains a junior who has no Mega race to book, the
+ * "Heads up — Mega Tuesday" amber banner renders below the calendar and
+ * `canAdvance` blocks Next until they pick a different date or change party.
+ * Mega runs JUNIOR PRO ONLY (owner 2026-08-05, effective 2026-08-10): BMI has no
+ * Junior Starter Mega product and Junior Intermediate Mega was retired, so the
+ * banner covers first-timers AND returning juniors below Junior Pro.
  *
  * Imports v1's `getGroupEventForDate` from `lib/group-events.ts` directly —
  * static config registry, shared between v1 + v2.
@@ -77,8 +79,22 @@ async function fetchCalendarDays(
   }
 }
 
-function partyHasNewJuniors(party: PartyMember[]): boolean {
-  return party.some((m) => (m.category ?? "adult") === "junior" && m.isNewRacer);
+/**
+ * Juniors in the party who have NO race to book on a Mega day.
+ *
+ * Mega runs Junior Pro only (owner 2026-08-05, effective 2026-08-10) — no Junior
+ * Starter, no Junior Intermediate — so the blocked set is every junior who isn't
+ * already Junior-Pro qualified: first-timers AND returning juniors still sitting
+ * at Starter or Intermediate. Qualification goes through `isQualifiedForTier`
+ * with category "junior", never a raw membership substring match (see
+ * race-products.ts — a bare `.includes("pro")` caused the 2026-07-30 incident).
+ */
+function juniorsBlockedOnMega(party: PartyMember[]): PartyMember[] {
+  return party.filter(
+    (m) =>
+      (m.category ?? "adult") === "junior" &&
+      (m.isNewRacer || !isQualifiedForTier(m.memberships ?? [], "junior", "pro")),
+  );
 }
 
 function isTuesdayISO(iso: string): boolean {
@@ -178,10 +194,10 @@ const RaceDateStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, 
     viewYear > today.getFullYear() ||
     (viewYear === today.getFullYear() && viewMonth > today.getMonth());
 
-  // Mega Tuesday + new juniors guard — same logic v1 page.tsx:2010-2016 uses.
-  const hasNewJuniors = partyHasNewJuniors(session.party);
+  // Mega Tuesday junior guard — same logic v1 page.tsx uses.
+  const blockedJuniors = juniorsBlockedOnMega(session.party);
   const selectedIsTuesday = item.date ? isTuesdayISO(item.date) : false;
-  const blockedForJuniors = selectedIsTuesday && hasNewJuniors;
+  const blockedForJuniors = selectedIsTuesday && blockedJuniors.length > 0;
 
   return (
     <div className="space-y-6">
@@ -349,12 +365,14 @@ const RaceDateStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, 
                 Heads up — Mega Tuesday
               </p>
               <p className="mb-3 text-sm leading-relaxed text-white/80">
-                Tuesdays run on the Mega Track only, and first-time Junior races aren&apos;t offered
-                on Mega. Your{" "}
-                {countNewJuniors(session.party) === 1
+                Tuesdays run on the Mega Track only, and Mega runs{" "}
+                <strong>Junior Pro races only</strong> — no Junior Starter or Junior Intermediate.
+                Your{" "}
+                {blockedJuniors.length === 1
                   ? "junior racer"
-                  : `${countNewJuniors(session.party)} junior racers`}{" "}
-                won&apos;t have a race to book on this date.
+                  : `${blockedJuniors.length} junior racers`}{" "}
+                won&apos;t have a race to book on this date. Juniors qualify up to Junior Pro on a
+                split-track (Blue/Red) day first.
               </p>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <button
@@ -377,10 +395,6 @@ const RaceDateStepComponent: StepDef<RaceItem>["Component"] = ({ item, session, 
   );
 };
 
-function countNewJuniors(party: PartyMember[]): number {
-  return party.filter((m) => (m.category ?? "adult") === "junior" && m.isNewRacer).length;
-}
-
 export const RaceDateStep: StepDef<RaceItem> = {
   id: "race-date",
   title: "Date",
@@ -388,8 +402,10 @@ export const RaceDateStep: StepDef<RaceItem> = {
   isVisible: () => true,
   canAdvance: (item, session) => {
     if (!item.date) return { reason: "Pick a race day to continue." };
-    if (isTuesdayISO(item.date) && partyHasNewJuniors(session.party)) {
-      return { reason: "First-time juniors can’t race on Mega Tuesdays." };
+    if (isTuesdayISO(item.date) && juniorsBlockedOnMega(session.party).length > 0) {
+      // Kiosk localizes this exact string — keep KioskFlow.tsx's reverse map and
+      // the `stepReason.megaTuesday` catalog entry (en + es) in sync with it.
+      return { reason: "Mega Tuesdays run Junior Pro races only." };
     }
     return true;
   },

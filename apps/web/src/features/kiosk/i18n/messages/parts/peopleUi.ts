@@ -16,7 +16,7 @@ export const peopleUiEn = {
   // Mega Tuesday junior notice (racing only)
   "peopleUi.megaTuesday": "Mega Tuesday",
   "peopleUi.megaJuniorWarning":
-    "First-time Junior racers can’t race today — Juniors must qualify on a split-track (Blue/Red) day first.",
+    "Today is Junior Pro only — no Junior Starter or Junior Intermediate races. Juniors must qualify up to Junior Pro on a split-track (Blue/Red) day first.",
 
   // block reason banner + license scan progress
   "peopleUi.beforeYouContinue": "Before you continue",
@@ -161,7 +161,7 @@ export const peopleUiEs: Record<keyof typeof peopleUiEn, string> = {
   // Mega Tuesday junior notice (racing only)
   "peopleUi.megaTuesday": "Mega Tuesday",
   "peopleUi.megaJuniorWarning":
-    "Los pilotos Junior por primera vez no pueden correr hoy — los Junior deben clasificar primero en un día de pista dividida (Blue/Red).",
+    "Hoy solo hay carreras Junior Pro — no hay Junior Starter ni Junior Intermediate. Los Junior deben clasificar hasta Junior Pro primero en un día de pista dividida (Blue/Red).",
 
   // block reason banner + license scan progress
   "peopleUi.beforeYouContinue": "Antes de continuar",

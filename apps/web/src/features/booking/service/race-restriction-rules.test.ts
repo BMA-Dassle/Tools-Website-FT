@@ -261,6 +261,52 @@ describe("evaluateRaceRestrictions — opening heats walk-in / express only", ()
       expect(blue(wd(13, 0)).ruleId).toBe("opening-heats-express-only");
     });
   });
+
+  // The window is anchored to the venue's open time FOR THE HEAT'S OWN DATE
+  // (fasttrax-hours registry), not to "now" — so the 2026-08-10 Mon–Fri
+  // 1 PM → 3 PM move applies from its effective date forward while heats before
+  // it keep the old window. Both are correct at the same instant, which is the
+  // whole point of gating on the heat rather than the clock.
+  describe("follows the heat date's opening time across the 2026-08-10 late open", () => {
+    // 2026-08-06 = Thu (1 PM era) · 2026-08-13 = Thu (3 PM era)
+    const local = (date: string, h: number, m: number) =>
+      `${date}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
+    const heat = (date: string, h: number, m: number) =>
+      evaluateRaceRestrictions(
+        openingCtx({
+          track: "Blue",
+          candidateStartLocal: local(date, h, m),
+          candidateStartMs: new Date(local(date, h, m)).getTime(),
+        }),
+      );
+
+    it("a Thursday BEFORE the change still blocks 1:00 + 1:12 and allows 1:24", () => {
+      expect(heat("2026-08-06", 13, 0).blocked).toBe(true);
+      expect(heat("2026-08-06", 13, 12).blocked).toBe(true);
+      expect(heat("2026-08-06", 13, 24).blocked).toBe(false);
+      expect(heat("2026-08-06", 15, 0).blocked).toBe(false); // not open-adjacent yet
+    });
+
+    it("a Thursday AFTER the change blocks 3:00 + 3:12 and allows 3:24", () => {
+      expect(heat("2026-08-13", 15, 0).blocked).toBe(true);
+      expect(heat("2026-08-13", 15, 12).blocked).toBe(true);
+      expect(heat("2026-08-13", 15, 24).blocked).toBe(false);
+    });
+
+    it("1:00 PM on a post-change weekday is no longer an opening heat (venue is shut)", () => {
+      expect(heat("2026-08-13", 13, 0).blocked).toBe(false);
+      expect(heat("2026-08-13", 13, 12).blocked).toBe(false);
+    });
+
+    it("Saturday keeps its 11:00 AM window on both sides of the change", () => {
+      // 2026-08-08 = Sat (old era) · 2026-08-15 = Sat (new era)
+      for (const sat of ["2026-08-08", "2026-08-15"]) {
+        expect(heat(sat, 11, 0).blocked).toBe(true);
+        expect(heat(sat, 11, 12).blocked).toBe(true);
+        expect(heat(sat, 11, 24).blocked).toBe(false);
+      }
+    });
+  });
 });
 
 describe("evaluateRaceRestrictions — Junior no back-to-back (Blue + Mega)", () => {

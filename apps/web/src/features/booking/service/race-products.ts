@@ -253,17 +253,9 @@ const RACE_PRODUCTS: RaceProduct[] = [
     track: "Mega",
     price: 20.99,
   },
-  {
-    schedule: "mega",
-    racerType: "new",
-    productId: "24966320",
-    pageId: "25850647",
-    name: "Junior Intermediate Race Mega",
-    tier: "intermediate",
-    category: "junior",
-    track: "Mega",
-    price: 20.99,
-  },
+  // NOTE: no Junior Intermediate Race Mega (BMI 24966320). Junior racing on
+  // Mega days is JUNIOR PRO ONLY as of 2026-08-10 (owner) — see the Mega junior
+  // rule note above the returning-racer Mega block.
   // ── Mega — Page 25850658: Pro ──
   {
     schedule: "mega",
@@ -462,6 +454,14 @@ const RACE_PRODUCTS: RaceProduct[] = [
   },
 
   // ── Mega Tuesday ──
+  //
+  // ⚠️ JUNIOR RACING ON MEGA IS **JUNIOR PRO ONLY** (owner 2026-08-05, effective
+  // 2026-08-10). Mega days run NO Junior Starter and NO Junior Intermediate
+  // races, so the only junior product on this track is Junior Pro Race Mega.
+  // Junior Starter Mega never existed in BMI; Junior Intermediate Mega
+  // (24966320 new / 43732358 existing) was retired here on the same date.
+  // Consequence worth knowing: a junior must qualify all the way to Junior Pro
+  // on a split-track (Blue/Red) day before they can race a Mega Tuesday at all.
   {
     schedule: "mega",
     racerType: "existing",
@@ -492,17 +492,6 @@ const RACE_PRODUCTS: RaceProduct[] = [
     name: "Pro Race Mega",
     tier: "pro",
     category: "adult",
-    track: "Mega",
-    price: 20.99,
-  },
-  {
-    schedule: "mega",
-    racerType: "existing",
-    productId: "43732358",
-    pageId: "43734751",
-    name: "Junior Intermediate Race Mega",
-    tier: "intermediate",
-    category: "junior",
     track: "Mega",
     price: 20.99,
   },
@@ -767,6 +756,11 @@ export const RACE_BUILD_PRODUCTS: Record<string, RaceBuildPair> = {
   "adult:pro:Mega": mkPair("49502297", "49502598"),
   "junior:starter:Blue": mkPair("49501626", "49501755"),
   "junior:intermediate:Blue": mkPair("49498220", "49498305"),
+  // Junior Intermediate Mega retired from the sellable catalog 2026-08-10 (Mega
+  // is Junior Pro only). The $0 build pair stays mapped ON PURPOSE: a session
+  // that picked the heat before the deploy still resolves a real BMI build
+  // product instead of falling through to bmiBookingTarget's error path and
+  // booking `pageId === productId`. Delete once no such sessions can be live.
   "junior:intermediate:Mega": mkPair("49499359", "49499922"),
   "junior:pro:Blue": mkPair("49501400", "49501489"),
   "junior:pro:Mega": mkPair("49500166", "49500772"),

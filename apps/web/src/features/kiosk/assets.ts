@@ -246,7 +246,7 @@ const MEGA_TUESDAY_SLIDE: KioskAdSlide = {
   bannerAction: "to race the Mega",
   accent: "#8652ff",
   photo: KIOSK_PHOTOS.race,
-  notice: "No first-time Junior racers on Mega",
+  notice: "Junior Pro only on Mega",
   headline: "attract.letsGoMega",
   // Reuses the kart reel: Mega IS racing, and it keeps the slide from being
   // the only still one in an otherwise moving rotation.
@@ -273,7 +273,7 @@ export function isMegaTuesdayToday(): boolean {
  *  `brand` gates the Mega Tuesday slide to FASTTRAX kiosks. The rotation is
  *  keyed by CENTER, and both FM venues share center "fort-myers", so HeadPinz
  *  Fort Myers was picking up a racing-only promo — complete with the red
- *  "No first-time Junior racers" rule — on the one bank that also runs the
+ *  "Junior Pro only on Mega" rule — on the one bank that also runs the
  *  billboard, and the two fought over the same screen (owner 2026-07-28:
  *  "mega slide looks messed up"). The everyday racing slide stays on HeadPinz:
  *  that is ordinary cross-campus promotion. A dated promo with an operational

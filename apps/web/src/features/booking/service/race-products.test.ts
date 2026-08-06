@@ -74,6 +74,57 @@ describe("productsForSchedule", () => {
   });
 });
 
+// Mega runs JUNIOR PRO races only (owner 2026-08-05, effective 2026-08-10): BMI
+// never had a Junior Starter Mega product, and Junior Intermediate Mega
+// (24966320 new / 43732358 existing) was retired from the catalog. Guard it in
+// the registry, because these entries are exactly the kind of thing a future
+// "restore parity with v1" edit puts back by accident.
+describe("Mega junior products — Junior Pro only", () => {
+  for (const racerType of ["new", "existing"] as const) {
+    it(`mega + ${racerType} exposes junior PRO and nothing else junior`, () => {
+      const juniorMega = productsForSchedule("mega", racerType).filter(
+        (p) => p.category === "junior" && p.track === "Mega",
+      );
+      expect(juniorMega.length).toBeGreaterThan(0);
+      expect(juniorMega.every((p) => p.tier === "pro")).toBe(true);
+      expect(juniorMega.some((p) => p.tier === "starter")).toBe(false);
+      expect(juniorMega.some((p) => p.tier === "intermediate")).toBe(false);
+    });
+  }
+
+  it("the retired Junior Intermediate Mega ids resolve to nothing", () => {
+    expect(getRaceProductById("24966320")).toBeNull();
+    expect(getRaceProductById("43732358")).toBeNull();
+  });
+
+  it("adult Mega keeps every tier", () => {
+    const adultMega = productsForSchedule("mega", "existing").filter(
+      (p) => p.category === "adult" && p.track === "Mega" && !p.packType,
+    );
+    expect(adultMega.map((p) => p.tier).sort()).toEqual(["intermediate", "pro", "starter"]);
+  });
+
+  it("a junior qualified only to Intermediate gets NO Mega race", () => {
+    const juniors = filterProducts(productsForSchedule("mega", "existing"), {
+      racerType: "existing",
+      adultCount: 0,
+      juniorCount: 2,
+      memberships: ["Qualified Junior Intermediate"],
+    });
+    expect(juniors).toEqual([]);
+  });
+
+  it("a Junior Pro racer gets exactly the Junior Pro Mega race", () => {
+    const juniors = filterProducts(productsForSchedule("mega", "existing"), {
+      racerType: "existing",
+      adultCount: 0,
+      juniorCount: 1,
+      memberships: ["Qualified Junior Pro"],
+    });
+    expect(juniors.map((p) => p.productId)).toEqual(["43732675"]);
+  });
+});
+
 describe("filterProducts", () => {
   const weekdayNew = productsForSchedule("weekday", "new");
   const weekdayExisting = productsForSchedule("weekday", "existing");

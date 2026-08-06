@@ -1542,8 +1542,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
 
   return (
     <div className="space-y-[24px]">
-      {/* Mega Tuesday junior rule (owner 2026-07-21) — the kiosk books TODAY,
-          so on Mega days first-time Juniors can't race at all. Racing only. */}
+      {/* Mega Tuesday junior rule (owner 2026-07-21; narrowed 2026-08-05) — the
+          kiosk books TODAY, so on Mega days only JUNIOR PRO races run: no Junior
+          Starter, no Junior Intermediate. Racing only. */}
       {isRace && isMegaTuesdayToday() && (
         <div className="flex items-start gap-[18px] rounded-2xl border-2 border-[#e53935] bg-[#e53935]/12 px-[28px] py-[22px]">
           <span

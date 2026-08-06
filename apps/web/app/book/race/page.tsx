@@ -802,6 +802,26 @@ export default function BookRacePage() {
     changeStep("date");
   }
 
+  /**
+   * How many juniors in the party have NO race to book on a Mega day.
+   *
+   * Mega is JUNIOR PRO ONLY (owner 2026-08-05, effective 2026-08-10) — no Junior
+   * Starter (never existed in BMI) and no Junior Intermediate (retired from the
+   * catalog on the same date). New juniors are all blocked; returning juniors are
+   * blocked unless BMI already qualifies them at Junior Pro. Category-scoped via
+   * getRacerTier so an ADULT "Qualified Pro" can't stand in for junior Pro.
+   */
+  function countJuniorsBlockedOnMega(): number {
+    if (racerType === "new") return juniors;
+    const verifiedJuniors = verifiedRacers.filter((r) => r.category === "junior");
+    const unqualified = verifiedJuniors.filter(
+      (r) => getRacerTier(r.memberships ?? [], "junior") !== "Pro",
+    ).length;
+    // Juniors counted in the party but not yet verified can't be shown qualified,
+    // so they count as blocked too (matches the pre-verification `juniors` count).
+    return unqualified + Math.max(0, juniors - verifiedJuniors.length);
+  }
+
   function handleDateSelect(date: string) {
     trackBookingDate(date);
     setSelectedDate(date);
@@ -813,14 +833,13 @@ export default function BookRacePage() {
     setBookingCategory(adults > 0 ? "adult" : "junior");
     fetchCatalog(date);
 
-    // Mega Tuesday + first-time Junior racers = no qualifying product.
-    // Hold the step on `date` so the warning banner below renders and
-    // the guest can pick a different date or adjust their party before
-    // progressing.
+    // Mega Tuesday + a junior below Junior Pro = no qualifying product (Mega
+    // runs Junior Pro races only). Hold the step on `date` so the warning banner
+    // below renders and the guest can pick a different date or adjust their
+    // party before progressing.
     const [y, m, d] = date.split("T")[0].split("-").map(Number);
     const isTuesday = new Date(y, m - 1, d).getDay() === 2;
-    const hasNewJuniors = racerType === "new" && juniors > 0;
-    if (isTuesday && hasNewJuniors) {
+    if (isTuesday && countJuniorsBlockedOnMega() > 0) {
       return; // stay on "date" step — warning is rendered inline
     }
 
@@ -2003,19 +2022,19 @@ export default function BookRacePage() {
         {/* STEP 3: Date */}
         {step === "date" &&
           (() => {
-            // Mega Tuesdays don't run Junior Starter races — first-time
-            // junior racers can't race that day. Catch it the moment
-            // Tuesday is picked (via selectedDate), before the guest
-            // burns time on product + heat selection only to find no
-            // junior options. Returning juniors have already cleared
-            // Starter so they're fine.
+            // Mega runs JUNIOR PRO races only (owner 2026-08-05, effective
+            // 2026-08-10) — no Junior Starter, no Junior Intermediate — so any
+            // junior below Junior Pro has nothing to book on a Tuesday. Catch it
+            // the moment Tuesday is picked (via selectedDate), before the guest
+            // burns time on product + heat selection only to find no junior
+            // options.
             const isMegaTuesday = (() => {
               if (!selectedDate) return false;
               const [y, m, d] = selectedDate.split("T")[0].split("-").map(Number);
               return new Date(y, m - 1, d).getDay() === 2; // 2 = Tuesday
             })();
-            const hasNewJuniors = racerType === "new" && juniors > 0;
-            const blockedForJuniors = isMegaTuesday && hasNewJuniors;
+            const blockedJuniorCount = countJuniorsBlockedOnMega();
+            const blockedForJuniors = isMegaTuesday && blockedJuniorCount > 0;
             return (
               <div className="space-y-6">
                 <DatePicker selected={selectedDate} onSelect={handleDateSelect} />
@@ -2041,10 +2060,14 @@ export default function BookRacePage() {
                           Heads up — Mega Tuesday
                         </p>
                         <p className="text-white/80 text-sm leading-relaxed mb-3">
-                          Tuesdays run on the Mega Track only, and first-time Junior races
-                          aren&apos;t offered on Mega. Your{" "}
-                          {juniors === 1 ? "junior racer" : `${juniors} junior racers`} won&apos;t
-                          have a race to book on this date.
+                          Tuesdays run on the Mega Track only, and Mega runs{" "}
+                          <strong>Junior Pro races only</strong> — no Junior Starter or Junior
+                          Intermediate. Your{" "}
+                          {blockedJuniorCount === 1
+                            ? "junior racer"
+                            : `${blockedJuniorCount} junior racers`}{" "}
+                          won&apos;t have a race to book on this date. Juniors qualify up to Junior
+                          Pro on a split-track (Blue/Red) day first.
                         </p>
                         <div className="flex flex-col sm:flex-row gap-2">
                           <button

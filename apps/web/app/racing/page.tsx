@@ -601,8 +601,9 @@ export default function RacingPage() {
                     border: "1px solid rgba(255,193,7,0.3)",
                   }}
                 >
-                  &#9888;&#65039; Junior Notice: First-time Juniors cannot race the Mega Track. You
-                  must qualify on a split-track day first.
+                  &#9888;&#65039; Junior Notice: Mega Track Tuesdays run Junior Pro races only — no
+                  Junior Starter or Junior Intermediate. Juniors must qualify all the way up to
+                  Junior Pro on a split-track day first.
                 </p>
               </div>
 
