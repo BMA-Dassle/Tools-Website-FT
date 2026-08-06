@@ -765,6 +765,11 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/r/")) {
       requestHeaders.set("x-no-chrome", "1");
     }
+    // Collecting a party's licences after scanning a kiosk QR — one job, its own
+    // brand header, nothing else on screen competing with it.
+    if (pathname.startsWith("/passes/")) {
+      requestHeaders.set("x-no-chrome", "1");
+    }
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
@@ -796,7 +801,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/join/") ||
     pathname === "/waiver" ||
     pathname.startsWith("/waiver/") ||
-    pathname.startsWith("/r/")
+    pathname.startsWith("/r/") ||
+    pathname.startsWith("/passes/")
   ) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-no-chrome", "1");

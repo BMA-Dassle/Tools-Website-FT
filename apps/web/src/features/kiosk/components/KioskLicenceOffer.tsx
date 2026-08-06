@@ -42,15 +42,19 @@ export function KioskLicenceOffer({
   // land here — this QR carries the whole party to whichever phone scans it,
   // which is the parent-with-three-kids case the bundle exists for.
   //
-  // Points at the CONFIRMATION page rather than straight at the .pkpasses file:
-  // we have no idea which platform is about to scan a kiosk screen, and that
-  // page detects it — Apple gets the one-tap bundle, Android gets a badge per
-  // racer. A bundle URL would hand an Android guest a file they cannot open.
+  // Points at /passes/{billId}, a page whose ONLY job is this — not the
+  // confirmation page, where a guest who scanned to collect licences would land
+  // on a long booking page and have to hunt for a card partway down it.
+  //
+  // Not the .pkpasses file directly either: we have no idea which platform is
+  // about to scan a kiosk screen, and that page detects it — Apple starts the
+  // one-tap bundle automatically, Android gets a badge per racer. A bundle URL
+  // would hand an Android guest a file they cannot open.
   useEffect(() => {
     if (!billId || eligible.length < 2) return;
     const domain = brand === "headpinz" ? "https://headpinz.com" : "https://fasttraxent.com";
     let cancelled = false;
-    QRCode.toDataURL(`${domain}/book/confirmation/v2?billId=${encodeURIComponent(billId)}`, {
+    QRCode.toDataURL(`${domain}/passes/${encodeURIComponent(billId)}`, {
       width: 360,
       margin: 1,
       color: { dark: "#04252b", light: "#ffffff" },

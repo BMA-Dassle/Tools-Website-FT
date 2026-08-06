@@ -422,9 +422,16 @@ export function KioskConfirmation({ src }: { src: string | null }) {
         <path d="m7.5 12.5 3 3 6-7" />
       </svg>
       <h1 className="k-display relative text-[124px] leading-none">{t("confirmation.booked")}</h1>
-      <p className="relative max-w-[30ch] text-[34px] text-white/60">
-        {t("confirmation.receiptNote")}
-      </p>
+      {/* RACING BOOKINGS DROP THIS. The racing panel below already explains
+          what happens next, and the licence card offers the wallet pass
+          explicitly INSTEAD of a text — so telling the same guest their links
+          are on their way by text contradicts the thing we are asking them to
+          do (owner 2026-08-06). Every other booking type still needs it. */}
+      {!showRacing && (
+        <p className="relative max-w-[30ch] text-[34px] text-white/60">
+          {t("confirmation.receiptNote")}
+        </p>
+      )}
       {showRacing && (
         // Racing "what's next" — deliberately first panel so a racing guest
         // reads it before anything else; racing red to stand out from the
