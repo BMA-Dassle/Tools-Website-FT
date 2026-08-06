@@ -229,6 +229,7 @@ function AddButton({
 }) {
   const [ready, setReady] = useState(0);
   const [failed, setFailed] = useState(false);
+  const [done, setDone] = useState(false);
 
   const probeUrl =
     `/api/racing/licence-offer/add-all?billId=${encodeURIComponent(billId)}&probe=1` +
@@ -269,8 +270,8 @@ function AddButton({
           const got = Number(j.ready ?? 0);
           setReady(got);
           if (got > 0 && got >= Number(j.total ?? expected)) {
-            window.location.href = target;
-            return; // deliberately stays "busy" — we are leaving the page
+            handOff();
+            return;
           }
         }
       } catch {
@@ -281,11 +282,31 @@ function AddButton({
 
     // Partial is still worth having — three good passes beat an error.
     if (ready > 0) {
-      window.location.href = target;
+      handOff();
       return;
     }
     setFailed(true);
     onDone();
+  }
+
+  /**
+   * Start the download and RELEASE THE UI.
+   *
+   * A `.pkpasses` (or `.pkpass`) download does not unload the page — the browser
+   * hands the file to Wallet and leaves this tab exactly where it was. Treating
+   * the tap as a navigation left the button stuck on "Preparing 4 of 4" and the
+   * whole card locked, with nothing to unstick it (owner 2026-08-06).
+   *
+   * The delay only covers the request being issued; there is no event for "the
+   * user finished adding", and inventing one by polling install state would be
+   * slower and still a guess.
+   */
+  function handOff() {
+    window.location.href = target;
+    setTimeout(() => {
+      setDone(true);
+      onDone();
+    }, 2000);
   }
 
   if (failed) {
@@ -293,6 +314,30 @@ function AddButton({
       <p className="text-[#f0b341] text-xs leading-relaxed">
         Still preparing — try again in a minute, or scan the code above.
       </p>
+    );
+  }
+
+  // Handed to Wallet. Deliberately still tappable: iOS may have been dismissed,
+  // or they may want it on a second device, and a dead control would leave them
+  // with no way to retry.
+  if (done) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setDone(false);
+          void start();
+        }}
+        disabled={locked}
+        className={
+          primary
+            ? "mb-5 flex w-full items-center justify-center gap-2 rounded-xl border border-[#46d68c]/50 bg-[#46d68c]/10 px-5 py-3 text-sm font-bold text-[#46d68c] disabled:opacity-60"
+            : "inline-flex items-center gap-2 rounded-lg border border-[#46d68c]/50 bg-[#46d68c]/10 px-3 py-2 text-[11px] font-semibold text-[#46d68c] disabled:opacity-40"
+        }
+      >
+        <span aria-hidden="true">✓</span>
+        {primary ? "Sent to Wallet — tap to send again" : "Sent — tap again"}
+      </button>
     );
   }
 
