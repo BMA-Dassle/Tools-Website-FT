@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPassMeta,
+  detailRemaining,
   displayCode,
   isFullySpent,
   remainingItems,
@@ -13,6 +14,21 @@ import type { VoucherItem } from "../data/vouchers-db";
 const laser: VoucherItem = { kind: "attraction", slug: "laser-tag", qty: 1 };
 /** $10 of play at the house 10¢/token rate — what the deal packs actually mint. */
 const card10: VoucherItem = { kind: "gamezone", tokens: 0, bonusTokens: 100, bonusCashDollars: 0 };
+
+/** The real `race-bowl-v2` grant shape: per guest a 100-bonus-token leg and a
+ *  laser/gel CHOICE leg, plus one Shuffly hour for the booking. */
+const vipGrant = (guests: number): VoucherItem[] => [
+  ...Array.from({ length: guests }, () => card10),
+  ...Array.from(
+    { length: guests },
+    (): VoucherItem => ({
+      kind: "attraction-choice",
+      slugs: ["laser-tag", "gel-blaster"],
+      qty: 1,
+    }),
+  ),
+  { kind: "attraction", slug: "shuffly", qty: 1 },
+];
 
 const states = (items: VoucherItem[], spentIdx: number[] = []) =>
   voucherItemStates(items, new Set(spentIdx));
@@ -39,6 +55,42 @@ describe("summariseRemaining", () => {
 
   it("drops the multiplier for a single leg", () => {
     expect(summariseRemaining(states([laser, card10]))).toBe("Laser Tag + 100 Tokens");
+  });
+
+  it("NO VIP GRANT FITS THE FACE — at any party size", () => {
+    // "Laser Tag or Gel Blasters" is 25 of the 34-char budget on its own, so the
+    // choice leg alone blows the cap however many guests there are. Pinned so
+    // nobody assumes the small parties escape it.
+    for (const guests of [1, 2, 4, 7]) {
+      expect(summariseRemaining(states(vipGrant(guests)))).toBe(`${guests * 100} Tokens + 2 more`);
+    }
+  });
+});
+
+describe("detailRemaining", () => {
+  it("names every entitlement a VIP grant carries — this is what the face cannot say", () => {
+    expect(detailRemaining(states(vipGrant(4)))).toBe(
+      "400 Tokens + 4 × Laser Tag or Gel Blasters + Shuffly",
+    );
+  });
+
+  it("differs from the face ONLY by the cap — same wording, same grouping, same order", () => {
+    // If these two ever derived their text separately, the front and back of one
+    // pass would describe the same voucher differently.
+    const s = states([laser, laser, card10, card10]);
+    expect(detailRemaining(s)).toBe(summariseRemaining(s));
+    expect(summariseRemaining(states(vipGrant(4)))).not.toBe(detailRemaining(states(vipGrant(4))));
+  });
+
+  it("drops spent legs, like the face does", () => {
+    // Index 0 is a token leg; 4..7 are the choice legs.
+    expect(detailRemaining(states(vipGrant(2), [0]))).toBe(
+      "100 Tokens + 2 × Laser Tag or Gel Blasters + Shuffly",
+    );
+  });
+
+  it("returns empty for nothing remaining, leaving the caller to word it", () => {
+    expect(detailRemaining(states([card10], [0]))).toBe("");
   });
 
   it("uses the attraction catalog name, not the raw slug", () => {

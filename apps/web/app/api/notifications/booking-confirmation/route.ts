@@ -18,6 +18,7 @@ import {
 import { getVoucherByBillId } from "~/features/game-cards/data/vouchers-db";
 import { groupVoucherItems, voucherGroupLabel } from "~/features/game-cards/vouchers/display";
 import { qrAttachment, voucherRedeemUrl } from "~/features/game-cards/service/voucher-mail";
+import { walletBadgesEmailHtml } from "~/features/game-cards/wallet/badges";
 import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
 
 // Re-export so any existing importer of this route's signature verifier keeps
@@ -499,6 +500,16 @@ export async function POST(req: NextRequest) {
           if (v && !v.voidedAt) {
             const qr = await qrAttachment(v.code);
             kioskAttachments.push(qr.attachment);
+            // Wallet badges, PANELLED. This card is #231a05 on #000418, and
+            // Apple's badge is a black fill with a #A6A6A6 hairline — it
+            // disappears without a light plate behind it. Same reason /v wraps
+            // them; see wallet/badges.ts. Origin comes FROM the redeem URL so
+            // the images can never load from a different host than the link.
+            const redeemUrl = voucherRedeemUrl(v.code);
+            const walletHtml = walletBadgesEmailHtml({
+              redeemUrl,
+              origin: new URL(redeemUrl).origin,
+            });
             const expiry = v.expiresAt
               ? new Date(v.expiresAt).toLocaleDateString("en-US", {
                   timeZone: "America/New_York",
@@ -513,6 +524,8 @@ export async function POST(req: NextRequest) {
               <p style="margin:0 0 8px;color:#f0b341;font-size:15px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;">Your VIP Voucher</p>
               <p style="font-family:monospace;font-size:22px;font-weight:bold;color:#fff;margin:0 0 10px;letter-spacing:2px;">${formatVoucherCode(v.code)}</p>
               <img src="cid:${qr.cid}" width="150" height="150" alt="Scan this voucher at any kiosk" style="display:block;border:1px solid #B8860B;border-radius:8px;margin:0 0 10px;">
+              <p style="margin:0 0 4px;color:#8d7a4d;font-size:12px;">Keep it on your phone:</p>
+              <div style="margin:0 0 12px;">${walletHtml}</div>
               ${groupVoucherItems(v.items.map((item, index) => ({ item, index, spent: false })))
                 .map(
                   (g) =>
@@ -862,6 +875,10 @@ export async function POST(req: NextRequest) {
             expiresAt: vipVoucher.expiresAt,
             redeemUrl: voucherRedeemUrl(vipVoucher.code),
             qrCid: qr.cid,
+            // Taken FROM the redeem URL, not from a second read of the env, so
+            // the wallet badge images can never load from a different host than
+            // the link beside them.
+            origin: new URL(voucherRedeemUrl(vipVoucher.code)).origin,
           });
         } catch (err) {
           console.error("[booking-confirmation] voucher QR failed (non-fatal):", err);

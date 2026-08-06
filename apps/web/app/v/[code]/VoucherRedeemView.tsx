@@ -11,6 +11,7 @@ import {
   IconQrcode,
 } from "@tabler/icons-react";
 import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
+import { BADGE_HEIGHT, WALLET_BADGES, walletBadgeHref } from "~/features/game-cards/wallet/badges";
 import type { WalletPlatform } from "~/features/game-cards/wallet/platform";
 import {
   formatVoucherExpiry,
@@ -36,49 +37,6 @@ import type { VoucherStatus } from "~/features/game-cards/service/native-voucher
  *  (owner 2026-08-03: "NOT redeemable at guest services you must see kiosk") —
  *  the desk cannot dispense a card or apply these codes, so pointing someone
  *  there sends them to be turned around. */
-/** The two wallets, named explicitly so the route never has to guess from a
- *  user agent — see app/v/[code]/wallet/route.ts.
- *
- *  `badge` is each vendor's OWN artwork, unmodified. Apple and Google publish
- *  these files precisely so nobody re-sets the wordmark in their own type, and
- *  Google's guidelines say it outright: "Do not create your own Add to Google
- *  Wallet buttons or alter the font, color, button radius, or padding within the
- *  button in any way." What used to be here — a text label in a Tailwind pill —
- *  was exactly that prohibited thing.
- *
- *  `width` is the badge's natural width at the shared 50px render height (Apple's
- *  SVG is 110.739x35.016, Google's is 199x55), measured from the files rather
- *  than guessed. The two still differ because the wordmarks do; never stretch one
- *  to match its neighbour. 50px also clears Google's stated 48dp minimum, and the
- *  gap-3 between them clears Google's 8dp and Apple's .1X clear space.
- *
- *  Google ships two shapes and we take the TWO-LINE badge, not the wider one-line
- *  button, because Apple only ships two-line: pairing 158x50 with 181x50 reads as
- *  a matched set, where the one-line button's 283x50 read as a mismatch.
- *
- *  English only today, deliberately: `/v/` has no locale. Apple ships 45 locales
- *  (US_UK, ESMX, …) and Google ships esUS, so the Spanish files drop in beside
- *  these the day this page learns about locale. */
-const WALLETS = [
-  {
-    platform: "apple",
-    label: "Add to Apple Wallet",
-    badge: "/brand/wallet/apple-wallet-en.svg",
-    width: 158,
-  },
-  {
-    platform: "google",
-    label: "Add to Google Wallet",
-    badge: "/brand/wallet/google-wallet-en.svg",
-    width: 181,
-  },
-] as const satisfies readonly {
-  platform: WalletPlatform;
-  label: string;
-  badge: string;
-  width: number;
-}[];
-
 const REASON_COPY: Record<string, string> = {
   bad_format: "That code doesn’t look right — check it and try again.",
   unknown: "We couldn’t find that voucher.",
@@ -234,30 +192,22 @@ export function VoucherRedeemView({
               spent) and creates the pass on first ask, because PassKit bills
               single-use passes AT ISSUANCE and most guests never add one. Hidden
               once the voucher can no longer be used, matching the dimmed QR. */}
-              {/* WHITE PANEL ON PURPOSE. Apple's standard badge is the black fill
-              with a #A6A6A6 hairline, drawn for light backgrounds, and the only
-              variant Google ships is #1F1F1F — both sit muddily on this
-              bg-white/[0.04] card over #00041b. A light host surface fixes the
-              contrast without touching either asset, which is the line that
-              matters: the clear-space rules govern space AROUND a badge, so a
-              container is fair game where restyling the badge is not.
+              {/* White panel, deliberately — see the WHITE PANEL note in
+              wallet/badges.ts, which also owns the artwork and sizing rules.
               flex-wrap rather than a 2-col grid because the badges are
               deliberately different widths, and it also handles the single-badge
               case (?platform= from an email tap) with no conditional. */}
               {!voided && !expired && !allDone && (
                 <div className="mt-4 rounded-2xl bg-white p-4">
                   <div className="flex flex-wrap items-center justify-center gap-3">
-                    {WALLETS.filter((w) => !walletPlatform || w.platform === walletPlatform).map(
-                      (w) => (
-                        <a
-                          key={w.platform}
-                          href={`/v/${status.code}/wallet?platform=${w.platform}`}
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element -- vendor artwork must ship byte-for-byte; the optimizer would re-encode it */}
-                          <img src={w.badge} alt={w.label} width={w.width} height={50} />
-                        </a>
-                      ),
-                    )}
+                    {WALLET_BADGES.filter(
+                      (w) => !walletPlatform || w.platform === walletPlatform,
+                    ).map((w) => (
+                      <a key={w.platform} href={walletBadgeHref(`/v/${status.code}`, w.platform)}>
+                        {/* eslint-disable-next-line @next/next/no-img-element -- vendor artwork must ship byte-for-byte; the optimizer would re-encode it */}
+                        <img src={w.svg} alt={w.label} width={w.width} height={BADGE_HEIGHT} />
+                      </a>
+                    ))}
                   </div>
                 </div>
               )}
