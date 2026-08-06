@@ -30,54 +30,66 @@ const inflight = new Map<string, Promise<OfferRacer[]>>();
 /** Whether the booking has race participants at all — see the endpoint. */
 const racingCache = new Map<string, boolean>();
 
-async function load(billId: string): Promise<OfferRacer[]> {
-  const hit = cache.get(billId);
+/**
+ * A pack key is EITHER a booking id (all digits) or signed waiver grants
+ * (`g=…`, minted by the signature route — see licence-grant.ts). Callers that
+ * have a booking keep passing a bare billId and nothing about them changes.
+ */
+export function packQuery(key: string): string {
+  return key.startsWith("g=") ? key : `billId=${encodeURIComponent(key)}`;
+}
+
+async function load(key: string): Promise<OfferRacer[]> {
+  const hit = cache.get(key);
   if (hit) return hit;
-  const running = inflight.get(billId);
+  const running = inflight.get(key);
   if (running) return running;
 
-  const p = fetch(`/api/racing/licence-offer?billId=${encodeURIComponent(billId)}`)
+  const p = fetch(`/api/racing/licence-offer?${packQuery(key)}`)
     .then((r) => (r.ok ? r.json() : null))
     .then((j) => {
       const racers: OfferRacer[] = Array.isArray(j?.racers) ? j.racers : [];
-      cache.set(billId, racers);
-      racingCache.set(billId, j?.isRacing === true);
+      cache.set(key, racers);
+      racingCache.set(key, j?.isRacing === true);
       return racers;
     })
     .catch(() => [] as OfferRacer[])
     .finally(() => {
-      inflight.delete(billId);
+      inflight.delete(key);
     });
 
-  inflight.set(billId, p);
+  inflight.set(key, p);
   return p;
 }
 
 /** `null` while unresolved — callers render nothing rather than flashing an
- *  offer that may turn out to be empty. */
-export function useLicenceOffer(billId: string | null | undefined): OfferRacer[] | null {
+ *  offer that may turn out to be empty.
+ *
+ *  `key` is a booking id or a `g=…` grant bundle; see `packQuery`. */
+export function useLicenceOffer(key: string | null | undefined): OfferRacer[] | null {
   const [racers, setRacers] = useState<OfferRacer[] | null>(() =>
-    billId ? (cache.get(billId) ?? null) : null,
+    key ? (cache.get(key) ?? null) : null,
   );
 
   useEffect(() => {
-    if (!billId) return;
+    if (!key) return;
     let cancelled = false;
-    load(billId).then((r) => {
+    load(key).then((r) => {
       if (!cancelled) setRacers(r);
     });
     return () => {
       cancelled = true;
     };
-  }, [billId]);
+  }, [key]);
 
   return racers;
 }
 
 /** Data-driven "is this a racing booking", for surfaces that would otherwise
- *  rely on a sessionStorage flag written during checkout. */
-export function useIsRacingBooking(billId: string | null | undefined): boolean {
-  const racers = useLicenceOffer(billId);
-  if (!billId || !racers) return false;
-  return racingCache.get(billId) === true;
+ *  rely on a sessionStorage flag written during checkout. Always false for a
+ *  waiver pack — signing a waiver says nothing about whether you are racing. */
+export function useIsRacingBooking(key: string | null | undefined): boolean {
+  const racers = useLicenceOffer(key);
+  if (!key || !racers) return false;
+  return racingCache.get(key) === true;
 }

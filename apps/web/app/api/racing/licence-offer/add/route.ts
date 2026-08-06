@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import redis from "@/lib/redis";
 import { codeForPersonId } from "~/features/kiosk/license/code-cache";
 import { lookupMemberMatches } from "~/features/kiosk/license/lookup.server";
+import { resolveLicencePack, packHas } from "~/features/racing/service/licence-pack";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,16 +16,16 @@ export const runtime = "nodejs";
  * at the kiosk, the desk and the register. So the browser gets this URL instead
  * and the code is resolved here, server-side, at the moment of the tap.
  *
- * Possession of the billId is the auth, the same bar the confirmation page
- * itself applies — and the personId must actually be ON that booking, so this
- * cannot be used to look up an arbitrary person's code.
+ * Possession of the billId is the auth for a booking, and a signed waiver grant
+ * is the auth when there is no booking (the standalone / group-events waiver).
+ * Either way the personId must be IN the proven pack, so this cannot be used to
+ * look up an arbitrary person's code — see licence-pack.ts.
  *
  * Issues nothing itself: it redirects to the lazy-issue route, which creates the
  * pass only because the racer asked for it.
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const url = new URL(req.url);
-  const billId = (url.searchParams.get("billId") || "").trim();
   const personId = (url.searchParams.get("personId") || "").trim();
   const platform = url.searchParams.get("platform");
   // "hub" lands on the racer's page; default is the wallet hop. Both resolve the
@@ -33,19 +33,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const to = url.searchParams.get("to");
 
   const home = () => NextResponse.redirect(new URL("/book/race", req.url));
-  if (!/^\d+$/.test(billId) || !/^\d+$/.test(personId)) return home();
+  if (!/^\d+$/.test(personId)) return home();
 
-  // The personId must be on THIS booking — otherwise the endpoint would resolve
-  // any person's code for anyone holding any billId.
-  let onBooking = false;
-  try {
-    const raw = await redis.get(`bookingrecord:${billId}`);
-    const rec = raw ? (JSON.parse(raw) as { racers?: Array<{ personId?: string | null }> }) : null;
-    onBooking = !!rec?.racers?.some((r) => String(r?.personId ?? "").trim() === personId);
-  } catch {
-    onBooking = false;
-  }
-  if (!onBooking) return home();
+  // The personId must be in the pack the caller proved — a booking they hold the
+  // billId for, or a waiver they signed. Without this the endpoint would resolve
+  // ANY person's login code for anyone who could name them.
+  const pack = await resolveLicencePack(url.searchParams);
+  if (!pack || !packHas(pack, personId)) return home();
 
   // Cache first, then Office. The cache is only warmed by the pre-race cron and
   // past lookups, so a racer who simply has not been swept yet is NOT a

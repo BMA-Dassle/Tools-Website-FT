@@ -5,7 +5,7 @@ import {
   walletPlatformFromUserAgent,
   type WalletPlatform,
 } from "~/features/game-cards/wallet/platform";
-import { useLicenceOffer } from "./useLicenceOffer";
+import { useLicenceOffer, packQuery } from "./useLicenceOffer";
 import { WALLET_BADGES, BADGE_HEIGHT } from "~/features/game-cards/wallet/badges";
 import { BrandedLoader } from "~/features/kiosk/components/BrandedLoader";
 
@@ -50,16 +50,19 @@ const LOADER_KEYFRAMES = `
  * which only runs because someone deliberately scanned the code.
  */
 export default function WalletPackClient({
-  billId,
+  packKey,
   personId,
 }: {
-  billId: string;
+  /** A booking id, or a  waiver grant bundle — see useLicenceOffer.
+   *  `/passes/{billId}` is the kiosk QR's destination; `/passes/w?g=…` is the
+   *  waiver's, and both want this identical prepare-poll-hand-off. */
+  packKey: string;
   /** One racer only. The kiosk's per-racer QRs land here so a single add gets
    *  the same prepare-and-wait flow as the bundle — a bare redirect to the pass
    *  URL hands the guest an un-rendered pass. */
   personId?: string;
 }) {
-  const racers = useLicenceOffer(billId);
+  const racers = useLicenceOffer(packKey);
   const [platform, setPlatform] = useState<WalletPlatform | null | "unknown">("unknown");
   const [ready, setReady] = useState(0);
   const [phase, setPhase] = useState<"working" | "sent" | "failed">("working");
@@ -78,7 +81,7 @@ export default function WalletPackClient({
     started.current = true;
 
     const base =
-      `/api/racing/licence-offer/add-all?billId=${encodeURIComponent(billId)}` +
+      `/api/racing/licence-offer/add-all?${packQuery(packKey)}` +
       (personId ? `&personId=${encodeURIComponent(personId)}` : "");
     let cancelled = false;
 
@@ -116,7 +119,7 @@ export default function WalletPackClient({
     return () => {
       cancelled = true;
     };
-  }, [platform, total, billId, personId]);
+  }, [platform, total, packKey, personId]);
 
   const badges = WALLET_BADGES.filter((b) => !platform || platform === "unknown" || b.platform === platform);
 

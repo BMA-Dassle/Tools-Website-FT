@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import redis from "@/lib/redis";
 import { codeForPersonId } from "~/features/kiosk/license/code-cache";
 import { lookupMemberMatches } from "~/features/kiosk/license/lookup.server";
 import { issueLicencePass } from "~/features/racing/wallet/licence-pass";
 import { buildLicenceMeta } from "~/features/racing/wallet/licence-meta";
 import { passUrls } from "~/lib/api/passkit";
 import { getRacerPasses } from "~/features/racing/data/racer-wallet-db";
+import { resolveLicencePack, type PackMember } from "~/features/racing/service/licence-pack";
 import {
   buildPkpassesBundle,
   fetchPkpass,
@@ -18,8 +18,8 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 
 /**
- * GET /api/racing/licence-offer/add-all?billId=… — every racer on the booking,
- * added to this phone in one tap.
+ * GET /api/racing/licence-offer/add-all?billId=…  (or ?g=…) — every racer in the
+ * pack, added to this phone in one tap.
  *
  * APPLE ONLY, and not by preference. Apple's `.pkpasses` bundle is just a ZIP of
  * signed passes, so we can assemble one from passes PassKit already issued.
@@ -36,20 +36,16 @@ export const maxDuration = 120;
  * and the same lazy rule as everywhere else (nothing is created by rendering
  * the page). The reconcile sweep deletes any of them that never reach a device.
  *
- * Possession of the billId is the auth, the same bar the confirmation page
- * applies, and every personId must actually be on that booking.
+ * Possession of the billId is the auth for a booking; a signed waiver grant is
+ * the auth when there is no booking (standalone / group-events waiver). Either
+ * way every personId must be IN the proven pack — see licence-pack.ts.
  */
-interface BookingRacer {
-  personId?: string | null;
-  racerName?: string | null;
-  heatStart?: string | null;
-  track?: string | null;
-  heatName?: string | null;
-}
+/** Heat fields are present only for a booking pack — a waiver knows nothing
+ *  about anyone's heat, and the pre-race cron fills the pass in later. */
+type BookingRacer = PackMember;
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const url = new URL(req.url);
-  const billId = (url.searchParams.get("billId") || "").trim();
   // PREPARE MODE. A freshly issued pass is not renderable immediately — PassKit
   // answers 200 with its landing page for tens of seconds, and the first GET
   // appears to be what triggers the render. Waiting that out inside the
@@ -72,31 +68,23 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // render delay as the bundle — the pass is issued on the tap — so the one-row
   // buttons drive the same wait rather than redirecting into a landing page.
   const onlyPerson = (url.searchParams.get("personId") || "").trim();
-  if (!/^\d+$/.test(billId)) {
-    return NextResponse.json({ error: "billId required" }, { status: 400 });
+
+  // A booking (`billId`) or signed waiver grants (`g`) — see licence-pack.ts.
+  // This endpoint ISSUES passes, so a caller that proved nothing must get
+  // nothing: an unproven pack here would be a way to bill us for strangers.
+  const pack = await resolveLicencePack(url.searchParams);
+  if (!pack?.members.length) {
+    return NextResponse.json({ error: "no racers for this request" }, { status: 404 });
   }
 
-  let record: { racers?: BookingRacer[] } | null = null;
-  try {
-    const raw = await redis.get(`bookingrecord:${billId}`);
-    record = raw ? JSON.parse(raw) : null;
-  } catch {
-    record = null;
-  }
-  if (!record?.racers?.length) {
-    return NextResponse.json({ error: "no racers on this booking" }, { status: 404 });
-  }
-
-  // One entry per PERSON — a racer booked into two heats appears twice and must
-  // not be handed two copies of the same licence.
-  const seen = new Set<string>();
-  const racers: BookingRacer[] = [];
-  for (const r of record.racers) {
-    const pid = String(r?.personId ?? "").trim();
-    if (!/^\d+$/.test(pid) || seen.has(pid)) continue;
-    if (onlyPerson && pid !== onlyPerson) continue;
-    seen.add(pid);
-    racers.push(r);
+  // The pack is already one row per person. `?personId=` narrows to one, and it
+  // must be IN the pack — otherwise it is a way to name someone the caller never
+  // proved.
+  const racers: BookingRacer[] = onlyPerson
+    ? pack.members.filter((m) => m.personId === onlyPerson)
+    : pack.members;
+  if (!racers.length) {
+    return NextResponse.json({ error: "no racers for this request" }, { status: 404 });
   }
 
   // PROBE: read the member ids we already stored and just look. No Office, no

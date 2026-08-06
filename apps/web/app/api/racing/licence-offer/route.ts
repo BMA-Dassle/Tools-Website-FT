@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import QRCode from "qrcode";
-import redis from "@/lib/redis";
 import { codeForPersonId, warmRacerCodes } from "~/features/kiosk/license/code-cache";
+import { resolveLicencePack } from "~/features/racing/service/licence-pack";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -60,22 +60,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const denied = requireAuth(req);
   if (denied) return denied;
 
-  const billId = (new URL(req.url).searchParams.get("billId") || "").trim();
-  if (!/^\d+$/.test(billId)) {
-    return NextResponse.json({ error: "billId required" }, { status: 400 });
-  }
-
-  let record: {
-    primaryPersonId?: string;
-    racers?: Array<{ racerName?: string; personId?: string | null }>;
-  } | null = null;
-  try {
-    const raw = await redis.get(`bookingrecord:${billId}`);
-    record = raw ? JSON.parse(raw) : null;
-  } catch {
-    record = null;
-  }
-  if (!record?.racers?.length) {
+  // EITHER a booking (`billId`) or signed waiver grants (`g`) — see
+  // licence-pack.ts. A request that proves neither gets an empty answer, never
+  // a lookup.
+  const pack = await resolveLicencePack(new URL(req.url).searchParams);
+  if (!pack) {
     return NextResponse.json(
       { racers: [], isRacing: false },
       { headers: { "Cache-Control": "no-store" } },
@@ -83,7 +72,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   const origin = req.nextUrl.origin;
-  const primary = String(record.primaryPersonId ?? "").trim();
+  const primary = pack.primaryPersonId ?? "";
 
   // WARM THE CACHE FIRST, then read it.
   //
@@ -97,19 +86,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // days, so a repeat view of the same confirmation costs nothing, and the rows
   // it writes also serve the check-in desk and the kiosk later.
   const CLIENT_KEY = process.env.BMI_CLIENT_KEY || "headpinzftmyers";
-  const personIds = record.racers
-    .map((r) => String(r?.personId ?? "").trim())
-    .filter((p) => /^\d+$/.test(p));
-  await warmRacerCodes(CLIENT_KEY, personIds).catch(() => undefined);
+  await warmRacerCodes(
+    CLIENT_KEY,
+    pack.members.map((m) => m.personId),
+  ).catch(() => undefined);
 
-  // One row per PERSON. A racer booked into two heats appears twice in
-  // `racers[]` and must not be offered two licences — there is only one of them.
-  const seen = new Set<string>();
+  // The pack is already one row per person — see licence-pack.ts.
   const out: OfferRacer[] = [];
-  for (const r of record.racers) {
-    const personId = String(r?.personId ?? "").trim();
-    if (!/^\d+$/.test(personId) || seen.has(personId)) continue;
-    seen.add(personId);
+  for (const r of pack.members) {
+    const personId = r.personId;
 
     const code = await codeForPersonId(personId).catch(() => null);
     let qr: string | null = null;
@@ -126,19 +111,21 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       qr,
       isYou: !!primary && personId === primary,
       addUrl: code
-        ? `/api/racing/licence-offer/add?billId=${encodeURIComponent(billId)}&personId=${encodeURIComponent(personId)}`
+        ? `/api/racing/licence-offer/add?${pack.query}&personId=${encodeURIComponent(personId)}`
         : null,
       hubUrl: code
-        ? `/api/racing/licence-offer/add?billId=${encodeURIComponent(billId)}&personId=${encodeURIComponent(personId)}&to=hub`
+        ? `/api/racing/licence-offer/add?${pack.query}&personId=${encodeURIComponent(personId)}&to=hub`
         : null,
     });
   }
 
   // `racers[]` on a booking record IS the race-participant list, so its presence
   // answers "is this a racing booking" without a sessionStorage flag that dies
-  // on a kiosk reset.
+  // on a kiosk reset. A waiver pack says nothing about racing — the guest may
+  // have signed for laser tag — so the flag stays FALSE there and the surfaces
+  // that key off it (the express-lane banner) are unaffected.
   return NextResponse.json(
-    { racers: out, isRacing: true },
+    { racers: out, isRacing: pack.source === "booking" },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

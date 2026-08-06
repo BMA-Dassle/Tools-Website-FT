@@ -41,5 +41,5 @@ export default async function WalletPackPage({
   const p = typeof sp.p === "string" ? sp.p.trim() : "";
   const personId = /^\d+$/.test(p) ? p : undefined;
 
-  return <WalletPackClient billId={id} personId={personId} />;
+  return <WalletPackClient packKey={id} personId={personId} />;
 }

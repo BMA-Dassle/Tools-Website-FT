@@ -28,8 +28,12 @@ export interface WaiverSigningProps {
    *  "we don't want a year-long waiver from a one-event acceptance").
    *  Racing/kiosk/booking surfaces omit it. */
   validDays?: number;
-  /** Called after waiver is successfully signed. */
-  onComplete: (waiverID: string | undefined) => void;
+  /** Display name for the signer, echoed back inside the signed licence
+   *  grant so the offer card can label a row without a second lookup. */
+  firstName?: string;
+  /** Called after waiver is successfully signed. `licenceGrant` is present
+   *  only when the server accepted the signature — see licence-grant.ts. */
+  onComplete: (waiverID: string | undefined, licenceGrant?: string) => void;
   /** Optional heading override (default: "Sign Your Waiver"). */
   heading?: string;
   /** Optional subheading. */
@@ -52,6 +56,7 @@ export default function WaiverSigning({
   location,
   signerPersonId,
   validDays,
+  firstName,
   onComplete,
   heading = "Sign Your Waiver",
   subheading = "Required before participating in any activity.",
@@ -88,16 +93,17 @@ export default function WaiverSigning({
         location,
         invalidationDate,
         ...(signerPersonId ? { sigPersonID: signerPersonId } : {}),
+        ...(firstName ? { firstName } : {}),
       });
 
-      onComplete(result.waiverID);
+      onComplete(result.waiverID, result.licenceGrant);
     } catch (err) {
       console.error("[WaiverSigning] Sign failed:", err);
       setError(err instanceof Error ? err.message : "Signing failed. Please try again.");
     } finally {
       setLoading(false);
     }
-  }, [personId, template, location, signerPersonId, validDays, onComplete]);
+  }, [personId, template, location, signerPersonId, validDays, firstName, onComplete]);
 
   return (
     <div className={lg ? "space-y-8" : "space-y-6"}>

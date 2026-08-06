@@ -77,11 +77,18 @@ export interface PandoraSignWaiverInput {
   /** SHORT Pandora id of the person SIGNING, when not the person themselves —
    *  a guardian signing a minor's waiver. Omitted = self-sign. */
   sigPersonID?: string;
+  /** Display name, echoed back inside the signed licence grant so the offer
+   *  card can label a row without a second lookup. Label only — it carries no
+   *  authority (see licence-grant.ts). */
+  firstName?: string;
 }
 
 export interface PandoraSignWaiverResult {
   ok: boolean;
   waiverID?: string;
+  /** Server-signed proof that this person's waiver is on file. Two-hour life.
+   *  The ONLY thing that lets a licence be offered with no booking. */
+  licenceGrant?: string;
 }
 
 // ── Client-side API helpers ──────────────────────────────────────────────────
@@ -217,7 +224,14 @@ export async function pandoraSignWaiver(
   if (!res.ok || (!data.waiverID && !data.alreadyValid)) {
     throw new Error(data.error || "Waiver signing failed");
   }
-  return { ok: true, waiverID: data.waiverID ?? undefined };
+  // `licenceGrant` is a server-signed proof that this person's waiver went on
+  // file — the only thing that lets the finished card offer them a racing
+  // licence with no booking to hang off. See licence-grant.ts.
+  return {
+    ok: true,
+    waiverID: data.waiverID ?? undefined,
+    licenceGrant: typeof data.licenceGrant === "string" ? data.licenceGrant : undefined,
+  };
 }
 
 // ── Utility ──────────────────────────────────────────────────────────────────

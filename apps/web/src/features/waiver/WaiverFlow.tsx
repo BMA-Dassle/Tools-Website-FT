@@ -56,6 +56,7 @@ import {
   type ReservationWaiverStatus,
 } from "./roster-preload";
 import { MobileWaiverPhoto } from "./MobileWaiverPhoto";
+import { WaiverLicenceOffer } from "./WaiverLicenceOffer";
 
 type PandoraLocation = "fasttrax" | "headpinz" | "naples";
 
@@ -246,6 +247,13 @@ export function WaiverFlow({
   // keeps its `res:` id, so nothing else distinguishes it from the seven strangers
   // beside it. See roster-preload.ts invariant 4.
   const [signedHere, setSignedHere] = useState<ReadonlySet<string>>(() => new Set<string>());
+  // Licence grants for the people this device filed, kept ACROSS the "I'm done"
+  // wipe for the same reason `carriedCovered` is: the terminal card is where the
+  // licence is offered, and the wipe has already emptied `party` by then. Keyed
+  // by personId — see the note where they are collected.
+  const [licenceGrants, setLicenceGrants] = useState<ReadonlyMap<string, string>>(
+    () => new Map<string, string>(),
+  );
   // Person ids this device has PROVEN covered, kept ACROSS the "I'm done" wipe.
   // While the rows are on screen `party` proves it; the wipe destroys them on
   // purpose, and the roster is never re-seeded, so this is all that is left to stop
@@ -540,6 +548,13 @@ export function WaiverFlow({
             </p>
           )}
         </div>
+        {/* THE RACING LICENCE, in the kiosk's format (owner 2026-08-06).
+            Renders itself away unless someone this device signed for actually
+            resolves to a BMI racing tag, so a bowling or laser-tag waiver never
+            sees it. Below the "all set" card and above "sign someone else": the
+            waiver is done and confirmed first — an offer must not read as
+            another step standing between the guest and finishing. */}
+        <WaiverLicenceOffer grants={[...licenceGrants.values()]} />
         <button
           type="button"
           onClick={() => setFinished(null)}
@@ -645,6 +660,17 @@ export function WaiverFlow({
           // completion even when the row came from the reservation roster (that is
           // the guest who opened a forwarded link and signed their own row).
           setSignedHere((prev) => new Set(prev).add(info.memberId));
+          // Server-signed proof this person's waiver went on file. Kept BY
+          // PERSON, not by member id: the guardian chain signs the adult and
+          // then the minor, and a re-sign of the same person must replace their
+          // grant rather than add a second row for one human.
+          if (info.licenceGrant) {
+            setLicenceGrants((prev) => {
+              const next = new Map(prev);
+              next.set(info.personId, info.licenceGrant!);
+              return next;
+            });
+          }
           // Best-effort E-SIGN audit row in our own DB (Pandora holds the
           // signature image; this is the persist-to-Neon record of acceptance).
           void fetch("/api/waiver/record", {

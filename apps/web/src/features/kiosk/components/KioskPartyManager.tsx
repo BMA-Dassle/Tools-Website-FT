@@ -137,6 +137,10 @@ export interface KioskPartyManagerProps {
     signerPersonId?: string;
     waiverId?: string;
     templateContentId?: string;
+    /** Server-signed proof this person's waiver went on file — see
+     *  licence-grant.ts. The mobile /waiver flow uses it to offer a racing
+     *  licence on the finished card; kiosk consumers ignore it. */
+    licenceGrant?: string;
   }) => void;
   /** Supplies the pre-signature photo UI. Omitted = the kiosk's KioskWaiverPhoto
    *  (dual-camera, device config). The mobile /waiver flow passes a single
@@ -2324,6 +2328,15 @@ export function KioskPartyManager({
                     template={waiverFor.template}
                     signerPersonId={waiverFor.signerPersonId}
                     location={brandLocation}
+                    // Whose waiver this IS. In the guardian chain the first pass
+                    // through is the guardian signing their own, so it is their
+                    // name, not the minor's — labelling that row with the child's
+                    // name is how a parent taps the wrong licence onto their phone.
+                    firstName={
+                      guardianChain && waiverFor.memberId === guardianChain.guardianId
+                        ? guardianChain.guardianName
+                        : (signer?.firstName ?? "")
+                    }
                     heading={
                       isRace ? t("party.waiver.headingRace") : t("party.waiver.headingActivity")
                     }
@@ -2335,7 +2348,7 @@ export function KioskPartyManager({
                           })
                         : t("party.waiver.subheading")
                     }
-                    onComplete={(waiverId) => {
+                    onComplete={(waiverId, licenceGrant) => {
                       // Guardian just signed their OWN waiver → audit it, mark it,
                       // and chain straight to the minor's (guardian as sigPersonID).
                       if (guardianChain && waiverFor.memberId === guardianChain.guardianId) {
@@ -2349,6 +2362,7 @@ export function KioskPartyManager({
                           firstName: guardianChain.guardianName,
                           waiverId,
                           templateContentId: waiverFor.template.contentID,
+                          licenceGrant,
                         });
                         setWaiverFor({
                           memberId: guardianChain.minorMemberId,
@@ -2373,6 +2387,7 @@ export function KioskPartyManager({
                         signerPersonId: waiverFor.signerPersonId,
                         waiverId,
                         templateContentId: waiverFor.template.contentID,
+                        licenceGrant,
                       });
                       // Minor signed by a guardian → the guardian is recorded by the
                       // waiver's sigPersonID. Nothing else to write: re-creating the
