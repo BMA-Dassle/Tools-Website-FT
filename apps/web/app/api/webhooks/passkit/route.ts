@@ -55,6 +55,12 @@ function normaliseStatus(raw: string): string {
   return v;
 }
 
+/** A licence externalId is a BMI personId (all digits). A VOUCHER's is its HPW
+ *  code, so the two programs are told apart by shape alone. */
+function looksLikeVoucherCode(v: string): boolean {
+  return /^[A-Za-z0-9-]{6,32}$/.test(v) && !/^\d+$/.test(v);
+}
+
 function extract(body: unknown): { personId: string; status: string } | null {
   if (!body || typeof body !== "object") return null;
   const b = body as Record<string, unknown>;
@@ -87,6 +93,23 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // Logged on every delivery until the shape is known — the portal gives no
   // documentation and one real event settles it.
   console.log("[passkit-webhook] payload:", JSON.stringify(body).slice(0, 800));
+
+  // BOTH PROGRAMS POST HERE. A voucher event is legitimate and must not be
+  // logged as "unrecognised" — that noise would bury a real parsing failure.
+  //
+  // But there is nothing to DO with one: a single-use coupon is billed once at
+  // ISSUANCE, so an uninstall costs us nothing, and PassKit cannot delete a
+  // coupon at all (DELETE answers 501, measured 2026-08-06). The licence reaper
+  // exists precisely because MULTI-use records are the ones that keep billing.
+  const rawExternal = String(
+    (body as Record<string, unknown>)?.externalId ??
+      ((body as Record<string, unknown>)?.member as Record<string, unknown>)?.externalId ??
+      "",
+  ).trim();
+  if (looksLikeVoucherCode(rawExternal)) {
+    console.log(`[passkit-webhook] voucher ${rawExternal} event — recorded, no billing action`);
+    return NextResponse.json({ ok: true, program: "voucher", action: "none" });
+  }
 
   const event = extract(body);
   if (!event) {
