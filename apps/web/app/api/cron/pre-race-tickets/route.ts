@@ -706,29 +706,9 @@ export async function GET(req: NextRequest) {
     // licence replacing per-heat e-tickets: the same information, on a pass
     // they already carry, at no per-race cost. Skips everyone without a pass in
     // one Neon query, so a heat of non-holders costs nothing.
-    void updateLicencePasses(
-      candidates.map((c) => ({
-        personId: c.participant.personId,
-        nextRace: formatNextRaceForPass(c.session.scheduledStart, c.trackDisplay, c.session),
-        // Stamped so the clear-down can ask whether THIS heat has ended, rather
-        // than inferring it from the clock.
-        nextRaceSessionId: String(c.session.sessionId),
-        // A MOVE is the one next-race change the racer did not cause, so it is
-        // the one that earns an alert. NEXT RACE itself stays silent — it also
-        // changes when the 2-hour window rolls, which is not news. This rides
-        // the same `moveFrom` detection that already fires the move SMS, so the
-        // text and the pass can never disagree about what happened.
-        ...(c.moveFrom
-          ? { checkinStatus: `Heat moved — now ${c.trackDisplay} Heat ${c.session.heatNumber}` }
-          : {}),
-      })),
-    )
-      .then((n) => {
-        if (n) console.log(`[pre-race-tickets] wallet next-race pushed to ${n} pass(es)`);
-      })
-      .catch(() => undefined);
 
-    void warmRacerCodes(
+
+    await warmRacerCodes(
       CLIENT_KEY,
       candidates.map((c) => c.participant.personId),
     )
@@ -826,6 +806,32 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // AWAITED, NOT FIRE-AND-FORGET. A serverless handler is frozen the instant
+    // it returns its response, so a dangling `void somePromise()` is killed
+    // mid-flight — the SMS (awaited) landed while the wallet push silently never
+    // ran (2026-08-05, a real heat move). These swallow their own errors, so
+    // awaiting cannot break the cron; it only makes the work actually happen.
+    await updateLicencePasses(
+      candidates.map((c) => ({
+        personId: c.participant.personId,
+        nextRace: formatNextRaceForPass(c.session.scheduledStart, c.trackDisplay, c.session),
+        // Stamped so the clear-down can ask whether THIS heat has ended, rather
+        // than inferring it from the clock.
+        nextRaceSessionId: String(c.session.sessionId),
+        // A MOVE is the one next-race change the racer did not cause, so it is
+        // the one that earns an alert. NEXT RACE itself stays silent — it also
+        // changes when the 2-hour window rolls, which is not news. This rides
+        // the same `moveFrom` detection that already fires the move SMS, so the
+        // text and the pass can never disagree about what happened.
+        ...(c.moveFrom
+          ? { checkinStatus: `Heat moved — now ${c.trackDisplay} Heat ${c.session.heatNumber}` }
+          : {}),
+      })),
+    )
+      .then((n) => {
+        if (n) console.log(`[pre-race-tickets] wallet next-race pushed to ${n} pass(es)`);
+      })
+      .catch(() => undefined);
     // 3. SMS — for each destination phone with at least one fresh
     //    candidate, decide single vs group, decide racer- vs guardian-
     //    flavored body, and send.
