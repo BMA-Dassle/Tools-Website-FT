@@ -17,6 +17,9 @@ export const miscEn = {
   "licence.kiosk.title": "Skip the texts next time",
   "licence.kiosk.body":
     "Put your FastTrax licence in your phone's wallet — it signs you in here, checks you into your race, and shows your next race automatically.",
+  "licence.kiosk.allTitle": "Add all {n} to one phone",
+  "licence.kiosk.allBody":
+    "Scan this with the phone you want them on — everyone's licence at once.",
   "licence.kiosk.scan": "Scan with your phone camera",
   "licence.kiosk.show": "Show my code",
   "licence.kiosk.hide": "Hide",
@@ -199,6 +202,9 @@ export const miscEs: Record<keyof typeof miscEn, string> = {
   "licence.kiosk.title": "Evita los mensajes la próxima vez",
   "licence.kiosk.body":
     "Guarda tu licencia FastTrax en la cartera de tu teléfono: te registra aquí, te da entrada a tu carrera y muestra tu próxima carrera automáticamente.",
+  "licence.kiosk.allTitle": "Agrega las {n} a un solo teléfono",
+  "licence.kiosk.allBody":
+    "Escanea esto con el teléfono donde las quieres — todas las licencias a la vez.",
   "licence.kiosk.scan": "Escanea con la cámara de tu teléfono",
   "licence.kiosk.show": "Mostrar mi código",
   "licence.kiosk.hide": "Ocultar",

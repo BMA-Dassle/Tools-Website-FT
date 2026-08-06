@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import QRCode from "qrcode";
 import { useLicenceOffer } from "~/features/racing/components/useLicenceOffer";
 import { useT } from "../i18n";
 
@@ -23,18 +24,69 @@ import { useT } from "../i18n";
  * Nothing is billed by showing this: a licence is created only when a racer
  * scans and the wallet route runs on their phone.
  */
-export function KioskLicenceOffer({ billId }: { billId: string | null }) {
+export function KioskLicenceOffer({
+  billId,
+  brand,
+}: {
+  billId: string | null;
+  brand?: string;
+}) {
   const t = useT();
   const racers = useLicenceOffer(billId);
   const [openFor, setOpenFor] = useState<string | null>(null);
+  const [allQr, setAllQr] = useState<string | null>(null);
 
   const eligible = racers?.filter((r) => r.qr) ?? [];
+
+  // ADD EVERYONE, TO ONE PHONE. A kiosk is a shared screen so the bundle cannot
+  // land here — this QR carries the whole party to whichever phone scans it,
+  // which is the parent-with-three-kids case the bundle exists for.
+  //
+  // Points at the CONFIRMATION page rather than straight at the .pkpasses file:
+  // we have no idea which platform is about to scan a kiosk screen, and that
+  // page detects it — Apple gets the one-tap bundle, Android gets a badge per
+  // racer. A bundle URL would hand an Android guest a file they cannot open.
+  useEffect(() => {
+    if (!billId || eligible.length < 2) return;
+    const domain = brand === "headpinz" ? "https://headpinz.com" : "https://fasttraxent.com";
+    let cancelled = false;
+    QRCode.toDataURL(`${domain}/book/confirmation/v2?billId=${encodeURIComponent(billId)}`, {
+      width: 360,
+      margin: 1,
+      color: { dark: "#04252b", light: "#ffffff" },
+    })
+      .then((url) => {
+        if (!cancelled) setAllQr(url);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [billId, brand, eligible.length]);
+
   if (!racers || eligible.length === 0) return null;
 
   return (
     <div className="mt-[32px] rounded-[28px] border border-[#00e2e5]/30 bg-[#00e2e5]/[0.06] p-[28px]">
       <p className="k-display text-[28px] text-[#00e2e5]">{t("licence.kiosk.title")}</p>
       <p className="mt-[8px] text-[22px] leading-snug text-white/60">{t("licence.kiosk.body")}</p>
+
+      {eligible.length > 1 && allQr && (
+        <div className="mt-[20px] flex items-center gap-[20px] rounded-[20px] border border-[#00e2e5]/25 bg-[#00e2e5]/[0.04] p-[18px]">
+          <div className="shrink-0 rounded-2xl bg-white p-[10px]">
+            {/* eslint-disable-next-line @next/next/no-img-element -- data URI, no loader */}
+            <img src={allQr} alt="" width={150} height={150} className="block" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[24px] font-bold leading-tight text-white">
+              {t("licence.kiosk.allTitle", { n: eligible.length })}
+            </p>
+            <p className="mt-[6px] text-[20px] leading-snug text-white/55">
+              {t("licence.kiosk.allBody")}
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="mt-[20px] flex flex-col divide-y divide-white/10">
         {eligible.map((r) => {

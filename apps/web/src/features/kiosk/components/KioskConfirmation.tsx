@@ -659,7 +659,7 @@ export function KioskConfirmation({ src }: { src: string | null }) {
           `racers[]` off the booking record, which IS the race-participant list,
           so a non-racing booking returns nobody and the component renders null
           on its own. */}
-      <KioskLicenceOffer billId={billId} />
+      <KioskLicenceOffer billId={billId} brand={config?.brand} />
       {code ? (
         <div className="relative rounded-[24px] border border-white/15 bg-white/[0.04] px-[48px] py-[24px]">
           <div className="k-eyebrow text-white/45">{t("confirmation.bookingCode")}</div>
