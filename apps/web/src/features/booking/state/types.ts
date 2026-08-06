@@ -102,6 +102,13 @@ export interface PartyMember {
    * this short id.
    */
   pandoraPersonId?: string;
+  /**
+   * The racer's BMI login tag, when a returning-racer lookup produced one.
+   * Carried purely so the kiosk can offer the wallet racing licence — it is
+   * the ONLY identifier the pass barcode can hold. Absent for a new racer
+   * (no tag exists yet) and for anyone added by name rather than by lookup.
+   */
+  loginCode?: string;
   /** Drives Starter-only filter + per-first-timer license fee. */
   isNewRacer: boolean;
   /**
@@ -879,6 +886,7 @@ export function newPartyMember(args: {
   firstName: string;
   lastName?: string;
   bmiPersonId?: string;
+  loginCode?: string;
   isNewRacer?: boolean;
   category?: "adult" | "junior";
   isBillingCustomer?: boolean;
@@ -898,6 +906,7 @@ export function newPartyMember(args: {
     firstName: args.firstName,
     lastName: args.lastName,
     bmiPersonId: args.bmiPersonId,
+    loginCode: args.loginCode,
     isNewRacer: args.isNewRacer ?? true,
     category: args.category,
     isBillingCustomer: args.isBillingCustomer,

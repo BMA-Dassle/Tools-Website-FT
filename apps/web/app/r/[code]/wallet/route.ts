@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { walletPlatformFromUserAgent } from "~/features/game-cards/wallet/platform";
 import { lookupMemberMatches } from "~/features/kiosk/license/lookup.server";
 import { issueLicencePass } from "~/features/racing/wallet/licence-pass";
+import { buildLicenceMeta } from "~/features/racing/wallet/licence-meta";
 import { RACER_LOGIN_CODE_RE } from "~/features/kiosk/license/types";
 
 export const dynamic = "force-dynamic";
@@ -53,17 +54,18 @@ export async function GET(
 
   const result = await issueLicencePass({
     personId: m.personId,
-    meta: {
+    // FULL metaData, built by the same helper the e-ticket route uses — the
+    // template binds eleven fields and an absent key renders as a blank on the
+    // pass. No heat here: a kiosk sign-in knows the racer, not their race, so
+    // the pre-race cron fills those three within two minutes.
+    meta: await buildLicenceMeta({
+      personId: String(m.personId),
       code,
-      memberName: m.fullName.toUpperCase(),
-      // The SMS-Timing AUTHENTICATE url — the shape BMI's own register scans.
-      // Not the app's `?["clientKey","code"]` payload, which the register
-      // rejects. See scripts/passkit-licence-pass.mts.
-      memberQr: `https://smstim.in/${process.env.SMSTIM_SITE || "908"}/authenticate/?login_code=${code}`,
-      licenceUrl: `${process.env.NEXT_PUBLIC_SITE_URL || "https://headpinz.com"}/r/${code}`,
-      races: String(m.races ?? ""),
-      ...(m.memberships?.length ? { tier: tierFrom(m.memberships) } : {}),
-    },
+      fullName: m.fullName,
+      races: m.races,
+      memberships: m.memberships,
+      lastVisit: m.lastSeen,
+    }),
   });
   if (!result.ok || !result.urls) return fallback();
 
@@ -89,11 +91,3 @@ export async function GET(
   });
 }
 
-/** Highest qualification the racer holds — the pass shows one tier, not a list. */
-function tierFrom(memberships: string[]): string {
-  const ranked = ["Pro", "Intermediate", "Starter"];
-  for (const tier of ranked) {
-    if (memberships.some((n) => n.toLowerCase().includes(tier.toLowerCase()))) return tier;
-  }
-  return "";
-}

@@ -1362,6 +1362,9 @@ export function KioskPartyManager({
       isMinor: bdYears !== null ? bdYears < 18 : undefined,
       dobIso: bdIso,
       bmiPersonId: person.personId,
+      // Enables the wallet-licence offer on this racer's roster card. Only a
+      // returning racer resolved through a lookup has one.
+      loginCode: person.loginCode,
       memberships: person.memberships,
       waiverValid: person.waiverValid,
       creditBalances: person.creditBalances,

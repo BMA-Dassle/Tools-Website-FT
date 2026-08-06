@@ -112,13 +112,21 @@ export default async function ETicketPage({ params }: PageProps) {
   // has to match the device (an Android racer must be offered Google Wallet),
   // and a racer with no BMI tag yet has nothing to put in a barcode — so the
   // button must not render at all rather than offer a tap that dead-ends.
+  //
+  // Racing only. A FastTrax RACING licence on a laser-tag ticket would be a
+  // non-sequitur, and skipping the lookup keeps arena pages off a query they
+  // can never use.
   const hdrs = await headers();
+  const isRacing = (ticket.activity ?? "racing") === "racing";
   const walletPlatform = walletPlatformFromUserAgent(hdrs.get("user-agent"));
-  const licenceCode = await codeForPersonId(String(ticket.personId ?? "")).catch(() => null);
+  const licenceCode = isRacing
+    ? await codeForPersonId(String(ticket.personId ?? "")).catch(() => null)
+    : null;
 
   return (
     <ETicketView
       ticket={ticket}
+      ticketId={id}
       walletPlatform={walletPlatform}
       canAddLicence={!!licenceCode}
       // Optimistic defaults — the client poll flips these to live

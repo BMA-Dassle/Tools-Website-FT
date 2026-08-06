@@ -33,8 +33,34 @@ const TrackStatus = dynamic(() => import("@/components/home/TrackStatus"), {
   loading: () => null,
 });
 
+/** Vendor badge artwork, same assets and same two-line pairing as `/v/{code}`.
+ *  Apple ships 158x50 and Google's two-line is 181x50; the widths are theirs,
+ *  not ours to normalise. */
+const LICENCE_WALLETS = [
+  {
+    platform: "apple",
+    label: "Add FastTrax Racing Licence to Apple Wallet",
+    badge: "/brand/wallet/apple-wallet-en.svg",
+    width: 158,
+  },
+  {
+    platform: "google",
+    label: "Add FastTrax Racing Licence to Google Wallet",
+    badge: "/brand/wallet/google-wallet-en.svg",
+    width: 181,
+  },
+] as const satisfies readonly {
+  platform: WalletPlatform;
+  label: string;
+  badge: string;
+  width: number;
+}[];
+
 interface Props {
   ticket: RaceTicket;
+  /** Route param — the licence hop is `/t/{id}/wallet`, and RaceTicket itself
+   *  carries no id. */
+  ticketId: string;
   initialCheckingIn: boolean;
   initialOnSession: boolean;
   initialWasCalled: boolean;
@@ -47,6 +73,7 @@ interface Props {
 
 export default function ETicketView({
   ticket,
+  ticketId,
   initialCheckingIn,
   initialOnSession,
   initialWasCalled,
@@ -389,6 +416,45 @@ export default function ETicketView({
         {!isPast && !ticket.movedTo && povCodes.length > 0 && (
           <div className="mt-6">
             <PovVoucherBlock codes={povCodes} cached={povCached} />
+          </div>
+        )}
+
+        {/* THE RACING LICENCE — the one wallet pass a racer keeps between
+            visits, offered on the surface where they are already holding the
+            phone before their heat.
+
+            ISSUED ONLY ON THE TAP. A licence is a PassKit MEMBER record and
+            bills every month it exists, so nothing is created by rendering
+            this: `/t/{id}/wallet` mints it when the racer actually asks
+            (owner rule 2026-08-05 — "don't build it till they scan").
+
+            Hidden entirely when the racer has no BMI tag yet — `canAddLicence`
+            is false and there would be nothing to put in the barcode, so a tap
+            would dead-end. Also hidden on arena tickets, which are not racing.
+
+            White panel deliberately, exactly as `/v/{code}`: Apple's standard
+            badge is a black fill with a #A6A6A6 hairline drawn for LIGHT
+            backgrounds, and Google only ships #1F1F1F — both sit muddily on
+            this dark card. Restyling a vendor badge is not allowed; giving it a
+            light host surface is. */}
+        {!isPast && !ticket.movedTo && canAddLicence && (
+          <div className="mt-6 rounded-2xl bg-white/[0.04] border border-white/10 p-4 text-center">
+            <p className="text-white text-sm font-bold">Keep your licence on your phone</p>
+            <p className="text-white/50 text-xs mt-1">
+              Sign in at any FastTrax kiosk and check into your race with one scan.
+            </p>
+            <div className="mt-3 rounded-2xl bg-white p-4">
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                {LICENCE_WALLETS.filter(
+                  (w) => !walletPlatform || w.platform === walletPlatform,
+                ).map((w) => (
+                  <a key={w.platform} href={`/t/${ticketId}/wallet?platform=${w.platform}`}>
+                    {/* eslint-disable-next-line @next/next/no-img-element -- vendor artwork must ship byte-for-byte; the optimizer would re-encode it */}
+                    <img src={w.badge} alt={w.label} width={w.width} height={50} />
+                  </a>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 

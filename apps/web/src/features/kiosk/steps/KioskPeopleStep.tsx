@@ -44,6 +44,7 @@ import {
   type PersonData,
 } from "~/components/features/booking/steps/race/ReturningRacerLookup";
 import { useKioskConfig } from "../KioskConfigContext";
+import LicenceWalletChip from "../components/LicenceWalletChip";
 import { isMegaTuesdayToday } from "../assets";
 import { isTestKiosk, kioskHasCamera, kioskId } from "../config";
 import { KioskWaiverPhoto } from "../components/KioskWaiverPhoto";
@@ -1301,6 +1302,9 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
       isMinor: bdYears !== null ? bdYears < 18 : undefined,
       dobIso: bdIso,
       bmiPersonId: person.personId,
+      // Enables the wallet-licence chip on this racer's card. Only a returning
+      // racer resolved through a lookup carries a tag.
+      loginCode: person.loginCode,
       memberships: person.memberships,
       licenseActive: person.licenseActive,
       waiverValid: person.waiverValid,
@@ -1715,6 +1719,21 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                       </button>
                     )}
                   </div>
+                  {/* WALLET RACING LICENCE. Only for a racer whose lookup
+                      produced a login tag — that tag IS the pass barcode, so
+                      without one there is nothing to encode and the chip must
+                      not render rather than offer a dead end. New racers have
+                      no tag yet, by definition. */}
+                  {m.loginCode && (
+                    <LicenceWalletChip
+                      loginCode={m.loginCode}
+                      brand={kioskCfg?.brand}
+                      label={t("peopleUi.licenceAdd")}
+                      scanHint={t("peopleUi.licenceScan")}
+                      closeLabel={t("peopleUi.licenceClose")}
+                      ariaLabel={t("peopleUi.aria.licenceQr", { name: m.firstName })}
+                    />
+                  )}
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-[12px]">
                   {!ready && !checking && (

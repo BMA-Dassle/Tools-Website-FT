@@ -33,6 +33,14 @@ export const peopleUiEn = {
   "peopleUi.licenseNeeded": "+ {price} licence",
   "peopleUi.credits": "{n, plural, one {# credit} other {# credits}}",
   "peopleUi.accountWaiverReady": "✓ Account & waiver ready",
+  // WALLET RACING LICENCE, offered on the racer's own roster card.
+  // Per-card rather than one shared panel: with a family of four, a row of QR
+  // codes under the roster leaves it ambiguous whose is whose, and scanning the
+  // wrong one puts a parent's licence on a child's phone.
+  "peopleUi.licenceAdd": "Add licence to phone",
+  "peopleUi.licenceScan": "Scan with your phone camera to add your licence",
+  "peopleUi.licenceClose": "Close",
+  "peopleUi.aria.licenceQr": "Show wallet licence QR for {name}",
   "peopleUi.checkingWaiver": "Checking waiver…",
   "peopleUi.waiverNeededMinor": "Waiver needed — a parent/guardian signs",
   "peopleUi.waiverNeeded": "Waiver needed",
@@ -178,6 +186,10 @@ export const peopleUiEs: Record<keyof typeof peopleUiEn, string> = {
   "peopleUi.licenseNeeded": "+ {price} de licencia",
   "peopleUi.credits": "{n, plural, one {# crédito} other {# créditos}}",
   "peopleUi.accountWaiverReady": "✓ Cuenta y exención listas",
+  "peopleUi.licenceAdd": "Agrega tu licencia al teléfono",
+  "peopleUi.licenceScan": "Escanea con la cámara de tu teléfono para agregar tu licencia",
+  "peopleUi.licenceClose": "Cerrar",
+  "peopleUi.aria.licenceQr": "Mostrar código QR de la licencia para {name}",
   "peopleUi.checkingWaiver": "Verificando exención…",
   "peopleUi.waiverNeededMinor": "Se necesita exención — la firma un padre/tutor",
   "peopleUi.waiverNeeded": "Se necesita exención",

@@ -3,6 +3,7 @@ import { getRaceTicket } from "@/lib/race-tickets";
 import { walletPlatformFromUserAgent } from "~/features/game-cards/wallet/platform";
 import { codeForPersonId } from "~/features/kiosk/license/code-cache";
 import { issueLicencePass } from "~/features/racing/wallet/licence-pass";
+import { buildLicenceMeta } from "~/features/racing/wallet/licence-meta";
 import { lookupMemberMatches } from "~/features/kiosk/license/lookup.server";
 
 export const dynamic = "force-dynamic";
@@ -55,18 +56,30 @@ export async function GET(
   // no pass worth issuing; the button should not have rendered.
   if (!code) return back();
 
-  const name = `${ticket.firstName ?? ""} ${ticket.lastName ?? ""}`.trim();
-  const result = await issueLicencePass({
+  // The Office record for tier/races. Best-effort: a degraded person subsystem
+  // (four hours of it on 2026-08-03) must not deny a racer their pass, it just
+  // costs two fields the cron cannot refill.
+  const match = (await lookupMemberMatches(code).catch(() => null))?.[0] ?? null;
+
+  // FULL metaData. The template binds eleven fields and an absent key renders
+  // as a blank on the pass, so this is assembled in one place for both issue
+  // routes. The heat comes free from the ticket we already loaded, which means
+  // an e-ticket-issued pass shows the right race immediately rather than
+  // waiting for the next cron sweep.
+  const meta = await buildLicenceMeta({
     personId,
-    meta: {
-      code,
-      memberName: name.toUpperCase(),
-      // The SMS-Timing AUTHENTICATE url — the shape BMI's register scans. NOT
-      // the app's JSON-array payload, which the register rejects.
-      memberQr: `https://smstim.in/${process.env.SMSTIM_SITE || "908"}/authenticate/?login_code=${code}`,
-      licenceUrl: `${process.env.NEXT_PUBLIC_SITE_URL || "https://headpinz.com"}/r/${code}`,
+    code,
+    fullName: `${ticket.firstName ?? ""} ${ticket.lastName ?? ""}`,
+    races: match?.races,
+    memberships: match?.memberships,
+    heat: {
+      scheduledStart: String(ticket.scheduledStart ?? ""),
+      track: String(ticket.track ?? ""),
+      heatNumber: ticket.heatNumber,
     },
   });
+
+  const result = await issueLicencePass({ personId, meta });
   if (!result.ok || !result.urls) return back();
 
   // `?platform=` wins over sniffing: a racer tapping the Google badge on an
