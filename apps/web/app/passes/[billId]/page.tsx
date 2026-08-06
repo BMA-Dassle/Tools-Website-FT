@@ -25,11 +25,21 @@ export async function generateMetadata() {
 
 export default async function WalletPackPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ billId: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { billId } = await params;
+  const sp = await searchParams;
   const id = String(billId ?? "").trim();
   if (!/^\d+$/.test(id)) redirect("/book/race");
-  return <WalletPackClient billId={id} />;
+
+  // `?p=` narrows to ONE racer, for the kiosk's per-racer QRs. Harmless to
+  // expose: the endpoint behind it only resolves a personId that is actually on
+  // this booking, so it grants nothing the billId did not already.
+  const p = typeof sp.p === "string" ? sp.p.trim() : "";
+  const personId = /^\d+$/.test(p) ? p : undefined;
+
+  return <WalletPackClient billId={id} personId={personId} />;
 }

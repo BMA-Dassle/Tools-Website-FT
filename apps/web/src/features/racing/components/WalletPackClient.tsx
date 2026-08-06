@@ -49,7 +49,16 @@ const LOADER_KEYFRAMES = `
  * Nothing is billed by opening this — the passes are issued by the prepare step,
  * which only runs because someone deliberately scanned the code.
  */
-export default function WalletPackClient({ billId }: { billId: string }) {
+export default function WalletPackClient({
+  billId,
+  personId,
+}: {
+  billId: string;
+  /** One racer only. The kiosk's per-racer QRs land here so a single add gets
+   *  the same prepare-and-wait flow as the bundle — a bare redirect to the pass
+   *  URL hands the guest an un-rendered pass. */
+  personId?: string;
+}) {
   const racers = useLicenceOffer(billId);
   const [platform, setPlatform] = useState<WalletPlatform | null | "unknown">("unknown");
   const [ready, setReady] = useState(0);
@@ -60,14 +69,17 @@ export default function WalletPackClient({ billId }: { billId: string }) {
     setPlatform(walletPlatformFromUserAgent(navigator.userAgent));
   }, []);
 
-  const eligible = racers?.filter((r) => r.qr) ?? [];
+  const all = racers?.filter((r) => r.qr) ?? [];
+  const eligible = personId ? all.filter((r) => r.personId === personId) : all;
   const total = eligible.length;
 
   useEffect(() => {
     if (platform !== "apple" || total === 0 || started.current) return;
     started.current = true;
 
-    const base = `/api/racing/licence-offer/add-all?billId=${encodeURIComponent(billId)}`;
+    const base =
+      `/api/racing/licence-offer/add-all?billId=${encodeURIComponent(billId)}` +
+      (personId ? `&personId=${encodeURIComponent(personId)}` : "");
     let cancelled = false;
 
     (async () => {
@@ -104,7 +116,7 @@ export default function WalletPackClient({ billId }: { billId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [platform, total, billId]);
+  }, [platform, total, billId, personId]);
 
   const badges = WALLET_BADGES.filter((b) => !platform || platform === "unknown" || b.platform === platform);
 
@@ -122,9 +134,11 @@ export default function WalletPackClient({ billId }: { billId: string }) {
           phase === "working" ? (
             <Spinner
               caption={
-                ready > 0
-                  ? `Preparing ${ready} of ${total} passes…`
-                  : `Preparing ${total} ${total === 1 ? "pass" : "passes"}…`
+                total === 1
+                  ? `Preparing ${eligible[0]?.name ?? "your"}'s licence…`
+                  : ready > 0
+                    ? `Preparing ${ready} of ${total} passes…`
+                    : `Preparing ${total} passes…`
               }
             />
           ) : phase === "sent" ? (

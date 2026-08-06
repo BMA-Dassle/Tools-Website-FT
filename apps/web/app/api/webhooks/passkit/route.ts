@@ -35,22 +35,41 @@ function authorised(req: NextRequest): boolean {
   return new URL(req.url).searchParams.get("secret") === secret;
 }
 
-/** PassKit's event shape is not documented for our region, so read defensively:
- *  take the externalId (our BMI personId) and a status from any of the spellings
- *  we have seen on the member record. */
+/**
+ * PassKit's payload shape is not documented for our region and the portal only
+ * offers a URL field, so this reads defensively: pull the externalId (our BMI
+ * personId) and a status from any of the spellings we have seen, then map the
+ * portal's own event vocabulary — Created / Updated / Installed / Uninstalled /
+ * Deleted — onto the `passMetaData.status` values the polling sweep already
+ * understands, so push and poll cannot disagree.
+ *
+ * Anything unrecognised is logged with the raw body rather than guessed at. The
+ * first real event will tell us the true shape; until then this is deliberately
+ * generous about where it looks.
+ */
+function normaliseStatus(raw: string): string {
+  const v = raw.trim().toUpperCase().replace(/[\s-]+/g, "_");
+  if (/UNINSTALL|DELET|REMOV/.test(v)) return "PASS_DELETED";
+  if (/INSTALL/.test(v)) return "PASS_INSTALLED";
+  if (/ISSUE|CREAT/.test(v)) return "PASS_ISSUED";
+  return v;
+}
+
 function extract(body: unknown): { personId: string; status: string } | null {
   if (!body || typeof body !== "object") return null;
   const b = body as Record<string, unknown>;
-  const member = (b.member ?? b.data ?? b) as Record<string, unknown>;
+  const member = (b.member ?? b.data ?? b.pass ?? b) as Record<string, unknown>;
   const meta = (member.passMetaData ?? {}) as Record<string, unknown>;
 
-  const personId = String(member.externalId ?? b.externalId ?? "").trim();
-  const status = String(
-    meta.status ?? member.status ?? b.event ?? b.type ?? b.status ?? "",
+  const personId = String(
+    member.externalId ?? b.externalId ?? member.externalID ?? "",
+  ).trim();
+  const rawStatus = String(
+    b.event ?? b.eventType ?? b.type ?? meta.status ?? member.status ?? b.status ?? "",
   ).trim();
 
-  if (!/^\d+$/.test(personId) || !status) return null;
-  return { personId, status };
+  if (!/^\d+$/.test(personId) || !rawStatus) return null;
+  return { personId, status: normaliseStatus(rawStatus) };
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -64,6 +83,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   } catch {
     return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
   }
+
+  // Logged on every delivery until the shape is known — the portal gives no
+  // documentation and one real event settles it.
+  console.log("[passkit-webhook] payload:", JSON.stringify(body).slice(0, 800));
 
   const event = extract(body);
   if (!event) {

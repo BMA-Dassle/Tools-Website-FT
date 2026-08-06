@@ -35,6 +35,9 @@ export function KioskLicenceOffer({
   const racers = useLicenceOffer(billId);
   const [openFor, setOpenFor] = useState<string | null>(null);
   const [allQr, setAllQr] = useState<string | null>(null);
+  /** Per-racer QRs, generated here so they land on the same prepare-and-wait
+   *  page as the bundle rather than redirecting into a not-yet-rendered pass. */
+  const [oneQr, setOneQr] = useState<Record<string, string>>({});
 
   const eligible = racers?.filter((r) => r.qr) ?? [];
 
@@ -68,14 +71,50 @@ export function KioskLicenceOffer({
     };
   }, [billId, brand, eligible.length]);
 
+  // SAME DESTINATION FOR ONE RACER. These used to encode /r/{code}/wallet, which
+  // redirects straight at the pass file — and a pass PassKit has not finished
+  // rendering is served as an HTML page, so the guest got something
+  // un-installable. /passes/{billId}?p={personId} runs the identical
+  // prepare-poll-hand-off the bundle uses, with the kiosk loader while it works.
+  const ids = eligible.map((r) => r.personId).join(",");
+  useEffect(() => {
+    if (!billId || !ids) return;
+    const domain = brand === "headpinz" ? "https://headpinz.com" : "https://fasttraxent.com";
+    let cancelled = false;
+    Promise.all(
+      ids.split(",").map(async (pid) => {
+        const url = await QRCode.toDataURL(
+          `${domain}/passes/${encodeURIComponent(billId)}?p=${encodeURIComponent(pid)}`,
+          { width: 360, margin: 1, color: { dark: "#04252b", light: "#ffffff" } },
+        ).catch(() => null);
+        return [pid, url] as const;
+      }),
+    ).then((pairs) => {
+      if (cancelled) return;
+      const next: Record<string, string> = {};
+      for (const [pid, url] of pairs) if (url) next[pid] = url;
+      setOneQr(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [billId, brand, ids]);
+
   if (!racers || eligible.length === 0) return null;
 
   return (
-    <div className="mt-[32px] rounded-[28px] border border-[#00e2e5]/30 bg-[#00e2e5]/[0.06] p-[28px]">
+    // Matches every other panel on this screen exactly — w-full max-w-[860px],
+    // rounded-[24px], p-[32px]. Without the width cap this card stretched past
+    // the racing panel above it and the column stopped looking like a column.
+    <div className="relative mt-[32px] w-full max-w-[860px] rounded-[24px] border border-[#00e2e5]/30 bg-[#00e2e5]/[0.06] p-[32px] text-left">
       <p className="k-display text-[28px] text-[#00e2e5]">{t("licence.kiosk.title")}</p>
       <p className="mt-[8px] text-[22px] leading-snug text-white/60">{t("licence.kiosk.body")}</p>
 
-      {eligible.length > 1 && allQr && (
+      {/* COLLAPSE WHILE ONE IS OPEN. A kiosk screen with a group QR and four
+          per-racer QRs visible at once is exactly how a guest scans the wrong
+          one — and the wrong one puts a parent's licence on a child's phone.
+          Opening a racer hides the group code and every other row. */}
+      {!openFor && eligible.length > 1 && allQr && (
         <div className="mt-[20px] flex items-center gap-[20px] rounded-[20px] border border-[#00e2e5]/25 bg-[#00e2e5]/[0.04] p-[18px]">
           <div className="shrink-0 rounded-2xl bg-white p-[10px]">
             {/* eslint-disable-next-line @next/next/no-img-element -- data URI, no loader */}
@@ -93,7 +132,9 @@ export function KioskLicenceOffer({
       )}
 
       <div className="mt-[20px] flex flex-col divide-y divide-white/10">
-        {eligible.map((r) => {
+        {eligible
+          .filter((r) => !openFor || openFor === r.personId)
+          .map((r) => {
           const open = openFor === r.personId;
           return (
             <div key={r.personId} className="py-[16px]">
@@ -109,13 +150,13 @@ export function KioskLicenceOffer({
                 </button>
               </div>
 
-              {open && r.qr && (
+              {open && oneQr[r.personId] && (
                 <div className="mt-[14px] flex items-center gap-[20px]">
                   {/* White plate: a QR needs a light quiet zone to scan off a
                       dark kiosk panel at arm's length. */}
                   <div className="shrink-0 rounded-2xl bg-white p-[10px]">
                     {/* eslint-disable-next-line @next/next/no-img-element -- data URI, no loader */}
-                    <img src={r.qr} alt="" width={160} height={160} className="block" />
+                    <img src={oneQr[r.personId]} alt="" width={200} height={200} className="block" />
                   </div>
                   <p className="text-[22px] leading-snug text-white/60">
                     {t("licence.kiosk.scan")}
