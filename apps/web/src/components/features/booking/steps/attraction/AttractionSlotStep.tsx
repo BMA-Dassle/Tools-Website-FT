@@ -271,8 +271,12 @@ const AttractionSlotStepComponent: StepDef<AttractionItem>["Component"] = ({
             const beforeReopen = isBeforeReopen(block.start);
             const isDisabled = isFull || hasConflict || beforeReopen;
             const isSelected = item.slot === block.start;
-            const price =
+            // $0-key products (gel/laser twins since 2026-08-01) carry a $0
+            // money key on the BMI block — the guest price lives in OUR config
+            // (item.price), so fall back to it rather than rendering "$0.00".
+            const blockPrice =
               block.prices?.find((p) => p.depositKind === 0 && p.kind === 0)?.amount ?? null;
+            const price = blockPrice && blockPrice > 0 ? blockPrice : (item.price ?? null);
 
             const isThisHolding = holdingKey === block.start;
 

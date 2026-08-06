@@ -11,7 +11,7 @@ import {
   MAX_QAMF_CONFIRM_ATTEMPTS,
   type BowlingReservation,
 } from "@/lib/bowling-db";
-import { confirmBmiPayment } from "~/features/booking/service/bmi-confirm";
+import { confirmBmiPayment, getBmiBillStatus } from "~/features/booking/service/bmi-confirm";
 import {
   activateGiftCardForDeposit,
   getDepositOrderLineItem,
@@ -261,11 +261,30 @@ async function reconcileRow(r: BowlingReservation, dryRun: boolean): Promise<Rec
       };
     }
 
+    // MIXED race rows (attractions ride the race bill): the attraction lines
+    // owe real MONEY on the BMI side — a $0 credit confirm leaves
+    // totalToDeposit outstanding and BMI later releases the lines' schedules
+    // (W57040, 2026-08-01). Mirror unified-reserve: pay BMI's own outstanding
+    // amount. Overview unreachable → fall back to the $0 credit (old behavior;
+    // a later pass or ops can settle the money side).
+    let mixedDueCents = 0;
+    const rowAttractions = r.bookingMetadata?.attractions;
+    if (Array.isArray(rowAttractions) && rowAttractions.length > 0) {
+      try {
+        mixedDueCents =
+          (await getBmiBillStatus(bmiClientKey(r.centerCode), bmiBillId)).moneyDueCents ?? 0;
+      } catch (err) {
+        console.error(
+          `[race-confirm-reconcile] ${label}: money-due lookup failed (credit confirm):`,
+          err,
+        );
+      }
+    }
     const bmiResult = await confirmBmiPayment({
       clientKey: bmiClientKey(r.centerCode),
       bmiBillId,
-      amountCents: 0,
-      asCredit: true,
+      amountCents: mixedDueCents,
+      asCredit: mixedDueCents === 0,
     });
     const reservationNumber = bmiResult.reservationNumber;
     if (reservationNumber) {

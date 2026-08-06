@@ -114,7 +114,13 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     durationLabel: "7 min session · 20 min experience",
     products: [
       {
-        productId: "8976680",
+        // $0-KEY product (owner directive 2026-08-01, W57040): the $12 retail
+        // twin 8976680 carries a MONEY deposit key since BMI's ~7/22 config
+        // change, and any bill left owing money gets its SCHEDULES released by
+        // BMI. 43370936 ("QAMF Booking" variant) books the SAME Nexus sessions
+        // at $0 — Square owns the money (race $0-model convention); `price`
+        // here stays the guest price and feeds the Square charge line.
+        productId: "43370936",
         name: "Gel Blaster Session",
         es: { name: "Sesión de Gel Blaster" },
         price: 12,
@@ -156,7 +162,10 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
     durationLabel: "7 min session · 20 min experience",
     products: [
       {
-        productId: "8976685",
+        // $0-KEY product — same story as gel-blaster above: 43370955 books the
+        // same Nexus Laser Tag sessions at $0 (retail twin 8976685 owes a money
+        // deposit BMI would strip schedules over). Square owns the money.
+        productId: "43370955",
         name: "Laser Tag Session",
         es: { name: "Sesión de Laser Tag" },
         price: 10,
@@ -524,10 +533,14 @@ const PRODUCT_ATTRACTION_MAP: Record<
   number,
   { attraction: AttractionSlug; location: LocationKey }
 > = {
-  // Gel Blasters
+  // Gel Blasters — 43370936 is the $0-key twin the booking flow sells since
+  // 2026-08-01 (W57040); 8976680 is the retail-priced product kept for legacy
+  // classification of older bills.
+  43370936: { attraction: "gel-blaster", location: "headpinz" },
   8976680: { attraction: "gel-blaster", location: "headpinz" },
   7565025: { attraction: "gel-blaster", location: "naples" },
-  // Laser Tag
+  // Laser Tag — 43370955 = $0-key twin (same as gel above).
+  43370955: { attraction: "laser-tag", location: "headpinz" },
   8976685: { attraction: "laser-tag", location: "headpinz" },
   7565567: { attraction: "laser-tag", location: "naples" },
   // Duck Pin

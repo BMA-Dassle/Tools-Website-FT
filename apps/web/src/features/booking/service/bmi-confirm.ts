@@ -35,8 +35,23 @@ async function getBmiToken(clientKey: string): Promise<string> {
   return token;
 }
 
+/** Liveness + outstanding MONEY deposit of a BMI bill, from one overview GET. */
+export interface BmiBillStatus {
+  /** ≥1 line item still on the bill (false = auto-cancelled / gone). */
+  live: boolean;
+  /**
+   * BMI's own `totalToDeposit` — the money (kind 0) deposit still OWED on the
+   * bill, in cents. 0 on a satisfied bill. null when the overview didn't carry
+   * the field (callers fall back to their own computation). Race $0-model lines
+   * deposit in credits, which BMI does NOT count here — so on a mixed bill this
+   * is exactly the attraction lines' unpaid money.
+   */
+  moneyDueCents: number | null;
+}
+
 /**
- * Re-fetch a BMI bill's order overview to confirm it still holds live products.
+ * Re-fetch a BMI bill's order overview: is it still live, and how much money
+ * deposit does BMI still want on it?
  *
  * BMI auto-cancels a Pending-Online hold after the center's auto-cancel timeout,
  * which STRIPS the bill's products/schedule. If that happens during a customer's
@@ -44,12 +59,18 @@ async function getBmiToken(clientKey: string): Promise<string> {
  * AFTER the card has been charged on Square. Calling this BEFORE any charge lets
  * us refuse to take money for a reservation that no longer exists.
  *
- * Returns true when the bill still has ≥1 line item; false when it's empty /
- * auto-cancelled / gone (404). Read-only. The overview carries a 17-digit
- * orderId, so it's parsed lossless (parseWithRawIds) even though we only read
- * array lengths — never use Number()/JSON.parse on a BMI id-bearing response.
+ * `moneyDueCents` exists for the MIXED-cart confirm (races + BMI-priced
+ * attraction on one bill): since BMI flipped the Nexus attraction products to
+ * require a money deposit (~2026-07-22), a bill confirmed as a $0 credit keeps
+ * `totalToDeposit` outstanding and BMI later releases the unpaid lines'
+ * SCHEDULES — the guest vanishes off the arena dayplanner (W57040/W56953,
+ * 2026-08-01). The confirm must pay exactly what BMI says is owed.
+ *
+ * Read-only. The overview carries a 17-digit orderId, so it's parsed lossless
+ * (parseWithRawIds / regex) — never use Number()/JSON.parse on a BMI
+ * id-bearing response.
  */
-export async function bmiBillIsLive(clientKey: string, billId: string): Promise<boolean> {
+export async function getBmiBillStatus(clientKey: string, billId: string): Promise<BmiBillStatus> {
   const token = await getBmiToken(clientKey);
   const url = `${BMI_API_URL}/public-booking/${clientKey}/order/${billId}/overview`;
   const res = await fetch(url, {
@@ -67,13 +88,23 @@ export async function bmiBillIsLive(clientKey: string, billId: string): Promise<
   // non-OK statuses throw so the caller can decide (it fails open — a transient
   // BMI error must never block a legitimate paying customer).
   if (!res.ok) {
-    if (res.status === 404) return false;
+    if (res.status === 404) return { live: false, moneyDueCents: null };
     const body = await res.text().catch(() => "");
-    if (res.status === 400 && /not found/i.test(body)) return false;
+    if (res.status === 400 && /not found/i.test(body)) return { live: false, moneyDueCents: null };
     throw new Error(`BMI bill overview failed: ${res.status}`);
   }
-  const ov = parseWithRawIds<{ lines?: unknown[] }>(await res.text());
-  return Array.isArray(ov.lines) && ov.lines.length > 0;
+  const text = await res.text();
+  const ov = parseWithRawIds<{ lines?: unknown[] }>(text);
+  const live = Array.isArray(ov.lines) && ov.lines.length > 0;
+  // Regex on raw text (id-precision rule); totalToDeposit is a plain decimal.
+  const due = text.match(/"totalToDeposit"\s*:\s*(-?[0-9]+(?:\.[0-9]+)?)/);
+  const moneyDueCents = due ? Math.max(0, Math.round(parseFloat(due[1]) * 100)) : null;
+  return { live, moneyDueCents };
+}
+
+/** Liveness only — see getBmiBillStatus (same fetch, same semantics). */
+export async function bmiBillIsLive(clientKey: string, billId: string): Promise<boolean> {
+  return (await getBmiBillStatus(clientKey, billId)).live;
 }
 
 export interface BmiConfirmInput {
