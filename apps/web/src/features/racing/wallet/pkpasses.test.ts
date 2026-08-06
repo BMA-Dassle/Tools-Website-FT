@@ -151,3 +151,31 @@ describe("fetchPkpass — waits for the render", () => {
     // Walks the whole 14.5s backoff on purpose — that patience is the fix.
   }, 30_000);
 });
+
+describe("fetchPkpass — the User-Agent is load-bearing", () => {
+  const zip = () => {
+    const b = new Uint8Array(2000);
+    b.set([0x50, 0x4b, 0x03, 0x04]);
+    return b;
+  };
+
+  it("sends a device User-Agent, because PassKit serves HTML without one", () => {
+    // Measured 2026-08-06 on a known-good pass: undici's default UA got a
+    // 11KB landing page, curl and iPhone UAs got the 590KB pass, and an
+    // `Accept: application/vnd.apple.pkpass` header changed nothing. Every
+    // server-side download silently received a web page, which then went into
+    // the bundle as a "pass" — the whole reason add-all failed.
+    let seen: Record<string, string> | undefined;
+    const fake = (async (_url: string, init?: RequestInit) => {
+      seen = init?.headers as Record<string, string>;
+      return { ok: true, arrayBuffer: async () => zip().buffer.slice(0) } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    return fetchPkpass("https://example.invalid/x.pkpass", fake).then((out) => {
+      expect(out).not.toBeNull();
+      expect(seen?.["User-Agent"]).toBeTruthy();
+      // Anything device-shaped works; an empty or undici default does not.
+      expect(seen?.["User-Agent"]).toMatch(/iPhone|Mozilla/);
+    });
+  });
+});

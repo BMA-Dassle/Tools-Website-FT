@@ -313,7 +313,7 @@ export async function getBillablePasses(): Promise<RacerPassBillingRow[]> {
     await ensureSchema();
     const q = sql();
     const rows = await q`
-      SELECT person_id, member_id, pass_status, installed_at, created_at
+      SELECT person_id, member_id, pass_status, installed_at, issued_at
       FROM racer_wallet_passes
       WHERE member_id IS NOT NULL AND reaped_at IS NULL`;
     return rows.map((r) => {
@@ -323,7 +323,10 @@ export async function getBillablePasses(): Promise<RacerPassBillingRow[]> {
         memberId: String(x.member_id),
         passStatus: x.pass_status == null ? null : String(x.pass_status),
         installedAt: x.installed_at ? new Date(String(x.installed_at)) : null,
-        createdAt: x.created_at ? new Date(String(x.created_at)) : null,
+        // The column is `issued_at`, not `created_at`. Selecting a column that
+        // does not exist threw, the catch below swallowed it, and the sweep saw
+        // an EMPTY list — a reaper that reports success while doing nothing.
+        createdAt: x.issued_at ? new Date(String(x.issued_at)) : null,
       };
     });
   } catch {

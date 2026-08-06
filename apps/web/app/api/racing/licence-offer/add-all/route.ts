@@ -5,6 +5,7 @@ import { lookupMemberMatches } from "~/features/kiosk/license/lookup.server";
 import { issueLicencePass } from "~/features/racing/wallet/licence-pass";
 import { buildLicenceMeta } from "~/features/racing/wallet/licence-meta";
 import { passUrls } from "~/lib/api/passkit";
+import { getRacerPasses } from "~/features/racing/data/racer-wallet-db";
 import {
   buildPkpassesBundle,
   fetchPkpass,
@@ -54,7 +55,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // appears to be what triggers the render. Waiting that out inside the
   // download request means a guest staring at a dead tap, so the client calls
   // this first, watches `ready` climb, and only then fetches the bundle.
+  // THREE MODES, and the split is the whole fix.
+  //
+  //   prepare — issue the passes. Runs ONCE, on the tap.
+  //   probe   — READ ONLY: are they renderable yet?
+  //   (none)  — build the bundle.
+  //
+  // Probe must never issue. `issueLicencePass` self-heals a re-tap with a
+  // `PUT metaData`, and a PUT makes PassKit RE-RENDER the pass — so a polling
+  // probe that issued was destroying the very render it was waiting for, and
+  // could never converge. Live proof (2026-08-06): all four passes were
+  // downloadable as 590KB files while the probe still answered `ready: 0`.
   const probe = url.searchParams.get("probe") === "1";
+  const prepare = url.searchParams.get("prepare") === "1";
   // Probe a SINGLE racer. An individual "add to wallet" hits exactly the same
   // render delay as the bundle — the pass is issued on the tap — so the one-row
   // buttons drive the same wait rather than redirecting into a landing page.
@@ -86,12 +99,49 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     racers.push(r);
   }
 
+  // PROBE: read the member ids we already stored and just look. No Office, no
+  // Pandora, no issue, no PUT — those are what made a poll take five seconds
+  // AND reset the render.
+  if (probe) {
+    const ids = racers.map((r) => String(r.personId ?? "").trim());
+    const held = await getRacerPasses(ids);
+    const looks = await Promise.all(
+      ids.map(async (pid) => {
+        const memberId = held.get(pid)?.memberId;
+        if (!memberId) return false;
+        // A single look. Asking is also what starts the render, so a probe that
+        // answers "not yet" has still moved things along.
+        return (await fetchPkpass(passUrls(memberId).apple, fetch, [0])) !== null;
+      }),
+    );
+    return NextResponse.json(
+      { total: ids.length, ready: looks.filter(Boolean).length },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  // ALREADY HAVE A PASS? USE IT. Do not re-issue.
+  //
+  // `issueLicencePass` recovers an existing member on 409 and self-heals it with
+  // a `PUT metaData` — and a PUT makes PassKit RE-RENDER, which throws away a
+  // pass that was ready to download a second ago. For a racer who already holds
+  // a licence (the common case on a second tap) that turned an instant add into
+  // a fresh minute-long render every single time.
+  const alreadyHeld = await getRacerPasses(racers.map((r) => String(r.personId ?? "").trim()));
+
   // In parallel: a party of six should not be six sequential Office round trips
   // plus six issues plus six downloads while someone holds a phone.
   const results = await Promise.all(
     racers.map(async (r) => {
       const personId = String(r.personId ?? "").trim();
       try {
+        const held = alreadyHeld.get(personId)?.memberId;
+        if (held) {
+          if (prepare) return { name: `${personId}.pkpass`, bytes: new Uint8Array(1) };
+          const bytes = await fetchPkpass(passUrls(held).apple);
+          return bytes ? ({ name: `${personId}.pkpass`, bytes } as BundleEntry) : null;
+        }
+
         let code = await codeForPersonId(personId).catch(() => null);
         if (!code) {
           const matches = await lookupMemberMatches(personId).catch(() => null);
@@ -124,13 +174,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         // its own signature and re-packing would invalidate it.
         const passUrl = passUrls(issued.memberId).apple;
 
-        // In probe mode, one quick look: is it renderable YET? Asking is also
-        // what kicks the render off, so a probe that answers "no" has still
-        // moved things along.
-        if (probe) {
-          const bytes = await fetchPkpass(passUrl, fetch, [0]);
-          return bytes ? ({ name: `${personId}.pkpass`, bytes } as BundleEntry) : null;
-        }
+        // PREPARE stops here: the pass exists, the render has been kicked off
+        // by the fetch below, and the client takes over polling.
+        if (prepare) return { name: `${personId}.pkpass`, bytes: new Uint8Array(1) };
 
         const bytes = await fetchPkpass(passUrl);
         if (!bytes) return null;
@@ -144,9 +190,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   const entries: BundleEntry[] = results.filter((e): e is BundleEntry => e !== null);
 
-  if (probe) {
+  if (prepare) {
     return NextResponse.json(
-      { total: racers.length, ready: entries.length },
+      { total: racers.length, issued: entries.length },
       { headers: { "Cache-Control": "no-store" } },
     );
   }

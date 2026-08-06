@@ -135,12 +135,31 @@ export function looksLikePkpass(bytes: Uint8Array): boolean {
 }
 
 /**
- * Download a signed pass, waiting for PassKit to finish rendering it.
+ * PassKit serves the pass file or an HTML landing page for the SAME URL, and it
+ * decides on the USER-AGENT. Measured 2026-08-06 against a known-good pass:
  *
- * An "add all" tap ISSUES the passes moments earlier, so the first read almost
- * always lands before the render finishes — this is the normal path, not an
- * edge case. Backs off rather than hammering, and gives up rather than
- * returning something that would poison the whole bundle.
+ *     (no UA / undici default)  → 200 text/html            11 KB   landing page
+ *     curl/8.0.1                → 200 vnd.apple.pkpass    590 KB   the pass
+ *     iPhone Safari             → 200 vnd.apple.pkpass    590 KB   the pass
+ *
+ * An `Accept: application/vnd.apple.pkpass` header does NOT change it — only the
+ * UA does. Server-side fetch sends undici's default, so every download we made
+ * silently received a web page, which we then zipped into the bundle and handed
+ * to iOS as a pass. That is the whole reason "add all" failed, and it looked
+ * like a render delay because a browser hitting the same URL always worked.
+ *
+ * So we present as the device the pass is FOR — the request a phone would make,
+ * and the only one that is handed the artefact.
+ */
+const PASS_FETCH_UA =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 " +
+  "(KHTML, like Gecko) Version/17.0 Mobile Safari/604.1";
+
+/**
+ * Download a signed pass.
+ *
+ * Retries remain as cheap insurance against a genuinely slow render, but the
+ * failure we actually hit was never timing — see the UA note above.
  */
 export async function fetchPkpass(
   url: string,
@@ -153,7 +172,10 @@ export async function fetchPkpass(
   for (const wait of delays) {
     if (wait) await new Promise((r) => setTimeout(r, wait));
     try {
-      const res = await fetchImpl(url, { cache: "no-store" });
+      const res = await fetchImpl(url, {
+        cache: "no-store",
+        headers: { "User-Agent": PASS_FETCH_UA, Accept: "application/vnd.apple.pkpass" },
+      });
       if (!res.ok) continue;
       const bytes = new Uint8Array(await res.arrayBuffer());
       if (looksLikePkpass(bytes)) return bytes;

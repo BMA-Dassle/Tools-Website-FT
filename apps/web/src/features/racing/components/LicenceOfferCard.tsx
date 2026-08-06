@@ -236,11 +236,28 @@ function AddButton({
   const target =
     href ?? `/api/racing/licence-offer/add-all?billId=${encodeURIComponent(billId)}`;
 
+  const prepareUrl =
+    `/api/racing/licence-offer/add-all?billId=${encodeURIComponent(billId)}&prepare=1` +
+    (personId ? `&personId=${encodeURIComponent(personId)}` : "");
+
   async function start() {
     if (isBusy || locked) return;
     setFailed(false);
     setReady(0);
     onStart();
+
+    // ISSUE ONCE, then only ever READ.
+    //
+    // Issuing is what must not repeat: a re-tap recovers the existing pass and
+    // self-heals it with a `PUT metaData`, and a PUT makes PassKit RE-RENDER.
+    // Polling an endpoint that issued therefore reset the render every three
+    // seconds and spun forever — worst for racers who ALREADY had a pass, since
+    // they take that path every time.
+    try {
+      await fetch(prepareUrl, { cache: "no-store" });
+    } catch {
+      // The passes may already exist; the probe below is the real check.
+    }
 
     // ~2 minutes. Rendering a fresh party has taken well over a minute, and
     // giving up early is what produced the JSON download.
