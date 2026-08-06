@@ -2911,7 +2911,7 @@ export default function ConfirmationPage() {
                   return (
                     <div
                       key={`attr-${i}`}
-                      className="mt-4 max-w-md mx-auto rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden"
+                      className="mt-4 max-w-2xl mx-auto rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden"
                     >
                       <div className="p-5 space-y-4">
                         {/* Date & time */}
@@ -3029,7 +3029,7 @@ export default function ConfirmationPage() {
                   return (
                     <div
                       key={`bowl-${i}`}
-                      className="mt-4 max-w-md mx-auto rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden"
+                      className="mt-4 max-w-2xl mx-auto rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden"
                     >
                       <div className="p-5 space-y-4">
                         {/* Confirmation number */}

@@ -123,8 +123,12 @@ export const en = {
   // English with a TODO(i18n) in the component until the engine gains rich-text
   // support (or a native reviewer splits them safely). Only plain copy is keyed.
   "confirmation.booked": "You’re booked.",
+  // "JUST" WAS WRONG. The send is queued, not instantaneous, and a guest who
+  // reads "just texted" and looks at a phone with nothing on it thinks the
+  // booking failed (owner 2026-08-06). Says a few minutes instead, which is
+  // both true and what stops them turning round at the kiosk.
   "confirmation.receiptNote":
-    "Your confirmation and check-in links were just texted and emailed to you — that’s your ticket, nothing to print.",
+    "Your confirmation and check-in links are on their way by text and email — they should arrive in a few minutes. That’s your ticket, nothing to print.",
   "confirmation.racing.eyebrow": "Racing — what’s next",
   "confirmation.racing.howButton": "How does race check-in work?",
   "confirmation.lane.readyTitle": "{lane} is ready",

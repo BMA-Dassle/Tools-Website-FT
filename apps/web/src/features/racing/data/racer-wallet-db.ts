@@ -36,6 +36,18 @@ export interface RacerWalletPass {
    *  Without it an update would send only the changed keys, and
    *  PUT /members/member REPLACES metaData, which wipes the barcode. */
   meta: Record<string, string> | null;
+  /** PassKit `passMetaData.status` as last reconciled — PASS_ISSUED means it
+   *  was created but has never reached a device. Null = never reconciled. */
+  passStatus?: string | null;
+}
+
+/** One row for the reconcile sweep — every live pass we are being billed for. */
+export interface RacerPassBillingRow {
+  personId: string;
+  memberId: string;
+  passStatus: string | null;
+  installedAt: Date | null;
+  createdAt: Date | null;
 }
 
 let schemaReady: Promise<void> | null = null;
@@ -70,6 +82,28 @@ function ensureSchema(): Promise<void> {
       // here rather than reading it back off the pass.
       await q`ALTER TABLE racer_wallet_passes ADD COLUMN IF NOT EXISTS meta JSONB`;
       await q`ALTER TABLE racer_wallet_passes ADD COLUMN IF NOT EXISTS next_race_session_id TEXT`;
+      // INSTALL STATE — this is a BILLING record, not a nicety.
+      //
+      // A multi-use pass is re-billed every month it stays alive, and the
+      // 250-free allowance is a standing cap on live records rather than a
+      // monthly reset. So a pass that was issued and never installed, or
+      // installed and later deleted off the phone, is a line item for nothing.
+      // PassKit exposes the truth as `passMetaData.status` (PASS_ISSUED before
+      // an install, PASS_INSTALLED after), which the reconcile sweep records
+      // here so a deletion decision is never made on a guess.
+      await q`ALTER TABLE racer_wallet_passes ADD COLUMN IF NOT EXISTS pass_status TEXT`;
+      await q`ALTER TABLE racer_wallet_passes ADD COLUMN IF NOT EXISTS pass_status_at TIMESTAMPTZ`;
+      // First time we ever saw it on a device. Kept even after an uninstall,
+      // because "installed once" and "never installed" are different guests.
+      await q`ALTER TABLE racer_wallet_passes ADD COLUMN IF NOT EXISTS installed_at TIMESTAMPTZ`;
+      // When we deleted the PassKit record to stop the meter. The row stays so
+      // we remember the history; member_id is nulled so nothing tries to push
+      // to a record that no longer exists.
+      await q`ALTER TABLE racer_wallet_passes ADD COLUMN IF NOT EXISTS reaped_at TIMESTAMPTZ`;
+      // member_id was NOT NULL from the original schema, but reaping a pass has
+      // to null it: every push path skips a row without one, which is exactly
+      // how we stop writing to a PassKit record that no longer exists.
+      await q`ALTER TABLE racer_wallet_passes ALTER COLUMN member_id DROP NOT NULL`;
     })().catch((e) => {
       schemaReady = null; // let a later call retry rather than poison the lambda
       throw e;
@@ -87,10 +121,12 @@ export async function getRacerPass(personId: string): Promise<RacerWalletPass | 
     const q = sql();
     const rows = await q`
       SELECT person_id, member_id, next_race, checkin_status,
-             checkin_session_id, next_race_session_id, meta
+             checkin_session_id, next_race_session_id, meta, pass_status
       FROM racer_wallet_passes WHERE person_id = ${pid} LIMIT 1`;
     const r = rows[0] as Record<string, unknown> | undefined;
-    if (!r) return null;
+    // A reaped row keeps its history but has no PassKit record behind it, so it
+    // is not a pass anyone can push to.
+    if (!r || r.member_id == null) return null;
     return {
       personId: String(r.person_id),
       memberId: String(r.member_id),
@@ -99,6 +135,7 @@ export async function getRacerPass(personId: string): Promise<RacerWalletPass | 
       checkinSessionId: r.checkin_session_id == null ? null : String(r.checkin_session_id),
       nextRaceSessionId: r.next_race_session_id == null ? null : String(r.next_race_session_id),
       meta: (r.meta as Record<string, string> | null) ?? null,
+      passStatus: r.pass_status == null ? null : String(r.pass_status),
     };
   } catch {
     return null;
@@ -124,7 +161,8 @@ export async function getRacerPasses(
     const rows = await q`
       SELECT person_id, member_id, next_race, checkin_status,
              checkin_session_id, next_race_session_id
-      FROM racer_wallet_passes WHERE person_id = ANY(${ids})`;
+      FROM racer_wallet_passes
+      WHERE person_id = ANY(${ids}) AND member_id IS NOT NULL`;
     for (const raw of rows) {
       const r = raw as Record<string, unknown>;
       const pid = String(r.person_id);
@@ -262,5 +300,81 @@ export async function saveMeta(personId: string, meta: Record<string, string>): 
             WHERE person_id = ${pid}`;
   } catch {
     /* the pass is already correct; this is the record of it */
+  }
+}
+
+/**
+ * Every pass we still hold a PassKit record for — the sweep's input, and the
+ * list we are actually being billed for each month.
+ */
+export async function getBillablePasses(): Promise<RacerPassBillingRow[]> {
+  if (!isDbConfigured()) return [];
+  try {
+    await ensureSchema();
+    const q = sql();
+    const rows = await q`
+      SELECT person_id, member_id, pass_status, installed_at, created_at
+      FROM racer_wallet_passes
+      WHERE member_id IS NOT NULL AND reaped_at IS NULL`;
+    return rows.map((r) => {
+      const x = r as Record<string, unknown>;
+      return {
+        personId: String(x.person_id),
+        memberId: String(x.member_id),
+        passStatus: x.pass_status == null ? null : String(x.pass_status),
+        installedAt: x.installed_at ? new Date(String(x.installed_at)) : null,
+        createdAt: x.created_at ? new Date(String(x.created_at)) : null,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+/** Record what PassKit says about a pass. `installed_at` is set once and never
+ *  cleared — "installed then removed" and "never installed" are different
+ *  guests, and only the second is safe to reap without warning. */
+export async function recordPassStatus(
+  personId: string,
+  status: string,
+): Promise<void> {
+  const pid = String(personId || "").trim();
+  if (!/^\d+$/.test(pid) || !isDbConfigured()) return;
+  try {
+    await ensureSchema();
+    const q = sql();
+    const installed = status === "PASS_INSTALLED";
+    await q`
+      UPDATE racer_wallet_passes
+      SET pass_status = ${status},
+          pass_status_at = now(),
+          installed_at = CASE WHEN ${installed} AND installed_at IS NULL THEN now() ELSE installed_at END,
+          updated_at = now()
+      WHERE person_id = ${pid}`;
+  } catch {
+    /* the sweep re-reads next run */
+  }
+}
+
+/**
+ * Mark a pass as reaped after its PassKit record was deleted.
+ *
+ * NULLS `member_id` deliberately: every push path skips a row without one, so
+ * this is what stops the cron writing to a record that no longer exists. The
+ * row itself stays — it is the history of a racer who once held a pass, and
+ * re-issuing simply writes a fresh member_id over it.
+ */
+export async function markPassReaped(personId: string): Promise<void> {
+  const pid = String(personId || "").trim();
+  if (!/^\d+$/.test(pid) || !isDbConfigured()) return;
+  try {
+    await ensureSchema();
+    const q = sql();
+    await q`
+      UPDATE racer_wallet_passes
+      SET reaped_at = now(), member_id = NULL, meta = NULL, updated_at = now()
+      WHERE person_id = ${pid}`;
+  } catch {
+    /* non-fatal — the sweep retries, and a duplicate delete is a 404 we ignore */
   }
 }

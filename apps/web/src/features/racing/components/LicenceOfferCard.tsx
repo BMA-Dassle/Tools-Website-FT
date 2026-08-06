@@ -20,9 +20,10 @@ import { useLicenceOffer, type OfferRacer } from "./useLicenceOffer";
  * is named, which is what the old grid got wrong — a row of unlabelled codes is
  * how a parent's licence ends up on a child's phone.
  *
- * The booker additionally gets a wallet badge, because theirs is the only phone
- * this page can put a pass on. Everyone else gets a link to their own page,
- * where they can do the same on their own device.
+ * Every racer gets a QR, a wallet badge and a link to their own page. The badge
+ * adds to THIS phone, which is right both for the booker and for a parent
+ * carrying their kids' passes; the QR is how a racer gets it onto a different
+ * device; the link opens their permanent page.
  *
  * NOTHING IS BILLED BY RENDERING THIS. A pass is created only when a racer taps
  * or scans and the wallet route runs on their device.
@@ -61,23 +62,14 @@ export default function LicenceOfferCard({ billId }: { billId: string }) {
 
       <div className="flex flex-col divide-y divide-white/10">
         {ordered.map((r) => (
-          <RacerQr key={r.personId} racer={r} platform={platform} showWallet={r.isYou} />
+          <RacerQr key={r.personId} racer={r} platform={platform} />
         ))}
       </div>
     </div>
   );
 }
 
-function RacerQr({
-  racer,
-  platform,
-  showWallet,
-}: {
-  racer: OfferRacer;
-  platform: WalletPlatform | null;
-  /** Only the booker: everyone else's pass belongs on THEIR phone, not this one. */
-  showWallet: boolean;
-}) {
+function RacerQr({ racer, platform }: { racer: OfferRacer; platform: WalletPlatform | null }) {
   // Desktop resolves to null, which means "we don't know" — NOT "neither". Offer
   // BOTH there, the way /v/{code} does: a desktop guest still wants the pass on
   // their phone, and PassKit's landing page hands them a QR to hop across.
@@ -123,13 +115,18 @@ function RacerQr({
         </p>
       </div>
 
-      {/* Only the booker's row: this is the one phone the page can reach.
+      {/* EVERY racer gets a badge, not just the booker. A parent booking for
+          three kids may legitimately carry all four passes on their own phone,
+          and the QR beside it already covers the other case — a racer adding it
+          to their own device. Offering it only on the booker's row made the
+          rest of the party look broken (owner 2026-08-06).
+
           NO WHITE PLATE. Apple's US_UK badge is black with a #A6A6A6 hairline
           and Google's is #1F1F1F with its own outline — both are legible
           straight onto this card, and the white slab we were mounting them on
           read as a foreign object stuck to the panel. Vendor artwork is
           untouched either way; only the surface changed. */}
-      {showWallet && racer.addUrl && (
+      {racer.addUrl && (
         <div className="mt-4 flex flex-wrap items-center gap-3">
           {badges.map((b) => (
             <a
