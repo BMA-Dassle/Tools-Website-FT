@@ -786,10 +786,26 @@ async function main() {
   // pass: `updateLicencePasses` resolves holders from `racer_wallet_passes` in
   // one query and skips everyone else, so a pass issued only at PassKit would
   // silently never receive a next-race or check-in push.
+  //
+  // It must ALSO store the full metaData and the last-pushed values, or the
+  // crons are permanently deaf to this pass: `updateLicencePass` refuses to
+  // write when there is no stored meta (a partial PUT wipes the barcode), so a
+  // script-issued pass with meta NULL would silently never update again. That
+  // is exactly what happened on 2026-08-05 — a heat move sent the SMS and left
+  // the pass untouched.
   if (memberId) {
-    const { recordRacerPass } = await import("../src/features/racing/data/racer-wallet-db");
+    const { recordRacerPass, saveMeta, markPushed } = await import(
+      "../src/features/racing/data/racer-wallet-db"
+    );
     await recordRacerPass({ personId: PERSON_ID, memberId, loginCode: CODE });
-    console.log(`recorded in racer_wallet_passes: person ${PERSON_ID} -> ${memberId}`);
+    await saveMeta(PERSON_ID, meta as unknown as Record<string, string>);
+    // Mirror what the pass now shows, so change-detection compares against
+    // reality rather than a stale row and re-pushes an identical value.
+    await markPushed(PERSON_ID, {
+      nextRace: meta.nextRace,
+      checkinStatus: meta.checkinStatus,
+    });
+    console.log(`recorded in racer_wallet_passes: person ${PERSON_ID} -> ${memberId} (+meta)`);
   }
 
   writeFileSync(
