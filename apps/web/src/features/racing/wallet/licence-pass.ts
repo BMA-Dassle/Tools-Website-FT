@@ -92,6 +92,11 @@ export async function issueLicencePass(args: {
 
   try {
     let memberId = "";
+    // What we will persist. On the recover path this becomes stored-meta with
+    // the caller's fields layered on top — see the merge below.
+    let meta: Record<string, string> = {
+      ...(args.meta as unknown as Record<string, string>),
+    };
     try {
       const created = await passkit<MemberResponse>("POST", "/members/member", {
         programId: PASSKIT_LICENCE.programId,
@@ -110,17 +115,29 @@ export async function issueLicencePass(args: {
       );
       memberId = String(existing?.id ?? "");
       if (!memberId) throw err;
-      // A re-tap is also a free self-heal: push current state onto the pass
-      // they already hold rather than leaving it stale.
-      await passkit("PUT", "/members/member", { id: memberId, metaData: args.meta }).catch(
+      // A re-tap is also a free self-heal — but MERGE OVER STORED META, never
+      // send the caller's fields bare.
+      //
+      // PUT /members/member REPLACES metaData (the opposite of PUT /template),
+      // and a caller's meta is deliberately a SUBSET: `/r/{code}/wallet` knows
+      // the racer's identity but not their heat, so it supplies no raceLabel,
+      // nextRaceLong, validUntil, waiver or lastVisit. Sending it bare DELETED
+      // those five keys from a live pass on 2026-08-05 — the template still
+      // binds `${meta.raceLabel}` and `${meta.nextRaceLong}`, so the racer's
+      // pass rendered its race fields blank, and the truncated copy was then
+      // saved to Neon and re-pushed by the next cron run.
+      const prior = await getRacerPass(personId);
+      if (prior?.meta) meta = { ...prior.meta, ...meta };
+      await passkit("PUT", "/members/member", { id: memberId, metaData: meta }).catch(
         () => undefined,
       );
     }
     if (!memberId) return { ok: false, refusal: "error" };
 
     await recordRacerPass({ personId, memberId, loginCode: args.meta.code });
-    // Full metaData, so later partial updates have a complete base to build on.
-    await saveMeta(personId, args.meta as unknown as Record<string, string>);
+    // The MERGED metaData — matching what we just pushed — so later partial
+    // updates build on a complete base rather than on a truncated one.
+    await saveMeta(personId, meta);
     await markPushed(personId, {
       ...(args.meta.nextRace !== undefined ? { nextRace: args.meta.nextRace } : {}),
       ...(args.meta.checkinStatus !== undefined
@@ -147,7 +164,13 @@ export async function issueLicencePass(args: {
  */
 export async function updateLicencePass(
   personId: string,
-  patch: { nextRace?: string; checkinStatus?: string },
+  patch: {
+    nextRace?: string;
+    checkinStatus?: string;
+    /** Meta-only companions of `nextRace`. See METAONLY below. */
+    raceLabel?: string;
+    nextRaceLong?: string;
+  },
 ): Promise<boolean> {
   if (!licencePassEnabled()) return false;
   const row = await getRacerPass(personId);
@@ -160,7 +183,26 @@ export async function updateLicencePass(
   if (patch.checkinStatus !== undefined && patch.checkinStatus !== row.checkinStatus) {
     changed.checkinStatus = patch.checkinStatus;
   }
-  if (Object.keys(changed).length === 0) return false; // rule 4 — nothing to say
+
+  // METAONLY — fields the pass renders that have no column of their own.
+  //
+  // `nextRace` is one of THREE views of the same heat: the short line, the long
+  // line, and the bare heat label. Only the short one was ever updated, so a
+  // racer who moved ended up holding a pass that contradicted itself — one live
+  // pass read "Aug 5 · 10:12 PM" beside "Heat 55" and "…10:36 PM · Heat 55"
+  // (2026-08-05). Compared against stored meta, since there is no column.
+  const metaOnly: Record<string, string> = {};
+  const priorMeta = row.meta ?? {};
+  if (patch.raceLabel !== undefined && patch.raceLabel !== priorMeta.raceLabel) {
+    metaOnly.raceLabel = patch.raceLabel;
+  }
+  if (patch.nextRaceLong !== undefined && patch.nextRaceLong !== priorMeta.nextRaceLong) {
+    metaOnly.nextRaceLong = patch.nextRaceLong;
+  }
+
+  if (Object.keys(changed).length === 0 && Object.keys(metaOnly).length === 0) {
+    return false; // rule 4 — nothing to say
+  }
 
   // SEND THE COMPLETE metaData, ALWAYS.
   //
@@ -179,7 +221,7 @@ export async function updateLicencePass(
     );
     return false;
   }
-  const full = { ...row.meta, ...changed };
+  const full = { ...row.meta, ...changed, ...metaOnly };
 
   try {
     await passkit("PUT", "/members/member", { id: row.memberId, metaData: full });
@@ -206,6 +248,9 @@ export async function updateLicencePasses(
     personId: string | number;
     nextRace?: string;
     checkinStatus?: string;
+    /** Travel WITH `nextRace` — the same heat, rendered three ways. */
+    raceLabel?: string;
+    nextRaceLong?: string;
     /** Which heat the field refers to — recorded for the clear-down. */
     checkinSessionId?: string;
     nextRaceSessionId?: string;
@@ -222,6 +267,8 @@ export async function updateLicencePasses(
     const ok = await updateLicencePass(pid, {
       ...(e.nextRace !== undefined ? { nextRace: e.nextRace } : {}),
       ...(e.checkinStatus !== undefined ? { checkinStatus: e.checkinStatus } : {}),
+      ...(e.raceLabel !== undefined ? { raceLabel: e.raceLabel } : {}),
+      ...(e.nextRaceLong !== undefined ? { nextRaceLong: e.nextRaceLong } : {}),
     });
     if (ok) {
       // Only stamp when the push actually happened — recording a session for a
