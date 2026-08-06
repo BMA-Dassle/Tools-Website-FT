@@ -19,6 +19,7 @@ import {
 } from "@/lib/participant-contact";
 import { logSms, logCronRun } from "@/lib/sms-log";
 import { updateLicencePasses } from "~/features/racing/wallet/licence-pass";
+import { clearFinishedLicenceFields } from "~/features/racing/wallet/licence-clear";
 import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
 import { verifyCron } from "@/lib/cron-auth";
 import { vipComboPersonLegsOnDate, type VipComboPersonLeg } from "@/lib/bowling-db";
@@ -804,6 +805,19 @@ export async function GET(req: NextRequest) {
 
     const candidates: Candidate[] = [];
 
+    // CLEAR-DOWN FIRST, before writing any new status. A heat that has actually
+    // started or ended stops being live regardless of how far off schedule it
+    // ran — see licence-clear.ts for why elapsed time cannot answer this.
+    void clearFinishedLicenceFields(req.nextUrl.origin)
+      .then((r) => {
+        if (r.checkinCleared || r.nextRaceCleared) {
+          console.log(
+            `[checkin-alerts] wallet cleared: ${r.checkinCleared} check-in, ${r.nextRaceCleared} next-race (of ${r.checked} live)`,
+          );
+        }
+      })
+      .catch(() => undefined);
+
     for (const [trackKey, race] of entries) {
       if (!race) continue;
       const sessionId = race.sessionId;
@@ -883,6 +897,10 @@ export async function GET(req: NextRequest) {
         participants.map((p) => ({
           personId: p.personId,
           checkinStatus: `Check in now — ${trackDisplay} Heat ${race.heatNumber ?? ""}`.trim(),
+          // Stamped so the clear-down knows WHICH heat this refers to. Without
+          // it, "is this stale?" has no answer but elapsed time — and time is
+          // wrong whenever a race runs late or early, which is most of them.
+          checkinSessionId: String(sessionId),
         })),
       )
         .then((n) => {

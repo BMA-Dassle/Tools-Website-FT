@@ -52,3 +52,6 @@ yarn-error.log*
 .claude/worktrees/
 .vercel
 .env*.local
+
+# PassKit script run artifacts (ids + a dumped template, not source)
+apps/web/.passkit-*.json

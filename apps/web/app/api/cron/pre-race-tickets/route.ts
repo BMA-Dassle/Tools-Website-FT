@@ -694,6 +694,9 @@ export async function GET(req: NextRequest) {
       candidates.map((c) => ({
         personId: c.participant.personId,
         nextRace: formatNextRaceForPass(c.session.scheduledStart, c.trackDisplay, c.session),
+        // Stamped so the clear-down can ask whether THIS heat has ended, rather
+        // than inferring it from the clock.
+        nextRaceSessionId: String(c.session.sessionId),
       })),
     )
       .then((n) => {

@@ -179,7 +179,14 @@ export async function updateLicencePass(
  * fanning out across an entire roster to learn that nobody has one.
  */
 export async function updateLicencePasses(
-  entries: Array<{ personId: string | number; nextRace?: string; checkinStatus?: string }>,
+  entries: Array<{
+    personId: string | number;
+    nextRace?: string;
+    checkinStatus?: string;
+    /** Which heat the field refers to — recorded for the clear-down. */
+    checkinSessionId?: string;
+    nextRaceSessionId?: string;
+  }>,
 ): Promise<number> {
   if (!licencePassEnabled() || entries.length === 0) return 0;
   const holders = await getRacerPasses(entries.map((e) => e.personId));
@@ -193,7 +200,19 @@ export async function updateLicencePasses(
       ...(e.nextRace !== undefined ? { nextRace: e.nextRace } : {}),
       ...(e.checkinStatus !== undefined ? { checkinStatus: e.checkinStatus } : {}),
     });
-    if (ok) pushed++;
+    if (ok) {
+      // Only stamp when the push actually happened — recording a session for a
+      // field we did not write would let the clear-down blank something else.
+      await markPushed(pid, {
+        ...(e.checkinSessionId !== undefined && e.checkinStatus !== undefined
+          ? { checkinSessionId: e.checkinSessionId }
+          : {}),
+        ...(e.nextRaceSessionId !== undefined && e.nextRace !== undefined
+          ? { nextRaceSessionId: e.nextRaceSessionId }
+          : {}),
+      });
+      pushed++;
+    }
   }
   return pushed;
 }

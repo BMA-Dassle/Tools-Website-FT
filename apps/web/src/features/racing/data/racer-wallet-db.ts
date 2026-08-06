@@ -29,6 +29,9 @@ export interface RacerWalletPass {
   nextRace: string | null;
   /** Last value written to the check-in status field. */
   checkinStatus: string | null;
+  /** Session each live field was written for — what the clear-down checks. */
+  checkinSessionId: string | null;
+  nextRaceSessionId: string | null;
 }
 
 let schemaReady: Promise<void> | null = null;
@@ -47,6 +50,13 @@ function ensureSchema(): Promise<void> {
           issued_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
         )`;
+      // WHICH session each live field refers to. Without this the clear-down
+      // has nothing to check: a stale "check in now" is only stale relative to
+      // the heat it was written for, and elapsed time cannot tell us that
+      // because races run late (and sometimes early — heat 1 on 2026-08-04
+      // started 17 minutes AHEAD of schedule).
+      await q`ALTER TABLE racer_wallet_passes ADD COLUMN IF NOT EXISTS checkin_session_id TEXT`;
+      await q`ALTER TABLE racer_wallet_passes ADD COLUMN IF NOT EXISTS next_race_session_id TEXT`;
     })().catch((e) => {
       schemaReady = null; // let a later call retry rather than poison the lambda
       throw e;
@@ -63,7 +73,8 @@ export async function getRacerPass(personId: string): Promise<RacerWalletPass | 
     await ensureSchema();
     const q = sql();
     const rows = await q`
-      SELECT person_id, member_id, next_race, checkin_status
+      SELECT person_id, member_id, next_race, checkin_status,
+             checkin_session_id, next_race_session_id
       FROM racer_wallet_passes WHERE person_id = ${pid} LIMIT 1`;
     const r = rows[0] as Record<string, unknown> | undefined;
     if (!r) return null;
@@ -72,6 +83,8 @@ export async function getRacerPass(personId: string): Promise<RacerWalletPass | 
       memberId: String(r.member_id),
       nextRace: r.next_race == null ? null : String(r.next_race),
       checkinStatus: r.checkin_status == null ? null : String(r.checkin_status),
+      checkinSessionId: r.checkin_session_id == null ? null : String(r.checkin_session_id),
+      nextRaceSessionId: r.next_race_session_id == null ? null : String(r.next_race_session_id),
     };
   } catch {
     return null;
@@ -95,7 +108,8 @@ export async function getRacerPasses(
     await ensureSchema();
     const q = sql();
     const rows = await q`
-      SELECT person_id, member_id, next_race, checkin_status
+      SELECT person_id, member_id, next_race, checkin_status,
+             checkin_session_id, next_race_session_id
       FROM racer_wallet_passes WHERE person_id = ANY(${ids})`;
     for (const raw of rows) {
       const r = raw as Record<string, unknown>;
@@ -105,6 +119,8 @@ export async function getRacerPasses(
         memberId: String(r.member_id),
         nextRace: r.next_race == null ? null : String(r.next_race),
         checkinStatus: r.checkin_status == null ? null : String(r.checkin_status),
+        checkinSessionId: r.checkin_session_id == null ? null : String(r.checkin_session_id),
+        nextRaceSessionId: r.next_race_session_id == null ? null : String(r.next_race_session_id),
       });
     }
   } catch {
@@ -139,7 +155,12 @@ export async function recordRacerPass(args: {
 /** Remember what we last pushed, so an unchanged value costs no API call. */
 export async function markPushed(
   personId: string,
-  patch: { nextRace?: string; checkinStatus?: string },
+  patch: {
+    nextRace?: string;
+    checkinStatus?: string;
+    checkinSessionId?: string | null;
+    nextRaceSessionId?: string | null;
+  },
 ): Promise<void> {
   const pid = String(personId || "").trim();
   if (!/^\d+$/.test(pid) || !isDbConfigured()) return;
@@ -156,8 +177,59 @@ export async function markPushed(
                 SET checkin_status = ${patch.checkinStatus}, updated_at = now()
               WHERE person_id = ${pid}`;
     }
+    if (patch.checkinSessionId !== undefined) {
+      await q`UPDATE racer_wallet_passes
+                SET checkin_session_id = ${patch.checkinSessionId}, updated_at = now()
+              WHERE person_id = ${pid}`;
+    }
+    if (patch.nextRaceSessionId !== undefined) {
+      await q`UPDATE racer_wallet_passes
+                SET next_race_session_id = ${patch.nextRaceSessionId}, updated_at = now()
+              WHERE person_id = ${pid}`;
+    }
   } catch {
     // Worst case we re-push an identical value next run: silent for the guest
     // (Apple only alerts on change) and merely a wasted call.
+  }
+}
+
+/**
+ * Every pass holding a live field, with the session that field was written for.
+ * The clear-down's input: small by construction, because only actual
+ * pass-holders are ever in this table.
+ */
+export async function getPassesWithLiveFields(): Promise<
+  Array<{
+    personId: string;
+    memberId: string;
+    checkinStatus: string | null;
+    checkinSessionId: string | null;
+    nextRace: string | null;
+    nextRaceSessionId: string | null;
+  }>
+> {
+  if (!isDbConfigured()) return [];
+  try {
+    await ensureSchema();
+    const q = sql();
+    const rows = await q`
+      SELECT person_id, member_id, checkin_status, checkin_session_id,
+             next_race, next_race_session_id
+      FROM racer_wallet_passes
+      WHERE (checkin_status IS NOT NULL AND checkin_status <> '')
+         OR (next_race IS NOT NULL AND next_race <> '' AND next_race <> 'None booked')`;
+    return rows.map((raw) => {
+      const r = raw as Record<string, unknown>;
+      return {
+        personId: String(r.person_id),
+        memberId: String(r.member_id),
+        checkinStatus: r.checkin_status == null ? null : String(r.checkin_status),
+        checkinSessionId: r.checkin_session_id == null ? null : String(r.checkin_session_id),
+        nextRace: r.next_race == null ? null : String(r.next_race),
+        nextRaceSessionId: r.next_race_session_id == null ? null : String(r.next_race_session_id),
+      };
+    });
+  } catch {
+    return [];
   }
 }
