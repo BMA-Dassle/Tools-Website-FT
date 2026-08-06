@@ -40,7 +40,15 @@ export default function RacerSignInPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#00041b] px-4 pb-14 pt-28 sm:pt-32">
+    // A SECTION, NOT A <main>. The root layout already wraps every page in one,
+    // and this was the only route on the site rendering a second one inside it —
+    // invalid nesting, two landmarks for a screen reader to choose between.
+    //
+    // `pb-28` clears the fixed mobile Book-Now bar. It should not be on this
+    // page at all (middleware suppresses it), but the padding costs nothing and
+    // means the last control is reachable even if that rule is ever missed
+    // again — which is exactly how this page became untappable on iPhone.
+    <section className="min-h-screen bg-[#00041b] px-4 pb-28 pt-32">
       <div className="mx-auto w-full max-w-md">
         <header className="text-center mb-7">
           <p className="font-display text-[11px] uppercase tracking-[0.25em] text-[#00E2E5]">
@@ -74,6 +82,6 @@ export default function RacerSignInPage() {
           onSwitchToNew={() => router.push("/book/race")}
         />
       </div>
-    </main>
+    </section>
   );
 }

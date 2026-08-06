@@ -817,7 +817,16 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/event/") ||
     pathname.startsWith("/account") ||
     // Voucher redemption — see the matching HP-host case above.
-    pathname.startsWith("/v/")
+    pathname.startsWith("/v/") ||
+    // Finding your racing licence — see the matching HP-host case above, which
+    // is where this rule was written and where it STOPPED. The HeadPinz branch
+    // returns early, so a rule that only lives there never runs for
+    // fasttraxent.com: /racer shipped with a fixed bottom bar pinned over it on
+    // the FastTrax host, `md:hidden` so only phones ever saw it, and iPhone
+    // racers reported they could not tap the page (2026-08-06). Any route that
+    // wants the bar suppressed on BOTH hosts has to be named twice.
+    pathname === "/racer" ||
+    pathname.startsWith("/racer/")
   ) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-no-mobile-bar", "1");
