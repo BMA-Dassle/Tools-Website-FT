@@ -60,6 +60,27 @@ export default function LicenceOfferCard({ billId }: { billId: string }) {
         automatically, instead of a text before every visit.
       </p>
 
+      {/* ONE TAP FOR THE WHOLE PARTY. Apple's .pkpasses bundle is a zip of
+          signed passes, so we can hand iOS all of them at once — the case this
+          exists for is a parent carrying their kids' licences.
+
+          Apple only, and not by preference: Google's equivalent needs several
+          objects inside ONE issuer-signed JWT, and PassKit gives us a per-pass
+          .gpay link with no way to merge them. Google users add each racer from
+          their row, which is why every row has its own badge.
+
+          Tapping this ISSUES every pass in the party — four monthly records,
+          not one. That is the deal the guest is making, and the reconcile sweep
+          deletes any that never reach a device. */}
+      {platform === "apple" && eligible.length > 1 && (
+        <a
+          href={`/api/racing/licence-offer/add-all?billId=${encodeURIComponent(billId)}`}
+          className="mb-5 flex items-center justify-center gap-2 rounded-xl bg-[#00E2E5] px-5 py-3 text-[#04252b] text-sm font-bold"
+        >
+          Add all {eligible.length} to Apple Wallet
+        </a>
+      )}
+
       <div className="flex flex-col divide-y divide-white/10">
         {ordered.map((r) => (
           <RacerQr key={r.personId} racer={r} platform={platform} />
