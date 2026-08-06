@@ -2439,7 +2439,9 @@ export default function ConfirmationPage() {
                         tiles — it points DOWN at the licence card, and renders
                         only when that card will too (shared fetch), so it can
                         never advertise something that is not on the page. */}
-                    {heroIsRacing && orderId && <LicenceOfferBanner billId={orderId} />}
+                    {heroIsRacing && orderId && (
+                      <LicenceOfferBanner billId={orderId} expressLane={expressLane} />
+                    )}
 
                     {/* Express Check-In directions — full-width banner above the
                         per-heat tiles (md:col-span-2 keeps it from landing in a

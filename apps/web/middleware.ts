@@ -752,6 +752,13 @@ export async function middleware(request: NextRequest) {
     if (pathname === "/waiver" || pathname.startsWith("/waiver/")) {
       requestHeaders.set("x-no-chrome", "1");
     }
+    // A racer's own page — their licence QR, their next race. Same posture as
+    // the waiver and join screens: a focused personal screen with its own
+    // header, not a marketing page. The fixed site Nav was overlaying the
+    // racer's NAME at the top of it.
+    if (pathname.startsWith("/r/")) {
+      requestHeaders.set("x-no-chrome", "1");
+    }
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
@@ -782,7 +789,8 @@ export async function middleware(request: NextRequest) {
     pathname === "/join" ||
     pathname.startsWith("/join/") ||
     pathname === "/waiver" ||
-    pathname.startsWith("/waiver/")
+    pathname.startsWith("/waiver/") ||
+    pathname.startsWith("/r/")
   ) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-no-chrome", "1");
