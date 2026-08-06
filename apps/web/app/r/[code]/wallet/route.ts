@@ -3,7 +3,7 @@ import { walletPlatformFromUserAgent } from "~/features/game-cards/wallet/platfo
 import { lookupMemberMatches } from "~/features/kiosk/license/lookup.server";
 import { issueLicencePass } from "~/features/racing/wallet/licence-pass";
 import { buildLicenceMeta } from "~/features/racing/wallet/licence-meta";
-import { RACER_LOGIN_CODE_RE } from "~/features/kiosk/license/types";
+import { RACER_PUBLIC_CODE_RE } from "~/features/kiosk/license/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -43,7 +43,12 @@ export async function GET(
       new URL(`/book/race${code ? `?code=${encodeURIComponent(code)}` : ""}`, req.url),
     );
 
-  if (!RACER_LOGIN_CODE_RE.test(code)) return fallback();
+  // PUBLIC shape, not the scan shape. This route is reachable by anyone typing
+  // a URL, and it answers by resolving a real racer and MINTING a billed pass.
+  // Six-char tags exist and look like counters (`781136`), so accepting them
+  // here would make a 10^6 walk into a racer directory plus a pass-minting
+  // amplifier. Every code we publish is 13-char or a UUID.
+  if (!RACER_PUBLIC_CODE_RE.test(code)) return fallback();
 
   const matches = await lookupMemberMatches(code).catch(() => null);
   // Exactly one, deliberately. A code resolving to several records means we

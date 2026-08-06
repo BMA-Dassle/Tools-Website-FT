@@ -32,6 +32,9 @@ interface OfferRacer {
    *  screen, so your own row needs a link rather than a QR. Carries no login
    *  code — the code is resolved behind this URL at the moment of the tap. */
   addUrl: string | null;
+  /** Same trick, landing on the racer's permanent page at /r/{code}. Keeps every
+   *  other racer's login code out of markup the booker can read. */
+  hubUrl: string | null;
 }
 
 /**
@@ -121,6 +124,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       isYou: !!primary && personId === primary,
       addUrl: code
         ? `/api/racing/licence-offer/add?billId=${encodeURIComponent(billId)}&personId=${encodeURIComponent(personId)}`
+        : null,
+      hubUrl: code
+        ? `/api/racing/licence-offer/add?billId=${encodeURIComponent(billId)}&personId=${encodeURIComponent(personId)}&to=hub`
         : null,
     });
   }

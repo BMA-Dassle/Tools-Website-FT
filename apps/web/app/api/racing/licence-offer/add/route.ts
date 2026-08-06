@@ -28,6 +28,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const billId = (url.searchParams.get("billId") || "").trim();
   const personId = (url.searchParams.get("personId") || "").trim();
   const platform = url.searchParams.get("platform");
+  // "hub" lands on the racer's page; default is the wallet hop. Both resolve the
+  // code here so it never appears in markup the booker can read.
+  const to = url.searchParams.get("to");
 
   const home = () => NextResponse.redirect(new URL("/book/race", req.url));
   if (!/^\d+$/.test(billId) || !/^\d+$/.test(personId)) return home();
@@ -55,7 +58,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
   if (!code) return home();
 
-  const target = new URL(`/r/${encodeURIComponent(code)}/wallet`, req.url);
-  if (platform === "apple" || platform === "google") target.searchParams.set("platform", platform);
+  const target = new URL(
+    to === "hub"
+      ? `/r/${encodeURIComponent(code)}`
+      : `/r/${encodeURIComponent(code)}/wallet`,
+    req.url,
+  );
+  if (to !== "hub" && (platform === "apple" || platform === "google")) {
+    target.searchParams.set("platform", platform);
+  }
   return NextResponse.redirect(target, { headers: { "Cache-Control": "no-store, max-age=0" } });
 }

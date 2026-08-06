@@ -195,6 +195,35 @@ export async function upsertRaceTicket(ticket: RaceTicket): Promise<string> {
   return id;
 }
 
+/**
+ * Does an e-ticket already exist for this racer on this heat?
+ *
+ * READS the key `upsertRaceTicket` writes, without creating anything. Tickets
+ * are minted only by the two crons, roughly two hours out, so any surface that
+ * wants to LINK to one before then — the confirmation page, the racer hub — has
+ * to be able to ask rather than assume. Answering null is a normal state, not a
+ * failure: it means "not minted yet", and the caller shows the licence instead.
+ *
+ * Deliberately does not mint. Minting early would need TICKET_TTL raised from 12
+ * hours to weeks, i.e. a live Redis key per racer per future booking, and this
+ * Redis has already OOM'd once.
+ */
+export async function findTicketIdFor(
+  sessionId: number | string,
+  personId: number | string,
+): Promise<string | null> {
+  const sid = String(sessionId ?? "").trim();
+  const pid = String(personId ?? "").trim();
+  if (!sid || !pid) return null;
+  try {
+    return (await redis.get(lookupKey(sid, pid))) || null;
+  } catch {
+    // A ticket we cannot look up is indistinguishable from one that does not
+    // exist yet, and both mean the same thing to every caller: show the licence.
+    return null;
+  }
+}
+
 export async function getRaceTicket(id: string): Promise<RaceTicket | null> {
   try {
     const raw = await redis.get(ticketKey(id));

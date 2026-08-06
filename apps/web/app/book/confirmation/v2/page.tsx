@@ -6,7 +6,6 @@ import LicenceOfferBanner from "~/features/racing/components/LicenceOfferBanner"
 import Image from "next/image";
 import Link from "next/link";
 import QRCode from "qrcode";
-import { checkinQrDataUrl } from "@/lib/qr-checkin";
 import { getBookingClientKey, clearBookingLocation } from "@/lib/booking-location";
 import { bmiGet, getRaceProductById } from "../../race/data";
 import { trackBookingComplete } from "@/lib/analytics";
@@ -390,7 +389,6 @@ export default function ConfirmationPage() {
       billId: string;
     }[]
   >([]);
-  const [checkinQrByPerson, setCheckinQrByPerson] = useState<Record<string, string>>({});
   /** Appetizer info derived from the booking's package. Carries the
    *  per-package note ("1 per group" vs "1 per 3 purchases") and
    *  valid menu items so the confirmation card renders the right
@@ -929,41 +927,6 @@ export default function ConfirmationPage() {
           }
         }
 
-        // Per-racer check-in QR — generate immediately for any racers that
-        // already carry a Pandora sessionId (persisted from a prior sync, or a
-        // returning racer revisiting this page). The live schedule-link block
-        // below refreshes/adds these once BMI→Pandora finishes syncing. QR is
-        // pure client-side (FT:personId:sessionId), so no network is required.
-        try {
-          type R = { personId?: string; sessionId?: string | number | null };
-          const ready = ((bookingRecord?.racers as R[] | undefined) ?? []).filter(
-            (r): r is R & { personId: string; sessionId: string | number } =>
-              !!r.personId &&
-              r.sessionId != null &&
-              /^\d+$/.test(String(r.personId)) &&
-              /^\d+$/.test(String(r.sessionId)),
-          );
-          if (ready.length > 0) {
-            const entries = await Promise.all(
-              ready.map(async (r) => {
-                try {
-                  return {
-                    pid: r.personId,
-                    url: await checkinQrDataUrl(r.personId, String(r.sessionId), undefined, 320),
-                  };
-                } catch {
-                  return null;
-                }
-              }),
-            );
-            const map: Record<string, string> = {};
-            for (const e of entries) if (e) map[e.pid] = e.url;
-            if (Object.keys(map).length > 0) setCheckinQrByPerson(map);
-          }
-        } catch {
-          /* non-fatal */
-        }
-
         // Link racers to reservation schedule (racing returning racers only, fire-and-forget)
         if (detectedType === "racing" && allConfirmations.length > 0 && hasReturningRacers) {
           try {
@@ -998,28 +961,6 @@ export default function ConfirmationPage() {
                         racers: racersWithSession,
                       }),
                     }).catch(() => {});
-                    // Generate check-in QR codes for racers with sessionIds
-                    type RacerWithIds = { personId?: string; sessionId?: string | number | null };
-                    const qrTargets = (racersWithSession as RacerWithIds[]).filter(
-                      (r): r is RacerWithIds & { personId: string; sessionId: string | number } =>
-                        !!r.personId &&
-                        !!r.sessionId &&
-                        /^\d+$/.test(String(r.personId)) &&
-                        /^\d+$/.test(String(r.sessionId)),
-                    );
-                    const qrEntries = await Promise.all(
-                      qrTargets.map(async (r) => {
-                        try {
-                          const url = await checkinQrDataUrl(r.personId, String(r.sessionId), undefined, 320);
-                          return { pid: r.personId, url };
-                        } catch {
-                          return null;
-                        }
-                      }),
-                    );
-                    const qrMap: Record<string, string> = {};
-                    for (const e of qrEntries) if (e) qrMap[e.pid] = e.url;
-                    setCheckinQrByPerson(qrMap);
                   }
                 })
                 .catch(() => {});
@@ -2783,52 +2724,15 @@ export default function ConfirmationPage() {
                                   </div>
                                 )}
 
-                                {/* Express lane: check-in QR per racer */}
-                                {expressLane &&
-                                  group.racerDetails.some(
-                                    (r) => r.personId && checkinQrByPerson[r.personId],
-                                  ) && (
-                                    <div className="border-t border-emerald-400/20 px-5 py-4">
-                                      <p className="text-emerald-400/60 text-xs font-bold uppercase tracking-wider text-center mb-3">
-                                        Check-In QR
-                                      </p>
-                                      <div className="flex justify-center gap-4 flex-wrap">
-                                        {group.racerDetails.map((rd, ri) => {
-                                          const qrUrl = rd.personId
-                                            ? checkinQrByPerson[rd.personId]
-                                            : null;
-                                          if (!qrUrl) return null;
-                                          return (
-                                            <button
-                                              key={ri}
-                                              type="button"
-                                              className="flex flex-col items-center gap-1 cursor-pointer"
-                                              onClick={() =>
-                                                setFullscreenQr({ src: qrUrl, resNumber: rd.name })
-                                              }
-                                            >
-                                              <div className="rounded-lg bg-white p-2 hover:shadow-lg hover:shadow-emerald-400/30 transition-shadow">
-                                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                <img
-                                                  src={qrUrl}
-                                                  alt={`QR ${rd.name}`}
-                                                  width={140}
-                                                  height={140}
-                                                  className="w-[120px] h-[120px]"
-                                                />
-                                              </div>
-                                              <p className="text-white/60 text-xs text-center font-semibold">
-                                                {rd.name}
-                                              </p>
-                                              <p className="text-white/20 text-[10px] text-center">
-                                                Tap to enlarge
-                                              </p>
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
+                                {/* The per-heat check-in QR grid used to live here.
+                                    REPLACED BY THE LICENCE, not deleted in spirit: that
+                                    QR baked in a sessionId, so it went stale the moment a
+                                    racer moved heats, and its 4th "move-resilient" part
+                                    was carrying a hardcoded 320 and had never worked. A
+                                    licence identifies the PERSON, so the desk resolves
+                                    whichever heat they are actually checking into, and the
+                                    same code works at the kiosk and the register too.
+                                    See LicenceOfferCard below the tiles. */}
                               </div>
                             );
                           });

@@ -8,6 +8,7 @@ export interface OfferRacer {
   qr: string | null;
   isYou: boolean;
   addUrl: string | null;
+  hubUrl: string | null;
 }
 
 /**
