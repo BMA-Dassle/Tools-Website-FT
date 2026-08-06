@@ -34,6 +34,9 @@ interface CheckinResponse {
     scheduledStart: string | null;
   } | null;
   nextRaceStatus?: "found" | "none" | "unknown";
+  /** Preformatted next race for a LICENCE scan before the heat opens — read
+   *  from the racer's own pass row, so the desk and the pass always agree. */
+  nextRaceText?: string | null;
   /** Guest is part of an Ultimate VIP combo reservation today. */
   vip?: boolean;
   /** Today is the guest's birthday (BMI person record). */
@@ -610,13 +613,43 @@ export default function CheckInClient({ token, version }: Props) {
           </>
         ) : lastResult?.nextRaceStatus === "none" ? (
           <>
-            <p
-              className="text-black font-black uppercase text-center"
-              style={{ fontSize: "clamp(36px, 8vw, 56px)" }}
-            >
-              No Upcoming Race Found
-            </p>
-            <p className="text-black/70 text-lg text-center mt-2">See Guest Services</p>
+            {/* A licence scan before the racer's heat opens is the ordinary
+                case, not a failure — name the racer and their race rather than
+                sending someone who is on tonight's grid to Guest Services. */}
+            {lastResult.nextRaceText ? (
+              <>
+                {lastResult.guest && (
+                  <p
+                    className="text-black font-black uppercase text-center leading-tight"
+                    style={{ fontSize: "clamp(28px, 6vw, 44px)" }}
+                  >
+                    {`${lastResult.guest.firstName} ${lastResult.guest.lastName}`.trim()}
+                  </p>
+                )}
+                <p
+                  className="text-black/70 font-black uppercase tracking-widest text-center mt-3"
+                  style={{ fontSize: "clamp(18px, 3.5vw, 28px)" }}
+                >
+                  Not Checking In Yet
+                </p>
+                <p
+                  className="text-black font-black uppercase text-center leading-tight mt-2"
+                  style={{ fontSize: "clamp(32px, 7vw, 56px)" }}
+                >
+                  {lastResult.nextRaceText}
+                </p>
+              </>
+            ) : (
+              <>
+                <p
+                  className="text-black font-black uppercase text-center"
+                  style={{ fontSize: "clamp(36px, 8vw, 56px)" }}
+                >
+                  No Upcoming Race Found
+                </p>
+                <p className="text-black/70 text-lg text-center mt-2">See Guest Services</p>
+              </>
+            )}
             {lastRaw && <p className="text-black/40 text-xs mt-4 font-mono">{lastRaw}</p>}
           </>
         ) : lastResult?.guest ? (

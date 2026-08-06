@@ -118,7 +118,12 @@ describe("issueLicencePass — re-tap on an existing pass", () => {
 
     await issueLicencePass({
       personId: "409523",
-      meta: { code: "mgrm2g8o42wxc", memberName: "ERIC OSBORN" },
+      meta: {
+        code: "mgrm2g8o42wxc",
+        memberName: "ERIC OSBORN",
+        memberQr: FULL_META.memberQr,
+        licenceUrl: FULL_META.licenceUrl,
+      },
     });
 
     const saved = saveMeta.mock.calls.at(-1)?.[1] as Record<string, string>;

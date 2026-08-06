@@ -3,6 +3,7 @@ import redis from "@/lib/redis";
 import { parseCheckinQr } from "@/lib/qr-checkin";
 import { parseMemberQr } from "~/features/kiosk/qr-scanner/member-qr";
 import { lookupMemberMatches } from "~/features/kiosk/license/lookup.server";
+import { getRacerPass } from "~/features/racing/data/racer-wallet-db";
 import {
   getDepositOverview,
   addDeposit,
@@ -589,18 +590,44 @@ export async function POST(req: NextRequest) {
         }
       }
       if (!picked) {
-        // Known racer, no heat open. NOT an error, and deliberately no
-        // "next race" hint: sessions/next returns the next UNSTARTED session
-        // ever, which for real records is a stale 2023 arena match.
+        // Known racer, no heat OPEN yet. Not an error — but "No upcoming race
+        // found" is the wrong thing to tell a desk attendant about a racer who
+        // is on tonight's grid, so say WHEN they race.
+        //
+        // Not from race/next/{loc}/person/{id}: that endpoint answers the next
+        // unstarted session EVER, which for real records is a stale 2023 Axe
+        // Lane booking or a 2025 arena match (both re-measured 2026-08-05).
+        //
+        // The racer's own licence row instead. It is only reachable here
+        // because they just scanned a licence, the pre-race cron rewrites it
+        // every 2 minutes, and it is already timezone-correct — so the desk and
+        // the pass in their hand cannot disagree.
         const m = people[0];
+        let nextRaceText: string | null = null;
+        for (const p of people) {
+          const row = await getRacerPass(String(p.personId)).catch(() => null);
+          const text = row?.nextRace?.trim();
+          // NO_NEXT_RACE ("None in next 2 hrs") is a real answer, not a race.
+          if (text && !/^none\b/i.test(text)) {
+            const label = row?.meta?.raceLabel;
+            nextRaceText = label && !text.includes(label) ? `${text} · ${label}` : text;
+            break;
+          }
+        }
         return NextResponse.json({
           success: false,
-          guest: { firstName: m.fullName.split(/\s+/)[0] ?? "", lastName: m.fullName.split(/\s+/).slice(1).join(" ") },
+          guest: {
+            firstName: m.fullName.split(/\s+/)[0] ?? "",
+            lastName: m.fullName.split(/\s+/).slice(1).join(" "),
+          },
           session: { track: null, raceType: null, heatNumber: null, scheduledStart: null },
           currentlyCheckingIn: false,
           headsock: { detected: false, deducted: false, balance: 0 },
           nextRaceStatus: "none",
-          detail: "No race checking in right now",
+          nextRaceText,
+          detail: nextRaceText
+            ? "Not checking in yet — next race shown"
+            : "No race checking in right now",
         });
       }
       personId = picked.personId;
