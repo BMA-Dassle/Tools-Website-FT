@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import LicenceOfferCard from "~/features/racing/components/LicenceOfferCard";
+import LicenceOfferBanner from "~/features/racing/components/LicenceOfferBanner";
 import Image from "next/image";
 import Link from "next/link";
 import QRCode from "qrcode";
@@ -948,7 +949,7 @@ export default function ConfirmationPage() {
                 try {
                   return {
                     pid: r.personId,
-                    url: await checkinQrDataUrl(r.personId, String(r.sessionId), 320),
+                    url: await checkinQrDataUrl(r.personId, String(r.sessionId), undefined, 320),
                   };
                 } catch {
                   return null;
@@ -1009,7 +1010,7 @@ export default function ConfirmationPage() {
                     const qrEntries = await Promise.all(
                       qrTargets.map(async (r) => {
                         try {
-                          const url = await checkinQrDataUrl(r.personId, String(r.sessionId), 320);
+                          const url = await checkinQrDataUrl(r.personId, String(r.sessionId), undefined, 320);
                           return { pid: r.personId, url };
                         } catch {
                           return null;
@@ -2493,6 +2494,12 @@ export default function ConfirmationPage() {
                   <div
                     className={`${expressLane && raceGroups.length > 1 ? "grid md:grid-cols-2 gap-6" : "max-w-2xl mx-auto"} space-y-6 md:space-y-0`}
                   >
+                    {/* Wallet offer, at the TOP so it is seen before the heat
+                        tiles — it points DOWN at the licence card, and renders
+                        only when that card will too (shared fetch), so it can
+                        never advertise something that is not on the page. */}
+                    {heroIsRacing && orderId && <LicenceOfferBanner billId={orderId} />}
+
                     {/* Express Check-In directions — full-width banner above the
                         per-heat tiles (md:col-span-2 keeps it from landing in a
                         grid cell beside a racer tile). */}
@@ -3224,7 +3231,16 @@ export default function ConfirmationPage() {
                     hides itself when nobody on the booking holds a BMI tag, and
                     nothing is billed by showing it — a licence is created only
                     when a racer taps or scans. */}
-                {heroIsRacing && orderId && <LicenceOfferCard billId={orderId} />}
+                {heroIsRacing && orderId && (
+                  // md:col-span-2 + max-w-2xl: this sits inside a container that
+                  // becomes a 2-col grid for express multi-heat bookings, so
+                  // without the span it collapses into a half-width column while
+                  // the cards above stay full width. Matches the express banner
+                  // above, which solves the same problem the same way.
+                  <div className="md:col-span-2 w-full max-w-2xl mx-auto">
+                    <LicenceOfferCard billId={orderId} />
+                  </div>
+                )}
 
                 {/* POV Camera Codes
               The codes below are the actual unlock keys for the

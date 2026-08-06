@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import QRCode from "qrcode";
 import redis from "@/lib/redis";
-import { codeForPersonId } from "~/features/kiosk/license/code-cache";
+import { codeForPersonId, warmRacerCodes } from "~/features/kiosk/license/code-cache";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -28,6 +28,10 @@ interface OfferRacer {
   qr: string | null;
   /** True for the person who made the booking — the phone this page is open on. */
   isYou: boolean;
+  /** Server-resolved hop for a DIRECT add. On a phone you cannot scan your own
+   *  screen, so your own row needs a link rather than a QR. Carries no login
+   *  code — the code is resolved behind this URL at the moment of the tap. */
+  addUrl: string | null;
 }
 
 /**
@@ -75,6 +79,23 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const origin = req.nextUrl.origin;
   const primary = String(record.primaryPersonId ?? "").trim();
 
+  // WARM THE CACHE FIRST, then read it.
+  //
+  // `codeForPersonId` reads our own table, which is only populated by the
+  // pre-race cron and past lookups — so a returning racer who simply has not
+  // been swept yet has no row, and reading the cache alone reported her as a
+  // first-timer with no licence (real, 2026-08-05). Warming here asks BMI for
+  // the tags we are missing before answering.
+  //
+  // Cheap and self-limiting: `warmRacerCodes` skips anyone read in the last 30
+  // days, so a repeat view of the same confirmation costs nothing, and the rows
+  // it writes also serve the check-in desk and the kiosk later.
+  const CLIENT_KEY = process.env.BMI_CLIENT_KEY || "headpinzftmyers";
+  const personIds = record.racers
+    .map((r) => String(r?.personId ?? "").trim())
+    .filter((p) => /^\d+$/.test(p));
+  await warmRacerCodes(CLIENT_KEY, personIds).catch(() => undefined);
+
   // One row per PERSON. A racer booked into two heats appears twice in
   // `racers[]` and must not be offered two licences — there is only one of them.
   const seen = new Set<string>();
@@ -98,6 +119,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       name: String(r?.racerName || "").trim() || "Racer",
       qr,
       isYou: !!primary && personId === primary,
+      addUrl: code
+        ? `/api/racing/licence-offer/add?billId=${encodeURIComponent(billId)}&personId=${encodeURIComponent(personId)}`
+        : null,
     });
   }
 

@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { walletPlatformFromUserAgent, type WalletPlatform } from "~/features/game-cards/wallet/platform";
+import { useLicenceOffer, type OfferRacer } from "./useLicenceOffer";
 
 /**
  * "Racing licences" on the confirmation page — one row per racer on the booking.
@@ -22,30 +24,18 @@ import { useEffect, useState } from "react";
  * first-timers-only booking has no licences to offer and should not see a card
  * explaining that.
  */
-interface OfferRacer {
-  personId: string;
-  name: string;
-  qr: string | null;
-  isYou: boolean;
-}
-
 export default function LicenceOfferCard({ billId }: { billId: string }) {
-  const [racers, setRacers] = useState<OfferRacer[] | null>(null);
+  const racers = useLicenceOffer(billId);
   const [openFor, setOpenFor] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!billId) return;
-    let cancelled = false;
-    fetch(`/api/racing/licence-offer?billId=${encodeURIComponent(billId)}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        if (!cancelled && Array.isArray(j?.racers)) setRacers(j.racers as OfferRacer[]);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [billId]);
+  // YOU CANNOT SCAN THE SCREEN YOU ARE HOLDING. On a phone the booker's own row
+  // has to be a direct add; a QR only makes sense for a device that is not this
+  // one. Resolved after mount because the page is a client component — null on
+  // desktop, which is the correct answer there (offer the QR).
+  // Computed during render, not held in state: nothing paints until `racers`
+  // resolves (client-only), so server and client both render null through
+  // hydration and there is no mismatch to guard against.
+  const platform: WalletPlatform | null =
+    typeof navigator === "undefined" ? null : walletPlatformFromUserAgent(navigator.userAgent);
 
   const eligible = racers?.filter((r) => r.qr) ?? [];
   if (!racers || eligible.length === 0) return null;
@@ -73,10 +63,22 @@ export default function LicenceOfferCard({ billId }: { billId: string }) {
 
       <div className="flex flex-col divide-y divide-white/10">
         {you && (
-          <Row racer={you} open={openFor === you.personId} onToggle={setOpenFor} direct />
+          <Row
+            racer={you}
+            open={openFor === you.personId}
+            onToggle={setOpenFor}
+            direct
+            platform={platform}
+          />
         )}
         {others.map((r) => (
-          <Row key={r.personId} racer={r} open={openFor === r.personId} onToggle={setOpenFor} />
+          <Row
+            key={r.personId}
+            racer={r}
+            open={openFor === r.personId}
+            onToggle={setOpenFor}
+            platform={platform}
+          />
         ))}
         {showPending &&
           pending.map((r) => (
@@ -97,12 +99,42 @@ function Row({
   open,
   onToggle,
   direct = false,
+  platform,
 }: {
   racer: OfferRacer;
   open: boolean;
   onToggle: (id: string | null) => void;
   direct?: boolean;
+  platform: WalletPlatform | null;
 }) {
+  // The booker, on a phone: one tap straight into their wallet. Everyone else
+  // still gets a QR, because their licence belongs on THEIR phone, not this one.
+  if (direct && platform && racer.addUrl) {
+    const badge =
+      platform === "apple"
+        ? { src: "/brand/wallet/apple-wallet-en.svg", w: 158, label: "Add to Apple Wallet" }
+        : { src: "/brand/wallet/google-wallet-en.svg", w: 181, label: "Add to Google Wallet" };
+    return (
+      <div className="py-3">
+        <div className="flex items-center gap-2 mb-2.5">
+          <span className="text-white text-[15px] font-bold truncate">{racer.name}</span>
+          <span className="shrink-0 rounded-full border border-[#00E2E5]/45 px-2 py-[1px] text-[9px] font-extrabold uppercase tracking-[0.12em] text-[#00E2E5]">
+            You
+          </span>
+        </div>
+        {/* White plate: Apple's badge is drawn for light backgrounds and Google
+            only ships #1F1F1F — both sit muddily on this card. Restyling a
+            vendor badge is not allowed; giving it a light host surface is. */}
+        <div className="rounded-xl bg-white p-3 flex justify-center">
+          <a href={`${racer.addUrl}&platform=${platform}`}>
+            {/* eslint-disable-next-line @next/next/no-img-element -- vendor artwork must ship byte-for-byte */}
+            <img src={badge.src} alt={badge.label} width={badge.w} height={50} />
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="py-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
