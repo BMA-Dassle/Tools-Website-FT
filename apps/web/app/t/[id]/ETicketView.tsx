@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { RaceTicket } from "@/lib/race-tickets";
 import type { WalletPlatform } from "~/features/game-cards/wallet/platform";
+import { WALLET_BADGES, BADGE_HEIGHT } from "~/features/game-cards/wallet/badges";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { checkinQrDataUrl } from "@/lib/qr-checkin";
 import { modalBackdropProps } from "@/lib/a11y";
@@ -32,29 +33,6 @@ const TrackStatus = dynamic(() => import("@/components/home/TrackStatus"), {
   ssr: false,
   loading: () => null,
 });
-
-/** Vendor badge artwork, same assets and same two-line pairing as `/v/{code}`.
- *  Apple ships 158x50 and Google's two-line is 181x50; the widths are theirs,
- *  not ours to normalise. */
-const LICENCE_WALLETS = [
-  {
-    platform: "apple",
-    label: "Add FastTrax Racing Licence to Apple Wallet",
-    badge: "/brand/wallet/apple-wallet-en.svg",
-    width: 158,
-  },
-  {
-    platform: "google",
-    label: "Add FastTrax Racing Licence to Google Wallet",
-    badge: "/brand/wallet/google-wallet-en.svg",
-    width: 181,
-  },
-] as const satisfies readonly {
-  platform: WalletPlatform;
-  label: string;
-  badge: string;
-  width: number;
-}[];
 
 interface Props {
   ticket: RaceTicket;
@@ -445,12 +423,12 @@ export default function ETicketView({
             </p>
             <div className="mt-3 rounded-2xl bg-white p-4">
               <div className="flex flex-wrap items-center justify-center gap-3">
-                {LICENCE_WALLETS.filter(
+                {WALLET_BADGES.filter(
                   (w) => !walletPlatform || w.platform === walletPlatform,
                 ).map((w) => (
                   <a key={w.platform} href={`/t/${ticketId}/wallet?platform=${w.platform}`}>
                     {/* eslint-disable-next-line @next/next/no-img-element -- vendor artwork must ship byte-for-byte; the optimizer would re-encode it */}
-                    <img src={w.badge} alt={w.label} width={w.width} height={50} />
+                    <img src={w.svg} alt={w.label} width={w.width} height={BADGE_HEIGHT} />
                   </a>
                 ))}
               </div>
@@ -489,6 +467,7 @@ export default function ETicketView({
           className="fixed inset-0 z-50 bg-white flex flex-col items-center justify-center px-6"
           {...modalBackdropProps(() => setFullscreenQr(false))}
         >
+          {/* eslint-disable-next-line @next/next/no-img-element -- data URI, no loader */}
           <img
             src={qrDataUrl}
             alt="Check-in QR"

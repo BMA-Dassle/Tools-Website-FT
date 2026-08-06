@@ -5,6 +5,7 @@ import QRCode from "qrcode";
 import { RACER_PUBLIC_CODE_RE } from "~/features/kiosk/license/types";
 import { resolveRacerHub } from "~/features/racing/service/racer-hub";
 import { walletPlatformFromUserAgent } from "~/features/game-cards/wallet/platform";
+import { WALLET_BADGES, BADGE_HEIGHT } from "~/features/game-cards/wallet/badges";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -55,22 +56,9 @@ export default async function RacerHubPage({ params }: { params: Promise<{ code:
     color: { dark: "#04252b", light: "#ffffff" },
   }).catch(() => null);
 
-  const badges = (
-    [
-      {
-        platform: "apple",
-        src: "/brand/wallet/apple-wallet-en.svg",
-        w: 158,
-        label: "Add to Apple Wallet",
-      },
-      {
-        platform: "google",
-        src: "/brand/wallet/google-wallet-en.svg",
-        w: 181,
-        label: "Add to Google Wallet",
-      },
-    ] as const
-  ).filter((b) => !platform || b.platform === platform);
+  // Shared artwork — see features/game-cards/wallet/badges.ts for why these are
+  // never re-set by hand.
+  const badges = WALLET_BADGES.filter((b) => !platform || b.platform === platform);
 
   return (
     <main className="min-h-screen bg-[#00041b] px-4 py-10 sm:py-14">
@@ -180,7 +168,7 @@ export default async function RacerHubPage({ params }: { params: Promise<{ code:
                       href={`/r/${encodeURIComponent(code)}/wallet?platform=${b.platform}`}
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element -- vendor artwork must ship byte-for-byte */}
-                      <img src={b.src} alt={b.label} width={b.w} height={50} />
+                      <img src={b.svg} alt={b.label} width={b.width} height={BADGE_HEIGHT} />
                     </a>
                   ))}
                 </div>

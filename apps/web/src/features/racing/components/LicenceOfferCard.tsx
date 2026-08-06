@@ -5,6 +5,7 @@ import {
   type WalletPlatform,
 } from "~/features/game-cards/wallet/platform";
 import { useLicenceOffer, type OfferRacer } from "./useLicenceOffer";
+import { WALLET_BADGES, BADGE_HEIGHT } from "~/features/game-cards/wallet/badges";
 
 /**
  * The racing licence on the confirmation page — one QR per racer, all rendered.
@@ -91,26 +92,15 @@ export default function LicenceOfferCard({ billId }: { billId: string }) {
 }
 
 function RacerQr({ racer, platform }: { racer: OfferRacer; platform: WalletPlatform | null }) {
-  // Desktop resolves to null, which means "we don't know" — NOT "neither". Offer
-  // BOTH there, the way /v/{code} does: a desktop guest still wants the pass on
-  // their phone, and PassKit's landing page hands them a QR to hop across.
-  // Showing nothing was the bug — a booker on a laptop had no way to add at all.
-  const badges = (
-    [
-      {
-        platform: "apple",
-        src: "/brand/wallet/apple-wallet-en.svg",
-        w: 158,
-        label: "Add to Apple Wallet",
-      },
-      {
-        platform: "google",
-        src: "/brand/wallet/google-wallet-en.svg",
-        w: 181,
-        label: "Add to Google Wallet",
-      },
-    ] as const
-  ).filter((b) => !platform || b.platform === platform);
+  // Desktop resolves to null, which means "we don't know" — NOT "neither".
+  // Offer BOTH there, the way /v/{code} does: a desktop guest still wants the
+  // pass on their phone, and PassKit's landing page hands them a QR to hop
+  // across. Showing nothing was the bug — a booker on a laptop had no way to
+  // add at all.
+  //
+  // Artwork comes from the shared WALLET_BADGES so this is not a fourth
+  // hand-maintained copy of "158×50 / 181×50".
+  const badges = WALLET_BADGES.filter((b) => !platform || b.platform === platform);
 
   return (
     <div className="py-5">
@@ -156,7 +146,13 @@ function RacerQr({ racer, platform }: { racer: OfferRacer; platform: WalletPlatf
               className="inline-flex"
             >
               {/* eslint-disable-next-line @next/next/no-img-element -- vendor artwork must ship byte-for-byte */}
-              <img src={b.src} alt={b.label} width={b.w} height={50} className="h-[50px] w-auto" />
+              <img
+                src={b.svg}
+                alt={b.label}
+                width={b.width}
+                height={BADGE_HEIGHT}
+                className="h-[50px] w-auto"
+              />
             </a>
           ))}
         </div>
