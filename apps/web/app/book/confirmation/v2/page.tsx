@@ -2635,13 +2635,19 @@ export default function ConfirmationPage() {
                                       );
                                     })()}
 
-                                  {/* Racer names — big */}
-                                  <div>
+                                  {/* Racer names.
+                                      SIZED FOR READING, NOT FOR A DESK TO SQUINT AT.
+                                      These were set at up to 60px because staff
+                                      used to check people in by READING the
+                                      names off a guest's phone across a counter.
+                                      Check-in is by QR now, so the names are
+                                      back in proportion with the rest of the
+                                      card (owner 2026-08-06). */}
+                                  <div className="space-y-0.5">
                                     {group.racers.map((name, ri) => (
                                       <p
                                         key={ri}
-                                        className="text-white font-display uppercase tracking-wider leading-none"
-                                        style={{ fontSize: "clamp(36px, 10vw, 60px)" }}
+                                        className="text-white font-display text-2xl sm:text-3xl uppercase tracking-wider leading-tight"
                                       >
                                         {name}
                                       </p>
@@ -2656,10 +2662,11 @@ export default function ConfirmationPage() {
                                           <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider">
                                             Race Time
                                           </p>
-                                          <p
-                                            className="text-white font-display uppercase tracking-wider leading-none"
-                                            style={{ fontSize: "clamp(48px, 14vw, 72px)" }}
-                                          >
+                                          {/* Same reason: 72px existed so a
+                                              staff member could read it at arm's
+                                              length. Now it just has to be the
+                                              clearest thing on the card. */}
+                                          <p className="text-white font-display text-3xl sm:text-4xl uppercase tracking-wider leading-tight">
                                             {formatTime(group.heatStart)}
                                           </p>
                                           <p className="text-emerald-400/60 text-xs mt-1">

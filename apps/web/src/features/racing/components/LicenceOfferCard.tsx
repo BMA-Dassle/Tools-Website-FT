@@ -61,20 +61,43 @@ export default function LicenceOfferCard({ billId }: { billId: string }) {
 
       <div className="flex flex-col divide-y divide-white/10">
         {ordered.map((r) => (
-          <RacerQr key={r.personId} racer={r} platform={r.isYou ? platform : null} />
+          <RacerQr key={r.personId} racer={r} platform={platform} showWallet={r.isYou} />
         ))}
       </div>
     </div>
   );
 }
 
-function RacerQr({ racer, platform }: { racer: OfferRacer; platform: WalletPlatform | null }) {
-  const badge =
-    platform === "apple"
-      ? { src: "/brand/wallet/apple-wallet-en.svg", w: 158, label: "Add to Apple Wallet" }
-      : platform === "google"
-        ? { src: "/brand/wallet/google-wallet-en.svg", w: 181, label: "Add to Google Wallet" }
-        : null;
+function RacerQr({
+  racer,
+  platform,
+  showWallet,
+}: {
+  racer: OfferRacer;
+  platform: WalletPlatform | null;
+  /** Only the booker: everyone else's pass belongs on THEIR phone, not this one. */
+  showWallet: boolean;
+}) {
+  // Desktop resolves to null, which means "we don't know" — NOT "neither". Offer
+  // BOTH there, the way /v/{code} does: a desktop guest still wants the pass on
+  // their phone, and PassKit's landing page hands them a QR to hop across.
+  // Showing nothing was the bug — a booker on a laptop had no way to add at all.
+  const badges = (
+    [
+      {
+        platform: "apple",
+        src: "/brand/wallet/apple-wallet-en.svg",
+        w: 158,
+        label: "Add to Apple Wallet",
+      },
+      {
+        platform: "google",
+        src: "/brand/wallet/google-wallet-en.svg",
+        w: 181,
+        label: "Add to Google Wallet",
+      },
+    ] as const
+  ).filter((b) => !platform || b.platform === platform);
 
   return (
     <div className="py-4">
@@ -99,20 +122,31 @@ function RacerQr({ racer, platform }: { racer: OfferRacer; platform: WalletPlatf
           </p>
 
           {/* Only the booker's row: this is the one phone the page can reach. */}
-          {badge && racer.addUrl && (
+          {showWallet && racer.addUrl && (
             // White plate: Apple's badge is drawn for light backgrounds and
             // Google only ships #1F1F1F. Restyling vendor artwork is not
             // allowed; giving it a light host surface is.
-            <div className="mt-2.5 rounded-xl bg-white p-2.5 inline-flex">
-              <a href={`${racer.addUrl}&platform=${platform}`}>
-                {/* eslint-disable-next-line @next/next/no-img-element -- vendor artwork must ship byte-for-byte */}
-                <img src={badge.src} alt={badge.label} width={badge.w} height={50} />
-              </a>
+            <div className="mt-2.5 rounded-xl bg-white p-2.5 inline-flex flex-wrap gap-2.5">
+              {badges.map((b) => (
+                <a key={b.platform} href={`${racer.addUrl}&platform=${b.platform}`}>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- vendor artwork must ship byte-for-byte */}
+                  <img src={b.src} alt={b.label} width={b.w} height={50} />
+                </a>
+              ))}
             </div>
           )}
 
           {racer.hubUrl && (
-            <a href={racer.hubUrl} className="mt-2.5 block text-[#00E2E5] text-xs font-semibold">
+            <a
+              href={racer.hubUrl}
+              // NEW TAB on purpose. /r/{code} renders without site chrome (the
+              // Nav was covering the racer's name), so there is no way back from
+              // it — and this page is the guest's booking record, which they
+              // should not lose to open a licence.
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2.5 block text-[#00E2E5] text-xs font-semibold"
+            >
               {racer.isYou ? "View my page ›" : `Open ${racer.name.split(/\s+/)[0]}’s page ›`}
             </a>
           )}

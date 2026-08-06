@@ -643,9 +643,17 @@ export function KioskConfirmation({ src }: { src: string | null }) {
         </div>
       ) : null}
       {/* Racing licence — below the booking QR, so the code they need right now
-          stays the hero and this reads as an offer, not an instruction. Renders
-          nothing for a party with no BMI tags, and nothing for non-racing. */}
-      {includesRacing && <KioskLicenceOffer billId={billId} />}
+          stays the hero and this reads as an offer, not an instruction.
+
+          GATED ON THE DATA, NOT ON sessionStorage. This was behind
+          `includesRacing`, which reads a `kiosk:has-racing` flag written during
+          checkout — so it rendered nothing in any tab that had not just been
+          through the flow, and would have vanished on a real booking too if the
+          kiosk had reset or storage were unavailable. The offer endpoint reads
+          `racers[]` off the booking record, which IS the race-participant list,
+          so a non-racing booking returns nobody and the component renders null
+          on its own. */}
+      <KioskLicenceOffer billId={billId} />
       {code ? (
         <div className="relative rounded-[24px] border border-white/15 bg-white/[0.04] px-[48px] py-[24px]">
           <div className="k-eyebrow text-white/45">{t("confirmation.bookingCode")}</div>
