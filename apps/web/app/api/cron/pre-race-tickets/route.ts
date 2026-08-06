@@ -141,6 +141,36 @@ async function fetchSessions(resourceName: string): Promise<PandoraSession[]> {
  * not UTC — Heat 11 runs at 17:00 local, not 17:00Z. Parsed as local; treating
  * it as real UTC would shift every heat on every pass by the offset.
  */
+/** "Heat 57". Its own meta field on the pass, so it must be refreshed whenever
+ *  `nextRace` is — it is the same heat, just rendered differently. */
+function formatRaceLabelForPass(session: { heatNumber?: number }): string {
+  return session.heatNumber != null ? `Heat ${session.heatNumber}` : "";
+}
+
+/** "Wednesday, Aug 5 · 10:12 PM · Red · Heat 57" — the long line on the back of
+ *  the pass. Reads `scheduledStart` as genuine UTC, exactly as its short
+ *  sibling below does; the timezone note there applies here verbatim. */
+function formatNextRaceLongForPass(
+  scheduledStart: string,
+  trackDisplay: string,
+  session: { heatNumber?: number; raceType?: string },
+): string {
+  const dt = new Date(scheduledStart);
+  if (isNaN(dt.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).formatToParts(dt);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  const label = trackDisplay || session.raceType || "";
+  const heat = formatRaceLabelForPass(session);
+  return `${get("weekday")}, ${get("month")} ${get("day")} · ${get("hour")}:${get("minute")} ${get("dayPeriod")}${label ? ` · ${label}` : ""}${heat ? ` · ${heat}` : ""}`;
+}
+
 function formatNextRaceForPass(
   scheduledStart: string,
   trackDisplay: string,
@@ -598,8 +628,35 @@ function memberFromCandidate(c: Candidate): GroupTicketMember {
   };
 }
 
+function dedupKeyFor(sessionId: string | number, personId: string | number): string {
+  return `alert:pre-race:${sessionId}:${personId}`;
+}
+
 function dedupKey(c: Candidate): string {
-  return `alert:pre-race:${c.session.sessionId}:${c.participant.personId}`;
+  return dedupKeyFor(c.session.sessionId, c.participant.personId);
+}
+
+/**
+ * A racer who moves AWAY from a heat has to be able to come BACK to it.
+ *
+ * The dedup key is (session, person) on a 24-hour TTL, written only after a
+ * successful send. So a racer bouncing 60 → 59 → 60 lands back on the key
+ * written the FIRST time they were in heat 60 and is skipped for the rest of
+ * the day: no e-ticket, no supersede, no wallet move alert — silence, with
+ * every log line reporting a healthy run. Real on 2026-08-05: heat 60's key was
+ * written at 9:08 PM and the racer got nothing when they returned at 9:42.
+ *
+ * Dropping the OLD heat's key as we notify about the NEW one keeps dedup doing
+ * its real job — one ticket per heat per stay — without making a return trip
+ * unreachable. Safe if the racer never goes back: the key would have expired
+ * unused anyway.
+ */
+async function releaseVacatedHeat(c: Candidate, ref: ParticipantTicketRef): Promise<void> {
+  try {
+    await redis.del(dedupKeyFor(ref.sessionId, c.participant.personId));
+  } catch {
+    // Best effort. A surviving key costs one missed re-ticket, not a broken run.
+  }
 }
 
 /**
@@ -778,7 +835,10 @@ export async function GET(req: NextRequest) {
         // BEFORE any ticket upsert this run rewrites it). Drives "was X → now
         // Y" framing + old-ticket supersede in section 3.
         c.moveFrom = await detectMove(c);
-        if (c.moveFrom) movesDetected++;
+        if (c.moveFrom) {
+          movesDetected++;
+          if (!dryRun) await releaseVacatedHeat(c, c.moveFrom);
+        }
         if (!freshSmsByPhone.has(phone)) freshSmsByPhone.set(phone, []);
         freshSmsByPhone.get(phone)!.push(c);
       } else if (resolved.email) {
@@ -796,7 +856,10 @@ export async function GET(req: NextRequest) {
         // Fresh email candidate — same move detection as SMS so move-framed
         // email + old-ticket supersede fire for phone-less racers too.
         c.moveFrom = await detectMove(c);
-        if (c.moveFrom) movesDetected++;
+        if (c.moveFrom) {
+          movesDetected++;
+          if (!dryRun) await releaseVacatedHeat(c, c.moveFrom);
+        }
         if (!freshEmailByEmail.has(emailKey)) freshEmailByEmail.set(emailKey, []);
         freshEmailByEmail.get(emailKey)!.push(c);
       } else {
@@ -815,6 +878,14 @@ export async function GET(req: NextRequest) {
       candidates.map((c) => ({
         personId: c.participant.personId,
         nextRace: formatNextRaceForPass(c.session.scheduledStart, c.trackDisplay, c.session),
+        // Same heat, other two renderings. Sent together so the pass can never
+        // show a time from one heat next to a heat number from another.
+        raceLabel: formatRaceLabelForPass(c.session),
+        nextRaceLong: formatNextRaceLongForPass(
+          c.session.scheduledStart,
+          c.trackDisplay,
+          c.session,
+        ),
         // Stamped so the clear-down can ask whether THIS heat has ended, rather
         // than inferring it from the clock.
         nextRaceSessionId: String(c.session.sessionId),
