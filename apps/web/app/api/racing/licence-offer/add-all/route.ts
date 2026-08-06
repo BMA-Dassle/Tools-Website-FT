@@ -7,6 +7,7 @@ import { buildLicenceMeta } from "~/features/racing/wallet/licence-meta";
 import { passUrls } from "~/lib/api/passkit";
 import {
   buildPkpassesBundle,
+  fetchPkpass,
   PKPASSES_CONTENT_TYPE,
   type BundleEntry,
 } from "~/features/racing/wallet/pkpasses";
@@ -102,13 +103,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         const issued = await issueLicencePass({ personId, meta });
         if (!issued.ok || !issued.memberId) return null;
 
-        // Fetch the signed pass PassKit just built. Copied byte-for-byte into
-        // the bundle — each one carries its own signature and re-packing it
-        // would invalidate that.
-        const res = await fetch(passUrls(issued.memberId).apple, { cache: "no-store" });
-        if (!res.ok) return null;
-        const bytes = new Uint8Array(await res.arrayBuffer());
-        if (bytes.length === 0) return null;
+        // Fetch the signed pass, WAITING for PassKit to finish rendering it.
+        // We issued it moments ago, and until the render completes PassKit
+        // answers 200 with an HTML page — so `res.ok` proves nothing and an
+        // unchecked read puts a web page in the bundle. iOS then refuses the
+        // whole thing with "your pass cannot be installed at this time",
+        // naming none of the four. Bytes are copied verbatim: each pass carries
+        // its own signature and re-packing would invalidate it.
+        const bytes = await fetchPkpass(passUrls(issued.memberId).apple);
+        if (!bytes) return null;
 
         return { name: `${personId}.pkpass`, bytes } as BundleEntry;
       } catch {

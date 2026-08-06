@@ -9,7 +9,12 @@
  */
 import { describe, it, expect } from "vitest";
 import { crc32 } from "node:zlib";
-import { buildPkpassesBundle, PKPASSES_CONTENT_TYPE } from "./pkpasses";
+import {
+  buildPkpassesBundle,
+  fetchPkpass,
+  looksLikePkpass,
+  PKPASSES_CONTENT_TYPE,
+} from "./pkpasses";
 
 const bytes = (s: string) => new Uint8Array(Buffer.from(s, "utf8"));
 
@@ -89,4 +94,60 @@ describe("buildPkpassesBundle", () => {
   it("uses the PLURAL mime — the singular one does not trigger multi-add", () => {
     expect(PKPASSES_CONTENT_TYPE).toBe("application/vnd.apple.pkpasses");
   });
+});
+
+describe("looksLikePkpass — the check that was missing", () => {
+  const zip = (n = 2000) => {
+    const b = new Uint8Array(n);
+    b.set([0x50, 0x4b, 0x03, 0x04]);
+    return b;
+  };
+
+  it("accepts a real pass", () => {
+    expect(looksLikePkpass(zip())).toBe(true);
+  });
+
+  it("REJECTS the HTML page PassKit serves with a 200 while rendering", () => {
+    // Live 2026-08-06: HTTP 200, `<!doctype html>`, ~11KB. `res.ok` was true,
+    // so this page went into the bundle and iOS refused all four passes.
+    const html = new Uint8Array(Buffer.from("<!doctype html>" + "x".repeat(11000), "utf8"));
+    expect(looksLikePkpass(html)).toBe(false);
+  });
+
+  it("rejects empty and truncated bodies", () => {
+    expect(looksLikePkpass(new Uint8Array(0))).toBe(false);
+    expect(looksLikePkpass(zip(50))).toBe(false);
+  });
+});
+
+describe("fetchPkpass — waits for the render", () => {
+  const zip = () => {
+    const b = new Uint8Array(2000);
+    b.set([0x50, 0x4b, 0x03, 0x04]);
+    return b;
+  };
+  const reply = (body: Uint8Array, ok = true) =>
+    ({ ok, arrayBuffer: async () => body.buffer.slice(0) }) as unknown as Response;
+
+  it("retries past the HTML placeholder and returns the pass", async () => {
+    const html = new Uint8Array(Buffer.from("<!doctype html>".padEnd(11000, "x"), "utf8"));
+    let call = 0;
+    const fake = (async () => {
+      call++;
+      return call < 3 ? reply(html) : reply(zip());
+    }) as unknown as typeof fetch;
+
+    const out = await fetchPkpass("https://example.invalid/x.pkpass", fake);
+
+    expect(out).not.toBeNull();
+    expect(looksLikePkpass(out!)).toBe(true);
+    expect(call).toBe(3);
+  });
+
+  it("gives up rather than returning junk that would poison the bundle", async () => {
+    const html = new Uint8Array(Buffer.from("<!doctype html>".padEnd(11000, "x"), "utf8"));
+    const fake = (async () => reply(html)) as unknown as typeof fetch;
+    expect(await fetchPkpass("https://example.invalid/x.pkpass", fake)).toBeNull();
+    // Walks the whole 14.5s backoff on purpose — that patience is the fix.
+  }, 30_000);
 });

@@ -116,3 +116,47 @@ export function buildPkpassesBundle(entries: readonly BundleEntry[]): Buffer {
 /** Apple's MIME for the multi-pass bundle. The singular `.pkpass` type will NOT
  *  trigger the multi-add sheet. */
 export const PKPASSES_CONTENT_TYPE = "application/vnd.apple.pkpasses";
+
+/** Every ZIP — and therefore every `.pkpass` — starts with these four bytes. */
+const ZIP_MAGIC = [0x50, 0x4b, 0x03, 0x04];
+
+/**
+ * Is this actually a pass, or an HTML page wearing a 200?
+ *
+ * PASSKIT ANSWERS 200 WITH HTML while a newly created pass is still rendering —
+ * observed live 2026-08-06: `HTTP 200`, `<!doctype html>`, 11 KB. Checking
+ * `res.ok` is therefore worthless here, and embedding that page as a `.pkpass`
+ * produced a bundle iOS refused with "Sorry, your pass cannot be installed at
+ * this time" — an error that says nothing about which of the four was bad.
+ */
+export function looksLikePkpass(bytes: Uint8Array): boolean {
+  if (bytes.length < 1000) return false; // a real pass is hundreds of KB
+  return ZIP_MAGIC.every((b, i) => bytes[i] === b);
+}
+
+/**
+ * Download a signed pass, waiting for PassKit to finish rendering it.
+ *
+ * An "add all" tap ISSUES the passes moments earlier, so the first read almost
+ * always lands before the render finishes — this is the normal path, not an
+ * edge case. Backs off rather than hammering, and gives up rather than
+ * returning something that would poison the whole bundle.
+ */
+export async function fetchPkpass(
+  url: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<Uint8Array | null> {
+  const delays = [0, 1500, 3000, 4000, 6000];
+  for (const wait of delays) {
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+    try {
+      const res = await fetchImpl(url, { cache: "no-store" });
+      if (!res.ok) continue;
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      if (looksLikePkpass(bytes)) return bytes;
+    } catch {
+      // network blip — the next attempt is the retry
+    }
+  }
+  return null;
+}
