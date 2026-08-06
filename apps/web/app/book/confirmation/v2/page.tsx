@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import LicenceOfferCard from "~/features/racing/components/LicenceOfferCard";
 import Image from "next/image";
 import Link from "next/link";
 import QRCode from "qrcode";
@@ -3216,6 +3217,14 @@ export default function ConfirmationPage() {
                     </div>
                   );
                 })}
+
+                {/* RACING LICENCE — one row per racer on this booking.
+                    Placement is deliberate: directly under the heat cards, while
+                    "a code that gets me in" is the thing on screen. The card
+                    hides itself when nobody on the booking holds a BMI tag, and
+                    nothing is billed by showing it — a licence is created only
+                    when a racer taps or scans. */}
+                {heroIsRacing && orderId && <LicenceOfferCard billId={orderId} />}
 
                 {/* POV Camera Codes
               The codes below are the actual unlock keys for the
