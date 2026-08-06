@@ -697,6 +697,14 @@ export async function GET(req: NextRequest) {
         // Stamped so the clear-down can ask whether THIS heat has ended, rather
         // than inferring it from the clock.
         nextRaceSessionId: String(c.session.sessionId),
+        // A MOVE is the one next-race change the racer did not cause, so it is
+        // the one that earns an alert. NEXT RACE itself stays silent — it also
+        // changes when the 2-hour window rolls, which is not news. This rides
+        // the same `moveFrom` detection that already fires the move SMS, so the
+        // text and the pass can never disagree about what happened.
+        ...(c.moveFrom
+          ? { checkinStatus: `Heat moved — now ${c.trackDisplay} Heat ${c.session.heatNumber}` }
+          : {}),
       })),
     )
       .then((n) => {

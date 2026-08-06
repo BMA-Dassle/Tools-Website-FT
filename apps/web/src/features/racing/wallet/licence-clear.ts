@@ -49,6 +49,10 @@ const RESOURCES = ["Blue Track", "Red Track", "Mega Track"] as const;
  */
 export const NO_NEXT_RACE = "None in next 2 hrs";
 
+/** Written when the racer's heat actually starts — the fourth and last alert of
+ *  a race, and what stops "Check in now" lingering after they are on track. */
+export const GREEN_FLAG = "Green flag — you're racing";
+
 interface SessionRow {
   sessionId?: string | number;
   actualStart?: string | null;

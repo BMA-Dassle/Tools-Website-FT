@@ -468,7 +468,7 @@ async function main() {
     // cost for the same job.
     field({
       uniqueName: "custom.checkinStatus",
-      label: "Check-in",
+      label: "Latest",
       value: "${meta.checkinStatus}",
       section: "BACK_FIELDS",
       priority: 0,
