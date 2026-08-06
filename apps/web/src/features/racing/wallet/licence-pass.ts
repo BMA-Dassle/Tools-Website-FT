@@ -37,6 +37,7 @@ import {
   getRacerPasses,
   markPushed,
   recordRacerPass,
+  saveMeta,
 } from "~/features/racing/data/racer-wallet-db";
 
 /** Emergency off switch, shared with the voucher sync. Kill switch only — a
@@ -118,6 +119,8 @@ export async function issueLicencePass(args: {
     if (!memberId) return { ok: false, refusal: "error" };
 
     await recordRacerPass({ personId, memberId, loginCode: args.meta.code });
+    // Full metaData, so later partial updates have a complete base to build on.
+    await saveMeta(personId, args.meta as unknown as Record<string, string>);
     await markPushed(personId, {
       ...(args.meta.nextRace !== undefined ? { nextRace: args.meta.nextRace } : {}),
       ...(args.meta.checkinStatus !== undefined

@@ -56,6 +56,15 @@ function ensureSchema(): Promise<void> {
       // because races run late (and sometimes early — heat 1 on 2026-08-04
       // started 17 minutes AHEAD of schedule).
       await q`ALTER TABLE racer_wallet_passes ADD COLUMN IF NOT EXISTS checkin_session_id TEXT`;
+      // THE FULL metaData last written to the pass.
+      //
+      // PUT /members/member REPLACES metaData — it does NOT merge, which is the
+      // opposite of PUT /template. Pushing only the changed keys therefore
+      // DELETED every other field, including the one the barcode is built from,
+      // and left a live pass reading "missing: meta.code" that would not scan
+      // (2026-08-05). Every update must send the COMPLETE object, so we keep it
+      // here rather than reading it back off the pass.
+      await q`ALTER TABLE racer_wallet_passes ADD COLUMN IF NOT EXISTS meta JSONB`;
       await q`ALTER TABLE racer_wallet_passes ADD COLUMN IF NOT EXISTS next_race_session_id TEXT`;
     })().catch((e) => {
       schemaReady = null; // let a later call retry rather than poison the lambda
@@ -231,5 +240,19 @@ export async function getPassesWithLiveFields(): Promise<
     });
   } catch {
     return [];
+  }
+}
+
+/** Persist the full metaData we just wrote to a pass. */
+export async function saveMeta(personId: string, meta: Record<string, string>): Promise<void> {
+  const pid = String(personId || "").trim();
+  if (!/^\d+$/.test(pid) || !isDbConfigured()) return;
+  try {
+    await ensureSchema();
+    const q = sql();
+    await q`UPDATE racer_wallet_passes SET meta = ${JSON.stringify(meta)}::jsonb, updated_at = now()
+            WHERE person_id = ${pid}`;
+  } catch {
+    /* the pass is already correct; this is the record of it */
   }
 }
