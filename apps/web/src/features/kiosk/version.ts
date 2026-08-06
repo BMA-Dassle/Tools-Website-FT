@@ -15,6 +15,20 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.16.11 — Mega days run JUNIOR PRO races only (owner 2026-08-05, effective
+ *         2026-08-10): no Junior Starter, no Junior Intermediate. The people
+ *         step's Mega-day notice and the date step's block reason say so in
+ *         English AND Spanish, and the Mega Tuesday attract slide now reads
+ *         "Junior Pro only on Mega". Staff get asked about this at the counter,
+ *         so the version is the quickest way to confirm a kiosk is showing the
+ *         new rule rather than the old "no first-time Juniors".
+ *         Behind it, Junior Intermediate Race Mega left the catalog entirely, so
+ *         the kiosk has no such product to offer — and the date-step guard now
+ *         blocks every junior below Junior Pro, not just first-timers.
+ *         FastTrax also opens at 3 PM Mon–Fri from the same date. The kiosk shows
+ *         no hours, but the race opening-heats "walk-in or express only" window
+ *         moves with it (weekdays 1:00–1:24 PM → 3:00–3:24 PM), and it now
+ *         resolves per HEAT DATE, so heats before the 10th keep the old window.
  * 1.16.10 — THE ON-SCREEN KEYBOARD NO LONGER BURIES THE FIELD YOU'RE TYPING IN
  *         (owner 2026-08-04, the NEW PLAYER form: focusing Email left it half
  *         behind the keys). The sheet is 454px (numeric/phone) to 556px
@@ -825,7 +839,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.16.10";
+export const KIOSK_VERSION = "1.16.11";
 
 let bootVersion: string | null = null;
 let captured = false;
