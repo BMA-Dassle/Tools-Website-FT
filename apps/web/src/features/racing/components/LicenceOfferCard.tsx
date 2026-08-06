@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import {
   walletPlatformFromUserAgent,
   type WalletPlatform,
@@ -12,28 +14,35 @@ import { WALLET_BADGES, BADGE_HEIGHT } from "~/features/game-cards/wallet/badges
  *
  * THIS IS THE CHECK-IN CODE, not a marketing offer, and the copy has to say so.
  * It replaced a grid labelled "Check-In QR", so anything vaguer than "scan this
- * to check into your race" loses the guest the thing they actually came here
- * for. That it is ALSO a permanent licence — kiosk sign-in, register login,
- * next race on the pass — is the second sentence, never the first.
+ * to check into your race" loses the guest the thing they came here for. That
+ * it is ALSO a permanent licence is the second sentence, never the first.
  *
- * EVERY RACER'S QR IS SHOWN. The old grid rendered all of them and people used
- * it; hiding three behind links would be a regression dressed as tidiness. Each
- * is named, which is what the old grid got wrong — a row of unlabelled codes is
- * how a parent's licence ends up on a child's phone.
+ * EVERY RACER'S QR IS SHOWN, each one named — a row of unlabelled codes is how a
+ * parent's licence ends up on a child's phone. Every racer also gets a wallet
+ * badge: the badge adds to THIS phone, which is right both for the booker and
+ * for a parent carrying their kids' passes.
  *
- * Every racer gets a QR, a wallet badge and a link to their own page. The badge
- * adds to THIS phone, which is right both for the booker and for a parent
- * carrying their kids' passes; the QR is how a racer gets it onto a different
- * device; the link opens their permanent page.
+ * ── Adding is NOT instant, and the UI has to admit that ─────────────────────
+ * A pass is ISSUED on the tap, and PassKit will not render a brand-new one for
+ * tens of seconds — it answers 200 with its own landing page until it is ready,
+ * and the first request appears to be what starts the render. A tap that just
+ * navigates therefore hands the guest an un-installable file; live on
+ * 2026-08-06 it downloaded a JSON error instead. So every add — the bundle and
+ * each individual badge — polls until its pass is really renderable, and shows
+ * that it is working.
+ *
+ * ONE LOCK ACROSS THE WHOLE CARD. While anything is preparing, everything else
+ * is disabled: four taps would mean four issues racing each other and four
+ * navigations fighting over the same page (owner 2026-08-06).
  *
  * NOTHING IS BILLED BY RENDERING THIS. A pass is created only when a racer taps
- * or scans and the wallet route runs on their device.
- *
- * No login codes reach the browser: links are server-resolved hops and every QR
- * is rendered server-side.
+ * or scans. No login codes reach the browser: links are server-resolved hops
+ * and every QR is rendered server-side.
  */
 export default function LicenceOfferCard({ billId }: { billId: string }) {
   const racers = useLicenceOffer(billId);
+  /** Which add is in flight — "all", a personId, or null. Card-wide on purpose. */
+  const [busy, setBusy] = useState<string | null>(null);
 
   // Computed during render, not held in state: nothing paints until `racers`
   // resolves (client-only), so server and client both render null through
@@ -61,45 +70,63 @@ export default function LicenceOfferCard({ billId }: { billId: string }) {
         automatically, instead of a text before every visit.
       </p>
 
-      {/* ONE TAP FOR THE WHOLE PARTY. Apple's .pkpasses bundle is a zip of
-          signed passes, so we can hand iOS all of them at once — the case this
-          exists for is a parent carrying their kids' licences.
-
-          Apple only, and not by preference: Google's equivalent needs several
-          objects inside ONE issuer-signed JWT, and PassKit gives us a per-pass
-          .gpay link with no way to merge them. Google users add each racer from
-          their row, which is why every row has its own badge.
-
-          Tapping this ISSUES every pass in the party — four monthly records,
-          not one. That is the deal the guest is making, and the reconcile sweep
-          deletes any that never reach a device. */}
+      {/* Apple only: Google's multi-save needs several objects inside ONE
+          issuer-signed JWT, and PassKit gives us a per-pass link with no way to
+          merge them. Google users add each racer from their row. */}
       {platform === "apple" && eligible.length > 1 && (
-        <a
-          href={`/api/racing/licence-offer/add-all?billId=${encodeURIComponent(billId)}`}
-          className="mb-5 flex items-center justify-center gap-2 rounded-xl bg-[#00E2E5] px-5 py-3 text-[#04252b] text-sm font-bold"
-        >
-          Add all {eligible.length} to Apple Wallet
-        </a>
+        <AddButton
+          billId={billId}
+          label={`Add all ${eligible.length} to Apple Wallet`}
+          busyLabel={(n) => `Preparing ${n > 0 ? `${n} of ${eligible.length}` : "passes"}…`}
+          expected={eligible.length}
+          isBusy={busy === "all"}
+          locked={busy !== null && busy !== "all"}
+          onStart={() => setBusy("all")}
+          onDone={() => setBusy(null)}
+          primary
+        />
       )}
 
       <div className="flex flex-col divide-y divide-white/10">
         {ordered.map((r) => (
-          <RacerQr key={r.personId} racer={r} platform={platform} />
+          <RacerQr
+            key={r.personId}
+            racer={r}
+            platform={platform}
+            billId={billId}
+            isBusy={busy === r.personId}
+            locked={busy !== null && busy !== r.personId}
+            onStart={() => setBusy(r.personId)}
+            onDone={() => setBusy(null)}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function RacerQr({ racer, platform }: { racer: OfferRacer; platform: WalletPlatform | null }) {
+function RacerQr({
+  racer,
+  platform,
+  billId,
+  isBusy,
+  locked,
+  onStart,
+  onDone,
+}: {
+  racer: OfferRacer;
+  platform: WalletPlatform | null;
+  billId: string;
+  isBusy: boolean;
+  locked: boolean;
+  onStart: () => void;
+  onDone: () => void;
+}) {
   // Desktop resolves to null, which means "we don't know" — NOT "neither".
   // Offer BOTH there, the way /v/{code} does: a desktop guest still wants the
   // pass on their phone, and PassKit's landing page hands them a QR to hop
   // across. Showing nothing was the bug — a booker on a laptop had no way to
-  // add at all.
-  //
-  // Artwork comes from the shared WALLET_BADGES so this is not a fourth
-  // hand-maintained copy of "158×50 / 181×50".
+  // add at all. Artwork comes from the shared WALLET_BADGES.
   const badges = WALLET_BADGES.filter((b) => !platform || b.platform === platform);
 
   return (
@@ -113,9 +140,6 @@ function RacerQr({ racer, platform }: { racer: OfferRacer; platform: WalletPlatf
         )}
       </div>
 
-      {/* QR beside its caption, and the actions on their own full-width row
-          below. Stacking the badges next to a 128px code squeezed them into a
-          column barely wider than the buttons themselves on a phone. */}
       <div className="flex items-start gap-4">
         <div className="rounded-xl bg-white p-2 shrink-0">
           {/* eslint-disable-next-line @next/next/no-img-element -- data URI, no loader */}
@@ -126,34 +150,26 @@ function RacerQr({ racer, platform }: { racer: OfferRacer; platform: WalletPlatf
         </p>
       </div>
 
-      {/* EVERY racer gets a badge, not just the booker. A parent booking for
-          three kids may legitimately carry all four passes on their own phone,
-          and the QR beside it already covers the other case — a racer adding it
-          to their own device. Offering it only on the booker's row made the
-          rest of the party look broken (owner 2026-08-06).
-
-          NO WHITE PLATE. Apple's US_UK badge is black with a #A6A6A6 hairline
-          and Google's is #1F1F1F with its own outline — both are legible
-          straight onto this card, and the white slab we were mounting them on
-          read as a foreign object stuck to the panel. Vendor artwork is
-          untouched either way; only the surface changed. */}
+      {/* NO WHITE PLATE. Apple's badge is black with a #A6A6A6 hairline and
+          Google's is #1F1F1F with its own outline, so both read straight onto
+          this card; the white slab we used to mount them on looked like a
+          foreign object stuck to the panel. */}
       {racer.addUrl && (
         <div className="mt-4 flex flex-wrap items-center gap-3">
           {badges.map((b) => (
-            <a
+            <AddButton
               key={b.platform}
+              billId={billId}
+              personId={racer.personId}
+              badge={b}
+              platform={b.platform}
+              expected={1}
+              isBusy={isBusy}
+              locked={locked}
+              onStart={onStart}
+              onDone={onDone}
               href={`${racer.addUrl}&platform=${b.platform}`}
-              className="inline-flex"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element -- vendor artwork must ship byte-for-byte */}
-              <img
-                src={b.svg}
-                alt={b.label}
-                width={b.width}
-                height={BADGE_HEIGHT}
-                className="h-[50px] w-auto"
-              />
-            </a>
+            />
           ))}
         </div>
       )}
@@ -161,10 +177,9 @@ function RacerQr({ racer, platform }: { racer: OfferRacer; platform: WalletPlatf
       {racer.hubUrl && (
         <a
           href={racer.hubUrl}
-          // NEW TAB on purpose. /r/{code} renders without site chrome (the Nav
-          // was covering the racer's name), so there is no way back from it —
-          // and this page is the guest's booking record, which they should not
-          // lose to open a licence.
+          // NEW TAB on purpose. /r/{code} renders without site chrome, so there
+          // is no way back from it — and this page is the guest's booking
+          // record, which they should not lose to open a licence.
           target="_blank"
           rel="noopener noreferrer"
           className="mt-3 inline-block text-[#00E2E5] text-xs font-semibold"
@@ -173,5 +188,156 @@ function RacerQr({ racer, platform }: { racer: OfferRacer; platform: WalletPlatf
         </a>
       )}
     </div>
+  );
+}
+
+/**
+ * One add — the whole party or a single racer — with the wait made visible.
+ *
+ * Polls `?probe=1` until the pass (or every pass) is renderable, then navigates.
+ * Each poll also NUDGES the render along, because asking is what starts it, so a
+ * probe that answers "not yet" has still made progress.
+ */
+function AddButton({
+  billId,
+  personId,
+  badge,
+  platform,
+  href,
+  label,
+  busyLabel,
+  expected,
+  isBusy,
+  locked,
+  onStart,
+  onDone,
+  primary = false,
+}: {
+  billId: string;
+  personId?: string;
+  badge?: (typeof WALLET_BADGES)[number];
+  platform?: WalletPlatform;
+  href?: string;
+  label?: string;
+  busyLabel?: (ready: number) => string;
+  expected: number;
+  isBusy: boolean;
+  locked: boolean;
+  onStart: () => void;
+  onDone: () => void;
+  primary?: boolean;
+}) {
+  const [ready, setReady] = useState(0);
+  const [failed, setFailed] = useState(false);
+
+  const probeUrl =
+    `/api/racing/licence-offer/add-all?billId=${encodeURIComponent(billId)}&probe=1` +
+    (personId ? `&personId=${encodeURIComponent(personId)}` : "");
+  const target =
+    href ?? `/api/racing/licence-offer/add-all?billId=${encodeURIComponent(billId)}`;
+
+  async function start() {
+    if (isBusy || locked) return;
+    setFailed(false);
+    setReady(0);
+    onStart();
+
+    // ~2 minutes. Rendering a fresh party has taken well over a minute, and
+    // giving up early is what produced the JSON download.
+    for (let attempt = 0; attempt < 40; attempt++) {
+      try {
+        const res = await fetch(probeUrl, { cache: "no-store" });
+        if (res.ok) {
+          const j = (await res.json()) as { total?: number; ready?: number };
+          const got = Number(j.ready ?? 0);
+          setReady(got);
+          if (got > 0 && got >= Number(j.total ?? expected)) {
+            window.location.href = target;
+            return; // deliberately stays "busy" — we are leaving the page
+          }
+        }
+      } catch {
+        // a blip mid-render is not a failure
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+
+    // Partial is still worth having — three good passes beat an error.
+    if (ready > 0) {
+      window.location.href = target;
+      return;
+    }
+    setFailed(true);
+    onDone();
+  }
+
+  if (failed) {
+    return (
+      <p className="text-[#f0b341] text-xs leading-relaxed">
+        Still preparing — try again in a minute, or scan the code above.
+      </p>
+    );
+  }
+
+  const spinner = (
+    <span
+      className={`h-4 w-4 animate-spin rounded-full border-2 ${
+        primary ? "border-[#04252b]/30 border-t-[#04252b]" : "border-white/30 border-t-white"
+      }`}
+      aria-hidden="true"
+    />
+  );
+
+  if (primary) {
+    return (
+      <button
+        type="button"
+        onClick={start}
+        disabled={isBusy || locked}
+        aria-busy={isBusy}
+        className="mb-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#00E2E5] px-5 py-3 text-[#04252b] text-sm font-bold disabled:opacity-60"
+      >
+        {isBusy ? (
+          <>
+            {spinner}
+            {busyLabel?.(ready) ?? "Preparing…"}
+          </>
+        ) : (
+          label
+        )}
+      </button>
+    );
+  }
+
+  // Vendor badge. It stays a badge while idle — the artwork is the control —
+  // and becomes a labelled progress state while it works.
+  return (
+    <button
+      type="button"
+      onClick={start}
+      disabled={isBusy || locked}
+      aria-busy={isBusy}
+      aria-label={badge?.label}
+      className="inline-flex items-center gap-2 disabled:opacity-40"
+    >
+      {isBusy ? (
+        <span className="inline-flex items-center gap-2 rounded-lg border border-white/25 px-3 py-2 text-[11px] font-semibold text-white">
+          {spinner}
+          Preparing…
+        </span>
+      ) : (
+        badge && (
+          // eslint-disable-next-line @next/next/no-img-element -- vendor artwork must ship byte-for-byte
+          <img
+            src={badge.svg}
+            alt={badge.label}
+            width={badge.width}
+            height={BADGE_HEIGHT}
+            className="h-[50px] w-auto"
+          />
+        )
+      )}
+      {platform ? null : null}
+    </button>
   );
 }

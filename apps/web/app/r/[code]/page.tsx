@@ -161,7 +161,11 @@ export default async function RacerHubPage({ params }: { params: Promise<{ code:
                   Your next race appears on it automatically and updates itself if your heat moves —
                   no text needed.
                 </p>
-                <div className="mt-3 rounded-xl bg-white p-4 flex flex-wrap items-center justify-center gap-3">
+                {/* No white plate: Apple's badge is black with a #A6A6A6
+                    hairline and Google's is #1F1F1F with its own outline, so
+                    both read straight onto the card. A white slab behind them
+                    looked like a foreign object stuck to the panel. */}
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
                   {badges.map((b) => (
                     <a
                       key={b.platform}

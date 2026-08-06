@@ -145,8 +145,11 @@ export function looksLikePkpass(bytes: Uint8Array): boolean {
 export async function fetchPkpass(
   url: string,
   fetchImpl: typeof fetch = fetch,
+  /** Wait schedule in ms. `[0]` = ask once, which is what the client-driven
+   *  prepare loop wants: the ASK is what triggers the render, so a single look
+   *  still makes progress even when it answers "not yet". */
+  delays: readonly number[] = [0, 1500, 3000, 4000, 6000],
 ): Promise<Uint8Array | null> {
-  const delays = [0, 1500, 3000, 4000, 6000];
   for (const wait of delays) {
     if (wait) await new Promise((r) => setTimeout(r, wait));
     try {

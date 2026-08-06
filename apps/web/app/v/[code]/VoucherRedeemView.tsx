@@ -198,7 +198,7 @@ export function VoucherRedeemView({
               deliberately different widths, and it also handles the single-badge
               case (?platform= from an email tap) with no conditional. */}
               {!voided && !expired && !allDone && (
-                <div className="mt-4 rounded-2xl bg-white p-4">
+                <div className="mt-4">
                   <div className="flex flex-wrap items-center justify-center gap-3">
                     {WALLET_BADGES.filter(
                       (w) => !walletPlatform || w.platform === walletPlatform,

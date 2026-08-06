@@ -14,7 +14,7 @@ import {
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 /**
  * GET /api/racing/licence-offer/add-all?billId=… — every racer on the booking,
@@ -47,7 +47,18 @@ interface BookingRacer {
 }
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  const billId = (new URL(req.url).searchParams.get("billId") || "").trim();
+  const url = new URL(req.url);
+  const billId = (url.searchParams.get("billId") || "").trim();
+  // PREPARE MODE. A freshly issued pass is not renderable immediately — PassKit
+  // answers 200 with its landing page for tens of seconds, and the first GET
+  // appears to be what triggers the render. Waiting that out inside the
+  // download request means a guest staring at a dead tap, so the client calls
+  // this first, watches `ready` climb, and only then fetches the bundle.
+  const probe = url.searchParams.get("probe") === "1";
+  // Probe a SINGLE racer. An individual "add to wallet" hits exactly the same
+  // render delay as the bundle — the pass is issued on the tap — so the one-row
+  // buttons drive the same wait rather than redirecting into a landing page.
+  const onlyPerson = (url.searchParams.get("personId") || "").trim();
   if (!/^\d+$/.test(billId)) {
     return NextResponse.json({ error: "billId required" }, { status: 400 });
   }
@@ -70,6 +81,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   for (const r of record.racers) {
     const pid = String(r?.personId ?? "").trim();
     if (!/^\d+$/.test(pid) || seen.has(pid)) continue;
+    if (onlyPerson && pid !== onlyPerson) continue;
     seen.add(pid);
     racers.push(r);
   }
@@ -110,7 +122,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         // whole thing with "your pass cannot be installed at this time",
         // naming none of the four. Bytes are copied verbatim: each pass carries
         // its own signature and re-packing would invalidate it.
-        const bytes = await fetchPkpass(passUrls(issued.memberId).apple);
+        const passUrl = passUrls(issued.memberId).apple;
+
+        // In probe mode, one quick look: is it renderable YET? Asking is also
+        // what kicks the render off, so a probe that answers "no" has still
+        // moved things along.
+        if (probe) {
+          const bytes = await fetchPkpass(passUrl, fetch, [0]);
+          return bytes ? ({ name: `${personId}.pkpass`, bytes } as BundleEntry) : null;
+        }
+
+        const bytes = await fetchPkpass(passUrl);
         if (!bytes) return null;
 
         return { name: `${personId}.pkpass`, bytes } as BundleEntry;
@@ -121,6 +143,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   );
 
   const entries: BundleEntry[] = results.filter((e): e is BundleEntry => e !== null);
+
+  if (probe) {
+    return NextResponse.json(
+      { total: racers.length, ready: entries.length },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   if (entries.length === 0) {
     return NextResponse.json({ error: "no passes could be built" }, { status: 502 });
   }

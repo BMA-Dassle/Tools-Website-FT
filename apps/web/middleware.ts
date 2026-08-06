@@ -732,6 +732,12 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/v/")) {
       requestHeaders.set("x-no-mobile-bar", "1");
     }
+    // Finding your racing licence is a focused lookup — a "Book Now" bar pinned
+    // over it competes with the one action on the page. Keeps the site Nav,
+    // unlike /r/, because this is a way IN to the site rather than a credential.
+    if (pathname === "/racer" || pathname.startsWith("/racer/")) {
+      requestHeaders.set("x-no-mobile-bar", "1");
+    }
     // Vendor-outage notice: a floating "Book Now" bar on the page that just told
     // the guest we can't book is the one control that must not be there.
     if (pathname === SERVICE_NOTICE_PATH) {
