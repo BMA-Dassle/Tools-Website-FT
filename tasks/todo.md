@@ -1,5 +1,86 @@
 # Open Tasks
 
+## FastTrax operational changes — new Mon–Fri hours + Mega is Junior Pro only (2026-08-05)
+
+Two owner-announced operational changes, both landing **2026-08-10**:
+
+1. **Mon–Fri open moves 1:00 PM → 3:00 PM.** Sat/Sun (11 AM) and every closing time
+   are unchanged.
+2. **Mega days run Junior Pro races only** — no Junior Starter (never existed in BMI)
+   and no Junior Intermediate (retired). Consequence: a junior must qualify all the
+   way to Junior Pro on a split-track day before they can race a Mega Tuesday.
+
+### Hours — one registry, effective-dated (not a flip)
+
+The same four hours lines were hardcoded in five display surfaces plus two
+behavioural ones. A plain edit would have published the NEW hours during the five
+days we still open at 1 PM. So `apps/web/src/lib/constants/fasttrax-hours.ts` is now
+the single source of truth and every consumer asks for the hours **on a date**:
+
+- [x] `fasttrax-hours.ts` — `SCHEDULE_ERAS` (newest first) + formatters + week
+      grouping + the schema.org opening-hours builder. Next hours change = one entry.
+- [x] Marketing surfaces read TODAY in ET: `components/Nav.tsx`,
+      `components/Footer.tsx`, `components/home/Attractions.tsx` (hours pills),
+      `components/seo/JsonLd.tsx` (LocalBusiness + Restaurant + Mega Tuesday event
+      start/end), `app/racing/layout.tsx` (the rainy-day FAQ hours sentence).
+- [x] `app/api/pandora/races-current/route.ts` — live-races operating window takes its
+      OPEN from the registry; the deliberately generous close-side grace stays local.
+- [x] `race-restriction-rules.ts` — the opening-heats express-only window is anchored
+      to the venue open time **for the heat's own date**, not "now". A heat on Aug 8
+      keeps the 1:00–1:24 PM window while a heat on Aug 11 gets 3:00–3:24 PM; both
+      correct at the same instant. (`openingWindowExpressOnly.windows` →
+      `windowsForDate(isoDate)`.) Without this the rule would have silently stopped
+      firing on weekdays — 1:00 PM would have had no heats in it.
+- [x] Verified: rendered copy is byte-identical to the live site before 8/10
+      ("Mon–Thu: 1:00 PM – 11:00 PM" …) and flips on the 10th. Every route builds as
+      `ƒ` (dynamic) — the root layout's `headers()` call means no redeploy is needed
+      for the switchover.
+
+### Mega = Junior Pro only
+
+- [x] Catalog is the functional truth: **Junior Intermediate Race Mega removed** —
+      `24966320` (new) + `43732358` (existing) — from
+      `src/features/booking/service/race-products.ts` AND v1 `app/book/race/data.ts`
+      (lockstep). Junior Pro Race Mega is now the only junior product on the track,
+      so `filterProducts` and `juniorProductsOnTrack` follow automatically.
+- [x] `RACE_BUILD_PRODUCTS["junior:intermediate:Mega"]` deliberately KEPT so a session
+      that picked the heat before the deploy still resolves a real $0 build product
+      instead of hitting `bmiBookingTarget`'s error path. Delete once none can be live.
+- [x] Guard widened from "first-time juniors" to "any junior not Junior-Pro qualified"
+      in both wizards — v2 `RaceDateStep.tsx` (`juniorsBlockedOnMega`, via
+      `isQualifiedForTier(…, "junior", "pro")`, never a substring match) and v1
+      `app/book/race/page.tsx` (`countJuniorsBlockedOnMega`, via `getRacerTier`).
+      Unverified juniors count as blocked.
+- [x] Copy updated: `/racing` page + `racing-content.ts` cards/track warning, the Mega
+      Tuesday FAQ, `MegaTrackTuesdayJsonLd` description, homepage `TuesdayAlert`,
+      `embed/booking-info/products.ts` notes.
+- [x] Kiosk copy in EN **and** ES: `peopleUi.megaJuniorWarning`,
+      `stepReason.megaTuesday` (+ the matching `KioskFlow.tsx` reverse-map key and the
+      v2 `canAdvance` reason string — all three must stay identical), attract-slide
+      notice → "Junior Pro only on Mega".
+
+### Gates run
+
+`tsc --noEmit` 0 · `vitest` 3479 passed / 250 files · `eslint` 0 errors (only
+pre-existing warnings) · `next build` 0 · `a11y-gate` 0 violations. New tests:
+`src/lib/constants/fasttrax-hours.test.ts` (16), the era-crossing opening-window
+block in `race-restriction-rules.test.ts`, the Junior-Pro-only block in
+`race-products.test.ts`.
+
+### Open
+
+- [ ] **Not committed / not deployed** — the change set is in the working tree only,
+      pending the owner's call on branch + PR (shared tree, multi-writer).
+- [ ] **BMI side is not ours to change.** The Junior Intermediate Mega dayplanner still
+      exists upstream; we only stopped selling it. If ops leaves those heats on the
+      Mega dayplanner they'll sit empty (harmless) — but a walk-in booked at the
+      register under `43732358` would still run, so ops should pull the tier from the
+      Tuesday dayplanner too.
+- [ ] **The attract-slide model is English-only** (`title` / `bannerAction` / `notice`
+      are raw strings in `kiosk/assets.ts`, not catalog keys). Pre-existing gap across
+      every slide, not introduced here — worth routing through the i18n catalog.
+- [ ] **Never smoked.** No card charge, no kiosk device run, no Google re-crawl check.
+
 ## Group event moves between centers — FT → HeadPinz Fort Myers (2026-08-03)
 
 US Anesthesia Partners (**H3194**, BMI project **56000667**, 8/8 4:36 PM, $2,146.35)

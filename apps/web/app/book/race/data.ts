@@ -412,17 +412,9 @@ const RACE_PRODUCTS: StaticRaceProduct[] = [
     track: "Mega",
     price: 20.99,
   },
-  {
-    schedule: "mega",
-    racerType: "new",
-    productId: "24966320",
-    pageId: "25850647",
-    name: "Junior Intermediate Race Mega",
-    tier: "intermediate",
-    category: "junior",
-    track: "Mega",
-    price: 20.99,
-  },
+  // NOTE: no Junior Intermediate Race Mega (BMI 24966320). Junior racing on
+  // Mega days is JUNIOR PRO ONLY as of 2026-08-10 (owner) — mirrors
+  // src/features/booking/service/race-products.ts.
   // ── Mega — Page 25850658: Pro ──
   {
     schedule: "mega",
@@ -654,17 +646,10 @@ const RACE_PRODUCTS: StaticRaceProduct[] = [
     track: "Mega",
     price: 20.99,
   },
-  {
-    schedule: "mega",
-    racerType: "existing",
-    productId: "43732358",
-    pageId: "43734751",
-    name: "Junior Intermediate Race Mega",
-    tier: "intermediate",
-    category: "junior",
-    track: "Mega",
-    price: 20.99,
-  },
+  // ⚠️ JUNIOR RACING ON MEGA IS **JUNIOR PRO ONLY** (owner 2026-08-05, effective
+  // 2026-08-10) — no Junior Starter (never existed in BMI) and no Junior
+  // Intermediate (43732358 retired here on the same date). Junior Pro Race Mega
+  // below is the only junior product on this track.
   {
     schedule: "mega",
     racerType: "existing",

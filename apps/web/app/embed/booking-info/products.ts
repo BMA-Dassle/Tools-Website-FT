@@ -64,6 +64,7 @@ export const products: Record<string, RaceProduct> = {
       "You must already be qualified in a Junior Starter Race before booking this race. NO EXCEPTIONS — regardless of racing experience elsewhere.",
     arriveMinutes: 30,
     licenseFee: "$4.99",
+    note: "Not available on Mega Track Tuesdays.",
   },
   "junior-pro": {
     title: "Junior Pro",
@@ -75,5 +76,6 @@ export const products: Record<string, RaceProduct> = {
       "You must already be qualified in a Junior Intermediate Race before booking this race. NO EXCEPTIONS — regardless of racing experience elsewhere.",
     arriveMinutes: 30,
     licenseFee: "$4.99",
+    note: "The only junior race that runs on Mega Track Tuesdays.",
   },
 };

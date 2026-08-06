@@ -287,7 +287,7 @@ const STEP_REASON_KEYS: Record<string, MessageKey> = {
   "Add at least one racer to continue.": "stepReason.addRacer",
   "Every party member needs a first name.": "stepReason.racerFirstName",
   "Pick a race day to continue.": "stepReason.raceDay",
-  "First-time juniors can’t race on Mega Tuesdays.": "stepReason.megaTuesday",
+  "Mega Tuesdays run Junior Pro races only.": "stepReason.megaTuesday",
   "Race pack added — now pick which race to run today.": "stepReason.racePackAdded",
   "Pick an adult race to continue.": "stepReason.pickAdultRace",
   "Pick a junior race to continue.": "stepReason.pickJuniorRace",

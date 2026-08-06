@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 
 /**
- * Shows an alert ONLY on Tuesdays (Mega Track day). First-time junior racers
- * (ages 7–12, no qualifying laps yet) can't race on Mega days because the
- * Mega Track format only has Intermediate+ junior races.
+ * Shows an alert ONLY on Tuesdays (Mega Track day). Mega runs JUNIOR PRO races
+ * only (owner 2026-08-05, effective 2026-08-10) — no Junior Starter and no
+ * Junior Intermediate — so every junior below Junior Pro has to race a
+ * split-track (Blue/Red) day instead.
  *
  * Time zone is America/New_York so the alert flips at midnight ET —
  * matches when operations staff and racers consider "Tuesday" to start,
@@ -53,10 +54,10 @@ export default function TuesdayAlert() {
         Tuesdays we combine our Blue and Red tracks into one epic{" "}
         <strong style={{ color: "#B794F6" }}>Mega Track</strong> — longer, faster, wilder.{" "}
         <strong className="text-red-300">
-          First-time junior racers (ages 7–12, no qualifying laps yet) can&apos;t race on Mega
-          Tuesdays.
+          Junior racing on Mega Tuesdays is Junior Pro only — no Junior Starter or Junior
+          Intermediate.
         </strong>{" "}
-        Adult racers and qualified junior racers are welcome.
+        All adult racers are welcome; juniors qualify up to Junior Pro on a split-track day first.
       </p>
     </div>
   );
