@@ -32,6 +32,10 @@ export interface RacerWalletPass {
   /** Session each live field was written for — what the clear-down checks. */
   checkinSessionId: string | null;
   nextRaceSessionId: string | null;
+  /** Full metaData last written — the base every partial update builds on.
+   *  Without it an update would send only the changed keys, and
+   *  PUT /members/member REPLACES metaData, which wipes the barcode. */
+  meta: Record<string, string> | null;
 }
 
 let schemaReady: Promise<void> | null = null;
@@ -83,7 +87,7 @@ export async function getRacerPass(personId: string): Promise<RacerWalletPass | 
     const q = sql();
     const rows = await q`
       SELECT person_id, member_id, next_race, checkin_status,
-             checkin_session_id, next_race_session_id
+             checkin_session_id, next_race_session_id, meta
       FROM racer_wallet_passes WHERE person_id = ${pid} LIMIT 1`;
     const r = rows[0] as Record<string, unknown> | undefined;
     if (!r) return null;
@@ -94,6 +98,7 @@ export async function getRacerPass(personId: string): Promise<RacerWalletPass | 
       checkinStatus: r.checkin_status == null ? null : String(r.checkin_status),
       checkinSessionId: r.checkin_session_id == null ? null : String(r.checkin_session_id),
       nextRaceSessionId: r.next_race_session_id == null ? null : String(r.next_race_session_id),
+      meta: (r.meta as Record<string, string> | null) ?? null,
     };
   } catch {
     return null;
@@ -130,6 +135,9 @@ export async function getRacerPasses(
         checkinStatus: r.checkin_status == null ? null : String(r.checkin_status),
         checkinSessionId: r.checkin_session_id == null ? null : String(r.checkin_session_id),
         nextRaceSessionId: r.next_race_session_id == null ? null : String(r.next_race_session_id),
+        // Identity only on the roster path — updateLicencePass reloads the full
+        // row (and its meta) before it writes anything.
+        meta: null,
       });
     }
   } catch {

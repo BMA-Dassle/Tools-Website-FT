@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { RaceTicket } from "@/lib/race-tickets";
+import type { WalletPlatform } from "~/features/game-cards/wallet/platform";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import { checkinQrDataUrl } from "@/lib/qr-checkin";
 import { modalBackdropProps } from "@/lib/a11y";
@@ -37,6 +38,11 @@ interface Props {
   initialCheckingIn: boolean;
   initialOnSession: boolean;
   initialWasCalled: boolean;
+  /** Detected server-side so the badge matches the device. null = offer both. */
+  walletPlatform?: WalletPlatform | null;
+  /** False when the racer has no BMI tag yet — nothing to put in a barcode, so
+   *  the button must not render rather than offer a tap that dead-ends. */
+  canAddLicence?: boolean;
 }
 
 export default function ETicketView({
@@ -44,6 +50,8 @@ export default function ETicketView({
   initialCheckingIn,
   initialOnSession,
   initialWasCalled,
+  walletPlatform,
+  canAddLicence,
 }: Props) {
   const [checkingIn, setCheckingIn] = useState(initialCheckingIn);
   const [onSession, setOnSession] = useState(initialOnSession);

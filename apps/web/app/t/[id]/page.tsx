@@ -1,6 +1,9 @@
 import { notFound } from "next/navigation";
 import redis from "@/lib/redis";
+import { headers } from "next/headers";
 import { getRaceTicket } from "@/lib/race-tickets";
+import { walletPlatformFromUserAgent } from "~/features/game-cards/wallet/platform";
+import { codeForPersonId } from "~/features/kiosk/license/code-cache";
 import ETicketView from "./ETicketView";
 import ArenaETicketView from "~/components/features/arena-tickets/ArenaETicketView";
 import { isArenaTicket } from "~/features/arena-tickets/types";
@@ -105,9 +108,19 @@ export default async function ETicketPage({ params }: PageProps) {
 
   const wasCalled = await wasSessionCalled(ticket.sessionId);
 
+  // Wallet licence offer, resolved SERVER-side for two reasons: the badge shown
+  // has to match the device (an Android racer must be offered Google Wallet),
+  // and a racer with no BMI tag yet has nothing to put in a barcode — so the
+  // button must not render at all rather than offer a tap that dead-ends.
+  const hdrs = await headers();
+  const walletPlatform = walletPlatformFromUserAgent(hdrs.get("user-agent"));
+  const licenceCode = await codeForPersonId(String(ticket.personId ?? "")).catch(() => null);
+
   return (
     <ETicketView
       ticket={ticket}
+      walletPlatform={walletPlatform}
+      canAddLicence={!!licenceCode}
       // Optimistic defaults — the client poll flips these to live
       // Pandora state within ~200ms of hydration. `onSession: true`
       // matches the historic forgiving behavior (don't flag invalid

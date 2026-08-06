@@ -162,9 +162,29 @@ export async function updateLicencePass(
   }
   if (Object.keys(changed).length === 0) return false; // rule 4 — nothing to say
 
+  // SEND THE COMPLETE metaData, ALWAYS.
+  //
+  // PUT /members/member REPLACES metaData rather than merging it — the opposite
+  // of PUT /template. Sending only the changed keys deleted every other field,
+  // including the one the barcode is built from, and left a live pass reading
+  // "missing: meta.code" that would not scan. This happened TWICE on 2026-08-05:
+  // once from the original bug, and once because the fix was reverted by a
+  // commit built in a worktree branched off a stale origin/main.
+  //
+  // With no stored copy we must NOT push — a partial write here IS that bug.
+  // Skipping costs a stale field; guessing costs the barcode.
+  if (!row.meta) {
+    console.warn(
+      `[licence-pass] no stored meta for ${personId} — skipping rather than writing a partial pass`,
+    );
+    return false;
+  }
+  const full = { ...row.meta, ...changed };
+
   try {
-    await passkit("PUT", "/members/member", { id: row.memberId, metaData: changed });
+    await passkit("PUT", "/members/member", { id: row.memberId, metaData: full });
     await markPushed(personId, changed);
+    await saveMeta(personId, full);
     return true;
   } catch (err) {
     // Rule 1. The racer is standing at a desk; a stale pass is survivable, a

@@ -159,3 +159,40 @@ export async function warmRacerCodes(
   }
   return out;
 }
+
+/**
+ * The login code to PRINT for a racer, from their personId — the reverse of
+ * `personIdForCode`, and what the e-ticket needs: a ticket names a person, but
+ * the pass barcode carries a code.
+ *
+ * DETERMINISTIC BY DESIGN. A racer holds many tags (append-only, roughly one per
+ * visit — 31 on one real record), and every one resolves, so any of them would
+ * "work". But a pass that prints a different code each time it is issued is a
+ * pass whose owner cannot learn their own number, and the whole point of the
+ * printed code is that they type it at BMI. So: prefer the 13-character shape
+ * racers actually type, then the shortest, then alphabetical — never
+ * "whichever row the database returned first".
+ *
+ * The 36-char UUIDs are excluded from preference deliberately: that form is the
+ * SMS-Timing app's own QR, only ~half of racers have one, and it is not a code
+ * anybody could read aloud.
+ */
+export async function codeForPersonId(personId: string): Promise<string | null> {
+  const pid = String(personId || "").trim();
+  if (!/^\d+$/.test(pid) || !isDbConfigured()) return null;
+  try {
+    await ensureSchema();
+    const q = sql();
+    const rows = await q`SELECT code FROM racer_login_codes WHERE person_id = ${pid}`;
+    const codes = rows
+      .map((r) => String((r as Record<string, unknown>).code ?? ""))
+      .filter(Boolean);
+    if (codes.length === 0) return null;
+    const preferred = codes.filter((c) => c.length === 13);
+    const pool = preferred.length > 0 ? preferred : codes.filter((c) => c.length < 36);
+    const usable = pool.length > 0 ? pool : codes;
+    return [...usable].sort((a, b) => a.length - b.length || a.localeCompare(b))[0];
+  } catch {
+    return null;
+  }
+}

@@ -146,12 +146,28 @@ function formatNextRaceForPass(
   trackDisplay: string,
   session: { heatNumber?: number; raceType?: string },
 ): string {
-  const dt = new Date(String(scheduledStart).replace(/Z$/i, ""));
-  if (isNaN(dt.getTime())) return "None booked";
-  const mon = dt.toLocaleDateString("en-US", { month: "short" });
-  const time = dt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  // TIMEZONE — I GOT THIS BACKWARDS ONCE, SO READ IT BEFORE CHANGING IT.
+  //
+  // Pandora's `scheduledStart` is GENUINE UTC. "2026-08-06T02:36:00.000Z" is
+  // 10:36 PM ET on Aug 5. An earlier version stripped the Z and read it as
+  // centre-local wall clock, which printed "Aug 6 · 2:36 AM" onto a live pass —
+  // wrong by the whole ET offset, and wrong about the DAY as well.
+  //
+  // Do NOT confuse it with Neon's booking_metadata.heats[].heatId, which is
+  // "2026-08-04T14:30:00" with NO Z and genuinely IS centre-local. Two sources,
+  // two conventions; only this one is UTC.
+  const dt = new Date(scheduledStart);
+  if (isNaN(dt.getTime())) return "None in next 2 hrs";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).formatToParts(dt);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
   const label = trackDisplay || session.raceType || "";
-  return `${mon} ${dt.getDate()} · ${time}${label ? ` · ${label}` : ""}`;
+  return `${get("month")} ${get("day")} · ${get("hour")}:${get("minute")} ${get("dayPeriod")}${label ? ` · ${label}` : ""}`;
 }
 
 async function fetchParticipants(sessionId: string | number): Promise<Participant[]> {
