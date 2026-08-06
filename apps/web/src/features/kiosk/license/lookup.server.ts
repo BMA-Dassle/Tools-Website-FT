@@ -289,7 +289,14 @@ export async function lookupMemberMatches(
   // Only when the code resolves to exactly ONE person: a code that returns
   // several records is ambiguous, and pinning one of them here would silently
   // hide the others from every later scan.
-  if (matches.length === 1) void rememberCodes(matches[0].personId, [code]);
+  // AWAITED. This runs inside API routes, and a serverless handler is frozen
+  // the moment it responds — a dangling `void` here would be killed mid-write,
+  // so the cache would never actually self-heal and every scan would keep
+  // paying the ~1 s Office search. Same defect that stopped the wallet pushes
+  // from ever running (2026-08-05). One indexed insert; the cost is noise.
+  if (matches.length === 1) {
+    await rememberCodes(matches[0].personId, [code]);
+  }
   return matches.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
 }
 

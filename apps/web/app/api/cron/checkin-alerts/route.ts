@@ -808,7 +808,7 @@ export async function GET(req: NextRequest) {
     // CLEAR-DOWN FIRST, before writing any new status. A heat that has actually
     // started or ended stops being live regardless of how far off schedule it
     // ran — see licence-clear.ts for why elapsed time cannot answer this.
-    void clearFinishedLicenceFields(req.nextUrl.origin)
+    await clearFinishedLicenceFields(req.nextUrl.origin)
       .then((r) => {
         if (r.checkinCleared || r.nextRaceCleared) {
           console.log(
@@ -893,7 +893,9 @@ export async function GET(req: NextRequest) {
       // Safe at this cadence: updateLicencePasses resolves the whole roster's
       // pass-holders in ONE Neon query and pushes only when the value actually
       // changed, so a re-run against the same open heat is a no-op.
-      void updateLicencePasses(
+      // Awaited — a serverless handler is frozen when it returns, so a dangling
+      // promise is killed mid-flight. See pre-race-tickets for the incident.
+      await updateLicencePasses(
         participants.map((p) => ({
           personId: p.personId,
           checkinStatus: `Check in now — ${trackDisplay} Heat ${race.heatNumber ?? ""}`.trim(),
