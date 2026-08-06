@@ -27,6 +27,8 @@ export interface OfferRacer {
  */
 const cache = new Map<string, OfferRacer[]>();
 const inflight = new Map<string, Promise<OfferRacer[]>>();
+/** Whether the booking has race participants at all — see the endpoint. */
+const racingCache = new Map<string, boolean>();
 
 async function load(billId: string): Promise<OfferRacer[]> {
   const hit = cache.get(billId);
@@ -39,6 +41,7 @@ async function load(billId: string): Promise<OfferRacer[]> {
     .then((j) => {
       const racers: OfferRacer[] = Array.isArray(j?.racers) ? j.racers : [];
       cache.set(billId, racers);
+      racingCache.set(billId, j?.isRacing === true);
       return racers;
     })
     .catch(() => [] as OfferRacer[])
@@ -69,4 +72,12 @@ export function useLicenceOffer(billId: string | null | undefined): OfferRacer[]
   }, [billId]);
 
   return racers;
+}
+
+/** Data-driven "is this a racing booking", for surfaces that would otherwise
+ *  rely on a sessionStorage flag written during checkout. */
+export function useIsRacingBooking(billId: string | null | undefined): boolean {
+  const racers = useLicenceOffer(billId);
+  if (!billId || !racers) return false;
+  return racingCache.get(billId) === true;
 }

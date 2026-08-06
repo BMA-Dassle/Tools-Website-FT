@@ -100,7 +100,7 @@ function RacerQr({
   ).filter((b) => !platform || b.platform === platform);
 
   return (
-    <div className="py-4">
+    <div className="py-5">
       <div className="flex items-center gap-2 mb-3">
         <span className="text-white text-[15px] font-bold truncate">{racer.name}</span>
         {racer.isYou && (
@@ -110,48 +110,54 @@ function RacerQr({
         )}
       </div>
 
+      {/* QR beside its caption, and the actions on their own full-width row
+          below. Stacking the badges next to a 128px code squeezed them into a
+          column barely wider than the buttons themselves on a phone. */}
       <div className="flex items-start gap-4">
         <div className="rounded-xl bg-white p-2 shrink-0">
           {/* eslint-disable-next-line @next/next/no-img-element -- data URI, no loader */}
           <img src={racer.qr ?? ""} alt="" width={128} height={128} className="block" />
         </div>
-
-        <div className="min-w-0 flex-1">
-          <p className="text-white/55 text-xs leading-relaxed">
-            Scan at the check-in desk, any kiosk, or the register.
-          </p>
-
-          {/* Only the booker's row: this is the one phone the page can reach. */}
-          {showWallet && racer.addUrl && (
-            // White plate: Apple's badge is drawn for light backgrounds and
-            // Google only ships #1F1F1F. Restyling vendor artwork is not
-            // allowed; giving it a light host surface is.
-            <div className="mt-2.5 rounded-xl bg-white p-2.5 inline-flex flex-wrap gap-2.5">
-              {badges.map((b) => (
-                <a key={b.platform} href={`${racer.addUrl}&platform=${b.platform}`}>
-                  {/* eslint-disable-next-line @next/next/no-img-element -- vendor artwork must ship byte-for-byte */}
-                  <img src={b.src} alt={b.label} width={b.w} height={50} />
-                </a>
-              ))}
-            </div>
-          )}
-
-          {racer.hubUrl && (
-            <a
-              href={racer.hubUrl}
-              // NEW TAB on purpose. /r/{code} renders without site chrome (the
-              // Nav was covering the racer's name), so there is no way back from
-              // it — and this page is the guest's booking record, which they
-              // should not lose to open a licence.
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-2.5 block text-[#00E2E5] text-xs font-semibold"
-            >
-              {racer.isYou ? "View my page ›" : `Open ${racer.name.split(/\s+/)[0]}’s page ›`}
-            </a>
-          )}
-        </div>
+        <p className="text-white/55 text-xs leading-relaxed min-w-0 flex-1">
+          Scan at the check-in desk, any kiosk, or the register.
+        </p>
       </div>
+
+      {/* Only the booker's row: this is the one phone the page can reach.
+          NO WHITE PLATE. Apple's US_UK badge is black with a #A6A6A6 hairline
+          and Google's is #1F1F1F with its own outline — both are legible
+          straight onto this card, and the white slab we were mounting them on
+          read as a foreign object stuck to the panel. Vendor artwork is
+          untouched either way; only the surface changed. */}
+      {showWallet && racer.addUrl && (
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          {badges.map((b) => (
+            <a
+              key={b.platform}
+              href={`${racer.addUrl}&platform=${b.platform}`}
+              className="inline-flex"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element -- vendor artwork must ship byte-for-byte */}
+              <img src={b.src} alt={b.label} width={b.w} height={50} className="h-[50px] w-auto" />
+            </a>
+          ))}
+        </div>
+      )}
+
+      {racer.hubUrl && (
+        <a
+          href={racer.hubUrl}
+          // NEW TAB on purpose. /r/{code} renders without site chrome (the Nav
+          // was covering the racer's name), so there is no way back from it —
+          // and this page is the guest's booking record, which they should not
+          // lose to open a licence.
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 inline-block text-[#00E2E5] text-xs font-semibold"
+        >
+          {racer.isYou ? "View my page ›" : `Open ${racer.name.split(/\s+/)[0]}’s page ›`}
+        </a>
+      )}
     </div>
   );
 }

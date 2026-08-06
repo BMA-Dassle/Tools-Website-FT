@@ -19,6 +19,7 @@ import { BrandLogo } from "./BrandLogo";
 import { readGzFulfillment, type GzFulfillmentPayload } from "../service/gz-fulfillment";
 import { KioskGzFulfillment } from "./KioskGzFulfillment";
 import { KioskLicenceOffer } from "./KioskLicenceOffer";
+import { useIsRacingBooking } from "~/features/racing/components/useLicenceOffer";
 import {
   readRacePackConfirmation,
   clearRacePackConfirmation,
@@ -255,6 +256,11 @@ export function KioskConfirmation({ src }: { src: string | null }) {
   // the web confirmation's check-in uses.
   const laneNeonId = useMemo(() => bowlingNeonIdFromSrc(src), [src]);
   const billId = useMemo(() => billIdFromSrc(src), [src]);
+  // `includesRacing` comes from a sessionStorage flag written during checkout,
+  // so it is false in any tab that did not just run the flow and would be lost
+  // on a kiosk reset. The booking record answers the same question from data.
+  const racingFromBooking = useIsRacingBooking(billId);
+  const showRacing = includesRacing || racingFromBooking;
   const [lanePhase, setLanePhase] = useState<LanePhase>("idle");
   const [laneLabel, setLaneLabel] = useState("");
 
@@ -389,7 +395,7 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       // With a card-fulfillment panel the column can exceed the canvas — scroll
       // from the top instead of center-clipping.
       className={`absolute inset-0 flex flex-col items-center gap-[36px] bg-[#000418] px-[64px] text-center ${
-        gzPayload || racePacks || povCodes || lanePanelVisible || includesRacing
+        gzPayload || racePacks || povCodes || lanePanelVisible || showRacing
           ? "justify-start overflow-y-auto py-[56px]"
           : "justify-center overflow-hidden"
       }`}
@@ -419,7 +425,7 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       <p className="relative max-w-[30ch] text-[34px] text-white/60">
         {t("confirmation.receiptNote")}
       </p>
-      {includesRacing && (
+      {showRacing && (
         // Racing "what's next" — deliberately first panel so a racing guest
         // reads it before anything else; racing red to stand out from the
         // cyan/amber panels below.

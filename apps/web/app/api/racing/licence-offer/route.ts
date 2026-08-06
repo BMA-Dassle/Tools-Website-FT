@@ -76,7 +76,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     record = null;
   }
   if (!record?.racers?.length) {
-    return NextResponse.json({ racers: [] }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json(
+      { racers: [], isRacing: false },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
 
   const origin = req.nextUrl.origin;
@@ -131,5 +134,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     });
   }
 
-  return NextResponse.json({ racers: out }, { headers: { "Cache-Control": "no-store" } });
+  // `racers[]` on a booking record IS the race-participant list, so its presence
+  // answers "is this a racing booking" without a sessionStorage flag that dies
+  // on a kiosk reset.
+  return NextResponse.json(
+    { racers: out, isRacing: true },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }
