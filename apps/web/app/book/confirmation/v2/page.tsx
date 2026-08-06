@@ -15,6 +15,7 @@ import { buildReservationMemo } from "~/features/booking/service/reservation-mem
 import { ATTRACTIONS, type AttractionConfig } from "@/lib/attractions-data";
 import { comboReservationNote, getComboSpecial } from "~/features/combos";
 import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
+import { BADGE_HEIGHT, WALLET_BADGES, walletBadgeHref } from "~/features/game-cards/wallet/badges";
 import { BowlingPlayersEditor } from "~/components/features/booking/confirmation/BowlingPlayersEditor";
 import ComboManageNote from "~/components/features/cancellation/ComboManageNote";
 import GiftCardIssuedPanel from "~/components/features/cancellation/GiftCardIssuedPanel";
@@ -246,12 +247,34 @@ function VipVoucherDetailCard({
   qr: string | null;
   state: {
     expiresAt: string | null;
+    expired: boolean;
+    voided: boolean;
     items: Array<{ index: number; label: string; spent: boolean }>;
   } | null;
   /** "Your VIP Voucher" for a combo GRANT; plainer when the guest redeemed a
    *  voucher they already held (a prepaid deal pack). */
   title?: string;
 }) {
+  /**
+   * Offer the pass unless we KNOW the voucher can no longer be used — mirroring
+   * `!voided && !expired && !allDone` on /v/{code}.
+   *
+   * A freshly-granted VIP voucher is none of those, so at first view this is
+   * always true. The guard is for the other two ways this card is reached: the
+   * page is bookmarkable by billId and guests come back to it months later (the
+   * hub tile literally reads "N of M available"), and the same card renders a
+   * prepaid DEAL PACK voucher the guest already held and just spent against this
+   * booking — which can be fully used on the very first view.
+   *
+   * UNKNOWN STATE SHOWS THE BADGES. `state` is null while the status fetch is in
+   * flight and if it fails. /v/{code}/wallet re-reads Neon at tap time and
+   * refuses onto a page that explains the real position, so the cost of showing
+   * a stale button is one redirect — where hiding a working one because a
+   * decorative fetch timed out is a dead end with no recourse.
+   */
+  const canAddToWallet =
+    !state || (!state.voided && !state.expired && state.items.some((i) => !i.spent));
+
   const expiry = state?.expiresAt
     ? new Date(state.expiresAt).toLocaleDateString("en-US", {
         month: "long",
@@ -288,6 +311,34 @@ function VipVoucherDetailCard({
           your voucher page
         </a>
       </p>
+      {/* Add to Wallet, UNDER the QR. A VIP voucher is live for a year, so the
+          pass is the copy that survives a cleared inbox — but the QR above needs
+          nothing installed and is what a kiosk reads today, so it stays first.
+
+          BOTH BADGES, ALWAYS. /v/ filters to one because it renders on the server
+          and knows the UA for free; this page is a client component, where reading
+          navigator during render is a hydration mismatch and reading it in an
+          effect makes two badges visibly collapse to one after paint. Both IS the
+          documented answer for an unknown platform (wallet/platform.ts) — the
+          badges name themselves, and ?platform= in the href means the route never
+          has to guess either way.
+
+          White plate for contrast on the dark card; see wallet/badges.ts. */}
+      {canAddToWallet && (
+        <div className="mx-auto mt-4 w-fit rounded-2xl bg-white p-4">
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            {WALLET_BADGES.map((w) => (
+              <a
+                key={w.platform}
+                href={walletBadgeHref(`/v/${encodeURIComponent(code)}`, w.platform)}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element -- vendor artwork must ship byte-for-byte; the optimizer would re-encode it */}
+                <img src={w.svg} alt={w.label} width={w.width} height={BADGE_HEIGHT} />
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
       {state ? (
         <ul className="mx-auto mt-4 flex max-w-md flex-col gap-2 text-left">
           {state.items.map((i) => (
@@ -427,6 +478,10 @@ export default function ConfirmationPage() {
    *  not loaded / failed — the tile + detail degrade to code + QR only. */
   const [voucherState, setVoucherState] = useState<{
     expiresAt: string | null;
+    /** Both already come back from the status action; the page used to drop
+     *  them. The Add-to-Wallet control needs them — see canAddToWallet. */
+    expired: boolean;
+    voided: boolean;
     items: Array<{ index: number; label: string; spent: boolean }>;
   } | null>(null);
   const confirmStarted = useRef(false);
@@ -1615,7 +1670,17 @@ export default function ConfirmationPage() {
   // for the hub tile and its detail view. Both best-effort — a miss degrades
   // to code + link, never a broken tile.
   useEffect(() => {
-    const code = (bookingRec?.vipVoucherCode as string | null | undefined) ?? null;
+    // SAME RESOLUTION AS THE RENDER (see vipVoucherCode below): a granted code
+    // first, else the deal-pack voucher this booking was paid with. This effect
+    // used to read `vipVoucherCode` alone while the card fell back to
+    // `redeemedVoucherCodes[0]`, so a redeemed deal pack rendered the card with
+    // no QR and no Available/Used chips at all. It also happens to be the ONLY
+    // voucher class this page shows that can already be spent or expired, which
+    // is exactly the state the wallet control has to gate on.
+    const redeemed = Array.isArray(bookingRec?.redeemedVoucherCodes)
+      ? (bookingRec.redeemedVoucherCodes as string[])
+      : [];
+    const code = (bookingRec?.vipVoucherCode as string | null | undefined) ?? redeemed[0] ?? null;
     if (!code) return;
     let alive = true;
     QRCode.toDataURL(`${window.location.origin}/v/${encodeURIComponent(code)}`, {
@@ -1634,7 +1699,12 @@ export default function ConfirmationPage() {
       .then((r) => r.json())
       .then((d) => {
         if (alive && d?.ok === true && Array.isArray(d.items)) {
-          setVoucherState({ expiresAt: d.expiresAt ?? null, items: d.items });
+          setVoucherState({
+            expiresAt: d.expiresAt ?? null,
+            expired: d.expired === true,
+            voided: d.voided === true,
+            items: d.items,
+          });
         }
       })
       .catch(() => {});

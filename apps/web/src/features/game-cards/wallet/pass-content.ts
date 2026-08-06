@@ -15,10 +15,14 @@
  * voucher on two screens. So the ONLY thing this module adds is joining those
  * rows into one short line that fits an Apple Wallet field.
  *
- * ── ONE FIELD, LABELLED "REMAINING", IN EVERY STATE ─────────────────────────
+ * ── ONE FIELD, LABELLED "YOUR VOUCHER", IN EVERY STATE ──────────────────────
  * An untouched voucher's remaining IS everything it was minted with, so the face
  * never switches wording and the template needs no conditional design. That one
  * decision is why partial redemption needs no second template.
+ *
+ * The face is width-limited and a VIP grant never fits it, so the same list goes
+ * out UNABRIDGED as `voucherDetail` for a back field. Two renderings, one
+ * derivation — see summariseRemaining / detailRemaining.
  *
  * ── THE PASS IS A PROJECTION, NEVER THE LEDGER ──────────────────────────────
  * `voucher_claims` is the authority for what's been taken (one atomic CAS per
@@ -80,17 +84,40 @@ export function remainingItems(states: RemainingInput[]): RemainingInput[] {
 }
 
 /**
- * Unspent legs → one short guest-facing line, worded and counted EXACTLY as
+ * Unspent legs → one guest-facing line, worded and counted EXACTLY as
  * `/v/{code}` renders them (`{total} × {label}`, see VoucherRedeemView).
+ *
+ * NO LENGTH LIMIT — this is the full truth, for surfaces that have room (the
+ * pass BACK). `summariseRemaining` is the same string under the face's cap, so
+ * the two can never describe the voucher differently; only the width differs.
  *
  * Empty input returns "" — the caller decides whether that means "fully
  * redeemed" or "nothing to show", because those need different treatment.
  */
-export function summariseRemaining(states: RemainingInput[]): string {
-  const groups = groupVoucherItems(states.filter((s) => !s.spent));
+export function detailRemaining(states: RemainingInput[]): string {
   // `voucherGroupLabel` owns the summed-vs-counted rule: token totals already add
   // up in the label, so prefixing "N ×" would double-count them.
-  const parts = groups.map(voucherGroupLabel);
+  return groupVoucherItems(states.filter((s) => !s.spent))
+    .map(voucherGroupLabel)
+    .join(" + ");
+}
+
+/**
+ * The same line, cut to what the pass FACE can show.
+ *
+ * NO VIP GRANT EVER FITS. "Laser Tag or Gel Blasters" alone is 25 of the 34
+ * characters, so every party size from 1 to 7 lands on "{N}00 Tokens + 2 more":
+ *
+ *   400 Tokens + 4 × Laser Tag or Gel Blasters + Shuffly   (52) → 400 Tokens + 2 more
+ *
+ * That is deliberate and it is NOT fixed by raising the cap — 34 is an Apple
+ * elision measurement, and "…4 × Laser Tag or Gel Bl…" reads as broken rather
+ * than abbreviated. The fix is that `voucherDetail` carries the unabridged list
+ * to a back field, which has no width pressure. Do not widen this in place of
+ * that.
+ */
+export function summariseRemaining(states: RemainingInput[]): string {
+  const parts = groupVoucherItems(states.filter((s) => !s.spent)).map(voucherGroupLabel);
   const full = parts.join(" + ");
   if (full.length <= MAX_VALUE_CHARS || parts.length < 2) return full;
   // Summarise rather than let the OS cut a price or a product name in half.
@@ -114,8 +141,17 @@ export interface VoucherPassMeta extends Record<string, string> {
   code: string;
   /** Barcode payload. The kiosk already unwraps `/v/{code}` (code-entry/classify.ts). */
   redeemUrl: string;
-  /** The "REMAINING" field. */
+  /** The face's "YOUR VOUCHER" field — capped, see summariseRemaining. */
   voucherValue: string;
+  /**
+   * The BACK field: every remaining leg, unabridged.
+   *
+   * The face physically cannot hold a VIP grant, and before this key existed no
+   * part of the pass named the entitlements — a guest saw "400 Tokens + 2 more"
+   * with nowhere to find out what the 2 were, on a package where the attractions
+   * are arguably the better half.
+   */
+  voucherDetail: string;
   expires: string;
   voucherKind: string;
   batchId: string;
@@ -136,6 +172,7 @@ export function buildPassMeta(args: {
     // an empty field, but the value still has to say something if a render
     // races that flip.
     voucherValue: summariseRemaining(args.remaining) || "Fully redeemed",
+    voucherDetail: detailRemaining(args.remaining) || "Fully redeemed",
     // Same ET formatter the /v page uses — a voucher expiring 11:59 PM ET must
     // not read as the next day for a guest whose phone is on another timezone.
     expires: formatVoucherExpiry(args.expiresAt) ?? "No expiry",

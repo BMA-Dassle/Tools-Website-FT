@@ -11,6 +11,7 @@
  * combo-notify.ts: notification concerns stay out of client bundles.
  */
 
+import { walletBadgesEmailHtml } from "~/features/game-cards/wallet/badges";
 import type { ComboLeg, ComboSpecial } from "./combo-specials";
 
 /**
@@ -202,6 +203,9 @@ export function buildVipVoucherSectionHtml(args: {
   redeemUrl: string;
   /** Inline QR attachment content id. */
   qrCid: string;
+  /** Absolute site origin, for the wallet badge images. Mail has no origin to
+   *  resolve a relative src against, so this is required, not derived. */
+  origin: string;
 }): string {
   // COLLAPSE IDENTICAL LABELS INTO A QTY (owner 2026-08-03: "its just a long
   // list of what is include do by qty and format right"). A 7-guest VIP grant
@@ -229,6 +233,25 @@ export function buildVipVoucherSectionHtml(args: {
         year: "numeric",
       })
     : null;
+  // ADD TO WALLET, UNDER THE QR — not instead of it. A VIP voucher is live for a
+  // YEAR from the race date, which is a long time to keep an email findable, so
+  // the pass is the durable copy. But the QR needs nothing installed and is what
+  // a kiosk reads today, so it stays the first option.
+  //
+  // No white plate: this card is #FFFBEB, light enough for Apple's black-fill
+  // badge, and a stark white panel would read as a floating box on cream. The
+  // kiosk-sale email's card IS dark and does panel them.
+  //
+  // Nothing is issued by rendering this. The badge links to /v/{code}/wallet,
+  // which creates the pass only when it is actually opened and re-checks Neon
+  // first — so a voucher voided months after this mail was sent lands the guest
+  // on an explanation rather than a pass.
+  const walletHtml = walletBadgesEmailHtml({
+    redeemUrl: args.redeemUrl,
+    origin: args.origin,
+    align: "center",
+    panel: false,
+  });
   return `
 <tr>
 <td style="padding: 0 40px 24px 40px; font-family: Arial, sans-serif;">
@@ -240,6 +263,10 @@ export function buildVipVoucherSectionHtml(args: {
 <tr><td align="center" style="padding: 4px 0;">
   <img src="cid:${args.qrCid}" width="160" height="160" alt="Scan this voucher at any kiosk" style="display: block; margin: 0 auto; border: 1px solid #F3E8B8; border-radius: 8px;" />
   <p style="margin: 6px 0 0 0; font-size: 12px; color: #666;">Scan this QR at any kiosk, or open <a href="${args.redeemUrl}" style="color: #B8860B;">your voucher page</a>.</p>
+</td></tr>
+<tr><td align="center" style="padding: 2px 0 6px 0;">
+  <p style="margin: 0 0 6px 0; font-size: 12px; color: #666;">Prefer to keep it on your phone?</p>
+  ${walletHtml}
 </td></tr>
 <tr><td style="padding: 4px 8px;">
   <table width="100%" cellpadding="0" cellspacing="0" border="0">${items}</table>

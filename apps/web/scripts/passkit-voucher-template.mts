@@ -176,28 +176,48 @@ const DATA_FIELDS = [
     priority: 1,
     align: "RIGHT",
   }),
+  // THE FACE CANNOT HOLD A VIP GRANT. custom.offer is capped at 34 chars because
+  // Apple elides past that, and "Laser Tag or Gel Blasters" is 25 of them on its
+  // own — so every Ultimate VIP Experience voucher, at every party size, renders
+  // as "400 Tokens + 2 more". Before this field existed, nothing anywhere on the
+  // pass said what the other 2 were. Back fields have no width pressure, so the
+  // unabridged list goes here (pass-content.ts `detailRemaining`), derived from
+  // the same grouping as the face so the two sides can never disagree.
+  field({
+    uniqueName: "custom.detail",
+    label: "What's on this voucher",
+    value: "${meta.voucherDetail}",
+    section: "BACK_FIELDS",
+    priority: 0,
+  }),
   field({
     uniqueName: "custom.howto",
     label: "How to redeem",
     value:
       "Scan this pass at any HeadPinz kiosk, or type the code on the " +
-      "'Coupon or voucher?' screen. The credit applies at checkout — nothing else to pay.",
+      "'Coupon or voucher?' screen. Game Zone credit loads onto a card right there; " +
+      "attraction passes come off your total when you book them.",
     section: "BACK_FIELDS",
-    priority: 0,
+    priority: 1,
   }),
   field({
     uniqueName: "custom.where",
     label: "Where",
     value: "HeadPinz Fort Myers · HeadPinz Naples",
     section: "BACK_FIELDS",
-    priority: 1,
+    priority: 2,
   }),
+  // NOT "one-time use". A voucher carrying nine legs is redeemed IN PIECES —
+  // partial redemption is the whole design (voucher-pass.ts), and the old wording
+  // told a VIP guest their remaining eight entitlements were gone.
   field({
     uniqueName: "custom.terms",
     label: "Terms",
-    value: "One-time use. Not redeemable for cash. Valid until the expiry date shown.",
+    value:
+      "Each item can be used once. Not transferable, not redeemable for cash. " +
+      "Valid until the expiry date shown.",
     section: "BACK_FIELDS",
-    priority: 2,
+    priority: 3,
   }),
 ];
 
@@ -250,6 +270,15 @@ await pk("PUT", "/template", {
     // ${coupon.externalId} does NOT exist — it renders literally as
     // "missing: coupon.externalId" and only fails at a kiosk. Drive both off
     // per-coupon metaData.
+    //
+    // THE PAYLOAD IS THE URL, NOT THE CODE, so one symbol serves both readers: a
+    // phone camera opens /v/{code}, and the kiosk pulls the code back out of the
+    // path (code-entry/classify.ts). IF A KIOSK SCANNER EVER FAILS ON THIS, the
+    // lever is `payload: "${meta.code}"` — a 27-char URL is a much denser symbol
+    // at Wallet's fixed render size than a 13-char code, and the wedge mangling
+    // ':' or '/' would drop the whole string to `unknown` (the native-voucher
+    // branch is never reached for a string containing slashes). The cost of
+    // pulling it is losing the phone-camera deep link. Test before you pull it.
     payload: "${meta.redeemUrl}",
     altText: "${meta.code}",
     format: "QR",

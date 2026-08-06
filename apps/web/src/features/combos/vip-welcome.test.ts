@@ -159,6 +159,7 @@ describe("buildVipVoucherSectionHtml — the V2 grant card", () => {
     expiresAt: "2027-08-03T04:59:59.000Z",
     redeemUrl: "https://headpinz.com/v/HPW4K7M9PQR",
     qrCid: "qr-HPW4K7M9PQR",
+    origin: "https://headpinz.com",
   };
 
   it("renders the code, the cid QR (never a data: URI), and every item", () => {
@@ -189,6 +190,39 @@ describe("buildVipVoucherSectionHtml — the V2 grant card", () => {
   it("escapes bare ampersands in item labels (email HTML stays valid)", () => {
     const html = buildVipVoucherSectionHtml({ ...args, itemLabels: ["chips & salsa"] });
     expect(html).toContain("chips &amp; salsa");
+  });
+
+  it("offers both wallet badges, each stating its own platform", () => {
+    // A VIP voucher is live for a year — the pass is the durable copy of a mail
+    // nobody will still be able to find by then.
+    const html = buildVipVoucherSectionHtml(args);
+    expect(html).toContain("https://headpinz.com/v/HPW4K7M9PQR/wallet?platform=apple");
+    expect(html).toContain("https://headpinz.com/v/HPW4K7M9PQR/wallet?platform=google");
+  });
+
+  it("uses absolute @2x PNG badges — a mail client renders neither SVG nor a relative src", () => {
+    const html = buildVipVoucherSectionHtml(args);
+    expect(html).toContain('src="https://headpinz.com/brand/wallet/apple-wallet-en@2x.png"');
+    expect(html).toContain('src="https://headpinz.com/brand/wallet/google-wallet-en@2x.png"');
+    expect(html).not.toContain("wallet-en.svg");
+  });
+
+  it("keeps the QR — the badges are the second option, not a replacement", () => {
+    // A kiosk reads the QR with nothing installed; losing it to make room for a
+    // wallet button would be a downgrade for the guest who just wants to scan.
+    const html = buildVipVoucherSectionHtml(args);
+    expect(html).toContain('src="cid:qr-HPW4K7M9PQR"');
+    expect(html.indexOf("cid:qr-")).toBeLessThan(html.indexOf("platform=apple"));
+  });
+
+  it("takes the badge host from the caller, so a preview build does not hotlink prod", () => {
+    const html = buildVipVoucherSectionHtml({
+      ...args,
+      redeemUrl: "https://preview.example.com/v/HPW4K7M9PQR",
+      origin: "https://preview.example.com",
+    });
+    expect(html).toContain('src="https://preview.example.com/brand/wallet/apple-wallet-en@2x.png"');
+    expect(html).not.toContain("headpinz.com/brand");
   });
 });
 
@@ -225,6 +259,7 @@ describe("buildVipVoucherSectionHtml — repeated items collapse to a qty", () =
     expiresAt: "2027-08-03T23:59:59-04:00",
     redeemUrl: "https://headpinz.com/v/HPW4K7M9PQR",
     qrCid: "qr-x",
+    origin: "https://headpinz.com",
   };
 
   it("renders one row per DISTINCT item with a count", () => {
@@ -259,7 +294,10 @@ describe("buildVipVoucherSectionHtml — repeated items collapse to a qty", () =
   });
 
   it("still escapes a bare ampersand in a label", () => {
-    const html = buildVipVoucherSectionHtml({ ...base, itemLabels: ["chips & salsa", "chips & salsa"] });
+    const html = buildVipVoucherSectionHtml({
+      ...base,
+      itemLabels: ["chips & salsa", "chips & salsa"],
+    });
     expect(html).toContain("2 &times; chips &amp; salsa");
   });
 });
