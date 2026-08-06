@@ -38,6 +38,23 @@ export interface PassKitProject {
  * Guest vouchers (`HPW…`). Single-use coupon protocol: billed once at issuance,
  * so passes are created lazily when a guest taps Add to Wallet.
  */
+/**
+ * The voucher offer's `redemptionEndDate`, and a HARD CEILING on any coupon
+ * expiry we send.
+ *
+ * The offer runs `couponExpiryType: EXPIRE_ON_VARIABLE_DATE_TIME`, which makes
+ * `expiryDate` MANDATORY on every coupon — omitting it answers
+ * `cannot set coupon expiry. missing expiryDate field.` and the guest's Add to
+ * Wallet button silently bounces back with `?wallet=error` (live 2026-08-06,
+ * every voucher without its own expiry). Sending one LATER than this answers
+ * `expiry date cannot greater than the redemption end date`. So it is required
+ * AND capped, and both failure modes are a 400 that looks like a broken button.
+ *
+ * Kept here beside the offer id because it belongs to that offer: change one in
+ * the PassKit portal and this must move with it.
+ */
+export const PASSKIT_VOUCHER_EXPIRY_CEILING = "2027-08-04T03:59:59Z";
+
 export const PASSKIT_VOUCHER: PassKitProject = {
   campaignId: "5ZmFoKJyWxD4kAFLr1uHoa",
   offerId: "4Al5xm9HjoqBZd5PUtE9Xr",
