@@ -336,6 +336,21 @@ export default function RacingPage() {
               Get it on Google Play
             </a>
           </div>
+
+          {/* The app asks for a login code, and most racers have no idea they
+              already have one — it is the same code as their racing licence,
+              their kiosk sign-in and their register login. Without this the
+              download is a dead end for anyone who cannot remember it. */}
+          <p className="mt-6 text-white/60 font-body text-sm leading-relaxed max-w-md">
+            Need your login code?{" "}
+            <Link
+              href="/racer"
+              className="text-[#00E2E5] font-semibold underline-offset-4 hover:underline"
+            >
+              Find your racing licence
+            </Link>{" "}
+            — it&rsquo;s the same code you use to sign in at the kiosk and at the register.
+          </p>
         </div>
       </section>
 

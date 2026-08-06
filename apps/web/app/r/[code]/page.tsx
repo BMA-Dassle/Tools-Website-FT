@@ -6,6 +6,7 @@ import { RACER_PUBLIC_CODE_RE } from "~/features/kiosk/license/types";
 import { resolveRacerHub } from "~/features/racing/service/racer-hub";
 import { walletPlatformFromUserAgent } from "~/features/game-cards/wallet/platform";
 import { WALLET_BADGES, BADGE_HEIGHT } from "~/features/game-cards/wallet/badges";
+import CopyCode from "~/features/racing/components/CopyCode";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -153,6 +154,37 @@ export default async function RacerHubPage({ params }: { params: Promise<{ code:
                   Book a race
                 </Link>
               )}
+            </section>
+
+            {/* ACTIVITY BOX — the SMS-Timing racer app, where lap times and race
+                history live. Same login code as the licence: one credential for
+                the kiosk, the desk, the register and the app. Shown large and
+                copyable because the app asks a racer to TYPE it, unlike
+                everything else here, which scans it. */}
+            <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+              <p className="font-display text-[11px] uppercase tracking-[0.2em] text-white/40">
+                Activity Box
+              </p>
+              <p className="mt-1.5 text-white text-sm font-semibold">Check your race stats</p>
+              <p className="mt-1 text-white/40 text-xs leading-relaxed">
+                Lap times, race history and your ProSkill ranking. Sign in with the code below.
+              </p>
+
+              <div className="mt-3 rounded-xl border border-white/10 bg-black/25 px-3.5 py-3">
+                <p className="text-white/35 text-[10px] uppercase tracking-[0.16em] mb-1.5">
+                  Login code
+                </p>
+                <CopyCode code={hub.code} label="Copy your login code" />
+              </div>
+
+              <a
+                href="https://smstim.in/headpinzftmyers"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-block text-[#00E2E5] text-xs font-semibold"
+              >
+                Get the Activity Box app ›
+              </a>
             </section>
 
             {badges.length > 0 && (
