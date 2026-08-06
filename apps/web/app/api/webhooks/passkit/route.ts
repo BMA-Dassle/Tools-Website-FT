@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { applyPassEvent } from "~/features/racing/wallet/licence-reconcile";
+import { verifyPassKitWebhook } from "~/features/racing/wallet/webhook-auth";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -21,19 +22,22 @@ export const runtime = "nodejs";
  * push and poll can never disagree about what is safe to delete.
  *
  * ── Auth ────────────────────────────────────────────────────────────────────
- * A shared secret in `PASSKIT_WEBHOOK_SECRET`, accepted as a bearer token or a
- * `?secret=` query param because portal UIs vary in what they let you set. When
- * the variable is UNSET the endpoint refuses everything rather than defaulting
- * open: it can delete a guest's credential, so an unauthenticated caller must
- * never reach it.
+ * PASSKIT MINTS THE SECRET, WE DO NOT — see webhook-auth.ts. The first version
+ * of this file checked a bearer token of OUR choosing, which no real delivery
+ * could ever have carried, and it rejected BEFORE logging, so a misconfigured
+ * webhook would have looked identical to a silent one forever.
+ *
+ * Put PassKit's generated secret in `PASSKIT_WEBHOOK_SECRET`. Unset = nothing is
+ * ever acted on, because a verified delivery deletes a guest's credential.
+ *
+ * ── Why an unverified delivery still answers 200 ────────────────────────────
+ * It is ACKNOWLEDGED, never ACTED ON. A sender that gets a 4xx retries and can
+ * eventually disable the subscription — and while the exact signature scheme is
+ * still being confirmed, a wrong guess on our side must not cost us the
+ * subscription. Nothing is deleted, nothing is recorded, and the delivery is
+ * logged loudly with the header names so the real scheme is knowable from ONE
+ * event rather than a deploy-and-guess cycle.
  */
-function authorised(req: NextRequest): boolean {
-  const secret = process.env.PASSKIT_WEBHOOK_SECRET;
-  if (!secret) return false; // closed until deliberately configured
-  const auth = req.headers.get("authorization") || "";
-  if (auth === `Bearer ${secret}` || auth === secret) return true;
-  return new URL(req.url).searchParams.get("secret") === secret;
-}
 
 /**
  * PassKit's payload shape is not documented for our region and the portal only
@@ -79,20 +83,36 @@ function extract(body: unknown): { personId: string; status: string } | null {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  if (!authorised(req)) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // RAW TEXT, NOT req.json(). The signature is computed over the bytes PassKit
+  // sent; re-serialising parsed JSON changes key order and whitespace, and the
+  // HMAC then never matches a sender that is working perfectly.
+  const rawBody = await req.text();
+  const auth = verifyPassKitWebhook(req.headers, req.url, rawBody);
+
+  // Logged on EVERY delivery, verified or not — the portal documents neither the
+  // signature scheme nor the payload shape, and one real event settles both.
+  console.log(
+    `[passkit-webhook] verified=${auth.verified} via=${auth.via ?? "-"} headers=${auth.headerNames.join(",")}`,
+  );
+  console.log("[passkit-webhook] payload:", rawBody.slice(0, 800));
+
+  if (!auth.verified) {
+    // Acknowledged, never acted on. See the header note on why this is not a 401.
+    console.warn(
+      "[passkit-webhook] UNVERIFIED — no action taken." +
+        (process.env.PASSKIT_WEBHOOK_SECRET
+          ? " Secret is set, so the signature scheme above did not match any form we accept."
+          : " PASSKIT_WEBHOOK_SECRET is UNSET."),
+    );
+    return NextResponse.json({ ok: true, verified: false, action: "none" });
   }
 
   let body: unknown;
   try {
-    body = await req.json();
+    body = JSON.parse(rawBody);
   } catch {
     return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
   }
-
-  // Logged on every delivery until the shape is known — the portal gives no
-  // documentation and one real event settles it.
-  console.log("[passkit-webhook] payload:", JSON.stringify(body).slice(0, 800));
 
   // BOTH PROGRAMS POST HERE. A voucher event is legitimate and must not be
   // logged as "unrecognised" — that noise would bury a real parsing failure.

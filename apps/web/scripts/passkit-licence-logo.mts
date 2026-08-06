@@ -68,7 +68,6 @@ const BASE = process.env.PASSKIT_API_URL || "https://api.pub2.passkit.io";
 const TEMPLATE_ID = "75paqKfII1FIn9kImwIvi2";
 /** Card background. The mark is flattened onto this — PassKit composites
  *  transparency onto BLACK, which reads as a dark box on a coloured card. */
-const BG_HEX = "#000418";
 const BG = { r: 0x00, g: 0x04, b: 0x18, alpha: 1 };
 
 function jwt(): string {
@@ -155,15 +154,19 @@ if (holders?.ok) {
 }
 
 // ── The proposed template: live, plus exactly two keys. ─────────────────────
+// Bound to a const: the `if (!live) throw` above narrows the outer binding, but
+// that narrowing does not survive into a closure, so tsc rightly flags
+// `live.imageIds` here as possibly-undefined.
+const base = live;
 function proposed(imageIds: Record<string, unknown>): Record<string, unknown> {
   return {
-    ...live,
+    ...base,
     imageIds: {
-      ...((live.imageIds as Record<string, unknown>) ?? {}),
+      ...((base.imageIds as Record<string, unknown>) ?? {}),
       ...imageIds,
     },
     appleWalletSettings: {
-      ...((live.appleWalletSettings as Record<string, unknown>) ?? {}),
+      ...((base.appleWalletSettings as Record<string, unknown>) ?? {}),
       // Renders as TEXT beside the logo in the collapsed stack row, so the card
       // is identifiable even at the size Apple draws it there — and it does not
       // depend on PassKit's squaring of the logo image.
