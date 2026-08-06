@@ -388,10 +388,22 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
     };
 
     if (products.length === 0) {
+      // WHY this can be empty at all: on a Mega day the ONLY junior product is
+      // Junior Pro (owner 2026-08-05 — no Junior Starter, no Junior
+      // Intermediate), so a junior below that tier has nothing to book. Say
+      // that, rather than the old "try a different date" — which is actively
+      // wrong on the kiosk, where there IS no date step (it books TODAY) and the
+      // guest is standing at the machine with no way to act on the advice.
+      const megaJuniorDeadEnd =
+        category === "junior" && scheduleForDate(item.date as string) === "mega";
+      const onKiosk = !!session.context?.kiosk;
       return (
-        <div className="py-8 text-center">
+        <div className="space-y-2 py-8 text-center">
+          <p className="text-sm text-white/60">
+            {megaJuniorDeadEnd ? t("raceProduct.empty.megaJunior") : t("raceProduct.empty.generic")}
+          </p>
           <p className="text-sm text-white/40">
-            No races available for this date and party. Try a different date.
+            {onKiosk ? t("raceProduct.empty.askStaff") : "Please pick a different date."}
           </p>
         </div>
       );

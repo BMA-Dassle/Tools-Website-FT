@@ -175,6 +175,15 @@ export const miscEn = {
   "raceTier.locked.title": "{tier} Race",
   "raceTier.locked.badge": "Not unlocked",
   "raceTier.locked.unlock": "Qualify in {tier} first to race this level",
+
+  // --- Nothing to book on this screen (RaceProductStep, empty product list) ---
+  // The kiosk books TODAY and has no date step, so it must never say "try a
+  // different date". The Mega variant names the real reason: Mega days run
+  // Junior Pro only, so a junior below that tier has no race at all.
+  "raceProduct.empty.megaJunior":
+    "Mega Track days run Junior Pro races only — there is no Junior Starter or Junior Intermediate race today. Your junior racers need to qualify up to Junior Pro on a Blue/Red track day first.",
+  "raceProduct.empty.generic": "No races available for your party today.",
+  "raceProduct.empty.askStaff": "Guest Services can help you sort this out.",
 } as const;
 
 export const miscEs: Record<keyof typeof miscEn, string> = {
@@ -321,4 +330,10 @@ export const miscEs: Record<keyof typeof miscEn, string> = {
   "raceTier.locked.title": "Carrera {tier}",
   "raceTier.locked.badge": "No desbloqueado",
   "raceTier.locked.unlock": "Califica en {tier} primero para correr este nivel",
+
+  // --- Nada que reservar en esta pantalla (lista de productos vacía) ---
+  "raceProduct.empty.megaJunior":
+    "Los días de Mega Track solo tienen carreras Junior Pro — hoy no hay carreras Junior Starter ni Junior Intermediate. Tus pilotos Junior deben clasificar hasta Junior Pro primero en un día de pista Blue/Red.",
+  "raceProduct.empty.generic": "No hay carreras disponibles para tu grupo hoy.",
+  "raceProduct.empty.askStaff": "El personal de Guest Services puede ayudarte con esto.",
 };
