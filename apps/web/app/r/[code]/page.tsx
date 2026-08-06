@@ -61,7 +61,10 @@ export default async function RacerHubPage({ params }: { params: Promise<{ code:
   const badges = WALLET_BADGES.filter((b) => !platform || b.platform === platform);
 
   return (
-    <main className="min-h-screen bg-[#00041b] px-4 py-10 sm:py-14">
+    // Generous top padding even without site chrome: this page suppresses the
+    // Nav (it was covering the racer's NAME), so nothing else is holding the
+    // header off the top of the viewport.
+    <main className="min-h-screen bg-[#00041b] px-4 pb-14 pt-14 sm:pt-20">
       {/* Two columns from md up. A single 28rem column centred on a 1440px
           monitor was mostly empty space, and the QR — the one thing a guest
           holds up to a scanner — was the smallest element on the screen. */}
@@ -71,7 +74,7 @@ export default async function RacerHubPage({ params }: { params: Promise<{ code:
             FastTrax Racing Licence
           </p>
           <h1
-            className="mt-2 text-3xl sm:text-4xl md:text-5xl font-display uppercase tracking-widest text-white"
+            className="mt-2 text-3xl sm:text-4xl md:text-5xl font-display uppercase tracking-widest text-white break-words"
             style={{ textWrap: "balance" }}
           >
             {hub.fullName}
