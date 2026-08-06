@@ -7,6 +7,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildLicenceMeta,
+  heatEpoch,
   formatHeat,
   formatLicenceDate,
   ordinal,
@@ -159,5 +160,43 @@ describe("buildLicenceMeta", () => {
 
   it("renders a zero race count rather than an empty field", async () => {
     expect((await buildLicenceMeta({ ...base, races: null })).races).toBe("0");
+  });
+});
+
+describe("TWO TIME CONVENTIONS — the bug that shipped 6:48 PM for a 10:48 PM heat", () => {
+  // Pandora's scheduledStart is absolute UTC and says so with a Z.
+  // A booking record's heatStart is CENTRE-LOCAL and says nothing.
+  //
+  // `new Date()` resolves a naive string in the SERVER's zone: ET on a laptop,
+  // UTC on Vercel. So this rendered correctly in every test and every local
+  // check, and four hours early for every guest in production (2026-08-06,
+  // reported by racers). The two spellings below are the SAME instant.
+  const NAIVE_CENTRE_LOCAL = "2026-08-06T22:48:00";
+  const ABSOLUTE_UTC = "2026-08-07T02:48:00.000Z";
+
+  it("renders both spellings of the same heat identically", () => {
+    const a = formatHeat({ scheduledStart: NAIVE_CENTRE_LOCAL, track: "Red", heatNumber: 60 });
+    const b = formatHeat({ scheduledStart: ABSOLUTE_UTC, track: "Red", heatNumber: 60 });
+    expect(a.nextRace).toBe("Aug 6 · 10:48 PM · Red");
+    expect(a.nextRace).toBe(b.nextRace);
+    expect(a.nextRaceLong).toBe(b.nextRaceLong);
+  });
+
+  it("never reads a naive stamp as UTC — that is the four-hour error", () => {
+    expect(formatHeat({ scheduledStart: NAIVE_CENTRE_LOCAL, track: "Red" }).nextRace).not.toContain(
+      "6:48",
+    );
+  });
+
+  it("compares both spellings to the same instant", () => {
+    // Used to decide "is this heat still ahead of us?" — four hours off there
+    // silently drops a heat that has not happened yet.
+    expect(heatEpoch(NAIVE_CENTRE_LOCAL)).toBe(heatEpoch(ABSOLUTE_UTC));
+  });
+
+  it("keeps a date-only value on its own day", () => {
+    // "2027-01-16" through `new Date()` is UTC midnight, which is JANUARY 15th
+    // in ET — a waiver expiring a day early on every pass.
+    expect(formatLicenceDate("2027-01-16")).toBe("Jan 16th, 2027");
   });
 });

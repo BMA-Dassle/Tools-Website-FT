@@ -55,8 +55,46 @@ export function ordinal(d: number): string {
   return `${d}th`;
 }
 
+/**
+ * Does this timestamp say WHICH zone it is in?
+ *
+ * TWO SOURCES, TWO CONVENTIONS, AND ONLY ONE SAYS SO:
+ *   Pandora `scheduledStart`  "2026-08-07T02:48:00.000Z"  absolute UTC
+ *   booking `heatStart`       "2026-08-06T22:48:00"       centre-local, no marker
+ *
+ * `new Date()` resolves a naive string in the SERVER's zone — ET on a developer
+ * laptop, UTC on Vercel. So a booking heat rendered 10:48 PM in dev and 6:48 PM
+ * in production: correct everywhere we tested, wrong for every guest
+ * (2026-08-06, reported by racers).
+ */
+function hasZone(iso: string): boolean {
+  return /(?:[Zz]|[+-]\d{2}:?\d{2})$/.test(iso.trim());
+}
+
 function parts(iso: string, opts: Intl.DateTimeFormatOptions): Record<string, string> {
-  const dt = new Date(iso);
+  const raw = String(iso ?? "").trim();
+  if (!raw) return {};
+
+  // NAIVE = already centre-local. Read the wall clock literally and never let a
+  // Date constructor guess a zone for it. The weekday is derived from the same
+  // literal components anchored in UTC, so it cannot drift either.
+  // Date-only counts as naive too: "2027-01-16" through `new Date()` is UTC
+  // midnight, which renders as JANUARY 15th in ET — a waiver expiring a day
+  // early on every pass.
+  const naive = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?/);
+  if (naive && !hasZone(raw)) {
+    const [, y, mo, d, h = "0", mi = "0"] = naive;
+    const anchored = new Date(
+      Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi)),
+    );
+    return Object.fromEntries(
+      new Intl.DateTimeFormat("en-US", { timeZone: "UTC", ...opts })
+        .formatToParts(anchored)
+        .map((p) => [p.type, p.value]),
+    );
+  }
+
+  const dt = new Date(raw);
   if (isNaN(dt.getTime())) return {};
   return Object.fromEntries(
     new Intl.DateTimeFormat("en-US", { timeZone: TZ, ...opts }).formatToParts(dt).map((p) => [
@@ -64,6 +102,44 @@ function parts(iso: string, opts: Intl.DateTimeFormatOptions): Record<string, st
       p.value,
     ]),
   );
+}
+
+/**
+ * A comparable epoch for either convention — for "is this heat still ahead of
+ * us?" checks, which `new Date()` gets wrong on a naive string by the whole ET
+ * offset and can therefore drop a heat that has not happened yet.
+ */
+export function heatEpoch(iso: string | null | undefined): number {
+  const raw = String(iso ?? "").trim();
+  if (!raw) return NaN;
+  const naive = raw.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  if (naive && !hasZone(raw)) {
+    const [, y, mo, d, h, mi] = naive;
+    // Treat the wall clock as UTC, ask what ET calls that instant, and the gap
+    // between the two IS the zone offset for that date — which handles EDT and
+    // EST without a table and never consults the server's own zone.
+    const asUtc = Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi));
+    const et = new Intl.DateTimeFormat("en-US", {
+      timeZone: TZ,
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+      .formatToParts(new Date(asUtc))
+      .reduce<Record<string, string>>((acc, p) => ((acc[p.type] = p.value), acc), {});
+    const etAsUtc = Date.UTC(
+      Number(et.year),
+      Number(et.month) - 1,
+      Number(et.day),
+      Number(et.hour) % 24,
+      Number(et.minute),
+    );
+    return asUtc + (asUtc - etAsUtc);
+  }
+  return new Date(raw).getTime();
 }
 
 export function formatLicenceDate(iso: string | null | undefined): string {

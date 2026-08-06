@@ -15,6 +15,7 @@ import redis from "@/lib/redis";
 import { lookupMemberMatches } from "~/features/kiosk/license/lookup.server";
 import { findTicketIdFor } from "@/lib/race-tickets";
 import { getRacerPass } from "~/features/racing/data/racer-wallet-db";
+import { formatHeat, heatEpoch } from "~/features/racing/wallet/licence-meta";
 import type { LicenseMatch } from "~/features/kiosk/license/types";
 
 /** How long a resolved next race is reused. Short: a heat move should surface
@@ -127,7 +128,10 @@ export async function nextRaceForPerson(personId: string): Promise<RacerNextRace
         }
         for (const r of rec?.racers ?? []) {
           if (String(r?.personId ?? "").trim() !== pid) continue;
-          const start = r?.heatStart ? new Date(r.heatStart).getTime() : NaN;
+          // NOT `new Date()`: heatStart is centre-local with no zone marker, so
+          // on Vercel (UTC) it resolves four hours off and can drop a heat that
+          // has not happened yet.
+          const start = heatEpoch(r?.heatStart);
           if (isNaN(start) || start < now - 20 * 60_000) continue;
           if (!best || start < best.start) best = { start, racer: r };
         }
@@ -157,26 +161,14 @@ export async function nextRaceForPerson(personId: string): Promise<RacerNextRace
   return out;
 }
 
-/** "Aug 5 · 10:48 PM · Red" — the same shape the pass shows. `heatStart` here is
- *  our own booking value; Pandora's genuine-UTC rule applies to `scheduledStart`
- *  on session payloads, not to this one. */
+/** "Aug 5 · 10:48 PM · Red", via the shared formatter.
+ *
+ *  Uses `formatHeat` rather than its own Intl call: a booking record's
+ *  `heatStart` is centre-local with NO zone marker, and converting it through
+ *  `new Date()` renders it four hours early on Vercel (UTC) while looking right
+ *  on a developer laptop (ET). One formatter, one rule. */
 function formatHeatLabel(iso: string | null, track: string | null): string {
-  if (!iso) return "";
-  const dt = new Date(iso);
-  if (isNaN(dt.getTime())) return "";
-  const p = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York",
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    })
-      .formatToParts(dt)
-      .map((x) => [x.type, x.value]),
-  );
-  const when = `${p.month} ${p.day} · ${p.hour}:${p.minute} ${p.dayPeriod}`;
-  return track ? `${when} · ${track}` : when;
+  return formatHeat(iso ? { scheduledStart: iso, track: track ?? "" } : null).nextRace;
 }
 
 /**

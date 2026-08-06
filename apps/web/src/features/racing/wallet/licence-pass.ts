@@ -74,6 +74,11 @@ export interface LicenceMeta {
   checkinStatus?: string;
 }
 
+/** Key order must not decide whether we wake a guest's phone. */
+function sortedMeta(m: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(m).sort(([a], [b]) => a.localeCompare(b)));
+}
+
 /**
  * Create the racer's pass, or recover the one they already have.
  *
@@ -82,11 +87,6 @@ export interface LicenceMeta {
  * than for a voucher: a second member record is a RECURRING charge, not a
  * one-off, so a guest double-tapping "Add to Wallet" must never mint one.
  */
-/** Key order must not decide whether we wake a guest's phone. */
-function sortedMeta(m: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(Object.entries(m).sort(([a], [b]) => a.localeCompare(b)));
-}
-
 export async function issueLicencePass(args: {
   personId: string;
   meta: LicenceMeta;
