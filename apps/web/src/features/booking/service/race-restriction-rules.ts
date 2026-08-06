@@ -24,7 +24,9 @@
  *     slides as the day's earliest heats pass or sell out and drop off the
  *     list). One rule for all tracks since 2026-07-02: every track now runs the
  *     12-min cadence (opens at :24). (Blue ran 15-min — window until :30 — as a
- *     separate -15min rule before the owner moved it to 12-min.)
+ *     separate -15min rule before the owner moved it to 12-min.) `open` comes
+ *     from the FastTrax hours registry for the HEAT's own date, so the Mon–Fri
+ *     1 PM → 3 PM move on 2026-08-10 shifts the window automatically.
  *  3. blue/mega-no-back-to-back-junior — no NEW Junior session adjacent to
  *     another occupied Junior session on Blue or Mega (gap 13 both), counted
  *     across EVERY junior tier ("regardless of anything", owner 2026-07-02): a
@@ -77,6 +79,7 @@
  * branch in `evaluateRaceRestrictions`.
  */
 import { activeVipCombo, getComboSpecial } from "~/features/combos/combo-specials";
+import { fasttraxWeekHours } from "~/lib/constants/fasttrax-hours";
 import type { RaceCategory, RaceTier } from "./race-products";
 
 /** How a blocked slot is surfaced to the customer. */
@@ -145,12 +148,21 @@ export interface RaceRestrictionRule {
    */
   openingWindowExpressOnly?: {
     /**
-     * Per center-local-weekday opening window, in minutes since local midnight.
-     * Key: 0=Sun … 6=Sat. A heat whose local start time is in
+     * Resolve the per-weekday opening windows for a heat's own center-local
+     * calendar date (`YYYY-MM-DD`), in minutes since local midnight. Key:
+     * 0=Sun … 6=Sat. A heat whose local start time is in
      * `[openMinutes, untilMinutes)` on that weekday is express-only. Weekdays
      * absent from the map carry no opening-window restriction.
+     *
+     * A FUNCTION of the heat's date, not a static map, because opening times
+     * change on announced effective dates (Mon–Fri 1 PM → 3 PM on 2026-08-10).
+     * Keying off the heat instead of "now" means a heat on Aug 8 keeps the
+     * 1:00 PM window while a heat on Aug 11 gets the 3:00 PM one — both
+     * correct at the same instant, which a `now`-based gate can't do.
      */
-    windows: Record<number, { openMinutes: number; untilMinutes: number }>;
+    windowsForDate: (
+      isoDate: string,
+    ) => Record<number, { openMinutes: number; untilMinutes: number }>;
   };
   /**
    * Constraint: cap how many OCCUPIED same-scope heats may start within the
@@ -201,33 +213,32 @@ export interface RaceRestrictionRule {
   exemptComboBookings?: boolean;
 }
 
-/** Minutes since local midnight for an `HH:MM` clock time. */
-const at = (hour: number, minute = 0): number => hour * 60 + minute;
-
 type OpeningWindow = { openMinutes: number; untilMinutes: number };
 
 /**
- * Build a per-weekday opening-window map (0=Sun … 6=Sat) from one weekday
- * window (Mon–Fri) and one weekend window (Sat/Sun). FastTrax (Fort Myers)
- * opens at 1:00 PM Mon–Fri and 11:00 AM Sat/Sun.
+ * The opening window reserves the first TWO heats of the day for walk-in /
+ * express-lane parties (new racers need check-in time when the track opens), so
+ * the window length is 2 × the heat cadence — the THIRD heat is the first one a
+ * non-express party can book online. Every track runs the 12-min cadence
+ * (owner 2026-07-02 — Blue was 15-min before): blocks :00 + :12, opens at :24.
+ *
+ * Anchored to the venue's OPEN time from the hours registry
+ * (`~/lib/constants/fasttrax-hours`) — 1:00 PM Mon–Fri and 11:00 AM Sat/Sun
+ * before 2026-08-10, 3:00 PM Mon–Fri after — so a Mon–Fri opening-window change
+ * is a one-line edit there and never silently strands this rule on a clock time
+ * with no heats in it.
  */
-function openingWindows(
-  weekday: OpeningWindow,
-  weekend: OpeningWindow,
-): Record<number, OpeningWindow> {
-  return { 0: weekend, 1: weekday, 2: weekday, 3: weekday, 4: weekday, 5: weekday, 6: weekend };
-}
+const OPENING_WINDOW_MINUTES = 2 * 12; // two heats at the 12-min cadence
 
-// The opening window reserves the first TWO heats of the day for walk-in /
-// express-lane parties (new racers need check-in time when the track opens), so
-// the window length is 2 × the heat cadence — the THIRD heat is the first one a
-// non-express party can book online. Every track runs the 12-min cadence
-// (owner 2026-07-02 — Blue was 15-min before): blocks :00 + :12, opens at :24
-// (1:24 PM weekday / 11:24 AM weekend).
-const OPENING_WINDOWS = openingWindows(
-  { openMinutes: at(13), untilMinutes: at(13, 24) }, // weekday 1:00–1:24 PM
-  { openMinutes: at(11), untilMinutes: at(11, 24) }, // weekend 11:00–11:24 AM
-);
+function openingWindowsForDate(isoDate: string): Record<number, OpeningWindow> {
+  const week = fasttraxWeekHours(isoDate);
+  const windows: Record<number, OpeningWindow> = {};
+  for (let weekday = 0; weekday <= 6; weekday++) {
+    const openMinutes = week[weekday].openMinutes;
+    windows[weekday] = { openMinutes, untilMinutes: openMinutes + OPENING_WINDOW_MINUTES };
+  }
+  return windows;
+}
 
 /** Presentation for the opening-heats rule. */
 const WALK_IN_OR_EXPRESS_PRESENTATION: RestrictionPresentation = {
@@ -393,7 +404,7 @@ export const RACE_RESTRICTION_RULES: RaceRestrictionRule[] = [
     enabled: true,
     appliesTo: { tracks: ["Red", "Blue", "Mega"] }, // 12-min cadence, all tiers
     presentation: WALK_IN_OR_EXPRESS_PRESENTATION,
-    openingWindowExpressOnly: { windows: OPENING_WINDOWS },
+    openingWindowExpressOnly: { windowsForDate: openingWindowsForDate },
   },
 ];
 
@@ -541,18 +552,21 @@ function lastMinuteLift(rule: RaceRestrictionRule, ctx: RestrictionContext): boo
 }
 
 /**
- * Read the center-local weekday + minutes-since-midnight straight from a naive
- * wall-clock ISO string ("2026-06-23T13:24:00"). TZ-independent: the weekday is
- * built from the explicit Y/M/D in UTC (so it's the calendar weekday of the
- * wall-clock date regardless of runtime TZ), and the clock minutes come from the
- * literal HH:MM, so DST never shifts them. Returns null if unparseable.
+ * Read the center-local calendar date + weekday + minutes-since-midnight
+ * straight from a naive wall-clock ISO string ("2026-06-23T13:24:00").
+ * TZ-independent: the weekday is built from the explicit Y/M/D in UTC (so it's
+ * the calendar weekday of the wall-clock date regardless of runtime TZ), and the
+ * clock minutes come from the literal HH:MM, so DST never shifts them. Returns
+ * null if unparseable.
  */
-function localClockParts(naiveIso: string): { weekday: number; minutes: number } | null {
+function localClockParts(
+  naiveIso: string,
+): { date: string; weekday: number; minutes: number } | null {
   const m = naiveIso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
   if (!m) return null;
   const [, y, mo, d, hh, mm] = m;
   const weekday = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d))).getUTCDay();
-  return { weekday, minutes: Number(hh) * 60 + Number(mm) };
+  return { date: `${y}-${mo}-${d}`, weekday, minutes: Number(hh) * 60 + Number(mm) };
 }
 
 /**
@@ -655,7 +669,9 @@ export function evaluateRaceRestrictions(ctx: RestrictionContext): RestrictionRe
     if (rule.openingWindowExpressOnly && !ctx.expressEligible && ctx.candidateStartLocal) {
       const parts = localClockParts(ctx.candidateStartLocal);
       if (parts) {
-        const win = rule.openingWindowExpressOnly.windows[parts.weekday];
+        // Windows resolve from the HEAT's own date, so an announced opening-time
+        // change applies from its effective date forward, not the moment we ship.
+        const win = rule.openingWindowExpressOnly.windowsForDate(parts.date)[parts.weekday];
         if (win && parts.minutes >= win.openMinutes && parts.minutes < win.untilMinutes) {
           return block(rule, ctx);
         }

@@ -4,6 +4,12 @@ import Link from "next/link";
 import Image from "next/image";
 import { useChatAvailable } from "@/hooks/useChatAvailable";
 import { buildWaiverUrl } from "~/features/waiver/build-waiver-url";
+import {
+  etDateIso,
+  fasttraxHoursGroups,
+  formatHoursClock,
+  formatHoursGroupLabel,
+} from "~/lib/constants/fasttrax-hours";
 
 const quickLinks = [
   { label: "Racing", href: "/racing" },
@@ -112,10 +118,12 @@ export default function Footer() {
               </p>
             )}
             <div className="pt-2 text-white/40 text-xs space-y-1">
-              <p>Mon–Thu: 1:00 PM – 11:00 PM</p>
-              <p>Fri: 1:00 PM – 12:00 AM</p>
-              <p>Sat: 11:00 AM – 12:00 AM</p>
-              <p>Sun: 11:00 AM – 11:00 PM</p>
+              {fasttraxHoursGroups(etDateIso()).map((group) => (
+                <p key={group.weekdays.join("-")}>
+                  {formatHoursGroupLabel(group)}: {formatHoursClock(group.openMinutes)} –{" "}
+                  {formatHoursClock(group.closeMinutes)}
+                </p>
+              ))}
             </div>
           </div>
         </div>

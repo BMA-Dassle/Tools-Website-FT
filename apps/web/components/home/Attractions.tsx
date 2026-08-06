@@ -2,6 +2,12 @@ import Link from "next/link";
 import Image from "next/image";
 import BookingLink from "@/components/BookingLink";
 import ComboTeaser from "~/components/features/combos/ComboTeaser";
+import {
+  etDateIso,
+  fasttraxHoursGroups,
+  formatHoursClock,
+  formatHoursGroupLabel,
+} from "~/lib/constants/fasttrax-hours";
 
 // Exact data from live site inspection
 const row1 = [
@@ -55,13 +61,21 @@ const row2 = [
   },
 ];
 
-// Hours data matching live site colors exactly
-const hours = [
-  { day: "Mon–Thu", time: "1:00 PM – 11:00 PM", color: "rgb(228,28,29)", border: "rgb(228,28,29)" },
-  { day: "Fri", time: "1:00 PM – 12:00 AM", color: "rgb(134,82,255)", border: "rgb(134,82,255)" },
-  { day: "Sat", time: "11:00 AM – 12:00 AM", color: "rgb(248,0,198)", border: "rgb(248,0,198)" },
-  { day: "Sun", time: "11:00 AM – 11:00 PM", color: "rgb(0,74,173)", border: "rgb(0,74,173)" },
-];
+// Pill colors matching the live site exactly, in the same Mon-first order the
+// hours registry groups the week into (Mon–Thu / Fri / Sat / Sun). Times come
+// from src/lib/constants/fasttrax-hours.ts so the pills, the footer, the nav
+// and the JSON-LD can never disagree. Extra groups (should the week ever split
+// differently) cycle back through the palette rather than crashing.
+const HOURS_PILL_COLORS = ["rgb(228,28,29)", "rgb(134,82,255)", "rgb(248,0,198)", "rgb(0,74,173)"];
+
+function hoursPills() {
+  return fasttraxHoursGroups(etDateIso()).map((group, i) => ({
+    day: formatHoursGroupLabel(group),
+    time: `${formatHoursClock(group.openMinutes)} – ${formatHoursClock(group.closeMinutes)}`,
+    color: HOURS_PILL_COLORS[i % HOURS_PILL_COLORS.length],
+    border: HOURS_PILL_COLORS[i % HOURS_PILL_COLORS.length],
+  }));
+}
 
 function AttractionCard({ card, wide = false }: { card: (typeof row1)[0]; wide?: boolean }) {
   return (
@@ -162,7 +176,7 @@ export default function Attractions() {
 
         {/* Hours bar */}
         <div className="flex flex-wrap justify-center gap-3 mb-12">
-          {hours.map((h) => (
+          {hoursPills().map((h) => (
             <div
               key={h.day}
               className="flex items-center gap-3 px-4 py-3 rounded-xl"

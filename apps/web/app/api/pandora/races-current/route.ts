@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
+import { fasttraxHoursToday } from "~/lib/constants/fasttrax-hours";
 
 /**
  * Proxy for Pandora's "currently called races per track" endpoint.
@@ -71,22 +72,24 @@ function isOperatingHoursET(): boolean {
   const minute = parseInt(parts.find((p) => p.type === "minute")?.value || "0", 10);
   const hm = hour + minute / 60;
 
-  // Mon–Thu: 1 PM – midnight close (11 PM) — we keep stale entries until
-  // midnight so a heat called at 10:50 still displays at 10:55.
-  // Fri: 1 PM – 2 AM next day. Sat: 11 AM – 2 AM. Sun: 11 AM – 11 PM.
-  // Keep entries visible a bit past close so the last heat finishes displaying.
+  // Open times come from the FastTrax hours registry (which carries the
+  // 2026-08-10 Mon–Fri 3 PM move); the CLOSE side stays local and deliberately
+  // generous — we keep stale entries a while past close so a heat called at
+  // 10:50 still displays at 10:55.
+  //   Mon–Thu → open – 12:30 AM. Fri/Sat → open – 2:30 AM. Sun → open – 11:30 PM.
+  const openHour = fasttraxHoursToday(now).openMinutes / 60;
   switch (day) {
     case "Mon":
     case "Tue":
     case "Wed":
     case "Thu":
-      return hm >= 13 || hm < 0.5; // 1 PM – 12:30 AM
+      return hm >= openHour || hm < 0.5;
     case "Fri":
-      return hm >= 13 || hm < 2.5; // 1 PM – 2:30 AM
+      return hm >= openHour || hm < 2.5;
     case "Sat":
-      return hm >= 11 || hm < 2.5; // 11 AM – 2:30 AM
+      return hm >= openHour || hm < 2.5;
     case "Sun":
-      return hm >= 11 && hm < 23.5; // 11 AM – 11:30 PM
+      return hm >= openHour && hm < 23.5;
     default:
       return false;
   }

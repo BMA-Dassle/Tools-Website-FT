@@ -1,3 +1,10 @@
+import {
+  etDateIso,
+  fasttraxHoursFor,
+  fasttraxOpeningHoursSpec,
+  formatHoursIso,
+} from "~/lib/constants/fasttrax-hours";
+
 export function LocalBusinessJsonLd() {
   const schema = {
     "@context": "https://schema.org",
@@ -21,32 +28,11 @@ export function LocalBusinessJsonLd() {
       latitude: 26.5457,
       longitude: -81.7966,
     },
-    openingHoursSpecification: [
-      {
-        "@type": "OpeningHoursSpecification",
-        dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday"],
-        opens: "13:00",
-        closes: "23:00",
-      },
-      {
-        "@type": "OpeningHoursSpecification",
-        dayOfWeek: "Friday",
-        opens: "13:00",
-        closes: "00:00",
-      },
-      {
-        "@type": "OpeningHoursSpecification",
-        dayOfWeek: "Saturday",
-        opens: "11:00",
-        closes: "00:00",
-      },
-      {
-        "@type": "OpeningHoursSpecification",
-        dayOfWeek: "Sunday",
-        opens: "11:00",
-        closes: "23:00",
-      },
-    ],
+    // FastTrax hours registry (src/lib/constants/fasttrax-hours.ts) — one
+    // source of truth shared with the nav, footer, homepage pills and the
+    // /racing FAQ, and it carries the effective-date switchovers. Nemo's
+    // Trackside keeps the building's hours (it is inside FastTrax).
+    openingHoursSpecification: fasttraxOpeningHoursSpec(etDateIso()),
     priceRange: "$$",
     currenciesAccepted: "USD",
     paymentAccepted: "Cash, Credit Card, Debit Card",
@@ -158,32 +144,11 @@ export function RestaurantJsonLd() {
       latitude: 26.5457,
       longitude: -81.7966,
     },
-    openingHoursSpecification: [
-      {
-        "@type": "OpeningHoursSpecification",
-        dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday"],
-        opens: "13:00",
-        closes: "23:00",
-      },
-      {
-        "@type": "OpeningHoursSpecification",
-        dayOfWeek: "Friday",
-        opens: "13:00",
-        closes: "00:00",
-      },
-      {
-        "@type": "OpeningHoursSpecification",
-        dayOfWeek: "Saturday",
-        opens: "11:00",
-        closes: "00:00",
-      },
-      {
-        "@type": "OpeningHoursSpecification",
-        dayOfWeek: "Sunday",
-        opens: "11:00",
-        closes: "23:00",
-      },
-    ],
+    // FastTrax hours registry (src/lib/constants/fasttrax-hours.ts) — one
+    // source of truth shared with the nav, footer, homepage pills and the
+    // /racing FAQ, and it carries the effective-date switchovers. Nemo's
+    // Trackside keeps the building's hours (it is inside FastTrax).
+    openingHoursSpecification: fasttraxOpeningHoursSpec(etDateIso()),
     priceRange: "$$",
     menu: "https://fasttraxent.com/menu",
     acceptsReservations: "True",
@@ -640,12 +605,14 @@ export function MegaTrackTuesdayJsonLd() {
   const schema = recurringEventSchema({
     name: "Mega Track Tuesday at FastTrax",
     description:
-      "Every Tuesday FastTrax pulls the barrier between Blue and Red tracks to create Florida's largest indoor racing circuit — the 2,108 ft Mega Track. All kart classes (Adult, Junior, Mini) race for a flat $20.99. First-time Junior racers excluded.",
+      "Every Tuesday FastTrax pulls the barrier between Blue and Red tracks to create Florida's largest indoor racing circuit — the 2,108 ft Mega Track. Adult (all tiers), Junior Pro and Mini karts race for a flat $20.99. Junior racing on Mega is Junior Pro only — Junior Starter and Junior Intermediate do not run on Mega days.",
     url: "https://fasttraxent.com/racing",
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-racing.webp",
     byDay: "Tuesday",
-    startTime: "13:00:00",
-    endTime: "23:00:00",
+    // Tuesday's open + close from the hours registry (carries the 2026-08-10
+    // late-open switchover) — a Mega day runs the full operating day.
+    startTime: `${formatHoursIso(fasttraxHoursFor(2, etDateIso()).openMinutes)}:00`,
+    endTime: `${formatHoursIso(fasttraxHoursFor(2, etDateIso()).closeMinutes)}:00`,
     locationName: "FastTrax Entertainment",
     streetAddress: "14501 Global Parkway",
     addressLocality: "Fort Myers",
