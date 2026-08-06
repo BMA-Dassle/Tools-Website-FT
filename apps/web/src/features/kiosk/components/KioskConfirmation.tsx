@@ -18,6 +18,7 @@ import { resetToKiosk } from "../version";
 import { BrandLogo } from "./BrandLogo";
 import { readGzFulfillment, type GzFulfillmentPayload } from "../service/gz-fulfillment";
 import { KioskGzFulfillment } from "./KioskGzFulfillment";
+import { KioskLicenceOffer } from "./KioskLicenceOffer";
 import {
   readRacePackConfirmation,
   clearRacePackConfirmation,
@@ -143,6 +144,19 @@ function codeFromSrc(src: string | null): string | null {
 // Bowling bookings carry the Neon reservation id in the web confirmation URL —
 // the handle for the same GET/POST /checkin API the web confirmation uses for
 // self-service lane open. Null for non-bowling bookings (race, attractions).
+/** The web confirmation URL carries `billId` (checkout builds it), which is the
+ *  handle the licence-offer endpoint keys on — so the kiosk reuses exactly the
+ *  same fetch and the same login-code warming as the web page. */
+function billIdFromSrc(src: string | null): string | null {
+  if (!src) return null;
+  try {
+    const id = new URL(src, "https://kiosk.local").searchParams.get("billId");
+    return id && /^\d+$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 function bowlingNeonIdFromSrc(src: string | null): number | null {
   if (!src) return null;
   try {
@@ -240,6 +254,7 @@ export function KioskConfirmation({ src }: { src: string | null }) {
   // like the lane opened on the spot — same Arrived → Ready → Running POST
   // the web confirmation's check-in uses.
   const laneNeonId = useMemo(() => bowlingNeonIdFromSrc(src), [src]);
+  const billId = useMemo(() => billIdFromSrc(src), [src]);
   const [lanePhase, setLanePhase] = useState<LanePhase>("idle");
   const [laneLabel, setLaneLabel] = useState("");
 
@@ -627,6 +642,10 @@ export function KioskConfirmation({ src }: { src: string | null }) {
           />
         </div>
       ) : null}
+      {/* Racing licence — below the booking QR, so the code they need right now
+          stays the hero and this reads as an offer, not an instruction. Renders
+          nothing for a party with no BMI tags, and nothing for non-racing. */}
+      {includesRacing && <KioskLicenceOffer billId={billId} />}
       {code ? (
         <div className="relative rounded-[24px] border border-white/15 bg-white/[0.04] px-[48px] py-[24px]">
           <div className="k-eyebrow text-white/45">{t("confirmation.bookingCode")}</div>
