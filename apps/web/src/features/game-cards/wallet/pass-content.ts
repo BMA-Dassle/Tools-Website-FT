@@ -15,7 +15,7 @@
  * voucher on two screens. So the ONLY thing this module adds is joining those
  * rows into one short line that fits an Apple Wallet field.
  *
- * ── ONE FIELD, LABELLED "YOUR VOUCHER", IN EVERY STATE ──────────────────────
+ * ── ONE FIELD, LABELLED "REMAINING", IN EVERY STATE ─────────────────────────
  * An untouched voucher's remaining IS everything it was minted with, so the face
  * never switches wording and the template needs no conditional design. That one
  * decision is why partial redemption needs no second template.
@@ -141,7 +141,8 @@ export interface VoucherPassMeta extends Record<string, string> {
   code: string;
   /** Barcode payload. The kiosk already unwraps `/v/{code}` (code-entry/classify.ts). */
   redeemUrl: string;
-  /** The face's "YOUR VOUCHER" field — capped, see summariseRemaining. */
+  /** The face's "REMAINING" field — capped, see summariseRemaining. Its change
+   *  fires the iOS lock-screen alert ("Voucher updated: %@ left"). */
   voucherValue: string;
   /**
    * The BACK field: every remaining leg, unabridged.

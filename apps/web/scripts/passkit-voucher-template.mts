@@ -132,6 +132,21 @@ const field = (o: {
   section: string;
   priority: number;
   align?: string;
+  /**
+   * iOS lock-screen text when this field's value changes. `%@` is the new value.
+   *
+   * THE HELPER MUST EMIT THIS OR THE PUT SILENTLY DELETES IT. `PUT /template`
+   * replaces the whole template, so any key this builder omits is dropped from
+   * the live design — and that is exactly what nearly happened here: the live
+   * template carried "Voucher updated: %@ left" on custom.offer, set outside
+   * this script, and the helper had no way to express it. Losing it would kill
+   * the notification a guest gets the moment a kiosk takes a leg, which is the
+   * whole point of syncing the pass in-request (see voucher-pass.ts rule 1).
+   *
+   * Exactly ONE field should carry one. Two would mean two notifications for a
+   * single redemption.
+   */
+  changeMessage?: string;
 }) => ({
   uniqueName: o.uniqueName,
   templateId: "",
@@ -146,6 +161,7 @@ const field = (o: {
   appleWalletFieldRenderOptions: {
     textAlignment: o.align ?? "LEFT",
     positionSettings: { section: o.section, priority: o.priority },
+    changeMessage: o.changeMessage ?? "",
     dateStyle: "DATE_TIME_STYLE_DO_NOT_USE",
     timeStyle: "DATE_TIME_STYLE_DO_NOT_USE",
     numberStyle: "NUMBER_STYLE_DO_NOT_USE",
@@ -161,12 +177,19 @@ const field = (o: {
 });
 
 const DATA_FIELDS = [
+  // "REMAINING", not "YOUR VOUCHER" — the label the LIVE template has always
+  // carried, and the deliberate one (pass-content.ts): an untouched voucher's
+  // remaining IS everything it was minted with, so one wording works in every
+  // state and partial redemption needs no second template. This script was
+  // written with "YOUR VOUCHER" and never applied, so the two had silently
+  // disagreed since day one; the first APPLY would have flipped it.
   field({
     uniqueName: "custom.offer",
-    label: "YOUR VOUCHER",
+    label: "REMAINING",
     value: "${meta.voucherValue}",
     section: "SECONDARY_FIELDS",
     priority: 0,
+    changeMessage: "Voucher updated: %@ left",
   }),
   field({
     uniqueName: "custom.expires",
@@ -222,9 +245,67 @@ const DATA_FIELDS = [
 ];
 
 console.log("template :", TEMPLATE_ID);
-console.log("fields   :", DATA_FIELDS.map((f) => f.uniqueName).join(", "));
 console.log("barcode  : QR → ${meta.redeemUrl}, altText ${meta.code}");
 console.log("colors   :", BG_HEX, "/ labels", LABEL_HEX);
+
+/**
+ * DIFF THE PLAN AGAINST WHAT IS LIVE, BEFORE TOUCHING IT.
+ *
+ * `PUT /template` is a FULL REPLACE, so every field this script does not
+ * reproduce is deleted from the live design — silently, and only visible on a
+ * guest's phone. The old dry run printed a list of field NAMES, which cannot
+ * show either failure mode that actually bit: a label this script had never
+ * matched to production ("YOUR VOUCHER" vs the live "REMAINING"), and a
+ * changeMessage the helper had no way to express and would have dropped.
+ *
+ * Read this table before setting APPLY=1. Anything under CHANGE or REMOVED that
+ * you did not intend is a regression you are about to ship.
+ */
+// Fetched HERE, before the APPLY gate, because the dry run's whole job is to
+// compare against it. Reused by the apply path below — one read, one truth.
+const list = await pk("POST", "/templates/list", {});
+const liveFields: any[] = (() => {
+  const t = String(list.raw ?? "")
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((l) => {
+      try {
+        return JSON.parse(l)?.result?.template;
+      } catch {
+        return null;
+      }
+    })
+    .find((t: any) => t?.id === TEMPLATE_ID);
+  return t?.data?.dataFields ?? [];
+})();
+
+console.log("\nfields (proposed vs live):");
+const pos = (f: any) => f.appleWalletFieldRenderOptions.positionSettings;
+for (const f of DATA_FIELDS) {
+  const l = liveFields.find((x) => x.uniqueName === f.uniqueName);
+  const where = `${pos(f).section.replace("_FIELDS", "").toLowerCase()} p${pos(f).priority}`;
+  if (!l) {
+    console.log(`  NEW     ${f.uniqueName.padEnd(15)} ${where.padEnd(14)} ${f.label}`);
+    continue;
+  }
+  const d: string[] = [];
+  if (l.label !== f.label) d.push(`label ${JSON.stringify(l.label)} → ${JSON.stringify(f.label)}`);
+  if (l.defaultValue !== f.defaultValue) d.push("value");
+  const lc = l.appleWalletFieldRenderOptions?.changeMessage || "";
+  const fc = f.appleWalletFieldRenderOptions.changeMessage || "";
+  if (lc !== fc) d.push(`changeMessage ${JSON.stringify(lc)} → ${JSON.stringify(fc)}`);
+  const lp = l.appleWalletFieldRenderOptions?.positionSettings ?? {};
+  if (lp.section !== pos(f).section) d.push(`section ${lp.section} → ${pos(f).section}`);
+  if ((lp.priority ?? 0) !== pos(f).priority) d.push(`priority ${lp.priority ?? 0} → ${pos(f).priority}`);
+  console.log(
+    `  ${d.length ? "CHANGE " : "same   "} ${f.uniqueName.padEnd(15)} ${where.padEnd(14)} ${d.join(" | ")}`,
+  );
+}
+for (const l of liveFields) {
+  if (!DATA_FIELDS.find((f) => f.uniqueName === l.uniqueName)) {
+    console.log(`  REMOVED ${l.uniqueName} — this field will be DELETED from the live pass`);
+  }
+}
 
 if (process.env.APPLY !== "1") {
   console.log("\n(dry run — set APPLY=1 to upload images and PUT the template)");
@@ -246,7 +327,6 @@ console.log("uploaded:", ids.icon, ids.logo, ids.strip);
 
 // PUT replaces the whole template, so read the current one first — anything
 // dropped here is silently deleted from the design.
-const list = await pk("POST", "/templates/list", {});
 const tpl = String(list.raw ?? "")
   .split(/\r?\n/)
   .filter(Boolean)
