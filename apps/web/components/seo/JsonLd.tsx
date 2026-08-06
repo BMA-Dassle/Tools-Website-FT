@@ -390,11 +390,7 @@ function etTimestamp(noonUtc: Date, time: string): string {
  * anchor at noon UTC so adding days never trips over a 2 AM DST boundary; the
  * real ET offset for each resulting date is applied by `etTimestamp`.
  */
-function nextOccurrence(
-  dayName: string,
-  startTime: string,
-  endTime: string,
-): { startDate: string; endDate: string } {
+function nextOccurrenceNoonUtc(dayName: string): Date {
   const todayParts = new Intl.DateTimeFormat("en-CA", {
     timeZone: EVENT_TZ,
     year: "numeric",
@@ -408,6 +404,30 @@ function nextOccurrence(
   const start = new Date(Date.UTC(y, mo - 1, d, 12));
   const delta = (SCHEMA_DAY_INDEX[dayName] - start.getUTCDay() + 7) % 7;
   start.setUTCDate(start.getUTCDate() + delta);
+  return start;
+}
+
+/**
+ * The next occurrence of `dayName` as an ET calendar date (`YYYY-MM-DD`).
+ *
+ * Ask this — never "today" — for anything that describes the OCCURRENCE, such as
+ * its opening hours. On 2026-08-05 the next Mega Tuesday is 2026-08-11, which is
+ * on the far side of the 08-10 late-open switchover: keyed off today the schema
+ * advertised a 1:00 PM start for a day that actually opens at 3:00 PM.
+ */
+function nextOccurrenceDateIso(dayName: string): string {
+  const noonUtc = nextOccurrenceNoonUtc(dayName);
+  const m = String(noonUtc.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(noonUtc.getUTCDate()).padStart(2, "0");
+  return `${noonUtc.getUTCFullYear()}-${m}-${d}`;
+}
+
+function nextOccurrence(
+  dayName: string,
+  startTime: string,
+  endTime: string,
+): { startDate: string; endDate: string } {
+  const start = nextOccurrenceNoonUtc(dayName);
 
   // Crosses midnight (e.g. 11:59 PM → 2 AM) → end lands on the next day.
   const end = new Date(start);
@@ -602,6 +622,13 @@ export function MidnightMadnessJsonLd({ location }: { location: HeadPinzLocation
 }
 
 export function MegaTrackTuesdayJsonLd() {
+  // Hours for the NEXT MEGA TUESDAY, not for today. The event is dated, and on
+  // 2026-08-05 the next one (08-11) sits on the far side of the 08-10 late-open
+  // switchover — keyed off today this advertised a 1:00 PM start for a day that
+  // opens at 3:00 PM. Same date as recurringEventSchema derives for startDate,
+  // so the advertised hours and the advertised date always agree.
+  const megaDate = nextOccurrenceDateIso("Tuesday");
+  const megaHours = fasttraxHoursFor(2, megaDate);
   const schema = recurringEventSchema({
     name: "Mega Track Tuesday at FastTrax",
     description:
@@ -609,10 +636,9 @@ export function MegaTrackTuesdayJsonLd() {
     url: "https://fasttraxent.com/racing",
     image: "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/hero/hero-racing.webp",
     byDay: "Tuesday",
-    // Tuesday's open + close from the hours registry (carries the 2026-08-10
-    // late-open switchover) — a Mega day runs the full operating day.
-    startTime: `${formatHoursIso(fasttraxHoursFor(2, etDateIso()).openMinutes)}:00`,
-    endTime: `${formatHoursIso(fasttraxHoursFor(2, etDateIso()).closeMinutes)}:00`,
+    // A Mega day runs the full operating day.
+    startTime: `${formatHoursIso(megaHours.openMinutes)}:00`,
+    endTime: `${formatHoursIso(megaHours.closeMinutes)}:00`,
     locationName: "FastTrax Entertainment",
     streetAddress: "14501 Global Parkway",
     addressLocality: "Fort Myers",
