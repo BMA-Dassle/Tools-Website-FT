@@ -10,9 +10,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Kiosk split-tender ledger routes (v1: ONE gift card + ONE tap):
+ * Kiosk split-tender ledger routes:
  *   POST   { seed, lookupToken } → authorize the gift card → { tender, remainingCents }
- *   DELETE { seed }              → void the gift-card auth (guest changed mind)
+ *   DELETE { seed[, paymentId] } → void ONE gift-card auth (per-row Remove) or,
+ *                                  with no paymentId, every hold (legacy v1 board)
  *   GET    ?seed=                → resume state after a refresh/crash
  * Capture and abandon live at ./capture and ./abandon.
  *
@@ -31,6 +32,8 @@ function errStatus(error: SplitError): number {
     case "token-invalid":
       return 400;
     case "gc-limit":
+    case "tender-limit":
+    case "tender-not-found":
     case "zero-balance":
     case "card-unusable":
     case "sum-mismatch":
@@ -45,7 +48,9 @@ const FRIENDLY: Partial<Record<SplitError, string>> = {
   "no-session": "Session not found — start checkout again.",
   "already-captured": "This payment is already complete.",
   "token-invalid": "That gift card lookup expired — scan it again.",
-  "gc-limit": "Only one gift card per checkout for now.",
+  "gc-limit": "Gift card limit reached for this checkout.",
+  "tender-limit": "Payment method limit reached — pay the rest with one card.",
+  "tender-not-found": "That gift card is no longer applied.",
   "card-unusable": "We couldn't use that gift card.",
   "zero-balance": "This gift card has no remaining balance.",
   "sum-mismatch": "The payment amounts don't add up — remove and re-add the gift card.",
@@ -75,7 +80,9 @@ export async function POST(req: NextRequest) {
       `[kiosk-split] add tender failed seed=${body.seed} error=${result.error}${"detail" in result && result.detail ? ` detail=${result.detail}` : ""}`,
     );
     return NextResponse.json(
-      { error: FRIENDLY[result.error] ?? "Gift card could not be applied." },
+      // `code` is the machine-readable SplitError — the ambient client maps it
+      // to catalog copy (EN/ES); `error` stays for the legacy English board.
+      { error: FRIENDLY[result.error] ?? "Gift card could not be applied.", code: result.error },
       { status: errStatus(result.error) },
     );
   }
@@ -89,17 +96,21 @@ export async function DELETE(req: NextRequest) {
   const url = new URL(req.url);
   const seed = url.searchParams.get("seed") ?? "";
   const splitToken = url.searchParams.get("splitToken") ?? "";
+  // Optional: void only this tender (multi-tender board's per-row Remove).
+  const paymentId = url.searchParams.get("paymentId") ?? undefined;
   if (!seed || !splitToken) {
     return NextResponse.json({ error: "Missing seed/splitToken" }, { status: 400 });
   }
-  const result = await removeGiftCardTender({ seed, splitToken });
+  const result = await removeGiftCardTender({ seed, splitToken, paymentId });
   if (!result.ok) {
     return NextResponse.json(
-      { error: FRIENDLY[result.error] ?? "Could not remove the gift card." },
+      { error: FRIENDLY[result.error] ?? "Could not remove the gift card.", code: result.error },
       { status: errStatus(result.error) },
     );
   }
-  console.log(`[kiosk-split] gift card removed seed=${seed} remaining=${result.remainingCents}`);
+  console.log(
+    `[kiosk-split] gift card removed seed=${seed} scope=${paymentId ? "single" : "all"} remaining=${result.remainingCents}`,
+  );
   return NextResponse.json(result);
 }
 

@@ -178,11 +178,27 @@ export async function createTerminalCheckout(args: {
    * cancelling, it's only an uncaptured auth that the cancel voids — no charge.
    */
   autocomplete?: boolean;
+  /**
+   * Honor a Square gift card that can't cover the armed amount by approving
+   * what its balance allows (the ambient gift-card rail's partial approvals).
+   * Square only accepts this with autocomplete:false — the payment set is
+   * captured later, atomically, via PayOrder. Verified live by
+   * scripts/probe-partial-auth.mts before any caller arms with it.
+   */
+  acceptPartialAuthorization?: boolean;
 }): Promise<TerminalCheckoutResult | null> {
   if (!SQUARE_TOKEN) return null;
+  if (args.acceptPartialAuthorization && (args.autocomplete ?? true)) {
+    // Square 400s the combination; failing fast here keeps the mistake a unit
+    // test catches instead of a reader armed with options Square rejected.
+    throw new Error("acceptPartialAuthorization requires autocomplete:false");
+  }
   const checkout: Record<string, unknown> = {
     device_options: { device_id: args.deviceId, skip_receipt_screen: true },
-    payment_options: { autocomplete: args.autocomplete ?? true },
+    payment_options: {
+      autocomplete: args.autocomplete ?? true,
+      ...(args.acceptPartialAuthorization ? { accept_partial_authorization: true } : {}),
+    },
     reference_id: args.referenceId.slice(0, 40),
     note: args.note?.slice(0, 500),
   };
@@ -221,12 +237,15 @@ export async function createTerminalCheckout(args: {
     const info = await getOrderPaymentInfo(args.orderId).catch(() => null);
     if (info?.paymentId) {
       console.log(
-        `[square-terminal] order ${args.orderId} already COMPLETED — resuming with payment ${info.paymentId} (no re-charge)`,
+        `[square-terminal] order ${args.orderId} already COMPLETED — resuming with ${info.paymentIds.length} payment(s) (no re-charge)`,
       );
       return {
         checkoutId: args.orderId,
         status: "COMPLETED",
-        paymentIds: [info.paymentId],
+        // The FULL tender set: a split-captured order (gift card + tap) has
+        // several payments, and finalize's sum verification can never pass on
+        // one id of two (review 2026-08-06).
+        paymentIds: info.paymentIds,
         alreadyPaid: true,
       };
     }

@@ -22,7 +22,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BrandedLoader } from "./BrandedLoader";
 import { useT } from "../i18n";
 import { KioskReaderCheckout } from "./KioskReaderCheckout";
+import { KioskAmbientCheckout } from "./split/KioskAmbientCheckout";
 import { KioskGiftCardFlow } from "./split/KioskGiftCardFlow";
+import {
+  clearSplitSession,
+  markSplitCaptured,
+  registerSplitSession,
+} from "./split/split-session-registry";
 import type { Brand, BookingSession } from "~/features/booking";
 import type { ContactInfo } from "~/features/booking/types";
 
@@ -30,9 +36,13 @@ interface Prepared {
   seed: string;
   depositOrderId: string;
   depositCents: number;
-  /** Present when the gift-card flag is on — the session secret every
-   *  gift-card route requires (the seed alone is guessable). */
+  /** The session secret every gift-card route requires (the seed alone is
+   *  guessable). */
   splitToken?: string;
+  /** Server says the ambient rail is live (kill switch on): render the
+   *  ambient pay screen — scan/swipe/partial-auth, no gift-card button. The
+   *  client NEVER reads the env flag itself; this field is the only signal. */
+  ambient?: boolean;
 }
 
 export function KioskTerminalCheckoutGate({
@@ -100,6 +110,7 @@ export function KioskTerminalCheckoutGate({
         paymentId?: string;
         paymentIds?: string[];
         splitToken?: string;
+        ambient?: boolean;
       };
       if (prepareFn) {
         // Bowling-only cart: create the deposit order via the bowling rail.
@@ -187,7 +198,13 @@ export function KioskTerminalCheckoutGate({
         depositOrderId: data.depositOrderId,
         depositCents: data.depositCents,
         ...(data.splitToken ? { splitToken: data.splitToken } : {}),
+        ...(data.ambient ? { ambient: true } : {}),
       });
+      // Every exit path (idle reset, start-over, version hard-reload) releases
+      // this session's holds through the registry — see split-session-registry.
+      if (data.splitToken && data.seed) {
+        registerSplitSession({ seed: data.seed, splitToken: data.splitToken });
+      }
       setPhase("ready");
     } catch {
       setError(t("pay.err.startPaymentRetry"));
@@ -244,6 +261,33 @@ export function KioskTerminalCheckoutGate({
 
   if (phase === "ready" && prepared) {
     const giftAvailable = !!prepared.splitToken && !!prepared.seed;
+    // AMBIENT rail (kill switch on): one pay screen — armed reader with
+    // partial auth + passive gift-card scanning + typed entry. No button.
+    if (giftAvailable && prepared.ambient) {
+      return (
+        <KioskAmbientCheckout
+          brand={brand}
+          deviceId={deviceId}
+          seed={prepared.seed}
+          splitToken={prepared.splitToken as string}
+          totalCents={prepared.depositCents}
+          onCaptured={({ paymentId, paymentIds }) => {
+            markSplitCaptured();
+            onCaptured({
+              paymentId,
+              paymentIds,
+              depositOrderId: prepared.depositOrderId,
+              amountCents: prepared.depositCents,
+              seed: prepared.seed,
+            });
+          }}
+          onCancel={() => {
+            clearSplitSession();
+            onCancel();
+          }}
+        />
+      );
+    }
     if (giftMode && giftAvailable) {
       return (
         <KioskGiftCardFlow

@@ -299,9 +299,10 @@ describe("tenderRefundsNeeded", () => {
       ]);
     });
 
-    it("leaves un-allocatable exclusion in the sum (fail-closed via guardRefundTotal)", () => {
-      // Only a GIFT_CARD tender is available — the exclusion cannot land, so
-      // the refundable total stays gz-inflated and the balance guard trips.
+    it("pass 2 lands the exclusion on a GIFT_CARD tender (ambient rail: GC funds most of the order)", () => {
+      // Only a GIFT_CARD tender is available — since the 2026-07-27 probe
+      // overturned the partial-GC-refund claim, the exclusion allocates onto
+      // it and the balance guard passes (this exact shape used to 409).
       const f = facts({
         pay_gc: {
           id: "pay_gc",
@@ -313,7 +314,31 @@ describe("tenderRefundsNeeded", () => {
       });
       f.depositOrder!.gameZoneCents = 700;
       const needed = tenderRefundsNeeded(f);
-      expect(needed).toEqual([{ paymentId: "pay_gc", amountCents: 7410 }]);
+      expect(needed).toEqual([{ paymentId: "pay_gc", amountCents: 6710, partial: true }]);
+      const neededCents = needed.reduce((s, r) => s + r.amountCents, 0);
+      expect(() =>
+        guardRefundTotal({ refundsNeededCents: neededCents, gcBalanceCents: 6710 }),
+      ).not.toThrow();
+    });
+
+    it("leaves a GENUINELY un-allocatable exclusion in the sum (fail-closed via guardRefundTotal)", () => {
+      // Only an edit top-up is available — no pass may touch it, the exclusion
+      // cannot land, the refundable total stays gz-inflated, the guard trips.
+      const f = facts({
+        pay_topup: {
+          id: "pay_topup",
+          status: "COMPLETED",
+          amountCents: 7410,
+          refundedCents: 0,
+          sourceType: "CARD",
+        },
+      });
+      f.depositOrder!.tenders = f.depositOrder!.tenders.map((t) =>
+        t.paymentId === "pay_topup" ? { ...t, editTopup: true } : t,
+      );
+      f.depositOrder!.gameZoneCents = 700;
+      const needed = tenderRefundsNeeded(f);
+      expect(needed).toEqual([{ paymentId: "pay_topup", amountCents: 7410 }]);
       const neededCents = needed.reduce((s, r) => s + r.amountCents, 0);
       expect(
         code(() => guardRefundTotal({ refundsNeededCents: neededCents, gcBalanceCents: 6710 })),

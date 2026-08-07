@@ -77,6 +77,7 @@ import {
   kioskRaceInfoEnabled,
 } from "../flags";
 import { KioskCheckoutScreen } from "./KioskCheckoutScreen";
+import { abandonActiveSplit } from "./split/split-session-registry";
 import { KioskCheckoutUpsell } from "./KioskCheckoutUpsell";
 import { TOKEN_PACKAGES } from "~/features/game-cards/constants";
 import { clarityEvent, clarityTag } from "~/lib/clarity";
@@ -734,6 +735,11 @@ export function KioskFlow({
     // End any live phone sign-in session FIRST — phones show "session ended"
     // within one poll instead of spinning against a dead code.
     closeMobileJoin("start-over");
+    // Release any in-flight payment holds (gift-card auths + armed reader
+    // checkout) — explicitly, because the kiosk-update branch of resetToKiosk
+    // hard-reloads and React unmount cleanup never runs on that path. The
+    // keepalive fetch survives the navigation; captured sessions no-op.
+    abandonActiveSplit();
     resetLocale();
     setResetting(true);
     // abandonBooking retries + verifies the BMI cancel (7/19 incident: silent

@@ -925,7 +925,7 @@ const refundAcrossTenders = async (
   plan: EditPlan,
   owedCents: number,
   refundIds: string[],
-): Promise<{ refundedCents: number; giftCardTendersSkipped: number }> => {
+): Promise<{ refundedCents: number }> => {
   const targets: RefundTarget[] = [];
   const events = await listEditEventsByAnchors(plan.legIds);
   for (const ev of events) {
@@ -965,21 +965,20 @@ const refundAcrossTenders = async (
   const owed = Math.max(0, owedCents - strandedCents);
 
   // 2. Pre-flight plan — no Square mutation until the whole amount is known
-  //    coverable.
+  //    coverable. GIFT_CARD tenders refund partially like any other: the
+  //    2026-07-27 live probe overturned the "Square refuses partial gift-card
+  //    refunds" claim the old skip here cited, and the plan side
+  //    (plan.ts refund-capacity loop) already counted GC capacity — the skip
+  //    made the executor throw on decreases the plan had approved. Under
+  //    ambient gift cards a GC often carries most of the deposit, so partial
+  //    GC refunds are the NORMAL decrease path, not an edge case.
   const planned: Array<{ paymentId: string; amountCents: number }> = [];
-  let giftCardTendersSkipped = 0;
   let toCover = owed;
   for (const target of targets) {
     if (toCover <= 0) break;
     const pay = await fetchPaymentFacts(target.paymentId);
     const tenderRemaining = pay.amountCents - pay.refundedCents;
     if (tenderRemaining <= 0) continue;
-    if (pay.sourceType === "GIFT_CARD" && toCover < tenderRemaining) {
-      // Guests can fund deposits partly with their own gift card
-      // (authorizeMultiTender); Square refuses partial refunds of those.
-      giftCardTendersSkipped++;
-      continue;
-    }
     const amount = Math.min(toCover, tenderRemaining);
     planned.push({ paymentId: target.paymentId, amountCents: amount });
     toCover -= amount;
@@ -987,9 +986,6 @@ const refundAcrossTenders = async (
   if (toCover > 0) {
     throw new Error(
       `cannot refund ${owed} of ${owedCents} cents: refundable tenders cover only ${owed - toCover}` +
-        (giftCardTendersSkipped > 0
-          ? ` (${giftCardTendersSkipped} gift-card tender(s) skipped — Square refuses partial gift-card refunds)`
-          : "") +
         ` — NO money was refunded; re-run this edit with store-credit settlement`,
     );
   }
@@ -1008,9 +1004,9 @@ const refundAcrossTenders = async (
       // Owner convention (2026-07-11): reservation-money refunds carry this
       // exact reason so they read consistently in the Square dashboard/exports.
       reason: "Refund: Reservation Deposit",
-      skipGiftCardTender: true,
+      // No gift-card skip: partial GC refunds are legal (2026-07-27 probe) and
+      // routine under ambient gift cards — the plan above already counted them.
     });
-    if (r.skippedGiftCard) giftCardTendersSkipped++;
     if (r.refundId) {
       refundIds.push(r.refundId);
       await recordEditRefund(editId, r.refundId);
@@ -1018,7 +1014,7 @@ const refundAcrossTenders = async (
     refunded += r.refundedCents;
     index++;
   }
-  return { refundedCents: strandedCents + refunded, giftCardTendersSkipped };
+  return { refundedCents: strandedCents + refunded };
 };
 
 /**
