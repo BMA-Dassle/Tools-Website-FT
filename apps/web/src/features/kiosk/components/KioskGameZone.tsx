@@ -1719,9 +1719,10 @@ export function KioskGameZone({
       seed: data.groupId,
       depositOrderId: data.orderId,
       depositCents: data.totalCents,
-      // Present when the gift-card split flag is on — lights the "Use a gift
-      // card" button on the shared pay screen, same as every other cart.
+      // The session secret the gift-card routes require; `ambient` switches
+      // the shared pay screen to scan/swipe-anything mode, same as every cart.
       ...(data.splitToken ? { splitToken: data.splitToken } : {}),
+      ...(data.ambient ? { ambient: true } : {}),
     };
   };
 

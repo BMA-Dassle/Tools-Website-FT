@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PANDORA_DEFAULT_LOCATION_ID, PANDORA_LOCATION_MAP } from "@/lib/pandora-locations";
 import { logWaiverSignAttempt, type WaiverSignOutcome } from "@/lib/waiver-sign-log";
+import { signLicenceGrant } from "~/features/racing/wallet/licence-grant";
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
 const API_KEY = process.env.SWAGGER_ADMIN_KEY || "";
@@ -90,7 +91,30 @@ async function waiverNowValid(locationID: string, personID: string): Promise<boo
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { personID, waiverContentID, signature, location, invalidationDate, sigPersonID } = body;
+    const {
+      personID,
+      waiverContentID,
+      signature,
+      location,
+      invalidationDate,
+      sigPersonID,
+      // Display label for the licence offer on the "you're all set" card. Only
+      // ever a label — the grant below is what carries authority.
+      firstName,
+    } = body;
+
+    /**
+     * THIS is the only place a waiver licence grant may be minted, because it is
+     * the only place that knows Pandora accepted the signature. Every success
+     * return below carries one; nothing else in the codebase calls
+     * `signLicenceGrant`.
+     *
+     * Handing the grant back to the browser is what lets the finished waiver
+     * card offer a racing licence with no booking to hang off — see
+     * licence-grant.ts for why a client-supplied list of personIds could not do
+     * the same job.
+     */
+    const grant = () => signLicenceGrant(String(personID), String(firstName ?? ""));
 
     if (!personID || !waiverContentID || !signature) {
       return NextResponse.json(
@@ -227,7 +251,7 @@ export async function POST(req: NextRequest) {
             `[pandora-waiver] salvaged — waiver already valid after failed attempt(s) (${signMeta})`,
           );
           await logSignOutcome("salvaged", attempt, null, lastError);
-          return NextResponse.json({ ok: true, waiverID: null, alreadyValid: true });
+          return NextResponse.json({ ok: true, waiverID: null, alreadyValid: true, licenceGrant: grant() });
         }
       }
 
@@ -264,7 +288,7 @@ export async function POST(req: NextRequest) {
           status: res.status,
           message: "",
         });
-        return NextResponse.json({ ok: true, waiverID });
+        return NextResponse.json({ ok: true, waiverID, licenceGrant: grant() });
       }
 
       lastError = {
@@ -284,7 +308,7 @@ export async function POST(req: NextRequest) {
     if (await waiverNowValid(locationID, personID)) {
       console.log(`[pandora-waiver] salvaged after final attempt — waiver is valid (${signMeta})`);
       await logSignOutcome("salvaged", 3, null, lastError);
-      return NextResponse.json({ ok: true, waiverID: null, alreadyValid: true });
+      return NextResponse.json({ ok: true, waiverID: null, alreadyValid: true, licenceGrant: grant() });
     }
 
     // The row that matters: the guest signed and has NO waiver.

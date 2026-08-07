@@ -72,20 +72,48 @@ beforeEach(() => {
 });
 
 describe("issueLicencePass — re-tap on an existing pass", () => {
-  it("MERGES over stored meta instead of replacing it", async () => {
-    // The caller (`/r/{code}/wallet`) knows the racer's identity but NOT their
-    // heat, so it supplies a deliberate SUBSET.
+  it("does NOT push when the merge changes nothing — every PUT wakes the phone", async () => {
+    // Apple rate-limits pass updates and warned on 2026-08-06 that it was about
+    // to DISABLE automatic updates for our passes. A re-tap that rewrites
+    // identical metaData is a push for nothing, and `/r/{code}/wallet`,
+    // `/t/{id}/wallet` and the add-all prepare step all land here.
     const callerMeta = {
-      code: "mgrm2g8o42wxc",
-      memberName: "ERIC OSBORN",
+      code: FULL_META.code,
+      memberName: FULL_META.memberName,
       memberQr: FULL_META.memberQr,
       licenceUrl: FULL_META.licenceUrl,
-      tier: "Pro",
-      races: "31",
+      tier: FULL_META.tier,
+      races: FULL_META.races,
     };
 
     passkit.mockImplementation(async (method: string) => {
-      if (method === "POST") throw new FakePassKitError(409); // already a member
+      if (method === "POST") throw new FakePassKitError(409);
+      if (method === "GET") return { id: "MEMBER1" };
+      return {};
+    });
+    getRacerPass.mockResolvedValue({ memberId: "MEMBER1", meta: { ...FULL_META } });
+
+    const res = await issueLicencePass({ personId: "409523", meta: callerMeta });
+
+    expect(res.ok).toBe(true);
+    expect(putBody()).toBeUndefined();
+  });
+
+  it("MERGES over stored meta when something DID change", async () => {
+    // The caller (`/r/{code}/wallet`) knows the racer's identity but NOT their
+    // heat, so it supplies a deliberate SUBSET. Sending it bare deleted five
+    // keys from a live pass.
+    const callerMeta = {
+      code: FULL_META.code,
+      memberName: FULL_META.memberName,
+      memberQr: FULL_META.memberQr,
+      licenceUrl: FULL_META.licenceUrl,
+      tier: "Pro",
+      races: "32", // changed — 31 -> 32
+    };
+
+    passkit.mockImplementation(async (method: string) => {
+      if (method === "POST") throw new FakePassKitError(409);
       if (method === "GET") return { id: "MEMBER1" };
       return {};
     });
@@ -96,8 +124,7 @@ describe("issueLicencePass — re-tap on an existing pass", () => {
 
     const body = putBody();
     expect(body).toBeDefined();
-    // The five keys the caller never sends must SURVIVE the re-tap. Sending
-    // callerMeta bare deleted exactly these from a live pass.
+    // The five keys the caller never sends must SURVIVE the re-tap.
     expect(body!.metaData.raceLabel).toBe("Heat 57");
     expect(body!.metaData.nextRaceLong).toBe(FULL_META.nextRaceLong);
     expect(body!.metaData.validUntil).toBe("Oct 31st, 2026");
@@ -105,6 +132,7 @@ describe("issueLicencePass — re-tap on an existing pass", () => {
     expect(body!.metaData.lastVisit).toBe("Aug 5th, 2026");
     // …and the barcode source, which is what stops the pass scanning at all.
     expect(body!.metaData.code).toBe("mgrm2g8o42wxc");
+    expect(body!.metaData.races).toBe("32");
     expect(Object.keys(body!.metaData).length).toBe(Object.keys(FULL_META).length);
   });
 

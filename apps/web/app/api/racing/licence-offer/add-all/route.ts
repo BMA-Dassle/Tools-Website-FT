@@ -1,0 +1,201 @@
+import { NextRequest, NextResponse } from "next/server";
+import { codeForPersonId } from "~/features/kiosk/license/code-cache";
+import { lookupMemberMatches } from "~/features/kiosk/license/lookup.server";
+import { issueLicencePass } from "~/features/racing/wallet/licence-pass";
+import { buildLicenceMeta } from "~/features/racing/wallet/licence-meta";
+import { passUrls } from "~/lib/api/passkit";
+import { getRacerPasses } from "~/features/racing/data/racer-wallet-db";
+import { resolveLicencePack, type PackMember } from "~/features/racing/service/licence-pack";
+import {
+  buildPkpassesBundle,
+  fetchPkpass,
+  PKPASSES_CONTENT_TYPE,
+  type BundleEntry,
+} from "~/features/racing/wallet/pkpasses";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+export const maxDuration = 120;
+
+/**
+ * GET /api/racing/licence-offer/add-all?billId=…  (or ?g=…) — every racer in the
+ * pack, added to this phone in one tap.
+ *
+ * APPLE ONLY, and not by preference. Apple's `.pkpasses` bundle is just a ZIP of
+ * signed passes, so we can assemble one from passes PassKit already issued.
+ * Google's equivalent needs several objects inside ONE signed JWT, which only
+ * the issuer can mint — PassKit hands us a per-pass `.gpay` link and no way to
+ * merge them. So the button is offered on Apple, and Google users add each
+ * racer from their row.
+ *
+ * A PARENT'S PHONE IS THE POINT. Four kids' licences on one device is the case
+ * this exists for; each racer can still add their own from the QR on their row.
+ *
+ * BILLING: this ISSUES every pass in the party — a tap on "add all" is four
+ * monthly records, not one. That is the deal the guest is making by tapping it,
+ * and the same lazy rule as everywhere else (nothing is created by rendering
+ * the page). The reconcile sweep deletes any of them that never reach a device.
+ *
+ * Possession of the billId is the auth for a booking; a signed waiver grant is
+ * the auth when there is no booking (standalone / group-events waiver). Either
+ * way every personId must be IN the proven pack — see licence-pack.ts.
+ */
+/** Heat fields are present only for a booking pack — a waiver knows nothing
+ *  about anyone's heat, and the pre-race cron fills the pass in later. */
+type BookingRacer = PackMember;
+
+export async function GET(req: NextRequest): Promise<NextResponse> {
+  const url = new URL(req.url);
+  // PREPARE MODE. A freshly issued pass is not renderable immediately — PassKit
+  // answers 200 with its landing page for tens of seconds, and the first GET
+  // appears to be what triggers the render. Waiting that out inside the
+  // download request means a guest staring at a dead tap, so the client calls
+  // this first, watches `ready` climb, and only then fetches the bundle.
+  // THREE MODES, and the split is the whole fix.
+  //
+  //   prepare — issue the passes. Runs ONCE, on the tap.
+  //   probe   — READ ONLY: are they renderable yet?
+  //   (none)  — build the bundle.
+  //
+  // Probe must never issue. `issueLicencePass` self-heals a re-tap with a
+  // `PUT metaData`, and a PUT makes PassKit RE-RENDER the pass — so a polling
+  // probe that issued was destroying the very render it was waiting for, and
+  // could never converge. Live proof (2026-08-06): all four passes were
+  // downloadable as 590KB files while the probe still answered `ready: 0`.
+  const probe = url.searchParams.get("probe") === "1";
+  const prepare = url.searchParams.get("prepare") === "1";
+  // Probe a SINGLE racer. An individual "add to wallet" hits exactly the same
+  // render delay as the bundle — the pass is issued on the tap — so the one-row
+  // buttons drive the same wait rather than redirecting into a landing page.
+  const onlyPerson = (url.searchParams.get("personId") || "").trim();
+
+  // A booking (`billId`) or signed waiver grants (`g`) — see licence-pack.ts.
+  // This endpoint ISSUES passes, so a caller that proved nothing must get
+  // nothing: an unproven pack here would be a way to bill us for strangers.
+  const pack = await resolveLicencePack(url.searchParams);
+  if (!pack?.members.length) {
+    return NextResponse.json({ error: "no racers for this request" }, { status: 404 });
+  }
+
+  // The pack is already one row per person. `?personId=` narrows to one, and it
+  // must be IN the pack — otherwise it is a way to name someone the caller never
+  // proved.
+  const racers: BookingRacer[] = onlyPerson
+    ? pack.members.filter((m) => m.personId === onlyPerson)
+    : pack.members;
+  if (!racers.length) {
+    return NextResponse.json({ error: "no racers for this request" }, { status: 404 });
+  }
+
+  // PROBE: read the member ids we already stored and just look. No Office, no
+  // Pandora, no issue, no PUT — those are what made a poll take five seconds
+  // AND reset the render.
+  if (probe) {
+    const ids = racers.map((r) => String(r.personId ?? "").trim());
+    const held = await getRacerPasses(ids);
+    const looks = await Promise.all(
+      ids.map(async (pid) => {
+        const memberId = held.get(pid)?.memberId;
+        if (!memberId) return false;
+        // A single look. Asking is also what starts the render, so a probe that
+        // answers "not yet" has still moved things along.
+        return (await fetchPkpass(passUrls(memberId).apple, fetch, [0])) !== null;
+      }),
+    );
+    return NextResponse.json(
+      { total: ids.length, ready: looks.filter(Boolean).length },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  // ALREADY HAVE A PASS? USE IT. Do not re-issue.
+  //
+  // `issueLicencePass` recovers an existing member on 409 and self-heals it with
+  // a `PUT metaData` — and a PUT makes PassKit RE-RENDER, which throws away a
+  // pass that was ready to download a second ago. For a racer who already holds
+  // a licence (the common case on a second tap) that turned an instant add into
+  // a fresh minute-long render every single time.
+  const alreadyHeld = await getRacerPasses(racers.map((r) => String(r.personId ?? "").trim()));
+
+  // In parallel: a party of six should not be six sequential Office round trips
+  // plus six issues plus six downloads while someone holds a phone.
+  const results = await Promise.all(
+    racers.map(async (r) => {
+      const personId = String(r.personId ?? "").trim();
+      try {
+        const held = alreadyHeld.get(personId)?.memberId;
+        if (held) {
+          if (prepare) return { name: `${personId}.pkpass`, bytes: new Uint8Array(1) };
+          const bytes = await fetchPkpass(passUrls(held).apple);
+          return bytes ? ({ name: `${personId}.pkpass`, bytes } as BundleEntry) : null;
+        }
+
+        let code = await codeForPersonId(personId).catch(() => null);
+        if (!code) {
+          const matches = await lookupMemberMatches(personId).catch(() => null);
+          code = matches?.[0]?.loginCode || null;
+        }
+        if (!code) return null; // no BMI tag — nothing to put in a barcode
+
+        const meta = await buildLicenceMeta({
+          personId,
+          code,
+          fullName: String(r.racerName ?? "").trim() || "Racer",
+          heat: r.heatStart
+            ? {
+                scheduledStart: String(r.heatStart),
+                track: String(r.track ?? ""),
+                heatNumber: Number(String(r.heatName ?? "").replace(/\D+/g, "")) || null,
+              }
+            : null,
+        });
+
+        const issued = await issueLicencePass({ personId, meta });
+        if (!issued.ok || !issued.memberId) return null;
+
+        // Fetch the signed pass, WAITING for PassKit to finish rendering it.
+        // We issued it moments ago, and until the render completes PassKit
+        // answers 200 with an HTML page — so `res.ok` proves nothing and an
+        // unchecked read puts a web page in the bundle. iOS then refuses the
+        // whole thing with "your pass cannot be installed at this time",
+        // naming none of the four. Bytes are copied verbatim: each pass carries
+        // its own signature and re-packing would invalidate it.
+        const passUrl = passUrls(issued.memberId).apple;
+
+        // PREPARE stops here: the pass exists, the render has been kicked off
+        // by the fetch below, and the client takes over polling.
+        if (prepare) return { name: `${personId}.pkpass`, bytes: new Uint8Array(1) };
+
+        const bytes = await fetchPkpass(passUrl);
+        if (!bytes) return null;
+
+        return { name: `${personId}.pkpass`, bytes } as BundleEntry;
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  const entries: BundleEntry[] = results.filter((e): e is BundleEntry => e !== null);
+
+  if (prepare) {
+    return NextResponse.json(
+      { total: racers.length, issued: entries.length },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  if (entries.length === 0) {
+    return NextResponse.json({ error: "no passes could be built" }, { status: 502 });
+  }
+
+  const bundle = buildPkpassesBundle(entries);
+  return new NextResponse(new Uint8Array(bundle), {
+    headers: {
+      "Content-Type": PKPASSES_CONTENT_TYPE,
+      "Content-Disposition": 'attachment; filename="fasttrax-licences.pkpasses"',
+      "Content-Length": String(bundle.length),
+      "Cache-Control": "no-store, max-age=0",
+    },
+  });
+}

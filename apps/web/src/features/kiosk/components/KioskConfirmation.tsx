@@ -18,6 +18,8 @@ import { resetToKiosk } from "../version";
 import { BrandLogo } from "./BrandLogo";
 import { readGzFulfillment, type GzFulfillmentPayload } from "../service/gz-fulfillment";
 import { KioskGzFulfillment } from "./KioskGzFulfillment";
+import { KioskLicenceOffer } from "./KioskLicenceOffer";
+import { useIsRacingBooking } from "~/features/racing/components/useLicenceOffer";
 import {
   readRacePackConfirmation,
   clearRacePackConfirmation,
@@ -143,6 +145,19 @@ function codeFromSrc(src: string | null): string | null {
 // Bowling bookings carry the Neon reservation id in the web confirmation URL —
 // the handle for the same GET/POST /checkin API the web confirmation uses for
 // self-service lane open. Null for non-bowling bookings (race, attractions).
+/** The web confirmation URL carries `billId` (checkout builds it), which is the
+ *  handle the licence-offer endpoint keys on — so the kiosk reuses exactly the
+ *  same fetch and the same login-code warming as the web page. */
+function billIdFromSrc(src: string | null): string | null {
+  if (!src) return null;
+  try {
+    const id = new URL(src, "https://kiosk.local").searchParams.get("billId");
+    return id && /^\d+$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 function bowlingNeonIdFromSrc(src: string | null): number | null {
   if (!src) return null;
   try {
@@ -240,6 +255,12 @@ export function KioskConfirmation({ src }: { src: string | null }) {
   // like the lane opened on the spot — same Arrived → Ready → Running POST
   // the web confirmation's check-in uses.
   const laneNeonId = useMemo(() => bowlingNeonIdFromSrc(src), [src]);
+  const billId = useMemo(() => billIdFromSrc(src), [src]);
+  // `includesRacing` comes from a sessionStorage flag written during checkout,
+  // so it is false in any tab that did not just run the flow and would be lost
+  // on a kiosk reset. The booking record answers the same question from data.
+  const racingFromBooking = useIsRacingBooking(billId);
+  const showRacing = includesRacing || racingFromBooking;
   const [lanePhase, setLanePhase] = useState<LanePhase>("idle");
   const [laneLabel, setLaneLabel] = useState("");
 
@@ -374,7 +395,7 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       // With a card-fulfillment panel the column can exceed the canvas — scroll
       // from the top instead of center-clipping.
       className={`absolute inset-0 flex flex-col items-center gap-[36px] bg-[#000418] px-[64px] text-center ${
-        gzPayload || racePacks || povCodes || lanePanelVisible || includesRacing
+        gzPayload || racePacks || povCodes || lanePanelVisible || showRacing
           ? "justify-start overflow-y-auto py-[56px]"
           : "justify-center overflow-hidden"
       }`}
@@ -401,10 +422,17 @@ export function KioskConfirmation({ src }: { src: string | null }) {
         <path d="m7.5 12.5 3 3 6-7" />
       </svg>
       <h1 className="k-display relative text-[124px] leading-none">{t("confirmation.booked")}</h1>
-      <p className="relative max-w-[30ch] text-[34px] text-white/60">
-        {t("confirmation.receiptNote")}
-      </p>
-      {includesRacing && (
+      {/* RACING BOOKINGS DROP THIS. The racing panel below already explains
+          what happens next, and the licence card offers the wallet pass
+          explicitly INSTEAD of a text — so telling the same guest their links
+          are on their way by text contradicts the thing we are asking them to
+          do (owner 2026-08-06). Every other booking type still needs it. */}
+      {!showRacing && (
+        <p className="relative max-w-[30ch] text-[34px] text-white/60">
+          {t("confirmation.receiptNote")}
+        </p>
+      )}
+      {showRacing && (
         // Racing "what's next" — deliberately first panel so a racing guest
         // reads it before anything else; racing red to stand out from the
         // cyan/amber panels below.
@@ -627,6 +655,18 @@ export function KioskConfirmation({ src }: { src: string | null }) {
           />
         </div>
       ) : null}
+      {/* Racing licence — below the booking QR, so the code they need right now
+          stays the hero and this reads as an offer, not an instruction.
+
+          GATED ON THE DATA, NOT ON sessionStorage. This was behind
+          `includesRacing`, which reads a `kiosk:has-racing` flag written during
+          checkout — so it rendered nothing in any tab that had not just been
+          through the flow, and would have vanished on a real booking too if the
+          kiosk had reset or storage were unavailable. The offer endpoint reads
+          `racers[]` off the booking record, which IS the race-participant list,
+          so a non-racing booking returns nobody and the component renders null
+          on its own. */}
+      <KioskLicenceOffer billId={billId} brand={config?.brand} />
       {code ? (
         <div className="relative rounded-[24px] border border-white/15 bg-white/[0.04] px-[48px] py-[24px]">
           <div className="k-eyebrow text-white/45">{t("confirmation.bookingCode")}</div>

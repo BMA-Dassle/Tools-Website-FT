@@ -128,11 +128,21 @@ export function KioskRacePackFlow({
       throw new Error(data.error || t("racePack.err.startReaderPayment"));
     }
     purchaseKeyRef.current = data.purchaseKey;
-    return { seed: data.purchaseKey, depositOrderId: data.orderId, depositCents: data.totalCents };
+    return {
+      seed: data.purchaseKey,
+      depositOrderId: data.orderId,
+      depositCents: data.totalCents,
+      // Gift-card parity: the shared gate lights the ambient pay screen (or
+      // the amber button when the kill switch is off) exactly like every cart.
+      ...(data.splitToken ? { splitToken: data.splitToken } : {}),
+      ...(data.ambient ? { ambient: true } : {}),
+    };
   };
 
   const finalize = async (ep: {
     paymentId: string;
+    /** Gift-card checkouts: the FULL captured set (finalize sums it). */
+    paymentIds?: string[];
     depositOrderId: string;
     amountCents: number;
   }) => {
@@ -148,6 +158,7 @@ export function KioskRacePackFlow({
             paymentId: ep.paymentId,
             orderId: ep.depositOrderId,
             amountCents: ep.amountCents,
+            ...(ep.paymentIds && ep.paymentIds.length > 1 ? { paymentIds: ep.paymentIds } : {}),
           },
         }),
       });

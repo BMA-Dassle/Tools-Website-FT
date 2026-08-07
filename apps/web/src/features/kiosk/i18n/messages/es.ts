@@ -104,7 +104,7 @@ export const es: Record<CoreKey, string> = {
   // --- Confirmation (KioskConfirmation) ---
   "confirmation.booked": "¡Reservación confirmada!",
   "confirmation.receiptNote":
-    "Acabamos de enviarte por mensaje y correo tu confirmación y los enlaces de registro — ese es tu boleto, no hay nada que imprimir.",
+    "Tu confirmación y los enlaces de registro van en camino por mensaje y correo — deberían llegar en unos minutos. Ese es tu boleto, no hay nada que imprimir.",
   "confirmation.racing.eyebrow": "Carreras — lo que sigue",
   "confirmation.racing.howButton": "¿Cómo funciona el registro de carreras?",
   "confirmation.lane.readyTitle": "{lane} está lista",

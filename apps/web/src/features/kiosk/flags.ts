@@ -312,6 +312,40 @@ export function kioskExperienceAvailEnabled(): boolean {
   return process.env.KIOSK_EXPERIENCE_AVAIL !== "0";
 }
 
+/**
+ * Ambient checkout (2026-08) — kill switch, defaults ON, SERVER-side only.
+ * ON: every kiosk Terminal checkout arms auth-only with partial authorization,
+ * and capture is one atomic PayOrder over the tender set. ANY tender that
+ * partially approves rides the same loop — Square gift cards are the headline
+ * (swipe or scan, no button), but prepaid/debit partials board and re-arm
+ * identically (owner 2026-08-06: "it's not just gift cards"). Scanned eGifts
+ * auto-apply through the same rail. OFF: checkouts arm capture-on-tap exactly
+ * like the pre-ambient rail (a low-balance card swipe declines at the reader).
+ *
+ * The CLIENT never reads this flag — a non-NEXT_PUBLIC var is undefined in the
+ * bundle and `!== "false"` would silently read ON. The client keys off the
+ * prepare response's `ambient` field and the poll's `captured`/`tender`
+ * fields, so a mid-session flip degrades gracefully in both directions: the
+ * flag only changes how NEW checkouts arm, and the split routes an in-flight
+ * ambient session finishes on are never disabled by it. Read at call time so
+ * tests can stub process.env.
+ */
+export function kioskAmbientCheckoutEnabled(): boolean {
+  return process.env.KIOSK_AMBIENT_CHECKOUT !== "false";
+}
+
+/**
+ * The tender sweep cron (kill switch, defaults ON, server-side only) — the
+ * observer that drains stale kiosk payment sessions: forward-captures covered
+ * sets, voids abandoned holds, alerts ops on captured-but-unfinalized orders.
+ * Turning it OFF leaves walk-away holds to Square's ~36h auto-cancel and
+ * captured-but-unfinalized sessions to manual discovery — an emergency valve
+ * if the sweep itself misbehaves, never a steady state.
+ */
+export function kioskTenderSweepEnabled(): boolean {
+  return process.env.KIOSK_TENDER_SWEEP !== "false";
+}
+
 // kioskSplitTenderEnabled is GONE (owner 2026-07-31) — paying with a gift card
 // (ONE gift card + ONE reader tap, "match web") is unconditional on every kiosk
 // checkout. History: tasks/split-tender-probes.md.

@@ -28,6 +28,8 @@ import { verifyCron } from "@/lib/cron-auth";
 import { warmRacerCodes } from "~/features/kiosk/license/code-cache";
 import { recordNotified, forgetNotified } from "~/features/racing/eticket/removal-sweep";
 import { updateLicencePasses } from "~/features/racing/wallet/licence-pass";
+import { formatHeat } from "~/features/racing/wallet/licence-meta";
+import { NO_NEXT_RACE } from "~/features/racing/wallet/licence-clear";
 import { KARTING_CHECKIN_EMAIL_NOTE, KARTING_CHECKIN_SMS_NOTE } from "@/lib/karting-checkin-copy";
 
 /**
@@ -61,6 +63,10 @@ interface PandoraSession {
   scheduledStart: string;
   type: string;
   heatNumber: number;
+  /** Set by BMI the moment the heat actually goes off. The ONLY reliable "has
+   *  this happened yet" signal — see the wallet window below and licence-clear. */
+  actualStart?: string | null;
+  actualEnd?: string | null;
 }
 
 /** One fetched participant tied to the session it belongs to.
@@ -132,73 +138,45 @@ async function fetchSessions(resourceName: string): Promise<PandoraSession[]> {
 }
 
 /**
- * The NEXT RACE line on a wallet licence: "Aug 4 · 5:00 PM · Mega".
+ * The three renderings of one heat for a wallet licence:
+ *   "Aug 6 · 9:48 PM · Red"                              (face, SECONDARY)
+ *   "Thursday, Aug 6 · 9:48 PM · Red · Heat 55"          (back)
+ *   "Heat 55"                                            (face, AUXILIARY)
  *
- * Short on purpose — Apple truncates a secondary field to the card width even
- * when it is the only field on its row, and a longer form came back clipped on
- * device. Track and time earn their place ahead of the weekday.
+ * These used to be three local functions here. They are now ONE shared
+ * `formatHeat` in licence-meta.ts, because checkin-alerts writes the same three
+ * fields for a heat that ran too late for this cron to still be covering it.
  *
- * `scheduledStart` arrives with a trailing Z but is CENTRE-LOCAL wall clock,
- * not UTC — Heat 11 runs at 17:00 local, not 17:00Z. Parsed as local; treating
- * it as real UTC would shift every heat on every pass by the offset.
+ * SHARING IS LOAD-BEARING, NOT TIDINESS. `updateLicencePass` decides whether to
+ * push by comparing the incoming string to the last one written. Two formatters
+ * that disagreed by a single character — a space, a separator, a weekday — would
+ * make each cron see the other's value as a change and re-PUT it, so every racer
+ * with a pass would take a write every minute for the whole heat. One function
+ * makes that class of regression impossible rather than merely unlikely.
+ *
+ * TIMEZONE — I GOT THIS BACKWARDS ONCE, SO READ IT BEFORE CHANGING IT.
+ * Pandora's `scheduledStart` is GENUINE UTC. "2026-08-06T02:36:00.000Z" is
+ * 10:36 PM ET on Aug 5. An earlier version stripped the Z and read it as
+ * centre-local wall clock, which printed "Aug 6 · 2:36 AM" onto a live pass —
+ * wrong by the whole ET offset, and wrong about the DAY as well. Do NOT confuse
+ * it with Neon's booking_metadata.heats[].heatId, which is "2026-08-04T14:30:00"
+ * with NO Z and genuinely IS centre-local. Two sources, two conventions.
+ * `formatHeat` handles the UTC one; that is the only kind reaching it here.
  */
-/** "Heat 57". Its own meta field on the pass, so it must be refreshed whenever
- *  `nextRace` is — it is the same heat, just rendered differently. */
-function formatRaceLabelForPass(session: { heatNumber?: number }): string {
-  return session.heatNumber != null ? `Heat ${session.heatNumber}` : "";
-}
-
-/** "Wednesday, Aug 5 · 10:12 PM · Red · Heat 57" — the long line on the back of
- *  the pass. Reads `scheduledStart` as genuine UTC, exactly as its short
- *  sibling below does; the timezone note there applies here verbatim. */
-function formatNextRaceLongForPass(
-  scheduledStart: string,
+function heatFieldsFor(
+  session: PandoraSession,
   trackDisplay: string,
-  session: { heatNumber?: number; raceType?: string },
-): string {
-  const dt = new Date(scheduledStart);
-  if (isNaN(dt.getTime())) return "";
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).formatToParts(dt);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  const label = trackDisplay || session.raceType || "";
-  const heat = formatRaceLabelForPass(session);
-  return `${get("weekday")}, ${get("month")} ${get("day")} · ${get("hour")}:${get("minute")} ${get("dayPeriod")}${label ? ` · ${label}` : ""}${heat ? ` · ${heat}` : ""}`;
-}
-
-function formatNextRaceForPass(
-  scheduledStart: string,
-  trackDisplay: string,
-  session: { heatNumber?: number; raceType?: string },
-): string {
-  // TIMEZONE — I GOT THIS BACKWARDS ONCE, SO READ IT BEFORE CHANGING IT.
-  //
-  // Pandora's `scheduledStart` is GENUINE UTC. "2026-08-06T02:36:00.000Z" is
-  // 10:36 PM ET on Aug 5. An earlier version stripped the Z and read it as
-  // centre-local wall clock, which printed "Aug 6 · 2:36 AM" onto a live pass —
-  // wrong by the whole ET offset, and wrong about the DAY as well.
-  //
-  // Do NOT confuse it with Neon's booking_metadata.heats[].heatId, which is
-  // "2026-08-04T14:30:00" with NO Z and genuinely IS centre-local. Two sources,
-  // two conventions; only this one is UTC.
-  const dt = new Date(scheduledStart);
-  if (isNaN(dt.getTime())) return "None in next 2 hrs";
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/New_York",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).formatToParts(dt);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  const label = trackDisplay || session.raceType || "";
-  return `${get("month")} ${get("day")} · ${get("hour")}:${get("minute")} ${get("dayPeriod")}${label ? ` · ${label}` : ""}`;
+): { nextRace: string; nextRaceLong: string; raceLabel: string } {
+  const h = formatHeat({
+    scheduledStart: session.scheduledStart,
+    track: trackDisplay || session.type || "",
+    heatNumber: session.heatNumber,
+  });
+  return {
+    nextRace: h.nextRace || NO_NEXT_RACE,
+    nextRaceLong: h.nextRaceLong || "—",
+    raceLabel: h.raceLabel || "—",
+  };
 }
 
 async function fetchParticipants(sessionId: string | number): Promise<Participant[]> {
@@ -732,23 +710,55 @@ export async function GET(req: NextRequest) {
     const resources = activeResourcesForToday();
 
     // 1. Collect every (session, participant) pair in the window across all resources.
+    //
+    // TWO WINDOWS, ON PURPOSE.
+    //
+    //   candidates       — e-ticket SMS/email. Unchanged: [now-5min, now+2h].
+    //   walletCandidates — the wallet licence's NEXT RACE. Superset.
+    //
+    // The e-ticket window is a NOTIFICATION window: 5 minutes of grace past the
+    // scheduled start is right, because sending a "your race is coming up" text
+    // for a heat already under way is noise.
+    //
+    // NEXT RACE is not a notification — it is a STATE the pass displays, and it
+    // has to stay true for as long as the race is still ahead of the racer. On
+    // the schedule clock those are the same thing; in reality they are nowhere
+    // near it. Measured 2026-08-06: 92 of 94 heats (98%) went off more than 5
+    // minutes late, median 19.8 min, worst 41 min. So for essentially every heat
+    // the 5-minute window closed a quarter of an hour before the race actually
+    // ran, and a racer added in that gap got no NEXT RACE at all.
+    //
+    // Same principle licence-clear.ts already settled for the clear-down: key off
+    // what BMI RECORDED, never off elapsed time. A heat is still somebody's next
+    // race until `actualStart` says it went off, however far off schedule that
+    // is. A heat delayed an hour stays on the pass for exactly that hour, with
+    // nothing to configure.
     const candidates: Candidate[] = [];
+    const walletCandidates: Candidate[] = [];
     for (const resourceName of resources) {
       const trackDisplay = resourceToTrackDisplay(resourceName);
       const sessions = await fetchSessions(resourceName);
-      const upcoming = sessions.filter((s) => {
+      const relevant = sessions.filter((s) => {
         const ms = new Date(s.scheduledStart).getTime();
-        return !isNaN(ms) && ms >= windowStart && ms <= windowEnd;
+        if (isNaN(ms) || ms > windowEnd) return false;
+        // Inside the notification window, or running late and not yet gone off.
+        return ms >= windowStart || !(s.actualStart || s.actualEnd);
       });
-      for (const session of upcoming) {
+      for (const session of relevant) {
         let participants: Participant[] = [];
         try {
           participants = await fetchParticipants(session.sessionId);
         } catch {
           continue;
         }
+        const ms = new Date(session.scheduledStart).getTime();
+        const inTicketWindow = ms >= windowStart;
         for (const p of participants) {
-          candidates.push({ session, trackDisplay, participant: p });
+          const c: Candidate = { session, trackDisplay, participant: p };
+          // A heat that has already gone off is nobody's NEXT race — the
+          // clear-down owns it from that point.
+          if (!(session.actualStart || session.actualEnd)) walletCandidates.push(c);
+          if (inTicketWindow) candidates.push(c);
         }
       }
     }
@@ -880,18 +890,33 @@ export async function GET(req: NextRequest) {
     // mid-flight — the SMS (awaited) landed while the wallet push silently never
     // ran (2026-08-05, a real heat move). These swallow their own errors, so
     // awaiting cannot break the cron; it only makes the work actually happen.
+    //
+    // EARLIEST HEAT PER RACER, not last-one-wins.
+    //
+    // `updateLicencePasses` walks its list in order and each entry overwrites
+    // the previous one for the same person, so a racer booked into two heats in
+    // the window had whichever happened to come last in the array land on their
+    // pass — often the LATER race. "Next" has to mean next.
+    const earliestPerPerson = new Map<string, Candidate>();
+    for (const c of walletCandidates) {
+      const pid = String(c.participant.personId ?? "").trim();
+      if (!pid) continue;
+      const prev = earliestPerPerson.get(pid);
+      if (
+        !prev ||
+        new Date(c.session.scheduledStart).getTime() <
+          new Date(prev.session.scheduledStart).getTime()
+      ) {
+        earliestPerPerson.set(pid, c);
+      }
+    }
     await updateLicencePasses(
-      candidates.map((c) => ({
+      [...earliestPerPerson.values()].map((c) => ({
         personId: c.participant.personId,
-        nextRace: formatNextRaceForPass(c.session.scheduledStart, c.trackDisplay, c.session),
-        // Same heat, other two renderings. Sent together so the pass can never
-        // show a time from one heat next to a heat number from another.
-        raceLabel: formatRaceLabelForPass(c.session),
-        nextRaceLong: formatNextRaceLongForPass(
-          c.session.scheduledStart,
-          c.trackDisplay,
-          c.session,
-        ),
+        // All three renderings of the ONE heat, from the one shared formatter,
+        // sent together so the pass can never show a time from one heat next to
+        // a heat number from another.
+        ...heatFieldsFor(c.session, c.trackDisplay),
         // Stamped so the clear-down can ask whether THIS heat has ended, rather
         // than inferring it from the clock.
         nextRaceSessionId: String(c.session.sessionId),

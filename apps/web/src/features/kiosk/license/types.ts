@@ -20,6 +20,28 @@
 export const RACER_LOGIN_CODE_RE = /^[A-Za-z0-9]{6,32}$/;
 
 /**
+ * The same code, but for a code that arrived in a URL we PUBLISHED rather than
+ * off a barcode someone physically presented.
+ *
+ * TWO TRUST CONTEXTS, DELIBERATELY DIFFERENT. A scan is handed to us by a
+ * person standing at a kiosk, a desk or a register, so it must keep accepting
+ * every tag shape BMI mints — that is what RACER_LOGIN_CODE_RE above is for and
+ * nothing there may key off length. A URL is typed, shared, crawled and
+ * ENUMERATED, and the routes behind these ones answer with a racer's name,
+ * their sign-in barcode, and (for the wallet hop) a newly minted, billed pass.
+ *
+ * SIX-CHARACTER TAGS ARE REAL AND THEY LOOK LIKE COUNTERS: `781136`, `973273`,
+ * measured on a live record 2026-08-06. That is a 10^6 space — walkable in
+ * minutes — so accepting them in a URL turns an unauthenticated route into a
+ * racer-directory scrape plus a pass-minting amplifier.
+ *
+ * 13-char alphanumeric (~10^20) and 36-char UUID shapes only. This costs us
+ * nothing: `codeForPersonId` already PREFERS the 13-char tag, so every code we
+ * put in a link already qualifies — the short ones are only ever scanned.
+ */
+export const RACER_PUBLIC_CODE_RE = /^(?:[A-Za-z0-9]{13,32}|[0-9a-f][0-9a-f-]{15,63})$/i;
+
+/**
  * One matched account. Mirrors ReturningRacerLookup's FoundAccount (so the
  * existing AccountCard renders it structurally) plus the contact + waiver
  * status the lookup's Pandora probe already established.

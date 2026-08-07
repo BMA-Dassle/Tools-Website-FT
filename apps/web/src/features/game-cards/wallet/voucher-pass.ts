@@ -61,7 +61,7 @@
 // the item-state projection lives in pass-content.ts and is shared instead.
 import { getVoucher, logVoucherEvent, setVoucherPassId } from "../data/vouchers-db";
 import { spentItemIndexes } from "../data/voucher-claims-db";
-import { PASSKIT_VOUCHER } from "~/config/passkit";
+import { PASSKIT_VOUCHER, PASSKIT_VOUCHER_EXPIRY_CEILING } from "~/config/passkit";
 import { isPassKitConfigured, passkit, PassKitError, passUrls } from "~/lib/api/passkit";
 import {
   buildPassMeta,
@@ -147,6 +147,15 @@ async function findByExternalId(code: string): Promise<CouponResponse | null> {
  * this path instead of putting a static PassKit distribution link in the email:
  * a link signed at mint time cannot know the voucher was voided afterwards.
  */
+/** The voucher's own expiry, or the offer's ceiling — whichever comes first. */
+function couponExpiry(expiresAt: string | Date | null | undefined): string {
+  const ceiling = new Date(PASSKIT_VOUCHER_EXPIRY_CEILING);
+  if (!expiresAt) return ceiling.toISOString();
+  const own = new Date(expiresAt);
+  if (isNaN(own.getTime())) return ceiling.toISOString();
+  return (own < ceiling ? own : ceiling).toISOString();
+}
+
 export async function issueVoucherPass(code: string): Promise<IssueResult> {
   if (!walletPassesEnabled()) return { ok: false, refusal: "disabled" };
 
@@ -167,7 +176,16 @@ export async function issueVoucherPass(code: string): Promise<IssueResult> {
         offerId: PASSKIT_VOUCHER.offerId,
         // OUR code is the external id — that is what makes this idempotent.
         externalId: row.code,
-        ...(row.expiresAt ? { expiryDate: new Date(row.expiresAt).toISOString() } : {}),
+        // ALWAYS sent, and always capped. The offer expires coupons on a
+        // per-coupon date, so omitting this 400s — which is exactly what broke
+        // every wallet button for a voucher with no expiry of its own. A date
+        // past the offer's redemption end 400s too, so a voucher that outlives
+        // the offer is clamped rather than refused.
+        //
+        // Expiring the PASS does not expire the VOUCHER: Neon stays the source
+        // of truth and `/v/{code}` keeps working either way. This only governs
+        // how long the card stays in a wallet.
+        expiryDate: couponExpiry(row.expiresAt),
         metaData: built.meta,
       });
       await logVoucherEvent(code, "send", { walletPass: "issued", passId: coupon.id });

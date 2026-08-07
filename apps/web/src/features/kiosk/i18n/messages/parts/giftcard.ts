@@ -40,6 +40,20 @@ export const giftcardEn = {
   // --- Reader (split) ---
   "giftcard.readerExactAmount": "The reader shows this exact amount.",
 
+  // --- Ambient pay screen (2026-08: no button — scan/swipe just works) ---
+  "giftcard.ambientHint":
+    "Have a gift card? Swipe it at the card reader, or scan its QR code at the scanner below.",
+  "giftcard.cardHold": "Card •••• {last4} — {amount} approved",
+  "giftcard.applying": "Applying your gift card…",
+  "giftcard.coversAll": "Your gift card covers the whole payment — finishing up…",
+  "giftcard.enterNumber": "Enter a gift card number",
+  "giftcard.limitReached": "Gift card limit reached — pay the rest by card.",
+  "giftcard.cancelConfirm.title": "Cancel this payment?",
+  "giftcard.cancelConfirm.body":
+    "We'll release every gift card and card hold — nothing has been charged.",
+  "giftcard.cancelConfirm.keep": "Keep paying",
+  "giftcard.cancelConfirm.confirm": "Cancel payment",
+
   // --- Errors / rejections (our copy; server detail may append) ---
   "giftcard.err.notGiftCard":
     "That doesn’t look like a gift card — scan the QR code from your gift card email.",
@@ -47,6 +61,8 @@ export const giftcardEn = {
   "giftcard.err.lookup": "We couldn’t use that gift card — check the number or see the front desk.",
   "giftcard.err.apply": "Couldn’t apply the gift card. Please try again.",
   "giftcard.err.capture": "We couldn’t finish the payment — try again or see the front desk.",
+  "giftcard.err.scanNotUsable":
+    "We can only use gift cards here — a team member can help with anything else.",
 } as const;
 
 export const giftcardEs: Record<keyof typeof giftcardEn, string> = {
@@ -78,6 +94,19 @@ export const giftcardEs: Record<keyof typeof giftcardEn, string> = {
 
   "giftcard.readerExactAmount": "El lector muestra esta cantidad exacta.",
 
+  "giftcard.ambientHint":
+    "¿Tienes una tarjeta de regalo? Deslízala en el lector de tarjetas o escanea su código QR en el escáner de abajo.",
+  "giftcard.cardHold": "Tarjeta •••• {last4} — {amount} aprobado",
+  "giftcard.applying": "Aplicando tu tarjeta de regalo…",
+  "giftcard.coversAll": "Tu tarjeta de regalo cubre todo el pago — finalizando…",
+  "giftcard.enterNumber": "Escribir el número de una tarjeta de regalo",
+  "giftcard.limitReached": "Límite de tarjetas de regalo alcanzado — paga el resto con tarjeta.",
+  "giftcard.cancelConfirm.title": "¿Cancelar este pago?",
+  "giftcard.cancelConfirm.body":
+    "Liberaremos todas las retenciones de tarjetas — no se ha cobrado nada.",
+  "giftcard.cancelConfirm.keep": "Seguir pagando",
+  "giftcard.cancelConfirm.confirm": "Cancelar el pago",
+
   "giftcard.err.notGiftCard":
     "Eso no parece una tarjeta de regalo — escanea el código QR del correo de tu tarjeta de regalo.",
   "giftcard.err.gamezoneCard":
@@ -87,4 +116,6 @@ export const giftcardEs: Record<keyof typeof giftcardEn, string> = {
   "giftcard.err.apply": "No pudimos aplicar la tarjeta de regalo. Inténtalo de nuevo.",
   "giftcard.err.capture":
     "No pudimos finalizar el pago — inténtalo de nuevo o acude a la recepción.",
+  "giftcard.err.scanNotUsable":
+    "Aquí solo podemos usar tarjetas de regalo — un miembro del equipo puede ayudarte con lo demás.",
 };

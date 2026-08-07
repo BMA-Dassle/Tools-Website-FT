@@ -59,36 +59,69 @@ interface SessionRow {
   actualEnd?: string | null;
 }
 
+/** ET calendar date, N days back from now. */
+function etYmd(daysBack = 0): string {
+  const d = new Date(Date.now() - daysBack * 86_400_000);
+  return d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
+
+/** Hour 0-23 in ET, for the after-midnight and dead-hours decisions. */
+export function etHour(): number {
+  return Number(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      hour: "2-digit",
+      hour12: false,
+    }).format(new Date()),
+  ) % 24;
+}
+
 /**
- * Today's sessions across all tracks, keyed by id. One fetch per track — the
- * same cron-warmed proxy `checkin-race-flags` reads, so this is cheap.
+ * Sessions across all tracks for the given ET days, keyed by id. One fetch per
+ * track per day — the same cron-warmed proxy `checkin-race-flags` reads.
+ *
+ * WHY MORE THAN ONE DAY. The range is `{ymd}T00:00:00`..`{ymd}T23:59:59`, so a
+ * heat that ENDS after midnight drops off "today's" query the instant the ET
+ * date rolls. Its session then cannot be found, and the guard below —
+ * deliberately, so a Pandora blip never wipes a live pass — clears nothing. The
+ * result was a pass still advertising last night's race all through the next
+ * day. Not hypothetical: heats here run a median 19.8 minutes late and up to 41
+ * (2026-08-06), so the last few of an evening routinely spill past midnight.
+ *
+ * Yesterday is only added in the small hours, so the per-minute cron pays for
+ * one extra day's fetches during the window where it actually matters.
  */
-async function fetchTodaySessions(origin: string, ymd: string): Promise<Map<string, SessionRow>> {
+async function fetchSessionsForDays(
+  origin: string,
+  ymds: readonly string[],
+): Promise<Map<string, SessionRow>> {
   const byId = new Map<string, SessionRow>();
   await Promise.all(
-    RESOURCES.map(async (resourceName) => {
-      try {
-        const qs = new URLSearchParams({
-          locationId: FASTTRAX_LOCATION_ID,
-          resourceName,
-          startDate: `${ymd}T00:00:00`,
-          endDate: `${ymd}T23:59:59`,
-          prefer: "cache",
-        }).toString();
-        const res = await fetch(`${origin}/api/pandora/sessions?${qs}`, {
-          cache: "no-store",
-          signal: AbortSignal.timeout(8000),
-        });
-        if (!res.ok) return;
-        const json = await res.json();
-        for (const s of Array.isArray(json?.data) ? (json.data as SessionRow[]) : []) {
-          const id = s.sessionId == null ? "" : String(s.sessionId);
-          if (id) byId.set(id, s);
+    ymds.flatMap((ymd) =>
+      RESOURCES.map(async (resourceName) => {
+        try {
+          const qs = new URLSearchParams({
+            locationId: FASTTRAX_LOCATION_ID,
+            resourceName,
+            startDate: `${ymd}T00:00:00`,
+            endDate: `${ymd}T23:59:59`,
+            prefer: "cache",
+          }).toString();
+          const res = await fetch(`${origin}/api/pandora/sessions?${qs}`, {
+            cache: "no-store",
+            signal: AbortSignal.timeout(8000),
+          });
+          if (!res.ok) return;
+          const json = await res.json();
+          for (const s of Array.isArray(json?.data) ? (json.data as SessionRow[]) : []) {
+            const id = s.sessionId == null ? "" : String(s.sessionId);
+            if (id) byId.set(id, s);
+          }
+        } catch {
+          /* one track failing must not strand the others */
         }
-      } catch {
-        /* one track failing must not strand the others */
-      }
-    }),
+      }),
+    ),
   );
   return byId;
 }
@@ -116,8 +149,10 @@ export async function clearFinishedLicenceFields(origin: string): Promise<ClearR
   out.checked = rows.length;
   if (rows.length === 0) return out;
 
-  const ymd = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  const sessions = await fetchTodaySessions(origin, ymd);
+  // Before ~6am ET, last night's heats are the ones still in question — and
+  // they are on YESTERDAY's schedule. See fetchSessionsForDays.
+  const days = etHour() < 6 ? [etYmd(0), etYmd(1)] : [etYmd(0)];
+  const sessions = await fetchSessionsForDays(origin, days);
   if (sessions.size === 0) return out; // schedule unavailable — clear nothing
 
   for (const row of rows) {
@@ -147,6 +182,70 @@ export async function clearFinishedLicenceFields(origin: string): Promise<ClearR
           await markPushed(row.personId, { nextRaceSessionId: null });
           out.nextRaceCleared++;
         }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * THE OVERNIGHT FAILSAFE — the belt to the sweep above's braces.
+ *
+ * Everything above is EVIDENCE-BASED: it clears a field only once BMI has
+ * recorded the heat starting or ending. That is the right rule while the centre
+ * is open, and it is why a race running an hour late keeps its alert for exactly
+ * that hour. But every one of its exits is a "clear nothing" exit — an
+ * unreachable Pandora, a session on a day we did not query, a heat that never
+ * got an `actualEnd` written because it was cancelled or abandoned mid-run. Each
+ * of those is correct in the moment and leaves the field set forever.
+ *
+ * By 3am the centre has been shut for hours, so the question stops being "did
+ * this heat finish?" and becomes "can ANY of this still be true?" — and the
+ * answer is no. Nobody's next race is last night's, and nobody is checking in.
+ * So this clears unconditionally, with no schedule lookup at all: there is
+ * nothing to fetch that could make a stale field legitimate, and requiring
+ * evidence is exactly what let it survive.
+ *
+ * GUARDED TO THE DEAD HOURS. It refuses to run outside 2-5am ET even if
+ * invoked, because the one thing that must never happen is this wiping "Check in
+ * now" off a pass while its racer is standing at the desk. A cron
+ * misconfiguration, a manual curl, or a DST shift cannot turn it into that.
+ *
+ * ONE NOTE ON NOTIFICATIONS. `nextRace` carries no changeMessage, so clearing it
+ * is silent. `checkinStatus` DOES ("FastTrax: %@"), so a pass that still has a
+ * live check-in value at 3am may raise one lock-screen alert as it is cleared.
+ * That is accepted: a pass reading "Check in now — Red Heat 60" all through the
+ * following day is the worse outcome, and after the yesterday-schedule fix above
+ * almost nothing should still be set by the time this runs. NOT yet observed on
+ * a device — the first real firing is the test.
+ */
+export async function clearStaleLicenceFieldsOvernight(): Promise<
+  ClearResult & { skipped?: string }
+> {
+  const out: ClearResult = { checked: 0, checkinCleared: 0, nextRaceCleared: 0 };
+  if (!licencePassEnabled()) return out;
+
+  const hour = etHour();
+  if (hour < 2 || hour > 5) {
+    return { ...out, skipped: `outside the 2-5am ET window (ET hour ${hour})` };
+  }
+
+  const rows = await getPassesWithLiveFields();
+  out.checked = rows.length;
+
+  for (const row of rows) {
+    if (row.checkinStatus) {
+      const ok = await updateLicencePass(row.personId, { checkinStatus: "" });
+      if (ok) {
+        await markPushed(row.personId, { checkinSessionId: null });
+        out.checkinCleared++;
+      }
+    }
+    if (row.nextRace && row.nextRace !== NO_NEXT_RACE) {
+      const ok = await updateLicencePass(row.personId, { nextRace: NO_NEXT_RACE });
+      if (ok) {
+        await markPushed(row.personId, { nextRaceSessionId: null });
+        out.nextRaceCleared++;
       }
     }
   }

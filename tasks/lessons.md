@@ -1,5 +1,65 @@
 # Lessons Learned
 
+## An idempotency key must contain every field that makes the operation distinct — a missing personId gave a party free races (2026-08-06)
+
+**What happened:** W58352 — a kiosk party of 4 booked 3 heats each and bought four 3-race
+Weekday packs. BMI granted all 12 credits. Only **3** came off, and all 3 came off ONE
+racer (Brett Conlon); the other three raced 3 heats each on credits that were never drawn.
+
+The cause is one line in `deductCreditRedemptions`:
+
+```ts
+// WRONG — no personId
+const guardKey = `race-credit-redeemed:${opts.billId}:${r.ref}:${r.depositKindId}`;
+```
+
+`ref` is the **heat block id**, and `RaceItem.heats` documents that *"multiple racers on
+the same heat share heatId but have distinct entries (one per racer)"*. So all four racers'
+redemptions for the 20:24 heat produced the **same** Redis NX key. The first `SET NX` won;
+the other three logged `already applied, skipping` and never called `addDeposit`. The
+charge path is unaffected — it drops covered heats to $0 off the heat OBJECT set — so the
+guest was correctly charged $0 for 12 races while only 3 credits were spent.
+
+The production log is the whole bug in twelve lines:
+
+```
+[race-pack] granted 3 (kind 12744867) to person 63000000006517986 (Brett Conlon) → deposit 57971034
+[race-pack] granted 3 … to person 57968585 (Frank Heisner)  … (×4 racers, 12 credits)
+[race-credit-redeem] deducted 1 (kind 12744867) from person 63000000006517986 → deposit 57971044
+[race-credit-redeem] already applied, skipping race-credit-redeemed:63000000007527876:2026-08-06T20:24:00:12744867
+[race-credit-redeem] already applied, skipping race-credit-redeemed:63000000007527876:2026-08-06T20:24:00:12744867
+[race-credit-redeem] already applied, skipping race-credit-redeemed:63000000007527876:2026-08-06T20:24:00:12744867
+… same for 21:12 and 21:36
+```
+
+**The rule:** an idempotency key must be keyed on the full identity of the operation it
+guards. Here the operation is "draw one credit from **this person** for **this heat** on
+**this bill**" — three nouns, and the key held two. Before writing a guard key, name the
+operation in a sentence and check that every noun in it appears in the key. A guard that is
+too NARROW double-writes and is caught in testing; a guard that is too WIDE silently
+*skips* work, succeeds, and logs a reassuring "already applied."
+
+**Corollaries:**
+
+- **A shared id is not a unique id.** `heatId`, `orderId`, `billId`, `sessionId` are all
+  one-to-many. If N rows can carry the same value, that value alone can't key a per-row guard.
+- **Compare the guard's cardinality against the collection you're iterating.** The walk
+  produced 12 redemptions; the guard admitted 3. Any time `redemptions.length` and the
+  number of writes diverge, that difference is the bug — log both, or assert them equal.
+- **The "skip" branch of an idempotency guard needs a test.** There was no test file for
+  `race-credit-redeem.ts` at all. And a mock that returns `"OK"` unconditionally makes the
+  collision test **vacuous** — the guard never skips, so the bug can't reproduce. Mock
+  `SET NX` with a real `Set` so the second write actually returns `null`.
+- Note the neighbouring retry queue got this right: `bmi_deposit_failures` conflicts on
+  `(source, source_ref, person_id, deposit_kind_id, amount)` — **person_id is in the key.**
+
+**Blast radius:** the Redis TTL is 7 days, so only that window is measurable. A sweep of
+the live guard keys (`scripts/race-credit-guard-collision-sweep.mts`) flagged **62
+reservations** with the fingerprint — every deduction landing on one person while other
+racers on the same reservation held undrawn credits — totalling ~151 credits. The bug is as
+old as the guard, so the true total is larger. Any party of 2+ sharing a heat was exposed,
+on **both** the kiosk pack rail and the web credit rail.
+
 ## "Non-fatal" must mean deferred, not discarded — a swallowed vendor write silently lost $2,113.95 (2026-08-03)
 
 **What happened:** Pandora's BMI **Office auth** endpoint (`user=API2`) returned ASP.NET

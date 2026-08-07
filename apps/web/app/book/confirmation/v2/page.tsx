@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import LicenceOfferCard from "~/features/racing/components/LicenceOfferCard";
+import LicenceOfferBanner from "~/features/racing/components/LicenceOfferBanner";
 import Image from "next/image";
 import Link from "next/link";
 import QRCode from "qrcode";
-import { checkinQrDataUrl } from "@/lib/qr-checkin";
 import { getBookingClientKey, clearBookingLocation } from "@/lib/booking-location";
 import { bmiGet, getRaceProductById } from "../../race/data";
 import { trackBookingComplete } from "@/lib/analytics";
@@ -439,7 +440,6 @@ export default function ConfirmationPage() {
       billId: string;
     }[]
   >([]);
-  const [checkinQrByPerson, setCheckinQrByPerson] = useState<Record<string, string>>({});
   /** Appetizer info derived from the booking's package. Carries the
    *  per-package note ("1 per group" vs "1 per 3 purchases") and
    *  valid menu items so the confirmation card renders the right
@@ -982,41 +982,6 @@ export default function ConfirmationPage() {
           }
         }
 
-        // Per-racer check-in QR — generate immediately for any racers that
-        // already carry a Pandora sessionId (persisted from a prior sync, or a
-        // returning racer revisiting this page). The live schedule-link block
-        // below refreshes/adds these once BMI→Pandora finishes syncing. QR is
-        // pure client-side (FT:personId:sessionId), so no network is required.
-        try {
-          type R = { personId?: string; sessionId?: string | number | null };
-          const ready = ((bookingRecord?.racers as R[] | undefined) ?? []).filter(
-            (r): r is R & { personId: string; sessionId: string | number } =>
-              !!r.personId &&
-              r.sessionId != null &&
-              /^\d+$/.test(String(r.personId)) &&
-              /^\d+$/.test(String(r.sessionId)),
-          );
-          if (ready.length > 0) {
-            const entries = await Promise.all(
-              ready.map(async (r) => {
-                try {
-                  return {
-                    pid: r.personId,
-                    url: await checkinQrDataUrl(r.personId, String(r.sessionId), 320),
-                  };
-                } catch {
-                  return null;
-                }
-              }),
-            );
-            const map: Record<string, string> = {};
-            for (const e of entries) if (e) map[e.pid] = e.url;
-            if (Object.keys(map).length > 0) setCheckinQrByPerson(map);
-          }
-        } catch {
-          /* non-fatal */
-        }
-
         // Link racers to reservation schedule (racing returning racers only, fire-and-forget)
         if (detectedType === "racing" && allConfirmations.length > 0 && hasReturningRacers) {
           try {
@@ -1051,28 +1016,6 @@ export default function ConfirmationPage() {
                         racers: racersWithSession,
                       }),
                     }).catch(() => {});
-                    // Generate check-in QR codes for racers with sessionIds
-                    type RacerWithIds = { personId?: string; sessionId?: string | number | null };
-                    const qrTargets = (racersWithSession as RacerWithIds[]).filter(
-                      (r): r is RacerWithIds & { personId: string; sessionId: string | number } =>
-                        !!r.personId &&
-                        !!r.sessionId &&
-                        /^\d+$/.test(String(r.personId)) &&
-                        /^\d+$/.test(String(r.sessionId)),
-                    );
-                    const qrEntries = await Promise.all(
-                      qrTargets.map(async (r) => {
-                        try {
-                          const url = await checkinQrDataUrl(r.personId, String(r.sessionId), 320);
-                          return { pid: r.personId, url };
-                        } catch {
-                          return null;
-                        }
-                      }),
-                    );
-                    const qrMap: Record<string, string> = {};
-                    for (const e of qrEntries) if (e) qrMap[e.pid] = e.url;
-                    setCheckinQrByPerson(qrMap);
                   }
                 })
                 .catch(() => {});
@@ -2562,6 +2505,14 @@ export default function ConfirmationPage() {
                   <div
                     className={`${expressLane && raceGroups.length > 1 ? "grid md:grid-cols-2 gap-6" : "max-w-2xl mx-auto"} space-y-6 md:space-y-0`}
                   >
+                    {/* Wallet offer, at the TOP so it is seen before the heat
+                        tiles — it points DOWN at the licence card, and renders
+                        only when that card will too (shared fetch), so it can
+                        never advertise something that is not on the page. */}
+                    {heroIsRacing && orderId && (
+                      <LicenceOfferBanner billId={orderId} expressLane={expressLane} />
+                    )}
+
                     {/* Express Check-In directions — full-width banner above the
                         per-heat tiles (md:col-span-2 keeps it from landing in a
                         grid cell beside a racer tile). */}
@@ -2754,13 +2705,19 @@ export default function ConfirmationPage() {
                                       );
                                     })()}
 
-                                  {/* Racer names — big */}
-                                  <div>
+                                  {/* Racer names.
+                                      SIZED FOR READING, NOT FOR A DESK TO SQUINT AT.
+                                      These were set at up to 60px because staff
+                                      used to check people in by READING the
+                                      names off a guest's phone across a counter.
+                                      Check-in is by QR now, so the names are
+                                      back in proportion with the rest of the
+                                      card (owner 2026-08-06). */}
+                                  <div className="space-y-0.5">
                                     {group.racers.map((name, ri) => (
                                       <p
                                         key={ri}
-                                        className="text-white font-display uppercase tracking-wider leading-none"
-                                        style={{ fontSize: "clamp(36px, 10vw, 60px)" }}
+                                        className="text-white font-display text-2xl sm:text-3xl uppercase tracking-wider leading-tight"
                                       >
                                         {name}
                                       </p>
@@ -2775,10 +2732,11 @@ export default function ConfirmationPage() {
                                           <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider">
                                             Race Time
                                           </p>
-                                          <p
-                                            className="text-white font-display uppercase tracking-wider leading-none"
-                                            style={{ fontSize: "clamp(48px, 14vw, 72px)" }}
-                                          >
+                                          {/* Same reason: 72px existed so a
+                                              staff member could read it at arm's
+                                              length. Now it just has to be the
+                                              clearest thing on the card. */}
+                                          <p className="text-white font-display text-3xl sm:text-4xl uppercase tracking-wider leading-tight">
                                             {formatTime(group.heatStart)}
                                           </p>
                                           <p className="text-emerald-400/60 text-xs mt-1">
@@ -2845,52 +2803,15 @@ export default function ConfirmationPage() {
                                   </div>
                                 )}
 
-                                {/* Express lane: check-in QR per racer */}
-                                {expressLane &&
-                                  group.racerDetails.some(
-                                    (r) => r.personId && checkinQrByPerson[r.personId],
-                                  ) && (
-                                    <div className="border-t border-emerald-400/20 px-5 py-4">
-                                      <p className="text-emerald-400/60 text-xs font-bold uppercase tracking-wider text-center mb-3">
-                                        Check-In QR
-                                      </p>
-                                      <div className="flex justify-center gap-4 flex-wrap">
-                                        {group.racerDetails.map((rd, ri) => {
-                                          const qrUrl = rd.personId
-                                            ? checkinQrByPerson[rd.personId]
-                                            : null;
-                                          if (!qrUrl) return null;
-                                          return (
-                                            <button
-                                              key={ri}
-                                              type="button"
-                                              className="flex flex-col items-center gap-1 cursor-pointer"
-                                              onClick={() =>
-                                                setFullscreenQr({ src: qrUrl, resNumber: rd.name })
-                                              }
-                                            >
-                                              <div className="rounded-lg bg-white p-2 hover:shadow-lg hover:shadow-emerald-400/30 transition-shadow">
-                                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                <img
-                                                  src={qrUrl}
-                                                  alt={`QR ${rd.name}`}
-                                                  width={140}
-                                                  height={140}
-                                                  className="w-[120px] h-[120px]"
-                                                />
-                                              </div>
-                                              <p className="text-white/60 text-xs text-center font-semibold">
-                                                {rd.name}
-                                              </p>
-                                              <p className="text-white/20 text-[10px] text-center">
-                                                Tap to enlarge
-                                              </p>
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
+                                {/* The per-heat check-in QR grid used to live here.
+                                    REPLACED BY THE LICENCE, not deleted in spirit: that
+                                    QR baked in a sessionId, so it went stale the moment a
+                                    racer moved heats, and its 4th "move-resilient" part
+                                    was carrying a hardcoded 320 and had never worked. A
+                                    licence identifies the PERSON, so the desk resolves
+                                    whichever heat they are actually checking into, and the
+                                    same code works at the kiosk and the register too.
+                                    See LicenceOfferCard below the tiles. */}
                               </div>
                             );
                           });
@@ -3060,7 +2981,7 @@ export default function ConfirmationPage() {
                   return (
                     <div
                       key={`attr-${i}`}
-                      className="mt-4 max-w-md mx-auto rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden"
+                      className="mt-4 max-w-2xl mx-auto rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden"
                     >
                       <div className="p-5 space-y-4">
                         {/* Date & time */}
@@ -3178,7 +3099,7 @@ export default function ConfirmationPage() {
                   return (
                     <div
                       key={`bowl-${i}`}
-                      className="mt-4 max-w-md mx-auto rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden"
+                      className="mt-4 max-w-2xl mx-auto rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden"
                     >
                       <div className="p-5 space-y-4">
                         {/* Confirmation number */}
@@ -3286,6 +3207,23 @@ export default function ConfirmationPage() {
                     </div>
                   );
                 })}
+
+                {/* RACING LICENCE — one row per racer on this booking.
+                    Placement is deliberate: directly under the heat cards, while
+                    "a code that gets me in" is the thing on screen. The card
+                    hides itself when nobody on the booking holds a BMI tag, and
+                    nothing is billed by showing it — a licence is created only
+                    when a racer taps or scans. */}
+                {heroIsRacing && orderId && (
+                  // md:col-span-2 + max-w-2xl: this sits inside a container that
+                  // becomes a 2-col grid for express multi-heat bookings, so
+                  // without the span it collapses into a half-width column while
+                  // the cards above stay full width. Matches the express banner
+                  // above, which solves the same problem the same way.
+                  <div className="md:col-span-2 w-full max-w-2xl mx-auto">
+                    <LicenceOfferCard billId={orderId} />
+                  </div>
+                )}
 
                 {/* POV Camera Codes
               The codes below are the actual unlock keys for the

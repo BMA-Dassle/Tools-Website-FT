@@ -732,6 +732,12 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith("/v/")) {
       requestHeaders.set("x-no-mobile-bar", "1");
     }
+    // Finding your racing licence is a focused lookup — a "Book Now" bar pinned
+    // over it competes with the one action on the page. Keeps the site Nav,
+    // unlike /r/, because this is a way IN to the site rather than a credential.
+    if (pathname === "/racer" || pathname.startsWith("/racer/")) {
+      requestHeaders.set("x-no-mobile-bar", "1");
+    }
     // Vendor-outage notice: a floating "Book Now" bar on the page that just told
     // the guest we can't book is the one control that must not be there.
     if (pathname === SERVICE_NOTICE_PATH) {
@@ -750,6 +756,18 @@ export async function middleware(request: NextRequest) {
     }
     // Unified waiver flow: focused customer screen with its own brand header.
     if (pathname === "/waiver" || pathname.startsWith("/waiver/")) {
+      requestHeaders.set("x-no-chrome", "1");
+    }
+    // A racer's own page — their licence QR, their next race. Same posture as
+    // the waiver and join screens: a focused personal screen with its own
+    // header, not a marketing page. The fixed site Nav was overlaying the
+    // racer's NAME at the top of it.
+    if (pathname.startsWith("/r/")) {
+      requestHeaders.set("x-no-chrome", "1");
+    }
+    // Collecting a party's licences after scanning a kiosk QR — one job, its own
+    // brand header, nothing else on screen competing with it.
+    if (pathname.startsWith("/passes/")) {
       requestHeaders.set("x-no-chrome", "1");
     }
     return NextResponse.next({ request: { headers: requestHeaders } });
@@ -782,7 +800,9 @@ export async function middleware(request: NextRequest) {
     pathname === "/join" ||
     pathname.startsWith("/join/") ||
     pathname === "/waiver" ||
-    pathname.startsWith("/waiver/")
+    pathname.startsWith("/waiver/") ||
+    pathname.startsWith("/r/") ||
+    pathname.startsWith("/passes/")
   ) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-no-chrome", "1");
@@ -797,7 +817,16 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/event/") ||
     pathname.startsWith("/account") ||
     // Voucher redemption — see the matching HP-host case above.
-    pathname.startsWith("/v/")
+    pathname.startsWith("/v/") ||
+    // Finding your racing licence — see the matching HP-host case above, which
+    // is where this rule was written and where it STOPPED. The HeadPinz branch
+    // returns early, so a rule that only lives there never runs for
+    // fasttraxent.com: /racer shipped with a fixed bottom bar pinned over it on
+    // the FastTrax host, `md:hidden` so only phones ever saw it, and iPhone
+    // racers reported they could not tap the page (2026-08-06). Any route that
+    // wants the bar suppressed on BOTH hosts has to be named twice.
+    pathname === "/racer" ||
+    pathname.startsWith("/racer/")
   ) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-no-mobile-bar", "1");

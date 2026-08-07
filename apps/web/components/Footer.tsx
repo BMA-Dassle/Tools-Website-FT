@@ -19,6 +19,9 @@ const quickLinks = [
   { label: "Pricing", href: "/pricing" },
   { label: "Nemo's Trackside", href: "/menu" },
   { label: "Leaderboards", href: "/leaderboards" },
+  // The standalone way into a racer's own page (licence QR, next race, wallet)
+  // for anyone who does not have a confirmation or e-ticket link to hand.
+  { label: "My Racing Licence", href: "/racer" },
   { label: "Gift Cards", href: "https://squareup.com/gift/2Z728TECCNWSE/order" },
   { label: "Careers", href: "/careers" },
 ];

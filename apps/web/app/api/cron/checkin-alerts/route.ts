@@ -19,7 +19,8 @@ import {
 } from "@/lib/participant-contact";
 import { logSms, logCronRun } from "@/lib/sms-log";
 import { updateLicencePasses } from "~/features/racing/wallet/licence-pass";
-import { clearFinishedLicenceFields } from "~/features/racing/wallet/licence-clear";
+import { clearFinishedLicenceFields, NO_NEXT_RACE } from "~/features/racing/wallet/licence-clear";
+import { formatHeat } from "~/features/racing/wallet/licence-meta";
 import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
 import { verifyCron } from "@/lib/cron-auth";
 import { vipComboPersonLegsOnDate, type VipComboPersonLeg } from "@/lib/bowling-db";
@@ -842,16 +843,47 @@ export async function GET(req: NextRequest) {
         await redis.set(`race:called:${sessionId}`, "1", "EX", 60 * 60 * 12);
       }
 
-      const scheduledMs = new Date(race.scheduledStart).getTime();
-      if (!isNaN(scheduledMs) && scheduledMs < now - 30 * 60_000) {
+      // STALENESS IS MEASURED FROM WHEN THE HEAT WAS CALLED, NOT WHEN IT WAS
+      // SCHEDULED.
+      //
+      // This guard used to read `scheduledStart`, which silently deleted the
+      // whole alert for any heat running more than 30 minutes behind. That is
+      // not a rare edge: on 2026-08-06, 92 of 94 heats went off more than 5
+      // minutes late (median 19.8, worst 41.0), and roughly 13 of them passed
+      // the 30-minute mark — so those racers got no check-in SMS, no email and
+      // no wallet push AT ALL, while the desk was actively calling them.
+      //
+      // `/races-current` hands us `calledAt` — the moment staff actually opened
+      // check-in — so a heat 40 minutes behind schedule but called 90 seconds
+      // ago is correctly fresh, and a heat called an hour ago is correctly
+      // stale. Falls back to `scheduledStart` only if `calledAt` is absent.
+      // Same principle as everywhere else in this feature: key off what
+      // actually happened, never off the clock.
+      const calledMs = new Date(race.calledAt ?? "").getTime();
+      const freshnessMs = isNaN(calledMs) ? new Date(race.scheduledStart).getTime() : calledMs;
+      if (!isNaN(freshnessMs) && freshnessMs < now - 30 * 60_000) {
         sessionResults.push({ track: trackKey, sessionId, reason: "stale" });
         continue;
       }
 
+      // THE ALERT DEDUP GATES THE SMS/EMAIL, NOT THE WALLET.
+      //
+      // It used to `continue` here, which skipped the licence push along with
+      // everything else. That made NEXT RACE reachable only on the FIRST tick a
+      // heat was called — so a racer added to the roster a minute later, or a
+      // heat RE-CALLED by staff, could never get it. Proven live on 2026-08-06:
+      // re-calling Red Heat 60 (session 57900606) moved `calledAt` but wrote
+      // nothing to any pass, because this key had been set 26 minutes earlier.
+      //
+      // The wallet does not need this guard and never did. A text costs money
+      // and must go out once; a pass write is free, silent (no changeMessage on
+      // nextRace) and already skipped by `updateLicencePass` when the value is
+      // unchanged. So the dedup now suppresses only the paid channels, and the
+      // pass is kept correct every tick the heat is open.
       const sessionKey = `alert:checkin:session:${sessionId}`;
-      if (!dryRun && (await redis.get(sessionKey))) {
+      const alreadyAlerted = !dryRun && Boolean(await redis.get(sessionKey));
+      if (alreadyAlerted) {
         sessionResults.push({ track: trackKey, sessionId, reason: "session-already-alerted" });
-        continue;
       }
 
       // Self-heal the express-session reverse index first — if Pandora's
@@ -925,20 +957,95 @@ export async function GET(req: NextRequest) {
       // changed, so a re-run against the same open heat is a no-op.
       // Awaited — a serverless handler is frozen when it returns, so a dangling
       // promise is killed mid-flight. See pre-race-tickets for the incident.
+      //
+      // NEXT RACE IS WRITTEN HERE TOO, and it is not belt-and-braces — it is the
+      // only cron that can get this right for a late heat.
+      //
+      // pre-race-tickets drives NEXT RACE off the SCHEDULE and stops covering a
+      // session 5 minutes after its scheduled start (WINDOW_SKEW_BEHIND_MS).
+      // Measured on 2026-08-06: 92 of 94 heats (98%) started more than 5 minutes
+      // late, median 19.8 min, worst 41 min. So for essentially every heat, the
+      // pre-race window closes a quarter of an hour BEFORE the heat is called —
+      // and any racer added in that gap gets "Check in now — Red Heat 60" on
+      // their pass while NEXT RACE still reads "None in next 2 hrs". That is the
+      // exact contradiction a racer reported on their own live pass (person
+      // 409523, heat 60: scheduled 10:48 PM, actually called 11:00 PM).
+      //
+      // This cron reads /races-current — what is ACTUALLY happening, not what
+      // was planned — so the heat being called IS the racer's next race by
+      // definition, however far off schedule it went.
+      //
+      // COSTS NO EXTRA NOTIFICATION. `custom.nextRace` carries no changeMessage
+      // on the template, deliberately (it moves for reasons the racer did not
+      // cause), so writing it never raises a lock-screen alert. And
+      // updateLicencePass skips a field whose value is unchanged, so once
+      // pre-race has already written this heat the value matches and no PUT is
+      // made at all. Shared `formatHeat` with pre-race-tickets for exactly that
+      // reason: two formatters that drifted by one character would push a
+      // pointless PUT for every racer, every minute.
+      const heat = formatHeat({
+        scheduledStart: race.scheduledStart,
+        track: trackDisplay,
+        heatNumber: race.heatNumber,
+      });
+      // "CHECK IN NOW" IS WRITTEN ONCE PER HEAT. NEXT RACE IS WRITTEN EVERY TICK.
+      //
+      // These two fields must NOT be treated the same, and getting that wrong
+      // would be expensive.
+      //
+      // `custom.checkinStatus` carries a changeMessage ("FastTrax: %@"), so every
+      // write of it is a lock-screen alert. `custom.nextRace` carries none, so
+      // writing it is silent. That asymmetry is the whole design.
+      //
+      // THE OSCILLATION THIS PREVENTS. The clear-down at the top of this cron
+      // wipes checkinStatus the moment BMI records `actualStart` — but the heat
+      // stays in /races-current for roughly twenty minutes AFTER it is called.
+      // So without this guard the two would fight, once a minute, for the whole
+      // of that window: clear-down blanks it (alert), this loop re-asserts it
+      // (alert), ~19 times per racer per heat. Apple warned us on 2026-08-06
+      // that automatic updates for these passes were about to be DISABLED for
+      // sending too many; a flood of that shape is what would finish the job.
+      //
+      // Re-asserting it would also be WRONG on its own terms: once the race has
+      // started, "Check in now" is a lie, and the clear-down blanking it is the
+      // correct end state. The first tick is the only one that has news.
+      //
+      // NEXT RACE keeps being written every tick precisely because it is silent
+      // and idempotent — that is what lets a racer added to the roster late, or
+      // a heat re-called by staff, still get it.
+      const firstTick = !alreadyAlerted;
       await updateLicencePasses(
         participants.map((p) => ({
           personId: p.personId,
-          checkinStatus: `Check in now — ${trackDisplay} Heat ${race.heatNumber ?? ""}`.trim(),
-          // Stamped so the clear-down knows WHICH heat this refers to. Without
-          // it, "is this stale?" has no answer but elapsed time — and time is
-          // wrong whenever a race runs late or early, which is most of them.
-          checkinSessionId: String(sessionId),
+          ...(firstTick
+            ? {
+                checkinStatus:
+                  `Check in now — ${trackDisplay} Heat ${race.heatNumber ?? ""}`.trim(),
+                // Stamped so the clear-down knows WHICH heat this refers to.
+                // Without it, "is this stale?" has no answer but elapsed time —
+                // and time is wrong whenever a race runs late or early, which is
+                // most of them.
+                checkinSessionId: String(sessionId),
+              }
+            : {}),
+          nextRace: heat.nextRace || NO_NEXT_RACE,
+          raceLabel: heat.raceLabel || "—",
+          nextRaceLong: heat.nextRaceLong || "—",
+          nextRaceSessionId: String(sessionId),
         })),
       )
         .then((n) => {
           if (n) console.log(`[checkin-alerts] wallet check-in pushed to ${n} pass(es)`);
         })
         .catch(() => undefined);
+
+      // PAID CHANNELS ONLY BELOW THIS LINE. The wallet is already up to date.
+      //
+      // A session that has had its texts and emails sent stops here: the pass
+      // write above is free, silent and idempotent and must keep running for as
+      // long as the heat is open, but an SMS costs money and must go out once.
+      // Nobody gets a second text because of this, including on a re-call.
+      if (alreadyAlerted) continue;
 
       for (const p of participants) {
         candidates.push({ race, trackDisplay, participant: p });

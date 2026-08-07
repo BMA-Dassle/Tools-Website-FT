@@ -143,20 +143,43 @@ export async function warmRacerCodes(
     // some tags, which is wasteful but never wrong.
   }
 
-  for (const pid of unique) {
-    if (fresh.has(pid)) {
-      out.skipped++;
-      continue;
+  const cold = unique.filter((pid) => !fresh.has(pid));
+  out.skipped = unique.length - cold.length;
+
+  // IN PARALLEL, and only for the ones we are actually missing.
+  //
+  // Serially this was one ~1 s Office round trip per cold racer, which a guest
+  // waits through when it runs on a page load — a party of six meant six
+  // seconds before anyone's licence could be offered. Everyone already cached
+  // is filtered out above, so a repeat view does no work at all.
+  //
+  // Bounded rather than unbounded: the pre-race cron passes every racer in a
+  // two-hour window, which can be dozens, and firing that many at BMI's person
+  // API at once is how we would cause the outage we are trying to survive.
+  // Wide enough that a whole party resolves in ONE round trip — a booking of
+  // six was two passes at 6 lanes, which the guest waits through on a page load.
+  // Still bounded, because the pre-race cron passes every racer in a two-hour
+  // window and firing dozens at BMI's person API at once is how we cause the
+  // outage we are trying to survive. Each racer is cached for 30 days after
+  // this, so it is a one-time cost per racer, not per page view.
+  const LANES = 12;
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= cold.length) return;
+      const pid = cold[i];
+      const person = await fetchPersonRaw<PersonTags>(clientKey, pid).catch(() => null);
+      if (!person) {
+        out.failed++;
+        continue;
+      }
+      const codes = (person.tags ?? []).map((t) => String(t?.tag ?? "")).filter(Boolean);
+      if (codes.length > 0) await rememberCodes(pid, codes);
+      out.warmed++;
     }
-    const person = await fetchPersonRaw<PersonTags>(clientKey, pid).catch(() => null);
-    if (!person) {
-      out.failed++;
-      continue;
-    }
-    const codes = (person.tags ?? []).map((t) => String(t?.tag ?? "")).filter(Boolean);
-    if (codes.length > 0) await rememberCodes(pid, codes);
-    out.warmed++;
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(LANES, cold.length) }, worker));
   return out;
 }
 

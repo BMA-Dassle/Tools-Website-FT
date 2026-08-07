@@ -18,6 +18,7 @@ import { neon } from "@neondatabase/serverless";
 import redis from "@/lib/redis";
 import { sendAdaptiveCardToChannel } from "@/lib/teams-bot";
 import { recordedDealRefundIds } from "~/features/deals/data/deal-refunds-db";
+import { findSplitAttemptsByPaymentIds } from "~/features/kiosk/data/split-tenders-db";
 import {
   DAILY_SEND_CAP,
   DEDUP_TTL_S,
@@ -135,6 +136,23 @@ async function reservationsByPaymentIds(
     const editIds = (r.edit_payment_ids as string[] | null) ?? [];
     for (const key of [r.square_deposit_payment_id, r.dayof_payment_id, ...editIds]) {
       if (key) map.set(String(key), lite);
+    }
+  }
+  // Ambient gift cards (2026-08): a kiosk deposit can be several payments
+  // (gift-card auths + a tap) but the reservation row stores only the PRIMARY
+  // id. The kiosk tender ledger holds the full captured set — alias every leg
+  // to the reservation any of its legs matched, so a Dashboard refund against
+  // the GIFT-CARD leg identifies its booking instead of dropping as "not one
+  // of ours". Sets whose legs match no reservation (standalone Game Zone /
+  // race-pack purchases — separate ledgers, no bowling_reservations row) stay
+  // unmatched here, exactly like before.
+  const unmatched = paymentIds.filter((id) => !map.has(id));
+  if (unmatched.length) {
+    const attempts = await findSplitAttemptsByPaymentIds(unmatched).catch(() => []);
+    for (const attempt of attempts) {
+      const lite = attempt.paymentIds.map((id) => map.get(id)).find(Boolean);
+      if (!lite) continue;
+      for (const id of attempt.paymentIds) if (!map.has(id)) map.set(id, lite);
     }
   }
   return map;
@@ -381,9 +399,13 @@ export async function runRefundAlerts(opts?: { dryRun?: boolean }): Promise<RunR
       // Its own message rather than a widened card: the reservation card is
       // shaped around a booking, and a voucher pack has no lanes, no time and no
       // reservation id to link. Same channel, same dedup keys, same daily cap.
-      await sendAdaptiveCardToChannel(refundAlertsChatId(), buildDealRefundAlertCard(freshDeals, { boardUrl: webSalesBoardUrl() }), {
-        summaryText: dealRefundSummaryText(freshDeals),
-      });
+      await sendAdaptiveCardToChannel(
+        refundAlertsChatId(),
+        buildDealRefundAlertCard(freshDeals, { boardUrl: webSalesBoardUrl() }),
+        {
+          summaryText: dealRefundSummaryText(freshDeals),
+        },
+      );
     }
     result.sent = true;
   } catch (err) {

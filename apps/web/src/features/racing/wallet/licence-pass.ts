@@ -74,6 +74,11 @@ export interface LicenceMeta {
   checkinStatus?: string;
 }
 
+/** Key order must not decide whether we wake a guest's phone. */
+function sortedMeta(m: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(m).sort(([a], [b]) => a.localeCompare(b)));
+}
+
 /**
  * Create the racer's pass, or recover the one they already have.
  *
@@ -128,9 +133,26 @@ export async function issueLicencePass(args: {
       // saved to Neon and re-pushed by the next cron run.
       const prior = await getRacerPass(personId);
       if (prior?.meta) meta = { ...prior.meta, ...meta };
-      await passkit("PUT", "/members/member", { id: memberId, metaData: meta }).catch(
-        () => undefined,
-      );
+
+      // ONLY PUT WHEN SOMETHING ACTUALLY CHANGED.
+      //
+      // EVERY PUT IS AN APPLE PUSH. This used to fire unconditionally, so a
+      // re-tap rewrote identical metaData and woke every installed pass — and
+      // since `/r/{code}/wallet`, `/t/{id}/wallet` and the add-all prepare step
+      // all land here, an ordinary "add to wallet" tap cost an update even when
+      // the pass was already perfect. Apple rate-limits this: on 2026-08-06 it
+      // warned that automatic updates for our passes were about to be DISABLED,
+      // which would kill the self-updating pass entirely.
+      //
+      // `updateLicencePass` has always had this rule ("nothing to say, no
+      // push"); the issue path never got it.
+      const unchanged =
+        prior?.meta && JSON.stringify(sortedMeta(prior.meta)) === JSON.stringify(sortedMeta(meta));
+      if (!unchanged) {
+        await passkit("PUT", "/members/member", { id: memberId, metaData: meta }).catch(
+          () => undefined,
+        );
+      }
     }
     if (!memberId) return { ok: false, refusal: "error" };
 

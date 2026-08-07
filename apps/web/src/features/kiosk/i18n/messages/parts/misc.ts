@@ -11,6 +11,18 @@
  *  Locked glossary — NEVER translated: FastTrax, HeadPinz, Game Zone, Podium,
  *  Pit Crew, Duckpin. */
 export const miscEn = {
+  // WALLET RACING LICENCE on the kiosk "you're booked" screen. A kiosk is a
+  // SHARED screen, so the pass can never land on it — every row is a QR the
+  // racer scans with their own phone. No direct-add here, deliberately.
+  "licence.kiosk.title": "Skip the texts next time",
+  "licence.kiosk.body":
+    "Put your FastTrax licence in your phone's wallet — it signs you in here, checks you into your race, and shows your next race automatically.",
+  "licence.kiosk.allTitle": "Add all {n} to one phone",
+  "licence.kiosk.allBody":
+    "Scan this with the phone you want them on — everyone's licence at once.",
+  "licence.kiosk.scan": "Scan with your phone camera",
+  "licence.kiosk.show": "Show my code",
+  "licence.kiosk.hide": "Hide",
   // --- Sign-in boxes (KioskSignInBoxes) ---
   "signin.sheet.qrAlt": "QR code — scan to sign in on your phone",
   "signin.sheet.title": "Scan with your phone camera",
@@ -187,6 +199,15 @@ export const miscEn = {
 } as const;
 
 export const miscEs: Record<keyof typeof miscEn, string> = {
+  "licence.kiosk.title": "Evita los mensajes la próxima vez",
+  "licence.kiosk.body":
+    "Guarda tu licencia FastTrax en la cartera de tu teléfono: te registra aquí, te da entrada a tu carrera y muestra tu próxima carrera automáticamente.",
+  "licence.kiosk.allTitle": "Agrega las {n} a un solo teléfono",
+  "licence.kiosk.allBody":
+    "Escanea esto con el teléfono donde las quieres — todas las licencias a la vez.",
+  "licence.kiosk.scan": "Escanea con la cámara de tu teléfono",
+  "licence.kiosk.show": "Mostrar mi código",
+  "licence.kiosk.hide": "Ocultar",
   // --- Sign-in boxes (KioskSignInBoxes) ---
   "signin.sheet.qrAlt": "Código QR — escanéalo para iniciar sesión en tu teléfono",
   "signin.sheet.title": "Escanea con la cámara de tu teléfono",
