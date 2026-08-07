@@ -56,7 +56,6 @@ import {
   type ReservationWaiverStatus,
 } from "./roster-preload";
 import { MobileWaiverPhoto } from "./MobileWaiverPhoto";
-import { WaiverLicenceOffer } from "./WaiverLicenceOffer";
 
 type PandoraLocation = "fasttrax" | "headpinz" | "naples";
 
@@ -247,13 +246,14 @@ export function WaiverFlow({
   // keeps its `res:` id, so nothing else distinguishes it from the seven strangers
   // beside it. See roster-preload.ts invariant 4.
   const [signedHere, setSignedHere] = useState<ReadonlySet<string>>(() => new Set<string>());
-  // Licence grants for the people this device filed, kept ACROSS the "I'm done"
-  // wipe for the same reason `carriedCovered` is: the terminal card is where the
-  // licence is offered, and the wipe has already emptied `party` by then. Keyed
-  // by personId — see the note where they are collected.
-  const [licenceGrants, setLicenceGrants] = useState<ReadonlyMap<string, string>>(
-    () => new Map<string, string>(),
-  );
+  // NOTE: the licence-grant collection that used to live here was removed with
+  // the hidden offer (see the terminal card). It was a
+  // `ReadonlyMap<personId, grant>` kept ACROSS the "I'm done" wipe for the same
+  // reason `carriedCovered` is. Nothing else consumed it, so it is dead state
+  // while the offer is hidden — the SERVER still mints a grant on every
+  // signature and `licence-grant.ts` / the offer endpoints are untouched, so
+  // restoring is re-adding this state plus the six-line collector in
+  // `onWaiverSigned`.
   // Person ids this device has PROVEN covered, kept ACROSS the "I'm done" wipe.
   // While the rows are on screen `party` proves it; the wipe destroys them on
   // purpose, and the roster is never re-seeded, so this is all that is left to stop
@@ -548,13 +548,16 @@ export function WaiverFlow({
             </p>
           )}
         </div>
-        {/* THE RACING LICENCE, in the kiosk's format (owner 2026-08-06).
-            Renders itself away unless someone this device signed for actually
-            resolves to a BMI racing tag, so a bowling or laser-tag waiver never
-            sees it. Below the "all set" card and above "sign someone else": the
-            waiver is done and confirmed first — an offer must not read as
-            another step standing between the guest and finishing. */}
-        <WaiverLicenceOffer grants={[...licenceGrants.values()]} />
+        {/* THE RACING LICENCE IS HIDDEN HERE FOR NOW (owner 2026-08-06).
+            It resolved the login code through BMI's Office CLOUD api, which
+            trails the on-prem Firebird by p50 31 min / p90 68 min after signing
+            — so at the moment a waiver finishes the code reliably does not
+            exist and the card had nothing to show. A Pandora endpoint that
+            returns the code directly is coming; when it lands, restore this and
+            the twin on the ready card below.
+            `WaiverLicenceOffer` and the grant plumbing are left intact — the
+            server still mints a grant on every signature — so restoring is
+            re-adding this one line in both places. */}
         <button
           type="button"
           onClick={() => setFinished(null)}
@@ -660,17 +663,8 @@ export function WaiverFlow({
           // completion even when the row came from the reservation roster (that is
           // the guest who opened a forwarded link and signed their own row).
           setSignedHere((prev) => new Set(prev).add(info.memberId));
-          // Server-signed proof this person's waiver went on file. Kept BY
-          // PERSON, not by member id: the guardian chain signs the adult and
-          // then the minor, and a re-sign of the same person must replace their
-          // grant rather than add a second row for one human.
-          if (info.licenceGrant) {
-            setLicenceGrants((prev) => {
-              const next = new Map(prev);
-              next.set(info.personId, info.licenceGrant!);
-              return next;
-            });
-          }
+          // `info.licenceGrant` is still minted server-side and still arrives
+          // here; nothing consumes it while the licence offer is hidden.
           // Best-effort E-SIGN audit row in our own DB (Pandora holds the
           // signature image; this is the persist-to-Neon record of acceptance).
           void fetch("/api/waiver/record", {
@@ -717,6 +711,10 @@ export function WaiverFlow({
               : "We'll have these on file when you arrive."}
             {groupLine ? ` ${groupLine}` : ""}
           </p>
+          {/* Licence offer hidden for now — see the note on the terminal card.
+              When it returns it belongs HERE, above the button: below it is a
+              thing you scroll past on the way to the obvious action, which for
+              reach is the same as not shipping it. */}
           {/* Deliberate end to the flow: without it the roster of names just sits
               on the screen and the guest has to guess whether they can leave. It is
               gated on `ready` — this DEVICE's members — so a guest who signed only

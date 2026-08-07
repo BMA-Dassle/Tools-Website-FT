@@ -16,6 +16,7 @@ import { lookupMemberMatches } from "~/features/kiosk/license/lookup.server";
 import { findTicketIdFor } from "@/lib/race-tickets";
 import { getRacerPass } from "~/features/racing/data/racer-wallet-db";
 import { formatHeat, heatEpoch } from "~/features/racing/wallet/licence-meta";
+import { memberQrPayload } from "~/features/racing/licence/payload";
 import type { LicenseMatch } from "~/features/kiosk/license/types";
 
 /** How long a resolved next race is reused. Short: a heat move should surface
@@ -193,14 +194,13 @@ export async function resolveRacerHub(code: string): Promise<RacerHub | null> {
     : null;
   const pass = await getRacerPass(personId).catch(() => null);
 
-  const site = process.env.SMSTIM_SITE || "908";
   return {
     personId,
     fullName: m.fullName,
     code: clean,
     tier: tierFrom(m.memberships),
     races: Number(m.races ?? 0) || 0,
-    memberQr: `https://smstim.in/${site}/authenticate/?login_code=${clean}`,
+    memberQr: memberQrPayload(clean),
     nextRace,
     ticketId,
     holdsPass: !!pass,

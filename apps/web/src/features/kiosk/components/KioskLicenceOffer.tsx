@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import QRCode from "qrcode";
-import { useLicenceOffer } from "~/features/racing/components/useLicenceOffer";
+import { useMemo, useState } from "react";
+import { useLicencePack } from "~/features/racing/licence/useLicencePack";
+import { usePassQrs, useGroupQr } from "~/features/racing/licence/usePassQrs";
 import { useT } from "../i18n";
 
 /**
@@ -32,14 +32,11 @@ export function KioskLicenceOffer({
   brand?: string;
 }) {
   const t = useT();
-  const racers = useLicenceOffer(billId);
+  // Polls while BMI's Office cloud catches up with Firebird — see
+  // useLicencePack. The kiosk is usually later in the visit than the waiver, so
+  // the codes are normally already there; this costs nothing when they are.
+  const { eligible, racers } = useLicencePack(billId);
   const [openFor, setOpenFor] = useState<string | null>(null);
-  const [allQr, setAllQr] = useState<string | null>(null);
-  /** Per-racer QRs, generated here so they land on the same prepare-and-wait
-   *  page as the bundle rather than redirecting into a not-yet-rendered pass. */
-  const [oneQr, setOneQr] = useState<Record<string, string>>({});
-
-  const eligible = racers?.filter((r) => r.qr) ?? [];
 
   // ADD EVERYONE, TO ONE PHONE. A kiosk is a shared screen so the bundle cannot
   // land here — this QR carries the whole party to whichever phone scans it,
@@ -51,54 +48,14 @@ export function KioskLicenceOffer({
   //
   // Not the .pkpasses file directly either: we have no idea which platform is
   // about to scan a kiosk screen, and that page detects it — Apple starts the
-  // one-tap bundle automatically, Android gets a badge per racer. A bundle URL
-  // would hand an Android guest a file they cannot open.
-  useEffect(() => {
-    if (!billId || eligible.length < 2) return;
-    const domain = brand === "headpinz" ? "https://headpinz.com" : "https://fasttraxent.com";
-    let cancelled = false;
-    QRCode.toDataURL(`${domain}/passes/${encodeURIComponent(billId)}`, {
-      width: 360,
-      margin: 1,
-      color: { dark: "#04252b", light: "#ffffff" },
-    })
-      .then((url) => {
-        if (!cancelled) setAllQr(url);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [billId, brand, eligible.length]);
-
-  // SAME DESTINATION FOR ONE RACER. These used to encode /r/{code}/wallet, which
-  // redirects straight at the pass file — and a pass PassKit has not finished
-  // rendering is served as an HTML page, so the guest got something
-  // un-installable. /passes/{billId}?p={personId} runs the identical
-  // prepare-poll-hand-off the bundle uses, with the kiosk loader while it works.
-  const ids = eligible.map((r) => r.personId).join(",");
-  useEffect(() => {
-    if (!billId || !ids) return;
-    const domain = brand === "headpinz" ? "https://headpinz.com" : "https://fasttraxent.com";
-    let cancelled = false;
-    Promise.all(
-      ids.split(",").map(async (pid) => {
-        const url = await QRCode.toDataURL(
-          `${domain}/passes/${encodeURIComponent(billId)}?p=${encodeURIComponent(pid)}`,
-          { width: 360, margin: 1, color: { dark: "#04252b", light: "#ffffff" } },
-        ).catch(() => null);
-        return [pid, url] as const;
-      }),
-    ).then((pairs) => {
-      if (cancelled) return;
-      const next: Record<string, string> = {};
-      for (const [pid, url] of pairs) if (url) next[pid] = url;
-      setOneQr(next);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [billId, brand, ids]);
+  // one-tap bundle automatically, Android gets a badge per racer.
+  const domain = brand === "headpinz" ? "https://headpinz.com" : "https://fasttraxent.com";
+  const passBase = billId ? `${domain}/passes/${encodeURIComponent(billId)}` : null;
+  const allQr = useGroupQr(passBase, eligible.length > 1);
+  const oneQr = usePassQrs(
+    passBase,
+    useMemo(() => eligible.map((r) => r.personId), [eligible]),
+  );
 
   if (!racers || eligible.length === 0) return null;
 
