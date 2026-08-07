@@ -64,6 +64,7 @@ import { useWedgeScan } from "./wedge-scan";
 import { useQrScanner } from "../qr-scanner";
 import { heatsConflict } from "~/features/booking/service/conflict";
 import { resolveRaceClass } from "./category";
+import { autoAssignRaces } from "./race-autofill";
 import { pandoraCreatePerson, pandoraCheckWaiver } from "@/lib/pandora";
 import type {
   CheckinActivity,
@@ -296,12 +297,41 @@ export function KioskCheckinFlow() {
       return next;
     });
   };
-  const clearRace = (slotKey: string) =>
-    setAssignMap((prev) => {
-      const next = { ...prev };
-      delete next[slotKey];
-      return next;
-    });
+  // AUTO-FILL the races the kiosk can work out (owner 2026-08-07: "when the
+  // party and the races line up, fill them in, show it, and let them change").
+  // Runs once on entering the assign step, and only over slots nobody has
+  // chosen yet — a guest's own pick is never overwritten. autoAssignRaces
+  // refuses to guess when a category has more racers than seats, and is given
+  // the SAME spacing predicate the chips use, so it can only reach a state the
+  // guest could have reached by hand.
+  // Fired by the "Next: who's racing" tap rather than by an effect on `stage`:
+  // auto-fill is an EVENT (the guest arriving at the step), not a state
+  // synchronisation, so doing it in the handler avoids a cascading render and
+  // keeps the proposal computed from the party as it stood at that moment.
+  // Ref-gated: coming BACK from the assign step must not re-fill races the
+  // guest deliberately cleared.
+  const autoFillDoneRef = useRef(false);
+  const [autoFilled, setAutoFilled] = useState(false);
+  const goToAssign = () => {
+    if (!autoFillDoneRef.current) {
+      autoFillDoneRef.current = true;
+      const proposal = autoAssignRaces({
+        slots: openRaceSlots,
+        members: readyMembers.map((m) => ({ id: m.id, category: resolveRaceClass(m) })),
+        conflicts: raceSlotsConflict,
+      });
+      const fresh = Object.entries(proposal).filter(([slotKey]) => !assignMap[slotKey]);
+      if (fresh.length > 0) {
+        setAssignMap((prev) => {
+          const next = { ...prev };
+          for (const [slotKey, memberId] of fresh) if (!next[slotKey]) next[slotKey] = memberId;
+          return next;
+        });
+        setAutoFilled(true);
+      }
+    }
+    setStage("assign");
+  };
 
   // "Check everyone in": attach any newly-added party first, then finalize
   // (schedule onto the session + Confirmation Kiosk state + memo) in one tap.
@@ -910,7 +940,7 @@ export function KioskCheckinFlow() {
             {openRaceSlots.length > 0 ? (
               <button
                 type="button"
-                onClick={() => setStage("assign")}
+                onClick={goToAssign}
                 disabled={partyNeedsSetup || nobodyIncluded || peopleBusy}
                 className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
               >
@@ -940,8 +970,9 @@ export function KioskCheckinFlow() {
             party={readyMembers}
             assignMap={assignMap}
             onAssign={assignRace}
-            onClear={clearRace}
             onCheckIn={checkInEveryone}
+            onBackToParty={() => setStage("party")}
+            autoFilled={autoFilled}
             binding={binding}
             bindMsg={bindMsg}
           />
@@ -1307,61 +1338,122 @@ function raceSlotsConflict(
 
 /** The whole assignment step: a card per open race with a "Choose racer" picker
  *  that only offers class-eligible, ready people. */
+/**
+ * "Who's racing?" — INLINE chips, one row of names per race.
+ *
+ * This screen stays SECONDARY and the sign-in screen keeps its layout (owner
+ * 2026-08-07: "I want our normal sign in screen, that screen still needs to be
+ * secondary"). What changed is only what made it confusing: the per-race modal
+ * is gone — every eligible racer is a tap target on the race itself, so
+ * assigning N races is N taps instead of N open/scan/pick/close round-trips —
+ * and the races the kiosk can work out arrive already filled (autoAssignRaces).
+ *
+ * Off-class racers are never shown on a card; a racer already holding a race
+ * too close is shown but MARKED, and picking them releases the clash exactly as
+ * the modal did (assignRace owns that rule, unchanged).
+ */
 function RaceAssignScreen(props: {
   slots: CheckinRaceSlot[];
   party: PartyMember[];
   assignMap: Record<string, string>;
   onAssign: (heatId: string, memberId: string) => void;
-  onClear: (heatId: string) => void;
   onCheckIn: () => void;
+  onBackToParty: () => void;
+  autoFilled: boolean;
   binding: boolean;
   bindMsg: string | null;
 }) {
-  const { slots, party, assignMap, onAssign, onClear, onCheckIn, binding, bindMsg } = props;
+  const { slots, party, assignMap, onAssign, onCheckIn, onBackToParty, autoFilled } = props;
+  const { binding, bindMsg } = props;
   const t = useT();
-  const [pickFor, setPickFor] = useState<CheckinRaceSlot | null>(null);
   const assignedCount = slots.filter((s) => assignMap[s.slotKey]).length;
+  const slotByKey = (key: string) => slots.find((s) => s.slotKey === key);
 
   return (
     <div className="space-y-[24px]">
-      <p className="text-[28px] text-white/60">{t("checkin.assign.prompt")}</p>
+      <p className="text-[28px] text-white/60">
+        {autoFilled ? t("checkin.assign.autoFilled") : t("checkin.assign.promptShort")}
+      </p>
 
       {slots.map((slot) => {
-        const assigned = party.find((m) => m.id === assignMap[slot.slotKey]);
+        const holderId = assignMap[slot.slotKey];
+        // Hard class gate — a junior seat never offers an adult (category.ts).
+        const eligible = party.filter((m) => resolveRaceClass(m) === slot.category);
         return (
-          <div key={slot.slotKey} className="k-glass p-[32px]">
-            <div className="flex items-center justify-between gap-[20px]">
+          <div key={slot.slotKey} className="k-glass p-[28px]">
+            <div className="flex items-baseline justify-between gap-[16px]">
               <div className="min-w-0">
-                <div className="k-display text-[36px]">{slot.classLabel}</div>
-                <div className="mt-[4px] text-[26px] text-white/55">
+                <div className="k-display text-[34px]">{slot.classLabel}</div>
+                <div className="mt-[2px] text-[24px] text-white/55">
                   {slot.track ? `${slot.track} · ` : ""}
                   {slot.timeLabel}
                 </div>
               </div>
-              {assigned ? (
-                <div className="flex shrink-0 items-center gap-[20px]">
-                  <span className="flex items-center gap-[10px] text-[30px] text-[#46d68c]">
-                    <IconUserCheck size={30} aria-hidden="true" />
-                    {racerName(assigned)}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setPickFor(slot)}
-                    className="k-tap text-[26px] font-bold text-[#00e2e5]"
-                  >
-                    {t("checkin.change")}
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setPickFor(slot)}
-                  className="k-btn-primary k-tap h-[80px] shrink-0 px-[36px] text-[28px]"
-                >
-                  {t("checkin.chooseRacer")}
-                </button>
+              {!holderId && (
+                <span className="shrink-0 text-[24px] font-semibold text-[#f0b341]">
+                  {t("checkin.assign.nobodyYet")}
+                </span>
               )}
             </div>
+
+            {eligible.length === 0 ? (
+              // Dead end before: "go back and add a junior racer" with nothing
+              // to tap. Now the instruction IS the button.
+              <div className="mt-[18px]">
+                <p className="text-[26px] text-[#f0b341]">
+                  {t("checkin.picker.noneReady", { category: slot.category })}
+                </p>
+                <button
+                  type="button"
+                  onClick={onBackToParty}
+                  className="k-tap mt-[14px] h-[76px] rounded-2xl border-2 border-[#00e2e5] px-[28px] text-[26px] font-bold text-[#00e2e5]"
+                >
+                  {t("checkin.assign.addRacer", { category: slot.category })}
+                </button>
+              </div>
+            ) : (
+              <div className="mt-[18px] flex flex-wrap gap-[12px]">
+                {eligible.map((m) => {
+                  const selected = holderId === m.id;
+                  // Other seats this racer holds. One too close to THIS race is
+                  // released on pick, so flag it; a compatible one just informs.
+                  const otherHeld = Object.entries(assignMap)
+                    .filter(([k, id]) => id === m.id && k !== slot.slotKey)
+                    .map(([k]) => slotByKey(k))
+                    .filter((s): s is CheckinRaceSlot => !!s);
+                  const clash = otherHeld.find((s) => raceSlotsConflict(s, slot));
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => onAssign(slot.slotKey, m.id)}
+                      className={`k-tap flex items-center gap-[10px] rounded-2xl border-2 px-[24px] py-[18px] text-left text-[28px] ${
+                        selected
+                          ? "border-[#46d68c] bg-[#46d68c]/15 text-white"
+                          : "border-white/15 bg-white/5 text-white/85"
+                      }`}
+                    >
+                      {selected && (
+                        <IconUserCheck size={26} className="text-[#46d68c]" aria-hidden="true" />
+                      )}
+                      <span>{racerName(m)}</span>
+                      {clash ? (
+                        <span className="text-[20px] text-[#f0b341]">
+                          {t("checkin.assign.movesFromTime", {
+                            time: clash.timeLabel || t("checkin.picker.otherRace"),
+                          })}
+                        </span>
+                      ) : otherHeld.length > 0 ? (
+                        <span className="text-[20px] text-white/40">
+                          {t("checkin.assign.alsoAt", { time: otherHeld[0].timeLabel })}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         );
       })}
@@ -1385,138 +1477,6 @@ function RaceAssignScreen(props: {
           {t("checkin.assign.remaining", { count: slots.length - assignedCount })}
         </p>
       )}
-
-      {pickFor && (
-        <RacerPickerModal
-          slot={pickFor}
-          slots={slots}
-          party={party}
-          assignMap={assignMap}
-          onPick={(memberId) => {
-            onAssign(pickFor.slotKey, memberId);
-            setPickFor(null);
-          }}
-          onRemove={() => {
-            onClear(pickFor.slotKey);
-            setPickFor(null);
-          }}
-          onClose={() => setPickFor(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-/** Picker sheet for one race — lists ONLY ready racers whose class matches the
- *  slot (the hard junior/adult check: an off-class racer is never offered). A
- *  racer already in ANOTHER race is still offered: compatible times coexist
- *  (multi-race bookings); a too-close race is flagged and released on pick. */
-function RacerPickerModal(props: {
-  slot: CheckinRaceSlot;
-  slots: CheckinRaceSlot[];
-  party: PartyMember[];
-  assignMap: Record<string, string>;
-  onPick: (memberId: string) => void;
-  onRemove: () => void;
-  onClose: () => void;
-}) {
-  const { slot, slots, party, assignMap, onPick, onRemove, onClose } = props;
-  const t = useT();
-  const currentId = assignMap[slot.slotKey];
-  const eligible = party.filter((m) => resolveRaceClass(m) === slot.category);
-  const slotByKey = (key: string) => slots.find((s) => s.slotKey === key);
-
-  return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center p-[48px]">
-      <button
-        type="button"
-        aria-label={t("checkin.close")}
-        onClick={onClose}
-        className="absolute inset-0 bg-black/70"
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="pick-title"
-        className="k-glass relative z-10 max-h-[82%] w-full max-w-[720px] overflow-y-auto p-[40px]"
-      >
-        <div id="pick-title" className="k-display text-[40px]">
-          {t("checkin.picker.title", { label: slot.classLabel })}
-        </div>
-        <p className="mt-[8px] text-[26px] text-white/55">
-          {slot.track ? `${slot.track} · ` : ""}
-          {slot.timeLabel}
-        </p>
-
-        {eligible.length === 0 ? (
-          <p className="mt-[28px] text-[28px] text-[#f0b341]">
-            {t("checkin.picker.noneReady", { category: slot.category })}
-          </p>
-        ) : (
-          <div className="mt-[28px] space-y-[14px]">
-            {eligible.map((m) => {
-              const selected = currentId === m.id;
-              // The member's OTHER held slots: one too close to this race (per
-              // the web heat-spacing rules) gets released on pick — say so; a
-              // compatible one coexists and is purely informational.
-              const otherHeld = Object.entries(assignMap)
-                .filter(([k, id]) => id === m.id && k !== slot.slotKey)
-                .map(([k]) => slotByKey(k))
-                .filter((s): s is CheckinRaceSlot => !!s);
-              const conflicting = otherHeld.find((s) => raceSlotsConflict(s, slot));
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => onPick(m.id)}
-                  className={`k-tap flex w-full items-center gap-[16px] rounded-2xl border-2 p-[24px] text-left text-[30px] ${
-                    selected
-                      ? "border-[#46d68c] bg-[#46d68c]/15 text-white"
-                      : "border-white/15 bg-white/5 text-white"
-                  }`}
-                >
-                  <IconUserCheck
-                    size={30}
-                    className={selected ? "text-[#46d68c]" : "text-white/30"}
-                    aria-hidden="true"
-                  />
-                  <span className="flex-1">{racerName(m)}</span>
-                  {conflicting ? (
-                    <span className="text-[22px] text-[#f0b341]">
-                      {t("checkin.picker.movesFrom", {
-                        label: conflicting.timeLabel || t("checkin.picker.otherRace"),
-                      })}
-                    </span>
-                  ) : otherHeld.length > 0 ? (
-                    <span className="text-[22px] text-white/40">
-                      {t("checkin.picker.alsoAnother")}
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        <div className="mt-[28px] flex gap-[16px]">
-          {currentId && (
-            <button
-              type="button"
-              onClick={onRemove}
-              className="k-tap h-[88px] flex-1 rounded-2xl border-2 border-white/15 text-[28px] text-white/70"
-            >
-              {t("checkin.remove")}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="k-tap h-[88px] flex-1 rounded-2xl border-2 border-white/15 text-[28px] text-white/70"
-          >
-            {t("checkin.close")}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

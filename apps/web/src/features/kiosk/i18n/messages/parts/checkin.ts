@@ -70,6 +70,16 @@ export const checkinEn = {
   // Nobody is ticked — the gate now counts only the people actually checking in.
   "checkin.needSomeone": "Tap at least one person to check in.",
 
+  // Race assignment is now inline chips on each race card (no per-race modal),
+  // with the unambiguous races pre-filled. Say that we filled them — a silent
+  // pre-fill is a guess the guest never gets the chance to correct.
+  "checkin.assign.promptShort": "Tap a name to say who’s driving each race.",
+  "checkin.assign.autoFilled": "We matched racers to races. Tap any name to change it.",
+  "checkin.assign.nobodyYet": "Nobody chosen yet",
+  "checkin.assign.alsoAt": "also at {time}",
+  "checkin.assign.movesFromTime": "moves from {time}",
+  "checkin.assign.addRacer": "Add a {category} racer",
+
   "checkin.picker.title": "Who’s racing the {label}?",
   "checkin.picker.noneReady":
     "No {category} racer is ready yet. Go back and add a {category} racer with a signed waiver first.",
@@ -127,6 +137,14 @@ export const checkinEs: Record<keyof typeof checkinEn, string> = {
   "checkin.roster.degraded":
     "No pudimos conectar con el sistema de reservas, así que esta lista puede estar incompleta. Agrega a quien falte.",
   "checkin.needSomeone": "Toca al menos a una persona para registrarte.",
+
+  "checkin.assign.promptShort": "Toca un nombre para indicar quién conduce cada carrera.",
+  "checkin.assign.autoFilled":
+    "Asignamos los pilotos a las carreras. Toca cualquier nombre para cambiarlo.",
+  "checkin.assign.nobodyYet": "Aún no hay nadie elegido",
+  "checkin.assign.alsoAt": "también a las {time}",
+  "checkin.assign.movesFromTime": "cambia de las {time}",
+  "checkin.assign.addRacer": "Agregar un piloto {category}",
 
   "checkin.picker.title": "¿Quién compite en {label}?",
   "checkin.picker.noneReady":
