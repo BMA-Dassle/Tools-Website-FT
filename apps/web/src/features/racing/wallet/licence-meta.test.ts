@@ -86,6 +86,46 @@ describe("formatHeat", () => {
     expect(formatHeat(null)).toEqual({ nextRace: "", nextRaceLong: "", raceLabel: "" });
     expect(formatHeat({ scheduledStart: "junk", track: "Red" }).nextRace).toBe("");
   });
+
+  /**
+   * BOTH CRONS MUST PRODUCE BYTE-IDENTICAL STRINGS.
+   *
+   * `pre-race-tickets` and `checkin-alerts` now each write NEXT RACE — the first
+   * off the schedule, the second off the heat actually being called, because 98%
+   * of heats (measured 2026-08-06: 92 of 94) go off more than 5 minutes late and
+   * leave the pre-race window before check-in ever opens.
+   *
+   * They share `formatHeat` precisely so they cannot disagree. If they ever
+   * produced different strings for the same heat, `updateLicencePass`'s
+   * change-detection would read each cron's value as a change from the other's
+   * and re-PUT every racer's pass every minute for the whole heat. That is not a
+   * theoretical cost: Apple warned on 2026-08-06 that automatic updates for
+   * these passes were about to be DISABLED for sending too many (see
+   * `fix(wallet): stop pushing pass updates that change nothing`). A formatting
+   * drift here would walk straight back into that.
+   *
+   * These are the exact strings production wrote to Neon on 2026-08-06 (person
+   * 17323373, Red Heat 55). Pinned as literals: changing them is a mass re-push
+   * of every live pass and must be a deliberate act, not a side effect.
+   */
+  it("matches the exact strings production wrote for Red Heat 55", () => {
+    const out = formatHeat({
+      scheduledStart: "2026-08-07T01:48:00.000Z", // 9:48 PM ET, Aug 6
+      track: "Red",
+      heatNumber: 55,
+    });
+    expect(out.nextRace).toBe("Aug 6 · 9:48 PM · Red");
+    expect(out.nextRaceLong).toBe("Thursday, Aug 6 · 9:48 PM · Red · Heat 55");
+    expect(out.raceLabel).toBe("Heat 55");
+  });
+
+  it("gives both crons the same answer for the same heat, so neither re-pushes", () => {
+    // pre-race passes the scheduled session; checkin-alerts passes the called
+    // race. Same three inputs, so the same three strings — and therefore no PUT
+    // from the second cron once the first has already written the heat.
+    const heatInputs = { scheduledStart: "2026-08-07T02:48:00.000Z", track: "Red", heatNumber: 60 };
+    expect(formatHeat(heatInputs)).toEqual(formatHeat({ ...heatInputs }));
+  });
 });
 
 describe("tierFrom", () => {

@@ -19,7 +19,8 @@ import {
 } from "@/lib/participant-contact";
 import { logSms, logCronRun } from "@/lib/sms-log";
 import { updateLicencePasses } from "~/features/racing/wallet/licence-pass";
-import { clearFinishedLicenceFields } from "~/features/racing/wallet/licence-clear";
+import { clearFinishedLicenceFields, NO_NEXT_RACE } from "~/features/racing/wallet/licence-clear";
+import { formatHeat } from "~/features/racing/wallet/licence-meta";
 import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
 import { verifyCron } from "@/lib/cron-auth";
 import { vipComboPersonLegsOnDate, type VipComboPersonLeg } from "@/lib/bowling-db";
@@ -895,6 +896,37 @@ export async function GET(req: NextRequest) {
       // changed, so a re-run against the same open heat is a no-op.
       // Awaited — a serverless handler is frozen when it returns, so a dangling
       // promise is killed mid-flight. See pre-race-tickets for the incident.
+      //
+      // NEXT RACE IS WRITTEN HERE TOO, and it is not belt-and-braces — it is the
+      // only cron that can get this right for a late heat.
+      //
+      // pre-race-tickets drives NEXT RACE off the SCHEDULE and stops covering a
+      // session 5 minutes after its scheduled start (WINDOW_SKEW_BEHIND_MS).
+      // Measured on 2026-08-06: 92 of 94 heats (98%) started more than 5 minutes
+      // late, median 19.8 min, worst 41 min. So for essentially every heat, the
+      // pre-race window closes a quarter of an hour BEFORE the heat is called —
+      // and any racer added in that gap gets "Check in now — Red Heat 60" on
+      // their pass while NEXT RACE still reads "None in next 2 hrs". That is the
+      // exact contradiction a racer reported on their own live pass (person
+      // 409523, heat 60: scheduled 10:48 PM, actually called 11:00 PM).
+      //
+      // This cron reads /races-current — what is ACTUALLY happening, not what
+      // was planned — so the heat being called IS the racer's next race by
+      // definition, however far off schedule it went.
+      //
+      // COSTS NO EXTRA NOTIFICATION. `custom.nextRace` carries no changeMessage
+      // on the template, deliberately (it moves for reasons the racer did not
+      // cause), so writing it never raises a lock-screen alert. And
+      // updateLicencePass skips a field whose value is unchanged, so once
+      // pre-race has already written this heat the value matches and no PUT is
+      // made at all. Shared `formatHeat` with pre-race-tickets for exactly that
+      // reason: two formatters that drifted by one character would push a
+      // pointless PUT for every racer, every minute.
+      const heat = formatHeat({
+        scheduledStart: race.scheduledStart,
+        track: trackDisplay,
+        heatNumber: race.heatNumber,
+      });
       await updateLicencePasses(
         participants.map((p) => ({
           personId: p.personId,
@@ -903,6 +935,10 @@ export async function GET(req: NextRequest) {
           // it, "is this stale?" has no answer but elapsed time — and time is
           // wrong whenever a race runs late or early, which is most of them.
           checkinSessionId: String(sessionId),
+          nextRace: heat.nextRace || NO_NEXT_RACE,
+          raceLabel: heat.raceLabel || "—",
+          nextRaceLong: heat.nextRaceLong || "—",
+          nextRaceSessionId: String(sessionId),
         })),
       )
         .then((n) => {
