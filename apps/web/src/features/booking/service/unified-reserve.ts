@@ -763,12 +763,20 @@ export function quoteUnifiedSession(session: BookingSession): {
 // order + payment live there forever); this anchor is the fast pointer the
 // terminal-orphan reconcile follows. 48h TTL comfortably outlives a kiosk session.
 export interface TerminalAnchorTender {
-  /** Position in the tender sequence (v1: the single gift card is 0). */
+  /** Position in the tender sequence — assigned from the anchor's monotonic
+   *  tenderSeq, never re-used after a cancel (the auth idempotency keys salt
+   *  on it, so a re-used slot would replay a burned key). */
   index: number;
   kind: "gift_card" | "terminal";
   paymentId?: string;
   amountCents: number;
   ganLast4?: string;
+  /** Square payment.source_type — "GIFT_CARD" for GAN auths; a TERMINAL swipe
+   *  of a physical gift card reports "CARD" + cardBrand SQUARE_GIFT_CARD, and
+   *  the gift-card cap counts both shapes. */
+  sourceType?: string;
+  cardBrand?: string;
+  last4?: string;
   status: "authorized" | "canceled" | "cancel-failed";
 }
 export interface TerminalAnchor {
@@ -806,6 +814,25 @@ export interface TerminalAnchor {
   /** Set by the capture route after PayOrder reports the order COMPLETED. */
   capturedAt?: string;
   /**
+   * The checkout's FULL charge — what the authorized tenders must sum to.
+   * Explicit because the writers disagree about depositCents' meaning (the
+   * booking rails store the deposit alone and carry Game Zone cents on
+   * gameCards; the standalone Game Zone rail stores the whole total).
+   * anchorTotalCents() prefers this and falls back to the legacy derivation.
+   */
+  totalCents?: number;
+  /** Monotonic tender-index counter (see TerminalAnchorTender.index). */
+  tenderSeq?: number;
+  /** Which prepare rail wrote this anchor (diagnostics / sweep triage). */
+  source?: "unified" | "bowling" | "gamezone" | "racepack";
+  /**
+   * The currently-armed reader checkout with the salts it was armed under —
+   * universal successor to pendingCheckoutId (which only the split fork
+   * wrote, leaving non-split armed checkouts invisible to unwind). The
+   * attempt lets the poll discard a tap that landed on a pre-unwind arm.
+   */
+  pendingCheckout?: { id: string; attempt: number; termArm: number };
+  /**
    * KIOSK Game Zone cards riding this deposit order (owner 2026-07-18): the
    * ledger rows persisted at PREPARE, so finalize can mark them charged and
    * hand them to the confirmation screen for fulfillment. Order matches the
@@ -822,12 +849,50 @@ export interface TerminalAnchor {
 const TERMINAL_ANCHOR_TTL_S = 48 * 3600;
 const terminalAnchorKey = (seed: string) => `kiosk:terminal:anchor:${seed}`;
 
-async function writeTerminalAnchor(seed: string, anchor: TerminalAnchor): Promise<void> {
+/**
+ * THE anchor writer every prepare rail uses (unified / bowling / Game Zone /
+ * race packs). Read-merge-write: a re-prepare of the same seed must never
+ * clobber tender bookkeeping (tenders / paymentIds / attempt / termArm /
+ * pendingCheckout / capturedAt) that the split routes already stored on this
+ * key — the Game Zone rail's original raw SET did exactly that clobber.
+ * Returns the written anchor, or null when Redis is down — callers that hand
+ * out a splitToken must fail closed on null (a token without an anchor lights
+ * the gift-card UI and then answers "no-session" to every use of it).
+ */
+export async function upsertTerminalAnchor(
+  seed: string,
+  fields: {
+    depositOrderId: string;
+    depositCents: number;
+    locationId: string;
+    baseKey: string;
+    splitToken: string;
+    /** The FULL charge the tenders must sum to (see TerminalAnchor.totalCents). */
+    totalCents: number;
+    source: NonNullable<TerminalAnchor["source"]>;
+    gameCards?: TerminalAnchor["gameCards"];
+  },
+): Promise<TerminalAnchor | null> {
   try {
-    await redis.set(terminalAnchorKey(seed), JSON.stringify(anchor), "EX", TERMINAL_ANCHOR_TTL_S);
+    const raw = await redis.get(terminalAnchorKey(seed));
+    const prev: Partial<TerminalAnchor> =
+      typeof raw === "string"
+        ? (JSON.parse(raw) as Partial<TerminalAnchor>)
+        : ((raw as Partial<TerminalAnchor> | null) ?? {});
+    const next: TerminalAnchor = {
+      ...prev,
+      ...fields,
+      // A re-prepare keeps the session's existing trust root — handing the
+      // NEW token to the new caller while old tenders ride the OLD token
+      // would split one money session across two secrets.
+      splitToken: prev.splitToken ?? fields.splitToken,
+      attempt: prev.attempt ?? 0,
+      tenderSeq: prev.tenderSeq ?? prev.tenders?.length ?? 0,
+    };
+    await redis.set(terminalAnchorKey(seed), JSON.stringify(next), "EX", TERMINAL_ANCHOR_TTL_S);
+    return next;
   } catch {
-    /* Redis down — Square still holds the durable order/payment; reconcile can
-       recover from Square by the deposit order's reference_id (the seed). */
+    return null;
   }
 }
 
@@ -1970,16 +2035,21 @@ async function unifiedReserveInner(
       // Split-tender session secret: the seed (bill id) is sequential and
       // client-visible, so it can NOT authorize the split routes by itself.
       // Minted here (prepare is the session's trust root), stored on the
-      // anchor, returned ONLY to this prepare's caller.
-      const splitToken: string | undefined = randomUUID();
-      await writeTerminalAnchor(seedSource ?? baseKey, {
+      // anchor, returned ONLY to this prepare's caller. Token handed out only
+      // when the anchor durably landed — a token without an anchor lights the
+      // gift-card UI and then answers "no-session" to every use of it.
+      const written = await upsertTerminalAnchor(seedSource ?? baseKey, {
         depositOrderId,
         depositCents,
         locationId,
         baseKey,
-        ...(splitToken ? { splitToken } : {}),
+        splitToken: randomUUID(),
+        // The reader charges the ORDER TOTAL: booking deposit + card lines.
+        totalCents: depositCents + gzCents,
+        source: "unified",
         ...(anchorGameCards ? { gameCards: anchorGameCards } : {}),
       });
+      const splitToken = written?.splitToken;
       return {
         __prepare: true,
         seed: seedSource ?? baseKey,

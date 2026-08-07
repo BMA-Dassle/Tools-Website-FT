@@ -1,10 +1,12 @@
 /**
- * Kiosk split-tender service (v1: one gift card + one tap) — mocked Redis /
- * Neon / Square-module, exercising the money-ordering rules from the
- * 2026-07-29 adversarial review: persist-first, splitToken gating, verified
- * cancels, paymentIds pruning (remove→re-add→capture must WORK), positive
- * terminal-tender identification, attempt bump on every unwind, idempotent
- * capture replay, honest ledger on anchor loss.
+ * Kiosk split-tender service — mocked Redis / Neon / Square-module,
+ * exercising the money-ordering rules from the 2026-07-29 adversarial review
+ * (persist-first, splitToken gating, verified cancels, paymentIds pruning,
+ * positive terminal-tender identification, attempt bump on every unwind,
+ * idempotent capture replay, honest ledger on anchor loss) plus the ambient
+ * gift-card primitives (2026-08-06): multi-tender caps via isGiftCardTender,
+ * monotonic tenderSeq slots, append-only tenders, per-tender remove, and the
+ * upsertTerminalAnchor merge-writer.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -51,6 +53,7 @@ vi.mock("./square-terminal", () => ({
   dismissTerminalCheckout: vi.fn(async () => true),
 }));
 
+import redis from "@/lib/redis";
 import {
   cancelSquarePayment,
   createTenderAuth,
@@ -59,6 +62,7 @@ import {
   retrieveGiftCardById,
 } from "@/lib/square-gift-card";
 import { getSquarePayment } from "~/features/booking/service/deposit";
+import { upsertTerminalAnchor } from "~/features/booking/service/unified-reserve";
 import { setSplitState, setSplitTenders, upsertSplitAttempt } from "../data/split-tenders-db";
 import { dismissTerminalCheckout } from "./square-terminal";
 import {
@@ -103,7 +107,7 @@ function readAnchor() {
   return JSON.parse(redisStore.get(anchorKey) as string);
 }
 /** What the terminal-checkout GET's stamp does for split anchors. */
-function stampTap(paymentId: string) {
+function stampTap(paymentId: string, extra: Record<string, unknown> = {}) {
   const a = readAnchor();
   a.paymentIds = [...new Set([...(a.paymentIds ?? []), paymentId])];
   a.tenders = [
@@ -114,6 +118,7 @@ function stampTap(paymentId: string) {
       paymentId,
       amountCents: 0,
       status: "authorized",
+      ...extra,
     },
   ];
   a.pendingCheckoutId = undefined;
@@ -200,11 +205,58 @@ describe("lookup + add gift card", () => {
     expect(anchor.paymentIds).toEqual(["pay_gc_1"]);
   });
 
-  it("rejects a second gift card in v1", async () => {
+  it("stacks gift cards up to MAX_GIFT_CARD_TENDERS, then rejects", async () => {
+    seedAnchor();
+    const first = await applyGiftCard(); // 2000 of 5000
+    const second = await applyGiftCard(); // 2000 of 3000
+    const third = await applyGiftCard(); // 1000 of 1000 (min(balance, remaining))
+    expect(first.ok && first.remainingCents).toBe(3_000);
+    expect(second.ok && second.remainingCents).toBe(1_000);
+    expect(third.ok && third.remainingCents).toBe(0);
+    const fourth = await applyGiftCard();
+    expect(!fourth.ok && fourth.error).toBe("gc-limit");
+    // Monotonic slots, each auth under its own index salt.
+    expect(mockAuth.mock.calls.map((c) => c[0].idempotencyKey)).toEqual([
+      expect.stringMatching(/-0-[0-9a-f]{8}-a0$/),
+      expect.stringMatching(/-1-[0-9a-f]{8}-a0$/),
+      expect.stringMatching(/-2-[0-9a-f]{8}-a0$/),
+    ]);
+    expect(readAnchor().tenderSeq).toBe(3);
+  });
+
+  it("counts a Terminal-swiped gift card (brand SQUARE_GIFT_CARD) toward the GC cap", async () => {
     seedAnchor();
     await applyGiftCard();
-    const again = await applyGiftCard();
-    expect(!again.ok && again.error).toBe("gc-limit");
+    await applyGiftCard();
+    stampTap("pay_term_gc", { sourceType: "CARD", cardBrand: "SQUARE_GIFT_CARD" });
+    const fourth = await applyGiftCard();
+    expect(!fourth.ok && fourth.error).toBe("gc-limit");
+  });
+
+  it("rejects any tender past MAX_TOTAL_TENDERS", async () => {
+    seedAnchor({ depositCents: 50_000 });
+    await applyGiftCard();
+    await applyGiftCard(); // 2 gift cards — under the GC cap
+    stampTap("pay_term_1");
+    stampTap("pay_term_2");
+    stampTap("pay_term_3"); // 5 authorized tenders total
+    const sixth = await applyGiftCard();
+    expect(!sixth.ok && sixth.error).toBe("tender-limit");
+  });
+
+  it("append-only: an add never drops a prior authorized tender", async () => {
+    seedAnchor();
+    await applyGiftCard();
+    stampTap("pay_term_1");
+    await applyGiftCard();
+    const anchor = readAnchor();
+    expect(anchor.tenders).toHaveLength(3);
+    expect(
+      anchor.tenders.filter((t: { status: string }) => t.status === "authorized"),
+    ).toHaveLength(3);
+    expect(anchor.tenders.find((t: { kind: string }) => t.kind === "terminal").paymentId).toBe(
+      "pay_term_1",
+    );
   });
 
   it("consumes the lookup token (replay fails)", async () => {
@@ -279,6 +331,83 @@ describe("remove / re-add / capture — the review's must-fix path", () => {
     const anchor = readAnchor();
     expect(anchor.tenders[0].status).toBe("cancel-failed");
     // NOT pruned — the payment is still live out there.
+    expect(anchor.paymentIds).toContain("pay_gc_1");
+    expect(setSplitState).toHaveBeenCalledWith(baseAnchor.baseKey, "needs_review");
+  });
+});
+
+describe("per-tender remove (multi-tender board's Remove button)", () => {
+  it("voids ONLY the named gift card — other holds survive, attempt bumps", async () => {
+    seedAnchor();
+    await applyGiftCard(); // pay_gc_1
+    await applyGiftCard(); // pay_gc_2
+    stampTap("pay_term_1");
+    const res = await removeGiftCardTender({
+      seed: SEED,
+      splitToken: TOKEN,
+      paymentId: "pay_gc_1",
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // 5000 total − pay_gc_2's 2000 (terminal amounts don't count in PR-1 math)
+    expect(res.remainingCents).toBe(3_000);
+    expect(mockCancel.mock.calls.map((c) => c[0])).toEqual(["pay_gc_1"]);
+    const anchor = readAnchor();
+    expect(
+      anchor.tenders.find((t: { paymentId: string }) => t.paymentId === "pay_gc_1").status,
+    ).toBe("canceled");
+    expect(
+      anchor.tenders.find((t: { paymentId: string }) => t.paymentId === "pay_gc_2").status,
+    ).toBe("authorized");
+    expect(
+      anchor.tenders.find((t: { paymentId: string }) => t.paymentId === "pay_term_1").status,
+    ).toBe("authorized");
+    expect(anchor.paymentIds).toEqual(["pay_gc_2", "pay_term_1"]);
+    expect(anchor.attempt).toBe(1);
+  });
+
+  it("dismisses the armed checkout first (its amount is stale once the remainder moves)", async () => {
+    seedAnchor();
+    await applyGiftCard();
+    const a = readAnchor();
+    a.pendingCheckout = { id: "chk_armed", attempt: 0, termArm: 1 };
+    redisStore.set(anchorKey, JSON.stringify(a));
+    await removeGiftCardTender({ seed: SEED, splitToken: TOKEN, paymentId: "pay_gc_1" });
+    expect(mockDismiss).toHaveBeenCalledWith("chk_armed");
+    expect(readAnchor().pendingCheckout).toBeUndefined();
+  });
+
+  it("refuses to remove a terminal tender or an unknown payment", async () => {
+    seedAnchor();
+    await applyGiftCard();
+    stampTap("pay_term_1");
+    const term = await removeGiftCardTender({
+      seed: SEED,
+      splitToken: TOKEN,
+      paymentId: "pay_term_1",
+    });
+    expect(!term.ok && term.error).toBe("tender-not-found");
+    const unknown = await removeGiftCardTender({
+      seed: SEED,
+      splitToken: TOKEN,
+      paymentId: "pay_nope",
+    });
+    expect(!unknown.ok && unknown.error).toBe("tender-not-found");
+    expect(mockCancel).not.toHaveBeenCalled();
+  });
+
+  it("records cancel-failed + needs_review and keeps the id in the union when the void doesn't stick", async () => {
+    seedAnchor();
+    await applyGiftCard();
+    mockCancel.mockImplementationOnce(async () => {}); // Square still reports APPROVED
+    const res = await removeGiftCardTender({
+      seed: SEED,
+      splitToken: TOKEN,
+      paymentId: "pay_gc_1",
+    });
+    expect(!res.ok && res.error).toBe("square-error");
+    const anchor = readAnchor();
+    expect(anchor.tenders[0].status).toBe("cancel-failed");
     expect(anchor.paymentIds).toContain("pay_gc_1");
     expect(setSplitState).toHaveBeenCalledWith(baseAnchor.baseKey, "needs_review");
   });
@@ -373,5 +502,83 @@ describe("splitRemainingCents", () => {
       ],
     } as never;
     expect(splitRemainingCents(anchor)).toBe(4_500); // 6000 − 1500 (GC only)
+  });
+
+  it("prefers the writer-stamped explicit totalCents over the legacy derivation", () => {
+    const anchor = {
+      ...baseAnchor,
+      totalCents: 7_500,
+      gameCards: { totalCents: 1_000 },
+      tenders: [{ index: 0, kind: "gift_card", amountCents: 1_500, status: "authorized" }],
+    } as never;
+    expect(splitRemainingCents(anchor)).toBe(6_000); // 7500 − 1500
+  });
+});
+
+describe("upsertTerminalAnchor (the shared merge-writer)", () => {
+  it("creates a fresh anchor with attempt 0 / tenderSeq 0 and returns it", async () => {
+    const written = await upsertTerminalAnchor(SEED, {
+      depositOrderId: "ord_9",
+      depositCents: 4_000,
+      locationId: "LOC",
+      baseKey: "bk9",
+      splitToken: "tok-new",
+      totalCents: 4_500,
+      source: "unified",
+    });
+    expect(written).toMatchObject({
+      depositOrderId: "ord_9",
+      splitToken: "tok-new",
+      totalCents: 4_500,
+      attempt: 0,
+      tenderSeq: 0,
+      source: "unified",
+    });
+    expect(readAnchor()).toMatchObject({ splitToken: "tok-new" });
+  });
+
+  it("merges over a prior anchor: tender bookkeeping and the ORIGINAL splitToken survive a re-prepare", async () => {
+    seedAnchor({
+      tenders: [
+        { index: 0, kind: "gift_card", paymentId: "p1", amountCents: 500, status: "authorized" },
+      ],
+      paymentIds: ["p1"],
+      attempt: 2,
+      tenderSeq: 1,
+      capturedAt: undefined,
+    });
+    const written = await upsertTerminalAnchor(SEED, {
+      depositOrderId: "ord_2",
+      depositCents: 9_000,
+      locationId: "LOC2",
+      baseKey: baseAnchor.baseKey,
+      splitToken: "tok-second-prepare",
+      totalCents: 9_000,
+      source: "bowling",
+    });
+    expect(written).toMatchObject({
+      depositOrderId: "ord_2", // descriptive fields updated
+      splitToken: TOKEN, // the session's existing trust root wins
+      attempt: 2,
+      tenderSeq: 1,
+    });
+    expect(written?.tenders).toHaveLength(1);
+    expect(written?.paymentIds).toEqual(["p1"]);
+  });
+
+  it("returns null when Redis is down (callers fail closed on the token)", async () => {
+    (redis.get as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => {
+      throw new Error("redis down");
+    });
+    const written = await upsertTerminalAnchor(SEED, {
+      depositOrderId: "ord_9",
+      depositCents: 4_000,
+      locationId: "LOC",
+      baseKey: "bk9",
+      splitToken: "tok",
+      totalCents: 4_000,
+      source: "gamezone",
+    });
+    expect(written).toBeNull();
   });
 });

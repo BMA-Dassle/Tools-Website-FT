@@ -272,8 +272,21 @@ export async function getSquarePayment(id: string): Promise<{
   id: string;
   status: string;
   amountCents: number;
+  /** approved_money — on a PARTIAL authorization (accept_partial_authorization)
+   *  this carries the real approved figure; the docs and this repo's research
+   *  disagree on whether amount_money is lowered too (probe-partial-auth.mts
+   *  settles it live), so money math must trust effectiveCents, never
+   *  amountCents alone. */
+  approvedCents?: number;
+  /** approved_money ?? amount_money — the figure remainder/capture math uses. */
+  effectiveCents: number;
   orderId?: string;
   locationId?: string;
+  /** payment.source_type — "GIFT_CARD" for GAN-sourced auths, "CARD" for taps. */
+  sourceType?: string;
+  /** card_details.card.card_brand — "SQUARE_GIFT_CARD" for a swiped gift card. */
+  cardBrand?: string;
+  last4?: string;
 } | null> {
   if (!SQUARE_TOKEN) return null;
   try {
@@ -285,12 +298,19 @@ export async function getSquarePayment(id: string): Promise<{
     const data = await res.json();
     const p = data.payment;
     if (!p?.id) return null;
+    const amountCents = p.amount_money?.amount ?? -1;
+    const approvedCents: number | undefined = p.approved_money?.amount;
     return {
       id: p.id,
       status: p.status ?? "UNKNOWN",
-      amountCents: p.amount_money?.amount ?? -1,
+      amountCents,
+      ...(approvedCents !== undefined ? { approvedCents } : {}),
+      effectiveCents: approvedCents ?? amountCents,
       orderId: p.order_id,
       locationId: p.location_id,
+      sourceType: p.source_type,
+      cardBrand: p.card_details?.card?.card_brand,
+      last4: p.card_details?.card?.last_4,
     };
   } catch {
     return null;

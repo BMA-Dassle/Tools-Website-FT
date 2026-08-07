@@ -34,6 +34,10 @@ import {
   isFastTraxDuckpinCenter,
 } from "@/lib/qamf-centers";
 import redis from "@/lib/redis";
+import {
+  stampTerminalPaymentOnAnchor,
+  upsertTerminalAnchor,
+} from "~/features/booking/service/unified-reserve";
 import { shortenUrl } from "@/lib/short-url";
 import {
   normalizePhoneE164,
@@ -92,47 +96,12 @@ type AnchorGameCards = {
   cards: Array<{ txnId: string; packageId: string; accountNumber: string }>;
 };
 
-async function writeBowlingTerminalAnchor(
-  seed: string,
-  anchor: {
-    depositOrderId: string;
-    depositCents: number;
-    locationId: string;
-    /** Stamped once the reader has captured (persist-at-capture, for reconcile). */
-    paymentId?: string;
-    /** Split-tender session secret (gift card + tap) — same trust model as the
-     *  unified rail: the seed alone must never authorize the gift-card routes. */
-    splitToken?: string;
-    gameCards?: AnchorGameCards;
-  },
-): Promise<void> {
-  try {
-    // MERGE over the existing anchor, never replace: the split rail stores its
-    // tender bookkeeping (tenders / paymentIds / capturedAt / splitToken) on
-    // this same key, and the finalize-failure rewrite must not destroy the
-    // record the terminal-orphan reconcile needs to complete or refund a
-    // multi-payment capture.
-    const prevRaw = await redis.get(`kiosk:terminal:anchor:${seed}`).catch(() => null);
-    const prev =
-      typeof prevRaw === "string"
-        ? (JSON.parse(prevRaw) as Record<string, unknown>)
-        : ((prevRaw as Record<string, unknown> | null) ?? {});
-    await redis.set(
-      `kiosk:terminal:anchor:${seed}`,
-      JSON.stringify({
-        ...prev,
-        ...anchor,
-        baseKey: seed,
-        source: "bowling",
-        ...(anchor.paymentId ? { stampedAt: new Date().toISOString() } : {}),
-      }),
-      "EX",
-      48 * 3600,
-    );
-  } catch {
-    /* Redis down — reconcile recovers from Square by the order's reference_id. */
-  }
-}
+/**
+ * Bowling's anchor writes go through the shared merge-writer
+ * (upsertTerminalAnchor in unified-reserve.ts) so tender bookkeeping written
+ * by the split routes survives a re-prepare. The finalize-failure rewrite
+ * path (which stamps a paymentId) keeps using stampTerminalPaymentOnAnchor.
+ */
 
 // Square Loyalty constants for reward redemption during booking
 const SQUARE_BASE = "https://connect.squareup.com/v2";
@@ -540,15 +509,21 @@ export async function POST(req: NextRequest) {
       });
       // Split-tender session secret (gift card + tap) — minted at PREPARE, the
       // session's trust root, exactly like the unified rail. Returned ONLY to
-      // this prepare's caller; every gift-card route requires it.
-      const splitToken: string | undefined = randomUUID();
-      await writeBowlingTerminalAnchor(seed, {
+      // this prepare's caller; every gift-card route requires it. Token handed
+      // out only when the anchor durably landed (a token without an anchor
+      // lights the gift-card UI and then answers "no-session" to every use).
+      const written = await upsertTerminalAnchor(seed, {
         depositOrderId,
         depositCents: depositForReader,
         locationId: prepLocationId,
-        ...(splitToken ? { splitToken } : {}),
+        baseKey: seed,
+        splitToken: randomUUID(),
+        // The reader charges the ORDER TOTAL: booking deposit + card lines.
+        totalCents: depositForReader + gzCents,
+        source: "bowling",
         ...(anchorGameCards ? { gameCards: anchorGameCards } : {}),
       });
+      const splitToken = written?.splitToken;
       console.log(
         `[bowling/v2/reserve] TERMINAL PREPARE seed=${seed} order=${depositOrderId} deposit=${depositForReader}c gz=${gzCents}c loc=${prepLocationId} split=${!!splitToken}`,
       );
@@ -1688,13 +1663,19 @@ export async function POST(req: NextRequest) {
           // Money is ALREADY captured on the reader. Do NOT delete the QAMF
           // reservation and do NOT imply a re-charge. Stamp the paymentId on the
           // anchor (persist-first) so the terminal-orphan reconcile can complete
-          // or refund, then surface a "see the front desk" message.
-          await writeBowlingTerminalAnchor(ep.seed, {
+          // or refund, then surface a "see the front desk" message. The upsert
+          // recreates the descriptive fields if Redis lost the prepare anchor;
+          // the stamp merges the payment pointer (both are best-effort here).
+          await upsertTerminalAnchor(ep.seed, {
             depositOrderId: ep.depositOrderId,
             depositCents: chargeCents,
             locationId: depositLocationId,
-            paymentId: ep.paymentId,
+            baseKey: ep.seed,
+            splitToken: randomUUID(),
+            totalCents: chargeCents,
+            source: "bowling",
           }).catch(() => {});
+          await stampTerminalPaymentOnAnchor(ep.seed, ep.paymentId).catch(() => {});
           if (loyaltyRewardId) {
             await fetch(`${SQUARE_BASE}/loyalty/rewards/${loyaltyRewardId}`, {
               method: "DELETE",

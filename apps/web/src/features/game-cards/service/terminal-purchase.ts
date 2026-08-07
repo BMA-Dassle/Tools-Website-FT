@@ -17,7 +17,7 @@
  * own file so purchase.ts (the embed rail) is untouched.
  */
 import { randomBytes, randomUUID } from "crypto";
-import redis from "@/lib/redis";
+import { upsertTerminalAnchor } from "~/features/booking/service/unified-reserve";
 import { getCenter } from "~/config/intercard-centers";
 import { getPackage, activationFeeCents } from "../constants";
 import { GameCardHttpError } from "../errors";
@@ -149,28 +149,19 @@ export async function prepareTerminalPurchase(
   // purchases. Token only handed out when the anchor durably landed: a token
   // without an anchor would light the gift-card button and then answer
   // "no-session" to every tap on it.
-  let splitToken: string | undefined;
-  {
-    const token = randomUUID();
-    try {
-      await redis.set(
-        `kiosk:terminal:anchor:${groupId}`,
-        JSON.stringify({
-          depositOrderId: orderId,
-          depositCents: totalCents,
-          locationId: center.squareLocation,
-          baseKey: groupId,
-          splitToken: token,
-          source: "gamezone",
-        }),
-        "EX",
-        48 * 3600,
-      );
-      splitToken = token;
-    } catch {
-      /* Redis down → no split session; the full-amount reader tap still works. */
-    }
-  }
+  // Merge-writer (not a raw SET): a re-prepare of the same groupId must never
+  // clobber tender bookkeeping the split routes already stored on this key.
+  const written = await upsertTerminalAnchor(groupId, {
+    depositOrderId: orderId,
+    depositCents: totalCents,
+    locationId: center.squareLocation,
+    baseKey: groupId,
+    splitToken: randomUUID(),
+    // Standalone Game Zone: the deposit order IS the whole charge.
+    totalCents,
+    source: "gamezone",
+  });
+  const splitToken = written?.splitToken;
 
   return { groupId, orderId, totalCents, rows, ...(splitToken ? { splitToken } : {}) };
 }

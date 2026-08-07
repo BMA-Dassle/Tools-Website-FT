@@ -37,7 +37,13 @@ import {
   retrieveGiftCardById,
   SquarePaymentError,
 } from "@/lib/square-gift-card";
-import { cancelKey, gcAuthKey, payOrderKey } from "~/features/booking/service/tenders";
+import {
+  cancelKey,
+  gcAuthKey,
+  MAX_GIFT_CARD_TENDERS,
+  MAX_TOTAL_TENDERS,
+  payOrderKey,
+} from "~/features/booking/service/tenders";
 import { getSquarePayment } from "~/features/booking/service/deposit";
 import {
   readTerminalAnchor,
@@ -56,8 +62,6 @@ import {
 const LOOKUP_TOKEN_TTL_S = 15 * 60;
 const lookupTokenKey = (token: string) => `kiosk:gclookup:${token}`;
 const addLockKey = (seed: string) => `kiosk:split:lock:${seed}`;
-/** v1 cap — lift with the multi-tender UI PRs (MAX_GIFT_CARD_TENDERS). */
-const MAX_GIFT_CARDS_V1 = 1;
 
 export type SplitError =
   | "not-enabled"
@@ -68,6 +72,8 @@ export type SplitError =
   | "card-unusable" // internal / inactive / not found — deliberately vague outward
   | "zero-balance"
   | "gc-limit"
+  | "tender-limit" // MAX_TOTAL_TENDERS reached — remove one or pay the rest by card
+  | "tender-not-found" // per-tender remove named a payment this session doesn't hold
   | "token-invalid"
   | "nothing-to-capture"
   | "sum-mismatch"
@@ -80,9 +86,24 @@ export interface SplitStatus {
   capturedAt?: string;
 }
 
-/** The checkout's full charge: booking deposit + any Game Zone card lines. */
+/** The checkout's full charge. Prefers the writer-stamped explicit total
+ *  (anchor.totalCents — the writers disagree about depositCents' meaning);
+ *  legacy anchors fall back to deposit + Game Zone card lines. */
 function anchorTotalCents(anchor: TerminalAnchor): number {
-  return anchor.depositCents + (anchor.gameCards?.totalCents ?? 0);
+  return anchor.totalCents ?? anchor.depositCents + (anchor.gameCards?.totalCents ?? 0);
+}
+
+/**
+ * A tender counts against the gift-card cap whether it entered via the GAN
+ * rail (kind gift_card, source_type GIFT_CARD) or was swiped at the Terminal
+ * (kind terminal, card brand SQUARE_GIFT_CARD).
+ */
+export function isGiftCardTender(
+  t: Pick<TerminalAnchorTender, "kind" | "sourceType" | "cardBrand">,
+): boolean {
+  return (
+    t.kind === "gift_card" || t.sourceType === "GIFT_CARD" || t.cardBrand === "SQUARE_GIFT_CARD"
+  );
 }
 
 function authorizedTenders(
@@ -208,8 +229,12 @@ async function addGiftCardTenderLocked(params: {
   if ("error" in gate) return { ok: false, error: gate.error };
   const anchor = gate.anchor;
   if (anchor.capturedAt) return { ok: false, error: "already-captured" };
-  if (authorizedTenders(anchor, "gift_card").length >= MAX_GIFT_CARDS_V1) {
+  const authorized = authorizedTenders(anchor);
+  if (authorized.filter(isGiftCardTender).length >= MAX_GIFT_CARD_TENDERS) {
     return { ok: false, error: "gc-limit" };
+  }
+  if (authorized.length >= MAX_TOTAL_TENDERS) {
+    return { ok: false, error: "tender-limit" };
   }
 
   // Consume the token — read then delete (GETDEL needs Redis ≥6.2; the token
@@ -241,6 +266,9 @@ async function addGiftCardTenderLocked(params: {
   const amountCents = Math.min(info.balanceCents, splitRemainingCents(anchor));
   if (amountCents <= 0) return { ok: false, error: "sum-mismatch" };
   const attempt = anchor.attempt ?? 0;
+  // Monotonic slot — never re-used after a cancel (the auth idempotency key
+  // salts on it; a re-used slot would replay a burned key).
+  const index = anchor.tenderSeq ?? anchor.tenders?.length ?? 0;
 
   // PERSIST-FIRST: the ledger row exists before any Square auth, so a crash
   // between auth and stamp still leaves a findable record for the sweep.
@@ -259,7 +287,7 @@ async function addGiftCardTenderLocked(params: {
       locationId: anchor.locationId,
       sourceId: info.id, // gftc: id as source — probe #2's shape
       amountCents,
-      idempotencyKey: gcAuthKey(anchor.baseKey, 0, info.id, attempt),
+      idempotencyKey: gcAuthKey(anchor.baseKey, index, info.id, attempt),
       errCode: "GIFT_CARD_AUTH_FAILED",
       note: "Kiosk split tender — gift card",
     });
@@ -271,22 +299,25 @@ async function addGiftCardTenderLocked(params: {
   }
 
   const tender: TerminalAnchorTender = {
-    index: 0,
+    index,
     kind: "gift_card",
     paymentId: auth.paymentId,
     amountCents,
     ganLast4: info.gan.slice(-4),
+    sourceType: "GIFT_CARD",
     status: "authorized",
   };
-  // Keep the historical record: canceled tenders stay in the array; the new
-  // one replaces any prior AUTHORIZED gc slot (there is none — v1 guard).
-  const nextTenders = [...(anchor.tenders ?? []).filter((t) => t.status !== "authorized"), tender];
+  // APPEND-ONLY: canceled tenders stay as history, and a prior AUTHORIZED
+  // tender (another gift card, or a partial terminal tap) must survive an
+  // add — dropping it would inflate the remainder and over-arm the reader.
+  const nextTenders = [...(anchor.tenders ?? []), tender];
   // Ledger first (durable), anchor second (fast pointer).
   await setSplitTenders(anchor.baseKey, nextTenders as SplitTenderEntry[], attempt);
   const updated = await updateTerminalAnchor(params.seed, (a) => ({
     ...a,
     split: true as const,
     tenders: nextTenders,
+    tenderSeq: index + 1,
     paymentIds: [...new Set([...(a.paymentIds ?? []), auth.paymentId])],
   }));
   if (!updated) {
@@ -297,7 +328,7 @@ async function addGiftCardTenderLocked(params: {
     const outcome = await verifiedCancel(anchor.baseKey, auth.paymentId);
     await setSplitTenders(
       anchor.baseKey,
-      [{ ...tender, status: outcome } as SplitTenderEntry],
+      [...(anchor.tenders ?? []), { ...tender, status: outcome }] as SplitTenderEntry[],
       attempt + 1,
     );
     await setSplitState(anchor.baseKey, outcome === "canceled" ? "canceled" : "needs_review");
@@ -337,10 +368,12 @@ async function unwindTenders(
   anchor: TerminalAnchor,
 ): Promise<{ allReleased: boolean }> {
   // 1. Dismiss any armed reader checkout FIRST — a tap must not land while
-  //    (or after) we void the software auths.
-  if (anchor.pendingCheckoutId) {
+  //    (or after) we void the software auths. pendingCheckout is the universal
+  //    successor; pendingCheckoutId covers anchors written before it existed.
+  const armedCheckoutId = anchor.pendingCheckout?.id ?? anchor.pendingCheckoutId;
+  if (armedCheckoutId) {
     try {
-      await dismissTerminalCheckout(anchor.pendingCheckoutId);
+      await dismissTerminalCheckout(armedCheckoutId);
     } catch {
       /* checkout may already be done/expired — the payment loop below covers it */
     }
@@ -366,6 +399,7 @@ async function unwindTenders(
     ),
     paymentIds: (a.paymentIds ?? []).filter((id) => !canceledIds.includes(id)),
     pendingCheckoutId: undefined,
+    pendingCheckout: undefined,
     // Fresh keys for everything that comes after this unwind.
     attempt: (a.attempt ?? 0) + 1,
   }));
@@ -383,15 +417,78 @@ async function unwindTenders(
 export async function removeGiftCardTender(params: {
   seed: string;
   splitToken: string;
+  /**
+   * Void ONLY this tender (the multi-tender board's per-row Remove). Only a
+   * GIFT-CARD tender is removable — a guest's tapped card hold is undone by
+   * cancel-everything, never by a row button. Absent = the legacy full unwind
+   * (every authorized tender voided), which the v1 board still calls.
+   */
+  paymentId?: string;
 }): Promise<{ ok: true; remainingCents: number } | { ok: false; error: SplitError }> {
   const gate = await loadAuthorizedAnchor(params.seed, params.splitToken);
   if ("error" in gate) return { ok: false, error: gate.error };
   if (gate.anchor.capturedAt) return { ok: false, error: "already-captured" };
+  if (params.paymentId) return removeSingleTender(params.seed, gate.anchor, params.paymentId);
   await unwindTenders(params.seed, gate.anchor);
   const after = await readTerminalAnchor(params.seed);
   return {
     ok: true,
     remainingCents: after ? splitRemainingCents(after) : anchorTotalCents(gate.anchor),
+  };
+}
+
+/**
+ * Per-tender unwind: dismiss the armed checkout (its amount is stale the
+ * moment the remainder changes — the client re-arms), void the ONE named
+ * payment with verification, record honestly, bump the attempt salt.
+ */
+async function removeSingleTender(
+  seed: string,
+  anchor: TerminalAnchor,
+  paymentId: string,
+): Promise<{ ok: true; remainingCents: number } | { ok: false; error: SplitError }> {
+  const target = authorizedTenders(anchor).find((t) => t.paymentId === paymentId);
+  if (!target || !isGiftCardTender(target)) return { ok: false, error: "tender-not-found" };
+
+  const armedCheckoutId = anchor.pendingCheckout?.id ?? anchor.pendingCheckoutId;
+  if (armedCheckoutId) {
+    try {
+      await dismissTerminalCheckout(armedCheckoutId);
+    } catch {
+      /* checkout may already be done/expired */
+    }
+  }
+
+  const outcome = await verifiedCancel(anchor.baseKey, paymentId);
+  const nextTenders = (anchor.tenders ?? []).map((t) =>
+    t.paymentId === paymentId ? { ...t, status: outcome } : t,
+  );
+  const next = await updateTerminalAnchor(seed, (a) => ({
+    ...a,
+    tenders: nextTenders,
+    // A verified void leaves the union (capture must never see it again); a
+    // failed void stays visible as cancel-failed.
+    paymentIds:
+      outcome === "canceled"
+        ? (a.paymentIds ?? []).filter((id) => id !== paymentId)
+        : (a.paymentIds ?? []),
+    pendingCheckoutId: undefined,
+    pendingCheckout: undefined,
+    attempt: (a.attempt ?? 0) + 1,
+  }));
+  if (next) {
+    await setSplitTenders(anchor.baseKey, (next.tenders ?? []) as SplitTenderEntry[], next.attempt);
+  } else {
+    // Anchor gone — the ledger is the only durable record; flag for review.
+    await setSplitState(anchor.baseKey, "needs_review");
+  }
+  if (outcome === "cancel-failed") {
+    await setSplitState(anchor.baseKey, "needs_review");
+    return { ok: false, error: "square-error" };
+  }
+  return {
+    ok: true,
+    remainingCents: next ? splitRemainingCents(next) : anchorTotalCents(anchor),
   };
 }
 

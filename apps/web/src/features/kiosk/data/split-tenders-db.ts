@@ -23,6 +23,12 @@ export interface SplitTenderEntry {
   paymentId?: string;
   amountCents: number;
   ganLast4?: string;
+  /** Square payment.source_type / card brand / last4 as verified at stamp
+   *  time — lets audits and refund matching tell a gift-card leg from a card
+   *  leg without a Square round-trip. */
+  sourceType?: string;
+  cardBrand?: string;
+  last4?: string;
   status: "authorized" | "canceled" | "cancel-failed";
 }
 
@@ -35,8 +41,11 @@ export interface SplitAttemptRow {
   locationId: string;
   totalCents: number;
   tenders: SplitTenderEntry[];
+  /** Every captured payment id (all legs) — refund-alerts matches on this. */
+  paymentIds: string[];
   state: SplitAttemptState;
   attempt: number;
+  capturedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -69,6 +78,20 @@ async function ensureSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS kiosk_split_tenders_seed_idx
     ON kiosk_split_tenders (seed)
   `;
+  // Ambient gift cards (2026-08): the captured payment set is persisted here
+  // (persist-first) so refund-alerts can match a refund against ANY leg.
+  await q`
+    ALTER TABLE kiosk_split_tenders
+    ADD COLUMN IF NOT EXISTS payment_ids TEXT[] NOT NULL DEFAULT '{}'
+  `;
+  await q`
+    ALTER TABLE kiosk_split_tenders
+    ADD COLUMN IF NOT EXISTS captured_at TIMESTAMPTZ
+  `;
+  await q`
+    CREATE INDEX IF NOT EXISTS kiosk_split_tenders_payment_ids_idx
+    ON kiosk_split_tenders USING GIN (payment_ids)
+  `;
   schemaReady = true;
 }
 
@@ -82,8 +105,10 @@ function mapRow(r: Record<string, unknown>): SplitAttemptRow {
     locationId: String(r.location_id),
     totalCents: Number(r.total_cents),
     tenders: (Array.isArray(r.tenders) ? r.tenders : []) as SplitTenderEntry[],
+    paymentIds: Array.isArray(r.payment_ids) ? (r.payment_ids as string[]) : [],
     state: String(r.state) as SplitAttemptState,
     attempt: Number(r.attempt ?? 0),
+    capturedAt: r.captured_at == null ? null : String(r.captured_at),
     createdAt: String(r.created_at),
     updatedAt: String(r.updated_at),
   };
@@ -149,6 +174,63 @@ export async function getSplitAttempt(baseKey: string): Promise<SplitAttemptRow 
     SELECT * FROM kiosk_split_tenders WHERE base_key = ${baseKey} LIMIT 1
   `;
   return rows.length ? mapRow(rows[0] as Record<string, unknown>) : null;
+}
+
+/**
+ * Persist the captured set — state, timestamp, final tenders and EVERY
+ * payment id in ONE statement. Returns whether the write landed: capture is
+ * persist-first territory (house rule), so the caller must go LOUD
+ * (needs_review + alert), never silent, when this reports false.
+ */
+export async function setSplitCaptured(
+  baseKey: string,
+  args: { tenders: SplitTenderEntry[]; paymentIds: string[]; capturedAt: string },
+): Promise<{ persisted: boolean }> {
+  if (!isDbConfigured()) return { persisted: false };
+  await ensureSchema();
+  const q = sql();
+  const rows = await q`
+    UPDATE kiosk_split_tenders
+    SET state = 'captured',
+        captured_at = ${args.capturedAt},
+        tenders = ${JSON.stringify(args.tenders)}::jsonb,
+        payment_ids = ${args.paymentIds}::text[],
+        updated_at = now()
+    WHERE base_key = ${baseKey}
+    RETURNING id
+  `;
+  return { persisted: rows.length > 0 };
+}
+
+/**
+ * Liveness signal for the sweep's staleness clock — every guest action on an
+ * open attempt (arm, poll, add, remove) bumps updated_at so an ACTIVE session
+ * can never look abandoned. No-op on captured/canceled rows.
+ */
+export async function touchSplitAttempt(baseKey: string): Promise<void> {
+  if (!isDbConfigured()) return;
+  await ensureSchema();
+  const q = sql();
+  await q`
+    UPDATE kiosk_split_tenders
+    SET updated_at = now()
+    WHERE base_key = ${baseKey} AND state = 'open'
+  `;
+}
+
+/** Refund-alerts matcher: attempts whose captured set overlaps these ids. */
+export async function findSplitAttemptsByPaymentIds(
+  paymentIds: string[],
+): Promise<SplitAttemptRow[]> {
+  if (!isDbConfigured() || paymentIds.length === 0) return [];
+  await ensureSchema();
+  const q = sql();
+  const rows = await q`
+    SELECT * FROM kiosk_split_tenders
+    WHERE payment_ids && ${paymentIds}::text[]
+    LIMIT 50
+  `;
+  return (rows as Array<Record<string, unknown>>).map(mapRow);
 }
 
 /** Abandoned split attempts (the sweep's work list): open + stale. */
