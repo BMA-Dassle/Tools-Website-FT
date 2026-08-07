@@ -74,9 +74,20 @@ export async function validateCreditRedemptions(
 }
 
 /**
- * Deduct one credit per redeemed heat. Idempotent per (billId, heat, kind) via a
- * Redis NX guard so a retried reserve can't double-deduct. A failed deduct is
- * enqueued to the retry sweep (source "race-credit-redeem"). Never throws.
+ * Deduct one credit per redeemed heat. Idempotent per (billId, PERSON, heat,
+ * kind) via a Redis NX guard so a retried reserve can't double-deduct. A failed
+ * deduct is enqueued to the retry sweep (source "race-credit-redeem"). Never
+ * throws.
+ *
+ * ⚠ `personId` is part of the guard key and MUST stay there. `ref` is the heat
+ * block id, and every racer in a party shares ONE heatId (see `RaceItem.heats`:
+ * "multiple racers on the same heat share heatId but have distinct entries").
+ * A key without personId therefore collapses a whole party's redemptions for a
+ * heat into ONE — the first racer is charged a credit and everyone else races
+ * free. That was the W58352 bug (2026-08-06): 4 racers × 3 heats bought 4 3-race
+ * packs (12 credits granted), the walk produced 12 redemptions, and the guard
+ * skipped 9 of them — all 3 deducts landed on the first racer, leaving 9 credits
+ * unspent on paid-for races.
  */
 export async function deductCreditRedemptions(
   redemptions: CreditRedemption[],
@@ -86,7 +97,7 @@ export async function deductCreditRedemptions(
   const locationId = opts.locationId ?? FASTTRAX_LOCATION_ID;
 
   for (const r of redemptions) {
-    const guardKey = `race-credit-redeemed:${opts.billId}:${r.ref}:${r.depositKindId}`;
+    const guardKey = `race-credit-redeemed:${opts.billId}:${r.personId}:${r.ref}:${r.depositKindId}`;
     try {
       // SET NX — if this heat's credit was already drawn down, skip (retry-safe).
       const first = await redis.set(guardKey, "1", "EX", 60 * 60 * 24 * 7, "NX");
