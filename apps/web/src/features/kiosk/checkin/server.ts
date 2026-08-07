@@ -63,6 +63,7 @@ import {
 } from "./itinerary";
 import { classifyScan } from "./scan";
 import { mergeRosterRows, type RosterRow } from "./roster-merge";
+import { consumePriorSeats } from "./resume-seats";
 import type {
   CheckinBindMember,
   CheckinBindResult,
@@ -1136,9 +1137,18 @@ function etTimeLabel(): string {
   }).format(Date.now());
 }
 
+/** Already on the Pandora session — either we inserted them or Pandora said
+ *  they were linked. Both mean "do not seat this person again". */
+function isScheduled(status: string): boolean {
+  return status === "inserted" || status === "already_linked";
+}
+
 export interface CompleteResult {
   ok: boolean;
   alreadyComplete?: boolean;
+  /** True when this call finalized people added AFTER an earlier finalize —
+   *  the late half of a party checking in separately. */
+  resumed?: boolean;
   scheduled?: number;
   scheduleUnlinked?: string[];
   stateStamped?: boolean;
@@ -1182,19 +1192,35 @@ export async function completeCheckin(args: {
       verifiedVia: args.verifiedVia,
       businessDate,
     });
+    // RESUMABLE, not terminal. `completed_at` used to end this reservation's
+    // check-in for the whole business day: a second group arriving later still
+    // got bound to BMI by /checkin/join (which has no completed-check), but
+    // /complete short-circuited here — so they were never seated on a heat,
+    // never scheduled onto the Pandora session, no memo, no re-stamp — and the
+    // done screen still looked right because the count returned was the FIRST
+    // group's. Now a replay with nothing new still returns alreadyComplete
+    // (double-tap / resolved busy-retry), but a replay carrying people who were
+    // never scheduled runs the pipeline for THOSE people only.
+    let resuming = false;
     if (event) {
       const existing = await getCheckinEvent(billId, businessDate);
       if (existing?.completedAt) {
-        // Replay (double-tap / resolved busy-retry): report the persisted state
-        // so the done screen keeps the lane panel interactive + the right count.
         const priorPeople = await listCheckinPeople(event.id);
-        return {
-          ok: true,
-          alreadyComplete: true,
-          scheduled: priorPeople.filter((p) => p.scheduleStatus === "inserted").length,
-          stateStamped: existing.bmiStateStatus === "set",
-          laneOpenEnabled: kioskCheckinAttachEnabled(),
-        };
+        const pending = priorPeople.filter((p) => !isScheduled(p.scheduleStatus));
+        if (pending.length === 0) {
+          return {
+            ok: true,
+            alreadyComplete: true,
+            scheduled: priorPeople.filter((p) => p.scheduleStatus === "inserted").length,
+            stateStamped: existing.bmiStateStatus === "set",
+            laneOpenEnabled: kioskCheckinAttachEnabled(),
+          };
+        }
+        resuming = true;
+        console.warn(
+          `[kiosk-checkin] ${billId}: resuming a completed check-in — ` +
+            `${pending.length} person(s) added after the first finalize`,
+        );
       }
     }
 
@@ -1214,7 +1240,19 @@ export async function completeCheckin(args: {
     const stateCenterCode: string = hasRacing ? "fasttrax" : center;
 
     const attachEnabled = kioskCheckinAttachEnabled();
-    const people = event ? await listCheckinPeople(event.id) : [];
+    const allPeople = event ? await listCheckinPeople(event.id) : [];
+    // Only ever SEAT people who aren't on the grid already. On a first finalize
+    // nobody is, so this is a no-op; on a resume it is what stops the first
+    // group being scheduled twice. (booking_metadata.heats never gets
+    // bmiPersonId written back, so the heats themselves still look open —
+    // `completed_at` used to be the only thing preventing a double-seat, which
+    // is exactly why resuming was unsafe before.)
+    const people = allPeople.filter((p) => !isScheduled(p.scheduleStatus));
+    // Seats consumed by people scheduled in an EARLIER pass, so the resume
+    // places the new arrivals in what's genuinely left.
+    const priorBoundHeats: NeonHeat[] = allPeople
+      .filter((p) => isScheduled(p.scheduleStatus))
+      .flatMap((p) => (Array.isArray(p.boundHeats) ? (p.boundHeats as NeonHeat[]) : []));
 
     let scheduled = 0;
     // Names we must flag to staff: schedule sync-lag failures, people with no
@@ -1227,13 +1265,17 @@ export async function completeCheckin(args: {
       // Assign the added people to open heat slots (no bmiPersonId). The guest's
       // explicit person→slot choices (class-validated at the kiosk) win; without
       // them we fall back to the legacy earliest-first positional auto-assign.
-      const openHeats = heats.filter((h) => !h.bmiPersonId && h.heatId);
-      // Seat-unique slotKey → heat (two racers in one heat are distinct slots).
-      const openBySlotKey = new Map(
-        buildRaceSlotEntries(group)
-          .filter((e) => !e.heat.bmiPersonId)
-          .map((e) => [e.slot.slotKey, e.heat]),
+      // Seat-unique slotKey → heat (two racers in one heat are distinct slots),
+      // minus the seats an earlier pass already filled (consumePriorSeats — a
+      // multiset take, so a 2-seat heat with 1 prior racer keeps 1 seat free).
+      const freeEntries = consumePriorSeats(
+        buildRaceSlotEntries(group).filter((e) => !e.heat.bmiPersonId),
+        priorBoundHeats,
       );
+      const openBySlotKey = new Map(freeEntries.map((e) => [e.slot.slotKey, e.heat]));
+      // The legacy positional path reads this list; it must see the SAME seats
+      // as the map above or a resume would double-seat through the fallback.
+      const openHeats = freeEntries.map((e) => e.heat).filter((h) => h.heatId);
       // Match an assignment's personId against either id the person row carries.
       const personByIdKey = new Map<string, (typeof people)[number]>();
       for (const p of people) {
@@ -1433,7 +1475,7 @@ export async function completeCheckin(args: {
       const names = people.map((p) => p.displayName).join(", ") || "party";
       const couldNotAdd = [...new Set(memoFailures)];
       const note =
-        `Kiosk check-in ${etTimeLabel()}: ${names} — waivers ✓` +
+        `Kiosk check-in${resuming ? " (later arrivals)" : ""} ${etTimeLabel()}: ${names} — waivers ✓` +
         (scheduled > 0 ? `, ${scheduled} added to session` : "") +
         (couldNotAdd.length > 0 ? ` — COULD NOT add to session: ${couldNotAdd.join(", ")}` : "") +
         (unplaced.length > 0
@@ -1463,6 +1505,7 @@ export async function completeCheckin(args: {
 
     return {
       ok: true,
+      ...(resuming ? { resumed: true } : {}),
       scheduled,
       scheduleUnlinked: [...new Set([...memoFailures, ...unplaced])],
       stateStamped,

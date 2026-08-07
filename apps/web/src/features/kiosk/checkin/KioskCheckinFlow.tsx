@@ -1507,9 +1507,13 @@ function DoneScreen(props: {
         </div>
         <div className="k-display mt-[20px] text-[64px]">{t("checkin.done.allCheckedIn")}</div>
         <p className="mt-[10px] text-[30px] text-white/60">
-          {scheduled > 0
-            ? t("checkin.done.racersAdded", { count: scheduled })
-            : t("checkin.done.frontDeskKnows")}
+          {/* A resumed finalize added only the LATE arrivals, so the bare
+              "N racers added" would read as the whole party. Say which it is. */}
+          {complete?.resumed && scheduled > 0
+            ? t("checkin.done.racersAddedLater", { count: scheduled })
+            : scheduled > 0
+              ? t("checkin.done.racersAdded", { count: scheduled })
+              : t("checkin.done.frontDeskKnows")}
         </p>
       </div>
 

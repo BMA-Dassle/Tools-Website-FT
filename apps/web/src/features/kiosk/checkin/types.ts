@@ -181,6 +181,10 @@ export interface CheckinBindResponse {
 export interface CheckinCompleteResponse {
   ok: boolean;
   alreadyComplete?: boolean;
+  /** True when this call finalized people added AFTER an earlier finalize — the
+   *  late half of a party checking in separately. The done screen says so, so
+   *  "2 added" can't be misread as "the whole party is on the grid". */
+  resumed?: boolean;
   /** Racers added to their Pandora session this call. */
   scheduled?: number;
   /** Racers that couldn't be scheduled (sync lag) — escalated to a staff memo. */

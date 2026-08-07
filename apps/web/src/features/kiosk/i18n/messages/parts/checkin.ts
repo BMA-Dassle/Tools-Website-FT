@@ -79,6 +79,9 @@ export const checkinEn = {
   "checkin.assign.alsoAt": "also at {time}",
   "checkin.assign.movesFromTime": "moves from {time}",
   "checkin.assign.addRacer": "Add a {category} racer",
+  // Late half of a party checking in separately — say it added only THEM.
+  "checkin.done.racersAddedLater":
+    "{count, plural, one {# more racer is} other {# more racers are}} on the grid — the rest of your group was already checked in.",
 
   "checkin.picker.title": "Who’s racing the {label}?",
   "checkin.picker.noneReady":
@@ -145,6 +148,8 @@ export const checkinEs: Record<keyof typeof checkinEn, string> = {
   "checkin.assign.alsoAt": "también a las {time}",
   "checkin.assign.movesFromTime": "cambia de las {time}",
   "checkin.assign.addRacer": "Agregar un piloto {category}",
+  "checkin.done.racersAddedLater":
+    "{count, plural, one {# piloto más está} other {# pilotos más están}} en la parrilla — el resto de tu grupo ya se había registrado.",
 
   "checkin.picker.title": "¿Quién compite en {label}?",
   "checkin.picker.noneReady":
