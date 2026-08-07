@@ -154,18 +154,20 @@ export interface TenderRefund {
  *
  * Game Zone exclusion: card purchases riding the deposit order stay with the
  * guest, so their total is subtracted from the refundable remainder — greedily,
- * first-fit in tender order, but only from tenders that could have carried it:
- * never an edit top-up (edits don't sell cards) and never a GIFT_CARD-funded
- * payment (Square refuses partial refunds of those — live finding 2026-07-11;
- * kiosk gz tenders are reader CARD payments, so in practice one tender absorbs
- * it all). Any un-allocatable exclusion deliberately stays in the sum so
- * guardRefundTotal trips and routes to the manual path — fail-closed.
+ * first-fit in tender order, in TWO passes. Pass 1 allocates onto CARD tenders
+ * (the 2026-07-11 rule); pass 2 allocates whatever the cards couldn't absorb
+ * onto GIFT_CARD tenders — legal since the 2026-07-27 live probe overturned
+ * the "Square refuses partial GC refunds" claim, and NECESSARY under ambient
+ * gift cards, where a gift card can fund most of a deposit order and the card
+ * tender alone is smaller than the Game Zone cents. Edit top-ups never carry
+ * cards in either pass. Any still-unallocatable exclusion deliberately stays
+ * in the sum so guardRefundTotal trips and routes to the manual path —
+ * fail-closed.
  */
 export function tenderRefundsNeeded(facts: GatheredFacts): TenderRefund[] {
   const tenders = facts.depositOrder?.tenders ?? [];
-  const out: TenderRefund[] = [];
   let exclude = facts.depositOrder?.gameZoneCents ?? 0;
-  for (const t of tenders) {
+  const slots = tenders.map((t) => {
     const pay = facts.payments[t.paymentId];
     if (!pay) {
       throw new CancelGuardError(
@@ -174,22 +176,28 @@ export function tenderRefundsNeeded(facts: GatheredFacts): TenderRefund[] {
         409,
       );
     }
-    let remaining = pay.amountCents - pay.refundedCents;
-    let capped = false;
-    if (exclude > 0 && remaining > 0 && !t.editTopup && pay.sourceType !== "GIFT_CARD") {
-      const take = Math.min(exclude, remaining);
-      remaining -= take;
+    return { t, pay, remaining: pay.amountCents - pay.refundedCents, capped: false };
+  });
+  const allocate = (giftCardPass: boolean) => {
+    for (const s of slots) {
+      if (exclude <= 0) break;
+      const isGc = s.pay.sourceType === "GIFT_CARD";
+      if (s.remaining <= 0 || s.t.editTopup || isGc !== giftCardPass) continue;
+      const take = Math.min(exclude, s.remaining);
+      s.remaining -= take;
       exclude -= take;
-      capped = remaining > 0;
+      if (take > 0 && s.remaining > 0) s.capped = true;
     }
-    if (remaining > 0)
-      out.push({
-        paymentId: t.paymentId,
-        amountCents: remaining,
-        ...(capped ? { partial: true } : {}),
-      });
-  }
-  return out;
+  };
+  allocate(false); // pass 1: cards
+  allocate(true); // pass 2: gift-card tenders absorb the rest
+  return slots
+    .filter((s) => s.remaining > 0)
+    .map((s) => ({
+      paymentId: s.t.paymentId,
+      amountCents: s.remaining,
+      ...(s.capped ? { partial: true } : {}),
+    }));
 }
 
 /**

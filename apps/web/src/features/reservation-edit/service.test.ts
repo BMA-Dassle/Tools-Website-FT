@@ -482,8 +482,12 @@ describe("executeEditCascade — PRE decrease", () => {
         amountCents: 500,
         // Owner convention — exact reason on every reservation-money refund.
         reason: "Refund: Reservation Deposit",
-        skipGiftCardTender: true,
       }),
+    );
+    // The gift-card skip is GONE (2026-07-27 probe overturned its premise) —
+    // the executor must never re-grow it silently.
+    expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalledWith(
+      expect.objectContaining({ skipGiftCardTender: true }),
     );
     // Forward recovery: the refund id was persisted the moment it landed.
     expect(vi.mocked(recordEditRefund)).toHaveBeenCalledWith("edit-42-a1", "RF1");
@@ -523,9 +527,11 @@ describe("executeEditCascade — PRE decrease", () => {
     expect(vi.mocked(startEditEvent)).toHaveBeenCalled();
   });
 
-  it("a gift-card-funded deposit tender fails PRE-FLIGHT — before any money moves", async () => {
+  it("a gift-card-funded deposit tender refunds PARTIALLY like any other (2026-07-27 probe)", async () => {
     depositFacts([{ paymentId: "PAY_GC_DEP", amountCents: 5000 }]);
-    // Owed 500 < remaining 5000 → the refund would be PARTIAL → uncoverable.
+    // Owed 500 < remaining 5000 → a partial GC refund — legal since the probe
+    // overturned the old skip's premise, and the NORMAL decrease path under
+    // ambient gift cards (a GC often funds most of the deposit).
     vi.mocked(fetchPaymentFacts).mockResolvedValue({
       id: "PAY_GC_DEP",
       status: "COMPLETED",
@@ -533,12 +539,33 @@ describe("executeEditCascade — PRE decrease", () => {
       refundedCents: 0,
       sourceType: "GIFT_CARD",
     } as never);
+    vi.mocked(refundTenderPartial).mockResolvedValueOnce({ refundId: "RF_GC", refundedCents: 500 });
+
+    const result = await executeEditCascade(
+      baseReq(mkPlan(DECREASE_STEPS, { diffCents: -500, settlement: "card_refund" })),
+    );
+    expect(result.refundIds).toEqual(["RF_GC"]);
+    expect(vi.mocked(refundTenderPartial)).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentId: "PAY_GC_DEP", amountCents: 500 }),
+    );
+  });
+
+  it("pre-flight still refuses when tenders genuinely cannot cover the owed amount", async () => {
+    depositFacts([{ paymentId: "PAY_DEP", amountCents: 5000 }]);
+    // Everything already refunded — nothing can cover the 500 owed.
+    vi.mocked(fetchPaymentFacts).mockResolvedValue({
+      id: "PAY_DEP",
+      status: "COMPLETED",
+      amountCents: 5000,
+      refundedCents: 5000,
+      sourceType: "CARD",
+    } as never);
 
     await expect(
       executeEditCascade(
         baseReq(mkPlan(DECREASE_STEPS, { diffCents: -500, settlement: "card_refund" })),
       ),
-    ).rejects.toThrow(/gift-card tender.*NO money was refunded.*store-credit/);
+    ).rejects.toThrow(/NO money was refunded.*store-credit/);
     // The pre-flight plan refused BEFORE issuing a single refund.
     expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
     expect(vi.mocked(finishEditEvent)).toHaveBeenCalledWith(
