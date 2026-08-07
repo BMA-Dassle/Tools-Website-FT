@@ -831,16 +831,47 @@ export async function GET(req: NextRequest) {
         await redis.set(`race:called:${sessionId}`, "1", "EX", 60 * 60 * 12);
       }
 
-      const scheduledMs = new Date(race.scheduledStart).getTime();
-      if (!isNaN(scheduledMs) && scheduledMs < now - 30 * 60_000) {
+      // STALENESS IS MEASURED FROM WHEN THE HEAT WAS CALLED, NOT WHEN IT WAS
+      // SCHEDULED.
+      //
+      // This guard used to read `scheduledStart`, which silently deleted the
+      // whole alert for any heat running more than 30 minutes behind. That is
+      // not a rare edge: on 2026-08-06, 92 of 94 heats went off more than 5
+      // minutes late (median 19.8, worst 41.0), and roughly 13 of them passed
+      // the 30-minute mark — so those racers got no check-in SMS, no email and
+      // no wallet push AT ALL, while the desk was actively calling them.
+      //
+      // `/races-current` hands us `calledAt` — the moment staff actually opened
+      // check-in — so a heat 40 minutes behind schedule but called 90 seconds
+      // ago is correctly fresh, and a heat called an hour ago is correctly
+      // stale. Falls back to `scheduledStart` only if `calledAt` is absent.
+      // Same principle as everywhere else in this feature: key off what
+      // actually happened, never off the clock.
+      const calledMs = new Date(race.calledAt ?? "").getTime();
+      const freshnessMs = isNaN(calledMs) ? new Date(race.scheduledStart).getTime() : calledMs;
+      if (!isNaN(freshnessMs) && freshnessMs < now - 30 * 60_000) {
         sessionResults.push({ track: trackKey, sessionId, reason: "stale" });
         continue;
       }
 
+      // THE ALERT DEDUP GATES THE SMS/EMAIL, NOT THE WALLET.
+      //
+      // It used to `continue` here, which skipped the licence push along with
+      // everything else. That made NEXT RACE reachable only on the FIRST tick a
+      // heat was called — so a racer added to the roster a minute later, or a
+      // heat RE-CALLED by staff, could never get it. Proven live on 2026-08-06:
+      // re-calling Red Heat 60 (session 57900606) moved `calledAt` but wrote
+      // nothing to any pass, because this key had been set 26 minutes earlier.
+      //
+      // The wallet does not need this guard and never did. A text costs money
+      // and must go out once; a pass write is free, silent (no changeMessage on
+      // nextRace) and already skipped by `updateLicencePass` when the value is
+      // unchanged. So the dedup now suppresses only the paid channels, and the
+      // pass is kept correct every tick the heat is open.
       const sessionKey = `alert:checkin:session:${sessionId}`;
-      if (!dryRun && (await redis.get(sessionKey))) {
+      const alreadyAlerted = !dryRun && Boolean(await redis.get(sessionKey));
+      if (alreadyAlerted) {
         sessionResults.push({ track: trackKey, sessionId, reason: "session-already-alerted" });
-        continue;
       }
 
       // Self-heal the express-session reverse index first — if Pandora's
@@ -945,6 +976,14 @@ export async function GET(req: NextRequest) {
           if (n) console.log(`[checkin-alerts] wallet check-in pushed to ${n} pass(es)`);
         })
         .catch(() => undefined);
+
+      // PAID CHANNELS ONLY BELOW THIS LINE. The wallet is already up to date.
+      //
+      // A session that has had its texts and emails sent stops here: the pass
+      // write above is free, silent and idempotent and must keep running for as
+      // long as the heat is open, but an SMS costs money and must go out once.
+      // Nobody gets a second text because of this, including on a re-call.
+      if (alreadyAlerted) continue;
 
       for (const p of participants) {
         candidates.push({ race, trackDisplay, participant: p });
