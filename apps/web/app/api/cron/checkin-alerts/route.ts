@@ -958,14 +958,46 @@ export async function GET(req: NextRequest) {
         track: trackDisplay,
         heatNumber: race.heatNumber,
       });
+      // "CHECK IN NOW" IS WRITTEN ONCE PER HEAT. NEXT RACE IS WRITTEN EVERY TICK.
+      //
+      // These two fields must NOT be treated the same, and getting that wrong
+      // would be expensive.
+      //
+      // `custom.checkinStatus` carries a changeMessage ("FastTrax: %@"), so every
+      // write of it is a lock-screen alert. `custom.nextRace` carries none, so
+      // writing it is silent. That asymmetry is the whole design.
+      //
+      // THE OSCILLATION THIS PREVENTS. The clear-down at the top of this cron
+      // wipes checkinStatus the moment BMI records `actualStart` — but the heat
+      // stays in /races-current for roughly twenty minutes AFTER it is called.
+      // So without this guard the two would fight, once a minute, for the whole
+      // of that window: clear-down blanks it (alert), this loop re-asserts it
+      // (alert), ~19 times per racer per heat. Apple warned us on 2026-08-06
+      // that automatic updates for these passes were about to be DISABLED for
+      // sending too many; a flood of that shape is what would finish the job.
+      //
+      // Re-asserting it would also be WRONG on its own terms: once the race has
+      // started, "Check in now" is a lie, and the clear-down blanking it is the
+      // correct end state. The first tick is the only one that has news.
+      //
+      // NEXT RACE keeps being written every tick precisely because it is silent
+      // and idempotent — that is what lets a racer added to the roster late, or
+      // a heat re-called by staff, still get it.
+      const firstTick = !alreadyAlerted;
       await updateLicencePasses(
         participants.map((p) => ({
           personId: p.personId,
-          checkinStatus: `Check in now — ${trackDisplay} Heat ${race.heatNumber ?? ""}`.trim(),
-          // Stamped so the clear-down knows WHICH heat this refers to. Without
-          // it, "is this stale?" has no answer but elapsed time — and time is
-          // wrong whenever a race runs late or early, which is most of them.
-          checkinSessionId: String(sessionId),
+          ...(firstTick
+            ? {
+                checkinStatus:
+                  `Check in now — ${trackDisplay} Heat ${race.heatNumber ?? ""}`.trim(),
+                // Stamped so the clear-down knows WHICH heat this refers to.
+                // Without it, "is this stale?" has no answer but elapsed time —
+                // and time is wrong whenever a race runs late or early, which is
+                // most of them.
+                checkinSessionId: String(sessionId),
+              }
+            : {}),
           nextRace: heat.nextRace || NO_NEXT_RACE,
           raceLabel: heat.raceLabel || "—",
           nextRaceLong: heat.nextRaceLong || "—",
