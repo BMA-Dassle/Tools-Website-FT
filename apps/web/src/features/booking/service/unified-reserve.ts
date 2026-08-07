@@ -17,7 +17,7 @@ import {
 } from "./deposit";
 import { kioskGzCartEnabled, kioskPovCodesEnabled } from "~/features/kiosk/flags";
 import { getOrderPaymentInfo } from "~/features/kiosk/service/square-terminal";
-import { kioskAmbientGiftCardsEnabled } from "~/features/kiosk/flags";
+import { kioskAmbientCheckoutEnabled } from "~/features/kiosk/flags";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { startTxn, markCharged, markLoadState } from "~/features/game-cards/data/transactions-log";
 import {
@@ -2122,7 +2122,7 @@ async function unifiedReserveInner(
         // The reader charges the ORDER TOTAL: booking deposit + card lines.
         depositCents: depositCents + gzCents,
         locationId,
-        ...(splitToken ? { splitToken, ambient: kioskAmbientGiftCardsEnabled() } : {}),
+        ...(splitToken ? { splitToken, ambient: kioskAmbientCheckoutEnabled() } : {}),
       };
     }
 

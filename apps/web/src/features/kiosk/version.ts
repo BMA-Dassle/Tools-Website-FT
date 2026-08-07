@@ -21,13 +21,15 @@
  *         any order, and it works. A gift card that can't cover the total
  *         PARTIALLY APPROVES (Square accept_partial_authorization); the screen
  *         shows "applied $X — left to pay $Y" and the reader re-arms for the
- *         remainder automatically. Up to 3 gift cards + a card per checkout.
+ *         remainder automatically. NOT gift-card-specific under the hood: any
+ *         tender that partially approves (prepaid/debit) boards the same way.
+ *         Up to 3 gift cards + a card per checkout.
  *         Typed entry survives as a small "Enter a gift card number" link.
  *         Under the hood every kiosk payment is now an auth captured atomically
  *         by PayOrder once the tenders cover the total (the split rail's shape
  *         became the ONE rail); every exit path — idle reset, start-over, the
  *         kiosk-update hard reload — releases holds through a session registry,
- *         with a server sweep behind it. Kill switch: KIOSK_AMBIENT_GIFT_CARDS
+ *         with a server sweep behind it. Kill switch: KIOSK_AMBIENT_CHECKOUT
  *         (server env; OFF = capture-on-tap exactly as before, the amber
  *         gift-card button returns). EN + ES on every new string.
  * 1.16.11 — Mega days run JUNIOR PRO races only (owner 2026-08-05, effective

@@ -313,12 +313,14 @@ export function kioskExperienceAvailEnabled(): boolean {
 }
 
 /**
- * Ambient gift cards (2026-08) — kill switch, defaults ON, SERVER-side only.
- * ON: every kiosk Terminal checkout arms auth-only with partial authorization
- * (a swiped gift card that can't cover the total partially approves and the
- * remainder re-arms), scanned eGifts auto-apply, and capture is one atomic
- * PayOrder over the tender set. OFF: checkouts arm capture-on-tap exactly like
- * the pre-ambient rail (a low-balance gift card swipe declines at the reader).
+ * Ambient checkout (2026-08) — kill switch, defaults ON, SERVER-side only.
+ * ON: every kiosk Terminal checkout arms auth-only with partial authorization,
+ * and capture is one atomic PayOrder over the tender set. ANY tender that
+ * partially approves rides the same loop — Square gift cards are the headline
+ * (swipe or scan, no button), but prepaid/debit partials board and re-arm
+ * identically (owner 2026-08-06: "it's not just gift cards"). Scanned eGifts
+ * auto-apply through the same rail. OFF: checkouts arm capture-on-tap exactly
+ * like the pre-ambient rail (a low-balance card swipe declines at the reader).
  *
  * The CLIENT never reads this flag — a non-NEXT_PUBLIC var is undefined in the
  * bundle and `!== "false"` would silently read ON. The client keys off the
@@ -328,8 +330,8 @@ export function kioskExperienceAvailEnabled(): boolean {
  * ambient session finishes on are never disabled by it. Read at call time so
  * tests can stub process.env.
  */
-export function kioskAmbientGiftCardsEnabled(): boolean {
-  return process.env.KIOSK_AMBIENT_GIFT_CARDS !== "false";
+export function kioskAmbientCheckoutEnabled(): boolean {
+  return process.env.KIOSK_AMBIENT_CHECKOUT !== "false";
 }
 
 /**

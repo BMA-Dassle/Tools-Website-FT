@@ -20,7 +20,7 @@ import {
   verifiedCancel,
 } from "~/features/kiosk/service/split-tenders";
 import { MAX_TOTAL_TENDERS } from "~/features/booking/service/tenders";
-import { kioskAmbientGiftCardsEnabled } from "~/features/kiosk/flags";
+import { kioskAmbientCheckoutEnabled } from "~/features/kiosk/flags";
 import { touchSplitAttempt, upsertSplitAttempt } from "~/features/kiosk/data/split-tenders-db";
 
 /**
@@ -29,7 +29,7 @@ import { touchSplitAttempt, upsertSplitAttempt } from "~/features/kiosk/data/spl
  *
  *   AMBIENT (2026-08, the one rail): { deviceId, referenceId, seed, splitToken }
  *     — NO client amount. The server arms the anchor's remainder, auth-only +
- *     accept_partial_authorization (kill switch KIOSK_AMBIENT_GIFT_CARDS
+ *     accept_partial_authorization (kill switch KIOSK_AMBIENT_CHECKOUT
  *     reverts to capture-on-tap). GET drives the loop: it verifies + stamps
  *     every payment, and inline-captures (PayOrder) when the set covers the
  *     total. A swiped gift card that can't cover the amount partially
@@ -227,7 +227,7 @@ async function armAmbient(args: {
   splitToken: string;
   note?: string;
 }) {
-  const ambient = kioskAmbientGiftCardsEnabled();
+  const ambient = kioskAmbientCheckoutEnabled();
   let anchor = await readTerminalAnchor(args.seed);
   if (!anchor?.splitToken || anchor.splitToken !== args.splitToken) {
     return NextResponse.json({ error: "No payment session found" }, { status: 403 });

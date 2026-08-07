@@ -18,7 +18,7 @@
  */
 import { randomBytes, randomUUID } from "crypto";
 import { upsertTerminalAnchor } from "~/features/booking/service/unified-reserve";
-import { kioskAmbientGiftCardsEnabled } from "~/features/kiosk/flags";
+import { kioskAmbientCheckoutEnabled } from "~/features/kiosk/flags";
 import { getCenter } from "~/config/intercard-centers";
 import { getPackage, activationFeeCents } from "../constants";
 import { GameCardHttpError } from "../errors";
@@ -169,7 +169,7 @@ export async function prepareTerminalPurchase(
     orderId,
     totalCents,
     rows,
-    ...(splitToken ? { splitToken, ambient: kioskAmbientGiftCardsEnabled() } : {}),
+    ...(splitToken ? { splitToken, ambient: kioskAmbientCheckoutEnabled() } : {}),
   };
 }
 

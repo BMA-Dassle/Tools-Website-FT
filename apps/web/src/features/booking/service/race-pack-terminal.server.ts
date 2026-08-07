@@ -19,7 +19,7 @@
  */
 import { randomBytes, randomUUID } from "crypto";
 import { upsertTerminalAnchor } from "./unified-reserve";
-import { kioskAmbientGiftCardsEnabled } from "~/features/kiosk/flags";
+import { kioskAmbientCheckoutEnabled } from "~/features/kiosk/flags";
 import {
   kioskRacePacksEnabled,
   racePackLicenseEnabled,
@@ -211,7 +211,7 @@ export async function prepareStandalonePackPurchase(
     purchaseKey,
     orderId,
     totalCents,
-    ...(splitToken ? { splitToken, ambient: kioskAmbientGiftCardsEnabled() } : {}),
+    ...(splitToken ? { splitToken, ambient: kioskAmbientCheckoutEnabled() } : {}),
   };
 }
 
