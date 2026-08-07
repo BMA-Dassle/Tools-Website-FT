@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildEditPlan } from "~/features/reservation-edit/plan";
-import { isRefundOnlyPlan } from "~/features/reservation-edit/guards";
+import { editFlagEnabled, isRefundOnlyPlan } from "~/features/reservation-edit/guards";
 import { EditGuardError, type EditSettlement, type EditSpec } from "~/features/reservation-edit";
 
 // Live Square reads (order snapshots + orders/calculate per leg) can stack up
@@ -45,9 +45,10 @@ const CONFLICT_CODES = new Set([
  *
  * Auth: ADMIN_CAMERA_TOKEN query param (portal convention).
  *
- * Execution gates (dry-run is always allowed, so the preview is never hidden):
+ * Execution kill switches (dry-run is always allowed, so the preview is never
+ * hidden). All default ON — only an explicit `=false` stops execution:
  *   - refund-only plans  → RESERVATION_EDIT_V2_MID_DECREASE / _POST by phase
- *   - everything else    → RESERVATION_EDIT_V2 (master), flag-off → 501
+ *   - everything else    → RESERVATION_EDIT_V2 (master), killed → 501
  */
 export async function POST(req: NextRequest) {
   const token = req.nextUrl.searchParams.get("token") ?? "";
@@ -99,19 +100,18 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Execute ────────────────────────────────────────────────────────
-    // The master switch unlocks the whole engine. A plan that ONLY hands money
-    // back for an already-paid day-of order is exempt: it rides its own phase
-    // flag (RESERVATION_EDIT_V2_MID_DECREASE / _POST, enforced in the service).
-    // Without that exemption, giving a guest their money back would require
-    // enabling PRE-phase editing too — whose QAMF player sync is blocked by a
-    // vendor bug — so the two are deliberately decoupled.
-    if (process.env.RESERVATION_EDIT_V2 !== "true" && !isRefundOnlyPlan(plan)) {
+    // The master kill switch covers the whole engine and is ON unless someone
+    // set it to "false". A plan that ONLY hands money back for an already-paid
+    // day-of order is exempt: it rides its own phase switch
+    // (RESERVATION_EDIT_V2_MID_DECREASE / _POST, enforced in the service), so
+    // killing editing never strands a guest's refund.
+    if (!editFlagEnabled("RESERVATION_EDIT_V2") && !isRefundOnlyPlan(plan)) {
       return NextResponse.json(
         {
           error: "not_enabled",
           detail:
-            "Changing a reservation is not enabled in this environment " +
-            "(RESERVATION_EDIT_V2) — only refunds are.",
+            "Reservation editing has been switched off in this environment " +
+            "(RESERVATION_EDIT_V2=false) — only refunds are running.",
         },
         { status: 501 },
       );

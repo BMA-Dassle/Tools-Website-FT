@@ -368,17 +368,21 @@ Owner's card net zero across all runs (33369¢ charged / 33369¢ refunded).
    a paid order), so flipping first would enable **amount-only refunds** and a
    fatal-after-money step.
 2. **Deploy production** (Vercel env changes need a redeploy to take effect).
-3. **Set two production env vars** — and only these two:
-   - `RESERVATION_EDIT_V2_MID_DECREASE=true` → refunds after check-in (order still OPEN)
-   - `RESERVATION_EDIT_V2_POST=true` → refunds after the visit closed (res 16426)
-4. **Leave `RESERVATION_EDIT_V2` (master) OFF.** It unlocks PRE-phase editing, whose QAMF
-   player sync is blocked by a vendor bug (player-DELETE bare 500 on every valid input) and
-   whose own §13 smoke items 5–8 have never been run. Refunds are exempt from it by design
-   (`isRefundOnlyPlan`) — that is what `5d` bought.
-5. **Redeploy** after setting them, then smoke one real refund from the portal.
+3. ~~**Set two production env vars.**~~ **SUPERSEDED 2026-08-07 — set nothing.** All four
+   `RESERVATION_EDIT_V2*` vars were converted from opt-in gates to kill switches
+   (`editFlagEnabled()` in `guards.ts` reads `!== "false"`), per the CLAUDE.md rule that a
+   merged feature is ON and a flag exists only to turn it off. Refunds after check-in and
+   after close are now live with **no env vars set at all**. If any
+   `RESERVATION_EDIT_V2*=true` rows were ever added to Vercel, they are harmless
+   (`"true" !== "false"`) but should be deleted as dead config.
+4. ~~**Leave `RESERVATION_EDIT_V2` (master) OFF.**~~ It is now ON as well. The
+   `isRefundOnlyPlan` exemption survives and still matters — it is what keeps refunds
+   working if the master switch is ever thrown in an emergency, since editing and refunding
+   fail for unrelated reasons.
+5. **Redeploy**, then smoke one real refund from the portal.
 
-Everything through PR3 is behavior-neutral while `RESERVATION_EDIT_V2_MID_DECREASE` and
-`RESERVATION_EDIT_V2_POST` stay off.
+Everything through PR3 was behavior-neutral until this flip; from 2026-08-07 the refund
+paths execute by default.
 
 Combos, multi-GC groups, group functions, and BMI race-line updates are **explicitly out of scope**
 — listed here so nobody "quick-fixes" a guard into allowing them.

@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { EditGuardError } from "./types";
 import {
   assertEditable,
+  editFlagEnabled,
   isRefundOnlyPlan,
   refundFlagForPhase,
   selectPhase,
@@ -83,6 +84,40 @@ describe("selectPhase", () => {
 
   it("arrived-but-unpaid rows still read as pre (arrival ≠ lane-open)", () => {
     expect(selectPhase({ ...base, status: "arrived" })).toBe("pre");
+  });
+});
+
+describe("editFlagEnabled", () => {
+  const NAME = "RESERVATION_EDIT_V2_TEST_ONLY";
+  afterEach(() => {
+    delete process.env[NAME];
+  });
+
+  it("is ON when the var is unset — kill switch, not an opt-in gate", () => {
+    // The rule this closes (CLAUDE.md): a merged feature is ON. An `=== "true"`
+    // gate ships the feature dark and makes every environment that forgot the
+    // var silently broken, which is exactly how this engine sat unusable.
+    expect(editFlagEnabled(NAME)).toBe(true);
+  });
+
+  it('is OFF only for the exact string "false"', () => {
+    process.env[NAME] = "false";
+    expect(editFlagEnabled(NAME)).toBe(false);
+  });
+
+  it('stays ON for every other value, including "true" and junk', () => {
+    for (const v of ["true", "1", "0", "", "FALSE", "no", "off"]) {
+      process.env[NAME] = v;
+      expect(editFlagEnabled(NAME)).toBe(true);
+    }
+  });
+
+  it("reads at CALL time so a flip needs no redeploy", () => {
+    expect(editFlagEnabled(NAME)).toBe(true);
+    process.env[NAME] = "false";
+    expect(editFlagEnabled(NAME)).toBe(false);
+    delete process.env[NAME];
+    expect(editFlagEnabled(NAME)).toBe(true);
   });
 });
 

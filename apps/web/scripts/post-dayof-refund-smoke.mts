@@ -50,14 +50,16 @@ const POST = process.argv.includes("--post");
 const RACE = process.argv.includes("--race");
 const MODE = `${POST ? "POST" : "MID"}${RACE ? " · RACE PACK (full refund)" : ""}`;
 
-// The cascade reads these at call time — the smoke IS the gate for flipping
-// them in production, so turn on EXACTLY the one under test for this process.
+// The cascade reads these at call time. They are kill switches now (default
+// ON), so the phase switch under test needs no setup — leaving it unset IS the
+// production shape.
 //
-// RESERVATION_EDIT_V2 (master) is deliberately left OFF: a refund-only plan is
-// exempt from it (isRefundOnlyPlan), so a green run proves the refund path needs
-// nothing but its phase flag — which is precisely how production is configured.
-delete process.env.RESERVATION_EDIT_V2;
-process.env[POST ? "RESERVATION_EDIT_V2_POST" : "RESERVATION_EDIT_V2_MID_DECREASE"] = "true";
+// RESERVATION_EDIT_V2 (master) is deliberately KILLED for this process: a
+// refund-only plan is exempt from it (isRefundOnlyPlan), so a green run proves
+// the refund path stands on its own phase switch and would survive an
+// emergency shutoff of editing.
+process.env.RESERVATION_EDIT_V2 = "false";
+delete process.env[POST ? "RESERVATION_EDIT_V2_POST" : "RESERVATION_EDIT_V2_MID_DECREASE"];
 const BASE = "https://connect.squareup.com/v2";
 const H = {
   Authorization: `Bearer ${process.env.SQUARE_ACCESS_TOKEN}`,
@@ -404,8 +406,8 @@ try {
     plan.phase,
   );
   check(
-    "plan may execute on its PHASE flag alone (master switch is OFF)",
-    plan.executionBlocked === null && process.env.RESERVATION_EDIT_V2 !== "true",
+    "plan may execute on its PHASE switch alone (master switch KILLED)",
+    plan.executionBlocked === null && process.env.RESERVATION_EDIT_V2 === "false",
     plan.executionBlocked
       ? `blocked: ${plan.executionBlocked.code}`
       : `executionBlocked=null, RESERVATION_EDIT_V2=${process.env.RESERVATION_EDIT_V2 ?? "unset"}`,

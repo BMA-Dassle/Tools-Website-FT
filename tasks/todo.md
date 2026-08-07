@@ -336,10 +336,12 @@ line + FULL refund 20/20), all run with the master switch OFF.
 Staff entry point: a **Refund** button on the manage modal for rows Cancel refuses (terminal
 status + a day-of payment), opening the edit modal with `intent="refund"`.
 
-**Remaining (owner, in this order — see the plan doc):** deploy, then set ONLY
-`RESERVATION_EDIT_V2_MID_DECREASE=true` and `RESERVATION_EDIT_V2_POST=true`. Leave
-`RESERVATION_EDIT_V2` at `"false"` — it also unlocks PRE-phase editing, whose QAMF player sync is
-blocked by a vendor bug. Refunds are exempt from it by design (`isRefundOnlyPlan`).
+**Remaining (owner, in this order — see the plan doc):** ~~deploy, then set ONLY
+`RESERVATION_EDIT_V2_MID_DECREASE=true` and `RESERVATION_EDIT_V2_POST=true`~~ —
+**SUPERSEDED 2026-08-07:** all four `RESERVATION_EDIT_V2*` vars are now kill switches
+(default ON via `editFlagEnabled()`), so there is nothing to set. Deploy and smoke one real
+refund from the portal. Delete any `RESERVATION_EDIT_V2*=true` rows left in Vercel — they
+are dead config now, not the thing turning the feature on.
 
 
 Owner requirement (2026-07-27): **the Payments tab and History tab in ManageReservationModal

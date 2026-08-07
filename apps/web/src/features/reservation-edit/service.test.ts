@@ -392,7 +392,9 @@ describe("executeEditCascade — locks and gates", () => {
     expect(vi.mocked(createEditTopupOrderAndCharge)).not.toHaveBeenCalled();
   });
 
-  it("race steps refuse before money when the race flag is off", async () => {
+  it("race steps refuse before money when the race kill switch is thrown", async () => {
+    // Kill switch, not an opt-in gate: only an explicit "false" stops it.
+    process.env.RESERVATION_EDIT_V2_RACE = "false";
     const steps: EditStep[] = [
       { kind: "audit_start", fatal: true },
       { kind: "bmi_add_heats", fatal: true, target: "123" },
@@ -405,8 +407,7 @@ describe("executeEditCascade — locks and gates", () => {
     expect(vi.mocked(syncBmiRaceEdit)).not.toHaveBeenCalled();
   });
 
-  it("race steps run when the flag is on", async () => {
-    process.env.RESERVATION_EDIT_V2_RACE = "true";
+  it("race steps run by default with the var unset", async () => {
     const steps: EditStep[] = [
       { kind: "audit_start", fatal: true },
       { kind: "bmi_add_heats", fatal: true, target: "123" },
@@ -634,7 +635,6 @@ describe("executeEditCascade — day-of refund leg (post-day-of flow)", () => {
   const dayofPlan = withReturn;
 
   beforeEach(() => {
-    process.env.RESERVATION_EDIT_V2_MID_DECREASE = "true";
     vi.mocked(getBowlingReservation).mockResolvedValue(ROW_PAID as never);
     vi.mocked(createReturnOrder).mockResolvedValue({
       returnOrderId: "RET1",
@@ -642,7 +642,9 @@ describe("executeEditCascade — day-of refund leg (post-day-of flow)", () => {
     });
   });
   afterEach(() => {
+    // Both refund switches default ON — reset to unset, not to "true".
     delete process.env.RESERVATION_EDIT_V2_MID_DECREASE;
+    delete process.env.RESERVATION_EDIT_V2_POST;
   });
 
   it("requires a staff-supplied reason before any money moves", async () => {
@@ -663,33 +665,32 @@ describe("executeEditCascade — day-of refund leg (post-day-of flow)", () => {
       return p;
     };
 
-    it("a MID refund is NOT unlocked by the post-complete flag", async () => {
-      delete process.env.RESERVATION_EDIT_V2_MID_DECREASE;
-      process.env.RESERVATION_EDIT_V2_POST = "true";
+    // Each phase rides its OWN switch. With both defaulting ON, the mapping is
+    // proved by throwing exactly one and checking that the OTHER phase, still
+    // on, does not rescue the killed one.
+    it("killing _MID_DECREASE blocks a MID refund while _POST stays on", async () => {
+      process.env.RESERVATION_EDIT_V2_MID_DECREASE = "false";
       const code = await guardCode(() => executeEditCascade(reasoned(withReturn())));
       expect(code).toBe("refund_not_enabled");
       expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
-      delete process.env.RESERVATION_EDIT_V2_POST;
     });
 
-    it("a POST-COMPLETE refund is NOT unlocked by the mid-session flag", async () => {
-      // Before the fix this passed on _MID_DECREASE alone — post-complete
-      // refunds rode a flag nobody had signed off for that phase.
-      process.env.RESERVATION_EDIT_V2_MID_DECREASE = "true";
+    it("killing _POST blocks a post-complete refund while _MID_DECREASE stays on", async () => {
+      // Before the phase-keyed fix, post-complete refunds rode _MID_DECREASE —
+      // so killing _POST left them running.
+      process.env.RESERVATION_EDIT_V2_POST = "false";
       const code = await guardCode(() => executeEditCascade(reasoned(postPlan())));
       expect(code).toBe("refund_not_enabled");
       expect(vi.mocked(refundTenderPartial)).not.toHaveBeenCalled();
     });
 
-    it("a POST-COMPLETE refund runs on its own flag", async () => {
-      process.env.RESERVATION_EDIT_V2_POST = "true";
+    it("a POST-COMPLETE refund runs by default", async () => {
       vi.mocked(refundTenderPartial).mockResolvedValue({
         refundId: "RF_POST",
         refundedCents: 1605,
       });
       const result = await executeEditCascade(reasoned(postPlan()));
       expect(result.refundIds).toContain("RF_POST");
-      delete process.env.RESERVATION_EDIT_V2_POST;
     });
 
     it("refuses a PRE plan that carries a paid-order refund step", async () => {
@@ -862,7 +863,6 @@ describe("executeEditCascade — gift-card reconcile after a post-payment refund
   });
 
   beforeEach(() => {
-    process.env.RESERVATION_EDIT_V2_MID_DECREASE = "true";
     vi.mocked(getBowlingReservation).mockResolvedValue(ROW_PAID as never);
     depositFacts([{ paymentId: "PAY_DEP", amountCents: 20000 }]);
     vi.mocked(fetchPaymentFacts).mockResolvedValue({

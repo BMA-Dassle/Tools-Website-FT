@@ -34,6 +34,52 @@ stays in the SPA, it needs a client-side re-evaluation:
 own menu, not just by pasting the URL. Pasting a URL is a document load and hides every bug
 in this class.
 
+## A feature that shipped dark stays dark — reservation-edit v2 sat unusable for 27 days behind `=== "true"` (2026-08-07)
+
+**What happened:** owner: _"Reservation edit v2 needs to be enabled by default."_ The engine
+was fully built and merged 2026-07-11/12 (~150 unit tests, live smoke 18/18 · 18/18 · 20/20)
+and had been **completely unreachable in production ever since**, because all four rollout
+vars were written as opt-in gates — `process.env.X === "true"` — and nobody ever set them.
+The one env var the plan doc told the owner to set was never set either, so the "remaining
+steps" list in three tracker files described a state that never happened.
+
+The polarity was duplicated in **five** places (route, planner preview ×2, a local `flag()`
+helper in the executor, and its own `refundFlagForPhase` lookup) across four files. Five
+independent chances to drift; the planner's preview and the route's gate had already drifted
+once before (recorded in the 2026-07-28 entry below).
+
+**Fix:** one exported helper, `editFlagEnabled(name) => process.env[name] !== "false"` in
+`guards.ts` — the module every layer already imported — with the route, the preview, and the
+executor all reading through it. Guard copy flipped from "not switched on yet — ask Eric to
+enable it" to "has been switched off (`X=false`)", because under kill-switch semantics a
+blocked message means someone deliberately threw the switch.
+
+**Rules:**
+
+- **`=== "true"` is the bug, not the config.** CLAUDE.md has said "FLAGS ARE KILL SWITCHES
+  ONLY" since 2026-07-31, and this engine predates that rule — but re-reading it is what
+  makes a flip like this a two-line decision instead of a debate. When you write a rollout
+  var, write `!== "false"` the first time. An opt-in gate converts "we shipped it" into "we
+  shipped nothing" silently, and the only symptom is a feature nobody uses.
+- **Flag polarity belongs in ONE helper, exported from the module the gates already share.**
+  Not a `const flag =` copied into each consumer. The preview and the enforcement gate must
+  be physically incapable of disagreeing — that is a code-structure property, not a
+  code-review promise.
+- **A test that asserts "blocked when the var is unset" stops testing anything the moment
+  polarity flips — it just re-asserts the new default.** Every such test had to be rewritten
+  to set the exact string `"false"`. When you flip a default, grep the tests for `delete
+  process.env` and `= "true"` and check each one still fails for the reason it was written.
+  Same for scripts: `post-dayof-refund-smoke.mts` "proved" the master switch was off by
+  deleting the var, which after the flip proved the opposite.
+- **A stale "DO NOT ENABLE" outlives the reason for it.** Both refund switches carried that
+  banner from assumption A1, which was *overturned live on 2026-07-27* — the code comment in
+  `service.ts` said so, three tracker docs and a memory file still said "DO NOT ENABLE."
+  When you overturn an assumption, grep its name and retire every banner in the same commit.
+- **Ship default-on when the failure mode is loud and money-safe.** The QAMF player-DELETE
+  vendor bug is real and unfixed, but it fails with names/title still synced, no money
+  touched, and an explicit "adjust bowler count in Conqueror manually" warning. Degraded and
+  loud is a reason to ship with a kill switch, not a reason to ship dark.
+
 ## An idempotency key must contain every field that makes the operation distinct — a missing personId gave a party free races (2026-08-06)
 
 **What happened:** W58352 — a kiosk party of 4 booked 3 heats each and bought four 3-race

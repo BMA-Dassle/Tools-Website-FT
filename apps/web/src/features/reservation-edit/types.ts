@@ -117,12 +117,12 @@ export type EditGuardCode =
   | "cancel_in_progress"
   | "plan_stale"
   | "post_complete_ack_required"
-  // Money-back on an already-paid day-of order, with that phase's flag off.
-  // Distinct from post_complete_ack_required: no acknowledgment unlocks it,
-  // so the modal must NOT re-offer the manager checkbox.
+  // Money-back on an already-paid day-of order while that phase's kill switch
+  // is thrown. Distinct from post_complete_ack_required: no acknowledgment
+  // unlocks it, so the modal must NOT re-offer the manager checkbox.
   | "refund_not_enabled"
   // Plan does more than hand money back (a charge, an external sync, a rebuild)
-  // and the master switch RESERVATION_EDIT_V2 is off.
+  // and the master kill switch RESERVATION_EDIT_V2 is thrown.
   | "edit_not_enabled"
   | "bmi_line_unavailable"
   | "heat_capacity"

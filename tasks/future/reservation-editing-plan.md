@@ -344,15 +344,35 @@ Rollout per v2 cutover pattern: deploy flag-off → enable for one ops user → 
 
 ## 16. Implementation status (2026-07-11, branch claude/reservation-editing-plan-vvh9ee)
 
-**Everything ships FLAG-OFF.** Dry-run (the modal's preview) works with no flags; execution
-gates:
+**UPDATE 2026-08-07 — everything now ships ON BY DEFAULT.** The four vars were built as
+opt-in `=== "true"` gates, which violates the CLAUDE.md hard rule "FLAGS ARE KILL SWITCHES
+ONLY". They are now kill switches: one helper, `editFlagEnabled()` in `guards.ts`, reads
+`process.env[name] !== "false"` at call time, and the route, the planner's `executionBlocked`
+preview, and the executor all go through it — so the preview can never disagree with the
+gate that runs. Set a var to the exact string `"false"` to stop that capability; nothing
+else (including unset) turns it off.
 
-| Flag | Unlocks | Gate before enabling |
+Dry-run (the modal's preview) has always worked with no vars set and still does.
+
+| Kill switch (default ON) | Covers | Set `=false` when |
 | --- | --- | --- |
-| `RESERVATION_EDIT_V2` | master switch — PRE-phase bowling/KBF edits (increases via card-on-file / payment link; decreases to card or store credit) + MID increases | smoke items 5–8 (§13) |
-| `RESERVATION_EDIT_V2_RACE` | BMI race-leg add/remove heats (line-level, existing bill) + combo racer edits | smoke item 9 + staging BMI trial |
-| `RESERVATION_EDIT_V2_MID_DECREASE` | mid-session refunds | **DO NOT ENABLE — A1 answered NO (2026-07-11); path needs redesign (§14 A1)** |
-| `RESERVATION_EDIT_V2_POST` | post-complete refund→rebuild→repay→complete + Teams manager alert | **DO NOT ENABLE — A1 answered NO (2026-07-11); path needs redesign (§14 A1)** |
+| `RESERVATION_EDIT_V2` | master — PRE-phase bowling/KBF edits (increases via card-on-file / payment link; decreases to card or store credit) + MID increases | editing is misbehaving; refunds keep running (exempt via `isRefundOnlyPlan`) |
+| `RESERVATION_EDIT_V2_RACE` | BMI race-leg add/remove heats (line-level, existing bill) + combo racer edits + attraction qty | a BMI bill is written wrong — this is the least-exercised path (§13 smoke item 9 / staging BMI trial were never run) |
+| `RESERVATION_EDIT_V2_MID_DECREASE` | mid-session refunds (order OPEN) | a refund lands wrong after check-in |
+| `RESERVATION_EDIT_V2_POST` | post-complete refund→rebuild→repay→complete + Teams manager alert | a refund lands wrong on a closed visit |
+
+The 2026-07-11 "DO NOT ENABLE" on the two refund switches is **withdrawn**: assumption A1
+("Square can't partially refund gift-card-funded payments") was OVERTURNED by an
+owner-authorized live probe on 2026-07-27, and the §8 checklist in
+`post-dayof-refund-plan.md` then passed live three ways — 18/18 MID, 18/18 POST, 20/20
+POST + collapsed race-pack line + full refund.
+
+**Known degradation under the master switch (accepted, not a blocker):** a PRE-phase edit
+that lowers the bowler count cannot push the decrease to Conqueror — the QAMF per-player
+DELETE returns a bare 500 on every valid input (vendor bug, escalated 2026-07-11, re-probed
+after the Conqueror 15.13+ upgrade and still broken). It fails safe and loud: names/shoes
+and the lane Title still sync, no money is affected, and staff get a
+`qamf_players_failed` warning telling them to adjust the count in Conqueror by hand.
 
 **Landed:** PR 0 metadata prep; card vault capture + `card-vault-sweep` cron + PaymentsTab
 status + checkout opt-in + clickwrap fine print (policy v3-2026-07-11); engine pure core

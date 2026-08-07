@@ -6,10 +6,10 @@
  * derive from `edit-{anchorId}-a{attempt}` (attempt bumps only on FAILED
  * attempts — crashed/pending attempts replay their keys).
  *
- * Rollout gates (all read at call time):
+ * Kill switches (all default ON, read at call time, `=false` to stop):
  *   RESERVATION_EDIT_V2               — master switch (route enforces too)
  *   RESERVATION_EDIT_V2_RACE          — BMI race-leg edits (add/remove heats)
- *   RESERVATION_EDIT_V2_MID_DECREASE  — mid-session refunds (assumption A1)
+ *   RESERVATION_EDIT_V2_MID_DECREASE  — mid-session refunds
  *   RESERVATION_EDIT_V2_POST          — post-complete refund+rebuild
  */
 
@@ -45,7 +45,7 @@ import {
 } from "~/features/cancellation/square-actions";
 import { resolveCenter } from "~/features/cancellation/centers";
 
-import { refundFlagForPhase } from "./guards";
+import { editFlagEnabled as flag, refundFlagForPhase } from "./guards";
 import type { EditPlan, EditPlanLeg, PlanLine } from "./plan";
 import {
   adjustGiftCardDown,
@@ -107,8 +107,6 @@ export interface EditResult {
   stepLog: Array<{ step: string; ok: boolean; detail?: string }>;
   warnings: EditWarning[];
 }
-
-const flag = (name: string): boolean => process.env[name] === "true";
 
 /**
  * Edit-lock TTL. Long enough to outlive an await-the-gift-card-credit wait
@@ -190,13 +188,13 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
     ) {
       throw new EditGuardError(
         "bmi_line_unavailable",
-        "BMI-touching edits are not enabled yet (RESERVATION_EDIT_V2_RACE)",
+        "BMI-touching edits have been switched off (RESERVATION_EDIT_V2_RACE=false)",
       );
     }
     // A1 was OVERTURNED on 2026-07-27 by an owner-authorized live probe: the
-    // API DOES accept partial refunds of gift-card-funded payments. The flags
-    // stay off until the §8 smoke checklist in
-    // tasks/future/post-dayof-refund-plan.md passes.
+    // API DOES accept partial refunds of gift-card-funded payments, and the §8
+    // smoke checklist in tasks/future/post-dayof-refund-plan.md passed live
+    // (18/18 MID, 18/18 POST, 20/20 POST+race). Both phases now default ON.
     //
     // Gate on the PLAN'S PHASE, not on the step kind. refund_dayof_payment is
     // emitted by BOTH mid and post_complete (money-only is the preferred shape
@@ -221,8 +219,8 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
         throw new EditGuardError(
           "refund_not_enabled",
           plan.phase === "post_complete"
-            ? `refunds after the visit is closed are not enabled yet (${required})`
-            : `refunds after check-in are not enabled yet (${required})`,
+            ? `refunds after the visit is closed have been switched off (${required}=false)`
+            : `refunds after check-in have been switched off (${required}=false)`,
         );
       }
     }

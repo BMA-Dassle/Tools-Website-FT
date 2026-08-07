@@ -81,6 +81,20 @@ export const selectPhase = (facts: PhaseFacts): EditPhase => {
 };
 
 /**
+ * Is this rollout flag ON? Reservation-edit flags are KILL SWITCHES, not opt-in
+ * gates (CLAUDE.md hard rule): the feature is merged, so it is ON, and the env
+ * var exists only so ops can turn it OFF without a deploy. Hence `!== "false"`
+ * — unset means enabled.
+ *
+ * Single source of polarity for the whole feature. The route, the planner's
+ * `executionBlocked` preview, and the executor all read through here, so the
+ * preview can never disagree with the gate that actually runs. Read at call
+ * time (never module scope) so flipping a var in Vercel takes effect on the
+ * next request instead of the next build.
+ */
+export const editFlagEnabled = (name: string): boolean => process.env[name] !== "false";
+
+/**
  * Env flag that must be on for money to come BACK off an already-paid day-of
  * order in this phase, or null when the phase needs no such flag (pre-payment
  * decreases settle against the deposit and ride the master switch).
@@ -121,10 +135,12 @@ const REFUND_ONLY_STEPS: ReadonlySet<EditStepKind> = new Set<EditStepKind>([
  * day-of order — the shape the Refund action produces.
  *
  * Such a plan may execute on its PHASE flag alone (refundFlagForPhase) rather
- * than requiring RESERVATION_EDIT_V2. The master switch also unlocks PRE-phase
- * editing, whose QAMF player sync is blocked by a vendor bug, so coupling the
- * two would mean shipping a known-broken editing surface just to refund a
- * guest. Note `refund_dayof_order` is NOT in the allowlist: it only appears in
+ * than requiring RESERVATION_EDIT_V2. Both default ON, so the exemption is no
+ * longer what makes refunds reachable — it is what keeps them reachable if ops
+ * ever throws the master kill switch. Editing and refunding fail for unrelated
+ * reasons (the master covers QAMF/BMI sync and charges); killing the former
+ * must never strand a guest's money. Note `refund_dayof_order` is NOT in the
+ * allowlist: it only appears in
  * the post-complete REBUILD path, which charges and rebuilds and therefore
  * always needs the master flag.
  */

@@ -36,6 +36,7 @@ import { getChargeableCard } from "~/features/card-vault";
 import { loadExperiencesForCenter, matchExperienceForRow } from "./experience-resolve";
 import {
   assertEditable,
+  editFlagEnabled,
   isRefundOnlyPlan,
   refundFlagForPhase,
   selectPhase,
@@ -1737,22 +1738,22 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
   const phaseFlag = movesPaidOrderMoney ? refundFlagForPhase(phase) : null;
   const refundOnly = isRefundOnlyPlan({ diffCents, steps });
   let executionBlocked: { code: EditGuardCode; message: string } | null = null;
-  if (phaseFlag && process.env[phaseFlag] !== "true") {
+  if (phaseFlag && !editFlagEnabled(phaseFlag)) {
     executionBlocked = {
       code: "refund_not_enabled",
       message:
         phase === "post_complete"
-          ? `Refunding a closed visit is not switched on yet (${phaseFlag}). The preview above is accurate — ask Eric to enable it.`
-          : `Refunding after check-in is not switched on yet (${phaseFlag}). The preview above is accurate — ask Eric to enable it.`,
+          ? `Refunding a closed visit has been switched off (${phaseFlag}=false). The preview above is accurate — ask Eric to switch it back on.`
+          : `Refunding after check-in has been switched off (${phaseFlag}=false). The preview above is accurate — ask Eric to switch it back on.`,
     };
-  } else if (!refundOnly && process.env.RESERVATION_EDIT_V2 !== "true") {
-    // A pure refund rides its phase flag; anything that also charges, syncs
-    // QAMF/BMI, or rebuilds an order needs the master switch.
+  } else if (!refundOnly && !editFlagEnabled("RESERVATION_EDIT_V2")) {
+    // A pure refund rides its phase switch; anything that also charges, syncs
+    // QAMF/BMI, or rebuilds an order needs the master one.
     executionBlocked = {
       code: "edit_not_enabled",
       message:
-        "Changing a reservation is not switched on yet (RESERVATION_EDIT_V2) — only refunds are. " +
-        "The preview above is accurate.",
+        "Reservation editing has been switched off (RESERVATION_EDIT_V2=false) — only refunds are " +
+        "running. The preview above is accurate.",
     };
   }
 
