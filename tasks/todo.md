@@ -1,5 +1,47 @@
 # Open Tasks
 
+## HeadPinz birthday parties — online booking (2026-08-06)
+
+**PLAN ONLY — nothing implemented.** Full write-up:
+[tasks/birthday-party-booking-plan.md](birthday-party-booking-plan.md). Branch `feat/party-catalog`
+carries the plan so a future session can start at PR-P1.
+
+Owner decisions are settled: a party is a `bowling_reservations` row with `product_kind='party'`
+(not a `group_function_quotes` row — all 11 `group-*` crons select with no origin discriminator and
+would act on it); pricing stays **per lane block** at the published prices; arena gel-blaster seats
+are **really reserved** at booking; and v1 gives the host a read-only status page with changes by
+phone.
+
+- [ ] **PR-P1** — party catalog: extract the Bronze/Silver/VIP × 2/4/6 matrix out of the two
+      994-line `/birthdays` client pages (they differ in **5 lines**; all seven data arrays are
+      byte-identical duplicates) into `src/features/parties/catalog.ts`, plus a Neon seed at
+      `deposit_pct = 50`.
+- [ ] **PR-P2** — `"party"` activity plumbing. Three silent failures to fix in the same PR:
+      `BookingFlow.tsx:332-341` (a party's QAMF hold expires with no timer),
+      `CheckoutStep.tsx:696` (`depositPct: 100` hardcoded), and `buildCombinedLineItems`
+      (an unhandled kind is **charged $0**).
+- [ ] **PR-P3** — 7 new wizard steps; guests must precede time.
+- [ ] **PR-P4** — dual-resource availability: lanes **and** arena `freeSpots`. No existing flow
+      books both; `attractionAddons` is declared but never populated by any step.
+- [ ] **PR-P5** — reserve + 50% deposit. `permanentConsent: true` is mandatory or the card-vault
+      sweep disables the card ~72h after the leg and there is no card at T-72h.
+- [ ] **PR-P6** — T-72h balance cron. **Do not inherit the GF cron's bug:** a decline there flips
+      status out of its own `WHERE` clause and `balance_charge_attempts` is never read as a cap, so
+      the card is never retried.
+- [ ] **PR-P7** — comms, waiver (Silver/VIP only per the 2026-08-06 revision — Bronze needs none),
+      staff recap to the events team.
+- [ ] **PR-P8** — cutover, status page, admin board (a party silently renders as **"Open"** until
+      the two-way kind ternary in `BoardTable.tsx` is fixed), FAQ correction.
+
+**Blocks go-live, not the build:** add-on prices do not exist anywhere in the repo (all four are
+name + description only), and gel blaster / laser tag are priced two incompatible ways —
+$150/$200 per session on the group-events page vs $10–$12 per person in `attractions-data.ts`.
+
+**Needs an owner/GM call:** lane-hold duration (full party vs bowling only); the source document's
+self-contradiction on gel blaster timing; whether FM and Naples prices stay in lockstep; whether
+"LED glow lighting" stays in the live included-items list; and GM validation of the timelines
+before they become an SOP.
+
 ## FastTrax operational changes — new Mon–Fri hours + Mega is Junior Pro only (2026-08-05)
 
 Two owner-announced operational changes, both landing **2026-08-10**:
