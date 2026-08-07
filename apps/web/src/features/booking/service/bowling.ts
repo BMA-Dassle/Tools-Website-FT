@@ -395,9 +395,12 @@ export async function bowlingTerminalPrepare(params: {
   seed: string;
   depositOrderId: string;
   depositCents: number;
-  /** Present when the gift-card split flag is on — the session secret the
-   *  gift-card routes require (mirrors the unified rail's prepare). */
+  /** The session secret the gift-card routes require (mirrors the unified
+   *  rail's prepare). */
   splitToken?: string;
+  /** Server says the ambient gift-card rail is live — the gate renders the
+   *  ambient pay screen. */
+  ambient?: boolean;
 }> {
   const { item } = params;
   const seed = params.seed ?? crypto.randomUUID();
@@ -446,5 +449,6 @@ export async function bowlingTerminalPrepare(params: {
     depositOrderId: data.depositOrderId,
     depositCents: data.depositCents ?? depositCents,
     ...(data.splitToken ? { splitToken: data.splitToken } : {}),
+    ...(data.ambient ? { ambient: true } : {}),
   };
 }

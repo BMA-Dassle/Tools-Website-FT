@@ -17,6 +17,7 @@ import {
 } from "./deposit";
 import { kioskGzCartEnabled, kioskPovCodesEnabled } from "~/features/kiosk/flags";
 import { getOrderPaymentInfo } from "~/features/kiosk/service/square-terminal";
+import { kioskAmbientGiftCardsEnabled } from "~/features/kiosk/flags";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { startTxn, markCharged, markLoadState } from "~/features/game-cards/data/transactions-log";
 import {
@@ -946,6 +947,70 @@ export async function stampTerminalPaymentOnAnchor(seed: string, paymentId: stri
   } catch {
     /* non-fatal */
   }
+}
+
+/** One verified reader payment, as re-read from Square by the poll driver. */
+export interface VerifiedTenderStamp {
+  paymentId: string;
+  /** effectiveCents — approved_money ?? amount_money, never a client claim. */
+  amountCents: number;
+  sourceType?: string;
+  cardBrand?: string;
+  last4?: string;
+  /** The checkout this payment arrived on — clears pendingCheckout when it
+   *  matches (an armed checkout that produced its payment is spent). */
+  checkoutId?: string;
+}
+
+/**
+ * Ambient rail's stamp (2026-08): record a VERIFIED terminal tender on the
+ * anchor — unconditionally, unlike stampTerminalPaymentOnAnchor's split-only
+ * tender push. Dedup by paymentId (a double-poll refreshes the verified
+ * fields, never duplicates); assigns the monotonic tenderSeq slot; merges the
+ * paymentIds union; clears pendingCheckout when this payment came from it.
+ * Returns null when the anchor is gone (session dead / Redis down) — the
+ * caller falls back to the legacy stamp-and-respond shape.
+ */
+export async function stampVerifiedTerminalTender(
+  seed: string,
+  t: VerifiedTenderStamp,
+): Promise<TerminalAnchor | null> {
+  return updateTerminalAnchor(seed, (a) => {
+    const prior = a.tenders ?? [];
+    const exists = prior.some((x) => x.paymentId === t.paymentId);
+    const verified = {
+      amountCents: t.amountCents,
+      sourceType: t.sourceType,
+      cardBrand: t.cardBrand,
+      last4: t.last4,
+    };
+    const seq = a.tenderSeq ?? prior.length;
+    const tenders = exists
+      ? prior.map((x) => (x.paymentId === t.paymentId ? { ...x, ...verified } : x))
+      : [
+          ...prior,
+          {
+            index: seq,
+            kind: "terminal" as const,
+            paymentId: t.paymentId,
+            status: "authorized" as const,
+            ...verified,
+          },
+        ];
+    const fromPending =
+      t.checkoutId != null &&
+      (a.pendingCheckout?.id === t.checkoutId || a.pendingCheckoutId === t.checkoutId);
+    return {
+      ...a,
+      split: true as const, // legacy readers key off it; harmless and accurate
+      tenders,
+      tenderSeq: exists ? seq : seq + 1,
+      paymentId: t.paymentId,
+      paymentIds: [...new Set([...(a.paymentIds ?? []), t.paymentId])],
+      stampedAt: new Date().toISOString(),
+      ...(fromPending ? { pendingCheckout: undefined, pendingCheckoutId: undefined } : {}),
+    };
+  });
 }
 
 /**
@@ -2057,7 +2122,7 @@ async function unifiedReserveInner(
         // The reader charges the ORDER TOTAL: booking deposit + card lines.
         depositCents: depositCents + gzCents,
         locationId,
-        ...(splitToken ? { splitToken } : {}),
+        ...(splitToken ? { splitToken, ambient: kioskAmbientGiftCardsEnabled() } : {}),
       };
     }
 

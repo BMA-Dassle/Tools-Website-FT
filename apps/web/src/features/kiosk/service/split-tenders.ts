@@ -47,12 +47,18 @@ import {
 import { getSquarePayment } from "~/features/booking/service/deposit";
 import {
   readTerminalAnchor,
+  stampVerifiedTerminalTender,
   updateTerminalAnchor,
   type TerminalAnchor,
   type TerminalAnchorTender,
 } from "~/features/booking/service/unified-reserve";
-import { dismissTerminalCheckout } from "./square-terminal";
 import {
+  dismissTerminalCheckout,
+  getOrderPaymentInfo,
+  getTerminalCheckout,
+} from "./square-terminal";
+import {
+  setSplitCaptured,
   setSplitState,
   setSplitTenders,
   upsertSplitAttempt,
@@ -82,7 +88,15 @@ export type SplitError =
 export interface SplitStatus {
   totalCents: number;
   remainingCents: number;
-  tenders: Array<{ kind: "gift_card"; ganLast4?: string; amountCents: number }>;
+  /** EVERY authorized tender — the ambient board renders these rows. */
+  tenders: Array<{
+    kind: "gift_card" | "terminal";
+    isGiftCard: boolean;
+    paymentId?: string;
+    /** ganLast4 for GAN-rail cards; card last4 for terminal payments. */
+    last4?: string;
+    amountCents: number;
+  }>;
   capturedAt?: string;
 }
 
@@ -115,10 +129,16 @@ function authorizedTenders(
   );
 }
 
-/** Cents still owed after the authorized gift-card tender(s). */
+/**
+ * Cents still owed after EVERY authorized tender — gift-card auths and
+ * verified terminal payments alike (the ambient rail's partial approvals make
+ * a terminal tender smaller than the amount it was armed for). Legacy stamps
+ * recorded terminal tenders at amountCents 0, which sums as "not counted" —
+ * exactly the old behavior, so a mid-deploy anchor computes identically.
+ */
 export function splitRemainingCents(anchor: TerminalAnchor): number {
-  const gc = authorizedTenders(anchor, "gift_card").reduce((s, t) => s + t.amountCents, 0);
-  return Math.max(0, anchorTotalCents(anchor) - gc);
+  const covered = authorizedTenders(anchor).reduce((s, t) => s + t.amountCents, 0);
+  return Math.max(0, anchorTotalCents(anchor) - covered);
 }
 
 /** Session gate shared by every mutating entry point: anchor must exist AND
@@ -192,13 +212,14 @@ export async function addGiftCardTender(params: {
 }): Promise<
   | {
       ok: true;
-      tender: { ganLast4: string; amountCents: number };
+      /** paymentId keys the board row's per-tender Remove. */
+      tender: { paymentId: string; ganLast4: string; amountCents: number };
       remainingCents: number;
     }
   | { ok: false; error: SplitError; detail?: string }
 > {
   // Cheap mutex — two concurrent adds on one session must not double-auth
-  // (the v1 single-GC guard below is read-then-write on Redis).
+  // (the caps guard below is read-then-write on Redis).
   let locked = false;
   try {
     locked = (await redis.set(addLockKey(params.seed), "1", "EX", 15, "NX")) === "OK";
@@ -222,12 +243,19 @@ async function addGiftCardTenderLocked(params: {
   splitToken: string;
   lookupToken: string;
 }): Promise<
-  | { ok: true; tender: { ganLast4: string; amountCents: number }; remainingCents: number }
+  | {
+      ok: true;
+      tender: { paymentId: string; ganLast4: string; amountCents: number };
+      remainingCents: number;
+    }
   | { ok: false; error: SplitError; detail?: string }
 > {
   const gate = await loadAuthorizedAnchor(params.seed, params.splitToken);
   if ("error" in gate) return { ok: false, error: gate.error };
-  const anchor = gate.anchor;
+  // Harvest-then-dismiss BEFORE sizing: a tap that landed on the armed
+  // checkout shrinks the remainder this gift card is sized against — and if
+  // it covered everything, the guest already paid.
+  const anchor = await harvestAndDismissPending(params.seed, gate.anchor);
   if (anchor.capturedAt) return { ok: false, error: "already-captured" };
   const authorized = authorizedTenders(anchor);
   if (authorized.filter(isGiftCardTender).length >= MAX_GIFT_CARD_TENDERS) {
@@ -235,6 +263,15 @@ async function addGiftCardTenderLocked(params: {
   }
   if (authorized.length >= MAX_TOTAL_TENDERS) {
     return { ok: false, error: "tender-limit" };
+  }
+  // A harvested tap already covers the total — the guest paid while this scan
+  // was in flight. Capture the existing set instead of applying the card
+  // (BEFORE consuming the lookup token, so nothing is burned), and report
+  // already-captured; the client's idempotent capture call returns the set.
+  if (authorized.length > 0 && splitRemainingCents(anchor) === 0) {
+    const cap = await captureSplit({ seed: params.seed, splitToken: params.splitToken });
+    if (cap.ok) return { ok: false, error: "already-captured" };
+    return { ok: false, error: cap.error, detail: "detail" in cap ? cap.detail : undefined };
   }
 
   // Consume the token — read then delete (GETDEL needs Redis ≥6.2; the token
@@ -341,16 +378,75 @@ async function addGiftCardTenderLocked(params: {
 
   return {
     ok: true,
-    tender: { ganLast4: tender.ganLast4 as string, amountCents },
+    tender: { paymentId: auth.paymentId, ganLast4: tender.ganLast4 as string, amountCents },
     remainingCents: splitRemainingCents(updated),
   };
+}
+
+// ── Harvest-then-dismiss (the ambient rail's arm interlock) ─────────────────
+
+/**
+ * Retire the currently-armed reader checkout WITHOUT losing a tap that raced
+ * in: harvest its payments (verified re-read → stamp) BEFORE dismissing, then
+ * re-read once after — a tap can land in the dismiss's settling window. Every
+ * caller that changes the remainder (add / remove / re-arm) runs this first,
+ * so an armed amount can never go stale with money attached to it. Returns
+ * the freshest anchor (or the input when nothing changed).
+ */
+export async function harvestAndDismissPending(
+  seed: string,
+  anchor: TerminalAnchor,
+): Promise<TerminalAnchor> {
+  const pending = anchor.pendingCheckout?.id ?? anchor.pendingCheckoutId;
+  if (!pending) return anchor;
+  let latest = anchor;
+  const harvest = async () => {
+    try {
+      const ck = await getTerminalCheckout(pending);
+      for (const pid of ck?.paymentIds ?? []) {
+        const pay = await getSquarePayment(pid);
+        const usable =
+          pay &&
+          (pay.status === "APPROVED" || pay.status === "COMPLETED") &&
+          (!pay.orderId || pay.orderId === anchor.depositOrderId);
+        if (!usable) continue;
+        const stamped = await stampVerifiedTerminalTender(seed, {
+          paymentId: pid,
+          amountCents: pay.effectiveCents,
+          sourceType: pay.sourceType,
+          cardBrand: pay.cardBrand,
+          last4: pay.last4,
+          checkoutId: pending,
+        });
+        if (stamped) latest = stamped;
+      }
+    } catch {
+      /* checkout unfetchable — the dismiss below + unwind's void loop cover it */
+    }
+  };
+  await harvest();
+  try {
+    await dismissTerminalCheckout(pending);
+  } catch {
+    /* already done/expired */
+  }
+  await harvest();
+  // A checkout that produced no payment leaves pendingCheckout set — clear it
+  // (the stamp clears it only when a payment actually arrived on it).
+  const cleared = await updateTerminalAnchor(seed, (a) =>
+    (a.pendingCheckout?.id ?? a.pendingCheckoutId) === pending
+      ? { ...a, pendingCheckout: undefined, pendingCheckoutId: undefined }
+      : a,
+  );
+  return cleared ?? latest;
 }
 
 // ── 3. Remove / abandon (verified unwind + attempt bump) ────────────────────
 
 /** Void an auth and VERIFY the outcome — cancelSquarePayment swallows errors,
- *  and a failed void must never be recorded as a successful one. */
-async function verifiedCancel(
+ *  and a failed void must never be recorded as a successful one. Exported for
+ *  the poll driver's stray-arm guard (a tap on a pre-unwind checkout). */
+export async function verifiedCancel(
   baseKey: string,
   paymentId: string,
 ): Promise<"canceled" | "cancel-failed"> {
@@ -367,17 +463,11 @@ async function unwindTenders(
   seed: string,
   anchor: TerminalAnchor,
 ): Promise<{ allReleased: boolean }> {
-  // 1. Dismiss any armed reader checkout FIRST — a tap must not land while
-  //    (or after) we void the software auths. pendingCheckout is the universal
-  //    successor; pendingCheckoutId covers anchors written before it existed.
-  const armedCheckoutId = anchor.pendingCheckout?.id ?? anchor.pendingCheckoutId;
-  if (armedCheckoutId) {
-    try {
-      await dismissTerminalCheckout(armedCheckoutId);
-    } catch {
-      /* checkout may already be done/expired — the payment loop below covers it */
-    }
-  }
+  // 1. Harvest-then-dismiss the armed checkout FIRST — a tap must not land
+  //    while (or after) we void the software auths, and a tap that ALREADY
+  //    landed but was never polled must enter the void loop below (before the
+  //    harvest, such an auth was invisible to abandon and sat live for 36h).
+  anchor = await harvestAndDismissPending(seed, anchor);
   // 2. Void every authorized tender (gift card AND any terminal tap that
   //    already landed — both are auth-only until capture) with verification.
   const results = new Map<string, "canceled" | "cancel-failed">();
@@ -450,14 +540,9 @@ async function removeSingleTender(
   const target = authorizedTenders(anchor).find((t) => t.paymentId === paymentId);
   if (!target || !isGiftCardTender(target)) return { ok: false, error: "tender-not-found" };
 
-  const armedCheckoutId = anchor.pendingCheckout?.id ?? anchor.pendingCheckoutId;
-  if (armedCheckoutId) {
-    try {
-      await dismissTerminalCheckout(armedCheckoutId);
-    } catch {
-      /* checkout may already be done/expired */
-    }
-  }
+  // Harvest-then-dismiss: the armed amount is stale the moment the remainder
+  // changes, and a tap racing this Remove must be stamped, not lost.
+  anchor = await harvestAndDismissPending(seed, anchor);
 
   const outcome = await verifiedCancel(anchor.baseKey, paymentId);
   const nextTenders = (anchor.tenders ?? []).map((t) =>
@@ -504,9 +589,33 @@ export async function abandonSplit(params: {
     return { ok: false, error: "no-session" };
   }
   if (anchor.capturedAt) return { ok: false, error: "already-captured" };
-  const { allReleased } = await unwindTenders(params.seed, anchor);
-  if (allReleased) await setSplitState(anchor.baseKey, "canceled");
-  return { ok: true };
+  // Same lock as capture: a guest who taps in the instant the idle reset
+  // fires must end up either captured or unwound — never a verifiedCancel
+  // racing PayOrder. If a capture holds the lock, wait it out; if it won,
+  // report already-captured (honest — the sweep/ops path owns what follows).
+  let locked = false;
+  for (let i = 0; i < 3 && !locked; i++) {
+    try {
+      locked = (await redis.set(captureLockKey(params.seed), "1", "EX", 30, "NX")) === "OK";
+    } catch {
+      locked = true; // Redis down — unwind still runs; Square's 36h auto-cancel backstops
+    }
+    if (!locked) await new Promise((r) => setTimeout(r, 1_000));
+  }
+  if (!locked) return { ok: false, error: "busy" };
+  try {
+    const fresh = (await readTerminalAnchor(params.seed)) ?? anchor;
+    if (fresh.capturedAt) return { ok: false, error: "already-captured" };
+    const { allReleased } = await unwindTenders(params.seed, fresh);
+    if (allReleased) await setSplitState(fresh.baseKey, "canceled");
+    return { ok: true };
+  } finally {
+    try {
+      await redis.del(captureLockKey(params.seed));
+    } catch {
+      /* lock expires on its own */
+    }
+  }
 }
 
 // ── 4. Capture (atomic PayOrder over the whole set) ─────────────────────────
@@ -520,17 +629,72 @@ export async function captureSplit(params: {
 > {
   const gate = await loadAuthorizedAnchor(params.seed, params.splitToken);
   if ("error" in gate) return { ok: false, error: gate.error };
-  const anchor = gate.anchor;
 
+  // Capture lock: the GET poll, the add route's inline capture, and the
+  // capture route can all observe "remainder hit 0" in the same beat — one
+  // PayOrder runs; the losers re-read capturedAt and converge. abandonSplit
+  // takes the SAME lock, so a capture in flight can never race an unwind.
+  let locked = false;
+  try {
+    locked = (await redis.set(captureLockKey(params.seed), "1", "EX", 30, "NX")) === "OK";
+  } catch {
+    locked = true; // Redis down → loadAuthorizedAnchor above already failed closed if the anchor is gone
+  }
+  if (!locked) {
+    // Someone else is capturing — give them a beat, then report their result.
+    await new Promise((r) => setTimeout(r, 1_500));
+    const after = await readTerminalAnchor(params.seed);
+    if (after?.capturedAt) {
+      const ids = authorizedTenders(after)
+        .map((t) => t.paymentId as string)
+        .filter(Boolean);
+      return {
+        ok: true,
+        paymentIds: ids,
+        primaryPaymentId: primaryOf(after),
+        alreadyCaptured: true,
+      };
+    }
+    return { ok: false, error: "busy" };
+  }
+  try {
+    // Fresh read UNDER the lock — the gate's snapshot may predate a stamp.
+    const anchor = (await readTerminalAnchor(params.seed)) ?? gate.anchor;
+    return await captureLocked(params.seed, anchor);
+  } finally {
+    try {
+      await redis.del(captureLockKey(params.seed));
+    } catch {
+      /* lock expires on its own */
+    }
+  }
+}
+
+const captureLockKey = (seed: string) => `kiosk:split:capture:${seed}`;
+
+/** Reader tap first (the guest's "real" payment), else the first gift card. */
+function primaryOf(anchor: TerminalAnchor): string {
+  const auth = authorizedTenders(anchor);
+  return (auth.find((t) => t.kind === "terminal")?.paymentId ??
+    auth.find((t) => t.paymentId)?.paymentId) as string;
+}
+
+async function captureLocked(
+  seed: string,
+  anchor: TerminalAnchor,
+): Promise<
+  | { ok: true; paymentIds: string[]; primaryPaymentId: string; alreadyCaptured?: boolean }
+  | { ok: false; error: SplitError; detail?: string }
+> {
   // The payment set comes from POSITIVE tender entries only (gift-card auths
   // added by this service; terminal taps stamped by the poll route) — never
   // inferred by set-difference on the paymentIds union (review 2026-07-29:
   // a canceled auth left in the union must not read as a tap).
   const gcTenders = authorizedTenders(anchor, "gift_card");
-  const termTenders = authorizedTenders(anchor, "terminal");
+  let termTenders = authorizedTenders(anchor, "terminal");
   const gcPaymentIds = gcTenders.map((t) => t.paymentId as string).filter(Boolean);
-  const terminalPaymentIds = termTenders.map((t) => t.paymentId as string).filter(Boolean);
-  const paymentIds = [...gcPaymentIds, ...terminalPaymentIds];
+  let terminalPaymentIds = termTenders.map((t) => t.paymentId as string).filter(Boolean);
+  let paymentIds = [...gcPaymentIds, ...terminalPaymentIds];
   if (paymentIds.length === 0) return { ok: false, error: "nothing-to-capture" };
 
   if (anchor.capturedAt) {
@@ -544,10 +708,14 @@ export async function captureSplit(params: {
   }
 
   // Verify the SET covers the total exactly before capturing — the GC amounts
-  // come from the anchor; the terminal amounts are re-read from Square (never
-  // trust the client's claim; the stamp records amount 0).
+  // come from the anchor; the terminal amounts are re-read from Square at
+  // their EFFECTIVE (approved) cents: on a partial authorization Square may
+  // keep amount_money at the requested figure while approved_money carries
+  // the truth (probe-partial-auth.mts A2), and capturing on the requested
+  // figure would misstate the sum.
   const total = anchorTotalCents(anchor);
-  let sum = gcTenders.reduce((s, t) => s + t.amountCents, 0);
+  const gcSum = gcTenders.reduce((s, t) => s + t.amountCents, 0);
+  let termSum = 0;
   const verifiedTermAmounts = new Map<string, number>();
   for (const pid of terminalPaymentIds) {
     const pay = await getSquarePayment(pid);
@@ -557,8 +725,44 @@ export async function captureSplit(params: {
     if (pay.orderId && pay.orderId !== anchor.depositOrderId) {
       return { ok: false, error: "square-error", detail: `payment ${pid} paid a different order` };
     }
-    verifiedTermAmounts.set(pid, pay.amountCents);
-    sum += pay.amountCents;
+    verifiedTermAmounts.set(pid, pay.effectiveCents);
+    termSum += pay.effectiveCents;
+  }
+  let sum = gcSum + termSum;
+
+  // Over-collection corrective pass: a tap sized for the pre-scan remainder
+  // can land in the same beat a gift card applies (harvest narrows the window
+  // but cannot close it — the tap may already be in flight on the Terminal).
+  // The NEWEST terminal tender is the one sized for a stale remainder: void
+  // it, recompute, proceed. GC adds are lock-serialized and exact-amount, so
+  // one pass suffices; anything still over is a genuine anomaly.
+  if (sum > total && termTenders.length > 0) {
+    const newest = [...termTenders].sort((a, b) => b.index - a.index)[0];
+    const newestId = newest.paymentId as string;
+    const outcome = await verifiedCancel(anchor.baseKey, newestId);
+    console.warn(
+      `[kiosk-split] over-collection ${sum}¢ > ${total}¢ — voided newest tap ${newestId} (${outcome})`,
+    );
+    const updated = await updateTerminalAnchor(seed, (a) => ({
+      ...a,
+      tenders: (a.tenders ?? []).map((t) =>
+        t.paymentId === newestId ? { ...t, status: outcome } : t,
+      ),
+      paymentIds:
+        outcome === "canceled"
+          ? (a.paymentIds ?? []).filter((id) => id !== newestId)
+          : (a.paymentIds ?? []),
+      attempt: (a.attempt ?? 0) + 1,
+    }));
+    if (outcome !== "canceled" || !updated) {
+      await setSplitState(anchor.baseKey, "needs_review");
+      return { ok: false, error: "square-error", detail: "over-collected set needs review" };
+    }
+    anchor = updated;
+    termTenders = authorizedTenders(anchor, "terminal");
+    terminalPaymentIds = termTenders.map((t) => t.paymentId as string).filter(Boolean);
+    paymentIds = [...gcPaymentIds, ...terminalPaymentIds];
+    sum = gcSum + terminalPaymentIds.reduce((s, pid) => s + (verifiedTermAmounts.get(pid) ?? 0), 0);
   }
   if (sum !== total) {
     return {
@@ -591,21 +795,48 @@ export async function captureSplit(params: {
       };
     }
   } catch (err) {
-    // Do NOT cancel here: the reader tap may already be APPROVED and the guest
-    // is standing there — the client retries capture; abandon/idle unwinds.
-    return {
-      ok: false,
-      error: "square-error",
-      detail: err instanceof SquarePaymentError ? err.message : String(err),
-    };
+    // Tolerance: PayOrder can fail on an order that is ALREADY COMPLETED — a
+    // kill-switch-off capture-on-tap, or a racing capture that beat the lock's
+    // 30s expiry. If Square says the order is COMPLETED and its tender set
+    // covers ours, the money outcome we wanted already exists — succeed.
+    const info = await getOrderPaymentInfo(anchor.depositOrderId).catch(() => null);
+    if (info?.state === "COMPLETED" && paymentIds.every((id) => info.paymentIds.includes(id))) {
+      console.log(
+        `[kiosk-split] PayOrder raced an already-COMPLETED order ${anchor.depositOrderId} — treating as captured`,
+      );
+    } else {
+      // Do NOT cancel here: the reader tap may already be APPROVED and the
+      // guest is standing there — the client retries capture; abandon/idle
+      // unwinds.
+      return {
+        ok: false,
+        error: "square-error",
+        detail: err instanceof SquarePaymentError ? err.message : String(err),
+      };
+    }
   }
 
-  await updateTerminalAnchor(params.seed, (a) => ({
+  const capturedAt = new Date().toISOString();
+  await updateTerminalAnchor(seed, (a) => ({
     ...a,
     tenders: ledgerTenders,
-    capturedAt: new Date().toISOString(),
+    capturedAt,
   }));
-  await setSplitState(anchor.baseKey, "captured");
+  // PERSIST-FIRST house rule at capture: the full payment set must land in
+  // Neon (refund-alerts matches on it). A missing row is LOUD — never silent.
+  const persist = await setSplitCaptured(anchor.baseKey, {
+    tenders: ledgerTenders as SplitTenderEntry[],
+    paymentIds,
+    capturedAt,
+  });
+  if (!persist.persisted && persist.reason === "no-row") {
+    // setSplitCaptured writes state='captured' itself when the row exists, so
+    // this branch means the durable record is GONE while money moved.
+    console.error(
+      `[kiosk-split] CAPTURED but the ledger row is MISSING baseKey=${anchor.baseKey} payments=${paymentIds.join(",")} — refund-alerts is blind to this set; needs review`,
+    );
+    await setSplitState(anchor.baseKey, "needs_review");
+  }
   return { ok: true, paymentIds, primaryPaymentId: terminalPaymentIds[0] ?? gcPaymentIds[0] };
 }
 
@@ -623,9 +854,11 @@ export async function getSplitStatus(params: {
     status: {
       totalCents: anchorTotalCents(anchor),
       remainingCents: splitRemainingCents(anchor),
-      tenders: authorizedTenders(anchor, "gift_card").map((t) => ({
-        kind: "gift_card" as const,
-        ganLast4: t.ganLast4,
+      tenders: authorizedTenders(anchor).map((t) => ({
+        kind: t.kind,
+        isGiftCard: isGiftCardTender(t),
+        paymentId: t.paymentId,
+        last4: t.ganLast4 ?? t.last4,
         amountCents: t.amountCents,
       })),
       ...(anchor.capturedAt ? { capturedAt: anchor.capturedAt } : {}),

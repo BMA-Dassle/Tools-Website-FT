@@ -80,7 +80,9 @@ export async function POST(req: NextRequest) {
       `[kiosk-split] add tender failed seed=${body.seed} error=${result.error}${"detail" in result && result.detail ? ` detail=${result.detail}` : ""}`,
     );
     return NextResponse.json(
-      { error: FRIENDLY[result.error] ?? "Gift card could not be applied." },
+      // `code` is the machine-readable SplitError — the ambient client maps it
+      // to catalog copy (EN/ES); `error` stays for the legacy English board.
+      { error: FRIENDLY[result.error] ?? "Gift card could not be applied.", code: result.error },
       { status: errStatus(result.error) },
     );
   }
@@ -102,7 +104,7 @@ export async function DELETE(req: NextRequest) {
   const result = await removeGiftCardTender({ seed, splitToken, paymentId });
   if (!result.ok) {
     return NextResponse.json(
-      { error: FRIENDLY[result.error] ?? "Could not remove the gift card." },
+      { error: FRIENDLY[result.error] ?? "Could not remove the gift card.", code: result.error },
       { status: errStatus(result.error) },
     );
   }

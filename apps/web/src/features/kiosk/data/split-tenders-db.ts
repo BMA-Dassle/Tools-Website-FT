@@ -185,8 +185,8 @@ export async function getSplitAttempt(baseKey: string): Promise<SplitAttemptRow 
 export async function setSplitCaptured(
   baseKey: string,
   args: { tenders: SplitTenderEntry[]; paymentIds: string[]; capturedAt: string },
-): Promise<{ persisted: boolean }> {
-  if (!isDbConfigured()) return { persisted: false };
+): Promise<{ persisted: boolean; reason?: "no-db" | "no-row" }> {
+  if (!isDbConfigured()) return { persisted: false, reason: "no-db" };
   await ensureSchema();
   const q = sql();
   const rows = await q`
@@ -199,7 +199,7 @@ export async function setSplitCaptured(
     WHERE base_key = ${baseKey}
     RETURNING id
   `;
-  return { persisted: rows.length > 0 };
+  return rows.length > 0 ? { persisted: true } : { persisted: false, reason: "no-row" };
 }
 
 /**

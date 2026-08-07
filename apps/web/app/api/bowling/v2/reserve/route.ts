@@ -38,6 +38,7 @@ import {
   stampTerminalPaymentOnAnchor,
   upsertTerminalAnchor,
 } from "~/features/booking/service/unified-reserve";
+import { kioskAmbientGiftCardsEnabled } from "~/features/kiosk/flags";
 import { shortenUrl } from "@/lib/short-url";
 import {
   normalizePhoneE164,
@@ -532,7 +533,7 @@ export async function POST(req: NextRequest) {
         seed,
         depositOrderId,
         depositCents: depositForReader + gzCents,
-        ...(splitToken ? { splitToken } : {}),
+        ...(splitToken ? { splitToken, ambient: kioskAmbientGiftCardsEnabled() } : {}),
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "prepare failed";

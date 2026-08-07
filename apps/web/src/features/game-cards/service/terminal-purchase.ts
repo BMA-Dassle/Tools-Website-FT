@@ -18,6 +18,7 @@
  */
 import { randomBytes, randomUUID } from "crypto";
 import { upsertTerminalAnchor } from "~/features/booking/service/unified-reserve";
+import { kioskAmbientGiftCardsEnabled } from "~/features/kiosk/flags";
 import { getCenter } from "~/config/intercard-centers";
 import { getPackage, activationFeeCents } from "../constants";
 import { GameCardHttpError } from "../errors";
@@ -163,7 +164,13 @@ export async function prepareTerminalPurchase(
   });
   const splitToken = written?.splitToken;
 
-  return { groupId, orderId, totalCents, rows, ...(splitToken ? { splitToken } : {}) };
+  return {
+    groupId,
+    orderId,
+    totalCents,
+    rows,
+    ...(splitToken ? { splitToken, ambient: kioskAmbientGiftCardsEnabled() } : {}),
+  };
 }
 
 export interface TerminalFinalizeResult {

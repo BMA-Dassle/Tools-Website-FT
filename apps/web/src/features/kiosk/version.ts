@@ -15,6 +15,21 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.17.0 — AMBIENT GIFT CARDS (owner 2026-08-06): no more "Use a gift card"
+ *         button — on the pay screen a guest just swipes a physical gift card
+ *         at the Square reader or scans an eGift QR at the kiosk scanner, in
+ *         any order, and it works. A gift card that can't cover the total
+ *         PARTIALLY APPROVES (Square accept_partial_authorization); the screen
+ *         shows "applied $X — left to pay $Y" and the reader re-arms for the
+ *         remainder automatically. Up to 3 gift cards + a card per checkout.
+ *         Typed entry survives as a small "Enter a gift card number" link.
+ *         Under the hood every kiosk payment is now an auth captured atomically
+ *         by PayOrder once the tenders cover the total (the split rail's shape
+ *         became the ONE rail); every exit path — idle reset, start-over, the
+ *         kiosk-update hard reload — releases holds through a session registry,
+ *         with a server sweep behind it. Kill switch: KIOSK_AMBIENT_GIFT_CARDS
+ *         (server env; OFF = capture-on-tap exactly as before, the amber
+ *         gift-card button returns). EN + ES on every new string.
  * 1.16.11 — Mega days run JUNIOR PRO races only (owner 2026-08-05, effective
  *         2026-08-10): no Junior Starter, no Junior Intermediate. The people
  *         step's Mega-day notice and the date step's block reason say so in
@@ -839,7 +854,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.16.11";
+export const KIOSK_VERSION = "1.17.0";
 
 let bootVersion: string | null = null;
 let captured = false;

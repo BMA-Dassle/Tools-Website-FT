@@ -42,6 +42,8 @@ vi.mock("../data/split-tenders-db", () => ({
   upsertSplitAttempt: vi.fn(async () => {}),
   setSplitTenders: vi.fn(async () => {}),
   setSplitState: vi.fn(async () => {}),
+  setSplitCaptured: vi.fn(async () => ({ persisted: true })),
+  touchSplitAttempt: vi.fn(async () => {}),
   getSplitAttempt: vi.fn(async () => null),
 }));
 
@@ -51,6 +53,8 @@ vi.mock("~/features/booking/service/deposit", () => ({
 
 vi.mock("./square-terminal", () => ({
   dismissTerminalCheckout: vi.fn(async () => true),
+  getTerminalCheckout: vi.fn(async () => null),
+  getOrderPaymentInfo: vi.fn(async () => null),
 }));
 
 import redis from "@/lib/redis";
@@ -62,9 +66,16 @@ import {
   retrieveGiftCardById,
 } from "@/lib/square-gift-card";
 import { getSquarePayment } from "~/features/booking/service/deposit";
-import { upsertTerminalAnchor } from "~/features/booking/service/unified-reserve";
+import {
+  stampVerifiedTerminalTender,
+  upsertTerminalAnchor,
+} from "~/features/booking/service/unified-reserve";
 import { setSplitState, setSplitTenders, upsertSplitAttempt } from "../data/split-tenders-db";
-import { dismissTerminalCheckout } from "./square-terminal";
+import {
+  dismissTerminalCheckout,
+  getOrderPaymentInfo,
+  getTerminalCheckout,
+} from "./square-terminal";
 import {
   abandonSplit,
   addGiftCardTender,
@@ -81,6 +92,8 @@ const mockCancel = cancelSquarePayment as unknown as ReturnType<typeof vi.fn>;
 const mockPayOrder = payOrder as unknown as ReturnType<typeof vi.fn>;
 const mockGetPayment = getSquarePayment as unknown as ReturnType<typeof vi.fn>;
 const mockDismiss = dismissTerminalCheckout as unknown as ReturnType<typeof vi.fn>;
+const mockGetCheckout = getTerminalCheckout as unknown as ReturnType<typeof vi.fn>;
+const mockOrderInfo = getOrderPaymentInfo as unknown as ReturnType<typeof vi.fn>;
 
 const SEED = "seed-abc";
 const TOKEN = "secret-split-token";
@@ -146,13 +159,21 @@ beforeEach(() => {
   mockCancel.mockImplementation(async (paymentId: string) => {
     canceledIds.add(paymentId);
   });
-  mockGetPayment.mockImplementation(async (id: string) => ({
-    id,
-    status: canceledIds.has(id) ? "CANCELED" : "APPROVED",
-    amountCents: id.startsWith("pay_term") ? 3_000 : 2_000,
-    orderId: "ord_1",
-  }));
+  mockGetPayment.mockImplementation(async (id: string) => {
+    const amountCents = id.startsWith("pay_term") ? 3_000 : 2_000;
+    return {
+      id,
+      status: canceledIds.has(id) ? "CANCELED" : "APPROVED",
+      amountCents,
+      effectiveCents: amountCents,
+      orderId: "ord_1",
+    };
+  });
   mockPayOrder.mockResolvedValue({ orderState: "COMPLETED" });
+  // clearAllMocks clears CALLS, not implementations — pin the defaults so a
+  // per-test mockResolvedValue never leaks into its neighbors.
+  mockGetCheckout.mockResolvedValue(null);
+  mockOrderInfo.mockResolvedValue(null);
 });
 
 async function applyGiftCard() {
@@ -193,7 +214,7 @@ describe("lookup + add gift card", () => {
     const res = await applyGiftCard();
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.tender).toEqual({ ganLast4: "1234", amountCents: 2_000 });
+    expect(res.tender).toEqual({ paymentId: "pay_gc_1", ganLast4: "1234", amountCents: 2_000 });
     expect(res.remainingCents).toBe(3_000);
     expect(
       (upsertSplitAttempt as unknown as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
@@ -490,8 +511,130 @@ describe("capture", () => {
   });
 });
 
+describe("ambient rail — capture math + races (2026-08)", () => {
+  it("sums terminal tenders at EFFECTIVE (approved) cents, not the requested amount", async () => {
+    seedAnchor();
+    await applyGiftCard(); // 2000 of 5000
+    stampTap("pay_term_partial");
+    // A partial approval: Square kept amount_money at the requested 3000 but
+    // approved only 1200 — capture must see 2000+1200, never 2000+3000.
+    mockGetPayment.mockImplementation(async (id: string) => ({
+      id,
+      status: canceledIds.has(id) ? "CANCELED" : "APPROVED",
+      amountCents: id === "pay_term_partial" ? 3_000 : 2_000,
+      approvedCents: id === "pay_term_partial" ? 1_200 : undefined,
+      effectiveCents: id === "pay_term_partial" ? 1_200 : 2_000,
+      orderId: "ord_1",
+    }));
+    const res = await captureSplit({ seed: SEED, splitToken: TOKEN });
+    expect(!res.ok && res.error).toBe("sum-mismatch");
+    expect(!res.ok && "detail" in res && res.detail).toContain("3200");
+    expect(mockPayOrder).not.toHaveBeenCalled();
+  });
+
+  it("over-collection voids the NEWEST tap, recomputes, and captures the corrected set", async () => {
+    seedAnchor();
+    await applyGiftCard(); // 2000
+    stampTap("pay_term_1"); // verified 3000 → exactly covers
+    stampTap("pay_term_2"); // a second 3000 tap raced in → over-collected
+    const res = await captureSplit({ seed: SEED, splitToken: TOKEN });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // The newest (higher index) tap was voided; the set that captured is exact.
+    expect(mockCancel.mock.calls.map((c) => c[0])).toContain("pay_term_2");
+    expect(res.paymentIds).toEqual(["pay_gc_1", "pay_term_1"]);
+    expect(mockPayOrder.mock.calls[0][0].paymentIds).toEqual(["pay_gc_1", "pay_term_1"]);
+    const anchor = readAnchor();
+    expect(
+      anchor.tenders.find((t: { paymentId: string }) => t.paymentId === "pay_term_2").status,
+    ).toBe("canceled");
+  });
+
+  it("tolerates PayOrder failing against an ALREADY-COMPLETED order whose tenders cover ours", async () => {
+    seedAnchor({ depositCents: 2_000 });
+    await applyGiftCard(); // 2000 — covers all
+    mockPayOrder.mockRejectedValue(new Error("order must be OPEN, instead COMPLETED"));
+    mockOrderInfo.mockResolvedValue({
+      state: "COMPLETED",
+      paymentId: "pay_gc_1",
+      paymentIds: ["pay_gc_1"],
+    });
+    const res = await captureSplit({ seed: SEED, splitToken: TOKEN });
+    expect(res.ok).toBe(true);
+    expect(readAnchor().capturedAt).toBeTruthy();
+  });
+
+  it("does NOT tolerate a completed order that lacks our payments", async () => {
+    seedAnchor({ depositCents: 2_000 });
+    await applyGiftCard();
+    mockPayOrder.mockRejectedValue(new Error("boom"));
+    mockOrderInfo.mockResolvedValue({
+      state: "COMPLETED",
+      paymentId: "pay_other",
+      paymentIds: ["pay_other"],
+    });
+    const res = await captureSplit({ seed: SEED, splitToken: TOKEN });
+    expect(res.ok).toBe(false);
+    expect(readAnchor().capturedAt).toBeUndefined();
+  });
+
+  it("add harvests a tap that raced onto the armed checkout BEFORE sizing the gift card", async () => {
+    seedAnchor({ pendingCheckoutId: "chk_x" });
+    mockGetCheckout.mockResolvedValue({
+      checkoutId: "chk_x",
+      status: "COMPLETED",
+      paymentIds: ["pay_term_raced"],
+    });
+    const res = await applyGiftCard();
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    // The 3000¢ harvested tap shrank the remainder: min(2000, 5000−3000) = 2000 → 0 left.
+    expect(res.tender.amountCents).toBe(2_000);
+    expect(res.remainingCents).toBe(0);
+    expect(mockDismiss).toHaveBeenCalledWith("chk_x");
+    const anchor = readAnchor();
+    const harvested = anchor.tenders.find(
+      (t: { paymentId: string }) => t.paymentId === "pay_term_raced",
+    );
+    expect(harvested).toMatchObject({ kind: "terminal", amountCents: 3_000, status: "authorized" });
+  });
+
+  it("abandon voids an UNPOLLED tap sitting on the armed checkout (the 36h-strand fix)", async () => {
+    seedAnchor({ pendingCheckoutId: "chk_lost" });
+    mockGetCheckout.mockResolvedValue({
+      checkoutId: "chk_lost",
+      status: "COMPLETED",
+      paymentIds: ["pay_term_lost"],
+    });
+    const res = await abandonSplit({ seed: SEED, splitToken: TOKEN });
+    expect(res.ok).toBe(true);
+    expect(mockCancel.mock.calls.map((c) => c[0])).toContain("pay_term_lost");
+  });
+
+  it("stampVerifiedTerminalTender dedups a double-poll and refreshes verified fields", async () => {
+    seedAnchor();
+    await stampVerifiedTerminalTender(SEED, {
+      paymentId: "pay_t",
+      amountCents: 1_000,
+      sourceType: "CARD",
+      cardBrand: "SQUARE_GIFT_CARD",
+      last4: "9876",
+      checkoutId: "chk_1",
+    });
+    const again = await stampVerifiedTerminalTender(SEED, {
+      paymentId: "pay_t",
+      amountCents: 1_100, // Square settled on a corrected figure
+      checkoutId: "chk_1",
+    });
+    expect(again?.tenders).toHaveLength(1);
+    expect(again?.tenders?.[0]).toMatchObject({ paymentId: "pay_t", amountCents: 1_100 });
+    expect(again?.paymentIds).toEqual(["pay_t"]);
+    expect(again?.tenderSeq).toBe(1);
+  });
+});
+
 describe("splitRemainingCents", () => {
-  it("counts only AUTHORIZED gift-card tenders and includes Game Zone lines", () => {
+  it("counts EVERY authorized tender at verified amounts (ambient partials) and includes Game Zone lines", () => {
     const anchor = {
       ...baseAnchor,
       gameCards: { totalCents: 1_000 },
@@ -501,7 +644,18 @@ describe("splitRemainingCents", () => {
         { index: 2, kind: "terminal", amountCents: 999, status: "authorized" },
       ],
     } as never;
-    expect(splitRemainingCents(anchor)).toBe(4_500); // 6000 − 1500 (GC only)
+    expect(splitRemainingCents(anchor)).toBe(3_501); // 6000 − 1500 − 999
+  });
+
+  it("treats a legacy zero-amount terminal stamp as not-counted (old behavior)", () => {
+    const anchor = {
+      ...baseAnchor,
+      tenders: [
+        { index: 0, kind: "gift_card", amountCents: 1_500, status: "authorized" },
+        { index: 1, kind: "terminal", amountCents: 0, status: "authorized" },
+      ],
+    } as never;
+    expect(splitRemainingCents(anchor)).toBe(3_500); // 5000 − 1500 − 0
   });
 
   it("prefers the writer-stamped explicit totalCents over the legacy derivation", () => {
