@@ -717,6 +717,15 @@ export function WaiverFlow({
               : "We'll have these on file when you arrive."}
             {groupLine ? ` ${groupLine}` : ""}
           </p>
+          {/* THE LICENCE, WHILE THEY ARE STILL HERE.
+              It also lives on the terminal card, but that one is behind the
+              "I'm done" tap — and a guest who signs and closes the tab never
+              taps it, so the offer reached nobody who left the natural way.
+              ABOVE the button, not below: below it is a thing you scroll past
+              on your way to the obvious action, which is the same as not
+              shipping it. Renders itself away when nobody here holds a racing
+              tag, so a bowling waiver still ends on a bare confirmation. */}
+          <WaiverLicenceOffer grants={[...licenceGrants.values()]} />
           {/* Deliberate end to the flow: without it the roster of names just sits
               on the screen and the guest has to guess whether they can leave. It is
               gated on `ready` — this DEVICE's members — so a guest who signed only
