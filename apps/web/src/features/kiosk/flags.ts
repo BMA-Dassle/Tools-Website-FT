@@ -332,6 +332,18 @@ export function kioskAmbientGiftCardsEnabled(): boolean {
   return process.env.KIOSK_AMBIENT_GIFT_CARDS !== "false";
 }
 
+/**
+ * The tender sweep cron (kill switch, defaults ON, server-side only) — the
+ * observer that drains stale kiosk payment sessions: forward-captures covered
+ * sets, voids abandoned holds, alerts ops on captured-but-unfinalized orders.
+ * Turning it OFF leaves walk-away holds to Square's ~36h auto-cancel and
+ * captured-but-unfinalized sessions to manual discovery — an emergency valve
+ * if the sweep itself misbehaves, never a steady state.
+ */
+export function kioskTenderSweepEnabled(): boolean {
+  return process.env.KIOSK_TENDER_SWEEP !== "false";
+}
+
 // kioskSplitTenderEnabled is GONE (owner 2026-07-31) — paying with a gift card
 // (ONE gift card + ONE reader tap, "match web") is unconditional on every kiosk
 // checkout. History: tasks/split-tender-probes.md.
