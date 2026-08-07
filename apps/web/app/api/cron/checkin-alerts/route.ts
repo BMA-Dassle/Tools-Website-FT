@@ -121,7 +121,7 @@ async function fetchParticipants(sessionId: number): Promise<Participant[]> {
  * dedup (`!pandoraPids.has(pid)`) wouldn't catch them because
  * `pandoraPids` only saw the active list.
  */
-async function fetchPandoraPidsAnyState(sessionId: number): Promise<Set<string>> {
+async function fetchPandoraPidsAnyState(sessionId: number): Promise<Set<string> | null> {
   const res = await fetch(
     `${BASE}/api/pandora/session-participants?locationId=${FASTTRAX_LOCATION_ID}&sessionId=${sessionId}&excludeRemoved=false&excludeUnpaid=false&warm=1`,
     {
@@ -134,9 +134,21 @@ async function fetchPandoraPidsAnyState(sessionId: number): Promise<Set<string>>
       headers: { "x-pandora-internal": process.env.SWAGGER_ADMIN_KEY || "" },
     },
   );
-  if (!res.ok) return new Set();
+  // NULL, NOT AN EMPTY SET, ON ANY DOUBT.
+  //
+  // This used to `return new Set()` on a non-200. An empty set makes the
+  // `!allPandoraPids.has(pid)` test below pass for EVERY express holder — so
+  // the one check that stops a scratched racer being SMS'd silently inverted
+  // itself precisely when Pandora was unhealthy, which is exactly when staff
+  // are most likely to be shuffling heats. Null forces the caller to fail
+  // closed and skip the express path for this session instead.
+  if (!res.ok) return null;
   const data = await res.json();
-  const list = Array.isArray(data?.data) ? (data.data as { personId: string | number }[]) : [];
+  // A cache-fallback response is last-known state, not current truth — it can
+  // predate the removal we are trying to catch. Treat it as no answer.
+  if (data?.stale) return null;
+  if (!Array.isArray(data?.data)) return null;
+  const list = data.data as { personId: string | number }[];
   return new Set(list.map((p) => String(p.personId)));
 }
 
@@ -877,7 +889,25 @@ export async function GET(req: NextRequest) {
       //      filtered out of `participants` (correct), but still in
       //      our fastLane Redis index. The all-state set still
       //      contains their pid, so we skip — no stale check-in SMS.
-      const freshExpress = expressHolders.filter((e) => !allPandoraPids.has(String(e.personId)));
+      //
+      // null = we could not read the all-state roster, so case 2 is
+      // unanswerable. Drop the express path for this session rather than send
+      // on an unchecked list: an express holder who misses one check-in text
+      // can still be walked up at the desk, whereas texting a racer staff have
+      // just scratched is the failure we are here to prevent.
+      const freshExpress = allPandoraPids
+        ? expressHolders.filter((e) => !allPandoraPids.has(String(e.personId)))
+        : [];
+      if (!allPandoraPids && expressHolders.length > 0) {
+        console.warn(
+          `[checkin-alerts] session=${sessionId}: all-state roster unavailable, skipping ${expressHolders.length} express holder(s)`,
+        );
+        sessionResults.push({
+          track: trackKey,
+          sessionId,
+          note: `express-skipped: roster unavailable (${expressHolders.length})`,
+        } as (typeof sessionResults)[number] & { note: string });
+      }
 
       const trackDisplay = trackFromName(race.trackName)?.display || race.trackName;
 

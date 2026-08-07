@@ -24,6 +24,10 @@ export interface SmsLogEntry {
   source:
     | "pre-race-cron"
     | "checkin-cron"
+    /** Retraction sent when a racer is taken off a heat we already e-ticketed
+     *  — see features/racing/eticket/removal-sweep.ts. Its own source so the
+     *  admin board can tell "we told them" apart from "we un-told them". */
+    | "eticket-removal"
     | "arena-pre-cron"
     | "arena-checkin-cron"
     | "booking-confirm"
@@ -284,6 +288,7 @@ export interface CronRunEntry {
   cron:
     | "pre-race"
     | "checkin"
+    | "eticket-removal"
     | "video-match"
     | "arena-pre"
     | "arena-checkin"

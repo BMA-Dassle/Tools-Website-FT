@@ -26,6 +26,7 @@ import { queueRetry, drainRetries, voxSend } from "@/lib/sms-retry";
 import { sendEmail as sendGridEmail } from "@/lib/sendgrid";
 import { verifyCron } from "@/lib/cron-auth";
 import { warmRacerCodes } from "~/features/kiosk/license/code-cache";
+import { recordNotified, forgetNotified } from "~/features/racing/eticket/removal-sweep";
 import { updateLicencePasses } from "~/features/racing/wallet/licence-pass";
 import { KARTING_CHECKIN_EMAIL_NOTE, KARTING_CHECKIN_SMS_NOTE } from "@/lib/karting-checkin-copy";
 
@@ -654,6 +655,12 @@ function dedupKey(c: Candidate): string {
 async function releaseVacatedHeat(c: Candidate, ref: ParticipantTicketRef): Promise<void> {
   try {
     await redis.del(dedupKeyFor(ref.sessionId, c.participant.personId));
+    // Hand the vacated heat off cleanly. A move IS a removal from the old
+    // heat, and the racer is about to be told "was X -> now Y" by this very
+    // run — so the removal sweep must not also claim them. Its own guards
+    // already cover this, but dropping the index entry here means the case
+    // never even reaches them.
+    await forgetNotified(ref.sessionId, c.participant.personId);
   } catch {
     // Best effort. A surviving key costs one missed re-ticket, not a broken run.
   }
@@ -763,7 +770,6 @@ export async function GET(req: NextRequest) {
     // licence replacing per-heat e-tickets: the same information, on a pass
     // they already carry, at no per-race cost. Skips everyone without a pass in
     // one Neon query, so a heat of non-holders costs nothing.
-
 
     await warmRacerCodes(
       CLIENT_KEY,
@@ -977,6 +983,23 @@ export async function GET(req: NextRequest) {
           });
           if (ok) {
             await redis.set(dedupKey(c), "1", "EX", DEDUP_TTL);
+            // Remember WHO we told and WHERE to reach them, so the removal
+            // sweep can retract this exact ticket if the racer is scratched
+            // before the heat. The dedup key alone cannot: it holds "1".
+            await recordNotified(c.session.sessionId, {
+              personId: String(c.participant.personId),
+              phone,
+              firstName: c.participant.firstName || "Racer",
+              participantId:
+                c.participant.participantId != null
+                  ? String(c.participant.participantId)
+                  : undefined,
+              ticketId,
+              group: false,
+              track: c.trackDisplay,
+              heatNumber: c.session.heatNumber,
+              scheduledStart: c.session.scheduledStart,
+            });
             sent++;
             singleSmsSends++;
           } else {
@@ -1052,6 +1075,25 @@ export async function GET(req: NextRequest) {
           // Set dedup keys only for FRESH members — already-sent members keep their existing keys.
           for (const c of fresh) {
             await redis.set(dedupKey(c), "1", "EX", DEDUP_TTL);
+          }
+          // Index EVERY member this SMS covered, not just the fresh ones — the
+          // body lists all of their heats, so a scratch against any of them
+          // makes the message the guest is holding wrong.
+          for (const c of all) {
+            await recordNotified(c.session.sessionId, {
+              personId: String(c.participant.personId),
+              phone,
+              firstName: c.participant.firstName || "Racer",
+              participantId:
+                c.participant.participantId != null
+                  ? String(c.participant.participantId)
+                  : undefined,
+              ticketId: groupId,
+              group: true,
+              track: c.trackDisplay,
+              heatNumber: c.session.heatNumber,
+              scheduledStart: c.session.scheduledStart,
+            });
           }
           sent += fresh.length;
           groupedSmsSends++;

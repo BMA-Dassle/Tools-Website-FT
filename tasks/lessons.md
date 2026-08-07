@@ -3267,3 +3267,45 @@ writing down):
 written in was 47 commits behind `origin/main`, where the page had *already* been split into two
 per-platform buttons using `?platform=`. Committing the stale file would have reverted that. Build
 the change in a worktree off `origin/main`, not on top of whatever the shared tree happens to hold.
+
+## A filter parameter is not a state field — Pandora removals (2026-08-06)
+
+Pandora's session-participants endpoint takes `excludeRemoved`, documented as
+"omit participants with `F_PAR_STATE = 5`". It is easy to read that and assume
+the state comes back on the record. **It does not.** A removed racer's payload is
+byte-identical in shape to an active one — no state, no flag, no timestamp:
+
+```json
+{"participantId":"57909002","personId":"11588634","firstName":"Ethan",...,"paid":true,"checkedIn":null,"guardian":null}
+```
+
+So there is no such thing as "check whether this racer was removed" in one call.
+The only available signal is a **set-diff of two calls**:
+
+```
+removed = (excludeRemoved=false) \ (excludeRemoved=true)
+```
+
+Two consequences worth carrying forward:
+
+1. **Diff-derived facts are positive; absence is not.** `in allStates && !in
+   active` means Pandora affirmatively has that person at state 5. A racer simply
+   missing from a payload means nothing — could be a timeout, a partial page, a
+   cache fallback. Anything that acts on removal (retraction SMS, cancelling a
+   booking, clearing a pass) must key off the positive form and fail closed on
+   the other, or it will fire hardest exactly when the upstream is sick.
+
+2. **A fail-open guard inverts under load.** `fetchPandoraPidsAnyState` in
+   `checkin-alerts` returned `new Set()` on a non-200. Its entire documented job
+   was stopping a scratched racer being SMS'd via the express lane — and an empty
+   set makes `!pids.has(id)` true for everyone, so the check disabled itself
+   precisely when Pandora was unhealthy and staff were most likely shuffling
+   heats. Guards that answer "is it safe to send?" must return null/throw on
+   doubt, never a permissive empty value.
+
+Related: a MOVE is a removal from the old heat. Anything reacting to removals has
+to exclude moves or it double-texts on an event another cron already owns — see
+`features/racing/eticket/removal-sweep.ts` for the four-guard version, and note
+that the guard built from "sessions we already touched" was NOT enough (a racer
+moved to a not-yet-ticketed heat slipped through; caught only by replaying a real
+day against live rosters, never by unit tests).

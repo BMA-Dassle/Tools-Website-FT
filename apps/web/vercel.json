@@ -45,6 +45,10 @@
       "schedule": "*/2 * * * *"
     },
     {
+      "path": "/api/cron/eticket-removals",
+      "schedule": "*/2 * * * *"
+    },
+    {
       "path": "/api/cron/arena-tickets",
       "schedule": "*/2 * * * *"
     },

@@ -1044,3 +1044,89 @@ walk to the other track. Staying on one track drops the walk, so same-track pair
 **Pre-existing, NOT fixed here:** the v2 `PackageHeatPicker` is otherwise all hardcoded English
 (card status labels, tooltips, roster, banners) despite being a kiosk surface. Only the gap note
 is keyed. Worth its own i18n PR.
+
+---
+
+# E-ticket retraction on removal (2026-08-06)
+
+## The bug
+
+A racer taken off a heat kept the e-ticket SMS we had already sent them. Measured
+across 8/5–8/6: **29 cron sends named a heat the recipient is now off**, 19
+distinct racers. Every one went out BEFORE the heat ran — median ~50 min of lead
+time, up to 135 — so there was a real, actionable window and nothing used it.
+
+**Root cause: the SMS is a one-shot snapshot with no retraction path.** The
+`/t/{id}` and `/g/{id}` pages already poll session-participants every 20s and
+flip to `InvalidCard` (verified — and `InvalidCard` is evaluated before `isPast`
+and `checkingIn`, so removal wins the render race). But that only helps a guest
+who reopens the link. The text in their pocket stayed wrong.
+
+**Why nothing caught it:** Pandora exposes no removal event. `excludeRemoved`
+filters on `F_PAR_STATE = 5`, but that field is NOT in the response body — a
+removed racer's record is byte-identical in shape to an active one. Verified
+against live payloads. The only way to know is to pull the roster twice and diff.
+
+## What shipped
+
+- **`src/features/racing/eticket/removal-sweep.ts`** — notify index + pure
+  `removalVerdict` guard matrix + retraction copy/send.
+- **`app/api/cron/eticket-removals/route.ts`** — every 2 min, `*/2 * * * *`.
+- **`pre-race-tickets`** — `recordNotified` on both send paths;
+  `releaseVacatedHeat` now also `forgetNotified`s the vacated heat.
+- **`checkin-alerts`** — `fetchPandoraPidsAnyState` fail-open FIXED (see below).
+- Kill switch `ETICKET_REMOVAL_SWEEP` (defaults ON, `!== "false"`).
+
+## A move is not a removal — four guards
+
+Moving a racer A→B removes them from A, and `pre-race-tickets` already owns that
+case ("was X -> now Y" + `supersedeMovedTicket`). Double-texting on a move would
+be strictly worse than the bug. Guards, in order:
+
+- **G1** racer is ACTIVE on any other heat today
+- **G2** old ticket carries `movedTo`
+- **G3** participant index repointed at another session
+- **G4** 6-minute grace = 3 pre-race ticks, so the move path always wins the race
+
+**G1 had to be widened, and the replay is what caught it.** Built only from
+sessions we'd e-ticketed, it missed a racer moved to a not-yet-ticketed heat —
+racer 18586763 (bounced across four heats in twelve minutes on 8/6) drew four
+retractions. Now computed across the whole day, lazily, only when someone is
+about to be retracted, via `prefer=cache` so it is Redis reads not Pandora.
+
+## Fail closed, always
+
+The diff is a POSITIVE signal ("Pandora affirmatively has them at state 5").
+Inferring removal from mere ABSENCE is indistinguishable from Pandora blinking,
+and would text racers mid-outage that their race had vanished. So: either roster
+call non-200, malformed, or flagged `stale` by the proxy's cache-fallback path →
+skip the whole session. Empty all-state roster → skip. Heat already ran
+(`actualStart`/`actualEnd`) → skip; beyond retracting.
+
+Same reasoning fixed `fetchPandoraPidsAnyState`, which returned `new Set()` on a
+non-200 — making `!allPandoraPids.has(pid)` pass for EVERY express holder, so the
+one existing removal check silently inverted itself exactly when Pandora was
+unhealthy. Now returns null and the caller drops the express path for that tick.
+
+## Verification
+
+- 19 unit tests on the guard matrix (incl. move-vs-grace ordering, GSM-7 body).
+- Full suite: 256 files / 3563 tests green. tsc + eslint clean.
+- **Live replay of 8/6** (`scripts/eticket-removal-replay.mts`, untracked local probe): 33 removals →
+  **28 suppressed as moves, 5 genuine scratches retracted**, one text each.
+
+## Known limits
+
+- A racer scratched from one heat while still active on another gets NO
+  retraction (G1 is blunt and suppresses it). False negative, chosen
+  deliberately: a wrong retraction is far worse than a missed one. `participantId`
+  could distinguish move-vs-second-booking precisely if this ever matters.
+- Only pre-race notifications are swept. Check-in alerts fire when the heat is
+  already being called, so the retraction window is ~0 and the heat-ran guard
+  would exclude them anyway.
+- **Not yet smoked against a live scratch.** The notify index only populates
+  once `pre-race-tickets` runs with this code deployed.
+- BMI precision is NOT a concern on this path (checked, not assumed): Pandora
+  returns `personId` as a QUOTED STRING — `"personId":"63000000007188906"` —
+  so `JSON.parse` round-trips 17-digit ids bit-exact and `typeof` is `string`.
+  The proxy, the crons and this sweep never coerce them.
