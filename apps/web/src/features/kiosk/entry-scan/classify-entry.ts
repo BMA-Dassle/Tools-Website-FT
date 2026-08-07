@@ -35,10 +35,23 @@
  * the caller tries the reservation lookup and falls back to the code screen.
  * Bare 6–16-char tokens are ambiguous for the same structural reason and take
  * the same path. Owner decision 2026-08-02: "decide by bill_id".
+ *
+ * WHY A RACER HANDLE IS A URL AND NEVER A BARE CODE. A BMI login code is ~13
+ * alphanumeric characters (`3tn4d694p6z94`), which is exactly `SHORT_CODE_RE`
+ * and also a perfectly legal promo code — there is no shape that separates
+ * them, so a bare code CANNOT get a verdict here without stealing payloads
+ * from both neighbours. Both racer handles we accept are therefore URLs with a
+ * distinct host or path: the SMS-Timing app's own personal QR, and our
+ * `/r/{code}` barcode (the shape the wallet racing licence carries). That
+ * makes `racer` a structural verdict with zero collision surface — the same
+ * reasoning that lets `/v/{code}` be decided here while a bare `HPW` cannot.
  */
 
 import { classifyKioskCode } from "../code-entry/classify";
 import { classifyScan, shortCodeFromPath } from "../checkin/scan";
+// Direct import, not the `../qr-scanner` barrel: that re-exports React hooks
+// and this module is pure (imported by route handlers and by node tests).
+import { parseMemberQr } from "../qr-scanner/member-qr";
 
 export type EntryScanRoute =
   /** A reservation handle that carries its own structure (signed URL, /s link,
@@ -53,6 +66,11 @@ export type EntryScanRoute =
   /** Could be either. Try the reservation lookup; on a miss, open the code
    *  screen with `raw`. Covers HPW vouchers and bare short tokens. */
   | { kind: "resolve-then-code-entry"; value: string; raw: string }
+  /** A racer identifying themselves — the SMS-Timing app QR or our `/r/{code}`
+   *  wallet-licence barcode. `value` is the Office search token. Resolves to a
+   *  PERSON, not a booking, so the caller decides between check-in (they have
+   *  a reservation today) and sign-in (they don't). */
+  | { kind: "racer"; value: string; clientKey?: string; raw: string }
   /** Nothing an entry screen routes. The caller shows a brief toast. */
   | { kind: "unsupported"; reason: UnsupportedReason; raw: string };
 
@@ -75,10 +93,61 @@ function looksLikeLicense(raw: string): boolean {
   return raw.startsWith("@") || raw.includes("ANSI ");
 }
 
+/** A racer identity lifted out of a scan. `code` is the Office search token —
+ *  `search/person?token=` resolves it to exactly one racer. */
+export interface RacerHandle {
+  code: string;
+  /** Only the SMS-Timing QR carries one; a foreign key yields no matches. */
+  clientKey?: string;
+}
+
+/**
+ * Our own racing-licence barcode: `https://headpinz.com/r/{loginCode}`. Shaped
+ * on `/v/{code}` in code-entry/classify.ts, for the same reason — a distinct
+ * path makes the payload decidable without a lookup.
+ *
+ * Alphanumeric only. The code becomes an Office search TOKEN, and that search
+ * is a general person-search oracle for anyone who can shape the token; the
+ * character class is what keeps this to code-shaped inputs (it rejects the
+ * `LastName M/D/YYYY` form, and the slashes/spaces that make the upstream 500
+ * under undici — see lookup.server.ts).
+ */
+const RACER_PATH_RE = /\/r\/([A-Za-z0-9]{4,32})(?:[/?#]|$)/;
+
+/**
+ * The racer handle in a scan, or null. Exported because three surfaces need
+ * the SAME answer from the SAME string: this classifier, the check-in lookup
+ * route (which must recognise a racer payload before it tries to resolve a
+ * billId), and the people step (which re-derives it from the hand-off).
+ */
+export function racerHandleFromRaw(input: string): RacerHandle | null {
+  const raw = (input || "").trim();
+  if (!raw) return null;
+  const qr = parseMemberQr(raw);
+  if (qr) return { code: qr.code, clientKey: qr.clientKey };
+  if (!/^https?:\/\//i.test(raw)) return null;
+  const m = RACER_PATH_RE.exec(raw);
+  return m ? { code: m[1] } : null;
+}
+
 export function classifyEntryScan(input: string): EntryScanRoute {
   const raw = (input || "").trim();
   if (!raw) return { kind: "unsupported", reason: "unknown", raw };
   if (looksLikeLicense(raw)) return { kind: "unsupported", reason: "license", raw };
+
+  // ── Pass 0: racer identity. Ahead of both classifiers because neither knows
+  // these shapes — `classifyKioskCode` calls an smstim.in URL `unknown` and a
+  // `/r/` URL `unknown` too, and both then fall through to `classifyScan`,
+  // which calls them `unknown` as well. Today that combination is a toast.
+  const racer = racerHandleFromRaw(raw);
+  if (racer) {
+    return {
+      kind: "racer",
+      value: racer.code,
+      ...(racer.clientKey ? { clientKey: racer.clientKey } : {}),
+      raw,
+    };
+  }
 
   const isUrl = /^(?:https?:\/\/|sqgc:\/\/)/i.test(raw);
 

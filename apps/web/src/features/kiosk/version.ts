@@ -15,6 +15,22 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.18.0 — RACERS SIGN IN BY SCANNING, FROM THE ENTRY SCREENS. A racing licence
+ *         (the wallet pass barcode, or our `/r/{code}` deep link) or the
+ *         SMS-Timing app's personal QR now works on the attract screen and the
+ *         category chooser/shelves, not just deep inside the people step.
+ *         Until now the kiosk classified that barcode as `unsupported/unknown`
+ *         and simply did nothing — a licence scanned at a kiosk pulled up
+ *         nothing at all (owner, 2026-08-07).
+ *         The scan resolves to a PERSON, so it has two destinations and the
+ *         server picks: a racer with a booking here today goes straight into
+ *         check-in with no OTP (possession of the code is the identity — the bar
+ *         the people-step sign-in already used), and a racer with nothing booked
+ *         has their identity carried into the flow so the people step signs them
+ *         in without a second scan.
+ *         Both handles are URLs on purpose: a bare 13-char login code is
+ *         indistinguishable from a reservation short code and from a promo, so
+ *         it deliberately gets NO verdict.
  * 1.17.0 — AMBIENT GIFT CARDS (owner 2026-08-06): no more "Use a gift card"
  *         button — on the pay screen a guest just swipes a physical gift card
  *         at the Square reader or scans an eGift QR at the kiosk scanner, in
@@ -856,7 +872,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.17.0";
+export const KIOSK_VERSION = "1.18.0";
 
 let bootVersion: string | null = null;
 let captured = false;

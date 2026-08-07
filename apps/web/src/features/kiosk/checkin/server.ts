@@ -524,13 +524,23 @@ export async function phoneIsVerified(phone: string): Promise<boolean> {
   }
 }
 
-export async function matchByPhone(
+/**
+ * Today's reservations at this center for one contact channel, each carrying
+ * its own proof token.
+ *
+ * `getReservationsByContact` is SINGLE-CHANNEL by design (it refuses to run an
+ * unfiltered scan), so phone and email are separate calls — `seen` is passed in
+ * by callers that need to merge several channels for the same human without
+ * minting two proofs for one booking.
+ */
+async function matchByContact(
   center: CenterSlug,
-  phone: string,
+  contact: { phone?: string; email?: string },
+  verifiedVia: CheckinVerifiedVia,
+  seen: Set<string> = new Set(),
 ): Promise<CheckinLookupMatch[]> {
-  const rows = await getReservationsByContact({ phone, limit: 200 }).catch(() => []);
+  const rows = await getReservationsByContact({ ...contact, limit: 200 }).catch(() => []);
   const today = todayET();
-  const seen = new Set<string>();
   const matches: CheckinLookupMatch[] = [];
   // Row order is event_at DESC; group by billId and keep today + this center.
   // A verified own-phone match IS proof of possession (the phone is the
@@ -544,13 +554,52 @@ export async function matchByPhone(
     seen.add(row.bmiBillId);
     const summary = await loadSummary(row.bmiBillId);
     if (!summary || summary.cancelled) continue;
-    const proofToken = await mintProof(row.bmiBillId, center, "otp");
+    const proofToken = await mintProof(row.bmiBillId, center, verifiedVia);
     matches.push({
       proofToken,
       label: summary.label,
       timeLabel: summary.timeLabel,
       activitiesLabel: summary.activitiesLabel,
     });
+  }
+  return matches;
+}
+
+export async function matchByPhone(
+  center: CenterSlug,
+  phone: string,
+): Promise<CheckinLookupMatch[]> {
+  return matchByContact(center, { phone }, "otp");
+}
+
+/**
+ * A racer's own reservations today — the person→booking half of a licence scan.
+ *
+ * The identity is already established by the caller (an Office token search on
+ * the scanned code); this only turns that person into today's booking. It goes
+ * through the SAME contact index the phone path uses rather than a new
+ * personId→booking join, because the booking rows are keyed on the contact the
+ * guest gave US, not on a BMI person.
+ *
+ * Several `contacts` because one human legitimately has several Office records
+ * (the lookup deliberately returns every duplicate) with different phones on
+ * them; the shared `seen` set keeps one booking from matching twice.
+ */
+export async function matchByRacerContacts(
+  center: CenterSlug,
+  contacts: Array<{ phone?: string; email?: string }>,
+): Promise<CheckinLookupMatch[]> {
+  const seen = new Set<string>();
+  const matches: CheckinLookupMatch[] = [];
+  for (const contact of contacts) {
+    if (contact.phone) {
+      matches.push(...(await matchByContact(center, { phone: contact.phone }, "racer", seen)));
+    }
+    // Email is a FALLBACK, not a second pass: a racer whose Office record has
+    // no mobile still has an address, and that is the only channel left.
+    if (contact.email) {
+      matches.push(...(await matchByContact(center, { email: contact.email }, "racer", seen)));
+    }
   }
   return matches;
 }

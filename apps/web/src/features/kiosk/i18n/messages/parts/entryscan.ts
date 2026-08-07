@@ -1,12 +1,14 @@
 /** Entry-screen scanning (attract + the category chooser/shelves) i18n
  *  fragment. Add `"entryscan.*"` keys; mirror every key in es.
  *
- *  These are the ONLY guest-visible strings the entry-scan feature produces —
- *  a successful scan navigates and says nothing, so everything here is a miss
- *  message. Copy rule: never blame the guest and never leave them stuck. Each
- *  line names what happened and where the nearest human is. Glossary
- *  (FastTrax, HeadPinz, Game Zone) stays untranslated. es values are a
- *  first-pass AI translation pending native-Spanish review. */
+ *  These are the guest-visible strings the entry-scan feature produces. A scan
+ *  that navigates says nothing — the screen change IS the feedback — so almost
+ *  everything here is a miss message; the one exception is a racer scanning on
+ *  the chooser, which has somewhere to put their identity but nowhere to send
+ *  them. Copy rule: never blame the guest and never leave them stuck. Each line
+ *  names what happened and where the nearest human is. Glossary (FastTrax,
+ *  HeadPinz, Game Zone) stays untranslated. es values are a first-pass AI
+ *  translation pending native-Spanish review. */
 export const entryscanEn = {
   // Square gift card — recognised, but it has no entry-screen destination yet
   // (owner 2026-08-02: "we will introduce others later").
@@ -24,6 +26,11 @@ export const entryscanEn = {
   "entryscan.tryAgain": "Just a moment — try that scan again.",
   // Shown while the one conditional lookup is in flight.
   "entryscan.checking": "Checking that code…",
+  // A racing licence / member code scanned on the chooser, where there is no
+  // screen to move to. Deliberately does NOT claim "signed in": when check-in
+  // is switched off we skip the lookup, so the people step is the first thing
+  // that actually proves the code resolves to somebody.
+  "entryscan.racerSignedIn": "Got it — pick an activity and we'll have you ready to go.",
 } as const;
 
 export const entryscanEs: Record<keyof typeof entryscanEn, string> = {
@@ -36,4 +43,5 @@ export const entryscanEs: Record<keyof typeof entryscanEn, string> = {
     "No podemos usar eso en este quiosco. Un miembro del equipo puede ayudarte.",
   "entryscan.tryAgain": "Un momento: intenta escanear de nuevo.",
   "entryscan.checking": "Verificando ese código…",
+  "entryscan.racerSignedIn": "Listo: elige una actividad y te dejamos todo preparado.",
 };

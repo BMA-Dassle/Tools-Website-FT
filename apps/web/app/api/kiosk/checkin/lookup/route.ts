@@ -9,6 +9,7 @@ import {
   mintProof,
   mintRef,
   matchByPhone,
+  matchByRacerContacts,
   phoneIsVerified,
   listBrowseRows,
   readProof,
@@ -17,6 +18,9 @@ import {
   confirmContactOtp,
 } from "~/features/kiosk/checkin/server";
 import { isExpressBooking } from "~/features/kiosk/checkin/express";
+import { racerHandleFromRaw } from "~/features/kiosk/entry-scan/classify-entry";
+import { lookupMemberMatches } from "~/features/kiosk/license/lookup.server";
+import { RACER_LOGIN_CODE_RE } from "~/features/kiosk/license/types";
 import { kioskVoucherPrefillEnabled } from "~/features/kiosk/flags";
 import type {
   CheckinConfirmOtpResponse,
@@ -178,6 +182,43 @@ export async function POST(req: NextRequest) {
   // OTP-confirmed to the booking's OWN contact first — so knowing a guessable
   // id only ever texts the real owner, never reveals their PII.
   if (typeof body.scan === "string" && body.scan.trim()) {
+    // A racer handle (SMS-Timing app QR, or our /r/{code} licence barcode)
+    // identifies a PERSON, not a booking, so it can't go through
+    // resolveScanToBillId — that resolves exactly one billId and a racer can
+    // legitimately have several today. Recognised here rather than in the
+    // classifier's caller because the shapes are unambiguous URLs and this
+    // keeps one resolver per payload kind.
+    const racer = racerHandleFromRaw(body.scan);
+    if (racer) {
+      if (!RACER_LOGIN_CODE_RE.test(racer.code) && !/^[0-9a-f][0-9a-f-]{15,63}$/i.test(racer.code)) {
+        return NextResponse.json<CheckinLookupResponse>({ ok: false, reason: "invalid" });
+      }
+      let people: Awaited<ReturnType<typeof lookupMemberMatches>>;
+      try {
+        people = await lookupMemberMatches(racer.code, racer.clientKey);
+      } catch (err) {
+        console.warn(
+          `[kiosk-checkin] racer lookup failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return NextResponse.json<CheckinLookupResponse>({ ok: false, reason: "not-found" });
+      }
+      if (people.length === 0) {
+        // Also what a degraded Office person subsystem looks like — it answers
+        // `[]`, not an error (2026-08-03). Logged so prod isn't silent again.
+        console.warn("[kiosk-checkin] racer code resolved nobody (Office search may be degraded)");
+        return NextResponse.json<CheckinLookupResponse>({ ok: false, reason: "not-found" });
+      }
+      const matches = await matchByRacerContacts(
+        center,
+        people.map((p) => ({ phone: p.phone || undefined, email: p.email || undefined })),
+      );
+      if (matches.length === 0) {
+        // Known racer, no booking here today — a sign-in, not a failure.
+        return NextResponse.json<CheckinLookupResponse>({ ok: false, reason: "no-reservation" });
+      }
+      return NextResponse.json<CheckinLookupResponse>({ ok: true, matches });
+    }
+
     const resolved = await resolveScanToBillId(center, body.scan);
     if (!resolved.billId) {
       return NextResponse.json<CheckinLookupResponse>(

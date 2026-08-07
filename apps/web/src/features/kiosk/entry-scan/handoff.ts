@@ -20,8 +20,14 @@
 
 export const KIOSK_ENTRY_SCAN_KEY = "kiosk:entry-scan";
 
-/** Where the entry screen decided this scan should land. */
-export type EntryScanTarget = "checkin" | "code-entry" | "game-card";
+/** Where the entry screen decided this scan should land.
+ *
+ *  `racer` is the sign-in destination, NOT check-in: it means the scan
+ *  resolved to a person who has no reservation here today, so the people step
+ *  signs them in with it instead. A racer WITH a booking is stashed as
+ *  `checkin` like any other reservation handle — the check-in lookup route
+ *  understands the payload, so that path needs no target of its own. */
+export type EntryScanTarget = "checkin" | "code-entry" | "game-card" | "racer";
 
 export interface EntryScanHandoff {
   target: EntryScanTarget;
@@ -35,7 +41,7 @@ export interface EntryScanHandoff {
 }
 
 function isTarget(v: unknown): v is EntryScanTarget {
-  return v === "checkin" || v === "code-entry" || v === "game-card";
+  return v === "checkin" || v === "code-entry" || v === "game-card" || v === "racer";
 }
 
 export function stashEntryScan(handoff: EntryScanHandoff): void {
@@ -48,12 +54,18 @@ export function stashEntryScan(handoff: EntryScanHandoff): void {
 }
 
 /**
- * Read and CLEAR the pending hand-off. Pass `target` to take it only when it
- * was meant for you — two destinations can be mounted in the same tree
- * (`KioskFlow` renders both the code screen and Game Zone), and neither should
- * swallow the other's payload.
+ * Read and CLEAR the pending hand-off. Name the `targets` you handle to take it
+ * only when it was meant for you — several destinations can be mounted in the
+ * same tree (`KioskFlow` renders both the code screen and Game Zone), and none
+ * should swallow another's payload.
+ *
+ * A NON-MATCH DOES NOT CLEAR. That is what lets a hand-off pass through a
+ * screen on its way to a deeper one: the racer sign-in is stashed on the
+ * chooser but consumed by the people step, several taps later, and `KioskFlow`
+ * mounts in between. Naming your targets is therefore not an optimisation —
+ * omitting them silently eats payloads addressed to someone else.
  */
-export function consumeEntryScan(target?: EntryScanTarget): EntryScanHandoff | null {
+export function consumeEntryScan(...targets: EntryScanTarget[]): EntryScanHandoff | null {
   let parsed: EntryScanHandoff | null = null;
   try {
     const raw = sessionStorage.getItem(KIOSK_ENTRY_SCAN_KEY);
@@ -64,7 +76,7 @@ export function consumeEntryScan(target?: EntryScanTarget): EntryScanHandoff | n
   } catch {
     // Unparseable — fall through and clear it so it can't wedge the screen.
   }
-  if (parsed && target && parsed.target !== target) return null;
+  if (parsed && targets.length > 0 && !targets.includes(parsed.target)) return null;
   clearEntryScan();
   return parsed;
 }

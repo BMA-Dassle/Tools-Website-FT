@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyEntryScan } from "./classify-entry";
+import { classifyEntryScan, racerHandleFromRaw } from "./classify-entry";
 import { classifyScan } from "../checkin/scan";
 import { classifyKioskCode } from "../code-entry/classify";
 
@@ -9,6 +9,10 @@ const HPW = "HPWZ96RZ4SX";
 const BMI_VOUCHER = "C2D8M8D6M6C9M9U9U5K7Q6R9";
 /** The 1D barcode on a Game Zone card: account zero-padded to 16. */
 const GAME_CARD_BARCODE = "0000000001063464";
+/** A real BMI login code — `person.tags[].tag` (verified live 2026-08-03). */
+const LOGIN_CODE = "3tn4d694p6z94";
+/** The SMS-Timing app's personal QR, exactly as the scanner delivers it. */
+const MEMBER_QR = `https://smstim.in?["headpinzftmyers","3f59bc35-0548-46df-ba0c-f8cdedc6568d"]`;
 
 describe("classifyEntryScan", () => {
   describe("the four collisions that make a single classifier wrong", () => {
@@ -94,6 +98,68 @@ describe("classifyEntryScan", () => {
         kind: "resolve-then-code-entry",
         value: HPW,
       });
+    });
+  });
+
+  describe("racer identity — the wallet licence and the SMS-Timing app QR", () => {
+    it("routes our /r/{code} licence barcode to the racer path", () => {
+      expect(classifyEntryScan(`https://headpinz.com/r/${LOGIN_CODE}`)).toMatchObject({
+        kind: "racer",
+        value: LOGIN_CODE,
+      });
+    });
+
+    it("routes the SMS-Timing app QR to the racer path, with its clientKey", () => {
+      expect(classifyEntryScan(MEMBER_QR)).toMatchObject({
+        kind: "racer",
+        value: "3f59bc35-0548-46df-ba0c-f8cdedc6568d",
+        clientKey: "headpinzftmyers",
+      });
+    });
+
+    it("carries NO clientKey for our own barcode — that is what tells them apart", () => {
+      const r = classifyEntryScan(`https://headpinz.com/r/${LOGIN_CODE}`);
+      expect(r).toMatchObject({ kind: "racer" });
+      expect("clientKey" in r && r.clientKey).toBeFalsy();
+    });
+
+    it("survives query and fragment on the licence URL", () => {
+      expect(classifyEntryScan(`https://headpinz.com/r/${LOGIN_CODE}?utm=wallet`)).toMatchObject({
+        kind: "racer",
+        value: LOGIN_CODE,
+      });
+    });
+
+    // THE WHOLE REASON the handle is a URL. A bare login code is 13 alnum
+    // chars, which is `SHORT_CODE_RE` — indistinguishable from a reservation
+    // short code and from a promo. If someone later "simplifies" this by
+    // matching bare codes, they will steal payloads from both neighbours.
+    it("does NOT claim a bare login code — that shape belongs to nobody", () => {
+      expect(classifyScan(LOGIN_CODE).kind).toBe("shortcode"); // the trap
+      expect(classifyKioskCode(LOGIN_CODE).kind).toBe("promo"); // the other trap
+      expect(classifyEntryScan(LOGIN_CODE).kind).toBe("resolve-then-code-entry");
+    });
+
+    it("does not mistake a voucher deep link for a racer handle", () => {
+      expect(racerHandleFromRaw(`https://headpinz.com/v/${HPW}`)).toBeNull();
+    });
+
+    it("rejects a foreign host that merely has an /r/ segment", () => {
+      // Only the code matters downstream, so a same-shaped path elsewhere is
+      // still a racer handle — but a bare relative string never is.
+      expect(racerHandleFromRaw(`/r/${LOGIN_CODE}`)).toBeNull();
+    });
+
+    it("rejects a malformed member QR rather than passing junk to the search", () => {
+      expect(racerHandleFromRaw(`https://smstim.in?["headpinzftmyers"]`)).toBeNull();
+      expect(racerHandleFromRaw(`https://smstim.in?not-json`)).toBeNull();
+    });
+
+    it("rejects a code with characters the Office token search must never see", () => {
+      // Slashes/spaces are what make that upstream 500 under undici, and a
+      // `LastName M/D/YYYY` token would turn this into a person-search oracle.
+      expect(racerHandleFromRaw("https://headpinz.com/r/Osborn 2/12/1991")).toBeNull();
+      expect(racerHandleFromRaw("https://headpinz.com/r/ab")).toBeNull(); // too short
     });
   });
 

@@ -250,6 +250,13 @@ export function AttractScreen({ urlConfig }: { urlConfig: Partial<KioskConfig> }
       clarityEvent("kiosk:attract:scan");
       router.push("/kiosk/flow?goto=gamezone");
     },
+    // A racer with nothing booked today. No `?goto=` — they still have to pick
+    // an activity; the stashed code is claimed by the people step once they do.
+    goRacerSignIn: () => {
+      clarityTag("kiosk_entry", "scan-racer");
+      clarityEvent("kiosk:attract:scan");
+      router.push("/kiosk/flow");
+    },
   });
 
   // While the cloud fallback resolves, hold the loader instead of flashing
