@@ -36,6 +36,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IconX } from "@tabler/icons-react";
+import { isChromeFreePath } from "~/lib/constants/chrome-routes";
 
 /** Straight from the live site's palette. */
 const GOLD = "#FFD700";
@@ -111,9 +112,14 @@ export function VipExperiencePopupClient({ content }: { content: VipPopupContent
 
   const segments = pathname.split("/");
   const suppressed =
+    // Every chrome-free screen, from the one registry — a focused waiver /
+    // licence / kiosk-join screen that suppresses the site's own nav has no
+    // business carrying its ads either.
+    isChromeFreePath(pathname) ||
     SUPPRESSED_PREFIXES.some(
       (p) => pathname === p || pathname.startsWith(p.endsWith("/") ? p : `${p}/`),
-    ) || SUPPRESSED_SEGMENTS.some((s) => segments.includes(s));
+    ) ||
+    SUPPRESSED_SEGMENTS.some((s) => segments.includes(s));
 
   const dismiss = useCallback(() => {
     setOpen(false);

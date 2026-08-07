@@ -30,6 +30,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IconClockHour4, IconX } from "@tabler/icons-react";
 import DealCountdown from "./DealCountdown";
+import { isChromeFreePath } from "~/lib/constants/chrome-routes";
 
 const INK = "#00041b";
 const ACCENT = "#fd5b56";
@@ -46,7 +47,16 @@ const SCROLL_TRIGGER = 0.35;
  * an ad for the deals over the deals page is pure friction between a guest and
  * the thing they already came for.
  */
-const SUPPRESSED_PREFIXES = ["/book", "/kiosk", "/admin", "/checkout", "/deals", "/e/", "/s/", "/v/"];
+const SUPPRESSED_PREFIXES = [
+  "/book",
+  "/kiosk",
+  "/admin",
+  "/checkout",
+  "/deals",
+  "/e/",
+  "/s/",
+  "/v/",
+];
 
 export interface NaplesOfferDeal {
   slug: string;
@@ -72,9 +82,13 @@ export function NaplesOfferPopupClient({ content }: { content: NaplesOfferConten
   const cardRef = useRef<HTMLDivElement | null>(null);
   const restoreFocusTo = useRef<Element | null>(null);
 
-  const suppressed = SUPPRESSED_PREFIXES.some(
-    (p) => pathname === p || pathname.startsWith(p.endsWith("/") ? p : `${p}/`),
-  );
+  const suppressed =
+    // See the twin in VipExperiencePopupClient: no site ads on a screen that
+    // suppresses the site's own chrome.
+    isChromeFreePath(pathname) ||
+    SUPPRESSED_PREFIXES.some(
+      (p) => pathname === p || pathname.startsWith(p.endsWith("/") ? p : `${p}/`),
+    );
 
   const dismiss = useCallback(() => {
     setOpen(false);
@@ -103,7 +117,8 @@ export function NaplesOfferPopupClient({ content }: { content: NaplesOfferConten
     // Naples gate. Pathname first — the priority order HeadPinzNav uses — then
     // an explicit ?location=, so an ad pointed at Naples still qualifies.
     const isNaples =
-      pathname.includes("naples") || (params.get("location") ?? "").toLowerCase().includes("naples");
+      pathname.includes("naples") ||
+      (params.get("location") ?? "").toLowerCase().includes("naples");
     if (!isNaples && !forced) return;
 
     if (!forced) {

@@ -3,6 +3,22 @@ import type { NextRequest } from "next/server";
 import { HEADPINZ_FM_CENTER_CODE, HEADPINZ_NAPLES_CENTER_CODE } from "@/lib/qamf-centers";
 import { googleReviewUrl } from "~/lib/constants/review-links";
 import { maintenanceRedirectForPath, SERVICE_NOTICE_PATH } from "~/features/maintenance";
+import { isChromeFreePath, isMobileBarFreePath } from "~/lib/constants/chrome-routes";
+
+/**
+ * Stamp the chrome decision for a path onto a request-header set. ONE rule for
+ * every branch below, from the same registry the client-side <ChromeGate> reads
+ * (~/lib/constants/chrome-routes), so:
+ *   - a route that wants chrome suppressed is named once, not once per host —
+ *     the split is what shipped /racer with a tap-blocking mobile bar on
+ *     fasttraxent.com and not on headpinz.com (2026-08-06);
+ *   - the entry render and every client-side navigation after it agree.
+ * x-no-chrome already drops the mobile bar, so the two are exclusive.
+ */
+function applyChromeFlags(headers: Headers, pathname: string): void {
+  if (isChromeFreePath(pathname)) headers.set("x-no-chrome", "1");
+  else if (isMobileBarFreePath(pathname)) headers.set("x-no-mobile-bar", "1");
+}
 
 /**
  * Hostname-based routing for dual-branded site:
@@ -697,6 +713,9 @@ export async function middleware(request: NextRequest) {
     // the chooser so the root layout suppresses HP chrome on it ONLY — every
     // other /hp page keeps its chrome.
     if (pathname === "/") requestHeaders.set("x-hp-no-chrome", "1");
+    // Registry gets the BROWSER path (the one <ChromeGate> sees), not the
+    // rewritten /hp target.
+    applyChromeFlags(requestHeaders, pathname);
     return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
   }
 
@@ -708,68 +727,12 @@ export async function middleware(request: NextRequest) {
   if (isHeadPinz && isSharedTopLevelRoute) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-brand", "headpinz");
-    if (pathname.startsWith("/survey/")) {
-      requestHeaders.set("x-no-mobile-bar", "1");
-    }
-    if (pathname.startsWith("/contract/")) {
-      requestHeaders.set("x-no-mobile-bar", "1");
-    }
-    if (pathname.startsWith("/event/")) {
-      requestHeaders.set("x-no-mobile-bar", "1");
-    }
-    // E-tickets suppress the mobile Book-Now bar on the HP host too
-    // (same rationale as the FT-host block below — focused customer
-    // flow, QR modals).
-    if (pathname.startsWith("/t/") || pathname.startsWith("/g/")) {
-      requestHeaders.set("x-no-mobile-bar", "1");
-    }
-    if (pathname.startsWith("/account")) {
-      requestHeaders.set("x-no-mobile-bar", "1");
-    }
-    // A voucher page is a focused redemption screen — the guest is holding a QR
-    // up to a kiosk. A "Book Now" bar pinned over it competes with the one action
-    // that matters and covers the bottom of the code (owner 2026-08-03).
-    if (pathname.startsWith("/v/")) {
-      requestHeaders.set("x-no-mobile-bar", "1");
-    }
-    // Finding your racing licence is a focused lookup — a "Book Now" bar pinned
-    // over it competes with the one action on the page. Keeps the site Nav,
-    // unlike /r/, because this is a way IN to the site rather than a credential.
-    if (pathname === "/racer" || pathname.startsWith("/racer/")) {
-      requestHeaders.set("x-no-mobile-bar", "1");
-    }
-    // Vendor-outage notice: a floating "Book Now" bar on the page that just told
-    // the guest we can't book is the one control that must not be there.
-    if (pathname === SERVICE_NOTICE_PATH) {
-      requestHeaders.set("x-no-mobile-bar", "1");
-    }
-    // July-4 promo landing: full-bleed marketing hero with its own dual-brand
-    // logos — suppress the HeadPinz Nav/Footer entirely (like the chooser splash).
-    if (pathname === "/july4") {
-      requestHeaders.set("x-no-chrome", "1");
-    }
-    // Kiosk mobile-join phone flow: a focused mid-visit screen with its own
-    // brand header — no site Nav/Footer/mobile bar on either host (x-no-chrome
-    // suppresses all three via the root layout).
-    if (pathname === "/join" || pathname.startsWith("/join/")) {
-      requestHeaders.set("x-no-chrome", "1");
-    }
-    // Unified waiver flow: focused customer screen with its own brand header.
-    if (pathname === "/waiver" || pathname.startsWith("/waiver/")) {
-      requestHeaders.set("x-no-chrome", "1");
-    }
-    // A racer's own page — their licence QR, their next race. Same posture as
-    // the waiver and join screens: a focused personal screen with its own
-    // header, not a marketing page. The fixed site Nav was overlaying the
-    // racer's NAME at the top of it.
-    if (pathname.startsWith("/r/")) {
-      requestHeaders.set("x-no-chrome", "1");
-    }
-    // Collecting a party's licences after scanning a kiosk QR — one job, its own
-    // brand header, nothing else on screen competing with it.
-    if (pathname.startsWith("/passes/")) {
-      requestHeaders.set("x-no-chrome", "1");
-    }
+    // Which of these routes are chrome-free (/july4, /join, /waiver, /r/,
+    // /passes/) and which merely drop the mobile Book-Now bar (/survey/,
+    // /contract/, /event/, /t/, /g/, /account, /v/, /racer, the outage notice)
+    // is the registry's call now — the same one the FastTrax host and the
+    // client-side <ChromeGate> ask. See applyChromeFlags above.
+    applyChromeFlags(requestHeaders, pathname);
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
@@ -787,49 +750,7 @@ export async function middleware(request: NextRequest) {
   if (pathname === "/deals" || pathname.startsWith("/deals/")) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-brand", "headpinz");
-    return NextResponse.next({ request: { headers: requestHeaders } });
-  }
-
-  // July-4 promo landing on the FastTrax host: suppress site chrome so the
-  // full-bleed marketing hero (with its own dual-brand logos) stands alone.
-  // (The HeadPinz host is handled in the shared-route block above.)
-  // The kiosk mobile-join phone flow gets the same treatment — it renders its
-  // own brand header from the join-session record.
-  if (
-    pathname === "/july4" ||
-    pathname === "/join" ||
-    pathname.startsWith("/join/") ||
-    pathname === "/waiver" ||
-    pathname.startsWith("/waiver/") ||
-    pathname.startsWith("/r/") ||
-    pathname.startsWith("/passes/")
-  ) {
-    const requestHeaders = new Headers(request.headers);
-    requestHeaders.set("x-no-chrome", "1");
-    return NextResponse.next({ request: { headers: requestHeaders } });
-  }
-
-  // Survey, contract, and event routes on EITHER domain: suppress the mobile
-  // Book-Now bar so it doesn't overlap focused customer-flow screens.
-  if (
-    pathname.startsWith("/survey/") ||
-    pathname.startsWith("/contract/") ||
-    pathname.startsWith("/event/") ||
-    pathname.startsWith("/account") ||
-    // Voucher redemption — see the matching HP-host case above.
-    pathname.startsWith("/v/") ||
-    // Finding your racing licence — see the matching HP-host case above, which
-    // is where this rule was written and where it STOPPED. The HeadPinz branch
-    // returns early, so a rule that only lives there never runs for
-    // fasttraxent.com: /racer shipped with a fixed bottom bar pinned over it on
-    // the FastTrax host, `md:hidden` so only phones ever saw it, and iPhone
-    // racers reported they could not tap the page (2026-08-06). Any route that
-    // wants the bar suppressed on BOTH hosts has to be named twice.
-    pathname === "/racer" ||
-    pathname.startsWith("/racer/")
-  ) {
-    const requestHeaders = new Headers(request.headers);
-    requestHeaders.set("x-no-mobile-bar", "1");
+    applyChromeFlags(requestHeaders, pathname);
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
@@ -873,11 +794,15 @@ export async function middleware(request: NextRequest) {
     url.pathname = `/hp${pathname}`;
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-brand", "headpinz");
+    applyChromeFlags(requestHeaders, pathname);
     return NextResponse.rewrite(url, { request: { headers: requestHeaders } });
   }
   if (isHeadPinz && (pathname.startsWith("/book") || pathname.startsWith("/api"))) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-brand", "headpinz");
+    // Booking confirmations are e-ticket screens on this host too — the rule
+    // lived only on the FastTrax path until the registry unified them.
+    applyChromeFlags(requestHeaders, pathname);
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
@@ -897,34 +822,22 @@ export async function middleware(request: NextRequest) {
     // Mirror the prod chooser-splash rule for dev/localhost (/hp or /hp/):
     // chrome-free brand landing — see the rewrite block above.
     if (pathname === "/hp" || pathname === "/hp/") requestHeaders.set("x-hp-no-chrome", "1");
+    applyChromeFlags(requestHeaders, pathname);
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
-  // Suppress the mobile "Book Now" bar on focused customer-action
-  // screens — e-tickets (/t/, /g/) and the booking confirmation /
-  // express-checkin screen. The bar overlaps the action surfaces
-  // (full-screen ticket button, QR modals) and the customer is
-  // already mid-flow, so an offer to start a NEW booking is just
-  // visual noise. Header is read by app/layout.tsx.
-  const suppressMobileBar =
-    pathname.startsWith("/t/") ||
-    pathname.startsWith("/g/") ||
-    // Vendor-outage notice — see the HeadPinz-host twin above.
-    pathname === SERVICE_NOTICE_PATH ||
-    // Any booking confirmation screen — the top-level /book/confirmation
-    // as well as the per-flow nested confirmations
-    // (/book/checkout/confirmation, /book/race/confirmation,
-    // /book/race-packs/confirmation, /book/[attraction]/confirmation).
-    // These ARE the customer's e-ticket screen, so the "Book Now" bar is
-    // just noise — match the /confirmation segment anywhere in the path.
-    /\/confirmation(?:\/|$)/.test(pathname);
-  if (suppressMobileBar) {
-    const requestHeaders = new Headers(request.headers);
-    requestHeaders.set("x-no-mobile-bar", "1");
-    return NextResponse.next({ request: { headers: requestHeaders } });
-  }
-
-  return NextResponse.next();
+  // Everything else: one pass over the chrome registry. It covers both classes
+  // of suppression on BOTH hosts —
+  //   x-no-chrome      focused screens with their own header (/waiver, /join,
+  //                    /r/, /passes/, /july4)
+  //   x-no-mobile-bar  screens that keep the nav but lose the fixed "Book Now"
+  //                    bar (e-tickets, confirmations, /survey/, /contract/,
+  //                    /event/, /account, /v/, /racer, the outage notice)
+  // — and the client-side <ChromeGate> re-applies exactly this on every
+  // in-page navigation, which the root layout cannot do for itself.
+  const requestHeaders = new Headers(request.headers);
+  applyChromeFlags(requestHeaders, pathname);
+  return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
 /**

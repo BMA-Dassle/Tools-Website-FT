@@ -20,6 +20,8 @@ import { Analytics } from "@vercel/analytics/next";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import MiniCart from "@/components/booking/MiniCart";
 import { MiniCartV2 } from "~/components/features/booking/MiniCartV2";
+import ChromeGate from "~/components/layout/ChromeGate";
+import type { ChromeFlags } from "~/lib/constants/chrome-routes";
 import { VipExperiencePopup } from "~/components/features/combos/VipExperiencePopup";
 import { NaplesOfferPopup } from "~/components/features/deals/NaplesOfferPopup";
 import { FASTTRAX_OG, FASTTRAX_OG_IMAGE, HEADPINZ_OG, HEADPINZ_OG_IMAGE } from "@/lib/seo";
@@ -251,6 +253,20 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const showHpChrome = isHeadPinz && !isAdmin && !noHpChrome && !noChrome;
   const showMobileBar = showChrome && !noMobileBar;
   const showHpMobileBar = showHpChrome && !noMobileBar;
+  // The headers above describe the ENTRY path only — this layout will not run
+  // again for the rest of the visit (Next.js partial rendering: root layouts
+  // don't re-render on navigation). Hand the decision to <ChromeGate>, which
+  // re-derives it from ~/lib/constants/chrome-routes on every client-side
+  // navigation; without it the nav from /pricing rode along onto /waiver until
+  // a hard refresh.
+  const chrome: ChromeFlags = {
+    brand: isHeadPinz ? "headpinz" : "fasttrax",
+    ftChrome: showChrome,
+    hpChrome: showHpChrome,
+    ftMobileBar: showMobileBar,
+    hpMobileBar: showHpMobileBar,
+    carts: !isAdmin && !isKiosk,
+  };
   // GA4 measurement ID, brand-aware. Admin routes opt out (PII / staff
   // tools). Falsy ID short-circuits the GoogleAnalytics component.
   const gaId =
@@ -279,16 +295,52 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       <body
         className={`${isHeadPinz ? "brand-headpinz bg-[#0a1628]" : "brand-fasttrax bg-[#000418]"} text-white font-body antialiased`}
       >
-        {showChrome && <Nav />}
-        {showHpChrome && <HeadPinzNav />}
-        {!isAdmin && !isKiosk && <MiniCart />}
-        {!isAdmin && !isKiosk && <MiniCartV2 />}
+        {showChrome && (
+          <ChromeGate slot="ftChrome" entry={chrome}>
+            <Nav />
+          </ChromeGate>
+        )}
+        {showHpChrome && (
+          <ChromeGate slot="hpChrome" entry={chrome}>
+            <HeadPinzNav />
+          </ChromeGate>
+        )}
+        {chrome.carts && (
+          <ChromeGate slot="carts" entry={chrome}>
+            <MiniCart />
+            <MiniCartV2 />
+          </ChromeGate>
+        )}
         <main>{children}</main>
-        {showChrome && <Footer />}
-        {showHpChrome && <HeadPinzFooter />}
-        {showMobileBar && <MobileBookBar />}
-        {showHpMobileBar && <HeadPinzMobileBookBar />}
-        {showChrome && <ChatWidgetManager />}
+        {showChrome && (
+          <ChromeGate slot="ftChrome" entry={chrome}>
+            <Footer />
+          </ChromeGate>
+        )}
+        {showHpChrome && (
+          <ChromeGate slot="hpChrome" entry={chrome}>
+            <HeadPinzFooter />
+          </ChromeGate>
+        )}
+        {/* Guarded on showChrome, not showMobileBar: the bar-less routes
+            (/racer, confirmations, /survey/…) KEEP their nav, so a guest
+            navigates off them into the site — and the gate can only reveal a
+            slot that the server put in the tree. */}
+        {showChrome && (
+          <ChromeGate slot="ftMobileBar" entry={chrome}>
+            <MobileBookBar />
+          </ChromeGate>
+        )}
+        {showHpChrome && (
+          <ChromeGate slot="hpMobileBar" entry={chrome}>
+            <HeadPinzMobileBookBar />
+          </ChromeGate>
+        )}
+        {showChrome && (
+          <ChromeGate slot="ftChrome" entry={chrome}>
+            <ChatWidgetManager />
+          </ChromeGate>
+        )}
         {/* Ultimate VIP Experience ad. FastTrax public pages only (the combo is
             a Fort Myers product and the creative is set in FastTrax type);
             never on admin, kiosks or chrome-free promo landings. The component
@@ -322,7 +374,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         )}
         <AxeInit />
         {showChrome && (
-          <>
+          <ChromeGate slot="ftChrome" entry={chrome}>
             <div
               dangerouslySetInnerHTML={{
                 __html:
@@ -334,7 +386,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
               id="tcx-callus-js"
               strategy="lazyOnload"
             />
-          </>
+          </ChromeGate>
         )}
       </body>
     </html>
