@@ -42,12 +42,69 @@ describe("prefillPartyMembers", () => {
     expect(out.map((m) => m.firstName)).toEqual(["Eric", "Alex"]);
   });
 
-  it("dedupes within the roster batch itself", () => {
+  it("dedupes within the roster batch itself, KEEPING the identified row", () => {
     const out = prefillPartyMembers(
       [],
       [...roster, { firstName: "eric", lastName: "OSBORN", waiverValid: true }],
     );
-    expect(out.filter((m) => m.firstName.toLowerCase() === "eric")).toHaveLength(1);
+    const erics = out.filter((m) => m.firstName.toLowerCase() === "eric");
+    expect(erics).toHaveLength(1);
+    // The old assertion stopped at the count, so it would have passed even if
+    // the id-less clone won and the person id was silently dropped — which is
+    // exactly the W57387 failure.
+    expect(erics[0].bmiPersonId).toBe("63000000001234567");
+    expect(erics[0].waiverValid).toBe(true);
+  });
+
+  it("keeps the identified row even when the id-less clone comes FIRST", () => {
+    const out = prefillPartyMembers(
+      [],
+      [
+        { firstName: "eric", lastName: "OSBORN", waiverValid: false },
+        {
+          firstName: "Eric",
+          lastName: "Osborn",
+          bmiPersonId: "63000000001234567",
+          waiverValid: true,
+        },
+      ],
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].bmiPersonId).toBe("63000000001234567");
+    expect(out[0].waiverValid).toBe(true);
+  });
+
+  it("matches a party member through a double-spaced booking label", () => {
+    const existing = [
+      newPartyMember({ firstName: "Robert", lastName: "Hendricks", isNewRacer: false }),
+    ];
+    const out = prefillPartyMembers(existing, [
+      { firstName: "ROBERT", lastName: " HENDRICKS", waiverValid: false },
+    ]);
+    expect(out).toEqual([]);
+  });
+
+  it("does not offer TIMOTHY when the party already has Tim (the W57387 duplicate)", () => {
+    const existing = [
+      newPartyMember({
+        firstName: "Tim",
+        lastName: "Higgins",
+        isNewRacer: false,
+        bmiPersonId: "26581677",
+      }),
+    ];
+    const out = prefillPartyMembers(existing, [
+      { firstName: "TIMOTHY", lastName: "HIGGINS", waiverValid: false },
+    ]);
+    expect(out).toEqual([]);
+  });
+
+  it("still offers a different surname that happens to share a forename prefix", () => {
+    const existing = [newPartyMember({ firstName: "Tim", lastName: "Higgins", isNewRacer: false })];
+    const out = prefillPartyMembers(existing, [
+      { firstName: "Timothy", lastName: "Nagle", waiverValid: false },
+    ]);
+    expect(out.map((m) => m.firstName)).toEqual(["Timothy"]);
   });
 });
 

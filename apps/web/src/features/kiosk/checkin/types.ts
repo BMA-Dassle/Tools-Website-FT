@@ -127,10 +127,22 @@ export interface CheckinPartyMember {
   /** 17-digit BMI Office id as a STRING; absent for bowling-only guests. */
   bmiPersonId?: string;
   waiverValid: boolean;
+  /** Which source this row was resolved from — `bmi-project` means BMI holds
+   *  them on the reservation, `booking-label` means the name was typed at
+   *  booking and nobody was ever registered. Lets the UI say so, and makes a
+   *  bad roster diagnosable without a DB probe. */
+  source?: "bmi-project" | "waiver-join" | "booking-label" | "contact";
 }
 
 export type CheckinPartyResponse =
-  | { ok: true; members: CheckinPartyMember[] }
+  | {
+      ok: true;
+      members: CheckinPartyMember[];
+      /** True when BMI never answered for this project, so the roster is
+       *  booking-labels-only and may be missing registered people. Previously
+       *  indistinguishable from "nobody is registered" — and silent. */
+      degraded?: boolean;
+    }
   | { ok: false; reason: "expired-proof" | "rate-limited" | "invalid" | "disabled" };
 
 export interface CheckinBindMember {

@@ -12,9 +12,13 @@
 import type { PartyMember } from "~/features/booking";
 import { newPartyMember } from "~/features/booking";
 import type { CheckinPartyMember } from "./types";
+import { isNicknameVariant, normalizeName } from "./roster-merge";
 
+function fullNameOf(firstName: string, lastName?: string): string {
+  return `${firstName ?? ""} ${lastName ?? ""}`.trim();
+}
 function nameKey(firstName: string, lastName?: string): string {
-  return `${firstName.trim().toLowerCase()}|${(lastName ?? "").trim().toLowerCase()}`;
+  return normalizeName(fullNameOf(firstName, lastName));
 }
 
 /**
@@ -45,13 +49,29 @@ export function prefillPartyMembers(
   const out: PartyMember[] = [];
   const claimedIds = new Set(party.flatMap(memberIds));
   const claimedNames = new Set(party.map((m) => nameKey(m.firstName, m.lastName)));
+  // Full names already on the party, for the nickname check below. A guest who
+  // hand-typed "Tim Higgins" must not then be offered "TIMOTHY HIGGINS" from
+  // the booking as a second person (W57387 — both cards showed on the kiosk).
+  const claimedFullNames = party.map((m) => fullNameOf(m.firstName, m.lastName));
 
-  for (const r of roster) {
+  // IDENTIFIED ROWS FIRST. The loop below claims a name for whoever reaches it
+  // first, so with the raw order an id-less duplicate ("eric OSBORN", typed at
+  // booking) could claim the name and the real BMI person be skipped — the
+  // W57387 shadowing, one layer down. The server already merges its own rows,
+  // but this function also runs over `mergeRosters` output (several vouchers on
+  // one booking), where a same-human duplicate can still arrive. Stable sort:
+  // relative order is otherwise untouched.
+  const ordered = [...roster].sort((a, b) => (a.bmiPersonId ? 0 : 1) - (b.bmiPersonId ? 0 : 1));
+
+  for (const r of ordered) {
     const name = nameKey(r.firstName, r.lastName);
+    const full = fullNameOf(r.firstName, r.lastName);
     if (r.bmiPersonId && claimedIds.has(r.bmiPersonId)) continue;
     if (claimedNames.has(name)) continue;
+    if (claimedFullNames.some((c) => isNicknameVariant(c, full))) continue;
     if (r.bmiPersonId) claimedIds.add(r.bmiPersonId);
     claimedNames.add(name);
+    claimedFullNames.push(full);
     out.push(
       newPartyMember({
         firstName: r.firstName,

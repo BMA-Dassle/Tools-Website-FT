@@ -62,7 +62,7 @@ import {
   type AttractionMeta,
 } from "./itinerary";
 import { classifyScan } from "./scan";
-import { isPlaceholderRacerName } from "./party-prefill";
+import { mergeRosterRows, type RosterRow } from "./roster-merge";
 import type {
   CheckinBindMember,
   CheckinBindResult,
@@ -1501,107 +1501,128 @@ async function stampBookingRecordCheckedIn(billId: string): Promise<void> {
  * as the itinerary — ids flow ONLY after possession is proven. (The itinerary
  * roster itself deliberately nulls ids; this is the bind-ready counterpart.)
  */
-export async function listBindableParty(billId: string): Promise<CheckinPartyMember[]> {
+export async function listBindableParty(
+  billId: string,
+): Promise<{ members: CheckinPartyMember[]; degraded: boolean }> {
   const summary = await loadSummary(billId);
-  if (!summary || summary.cancelled) return [];
+  if (!summary || summary.cancelled) return { members: [], degraded: false };
 
-  // One row per person: record racers list one row per HEAT (a combo racer
-  // appears twice), so dedupe on personId, falling back to the name.
-  const rows: Array<{ full: string; personId: string | null }> = [];
-  const recRacers = summary.record?.racers ?? [];
-  if (recRacers.length > 0) {
-    for (const r of recRacers) {
-      rows.push({ full: (r.racerName ?? "").trim(), personId: r.personId ?? null });
+  const rows: RosterRow[] = [];
+
+  // ── SOURCE OF RECORD FIRST ────────────────────────────────────────────────
+  // BMI projectPersons decides who is on the reservation (owner 2026-08-02:
+  // "it should pull every person on it"; owner 2026-08-07: "we have a BMI
+  // reservation and BMA/Pandora is source of waivers"). This source was
+  // historically appended LAST, and because the old dedupe resolved collisions
+  // by array position, a Redis booking label with no personId outranked the
+  // real registered person — W57387, where 4 registered racers with live
+  // waivers rendered "Account + waiver needed". Order no longer decides the
+  // winner (mergeRosterRows is order-independent), but reading the record
+  // first is what makes the intent obvious.
+  //
+  // The FM BMI server hosts two venues, so try each of the center's locations
+  // until the project answers. `degraded` distinguishes "BMI said nobody" from
+  // "BMI never answered" — previously indistinguishable, and silent.
+  let degraded = false;
+  if (summary.center) {
+    const projectId = officeProjectIdFromBillId(billId);
+    const locations = CENTER_TO_BMI_LOCATION_IDS[summary.center] ?? [];
+    let answered = false;
+    for (const locationId of locations) {
+      try {
+        const detail = await getReservationDetail(locationId, projectId);
+        answered = true;
+        const people = detail.persons_list ?? [];
+        for (const p of people) {
+          const full = [p.firstName ?? "", p.name ?? ""].join(" ").trim();
+          rows.push({
+            full,
+            personId: String(p.personId ?? p.id ?? "") || null,
+            source: "bmi-project",
+          });
+        }
+        if (people.length > 0) break;
+      } catch {
+        /* project not at this venue / BMI hiccup — try the next location */
+      }
     }
-  } else {
-    for (const h of neonHeats(summary.moneyGroup)) {
-      rows.push({ full: (h.racer ?? "").trim(), personId: h.bmiPersonId ?? null });
+    if (locations.length > 0 && !answered) {
+      degraded = true;
+      console.warn(
+        `[checkin] BMI roster unavailable for bill=${billId} project=${projectId} — ` +
+          `falling back to booking labels only (roster may be incomplete)`,
+      );
     }
   }
+
   // Everyone who SIGNED through the booking's /waiver link (owner 2026-08-01:
   // "this is where you pull the info from rather than asking again") — the
   // link's pid keys kiosk_waiver_joins by projectId = billId + 1, and the
-  // signers arrive with real names + person ids. Count-based bookings carry
-  // only slot labels above, so without this the party who pre-signed on their
-  // phones was invisible to "Load your party" (the Gipson check-in).
+  // signers arrive with real names + person ids.
   try {
     const joins = await listJoinsForProject(officeProjectIdFromBillId(billId));
     for (const j of joins) {
       const full = [j.firstName ?? "", j.lastName ?? ""].join(" ").trim() || j.displayName.trim();
-      rows.push({ full, personId: j.personId ?? null });
+      rows.push({ full, personId: j.personId ?? null, source: "waiver-join" });
     }
   } catch {
-    /* joins unavailable — the booking-sourced rows above still stand */
+    /* joins unavailable — the recorded sources still stand */
   }
-  // Everyone REGISTERED on the booking's Office project (BMI projectPersons) —
-  // the same source the /waiver page rosters from a booking (owner 2026-08-02:
-  // "it should pull every person on it"). Racer rows above only know who's on
-  // a HEAT; people added to the project (web waiver registration, staff adds,
-  // bowling-side guests) were invisible without this. The FM BMI server hosts
-  // two venues, so try each of the center's locations until the project
-  // answers; every failure is fail-open (the other sources still stand).
-  if (summary.center) {
-    const projectId = officeProjectIdFromBillId(billId);
-    for (const locationId of CENTER_TO_BMI_LOCATION_IDS[summary.center] ?? []) {
-      try {
-        const detail = await getReservationDetail(locationId, projectId);
-        const people = detail.persons_list ?? [];
-        for (const p of people) {
-          const full = [p.firstName ?? "", p.name ?? ""].join(" ").trim();
-          // Slot labels that rode into BMI's people list ("Adult 1", the
-          // whitley incident) are junk even WITH a personId — never offer them.
-          if (!full || isPlaceholderRacerName(full)) continue;
-          rows.push({ full, personId: String(p.personId ?? p.id ?? "") || null });
-        }
-        if (people.length > 0) break;
-      } catch {
-        /* project not at this venue / BMI hiccup — next location or fail open */
-      }
+
+  // The CAPTURE BUFFER: names typed at booking. One row per HEAT (a combo racer
+  // appears twice) and `personId` is null for anyone who was never registered —
+  // 77% of race racer rows, probed 2026-08-07. These fill gaps; they never
+  // outrank a registered person.
+  const recRacers = summary.record?.racers ?? [];
+  if (recRacers.length > 0) {
+    for (const r of recRacers) {
+      rows.push({
+        full: (r.racerName ?? "").trim(),
+        personId: r.personId ?? null,
+        source: "booking-label",
+      });
+    }
+  } else {
+    for (const h of neonHeats(summary.moneyGroup)) {
+      rows.push({
+        full: (h.racer ?? "").trim(),
+        personId: h.bmiPersonId ?? null,
+        source: "booking-label",
+      });
     }
   }
-  const seen = new Set<string>();
-  const uniq = rows.filter((r) => {
-    if (!r.full && !r.personId) return false;
-    // An UNIDENTIFIED row wearing a category placeholder label ("Adult 1") is
-    // an unnamed new-racer slot, not a person — never offer it as a prefill
-    // name. One tap would seed a literal "Adult 1" party member, and its
-    // "Set up" (DOB-only, contact-less onboard) could then mint a BMI person
-    // actually NAMED "Adult 1". The "Who's racing?" assignment step is how
-    // those open slots get real people. (2026-07-31 whitley check-in.)
-    if (!r.personId && isPlaceholderRacerName(r.full)) return false;
-    const key = r.personId ?? `name:${r.full.toLowerCase()}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+
   // The booking CONTACT is a real person the booking always knows. Offer them
   // when the racer rows can't say who's coming — a count-based booking carries
-  // only slot labels (all filtered above; probed live 2026-08-01: every recent
-  // VIP combo), so without this the voucher scan pulled NO names in at all.
+  // only slot labels (all filtered by the merge), so without this the voucher
+  // scan pulled NO names in at all.
   const contact = summary.record?.contact;
   const contactFull = contact
     ? `${(contact.firstName ?? "").trim()} ${(contact.lastName ?? "").trim()}`.trim()
     : "";
-  const contactPersonId = summary.record?.primaryPersonId ?? null;
-  if (
-    contactFull &&
-    !(contactPersonId && seen.has(contactPersonId)) &&
-    !uniq.some((r) => r.full.toLowerCase() === contactFull.toLowerCase())
-  ) {
-    uniq.push({ full: contactFull, personId: contactPersonId });
+  if (contactFull) {
+    rows.push({
+      full: contactFull,
+      personId: summary.record?.primaryPersonId ?? null,
+      source: "contact",
+    });
   }
-  if (uniq.length === 0) return [];
+
+  const uniq = mergeRosterRows(rows);
+  if (uniq.length === 0) return { members: [], degraded };
 
   const waiverBy = await checkRacerWaivers(uniq.map((r) => r.personId));
-  return uniq.map((r) => {
+  const members = uniq.map((r) => {
     const parts = r.full.split(/\s+/).filter(Boolean);
     return {
       firstName: parts[0] || "Guest",
       ...(parts.length > 1 ? { lastName: parts.slice(1).join(" ") } : {}),
       ...(r.personId ? { bmiPersonId: r.personId } : {}),
       waiverValid: r.personId ? (waiverBy.get(r.personId) ?? false) : false,
+      source: r.source,
     };
   });
+  return { members, degraded };
 }
 
 export { loadSummary };

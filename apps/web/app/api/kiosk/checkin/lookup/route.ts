@@ -122,8 +122,8 @@ export async function POST(req: NextRequest) {
         { status: 401 },
       );
     }
-    const members = await listBindableParty(proof.billId);
-    return NextResponse.json<CheckinPartyResponse>({ ok: true, members });
+    const { members, degraded } = await listBindableParty(proof.billId);
+    return NextResponse.json<CheckinPartyResponse>({ ok: true, members, degraded });
   }
 
   // ── find ──────────────────────────────────────────────────────────────────
@@ -281,7 +281,9 @@ export async function POST(req: NextRequest) {
   if (typeof body.phone === "string" && body.phone.trim()) {
     const bypass = checkinOtpBypassAllowed(body.kioskId);
     if (bypass) {
-      console.warn(`[kiosk-checkin] OTP TEST-BYPASS phone lookup by ${String(body.kioskId)} (${ip})`);
+      console.warn(
+        `[kiosk-checkin] OTP TEST-BYPASS phone lookup by ${String(body.kioskId)} (${ip})`,
+      );
     }
     if (!bypass && !(await phoneIsVerified(body.phone))) {
       return NextResponse.json<CheckinLookupResponse>({ ok: false, reason: "needs-otp" });
