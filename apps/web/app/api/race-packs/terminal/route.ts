@@ -36,6 +36,10 @@ export async function POST(req: NextRequest) {
           paymentId: String(ep.paymentId ?? ""),
           orderId: String(ep.orderId ?? ""),
           amountCents: Number(ep.amountCents ?? 0),
+          // Gift-card checkouts carry the FULL captured set.
+          ...(Array.isArray(ep.paymentIds) && ep.paymentIds.length > 0
+            ? { paymentIds: ep.paymentIds.map((id: unknown) => String(id)) }
+            : {}),
         },
       });
       return NextResponse.json(result);

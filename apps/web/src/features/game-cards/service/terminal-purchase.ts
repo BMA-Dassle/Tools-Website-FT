@@ -245,7 +245,9 @@ export async function finalizeTerminalPurchase(
         "Payment location mismatch. Please see the front desk.",
       );
     }
-    summedCents += pay.amountCents;
+    // effectiveCents: on a partial-auth capture Square may keep amount_money
+    // at the requested figure while approved_money carries the truth.
+    summedCents += pay.effectiveCents;
   }
   if (summedCents !== expectedCents) {
     throw new GameCardHttpError(

@@ -17,7 +17,9 @@
  * FastTrax kiosks only for v1: race packs are FastTrax revenue and the order
  * must live at the reader's own Square location (INVALID_LOCATION lesson).
  */
-import { randomBytes } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
+import { upsertTerminalAnchor } from "./unified-reserve";
+import { kioskAmbientGiftCardsEnabled } from "~/features/kiosk/flags";
 import {
   kioskRacePacksEnabled,
   racePackLicenseEnabled,
@@ -106,6 +108,12 @@ export interface StandalonePrepareResult {
   orderId: string;
   /** Tax-inclusive order total — what the reader charges. */
   totalCents: number;
+  /** Gift-card session secret (mirrors every other cart's prepare). Only
+   *  handed out when the terminal anchor durably landed. */
+  splitToken?: string;
+  /** The ambient gift-card rail is live — the gate renders the ambient
+   *  pay screen (scan/swipe, partial auth, no button). */
+  ambient?: boolean;
 }
 
 export async function prepareStandalonePackPurchase(
@@ -182,10 +190,29 @@ export async function prepareStandalonePackPurchase(
   const orderId: string = data.order.id;
   const totalCents: number = data.order.total_money?.amount ?? kioskPacksTotalCents(resolved);
   await stampPackOrder(purchaseKey, orderId);
+  // Gift-card parity (2026-08): race packs ride the same terminal anchor as
+  // every other cart, so the ambient pay screen (scan/swipe/partial-auth) and
+  // the split routes work here too. Anchor-write failure ⇒ no splitToken —
+  // the plain full-amount reader tap still works.
+  const written = await upsertTerminalAnchor(purchaseKey, {
+    depositOrderId: orderId,
+    depositCents: totalCents,
+    locationId: PACK_SQUARE_LOCATION,
+    baseKey: purchaseKey,
+    splitToken: randomUUID(),
+    totalCents,
+    source: "racepack",
+  });
+  const splitToken = written?.splitToken;
   console.log(
-    `[race-pack] standalone PREPARE ${purchaseKey}: ${resolved.length} pack(s), order ${orderId}, total ${totalCents}`,
+    `[race-pack] standalone PREPARE ${purchaseKey}: ${resolved.length} pack(s), order ${orderId}, total ${totalCents} split=${!!splitToken}`,
   );
-  return { purchaseKey, orderId, totalCents };
+  return {
+    purchaseKey,
+    orderId,
+    totalCents,
+    ...(splitToken ? { splitToken, ambient: kioskAmbientGiftCardsEnabled() } : {}),
+  };
 }
 
 export interface StandaloneFinalizeResult {
@@ -204,7 +231,14 @@ export interface StandaloneFinalizeResult {
 
 export async function finalizeStandalonePackPurchase(input: {
   purchaseKey: string;
-  externalPayment: { paymentId: string; orderId: string; amountCents: number };
+  externalPayment: {
+    paymentId: string;
+    orderId: string;
+    amountCents: number;
+    /** Gift-card checkouts: EVERY captured payment (GC auths + tap) — the
+     *  amount check is the SUM across the set. Absent = single tap. */
+    paymentIds?: string[];
+  };
 }): Promise<StandaloneFinalizeResult> {
   // Server-authoritative rows — the client only carries the purchaseKey pointer.
   const rows = await getPackPurchases(input.purchaseKey);
@@ -222,29 +256,39 @@ export async function finalizeStandalonePackPurchase(input: {
     );
   }
 
-  // Verify the reader payment (displayed==charged tripwire): COMPLETED, OUR
-  // order, the ORDER's own tax-inclusive total (re-fetched, never the client's),
-  // our location.
-  const pay = await readSquarePaymentSettled(input.externalPayment.paymentId);
-  if (!pay || pay.status !== "COMPLETED") {
-    throw new RacePackHttpError(
-      402,
-      "We couldn't confirm the reader payment. Please see the front desk (do not pay again).",
-    );
-  }
-  if (pay.orderId && pay.orderId !== storedOrderId) {
-    throw new RacePackHttpError(
-      402,
-      "That payment doesn't match this order. Please see the front desk.",
-    );
-  }
-  if (pay.locationId && pay.locationId !== PACK_SQUARE_LOCATION) {
-    throw new RacePackHttpError(402, "Payment location mismatch. Please see the front desk.");
+  // Verify every reader/gift-card payment (displayed==charged tripwire):
+  // COMPLETED, OUR order, our location, and the SUM equal to the ORDER's own
+  // tax-inclusive total (re-fetched, never the client's). One id degenerates
+  // to the legacy single-payment checks.
+  const ep = input.externalPayment;
+  const paymentIdList =
+    ep.paymentIds && ep.paymentIds.length > 0 ? [...new Set(ep.paymentIds)] : [ep.paymentId];
+  let summedCents = 0;
+  for (const pid of paymentIdList) {
+    const pay = await readSquarePaymentSettled(pid);
+    if (!pay || pay.status !== "COMPLETED") {
+      throw new RacePackHttpError(
+        402,
+        "We couldn't confirm the reader payment. Please see the front desk (do not pay again).",
+      );
+    }
+    if (pay.orderId && pay.orderId !== storedOrderId) {
+      throw new RacePackHttpError(
+        402,
+        "That payment doesn't match this order. Please see the front desk.",
+      );
+    }
+    if (pay.locationId && pay.locationId !== PACK_SQUARE_LOCATION) {
+      throw new RacePackHttpError(402, "Payment location mismatch. Please see the front desk.");
+    }
+    // effectiveCents — partial-auth captures may keep amount_money at the
+    // requested figure while approved_money carries the truth.
+    summedCents += pay.effectiveCents;
   }
   const orderRes = await fetch(`${SQUARE_BASE}/orders/${storedOrderId}`, { headers: sqHeaders() });
   const orderData = await orderRes.json();
   const orderTotal: number | undefined = orderData.order?.total_money?.amount;
-  if (typeof orderTotal !== "number" || pay.amountCents !== orderTotal) {
+  if (typeof orderTotal !== "number" || summedCents !== orderTotal) {
     throw new RacePackHttpError(
       402,
       "The charged amount didn't match the order. Please see the front desk.",
@@ -253,6 +297,7 @@ export async function finalizeStandalonePackPurchase(input: {
 
   await markPackCharged(input.purchaseKey, {
     squareOrderId: storedOrderId,
+    // Primary id (reader tap first) — the full set lives in kiosk_split_tenders.
     squarePaymentId: input.externalPayment.paymentId,
   });
 

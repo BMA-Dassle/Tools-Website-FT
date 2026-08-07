@@ -87,6 +87,13 @@ export async function readSquarePayment(id: string): Promise<{
   id: string;
   status: string;
   amountCents: number;
+  /** approved_money — on a PARTIAL authorization (the ambient gift-card
+   *  rail's accept_partial_authorization) this carries the real figure while
+   *  amount_money may stay at the requested amount. Sum verifications must
+   *  use effectiveCents, never amountCents alone. */
+  approvedCents?: number;
+  /** approved_money ?? amount_money. */
+  effectiveCents: number;
   orderId?: string;
   locationId?: string;
 } | null> {
@@ -95,16 +102,21 @@ export async function readSquarePayment(id: string): Promise<{
       id?: string;
       status?: string;
       amount_money?: { amount?: number };
+      approved_money?: { amount?: number };
       order_id?: string;
       location_id?: string;
     };
   }>(`/payments/${encodeURIComponent(id)}`, { method: "GET" });
   const p = data?.payment;
   if (!ok || !p?.id) return null;
+  const amountCents = p.amount_money?.amount ?? -1;
+  const approvedCents = p.approved_money?.amount;
   return {
     id: p.id,
     status: p.status ?? "UNKNOWN",
-    amountCents: p.amount_money?.amount ?? -1,
+    amountCents,
+    ...(approvedCents !== undefined ? { approvedCents } : {}),
+    effectiveCents: approvedCents ?? amountCents,
     orderId: p.order_id,
     locationId: p.location_id,
   };
