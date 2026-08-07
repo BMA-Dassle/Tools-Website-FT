@@ -17,6 +17,7 @@
  * actually scans).
  */
 import { PANDORA_DEFAULT_LOCATION_ID } from "@/lib/pandora-locations";
+import { memberQrPayload } from "~/features/racing/licence/payload";
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
 const TZ = "America/New_York";
@@ -255,15 +256,13 @@ export async function buildLicenceMeta(args: BuildLicenceMetaArgs): Promise<Lice
     "—";
 
   const heat = formatHeat(args.heat);
-  const site = process.env.SMSTIM_SITE || "908";
   const base = process.env.NEXT_PUBLIC_SITE_URL || "https://headpinz.com";
 
   return {
     code: args.code,
     memberName: args.fullName.trim().toUpperCase(),
-    // The SMS-Timing AUTHENTICATE url — the shape BMI's own register scans.
-    // NOT the app's JSON-array payload, which the register rejects.
-    memberQr: `https://smstim.in/${site}/authenticate/?login_code=${args.code}`,
+    // One definition, shared with the racer hub — see licence/payload.ts.
+    memberQr: memberQrPayload(args.code),
     licenceUrl: `${base}/r/${args.code}`,
     tier: tierFrom(args.memberships) || "—",
     races: args.races == null || args.races === "" ? "0" : String(args.races),
