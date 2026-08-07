@@ -1,5 +1,39 @@
 # Lessons Learned
 
+## A root layout does not re-render on navigation — anything it decides from `headers()` is frozen for the whole visit (2026-08-07)
+
+**What happened:** clicking "Waiver" in the FastTrax nav landed on `/waiver` with the site
+nav still pinned over the waiver's own header. A hard refresh cleared it. HeadPinz looked
+fine, which made it read like a brand bug — it wasn't.
+
+`app/layout.tsx` picks the chrome from request headers that `middleware.ts` sets
+(`x-no-chrome`, `x-no-mobile-bar`, `x-brand`). That is correct exactly once, for the
+document the browser loads. Next.js partial rendering means a client-side navigation
+re-renders only the segments BELOW the shared layout — the root layout never runs again
+(`node_modules/next/dist/docs/01-app/02-guides/authentication.md`: layouts "don't re-render
+on navigation", which is also why an auth check there is a known footgun). So the chrome
+decision made for `/pricing` rode along onto `/waiver` and stayed there until a full
+document load. HeadPinz hid the symptom because its nav is rendered by the per-section
+layouts under `app/hp/`, which DO unmount when you navigate off `/hp` — different
+mechanism, same latent bug on its own shared top-level routes.
+
+**The rule:** anything a root layout derives from `headers()`, `cookies()` or the URL is a
+property of the ENTRY REQUEST, not of the current page. If it can change while the visitor
+stays in the SPA, it needs a client-side re-evaluation:
+
+- Put the path→decision rule in one pure, dependency-free module — here
+  `src/lib/constants/chrome-routes.ts`.
+- Middleware reads it for the entry render; a small client component reads it on every
+  navigation (`src/components/layout/ChromeGate.tsx`, which seeds from the server's answer
+  on first render so hydration still matches).
+- Never write the same path test twice. Middleware had the mobile-bar list duplicated per
+  host, and the drift had already shipped once (`/racer` bar on FastTrax only, 2026-08-06)
+  and again silently (HeadPinz booking confirmations kept the bar FastTrax dropped).
+
+**Smell test before shipping a layout-level decision:** click into the route from the site's
+own menu, not just by pasting the URL. Pasting a URL is a document load and hides every bug
+in this class.
+
 ## An idempotency key must contain every field that makes the operation distinct — a missing personId gave a party free races (2026-08-06)
 
 **What happened:** W58352 — a kiosk party of 4 booked 3 heats each and bought four 3-race

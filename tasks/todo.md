@@ -1,5 +1,47 @@
 # Open Tasks
 
+## Site nav rode along onto /waiver from the FastTrax menu (2026-08-07) — DONE
+
+**Report:** clicking Waiver in the fasttraxent.com menu renders the site menu bar over the
+waiver screen; a hard refresh removes it. HeadPinz behaves.
+
+**Cause:** `app/layout.tsx` decides the chrome from middleware's `x-no-chrome` /
+`x-no-mobile-bar` headers, and a root layout does not re-render on client-side navigation
+(Next.js partial rendering). The entry page's decision was frozen for the whole visit. The
+HeadPinz nav comes from the per-section layouts under `app/hp/`, which unmount on
+navigation — so the same defect was invisible there.
+
+- [x] `apps/web/src/lib/constants/chrome-routes.ts` — one pure registry: which paths are
+      chrome-free, which only drop the mobile Book-Now bar, plus `chromeFlagsForPath()`
+      mirroring the layout's own booleans. Unit-tested (14 cases).
+- [x] `apps/web/src/components/layout/ChromeGate.tsx` — client gate; uses the server's
+      answer for the entry path (so hydration matches even under the `/hp` rewrite) and
+      re-derives from the registry on every navigation after it.
+- [x] `apps/web/app/layout.tsx` — every chrome slot (Nav, Footer, mobile bar, chat +
+      3CX call-us, mini-carts) goes through the gate.
+- [x] `apps/web/middleware.ts` — all the per-host path lists collapse into
+      `applyChromeFlags()` over the shared registry, so server and client can't drift.
+- [x] Both ad popups suppress themselves on chrome-free screens via the same registry.
+
+**Verified:** Chromium against the dev server, 9/9 checks — nav/footer/chat gone after the
+menu click, identical to a hard refresh, chrome returns on Back, HeadPinz unaffected, no
+hydration errors. The same script on the pre-change tree fails exactly the reported checks
+(4/9), which is the reproduction.
+
+**Two deliberate behaviour changes** that fall out of unifying the lists: HeadPinz booking
+confirmations now drop the mobile Book-Now bar (FastTrax already did), and the chrome-free
+screens (`/waiver`, `/join`, `/r/`, `/passes/`, `/july4`) can no longer show the VIP or
+Naples ad popups after a client-side navigation. The FastTrax/HeadPinz mobile bar also
+returns correctly now when a guest navigates OFF a bar-less page that keeps its nav
+(`/racer`, confirmations) — before, the bar stayed off for the rest of the visit.
+
+**Found while fixing, NOT fixed here (needs its own PR):** every `/hp` page renders the
+HeadPinz mobile Book-Now bar TWICE — once from `app/layout.tsx` (`showHpChrome`) and once
+from `app/hp/layout.tsx`. Confirmed on `/fort-myers` before and after this change, so it
+predates it. Two stacked identical fixed bars, two click targets. The fix is to delete one,
+almost certainly the one in `app/hp/layout.tsx`, after checking every `app/hp/**/layout.tsx`
+for the same duplication.
+
 ## FastTrax operational changes — new Mon–Fri hours + Mega is Junior Pro only (2026-08-05)
 
 Two owner-announced operational changes, both landing **2026-08-10**:
