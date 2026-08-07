@@ -53,6 +53,23 @@ export const checkinEn = {
   "checkin.remove": "Remove",
   "checkin.assign.remaining":
     "Assign a racer to every race to check in{count, plural, =0 {.} other { — # still open.}} Everyone racing needs to be here.",
+  // "Load your party" — the gold bar on the sign-in step. Everyone the booking
+  // already knows who is READY is now added automatically, so this offers only
+  // the people who still need something; the copy has to say that, not imply
+  // the whole party is missing. (Was hard-coded English until 2026-08-07.)
+  "checkin.prefill.load":
+    "Add {count, plural, one {# more guest} other {# more guests}} from your booking",
+  "checkin.prefill.names": "{names} — from your original booking.",
+  "checkin.prefill.lapsedHint": "Anyone whose waiver lapsed just re-signs.",
+  "checkin.prefill.autoAdded":
+    "We added {count, plural, one {# guest} other {# guests}} from your booking.",
+  // Shown when BMI never answered, so the roster is booking-labels only and may
+  // be missing people who ARE registered. Previously silent.
+  "checkin.roster.degraded":
+    "We couldn’t reach the reservation system, so this list may be incomplete. Add anyone who’s missing.",
+  // Nobody is ticked — the gate now counts only the people actually checking in.
+  "checkin.needSomeone": "Tap at least one person to check in.",
+
   "checkin.picker.title": "Who’s racing the {label}?",
   "checkin.picker.noneReady":
     "No {category} racer is ready yet. Go back and add a {category} racer with a signed waiver first.",
@@ -101,6 +118,16 @@ export const checkinEs: Record<keyof typeof checkinEn, string> = {
   "checkin.remove": "Quitar",
   "checkin.assign.remaining":
     "Asigna un piloto a cada carrera para registrarte{count, plural, =0 {.} other { — quedan # sin asignar.}} Todos los que compiten deben estar aquí.",
+  "checkin.prefill.load":
+    "Agregar {count, plural, one {# invitado más} other {# invitados más}} de tu reserva",
+  "checkin.prefill.names": "{names} — de tu reserva original.",
+  "checkin.prefill.lapsedHint": "Quien tenga la exención vencida solo vuelve a firmar.",
+  "checkin.prefill.autoAdded":
+    "Agregamos {count, plural, one {# invitado} other {# invitados}} de tu reserva.",
+  "checkin.roster.degraded":
+    "No pudimos conectar con el sistema de reservas, así que esta lista puede estar incompleta. Agrega a quien falte.",
+  "checkin.needSomeone": "Toca al menos a una persona para registrarte.",
+
   "checkin.picker.title": "¿Quién compite en {label}?",
   "checkin.picker.noneReady":
     "Aún no hay ningún piloto {category} listo. Regresa y agrega un piloto {category} con una exención firmada primero.",

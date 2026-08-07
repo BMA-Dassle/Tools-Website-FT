@@ -364,10 +364,12 @@ export function KioskCodeEntry({
         const found = await lookupByScan(center, code);
         const proofToken = found.ok ? found.matches?.[0]?.proofToken : undefined;
         if (!proofToken) return;
-        const members = await fetchBindableParty(center, proofToken);
+        const roster = await fetchBindableParty(center, proofToken);
+        const members = roster?.members;
         if (!members || members.length === 0) return;
         console.log(
-          `[kiosk] receipt party offered: ${members.length} guest(s) from booking voucher ${code}`,
+          `[kiosk] receipt party offered: ${members.length} guest(s) from booking voucher ${code}` +
+            (roster?.degraded ? " (BMI unavailable — roster may be short)" : ""),
         );
         clarityEvent("kiosk:receipt:party-offered");
         setVoucherRosters((prev) => ({ ...prev, [code]: members }));

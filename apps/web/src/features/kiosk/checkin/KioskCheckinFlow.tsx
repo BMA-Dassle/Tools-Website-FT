@@ -12,7 +12,15 @@
  * Structure mirrors KioskWaiverFlow: page-local state, IdleWatcher, resetToKiosk
  * exit, canvas Podium classes, the shell's global on-screen keyboard for input.
  */
-import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
   IconChevronLeft,
@@ -161,6 +169,15 @@ export function KioskCheckinFlow() {
   // Voucher-QR party prefill (flag-gated): the proven reservation's bind-ready
   // roster, fetched alongside the itinerary. Null = unavailable / flag off.
   const [prefillRoster, setPrefillRoster] = useState<CheckinPartyMember[] | null>(null);
+  // BMI never answered for this reservation — the roster is booking-labels only
+  // and may be missing people who ARE registered. Say so rather than present a
+  // short list as the truth.
+  const [rosterDegraded, setRosterDegraded] = useState(false);
+  // Ready members from the booking are added automatically (owner 2026-08-07:
+  // "why were they just not auto loaded in list"). Ref-gated so the effect runs
+  // once per fetched roster — dispatching grows session.party, which would
+  // otherwise re-trigger it.
+  const autoLoadedRef = useRef(false);
 
   // Party panel — the people monolith runs on this LOCAL, non-persisted booking
   // reducer (center baked in; config hydrates synchronously on a provisioned
@@ -209,7 +226,9 @@ export function KioskCheckinFlow() {
       // Prefill roster rides the same proof — fire-and-forget so the itinerary
       // never waits on it; a failure just means no shortcut button.
       if (kioskVoucherPrefillEnabled()) {
-        void fetchBindableParty(center, token).then((members) => {
+        void fetchBindableParty(center, token).then((res) => {
+          if (res?.degraded) setRosterDegraded(true);
+          const members = res?.members;
           if (members && members.length > 0) setPrefillRoster(members);
         });
       }
@@ -217,11 +236,26 @@ export function KioskCheckinFlow() {
     [center, t],
   );
 
-  const readyMembers = session.party.filter((m) => m.bmiPersonId && m.waiverValid);
+  // WHO IS ACTUALLY CHECKING IN. The people step ticks members into
+  // `checkinItem.participants` (undefined = everyone, the default). The gate
+  // below used to scan session.party wholesale, so a single row that arrived
+  // from the booking without an account deadlocked BOTH buttons and unticking
+  // it did nothing — the guest had to find "Remove". Counting only the ticked
+  // members makes the checkbox mean what it looks like it means. (W57387: three
+  // un-setup booking labels froze a party of four who were all ready.)
+  const includedIds = useMemo(
+    () => new Set(checkinItem.participants ?? session.party.map((m) => m.id)),
+    [checkinItem.participants, session.party],
+  );
+  const includedParty = session.party.filter((m) => includedIds.has(m.id));
+  const readyMembers = includedParty.filter((m) => m.bmiPersonId && m.waiverValid);
   const unboundReady = readyMembers.filter((m) => !boundIds.has(m.id));
-  // A party member still mid-setup (added but no account/waiver yet) blocks
+  // A TICKED member still mid-setup (added but no account/waiver yet) blocks
   // check-in — mirror the people step's readiness gate.
-  const partyNeedsSetup = session.party.some((m) => !m.bmiPersonId || !m.waiverValid);
+  const partyNeedsSetup = includedParty.some((m) => !m.bmiPersonId || !m.waiverValid);
+  // Everyone unticked → nothing to check in. Without this, an empty `some()`
+  // reads as "ready" and the button would arm with nobody selected.
+  const nobodyIncluded = includedParty.length === 0;
 
   // "Who is who" — the open (unfilled) purchased race slots, and the handler
   // that assigns a ready party member to one. Keyed by the seat-unique slotKey
@@ -230,6 +264,23 @@ export function KioskCheckinFlow() {
   // subject to web booking's per-racer heat-spacing rules (raceSlotsConflict):
   // assigning releases only the member's slots too close to the new one, never
   // their compatible other races.
+  // AUTO-LOAD the people the booking already knows AND who are ready to go —
+  // an account plus a live waiver. They need no decision from the guest, so
+  // making them tap a button to see their own party was pure friction (owner
+  // 2026-08-07: "where did those come from and why were they just not auto
+  // loaded in list"). Anyone still needing an account or a waiver is NOT
+  // auto-added: that is a real decision, and it stays behind the gold bar so
+  // nobody silently acquires a party member they then have to set up.
+  useEffect(() => {
+    if (!prefillRoster || autoLoadedRef.current) return;
+    const ready = prefillRoster.filter((r) => r.bmiPersonId && r.waiverValid);
+    if (ready.length === 0) return;
+    const toAdd = prefillPartyMembers(session.party, ready);
+    if (toAdd.length === 0) return;
+    autoLoadedRef.current = true;
+    for (const m of toAdd) dispatch({ type: "addPartyMember", member: m });
+  }, [prefillRoster, session.party]);
+
   const openRaceSlots = itinerary?.raceSlots.filter((s) => s.open) ?? [];
   const slotByKey = (key: string) => openRaceSlots.find((s) => s.slotKey === key);
   const assignRace = (slotKey: string, memberId: string) => {
@@ -808,6 +859,11 @@ export function KioskCheckinFlow() {
                 already signed in by phone) never duplicates. English copy while
                 the flag is OFF — localize before the flag flips (same
                 rich-text caveat as the POV caption above). */}
+            {rosterDegraded && (
+              <div className="mb-[20px] rounded-2xl border-2 border-[#f0b341]/40 bg-[#f0b341]/10 px-[28px] py-[20px] text-[24px] leading-snug text-[#f0b341]">
+                {t("checkin.roster.degraded")}
+              </div>
+            )}
             {(() => {
               const prefillable = prefillRoster
                 ? prefillPartyMembers(session.party, prefillRoster)
@@ -822,12 +878,13 @@ export function KioskCheckinFlow() {
                   className="k-tap mb-[20px] w-full rounded-2xl border-2 border-[#B8860B] bg-[#B8860B]/10 px-[28px] py-[22px] text-left"
                 >
                   <span className="block text-[30px] font-bold text-[#f0b341]">
-                    Load your party ({prefillable.length}{" "}
-                    {prefillable.length === 1 ? "guest" : "guests"})
+                    {t("checkin.prefill.load", { count: prefillable.length })}
                   </span>
                   <span className="mt-[4px] block text-[22px] leading-snug text-white/60">
-                    {prefillable.map((m) => m.firstName).join(", ")} — from your original booking.
-                    Anyone whose waiver lapsed just re-signs.
+                    {t("checkin.prefill.names", {
+                      names: prefillable.map((m) => m.firstName).join(", "),
+                    })}{" "}
+                    {t("checkin.prefill.lapsedHint")}
                   </span>
                 </button>
               );
@@ -854,7 +911,7 @@ export function KioskCheckinFlow() {
               <button
                 type="button"
                 onClick={() => setStage("assign")}
-                disabled={partyNeedsSetup || peopleBusy}
+                disabled={partyNeedsSetup || nobodyIncluded || peopleBusy}
                 className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
               >
                 {t("checkin.nextWhosRacing")}
@@ -863,15 +920,15 @@ export function KioskCheckinFlow() {
               <button
                 type="button"
                 onClick={checkInEveryone}
-                disabled={binding || partyNeedsSetup || peopleBusy}
+                disabled={binding || partyNeedsSetup || nobodyIncluded || peopleBusy}
                 className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
               >
                 {binding ? t("checkin.checkingIn") : t("checkin.checkEveryone")}
               </button>
             )}
-            {partyNeedsSetup && (
+            {(partyNeedsSetup || nobodyIncluded) && (
               <p className="mt-[12px] text-center text-[24px] text-white/45">
-                {t("checkin.finishAddingFirst")}
+                {nobodyIncluded ? t("checkin.needSomeone") : t("checkin.finishAddingFirst")}
               </p>
             )}
           </div>

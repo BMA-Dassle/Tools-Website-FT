@@ -119,11 +119,12 @@ export async function fetchItinerary(
 }
 
 /** Bind-ready party of a proven reservation (voucher-QR prefill). Null on any
- *  failure — the panel just doesn't offer the shortcut. */
+ *  failure — the panel just doesn't offer the shortcut. `degraded` means BMI
+ *  never answered, so the roster is booking-labels only and may be short. */
 export async function fetchBindableParty(
   center: string,
   proofToken: string,
-): Promise<CheckinPartyMember[] | null> {
+): Promise<{ members: CheckinPartyMember[]; degraded: boolean } | null> {
   try {
     const res = await fetch("/api/kiosk/checkin/lookup?action=party", {
       method: "POST",
@@ -132,7 +133,7 @@ export async function fetchBindableParty(
       cache: "no-store",
     });
     const data = (await res.json()) as CheckinPartyResponse;
-    return data.ok ? data.members : null;
+    return data.ok ? { members: data.members, degraded: data.degraded === true } : null;
   } catch {
     return null;
   }
