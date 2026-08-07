@@ -211,6 +211,10 @@
     {
       "path": "/api/cron/passkit-reconcile",
       "schedule": "17 9 * * *"
+    },
+    {
+      "path": "/api/cron/wallet-overnight-clear",
+      "schedule": "0 7,8 * * *"
     }
   ]
 }
