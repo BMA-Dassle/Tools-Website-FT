@@ -37,6 +37,7 @@ import {
   pandoraFetchWaiverTemplate,
   pandoraCreatePerson,
   pandoraCheckWaiver,
+  pandoraPatchBirthdate,
   type PandoraWaiverTemplate,
 } from "@/lib/pandora";
 import {
@@ -799,6 +800,71 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
         // the short-id guard above makes sure it runs at most ONCE per member.)
         const dedupPhone = member.phone?.trim() ?? "";
         const dedupEmail = member.email?.trim() ?? "";
+
+        // ── REPAIR FIRST, CREATE ONLY IF THAT FAILS (owner 2026-08-07) ───────
+        // The premise above is WRONG, and it is why this branch minted
+        // duplicates. Pandora does not reject the 17-digit Office id: it
+        // returns 500 "Response Validator Error" when the person's BIRTHDATE IS
+        // NULL, because the vendor's own response schema requires one. Measured
+        // on 16 Office persons — birthdate present 8/8 resolved, birthdate
+        // absent 0/8 — while category, visibility and membership appeared on
+        // BOTH sides. The id format was a red herring; the missing DOB is the
+        // cause.
+        //
+        // We have just asked the guest for that DOB. Writing it onto the record
+        // they ALREADY have turns the 500 into a clean read — proven live: one
+        // PATCH surfaced a waiver valid to 2027-08-08 that had been on file the
+        // whole time while the kiosk told the guest to sign again. So repair
+        // the existing person instead of creating a second one; that is how the
+        // owner's test account reached SIX records.
+        const patched = await pandoraPatchBirthdate({
+          personId: member.bmiPersonId as string,
+          birthdate: toIsoDob(dob),
+          location: brandLocation,
+          firstName: formatPersonName(member.firstName),
+          lastName: formatPersonName(member.lastName ?? ""),
+          // Booking-created records are commonly missing these too, and it is
+          // the same round trip (owner: "we often miss the email in the patch").
+          email: dedupEmail || normalizeEmail(session.contact.email ?? ""),
+          phone: dedupPhone || (session.contact.phone ?? ""),
+        });
+        if (patched) {
+          // Success is the record READING cleanly, not the PATCH returning 200:
+          // the whole failure mode here is a GET that 500s on the vendor's own
+          // response schema, and that call can throw rather than return. A
+          // birthdate coming back is proof the repair actually took.
+          const repaired = await pandoraCheckWaiver(
+            member.bmiPersonId as string,
+            brandLocation,
+          ).catch(() => null);
+          if (repaired?.birthdate) {
+            // Reads cleanly now — use the id the reservation ALREADY points at.
+            // No second person is created, so there is nothing to reconcile.
+            const refreshedIso = String(repaired.birthdate).slice(0, 10);
+            const rAge = ageFromIso(refreshedIso) ?? age;
+            const rMinor = rAge < 18;
+            const template = repaired.valid
+              ? null
+              : await pandoraFetchWaiverTemplate(rAge, brandLocation);
+            dispatch({
+              type: "updatePartyMember",
+              id: member.id,
+              patch: {
+                waiverValid: repaired.valid,
+                isMinor: rMinor,
+                category: rAge < 13 ? "junior" : "adult",
+                dobIso: refreshedIso,
+              },
+            });
+            resetForm();
+            if (template) {
+              openWaiverOrGuardian(member.bmiPersonId as string, template, rMinor);
+            }
+            return;
+          }
+        }
+        // Repair didn't take (patch refused, or the read still won't resolve) —
+        // fall through to the original create-to-resolve path unchanged.
         if (dedupPhone || dedupEmail) {
           const result = await pandoraOnboardGuest(
             {

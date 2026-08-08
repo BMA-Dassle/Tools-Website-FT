@@ -157,6 +157,43 @@ export async function pandoraCreatePerson(
 }
 
 /**
+ * REPAIR an existing BMI person by writing the birthdate (plus any contact
+ * details we hold) onto their record. Calls PATCH /api/pandora.
+ *
+ * A BMI person with a null birthdate makes Pandora's own GET /bmi/person return
+ * 500 "Response Validator Error" — the record exists, but the vendor's response
+ * schema rejects it. Every caller reads that as "no waiver", so a racer who HAS
+ * signed shows "Waiver needed" and can never be scheduled. Proven live
+ * 2026-08-07: one PATCH turned a persistent 500 into a clean read carrying a
+ * waiver valid to 2027-08-08 that had been on file the whole time.
+ *
+ * This UPDATES, never creates — the important difference from the path it
+ * replaces, which minted a fresh person every time it met an unresolvable id.
+ * Never throws: a failed repair leaves the guest exactly where they were.
+ */
+export async function pandoraPatchBirthdate(args: {
+  personId: string;
+  /** ISO `YYYY-MM-DD`. */
+  birthdate: string;
+  location?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+}): Promise<boolean> {
+  try {
+    const res = await fetch("/api/pandora", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(args),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Check a person's waiver status via Pandora.
  * Calls GET /api/pandora?personId=...&location=...
  */

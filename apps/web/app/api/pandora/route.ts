@@ -122,9 +122,31 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
-    const { personId, phone, firstName, lastName, email, location } = body;
+    const { personId, phone, firstName, lastName, email, location, birthdate } = body;
     if (!personId) {
       return NextResponse.json({ error: "personId required" }, { status: 400 });
+    }
+    // BIRTHDATE backfill. A BMI person with a null birthdate makes Pandora's own
+    // GET /bmi/person return 500 "Response Validator Error", which every caller
+    // reads as "no waiver" — so a racer who HAS signed shows "Waiver needed" and
+    // never reaches the grid. Patching the DOB the kiosk already collected
+    // repairs the existing record instead of minting a duplicate.
+    if (birthdate) {
+      const { patchBmiPersonBirthdate } = await import("@/lib/bmi-person-update");
+      const r = await patchBmiPersonBirthdate(String(personId), String(birthdate), {
+        locationKey: location,
+        firstName,
+        lastName,
+        email,
+        phone,
+      });
+      if (!r.ok) {
+        console.warn(
+          `[pandora-patch] birthdate backfill FAILED person=${personId}: ${r.error ?? r.status}`,
+        );
+        return NextResponse.json({ error: r.error }, { status: r.status || 500 });
+      }
+      return NextResponse.json({ ok: true, personId: String(personId), patched: "birthdate" });
     }
     const { patchBmiPersonPhone } = await import("@/lib/bmi-person-update");
     const result = await patchBmiPersonPhone(String(personId), String(phone || ""), {
