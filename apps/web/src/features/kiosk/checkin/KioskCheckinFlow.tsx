@@ -336,6 +336,34 @@ export function KioskCheckinFlow() {
   // refuses to guess when a category has more racers than seats, and is given
   // the SAME spacing predicate the chips use, so it can only reach a state the
   // guest could have reached by hand.
+  // Who ended up on each race, for the done screen. Built from the SAME seat
+  // grouping the assign step uses (heat + product = one race, N seats), so the
+  // confirmation names the drivers the guest just chose rather than repeating
+  // "Race · Blue Track". Read straight off assignMap, so it reflects the final
+  // state including any changes made after auto-fill.
+  const raceLineup = (() => {
+    const byKey = new Map<
+      string,
+      { key: string; label: string; track: string | null; timeLabel: string; names: string[] }
+    >();
+    const order: string[] = [];
+    for (const s of openRaceSlots) {
+      const memberId = assignMap[s.slotKey];
+      if (!memberId) continue;
+      const member = session.party.find((m) => m.id === memberId);
+      if (!member) continue;
+      const key = `${s.heatId}|${s.productId ?? ""}|${s.classLabel}`;
+      let row = byKey.get(key);
+      if (!row) {
+        row = { key, label: s.classLabel, track: s.track, timeLabel: s.timeLabel, names: [] };
+        byKey.set(key, row);
+        order.push(key);
+      }
+      row.names.push(racerName(member));
+    }
+    return order.map((k) => byKey.get(k)!);
+  })();
+
   const clearRace = (slotKey: string) =>
     setAssignMap((prev) => {
       const next = { ...prev };
@@ -1019,6 +1047,7 @@ export function KioskCheckinFlow() {
           <DoneScreen
             itinerary={itinerary}
             complete={complete}
+            raceLineup={raceLineup}
             onFinish={goHome}
             onBusyChange={setBinding}
           />
@@ -1585,10 +1614,21 @@ function RaceAssignScreen(props: {
 function DoneScreen(props: {
   itinerary: CheckinItinerary;
   complete: CheckinCompleteResponse | null;
+  /** Who ended up on each race — track, time and names (owner 2026-08-07:
+   *  "this should list the track, race and people on it"). The generic activity
+   *  card only knew "Race · Blue Track", which is the least useful half of what
+   *  the guest just decided. */
+  raceLineup: Array<{
+    key: string;
+    label: string;
+    track: string | null;
+    timeLabel: string;
+    names: string[];
+  }>;
   onFinish: () => void;
   onBusyChange: (busy: boolean) => void;
 }) {
-  const { itinerary, complete } = props;
+  const { itinerary, complete, raceLineup } = props;
   const t = useT();
   const scheduled = complete?.scheduled ?? 0;
   const laneOpenEnabled = complete?.laneOpenEnabled === true;
@@ -1625,8 +1665,32 @@ function DoneScreen(props: {
 
       {/* What's next — the same activity cards, now as a reminder. Green bar:
           this is the checked-in / done state (owner 2026-07-25). */}
-      {itinerary.activities.map((a, i) => (
-        <div key={`${a.kind}-${i}`} className="k-glass relative overflow-hidden p-[28px] pl-[44px]">
+      {/* Racing is rendered per RACE below (with its drivers), so the generic
+          racing card would just repeat the track and time without the names. */}
+      {itinerary.activities
+        .filter((a) => !(a.kind === "racing" && raceLineup.length > 0))
+        .map((a, i) => (
+          <div
+            key={`${a.kind}-${i}`}
+            className="k-glass relative overflow-hidden p-[28px] pl-[44px]"
+          >
+            <span
+              className="absolute inset-y-0 left-0 w-[12px]"
+              style={{ background: "#46d68c" }}
+              aria-hidden="true"
+            />
+            <div className="flex items-center gap-[24px]">
+              <div className="min-w-0 flex-1">
+                <div className="k-display text-[36px]">{a.title}</div>
+                <div className="mt-[4px] text-[26px] text-white/55">{a.building}</div>
+              </div>
+              <div className="k-display text-[40px] text-white">{a.timeLabel}</div>
+            </div>
+          </div>
+        ))}
+
+      {raceLineup.map((r) => (
+        <div key={r.key} className="k-glass relative overflow-hidden p-[28px] pl-[44px]">
           <span
             className="absolute inset-y-0 left-0 w-[12px]"
             style={{ background: "#46d68c" }}
@@ -1634,11 +1698,26 @@ function DoneScreen(props: {
           />
           <div className="flex items-center gap-[24px]">
             <div className="min-w-0 flex-1">
-              <div className="k-display text-[36px]">{a.title}</div>
-              <div className="mt-[4px] text-[26px] text-white/55">{a.building}</div>
+              <div className="k-display text-[36px]">{r.label}</div>
+              <div className="mt-[4px] text-[26px] text-white/55">
+                {r.track ? `${r.track} Track` : t("checkin.done.racingBuilding")}
+              </div>
             </div>
-            <div className="k-display text-[40px] text-white">{a.timeLabel}</div>
+            <div className="k-display text-[40px] text-white">{r.timeLabel}</div>
           </div>
+          {r.names.length > 0 && (
+            <div className="mt-[18px] flex flex-wrap gap-[10px]">
+              {r.names.map((n) => (
+                <span
+                  key={n}
+                  className="inline-flex items-center gap-[8px] rounded-2xl bg-[#46d68c]/12 px-[20px] py-[10px] text-[26px] text-white"
+                >
+                  <IconUserCheck size={24} className="text-[#46d68c]" aria-hidden="true" />
+                  {n}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       ))}
 
@@ -1649,6 +1728,7 @@ function DoneScreen(props: {
         // plain-string formatMessage engine can't render ICU tags, so localize
         // once rich text is supported or a native reviewer splits it. Kept English.
         <RacingWhatsNext
+          fullWidth
           intro={
             <>
               You&rsquo;re checked in. When your heat is called, head to{" "}

@@ -104,12 +104,26 @@ const RED_BTN_STYLE = {
   boxShadow: "0 12px 44px rgba(229,57,53,0.35)",
 } as const;
 
-export function RacingWhatsNext({ intro, onOpen }: { intro?: ReactNode; onOpen?: () => void }) {
+export function RacingWhatsNext({
+  intro,
+  onOpen,
+  /** Drop the 860px cap so the panel matches the cards around it. The cap suits
+   *  the web confirmation column; on the kiosk's wider canvas it left this
+   *  panel visibly narrower than every sibling card (owner 2026-08-07: "the red
+   *  box doesn't go all the way"). Opt-in, so no other caller shifts. */
+  fullWidth = false,
+}: {
+  intro?: ReactNode;
+  onOpen?: () => void;
+  fullWidth?: boolean;
+}) {
   const [open, setOpen] = useState(false);
 
   return (
     <>
-      <div className="relative w-full max-w-[860px] rounded-[24px] border border-[#e53935]/45 bg-gradient-to-b from-[#e53935]/10 to-white/[0.03] p-[32px] text-left">
+      <div
+        className={`relative w-full ${fullWidth ? "" : "max-w-[860px]"} rounded-[24px] border border-[#e53935]/45 bg-gradient-to-b from-[#e53935]/10 to-white/[0.03] p-[32px] text-left`}
+      >
         <div className="k-eyebrow flex items-center gap-[14px] text-[#e53935]">
           <svg
             width="30"
