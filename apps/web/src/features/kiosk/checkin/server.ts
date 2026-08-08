@@ -62,7 +62,7 @@ import {
   type AttractionMeta,
 } from "./itinerary";
 import { classifyScan } from "./scan";
-import { mergeRosterRows, type RosterRow } from "./roster-merge";
+import { joinWasRemovedFromBmi, mergeRosterRows, type RosterRow } from "./roster-merge";
 import { consumePriorSeats } from "./resume-seats";
 import type {
   CheckinBindMember,
@@ -1582,6 +1582,10 @@ export async function listBindableParty(
   // until the project answers. `degraded` distinguishes "BMI said nobody" from
   // "BMI never answered" — previously indistinguishable, and silent.
   let degraded = false;
+  // Who BMI currently lists, and whether it actually answered — both needed to
+  // tell "removed from the reservation" from "BMI didn't respond".
+  let bmiAnswered = false;
+  const bmiPersonIds = new Set<string>();
   if (summary.center) {
     const projectId = officeProjectIdFromBillId(billId);
     const locations = CENTER_TO_BMI_LOCATION_IDS[summary.center] ?? [];
@@ -1593,17 +1597,16 @@ export async function listBindableParty(
         const people = detail.persons_list ?? [];
         for (const p of people) {
           const full = [p.firstName ?? "", p.name ?? ""].join(" ").trim();
-          rows.push({
-            full,
-            personId: String(p.personId ?? p.id ?? "") || null,
-            source: "bmi-project",
-          });
+          const pid = String(p.personId ?? p.id ?? "") || null;
+          if (pid) bmiPersonIds.add(pid);
+          rows.push({ full, personId: pid, source: "bmi-project" });
         }
         if (people.length > 0) break;
       } catch {
         /* project not at this venue / BMI hiccup — try the next location */
       }
     }
+    bmiAnswered = answered;
     if (locations.length > 0 && !answered) {
       degraded = true;
       console.warn(
@@ -1620,6 +1623,24 @@ export async function listBindableParty(
   try {
     const joins = await listJoinsForProject(officeProjectIdFromBillId(billId));
     for (const j of joins) {
+      // Staff removed them from the booking in BMI after we attached them —
+      // our Neon row outliving that deletion is why a deleted racer reappeared
+      // at the kiosk. Judged on a positive fact (we attached, BMI answered, and
+      // they are not on it), never on absence alone; fails closed.
+      if (
+        joinWasRemovedFromBmi({
+          bmiAnswered,
+          bmiPersonIds,
+          attachStatus: j.bmiAttachStatus,
+          personId: j.personId ?? null,
+        })
+      ) {
+        console.warn(
+          `[checkin] ${billId}: "${j.displayName}" (${j.personId}) was attached but is no longer ` +
+            `on the BMI project — treating as removed from the reservation`,
+        );
+        continue;
+      }
       const full = [j.firstName ?? "", j.lastName ?? ""].join(" ").trim() || j.displayName.trim();
       rows.push({ full, personId: j.personId ?? null, source: "waiver-join" });
     }

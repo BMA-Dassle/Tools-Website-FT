@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isPlaceholderName, mergeRosterRows, normalizeName, type RosterRow } from "./roster-merge";
+import {
+  isPlaceholderName,
+  joinWasRemovedFromBmi,
+  mergeRosterRows,
+  normalizeName,
+  type RosterRow,
+} from "./roster-merge";
 
 const bmi = (full: string, personId: string): RosterRow => ({
   full,
@@ -163,5 +169,67 @@ describe("mergeRosterRows — placeholders and junk", () => {
 
   it("returns an empty array for no input", () => {
     expect(mergeRosterRows([])).toEqual([]);
+  });
+});
+
+describe("joinWasRemovedFromBmi — staff deleted them in BMI", () => {
+  const ids = (...v: string[]) => new Set(v);
+
+  it("treats attached-but-absent as REMOVED (the reported bug)", () => {
+    // Test4 attached at 20:37, then staff deleted them; BMI now lists only Eric.
+    expect(
+      joinWasRemovedFromBmi({
+        bmiAnswered: true,
+        bmiPersonIds: ids("63000000007642347"),
+        attachStatus: "attached",
+        personId: "58091668",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps someone BMI still lists", () => {
+    expect(
+      joinWasRemovedFromBmi({
+        bmiAnswered: true,
+        bmiPersonIds: ids("58091668"),
+        attachStatus: "attached",
+        personId: "58091668",
+      }),
+    ).toBe(false);
+  });
+
+  it("FAILS CLOSED when BMI never answered — absence proves nothing", () => {
+    expect(
+      joinWasRemovedFromBmi({
+        bmiAnswered: false,
+        bmiPersonIds: ids(),
+        attachStatus: "attached",
+        personId: "58091668",
+      }),
+    ).toBe(false);
+  });
+
+  it("never judges a row that never reached BMI", () => {
+    for (const st of ["pending", "failed", "skipped", "unresolved"]) {
+      expect(
+        joinWasRemovedFromBmi({
+          bmiAnswered: true,
+          bmiPersonIds: ids(),
+          attachStatus: st,
+          personId: "58091668",
+        }),
+      ).toBe(false);
+    }
+  });
+
+  it("never judges a row with no person id", () => {
+    expect(
+      joinWasRemovedFromBmi({
+        bmiAnswered: true,
+        bmiPersonIds: ids(),
+        attachStatus: "attached",
+        personId: null,
+      }),
+    ).toBe(false);
   });
 });

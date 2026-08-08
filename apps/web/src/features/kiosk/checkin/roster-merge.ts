@@ -68,6 +68,42 @@ export function normalizeName(full: string): string {
     .join(" ");
 }
 
+/**
+ * Was this waiver-join person REMOVED from the reservation in BMI?
+ *
+ * Staff delete people from a booking in BMI, but our Neon join row survives and
+ * the roster unions it straight back in — so a racer taken off the reservation
+ * reappears at the kiosk and can be checked in again (owner 2026-08-07: "I
+ * removed some people from the group in BMI, went to check in and it loaded the
+ * deleted one as well").
+ *
+ * The judgement rests on a POSITIVE fact, never on absence alone: we recorded
+ * `attached`, meaning BMI accepted this person onto the project, and a
+ * SUCCESSFUL read of the project now does not list them. Something removed them
+ * in between. That is the two-call diff the Pandora removal rule demands.
+ *
+ * Fails CLOSED in every uncertain case — an unanswered/failed BMI read, or a row
+ * that never attached, keeps the person. A guard over a party must never return
+ * a permissive empty, and wrongly hiding a racer strands a paying guest.
+ */
+export function joinWasRemovedFromBmi(args: {
+  /** True only when a project read actually SUCCEEDED (not a timeout/404). */
+  bmiAnswered: boolean;
+  /** personIds BMI currently lists on the project. */
+  bmiPersonIds: Set<string>;
+  /** The Neon row's recorded attach outcome. */
+  attachStatus: string;
+  personId: string | null;
+}): boolean {
+  const { bmiAnswered, bmiPersonIds, attachStatus, personId } = args;
+  if (!bmiAnswered) return false; // BMI never spoke — assume nothing.
+  if (!personId) return false;
+  // Only a row we KNOW reached BMI can be judged missing from it. `pending`,
+  // `failed` and `skipped` were never there, so absence proves nothing.
+  if (attachStatus !== "attached") return false;
+  return !bmiPersonIds.has(personId);
+}
+
 /** Forename / surname split of a normalized name. */
 export function namePartsOf(full: string): { first: string; last: string } {
   const p = normalizeName(full).split(" ").filter(Boolean);
