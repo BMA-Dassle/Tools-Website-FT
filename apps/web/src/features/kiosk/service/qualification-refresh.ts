@@ -105,7 +105,18 @@ async function fetchWaiverStatus(
       },
     );
     const data = await res.json().catch(() => null);
-    if (!res.ok || !data?.success || !data.data) return null;
+    if (!res.ok || !data?.success || !data.data) {
+      // Correct already — null means the caller OMITS these fields rather than
+      // asserting a false, which is why the purchase flow was the least damaged
+      // of the readers. Logged so a null-birthdate person (this endpoint 500s
+      // on them, and booking creates them that way) is findable rather than
+      // just quietly missing their waiver + birthdate.
+      console.warn(
+        `[qualification-refresh] person ${personId} UNREADABLE (HTTP ${res.status}) — ` +
+          `waiver/birthdate omitted; a null birthdate causes this and is repairable`,
+      );
+      return null;
+    }
     const person = data.data as { waiverExpiry?: string; birthdate?: string };
     const expiry = person.waiverExpiry ? new Date(person.waiverExpiry) : null;
     return {

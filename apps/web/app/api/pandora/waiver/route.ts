@@ -81,7 +81,18 @@ async function waiverNowValid(locationID: string, personID: string): Promise<boo
       { headers: { Authorization: `Bearer ${API_KEY}` }, cache: "no-store" },
     );
     const data = await res.json();
-    const expiry = data?.data?.waiverExpiry ? new Date(data.data.waiverExpiry) : null;
+    if (!res.ok || !data?.data) {
+      // This is the post-sign confirmation read, so an unreadable record makes
+      // a waiver that DID land look like it failed. A null birthdate 500s this
+      // endpoint — and the guest who just signed is exactly the person whose
+      // birthdate may still be missing. False is the safe answer; silence is not.
+      console.warn(
+        `[pandora-waiver] person ${personID} UNREADABLE (HTTP ${res.status}) — ` +
+          `cannot confirm the signature landed; a null birthdate causes this`,
+      );
+      return false;
+    }
+    const expiry = data.data.waiverExpiry ? new Date(data.data.waiverExpiry) : null;
     return !!expiry && !Number.isNaN(expiry.getTime()) && expiry > new Date();
   } catch {
     return false;
@@ -251,7 +262,12 @@ export async function POST(req: NextRequest) {
             `[pandora-waiver] salvaged — waiver already valid after failed attempt(s) (${signMeta})`,
           );
           await logSignOutcome("salvaged", attempt, null, lastError);
-          return NextResponse.json({ ok: true, waiverID: null, alreadyValid: true, licenceGrant: grant() });
+          return NextResponse.json({
+            ok: true,
+            waiverID: null,
+            alreadyValid: true,
+            licenceGrant: grant(),
+          });
         }
       }
 
@@ -308,7 +324,12 @@ export async function POST(req: NextRequest) {
     if (await waiverNowValid(locationID, personID)) {
       console.log(`[pandora-waiver] salvaged after final attempt — waiver is valid (${signMeta})`);
       await logSignOutcome("salvaged", 3, null, lastError);
-      return NextResponse.json({ ok: true, waiverID: null, alreadyValid: true, licenceGrant: grant() });
+      return NextResponse.json({
+        ok: true,
+        waiverID: null,
+        alreadyValid: true,
+        licenceGrant: grant(),
+      });
     }
 
     // The row that matters: the guest signed and has NO waiver.

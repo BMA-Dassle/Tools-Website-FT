@@ -35,11 +35,28 @@ export async function GET(req: NextRequest) {
     const data = await res.json();
 
     if (!res.ok || !data.success) {
-      // Person not found or error — assume no valid waiver
+      // NOT the same as "not found". A person whose BIRTHDATE IS NULL makes
+      // this endpoint return 500 "Response Validator Error" — the record
+      // exists, the vendor's own response schema rejects it — and booking
+      // creates people without a birthdate. Reporting that as "Not found"
+      // is how a guest who HAD signed was told to sign again for weeks.
+      //
+      // Still `valid: false` (fail closed — never wave through an unverified
+      // racer), but say which it is, and log it so the repairable ones are
+      // findable. PATCH /api/pandora with a birthdate fixes the record.
+      const unreadable = res.status >= 500;
+      if (unreadable) {
+        console.warn(
+          `[pandora-get] person ${personId} UNREADABLE (HTTP ${res.status}: ${
+            data.error || data.message || "?"
+          }) — a null birthdate causes this and is repairable via PATCH`,
+        );
+      }
       return NextResponse.json({
         valid: false,
         personId,
-        reason: data.message || "Not found",
+        unreadable,
+        reason: unreadable ? `Unreadable (HTTP ${res.status})` : data.message || "Not found",
       });
     }
 

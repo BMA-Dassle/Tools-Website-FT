@@ -172,7 +172,19 @@ async function waiverExpiryMs(locationID: string, personId: string): Promise<num
       { headers: { Authorization: `Bearer ${API_KEY}` }, cache: "no-store" },
     );
     const d = await res.json();
-    return d?.data?.waiverExpiry ? new Date(d.data.waiverExpiry).getTime() : 0;
+    if (!res.ok || !d?.data) {
+      // 0 means "no waiver on file", and callers use it for skipIfValid — so an
+      // UNREADABLE record makes us re-sign someone who is already covered. A
+      // null birthdate makes this endpoint 500 ("Response Validator Error"),
+      // and booking creates people without one. Re-signing is harmless, so the
+      // behaviour stands; being unable to tell the two apart is not.
+      console.warn(
+        `[waiver-digital] person ${personId} UNREADABLE (HTTP ${res.status}) — ` +
+          `treating as no waiver; a null birthdate causes this and is repairable`,
+      );
+      return 0;
+    }
+    return d.data.waiverExpiry ? new Date(d.data.waiverExpiry).getTime() : 0;
   } catch {
     return 0;
   }
