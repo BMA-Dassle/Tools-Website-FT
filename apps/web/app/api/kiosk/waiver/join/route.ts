@@ -31,14 +31,30 @@ const bodySchema = z.object({
   personId: z.string().regex(/^\d+$/),
   firstName: z.string().trim().min(1),
   lastName: z.string().trim().default(""),
-  kioskId: z.string().trim().max(64).optional(),
+  // NULLISH, not optional. The at-home /waiver flow has no kiosk and sends an
+  // explicit `kioskId: null` (useReservationJoinAttach defaults it to null, and
+  // JSON.stringify keeps nulls) — and zod's .optional() accepts `undefined` but
+  // REJECTS `null`, so every at-home join 400'd on body validation before the
+  // Neon insert. That is why kiosk_waiver_joins had zero rows table-wide while
+  // guests were being told "we have them saved to your reservation": the only
+  // other caller, the kiosk group-waiver flow, sends a real string kioskId and
+  // is flag-OFF by default, so nothing ever exercised the working path.
+  // (Proven live 2026-08-07: two signatures, two 400s, zero rows.)
+  kioskId: z.string().trim().max(64).nullish(),
 });
 
 export async function POST(req: NextRequest) {
   let parsed: z.infer<typeof bodySchema>;
   try {
     parsed = bodySchema.parse(await req.json());
-  } catch {
+  } catch (err) {
+    // LOUD. A silent 400 here is invisible to the guest (the UI still says
+    // "saved to your reservation") and invisible in Neon (no row is written),
+    // so the only trace was the status code in Vercel's log.
+    console.error(
+      "[kiosk-waiver-join] REJECTED body — nobody was attached to the reservation:",
+      err instanceof z.ZodError ? JSON.stringify(err.issues) : err,
+    );
     return NextResponse.json({ ok: false, error: "Invalid body" }, { status: 400 });
   }
   const { center, locationId, projectId, personId, firstName, lastName, kioskId } = parsed;
