@@ -1354,13 +1354,27 @@ export async function completeCheckin(args: {
     // group's. Now a replay with nothing new still returns alreadyComplete
     // (double-tap / resolved busy-retry), but a replay carrying people who were
     // never scheduled runs the pipeline for THOSE people only.
+    // ALWAYS TRY TO ASSIGN when the guest has explicitly said who drives what
+    // (owner 2026-08-07: "you just need to make sure it always tries to assign
+    // regardless"). This is computed HERE, above the short-circuit, because the
+    // short-circuit is what silently swallowed a whole check-in: every row said
+    // 'inserted' from an earlier pass, `pending` came out empty, and the
+    // function returned `alreadyComplete` reporting the OLD inserted count — the
+    // "3 racers added" the kiosk showed while Pandora had none of them. The
+    // pipeline never ran, and the fix further down never got reached.
+    //
+    // Safe to re-run: the Pandora insert is idempotent, proven directly against
+    // the endpoint on this very reservation.
+    const explicitAssignments = (args.assignments ?? []).filter((a) => a?.slotKey && a?.personId);
+    const hasExplicit = explicitAssignments.length > 0;
+
     let resuming = false;
     if (event) {
       const existing = await getCheckinEvent(billId, businessDate);
       if (existing?.completedAt) {
         const priorPeople = await listCheckinPeople(event.id);
         const pending = priorPeople.filter((p) => !isScheduled(p.scheduleStatus));
-        if (pending.length === 0) {
+        if (pending.length === 0 && !hasExplicit) {
           return {
             ok: true,
             alreadyComplete: true,
@@ -1411,8 +1425,6 @@ export async function completeCheckin(args: {
     // marked inserted). The stale-status filter survives only for the LEGACY
     // positional path, where nobody stated an intent and re-seating really
     // could double up.
-    const explicitAssignments = (args.assignments ?? []).filter((a) => a?.slotKey && a?.personId);
-    const hasExplicit = explicitAssignments.length > 0;
     const people = hasExplicit
       ? allPeople
       : allPeople.filter((p) => !isScheduled(p.scheduleStatus));

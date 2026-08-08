@@ -15,6 +15,23 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.19.0 — CHECK-IN TELLS THE TRUTH ABOUT WHO AND WHEN. The roster now resolves
+ *         against BMI instead of whichever row arrived first, so racers who ARE
+ *         registered stop reading "Account + waiver needed" and one person stops
+ *         appearing twice. The at-home /waiver link finally attaches anyone at
+ *         all (its join had been rejected on every call since it shipped, so
+ *         that table had never held a row). A racer deleted from the booking in
+ *         BMI no longer walks back onto the roster. Race times re-sync FROM BMI,
+ *         which is what silently broke assignment: Pandora matches the session
+ *         by start time, so a heat staff moved matched nothing. And a booking
+ *         person with no birthdate — which makes Pandora 500 on its own
+ *         response schema and reads to us as "no waiver" — is repaired with the
+ *         DOB Set up already collected, then scheduled on that same id instead
+ *         of minting a duplicate. Partial check-in works: one racer is enough,
+ *         latecomers resume, and an explicit assignment always re-posts.
+ *         "Who's racing" is one card per RACE with its own seat count, inline
+ *         name chips instead of a modal, pre-filled where unambiguous, locked
+ *         while submitting; the done screen names the drivers.
  * 1.18.0 — RACERS SIGN IN BY SCANNING, FROM THE ENTRY SCREENS. A racing licence
  *         (the wallet pass barcode, or our `/r/{code}` deep link) or the
  *         SMS-Timing app's personal QR now works on the attract screen and the
@@ -872,7 +889,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.18.0";
+export const KIOSK_VERSION = "1.19.0";
 
 let bootVersion: string | null = null;
 let captured = false;
