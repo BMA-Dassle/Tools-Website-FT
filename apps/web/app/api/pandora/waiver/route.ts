@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PANDORA_DEFAULT_LOCATION_ID, PANDORA_LOCATION_MAP } from "@/lib/pandora-locations";
 import { logWaiverSignAttempt, type WaiverSignOutcome } from "@/lib/waiver-sign-log";
+import { storeWaiverSignature, settleWaiverSignature } from "@/lib/waiver-signature-store";
 import { signLicenceGrant } from "~/features/racing/wallet/licence-grant";
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
@@ -213,17 +214,37 @@ export async function POST(req: NextRequest) {
 
     const multipartBody = Buffer.concat(parts);
 
+    // ── SAVE THE SIGNATURE FIRST ────────────────────────────────────────────
+    // Before Pandora is called at all. BMI has been the only holder of the
+    // image, and it hands back no way to read one — so a signature that BMI
+    // silently drops was, until now, gone: unprovable and un-re-pushable.
+    // Awaited so the capture genuinely precedes the send; its errors are
+    // swallowed inside, so a DB outage still cannot cost a guest their waiver.
+    // (owner 2026-08-08, W57821. CLAUDE.md § persist guest input at capture.)
+    const signatureRowId = await storeWaiverSignature({
+      personId: String(personID),
+      signerPersonId: String(sigPersonID || personID),
+      waiverContentId: String(waiverContentID),
+      locationId: locationID,
+      invalidationDate: safeInvalidation,
+      signatureBase64: sigBase64,
+      signatureBytes: sigBuffer.length,
+    });
+
     // Durable, per-guest, queryable record of EVERY outcome — the thing
     // console.log could not give us. Awaited (not fire-and-forget) so a failed
     // sign cannot return to the guest before its row exists; the write swallows
     // its own errors, so it can still never cost anyone a signature.
-    const logSignOutcome = (
+    const logSignOutcome = async (
       outcome: WaiverSignOutcome,
       attempts: number,
       waiverId: string | null,
       err: { status: number; message: string } | null,
-    ) =>
-      logWaiverSignAttempt({
+    ) => {
+      // Stamp the stored image with what Pandora ultimately said, so the saved
+      // signature and the outcome are one queryable fact rather than two.
+      await settleWaiverSignature(signatureRowId, outcome, waiverId);
+      return logWaiverSignAttempt({
         personId: String(personID),
         signerPersonId: String(sigPersonID || personID),
         waiverContentId: String(waiverContentID),
@@ -242,6 +263,7 @@ export async function POST(req: NextRequest) {
           null,
         userAgent: req.headers.get("user-agent"),
       });
+    };
 
     // Pandora (Azure App Service) throws transient 5xx "Unexpected Error
     // Occured" bursts — the same pathology every OTHER Pandora call here

@@ -3449,3 +3449,60 @@ to exclude moves or it double-texts on an event another cron already owns — se
 that the guard built from "sessions we already touched" was NOT enough (a racer
 moved to a not-yet-ticketed heat slipped through; caught only by replaying a real
 day against live rosters, never by unit tests).
+
+## A signature can be present, acknowledged, and invisible (2026-08-08)
+
+Staff reported "the signature is not making it to the BMI profile" for several
+groups (W57821 first). Every health signal we had said the opposite:
+
+- `POST /v2/bmi/waiver` returned **201 + a waiverID**, first attempt, no retries
+- `waiver_sign_attempts` logged **outcome=signed**, 19–46 KB per signature
+- Pandora reported a valid **`waiverExpiry`** for all five racers
+- the waiver was filed at the **right location** (verified at all three)
+
+All five signals were true. The signature was still invisible.
+
+**Root cause:** `components/pandora/SignaturePad.tsx` drew with
+`strokeColor = "#ffffff"` and never filled a background. An untouched canvas
+pixel is `rgba(0,0,0,0)`, so `canvas.toDataURL("image/png")` produced **white ink
+on a transparent background**. That reads perfectly on the dark kiosk panel and
+composites to **white-on-white** over BMI's white waiver document. The ink was
+always in the file — 18 KB of it — just never visible on paper.
+
+The tell was already in the codebase: `renderDigitallyAcceptedPng`
+(`lib/waiver-digital.tsx`) carries the comment *"Dark text on white so it reads
+in BMI's waiver viewer."* That path had hit this and fixed it **locally**; the
+interactive pad never got the same treatment. A lesson fixed at one call site is
+not fixed — the same instinct as "a shared helper is not a fix" (2026-07-29).
+
+### Guardrails
+
+- **An image bound for an external viewer must be flattened onto an opaque
+  background before upload.** Never ship a raw `toDataURL()` from a canvas whose
+  ink colour was chosen for YOUR theme. Export ink and screen ink are different
+  concerns; `signature-export.ts` recolours via the alpha channel
+  (`source-in` → ink, `destination-over` → page) so antialiasing and geometry
+  survive.
+- **"Bytes > 0" is not proof of a visible image.** Neither is HTTP 201, a
+  returned id, or a downstream expiry date. For anything RENDERED, the only
+  proof is rendering it. Two 18 KB PNGs, one blank on white, settled this in
+  seconds — after hours of API forensics that could never have found it.
+- **Check the whole pipeline's background assumptions when a dark-themed UI
+  feeds a light-themed document.** Kiosk/waiver UI is dark; BMI, PDFs and
+  printed paper are white. Every image crossing that boundary is suspect.
+  (`app/contract/[shortId]/ContractClient.tsx` draws cyan `#22d3ee` on the same
+  transparent canvas into a white PDF — legible, but the same class.)
+- **We now save every signature.** `lib/waiver-signature-store.ts` writes the
+  PNG to Neon BEFORE the Pandora POST (CLAUDE.md § persist guest input at
+  capture). Until 2026-08-08 BMI was the ONLY holder of the image and offers no
+  read-back — 22 Pandora/Office paths probed, all 404 — so we could not confirm,
+  deny, re-push, or produce a signature for chargeback evidence.
+
+### Separately confirmed, still open
+
+A real silent-loss class exists alongside this one: rows with `outcome='signed'`
+and a returned waiverID whose person has **no `waiverExpiry` in BMI at all** —
+Pandora acknowledged a write that never registered (e.g. 56910516, 56912062,
+56912093 on 2026-07-30). `waiverExpiry` provenance is settled: people with ZERO
+memberships still show one, so it tracks the WAIVER, not the membership. Sweep
+with `scripts/waiver-signed-but-no-expiry-sweep.mts`.

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useEffect, useState } from "react";
+import { flattenSignatureToPng } from "@/components/pandora/signature-export";
 
 /**
  * Reusable signature pad component — renders an HTML5 Canvas that captures
@@ -17,7 +18,8 @@ import { useRef, useEffect, useState } from "react";
  */
 
 export interface SignaturePadRef {
-  /** Export the signature as a PNG data URL (base64). */
+  /** Export the signature as a PNG data URL (base64): dark ink flattened onto
+   *  an opaque white page, regardless of the on-screen stroke colour. */
   toDataURL: () => string;
   /** Clear the canvas. */
   clear: () => void;
@@ -186,7 +188,11 @@ function SignaturePadInner({
   useEffect(() => {
     if (!padRef) return;
     padRef.current = {
-      toDataURL: () => canvasRef.current?.toDataURL("image/png") || "",
+      // NEVER the raw canvas — the pad draws WHITE strokes on a transparent
+      // background, which BMI Office renders white-on-white (invisible). See
+      // signature-export.ts for the full incident.
+      toDataURL: () =>
+        flattenSignatureToPng(canvasRef.current, () => document.createElement("canvas")),
       clear: () => {
         const canvas = canvasRef.current;
         if (!canvas) return;
