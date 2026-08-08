@@ -742,10 +742,14 @@ export function KioskCheckinFlow() {
 
       {/* Header */}
       <div className="flex shrink-0 items-center gap-[24px] border-b border-white/10 px-[48px] py-[32px]">
+        {/* Locked mid-submit: the assignments have already gone to the server,
+            so walking back would leave the screen disagreeing with what is
+            actually being written to the grid. */}
         <button
           type="button"
           onClick={back}
-          className="k-tap flex h-[88px] items-center gap-[8px] rounded-2xl border-2 border-white/15 px-[28px] text-[28px] font-bold text-white/70"
+          disabled={binding}
+          className="k-tap flex h-[88px] items-center gap-[8px] rounded-2xl border-2 border-white/15 px-[28px] text-[28px] font-bold text-white/70 disabled:opacity-40"
         >
           <IconChevronLeft size={36} aria-hidden="true" />
           {stage === "find" ? t("checkin.home") : t("checkin.back")}
@@ -1521,7 +1525,8 @@ function RaceAssignScreen(props: {
                 <button
                   type="button"
                   onClick={onBackToParty}
-                  className="k-tap mt-[14px] h-[76px] rounded-2xl border-2 border-[#00e2e5] px-[28px] text-[26px] font-bold text-[#00e2e5]"
+                  disabled={binding}
+                  className="k-tap mt-[14px] h-[76px] rounded-2xl border-2 border-[#00e2e5] px-[28px] text-[26px] font-bold text-[#00e2e5] disabled:opacity-40"
                 >
                   {t("checkin.assign.addRacer", { category: head.category })}
                 </button>
@@ -1540,7 +1545,11 @@ function RaceAssignScreen(props: {
                   );
                   const clash = otherRace ? raceSlotsConflict(otherRace.head, head) : false;
                   // Race full and this racer isn't on it — untap someone first.
-                  const blocked = !selected && !freeSeat;
+                  // Locked once the check-in is submitting: the assignment
+                  // payload has ALREADY been sent, so a tap here would change
+                  // the screen without changing the grid — the guest would walk
+                  // away believing a lineup we never wrote.
+                  const blocked = (!selected && !freeSeat) || binding;
                   return (
                     <button
                       key={m.id}
