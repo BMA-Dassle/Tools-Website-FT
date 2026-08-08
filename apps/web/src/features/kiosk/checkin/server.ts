@@ -64,6 +64,8 @@ import {
 import { classifyScan } from "./scan";
 import { joinWasRemovedFromBmi, mergeRosterRows, type RosterRow } from "./roster-merge";
 import { consumePriorSeats } from "./resume-seats";
+import { reconcileHeatTimes, type BmiSchedule } from "./bmi-schedule-sync";
+import { sql } from "@/lib/db";
 import type {
   CheckinBindMember,
   CheckinBindResult,
@@ -364,6 +366,96 @@ function neonHeats(group: BowlingReservation[]): NeonHeat[] {
   }
   return out;
 }
+/**
+ * Bring this reservation's RACE TIMES back in line with BMI, and persist the
+ * correction to Neon.
+ *
+ * `booking_metadata.heats` is written once at booking and never hears about a
+ * heat staff move in BMI. Live 2026-08-07: the kiosk offered 10:12 PM for a
+ * race BMI had moved to 11:12 PM, and the assignment failed against a heat that
+ * no longer existed. 2 of 25 recent race reservations were already stale.
+ *
+ * BMI owns the schedule (owner: "BMI is truth on this"), so we WRITE Neon
+ * rather than just render around it.
+ *
+ * WHY IT MATTERS — the assignment, not the label. Pandora's `/bmi/schedule`
+ * matches the session BY START TIME: `scheduleCheckinRacers` sends
+ * `heatStart: heat.heatId`, so a stale time matches no session and the racer is
+ * silently not assigned (owner 2026-08-07: "we use it for race assignment
+ * endpoint in pandora, that's why it doesn't always assign because it don't
+ * match"). That is the long-standing intermittent no-assign, not a cosmetic
+ * wrong time on a screen. `race-session-assign-sweep` seats racers the same way
+ * and fails the same way.
+ *
+ * NOT affected, contrary to an earlier version of this comment: the e-ticket
+ * and check-in-alert crons. Both drive off PANDORA sessions (/sessions,
+ * /races-current) and never read a heat time from Neon — the one mention of
+ * `heats[].heatId` in pre-race-tickets is a timezone warning in a comment
+ * (owner: "those fire off people in session not reservation").
+ *
+ * Per RACE ROW, and fails closed: `reconcileHeatTimes` only rewrites when the
+ * race count and the per-race seat counts line up exactly, so a booking whose
+ * shape has genuinely changed is left for the desk instead of being guessed at.
+ * Never throws — a failed sync just leaves today's behaviour.
+ */
+async function syncRaceHeatsFromBmi(
+  billId: string,
+  center: CenterSlug | null,
+  group: BowlingReservation[],
+): Promise<void> {
+  if (!center) return;
+  const raceRows = group.filter((r) => r.productKind === "race");
+  if (raceRows.length === 0) return;
+
+  let schedules: BmiSchedule[] = [];
+  const projectId = officeProjectIdFromBillId(billId);
+  for (const locationId of CENTER_TO_BMI_LOCATION_IDS[center] ?? []) {
+    try {
+      const detail = await getReservationDetail(locationId, projectId);
+      const s = (detail.schedules ?? []) as BmiSchedule[];
+      if (s.length > 0) {
+        schedules = s;
+        break;
+      }
+    } catch {
+      /* next venue, or leave Neon untouched */
+    }
+  }
+  if (schedules.length === 0) return;
+
+  for (const row of raceRows) {
+    const heats = ((row.bookingMetadata as { heats?: unknown } | undefined)?.heats ??
+      []) as NeonHeat[];
+    if (!Array.isArray(heats) || heats.length === 0) continue;
+    const result = reconcileHeatTimes(heats, schedules);
+    if (result.changed === 0) {
+      if (result.reason !== "ok") {
+        console.warn(
+          `[checkin] ${billId}: race times NOT synced (${result.reason}${result.detail ? ` — ${result.detail}` : ""}) — left as booked`,
+        );
+      }
+      continue;
+    }
+    try {
+      const q = sql();
+      await q`
+        UPDATE bowling_reservations
+        SET booking_metadata = COALESCE(booking_metadata, '{}'::jsonb)
+            || jsonb_build_object('heats', ${JSON.stringify(result.heats)}::jsonb)
+        WHERE id = ${row.id}
+      `;
+      // Keep the in-memory group consistent so THIS check-in uses the new time
+      // without a re-read.
+      (row.bookingMetadata as { heats?: unknown }).heats = result.heats;
+      console.warn(
+        `[checkin] ${billId}: race time changed in BMI — synced ${result.changed} heat row(s) to Neon (${result.detail})`,
+      );
+    } catch (err) {
+      console.error(`[checkin] ${billId}: heat sync write failed (non-fatal):`, err);
+    }
+  }
+}
+
 function raceHeatStartsFromNeon(group: BowlingReservation[]): string[] {
   return neonHeats(group)
     .map((h) => h.heatId ?? "")
@@ -836,6 +928,10 @@ export async function buildItinerary(
   }
   const record = summary.record;
   const group = summary.moneyGroup;
+  // BEFORE anything reads the heats. A race staff moved in BMI must be
+  // corrected in Neon first, or the kiosk offers a time that no longer exists
+  // and the assignment fails against a heat BMI has already retimed.
+  await syncRaceHeatsFromBmi(billId, summary.center, group);
 
   // Racing — one activity at the earliest heat. Prefer the Redis booking record
   // (carries racer names + personIds); fall back to the Neon race row's
