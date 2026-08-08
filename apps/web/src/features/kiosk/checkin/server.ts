@@ -1431,9 +1431,14 @@ export async function completeCheckin(args: {
       // (the upsert REPLACES bound_heats, so a partial list would drop heats).
       const assignToSlot = async (p: (typeof people)[number], heat: NeonHeat): Promise<void> => {
         const name = p.firstName || p.displayName || "Racer";
-        if (!p.pandoraPersonId) {
-          // No short id resolved (e.g. a returning racer whose lookup didn't
-          // upsert) — can't schedule; flag for the desk, don't poison the batch.
+        // A schedulable id is a SHORT Pandora id, or an Office id whose record
+        // has been REPAIRED (birthdate written, Pandora resolving it) — Set up
+        // adopts that id as pandoraPersonId precisely because Pandora answers
+        // for it. The two are posted in separate batches below, so an Office id
+        // the endpoint still refuses cannot cost anyone else their seat.
+        const schedulableId = p.pandoraPersonId || p.personId;
+        if (!schedulableId) {
+          // Nothing usable at all — flag for the desk, don't poison the batch.
           memoFailures.push(name);
           await setCheckinPersonStatus(p.id, { scheduleStatus: "failed" });
           return;
@@ -1442,7 +1447,7 @@ export async function completeCheckin(args: {
         const product = productId ? getRaceProductById(productId) : null;
         racers.push({
           racerName: name,
-          personId: p.pandoraPersonId,
+          personId: schedulableId,
           product: product?.name ?? "Race",
           productId,
           tier: heat.tier || product?.tier || "starter",
@@ -1453,7 +1458,7 @@ export async function completeCheckin(args: {
           heatStop: heatStopFor(heat.heatId as string),
         });
         if (!bound.some((b) => b.personRowId === p.id)) {
-          bound.push({ personRowId: p.id, personId: p.pandoraPersonId });
+          bound.push({ personRowId: p.id, personId: schedulableId });
         }
         const personHeats = heatsByPerson.get(p.id) ?? [];
         personHeats.push(heat);
@@ -1523,7 +1528,40 @@ export async function completeCheckin(args: {
         "";
 
       if (racers.length > 0) {
-        const res = await scheduleCheckinRacers({ reservationNumber, racers });
+        // TWO BATCHES, deliberately. One bad id fails the WHOLE Pandora batch
+        // (schedule-racers header, W52109), so a racer riding a 17-digit Office
+        // id must never share a post with the known-good short ids.
+        //
+        // They can now be here at all because a repaired person (birthdate
+        // written, record resolving in Pandora) adopts its own id as the
+        // schedulable one. Whether /bmi/schedule tolerates that id is UNPROVEN
+        // — the W52109 note predates the discovery that the 500 was a null-DOB
+        // response-validation error, so it may have been this same red herring.
+        // Isolating them means we find out for free: if the endpoint accepts
+        // them the racer gets on the grid, and if it refuses, only that batch
+        // fails and everyone else is already seated.
+        const isShortId = (id: string | null) => !!id && id.length < 15;
+        const shortBatch = racers.filter((r) => isShortId(r.personId));
+        const officeBatch = racers.filter((r) => !isShortId(r.personId));
+
+        const res = { linked: 0, unlinked: [] as string[], unlinkedPersonIds: [] as string[] };
+        for (const [label, batch] of [
+          ["short", shortBatch],
+          ["office-id", officeBatch],
+        ] as const) {
+          if (batch.length === 0) continue;
+          const part = await scheduleCheckinRacers({ reservationNumber, racers: batch });
+          res.linked += part.linked;
+          res.unlinked.push(...part.unlinked);
+          res.unlinkedPersonIds.push(...part.unlinkedPersonIds);
+          if (label === "office-id") {
+            console.warn(
+              `[kiosk-checkin] ${reservationNumber}: repaired-id batch scheduled ` +
+                `${part.linked}/${batch.length}` +
+                (part.unlinked.length > 0 ? ` — unlinked: ${part.unlinked.join(", ")}` : ""),
+            );
+          }
+        }
         scheduled = res.linked;
         console.log(
           `[kiosk-checkin] ${reservationNumber}: scheduled ${res.linked}/${racers.length}` +

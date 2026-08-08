@@ -854,6 +854,16 @@ const PeopleStepComponent: StepDef<RaceItem | AttractionItem>["Component"] = ({
                 isMinor: rMinor,
                 category: rAge < 13 ? "junior" : "adult",
                 dobIso: refreshedIso,
+                // ADOPT THE REPAIRED ID AS SCHEDULABLE. Fixing the waiver is
+                // only half the job: check-in refuses to seat anyone without a
+                // pandoraPersonId, so a repaired racer would read "ready" and
+                // still never reach the grid. Pandora demonstrably answers for
+                // this id now — that IS what the repair proved — so treating it
+                // as a Pandora person is a fact, not a guess. completeCheckin
+                // posts these in their own batch, because one id the schedule
+                // endpoint dislikes fails the whole batch (W52109) and must
+                // never cost a short-id racer their seat.
+                pandoraPersonId: member.bmiPersonId,
               },
             });
             resetForm();
