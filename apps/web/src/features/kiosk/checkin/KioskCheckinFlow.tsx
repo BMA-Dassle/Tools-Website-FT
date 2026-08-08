@@ -274,13 +274,33 @@ export function KioskCheckinFlow() {
   // nobody silently acquires a party member they then have to set up.
   useEffect(() => {
     if (!prefillRoster || autoLoadedRef.current) return;
-    const ready = prefillRoster.filter((r) => r.bmiPersonId && r.waiverValid);
-    if (ready.length === 0) return;
-    const toAdd = prefillPartyMembers(session.party, ready);
+    const toAdd = prefillPartyMembers(session.party, prefillRoster);
     if (toAdd.length === 0) return;
     autoLoadedRef.current = true;
     for (const m of toAdd) dispatch({ type: "addPartyMember", member: m });
   }, [prefillRoster, session.party]);
+
+  // TICK the people who are actually ready. Everyone from the booking is now in
+  // the list, but only those with an account AND a live waiver are checked in
+  // by default — so someone still needing setup is visible (with their "Set up"
+  // button) without blocking the party that IS ready. Fires once per member, on
+  // the transition to ready, so a deliberate untick is never undone.
+  const autoTickedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const newlyReady = session.party.filter(
+      (m) => m.bmiPersonId && m.waiverValid && !autoTickedRef.current.has(m.id),
+    );
+    if (newlyReady.length === 0) return;
+    for (const m of newlyReady) autoTickedRef.current.add(m.id);
+    setCheckinItem((prev) => {
+      // Seed EMPTY, not "everyone": defaulting to the whole party would tick the
+      // very people who still need setup and re-create the deadlock this fixes.
+      const current = prev.participants ?? [];
+      const next = new Set(current);
+      for (const m of newlyReady) next.add(m.id);
+      return { ...prev, participants: Array.from(next), qty: Math.max(next.size, 1) };
+    });
+  }, [session.party]);
 
   const openRaceSlots = itinerary?.raceSlots.filter((s) => s.open) ?? [];
   const slotByKey = (key: string) => openRaceSlots.find((s) => s.slotKey === key);
@@ -894,31 +914,12 @@ export function KioskCheckinFlow() {
                 {t("checkin.roster.degraded")}
               </div>
             )}
-            {(() => {
-              const prefillable = prefillRoster
-                ? prefillPartyMembers(session.party, prefillRoster)
-                : [];
-              if (prefillable.length === 0) return null;
-              return (
-                <button
-                  type="button"
-                  onClick={() => {
-                    for (const m of prefillable) dispatch({ type: "addPartyMember", member: m });
-                  }}
-                  className="k-tap mb-[20px] w-full rounded-2xl border-2 border-[#B8860B] bg-[#B8860B]/10 px-[28px] py-[22px] text-left"
-                >
-                  <span className="block text-[30px] font-bold text-[#f0b341]">
-                    {t("checkin.prefill.load", { count: prefillable.length })}
-                  </span>
-                  <span className="mt-[4px] block text-[22px] leading-snug text-white/60">
-                    {t("checkin.prefill.names", {
-                      names: prefillable.map((m) => m.firstName).join(", "),
-                    })}{" "}
-                    {t("checkin.prefill.lapsedHint")}
-                  </span>
-                </button>
-              );
-            })()}
+            {/* No "Load your party" bar. Everyone the booking knows is already
+                IN the list above (owner 2026-08-07: "why does the yellow box
+                still need to exist why not just load them?"). The people who
+                still need an account or a waiver appear as their own rows with
+                a "Set up" button — the roster says it better than a banner
+                could, and the ticked/unticked state carries who is checking in. */}
             <PeopleScreens
               item={checkinItem}
               session={session}
@@ -1464,19 +1465,27 @@ function RaceAssignScreen(props: {
         </div>
       )}
 
+      {/* PARTIAL CHECK-IN. This used to require EVERY seat filled, which made a
+          part-party arrival a dead end: a 2-seat heat with one racer present
+          can never be completed (the same racer cannot take both seats), so the
+          button stayed disabled forever. Now one assigned racer is enough —
+          unassigned seats simply stay open, and completeCheckin is resumable,
+          so the rest of the group checks in when they arrive. */}
       <button
         type="button"
         onClick={onCheckIn}
-        disabled={binding || assignedCount < slots.length}
+        disabled={binding || assignedCount === 0}
         className="k-btn-primary k-tap h-[112px] w-full text-[36px] disabled:opacity-40"
       >
         {binding ? t("checkin.puttingOnGridWait") : t("checkin.checkEveryone")}
       </button>
-      {assignedCount < slots.length && (
-        <p className="text-center text-[24px] text-white/45">
-          {t("checkin.assign.remaining", { count: slots.length - assignedCount })}
-        </p>
-      )}
+      <p className="text-center text-[24px] text-white/45">
+        {assignedCount === 0
+          ? t("checkin.assign.needOne")
+          : assignedCount < slots.length
+            ? t("checkin.assign.someOpen", { count: slots.length - assignedCount })
+            : ""}
+      </p>
     </div>
   );
 }

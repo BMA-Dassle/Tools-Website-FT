@@ -201,11 +201,26 @@ export async function readProof(
 export function checkinOtpBypassAllowed(kioskId: unknown): boolean {
   if (typeof kioskId !== "string" || !kioskId) return false;
   const raw = process.env.KIOSK_CHECKIN_OTP_BYPASS_KIOSK_IDS ?? "";
-  return raw
+  const allowlisted = raw
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean)
     .includes(kioskId);
+  if (allowlisted) return true;
+  // TEST KIOSK 99, OFF PRODUCTION ONLY (owner 2026-08-07: "make kiosk 99 not
+  // need otp for reservation select so I can test this"). Preview deployments
+  // exist to be tested, and requiring both a Vercel env var and a live SMS to
+  // the booking's own contact made check-in effectively untestable there.
+  // Production is UNCHANGED — the env allowlist remains the only way in, because
+  // the kioskId is client-declared and therefore spoofable, and a bypass opens
+  // today's reservations at that center to anyone who guesses it.
+  if (process.env.VERCEL_ENV === "production") return false;
+  return isTestKioskId(kioskId);
+}
+
+/** Kiosk id is "center:number" (e.g. "fort-myers:99"); 99 is the test unit. */
+function isTestKioskId(kioskId: string): boolean {
+  return kioskId.split(":").pop()?.trim() === "99";
 }
 
 /** Lax per-IP limiter (fail-open — venue kiosks + phones share one NAT). */

@@ -79,6 +79,11 @@ export const checkinEn = {
   "checkin.assign.alsoAt": "also at {time}",
   "checkin.assign.movesFromTime": "moves from {time}",
   "checkin.assign.addRacer": "Add a {category} racer",
+  // Partial check-in: some seats left open is a NORMAL outcome (half the party
+  // arrives later), not an error to fix before continuing.
+  "checkin.assign.needOne": "Choose at least one racer to check in.",
+  "checkin.assign.someOpen":
+    "{count, plural, one {# race is} other {# races are}} still open — check in now, and anyone else can check in when they get here.",
   // Late half of a party checking in separately — say it added only THEM.
   "checkin.done.racersAddedLater":
     "{count, plural, one {# more racer is} other {# more racers are}} on the grid — the rest of your group was already checked in.",
@@ -148,6 +153,9 @@ export const checkinEs: Record<keyof typeof checkinEn, string> = {
   "checkin.assign.alsoAt": "también a las {time}",
   "checkin.assign.movesFromTime": "cambia de las {time}",
   "checkin.assign.addRacer": "Agregar un piloto {category}",
+  "checkin.assign.needOne": "Elige al menos un piloto para registrarte.",
+  "checkin.assign.someOpen":
+    "{count, plural, one {Queda # carrera} other {Quedan # carreras}} sin asignar — regístrate ahora y los demás pueden registrarse cuando lleguen.",
   "checkin.done.racersAddedLater":
     "{count, plural, one {# piloto más está} other {# pilotos más están}} en la parrilla — el resto de tu grupo ya se había registrado.",
 
