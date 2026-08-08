@@ -64,6 +64,7 @@ import {
 import { classifyScan } from "./scan";
 import { joinWasRemovedFromBmi, mergeRosterRows, type RosterRow } from "./roster-merge";
 import { consumePriorSeats } from "./resume-seats";
+import { browseRowIsOpen, browseRowTime, type BrowseLegLike } from "./browse-row";
 import { reconcileHeatTimes, type BmiSchedule } from "./bmi-schedule-sync";
 import { sql } from "@/lib/db";
 import type {
@@ -797,6 +798,19 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
      *  legs) — free off the rows already fetched, no extra round trip. */
     comboSpecialId: string | null;
   }
+  // Collect every leg per bill FIRST. Both decisions below — the time to show
+  // and whether the reservation is open at all — are properties of the WHOLE
+  // reservation, and judging them one leg at a time is what let a cancelled
+  // booking stay selectable and a racing row advertise its booking time.
+  const legsByBill = new Map<string, BrowseLegLike[]>();
+  for (const row of rows) {
+    if (row.bmiBillId) {
+      const list = legsByBill.get(row.bmiBillId) ?? [];
+      list.push(row as BrowseLegLike);
+      legsByBill.set(row.bmiBillId, list);
+    }
+  }
+
   const groups = new Map<string, Grp>();
   for (const row of rows) {
     if (row.status === "cancelled" || row.status === "no_show") continue;
@@ -804,11 +818,20 @@ export async function listBrowseRows(center: CenterSlug): Promise<CheckinBrowseR
     // just booked AT the kiosk), so they never need to find themselves here to
     // check in (owner 2026-07-25).
     if (row.bookingSource === "kiosk") continue;
-    const evt = row.eventAt || row.bookedAt || "";
-    const key = timeKey(evt);
-    if (!key || key < lo) continue;
     const billId = row.bmiBillId;
     if (!billId) continue; // no bill → cannot open/verify it; skip from browse
+    const legs = legsByBill.get(billId) ?? [row as BrowseLegLike];
+    // CANCELLED IN BMI. Neon's status is our record and it goes stale, so judge
+    // the whole reservation: any dead leg removes it. Owner hit the old
+    // behaviour by opening a reservation cancelled in BMI (2026-08-07).
+    if (!browseRowIsOpen(legs)) continue;
+    // THE RACE TIME, not the booking time. `eventAt` maps to `event_at`, a
+    // column this table does not have, so it was always undefined and every
+    // racing row fell through to `bookedAt` — the moment they BOOKED. Measured
+    // on 10 consecutive live rows: all wrong, by 22 min to 1h44m.
+    const evt = browseRowTime(legs).iso;
+    const key = timeKey(evt);
+    if (!key || key < lo) continue;
     const g = groups.get(billId);
     if (g) {
       g.kinds.add(row.productKind);
