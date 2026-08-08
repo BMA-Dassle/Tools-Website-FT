@@ -200,7 +200,7 @@ export const GROUP_EVENTS: Record<string, GroupEvent> = {
         slug: "gel-blaster",
         type: "reservation",
         label: "Nexus Gel Blaster",
-        description: "15-min gel blaster battles in a glowing arena",
+        description: "7-min gel blaster battles in a glowing arena (15-min experience)",
         image:
           "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
         maxPerGuest: 1,

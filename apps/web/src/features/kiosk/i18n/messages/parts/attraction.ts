@@ -35,6 +35,9 @@ export const attractionEn = {
   "attraction.durationMinutes": "{minutes} min",
   "attraction.roster": "{count, plural, one {# player} other {# players}} — {names}",
   "attraction.sessionMinutes": "{minutes} min session",
+  // Used instead of the two keys above when a product's play time differs from
+  // the slot it books (Nexus gel/laser: 7 min in the arena, 15 min slot).
+  "attraction.playExperience": "{play} min session · {total} min experience",
   "attraction.combo": "Combo",
   "attraction.perPerson": "person",
   "attraction.perLane": "lane",
@@ -61,6 +64,7 @@ export const attractionEs: Record<keyof typeof attractionEn, string> = {
   "attraction.durationMinutes": "{minutes} min",
   "attraction.roster": "{count, plural, one {# jugador} other {# jugadores}} — {names}",
   "attraction.sessionMinutes": "sesión de {minutes} min",
+  "attraction.playExperience": "sesión de {play} min · experiencia de {total} min",
   "attraction.combo": "Combo",
   "attraction.perPerson": "persona",
   "attraction.perLane": "pista",

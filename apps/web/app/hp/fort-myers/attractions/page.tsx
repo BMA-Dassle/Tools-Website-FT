@@ -69,7 +69,7 @@ const attractions = [
     subtitle: "2-Story Glow Arena",
     description:
       "Two-story glow-in-the-dark space-themed arena with immersive, objective-based missions.",
-    details: "15 min sessions \u2022 Team-based missions",
+    details: "7 min session \u00b7 15 min experience \u2022 Team-based missions",
     pricing: "$10/person",
     image:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",

@@ -96,7 +96,7 @@ describe("dealValue — the advertised strikethrough", () => {
   it("prices the laser pack at $44 à la carte, a 22% saving", () => {
     const v = dealValue(getDeal("laser-tag-game-card-pack")!, "headpinz", 3400);
     expect(v.lines).toEqual([
-      { label: "2 × Laser Tag (7 min session · 20 min experience)", cents: 2000 },
+      { label: "2 × Laser Tag (7 min session · 15 min experience)", cents: 2000 },
       { label: "200 Game Zone Tokens", cents: 2000 },
       { label: "2 × new-card activation fee", cents: 400 },
     ]);
@@ -109,7 +109,7 @@ describe("dealValue — the advertised strikethrough", () => {
   it("prices the gel pack at $58 à la carte, a 22% saving", () => {
     const v = dealValue(getDeal("gel-blaster-game-card-pack")!, "headpinz", 4500);
     expect(v.lines).toEqual([
-      { label: "2 × Gel Blasters (7 min session · 20 min experience)", cents: 2400 },
+      { label: "2 × Gel Blasters (7 min session · 15 min experience)", cents: 2400 },
       { label: "300 Game Zone Tokens", cents: 3000 },
       { label: "2 × new-card activation fee", cents: 400 },
     ]);

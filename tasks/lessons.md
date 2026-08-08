@@ -3449,3 +3449,40 @@ to exclude moves or it double-texts on an event another cron already owns — se
 that the guard built from "sessions we already touched" was NOT enough (a racer
 moved to a not-yet-ticketed heat slipped through; caught only by replaying a real
 day against live rosters, never by unit tests).
+
+---
+
+## Slot length is not play time (2026-08-08)
+
+Owner correction: Nexus gel blaster / laser tag were described everywhere as a
+**"15 minute session"**. Fifteen minutes is the *slot* — it covers the briefing
+and gearing up. Actual arena time is **7 minutes**. The correct guest-facing
+phrasing is **"7 min session · 15 min experience"**, and it must never collapse
+back to one number.
+
+Two traps this exposed:
+
+1. **A single `durationMin` field silently becomes marketing copy.** `durationMin`
+   on `AttractionProductDef` is load-bearing for scheduling — BMI's reservation
+   grid, `combo-board` end times, `attraction-session-assign`. But
+   `AttractionProductStep` and `/book/[attraction]` were *also* rendering it
+   straight to the guest as "15 min session". One number was answering two
+   different questions. Fixed by adding an optional `playMin` alongside it:
+   scheduling keeps reading `durationMin`, guest-facing labels render both when
+   `playMin` is set. Do NOT "fix" a wrong duration label by editing the number
+   the scheduler reads.
+
+2. **The same claim was duplicated in six places with three different wordings.**
+   `attractions-data.ts`, `activities-catalog.ts`, the bowling attractions step,
+   two `/hp/*/attractions` pages, `/hp/pricing`, `/hp/book` JSON-LD, and
+   `group-events.ts` each restated the duration in their own prose ("15 min
+   sessions", "15-minute missions", "15-min battles"). A grep for the exact
+   string finds a third of them. When a fact about a product changes, sweep for
+   the *number near the product noun*, not the phrase you happen to remember —
+   and check JSON-LD/SEO descriptions, which are guest-facing to search engines
+   and are routinely missed.
+
+Reminder that held: guest-facing kiosk copy ships EN + ES in the same commit, and
+data-borne copy counts. The new `attraction.playExperience` key landed in both
+catalogs, and the `es` duration labels in `activities-catalog.ts` moved with the
+English ones.

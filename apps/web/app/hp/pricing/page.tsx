@@ -95,7 +95,7 @@ const pricingSchema = {
         "@type": "Service",
         name: "NEXUS Laser Tag",
         description:
-          "Two-story glow-in-the-dark space-themed arena with team-based 15-minute missions.",
+          "Two-story glow-in-the-dark space-themed arena with team-based missions — a 7-minute session inside a 15-minute experience.",
         offers: {
           "@type": "Offer",
           price: "10.00",
@@ -179,7 +179,7 @@ const rateCards: RateCard[] = [
     price: "$10",
     priceLabel: "per person",
     description:
-      "Two-story glow arena with immersive, objective-based 15-minute team missions. Fort Myers exclusive.",
+      "Two-story glow arena with immersive, objective-based team missions — 7 min session, 15 min experience. Fort Myers exclusive.",
     accent: "#E41C1D",
     bookHref: "/book/laser-tag",
     bookLabel: "Book Laser Tag",

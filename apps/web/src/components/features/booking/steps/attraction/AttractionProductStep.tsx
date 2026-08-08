@@ -22,11 +22,27 @@ import QtyStepper from "~/components/ui/QtyStepper";
  * the message catalog.
  */
 
-/** "1 hour" / "30 min" — the per-product duration line. */
-function durationLabel(t: Translate, durationMin: number): string {
-  return durationMin >= 60
-    ? t("attraction.durationHours", { hours: durationMin / 60 })
-    : t("attraction.durationMinutes", { minutes: durationMin });
+/** "1 hour" / "30 min" — the per-product duration line. Products whose play
+ *  time differs from the slot they book (`playMin`, e.g. Nexus gel/laser: 7 min
+ *  in the arena inside a 15 min slot) state both so nobody reads the slot
+ *  length as arena time. */
+function durationLabel(t: Translate, product: AttractionProductDef): string {
+  if (product.playMin) {
+    return t("attraction.playExperience", {
+      play: product.playMin,
+      total: product.durationMin,
+    });
+  }
+  return product.durationMin >= 60
+    ? t("attraction.durationHours", { hours: product.durationMin / 60 })
+    : t("attraction.durationMinutes", { minutes: product.durationMin });
+}
+
+/** The same duration line where it stands alone as the product's subtitle. */
+function sessionLabel(t: Translate, product: AttractionProductDef): string {
+  return product.playMin
+    ? durationLabel(t, product)
+    : t("attraction.sessionMinutes", { minutes: product.durationMin });
 }
 
 /** The guest-facing product name for the active locale. */
@@ -186,7 +202,7 @@ function ProductCard({
           <div>
             <span className="text-sm font-bold text-white">{name}</span>
             <div className="mt-0.5 flex items-center gap-2 text-xs text-white/40">
-              <span>{durationLabel(t, product.durationMin)}</span>
+              <span>{durationLabel(t, product)}</span>
               {product.isCombo && (
                 <span
                   className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase"
@@ -253,9 +269,7 @@ function SingleProductWithQty({
         <div className="flex items-center justify-between">
           <div>
             <span className="text-base font-bold text-white">{name}</span>
-            <p className="mt-0.5 text-xs text-white/40">
-              {t("attraction.sessionMinutes", { minutes: product.durationMin })}
-            </p>
+            <p className="mt-0.5 text-xs text-white/40">{sessionLabel(t, product)}</p>
           </div>
           <div className="text-right">
             <span className="text-xl font-bold" style={{ color: accentColor }}>

@@ -173,12 +173,12 @@ const CATALOG: ActivityOffering[] = [
     blurb: "High-tech gel blaster battles in an immersive glowing arena.",
     es: {
       blurb: "Batallas de gel blaster de alta tecnología en una arena luminosa e inmersiva.",
-      durationLabel: "Sesión de 7 min · experiencia de 20 min",
+      durationLabel: "Sesión de 7 min · experiencia de 15 min",
     },
     heroImage:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/gel-blaster-new-QKNNgvKt7Jah4ZJNO7JLa3vIp2t6EK.jpg",
     accentColor: "#00E2E5",
-    durationLabel: "7 min session · 20 min experience",
+    durationLabel: "7 min session · 15 min experience",
   },
   {
     slug: "laser-tag",
@@ -190,12 +190,12 @@ const CATALOG: ActivityOffering[] = [
     blurb: "Multi-level laser tag with haptic vests and immersive lighting.",
     es: {
       blurb: "Laser tag de varios niveles con chalecos hápticos e iluminación inmersiva.",
-      durationLabel: "Sesión de 7 min · experiencia de 20 min",
+      durationLabel: "Sesión de 7 min · experiencia de 15 min",
     },
     heroImage:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
     accentColor: "#8652FF",
-    durationLabel: "7 min session · 20 min experience",
+    durationLabel: "7 min session · 15 min experience",
   },
 ];
 
