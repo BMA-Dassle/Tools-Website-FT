@@ -36,6 +36,7 @@ import {
   pandoraFetchWaiverTemplate,
   pandoraCreatePerson,
   pandoraCheckWaiver,
+  pandoraPatchBirthdate,
   type PandoraWaiverTemplate,
 } from "@/lib/pandora";
 import {
@@ -1161,6 +1162,29 @@ export function KioskPartyManager({
         // 2026-07-31), and the no-contact fallback signed blind off the typed
         // DOB with no validity check at all.
         const sid = member.pandoraPersonId ?? member.bmiPersonId;
+        // REPAIR THE RECORD BEFORE READING IT. A BMI person with a null
+        // birthdate makes Pandora's own GET /bmi/person return 500 "Response
+        // Validator Error" — the record exists, the vendor's response schema
+        // rejects it — and every caller reads that as "no waiver". Measured on
+        // 16 Office persons: birthdate present 8/8 resolve, absent 0/8. Booking
+        // creates people without one, so this is the normal state of anyone who
+        // booked online and never signed anywhere.
+        //
+        // We have just asked the guest for that birthday. Writing it makes the
+        // record readable for this check AND for everything downstream — the
+        // waiver sweep, the roster counts, the wallet pass, check-in. Updates,
+        // never creates, so it cannot add to the duplicates this branch was
+        // already written to avoid. Best-effort: a failed repair just leaves
+        // today's behaviour.
+        await pandoraPatchBirthdate({
+          personId: sid,
+          birthdate: toIsoDob(dob),
+          location: brandLocation,
+          firstName: formatPersonName(member.firstName),
+          lastName: formatPersonName(member.lastName ?? ""),
+          email: contactEmail ?? "",
+          phone: contactPhone ?? "",
+        });
         const status = await pandoraCheckWaiver(sid, brandLocation);
         // MEMBERSHIP REFRESH: BMI's birthdate beats the typed DOB for minor
         // routing + the template age (2026-07-23 adult-waiver-on-a-17yo class

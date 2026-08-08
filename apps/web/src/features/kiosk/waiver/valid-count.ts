@@ -41,11 +41,29 @@ export async function waiverValidNow(
     );
     const data = await res.json();
     const person = res.ok && data.success ? data.data : null;
-    const expiry = person?.waiverExpiry ? new Date(person.waiverExpiry) : null;
+    if (!person) {
+      // NEVER CACHE AN UNREADABLE RECORD. A person with a null birthdate makes
+      // this endpoint 500 ("Response Validator Error"), and caching that as "0"
+      // pinned them to "no waiver" for the whole TTL — including AFTER the
+      // birthday was written and the record started reading cleanly. The answer
+      // is still false (fail closed), but it must be re-asked next time.
+      console.warn(
+        `[waiver-valid] person ${personId} UNREADABLE (HTTP ${res.status}) — ` +
+          `not caching; a null birthdate causes this and is repairable`,
+      );
+      return false;
+    }
+    const expiry = person.waiverExpiry ? new Date(person.waiverExpiry) : null;
     const valid = expiry ? expiry > new Date() : false;
     redis.setex(cacheKey, PERSON_VALID_TTL_SECONDS, valid ? "1" : "0").catch(() => {});
     return valid;
-  } catch {
+  } catch (err) {
+    // Same rule for a network failure — no cache write, so a blip can't stick.
+    console.warn(
+      `[waiver-valid] person ${personId} lookup FAILED (${
+        err instanceof Error ? err.message : String(err)
+      }) — not caching`,
+    );
     return false;
   }
 }

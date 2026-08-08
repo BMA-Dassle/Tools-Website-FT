@@ -190,7 +190,17 @@ export async function fetchIsBirthdayToday(personId: string, todayYmd: string): 
       `${PANDORA_BASE}/v2/bmi/person/${FASTTRAX_LOCATION_ID}/${personId}?picture=false&allRelated=false`,
       { headers: pandoraHeaders(), cache: "no-store", signal: AbortSignal.timeout(4000) },
     );
-    if (!res.ok) return false;
+    if (!res.ok) {
+      // The irony: this reads BIRTHDATE, and the endpoint 500s precisely when
+      // the birthdate is null. So a racer with no DOB on file can never get a
+      // birthday badge — correct by accident, but it also hides a genuine
+      // outage behind "not their birthday", which nobody would ever report.
+      console.warn(
+        `[race-flags] person ${personId} UNREADABLE (HTTP ${res.status}) — ` +
+          `no birthday badge; a null birthdate causes this`,
+      );
+      return false;
+    }
     const json = await res.json();
     const birthdate = json?.data?.birthdate;
     return typeof birthdate === "string" && birthdayMatchesToday(birthdate, todayYmd);

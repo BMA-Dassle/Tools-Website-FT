@@ -98,10 +98,9 @@ function parts(iso: string, opts: Intl.DateTimeFormatOptions): Record<string, st
   const dt = new Date(raw);
   if (isNaN(dt.getTime())) return {};
   return Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", { timeZone: TZ, ...opts }).formatToParts(dt).map((p) => [
-      p.type,
-      p.value,
-    ]),
+    new Intl.DateTimeFormat("en-US", { timeZone: TZ, ...opts })
+      .formatToParts(dt)
+      .map((p) => [p.type, p.value]),
   );
 }
 
@@ -213,7 +212,18 @@ async function fetchPersonFacts(
       },
     );
     const data = await res.json().catch(() => null);
-    if (!res.ok || !data?.success || !data.data) return null;
+    if (!res.ok || !data?.success || !data.data) {
+      // A null birthdate makes this endpoint 500 ("Response Validator Error"),
+      // and the pass then ships with no waiver/last-visit facts at all. Staying
+      // best-effort — a slow Pandora must never cost a racer their pass — but
+      // no longer silent, because a pass quietly missing its licence data is
+      // the kind of thing nobody reports.
+      console.warn(
+        `[licence-meta] person ${personId} UNREADABLE (HTTP ${res.status}) — ` +
+          `pass built without waiver/last-visit; a null birthdate causes this`,
+      );
+      return null;
+    }
     const p = data.data as { waiverExpiry?: string; lastVisit?: string };
     return { waiverExpiry: p.waiverExpiry, lastVisit: p.lastVisit };
   } catch {
@@ -251,9 +261,7 @@ export async function buildLicenceMeta(args: BuildLicenceMetaArgs): Promise<Lice
   const waiverOk = waiverIso ? new Date(waiverIso).getTime() > Date.now() : false;
   const lastVisitIso = facts?.lastVisit ?? null;
   const lastVisit =
-    formatLicenceDate(lastVisitIso) ||
-    (args.lastVisit ? String(args.lastVisit) : "") ||
-    "—";
+    formatLicenceDate(lastVisitIso) || (args.lastVisit ? String(args.lastVisit) : "") || "—";
 
   const heat = formatHeat(args.heat);
   const base = process.env.NEXT_PUBLIC_SITE_URL || "https://headpinz.com";
@@ -267,7 +275,11 @@ export async function buildLicenceMeta(args: BuildLicenceMetaArgs): Promise<Lice
     tier: tierFrom(args.memberships) || "—",
     races: args.races == null || args.races === "" ? "0" : String(args.races),
     validUntil: LICENCE_VALID_UNTIL,
-    waiver: waiverIso ? (waiverOk ? `Signed · ${formatLicenceDate(waiverIso)}` : "Needs signing") : "—",
+    waiver: waiverIso
+      ? waiverOk
+        ? `Signed · ${formatLicenceDate(waiverIso)}`
+        : "Needs signing"
+      : "—",
     lastVisit,
     // Empty when we do not know the heat — the pre-race cron fills all three
     // within two minutes for anyone racing inside its window.
