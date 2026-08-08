@@ -81,7 +81,8 @@ const bookingItemList = {
       item: {
         "@type": "Service",
         name: "NEXUS Laser Tag",
-        description: "Two-story glow arena with haptic vests. 15-minute objective-based missions.",
+        description:
+          "Two-story glow arena with haptic vests. Objective-based missions — 7 min session, 15 min experience.",
         provider: { "@type": "Organization", name: "HeadPinz" },
         url: "https://headpinz.com/book/laser-tag",
       },

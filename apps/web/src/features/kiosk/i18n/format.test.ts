@@ -213,6 +213,15 @@ describe("attraction catalog — the reused-web steps", () => {
       "sesión de 15 min",
     );
   });
+
+  it("states play time AND slot time when a product's gameplay is shorter (Nexus gel/laser)", () => {
+    expect(formatMessage("en", "attraction.playExperience", { play: 7, total: 15 })).toBe(
+      "7 min session · 15 min experience",
+    );
+    expect(formatMessage("es", "attraction.playExperience", { play: 7, total: 15 })).toBe(
+      "sesión de 7 min · experiencia de 15 min",
+    );
+  });
 });
 
 describe("categories catalog (ICU interpolation + plurals)", () => {

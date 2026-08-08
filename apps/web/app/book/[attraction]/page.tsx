@@ -309,7 +309,11 @@ function ProductPickerStep({
                 <p className="text-white font-bold text-base">{p.name}</p>
                 <div className="flex items-center gap-3 mt-1">
                   {p.durationMin && (
-                    <span className="text-white/40 text-xs">{p.durationMin} min</span>
+                    <span className="text-white/40 text-xs">
+                      {p.playMin
+                        ? `${p.playMin} min session · ${p.durationMin} min experience`
+                        : `${p.durationMin} min`}
+                    </span>
                   )}
                   {p.isCombo && (
                     <span className="text-xs px-2 py-0.5 rounded-full border border-white/15 text-white/50">
@@ -1435,6 +1439,7 @@ export function AttractionBookingCore({ navComponent }: { navComponent?: React.R
                 bookingMode: config.bookingMode,
                 maxAmount: p.maxPerBooking,
                 durationMin: p.durationMin,
+                playMin: p.playMin,
                 isCombo: p.isCombo,
                 raw: {} as AttractionProduct["raw"],
               }) as AttractionProduct,

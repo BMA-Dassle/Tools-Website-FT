@@ -66,7 +66,7 @@ const attractions = [
     subtitle: "2-Story Glow Arena",
     description:
       "Two-story glow-in-the-dark space-themed arena with immersive, objective-based missions.",
-    details: "15 min sessions \u2022 Team-based missions",
+    details: "7 min session \u00b7 15 min experience \u2022 Team-based missions",
     pricing: "$10/person",
     image:
       "https://wuce3at4k1appcmf.public.blob.vercel-storage.com/images/attractions/laser-tag-new-2iiYIDNemOIB9NaaGjsY0ujWAGiV5x.jpg",
@@ -402,7 +402,7 @@ export default function NaplesAttractionsPage() {
           },
           {
             q: "How much does laser tag cost at HeadPinz Naples?",
-            a: "Laser tag is $10 per person for a 15-minute mission. Discounted packages are available for birthday parties and group events of 10+ players.",
+            a: "Laser tag is $10 per person for a 7-minute mission inside a 15-minute experience (briefing and gearing up included). Discounted packages are available for birthday parties and group events of 10+ players.",
           },
           {
             q: "What age is laser tag appropriate for?",

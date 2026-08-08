@@ -57,7 +57,14 @@ export interface AttractionProductDef {
   es?: { name?: string };
   price: number;
   location: LocationKey;
+  /** Minutes the BOOKED SLOT occupies — the scheduling grid BMI reserves and
+   *  every end-time calculation keys on. Not always the same as play time. */
   durationMin: number;
+  /** Minutes of actual gameplay, when it differs from the booked slot (Nexus
+   *  gel/laser: 7 min in the arena inside a 15 min slot that also covers the
+   *  briefing and gearing up). Present ⇒ guest-facing duration renders as
+   *  "7 min session · 15 min experience" instead of a bare slot length. */
+  playMin?: number;
   isCombo: boolean;
   maxPerBooking: number;
 }
@@ -111,7 +118,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       description: "Batallas de gel blaster de alta tecnología en una arena luminosa e inmersiva",
     },
     building: "HeadPinz",
-    durationLabel: "7 min session · 20 min experience",
+    durationLabel: "7 min session · 15 min experience",
     products: [
       {
         // $0-KEY product (owner directive 2026-08-01, W57040): the $12 retail
@@ -126,6 +133,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
         price: 12,
         location: "headpinz",
         durationMin: 15,
+        playMin: 7,
         isCombo: false,
         maxPerBooking: 16,
       },
@@ -136,6 +144,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
         price: 12,
         location: "naples",
         durationMin: 15,
+        playMin: 7,
         isCombo: false,
         maxPerBooking: 16,
       },
@@ -159,7 +168,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
       description: "Laser tag de varios niveles con chalecos hápticos e iluminación inmersiva",
     },
     building: "HeadPinz",
-    durationLabel: "7 min session · 20 min experience",
+    durationLabel: "7 min session · 15 min experience",
     products: [
       {
         // $0-KEY product — same story as gel-blaster above: 43370955 books the
@@ -171,6 +180,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
         price: 10,
         location: "headpinz",
         durationMin: 15,
+        playMin: 7,
         isCombo: false,
         maxPerBooking: 17,
       },
@@ -181,6 +191,7 @@ export const ATTRACTIONS: Record<string, AttractionConfig> = {
         price: 10,
         location: "naples",
         durationMin: 15,
+        playMin: 7,
         isCombo: false,
         maxPerBooking: 17,
       },
@@ -524,6 +535,10 @@ export interface AttractionProduct {
   bookingMode: BookingMode;
   maxAmount: number;
   durationMin: number | null;
+  /** Gameplay minutes when they differ from the booked slot — see
+   *  `AttractionProductDef.playMin`. Only set for statically-defined products;
+   *  BMI-derived ones (classifyProduct) have no play-time signal. */
+  playMin?: number;
   isCombo: boolean;
   raw: BmiProduct;
 }
