@@ -174,6 +174,9 @@ export function KioskCheckinFlow() {
   // and may be missing people who ARE registered. Say so rather than present a
   // short list as the truth.
   const [rosterDegraded, setRosterDegraded] = useState(false);
+  // True while the booking's roster is still being fetched — drives the branded
+  // loader on the party step so the wait is never a blank list.
+  const [rosterLoading, setRosterLoading] = useState(false);
   // Ready members from the booking are added automatically (owner 2026-08-07:
   // "why were they just not auto loaded in list"). Ref-gated so the effect runs
   // once per fetched roster — dispatching grows session.party, which would
@@ -227,11 +230,20 @@ export function KioskCheckinFlow() {
       // Prefill roster rides the same proof — fire-and-forget so the itinerary
       // never waits on it; a failure just means no shortcut button.
       if (kioskVoucherPrefillEnabled()) {
-        void fetchBindableParty(center, token).then((res) => {
-          if (res?.degraded) setRosterDegraded(true);
-          const members = res?.members;
-          if (members && members.length > 0) setPrefillRoster(members);
-        });
+        // The roster is a TWO-HOP lookup (BMI project → person profiles) plus a
+        // live Pandora waiver read per person: measured 7.7–15.5s on real
+        // reservations, and it used to run behind a blank list with no hint
+        // anything was happening (owner 2026-08-07: "no loading indication and
+        // it took a few seconds"). Still fire-and-forget so the itinerary never
+        // waits on it — the flag only drives the loader.
+        setRosterLoading(true);
+        void fetchBindableParty(center, token)
+          .then((res) => {
+            if (res?.degraded) setRosterDegraded(true);
+            const members = res?.members;
+            if (members && members.length > 0) setPrefillRoster(members);
+          })
+          .finally(() => setRosterLoading(false));
       }
     },
     [center, t],
@@ -324,6 +336,13 @@ export function KioskCheckinFlow() {
   // refuses to guess when a category has more racers than seats, and is given
   // the SAME spacing predicate the chips use, so it can only reach a state the
   // guest could have reached by hand.
+  const clearRace = (slotKey: string) =>
+    setAssignMap((prev) => {
+      const next = { ...prev };
+      delete next[slotKey];
+      return next;
+    });
+
   // Fired by the "Next: who's racing" tap rather than by an effect on `stage`:
   // auto-fill is an EVENT (the guest arriving at the step), not a state
   // synchronisation, so doing it in the handler avoids a cascading render and
@@ -875,7 +894,14 @@ export function KioskCheckinFlow() {
             where to go rather than walking them through the party panel. */}
         {stage === "itinerary" && itinerary && (
           <div className="space-y-[32px]">
-            <ItineraryScreen itinerary={itinerary} />
+            <ItineraryScreen
+              itinerary={itinerary}
+              readyOverride={
+                prefillRoster
+                  ? prefillRoster.filter((r) => r.bmiPersonId && r.waiverValid).length
+                  : null
+              }
+            />
             {itinerary.express ? (
               <div className="k-glass border-[#46d68c]/50 p-[40px] text-center">
                 <ExpressLaneBody />
@@ -909,6 +935,15 @@ export function KioskCheckinFlow() {
                 already signed in by phone) never duplicates. English copy while
                 the flag is OFF — localize before the flag flips (same
                 rich-text caveat as the POV caption above). */}
+            {/* The roster wait is 7.7–15.5s on real reservations. Show the
+                brand loader instead of an empty list, but only while the list
+                IS empty — once anyone has landed, a spinner over a populated
+                roster reads as "something is wrong". */}
+            {rosterLoading && session.party.length === 0 && (
+              <div className="mb-[20px]">
+                <BrandedLoader brand="fasttrax" label={t("checkin.roster.loading")} />
+              </div>
+            )}
             {rosterDegraded && (
               <div className="mb-[20px] rounded-2xl border-2 border-[#f0b341]/40 bg-[#f0b341]/10 px-[28px] py-[20px] text-[24px] leading-snug text-[#f0b341]">
                 {t("checkin.roster.degraded")}
@@ -971,6 +1006,7 @@ export function KioskCheckinFlow() {
             party={readyMembers}
             assignMap={assignMap}
             onAssign={assignRace}
+            onClear={clearRace}
             onCheckIn={checkInEveryone}
             onBackToParty={() => setStage("party")}
             autoFilled={autoFilled}
@@ -1243,8 +1279,8 @@ function OtpScreen(props: {
 }
 
 // ── Itinerary ──────────────────────────────────────────────────────────────────
-function ItineraryScreen(props: { itinerary: CheckinItinerary }) {
-  const { itinerary } = props;
+function ItineraryScreen(props: { itinerary: CheckinItinerary; readyOverride: number | null }) {
+  const { itinerary, readyOverride } = props;
   const t = useT();
   return (
     <div className="space-y-[24px]">
@@ -1274,7 +1310,19 @@ function ItineraryScreen(props: { itinerary: CheckinItinerary }) {
             <div className="min-w-0 flex-1">
               <div className="k-display text-[40px]">{a.title}</div>
               <div className="mt-[6px] text-[28px] text-white/55">{a.building}</div>
-              <ReadinessChip activity={a} />
+              {/* The server builds this roster from the booking's own racer
+                  labels, which carry no person id, so racing readiness is
+                  hardcoded 0 and reads "0 of 2 racers ready" even for people
+                  who ARE registered with live waivers. Resolving that needs the
+                  BMI project (7–15s) — far too slow for the first screen — so
+                  the count self-corrects the moment the party roster lands. */}
+              <ReadinessChip
+                activity={
+                  a.kind === "racing" && readyOverride !== null
+                    ? { ...a, readyCount: Math.min(readyOverride, a.totalCount) }
+                    : a
+                }
+              />
             </div>
             <div className="k-display text-[44px] text-white">{a.timeLabel}</div>
           </div>
@@ -1358,17 +1406,39 @@ function RaceAssignScreen(props: {
   party: PartyMember[];
   assignMap: Record<string, string>;
   onAssign: (heatId: string, memberId: string) => void;
+  onClear: (slotKey: string) => void;
   onCheckIn: () => void;
   onBackToParty: () => void;
   autoFilled: boolean;
   binding: boolean;
   bindMsg: string | null;
 }) {
-  const { slots, party, assignMap, onAssign, onCheckIn, onBackToParty, autoFilled } = props;
+  const { slots, party, assignMap, onAssign, onClear, onCheckIn, onBackToParty, autoFilled } =
+    props;
   const { binding, bindMsg } = props;
   const t = useT();
   const assignedCount = slots.filter((s) => assignMap[s.slotKey]).length;
-  const slotByKey = (key: string) => slots.find((s) => s.slotKey === key);
+
+  // ONE CARD PER RACE, not per seat (owner 2026-08-07: "should be grouped by
+  // race and qty max"). A 2-seat heat rendered as two identical cards — same
+  // class, same track, same time — which reads as two different races, and the
+  // cross-slot conflict hint then said "moves from 10:12 PM" about the very
+  // race the guest was looking at. Seats in the same heat+product ARE
+  // interchangeable, so the group is the unit: pick up to `qty` racers on it.
+  const groups = (() => {
+    const byKey = new Map<string, { slots: CheckinRaceSlot[]; head: CheckinRaceSlot }>();
+    const order: string[] = [];
+    for (const s of slots) {
+      const key = `${s.heatId}|${s.productId ?? ""}|${s.classLabel}`;
+      const g = byKey.get(key);
+      if (g) g.slots.push(s);
+      else {
+        byKey.set(key, { slots: [s], head: s });
+        order.push(key);
+      }
+    }
+    return order.map((k) => byKey.get(k)!);
+  })();
 
   return (
     <div className="space-y-[24px]">
@@ -1376,25 +1446,40 @@ function RaceAssignScreen(props: {
         {autoFilled ? t("checkin.assign.autoFilled") : t("checkin.assign.promptShort")}
       </p>
 
-      {slots.map((slot) => {
-        const holderId = assignMap[slot.slotKey];
-        // Hard class gate — a junior seat never offers an adult (category.ts).
-        const eligible = party.filter((m) => resolveRaceClass(m) === slot.category);
+      {groups.map((group) => {
+        const { head } = group;
+        const qty = group.slots.length;
+        // Who is on THIS race, and which seat each holds.
+        const seatOf = new Map<string, string>(); // memberId → slotKey
+        for (const s of group.slots) {
+          const id = assignMap[s.slotKey];
+          if (id) seatOf.set(id, s.slotKey);
+        }
+        const chosen = seatOf.size;
+        const freeSeat = group.slots.find((s) => !assignMap[s.slotKey]);
+        // Hard class gate — a junior race never offers an adult (category.ts).
+        const eligible = party.filter((m) => resolveRaceClass(m) === head.category);
         return (
-          <div key={slot.slotKey} className="k-glass p-[28px]">
+          <div key={head.slotKey} className="k-glass p-[28px]">
             <div className="flex items-baseline justify-between gap-[16px]">
               <div className="min-w-0">
-                <div className="k-display text-[34px]">{slot.classLabel}</div>
+                <div className="k-display text-[34px]">{head.classLabel}</div>
                 <div className="mt-[2px] text-[24px] text-white/55">
-                  {slot.track ? `${slot.track} · ` : ""}
-                  {slot.timeLabel}
+                  {head.track ? `${head.track} · ` : ""}
+                  {head.timeLabel}
                 </div>
               </div>
-              {!holderId && (
-                <span className="shrink-0 text-[24px] font-semibold text-[#f0b341]">
-                  {t("checkin.assign.nobodyYet")}
-                </span>
-              )}
+              <span
+                className={`shrink-0 text-[24px] font-semibold ${
+                  chosen === 0
+                    ? "text-[#f0b341]"
+                    : chosen < qty
+                      ? "text-white/55"
+                      : "text-[#46d68c]"
+                }`}
+              >
+                {t("checkin.assign.chosenOf", { chosen, total: qty })}
+              </span>
             </div>
 
             {eligible.length === 0 ? (
@@ -1402,52 +1487,58 @@ function RaceAssignScreen(props: {
               // to tap. Now the instruction IS the button.
               <div className="mt-[18px]">
                 <p className="text-[26px] text-[#f0b341]">
-                  {t("checkin.picker.noneReady", { category: slot.category })}
+                  {t("checkin.picker.noneReady", { category: head.category })}
                 </p>
                 <button
                   type="button"
                   onClick={onBackToParty}
                   className="k-tap mt-[14px] h-[76px] rounded-2xl border-2 border-[#00e2e5] px-[28px] text-[26px] font-bold text-[#00e2e5]"
                 >
-                  {t("checkin.assign.addRacer", { category: slot.category })}
+                  {t("checkin.assign.addRacer", { category: head.category })}
                 </button>
               </div>
             ) : (
               <div className="mt-[18px] flex flex-wrap gap-[12px]">
                 {eligible.map((m) => {
-                  const selected = holderId === m.id;
-                  // Other seats this racer holds. One too close to THIS race is
-                  // released on pick, so flag it; a compatible one just informs.
-                  const otherHeld = Object.entries(assignMap)
-                    .filter(([k, id]) => id === m.id && k !== slot.slotKey)
-                    .map(([k]) => slotByKey(k))
-                    .filter((s): s is CheckinRaceSlot => !!s);
-                  const clash = otherHeld.find((s) => raceSlotsConflict(s, slot));
+                  const heldSeat = seatOf.get(m.id);
+                  const selected = !!heldSeat;
+                  // A racer can hold at most ONE seat in a race, so the only
+                  // "elsewhere" worth mentioning is a DIFFERENT race. Same-heat
+                  // seats never produce the old nonsense "moves from 10:12 PM"
+                  // hint about the race you are already looking at.
+                  const otherRace = groups.find(
+                    (g) => g !== group && g.slots.some((s) => assignMap[s.slotKey] === m.id),
+                  );
+                  const clash = otherRace ? raceSlotsConflict(otherRace.head, head) : false;
+                  // Race full and this racer isn't on it — untap someone first.
+                  const blocked = !selected && !freeSeat;
                   return (
                     <button
                       key={m.id}
                       type="button"
                       aria-pressed={selected}
-                      onClick={() => onAssign(slot.slotKey, m.id)}
+                      disabled={blocked}
+                      onClick={() => {
+                        if (selected && heldSeat) onClear(heldSeat);
+                        else if (freeSeat) onAssign(freeSeat.slotKey, m.id);
+                      }}
                       className={`k-tap flex items-center gap-[10px] rounded-2xl border-2 px-[24px] py-[18px] text-left text-[28px] ${
                         selected
                           ? "border-[#46d68c] bg-[#46d68c]/15 text-white"
                           : "border-white/15 bg-white/5 text-white/85"
-                      }`}
+                      } ${blocked ? "opacity-35" : ""}`}
                     >
                       {selected && (
                         <IconUserCheck size={26} className="text-[#46d68c]" aria-hidden="true" />
                       )}
                       <span>{racerName(m)}</span>
-                      {clash ? (
-                        <span className="text-[20px] text-[#f0b341]">
-                          {t("checkin.assign.movesFromTime", {
-                            time: clash.timeLabel || t("checkin.picker.otherRace"),
-                          })}
-                        </span>
-                      ) : otherHeld.length > 0 ? (
-                        <span className="text-[20px] text-white/40">
-                          {t("checkin.assign.alsoAt", { time: otherHeld[0].timeLabel })}
+                      {!selected && otherRace ? (
+                        <span
+                          className={`text-[20px] ${clash ? "text-[#f0b341]" : "text-white/40"}`}
+                        >
+                          {clash
+                            ? t("checkin.assign.movesFromTime", { time: otherRace.head.timeLabel })
+                            : t("checkin.assign.alsoAt", { time: otherRace.head.timeLabel })}
                         </span>
                       ) : null}
                     </button>

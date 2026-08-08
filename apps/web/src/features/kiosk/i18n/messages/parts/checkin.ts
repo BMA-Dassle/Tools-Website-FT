@@ -67,6 +67,7 @@ export const checkinEn = {
   // be missing people who ARE registered. Previously silent.
   "checkin.roster.degraded":
     "We couldn’t reach the reservation system, so this list may be incomplete. Add anyone who’s missing.",
+  "checkin.roster.loading": "Looking for your group…",
   // Nobody is ticked — the gate now counts only the people actually checking in.
   "checkin.needSomeone": "Tap at least one person to check in.",
 
@@ -76,6 +77,7 @@ export const checkinEn = {
   "checkin.assign.promptShort": "Tap a name to say who’s driving each race.",
   "checkin.assign.autoFilled": "We matched racers to races. Tap any name to change it.",
   "checkin.assign.nobodyYet": "Nobody chosen yet",
+  "checkin.assign.chosenOf": "{chosen} of {total} chosen",
   "checkin.assign.alsoAt": "also at {time}",
   "checkin.assign.movesFromTime": "moves from {time}",
   "checkin.assign.addRacer": "Add a {category} racer",
@@ -144,12 +146,14 @@ export const checkinEs: Record<keyof typeof checkinEn, string> = {
     "Agregamos {count, plural, one {# invitado} other {# invitados}} de tu reserva.",
   "checkin.roster.degraded":
     "No pudimos conectar con el sistema de reservas, así que esta lista puede estar incompleta. Agrega a quien falte.",
+  "checkin.roster.loading": "Buscando a tu grupo…",
   "checkin.needSomeone": "Toca al menos a una persona para registrarte.",
 
   "checkin.assign.promptShort": "Toca un nombre para indicar quién conduce cada carrera.",
   "checkin.assign.autoFilled":
     "Asignamos los pilotos a las carreras. Toca cualquier nombre para cambiarlo.",
   "checkin.assign.nobodyYet": "Aún no hay nadie elegido",
+  "checkin.assign.chosenOf": "{chosen} de {total} elegidos",
   "checkin.assign.alsoAt": "también a las {time}",
   "checkin.assign.movesFromTime": "cambia de las {time}",
   "checkin.assign.addRacer": "Agregar un piloto {category}",
