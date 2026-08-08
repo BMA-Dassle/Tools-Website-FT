@@ -450,6 +450,48 @@ async function syncRaceHeatsFromBmi(
       console.warn(
         `[checkin] ${billId}: race time changed in BMI — synced ${result.changed} heat row(s) to Neon (${result.detail})`,
       );
+
+      // A racer ALREADY seated on the old time is now stranded on a Pandora
+      // session that no longer exists, and `completeCheckin` skips anyone whose
+      // schedule_status is 'inserted' — so without this they are never re-seated
+      // and simply vanish from the grid. Seen live on W58723: Test5 was seated
+      // at 22:12 before the race moved, Eric was seated at 23:12 after, and only
+      // Eric appeared. Clearing the stamp puts them back in the queue; the
+      // Pandora insert is idempotent (already_linked), so a racer who somehow IS
+      // still on the right session costs nothing.
+      const movedFrom = new Set<string>();
+      heats.forEach((h, i) => {
+        const before = String(h.heatId ?? "").slice(0, 19);
+        const after = String(result.heats[i]?.heatId ?? "").slice(0, 19);
+        if (before && after && before !== after) movedFrom.add(before);
+      });
+      if (movedFrom.size > 0) {
+        try {
+          const event = await getCheckinEvent(billId, todayET());
+          if (event) {
+            for (const p of await listCheckinPeople(event.id)) {
+              const bound = Array.isArray(p.boundHeats)
+                ? (p.boundHeats as Array<{ heatId?: string }>)
+                : [];
+              const stranded = bound.some((h) =>
+                movedFrom.has(String(h?.heatId ?? "").slice(0, 19)),
+              );
+              if (!stranded) continue;
+              await q`
+                UPDATE kiosk_checkin_people
+                SET schedule_status = 'pending', bound_heats = NULL, updated_at = now()
+                WHERE id = ${p.id}
+              `;
+              console.warn(
+                `[checkin] ${billId}: "${p.displayName}" was seated on a race that MOVED — ` +
+                  `cleared for re-scheduling onto the new time`,
+              );
+            }
+          }
+        } catch (err) {
+          console.error(`[checkin] ${billId}: could not clear stranded seats:`, err);
+        }
+      }
     } catch (err) {
       console.error(`[checkin] ${billId}: heat sync write failed (non-fatal):`, err);
     }
