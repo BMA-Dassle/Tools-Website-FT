@@ -28,12 +28,20 @@ for (const line of readFileSync(".env.local", "utf8").split(/\r?\n/)) {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createElement as h } from "react";
 import { ImageResponse } from "next/og";
+// The SHIPPED constants, not hand-typed copies — if the fix's colours ever
+// change, this proof changes with them instead of quietly testing a fiction.
+// Dynamic import: tsx's static ESM resolution does not honour the "@/" alias.
+const { SIGNATURE_INK, SIGNATURE_PAGE } = await import("@/components/pandora/signature-export");
 
 const PANDORA = "https://bma-pandora-api.azurewebsites.net/v2";
 const KEY = process.env.SWAGGER_ADMIN_KEY || "";
 const LOC = "LAB52GY480CJF";
 const LIVE = process.argv.includes("--live");
-const PERSON = (process.argv.find((a) => a.startsWith("--person=")) || "").split("=")[1] || "58161723";
+// Defaults to the internal "tester headpinz" record — NEVER a real guest, so
+// proof marks never land on someone's legal waiver history.
+const PERSON =
+  (process.argv.find((a) => a.startsWith("--person=")) || "").split("=")[1] ||
+  "63000000002660482";
 
 /** A signature-shaped squiggle, drawn as an SVG path so both arms are pixel-
  *  identical except for ink colour and background opacity. */
@@ -88,17 +96,17 @@ async function mark(opts: {
 const ARMS = [
   {
     arm: "C",
-    ink: "#ffffff",
-    background: "rgba(0,0,0,0)", // transparent — what we shipped
-    label: "ARM C — white ink, TRANSPARENT bg",
-    sub: "this is what every waiver signature looked like until now",
+    ink: "#ffffff", // SignaturePad's on-screen strokeColor default
+    background: "rgba(0,0,0,0)", // transparent — an untouched canvas pixel
+    label: "ARM C - BEFORE (white ink, transparent bg)",
+    sub: "what every waiver signature looked like until 2026-08-08",
   },
   {
     arm: "D",
-    ink: "#0a0a0a",
-    background: "#ffffff", // opaque white — the fix
-    label: "ARM D — dark ink, WHITE bg",
-    sub: "this is what the fix uploads",
+    ink: SIGNATURE_INK, // straight from signature-export.ts
+    background: SIGNATURE_PAGE,
+    label: "ARM D - AFTER (dark ink, white page)",
+    sub: "what flattenSignatureToPng now uploads",
   },
 ];
 
