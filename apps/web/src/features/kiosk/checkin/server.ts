@@ -1394,18 +1394,36 @@ export async function completeCheckin(args: {
 
     const attachEnabled = kioskCheckinAttachEnabled();
     const allPeople = event ? await listCheckinPeople(event.id) : [];
-    // Only ever SEAT people who aren't on the grid already. On a first finalize
-    // nobody is, so this is a no-op; on a resume it is what stops the first
-    // group being scheduled twice. (booking_metadata.heats never gets
-    // bmiPersonId written back, so the heats themselves still look open —
-    // `completed_at` used to be the only thing preventing a double-seat, which
-    // is exactly why resuming was unsafe before.)
-    const people = allPeople.filter((p) => !isScheduled(p.scheduleStatus));
-    // Seats consumed by people scheduled in an EARLIER pass, so the resume
-    // places the new arrivals in what's genuinely left.
-    const priorBoundHeats: NeonHeat[] = allPeople
-      .filter((p) => isScheduled(p.scheduleStatus))
-      .flatMap((p) => (Array.isArray(p.boundHeats) ? (p.boundHeats as NeonHeat[]) : []));
+
+    // AN EXPLICIT ASSIGNMENT IS THE DESIRED END STATE — reconcile to it.
+    //
+    // `schedule_status` is OUR record, and it goes stale the moment staff
+    // change the grid in BMI. Live on W58723: both racers were unassigned in
+    // BMI, our rows still said 'inserted', so the filter below removed everyone
+    // and check-in submitted NOBODY — it silently trusted itself over BMI, the
+    // same mistake as the roster and the heat times.
+    //
+    // When the guest has explicitly said who drives what, that IS the answer:
+    // seat exactly them, whatever we previously recorded. Safe because the
+    // Pandora insert is idempotent — a racer genuinely still on the session
+    // comes back `already_linked` and nothing is duplicated (proven live:
+    // POST /bmi/schedule returned inserted:1 for a racer we had already
+    // marked inserted). The stale-status filter survives only for the LEGACY
+    // positional path, where nobody stated an intent and re-seating really
+    // could double up.
+    const explicitAssignments = (args.assignments ?? []).filter((a) => a?.slotKey && a?.personId);
+    const hasExplicit = explicitAssignments.length > 0;
+    const people = hasExplicit
+      ? allPeople
+      : allPeople.filter((p) => !isScheduled(p.scheduleStatus));
+    // Seats consumed by an EARLIER pass, so a resume places new arrivals in
+    // what's genuinely left. Not applied to an explicit assignment: the guest's
+    // slot choices already say which seat each racer takes.
+    const priorBoundHeats: NeonHeat[] = hasExplicit
+      ? []
+      : allPeople
+          .filter((p) => isScheduled(p.scheduleStatus))
+          .flatMap((p) => (Array.isArray(p.boundHeats) ? (p.boundHeats as NeonHeat[]) : []));
 
     let scheduled = 0;
     // Names we must flag to staff: schedule sync-lag failures, people with no
@@ -1515,7 +1533,7 @@ export async function completeCheckin(args: {
         }
       };
 
-      const assignments = (args.assignments ?? []).filter((a) => a?.slotKey && a?.personId);
+      const assignments = explicitAssignments;
       if (assignments.length > 0) {
         // Explicit guest choice, keyed by the seat-unique slotKey. First
         // assignment per slot wins; a filled/unknown slot, an unknown person,

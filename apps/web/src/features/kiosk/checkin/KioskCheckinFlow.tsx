@@ -961,73 +961,74 @@ export function KioskCheckinFlow() {
             so the itinerary above is never covered). */}
         {stage === "party" && itinerary && (
           <div>
-            <p className="mb-[20px] text-[26px] text-white/55">{t("checkin.addGroup.body")}</p>
-            {/* Voucher-QR prefill: everyone from the original booking, one tap.
-                Recomputed against the live party so a double tap (or someone
-                already signed in by phone) never duplicates. English copy while
-                the flag is OFF — localize before the flag flips (same
-                rich-text caveat as the POV caption above). */}
-            {/* The roster wait is 7.7–15.5s on real reservations. Show the
-                brand loader instead of an empty list, but only while the list
-                IS empty — once anyone has landed, a spinner over a populated
-                roster reads as "something is wrong". */}
-            {rosterLoading && session.party.length === 0 && (
-              <div className="mb-[20px]">
-                <BrandedLoader brand="fasttrax" label={t("checkin.roster.loading")} />
-              </div>
-            )}
-            {rosterDegraded && (
-              <div className="mb-[20px] rounded-2xl border-2 border-[#f0b341]/40 bg-[#f0b341]/10 px-[28px] py-[20px] text-[24px] leading-snug text-[#f0b341]">
-                {t("checkin.roster.degraded")}
-              </div>
-            )}
-            {/* No "Load your party" bar. Everyone the booking knows is already
+            {/* The roster is a two-hop BMI lookup plus a live Pandora waiver
+                read per person — 7.7–15.5s on real reservations. While it runs
+                the loader REPLACES the step: rendering it above the people list
+                showed a spinner over a full set of "add someone" controls,
+                which reads as broken rather than busy and invites a tap the
+                arriving roster then overwrites (owner 2026-08-07: "none of this
+                should be shown till that looking for group is done"). Only
+                while the list is still EMPTY — once anyone has landed, a
+                spinner over a populated roster reads as a fault. */}
+            {rosterLoading && session.party.length === 0 ? (
+              <BrandedLoader brand="fasttrax" label={t("checkin.roster.loading")} />
+            ) : (
+              <>
+                <p className="mb-[20px] text-[26px] text-white/55">{t("checkin.addGroup.body")}</p>
+                {rosterDegraded && (
+                  <div className="mb-[20px] rounded-2xl border-2 border-[#f0b341]/40 bg-[#f0b341]/10 px-[28px] py-[20px] text-[24px] leading-snug text-[#f0b341]">
+                    {t("checkin.roster.degraded")}
+                  </div>
+                )}
+                {/* No "Load your party" bar. Everyone the booking knows is already
                 IN the list above (owner 2026-08-07: "why does the yellow box
                 still need to exist why not just load them?"). The people who
                 still need an account or a waiver appear as their own rows with
                 a "Set up" button — the roster says it better than a banner
                 could, and the ticked/unticked state carries who is checking in. */}
-            <PeopleScreens
-              item={checkinItem}
-              session={session}
-              onChange={(patch) => setCheckinItem((prev) => ({ ...prev, ...patch }))}
-              dispatch={dispatch}
-              setBusy={setPeopleBusy}
-            />
+                <PeopleScreens
+                  item={checkinItem}
+                  session={session}
+                  onChange={(patch) => setCheckinItem((prev) => ({ ...prev, ...patch }))}
+                  dispatch={dispatch}
+                  setBusy={setPeopleBusy}
+                />
 
-            {bindMsg && (
-              <div className="mt-[20px] rounded-2xl border-2 border-[#e94141]/40 bg-[#e94141]/10 px-[28px] py-[20px] text-[26px] text-[#ffb4b4]">
-                {bindMsg}
-              </div>
-            )}
+                {bindMsg && (
+                  <div className="mt-[20px] rounded-2xl border-2 border-[#e94141]/40 bg-[#e94141]/10 px-[28px] py-[20px] text-[26px] text-[#ffb4b4]">
+                    {bindMsg}
+                  </div>
+                )}
 
-            {/* Racing → the dedicated "Who's racing?" step; otherwise finalize.
+                {/* Racing → the dedicated "Who's racing?" step; otherwise finalize.
                 peopleBusy gates BOTH: a sign-in lookup / waiver check still in
                 flight means the roster isn't settled yet — advancing early let a
                 guest skip past their own account resolving. */}
-            {openRaceSlots.length > 0 ? (
-              <button
-                type="button"
-                onClick={goToAssign}
-                disabled={partyNeedsSetup || nobodyIncluded || peopleBusy}
-                className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
-              >
-                {t("checkin.nextWhosRacing")}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={checkInEveryone}
-                disabled={binding || partyNeedsSetup || nobodyIncluded || peopleBusy}
-                className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
-              >
-                {binding ? t("checkin.checkingIn") : t("checkin.checkEveryone")}
-              </button>
-            )}
-            {(partyNeedsSetup || nobodyIncluded) && (
-              <p className="mt-[12px] text-center text-[24px] text-white/45">
-                {nobodyIncluded ? t("checkin.needSomeone") : t("checkin.finishAddingFirst")}
-              </p>
+                {openRaceSlots.length > 0 ? (
+                  <button
+                    type="button"
+                    onClick={goToAssign}
+                    disabled={partyNeedsSetup || nobodyIncluded || peopleBusy}
+                    className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
+                  >
+                    {t("checkin.nextWhosRacing")}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={checkInEveryone}
+                    disabled={binding || partyNeedsSetup || nobodyIncluded || peopleBusy}
+                    className="k-btn-primary k-tap mt-[24px] h-[112px] w-full text-[36px] disabled:opacity-40"
+                  >
+                    {binding ? t("checkin.checkingIn") : t("checkin.checkEveryone")}
+                  </button>
+                )}
+                {(partyNeedsSetup || nobodyIncluded) && (
+                  <p className="mt-[12px] text-center text-[24px] text-white/45">
+                    {nobodyIncluded ? t("checkin.needSomeone") : t("checkin.finishAddingFirst")}
+                  </p>
+                )}
+              </>
             )}
           </div>
         )}
