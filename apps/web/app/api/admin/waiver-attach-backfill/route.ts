@@ -7,7 +7,8 @@ import {
   type KioskWaiverJoinRow,
 } from "~/features/kiosk/data/kiosk-waiver-joins-db";
 import { registerProjectPersonServer } from "~/features/kiosk/waiver/bmi-attach";
-import { billIdFromOfficeProjectId } from "@/lib/bmi-office-actions";
+import { resolveAttachOrderId } from "~/features/kiosk/waiver/attach-order-id";
+import { fetchProjectRawIds } from "@/lib/bmi-office-actions";
 import { rosterCacheKey } from "~/features/kiosk/waiver/cache";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,22 @@ export const maxDuration = 60;
  * mutates nothing. Run dark first, read the list, then re-run with dryRun=0.
  * Manual/admin-triggered on purpose: this touches BMI Office per row, and the
  * owner should watch the first live run (the A3 attach probe history).
+ *
+ * ── 2026-08-09: reconcile against BMI before re-POSTing ─────────────────────
+ *
+ * Two things changed, and the second is why this route was unsafe to run.
+ *
+ * 1. The order id is resolved by `resolveAttachOrderId`, not by arithmetic. The
+ *    old projectId−1 rule described only bookings WE created, so every
+ *    group-function row here would have re-failed identically.
+ *
+ * 2. Every row is checked against the reservation's LIVE projectPersons first.
+ *    `bmi_attach_status` is our record of what happened, not a claim about what
+ *    BMI holds, and it drifts in both directions: on 2026-08-08 the Fort Myers
+ *    counter hand-added 16 of H3194's signers while our rows still said
+ *    'failed'. Trusting the column would have re-POSTed all sixteen — and
+ *    whether a duplicate projectPerson row results is STILL unproven. Rows BMI
+ *    already satisfies are corrected in Neon and never sent.
  */
 
 const ADMIN_TOKEN = process.env.ADMIN_CAMERA_TOKEN || "";
@@ -45,8 +62,28 @@ interface RowOutcome {
   personId: string;
   displayName: string;
   priorStatus: string;
-  outcome: "would-reattach" | "attached" | "failed" | "skipped-no-billid" | "skipped-no-clientkey";
+  outcome:
+    | "would-reattach"
+    | "attached"
+    | "failed"
+    /** BMI already has this person — nothing was POSTed; our row was the stale one. */
+    | "already-on-bmi"
+    | "would-mark-attached"
+    | "skipped-no-order"
+    | "skipped-project-unreadable"
+    | "skipped-no-clientkey";
   detail?: string;
+}
+
+/** Person ids currently on the reservation, per BMI. Empty set ≠ "nobody" — see caller. */
+function projectPersonIds(project: Record<string, unknown>): Set<string> {
+  const rows = (project.projectPersons ?? []) as Array<Record<string, unknown>>;
+  if (!Array.isArray(rows)) return new Set();
+  return new Set(
+    rows
+      .map((r) => (r?.personId === undefined || r?.personId === null ? "" : String(r.personId)))
+      .filter(Boolean),
+  );
 }
 
 export async function GET(req: NextRequest) {
@@ -72,6 +109,12 @@ export async function GET(req: NextRequest) {
   const outcomes: RowOutcome[] = [];
   const touchedProjects = new Set<string>();
 
+  // Per-project memo: the live BMI roster and the resolved order id are project
+  // facts, not row facts — reading them once per project keeps a 20-person party
+  // to one project GET instead of twenty.
+  const rosterByProject = new Map<string, Set<string> | null>();
+  const orderIdByProject = new Map<string, string | null>();
+
   for (const row of candidates) {
     const base = {
       projectId: row.projectId,
@@ -84,13 +127,56 @@ export async function GET(req: NextRequest) {
       outcomes.push({ ...base, outcome: "skipped-no-clientkey" });
       continue;
     }
-    const orderId = billIdFromOfficeProjectId(row.projectId);
+
+    /**
+     * RECONCILE BEFORE RE-POSTING.
+     *
+     * `bmi_attach_status` is our record of what happened, not a statement about
+     * what BMI holds, and the two drift in BOTH directions. On 2026-08-08 the
+     * Fort Myers counter added 16 of H3194's signers by hand while our rows still
+     * said 'failed' — so a sweep that trusts the column would have re-POSTed
+     * sixteen people BMI already had, and whether a second POST creates a
+     * DUPLICATE projectPerson row is unproven (kiosk-waiver-attach-probe.mts
+     * step 4 was written to answer that and never recorded a result).
+     *
+     * So the roster is read from BMI first and treated as the authority. A row
+     * that BMI already satisfies is corrected in Neon and never sent.
+     */
+    if (!rosterByProject.has(row.projectId)) {
+      const project = await fetchProjectRawIds(clientKey, row.projectId).catch(() => null);
+      rosterByProject.set(row.projectId, project ? projectPersonIds(project) : null);
+    }
+    const roster = rosterByProject.get(row.projectId) ?? null;
+    if (roster === null) {
+      // Unreadable project — NOT the same as an empty roster. Refuse rather than
+      // re-POST blind; a transient Office failure must never become a duplicate.
+      outcomes.push({ ...base, outcome: "skipped-project-unreadable" });
+      continue;
+    }
+    if (roster.has(row.personId)) {
+      if (dryRun) {
+        outcomes.push({ ...base, outcome: "would-mark-attached" });
+      } else {
+        await setJoinAttachStatus(row.projectId, row.personId, "attached").catch(() => {});
+        touchedProjects.add(row.projectId);
+        outcomes.push({ ...base, outcome: "already-on-bmi" });
+      }
+      continue;
+    }
+
+    if (!orderIdByProject.has(row.projectId)) {
+      const resolved = await resolveAttachOrderId({ clientKey, projectId: row.projectId }).catch(
+        () => null,
+      );
+      orderIdByProject.set(row.projectId, resolved?.orderId ?? null);
+    }
+    const orderId = orderIdByProject.get(row.projectId) ?? null;
     if (!orderId) {
-      outcomes.push({ ...base, outcome: "skipped-no-billid" });
+      outcomes.push({ ...base, outcome: "skipped-no-order" });
       continue;
     }
     if (dryRun) {
-      outcomes.push({ ...base, outcome: "would-reattach" });
+      outcomes.push({ ...base, outcome: "would-reattach", detail: `orderId ${orderId}` });
       continue;
     }
     try {

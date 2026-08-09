@@ -1,5 +1,6 @@
 import https from "https";
 import { randomUUID } from "crypto";
+import { parseWithRawIds } from "@ft/db";
 
 /**
  * BMI Office write actions — update project status + record payment.
@@ -547,6 +548,31 @@ export async function fetchProject(
   const res = await httpsRequest("GET", `/api/${clientKey}/project/${projectId}`, headers);
   if (res.status >= 400) return null;
   return JSON.parse(res.body);
+}
+
+/**
+ * Read a project WITHOUT rounding its 17-digit ids, keyed by clientKey.
+ *
+ * `fetchProject` above JSON.parses bare. That is survivable for its callers
+ * (they read name / state / balance) and FATAL for anything that reads
+ * `bills[].id`, which is 17-digit: a rounded bill id names a different order or
+ * none at all, and the failure is silent — you get an id-shaped number back.
+ * See tasks/lessons.md § BMI ID Precision → INBOUND, and the standing warning
+ * in ~/features/daily-events/data/bmi-office.ts.
+ *
+ * Takes a clientKey rather than a centerCode because its callers (the waiver
+ * attach path) resolve the client from a BMI locationId, not from our own
+ * center slug.
+ */
+export async function fetchProjectRawIds(
+  clientKey: string,
+  projectId: string,
+): Promise<Record<string, unknown> | null> {
+  const token = await getOfficeToken(clientKey);
+  const headers = apiHeaders(token, clientKey);
+  const res = await httpsRequest("GET", `/api/${clientKey}/project/${projectId}`, headers);
+  if (res.status >= 400) return null;
+  return parseWithRawIds<Record<string, unknown>>(res.body);
 }
 
 // ── Remove a person from a reservation (Office projectPerson row) ──

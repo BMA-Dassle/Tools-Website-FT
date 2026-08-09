@@ -5,7 +5,7 @@ import { makeDisplayName } from "@/lib/display-name";
 import { clientKeyForLocation } from "~/features/daily-events/service";
 import { upsertJoin, setJoinAttachStatus } from "~/features/kiosk/data/kiosk-waiver-joins-db";
 import { registerProjectPersonServer } from "~/features/kiosk/waiver/bmi-attach";
-import { billIdFromOfficeProjectId } from "@/lib/bmi-office-actions";
+import { resolveAttachOrderId } from "~/features/kiosk/waiver/attach-order-id";
 import { kioskWaiverBmiAttachEnabled } from "~/features/kiosk/flags";
 import { CENTER_TO_BMI_LOCATION_IDS, isValidCenter } from "~/features/kiosk/waiver/locations";
 import { rosterCacheKey, personValidCacheKey } from "~/features/kiosk/waiver/cache";
@@ -95,26 +95,53 @@ export async function POST(req: NextRequest) {
     // The kiosk CHECK-IN flow always got this right — it passes a billId — so the
     // conversion belongs here, at the caller that has the wrong id, not inside the
     // shared function where it would have broken check-in.
-    const orderId = billIdFromOfficeProjectId(projectId);
-    if (clientKey && orderId) {
+    //
+    // …and the SECOND half of that bug, live until 2026-08-09: the conversion was
+    // pure arithmetic, which only ever described OUR OWN bookings. A group
+    // function's project is Office-created and its bill lives in another series,
+    // so projectId−1 named nothing and every group-function signer failed. The
+    // resolver now VERIFIES the id against the order API instead of assuming it.
+    // See ~/features/kiosk/waiver/attach-order-id.
+    if (!clientKey) {
+      await setJoinAttachStatus(
+        projectId,
+        personId,
+        "failed",
+        `no clientKey for locationId ${locationId}`,
+      ).catch(() => {});
+    } else {
       try {
-        const result = await registerProjectPersonServer({
-          clientKey,
-          orderId,
-          personId,
-          firstName,
-          lastName,
-        });
-        if (result.ok) {
-          attach = "bmi";
-          await setJoinAttachStatus(projectId, personId, "attached").catch(() => {});
-        } else {
+        const resolved = await resolveAttachOrderId({ clientKey, projectId });
+        if (!resolved) {
+          // Previously this branch wrote NO status at all, leaving the row
+          // 'pending' forever — a failure that showed up in no query and no
+          // sweep. It is a failure; it is recorded as one.
           await setJoinAttachStatus(
             projectId,
             personId,
             "failed",
-            `${result.status}: ${result.body.slice(0, 300)}`,
+            `no public-booking order resolves for project ${projectId}`,
           ).catch(() => {});
+        } else {
+          const result = await registerProjectPersonServer({
+            clientKey,
+            orderId: resolved.orderId,
+            personId,
+            firstName,
+            lastName,
+          });
+          if (result.ok) {
+            attach = "bmi";
+            await setJoinAttachStatus(projectId, personId, "attached").catch(() => {});
+          } else {
+            await setJoinAttachStatus(
+              projectId,
+              personId,
+              "failed",
+              `${result.status} (orderId ${resolved.orderId} via ${resolved.source}): ` +
+                result.body.slice(0, 260),
+            ).catch(() => {});
+          }
         }
       } catch (error) {
         await setJoinAttachStatus(
