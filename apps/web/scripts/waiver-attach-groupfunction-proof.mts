@@ -1,6 +1,23 @@
 /**
  * LIVE PROOF of the group-function waiver-attach fix — NET ZERO.
  *
+ * ── RESULT, 2026-08-09: ALL PASS. Re-run only to re-verify. ────────────────
+ *
+ *   project 55302082 (H3175 Blue Diamond Plumbing) · person 63000000002660482
+ *   resolveAttachOrderId → 63000000006322534 (office-bill); the old arithmetic
+ *   would have sent 55302081, which is not an order.
+ *
+ *   P1 PASS       projectPersons 4 → 5, verified by re-read (not by the 200).
+ *   P2 IDEMPOTENT a second POST does NOT duplicate the row.
+ *   P3 CLEAN      state -3, products 9, balance 2759.01 — all unchanged.
+ *   cleanup       row 63000000007857474 removed; original row set restored.
+ *
+ * P2 is the one that had been open since 2026-07-30: kiosk-waiver-attach-probe
+ * step 4 was written to answer it and never recorded a result, so every sweep
+ * since has had to assume the worst. It is idempotent. That does NOT retire the
+ * backfill's reconcile-before-POST — that exists because our stored status
+ * drifts from BMI's truth, which is a different problem from duplication.
+ *
  * Settles the two things the fix cannot claim without a write:
  *
  *   P1  Does registerProjectPerson, given the order id `resolveAttachOrderId`

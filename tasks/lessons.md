@@ -1,5 +1,57 @@
 # Lessons Learned
 
+## An id derived by arithmetic encodes how OUR flow happens to mint ids, not what the vendor's key means (2026-08-09)
+
+**What happened:** every guest who signed through a GROUP FUNCTION's waiver link failed to
+attach to the reservation — silently, while the UI told them they were saved to it. Over the
+two days `kiosk_waiver_joins` had existed: **177/177 attaches succeeded on online-booking
+projects and 0/36 on group-function ones** (H3194, H1249, H1231, H1253, H3176 — 29 guests).
+Nobody noticed, because our own record said `failed` and nothing reads that column.
+
+**Root cause:** the attach derived the public-booking `orderId` as `projectId − 1`. That
+rule is not a property of BMI. It is a property of OUR booking flow, where the
+public-booking API mints the bill and the project back to back so they land on consecutive
+ids. A group function is created in Office by sales months earlier and its bill is minted
+separately at deposit, in a different id series — so `projectId − 1` named nothing:
+
+    200 {"success":false,"errorMessage":"Cannot find the reservation for bill 56000666"}
+
+**The rule:** when a vendor id must be derived from another id, derive it from the vendor's
+own data, not from a pattern you observed in ids your own code created. A relationship that
+holds across every record you have made is not evidence about records you did NOT make.
+
+**And when you must discriminate, ASK — don't infer from shape.** The tempting fix was
+"17 digits → arithmetic, short → look it up". That is the same mistake wearing a different
+hat: an incidental property standing in for the real question. The real question — "does
+this id resolve as an order?" — had a cheap read-only answer all along
+(`GET /public-booking/{ck}/order/{id}/overview`: 200 for a real order, 400 otherwise). The
+fix tries the proven arithmetic first, **verifies it**, and only then falls back to the
+project's Office `bills[]`. It returns null rather than guessing, because a wrong order id
+attaches a guest to somebody else's reservation.
+
+**Corollaries, each of which cost real time here:**
+
+- **"It's probably a precision bug" is a hypothesis, not a diagnosis.** The BMI id rules
+  make precision the reflex suspicion, and it was wrong: all the failing ids were 7–8
+  digits, `Number()` was exact, and BMI echoed back byte-for-byte what we sent on all three
+  projects. Check the echo before rewriting the parser.
+- **A CONTROL case is what tells you whether your explanation is the explanation.** The first
+  read — "the derived bill isn't in `project.bills[]`" — was true and irrelevant: it is also
+  true of the bookings that WORK. Only running the working case through the same probe
+  showed that `bills[]` was never the key, and that the RAIL was fine.
+- **Our stored status is a record of what we did, never a claim about what the vendor holds,
+  and it drifts BOTH ways.** Fort Myers staff hand-added 16 of H3194's signers at the counter
+  while our rows still said `failed`. A remediation sweep that trusts its own column would
+  have re-POSTed all sixteen. Reconcile against the vendor first.
+- **A branch that writes no status at all is worse than one that writes a failure.** When no
+  id could be derived, the join route fell through silently and left the row `pending`
+  forever — a failure invisible to every query and every sweep.
+
+**Settled while proving it (net-zero probe, `scripts/waiver-attach-groupfunction-proof.mts`):**
+`registerProjectPerson` **is idempotent** — a second POST for the same person does not
+duplicate the row. That question had been open since 2026-07-30 and every sweep since had to
+assume the worst.
+
 ## A root layout does not re-render on navigation — anything it decides from `headers()` is frozen for the whole visit (2026-08-07)
 
 **What happened:** clicking "Waiver" in the FastTrax nav landed on `/waiver` with the site
