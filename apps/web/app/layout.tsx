@@ -24,6 +24,7 @@ import ChromeGate from "~/components/layout/ChromeGate";
 import type { ChromeFlags } from "~/lib/constants/chrome-routes";
 import { VipExperiencePopup } from "~/components/features/combos/VipExperiencePopup";
 import { NaplesOfferPopup } from "~/components/features/deals/NaplesOfferPopup";
+import { NaplesClosureAlert } from "~/components/features/alerts/NaplesClosureAlert";
 import { FASTTRAX_OG, FASTTRAX_OG_IMAGE, HEADPINZ_OG, HEADPINZ_OG_IMAGE } from "@/lib/seo";
 
 /* FastTrax fonts */
@@ -353,6 +354,12 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             that one is gated on showChrome (FastTrax), this on showHpChrome — so
             the two can never stack. Renders nothing once the window closes. */}
         {showHpChrome && !isKiosk && <NaplesOfferPopup />}
+        {/* 2026-08-09 water main break: Naples closed for the rest of today.
+            Service alert, not an ad — fires immediately, once per session,
+            Naples pages only, and self-retires 6 AM ET 8/10 (client half owns
+            all of that). Kill switch NAPLES_CLOSURE_ALERT=false; remove
+            entirely once the closure is over. */}
+        {showHpChrome && !isKiosk && <NaplesClosureAlert />}
         <SpeedInsights />
         <Analytics />
         <ClarityAnalytics />
