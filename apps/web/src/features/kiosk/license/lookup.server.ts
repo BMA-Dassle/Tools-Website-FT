@@ -43,6 +43,7 @@ import {
   OfficeApiError,
 } from "~/features/daily-events/data/bmi-office";
 import { isRelevantMembership } from "~/features/booking/service/race-products";
+import { hasActiveLicenseMembership } from "~/features/booking/service/license";
 import {
   descriptionMatchesLastName,
   dobTokenOf,
@@ -178,9 +179,7 @@ async function buildMatch(hit: SearchHit, confirm: MatchConfirm): Promise<Licens
   // are resolved, so without this a lapsed returning racer who never triggers a
   // mid-session refresh still fell back to the `isNewRacer` flag — the exact
   // hole 1.16.0 closed for the refresh path (owner 2026-08-04).
-  const licenseActive = activeMemberships.some(
-    (m) => typeof m.name === "string" && m.name.toLowerCase().includes("license"),
-  );
+  const licenseActive = hasActiveLicenseMembership(office.memberships);
 
   // Display name: Office record → the scanned license itself (a legacy
   // duplicate can carry no first name at all).

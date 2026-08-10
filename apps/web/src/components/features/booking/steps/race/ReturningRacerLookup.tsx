@@ -5,6 +5,7 @@ import {
   isRelevantMembership,
   tierFromMemberships,
 } from "~/features/booking/service/race-products";
+import { hasActiveLicenseMembership } from "~/features/booking/service/license";
 import { creditBalancesFromDeposits } from "~/features/booking/data/race-credits";
 import { rankSearchResults, type SearchCandidate } from "~/features/booking/service/office-search";
 
@@ -36,6 +37,11 @@ export interface FoundAccount {
   lastSeenAt: number;
   races: number;
   memberships: string[];
+  /** Verified at lookup from the RAW membership list: an UNEXPIRED licence
+   *  membership is on file (service/license.ts hasActiveLicenseMembership).
+   *  Optional because the kiosk LicenseMatch reuses this card shape; the web
+   *  lookup itself ALWAYS sets it. */
+  licenseActive?: boolean;
   birthDate: string | null;
   creditBalances: Array<{ kind: string; balance: number }>;
 }
@@ -133,7 +139,7 @@ async function fetchAccountDetails(
         ? `&kioskId=${encodeURIComponent(proof.kioskId)}`
         : "";
   const details = await Promise.all(
-    unique.map(async (r) => {
+    unique.map(async (r): Promise<FoundAccount | null> => {
       try {
         const res = await fetch(`/api/bmi-office?action=person&id=${r.localId}${proofQs}`);
         if (!res.ok) return null;
@@ -182,6 +188,11 @@ async function fetchAccountDetails(
           lastSeenAt,
           races: (p.tags || []).length,
           memberships,
+          // Decided HERE against the raw list (before the isRelevantMembership
+          // name filter) — the same rule the kiosk sign-in uses, so a lapsed
+          // returning racer's $4.99 shows on web too instead of falling back
+          // to the isNewRacer guess.
+          licenseActive: hasActiveLicenseMembership(p.memberships),
           birthDate: p.birthDate || null,
           creditBalances,
         } satisfies FoundAccount;
@@ -268,6 +279,7 @@ export function ReturningRacerLookup({
       races: a.races,
       loginCode: a.loginCode,
       memberships: a.memberships,
+      licenseActive: a.licenseActive,
       birthDate: a.birthDate,
       creditBalances: a.creditBalances,
     };
@@ -475,6 +487,7 @@ export function ReturningRacerLookup({
             races: (p.tags || []).length,
             loginCode: matchTag.tag,
             memberships,
+            licenseActive: hasActiveLicenseMembership(p.memberships),
             birthDate: p.birthDate || null,
             creditBalances,
           };

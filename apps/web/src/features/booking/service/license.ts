@@ -30,6 +30,28 @@
 
 export type LicenseState = "active" | "none" | "unknown";
 
+/**
+ * Does an UNEXPIRED licence membership exist on this raw membership list?
+ * Name contains "license" and `stops` is absent or in the future. THE single
+ * derivation of `licenseActive` — web returning-racer lookup, kiosk sign-in
+ * and the kiosk qualification refresh all call this, so no surface can decide
+ * licence state differently. Must run against the RAW membership list (before
+ * any isRelevantMembership-style name filtering — see the header above).
+ */
+export function hasActiveLicenseMembership(
+  memberships: Array<{ name?: unknown; stops?: string | null }> | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  if (!Array.isArray(memberships)) return false;
+  const nowMs = now.getTime();
+  return memberships.some(
+    (m) =>
+      typeof m?.name === "string" &&
+      m.name.toLowerCase().includes("license") &&
+      (!m.stops || new Date(m.stops).getTime() > nowMs),
+  );
+}
+
 export interface LicenseCandidate {
   isNewRacer?: boolean;
   /** Verified against BMI: does an UNEXPIRED licence membership exist? Set by the

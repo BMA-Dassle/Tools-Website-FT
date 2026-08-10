@@ -25,6 +25,7 @@
 import { fetchOfficePerson, fetchOfficeDepositHistory } from "@/lib/bmi-office-actions";
 import { PANDORA_DEFAULT_LOCATION_ID, PANDORA_LOCATION_MAP } from "@/lib/pandora-locations";
 import { isRelevantMembership } from "~/features/booking/service/race-products";
+import { hasActiveLicenseMembership } from "~/features/booking/service/license";
 import { creditBalancesFromDeposits } from "~/features/booking/data/race-credits";
 
 const PANDORA_URL = "https://bma-pandora-api.azurewebsites.net/v2";
@@ -72,18 +73,11 @@ function membershipsFromPerson(person: Record<string, unknown>): string[] {
     .filter((n, i, a) => a.indexOf(n) === i);
 }
 
-/** Does this Office person hold an UNEXPIRED licence membership? Mirrors
- *  `personHasActiveLicense` (race-pack rail) — name contains "license", `stops`
- *  in the future or absent. */
+/** Does this Office person hold an UNEXPIRED licence membership? One shared
+ *  derivation for every surface — see hasActiveLicenseMembership. */
 function hasActiveLicense(person: Record<string, unknown>): boolean {
-  const raw = person.memberships;
-  if (!Array.isArray(raw)) return false;
-  const now = Date.now();
-  return (raw as Array<{ stops?: string; name?: string }>).some(
-    (m) =>
-      typeof m?.name === "string" &&
-      m.name.toLowerCase().includes("license") &&
-      (!m.stops || new Date(m.stops).getTime() > now),
+  return hasActiveLicenseMembership(
+    person.memberships as Array<{ name?: unknown; stops?: string }> | undefined,
   );
 }
 

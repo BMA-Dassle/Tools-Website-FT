@@ -121,6 +121,7 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
       category,
       isBillingCustomer: true,
       memberships: person.memberships,
+      licenseActive: person.licenseActive,
       waiverValid: person.waiverValid,
       creditBalances: person.creditBalances,
     });
@@ -183,6 +184,7 @@ const RacePartyStepComponent: StepDef<RaceItem>["Component"] = ({
       isNewRacer: false,
       category,
       memberships: person.memberships,
+      licenseActive: person.licenseActive,
       waiverValid: person.waiverValid,
       creditBalances: person.creditBalances,
     });
