@@ -15,6 +15,19 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.20.0 — THE POV SCREEN SELLS THE VIDEO, NOTHING ELSE (owner 2026-08-10).
+ *         The in-step "Rookie Pack" — a $9.98 license+POV pseudo-product that
+ *         never behaved like the real packages — is gone everywhere: the radio
+ *         chooser, the mixed-party auto-enroll, its charge line. The real
+ *         Rookie Pack package on the pay-mode page is untouched. License never
+ *         appears on this screen (the roster step already shows "+ $4.99
+ *         licence" per racer, and the charge was always independent). The
+ *         video offer counts ONLY racers whose package doesn't include it —
+ *         a partially-packaged party is no longer offered cameras the bundle
+ *         already carries. And the cart finally treats POV like a package:
+ *         its row shows Change (reopens the video step) and Remove, on both
+ *         cart surfaces. Whole screen speaks EN+ES now (it was hardcoded
+ *         English).
  * 1.19.0 — CHECK-IN TELLS THE TRUTH ABOUT WHO AND WHEN. The roster now resolves
  *         against BMI instead of whichever row arrived first, so racers who ARE
  *         registered stop reading "Account + waiver needed" and one person stops
@@ -889,7 +902,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.19.0";
+export const KIOSK_VERSION = "1.20.0";
 
 let bootVersion: string | null = null;
 let captured = false;

@@ -16,7 +16,7 @@ import { KioskBowlingOfferStep } from "../steps/KioskBowlingOfferStep";
 import { KioskBowlingPeopleStep } from "../steps/KioskBowlingPeopleStep";
 import { KioskRacePeopleStep, KioskAttractionPeopleStep } from "../steps/KioskPeopleStep";
 
-export const KIOSK_SCHEMA_VERSION = 11; // v11: RaceItem.packageIdAdult/Junior split (was single packageId)
+export const KIOSK_SCHEMA_VERSION = 12; // v12: RaceItem.rookiePack removed (POV step is a pure video upsell)
 export const KIOSK_SESSION_STORAGE_KEY = "kiosk_booking_session";
 
 /** Match the web registry's World Cup gating for bowling time steps. */
