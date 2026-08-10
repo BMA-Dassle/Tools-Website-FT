@@ -13,6 +13,11 @@ import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { modalBackdropProps } from "@/lib/a11y";
 import { productDisplayNameFromPackages, getPackageIgnoreFlag } from "@/lib/packages";
 import { buildReservationMemo } from "~/features/booking/service/reservation-memo";
+import {
+  clearRacePackConfirmation,
+  readRacePackConfirmation,
+  type RacePackConfirmLine,
+} from "~/features/kiosk/service/race-pack-confirmation";
 import { ATTRACTIONS, type AttractionConfig } from "@/lib/attractions-data";
 import { comboReservationNote, getComboSpecial } from "~/features/combos";
 import { formatVoucherCode } from "~/features/game-cards/vouchers/codes";
@@ -419,6 +424,10 @@ export default function ConfirmationPage() {
   const [racerQrCodes, setRacerQrCodes] = useState<Record<string, string>>({});
   /** Claimed POV camera redemption codes */
   const [povCodes, setPovCodes] = useState<string[]>([]);
+  /** Race packs bought with this booking (checkout's sessionStorage stash —
+   *  the same handoff the kiosk confirmation reads; display-only nicety, the
+   *  credits granted server-side or went to the retry sweep). */
+  const [racePackLines, setRacePackLines] = useState<RacePackConfirmLine[] | null>(null);
   /** Check-in location based on first scheduled item */
   const [checkInLocation, setCheckInLocation] = useState<"fasttrax" | "headpinz">("fasttrax");
   const [bookingType, setBookingType] = useState<BookingType>("racing");
@@ -451,6 +460,13 @@ export default function ConfirmationPage() {
     packageLabel: string;
   } | null>(null);
   const [confirmFailed, setConfirmFailed] = useState(false);
+  useEffect(() => {
+    const packs = readRacePackConfirmation();
+    if (packs) {
+      setRacePackLines(packs);
+      clearRacePackConfirmation();
+    }
+  }, []);
   /** The confirmation URL's HMAC sig — authorizes self-serve cancel. */
   const [urlSig, setUrlSig] = useState<string | null>(null);
   /** Lifecycle state from Neon — the page's other data sources are booking-time
@@ -3273,6 +3289,44 @@ export default function ConfirmationPage() {
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {/* Race packs bought with this booking — per-racer outcome from
+                    the reserve response ("1 used today, 4 banked"); granted:false
+                    degrades honestly (the retry sweep owns the grant, credits
+                    always arrive). */}
+                {racePackLines && racePackLines.length > 0 && (
+                  <div className="lg:col-span-2 mt-6 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-6 sm:p-8">
+                    <h3 className="font-display text-white text-xl uppercase tracking-widest mb-4">
+                      Your Race Packs
+                    </h3>
+                    <ul className="space-y-3">
+                      {racePackLines.map((p, i) => (
+                        <li
+                          key={i}
+                          className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3"
+                        >
+                          <p className="text-sm font-bold text-white">
+                            {p.label} · {p.memberName}
+                          </p>
+                          {p.granted ? (
+                            <p className="mt-0.5 text-xs text-white/60">
+                              {p.usedToday > 0
+                                ? `${p.usedToday} credit${p.usedToday === 1 ? "" : "s"} used for this booking · `
+                                : ""}
+                              {p.banked} race{p.banked === 1 ? "" : "s"} banked to their account —
+                              credits never expire.
+                            </p>
+                          ) : (
+                            <p className="mt-0.5 text-xs text-amber-300/80">
+                              Credits are loading — they&apos;ll appear on the account shortly. No
+                              need to do anything.
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
 

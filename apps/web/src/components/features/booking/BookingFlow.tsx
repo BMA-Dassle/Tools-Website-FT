@@ -8,6 +8,7 @@ import {
   getActiveItem,
   newItem,
   STEP_REGISTRY,
+  plannedStepsFor,
   type Activity,
   type AttractionItem,
   type BookingSession,
@@ -532,6 +533,11 @@ export function BookingFlow({
           onCheckout={() => setCheckoutActive(true)}
           onNewBooking={handleStartOver}
           onRemoveCombo={session.comboSpecialId ? handleRemoveCombo : undefined}
+          // Race packs are editable from the web cart too (2026-08-10) — pure
+          // state, money re-derives server-side at charge.
+          onUpdateRacePacks={(id, creditPacks) =>
+            dispatch({ type: "updateItem", id, patch: { creditPacks } })
+          }
         />
         {reservationExpired && hasActiveHold && (
           <ReservationExpiredModal
@@ -562,6 +568,11 @@ export function BookingFlow({
           onCheckout={() => setCheckoutActive(true)}
           onNewBooking={handleStartOver}
           onRemoveCombo={session.comboSpecialId ? handleRemoveCombo : undefined}
+          // Race packs are editable from the web cart too (2026-08-10) — pure
+          // state, money re-derives server-side at charge.
+          onUpdateRacePacks={(id, creditPacks) =>
+            dispatch({ type: "updateItem", id, patch: { creditPacks } })
+          }
         />
       </div>
     );
@@ -570,6 +581,17 @@ export function BookingFlow({
   const stepUntyped = currentStep as StepDef;
   const canAdvance = stepUntyped.canAdvance(activeItem, session);
   const advanceOk = canAdvance === true;
+
+  // Progress DISPLAY runs on the planned path (bundle choice neutralised — see
+  // plannedStepsFor): picking a package hides the product + POV steps, and a
+  // live denominator made the stepper shrink mid-tap ("Step 3 of 6" → "3 of
+  // 4"), the kiosk bug of 2026-08-04. Navigation stays on the live `steps`
+  // list — handleGoToStep takes LIVE indices only.
+  const plannedSteps = plannedStepsFor(allSteps, activeItem, session);
+  const displayIndex = Math.max(
+    0,
+    plannedSteps.findIndex((s) => s.id === currentStep.id),
+  );
 
   const advanceToNextStep = () => {
     if (isLastStep) {
@@ -741,22 +763,30 @@ export function BookingFlow({
       <div className="sticky top-[120px] z-30 border-b border-white/8 bg-[#000418]">
         <div className="mx-auto flex max-w-4xl items-center gap-3 px-4 py-3">
           <div className="flex min-w-0 flex-1 items-center gap-0 overflow-x-auto">
-            {steps.map((s, i) => {
-              const isActive = i === stepIndex;
-              const isComplete = i < stepIndex;
-              const isFuture = i > stepIndex;
+            {plannedSteps.map((s, i) => {
+              // Planned list for stable numbering; clicks map back to the LIVE
+              // list. A planned step the current choices skip (product step
+              // after a bundle pick, POV when the bundle includes it) renders
+              // dimmed and is never clickable.
+              const liveIndex = steps.findIndex((x) => x.id === s.id);
+              const isSkipped = liveIndex === -1;
+              const isActive = s.id === currentStep.id;
+              const isComplete = !isSkipped && !isActive && liveIndex < stepIndex;
+              const clickable = isComplete;
               return (
                 <div key={s.id} className="flex items-center">
                   <button
                     type="button"
-                    onClick={() => handleGoToStep(i)}
-                    disabled={isFuture}
+                    onClick={() => clickable && handleGoToStep(liveIndex)}
+                    disabled={!clickable}
                     className={`flex items-center gap-1.5 rounded-lg px-2 py-1.5 transition-colors ${
                       isActive
                         ? "text-[#00E2E5]"
                         : isComplete
                           ? "cursor-pointer text-white/50 hover:text-white/80"
-                          : "cursor-default text-white/20"
+                          : isSkipped
+                            ? "cursor-default text-white/10"
+                            : "cursor-default text-white/20"
                     }`}
                   >
                     <span
@@ -765,14 +795,18 @@ export function BookingFlow({
                           ? "bg-[#00E2E5] text-[#000418]"
                           : isComplete
                             ? "bg-white/20 text-white/60"
-                            : "border border-white/20 text-white/30"
+                            : isSkipped
+                              ? "border border-white/10 text-white/15"
+                              : "border border-white/20 text-white/30"
                       }`}
                     >
                       {isComplete ? "✓" : i + 1}
                     </span>
-                    <span className="hidden text-sm sm:inline">{s.title}</span>
+                    <span className={`hidden text-sm sm:inline ${isSkipped ? "line-through" : ""}`}>
+                      {s.title}
+                    </span>
                   </button>
-                  {i < steps.length - 1 && <span className="mx-0.5 text-white/15">›</span>}
+                  {i < plannedSteps.length - 1 && <span className="mx-0.5 text-white/15">›</span>}
                 </div>
               );
             })}
@@ -805,7 +839,9 @@ export function BookingFlow({
               The sticky step bar shows numbered steps; this adds the
               human-readable next-step name + count for scanability. */}
           <p className="hidden text-xs text-white/40 sm:block">
-            Step <span className="text-white/70">{stepIndex + 1}</span> of {steps.length}
+            {/* Planned-path count (stable when a bundle skips steps); "Next"
+                names where Continue actually goes — the live list. */}
+            Step <span className="text-white/70">{displayIndex + 1}</span> of {plannedSteps.length}
             {!isLastStep && steps[stepIndex + 1] && (
               <span> · Next: {steps[stepIndex + 1].title}</span>
             )}

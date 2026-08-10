@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * KIOSK race step — page 1 of 2: WHAT they're buying, before WHICH heat.
+ * Race step — page 1 of 2: WHAT they're buying, before WHICH race.
  *
- * Owner-approved layout (2026-08-03/04, "option 1" after five passes):
+ * Owner-approved layout (2026-08-03/04, "option 1" after five passes; brought
+ * to WEB 2026-08-10):
  *   ─ one line of qualification context ("everyone starts on a Starter race")
  *   ─ the HOUSE RECOMMENDATION as a hero card (registry `recommended` flag —
  *     the Ultimate Qualifier today), with its race count huge
@@ -11,11 +12,20 @@
  *     way to race, because a first-timer's real decision is the difference,
  *     not the total
  *   ─ the plain single race as the last row
- *   ─ race packs collapsed to ONE line until tapped
+ *   ─ race packs collapsed to ONE line until tapped (kiosk + returning-racer
+ *     web parties — the pack rail needs a BMI account to grant onto)
  *
- * Type is at the kiosk's own scale (body ~21px, hero 34px, price 40px — see
- * kiosk.css), not the web scale the shared booking components use: this screen
- * is read standing up, next to 112px buttons.
+ * TWO TYPE SCALES, one JSX tree: the kiosk reads standing up next to 112px
+ * buttons (body ~21px, hero 34px, price 40px after .kiosk-zoom), the web is
+ * mobile-heavy (375px). `KIOSK_S` is the owner-approved literals CHARACTER
+ * FOR CHARACTER — never edit that map without a new owner sign-off; `WEB_S`
+ * is mobile-first. The `satisfies` clause keeps the two slot-complete.
+ *
+ * Money is LIVE per bundle (usePackageAvailability → livePerRacerPrice, the
+ * same derivations PackageCard uses — displayed = charged), rendering the
+ * registry price instantly and swapping the live value in place. A bundle
+ * whose two races can no longer fit today (packageBlockedToday) renders
+ * disabled with the reason instead of dead-ending at the heat picker.
  *
  * Per CATEGORY, like the product and heat steps it precedes: a bundle is a
  * per-category purchase (`packageIdAdult` / `packageIdJunior`) and adult/junior
@@ -23,8 +33,6 @@
  * bundle owns the race) and lands on its heat picker; picking the single race —
  * or removing the bundle — brings page 2 back. `RaceProductStep.isVisible` reads
  * the same `payModeStepVisible` seam, so the two can never disagree.
- *
- * KIOSK ONLY, and only when there is something to choose.
  */
 import { useState } from "react";
 import type { RaceItem, StepDef } from "~/features/booking";
@@ -35,6 +43,7 @@ import {
   eligiblePackages,
   getPackage,
   packagePerRacerPrice,
+  packageRetailTotal,
   LICENSE_PRICE,
   type PackageDefinition,
 } from "~/features/booking/service/packages";
@@ -47,13 +56,19 @@ import {
 } from "~/features/booking/service/race-products";
 import {
   coveredMembersPreview,
-  kioskPackSkus,
   kioskRacePacksEnabled,
+  packSkusForRaceDate,
 } from "~/features/booking/service/race-pack-kiosk";
 import { racerNeedsLicense } from "~/features/booking/service/license";
 import { useT, type Translate } from "~/features/kiosk/i18n";
 import { racePackTeaserVisible } from "./RacePackTeaser";
 import { RacePackPicker } from "./RacePackPicker";
+import { IncludedList } from "./PackageCard";
+import {
+  livePerRacerPrice,
+  packageBlockedToday,
+  usePackageAvailability,
+} from "./usePackageAvailability";
 
 type Category = "adult" | "junior";
 
@@ -88,17 +103,19 @@ function bundlesFor(
 /**
  * Does page 1 exist for this category? Exported so the product step can drop the
  * bundle + pack blocks it moved here (and hide itself once a bundle is chosen)
- * without duplicating the rule — the two must never disagree.
+ * without duplicating the rule — the two must never disagree. Runs on BOTH
+ * kiosk and web (owner 2026-08-10); combo sessions never reach it (the
+ * registry wraps this step hiddenInCombo, and that wrapper is the ONLY combo
+ * guard for the bundles half — keep it).
  */
 export function payModeStepVisible(
   item: RaceItem,
   session: Parameters<typeof racePackTeaserVisible>[0],
   category: Category,
 ): boolean {
-  if (!session.context?.kiosk) return false;
   if (!item.date) return false;
   if (racersOfCategory(session.party, category).length === 0) return false;
-  const hasPacks = racePackTeaserVisible(session) && kioskPackSkus().length > 0;
+  const hasPacks = racePackTeaserVisible(session, item.date);
   return hasPacks || bundlesFor(item, session, category).length > 0;
 }
 
@@ -120,9 +137,300 @@ function bundleSay(t: Translate, pkg: PackageDefinition): string {
   return pkg.shortDescription;
 }
 
+/* ── Style maps ─────────────────────────────────────────────────────────────
+ * KIOSK_S values are the owner-approved 2026-08-04 literals, verbatim — the
+ * kiosk render must stay pixel-identical (verified by screenshot diff).
+ * WEB_S is mobile-first: rows wrap, the hero stacks under `sm`, type sits on
+ * the web flow's text-sm/base scale. Same slot set, enforced by `satisfies`.
+ */
+const KIOSK_S = {
+  container: "mx-auto w-full max-w-[880px] space-y-2.5",
+  title: "font-display text-[32px] leading-none uppercase",
+  sub: "mt-1.5 text-[20px] leading-snug text-white/50",
+  credits:
+    "rounded-2xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 px-5 py-3 text-[19px] text-[#7FF0F1]",
+  heroWrap: "mt-4 space-y-2",
+  heroBtn:
+    "relative flex w-full items-center gap-6 rounded-[22px] border-2 border-[#f0b341] bg-linear-to-br from-[#f0b341]/20 to-[#f0b341]/5 px-5 pt-6 pb-5 text-left",
+  heroRing: "ring-4 ring-[#f0b341]/45",
+  heroPill:
+    "absolute -top-4 left-6 rounded-full bg-[#f0b341] px-4 py-1.5 text-[17px] font-extrabold uppercase italic text-[#241701]",
+  heroBody: "min-w-0 flex-1",
+  heroName: "font-display block text-[30px] leading-tight uppercase",
+  heroSay: "mt-1.5 block text-[20px] leading-snug text-white/70",
+  heroPriceCol: "shrink-0 text-right",
+  heroPrice: "block text-[36px] font-extrabold italic leading-none tabular-nums",
+  heroIncl: "mt-1.5 block text-[17px] text-white/50",
+  removeBtn:
+    "flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 px-4 py-3 text-[17px] font-semibold text-white/60",
+  badge: "w-[84px] shrink-0 text-center",
+  badgeNum: "block text-[30px] font-extrabold italic leading-none",
+  badgeWord: "mt-1 block text-[13px] font-extrabold uppercase tracking-[0.14em]",
+  row: "flex w-full items-center gap-4 rounded-2xl border-2 px-5 py-3 text-left",
+  rowSelected: "border-[#00E2E5] bg-[#00E2E5]/7",
+  rowIdle: "border-white/13 bg-white/[0.03]",
+  rowBody: "min-w-0 flex-1",
+  rowName: "block text-[23px] font-bold",
+  rowSay: "mt-0.5 block text-[19px] text-white/50",
+  deltaPill:
+    "shrink-0 rounded-full bg-[#f0b341]/20 px-3.5 py-1 text-[19px] font-extrabold italic whitespace-nowrap text-[#FFD98A]",
+  rowPrice: "shrink-0 text-[30px] font-extrabold italic whitespace-nowrap tabular-nums",
+  singlePriceCol: "shrink-0 text-right",
+  singlePrice: "block text-[30px] font-extrabold italic leading-none tabular-nums",
+  singleNote: "mt-1 block text-[16px] text-white/45",
+  blockedNote: "mt-1 block text-[17px] leading-snug text-white/45",
+  saveLine: "", // kiosk renders no savings line (owner layout)
+  inclToggle: "", // kiosk renders no included-disclosure (owner layout)
+  packBtn: "flex w-full items-center gap-4 border-[1.5px] px-5 py-3 text-left",
+  packTitle: "font-display shrink-0 text-[24px] uppercase text-[#9DF6F7]",
+  packSub: "min-w-0 flex-1 text-[19px] text-white/50",
+  packPrice: "shrink-0 text-[21px] font-bold tabular-nums",
+  packChevron: "shrink-0 text-[26px] text-[#9DF6F7]/70",
+  packBody:
+    "rounded-b-2xl border-[1.5px] border-t-0 border-[#00E2E5]/32 bg-[#00E2E5]/[0.03] px-5 py-4",
+  perRacer: "text-center text-[18px] text-white/40",
+} as const;
+
+const WEB_S = {
+  container: "mx-auto w-full max-w-2xl space-y-3",
+  title: "font-display text-2xl uppercase leading-none sm:text-3xl",
+  sub: "mt-1.5 text-sm leading-snug text-white/50",
+  credits:
+    "rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 px-4 py-2.5 text-sm text-[#7FF0F1]",
+  heroWrap: "mt-4 space-y-2",
+  heroBtn:
+    "relative flex w-full flex-col gap-3 rounded-2xl border-2 border-[#f0b341] bg-linear-to-br from-[#f0b341]/20 to-[#f0b341]/5 px-4 pt-6 pb-4 text-left sm:flex-row sm:items-center sm:gap-5",
+  heroRing: "ring-4 ring-[#f0b341]/45",
+  heroPill:
+    "absolute -top-3 left-4 rounded-full bg-[#f0b341] px-3 py-1 text-[11px] font-extrabold uppercase italic text-[#241701]",
+  heroBody: "min-w-0 flex-1",
+  heroName: "font-display block text-xl uppercase leading-tight sm:text-2xl",
+  heroSay: "mt-1 block text-sm leading-snug text-white/70",
+  heroPriceCol: "shrink-0 sm:text-right",
+  heroPrice: "block text-2xl font-extrabold italic leading-none tabular-nums sm:text-3xl",
+  heroIncl: "mt-1 block text-xs text-white/50",
+  removeBtn:
+    "flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 px-4 py-2.5 text-xs font-semibold text-white/60 transition-colors hover:border-red-400/40 hover:text-red-300",
+  badge: "w-12 shrink-0 text-center",
+  badgeNum: "block text-xl font-extrabold italic leading-none",
+  badgeWord: "mt-0.5 block text-[9px] font-extrabold uppercase tracking-[0.14em]",
+  row: "flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border-2 px-4 py-3 text-left",
+  rowSelected: "border-[#00E2E5] bg-[#00E2E5]/7",
+  rowIdle: "border-white/13 bg-white/[0.03]",
+  rowBody: "min-w-0 flex-1 basis-36",
+  rowName: "block text-base font-bold",
+  rowSay: "mt-0.5 block text-sm text-white/50",
+  deltaPill:
+    "shrink-0 rounded-full bg-[#f0b341]/20 px-2.5 py-0.5 text-xs font-extrabold italic whitespace-nowrap text-[#FFD98A]",
+  rowPrice:
+    "ml-auto shrink-0 text-lg font-extrabold italic whitespace-nowrap tabular-nums sm:text-xl",
+  singlePriceCol: "ml-auto shrink-0 sm:text-right",
+  singlePrice: "block text-lg font-extrabold italic leading-none tabular-nums sm:text-xl",
+  singleNote: "mt-1 block text-xs text-white/45",
+  blockedNote: "mt-1 block text-xs leading-snug text-white/45",
+  saveLine: "mt-1 block text-xs font-bold text-amber-400",
+  inclToggle:
+    "flex w-full items-center gap-2 rounded-lg px-1 py-1 text-left text-[11px] font-bold uppercase tracking-widest text-amber-300/90",
+  packBtn: "flex w-full flex-wrap items-center gap-x-3 gap-y-1 border-[1.5px] px-4 py-3 text-left",
+  packTitle: "font-display shrink-0 text-base uppercase text-[#9DF6F7]",
+  packSub: "min-w-0 flex-1 basis-36 text-sm text-white/50",
+  packPrice: "ml-auto shrink-0 text-sm font-bold tabular-nums",
+  packChevron: "shrink-0 text-lg text-[#9DF6F7]/70",
+  packBody:
+    "rounded-b-xl border-[1.5px] border-t-0 border-[#00E2E5]/32 bg-[#00E2E5]/[0.03] px-4 py-3",
+  perRacer: "text-center text-xs text-white/40",
+} as const satisfies Record<keyof typeof KIOSK_S, string>;
+
+const money = (n: number) => `$${n.toFixed(2)}`;
+
+/** Live per-bundle pricing + the time gate — one hook per rendered bundle
+ *  (that's why hero/row are components, not map bodies). Registry price
+ *  renders instantly; the live value swaps in place, no spinner. */
+function useBundlePricing(pkg: PackageDefinition, date: string | null, racerCount: number) {
+  const { livePrices, heatsByRef } = usePackageAvailability(pkg, date, racerCount);
+  const blocked = packageBlockedToday(pkg, heatsByRef);
+  const perRacer = livePrices ? livePerRacerPrice(pkg, livePrices) : packagePerRacerPrice(pkg);
+  return { blocked, perRacer };
+}
+
+/** WEB-only enrichment under a bundle's price: the à-la-carte savings and a
+ *  "What's included" disclosure reusing PackageCard's checklist. A web guest
+ *  can't ask staff what's in the bundle; the kiosk keeps the leaner
+ *  owner-approved grammar (S.saveLine/S.inclToggle are empty there). */
+function WebBundleDetails({
+  pkg,
+  perRacer,
+  t,
+  S,
+}: {
+  pkg: PackageDefinition;
+  perRacer: number;
+  t: Translate;
+  S: typeof WEB_S | typeof KIOSK_S;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!S.inclToggle) return null;
+  const savings = Math.max(0, packageRetailTotal(pkg, 1) - perRacer);
+  return (
+    <div className="px-1">
+      {savings > 0.009 && (
+        <span className={S.saveLine}>{t("payMode.save", { amount: money(savings) })}</span>
+      )}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className={S.inclToggle}
+      >
+        <span
+          aria-hidden
+          className={`inline-block transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+        >
+          ›
+        </span>
+        {t("payMode.included.toggle")}
+      </button>
+      {open && <IncludedList pkg={pkg} racers={1} />}
+    </div>
+  );
+}
+
+function CountBadge({
+  n,
+  gold,
+  t,
+  S,
+}: {
+  n: number;
+  gold?: boolean;
+  t: Translate;
+  S: typeof WEB_S | typeof KIOSK_S;
+}) {
+  return (
+    <span className={S.badge}>
+      <span className={`${S.badgeNum} ${gold ? "text-[#FFD98A]" : ""}`}>{n}</span>
+      <span className={`${S.badgeWord} ${gold ? "text-[#FFD98A]/70" : "text-white/45"}`}>
+        {t("payMode.raceWord", { count: n })}
+      </span>
+    </span>
+  );
+}
+
+function HeroBundleCard({
+  pkg,
+  item,
+  selected,
+  onChoose,
+  onDrop,
+  racerCount,
+  t,
+  S,
+}: {
+  pkg: PackageDefinition;
+  item: RaceItem;
+  selected: boolean;
+  onChoose: () => void;
+  onDrop: () => void;
+  racerCount: number;
+  t: Translate;
+  S: typeof WEB_S | typeof KIOSK_S;
+}) {
+  const { blocked, perRacer } = useBundlePricing(pkg, item.date, racerCount);
+  return (
+    // mt-4 clears the "recommended" pill: it hangs above the card border and
+    // was covering the intro line (owner 2026-08-04).
+    <div className={S.heroWrap}>
+      <button
+        type="button"
+        onClick={blocked ? undefined : onChoose}
+        disabled={blocked && !selected}
+        aria-pressed={selected}
+        className={`${S.heroBtn} ${selected ? S.heroRing : ""} ${blocked ? "opacity-60" : ""}`}
+      >
+        <span className={S.heroPill}>{t("payMode.recommended")}</span>
+        <CountBadge n={pkg.races.length || 1} gold t={t} S={S} />
+        <span className={S.heroBody}>
+          <span className={S.heroName}>{pkg.name}</span>
+          <span className={S.heroSay}>{bundleSay(t, pkg)}</span>
+          {blocked && (
+            <span className={S.blockedNote}>{t("payMode.blocked", { name: pkg.name })}</span>
+          )}
+        </span>
+        <span className={S.heroPriceCol}>
+          <span className={S.heroPrice}>{money(perRacer)}</span>
+          <span className={S.heroIncl}>{inclusions(t, pkg)}</span>
+        </span>
+      </button>
+      {!blocked && <WebBundleDetails pkg={pkg} perRacer={perRacer} t={t} S={S} />}
+      {selected && (
+        <button type="button" onClick={onDrop} className={S.removeBtn}>
+          <span aria-hidden>✕</span>
+          {t("racePackage.remove", { name: pkg.name })}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function BundleRow({
+  pkg,
+  item,
+  selected,
+  onChoose,
+  onDrop,
+  racerCount,
+  baseline,
+  t,
+  S,
+}: {
+  pkg: PackageDefinition;
+  item: RaceItem;
+  selected: boolean;
+  onChoose: () => void;
+  onDrop: () => void;
+  racerCount: number;
+  baseline: number | null;
+  t: Translate;
+  S: typeof WEB_S | typeof KIOSK_S;
+}) {
+  const { blocked, perRacer } = useBundlePricing(pkg, item.date, racerCount);
+  const d = baseline != null ? perRacer - baseline : null;
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={blocked ? undefined : onChoose}
+        disabled={blocked && !selected}
+        aria-pressed={selected}
+        className={`${S.row} ${selected ? S.rowSelected : S.rowIdle} ${blocked ? "opacity-60" : ""}`}
+      >
+        <CountBadge n={pkg.races.length || 1} t={t} S={S} />
+        <span className={S.rowBody}>
+          <span className={S.rowName}>{pkg.name}</span>
+          <span className={S.rowSay}>{bundleSay(t, pkg)}</span>
+          {blocked && (
+            <span className={S.blockedNote}>{t("payMode.blocked", { name: pkg.name })}</span>
+          )}
+        </span>
+        {!blocked && d != null && d > 0 && <span className={S.deltaPill}>+{money(d)}</span>}
+        <span className={S.rowPrice}>{money(perRacer)}</span>
+      </button>
+      {!blocked && <WebBundleDetails pkg={pkg} perRacer={perRacer} t={t} S={S} />}
+      {selected && (
+        <button type="button" onClick={onDrop} className={S.removeBtn}>
+          <span aria-hidden>✕</span>
+          {t("racePackage.remove", { name: pkg.name })}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"] {
   const PayMode: StepDef<RaceItem>["Component"] = ({ item, session, onChange }) => {
     const t = useT();
+    const kiosk = !!session.context?.kiosk;
+    const S = kiosk ? KIOSK_S : WEB_S;
     const [packOpen, setPackOpen] = useState(false);
     // Choosing the plain single race writes nothing to the item (there is nothing
     // to write — the tier comes next), so its highlight is LOCAL. Without it the
@@ -145,8 +453,8 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
     const hero = bundles.find((p) => p.recommended) ?? null;
     const others = bundles.filter((p) => p !== hero);
 
-    const packsOn = racePackTeaserVisible(session) && kioskRacePacksEnabled();
-    const skus = packsOn ? kioskPackSkus() : [];
+    const packsOn = racePackTeaserVisible(session, item.date) && kioskRacePacksEnabled();
+    const skus = packsOn ? packSkusForRaceDate(item.date) : [];
     const eligible = session.party.filter((m) => !!m.bmiPersonId);
     const picks = item.creditPacks ?? [];
 
@@ -220,138 +528,53 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
       setSingleChosen(true);
     };
 
-    const money = (n: number) => `$${n.toFixed(2)}`;
-    const perRacer = (pkg: PackageDefinition) => packagePerRacerPrice(pkg);
-    const delta = (pkg: PackageDefinition) => (baseline != null ? perRacer(pkg) - baseline : null);
-
-    const countBadge = (n: number, gold?: boolean) => (
-      <span className="w-[84px] shrink-0 text-center">
-        <span
-          className={`block text-[30px] font-extrabold italic leading-none ${gold ? "text-[#FFD98A]" : ""}`}
-        >
-          {n}
-        </span>
-        <span
-          className={`mt-1 block text-[13px] font-extrabold uppercase tracking-[0.14em] ${
-            gold ? "text-[#FFD98A]/70" : "text-white/45"
-          }`}
-        >
-          {t("payMode.raceWord", { count: n })}
-        </span>
-      </span>
-    );
-
     return (
-      <div className="mx-auto w-full max-w-[880px] space-y-2.5">
+      <div className={S.container}>
         {/* No eyebrow: the chrome above already stacks a brand row, the step
             progress and the step title ("ADULT RACE"). A fourth header line was
             pure air above the first tappable thing (owner 2026-08-04). */}
         <div>
-          <h3 className="font-display text-[32px] leading-none uppercase">
+          <h3 className={S.title}>
             {allNew ? t("payMode.title.first") : t("payMode.title.today")}
           </h3>
-          <p className="mt-1.5 text-[20px] leading-snug text-white/50">
-            {allNew ? t("payMode.sub.first") : t("payMode.sub.today")}
-          </p>
+          <p className={S.sub}>{allNew ? t("payMode.sub.first") : t("payMode.sub.today")}</p>
         </div>
 
         {creditNames.length > 0 && (
-          <p className="rounded-2xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 px-5 py-3 text-[19px] text-[#7FF0F1]">
+          <p className={S.credits}>
             {t("payMode.credits", { names: creditNames.join(" & "), count: creditNames.length })}
           </p>
         )}
 
         {/* HERO — the house recommendation */}
         {hero && (
-          // mt-4 clears the "recommended" pill: it hangs -16px above the card
-          // border and was covering the intro line (owner 2026-08-04).
-          <div className="mt-4 space-y-2">
-            <button
-              type="button"
-              onClick={() => chooseBundle(hero)}
-              aria-pressed={selectedId === hero.id}
-              className={`relative flex w-full items-center gap-6 rounded-[22px] border-2 border-[#f0b341] bg-linear-to-br from-[#f0b341]/20 to-[#f0b341]/5 px-5 pt-6 pb-5 text-left ${
-                selectedId === hero.id ? "ring-4 ring-[#f0b341]/45" : ""
-              }`}
-            >
-              <span className="absolute -top-4 left-6 rounded-full bg-[#f0b341] px-4 py-1.5 text-[17px] font-extrabold uppercase italic text-[#241701]">
-                {t("payMode.recommended")}
-              </span>
-              {countBadge(hero.races.length || 1, true)}
-              <span className="min-w-0 flex-1">
-                <span className="font-display block text-[30px] leading-tight uppercase">
-                  {hero.name}
-                </span>
-                <span className="mt-1.5 block text-[20px] leading-snug text-white/70">
-                  {bundleSay(t, hero)}
-                </span>
-              </span>
-              <span className="shrink-0 text-right">
-                <span className="block text-[36px] font-extrabold italic leading-none tabular-nums">
-                  {money(perRacer(hero))}
-                </span>
-                <span className="mt-1.5 block text-[17px] text-white/50">
-                  {inclusions(t, hero)}
-                </span>
-              </span>
-            </button>
-            {selectedId === hero.id && (
-              <button
-                type="button"
-                onClick={dropBundle}
-                className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 px-4 py-3 text-[17px] font-semibold text-white/60"
-              >
-                <span aria-hidden>✕</span>
-                {t("racePackage.remove", { name: hero.name })}
-              </button>
-            )}
-          </div>
+          <HeroBundleCard
+            pkg={hero}
+            item={item}
+            selected={selectedId === hero.id}
+            onChoose={() => chooseBundle(hero)}
+            onDrop={dropBundle}
+            racerCount={racers.length}
+            t={t}
+            S={S}
+          />
         )}
 
         {/* Other bundles — thin rows carrying the delta */}
-        {others.map((pkg) => {
-          const d = delta(pkg);
-          return (
-            <div key={pkg.id} className="space-y-2">
-              <button
-                type="button"
-                onClick={() => chooseBundle(pkg)}
-                aria-pressed={selectedId === pkg.id}
-                className={`flex w-full items-center gap-4 rounded-2xl border-2 px-5 py-3 text-left ${
-                  selectedId === pkg.id
-                    ? "border-[#00E2E5] bg-[#00E2E5]/7"
-                    : "border-white/13 bg-white/[0.03]"
-                }`}
-              >
-                {countBadge(pkg.races.length || 1)}
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[23px] font-bold">{pkg.name}</span>
-                  <span className="mt-0.5 block text-[19px] text-white/50">
-                    {bundleSay(t, pkg)}
-                  </span>
-                </span>
-                {d != null && d > 0 && (
-                  <span className="shrink-0 rounded-full bg-[#f0b341]/20 px-3.5 py-1 text-[19px] font-extrabold italic whitespace-nowrap text-[#FFD98A]">
-                    +{money(d)}
-                  </span>
-                )}
-                <span className="shrink-0 text-[30px] font-extrabold italic whitespace-nowrap tabular-nums">
-                  {money(perRacer(pkg))}
-                </span>
-              </button>
-              {selectedId === pkg.id && (
-                <button
-                  type="button"
-                  onClick={dropBundle}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 px-4 py-3 text-[17px] font-semibold text-white/60"
-                >
-                  <span aria-hidden>✕</span>
-                  {t("racePackage.remove", { name: pkg.name })}
-                </button>
-              )}
-            </div>
-          );
-        })}
+        {others.map((pkg) => (
+          <BundleRow
+            key={pkg.id}
+            pkg={pkg}
+            item={item}
+            selected={selectedId === pkg.id}
+            onChoose={() => chooseBundle(pkg)}
+            onDrop={dropBundle}
+            racerCount={racers.length}
+            baseline={baseline}
+            t={t}
+            S={S}
+          />
+        ))}
 
         {/* The plain single race */}
         {cheapestSingle && baseline != null && (
@@ -359,37 +582,36 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
             type="button"
             onClick={chooseSingle}
             aria-pressed={singleChosen}
-            className={`flex w-full items-center gap-4 rounded-2xl border-2 px-5 py-3 text-left ${
-              singleChosen ? "border-[#00E2E5] bg-[#00E2E5]/7" : "border-white/13 bg-white/[0.03]"
-            }`}
+            className={`${S.row} ${singleChosen ? S.rowSelected : S.rowIdle}`}
           >
-            {countBadge(1)}
-            <span className="min-w-0 flex-1">
+            <CountBadge n={1} t={t} S={S} />
+            <span className={S.rowBody}>
               {/* Never names a TIER: the tier is what page 2 asks for, and a
                   guest who hasn't been there yet reads "Starter race" as a
                   product they're being sold (owner 2026-08-04). */}
-              <span className="block text-[23px] font-bold">{t("payMode.single.anyRace")}</span>
+              <span className={S.rowName}>{t("payMode.single.anyRace")}</span>
               {/* This row is ALSO the only path for a guest whose race is already
                   covered — banked credits, a comp, or the pack they just added —
-                  so it can't read as "pay again" (owner 2026-08-04). */}
-              <span className="mt-0.5 block text-[19px] text-white/50">
-                {t("payMode.single.orUse")}
+                  so it can't read as "pay again" (owner 2026-08-04). The web
+                  variant doesn't mention packs until the pack rail is on. */}
+              <span className={S.rowSay}>
+                {kiosk || packsOn ? t("payMode.single.orUse") : t("payMode.single.orUse.web")}
               </span>
             </span>
-            <span className="shrink-0 text-right">
+            <span className={S.singlePriceCol}>
               {/* Always "from": the tiers on offer can differ in price, and
                   credits / comps / a pack can take it to $0. `baseline` keeps the
                   licence in it when every racer owes one, so the +$ deltas on the
                   bundle rows above still add up against this number. */}
-              <span className="block text-[30px] font-extrabold italic leading-none tabular-nums">
+              <span className={S.singlePrice}>
                 {t("payMode.single.fromRacer", { price: money(baseline) })}
               </span>
               {allOweLicense ? (
-                <span className="mt-1 block text-[16px] text-white/45">
+                <span className={S.singleNote}>
                   {t("payMode.incl.prefix", { list: t("payMode.incl.license") })}
                 </span>
               ) : owesLicense.length > 0 ? (
-                <span className="mt-1 block text-[16px] text-white/45">
+                <span className={S.singleNote}>
                   {t("payMode.license.plus", {
                     price: money(LICENSE_PRICE),
                     names: owesLicense
@@ -410,34 +632,35 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
               onClick={() => setPackOpen((o) => !o)}
               aria-expanded={packOpen}
               aria-pressed={picks.length > 0}
-              className={`flex w-full items-center gap-4 border-[1.5px] px-5 py-3 text-left ${
+              className={`${S.packBtn} ${
                 picks.length > 0
                   ? "border-[#00E2E5] bg-[#00E2E5]/10"
                   : "border-[#00E2E5]/32 bg-linear-to-br from-[#00E2E5]/8 to-[#00E2E5]/[0.02]"
               } ${packOpen ? "rounded-t-2xl" : "rounded-2xl"}`}
             >
-              <span className="font-display shrink-0 text-[24px] uppercase text-[#9DF6F7]">
-                {t("payMode.pack.title")}
-              </span>
-              <span className="min-w-0 flex-1 text-[19px] text-white/50">
+              <span className={S.packTitle}>{t("payMode.pack.title")}</span>
+              <span className={S.packSub}>
                 {t("payMode.pack.sub", {
                   sizes: [...new Set(skus.map((p) => p.raceCount))].join(", "),
                 })}
               </span>
-              <span className="shrink-0 text-[21px] font-bold tabular-nums">
+              <span className={S.packPrice}>
                 {picks.length > 0
                   ? t("payMode.pack.chosen", { count: picks.length })
                   : t("racePack.teaser.from", { price: money(skus[0].price) })}
               </span>
-              <span aria-hidden className="shrink-0 text-[26px] text-[#9DF6F7]/70">
+              <span aria-hidden className={S.packChevron}>
                 {packOpen ? "⌄" : "›"}
               </span>
             </button>
             {packOpen && (
-              <div className="rounded-b-2xl border-[1.5px] border-t-0 border-[#00E2E5]/32 bg-[#00E2E5]/[0.03] px-5 py-4">
+              <div className={S.packBody}>
                 <RacePackPicker
                   skus={skus}
                   eligible={eligible}
+                  ineligibleNames={session.party
+                    .filter((m) => !m.bmiPersonId)
+                    .map((m) => (m as { firstName: string }).firstName)}
                   picks={picks}
                   onChange={(next) => {
                     // A pack IS the payment for today's race — it cancels the
@@ -452,7 +675,7 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
         )}
 
         {racers.length > 1 && (
-          <p className="text-center text-[18px] text-white/40">
+          <p className={S.perRacer}>
             {t("payMode.perRacer", {
               names: racers.map((m) => (m as { firstName: string }).firstName).join(" & "),
             })}

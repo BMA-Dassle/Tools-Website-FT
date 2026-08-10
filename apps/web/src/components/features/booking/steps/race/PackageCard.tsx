@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   type PackageDefinition,
   packageBundleTotal,
-  packageLoosestGapMinutes,
   packageRetailTotal,
-  packageSavings,
-  primaryTrack,
 } from "~/features/booking/service/packages";
-import { bmiAdapter } from "~/features/booking/data/bmi";
-import { violatesMinGapAfter } from "~/features/booking/service/conflict";
+import {
+  livePerRacerPrice,
+  packageBlockedToday,
+  usePackageAvailability,
+} from "./usePackageAvailability";
 
 interface PackageCardProps {
   pkg: PackageDefinition;
@@ -46,30 +46,12 @@ export function PackageCard({
     loading: pricesLoading,
   } = usePackageAvailability(pkg, date, racers);
 
-  // Multi-race gate: a package with a min-gap rule (the Ultimate Qualifier's
-  // Intermediate after the Starter) is a dead-end late at night when no
-  // Starter→Intermediate pair fits even at that package's LOOSEST gap. Disable
-  // the card with a reason instead of letting the customer pick a Starter that
-  // can't be paired. The floor is derived per package, never hardcoded: a
-  // literal here has to be re-checked every time a variant's relaxation moves,
-  // and if it is ever stricter than the real rule this greys out a card the
-  // heat picker would still book (near-miss 2026-08-04, Mega at 20).
-  const blocked = useMemo(() => {
-    const gateRace = pkg.races.find((r) => r.minMinutesAfterEndOf);
-    if (!gateRace?.minMinutesAfterEndOf || !heatsByRef) return false;
-    const prev = heatsByRef[gateRace.minMinutesAfterEndOf.ref] ?? [];
-    const next = heatsByRef[gateRace.ref] ?? [];
-    if (prev.length === 0 || next.length === 0) return true;
-    const loosest = packageLoosestGapMinutes(gateRace);
-    const fits = prev.some((p) => next.some((n) => !violatesMinGapAfter(p.stop, n.start, loosest)));
-    return !fits;
-  }, [pkg.races, heatsByRef]);
+  // Multi-race gate + live per-racer price — the shared derivations (see
+  // usePackageAvailability.ts), so this card and the pay-mode page can never
+  // quote the same package differently.
+  const blocked = useMemo(() => packageBlockedToday(pkg, heatsByRef), [pkg, heatsByRef]);
 
-  const perRacer = livePrices
-    ? pkg.races.reduce((sum, r) => sum + (livePrices[r.ref] ?? primaryTrack(r).price), 0) +
-      (pkg.includesLicense ? 4.99 : 0) +
-      (pkg.includesPov ? 5 : 0)
-    : packageBundleTotal(pkg, 1);
+  const perRacer = livePrices ? livePerRacerPrice(pkg, livePrices) : packageBundleTotal(pkg, 1);
   const totalPrice = perRacer * racers;
   const retail = packageRetailTotal(pkg, racers);
   const savings = Math.max(0, retail - totalPrice);
@@ -208,8 +190,9 @@ export function PackageCard({
 }
 
 /** The green ✓ checklist (races, license, POV, appetizer) — shared verbatim by
- *  the rich card body and the compact card's accordion. */
-function IncludedList({ pkg, racers }: { pkg: PackageDefinition; racers: number }) {
+ *  the rich card body, the compact card's accordion, and the pay-mode page's
+ *  web "What's included" disclosure. */
+export function IncludedList({ pkg, racers }: { pkg: PackageDefinition; racers: number }) {
   return (
     <ul className="mt-3 space-y-1 text-xs text-white/70">
       {pkg.races.map((r) => (
@@ -270,66 +253,4 @@ function IncludedList({ pkg, racers }: { pkg: PackageDefinition; racers: number 
       )}
     </ul>
   );
-}
-
-interface HeatTime {
-  start: string;
-  stop: string;
-}
-
-function usePackageAvailability(
-  pkg: PackageDefinition,
-  date: string | null,
-  racers: number,
-): {
-  livePrices: Record<string, number> | null;
-  heatsByRef: Record<string, HeatTime[]> | null;
-  loading: boolean;
-} {
-  const [livePrices, setLivePrices] = useState<Record<string, number> | null>(null);
-  const [heatsByRef, setHeatsByRef] = useState<Record<string, HeatTime[]> | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!date || pkg.races.length === 0) return;
-    let cancelled = false;
-    setLoading(true);
-
-    (async () => {
-      const prices: Record<string, number> = {};
-      const heats: Record<string, HeatTime[]> = {};
-      for (const race of pkg.races) {
-        const track = primaryTrack(race);
-        try {
-          const avail = await bmiAdapter.getAvailability({
-            date,
-            productId: track.productId,
-            pageId: track.pageId,
-            quantity: Math.max(1, racers),
-          });
-          const blocks = (avail.proposals ?? [])
-            .map((p) => p.blocks?.[0]?.block)
-            .filter((b): b is NonNullable<typeof b> => Boolean(b));
-          heats[race.ref] = blocks.map((b) => ({ start: b.start, stop: b.stop }));
-          const cashPrice = blocks[0]?.prices?.find((p) => p.depositKind === 0);
-          if (cashPrice) {
-            prices[race.ref] = cashPrice.amount;
-          }
-        } catch {
-          heats[race.ref] = heats[race.ref] ?? [];
-        }
-      }
-      if (!cancelled) {
-        setLivePrices(Object.keys(prices).length > 0 ? prices : null);
-        setHeatsByRef(heats);
-        setLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [date, pkg.id, pkg.races, racers]);
-
-  return { livePrices, heatsByRef, loading };
 }

@@ -4,7 +4,9 @@ import {
   computePackCoverage,
   coveredMembersPreview,
   kioskPackSkus,
+  packSkusForRaceDate,
   resolveKioskPacks,
+  resolveSessionPacks,
   type ResolvedKioskPack,
 } from "./race-pack-kiosk";
 import { getRacePack } from "../data/packs";
@@ -204,10 +206,10 @@ describe("resolveKioskPacks", () => {
     const party = [{ id: "m1", firstName: "Eric", lastName: "O", bmiPersonId: "91" }];
     const monday = new Date(2026, 6, 20);
     expect(
-      resolveKioskPacks([{ slug: "5-race-anytime", memberId: "m1" }], party, monday)[0],
+      resolveKioskPacks([{ slug: "5-race-anytime", memberId: "m1" }], party, { now: monday })[0],
     ).toMatchObject({ priceCents: 9999, label: "5-Race Pack (Anytime)" });
     expect(
-      resolveKioskPacks([{ slug: "10-race-weekday", memberId: "m1" }], party, monday)[0],
+      resolveKioskPacks([{ slug: "10-race-weekday", memberId: "m1" }], party, { now: monday })[0],
     ).toMatchObject({ priceCents: 15999, label: "10-Race Pack (Mon-Thu)" });
   });
 
@@ -217,10 +219,12 @@ describe("resolveKioskPacks", () => {
       { id: "m2", firstName: "Sam", bmiPersonId: null },
     ];
     const monday = new Date(2026, 6, 20);
-    const ok = resolveKioskPacks([{ slug: "3-race-weekday", memberId: "m1" }], party, monday);
+    const ok = resolveKioskPacks([{ slug: "3-race-weekday", memberId: "m1" }], party, {
+      now: monday,
+    });
     expect(ok[0].priceCents).toBe(4999);
     expect(() =>
-      resolveKioskPacks([{ slug: "3-race-weekday", memberId: "m2" }], party, monday),
+      resolveKioskPacks([{ slug: "3-race-weekday", memberId: "m2" }], party, { now: monday }),
     ).toThrow(/racer account/);
   });
 
@@ -228,8 +232,130 @@ describe("resolveKioskPacks", () => {
     const party = [{ id: "m1", firstName: "Eric", bmiPersonId: "91" }];
     const saturday = new Date(2026, 6, 18);
     expect(() =>
-      resolveKioskPacks([{ slug: "3-race-weekday", memberId: "m1" }], party, saturday),
+      resolveKioskPacks([{ slug: "3-race-weekday", memberId: "m1" }], party, { now: saturday }),
     ).toThrow(/isn't available/);
+  });
+});
+
+describe("packSkusForRaceDate — the day rule keys off the RACE day, not the purchase day", () => {
+  // Buying on a Wednesday for a Saturday race: purchase wall-clock says
+  // weekday, but the pack's first credit covers the SATURDAY race — the
+  // Mon–Thu SKUs must hide.
+  const WEDNESDAY_PURCHASE = new Date(2026, 6, 15);
+  const SATURDAY_PURCHASE = new Date(2026, 6, 18);
+
+  it("Saturday race bought on a Wednesday → weekday SKUs hidden", () => {
+    const slugs = packSkusForRaceDate(SATURDAY, WEDNESDAY_PURCHASE).map((p) => p.slug);
+    expect(slugs).toEqual(["3-race-anytime", "5-race-anytime", "10-race-anytime"]);
+  });
+
+  it("Monday race bought on a Saturday → weekday SKUs offered", () => {
+    const slugs = packSkusForRaceDate(MONDAY, SATURDAY_PURCHASE).map((p) => p.slug);
+    expect(slugs).toContain("3-race-weekday");
+    expect(slugs).toContain("10-race-weekday");
+  });
+
+  it("no race date yet → wall-clock fallback (kioskPackSkus behavior)", () => {
+    expect(packSkusForRaceDate(null, SATURDAY_PURCHASE).map((p) => p.slug)).toEqual(
+      kioskPackSkus(SATURDAY_PURCHASE).map((p) => p.slug),
+    );
+  });
+});
+
+describe("resolveKioskPacks with a race date — fail-closed displayed==charged", () => {
+  const party = [{ id: "m1", firstName: "Eric", lastName: "O", bmiPersonId: "91" }];
+
+  it("weekday slug against a weekend race date THROWS at charge time", () => {
+    expect(() =>
+      resolveKioskPacks([{ slug: "3-race-weekday", memberId: "m1" }], party, {
+        raceDate: SATURDAY,
+      }),
+    ).toThrow(/isn't available/);
+  });
+
+  it("weekday slug against a weekday race date resolves — even on a weekend purchase day", () => {
+    const saturdayPurchase = new Date(2026, 6, 18);
+    const ok = resolveKioskPacks([{ slug: "3-race-weekday", memberId: "m1" }], party, {
+      now: saturdayPurchase,
+      raceDate: MONDAY,
+    });
+    expect(ok[0].slug).toBe("3-race-weekday");
+  });
+});
+
+describe("resolveSessionPacks — per-item resolve against each race's own date", () => {
+  const party = [{ id: "m1", firstName: "Eric", lastName: "O", bmiPersonId: "91" }];
+
+  it("resolves each race item's picks with that item's date", () => {
+    const session = {
+      party,
+      items: [
+        {
+          kind: "race",
+          date: MONDAY,
+          creditPacks: [{ slug: "3-race-weekday", memberId: "m1" }],
+        },
+      ],
+    };
+    expect(resolveSessionPacks(session)[0].slug).toBe("3-race-weekday");
+  });
+
+  it("throws when an item's pick no longer fits its date", () => {
+    const session = {
+      party,
+      items: [
+        {
+          kind: "race",
+          date: SATURDAY,
+          creditPacks: [{ slug: "3-race-weekday", memberId: "m1" }],
+        },
+      ],
+    };
+    expect(() => resolveSessionPacks(session)).toThrow(/isn't available/);
+  });
+
+  it("empty picks → empty result, non-race items ignored", () => {
+    expect(
+      resolveSessionPacks({ party, items: [{ kind: "bowling" }, { kind: "race", date: MONDAY }] }),
+    ).toEqual([]);
+  });
+});
+
+describe("computePackCoverage — weekday pack never covers a weekend-dated item", () => {
+  const heat = (assignedTo: string): RaceHeatAssignment =>
+    ({
+      heatId: "2026-07-18T18:00:00",
+      productId: "24953280",
+      category: "adult",
+      track: "Red",
+      assignedTo,
+      bmiLineId: null,
+    }) as RaceHeatAssignment;
+
+  const weekdayPack: ResolvedKioskPack = {
+    slug: "3-race-weekday",
+    pack: getRacePack("3-race-weekday")!,
+    memberId: "m1",
+    personId: "91",
+    memberName: "Eric O",
+    label: "3-Race Pack (Mon–Thu)",
+    priceCents: 4999,
+  };
+
+  it("skips heats on a Saturday-dated race item", () => {
+    const session = {
+      items: [{ kind: "race", date: SATURDAY, heats: [heat("m1")] }],
+    };
+    const cov = computePackCoverage(session, [weekdayPack], new Set());
+    expect(cov.heats.size).toBe(0);
+  });
+
+  it("covers heats on a Monday-dated race item", () => {
+    const session = {
+      items: [{ kind: "race", date: MONDAY, heats: [heat("m1")] }],
+    };
+    const cov = computePackCoverage(session, [weekdayPack], new Set());
+    expect(cov.heats.size).toBe(1);
   });
 });
 

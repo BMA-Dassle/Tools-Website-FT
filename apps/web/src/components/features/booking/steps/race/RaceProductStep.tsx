@@ -298,11 +298,12 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
       return () => clearTimeout(t);
     }, [advancePending, selectedPackageId, requestAdvance]);
 
-    // Coverage PREVIEW (kiosk + packs on): which of THIS category's racers have
-    // today's race already paid — an in-cart credit pack or account credits.
-    // Display only; charging re-derives coverage server-side. Web stays off
-    // (empty map) alongside the teaser it explains.
-    const packsUiOn = kioskCompactPacks && kioskRacePacksEnabled();
+    // Coverage PREVIEW (packs on): which of THIS category's racers have
+    // the booked race already paid — an in-cart credit pack or account
+    // credits. Display only; charging re-derives coverage server-side. Runs on
+    // web too since 2026-08-10 (returning racers buy packs in the web flow).
+    const packsUiOn =
+      (kioskCompactPacks || racePackTeaserVisible(session, item.date)) && kioskRacePacksEnabled();
     const coverage: Map<string, CoveredMemberPreview> = packsUiOn
       ? coveredMembersPreview(item, session.party, item.date)
       : new Map();
@@ -611,7 +612,7 @@ function makeProductStepComponent(category: Category): StepDef<RaceItem>["Compon
         {!payModeOwnsMoney &&
           packages.length === 0 &&
           (category === "adult" || !hasAdults) &&
-          (racePackTeaserVisible(session) || showCoverageGuidance) && (
+          (racePackTeaserVisible(session, item.date) || showCoverageGuidance) && (
             <div className="space-y-3">
               <RacePackTeaser item={item} session={session} onChange={onChange} />
               {showCoverageGuidance && (

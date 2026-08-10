@@ -22,7 +22,7 @@ import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { startTxn, markCharged, markLoadState } from "~/features/game-cards/data/transactions-log";
 import {
   kioskRacePacksEnabled,
-  resolveKioskPacks,
+  resolveSessionPacks,
   computePackCoverage,
   type ResolvedKioskPack,
   type PackCoverage,
@@ -483,20 +483,18 @@ export function buildCombinedLineItems(session: BookingSession): {
   // cash for the uncovered heats instead of zeroing the whole order.
   const redeemedHeats = redeemedHeatSet(session);
 
-  // KIOSK race packs (CREDIT packs, owner final design 2026-07-18): the pack
-  // line rides THIS day-of order (owner: "race packs sold via race flow go on
-  // the day-of order") at 100% deposit, and the assignee's today heats are
-  // pack-covered — excluded here exactly like credit-redeemed heats ($0 on
-  // Square; one credit deducted post-grant). Net = the owner's sentence:
-  // "one payment, one race today, two added to the account." resolveKioskPacks
-  // throws on any bad pointer (fail-closed — never charge on a broken pack).
-  const kioskPacks: ResolvedKioskPack[] =
-    session.context?.kiosk && kioskRacePacksEnabled()
-      ? resolveKioskPacks(
-          session.items.flatMap((i) => (i.kind === "race" ? (i.creditPacks ?? []) : [])),
-          session.party,
-        )
-      : [];
+  // Race packs (CREDIT packs, owner final design 2026-07-18; sold on web to
+  // returning racers since 2026-08-10): the pack line rides THIS day-of order
+  // (owner: "race packs sold via race flow go on the day-of order") at 100%
+  // deposit, and the assignee's booked heats are pack-covered — excluded here
+  // exactly like credit-redeemed heats ($0 on Square; one credit deducted
+  // post-grant). Net = the owner's sentence: "one payment, one race today,
+  // two added to the account." resolveSessionPacks throws on any bad pointer
+  // INCLUDING a weekday pack against a weekend race date (fail-closed — never
+  // charge on a broken pack).
+  const kioskPacks: ResolvedKioskPack[] = kioskRacePacksEnabled()
+    ? resolveSessionPacks(session)
+    : [];
   const packCoverage: PackCoverage = computePackCoverage(session, kioskPacks, redeemedHeats);
   const creditAndPackHeats =
     packCoverage.heats.size > 0

@@ -75,7 +75,7 @@ import { stashVipVoucherConfirmation } from "~/features/kiosk/service/vip-vouche
 import { stashKioskHasRacing } from "~/features/kiosk/service/racing-confirmation";
 import {
   kioskRacePacksEnabled,
-  resolveKioskPacks,
+  resolveSessionPacks,
   computePackCoverage,
 } from "~/features/booking/service/race-pack-kiosk";
 import { buildRaceChargeLines } from "~/features/booking/service/checkout";
@@ -541,13 +541,15 @@ export function CheckoutStep({
       // assignee's covered today-heats show as ONE negative line whose amount
       // is DIFFERENCED from the same buildRaceChargeLines call the reserve's
       // charge uses, so display and charge cannot drift.
-      if (session.context?.kiosk && kioskRacePacksEnabled() && !activeComboSpecial(session)) {
+      if (kioskRacePacksEnabled() && !activeComboSpecial(session)) {
         const packSelections = session.items.flatMap((i) =>
           i.kind === "race" ? (i.creditPacks ?? []) : [],
         );
         if (packSelections.length > 0) {
           try {
-            const packs = resolveKioskPacks(packSelections, session.party);
+            // Per-item resolve keyed to each race's OWN date — textually
+            // parallel to unified-reserve's charge, so review == charge.
+            const packs = resolveSessionPacks(session);
             for (const p of packs) {
               reviewLines.push({
                 name: `Race Pack — ${p.label} · ${p.memberName}`,
@@ -590,12 +592,12 @@ export function CheckoutStep({
         try {
           // Same credit-choice session rule as the pack block above.
           let base = redeemedHeatSet(sessionForReserve);
-          if (session.context?.kiosk && kioskRacePacksEnabled()) {
+          if (kioskRacePacksEnabled()) {
             const packSel = session.items.flatMap((i) =>
               i.kind === "race" ? (i.creditPacks ?? []) : [],
             );
             if (packSel.length > 0) {
-              const packs = resolveKioskPacks(packSel, session.party);
+              const packs = resolveSessionPacks(session);
               const cov = computePackCoverage(sessionForReserve, packs, base);
               if (cov.heats.size > 0) base = new Set([...base, ...cov.heats]);
             }

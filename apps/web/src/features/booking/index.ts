@@ -43,7 +43,7 @@ export type { EntryContext, KnownPartyMember, PromoContext } from "./state/entry
 export { reducer } from "./state/machine";
 export type { Action } from "./state/machine";
 
-export { STEP_REGISTRY } from "./state/steps";
+export { STEP_REGISTRY, plannedStepsFor } from "./state/steps";
 export type { StepDef } from "./state/steps";
 
 export { bookingKeys, BOOKED_HEATS_POLL_MS, RACE_AVAILABILITY_POLL_MS } from "./queries";

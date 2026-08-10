@@ -16,6 +16,7 @@
 import type { AppliedPromo } from "~/features/discount-codes";
 import type { AppliedVoucherState } from "./types";
 import { qamfCenterIdForCode, type CenterCode, type ContactInfo } from "../types";
+import { packSkusForRaceDate } from "../service/race-pack-kiosk";
 import { FASTTRAX_QAMF_CENTER_ID } from "@/lib/qamf-centers";
 import {
   hasKbfItem,
@@ -176,9 +177,26 @@ export function reducer(state: BookingSession, action: Action): BookingSession {
     case "updateItem":
       return {
         ...state,
-        items: state.items.map((i) =>
-          i.id === action.id ? ({ ...i, ...action.patch } as SessionItem) : i,
-        ),
+        items: state.items.map((i) => {
+          if (i.id !== action.id) return i;
+          const next = { ...i, ...action.patch } as SessionItem;
+          // A race DATE change re-validates pack picks against the new day —
+          // a weekday pack pointed at a Fri–Sun race would otherwise sail to
+          // reserve and fail-closed there as an opaque 400 (web can reach
+          // Back → change date; the kiosk never re-dates). Dropping only the
+          // now-ineligible slugs keeps valid picks.
+          if (
+            next.kind === "race" &&
+            "date" in action.patch &&
+            next.date &&
+            (next.creditPacks?.length ?? 0) > 0
+          ) {
+            const offered = new Set(packSkusForRaceDate(next.date).map((p) => p.slug));
+            const kept = (next.creditPacks ?? []).filter((p) => offered.has(p.slug));
+            next.creditPacks = kept.length > 0 ? kept : undefined;
+          }
+          return next;
+        }),
       };
 
     case "removeItem": {

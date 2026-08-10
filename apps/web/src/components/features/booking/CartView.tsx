@@ -21,7 +21,7 @@ import { planVoucherCoverage, sessionVouchers } from "~/features/booking/service
 import { applyPromoToBillLines, promoFactor } from "~/features/booking/service/promo-pricing";
 import {
   computePackCoverage,
-  kioskPackSkus,
+  packSkusForRaceDate,
   kioskPacksTotalCents,
   kioskRacePacksEnabled,
   resolveKioskPacks,
@@ -735,11 +735,12 @@ function RaceCartCard({
         </div>
       ) : null}
 
-      {/* KIOSK race packs on this booking — visible AND editable right here, so
+      {/* Race packs on this booking — visible AND editable right here, so
           "the pack only landed on one racer" is a two-tap cart fix instead of a
           wizard re-entry (manager report 2026-07-27). Same gates as the product
-          step's teaser; never on web (the host doesn't pass the callback). */}
-      {onUpdateRacePacks && !combo && racePackTeaserVisible(session) && (
+          step's teaser. Web hosts pass the callback too since 2026-08-10
+          (returning racers buy packs in the web flow now). */}
+      {onUpdateRacePacks && !combo && racePackTeaserVisible(session, item.date) && (
         <RacePackCartBlock
           item={item}
           session={session}
@@ -784,7 +785,7 @@ function RacePackCartBlock({
   const t = useT();
   const [open, setOpen] = useState(false);
   const picks = item.creditPacks ?? [];
-  const skus = kioskPackSkus();
+  const skus = packSkusForRaceDate(item.date);
   const eligible = session.party.filter((m) => !!m.bmiPersonId);
   const missing = eligible.filter((m) => !picks.some((p) => p.memberId === m.id));
   const missingNames = missing.map((m) => m.firstName).join(" & ");
@@ -817,6 +818,7 @@ function RacePackCartBlock({
           <RacePackPicker
             skus={skus}
             eligible={eligible}
+            ineligibleNames={session.party.filter((m) => !m.bmiPersonId).map((m) => m.firstName)}
             picks={picks}
             onChange={onChange}
             autoOpen
@@ -1170,9 +1172,11 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
     // without packs, same as the review's fail-open.
     let packsTotal = 0;
     let packCoveredTotal = 0;
-    if (session.context?.kiosk && kioskRacePacksEnabled() && (item.creditPacks?.length ?? 0) > 0) {
+    if (kioskRacePacksEnabled() && (item.creditPacks?.length ?? 0) > 0) {
       try {
-        const packs = resolveKioskPacks(item.creditPacks ?? [], session.party);
+        const packs = resolveKioskPacks(item.creditPacks ?? [], session.party, {
+          raceDate: item.date ?? null,
+        });
         packsTotal = kioskPacksTotalCents(packs) / 100;
         const coverage = computePackCoverage(session, packs, redeemedHeatSet(session));
         if (coverage.heats.size > 0) {
@@ -1195,12 +1199,10 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
     if (sessionVouchers(session).length > 0 && !session.comboSpecialId) {
       try {
         let base = redeemedHeatSet(session);
-        if (
-          session.context?.kiosk &&
-          kioskRacePacksEnabled() &&
-          (item.creditPacks?.length ?? 0) > 0
-        ) {
-          const packs = resolveKioskPacks(item.creditPacks ?? [], session.party);
+        if (kioskRacePacksEnabled() && (item.creditPacks?.length ?? 0) > 0) {
+          const packs = resolveKioskPacks(item.creditPacks ?? [], session.party, {
+            raceDate: item.date ?? null,
+          });
           const cov = computePackCoverage(session, packs, base);
           if (cov.heats.size > 0) base = new Set([...base, ...cov.heats]);
         }

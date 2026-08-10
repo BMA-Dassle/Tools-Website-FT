@@ -408,7 +408,12 @@ describe("applyVoucher — native multi-item keying", () => {
     s = reducer(s, { type: "applyVoucher", voucher: { code: "K5B7C3S7Q4Z9Q9Z3M9A9T7Z2" } });
     s = reducer(s, {
       type: "applyVoucher",
-      voucher: { code: "K5B7C3S7Q4Z9Q9Z3M9A9T7Z2", name: "Race Comp", billId: "1", voucherOrderItemId: "2" },
+      voucher: {
+        code: "K5B7C3S7Q4Z9Q9Z3M9A9T7Z2",
+        name: "Race Comp",
+        billId: "1",
+        voucherOrderItemId: "2",
+      },
     });
     expect(s.appliedVouchers).toHaveLength(1);
     expect(s.appliedVouchers?.[0].name).toBe("Race Comp");
@@ -416,21 +421,108 @@ describe("applyVoucher — native multi-item keying", () => {
 
   it("removeVoucher drops every item of a code", () => {
     let s = seedSession();
-    s = reducer(s, { type: "applyVoucher", voucher: { code: "HPWAAAAAAAA", issuer: "native", itemIndex: 0 } });
-    s = reducer(s, { type: "applyVoucher", voucher: { code: "HPWAAAAAAAA", issuer: "native", itemIndex: 1 } });
+    s = reducer(s, {
+      type: "applyVoucher",
+      voucher: { code: "HPWAAAAAAAA", issuer: "native", itemIndex: 0 },
+    });
+    s = reducer(s, {
+      type: "applyVoucher",
+      voucher: { code: "HPWAAAAAAAA", issuer: "native", itemIndex: 1 },
+    });
     s = reducer(s, { type: "removeVoucher", code: "HPWAAAAAAAA" });
     expect(s.appliedVouchers ?? []).toHaveLength(0);
   });
 
   it("removeVoucher with itemIndex drops ONLY that leg (kiosk per-leg ✕)", () => {
     let s = seedSession();
-    s = reducer(s, { type: "applyVoucher", voucher: { code: "HPWAAAAAAAA", issuer: "native", itemIndex: 0 } });
-    s = reducer(s, { type: "applyVoucher", voucher: { code: "HPWAAAAAAAA", issuer: "native", itemIndex: 1 } });
-    s = reducer(s, { type: "applyVoucher", voucher: { code: "HPWBBBBBBBB", issuer: "native", itemIndex: 0 } });
+    s = reducer(s, {
+      type: "applyVoucher",
+      voucher: { code: "HPWAAAAAAAA", issuer: "native", itemIndex: 0 },
+    });
+    s = reducer(s, {
+      type: "applyVoucher",
+      voucher: { code: "HPWAAAAAAAA", issuer: "native", itemIndex: 1 },
+    });
+    s = reducer(s, {
+      type: "applyVoucher",
+      voucher: { code: "HPWBBBBBBBB", issuer: "native", itemIndex: 0 },
+    });
     s = reducer(s, { type: "removeVoucher", code: "HPWAAAAAAAA", itemIndex: 1 });
     expect(s.appliedVouchers).toHaveLength(2);
-    expect(s.appliedVouchers?.some((v) => v.code === "HPWAAAAAAAA" && v.itemIndex === 0)).toBe(true);
-    expect(s.appliedVouchers?.some((v) => v.code === "HPWAAAAAAAA" && v.itemIndex === 1)).toBe(false);
+    expect(s.appliedVouchers?.some((v) => v.code === "HPWAAAAAAAA" && v.itemIndex === 0)).toBe(
+      true,
+    );
+    expect(s.appliedVouchers?.some((v) => v.code === "HPWAAAAAAAA" && v.itemIndex === 1)).toBe(
+      false,
+    );
     expect(s.appliedVouchers?.some((v) => v.code === "HPWBBBBBBBB")).toBe(true);
+  });
+});
+
+describe("updateItem — race date change re-validates pack picks", () => {
+  // 2026-07-20 Monday, 2026-07-18 Saturday.
+  function raceWithPacks(): { s: BookingSession; id: string } {
+    let s = seedSession();
+    const item = { ...newItem("race"), date: "2026-07-20" } as RaceItem;
+    s = { ...s, items: [item] };
+    s = reducer(s, {
+      type: "updateItem",
+      id: item.id,
+      patch: {
+        creditPacks: [
+          { slug: "3-race-weekday", memberId: "m1" },
+          { slug: "5-race-anytime", memberId: "m2" },
+        ],
+      } as Partial<RaceItem>,
+    });
+    return { s, id: item.id };
+  }
+
+  it("date → Saturday drops the weekday pick, keeps the any-day one", () => {
+    const { s, id } = raceWithPacks();
+    const next = reducer(s, {
+      type: "updateItem",
+      id,
+      patch: { date: "2026-07-18" } as Partial<RaceItem>,
+    });
+    const race = next.items[0] as RaceItem;
+    expect(race.creditPacks).toEqual([{ slug: "5-race-anytime", memberId: "m2" }]);
+  });
+
+  it("date → another weekday keeps both picks", () => {
+    const { s, id } = raceWithPacks();
+    const next = reducer(s, {
+      type: "updateItem",
+      id,
+      patch: { date: "2026-07-21" } as Partial<RaceItem>,
+    });
+    expect((next.items[0] as RaceItem).creditPacks).toHaveLength(2);
+  });
+
+  it("a non-date patch never touches picks", () => {
+    const { s, id } = raceWithPacks();
+    const next = reducer(s, {
+      type: "updateItem",
+      id,
+      patch: { povQuantity: 1 } as Partial<RaceItem>,
+    });
+    expect((next.items[0] as RaceItem).creditPacks).toHaveLength(2);
+  });
+
+  it("all picks invalid → creditPacks cleared to undefined", () => {
+    let s = seedSession();
+    const item = { ...newItem("race"), date: "2026-07-20" } as RaceItem;
+    s = { ...s, items: [item] };
+    s = reducer(s, {
+      type: "updateItem",
+      id: item.id,
+      patch: { creditPacks: [{ slug: "3-race-weekday", memberId: "m1" }] } as Partial<RaceItem>,
+    });
+    const next = reducer(s, {
+      type: "updateItem",
+      id: item.id,
+      patch: { date: "2026-07-18" } as Partial<RaceItem>,
+    });
+    expect((next.items[0] as RaceItem).creditPacks).toBeUndefined();
   });
 });

@@ -125,6 +125,29 @@ function hiddenInCombo(step: StepDef): StepDef {
 }
 
 /**
+ * Progress-display denominator (owner 2026-08-04, "steps change after click"):
+ * two race steps hide themselves once a bundle is chosen — the product step
+ * (the bundle owns the race) and the POV upsell (the bundle includes it) — so
+ * a LIVE count took "Step 3 of 6" to "Step 3 of 4" the instant a guest tapped
+ * a card. Evaluating visibility against the item with its bundle choice
+ * neutralised gives a stable denominator: a choice can skip a segment, never
+ * remove one. Shared by KioskFlow's dot bar and BookingFlow's numbered
+ * stepper so the two flows can't drift. NAVIGATION always stays on the live
+ * visible list — this is display-only.
+ */
+export function plannedStepsFor(
+  allSteps: StepDef[],
+  item: BookingItem,
+  session: BookingSession,
+): StepDef[] {
+  const probe =
+    item.kind === "race"
+      ? ({ ...item, packageIdAdult: null, packageIdJunior: null } as BookingItem)
+      : item;
+  return allSteps.filter((s) => s.isVisible(probe, session));
+}
+
+/**
  * Hide a step for World Cup match-mode bowling items (?experience=world-cup).
  * The World Cup entry replaces the date/hour + tier + offer steps with
  * WorldCupMatchStep — a fixture picker pinned to match kickoffs (VIP only,
@@ -221,9 +244,10 @@ export const STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
     // Combo specials replace the product/heat pickers with the guided
     // itinerary (start time → schedule); both sets are isVisible-gated on
     // session.comboSpecialId so exactly one set renders.
-    // KIOSK: "how are you paying?" precedes "which race?" per category — the
-    // pay-mode step hides itself when there is nothing to choose (and always on
-    // web), so this insert is a no-op for those flows.
+    // "How are you paying?" precedes "which race?" per category, on BOTH kiosk
+    // and web (owner 2026-08-10) — the pay-mode step hides itself when there is
+    // nothing to choose. hiddenInCombo is the ONLY combo guard for its bundle
+    // half; keep the wrapper.
     hiddenInCombo(RacePayModeStepAdult as StepDef),
     hiddenInCombo(RaceProductStepAdult as StepDef),
     hiddenInCombo(RaceHeatPickerStepAdult as StepDef),

@@ -20,22 +20,33 @@
  * (replace semantics). Selections are POINTERS on `item.creditPacks` — all
  * money re-derives server-side (race-pack-kiosk.ts).
  *
- * Renders nothing off-kiosk / with the kill switch off / in combo sessions.
+ * Kiosk-born; since 2026-08-10 the WEB booking flow sells packs too — but only
+ * to parties with a signed-in returning racer (packs grant onto a BMI account,
+ * and a new racer has none until reserve; owner: "for returning racers we can
+ * bring in the race pack flow"). Renders nothing with the kill switch off, in
+ * combo sessions, or when nobody in the party has an account.
  */
 import { useState } from "react";
 import type { BookingSession, RaceItem } from "~/features/booking";
-import { kioskRacePacksEnabled, kioskPackSkus } from "~/features/booking/service/race-pack-kiosk";
+import {
+  kioskRacePacksEnabled,
+  packSkusForRaceDate,
+} from "~/features/booking/service/race-pack-kiosk";
 import { activeComboSpecial } from "~/features/combos/combo-pricing";
 import { useT } from "~/features/kiosk/i18n";
 import { RacePackPicker, SINGLE_RACE_BASELINE } from "./RacePackPicker";
 
-/** The teaser's render gate, exported so the product step can decide whether
- *  the "pick a single race" divider has anything above it without duplicating
- *  these rules (they must never drift apart). */
-export function racePackTeaserVisible(session: BookingSession): boolean {
-  if (!session.context?.kiosk || !kioskRacePacksEnabled()) return false;
+/** The teaser's render gate, exported so the product step and the pay-mode
+ *  page can decide what to show without duplicating these rules (they must
+ *  never drift apart). `raceDate` keys the weekday-pack day rule to the BOOKED
+ *  race day — on the kiosk that's always today; on web it can be days away. */
+export function racePackTeaserVisible(
+  session: BookingSession,
+  raceDate: string | null | undefined,
+): boolean {
+  if (!kioskRacePacksEnabled()) return false;
   if (activeComboSpecial(session)) return false;
-  if (kioskPackSkus().length === 0) return false;
+  if (packSkusForRaceDate(raceDate ?? null).length === 0) return false;
   return session.party.some((m) => !!m.bmiPersonId);
 }
 
@@ -51,8 +62,8 @@ export function RacePackTeaser({
   const t = useT();
   const [open, setOpen] = useState(false);
 
-  if (!racePackTeaserVisible(session)) return null;
-  const skus = kioskPackSkus();
+  if (!racePackTeaserVisible(session, item.date)) return null;
+  const skus = packSkusForRaceDate(item.date);
   const eligible = session.party.filter((m) => !!m.bmiPersonId);
 
   const picks = item.creditPacks ?? [];
@@ -110,6 +121,7 @@ export function RacePackTeaser({
             <RacePackPicker
               skus={skus}
               eligible={eligible}
+              ineligibleNames={session.party.filter((m) => !m.bmiPersonId).map((m) => m.firstName)}
               picks={picks}
               onChange={(next) => onChange({ creditPacks: next })}
             />

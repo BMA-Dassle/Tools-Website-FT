@@ -114,6 +114,7 @@ export function RacePackPicker({
   onChange,
   showAssignments = true,
   autoOpen = false,
+  ineligibleNames = [],
 }: {
   /** The packs this surface offers right now (already day-filtered). */
   skus: RacePack[];
@@ -130,6 +131,11 @@ export function RacePackPicker({
    *  and the selector stayed collapsed until a second tap). Opens on the pack
    *  that already has holders, else the first offered pack. */
   autoOpen?: boolean;
+  /** Party members WITHOUT a racer account (web mixed party: packs grant onto
+   *  a BMI account, so new racers can't hold one until they sign in as
+   *  returning). Named in a hint so their absence from the chips doesn't read
+   *  as a bug. */
+  ineligibleNames?: string[];
 }) {
   const t = useT();
   // The tile whose "who's this for?" panel is open + the working set of
@@ -204,6 +210,11 @@ export function RacePackPicker({
 
   return (
     <div>
+      {ineligibleNames.length > 0 && (
+        <p className="mb-2 text-xs leading-relaxed text-white/45">
+          {t("racePack.picker.returningOnly", { names: ineligibleNames.join(" & ") })}
+        </p>
+      )}
       {dayTypes.length > 1 && (
         <div className="mb-2 flex flex-wrap items-center gap-3">
           <div className="inline-flex gap-1 rounded-full border border-white/12 bg-white/[0.06] p-1">

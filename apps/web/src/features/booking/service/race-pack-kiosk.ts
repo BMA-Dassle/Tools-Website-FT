@@ -19,14 +19,16 @@
  * the session/UI carries pointers only (displayed == charged rule).
  */
 import { RACE_PACKS, getRacePack, racePackLabel, type RacePack } from "../data/packs";
-import { memberEligibleCreditTotal } from "../data/race-credits";
+import { dayBucket, memberEligibleCreditTotal } from "../data/race-credits";
 import { getRaceProductById } from "./race-products";
 import type { RaceHeatAssignment } from "../state/types";
 
 /** KILL SWITCH — default ON (owner 2026-07-18: "push with flag on, we will
  *  turn off if needed"; owner owns the live smokes on real hardware).
- *  `NEXT_PUBLIC_KIOSK_RACE_PACKS_ENABLED=false` darkens BOTH surfaces (teaser +
- *  attract chip) and the grant rail instantly. */
+ *  `NEXT_PUBLIC_KIOSK_RACE_PACKS_ENABLED=false` darkens EVERY sell surface —
+ *  kiosk teaser + attract chip AND the web booking flow (returning racers,
+ *  2026-08-10) — and the grant rail instantly. Kiosk-born name kept: the env
+ *  var is load-bearing in deploys. */
 export function kioskRacePacksEnabled(): boolean {
   return process.env.NEXT_PUBLIC_KIOSK_RACE_PACKS_ENABLED !== "false";
 }
@@ -77,9 +79,32 @@ export function isWeekendForPacks(now: Date = new Date()): boolean {
 }
 
 /** The packs the kiosk offers RIGHT NOW (day-filtered; smallest pack first,
- *  weekday before any-day within a size). Same answer on every surface. */
+ *  weekday before any-day within a size). Same answer on every surface.
+ *  WALK-UP ONLY (standalone attract flow): purchase day == race day there.
+ *  In-booking surfaces must use packSkusForRaceDate — a web booking's race
+ *  can be days away, and the day rule is about the RACE day. */
 export function kioskPackSkus(now: Date = new Date()): RacePack[] {
   const weekend = isWeekendForPacks(now);
+  return KIOSK_PACK_SLUGS.map((slug) => RACE_PACKS.find((p) => p.slug === slug))
+    .filter((p): p is RacePack => !!p)
+    .filter((p) => !(weekend && p.dayType === "weekday"))
+    .sort((a, b) => a.raceCount - b.raceCount || a.price - b.price);
+}
+
+/**
+ * The packs an IN-BOOKING surface may offer for a race on `raceDate`. The
+ * Mon–Thu pack hides when the BOOKED race falls Fri–Sun — its first credit
+ * covers that race at checkout, and a weekday credit can't (owner day rule;
+ * `dayBucket` is the same Fri–Sun split the credit-redeem rail uses). On the
+ * kiosk raceDate is always today, so this equals kioskPackSkus there; null
+ * (no date picked yet) falls back to the wall clock.
+ */
+export function packSkusForRaceDate(
+  raceDate: string | null | undefined,
+  now: Date = new Date(),
+): RacePack[] {
+  if (!raceDate) return kioskPackSkus(now);
+  const weekend = dayBucket(raceDate) === "weekend";
   return KIOSK_PACK_SLUGS.map((slug) => RACE_PACKS.find((p) => p.slug === slug))
     .filter((p): p is RacePack => !!p)
     .filter((p) => !(weekend && p.dayType === "weekday"))
@@ -126,17 +151,27 @@ export interface ResolvedKioskPack {
 
 /**
  * Resolve UI pack selections against the catalog + party — fail-closed: an
- * unknown slug, a slug the kiosk doesn't sell, a day-hidden slug, a missing
+ * unknown slug, a slug the surface doesn't sell, a day-hidden slug, a missing
  * member, or a member without a BMI account all throw (nothing silently
  * drops from a paid order). Errors name the person where one exists.
+ *
+ * `opts.raceDate` (in-booking surfaces) keys the day rule to the BOOKED race
+ * day — a weekday pack against a Fri–Sun race date throws here, at charge
+ * time, so displayed can never drift from charged. Standalone walk-up callers
+ * omit it (purchase day == race day).
  */
 export function resolveKioskPacks(
   selections: KioskPackSelection[],
   party: Array<{ id: string; firstName: string; lastName?: string; bmiPersonId?: string | null }>,
-  now: Date = new Date(),
+  opts: { now?: Date; raceDate?: string | null } = {},
 ): ResolvedKioskPack[] {
   if (selections.length === 0) return [];
-  const offered = new Set(kioskPackSkus(now).map((p) => p.slug));
+  const offered = new Set(
+    (opts.raceDate
+      ? packSkusForRaceDate(opts.raceDate, opts.now)
+      : kioskPackSkus(opts.now ?? new Date())
+    ).map((p) => p.slug),
+  );
   const seen = new Set<string>();
   return selections.map((sel) => {
     const pack = getRacePack(sel.slug);
@@ -173,6 +208,27 @@ export function kioskPacksTotalCents(packs: ResolvedKioskPack[]): number {
   return packs.reduce((sum, p) => sum + p.priceCents, 0);
 }
 
+/**
+ * Resolve EVERY race item's `creditPacks` against ITS OWN race date — the one
+ * entry point for session-level money surfaces (reserve charge, checkout
+ * review, voucher base), so none of them can forget the per-item day rule.
+ * Fail-closed like resolveKioskPacks (a weekday pack pointed at a weekend race
+ * date throws instead of silently charging).
+ */
+export function resolveSessionPacks(
+  session: {
+    items: Array<{ kind: string; date?: string | null; creditPacks?: KioskPackSelection[] }>;
+    party: Array<{ id: string; firstName: string; lastName?: string; bmiPersonId?: string | null }>;
+  },
+  now?: Date,
+): ResolvedKioskPack[] {
+  return session.items.flatMap((i) =>
+    i.kind === "race" && (i.creditPacks?.length ?? 0) > 0
+      ? resolveKioskPacks(i.creditPacks!, session.party, { now, raceDate: i.date ?? null })
+      : [],
+  );
+}
+
 // ── Today's-race coverage (the owner sentence: "schedule one race and do a
 // 3-race pack → we take one for payment and add two to account") ────────────
 
@@ -196,18 +252,22 @@ export interface PackCoverage {
 }
 
 /**
- * Which of the pack assignees' TODAY heats does their new pack cover?
+ * Which of the pack assignees' BOOKED heats does their new pack cover?
  * Walked in session order (mirrors computeCreditRedemptions) so display and
  * charge cover the IDENTICAL heats. Excluded: heats already covered by
  * EXISTING credits (never double-cover), premium-package component heats
- * (bundle price includes them), and booked multi-race pack products (hidden on
- * the kiosk when this feature is on; belt-and-braces here). Cap = raceCount.
- * Day-locked packs can't mis-cover: weekday packs aren't offered Fri–Sun.
+ * (bundle price includes them), booked multi-race pack products (hidden on
+ * the kiosk when this feature is on; belt-and-braces here), and — for a
+ * weekday-locked pack — heats on an item whose race DATE falls Fri–Sun
+ * (belt-and-braces under the offer/resolve day rule, which keys off the race
+ * date now that the web booking flow sells packs too; a weekday credit can't
+ * pay a weekend race). Cap = raceCount.
  */
 export function computePackCoverage(
   session: {
     items: Array<{
       kind: string;
+      date?: string | null;
       packageIdAdult?: string | null;
       packageIdJunior?: string | null;
       heats?: RaceHeatAssignment[];
@@ -233,6 +293,9 @@ export function computePackCoverage(
       if (heatPkg) continue;
       const pack = byMember.get(h.assignedTo);
       if (!pack) continue;
+      if (pack.pack.dayType === "weekday" && item.date && dayBucket(item.date) === "weekend") {
+        continue;
+      }
       if (alreadyRedeemed.has(h)) continue;
       const used = usedByMember.get(h.assignedTo) ?? 0;
       if (used >= pack.pack.raceCount) continue;

@@ -87,6 +87,8 @@ export const racepackEn = {
   "racePack.picker.selectRacers": "Select racers",
   "racePack.picker.assignment": "{count, plural, one {# race} other {# races}} · {day} · {price}",
   "racePack.picker.removeAria": "Remove {name}’s race pack",
+  "racePack.picker.returningOnly":
+    "Race packs load onto a racer's account — {names} can join after signing in as a returning racer.",
   "racePack.picker.firstCredit":
     "First credit covers today’s race at checkout — the rest bank to their account.",
 
@@ -120,7 +122,16 @@ export const racepackEn = {
   "payMode.say.rookie": "One Starter race with the in-kart video of it.",
   "payMode.single.anyRace": "Single race",
   "payMode.single.orUse": "Pay per race — or use credits, comps, or a pack",
+  // Web variant while the pack rail is off there: no pack to mention.
+  "payMode.single.orUse.web": "Pay per race — or use your banked race credits",
   "payMode.single.fromRacer": "from {price} / racer",
+  // A two-race bundle whose races can no longer fit today (same gate as the
+  // product step's package card).
+  "payMode.blocked":
+    "Not enough time left today to fit both races — book the {name} earlier in the day, or choose a single race.",
+  // WEB-only enrichment under a bundle (kiosk keeps the leaner layout).
+  "payMode.save": "You save {amount} vs à la carte",
+  "payMode.included.toggle": "What's included",
   "payMode.pack.title": "Race packs",
   "payMode.pack.sub": "{sizes} prepaid races — bank them for later visits, never expire",
   "payMode.pack.chosen": "{count, plural, one {# pack added} other {# packs added}}",
@@ -210,6 +221,8 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
   "racePack.picker.assignment":
     "{count, plural, one {# carrera} other {# carreras}} · {day} · {price}",
   "racePack.picker.removeAria": "Quitar el race pack de {name}",
+  "racePack.picker.returningOnly":
+    "Los race packs se cargan a la cuenta del corredor — {names} puede unirse después de iniciar sesión como corredor que regresa.",
   "racePack.picker.firstCredit":
     "El primer crédito paga la carrera de hoy al momento de pagar — los demás quedan en su cuenta.",
 
@@ -242,7 +255,12 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
   "payMode.say.rookie": "Una carrera Starter con el video desde el kart.",
   "payMode.single.anyRace": "Carrera individual",
   "payMode.single.orUse": "Paga por carrera — o usa créditos, cortesías o un pack",
+  "payMode.single.orUse.web": "Paga por carrera — o usa tus créditos de carrera guardados",
   "payMode.single.fromRacer": "desde {price} / corredor",
+  "payMode.blocked":
+    "No queda tiempo hoy para las dos carreras — reserva el {name} más temprano, o elige una carrera individual.",
+  "payMode.save": "Ahorras {amount} comparado con comprar por separado",
+  "payMode.included.toggle": "Qué incluye",
   "payMode.pack.title": "Race packs",
   "payMode.pack.sub": "{sizes} carreras prepagadas — guárdalas para otras visitas, nunca caducan",
   "payMode.pack.chosen": "{count, plural, one {# pack agregado} other {# packs agregados}}",
