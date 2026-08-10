@@ -297,9 +297,9 @@ export interface RaceItem extends BookingItemBase {
   /**
    * Number of POV cameras to pre-pay ($4.99/each online vs $7 at check-in).
    * BMI sells POV as a flat qty SKU (productId 43746981), no per-racer
-   * attribution. For new racers in the Rookie Pack flow, this equals the
-   * count of new racers. For existing-racer flow, the qty stepper sets
-   * this directly. 0 = no POV.
+   * attribution. The POV step's qty stepper sets this directly (its "Add for
+   * all N" uses the package-uncovered racer count); combos set it
+   * programmatically. 0 = no POV.
    */
   povQuantity: number;
   /**
@@ -325,14 +325,6 @@ export interface RaceItem extends BookingItemBase {
      *  detect already-billed add-ons + skip duplicates. */
     bmiLineId: string | null;
   }>;
-  /**
-   * Rookie Pack opt-in for new racers (only meaningful when at least one
-   * racer in `session.party` has `isNewRacer: true`). `true` = bundle
-   * (license + POV + free Nemo's appetizer code on confirmation); `false`
-   * = License only (offered but opted out); `null` = not yet asked /
-   * not applicable. Drives the appetizer card on the confirmation page.
-   */
-  rookiePack: boolean | null;
 }
 
 /** The per-category package fields of a RaceItem (see packageIdAdult docs). */
@@ -788,7 +780,6 @@ export function newItem(activity: Activity): SessionItem {
         packageIdAdult: null,
         packageIdJunior: null,
         povQuantity: 0,
-        rookiePack: null,
         addons: [],
       };
     case "attraction":

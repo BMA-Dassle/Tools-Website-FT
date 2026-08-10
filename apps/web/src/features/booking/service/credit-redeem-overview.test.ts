@@ -45,7 +45,6 @@ function raceItem(over: Partial<RaceItem> = {}): RaceItem {
     packageIdJunior: null,
     povQuantity: 0,
     addons: [],
-    rookiePack: null,
     ...over,
   };
 }

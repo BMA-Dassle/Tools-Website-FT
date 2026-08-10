@@ -79,12 +79,13 @@ describe("integration: every package cartLineKey resolves to its OWN catalog ite
     }
   });
 
-  it("rookie-pack keys (package flow AND the rookiePack-flag charge line) map to the Rookie Pack item", () => {
+  it("rookie-pack keys map to the Rookie Pack item", () => {
     for (const key of keys.filter((k) => k.startsWith("rookie-pack"))) {
       expect(lookupCatalogId(key)).toBe(SQUARE_CATALOG_IDS.ROOKIE_PACK);
     }
-    // The flag flow (kiosk mixed-party auto-enroll / license-POV step opt-in)
-    // charges a "Rookie Pack" line keyed "rookie-pack" — same catalog item.
+    // The bare "rookie-pack" key is historical-only since 2026-08-10 (the
+    // in-step pseudo-product's charge line was removed) — kept mapped so any
+    // replay of an old order still categorizes correctly.
     expect(lookupCatalogId("rookie-pack")).toBe(SQUARE_CATALOG_IDS.ROOKIE_PACK);
     expect(lookupCatalogIdByName("Rookie Pack")).toBe(SQUARE_CATALOG_IDS.ROOKIE_PACK);
   });

@@ -697,12 +697,9 @@ function RaceCartCard({
               );
             })}
         </div>
-      ) : item.povQuantity > 0 || item.rookiePack === true || item.addons.length > 0 ? (
+      ) : item.povQuantity > 0 || item.addons.length > 0 ? (
         <div className="mt-3 space-y-1 border-t border-white/10 pt-3 text-xs">
-          {item.rookiePack === true && (
-            <ExtraRow icon="🎁" label={`Rookie Pack × ${newRacerCount}`} amount={null} />
-          )}
-          {item.povQuantity > 0 && !item.rookiePack && (
+          {item.povQuantity > 0 && (
             <ExtraRow
               icon="🎥"
               label={`POV Camera × ${item.povQuantity}`}
