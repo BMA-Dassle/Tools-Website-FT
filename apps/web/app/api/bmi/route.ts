@@ -3,6 +3,7 @@ import https from "https";
 import redis from "@/lib/redis";
 import { mirrorMemoIntoNotesByBillId } from "@/lib/bowling-db";
 import { bmiWriteBlocked } from "~/features/maintenance";
+import { guardBillCancel } from "~/features/kiosk/service/cancel-guard";
 
 // ── Config from env ───────────────────────────────────────────────────────────
 
@@ -576,6 +577,38 @@ export async function DELETE(req: NextRequest) {
     const clientKey = searchParams.get("clientKey") || BMI_CLIENT_KEY;
     if (!ALLOWED_CLIENTS.has(clientKey))
       return NextResponse.json({ error: "Invalid client" }, { status: 403 });
+
+    // ── Captured-money guard (2026-08-10, W59702 / $420.68) ─────────────────
+    // The kiosk exit unwind (idle reset / Start Over / update reload) cancels
+    // its session bill through this handler. An unwind may only release what
+    // is still merely HELD: if the tender ledger says money was captured and
+    // no booking row exists yet, this bill is the captured-no-reserve resume's
+    // anchor — cancelling it makes the payment unrecoverable in place (every
+    // Square idempotency key derives from the bill id). Refuse with 409; old
+    // kiosk clients already treat a non-confirmed cancel as log-and-move-on
+    // (the 1.16.8 backstop), so nothing user-facing breaks. Tooling that has
+    // verified the money (refunded / moved) may pass force=1.
+    const cancelMatch = endpoint.match(/^bill\/(\d+)\/cancel$/);
+    if (cancelMatch) {
+      const guard = await guardBillCancel(cancelMatch[1], searchParams.get("force") === "1");
+      if (guard.blocked) {
+        console.error(
+          `[bmi.delete] REFUSED bill/${cancelMatch[1]}/cancel — ${guard.reason}. ` +
+            `The resume/tender-sweep owns this bill; use force=1 only after the money is accounted for.`,
+        );
+        return NextResponse.json(
+          {
+            success: false,
+            code: "CAPTURED_UNRESERVED",
+            error:
+              "This bill has a captured payment and no booking yet — cancelling it would strand the money. " +
+              "Finish or resume the checkout instead; staff tooling may retry with force=1 after verifying the payment.",
+          },
+          { status: 409 },
+        );
+      }
+    }
+
     const token = await getToken(clientKey);
     const url = `${BMI_API_URL}/public-booking/${clientKey}/${endpoint}`;
 
