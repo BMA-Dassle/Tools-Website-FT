@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import redis from "@/lib/redis";
 import {
   createTerminalCheckout,
@@ -21,7 +22,76 @@ import {
 } from "~/features/kiosk/service/split-tenders";
 import { MAX_TOTAL_TENDERS } from "~/features/booking/service/tenders";
 import { kioskAmbientCheckoutEnabled } from "~/features/kiosk/flags";
-import { touchSplitAttempt, upsertSplitAttempt } from "~/features/kiosk/data/split-tenders-db";
+import {
+  getSplitSessionBySeed,
+  touchSplitAttempt,
+  upsertSplitAttempt,
+} from "~/features/kiosk/data/split-tenders-db";
+
+// The server-side finalize tail (grace + reserve) runs past the response.
+export const maxDuration = 150;
+
+// ── Server-side finalize (2026-08-10, W59702 / $420.68) ─────────────────────
+// The server OBSERVES every capture right here — so the server, not the kiosk
+// tab, is responsible for the booking existing. After answering the poll we
+// wait a grace period for the client's own reserve-all (the fast path), then
+// check the reserve-level confirm cache and fire reserve-all ourselves with
+// the session persisted at PREPARE. The rail is idempotent for exactly this
+// double-submit shape (reserve:lock NX + unifiedCachedSuccess + deterministic
+// baseKey), so client and server racing is safe by design. Kill switch:
+// KIOSK_SERVER_FINALIZE !== "false" (default ON, owner flag rule).
+const SERVER_FINALIZE_GRACE_MS = 20_000;
+const serverFinalizeEnabled = () => process.env.KIOSK_SERVER_FINALIZE !== "false";
+
+function scheduleServerFinalize(seed: string, paymentIds: string[], primaryPaymentId: string) {
+  if (!serverFinalizeEnabled() || !seed) return;
+  after(async () => {
+    try {
+      await new Promise((r) => setTimeout(r, SERVER_FINALIZE_GRACE_MS));
+      // The client's reserve-all already landed? bmi:confirmed:{billId} is the
+      // reserve-level success cache (seed = billId for BMI sessions).
+      const confirmed = await redis.get(`bmi:confirmed:${seed}`).catch(() => null);
+      if (confirmed) return;
+      const stored = await getSplitSessionBySeed(seed);
+      if (!stored?.session || !stored.contact || !stored.depositOrderId) {
+        console.error(
+          `[kiosk-finalize] seed=${seed} captured but NO persisted session/contact/order — cannot server-finalize; tender sweep owns it`,
+        );
+        return;
+      }
+      console.warn(
+        `[kiosk-finalize] seed=${seed} captured ${SERVER_FINALIZE_GRACE_MS / 1000}s ago with no reserve — finalizing server-side`,
+      );
+      const base = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
+      const res = await fetch(`${base}/api/booking/v2/reserve-all`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          session: stored.session,
+          contact: stored.contact,
+          externalPayment: {
+            paymentId: primaryPaymentId,
+            ...(paymentIds.length > 1 ? { paymentIds } : {}),
+            depositOrderId: stored.depositOrderId,
+            amountCents: stored.totalCents,
+            source: "terminal",
+          },
+        }),
+        signal: AbortSignal.timeout(115_000),
+      });
+      const text = await res.text();
+      if (res.ok) {
+        console.log(`[kiosk-finalize] seed=${seed} SERVER-FINALIZED OK ${text.slice(0, 200)}`);
+      } else {
+        console.error(
+          `[kiosk-finalize] seed=${seed} server finalize ${res.status}: ${text.slice(0, 300)} — tender sweep owns it`,
+        );
+      }
+    } catch (err) {
+      console.error(`[kiosk-finalize] seed=${seed} threw (sweep owns it):`, err);
+    }
+  });
+}
 
 /**
  * Card-present checkout on a paired Square reader (kiosk cardInputMethod
@@ -452,6 +522,8 @@ async function pollAmbient(
       console.log(
         `[kiosk-ambient] captured seed=${seed} payments=${cap.paymentIds.join(",")}${cap.alreadyCaptured ? " (replay)" : ""}`,
       );
+      // Money moved: the booking's existence is now the SERVER's job.
+      scheduleServerFinalize(seed, cap.paymentIds, cap.primaryPaymentId);
       return NextResponse.json({
         status: "COMPLETED",
         captured: true,

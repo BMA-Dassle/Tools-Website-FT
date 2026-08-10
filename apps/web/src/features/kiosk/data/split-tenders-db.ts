@@ -92,7 +92,70 @@ async function ensureSchema(): Promise<void> {
     CREATE INDEX IF NOT EXISTS kiosk_split_tenders_payment_ids_idx
     ON kiosk_split_tenders USING GIN (payment_ids)
   `;
+  // Server-side finalize (2026-08-10, W59702): the full session + contact are
+  // persisted at PREPARE so the SERVER can complete a booking whose kiosk tab
+  // dies after capture — completing a paid booking must never depend on a
+  // browser surviving the seconds after the card tap. Persist-first hard rule:
+  // Neon, not the 48h Redis anchor.
+  await q`
+    ALTER TABLE kiosk_split_tenders
+    ADD COLUMN IF NOT EXISTS session_json JSONB
+  `;
+  await q`
+    ALTER TABLE kiosk_split_tenders
+    ADD COLUMN IF NOT EXISTS contact_json JSONB
+  `;
   schemaReady = true;
+}
+
+/** Persist the checkout session + contact on the ledger row (called from
+ *  reserve-prepare, best-effort — a failure must never block the reader). */
+export async function setSplitSession(
+  seed: string,
+  session: unknown,
+  contact: unknown,
+): Promise<void> {
+  if (!isDbConfigured()) return;
+  try {
+    await ensureSchema();
+    const q = sql();
+    await q`
+      UPDATE kiosk_split_tenders
+      SET session_json = ${JSON.stringify(session)}::jsonb,
+          contact_json = ${JSON.stringify(contact)}::jsonb,
+          updated_at = now()
+      WHERE seed = ${seed}
+    `;
+  } catch (err) {
+    console.error(`[split-tenders] setSplitSession failed seed=${seed} (non-fatal):`, err);
+  }
+}
+
+/** The persisted session for the server-side finalize, plus the money context
+ *  the reserve call needs. Null when the row or session is missing. */
+export async function getSplitSessionBySeed(seed: string): Promise<{
+  session: unknown;
+  contact: unknown;
+  depositOrderId: string | null;
+  totalCents: number;
+} | null> {
+  if (!isDbConfigured()) return null;
+  await ensureSchema();
+  const q = sql();
+  const rows = (await q`
+    SELECT session_json, contact_json, deposit_order_id, total_cents
+    FROM kiosk_split_tenders
+    WHERE seed = ${seed}
+    ORDER BY id DESC
+    LIMIT 1
+  `) as Array<Record<string, unknown>>;
+  if (!rows.length || rows[0].session_json == null) return null;
+  return {
+    session: rows[0].session_json,
+    contact: rows[0].contact_json ?? null,
+    depositOrderId: rows[0].deposit_order_id ? String(rows[0].deposit_order_id) : null,
+    totalCents: Number(rows[0].total_cents ?? 0),
+  };
 }
 
 function mapRow(r: Record<string, unknown>): SplitAttemptRow {
