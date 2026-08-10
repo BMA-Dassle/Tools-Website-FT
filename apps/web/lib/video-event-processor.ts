@@ -13,6 +13,14 @@ import {
   type UnmatchedVideo,
 } from "@/lib/video-match";
 import { listAssignmentsAtTime, type CameraHistoryEntry } from "@/lib/camera-assign";
+import {
+  estimateCaptureWindow,
+  plausibilityEnabled,
+  plausibilityVerdict,
+  type HeatActuals,
+  type PlausibilityResult,
+} from "@/lib/video-plausibility";
+import { getSessionActuals } from "@/lib/session-actuals";
 import { getBlockState, type BlockState } from "@/lib/video-block";
 import { notifyVideoReady, cameraHistoryEntryFromMatch } from "@/lib/video-notify";
 import { setVideoDisabled, linkCustomerEmail } from "@/lib/vt3";
@@ -119,6 +127,7 @@ export type ProcessDecision =
   | "skip-junk-short" // duration under the junk floor — quarantined to review, never matched
   | "skip-buffered" // caller runs ordered matching; no existing match, so the event goes to the pending buffer
   | "held-duplicate-assignment"
+  | "held-implausible-window" // footage window fits NO scanned heat on this camera — held, never sent
   | "lost-create-race"
   | "saved-pending"
   | "saved-and-blocked"
@@ -334,6 +343,11 @@ export type MatchAttempt =
   /** Every eligible assignment already holds a different video —
    *  recorded to the review bucket, nothing sent. */
   | { outcome: "held-duplicate"; suggested: CameraHistoryEntry; existingVideoCode?: string }
+  /** The footage's time window fits NONE of this camera's scanned
+   *  heats (camera missed a capture, or docked hours late) — recorded
+   *  to the review bucket (reason "implausible-window"), never
+   *  matched, never notified. `suggested` = nearest-window scan. */
+  | { outcome: "held-implausible"; suggested: CameraHistoryEntry }
   /** Duration under the junk floor — quarantined to the review bucket
    *  (reason "junk-short"), never matched, never notified. */
   | { outcome: "junk-short" }
@@ -469,6 +483,37 @@ export async function matchVideoToAssignment(
     return { outcome: "no-assignment" };
   }
 
+  // ── Plausibility gate setup (2026-08-10 hardening) ──
+  // A scan binds camera→racer for ONE heat, but the walk below sees
+  // every scan from the last 8h. When a camera misses a capture (dead
+  // battery / skipped heat — 9 of 14 did on 8/9), its NEXT video used
+  // to land on the stale unfilled scan and text a stranger's race
+  // (95 wrong-footage matches on 8/9, 87 delivered). The gate skips
+  // any candidate whose heat window can't contain this footage —
+  // which also lets the walk CONTINUE to the scan the footage DOES
+  // fit, so late/stolen videos route to their true owner instead of
+  // merely being blocked. Verdict math in lib/video-plausibility.ts;
+  // heat actuals from the cron-warmed session-actuals cache. capture
+  // is null when the gate is killed OR the video has no duration —
+  // either way every candidate is judged eligible, i.e. pre-gate
+  // behavior exactly.
+  const capture = plausibilityEnabled()
+    ? estimateCaptureWindow(event.created_at, event.duration)
+    : null;
+  const actualsCache = new Map<string, HeatActuals | null>();
+  const actualsFor = async (sessionId: string | number): Promise<HeatActuals | null> => {
+    const k = String(sessionId);
+    if (!actualsCache.has(k)) actualsCache.set(k, await getSessionActuals(sessionId));
+    return actualsCache.get(k) ?? null;
+  };
+  /** Candidates the gate did NOT rule out (plausible or unknown), in
+   *  walk order — drives the held-duplicate suggestion so staff never
+   *  get pointed at a racer whose heat can't match this footage. */
+  const eligible: CameraHistoryEntry[] = [];
+  /** Gate-rejected candidates + their judged windows, for the
+   *  held-implausible suggestion (nearest window) and the log. */
+  const implausible: Array<{ assignment: CameraHistoryEntry; result: PlausibilityResult }> = [];
+
   // Record construction shared by the plain-save path and the
   // junk-displacement path — overlay captured on initial save so the
   // admin record has correct viewed/purchased state from the very
@@ -512,6 +557,21 @@ export async function matchVideoToAssignment(
   });
 
   for (const assignment of candidates) {
+    // ── Plausibility gate — judge BEFORE occupancy so an implausible
+    // candidate can neither claim the video nor trigger displacement.
+    let verdict: PlausibilityResult | undefined;
+    if (capture) {
+      verdict = plausibilityVerdict(
+        capture,
+        await actualsFor(assignment.sessionId),
+        new Date(assignment.assignedAt).getTime(),
+      );
+      if (verdict.verdict === "implausible") {
+        implausible.push({ assignment, result: verdict });
+        continue;
+      }
+    }
+    eligible.push(assignment);
     const occupant = await getVideoForRacer(assignment.sessionId, assignment.personId);
     if (occupant && occupant.videoCode !== code) {
       // ── Junk→real swap ──
@@ -552,6 +612,9 @@ export async function matchVideoToAssignment(
             displacedDurationS: occupant.duration,
             blocked: blockState.blocked || undefined,
             ready,
+            plausibility: verdict?.verdict,
+            plausibilityLadder: verdict?.ladder,
+            skippedImplausible: implausible.length || undefined,
           },
         });
         return { outcome: "saved", record, blockState, displacedJunkCode: occupant.videoCode };
@@ -584,6 +647,9 @@ export async function matchVideoToAssignment(
           scheduledStart: assignment.scheduledStart,
           blocked: blockState.blocked || undefined,
           ready,
+          plausibility: verdict?.verdict,
+          plausibilityLadder: verdict?.ladder,
+          skippedImplausible: implausible.length || undefined,
         },
       });
       return { outcome: "saved", record, blockState };
@@ -594,10 +660,89 @@ export async function matchVideoToAssignment(
     // next unfilled candidate.
   }
 
-  // Every eligible assignment already holds a video. Hold for review —
-  // suggest the NEWEST candidate (what the old rule would have picked;
+  // ── Nothing saved. Two distinct review outcomes: ──
+  //
+  // No ELIGIBLE candidate at all — the gate ruled out every scan on
+  // this camera: the footage belongs to a heat nobody was scanned
+  // for here (camera missed a capture, or docked hours late). The
+  // pre-gate walk would have matched + texted the stale scan's racer;
+  // hold instead, suggesting the scan whose heat window sits nearest
+  // the footage.
+  if (eligible.length === 0 && implausible.length > 0 && capture) {
+    const midMs = (capture.startMs + capture.endMs) / 2;
+    let nearest = implausible[0];
+    let nearestDist = Infinity;
+    for (const cand of implausible) {
+      const ws = cand.result.windowStartMs;
+      const we = cand.result.windowEndMs;
+      if (ws == null || we == null) continue;
+      const d = midMs < ws ? ws - midMs : midMs > we ? midMs - we : 0;
+      if (d < nearestDist) {
+        nearestDist = d;
+        nearest = cand;
+      }
+    }
+    const suggestedNear = nearest.assignment;
+    if (!dryRun) {
+      await recordUnmatchedVideo(
+        buildUnmatchedRecord(event, {
+          reason: "implausible-window",
+          suggested: {
+            sessionId: suggestedNear.sessionId,
+            personId: suggestedNear.personId,
+            firstName: suggestedNear.firstName,
+            lastName: suggestedNear.lastName,
+            heatNumber: suggestedNear.heatNumber,
+            track: suggestedNear.track,
+            sessionName: suggestedNear.sessionName,
+            phone: suggestedNear.phone || suggestedNear.mobilePhone || suggestedNear.homePhone,
+            email: suggestedNear.email,
+          },
+        }),
+      ).catch((err) =>
+        console.warn(
+          `[video-event-processor:${source}] recordUnmatchedVideo(${code}) failed:`,
+          err,
+        ),
+      );
+      console.log(
+        `[video-event-processor:${source}] held ${code} — footage window fits none of the ` +
+          `${implausible.length} scan(s) on ${cameraKey || systemKey} (nearest: ` +
+          `${suggestedNear.firstName} ${suggestedNear.lastName}, heat ${suggestedNear.heatNumber ?? "?"})`,
+      );
+      void logVideoDecision({
+        ...logBase,
+        decision: "held-implausible",
+        sessionId: suggestedNear.sessionId,
+        personId: suggestedNear.personId,
+        racer: `${suggestedNear.firstName} ${suggestedNear.lastName}`.trim(),
+        heatNumber: suggestedNear.heatNumber,
+        track: suggestedNear.track,
+        details: {
+          cameraKey,
+          captureStart: new Date(capture.startMs).toISOString(),
+          captureEnd: new Date(capture.endMs).toISOString(),
+          skippedImplausible: implausible.length,
+          nearestWindowStart:
+            nearest.result.windowStartMs != null
+              ? new Date(nearest.result.windowStartMs).toISOString()
+              : undefined,
+          nearestWindowEnd:
+            nearest.result.windowEndMs != null
+              ? new Date(nearest.result.windowEndMs).toISOString()
+              : undefined,
+          nearestLadder: nearest.result.ladder,
+        },
+      });
+    }
+    return { outcome: "held-implausible", suggested: suggestedNear };
+  }
+
+  // Every ELIGIBLE assignment already holds a video. Hold for review —
+  // suggest the NEWEST eligible candidate (never a gate-rejected one;
   // its racer context is the most useful lead for staff).
-  const suggested = candidates[candidates.length - 1];
+  const suggested =
+    eligible.length > 0 ? eligible[eligible.length - 1] : candidates[candidates.length - 1];
   const occupant = await getVideoForRacer(suggested.sessionId, suggested.personId).catch(
     () => null,
   );
@@ -637,7 +782,11 @@ export async function matchVideoToAssignment(
       heatNumber: suggested.heatNumber,
       track: suggested.track,
       existingCode: existingVideoCode,
-      details: { cameraKey, suggestedIsPreviousRacer: true },
+      details: {
+        cameraKey,
+        suggestedIsPreviousRacer: true,
+        skippedImplausible: implausible.length || undefined,
+      },
     });
   }
   return { outcome: "held-duplicate", suggested, existingVideoCode };
@@ -854,6 +1003,17 @@ export async function processVideoEvent(
       source,
       videoCode: code,
       notes: `all eligible assignments already hold videos (newest slot: ${attempt.existingVideoCode ?? "?"}) — held for manual send`,
+    };
+  }
+  if (attempt.outcome === "held-implausible") {
+    return {
+      decision: "held-implausible-window",
+      source,
+      videoCode: code,
+      notes:
+        `footage window fits none of this camera's scanned heats — held for review ` +
+        `(nearest: ${attempt.suggested.firstName} ${attempt.suggested.lastName}, ` +
+        `heat ${attempt.suggested.heatNumber ?? "?"})`,
     };
   }
   if (attempt.outcome === "already-processed") {

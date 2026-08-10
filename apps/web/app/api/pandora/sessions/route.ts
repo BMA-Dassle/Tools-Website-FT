@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import redis from "@/lib/redis";
+import { recordSessionActuals } from "@/lib/session-actuals";
 
 /**
  * Proxy for Pandora's sessions-list endpoint.
@@ -225,6 +226,11 @@ export async function GET(req: NextRequest) {
   if (attempt.ok) {
     // Write-through: in-memory + Redis. Fire-and-forget on Redis so
     // a hiccup never blocks the response.
+    // Per-session actualStart/actualEnd also fan out to
+    // session-actuals:{sessionId} — the video-match plausibility gate
+    // reads them at match time (lib/video-plausibility.ts). Same
+    // trigger, zero extra Pandora calls.
+    void recordSessionActuals(attempt.data);
     memoryCache.set(memKey, { data: attempt.data, expiry: Date.now() + MEMORY_CACHE_TTL_MS });
     if (attempt.data.length > 0) {
       redis

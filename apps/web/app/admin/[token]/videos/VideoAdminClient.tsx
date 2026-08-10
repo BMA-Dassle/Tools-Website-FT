@@ -93,7 +93,7 @@ type VideoRow = {
    *  already had a video (usually: the next racer's heat never got
    *  scanned). `suggested` is the newest eligible assignment's
    *  snapshot — the best contact lead staff have. */
-  reason?: "duplicate-assignment" | "junk-short";
+  reason?: "duplicate-assignment" | "junk-short" | "implausible-window";
   existingVideoCode?: string;
   suggested?: {
     sessionId: string | number;
@@ -597,6 +597,13 @@ export default function VideoAdminClient({
                         >
                           🗑 junk clip
                         </span>
+                      ) : e.reason === "implausible-window" ? (
+                        <span
+                          className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300"
+                          title={`Held — this footage's time window fits NONE of the heats scanned on its camera (the camera likely missed a heat, so this video belongs to a later one). Auto-sending would text the wrong racer. ${e.suggested ? `Nearest scan: ${e.suggested.firstName} ${e.suggested.lastName} (heat ${e.suggested.heatNumber ?? "?"}) — ` : ""}watch before sending.`}
+                        >
+                          ⏱ wrong-heat hold
+                        </span>
                       ) : (
                         <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
                           unmatched
@@ -852,6 +859,13 @@ export default function VideoAdminClient({
                               >
                                 🗑 junk clip
                               </span>
+                            ) : e.reason === "implausible-window" ? (
+                              <span
+                                className="text-xs uppercase px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300"
+                                title={`Held — this footage's time window fits NONE of the heats scanned on its camera (the camera likely missed a heat, so this video belongs to a later one). Auto-sending would text the wrong racer. ${e.suggested ? `Nearest scan: ${e.suggested.firstName} ${e.suggested.lastName} (heat ${e.suggested.heatNumber ?? "?"}) — ` : ""}watch before sending.`}
+                              >
+                                ⏱ wrong-heat hold
+                              </span>
                             ) : (
                               <span className="text-xs uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">
                                 unmatched
@@ -1031,8 +1045,18 @@ function ResendModal({
           ) : entry.reason === "junk-short" ? (
             <div className="rounded-lg border border-zinc-500/40 bg-zinc-500/10 px-3 py-2.5 mb-3 text-xs text-zinc-300">
               Quarantined junk clip — only {entry.duration ?? "?"}s long (dock bump / test
-              recording). It was deliberately never matched or texted. Only send this if
-              you&apos;ve watched it and it&apos;s somehow a real race.
+              recording). It was deliberately never matched or texted. Only send this if you&apos;ve
+              watched it and it&apos;s somehow a real race.
+            </div>
+          ) : entry.reason === "implausible-window" ? (
+            <div className="rounded-lg border border-orange-500/40 bg-orange-500/10 px-3 py-2.5 mb-3 text-xs text-orange-200">
+              Wrong-heat hold — this footage&apos;s recording window fits none of the heats scanned
+              on its camera, so the camera likely missed a heat and this video belongs to a later
+              one. Auto-sending would have texted the wrong racer.
+              {entry.suggested
+                ? ` The prefilled contact (${entry.suggested.firstName} ${entry.suggested.lastName}) is only the NEAREST scan — `
+                : " "}
+              watch the video and confirm the recipient before sending.
             </div>
           ) : (
             <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 mb-3 text-xs text-amber-200">

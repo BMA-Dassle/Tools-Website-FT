@@ -217,6 +217,7 @@ export async function GET(req: NextRequest) {
   let skippedOld = 0;
   let skippedNotReady = 0; // match row exists + still waiting on VT3
   let heldDuplicate = 0; // every eligible assignment already has a video — held for review
+  let heldImplausible = 0; // footage window fits no scanned heat on its camera — held for review
   let skippedJunk = 0; // duration under the junk floor — quarantined to review, never matched
   let savedPending = 0; // NEW match, saved with pendingNotify=true
   let deferredSent = 0; // pending match turned ready, notify fired on this tick
@@ -628,6 +629,14 @@ export async function GET(req: NextRequest) {
           heldDuplicate++;
           continue;
         }
+        if (attempt.outcome === "held-implausible") {
+          // Footage window fits none of this camera's scans — review
+          // record written by the helper (reason "implausible-window");
+          // never auto-sends. Deterministic, so advance the cursor.
+          if (v.id > highestId) highestId = v.id;
+          heldImplausible++;
+          continue;
+        }
         if (attempt.outcome === "junk-short") {
           // Quarantined dock-bump clip — review record written by the
           // helper; never matches, never notifies. Deterministic, so
@@ -733,6 +742,7 @@ export async function GET(req: NextRequest) {
         skippedNotReady +
         skippedBlocked +
         heldDuplicate +
+        heldImplausible +
         skippedJunk,
       errors,
     });
@@ -758,6 +768,7 @@ export async function GET(req: NextRequest) {
         skippedNoAssignment,
         skippedNotReady,
         heldDuplicate,
+        heldImplausible,
         skippedJunk,
         pendingDrain: cronDrain,
         pendingDepth: await pendingMatchDepth().catch(() => 0),

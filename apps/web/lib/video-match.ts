@@ -91,9 +91,7 @@ export function junkQuarantineEnabled(): boolean {
  *  where one later matches and turns out tiny. */
 export function isJunkDuration(duration?: number | null): boolean {
   if (!junkQuarantineEnabled()) return false;
-  return (
-    typeof duration === "number" && Number.isFinite(duration) && duration < junkMinDurationS()
-  );
+  return typeof duration === "number" && Number.isFinite(duration) && duration < junkMinDurationS();
 }
 
 /** True when `incoming` (a real, known-length video) should displace
@@ -303,8 +301,15 @@ export interface UnmatchedVideo {
    *  for staff to send manually instead.
    *  "junk-short" = duration under the junk floor (dock-bump / test
    *  clip) — quarantined so it can't consume a racer's slot or fire
-   *  an SMS; staff can still send manually if it's somehow real. */
-  reason?: "duplicate-assignment" | "junk-short";
+   *  an SMS; staff can still send manually if it's somehow real.
+   *  "implausible-window" = the footage's time window (created_at −
+   *  duration → created_at) doesn't fit ANY heat scanned on this
+   *  camera — the camera missed a heat (dead / skipped capture) and
+   *  this video belongs to a later one, or it docked hours late.
+   *  Auto-sending would text the wrong racer (the 8/9 W57384 cascade:
+   *  95 wrong-footage matches, 87 delivered) — held instead, with the
+   *  nearest-window scan as `suggested`. See lib/video-plausibility.ts. */
+  reason?: "duplicate-assignment" | "junk-short" | "implausible-window";
   /** The videoCode already saved on the slot this video would have
    *  taken. Gives staff the "which video got there first" context. */
   existingVideoCode?: string;
