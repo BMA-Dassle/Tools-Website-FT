@@ -1133,6 +1133,32 @@ export function KioskFlow({
     if (removed.some((h) => h.bmiLineId)) await releaseHeatBmiLines(session, removed);
   };
 
+  // Reopen the VIDEO STEP so a guest can change the camera count from the cart
+  // (mirrors handleChangePackage; index < 0 falls back to a plain Edit).
+  const handleChangePov = (itemId: string) => {
+    const item = session.items.find((i) => i.id === itemId);
+    if (!item) return;
+    const visible = KIOSK_STEP_REGISTRY[item.kind].filter((s) => s.isVisible(item, session));
+    const index = visible.findIndex((s) => s.id === "race-pov");
+    setCartActive(false);
+    setCheckoutActive(false);
+    dispatch({ type: "setActiveItem", id: itemId });
+    if (index >= 0) dispatch({ type: "goto", index });
+  };
+
+  // Drop the POV video add-on from the CART, keeping the races — the same undo
+  // packages get. Pure state: the POV money line rebuilds from povQuantity at
+  // charge time, and the kiosk code-claim qty recomputes from item state at
+  // reserve (computeRaceItemPovQty), so no codes get claimed for a removed
+  // camera. If the heats already advanced (povSold set), the $0 BMI POV line
+  // stays on the ops bill — its line id is never stored, so it can't be
+  // released precisely; it's a $0 cosmetic leftover, accepted.
+  const handleRemovePov = (itemId: string) => {
+    const item = session.items.find((i) => i.id === itemId);
+    if (!item || item.kind !== "race") return;
+    dispatch({ type: "updateItem", id: itemId, patch: { povQuantity: 0 } as Partial<SessionItem> });
+  };
+
   // Game Zone cards count as a cart entry (owner 2026-07-18: race + cards
   // showed "1 item") — they're paid at the same checkout, so the pill/banner
   // must reflect them.
@@ -1711,6 +1737,8 @@ export function KioskFlow({
           }
           onRemovePackage={(id, category) => void handleRemovePackage(id, category)}
           onChangePackage={handleChangePackage}
+          onRemovePov={handleRemovePov}
+          onChangePov={handleChangePov}
           onReviewAndPay={() => {
             // Upsell page (owner 2026-07-21): between Review & Pay and the pay
             // screen — BOWLING carts only for now (owner: "they need bowling
@@ -1814,6 +1842,8 @@ export function KioskFlow({
           }
           onRemovePackage={(id, category) => void handleRemovePackage(id, category)}
           onChangePackage={handleChangePackage}
+          onRemovePov={handleRemovePov}
+          onChangePov={handleChangePov}
         />
       </div>,
     );

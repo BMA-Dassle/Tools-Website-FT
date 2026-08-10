@@ -62,6 +62,8 @@ export function KioskCheckoutScreen({
   onUpdateRacePacks,
   onRemovePackage,
   onChangePackage,
+  onRemovePov,
+  onChangePov,
 }: {
   session: BookingSession;
   dispatch: Dispatch<Action>;
@@ -80,6 +82,10 @@ export function KioskCheckoutScreen({
   onRemovePackage?: (itemId: string, category: "adult" | "junior") => void;
   /** Reopen the package screen for this item/category (swap bundles). */
   onChangePackage?: (itemId: string, category: "adult" | "junior") => void;
+  /** Drop the POV video add-on off a race item (povQuantity → 0). */
+  onRemovePov?: (itemId: string) => void;
+  /** Reopen the video step to change the camera count. */
+  onChangePov?: (itemId: string) => void;
 }) {
   const t = useT();
   const items = [...session.items].sort((a, b) => itemSortMs(a) - itemSortMs(b));
@@ -196,6 +202,8 @@ export function KioskCheckoutScreen({
                     onUpdateRacePacks={onUpdateRacePacks}
                     onRemovePackage={onRemovePackage}
                     onChangePackage={onChangePackage}
+                    onRemovePov={onRemovePov}
+                    onChangePov={onChangePov}
                   />
                 ))}
               </ul>

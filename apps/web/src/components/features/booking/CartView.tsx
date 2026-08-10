@@ -88,6 +88,11 @@ export interface CartViewProps {
   /** KIOSK: reopen the package screen for this item/category so the guest can
    *  swap bundles instead of removing one and rebuilding. */
   onChangePackage?: (itemId: string, category: "adult" | "junior") => void;
+  /** KIOSK: drop the POV video add-on (povQuantity → 0) without touching the
+   *  races — the same undo packages get. Web hosts don't pass it. */
+  onRemovePov?: (itemId: string) => void;
+  /** KIOSK: reopen the video step so the guest can change the camera count. */
+  onChangePov?: (itemId: string) => void;
 }
 
 export function CartView({
@@ -104,6 +109,8 @@ export function CartView({
   onUpdateRacePacks,
   onRemovePackage,
   onChangePackage,
+  onRemovePov,
+  onChangePov,
 }: CartViewProps) {
   // Back-to-landing prefers the validated `appliedPromo.code` (set when the
   // code resolved + matched scope), falls back to the raw `?code=` from
@@ -173,6 +180,8 @@ export function CartView({
                 onUpdateRacePacks={onUpdateRacePacks}
                 onRemovePackage={onRemovePackage}
                 onChangePackage={onChangePackage}
+                onRemovePov={onRemovePov}
+                onChangePov={onChangePov}
               />
             ))}
         </ul>
@@ -415,6 +424,8 @@ export function CartItemCard({
   onUpdateRacePacks,
   onRemovePackage,
   onChangePackage,
+  onRemovePov,
+  onChangePov,
 }: {
   item: SessionItem;
   session: BookingSession;
@@ -424,6 +435,8 @@ export function CartItemCard({
   onUpdateRacePacks?: (itemId: string, creditPacks: KioskPackSelection[] | undefined) => void;
   onRemovePackage?: (itemId: string, category: "adult" | "junior") => void;
   onChangePackage?: (itemId: string, category: "adult" | "junior") => void;
+  onRemovePov?: (itemId: string) => void;
+  onChangePov?: (itemId: string) => void;
 }) {
   if (item.kind === "race") {
     return (
@@ -436,6 +449,8 @@ export function CartItemCard({
         onUpdateRacePacks={onUpdateRacePacks}
         onRemovePackage={onRemovePackage}
         onChangePackage={onChangePackage}
+        onRemovePov={onRemovePov}
+        onChangePov={onChangePov}
       />
     );
   }
@@ -495,6 +510,8 @@ function RaceCartCard({
   onUpdateRacePacks,
   onRemovePackage,
   onChangePackage,
+  onRemovePov,
+  onChangePov,
 }: {
   item: RaceItem;
   session: BookingSession;
@@ -508,6 +525,9 @@ function RaceCartCard({
    *  to the product step freely). */
   onRemovePackage?: (itemId: string, category: "adult" | "junior") => void;
   onChangePackage?: (itemId: string, category: "adult" | "junior") => void;
+  /** KIOSK: same undo for the POV video add-on (see CartViewProps). */
+  onRemovePov?: (itemId: string) => void;
+  onChangePov?: (itemId: string) => void;
 }) {
   const t = useT();
   // Per-category packages (adult/junior variants are separate ids); `pkg` is
@@ -658,6 +678,13 @@ function RaceCartCard({
           {item.addons.map((a) => (
             <ExtraRow key={a.id} icon="➕" label={addonLabel(a)} amount={estimateAddon(a)} />
           ))}
+          {/* A partially-packaged item (e.g. adult bundle + junior singles)
+              charges povQuantity too — same !raceItemFullyPackaged seam as
+              checkout — so the POV row must render here as well, not only in
+              the no-package branch below. */}
+          {item.povQuantity > 0 && !raceItemFullyPackaged(item, session.party) && (
+            <PovExtras item={item} onRemovePov={onRemovePov} onChangePov={onChangePov} />
+          )}
           {/* Undo the bundle without losing the booking. One button per selected
               variant, because adult and junior are separate purchases — a family
               can drop the junior Rookie Pack and keep the adult one. */}
@@ -700,11 +727,7 @@ function RaceCartCard({
       ) : item.povQuantity > 0 || item.addons.length > 0 ? (
         <div className="mt-3 space-y-1 border-t border-white/10 pt-3 text-xs">
           {item.povQuantity > 0 && (
-            <ExtraRow
-              icon="🎥"
-              label={`POV Camera × ${item.povQuantity}`}
-              amount={POV_PRICE * item.povQuantity}
-            />
+            <PovExtras item={item} onRemovePov={onRemovePov} onChangePov={onChangePov} />
           )}
           {item.addons.map((a) => (
             <ExtraRow key={a.id} icon="➕" label={addonLabel(a)} amount={estimateAddon(a)} />
@@ -1000,6 +1023,53 @@ function ExtraRow({ icon, label, amount }: { icon: string; label: string; amount
       </span>
       {amount !== null && <span className="text-white/50">${amount.toFixed(2)}</span>}
     </div>
+  );
+}
+
+/** The standalone POV camera row + its kiosk Change/Remove controls (cloned
+ *  from the package pair above). ONE block used by both the package branch and
+ *  the no-package branch, so the row and its undo can't diverge between them.
+ *  Web hosts don't pass the callbacks → row only, no buttons. */
+function PovExtras({
+  item,
+  onRemovePov,
+  onChangePov,
+}: {
+  item: RaceItem;
+  onRemovePov?: (itemId: string) => void;
+  onChangePov?: (itemId: string) => void;
+}) {
+  const t = useT();
+  return (
+    <>
+      <ExtraRow
+        icon="🎥"
+        label={t("pov.cart.rowLabel", { count: item.povQuantity })}
+        amount={POV_PRICE * item.povQuantity}
+      />
+      {onRemovePov && (
+        <div className="mt-2 flex items-stretch gap-2">
+          {onChangePov && (
+            <button
+              type="button"
+              onClick={() => onChangePov(item.id)}
+              className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[#00E2E5]/40 px-3 py-2 text-[11px] font-semibold text-[#00E2E5] transition-colors hover:bg-[#00E2E5]/10"
+            >
+              {t("pov.cart.change")}
+              <span aria-hidden>›</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onRemovePov(item.id)}
+            className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-[11px] font-semibold text-white/60 transition-colors hover:border-red-400/40 hover:text-red-300"
+          >
+            <span aria-hidden>✕</span>
+            {t("pov.cart.remove")}
+          </button>
+        </div>
+      )}
+    </>
   );
 }
 
