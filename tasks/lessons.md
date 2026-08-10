@@ -1,5 +1,33 @@
 # Lessons Learned
 
+## A kiosk unwind that "releases holds" cancelled a bill $420.68 had already been captured against (2026-08-10)
+
+**What happened:** a guest paid for a 5-person Ultimate VIP at the FastTrax kiosk
+(21:23:45Z, Square Terminal capture COMPLETED). The client never POSTed
+`reserve-all`; 58 seconds later a kiosk exit-path unwind (idle-reset/start-over
+class) cancelled BMI bill 63000000007960126 — the same unwind that runs on every
+Start Over. That cancel is what turned a recoverable stall into a stranded
+payment: the built-in captured-no-reserve resume needs the bill alive (the
+`BillExpired` guard reads it), and every Square idempotency key derives from
+`reserveBaseKey(bmiBillId)`, so once the bill is dead the money can never verify
+against a rebuild. Second occurrence of the class (Chung, 2026-07-28, QAMF 400).
+
+**The rule:** an unwind may only release what is still merely *held*. Before
+cancelling a bill, the exit path must check the tender ledger
+(`kiosk_split_tenders` by seed): `state=captured` or non-empty `payment_ids`
+means money moved — park the session for the resume/sweep instead of cancelling.
+Corollary for detection: the tender-sweep's alert card was removed the same day
+(19e64843), so captured-no-booking currently alerts NOWHERE —
+`listCapturedUnreserved()` still has zero callers.
+
+**Rebuild recipe (proven that evening, W59710):**
+[docs/sop-kiosk-captured-no-reserve-rebuild.md](../docs/sop-kiosk-captured-no-reserve-rebuild.md)
+— $0-promo reserve through the real rail + Neon money patch + projectPerson
+attach + grid re-push. Key traps: a cancelled bill silently mints a NEW bill on
+`booking/book`; heats booked without PersonId ⇒ `person_not_on_project` from the
+schedule endpoint; `registerProjectPerson` answers `200 {"success":false}` on
+refusal; attach→schedule has a propagation lag (retry ~10s).
+
 ## An id derived by arithmetic encodes how OUR flow happens to mint ids, not what the vendor's key means (2026-08-09)
 
 **What happened:** every guest who signed through a GROUP FUNCTION's waiver link failed to
