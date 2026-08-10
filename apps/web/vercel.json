@@ -113,10 +113,6 @@
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/cron/refund-alerts",
-      "schedule": "*/5 * * * *"
-    },
-    {
       "path": "/api/cron/kiosk-tender-sweep",
       "schedule": "*/10 * * * *"
     },

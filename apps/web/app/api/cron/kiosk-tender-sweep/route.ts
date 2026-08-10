@@ -8,11 +8,11 @@ import { runKioskTenderSweep } from "~/features/kiosk/service/tender-sweep.serve
  *
  * Drains stale open kiosk payment sessions left by the ambient gift-card
  * rail's auth-then-capture shape: forward-captures sets that cover their
- * total, voids abandoned holds (verified), records captured-but-unfinalized
- * orders, and posts a Teams card for anything needing human eyes. See
- * ~/features/kiosk/service/tender-sweep.server.ts.
+ * total, voids abandoned holds (verified), and records
+ * captured-but-unfinalized orders — anything needing human eyes lands in the
+ * ledger as needs_review. See ~/features/kiosk/service/tender-sweep.server.ts.
  *
- * ?dryRun=1 — classify and report; mutate nothing, alert nothing.
+ * ?dryRun=1 — classify and report; mutate nothing.
  * ?token=   — ADMIN_CAMERA_TOKEN for a manual run outside the cron.
  */
 export const dynamic = "force-dynamic";

@@ -399,7 +399,9 @@ add/remove with $0 re-confirm + Pandora −3 + verify-after; cancel-awareness in
 - Admin "Keep permanently" card toggle (PaymentsTab → /api/admin/reservations/card-consent).
 
 **Env additions:** `EDIT_PAY_LINK_SECRET` (payment-link HMAC; falls back to ADMIN_CAMERA_TOKEN),
-`EDIT_ALERTS_CHAT_ID` (Teams; falls back to the refund-alerts channel),
+~~`EDIT_ALERTS_CHAT_ID` (Teams; falls back to the refund-alerts channel)~~ (RETIRED 2026-08-10 —
+the post-complete Teams alert was removed with the rest of the call-center chat sends; the modal
+manager warning + `admin_action_events` remain the reconciliation record),
 `SQUARE_STORE_CREDIT_DISCOUNT_CATALOG_ID` (already a cancel-path env).
 
 **Before ANY flag flips on:** run the §13 live smoke checklist top to bottom (Square sandbox +

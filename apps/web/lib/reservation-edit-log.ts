@@ -191,9 +191,8 @@ export async function recordEditPayment(editId: string, paymentId: string): Prom
 
 /**
  * Persist a refund id IMMEDIATELY after the refund lands — same forward-
- * recovery doctrine as recordEditPayment. Also what lets refund-alerts
- * recognize the refund as ours (it whitelists by recorded id) and what lets
- * a retry NET the stranded refund out of the amount still owed.
+ * recovery doctrine as recordEditPayment. Also what lets a retry NET the
+ * stranded refund out of the amount still owed.
  */
 export async function recordEditRefund(editId: string, refundId: string): Promise<void> {
   if (!isDbConfigured()) throw new Error("reservation-edit-log: DATABASE_URL not configured");

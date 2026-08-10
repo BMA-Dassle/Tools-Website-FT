@@ -1703,7 +1703,6 @@ export const buildEditPlan = async (req: BuildEditPlanRequest): Promise<EditPlan
       }
     }
     steps.push({ kind: "neon_commit", fatal: true });
-    steps.push({ kind: "notify", fatal: false, detail: "teams_manager_alert" });
   }
   steps.push({ kind: "notify", fatal: false });
 

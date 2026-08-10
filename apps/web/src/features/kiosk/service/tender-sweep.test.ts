@@ -6,19 +6,6 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/redis", () => ({
-  default: {
-    get: vi.fn(async () => null),
-    set: vi.fn(async () => "OK"),
-    del: vi.fn(async () => 1),
-  },
-}));
-vi.mock("@/lib/teams-bot", () => ({
-  sendAdaptiveCardToChannel: vi.fn(async () => ({ ok: true })),
-}));
-vi.mock("~/features/refund-alerts/config", () => ({
-  refundAlertsChatId: vi.fn(() => "chat-1"),
-}));
 vi.mock("~/features/booking/service/unified-reserve", () => ({
   readTerminalAnchor: vi.fn(async () => null),
 }));

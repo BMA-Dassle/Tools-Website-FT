@@ -641,9 +641,13 @@ operational model is: refund the guest's money on the CARD payment with reason e
   cover the owed amount.
 - Refunds of reservation money carry the exact reason **"Reservation Deposit"** (owner
   convention — consistent dashboard/export reads).
-- Any NEW ledger that records refunds (e.g. `reservation_edit_events`) must be added to the
+- ~~Any NEW ledger that records refunds (e.g. `reservation_edit_events`) must be added to the
   refund-alerts sanctioned set (`recordedCascadeRefundIds`), or the system yells at its own
-  refunds as Dashboard violations. Refund-alerts whitelists by refund ID, not reason.
+  refunds as Dashboard violations. Refund-alerts whitelists by refund ID, not reason.~~
+  **RETIRED 2026-08-10:** the refund-alerts watchdog (and every other Teams send to the
+  call-center chat) was removed at the owner's request — `~/features/refund-alerts` no longer
+  exists, so there is no sanctioned set to extend. Refund ledgers still record their refund ids
+  (forward recovery depends on it); only the Teams alerting is gone.
 
 **UPDATE — OVERTURNED at the API level (2026-07-27, owner-authorized live probe
 `apps/web/scripts/gc-refund-probe.mts` + `-followup.mts`):** `POST /v2/refunds` **ACCEPTED a $1

@@ -22,13 +22,11 @@
  *                         checkout id lives only on the anchor, so a lost
  *                         anchor's reader checkout times out on Square's side.
  *
- * Alerting: one Teams card per run to the refund-alerts channel, deduped per
- * (baseKey, outcome) for 24h so a stuck row doesn't spam every 10 minutes.
- * Square's 36h auto-CANCEL of uncaptured auths remains the last backstop.
+ * Outcomes needing human eyes surface via the ledger states (needs_review /
+ * captured) and the run log — no Teams alerting (removed 2026-08-10, owner
+ * decommissioned the call-center chat feed). Square's 36h auto-CANCEL of
+ * uncaptured auths remains the last backstop.
  */
-import redis from "@/lib/redis";
-import { sendAdaptiveCardToChannel } from "@/lib/teams-bot";
-import { refundAlertsChatId } from "~/features/refund-alerts/config";
 import {
   readTerminalAnchor,
   type TerminalAnchor,
@@ -52,13 +50,12 @@ import {
  *  action (arm, poll, add, remove) bumps updated_at — an active session can
  *  never look this stale. */
 const STALE_MINUTES = 45;
-const ALERT_DEDUP_TTL_S = 24 * 3600;
 
 export interface SweepOutcome {
   baseKey: string;
   seed: string;
   action:
-    | "captured-not-finalized" // money moved; finalize never ran — ops card
+    | "captured-not-finalized" // money moved; finalize never ran — needs eyes
     | "forward-captured" // holds covered the total; sweep captured them
     | "canceled" // holds voided, session closed
     | "needs-review" // a void failed / over-collected — human eyes
@@ -70,7 +67,6 @@ export interface SweepResult {
   ok: true;
   scanned: number;
   outcomes: SweepOutcome[];
-  alerted: number;
   dryRun: boolean;
 }
 
@@ -193,62 +189,6 @@ async function sweepOne(row: SplitAttemptRow, dryRun: boolean): Promise<SweepOut
   return { baseKey, seed, action: "canceled" };
 }
 
-/** One card per run, deduped per (baseKey, action) so a stuck row alerts once
- *  a day, not every 10 minutes. */
-async function alertOutcomes(outcomes: SweepOutcome[], dryRun: boolean): Promise<number> {
-  const alertable = outcomes.filter(
-    (o) =>
-      o.action === "captured-not-finalized" ||
-      o.action === "forward-captured" ||
-      o.action === "needs-review",
-  );
-  if (!alertable.length || dryRun) return 0;
-  const fresh: SweepOutcome[] = [];
-  for (const o of alertable) {
-    try {
-      const claimed = await redis.set(
-        `kiosk:sweep:alerted:${o.baseKey}:${o.action}`,
-        "1",
-        "EX",
-        ALERT_DEDUP_TTL_S,
-        "NX",
-      );
-      if (claimed === "OK") fresh.push(o);
-    } catch {
-      /* dedup fails closed — no key claim means no spam risk either way */
-    }
-  }
-  if (!fresh.length) return 0;
-  const chatId = refundAlertsChatId();
-  if (!chatId) return 0;
-  const lines = fresh.map((o) => ({
-    type: "TextBlock",
-    text: `**${o.action}** — seed ${o.seed} (${o.baseKey.slice(0, 12)}…)${o.detail ? `: ${o.detail}` : ""}`,
-    wrap: true,
-  }));
-  try {
-    await sendAdaptiveCardToChannel(chatId, {
-      type: "AdaptiveCard",
-      $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
-      version: "1.4",
-      body: [
-        {
-          type: "TextBlock",
-          text: `💳 Kiosk tender sweep — ${fresh.length} session(s) need eyes`,
-          weight: "Bolder",
-          size: "Medium",
-          wrap: true,
-        },
-        ...lines,
-      ],
-    });
-    return fresh.length;
-  } catch (err) {
-    console.error("[kiosk-tender-sweep] Teams send failed:", err);
-    return 0;
-  }
-}
-
 export async function runKioskTenderSweep(opts: { dryRun?: boolean } = {}): Promise<SweepResult> {
   const dryRun = opts.dryRun === true;
   const rows = await listStaleOpenSplitAttempts(STALE_MINUTES);
@@ -267,7 +207,6 @@ export async function runKioskTenderSweep(opts: { dryRun?: boolean } = {}): Prom
       });
     }
   }
-  const alerted = await alertOutcomes(outcomes, dryRun);
   if (outcomes.length) {
     console.log(
       `[kiosk-tender-sweep] scanned=${rows.length} ${outcomes
@@ -275,5 +214,5 @@ export async function runKioskTenderSweep(opts: { dryRun?: boolean } = {}): Prom
         .join(" ")}${dryRun ? " (dry run)" : ""}`,
     );
   }
-  return { ok: true, scanned: rows.length, outcomes, alerted, dryRun };
+  return { ok: true, scanned: rows.length, outcomes, dryRun };
 }

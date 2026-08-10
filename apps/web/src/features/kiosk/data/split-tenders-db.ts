@@ -41,7 +41,7 @@ export interface SplitAttemptRow {
   locationId: string;
   totalCents: number;
   tenders: SplitTenderEntry[];
-  /** Every captured payment id (all legs) — refund-alerts matches on this. */
+  /** Every captured payment id (all legs) — refund reconciliation keys on this. */
   paymentIds: string[];
   state: SplitAttemptState;
   attempt: number;
@@ -79,7 +79,7 @@ async function ensureSchema(): Promise<void> {
     ON kiosk_split_tenders (seed)
   `;
   // Ambient gift cards (2026-08): the captured payment set is persisted here
-  // (persist-first) so refund-alerts can match a refund against ANY leg.
+  // (persist-first) so a refund can be matched against ANY leg.
   await q`
     ALTER TABLE kiosk_split_tenders
     ADD COLUMN IF NOT EXISTS payment_ids TEXT[] NOT NULL DEFAULT '{}'

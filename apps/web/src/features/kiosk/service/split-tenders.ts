@@ -823,7 +823,8 @@ async function captureLocked(
     capturedAt,
   }));
   // PERSIST-FIRST house rule at capture: the full payment set must land in
-  // Neon (refund-alerts matches on it). A missing row is LOUD — never silent.
+  // Neon (refund reconciliation matches payments against it). A missing row
+  // is LOUD — never silent.
   const persist = await setSplitCaptured(anchor.baseKey, {
     tenders: ledgerTenders as SplitTenderEntry[],
     paymentIds,
@@ -833,7 +834,7 @@ async function captureLocked(
     // setSplitCaptured writes state='captured' itself when the row exists, so
     // this branch means the durable record is GONE while money moved.
     console.error(
-      `[kiosk-split] CAPTURED but the ledger row is MISSING baseKey=${anchor.baseKey} payments=${paymentIds.join(",")} — refund-alerts is blind to this set; needs review`,
+      `[kiosk-split] CAPTURED but the ledger row is MISSING baseKey=${anchor.baseKey} payments=${paymentIds.join(",")} — no durable record of this payment set; needs review`,
     );
     await setSplitState(anchor.baseKey, "needs_review");
   }

@@ -740,22 +740,6 @@ export const executeEditCascade = async (req: ExecuteEditRequest): Promise<EditR
             break;
 
           case "notify": {
-            if (step.detail === "teams_manager_alert") {
-              // Post-complete: page the managers — QAMF/BMI need manual sync.
-              const { sendPostCompleteEditAlert } = await import("./notify");
-              const sent = await sendPostCompleteEditAlert({
-                reservationId: anchorId,
-                guestName: anchor.guestName ?? "Guest",
-                centerCode: anchor.centerCode,
-                diffCents: plan.diffCents,
-                settlement: plan.settlement,
-                editId,
-                oldOrderIds: rebuiltOrders.map((p) => p.oldOrderId),
-                newOrderIds: rebuiltOrders.map((p) => p.newOrderId),
-              });
-              stepLog.push({ step: step.kind, ok: sent, detail: "teams_manager_alert" });
-              break;
-            }
             await recordAdminAction({
               reservationId: anchorId,
               action: "edit",
