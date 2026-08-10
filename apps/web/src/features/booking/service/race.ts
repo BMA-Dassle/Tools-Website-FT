@@ -76,8 +76,7 @@ export function raceUsesZeroBmiModel(item: RaceItem): boolean {
  * Package POV is per CATEGORY (adult/junior variants are separate packages):
  * each variant with `includesPov` covers exactly ITS category's unique racers
  * (Ultimate Qualifier, Rookie Pack packages). `item.povQuantity` covers the
- * non-packaged remainder — the individual Viewpoints upsell, the Rookie-Pack
- * FLAG flow (kiosk pins povQuantity to the new-racer count), and combos
+ * non-packaged remainder — the individual Viewpoints upsell and combos
  * (ComboSteps sets povQuantity = includedPovPerRacer × racers — no separate
  * combo term here or it double-counts).
  */
@@ -96,6 +95,22 @@ export function computeRaceItemPovQty(item: RaceItem, party: BookingSession["par
   }
   if (!raceItemFullyPackaged(item, party)) povQty += item.povQuantity;
   return povQty;
+}
+
+/**
+ * Party members whose race video is NOT already covered by their category's
+ * selected package. The POV upsell step offers cameras for exactly this many
+ * racers (and hides when it's zero) — a racer whose package carries
+ * `includesPov` must never be counted into the "Add for all N" offer, or a
+ * partially-packaged party gets sold a camera the bundle already includes.
+ */
+export function povUncoveredRacerCount(
+  item: Pick<RaceItem, "packageIdAdult" | "packageIdJunior">,
+  party: Array<{ category?: "adult" | "junior" }>,
+): number {
+  return party.filter(
+    (m) => !getPackage(packageIdForCategory(item, m.category ?? "adult"))?.includesPov,
+  ).length;
 }
 
 /**

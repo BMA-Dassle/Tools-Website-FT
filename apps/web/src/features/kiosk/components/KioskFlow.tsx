@@ -25,7 +25,6 @@ import {
   getActiveItem,
   newItem,
   packageIdForCategory,
-  racePackageIds,
   type ActivityOffering,
   type AttractionItem,
   type BowlingItem,
@@ -254,6 +253,7 @@ const STEP_TITLE_KEYS: Record<string, MessageKey> = {
   "Who's bowling?": "stepTitle.whosBowling",
   "Who's playing?": "stepTitle.whosPlaying",
   "Who's racing?": "stepTitle.whosRacing",
+  "Race Video": "stepTitle.raceVideo",
   // The attraction flow's two reused-web steps (no kiosk-native replacement).
   "Your Info": "stepTitle.yourInfo",
   Activity: "stepTitle.activity",
@@ -856,13 +856,6 @@ export function KioskFlow({
     }
   }, [session.preferredPackageId, session.party, session.items, dispatch]);
 
-  // Mixed party (a returning racer + new racer(s)): the product step hides packs
-  // for a mixed group (packs are new-racer-only), so the new racer's Rookie Pack
-  // can't be chosen there and the license/POV step is the only picker. Owner
-  // 2026-07-19: auto-enroll the new racer(s) in the FULL Rookie Pack (license +
-  // POV + appetizer) and skip that step (see skipLicenseForMixedParty in the
-  // registry). The license already charges per new racer; POV needs povQuantity;
-  // the bundled line needs rookiePack. Gated on the Rookie flow flag.
   // Game Zone cards never ride an EMPTY cart (owner 2026-07-21: "if you remove
   // all attractions the cards need removed too") — they pay with the booking
   // deposit, so there's nothing to charge them against. handleRemoveItem clears
@@ -874,23 +867,6 @@ export function KioskFlow({
       dispatch({ type: "setGameCardPurchase", purchase: null });
     }
   }, [hydrated, session.items.length, session.gameCardPurchase, dispatch]);
-
-  useEffect(() => {
-    if (process.env.NEXT_PUBLIC_ROOKIE_PACK_ENABLED !== "1") return;
-    const race = session.items.find((i): i is RaceItem => i.kind === "race");
-    // ANY selected package variant (adult or junior) means a package flow —
-    // the bundle carries license/POV/appetizer itself, so never auto-enroll.
-    if (!race || racePackageIds(race).length > 0) return;
-    const newRacerCount = session.party.filter((m) => m.isNewRacer).length;
-    const hasReturning = session.party.some((m) => !m.isNewRacer);
-    if (newRacerCount === 0 || !hasReturning) return; // only the mixed case
-    if (race.rookiePack === true && race.povQuantity === newRacerCount) return; // already applied
-    dispatch({
-      type: "updateItem",
-      id: race.id,
-      patch: { rookiePack: true, povQuantity: newRacerCount } as Partial<SessionItem>,
-    });
-  }, [session.items, session.party, dispatch]);
 
   if (!hydrated || !config) {
     return (

@@ -80,28 +80,6 @@ function skipWhenPreselected(step: StepDef): StepDef {
   };
 }
 
-/**
- * Skip the license/POV step (race-pov) for a MIXED party — a returning racer
- * (already licensed) alongside new racer(s). The product step hides packs for a
- * mixed group (packs are new-racer-only, so the category reads as "existing"),
- * so this chooser is the new racer's only picker; owner 2026-07-19: auto-enroll
- * the new racer(s) in the full Rookie Pack (KioskFlow effect seeds rookiePack +
- * povQuantity so license + POV + appetizer all charge) and skip the step. Only
- * when the Rookie flow is enabled; all-new or all-returning parties keep it.
- */
-function skipLicenseForMixedParty(step: StepDef): StepDef {
-  return {
-    ...step,
-    isVisible: (item, session) => {
-      if (!step.isVisible(item, session)) return false; // already hidden (package / no party)
-      if (process.env.NEXT_PUBLIC_ROOKIE_PACK_ENABLED !== "1") return true;
-      const hasNew = session.party.some((m) => m.isNewRacer);
-      const hasReturning = session.party.some((m) => !m.isNewRacer);
-      return !(hasNew && hasReturning); // mixed party → hidden (auto Rookie Pack applies)
-    },
-  };
-}
-
 export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
   // Kiosk = walk-up: no race date step — KioskFlow stamps item.date = today
   // at creation; the (fully reused) heat picker then shows today's heats,
@@ -134,14 +112,11 @@ export const KIOSK_STEP_REGISTRY: Record<SessionItem["kind"], StepDef[]> = {
           s.id !== "combo-itinerary",
       )
       // Preselected-package launch (Experiences → Ultimate Qualifier tile) skips
-      // the product step so the guest doesn't reselect what they just tapped;
-      // a mixed party auto-gets the Rookie Pack, so the license/POV step is
-      // skipped too (KioskFlow seeds the pack).
+      // the product step so the guest doesn't reselect what they just tapped.
       .map((s) => {
         if (s.id === "race-product-adult" || s.id === "race-product-junior") {
           return skipWhenPreselected(s);
         }
-        if (s.id === "race-pov") return skipLicenseForMixedParty(s);
         return s;
       }),
     "race-party",

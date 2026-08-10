@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeRaceItemPovQty } from "./race";
+import { computeRaceItemPovQty, povUncoveredRacerCount } from "./race";
 import type { BookingSession, RaceItem } from "../state/types";
 
 /** Minimal RaceItem — only the fields computeRaceItemPovQty reads. */
@@ -48,8 +48,8 @@ describe("computeRaceItemPovQty", () => {
     expect(computeRaceItemPovQty(item, party([{ id: "a" }, { id: "b" }]))).toBe(3);
   });
 
-  it("Rookie Pack flag flow: povQuantity pinned to new-racer count counts as-is", () => {
-    const item = raceItem({ rookiePack: true, povQuantity: 2, heats: [heat("a"), heat("b")] });
+  it("non-packaged item: povQuantity counts as-is regardless of racer mix", () => {
+    const item = raceItem({ povQuantity: 2, heats: [heat("a"), heat("b")] });
     expect(computeRaceItemPovQty(item, party([{ id: "a" }, { id: "b" }]))).toBe(2);
   });
 
@@ -117,5 +117,39 @@ describe("computeRaceItemPovQty", () => {
   it("package selected but no heats assigned yet → floor of 1 per packaged category", () => {
     const item = raceItem({ packageIdAdult: "ultimate-qualifier-weekday", heats: [] });
     expect(computeRaceItemPovQty(item, party([{ id: "a" }]))).toBe(1);
+  });
+});
+
+describe("povUncoveredRacerCount", () => {
+  it("no packages → every racer is uncovered", () => {
+    const item = raceItem({});
+    expect(povUncoveredRacerCount(item, party([{ id: "a" }, { id: "b" }]))).toBe(2);
+  });
+
+  it("adult package covers ONLY adults — juniors stay uncovered", () => {
+    const item = raceItem({ packageIdAdult: "ultimate-qualifier-weekday" });
+    const p = party([
+      { id: "a1", category: "adult" },
+      { id: "a2", category: "adult" },
+      { id: "j1", category: "junior" },
+    ]);
+    expect(povUncoveredRacerCount(item, p)).toBe(1);
+  });
+
+  it("both categories packaged → 0 uncovered", () => {
+    const item = raceItem({
+      packageIdAdult: "rookie-pack-weekday",
+      packageIdJunior: "rookie-pack-weekday-junior",
+    });
+    const p = party([
+      { id: "a", category: "adult" },
+      { id: "j", category: "junior" },
+    ]);
+    expect(povUncoveredRacerCount(item, p)).toBe(0);
+  });
+
+  it("members default to adult when category is unset", () => {
+    const item = raceItem({ packageIdAdult: "ultimate-qualifier-weekday" });
+    expect(povUncoveredRacerCount(item, party([{ id: "a" }]))).toBe(0);
   });
 });
