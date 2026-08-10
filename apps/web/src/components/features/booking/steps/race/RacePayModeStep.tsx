@@ -642,7 +642,10 @@ function makePayModeComponent(category: Category): StepDef<RaceItem>["Component"
             type="button"
             onClick={chooseSingle}
             aria-pressed={singleChosen}
-            className={`${S.row} ${singleChosen ? S.rowSelected : S.rowIdle}`}
+            // rowCard carries the border-2/rounded on web (the bundle rows get
+            // them from their wrapper div) — without it the selected state was
+            // an invisible 3%→7% bg tint (owner 2026-08-10: "doesn't highlight").
+            className={`${S.rowCard} ${S.row} ${singleChosen ? S.rowSelected : S.rowIdle}`}
           >
             <CountBadge n={1} t={t} S={S} />
             <span className={S.rowBody}>

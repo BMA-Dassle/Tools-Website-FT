@@ -4,7 +4,10 @@ import { useState } from "react";
 import type { PartyMember, RaceItem, StepDef } from "~/features/booking";
 import { newPartyMember } from "~/features/booking";
 import { tierFromMemberships } from "~/features/booking/service/race-products";
-import { creditBalancesFromDeposits } from "~/features/booking/data/race-credits";
+import {
+  creditBalancesFromDeposits,
+  creditTypeForDepositName,
+} from "~/features/booking/data/race-credits";
 import { comboMinHeadcount, getComboSpecial } from "~/features/combos/combo-specials";
 import { ExperiencePicker } from "./ExperiencePicker";
 import { ReturningRacerLookup, type PersonData } from "./ReturningRacerLookup";
@@ -680,11 +683,27 @@ function PartyMemberRow({
             Express Lane
           </span>
         )}
-        {verifiedPerson?.creditBalances && verifiedPerson.creditBalances.length > 0 && (
-          <span className="rounded-full bg-green-500/15 px-2 py-0.5 text-xs text-green-400">
-            {verifiedPerson.creditBalances.map((c) => `${c.balance} ${c.kind}`).join(", ")}
-          </span>
-        )}
+        {(() => {
+          // ONE summed chip, redeemable race credits only (owner 2026-08-10:
+          // the raw deposit-kind dump — "1 Credit - Race Weekday, 5 Credit -
+          // Race Comp, 104 Employee Pass" — read as noise; Employee Pass isn't
+          // even a redeemable race-credit kind, it leaked through the balance
+          // list's includes("pass") catch-all). Breakdown survives as a title
+          // tooltip; the checkout credits panel remains the itemized surface.
+          const redeemable = (verifiedPerson?.creditBalances ?? []).filter(
+            (c) => creditTypeForDepositName(c.kind) != null,
+          );
+          const total = redeemable.reduce((s, c) => s + c.balance, 0);
+          if (total <= 0) return null;
+          return (
+            <span
+              title={redeemable.map((c) => `${c.balance} × ${c.kind}`).join(", ")}
+              className="rounded-full bg-green-500/15 px-2 py-0.5 text-xs font-semibold text-green-400"
+            >
+              {total} race credit{total === 1 ? "" : "s"}
+            </span>
+          );
+        })()}
         <button
           type="button"
           onClick={onRemove}
