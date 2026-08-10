@@ -43,7 +43,6 @@ import {
   eligiblePackages,
   getPackage,
   packagePerRacerPrice,
-  packageRetailTotal,
   LICENSE_PRICE,
   type PackageDefinition,
 } from "~/features/booking/service/packages";
@@ -179,8 +178,12 @@ const KIOSK_S = {
   singlePrice: "block text-[30px] font-extrabold italic leading-none tabular-nums",
   singleNote: "mt-1 block text-[16px] text-white/45",
   blockedNote: "mt-1 block text-[17px] leading-snug text-white/45",
-  saveLine: "", // kiosk renders no savings line (owner layout)
-  inclToggle: "", // kiosk renders no included-disclosure (owner layout)
+  // Kiosk renders no included-disclosure (owner-approved layout) — the card
+  // IS the button there, so these wrapper/footer slots are unused.
+  heroCard: "",
+  rowCard: "",
+  inclToggle: "",
+  inclBody: "",
   packBtn: "flex w-full items-center gap-4 border-[1.5px] px-5 py-3 text-left",
   packTitle: "font-display shrink-0 text-[24px] uppercase text-[#9DF6F7]",
   packSub: "min-w-0 flex-1 text-[19px] text-white/50",
@@ -199,7 +202,7 @@ const WEB_S = {
     "rounded-xl border border-[#00E2E5]/30 bg-[#00E2E5]/5 px-4 py-2.5 text-sm text-[#7FF0F1]",
   heroWrap: "mt-4 space-y-2",
   heroBtn:
-    "relative flex w-full flex-col gap-3 rounded-2xl border-2 border-[#f0b341] bg-linear-to-br from-[#f0b341]/20 to-[#f0b341]/5 px-4 pt-6 pb-4 text-left sm:flex-row sm:items-center sm:gap-5",
+    "flex w-full flex-col gap-3 px-4 pt-6 pb-4 text-left sm:flex-row sm:items-center sm:gap-5",
   heroRing: "ring-4 ring-[#f0b341]/45",
   heroPill:
     "absolute -top-3 left-4 rounded-full bg-[#f0b341] px-3 py-1 text-[11px] font-extrabold uppercase italic text-[#241701]",
@@ -214,7 +217,7 @@ const WEB_S = {
   badge: "w-12 shrink-0 text-center",
   badgeNum: "block text-xl font-extrabold italic leading-none",
   badgeWord: "mt-0.5 block text-[9px] font-extrabold uppercase tracking-[0.14em]",
-  row: "flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border-2 px-4 py-3 text-left",
+  row: "flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-left",
   rowSelected: "border-[#00E2E5] bg-[#00E2E5]/7",
   rowIdle: "border-white/13 bg-white/[0.03]",
   rowBody: "min-w-0 flex-1 basis-36",
@@ -228,9 +231,16 @@ const WEB_S = {
   singlePrice: "block text-lg font-extrabold italic leading-none tabular-nums sm:text-xl",
   singleNote: "mt-1 block text-xs text-white/45",
   blockedNote: "mt-1 block text-xs leading-snug text-white/45",
-  saveLine: "mt-1 block text-xs font-bold text-amber-400",
+  // The web card is a WRAPPER div (selection border/ring lives here) with the
+  // select button + a "What's included" footer row INSIDE it — the kiosk
+  // compact package card's grammar (owner 2026-08-10: the detached line under
+  // the card read as an orphan).
+  heroCard:
+    "relative w-full rounded-2xl border-2 border-[#f0b341] bg-linear-to-br from-[#f0b341]/20 to-[#f0b341]/5",
+  rowCard: "w-full rounded-xl border-2",
   inclToggle:
-    "flex w-full items-center gap-2 rounded-lg px-1 py-1 text-left text-[11px] font-bold uppercase tracking-widest text-amber-300/90",
+    "flex w-full items-center gap-2 border-t border-dashed border-white/10 px-4 py-2.5 text-left text-[11px] font-bold uppercase tracking-widest text-amber-300/90",
+  inclBody: "px-4 pb-4",
   packBtn: "flex w-full flex-wrap items-center gap-x-3 gap-y-1 border-[1.5px] px-4 py-3 text-left",
   packTitle: "font-display shrink-0 text-base uppercase text-[#9DF6F7]",
   packSub: "min-w-0 flex-1 basis-36 text-sm text-white/50",
@@ -253,35 +263,29 @@ function useBundlePricing(pkg: PackageDefinition, date: string | null, racerCoun
   return { blocked, perRacer };
 }
 
-/** WEB-only enrichment under a bundle's price: the à-la-carte savings and a
- *  "What's included" disclosure reusing PackageCard's checklist. A web guest
- *  can't ask staff what's in the bundle; the kiosk keeps the leaner
- *  owner-approved grammar (S.saveLine/S.inclToggle are empty there). */
-function WebBundleDetails({
+/** WEB-only "What's included" footer — a row INSIDE the card under a dashed
+ *  divider that expands PackageCard's checklist in place (the kiosk compact
+ *  package card's grammar; owner 2026-08-10: the detached line under the card
+ *  read as an orphan). A web guest can't ask staff what's in the bundle; the
+ *  kiosk keeps the leaner owner-approved layout (S.inclToggle empty there).
+ *  Sibling of the select button — a nested button is invalid HTML. */
+function IncludedFooter({
   pkg,
-  perRacer,
+  open,
+  onToggle,
   t,
   S,
 }: {
   pkg: PackageDefinition;
-  perRacer: number;
+  open: boolean;
+  onToggle: () => void;
   t: Translate;
   S: typeof WEB_S | typeof KIOSK_S;
 }) {
-  const [open, setOpen] = useState(false);
   if (!S.inclToggle) return null;
-  const savings = Math.max(0, packageRetailTotal(pkg, 1) - perRacer);
   return (
-    <div className="px-1">
-      {savings > 0.009 && (
-        <span className={S.saveLine}>{t("payMode.save", { amount: money(savings) })}</span>
-      )}
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className={S.inclToggle}
-      >
+    <>
+      <button type="button" onClick={onToggle} aria-expanded={open} className={S.inclToggle}>
         <span
           aria-hidden
           className={`inline-block transition-transform duration-150 ${open ? "rotate-90" : ""}`}
@@ -290,8 +294,12 @@ function WebBundleDetails({
         </span>
         {t("payMode.included.toggle")}
       </button>
-      {open && <IncludedList pkg={pkg} racers={1} />}
-    </div>
+      {open && (
+        <div className={S.inclBody}>
+          <IncludedList pkg={pkg} racers={1} />
+        </div>
+      )}
+    </>
   );
 }
 
@@ -336,32 +344,60 @@ function HeroBundleCard({
   S: typeof WEB_S | typeof KIOSK_S;
 }) {
   const { blocked, perRacer } = useBundlePricing(pkg, item.date, racerCount);
+  const [inclOpen, setInclOpen] = useState(false);
+  const selectBtn = (
+    <button
+      type="button"
+      onClick={blocked ? undefined : onChoose}
+      disabled={blocked && !selected}
+      aria-pressed={selected}
+      className={
+        S.heroCard
+          ? S.heroBtn
+          : `${S.heroBtn} ${selected ? S.heroRing : ""} ${blocked ? "opacity-60" : ""}`
+      }
+    >
+      <span className={S.heroPill}>{t("payMode.recommended")}</span>
+      <CountBadge n={pkg.races.length || 1} gold t={t} S={S} />
+      <span className={S.heroBody}>
+        <span className={S.heroName}>{pkg.name}</span>
+        <span className={S.heroSay}>{bundleSay(t, pkg)}</span>
+        {blocked && (
+          <span className={S.blockedNote}>{t("payMode.blocked", { name: pkg.name })}</span>
+        )}
+      </span>
+      <span className={S.heroPriceCol}>
+        <span className={S.heroPrice}>{money(perRacer)}</span>
+        <span className={S.heroIncl}>{inclusions(t, pkg)}</span>
+      </span>
+    </button>
+  );
   return (
     // mt-4 clears the "recommended" pill: it hangs above the card border and
     // was covering the intro line (owner 2026-08-04).
     <div className={S.heroWrap}>
-      <button
-        type="button"
-        onClick={blocked ? undefined : onChoose}
-        disabled={blocked && !selected}
-        aria-pressed={selected}
-        className={`${S.heroBtn} ${selected ? S.heroRing : ""} ${blocked ? "opacity-60" : ""}`}
-      >
-        <span className={S.heroPill}>{t("payMode.recommended")}</span>
-        <CountBadge n={pkg.races.length || 1} gold t={t} S={S} />
-        <span className={S.heroBody}>
-          <span className={S.heroName}>{pkg.name}</span>
-          <span className={S.heroSay}>{bundleSay(t, pkg)}</span>
-          {blocked && (
-            <span className={S.blockedNote}>{t("payMode.blocked", { name: pkg.name })}</span>
+      {S.heroCard ? (
+        // WEB: the wrapper div is the card (ring/dim live here); the footer
+        // disclosure sits inside the same card, under a dashed divider.
+        <div
+          className={`${S.heroCard} ${selected ? S.heroRing : ""} ${blocked ? "opacity-60" : ""}`}
+        >
+          {selectBtn}
+          {!blocked && (
+            <IncludedFooter
+              pkg={pkg}
+              open={inclOpen}
+              onToggle={() => setInclOpen((o) => !o)}
+              t={t}
+              S={S}
+            />
           )}
-        </span>
-        <span className={S.heroPriceCol}>
-          <span className={S.heroPrice}>{money(perRacer)}</span>
-          <span className={S.heroIncl}>{inclusions(t, pkg)}</span>
-        </span>
-      </button>
-      {!blocked && <WebBundleDetails pkg={pkg} perRacer={perRacer} t={t} S={S} />}
+        </div>
+      ) : (
+        // KIOSK: the button IS the card — the owner-approved 8/04 layout,
+        // untouched.
+        selectBtn
+      )}
       {selected && (
         <button type="button" onClick={onDrop} className={S.removeBtn}>
           <span aria-hidden>✕</span>
@@ -394,28 +430,52 @@ function BundleRow({
   S: typeof WEB_S | typeof KIOSK_S;
 }) {
   const { blocked, perRacer } = useBundlePricing(pkg, item.date, racerCount);
+  const [inclOpen, setInclOpen] = useState(false);
   const d = baseline != null ? perRacer - baseline : null;
+  const selectBtn = (
+    <button
+      type="button"
+      onClick={blocked ? undefined : onChoose}
+      disabled={blocked && !selected}
+      aria-pressed={selected}
+      className={
+        S.rowCard
+          ? S.row
+          : `${S.row} ${selected ? S.rowSelected : S.rowIdle} ${blocked ? "opacity-60" : ""}`
+      }
+    >
+      <CountBadge n={pkg.races.length || 1} t={t} S={S} />
+      <span className={S.rowBody}>
+        <span className={S.rowName}>{pkg.name}</span>
+        <span className={S.rowSay}>{bundleSay(t, pkg)}</span>
+        {blocked && (
+          <span className={S.blockedNote}>{t("payMode.blocked", { name: pkg.name })}</span>
+        )}
+      </span>
+      {!blocked && d != null && d > 0 && <span className={S.deltaPill}>+{money(d)}</span>}
+      <span className={S.rowPrice}>{money(perRacer)}</span>
+    </button>
+  );
   return (
     <div className="space-y-2">
-      <button
-        type="button"
-        onClick={blocked ? undefined : onChoose}
-        disabled={blocked && !selected}
-        aria-pressed={selected}
-        className={`${S.row} ${selected ? S.rowSelected : S.rowIdle} ${blocked ? "opacity-60" : ""}`}
-      >
-        <CountBadge n={pkg.races.length || 1} t={t} S={S} />
-        <span className={S.rowBody}>
-          <span className={S.rowName}>{pkg.name}</span>
-          <span className={S.rowSay}>{bundleSay(t, pkg)}</span>
-          {blocked && (
-            <span className={S.blockedNote}>{t("payMode.blocked", { name: pkg.name })}</span>
+      {S.rowCard ? (
+        <div
+          className={`${S.rowCard} ${selected ? S.rowSelected : S.rowIdle} ${blocked ? "opacity-60" : ""}`}
+        >
+          {selectBtn}
+          {!blocked && (
+            <IncludedFooter
+              pkg={pkg}
+              open={inclOpen}
+              onToggle={() => setInclOpen((o) => !o)}
+              t={t}
+              S={S}
+            />
           )}
-        </span>
-        {!blocked && d != null && d > 0 && <span className={S.deltaPill}>+{money(d)}</span>}
-        <span className={S.rowPrice}>{money(perRacer)}</span>
-      </button>
-      {!blocked && <WebBundleDetails pkg={pkg} perRacer={perRacer} t={t} S={S} />}
+        </div>
+      ) : (
+        selectBtn
+      )}
       {selected && (
         <button type="button" onClick={onDrop} className={S.removeBtn}>
           <span aria-hidden>✕</span>

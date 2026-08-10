@@ -130,7 +130,6 @@ export const racepackEn = {
   "payMode.blocked":
     "Not enough time left today to fit both races — book the {name} earlier in the day, or choose a single race.",
   // WEB-only enrichment under a bundle (kiosk keeps the leaner layout).
-  "payMode.save": "You save {amount} vs à la carte",
   "payMode.included.toggle": "What's included",
   "payMode.pack.title": "Race packs",
   "payMode.pack.sub": "{sizes} prepaid races — bank them for later visits, never expire",
@@ -259,7 +258,6 @@ export const racepackEs: Record<keyof typeof racepackEn, string> = {
   "payMode.single.fromRacer": "desde {price} / corredor",
   "payMode.blocked":
     "No queda tiempo hoy para las dos carreras — reserva el {name} más temprano, o elige una carrera individual.",
-  "payMode.save": "Ahorras {amount} comparado con comprar por separado",
   "payMode.included.toggle": "Qué incluye",
   "payMode.pack.title": "Race packs",
   "payMode.pack.sub": "{sizes} carreras prepagadas — guárdalas para otras visitas, nunca caducan",

@@ -255,6 +255,43 @@ function PackageRacerRoster({
 }) {
   const perRacer = packagePerRacerPrice(pkg);
   const selectedCount = racers.filter((r) => selectedIds.has(r.id)).length;
+  // COLLAPSED by default (owner 2026-08-10: "is the racer selection really
+  // needed? everyone will be doing the same") — the default IS everyone, so
+  // the checklist only appears on "Change racers". It must stay reachable:
+  // deselecting here is the only in-flow way to split a party (2 of 3 take
+  // the package, the third books a single race). Auto-expands when a resumed
+  // session already carries a partial selection, so an existing split is
+  // never hidden behind a collapsed "everyone" line.
+  const [editing, setEditing] = useState(selectedCount > 0 && selectedCount < racers.length);
+  if (racers.length > 1 && !editing) {
+    return (
+      <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <p className="text-base font-semibold text-white">
+            Booking for:{" "}
+            <span className="text-[#00E2E5]">
+              {racers
+                .filter((r) => selectedIds.has(r.id))
+                .map((r) => r.firstName)
+                .join(", ")}
+            </span>
+          </p>
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            disabled={disabled}
+            className="text-xs font-bold uppercase tracking-wider text-[#00E2E5]/80 transition-colors hover:text-[#00E2E5] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Change racers ›
+          </button>
+        </div>
+        <p className="mt-1.5 text-sm text-white/70">
+          ${perRacer.toFixed(2)} per racer × {selectedCount} ={" "}
+          <span className="font-bold text-white">${(perRacer * selectedCount).toFixed(2)}</span>
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-3">
       {racers.length === 1 ? (
