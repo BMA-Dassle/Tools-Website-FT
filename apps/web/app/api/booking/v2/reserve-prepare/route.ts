@@ -10,6 +10,7 @@ import { CreditRedemptionError } from "~/features/booking/service/race-credit-re
 import { WorldCupReservationError } from "~/features/world-cup";
 import type { BookingSession } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
+import { setSplitSession } from "~/features/kiosk/data/split-tenders-db";
 
 /**
  * POST /api/booking/v2/reserve-prepare — KIOSK direct-Terminal charge only.
@@ -41,6 +42,15 @@ export async function POST(req: NextRequest) {
       contact: body.contact,
       expectedCents: typeof body.expectedCents === "number" ? body.expectedCents : undefined,
     });
+
+    // Persist the session server-side (2026-08-10, W59702): completing a paid
+    // booking must never depend on the kiosk tab surviving the seconds after
+    // capture. With the session on the ledger row, the capture observer
+    // (terminal-checkout) finishes the reservation itself if the client never
+    // calls reserve-all. Best-effort — a write failure never blocks the reader.
+    if (result?.seed) {
+      void setSplitSession(result.seed, body.session, body.contact);
+    }
 
     return NextResponse.json(result);
   } catch (err) {
