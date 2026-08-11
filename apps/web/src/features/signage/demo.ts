@@ -28,6 +28,23 @@ export function parseDemoMode(raw: string | null): DemoMode {
   return "off";
 }
 
+/**
+ * Which demo mode this screen should run: a preview pushed from the admin page
+ * (riding the feed as `demoMode`) beats a `?demo=` typed into the tab — the
+ * point is that staff can drive a wall from a phone.
+ *
+ * THIS IS THE ONE PLACE that decision is made. It used to live inline in TvApp,
+ * and the feed decoration there kept using the raw URL mode after a patch
+ * silently failed to land — so pushed welcome/VIP previews decorated nothing,
+ * on every screen, while the probe (which re-implemented the wiring correctly)
+ * kept passing (2026-08-11, "still only ads"). The app and the probe now import
+ * this same function, so they cannot disagree about what a screen would do.
+ */
+export function effectiveDemoMode(feed: TvFeed | null, urlDemo: DemoMode): DemoMode {
+  const pushed = parseDemoMode(feed?.demoMode ?? null);
+  return pushed !== "off" ? pushed : urlDemo;
+}
+
 function demoEvents(nowMs: number): WelcomeEntry[] {
   const at = (mins: number) => new Date(nowMs + mins * 60_000).toISOString();
   const label = (mins: number) =>

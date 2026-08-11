@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyDemo, parseDemoMode } from "./demo";
+import { applyDemo, effectiveDemoMode } from "./demo";
 import { resolveScreenConfig } from "./defaults";
 import { resolveActiveScene } from "./director/schedule";
 import { sceneHasData, isSceneImplemented } from "./scenes/registry";
@@ -29,7 +29,12 @@ describe.runIf(RUN)("live probe", () => {
 
     // ── everything below mirrors TvApp/SceneDirector, in order ──────────
     const venue = (feed.screen?.venue ?? "HPFM") as SignageVenue;
-    const demo = parseDemoMode(feed.demoMode ?? null);
+    // effectiveDemoMode is the SAME function TvApp calls — not a re-derivation.
+    // The previous probe re-implemented this resolution, got it right, and so
+    // kept passing while the app itself was decorating with the wrong mode.
+    // A probe that shares no code with the thing it probes can only test the
+    // author's intent, never the deployment.
+    const demo = effectiveDemoMode(feed, "off");
     const decorated = applyDemo(feed, demo, feed.now);
     const config = resolveScreenConfig(decorated?.screen?.config ?? null, venue);
     const decision = resolveActiveScene({
@@ -42,7 +47,6 @@ describe.runIf(RUN)("live probe", () => {
       isImplemented: isSceneImplemented,
     });
 
-    // eslint-disable-next-line no-console
     console.log(
       JSON.stringify(
         {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyDemo, parseDemoMode } from "./demo";
+import { applyDemo, effectiveDemoMode, parseDemoMode } from "./demo";
 import { fmtTime12, toEtWallClock } from "~/features/kiosk/checkin/itinerary";
 import { resolveScreenConfig } from "./defaults";
 import { resolveActiveScene } from "./director/schedule";
@@ -101,6 +101,30 @@ describe("pushed previews", () => {
     const decorated = applyDemo(baseFeed(now), "event", now);
     expect((decorated?.events?.length ?? 0) > 0).toBe(true);
     expect(sceneHasData("event-welcome", decorated)).toBe(true);
+  });
+
+  it("a PUSHED preview decorates the feed with no ?demo= in the URL — the broken case", () => {
+    // THE 2026-08-11 BUG, pinned. The admin page pushed demoMode="vip" onto the
+    // feed; the app resolved it correctly for the director but decorated the
+    // feed with the raw URL mode ("off" on every wall), so the VIP entry was
+    // never injected and every screen kept showing ads. This walks the exact
+    // path a wall walks: pushed mode present, URL mode off.
+    const feed = { ...baseFeed(now), demoMode: "vip" };
+    const mode = effectiveDemoMode(feed, "off");
+    expect(mode).toBe("vip");
+    const decorated = applyDemo(feed, mode, now);
+    expect(decorated?.vip?.length).toBe(1);
+    expect(sceneHasData("vip-welcome", decorated)).toBe(true);
+  });
+
+  it("a pushed preview beats a ?demo= typed into the tab", () => {
+    const feed = { ...baseFeed(now), demoMode: "event" };
+    expect(effectiveDemoMode(feed, "vip")).toBe("event");
+  });
+
+  it("with nothing pushed, the URL mode stands", () => {
+    expect(effectiveDemoMode(baseFeed(now), "race")).toBe("race");
+    expect(effectiveDemoMode(null, "off")).toBe("off");
   });
 
   it("off leaves the feed untouched", () => {

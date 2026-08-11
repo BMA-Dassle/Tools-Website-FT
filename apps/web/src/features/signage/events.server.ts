@@ -110,12 +110,19 @@ export async function reloadRequestedAt(center: string): Promise<number | null> 
 /* ── pushed preview ───────────────────────────────────────────────────── */
 
 /**
- * How long a pushed preview lasts. Deliberately short and enforced by the Redis
- * TTL rather than by anything remembering to clear it: a screen showing
- * fabricated guests cannot be left that way by a distracted staff member, a
- * closed laptop, or a crash. It expires on its own.
+ * How long a pushed preview lasts.
+ *
+ * FIVE MINUTES, because ninety seconds was not long enough to walk from the
+ * office to the lobby and look up — the preview was expiring before it could be
+ * seen, which is indistinguishable from it never working (owner 2026-08-11,
+ * "still only ads"). It has to outlast the walk.
+ *
+ * Still enforced by the Redis TTL rather than by anything remembering to clear
+ * it: a screen showing fabricated guests cannot be left that way by a
+ * distracted staff member, a closed laptop or a crash. It expires on its own,
+ * and "End preview" cuts it short.
  */
-const DEMO_TTL_SECONDS = 90;
+const DEMO_TTL_SECONDS = 300;
 
 function demoKey(screenId: string): string {
   return `signage:demo:${screenId}`;
@@ -143,6 +150,21 @@ export async function clearScreenDemo(screenId: string): Promise<void> {
 export async function demoRequestedFor(screenId: string): Promise<string | null> {
   try {
     return await redis.get(demoKey(screenId));
+  } catch {
+    return null;
+  }
+}
+
+/** Mode + seconds remaining, so the admin page can show a preview is live and
+ *  how long is left rather than leaving staff to guess. */
+export async function demoStatusFor(
+  screenId: string,
+): Promise<{ mode: string; secondsLeft: number } | null> {
+  try {
+    const key = demoKey(screenId);
+    const [mode, ttl] = await Promise.all([redis.get(key), redis.ttl(key)]);
+    if (!mode) return null;
+    return { mode, secondsLeft: ttl > 0 ? ttl : 0 };
   } catch {
     return null;
   }

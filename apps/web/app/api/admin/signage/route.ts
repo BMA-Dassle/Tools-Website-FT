@@ -11,6 +11,7 @@ import {
   requestScreenReload,
   requestScreenDemo,
   clearScreenDemo,
+  demoStatusFor,
 } from "~/features/signage/events.server";
 import { parseScreenKey, VENUE_INFO, type SignageVenue } from "~/features/signage/constants";
 import { buildStartupScript, startupScriptFileName } from "~/features/signage/startup-script";
@@ -106,8 +107,15 @@ export async function GET(req: NextRequest) {
   }
 
   const screens = await listSignageScreens();
-  const seen = await lastSeen(screens.map((s) => s.screenId));
-  return NextResponse.json({ screens, seen }, { headers: { "Cache-Control": "no-store" } });
+  const [seen, previewEntries] = await Promise.all([
+    lastSeen(screens.map((s) => s.screenId)),
+    Promise.all(screens.map(async (s) => [s.screenId, await demoStatusFor(s.screenId)] as const)),
+  ]);
+  const previews = Object.fromEntries(previewEntries);
+  return NextResponse.json(
+    { screens, seen, previews },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }
 
 export async function POST(req: NextRequest) {

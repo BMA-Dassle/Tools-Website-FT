@@ -26,13 +26,14 @@ import {
 } from "../constants";
 import { resolveScreenConfig } from "../defaults";
 import { useTvFeed } from "../useTvFeed";
-import { applyDemo, parseDemoMode, type DemoMode } from "../demo";
+import { applyDemo, effectiveDemoMode, parseDemoMode, type DemoMode } from "../demo";
 import type { SceneDecision } from "../director/schedule";
 import { SceneDirector } from "../director/SceneDirector";
 import { TvStage } from "./TvStage";
 import { TvShell } from "./TvShell";
 
 const IDENTITY_KEY = "tv_screen_id";
+const BUILD_SHA = (process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || "dev").slice(0, 8);
 
 export function TvApp() {
   const [screenId, setScreenId] = useState<string | null>(null);
@@ -110,16 +111,21 @@ export function TvApp() {
     }
   }, [reloadAt]);
 
-  // A preview pushed from the admin page wins over a `?demo=` typed into this
-  // tab: the point is that staff can drive a wall from their phone. It carries
-  // its own expiry (Redis TTL), so a screen returns to normal on its own.
-  const effectiveDemo: DemoMode =
-    parseDemoMode(rawFeed?.demoMode ?? null) !== "off"
-      ? parseDemoMode(rawFeed?.demoMode ?? null)
-      : demo;
+  // Pushed-preview-or-URL resolution lives in demo.ts (effectiveDemoMode) so
+  // the live probe exercises the app's real wiring, not a re-implementation.
+  //
+  // THE BUG THIS LAYOUT PREVENTS: the decoration below once read the raw URL
+  // mode while the director read the resolved one — a patch that renamed only
+  // one of the two silently no-op'd — so a pushed welcome/VIP preview resolved
+  // correctly and then decorated NOTHING, and every wall showed ads
+  // (2026-08-11). One variable now feeds both consumers.
+  const effectiveDemo = effectiveDemoMode(rawFeed, demo);
   // Anchored to the feed's own server timestamp rather than a render-time
   // clock read: stable across re-renders, and it advances with each poll.
-  const feed = useMemo(() => applyDemo(rawFeed, demo, rawFeed?.now ?? 0), [rawFeed, demo]);
+  const feed = useMemo(
+    () => applyDemo(rawFeed, effectiveDemo, rawFeed?.now ?? 0),
+    [rawFeed, effectiveDemo],
+  );
 
   const config = useMemo(
     () => resolveScreenConfig(feed?.screen?.config ?? null, venue),
@@ -138,6 +144,12 @@ export function TvApp() {
       ? `${feed.screen.name || VENUE_INFO[venue]?.label} · ${screenId}`
       : `${screenId} · unprovisioned`
     : "no screen id";
+
+  // `?debug=1` prints what the screen actually decided, in the browser that is
+  // actually running. Every diagnosis tonight has been inference from the
+  // server side; this is the one thing that can say what the CLIENT sees.
+  const debug =
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).has("debug");
 
   if (!booted) {
     // One paint of the ground colour rather than a flash of white on a wall.
@@ -160,6 +172,37 @@ export function TvApp() {
           demo={effectiveDemo}
           onDecision={setDecision}
         />
+        {debug && (
+          <pre
+            style={{
+              position: "absolute",
+              left: 24,
+              top: 24,
+              zIndex: 99,
+              margin: 0,
+              padding: 16,
+              maxWidth: 900,
+              background: "rgba(0,0,0,0.85)",
+              color: "#46d68c",
+              font: "20px ui-monospace, monospace",
+              whiteSpace: "pre-wrap",
+              borderRadius: 12,
+              border: "2px solid #46d68c",
+            }}
+          >
+            {[
+              `screen      ${screenId ?? "(none)"}`,
+              `build       ${BUILD_SHA}`,
+              `feed        ${rawFeed ? "ok" : "NULL — no feed yet"}`,
+              `demoMode    ${rawFeed?.demoMode ?? "(none)"} -> ${effectiveDemo}`,
+              `events      ${feed?.events?.length ?? "null"}`,
+              `vip         ${feed?.vip?.length ?? "null"}`,
+              `playlist    ${config.playlist.map((p) => p.scene).join(", ")}`,
+              `SCENE       ${decision?.scene ?? "(deciding)"}`,
+              `interrupt   ${String(decision?.isInterrupt ?? false)}`,
+            ].join("\n")}
+          </pre>
+        )}
       </TvShell>
     </TvStage>
   );
