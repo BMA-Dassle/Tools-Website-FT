@@ -255,6 +255,7 @@ const STEP_TITLE_KEYS: Record<string, MessageKey> = {
   "Who's playing?": "stepTitle.whosPlaying",
   "Who's racing?": "stepTitle.whosRacing",
   "Race Video": "stepTitle.raceVideo",
+  "Race Video & Extras": "stepTitle.raceExtras",
   // The attraction flow's two reused-web steps (no kiosk-native replacement).
   "Your Info": "stepTitle.yourInfo",
   Activity: "stepTitle.activity",
@@ -1160,6 +1161,28 @@ export function KioskFlow({
     dispatch({ type: "updateItem", id: itemId, patch: { povQuantity: 0 } as Partial<SessionItem> });
   };
 
+  // Retail add-on (headsock etc.) cart undo — pure state, one racer at a time:
+  // the Square line + Pandora grant both rebuild from addonSelections at
+  // reserve, so dropping the pointer is the whole job (POV/pack parity).
+  const handleRemoveAddon = (itemId: string, slug: string, memberId: string) => {
+    const item = session.items.find((i) => i.id === itemId);
+    if (!item || item.kind !== "race") return;
+    const addonSelections = (item.addonSelections ?? [])
+      .map((s) =>
+        s.slug === slug ? { ...s, memberIds: s.memberIds.filter((id) => id !== memberId) } : s,
+      )
+      .filter((s) => s.memberIds.length > 0);
+    dispatch({
+      type: "updateItem",
+      id: itemId,
+      patch: { addonSelections } as Partial<SessionItem>,
+    });
+  };
+
+  // Reopen the extras step (same page as the video — id "race-pov") so the
+  // guest can re-pick who gets an add-on; mirrors handleChangePov.
+  const handleChangeAddons = (itemId: string) => handleChangePov(itemId);
+
   // Game Zone cards count as a cart entry (owner 2026-07-18: race + cards
   // showed "1 item") — they're paid at the same checkout, so the pill/banner
   // must reflect them.
@@ -1740,6 +1763,8 @@ export function KioskFlow({
           onChangePackage={handleChangePackage}
           onRemovePov={handleRemovePov}
           onChangePov={handleChangePov}
+          onRemoveAddon={handleRemoveAddon}
+          onChangeAddons={handleChangeAddons}
           onReviewAndPay={() => {
             // Upsell page (owner 2026-07-21): between Review & Pay and the pay
             // screen — BOWLING carts only for now (owner: "they need bowling
@@ -1845,6 +1870,8 @@ export function KioskFlow({
           onChangePackage={handleChangePackage}
           onRemovePov={handleRemovePov}
           onChangePov={handleChangePov}
+          onRemoveAddon={handleRemoveAddon}
+          onChangeAddons={handleChangeAddons}
         />
       </div>,
     );

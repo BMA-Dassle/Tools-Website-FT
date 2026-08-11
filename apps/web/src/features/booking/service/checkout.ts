@@ -28,6 +28,7 @@ import { raceUsesZeroBmiModel, cancelRaceOrder, holdRaceItem } from "./race";
 import { getPackage, packagePerRacerPrice, POV_PRICE } from "./packages";
 import { membershipDiscountsForNames } from "./membership-discounts";
 import { LICENSE_PRICE, calculateTax } from "./race-pricing";
+import { addonChargeLines } from "./addon-charge";
 import { redemptionsFromSession } from "../data/race-credits";
 import { bmiAdapter } from "../data/bmi";
 import { registerContact, registerProjectPersons } from "./bmi-register";
@@ -1124,6 +1125,12 @@ export function buildRaceChargeLines(
       visitDate: raceVisitDate,
     });
   }
+
+  // Retail add-ons (v1: replacement headsock) — one line per selected racer,
+  // price re-derived from the addon catalog. Deliberately UNSCOPED (no domain,
+  // no visitDate) so the promo below and membership discounts never touch
+  // them. Same builder feeds the quote, review, cart estimate, and reserve.
+  lines.push(...addonChargeLines(session));
 
   // USA250-style promo: reduce the price key on every eligible line — race
   // heats AND the license + POV add-ons (all carry domain:"racing" + the race

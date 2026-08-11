@@ -239,6 +239,19 @@ export interface RaceItem extends BookingItemBase {
    */
   creditPacks?: Array<{ slug: string; memberId: string }>;
   /**
+   * Booking ADD-ONS (retail extras — v1: replacement headsock, owner
+   * 2026-08-10): selection POINTERS only ({addon-catalog slug, party
+   * memberIds}); price/name/grant re-derive from the registry on both the
+   * charge and the reserve rail. Per-racer attribution because fulfillment
+   * grants a Pandora deposit credit on THAT racer's account (check-in's
+   * "Headsock Due" banner). NOT the legacy `addons` rail below — these are
+   * Square-only merch and never touch the BMI bill. Optional so sessions
+   * persisted before this field hydrate undefined (no kiosk schema bump).
+   * `memberIds: []` vs `undefined` is the future forced-answer seam
+   * (declined vs never-asked) — v1's optional UI treats both as "none".
+   */
+  addonSelections?: Array<{ slug: string; memberIds: string[] }>;
+  /**
    * YYYY-MM-DD — the race day. All heats[] fall on this date. The wizard's
    * Date step writes this; subsequent steps (Product, HeatPicker) filter
    * BMI availability by it.

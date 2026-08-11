@@ -28,6 +28,8 @@ import {
   type KioskPackSelection,
 } from "~/features/booking/service/race-pack-kiosk";
 import { redeemedHeatSet } from "~/features/booking/data/race-credits";
+import { getBookingAddon } from "~/features/booking/data/addon-catalog";
+import { estimateAddonsTotal } from "~/features/booking/service/addon-charge";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
 import { racerNeedsLicense } from "~/features/booking/service/license";
@@ -93,6 +95,11 @@ export interface CartViewProps {
   onRemovePov?: (itemId: string) => void;
   /** KIOSK: reopen the video step so the guest can change the camera count. */
   onChangePov?: (itemId: string) => void;
+  /** KIOSK: drop ONE racer's retail add-on (addon-catalog; v1 headsock) off
+   *  this item — one tap per row, no navigation. Web hosts don't pass it. */
+  onRemoveAddon?: (itemId: string, slug: string, memberId: string) => void;
+  /** KIOSK: reopen the extras step so the guest can re-pick who gets one. */
+  onChangeAddons?: (itemId: string) => void;
 }
 
 export function CartView({
@@ -111,6 +118,8 @@ export function CartView({
   onChangePackage,
   onRemovePov,
   onChangePov,
+  onRemoveAddon,
+  onChangeAddons,
 }: CartViewProps) {
   // Back-to-landing prefers the validated `appliedPromo.code` (set when the
   // code resolved + matched scope), falls back to the raw `?code=` from
@@ -182,6 +191,8 @@ export function CartView({
                 onChangePackage={onChangePackage}
                 onRemovePov={onRemovePov}
                 onChangePov={onChangePov}
+                onRemoveAddon={onRemoveAddon}
+                onChangeAddons={onChangeAddons}
               />
             ))}
         </ul>
@@ -426,6 +437,8 @@ export function CartItemCard({
   onChangePackage,
   onRemovePov,
   onChangePov,
+  onRemoveAddon,
+  onChangeAddons,
 }: {
   item: SessionItem;
   session: BookingSession;
@@ -437,6 +450,8 @@ export function CartItemCard({
   onChangePackage?: (itemId: string, category: "adult" | "junior") => void;
   onRemovePov?: (itemId: string) => void;
   onChangePov?: (itemId: string) => void;
+  onRemoveAddon?: (itemId: string, slug: string, memberId: string) => void;
+  onChangeAddons?: (itemId: string) => void;
 }) {
   if (item.kind === "race") {
     return (
@@ -451,6 +466,8 @@ export function CartItemCard({
         onChangePackage={onChangePackage}
         onRemovePov={onRemovePov}
         onChangePov={onChangePov}
+        onRemoveAddon={onRemoveAddon}
+        onChangeAddons={onChangeAddons}
       />
     );
   }
@@ -512,6 +529,8 @@ function RaceCartCard({
   onChangePackage,
   onRemovePov,
   onChangePov,
+  onRemoveAddon,
+  onChangeAddons,
 }: {
   item: RaceItem;
   session: BookingSession;
@@ -528,6 +547,9 @@ function RaceCartCard({
   /** KIOSK: same undo for the POV video add-on (see CartViewProps). */
   onRemovePov?: (itemId: string) => void;
   onChangePov?: (itemId: string) => void;
+  /** KIOSK: per-racer retail add-on undo (see CartViewProps). */
+  onRemoveAddon?: (itemId: string, slug: string, memberId: string) => void;
+  onChangeAddons?: (itemId: string) => void;
 }) {
   const t = useT();
   // Per-category packages (adult/junior variants are separate ids); `pkg` is
@@ -685,6 +707,14 @@ function RaceCartCard({
           {item.povQuantity > 0 && !raceItemFullyPackaged(item, session.party) && (
             <PovExtras item={item} onRemovePov={onRemovePov} onChangePov={onChangePov} />
           )}
+          {/* Retail add-ons charge regardless of packaging (a headsock is never
+              package-covered), so the rows show on packaged carts too. */}
+          <AddonExtras
+            item={item}
+            session={session}
+            onRemoveAddon={onRemoveAddon}
+            onChangeAddons={onChangeAddons}
+          />
           {/* Undo the bundle without losing the booking. One button per selected
               variant, because adult and junior are separate purchases — a family
               can drop the junior Rookie Pack and keep the adult one. */}
@@ -724,7 +754,9 @@ function RaceCartCard({
               );
             })}
         </div>
-      ) : item.povQuantity > 0 || item.addons.length > 0 ? (
+      ) : item.povQuantity > 0 ||
+        item.addons.length > 0 ||
+        (item.addonSelections?.some((s) => s.memberIds.length > 0) ?? false) ? (
         <div className="mt-3 space-y-1 border-t border-white/10 pt-3 text-xs">
           {item.povQuantity > 0 && (
             <PovExtras item={item} onRemovePov={onRemovePov} onChangePov={onChangePov} />
@@ -732,6 +764,12 @@ function RaceCartCard({
           {item.addons.map((a) => (
             <ExtraRow key={a.id} icon="➕" label={addonLabel(a)} amount={estimateAddon(a)} />
           ))}
+          <AddonExtras
+            item={item}
+            session={session}
+            onRemoveAddon={onRemoveAddon}
+            onChangeAddons={onChangeAddons}
+          />
         </div>
       ) : null}
 
@@ -1075,6 +1113,92 @@ function PovExtras({
   );
 }
 
+/** Retail add-on rows (data/addon-catalog.ts; v1 the replacement headsock) —
+ *  ONE row per selected racer ("Replacement Headsock · Dana", same name the
+ *  Square line carries), each with a kiosk one-tap per-racer remove, plus a
+ *  single Change that reopens the extras step. PovExtras contract: web hosts
+ *  don't pass the callbacks → rows only. Invalid slugs / departed party
+ *  members render nothing — the charge builder drops them identically. */
+function AddonExtras({
+  item,
+  session,
+  onRemoveAddon,
+  onChangeAddons,
+}: {
+  item: RaceItem;
+  session: BookingSession;
+  onRemoveAddon?: (itemId: string, slug: string, memberId: string) => void;
+  onChangeAddons?: (itemId: string) => void;
+}) {
+  const t = useT();
+  const rows: Array<{
+    slug: string;
+    memberId: string;
+    name: string;
+    price: number;
+    i18nPrefix: string;
+  }> = [];
+  for (const sel of item.addonSelections ?? []) {
+    const addon = getBookingAddon(sel.slug);
+    if (!addon) continue;
+    for (const memberId of sel.memberIds) {
+      const m = session.party.find((p) => p.id === memberId);
+      if (!m) continue;
+      rows.push({
+        slug: sel.slug,
+        memberId,
+        name: `${m.firstName} ${m.lastName ?? ""}`.trim(),
+        price: addon.priceCents / 100,
+        i18nPrefix: addon.i18nPrefix,
+      });
+    }
+  }
+  if (rows.length === 0) return null;
+  // Every shipped catalog entry has typed `${i18nPrefix}.cart.rowLabel` keys
+  // (parts/addons.ts) — the cast keeps this data-driven for future merch.
+  const rowKey = (prefix: string) => `${prefix}.cart.rowLabel` as Parameters<typeof t>[0];
+  return (
+    <>
+      {rows.map((r) => (
+        <div
+          key={`${r.slug}:${r.memberId}`}
+          className="flex items-baseline justify-between gap-2 text-white/70"
+        >
+          <span>
+            <span className="mr-1.5">➕</span>
+            {t(rowKey(r.i18nPrefix), { name: r.name })}
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="text-white/50">${r.price.toFixed(2)}</span>
+            {onRemoveAddon && (
+              <button
+                type="button"
+                onClick={() => onRemoveAddon(item.id, r.slug, r.memberId)}
+                aria-label={`${t("addons.cart.remove")} — ${r.name}`}
+                className="rounded-md border border-white/15 px-2 py-0.5 text-[11px] font-semibold text-white/50 transition-colors hover:border-red-400/40 hover:text-red-300"
+              >
+                ✕
+              </button>
+            )}
+          </span>
+        </div>
+      ))}
+      {onChangeAddons && (
+        <div className="mt-2 flex items-stretch gap-2">
+          <button
+            type="button"
+            onClick={() => onChangeAddons(item.id)}
+            className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[#00E2E5]/40 px-3 py-2 text-[11px] font-semibold text-[#00E2E5] transition-colors hover:bg-[#00E2E5]/10"
+          >
+            {t("addons.cart.change")}
+            <span aria-hidden>›</span>
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function raceTitle(
@@ -1161,6 +1285,9 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
     const standalonePov = raceItemFullyPackaged(item, session.party) ? 0 : item.povQuantity;
     const povTotal = Math.round(POV_PRICE * standalonePov * raceAddonFactor * 100) / 100;
     const addonsTotal = item.addons.reduce((sum, a) => sum + estimateAddon(a), 0);
+    // Retail add-ons (headsock etc.) — the SAME catalog walk the charge lines
+    // use (service/addon-charge.ts), promo-immune by design, so no factor.
+    const retailAddonsTotal = estimateAddonsTotal(item, session);
     const raceLinesTotal = applyPromoToBillLines(
       raceItemChargeLines(item),
       session.appliedPromo,
@@ -1227,7 +1354,8 @@ export function estimateCartItemTotal(item: SessionItem, session: BookingSession
       voucherCoveredTotal +
       licenseTotal +
       povTotal +
-      addonsTotal
+      addonsTotal +
+      retailAddonsTotal
     );
   }
   if (item.kind === "attraction") {

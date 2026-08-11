@@ -44,6 +44,7 @@ export type DepositFailureSource =
   | "race-credit-redeem" // v2 race checkout — credit redemption deduct failed
   | "pov-claim" // /api/pov-codes?action=claim-from-credit — deduct failed
   | "headsock-checkin" // /api/admin/checkin — headsock deposit deduct failed
+  | "addon-headsock" // booking add-on grant (addon-grant.server) — +credit failed after charge
   | "manual" // staff-entered backfill row
   | "sales-log-backfill"; // one-time import from old sales_log.deposit_credit_pending rows
 

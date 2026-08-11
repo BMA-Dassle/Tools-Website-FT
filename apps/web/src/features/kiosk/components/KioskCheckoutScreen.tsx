@@ -64,6 +64,8 @@ export function KioskCheckoutScreen({
   onChangePackage,
   onRemovePov,
   onChangePov,
+  onRemoveAddon,
+  onChangeAddons,
 }: {
   session: BookingSession;
   dispatch: Dispatch<Action>;
@@ -86,6 +88,10 @@ export function KioskCheckoutScreen({
   onRemovePov?: (itemId: string) => void;
   /** Reopen the video step to change the camera count. */
   onChangePov?: (itemId: string) => void;
+  /** Drop ONE racer's retail add-on (headsock etc.) off a race item. */
+  onRemoveAddon?: (itemId: string, slug: string, memberId: string) => void;
+  /** Reopen the extras step to re-pick add-on racers. */
+  onChangeAddons?: (itemId: string) => void;
 }) {
   const t = useT();
   const items = [...session.items].sort((a, b) => itemSortMs(a) - itemSortMs(b));
@@ -204,6 +210,8 @@ export function KioskCheckoutScreen({
                     onChangePackage={onChangePackage}
                     onRemovePov={onRemovePov}
                     onChangePov={onChangePov}
+                    onRemoveAddon={onRemoveAddon}
+                    onChangeAddons={onChangeAddons}
                   />
                 ))}
               </ul>
