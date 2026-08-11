@@ -17,6 +17,7 @@
  * hub. That is deliberate: a wall that disagrees with the ticket in a guest's
  * hand is worse than no wall. Nothing here re-derives a session or a delay.
  */
+import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { useTrackStatus } from "@/hooks/useTrackStatus";
 import { withAlpha } from "../color";
 import {
@@ -26,7 +27,7 @@ import {
   trackFromResourceIds,
   type TrackKey,
 } from "../track";
-import { recentScans } from "../director/schedule";
+import { recentScans, eventInScope } from "../director/schedule";
 import { demoCurrentRace } from "../demo";
 import type { SceneProps } from "../director/types";
 
@@ -49,6 +50,9 @@ const SCAN_RAIL_LIMIT = 6;
  * BUSY (names landing) and STANDBY (clean), rather than holding a stale list.
  */
 const STANDBY_AFTER_MS = 30_000;
+
+/** How long a wrong-race notice stays up. Long enough to read twice. */
+const WRONG_RACE_SHOW_MS = 12_000;
 
 export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
   const status = useTrackStatus();
@@ -76,7 +80,6 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
   // deliberate, client-only, and gone on the next reload.
   const race =
     status?.currentRaces?.[track] ??
-    null ??
     (demo === "race" ? demoCurrentRace(nowMs, TRACK_LABELS[track]) : null);
   const delay = findDelay(status?.trackStatus.tracks, track);
 
@@ -96,6 +99,19 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
   );
   // Quiet for a while ⇒ standby: clear the rail and give the session the wall.
   const busy = scans.length > 0 && nowMs - scans[0].atMs < STANDBY_AFTER_MS;
+
+  // Somebody scanned for a heat that is not this one. Amber, not red: they have
+  // not done anything wrong, they are just early or late, and the screen's job
+  // is to tell them when to come back.
+  const wrongRace = (feed?.kioskEvents ?? [])
+    .filter(
+      (e) =>
+        e.kind === "racer-wrong-race" &&
+        nowMs - e.atMs < WRONG_RACE_SHOW_MS &&
+        nowMs - e.atMs > -5_000 &&
+        eventInScope(e, config.scope.resourceIds),
+    )
+    .sort((a, b) => b.atMs - a.atMs)[0];
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
@@ -139,12 +155,19 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
         </header>
 
         {race ? (
-          <CheckingIn race={race} accent={accent} standby={!busy} />
+          <CheckingIn
+            race={race}
+            accent={accent}
+            standby={!busy}
+            checkedIn={feed?.raceCheckin?.checkedIn ?? null}
+            total={feed?.raceCheckin?.total ?? null}
+          />
         ) : (
           <Idle accent={accent} />
         )}
 
-        {busy && <ScanRail scans={scans} accent={accent} raised={!!vip} />}
+        {wrongRace && <WrongRaceNotice event={wrongRace} />}
+        {busy && !wrongRace && <ScanRail scans={scans} accent={accent} raised={!!vip} />}
         {vip && <VipInfieldBanner names={vip.vipFirstNames} />}
       </div>
     </div>
@@ -164,10 +187,14 @@ function CheckingIn({
   race,
   accent,
   standby,
+  checkedIn,
+  total,
 }: {
   race: NonNullable<ReturnType<typeof useTrackStatus>>["currentRaces"]["blue"];
   accent: string;
   standby: boolean;
+  checkedIn: number | null;
+  total: number | null;
 }) {
   if (!race) return null;
   return (
@@ -180,8 +207,27 @@ function CheckingIn({
         gap: 18,
       }}
     >
-      <div className="tv-eyebrow" style={{ color: accent, fontSize: 36 }}>
-        Now checking in
+      <div style={{ display: "flex", alignItems: "center", gap: 26 }}>
+        <span className="tv-eyebrow" style={{ color: accent, fontSize: 36 }}>
+          Now checking in
+        </span>
+        {/* Progress through the heat. Reassuring for a party watching their
+            group arrive, and the number the desk actually wants. Hidden rather
+            than guessed at when the roster could not be read. */}
+        {checkedIn != null && total != null && total > 0 && (
+          <span
+            className="tv-display tv-num"
+            style={{
+              fontSize: 40,
+              color: checkedIn >= total ? "#46d68c" : "rgba(245,236,238,0.75)",
+              padding: "6px 20px",
+              borderRadius: 999,
+              border: `2px solid ${checkedIn >= total ? "#46d68c" : "rgba(245,236,238,0.28)"}`,
+            }}
+          >
+            {checkedIn} of {total} checked in
+          </span>
+        )}
       </div>
 
       <div
@@ -364,6 +410,50 @@ function ScanRail({
           {s.firstName || "Racer"}
         </span>
       ))}
+    </div>
+  );
+}
+
+/* ── wrong race ───────────────────────────────────────────────────────── */
+
+/**
+ * "That is not this heat."
+ *
+ * The failure this prevents: a racer scans, nothing visibly happens, and they
+ * walk off believing they are checked in — then turn up for a heat that has
+ * already run. Naming them, saying plainly that this is not their race, and
+ * telling them when theirs is turns a silent dead end into an instruction.
+ *
+ * Amber rather than red. They have not done anything wrong.
+ */
+function WrongRaceNotice({ event }: { event: { firstName?: string; theirRaceLabel?: string } }) {
+  const amber = "#f0b341";
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: 0,
+        padding: "26px 34px",
+        background: "rgba(30,18,0,0.92)",
+        borderTop: `4px solid ${amber}`,
+        display: "flex",
+        alignItems: "center",
+        gap: 26,
+      }}
+    >
+      <IconAlertTriangleFilled size={64} color={amber} />
+      <div>
+        <div className="tv-display" style={{ fontSize: 52, color: amber }}>
+          {event.firstName ? `${event.firstName} — that’s not this heat` : "That’s not this heat"}
+        </div>
+        <div style={{ fontSize: 36, color: "rgba(245,236,238,0.8)", marginTop: 6 }}>
+          {event.theirRaceLabel
+            ? `Your race is ${event.theirRaceLabel}. Come back when it’s called.`
+            : "See the desk and we’ll get you sorted."}
+        </div>
+      </div>
     </div>
   );
 }

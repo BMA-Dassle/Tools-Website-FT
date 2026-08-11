@@ -46,6 +46,25 @@ interface Participant {
   viewpointCredit?: number | null;
 }
 
+/** "Blue Pro at 8:15" — pre-formatted, so a wall never does timezone maths to
+ *  tell somebody where to be. */
+function formatHeatLabel(
+  track: string | null,
+  raceType: string | null,
+  scheduledStart: string | null,
+): string | undefined {
+  const time = scheduledStart
+    ? new Date(scheduledStart).toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: "America/New_York",
+      })
+    : "";
+  const parts = [track, raceType].filter(Boolean).join(" ");
+  if (!parts && !time) return undefined;
+  return time ? `${parts} at ${time}`.trim() : parts;
+}
+
 function auth(req: NextRequest): boolean {
   const token = req.nextUrl.searchParams.get("token") ?? req.headers.get("x-admin-token") ?? "";
   const expected = process.env.ADMIN_CAMERA_TOKEN || "";
@@ -930,6 +949,27 @@ export async function POST(req: NextRequest) {
         pictureUrl: null,
       }
     : null;
+
+  // They scanned for a heat that is not the one checking in. Put it on the
+  // boards so the racer sees WHY nothing happened and when they should be
+  // back — otherwise they walk away thinking they are checked in, and turn up
+  // to a heat that has already run.
+  //
+  // Scoped to the track, unlike a birthday: this concerns one person at one
+  // desk, not the building. Fire-and-forget, never throws.
+  {
+    const trackKey = trackFromName(track);
+    void recordSignageEvent({
+      id: `wrong-${personId ?? "unknown"}-${Date.now()}`,
+      kind: "racer-wrong-race",
+      center: "fort-myers",
+      firstName: guestResponse?.firstName || undefined,
+      resourceId: trackKey ? TRACK_RESOURCE_IDS[trackKey] : undefined,
+      activityKeys: ["racing"],
+      theirRaceLabel: formatHeatLabel(track, raceType, scheduledStart),
+      atMs: Date.now(),
+    });
+  }
 
   return NextResponse.json({
     success: true,

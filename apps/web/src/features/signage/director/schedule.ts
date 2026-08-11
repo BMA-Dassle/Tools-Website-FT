@@ -207,8 +207,17 @@ export function isTakeoverEvent(e: SignageEvent): boolean {
 }
 
 /**
- * The newest event worth taking the whole screen over for: recent enough to
- * still be true, not already shown here, in scope, and takeover-worthy.
+ * The newest event worth taking the whole screen over for.
+ *
+ * A BIRTHDAY IGNORES TRACK SCOPE. Birthday check-in happens at race check-in
+ * downstairs, which serves both tracks — so it is one building-wide moment and
+ * BOTH karting boards run it together, whatever track the racer is on and
+ * whether or not it is a Mega day (owner 2026-08-11). Scoping it by track is
+ * what made only one board light up.
+ *
+ * But it belongs ONLY to the karting boards — `isRacingBoard`. A lobby TV
+ * across the building has no part in a race check-in and must not take itself
+ * over for one.
  */
 export function celebrationAt(
   nowMs: number,
@@ -216,8 +225,10 @@ export function celebrationAt(
   cfg: ResolvedScreenConfig["celebration"],
   scopeResourceIds: string[],
   seen: ReadonlySet<string>,
+  isRacingBoard: boolean,
 ): SignageEvent | null {
   if (!cfg.enabled) return null;
+  if (!isRacingBoard) return null;
   const maxAgeMs = cfg.maxAgeSecs * 1000;
   let best: SignageEvent | null = null;
   for (const e of events) {
@@ -227,10 +238,16 @@ export function celebrationAt(
     // Guard both ends: a future-stamped event (clock skew on the writer) is as
     // untrustworthy as an ancient one.
     if (age < -5_000 || age > maxAgeMs) continue;
-    if (!eventInScope(e, scopeResourceIds)) continue;
+    // NB: deliberately no scope check — see the note above.
     if (!best || e.atMs > best.atMs) best = e;
   }
   return best;
+}
+
+/** Does this screen run the race check-in scene? Only those boards take part in
+ *  a race-check-in birthday. */
+export function isRacingBoard(playlist: ResolvedScreenConfig["playlist"]): boolean {
+  return playlist.some((p) => p.scene === "race-checkin");
 }
 
 /**
@@ -293,6 +310,7 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
     config.celebration,
     config.scope.resourceIds,
     input.seenEventIds,
+    isRacingBoard(config.playlist),
   );
   if (event) {
     return {

@@ -33,6 +33,10 @@ export interface RaceCheckinInfo {
   vipOnHeat: boolean;
   /** Their first names, for a personal greeting. Empty when we have none. */
   vipFirstNames: string[];
+  /** Progress through the heat's roster. Null when it could not be read — the
+   *  board shows nothing rather than a wrong count. */
+  checkedIn: number | null;
+  total: number | null;
 }
 
 interface CachedRace {
@@ -87,7 +91,14 @@ export async function raceCheckinInfo(
   track: TrackKey,
   businessDate: string,
 ): Promise<RaceCheckinInfo> {
-  const empty: RaceCheckinInfo = { track, sessionId: null, vipOnHeat: false, vipFirstNames: [] };
+  const empty: RaceCheckinInfo = {
+    track,
+    sessionId: null,
+    vipOnHeat: false,
+    vipFirstNames: [],
+    checkedIn: null,
+    total: null,
+  };
 
   const race = await currentSession(track);
   const sessionId = typeof race?.sessionId === "number" ? race.sessionId : null;
@@ -96,6 +107,13 @@ export async function raceCheckinInfo(
   const people = await roster(sessionId);
   if (people.length === 0) return { ...empty, sessionId };
 
+  // "8 of 12 checked in" — the single most useful number on the board for the
+  // staff member working the desk, and reassuring for a party watching their
+  // group arrive.
+  const total = people.length;
+  const checkedIn = people.filter((p) => p.checkedIn === true).length;
+  const counted = { ...empty, sessionId, checkedIn, total };
+
   // personIds stay STRINGS end to end — BMI ids exceed Number.MAX_SAFE_INTEGER
   // and Number()/JSON round-tripping them is this repo's classic off-by-one.
   const byPersonId = new Map<string, CachedParticipant>();
@@ -103,11 +121,11 @@ export async function raceCheckinInfo(
     const id = p.personId == null ? "" : String(p.personId);
     if (/^\d+$/.test(id)) byPersonId.set(id, p);
   }
-  if (byPersonId.size === 0) return { ...empty, sessionId };
+  if (byPersonId.size === 0) return counted;
 
   try {
     const vips = await vipComboPersonLegsOnDate(Array.from(byPersonId.keys()), businessDate);
-    if (vips.size === 0) return { ...empty, sessionId };
+    if (vips.size === 0) return counted;
 
     const names: string[] = [];
     for (const personId of vips.keys()) {
@@ -115,8 +133,8 @@ export async function raceCheckinInfo(
       // First names only — this goes on a public wall.
       if (first) names.push(first.split(/\s+/)[0]);
     }
-    return { track, sessionId, vipOnHeat: true, vipFirstNames: Array.from(new Set(names)) };
+    return { ...counted, vipOnHeat: true, vipFirstNames: Array.from(new Set(names)) };
   } catch {
-    return { ...empty, sessionId };
+    return counted;
   }
 }

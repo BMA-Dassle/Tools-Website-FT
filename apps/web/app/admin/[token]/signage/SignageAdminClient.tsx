@@ -207,6 +207,9 @@ export default function SignageAdminClient({ token }: { token: string }) {
                 onEdit={() => setEditing(draftFromScreen(s))}
                 onDelete={() => remove(s.screenId)}
                 onTest={() => post({ action: "test-celebration", center: s.center })}
+                onSimulate={(action, extra) =>
+                  post({ action, center: s.center, firstName: "Marcus", ...extra })
+                }
                 onSimulateScan={(track, opts) =>
                   post({
                     action: "simulate-scan",
@@ -237,6 +240,7 @@ function ScreenRow({
   onDelete,
   onTest,
   onSimulateScan,
+  onSimulate,
   busy,
 }: {
   screen: SignageScreen;
@@ -248,6 +252,7 @@ function ScreenRow({
   onDelete: () => void;
   onTest: () => void;
   onSimulateScan: (track: string, opts: { vip?: boolean; birthday?: boolean }) => void;
+  onSimulate: (action: string, extra?: Record<string, unknown>) => void;
   busy: boolean;
 }) {
   const [showSetup, setShowSetup] = useState(false);
@@ -344,10 +349,49 @@ function ScreenRow({
           onClick={() => onSimulateScan(trackName, { birthday: true })}
           style={{ ...btn, borderColor: "#ec4899", color: "#ec4899" }}
           disabled={busy}
-          title="Fires the full two-board birthday takeover"
+          title="Fires the full birthday takeover on BOTH karting boards"
         >
           Simulate birthday
         </button>
+        <button
+          type="button"
+          onClick={() => onSimulate("simulate-wrong-race", { track: trackName })}
+          style={{ ...btn, borderColor: "#f0b341", color: "#f0b341" }}
+          disabled={busy}
+          title="Somebody scanned for a heat that is not the one checking in"
+        >
+          Simulate wrong race
+        </button>
+        <a
+          href={`/tv?screen=${encodeURIComponent(screen.screenId)}&demo=race`}
+          target="_blank"
+          rel="noreferrer"
+          style={{ ...btn, textDecoration: "none", display: "inline-block" }}
+        >
+          Preview with a session
+        </a>
+        <a
+          href={`/tv?screen=${encodeURIComponent(screen.screenId)}&demo=vip`}
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            ...btn,
+            textDecoration: "none",
+            display: "inline-block",
+            borderColor: "#d4af37",
+            color: "#d4af37",
+          }}
+        >
+          Preview VIP
+        </a>
+        <a
+          href={`/tv?screen=${encodeURIComponent(screen.screenId)}&demo=event`}
+          target="_blank"
+          rel="noreferrer"
+          style={{ ...btn, textDecoration: "none", display: "inline-block" }}
+        >
+          Preview welcome board
+        </a>
         <button type="button" onClick={onEdit} style={btn} disabled={busy}>
           Edit
         </button>

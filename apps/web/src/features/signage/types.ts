@@ -167,7 +167,12 @@ export interface SignageScreen {
 
 /* ── the live event rail ──────────────────────────────────────────────── */
 
-export type SignageEventKind = "booking-completed" | "checkin-completed" | "racer-scanned";
+export type SignageEventKind =
+  | "booking-completed"
+  | "checkin-completed"
+  | "racer-scanned"
+  /** Scanned, but not for the heat that is checking in. */
+  | "racer-wrong-race";
 
 /**
  * Something just happened on a device in the building, pushed onto a short Redis
@@ -197,6 +202,10 @@ export interface SignageEvent {
   /** It's their birthday. Triggers the full two-board takeover on the karting
    *  check-in screens — the biggest thing either wall ever does. */
   birthday?: boolean;
+  /** For a wrong-race scan: when their heat actually is, already formatted.
+   *  Pre-formatted rather than an ISO string because the board must not do
+   *  timezone maths to tell somebody where to be. */
+  theirRaceLabel?: string;
   /** Shared-clock ms when it happened. */
   atMs: number;
 }
@@ -265,6 +274,11 @@ export interface TvFeed {
     sessionId: number | null;
     vipOnHeat: boolean;
     vipFirstNames: string[];
+    /** How many of the heat's racers are checked in, and how many there are.
+     *  Null when the roster could not be read — the board then shows no count
+     *  rather than a wrong one. */
+    checkedIn: number | null;
+    total: number | null;
   } | null;
   /** Product ids currently off-sale — never advertise a paused product. */
   pausedProductIds: string[];

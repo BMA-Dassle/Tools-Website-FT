@@ -146,6 +146,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  if (action === "simulate-wrong-race") {
+    const center = body.center || "fort-myers";
+    const track = (body.track || "").toLowerCase();
+    const resourceId = TRACK_RESOURCE_IDS[track];
+    await recordSignageEvent({
+      id: `sim-wrong-${Date.now()}`,
+      kind: "racer-wrong-race",
+      center,
+      firstName: body.firstName || "Marcus",
+      resourceId,
+      activityKeys: ["racing"],
+      theirRaceLabel: "Blue Intermediate at 8:15",
+      atMs: Date.now(),
+    });
+    return NextResponse.json({ ok: true });
+  }
+
   if (action === "simulate-scan") {
     // Pretend a racer just scanned at race check-in.
     //

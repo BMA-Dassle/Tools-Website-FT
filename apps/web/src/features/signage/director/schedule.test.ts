@@ -11,6 +11,7 @@ import {
   totalSlots,
   crownActiveAt,
   celebrationAt,
+  isRacingBoard,
   recentScans,
   vipTakeoverAt,
   isBowlingStep,
@@ -245,23 +246,29 @@ describe("celebrationAt — full-screen takeovers only", () => {
   it("does NOT take the screen over for an ordinary scan", () => {
     // Racers scan in bursts. A takeover each would queue a minute of them and
     // bury the session — ordinary scans belong on the rail (see recentScans).
-    expect(celebrationAt(now, [evt({ atMs: now - 2_000 })], cfg, [], new Set())).toBeNull();
+    expect(celebrationAt(now, [evt({ atMs: now - 2_000 })], cfg, [], new Set(), true)).toBeNull();
   });
 
   it("takes over for a birthday", () => {
-    expect(celebrationAt(now, [bday({ atMs: now - 2_000 })], cfg, [], new Set())?.id).toBe("e1");
+    expect(celebrationAt(now, [bday({ atMs: now - 2_000 })], cfg, [], new Set(), true)?.id).toBe(
+      "e1",
+    );
   });
 
   it("drops stale events rather than replaying old joy after an outage", () => {
-    expect(celebrationAt(now, [bday({ atMs: now - 200_000 })], cfg, [], new Set())).toBeNull();
+    expect(
+      celebrationAt(now, [bday({ atMs: now - 200_000 })], cfg, [], new Set(), true),
+    ).toBeNull();
   });
 
   it("distrusts a future-stamped event (writer clock skew)", () => {
-    expect(celebrationAt(now, [bday({ atMs: now + 60_000 })], cfg, [], new Set())).toBeNull();
+    expect(celebrationAt(now, [bday({ atMs: now + 60_000 })], cfg, [], new Set(), true)).toBeNull();
   });
 
   it("never repeats one this screen already showed", () => {
-    expect(celebrationAt(now, [bday({ atMs: now - 1000 })], cfg, [], new Set(["e1"]))).toBeNull();
+    expect(
+      celebrationAt(now, [bday({ atMs: now - 1000 })], cfg, [], new Set(["e1"]), true),
+    ).toBeNull();
   });
 
   it("takes the newest when several land at once", () => {
@@ -271,36 +278,43 @@ describe("celebrationAt — full-screen takeovers only", () => {
       cfg,
       [],
       new Set(),
+      true,
     );
     expect(picked?.id).toBe("new");
   });
 
-  it("respects screen scope — the Blue board ignores a Red Track birthday", () => {
-    const blue = ["11208654"];
-    expect(
-      celebrationAt(
-        now,
-        [bday({ atMs: now - 1_000, resourceId: "11208660" })],
-        cfg,
-        blue,
-        new Set(),
-      ),
-    ).toBeNull();
-    expect(
-      celebrationAt(
-        now,
-        [bday({ id: "b", atMs: now - 1_000, resourceId: "11208654" })],
-        cfg,
-        blue,
-        new Set(),
-      )?.id,
-    ).toBe("b");
+  it("a birthday fires on BOTH boards, whatever track it came from", () => {
+    // Birthday check-in happens at race check-in downstairs, which serves both
+    // tracks — one building-wide moment. Scoping it by track is what made only
+    // one board light up (owner 2026-08-11).
+    const blueBoard = ["11208654"];
+    const redBoard = ["11208660"];
+    const scanOnBlue = bday({ atMs: now - 1_000, resourceId: "11208654" });
+    expect(celebrationAt(now, [scanOnBlue], cfg, blueBoard, new Set(), true)?.id).toBe("e1");
+    expect(celebrationAt(now, [scanOnBlue], cfg, redBoard, new Set(), true)?.id).toBe("e1");
   });
 
-  it("a scoped screen ignores events with no resource at all", () => {
+  it("fires even with no resource on the event at all", () => {
     expect(
-      celebrationAt(now, [bday({ atMs: now - 1_000 })], cfg, ["11208654"], new Set()),
-    ).toBeNull();
+      celebrationAt(now, [bday({ atMs: now - 1_000 })], cfg, ["11208654"], new Set(), true)?.id,
+    ).toBe("e1");
+  });
+
+  it("does NOT fire on a screen that is not a karting board", () => {
+    // A lobby TV across the building has no part in a race check-in.
+    expect(celebrationAt(now, [bday({ atMs: now - 1_000 })], cfg, [], new Set(), false)).toBeNull();
+  });
+});
+
+describe("isRacingBoard", () => {
+  it("is true only when the screen runs the check-in scene", () => {
+    const racing = resolveScreenConfig({ playlist: [{ scene: "race-checkin" }] }, "FT");
+    const lobby = resolveScreenConfig(
+      { playlist: [{ scene: "event-welcome" }, { scene: "ads" }] },
+      "HPFM",
+    );
+    expect(isRacingBoard(racing.playlist)).toBe(true);
+    expect(isRacingBoard(lobby.playlist)).toBe(false);
   });
 });
 
@@ -343,9 +357,13 @@ describe("recentScans — the live rail", () => {
 });
 
 describe("resolveActiveScene precedence", () => {
+  // A racing board: birthdays only take over screens that run check-in.
   const config = resolveScreenConfig(
     {
-      playlist: [{ scene: "ads", slots: 1 }],
+      playlist: [
+        { scene: "ads", slots: 1 },
+        { scene: "race-checkin", slots: 1 },
+      ],
       interrupts: { "billboard-crown": { enabled: true, joinEvery: 1 } },
     },
     "HPFM",

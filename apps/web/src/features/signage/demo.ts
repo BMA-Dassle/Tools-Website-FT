@@ -100,6 +100,8 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
         sessionId: 59,
         vipOnHeat: true,
         vipFirstNames: ["Sarah"],
+        checkedIn: 5,
+        total: 8,
       },
     };
   }
