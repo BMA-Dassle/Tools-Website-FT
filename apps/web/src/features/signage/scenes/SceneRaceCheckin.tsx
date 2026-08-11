@@ -66,6 +66,16 @@ const WRONG_RACE_SHOW_MS = 12_000;
  *  someone at the far end of the arcade to look up and read it. */
 const JUST_CALLED_MS = 45_000;
 
+/**
+ * A session leaves the boards 10 minutes after its call, and its racers go
+ * with it (owner 2026-08-11: "both screens should clear session and/or checked
+ * in racers after 10 minutes or when next session is called"). The upstream
+ * cache deliberately remembers the last call for hours so e-tickets can read
+ * it — the BOARD is where staleness costs, so the board enforces its own
+ * lifetime.
+ */
+const SESSION_LINGER_MS = 10 * 60_000;
+
 /** Where the records QR points. The public best-times board, which already
  *  carries the per-track records matrix. */
 const recordsUrl =
@@ -111,9 +121,22 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
   // Checking In" cannot sit on a wall until morning. `?demo=race` substitutes a
   // fabricated session so the board can be reviewed outside operating hours —
   // deliberate, client-only, and gone on the next reload.
-  const race =
+  const rawRace =
     status?.currentRaces?.[track] ??
     (demo === "race" ? demoCurrentRace(nowMs, TRACK_LABELS[track]) : null);
+
+  // The session's own lifetime, and the scans' with it. Names are floored to
+  // this session's call — so the moment the NEXT session is called, everyone
+  // from the previous one drops without any bookkeeping. Ten minutes after the
+  // call with no successor, the whole thing clears to idle.
+  const calledAtMs = rawRace?.calledAt ? Date.parse(rawRace.calledAt) : NaN;
+  const sessionExpired = Number.isFinite(calledAtMs) && nowMs - calledAtMs > SESSION_LINGER_MS;
+  const race = sessionExpired ? null : rawRace;
+  const scanFloorMs = sessionExpired
+    ? Number.POSITIVE_INFINITY
+    : Number.isFinite(calledAtMs)
+      ? calledAtMs - 60_000 // small grace: a scan landing as the call goes out
+      : 0;
   const delay = findDelay(status?.trackStatus.tracks, track);
 
   // VIPs DO NOT SCAN IN — they are met and escorted (owner 2026-08-11). The
@@ -129,7 +152,7 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
     scopeIds,
     SCAN_RAIL_WINDOW_MS,
     SCAN_RAIL_LIMIT,
-  );
+  ).filter((sc) => sc.atMs >= scanFloorMs);
   // A heat has JUST been called. This is the moment the board has to be seen
   // from across the room — it is the only warning a racer gets that their race
   // is up, and someone half-watching from the arcade needs to catch it.
@@ -160,7 +183,7 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
       scopeIds,
       FEED_WINDOW_MS,
       FEED_LIMIT,
-    );
+    ).filter((sc) => sc.atMs >= scanFloorMs);
     return (
       <CheckinFeed
         accent={accent}
