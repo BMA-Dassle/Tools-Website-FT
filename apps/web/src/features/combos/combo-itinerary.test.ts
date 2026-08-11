@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { buildChainFrom, buildChains, wallClockMs, type LegCandidate } from "./combo-itinerary";
+import {
+  buildChainFrom,
+  buildChains,
+  COMBO_BIG_GAP_SUGGEST_MINUTES,
+  largestIdleGap,
+  wallClockMs,
+  type LegCandidate,
+} from "./combo-itinerary";
 import { candidatesForOrdering } from "./combo-booking";
 import { getComboSpecial } from "./combo-specials";
 
@@ -220,5 +227,46 @@ describe("reorder fallback — 6/23 Mega scenario (real registry config)", () =>
   it("6 PM stays dead even with the reorder (no Intermediate within the 45-min cap)", () => {
     expect(by(normalChains, "S6pm")).toBeNull();
     expect(by(fbChains, "S6pm")).toBeNull();
+  });
+});
+
+describe("largestIdleGap — the schedule-card / staff-email wait call-out", () => {
+  const MIN = 60_000;
+  const leg = (startMin: number, durMin: number, label: string) => ({
+    ms: startMin * MIN,
+    endMs: (startMin + durMin) * MIN,
+    label,
+  });
+
+  it("finds the biggest ≥45-min gap and names the leg being waited for", () => {
+    // The live 8/10 shape: Starter 7:20 (+30 = 7:50), lane 9:00 — 70 min idle.
+    const legs = [
+      leg(19 * 60 + 20, 30, "7:20 PM — Starter Race"),
+      leg(21 * 60, 90, "9:00 PM — 1.5 hr VIP Bowling"),
+      leg(22 * 60 + 50, 30, "10:50 PM — Intermediate Race"),
+    ];
+    expect(largestIdleGap(legs, COMBO_BIG_GAP_SUGGEST_MINUTES)).toEqual({
+      minutes: 70,
+      beforeLabel: "9:00 PM — 1.5 hr VIP Bowling",
+    });
+  });
+
+  it("null when every transition is under the threshold (standard 15–45 min)", () => {
+    const legs = [
+      leg(14 * 60, 30, "race"),
+      leg(14 * 60 + 45, 90, "lane"),
+      leg(16 * 60 + 30, 30, "race 2"),
+    ];
+    expect(largestIdleGap(legs, COMBO_BIG_GAP_SUGGEST_MINUTES)).toBeNull();
+  });
+
+  it("sorts unordered legs and picks the LARGEST qualifying gap", () => {
+    const legs = [
+      leg(18 * 60 + 30, 30, "late race"), // 60-min gap before this (lane ends 17:30)
+      leg(14 * 60, 30, "first race"),
+      leg(16 * 60, 90, "lane"), // 90-min gap before this (race ends 14:30)
+    ];
+    expect(largestIdleGap(legs, 45)?.beforeLabel).toBe("lane");
+    expect(largestIdleGap(legs, 45)?.minutes).toBe(90);
   });
 });

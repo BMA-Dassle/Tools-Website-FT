@@ -21,6 +21,8 @@ import {
 import {
   buildChainFrom,
   buildChains,
+  COMBO_BIG_GAP_SUGGEST_MINUTES,
+  gapLengthLabel,
   wallClockLabel,
   wallClockMs,
   type ChainResult,
@@ -70,24 +72,6 @@ import { DISABLED_CARD, TRACK_BADGE, TRACK_CARD, TrackInfoBanner } from "../race
 
 const CYAN = "#00E2E5";
 const GOLD = "#FFD700";
-
-/**
- * An idle gap this long (or longer) between two legs gets a "use the wait"
- * suggestion on the schedule card (owner 2026-08-10: a 7:20 race with a 9:00
- * lane leaves ~70 idle minutes — point guests at Gel Blasters / Laser Tag /
- * Game Zone, which the VIP pack includes and which book on-site). Gaps are
- * measured from the previous leg's scheduling end (race start + 30), so the
- * normal 15–45 min transitions stay quiet.
- */
-const BIG_GAP_SUGGEST_MINUTES = 45;
-
-/** "about 1 hr 10 min" / "about 50 min" for the gap suggestion line. */
-function gapLengthLabel(minutes: number): string {
-  if (minutes < 60) return `about ${minutes} min`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return `about ${h} hr${m ? ` ${m} min` : ""}`;
-}
 
 const TIER_LABEL: Record<string, string> = {
   starter: "Starter Race",
@@ -469,7 +453,7 @@ function ScheduleConfirmModal({
                 entry && prev ? Math.round((entry.startMs - prev.endMs) / 60_000) : 0;
               return (
                 <Fragment key={`leg-${i}`}>
-                  {gapMinutes >= BIG_GAP_SUGGEST_MINUTES && (
+                  {gapMinutes >= COMBO_BIG_GAP_SUGGEST_MINUTES && (
                     <li className="rounded-lg border border-dashed border-white/15 bg-white/[0.02] px-3 py-1.5 text-xs text-white/60">
                       <span className="font-semibold" style={{ color: GOLD }}>
                         {gapLengthLabel(gapMinutes)} between stops

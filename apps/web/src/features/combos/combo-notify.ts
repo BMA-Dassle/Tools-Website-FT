@@ -1,15 +1,22 @@
 /**
- * Combo booking staff alert — SERVER-ONLY (imports the SendGrid lib; keep out
- * of features/combos/index.ts so client bundles never pull it).
+ * Combo booking staff alert — SERVER-ONLY (imports the SendGrid + Teams-bot
+ * libs; keep out of features/combos/index.ts so client bundles never pull it).
  *
- * Owner (2026-06-11): email eric@, curtis@, alex@ and jacob@headpinz.com
- * whenever an Ultimate VIP Experience books. (2026-06-13: added abigail@,
- * bruce@headpinz.com and jeff@, jamil@fasttraxent.com.) Fired by unifiedReserve after
- * the booking fully succeeds (deposit captured, QAMF confirmed, BMI
- * confirmed). Best-effort: never throws — a mail hiccup must not fail a
- * paid booking.
+ * Owner (2026-06-11): email staff whenever a VIP Experience books.
+ * (2026-08-10: recipients knocked down to eric@, jacob@ and curtis@ — the
+ * wider 8-person list retired.) Fired by unifiedReserve after the booking
+ * fully succeeds (deposit captured, QAMF confirmed, BMI confirmed).
+ * Best-effort: never throws — a mail hiccup must not fail a paid booking.
+ *
+ * SAME-DAY bookings additionally post an adaptive card to the VIP staff
+ * Teams chat (owner 2026-08-10) — the one the vip-move-alerts "walk them
+ * over" cards use — so the floor hears about a party arriving TODAY without
+ * anyone watching an inbox. Kill switch COMBO_SAMEDAY_TEAMS_ALERT=false.
  */
 import { sendEmail } from "@/lib/sendgrid";
+import { sendAdaptiveCardToChannel } from "@/lib/teams-bot";
+import { vipMoveAlertsChatId } from "~/features/vip-move-alerts/config";
+import { todayET } from "~/features/reservations-admin/format";
 import type { BookingSession, BowlingItem, RaceItem } from "~/features/booking/state/types";
 import type { ContactInfo } from "~/features/booking/types";
 import type { VoucherItem } from "~/features/game-cards/data/vouchers-db";
@@ -18,19 +25,17 @@ import { summariseVoucherItems } from "~/features/game-cards/vouchers/display";
 
 import { listComboGroupsForDate } from "./combo-existing.server";
 import { chipHourOfIso, classifyGroupMatch } from "./combo-group-match";
-import { wallClockLabel, wallClockMs } from "./combo-itinerary";
+import {
+  COMBO_BIG_GAP_SUGGEST_MINUTES,
+  gapLengthLabel,
+  largestIdleGap,
+  wallClockLabel,
+  wallClockMs,
+} from "./combo-itinerary";
 import { getComboSpecial } from "./combo-specials";
 
-const COMBO_BOOKED_RECIPIENTS = [
-  "eric@headpinz.com",
-  "curtis@headpinz.com",
-  "alex@headpinz.com",
-  "jacob@headpinz.com",
-  "abigail@headpinz.com",
-  "bruce@headpinz.com",
-  "jeff@fasttraxent.com",
-  "jamil@fasttraxent.com",
-];
+// Owner 2026-08-10: knocked down from the original 8-person list.
+const COMBO_BOOKED_RECIPIENTS = ["eric@headpinz.com", "jacob@headpinz.com", "curtis@headpinz.com"];
 
 export async function notifyComboBooked(args: {
   session: BookingSession;
@@ -99,6 +104,31 @@ export async function notifyComboBooked(args: {
     // them). Managers need to know — the visit order differs from the standard
     // race → bowl → race, which changes lane/track scheduling.
     const reordered = bowlMs != null && raceRows.length > 0 && raceRows.every((r) => r.ms < bowlMs);
+
+    // Long idle gap between stops (owner 2026-08-10): mirror the guest-facing
+    // schedule-card math (races schedule as flat 30-min legs) and tell staff
+    // whether the guest was warned — the web wizard shows the wait note with
+    // the Laser Tag / Gel Blasters / Game Zone suggestion; the kiosk does NOT
+    // render that card, so a kiosk booking's guest may not expect the wait.
+    const RACE_LEG_MS = 30 * 60_000;
+    const timedLegs = [
+      ...raceRows.map((r) => ({ ...r, endMs: r.ms + RACE_LEG_MS })),
+      ...(bowlingRow
+        ? [{ ...bowlingRow, endMs: bowlingRow.ms + (bowlingItem?.durationMinutes ?? 90) * 60_000 }]
+        : []),
+    ];
+    const bigGap = largestIdleGap(timedLegs, COMBO_BIG_GAP_SUGGEST_MINUTES);
+    const kioskBooking = session.context?.kiosk === true;
+    let gapNote: { html: string; text: string } | null = null;
+    if (bigGap) {
+      const text = kioskBooking
+        ? `Long wait in this schedule: ${gapLengthLabel(bigGap.minutes)} idle before "${bigGap.beforeLabel}". Booked on the KIOSK, which does not show the wait note — the guest may not expect it; suggest Laser Tag / Gel Blasters / Game Zone (included in the pack) at check-in.`
+        : `Long wait in this schedule: ${gapLengthLabel(bigGap.minutes)} idle before "${bigGap.beforeLabel}". The guest WAS shown this at booking, with the suggestion to fill it with Laser Tag, Gel Blasters or the Game Zone arcade (included in the pack, redeemed on-site).`;
+      gapNote = {
+        html: `<p style="margin:0 0 12px;padding:10px 12px;background:#eef2f7;border-left:4px solid #94a3b8;color:#334155">${text}</p>`,
+        text,
+      };
+    }
 
     // Schedule-match vs the date's OTHER VIP groups (owner 2026-07-06: staff
     // walk matching groups from FastTrax to HeadPinz together, so managers
@@ -182,6 +212,7 @@ export async function notifyComboBooked(args: {
         ? `<p style="margin:0 0 12px;padding:10px 12px;background:#fff4e5;border-left:4px solid #f5a623;color:#7a4f01;font-weight:600">⚠️ ${reorderNotice}</p>`
         : "",
       groupNote?.html ?? "",
+      gapNote?.html ?? "",
       `<p style="margin:0 0 12px"><strong>${guest}</strong><br/>${contact.email ?? ""}<br/>${contact.phone ?? ""}</p>`,
       `<p style="margin:0 0 4px"><strong>Itinerary</strong></p>`,
       `<ol style="margin:0 0 12px;padding-left:20px">${itinerary.map((r) => `<li>${r}</li>`).join("")}</ol>`,
@@ -206,6 +237,7 @@ export async function notifyComboBooked(args: {
         `${combo.name} booked — ${guest}, ${dateLabel}, ${partySize} ppl, ${total} paid.\n` +
         (reordered ? `\n** ${reorderNotice} **\n\n` : "") +
         (groupNote ? `\n** ${groupNote.text} **\n\n` : "") +
+        (gapNote ? `\n** ${gapNote.text} **\n\n` : "") +
         itinerary.map((r, i) => `${i + 1}. ${r}`).join("\n") +
         (args.voucher
           ? `\nVoucher ${formatVoucherCode(args.voucher.code)} — ${summariseVoucherItems(args.voucher.items)}`
@@ -214,6 +246,61 @@ export async function notifyComboBooked(args: {
     });
     if (!result.ok) {
       console.error("[combo-notify] SendGrid rejected the staff alert:", result.error);
+    }
+
+    // SAME-DAY booking → adaptive card to the VIP staff chat (owner
+    // 2026-08-10): the floor needs to hear about a party arriving TODAY
+    // without watching an inbox. Independent best-effort — a Teams hiccup
+    // must not fail the booking OR suppress the email above (already sent).
+    const sameDay = raceItem?.date === todayET();
+    const samedayAlertsOn = process.env.COMBO_SAMEDAY_TEAMS_ALERT !== "false";
+    if (sameDay && samedayAlertsOn) {
+      try {
+        const facts = [
+          { title: "Guest", value: `${guest} · ${contact.phone ?? contact.email ?? ""}` },
+          {
+            title: "Party",
+            value: `${partySize} ${partySize === 1 ? "person" : "people"} · ${total} paid online`,
+          },
+          ...itinerary.map((r, i) => ({ title: `Stop ${i + 1}`, value: r })),
+        ];
+        await sendAdaptiveCardToChannel(
+          vipMoveAlertsChatId(),
+          {
+            type: "AdaptiveCard",
+            $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+            version: "1.4",
+            body: [
+              {
+                type: "TextBlock",
+                size: "Medium",
+                weight: "Bolder",
+                wrap: true,
+                text: `🏁 SAME-DAY ${combo.name} booked — arriving today`,
+              },
+              { type: "FactSet", facts },
+              ...(reordered
+                ? [
+                    {
+                      type: "TextBlock",
+                      wrap: true,
+                      color: "Attention",
+                      text: `⚠️ ${reorderNotice}`,
+                    },
+                  ]
+                : []),
+              ...(gapNote
+                ? [{ type: "TextBlock", wrap: true, isSubtle: true, text: gapNote.text }]
+                : []),
+            ],
+          },
+          {
+            summaryText: `SAME-DAY ${combo.name}: ${guest}, ${partySize} ppl${startLabel ? `, first race ${startLabel}` : ""}`,
+          },
+        );
+      } catch (err) {
+        console.error("[combo-notify] same-day Teams card failed (non-fatal):", err);
+      }
     }
   } catch (err) {
     console.error("[combo-notify] staff alert failed (non-fatal):", err);

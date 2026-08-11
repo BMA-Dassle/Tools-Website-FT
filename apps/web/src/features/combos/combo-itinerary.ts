@@ -38,6 +38,52 @@ export interface ChainResult<P = unknown> {
   chain: LegCandidate<P>[] | null;
 }
 
+/**
+ * An idle gap this long (or longer) between itinerary legs gets called out —
+ * to the GUEST on the web schedule card (ComboSteps: "squeeze in Laser Tag,
+ * Gel Blasters or the Game Zone arcade") and to STAFF in the booking email
+ * (combo-notify), which also records whether the guest saw that note.
+ * (Owner 2026-08-10 — a 7:20 PM race with a 9:00 lane left ~70 unexplained
+ * idle minutes.) Gaps measure from the previous leg's scheduling END, so the
+ * normal 15–45 min transitions stay quiet.
+ */
+export const COMBO_BIG_GAP_SUGGEST_MINUTES = 45;
+
+/** "about 1 hr 10 min" / "about 50 min" for the gap call-outs. */
+export function gapLengthLabel(minutes: number): string {
+  if (minutes < 60) return `about ${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `about ${h} hr${m ? ` ${m} min` : ""}`;
+}
+
+/** One already-timed itinerary row for `largestIdleGap`. */
+export interface TimedLeg {
+  ms: number;
+  endMs: number;
+  label: string;
+}
+
+/**
+ * The LARGEST idle gap ≥ `thresholdMinutes` between consecutive legs (sorted
+ * chronologically), or null. `beforeLabel` names the leg the guest waits FOR
+ * — staff email + card copy hang off it.
+ */
+export function largestIdleGap(
+  legs: TimedLeg[],
+  thresholdMinutes: number,
+): { minutes: number; beforeLabel: string } | null {
+  const ordered = [...legs].sort((a, b) => a.ms - b.ms);
+  let best: { minutes: number; beforeLabel: string } | null = null;
+  for (let i = 1; i < ordered.length; i++) {
+    const minutes = Math.round((ordered[i].ms - ordered[i - 1].endMs) / 60_000);
+    if (minutes >= thresholdMinutes && (!best || minutes > best.minutes)) {
+      best = { minutes, beforeLabel: ordered[i].label };
+    }
+  }
+  return best;
+}
+
 /** Strip a trailing Z or ±HH:MM offset and parse the naive part as local
  *  time — yields comparable ET wall-clock ms for both BMI and QAMF ISOs. */
 export function wallClockMs(iso: string): number {
