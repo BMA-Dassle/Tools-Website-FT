@@ -71,7 +71,12 @@ export async function GET(req: NextRequest) {
     const body = buildStartupScript({
       screenId: screen.screenId,
       name: screen.name,
-      url: `${origin}/tv?screen=${encodeURIComponent(screen.screenId)}`,
+      // NOT encodeURIComponent'd. A colon is legal in a query value, and the
+      // encoded form is actively harmful here: in a .bat, `%3` is a parameter
+      // substitution, so `FT%3A1` expands to `FTA1` and the player asks for a
+      // screen that does not exist (owner, 2026-08-11 — the boards showed the
+      // unprovisioned ads-only fallback all evening because of it).
+      url: `${origin}/tv?screen=${screen.screenId}`,
     });
     return new NextResponse(body, {
       headers: {

@@ -4,7 +4,7 @@ import { buildStartupScript, startupScriptFileName, startupInstructions } from "
 const script = buildStartupScript({
   screenId: "FT:1",
   name: "Blue Track check-in",
-  url: "https://fasttraxent.com/tv?screen=FT%3A1",
+  url: "https://fasttraxent.com/tv?screen=FT:1",
 });
 
 describe("startup script", () => {
@@ -25,8 +25,29 @@ describe("startup script", () => {
     expect(script).toContain("Could not find Microsoft Edge");
   });
 
+  it("never leaves a bare % in the URL — batch would eat it", () => {
+    // THE 2026-08-11 OUTAGE. `%` starts a parameter substitution in a .bat, so
+    // a percent-encoded screen id was silently corrupted: FT%3A1 -> FTA1, the
+    // player asked for a screen that does not exist, and every board sat on the
+    // unprovisioned ads-only fallback all evening.
+    const encoded = buildStartupScript({
+      screenId: "FT:1",
+      name: "Blue",
+      url: "https://fasttraxent.com/tv?screen=FT:1",
+    });
+    const line = encoded.split("\r\n").find((l) => l.startsWith('set "TV_URL='))!;
+    // Any % that survives must be doubled — cmd renders %% as a single %.
+    expect(line.replace(/%%/g, "")).not.toContain("%");
+  });
+
+  it("passes a plain colon through, because that is what the route now sends", () => {
+    const line = script.split("\r\n").find((l) => l.startsWith('set "TV_URL='))!;
+    expect(line).toContain("screen=FT:1");
+    expect(line).not.toContain("%");
+  });
+
   it("opens the right screen in true kiosk mode", () => {
-    expect(script).toContain("https://fasttraxent.com/tv?screen=FT%3A1");
+    expect(script).toContain("https://fasttraxent.com/tv?screen=FT:1");
     expect(script).toContain("--kiosk ");
     expect(script).toContain("--edge-kiosk-type=fullscreen");
   });

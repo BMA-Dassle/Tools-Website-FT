@@ -34,6 +34,19 @@ export function startupScriptFileName(screenId: string): string {
   return `tv-${screenId.replace(/[^A-Za-z0-9]+/g, "-").toLowerCase()}.bat`;
 }
 
+/**
+ * `%` is a parameter substitution in a batch file, so a percent-encoded URL is
+ * silently corrupted: `FT%3A1` becomes `FTA1`. Doubling it is the documented
+ * cmd escape and renders as a single `%`.
+ *
+ * Callers should not be percent-encoding these URLs at all — a colon is legal
+ * in a query value — but a URL is user-supplied data reaching a shell, so this
+ * never trusts that.
+ */
+function escapeForBatch(url: string): string {
+  return url.replace(/%/g, "%%");
+}
+
 export function buildStartupScript({ screenId, name, url }: StartupScriptArgs): string {
   const profile = `C:\\TV\\profile-${screenId.replace(/[^A-Za-z0-9]+/g, "-").toLowerCase()}`;
   const label = name || screenId;
@@ -52,7 +65,7 @@ export function buildStartupScript({ screenId, name, url }: StartupScriptArgs): 
     `REM ============================================================`,
     ``,
     `title Lobby TV - ${screenId}`,
-    `set "TV_URL=${url}"`,
+    `set "TV_URL=${escapeForBatch(url)}"`,
     `set "TV_PROFILE=${profile}"`,
     ``,
     `REM Edge lives in one of two places depending on the install. Use the`,
