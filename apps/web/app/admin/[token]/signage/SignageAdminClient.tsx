@@ -20,6 +20,7 @@ import {
   type SignageVenue,
 } from "~/features/signage/constants";
 import { ROLE_PRESETS, rolePreset, type ScreenRole } from "~/features/signage/defaults";
+import { startupInstructions, startupScriptFileName } from "~/features/signage/startup-script";
 import type { ScreenConfig, SignageScreen } from "~/features/signage/types";
 
 interface LoadState {
@@ -182,6 +183,7 @@ export default function SignageAdminClient({ token }: { token: string }) {
               <ScreenRow
                 key={s.screenId}
                 screen={s}
+                token={token}
                 lastSeen={data.seen[s.screenId] ?? null}
                 nowMs={loadedAt}
                 onEdit={() => setEditing(draftFromScreen(s))}
@@ -210,6 +212,7 @@ export default function SignageAdminClient({ token }: { token: string }) {
 
 function ScreenRow({
   screen,
+  token,
   lastSeen,
   nowMs,
   onEdit,
@@ -219,6 +222,7 @@ function ScreenRow({
   busy,
 }: {
   screen: SignageScreen;
+  token: string;
   lastSeen: string | null;
   /** Clock read once per load by the parent — never Date.now() during render. */
   nowMs: number;
@@ -228,6 +232,7 @@ function ScreenRow({
   onSimulateScan: (track: string, opts: { vip?: boolean; birthday?: boolean }) => void;
   busy: boolean;
 }) {
+  const [showSetup, setShowSetup] = useState(false);
   const online = lastSeen ? nowMs - Date.parse(lastSeen) < 60_000 : false;
   const scopedTrack = screen.config.scope?.resourceIds?.[0];
   const trackName =
@@ -294,6 +299,16 @@ function ScreenRow({
         <button type="button" onClick={() => void navigator.clipboard?.writeText(url)} style={btn}>
           Copy URL
         </button>
+        <a
+          href={`/api/admin/signage?token=${encodeURIComponent(token)}&script=${encodeURIComponent(screen.screenId)}`}
+          style={{ ...btn, textDecoration: "none", display: "inline-block" }}
+          download={startupScriptFileName(screen.screenId)}
+        >
+          Download startup script
+        </a>
+        <button type="button" onClick={() => setShowSetup((v) => !v)} style={btn}>
+          {showSetup ? "Hide setup" : "Setup steps"}
+        </button>
         <button type="button" onClick={onTest} style={btn} disabled={busy}>
           Fire test celebration
         </button>
@@ -322,6 +337,46 @@ function ScreenRow({
           Remove
         </button>
       </div>
+
+      {showSetup && <SetupSteps screenId={screen.screenId} />}
+    </div>
+  );
+}
+
+/** How to get this screen running on a Windows player. Generated from the same
+ *  module that writes the script, so the steps and the file cannot drift. */
+function SetupSteps({ screenId }: { screenId: string }) {
+  return (
+    <div
+      style={{
+        flexBasis: "100%",
+        marginTop: 4,
+        padding: 18,
+        borderRadius: 8,
+        background: "rgba(0,0,0,0.25)",
+        border: `1px solid ${PORTAL_DARK.border}`,
+      }}
+    >
+      <p style={{ margin: "0 0 12px", fontSize: 13, fontWeight: 600 }}>Setting up the player PC</p>
+      <ol
+        style={{
+          margin: 0,
+          paddingLeft: 22,
+          fontSize: 13,
+          lineHeight: 1.75,
+          color: PORTAL_DARK.muted,
+        }}
+      >
+        {startupInstructions(screenId).map((step) => (
+          <li key={step} style={{ marginBottom: 8 }}>
+            {step}
+          </li>
+        ))}
+      </ol>
+      <p style={{ margin: "14px 0 0", fontSize: 12, color: PORTAL_DARK.muted }}>
+        The script waits for the network, opens Edge in true kiosk mode with its own profile, and
+        relaunches automatically if Edge is ever closed or crashes.
+      </p>
     </div>
   );
 }

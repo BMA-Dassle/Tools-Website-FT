@@ -8,6 +8,7 @@ import {
 } from "~/features/signage/data/signage-screens-db";
 import { recordSignageEvent } from "~/features/signage/events.server";
 import { parseScreenKey, VENUE_INFO, type SignageVenue } from "~/features/signage/constants";
+import { buildStartupScript, startupScriptFileName } from "~/features/signage/startup-script";
 import type { ScreenConfig } from "~/features/signage/types";
 
 /**
@@ -58,6 +59,28 @@ async function lastSeen(screenIds: string[]): Promise<Record<string, string | nu
 
 export async function GET(req: NextRequest) {
   if (!authed(req)) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  // Startup script for one screen, as a downloadable .bat. Generated per screen
+  // so the URL inside it is already correct — the person setting up a TV should
+  // never have to hand-edit a path or a screen id.
+  const wantsScript = req.nextUrl.searchParams.get("script");
+  if (wantsScript) {
+    const screen = (await listSignageScreens()).find((s) => s.screenId === wantsScript);
+    if (!screen) return NextResponse.json({ error: "unknown screen" }, { status: 404 });
+    const origin = req.nextUrl.origin;
+    const body = buildStartupScript({
+      screenId: screen.screenId,
+      name: screen.name,
+      url: `${origin}/tv?screen=${encodeURIComponent(screen.screenId)}`,
+    });
+    return new NextResponse(body, {
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Disposition": `attachment; filename="${startupScriptFileName(screen.screenId)}"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
 
   const screens = await listSignageScreens();
   const seen = await lastSeen(screens.map((s) => s.screenId));
