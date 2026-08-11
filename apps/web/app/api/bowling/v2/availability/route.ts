@@ -10,6 +10,7 @@ import {
   evaluateWindow,
   minConfiguredMinutes,
   resolveOptionMinutes,
+  tailForgiveMinutes,
   type ProbeMap,
 } from "~/features/booking/service/duration-feasibility";
 import { etMinutesOfDay } from "~/components/features/booking/steps/bowling/availability-client";
@@ -562,11 +563,21 @@ export async function GET(req: NextRequest) {
           const startMin = etMinutesOfDay(a.BookedAt);
           // QAMF stops listing an offer past its last bookable start
           // (close − shortest configured option) even with every lane empty —
-          // window checks must not read those absences as occupancy.
+          // window checks must not read those absences as occupancy. The
+          // SAME artifact happens ahead of MID-DAY event blocks, which is
+          // what tailForgive covers (see tailForgiveMinutes — 2026-08-10).
           const minCfg = minConfiguredMinutes(cfgs);
           const lastStartMin = minCfg != null ? closeHour * 60 - minCfg : null;
+          const tailForgive = tailForgiveMinutes(minCfg);
           if (durationMinOver) {
-            return evaluateWindow(probeMap, a.WebOffer.Id, startMin, durationMinOver, lastStartMin)
+            return evaluateWindow(
+              probeMap,
+              a.WebOffer.Id,
+              startMin,
+              durationMinOver,
+              lastStartMin,
+              tailForgive,
+            )
               ? a
               : null;
           }
@@ -578,7 +589,7 @@ export async function GET(req: NextRequest) {
             const minutes = resolveOptionMinutes(cfgs, Number(t.Id));
             return (
               minutes == null ||
-              evaluateWindow(probeMap, a.WebOffer.Id, startMin, minutes, lastStartMin)
+              evaluateWindow(probeMap, a.WebOffer.Id, startMin, minutes, lastStartMin, tailForgive)
             );
           });
           if (fitting.length === 0) return null;

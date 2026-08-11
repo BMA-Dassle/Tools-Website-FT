@@ -23,6 +23,7 @@ import {
   optionBelongsToOffer,
   resolveOptionMinutes,
   slotExceedsClose,
+  tailForgiveMinutes,
   windowCheckMinutes,
 } from "./duration-feasibility";
 
@@ -140,15 +141,24 @@ export async function assertBookable(input: AssertBookableInput): Promise<void> 
   if (input.mode === "config-only") return;
 
   // Occupancy-window necessary-condition check (branch D): the offer must
-  // show availability at every 15-min instant INSIDE the window, else no
-  // lane can span it. Start instant is left to QAMF's createReservation.
-  // Instants past the offer's last bookable start (close − shortest option)
-  // are excluded — QAMF never lists the offer there even with empty lanes,
-  // so probing them would 409 every legitimate last-of-night booking.
+  // show availability at every 15-min instant inside the window's SOUND ZONE,
+  // else no lane can span it. Start instant is left to QAMF's
+  // createReservation. Instants past the offer's last bookable start
+  // (close − shortest option) are excluded — QAMF never lists the offer there
+  // even with empty lanes, so probing them would 409 every legitimate
+  // last-of-night booking — and the window's own start-tail instants are
+  // excluded for the same reason ahead of mid-day event blocks (see
+  // tailForgiveMinutes, 2026-08-10; must mirror the availability route or a
+  // slot the grid offers would 409 at hold time).
   const startMin = etMinutesOfDay(input.bookedAt);
   const minCfg = minConfiguredMinutes(sharing);
   const lastStartMin = minCfg != null ? closeHour * 60 - minCfg : null;
-  const checkMinutes = windowCheckMinutes(startMin, minutes, lastStartMin);
+  const checkMinutes = windowCheckMinutes(
+    startMin,
+    minutes,
+    lastStartMin,
+    tailForgiveMinutes(minCfg),
+  );
   if (checkMinutes.length === 0) return;
 
   const offsetMatch = input.bookedAt.match(/([+-]\d{2}:\d{2})$/);

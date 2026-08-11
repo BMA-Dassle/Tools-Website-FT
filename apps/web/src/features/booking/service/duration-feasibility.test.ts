@@ -5,6 +5,7 @@ import {
   optionBelongsToOffer,
   resolveOptionMinutes,
   slotExceedsClose,
+  tailForgiveMinutes,
   windowCheckMinutes,
   type OfferConfig,
   type ProbeMap,
@@ -207,5 +208,93 @@ describe("evaluateWindow last-start clamp (2026-07-19 kiosk bug)", () => {
     const blocked: ProbeMap = new Map(probeMap);
     blocked.set(1365, new Set([159])); // 10:45 PM: 158 gone while starts still allowed
     expect(evaluateWindow(blocked, 158, 1350, 90, lastStart)).toBe(false);
+  });
+});
+
+describe("evaluateWindow mid-day event-tail forgiveness (2026-08-10 VIP afternoon)", () => {
+  // Tue 8/11 live shape: the VIP suite has corporate events from ~5:30 PM.
+  // QAMF listed VIP offer 155 at 3:30–4:45 PM and NOTHING at 5:00/5:15 — a
+  // start-tail artifact (no ≥60-min booking can START there before the
+  // events), not occupancy: the lanes are free until the events begin.
+  // QAMF's own row options said 90 min fits at 4:00; the un-forgiving window
+  // check needed the offer listed at 5:00/5:15 and wrongly rejected it.
+  const FOUR_PM = 16 * 60;
+  const probeMap: ProbeMap = new Map([
+    [FOUR_PM, new Set([154, 155])],
+    [FOUR_PM + 15, new Set([154, 155])],
+    [FOUR_PM + 30, new Set([155])],
+    [FOUR_PM + 45, new Set([155])],
+    [FOUR_PM + 60, new Set<number>()], // 5:00 PM — start-tail artifact
+    [FOUR_PM + 75, new Set<number>()], // 5:15 PM
+  ]);
+
+  it("keeps 90 min at 4:00 PM — absences sit in the window's final 45 min", () => {
+    expect(evaluateWindow(probeMap, 155, FOUR_PM, 90, null, 60)).toBe(true);
+    // without the forgiveness parameter: the pre-fix false rejection
+    expect(evaluateWindow(probeMap, 155, FOUR_PM, 90)).toBe(false);
+  });
+
+  it("still rejects 90 min at 4:30 PM — the 5:00 absence is inside the sound zone", () => {
+    expect(evaluateWindow(probeMap, 155, FOUR_PM + 30, 90, null, 60)).toBe(false);
+  });
+
+  it("keeps the 2026-07-19 protection: a genuinely booked tail still rejects", () => {
+    // Lane free [2:00, 3:15) only — next booking at 3:15 PM. QAMF stops
+    // listing the offer from 2:30 (45 min left < 60). A 90-min pick at 2:00
+    // must reject: the 2:30 absence is inside its sound zone (≤ 2:30).
+    const T = 14 * 60;
+    const booked: ProbeMap = new Map([
+      [T, new Set([154])],
+      [T + 15, new Set([154])],
+      [T + 30, new Set<number>()],
+      [T + 45, new Set<number>()],
+      [T + 60, new Set<number>()],
+      [T + 75, new Set<number>()],
+    ]);
+    expect(evaluateWindow(booked, 154, T, 90, null, 60)).toBe(false);
+    // …while 60 min at 2:00 legitimately survives (fits before the booking —
+    // its only sound-zone instant is the present 2:00 start).
+    expect(evaluateWindow(booked, 154, T, 60, null, 60)).toBe(true);
+  });
+
+  it("a booking that starts EXACTLY at window end is not a conflict", () => {
+    // Lane free [2:00, 3:30); next booking at 3:30. 90 min at 2:00 fits
+    // exactly: instants 2:00–2:30 (sound zone) all present, 2:45+ artifacts.
+    const T = 14 * 60;
+    const exact: ProbeMap = new Map([
+      [T, new Set([154])],
+      [T + 15, new Set([154])],
+      [T + 30, new Set([154])],
+      [T + 45, new Set<number>()],
+      [T + 60, new Set<number>()],
+      [T + 75, new Set<number>()],
+    ]);
+    expect(evaluateWindow(exact, 154, T, 90, null, 60)).toBe(true);
+  });
+});
+
+describe("tailForgiveMinutes", () => {
+  it("caps at 60 when our config only knows longer options (vip-mon-thur 90/120)", () => {
+    expect(tailForgiveMinutes(90)).toBe(60);
+    expect(tailForgiveMinutes(null)).toBe(60);
+  });
+
+  it("a configured shorter option tightens the bound", () => {
+    expect(tailForgiveMinutes(30)).toBe(30);
+    expect(tailForgiveMinutes(60)).toBe(60);
+  });
+});
+
+describe("windowCheckMinutes with tail forgiveness", () => {
+  it("drops the window's start-tail instants (mirrors evaluateWindow)", () => {
+    // 4:00 PM, 90 min, forgiveness 60 → only 4:15 and 4:30 are probed.
+    expect(windowCheckMinutes(16 * 60, 90, null, 60)).toEqual([975, 990]);
+    // no forgiveness → unchanged behavior
+    expect(windowCheckMinutes(16 * 60, 90, null)).toEqual([975, 990, 1005, 1020, 1035]);
+  });
+
+  it("close clamp and tail forgiveness compose (tighter one wins)", () => {
+    // 10:30 PM 90-min, last start 11:00 PM, forgiveness 60 → 10:45, 11:00.
+    expect(windowCheckMinutes(22 * 60 + 30, 90, 23 * 60, 60)).toEqual([1365, 1380]);
   });
 });

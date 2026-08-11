@@ -128,6 +128,33 @@ export function minConfiguredMinutes(exps: OfferConfig[]): number | null {
 export type ProbeMap = Map<number, Set<number>>;
 
 /**
+ * Tail-forgiveness width for window checks: the shortest duration QAMF itself
+ * sells on the offer. QAMF lists an offer at an instant only while a NEW
+ * booking of at least that length still fits before the next busy stretch —
+ * so inside a window [start, start+D), a probed ABSENCE at instant g only
+ * proves occupancy when a minimum-length booking starting at g would fit
+ * INSIDE the window (g + min ≤ start + D). Absences in the final (min − 15)
+ * minutes of the window are start-tail artifacts whenever ANYTHING follows it
+ * (event block, another booking, close). The close clamp (lastStartMin) is
+ * this rule's end-of-day special case; the parameter generalizes it to
+ * MID-DAY blocks (2026-08-10: Tue 8/11's Gartner/HBKS events made QAMF list
+ * no VIP start at 5:00–5:15 PM even with the lanes free until 5:30+, and the
+ * 4:00 PM 90-min slot — which QAMF's own row options said fits — was wrongly
+ * rejected because those absences read as occupancy).
+ *
+ * Soundness needs the value to be ≥ the offer's TRUE shortest QAMF option.
+ * Our config can under-represent that (vip-mon-thur configures 90/120 while
+ * the QAMF offer also carries a 60-min option we don't sell), so the value is
+ * capped at 60: every HeadPinz hourly offer carries a ≤60-min QAMF option
+ * (observed live 2026-08-10 — option #1234/#1226 rows survive where at most
+ * 60 minutes fit; the Fri–Sun experiences configure 60 explicitly). A
+ * configured shorter option tightens the bound.
+ */
+export function tailForgiveMinutes(minCfg: number | null): number {
+  return minCfg != null ? Math.min(minCfg, 60) : 60;
+}
+
+/**
  * Windowed necessary-condition check (design branch D): a `durationMin`
  * booking starting at `startMin` is only POSSIBLE if the offer shows some
  * availability at every probed instant of [startMin, startMin + durationMin).
@@ -144,6 +171,14 @@ export type ProbeMap = Map<number, Set<number>>;
  * 2026-07-19 "No Regular Fri–Sun lanes left today" kiosk bug: the bookable
  * 10:30 PM 90-min slot needed the offer listed at 11:15 PM, past the
  * 11:00 PM last start for a midnight close).
+ *
+ * `minSellableMin` (see tailForgiveMinutes) applies the SAME artifact rule
+ * inside the day: instants in the window's final (minSellableMin − 15)
+ * minutes are skipped — a minimum-length booking starting there wouldn't fit
+ * inside the window, so QAMF's absence can be caused by whatever follows the
+ * window (event block / next booking / close) and proves nothing about the
+ * window itself. A genuinely occupied tail still rejects: its absences begin
+ * earlier, inside the sound zone (2026-08-10 — the Tue 8/11 VIP afternoon).
  */
 export function evaluateWindow(
   probeMap: ProbeMap,
@@ -151,9 +186,13 @@ export function evaluateWindow(
   startMin: number,
   durationMin: number,
   lastStartMin?: number | null,
+  minSellableMin?: number | null,
 ): boolean {
+  const soundZoneEnd =
+    minSellableMin != null ? startMin + durationMin - minSellableMin : Number.POSITIVE_INFINITY;
   for (let g = startMin; g < startMin + durationMin; g += 15) {
     if (lastStartMin != null && g > lastStartMin) break;
+    if (g > soundZoneEnd) break;
     const probed = probeMap.get(g);
     if (probed && !probed.has(webOfferId)) return false;
   }
@@ -166,16 +205,22 @@ export function evaluateWindow(
  *  by QAMF's createReservation. Empty when the start isn't 15-min aligned
  *  (defensive — admin tools can produce odd minutes; skip rather than guess).
  *  `lastStartMin` caps the list the same way evaluateWindow clamps: probing
- *  past the offer's last bookable start only yields meaningless absences. */
+ *  past the offer's last bookable start only yields meaningless absences —
+ *  and `minSellableMin` drops the window's start-tail instants for the same
+ *  reason (see tailForgiveMinutes; mid-day event blocks). */
 export function windowCheckMinutes(
   startMin: number,
   durationMin: number,
   lastStartMin?: number | null,
+  minSellableMin?: number | null,
 ): number[] {
   if (startMin % 15 !== 0) return [];
+  const soundZoneEnd =
+    minSellableMin != null ? startMin + durationMin - minSellableMin : Number.POSITIVE_INFINITY;
   const out: number[] = [];
   for (let g = startMin + 15; g < startMin + durationMin; g += 15) {
     if (lastStartMin != null && g > lastStartMin) break;
+    if (g > soundZoneEnd) break;
     out.push(g);
   }
   return out;
