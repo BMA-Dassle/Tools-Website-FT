@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { BookingSession, BowlingItem, RaceItem, StepDef } from "~/features/booking";
 import { bookingKeys, qamfCenterIdForCode } from "~/features/booking";
@@ -70,6 +70,24 @@ import { DISABLED_CARD, TRACK_BADGE, TRACK_CARD, TrackInfoBanner } from "../race
 
 const CYAN = "#00E2E5";
 const GOLD = "#FFD700";
+
+/**
+ * An idle gap this long (or longer) between two legs gets a "use the wait"
+ * suggestion on the schedule card (owner 2026-08-10: a 7:20 race with a 9:00
+ * lane leaves ~70 idle minutes — point guests at Gel Blasters / Laser Tag /
+ * Game Zone, which the VIP pack includes and which book on-site). Gaps are
+ * measured from the previous leg's scheduling end (race start + 30), so the
+ * normal 15–45 min transitions stay quiet.
+ */
+const BIG_GAP_SUGGEST_MINUTES = 45;
+
+/** "about 1 hr 10 min" / "about 50 min" for the gap suggestion line. */
+function gapLengthLabel(minutes: number): string {
+  if (minutes < 60) return `about ${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `about ${h} hr${m ? ` ${m} min` : ""}`;
+}
 
 const TIER_LABEL: Record<string, string> = {
   starter: "Starter Race",
@@ -443,80 +461,98 @@ function ScheduleConfirmModal({
               const track = entry ? trackOf(entry) : null;
               const badge = track ? TRACK_BADGE[track] : null;
               const options = trackOptionsByLeg.get(i);
+              // Big idle gap BEFORE this leg → suggest filling it (owner
+              // 2026-08-10). The wait is real free time: the previous leg's
+              // scheduling end already includes the full race experience.
+              const prev = i > 0 ? chain[i - 1] : null;
+              const gapMinutes =
+                entry && prev ? Math.round((entry.startMs - prev.endMs) / 60_000) : 0;
               return (
-                <li
-                  key={`leg-${i}`}
-                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5"
-                >
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="flex items-center gap-2 text-white/85">
-                      <span>{legIcon(leg)}</span>
-                      {legLabel(leg)}
-                      {badge && (
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${badge.bg} ${badge.text}`}
-                        >
-                          {track}
-                        </span>
-                      )}
-                    </span>
-                    <span className="font-semibold text-white">
-                      {entry ? wallClockLabel(entry.startIso) : "—"}
-                    </span>
-                  </div>
-                  {/* Junior mirror: juniors run their own heat right around
+                <Fragment key={`leg-${i}`}>
+                  {gapMinutes >= BIG_GAP_SUGGEST_MINUTES && (
+                    <li className="rounded-lg border border-dashed border-white/15 bg-white/[0.02] px-3 py-1.5 text-xs text-white/60">
+                      <span className="font-semibold" style={{ color: GOLD }}>
+                        {gapLengthLabel(gapMinutes)} between stops
+                      </span>{" "}
+                      — squeeze in Laser Tag, Gel Blasters or the Game Zone arcade
+                      {combo.voucherGrant
+                        ? " — included with your VIP pack, redeem on-site"
+                        : " — book on-site when you arrive"}
+                      .
+                    </li>
+                  )}
+                  <li className="rounded-xl border border-white/10 bg-white/5 px-3 py-2.5">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="flex items-center gap-2 text-white/85">
+                        <span>{legIcon(leg)}</span>
+                        {legLabel(leg)}
+                        {badge && (
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${badge.bg} ${badge.text}`}
+                          >
+                            {track}
+                          </span>
+                        )}
+                      </span>
+                      <span className="font-semibold text-white">
+                        {entry ? wallClockLabel(entry.startIso) : "—"}
+                      </span>
+                    </div>
+                    {/* Junior mirror: juniors run their own heat right around
                       the adult one (nearest legal slot either side, junior
                       product's track). Beyond the comfortable two-slot gap the
                       line turns amber and spells the gap out (owner
                       2026-07-14: third slot allowed "with warning to guest"). */}
-                  {entry?.payload.kind === "race" &&
-                    entry.payload.candidate.perCategory.junior?.start &&
-                    (() => {
-                      const junior = entry.payload.candidate.perCategory.junior;
-                      const gapMin = Math.round(
-                        Math.abs(wallClockMs(junior.start!) - entry.startMs) / 60_000,
-                      );
-                      const farGap = gapMin > JUNIOR_MIRROR_COMFORT_MINUTES;
-                      const side = wallClockMs(junior.start!) < entry.startMs ? "before" : "after";
-                      return (
-                        <p
-                          className={`mt-1 text-xs${farGap ? " text-amber-300" : ""}`}
-                          style={farGap ? undefined : { color: GOLD }}
-                        >
-                          {`Juniors race at ${wallClockLabel(junior.start!)}${
-                            junior.track ? ` on ${junior.track}` : ""
-                          }`}
-                          {farGap ? ` — ${gapMin} min ${side} the adults' race` : ""}
-                        </p>
-                      );
-                    })()}
-                  {options && options.length > 1 && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <span className="text-[11px] uppercase tracking-wider text-white/35">
-                        Track
-                      </span>
-                      {options.map((t) => {
-                        const active = (trackChoice[i] ?? track) === t;
-                        const theme = TRACK_CARD[t];
-                        return (
-                          <button
-                            key={t}
-                            type="button"
-                            disabled={busy}
-                            onClick={() => setTrackChoice((prev) => ({ ...prev, [i]: t }))}
-                            className={`rounded-lg border px-3 py-1 text-xs font-bold uppercase transition-colors ${
-                              active
-                                ? (theme?.selected ?? "border-white bg-white/20")
-                                : `${theme?.base ?? "border-white/15 bg-white/5"} ${theme?.baseHover ?? ""}`
-                            } ${TRACK_BADGE[t]?.text ?? "text-white"}`}
-                          >
-                            {t}
-                          </button>
+                    {entry?.payload.kind === "race" &&
+                      entry.payload.candidate.perCategory.junior?.start &&
+                      (() => {
+                        const junior = entry.payload.candidate.perCategory.junior;
+                        const gapMin = Math.round(
+                          Math.abs(wallClockMs(junior.start!) - entry.startMs) / 60_000,
                         );
-                      })}
-                    </div>
-                  )}
-                </li>
+                        const farGap = gapMin > JUNIOR_MIRROR_COMFORT_MINUTES;
+                        const side =
+                          wallClockMs(junior.start!) < entry.startMs ? "before" : "after";
+                        return (
+                          <p
+                            className={`mt-1 text-xs${farGap ? " text-amber-300" : ""}`}
+                            style={farGap ? undefined : { color: GOLD }}
+                          >
+                            {`Juniors race at ${wallClockLabel(junior.start!)}${
+                              junior.track ? ` on ${junior.track}` : ""
+                            }`}
+                            {farGap ? ` — ${gapMin} min ${side} the adults' race` : ""}
+                          </p>
+                        );
+                      })()}
+                    {options && options.length > 1 && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className="text-[11px] uppercase tracking-wider text-white/35">
+                          Track
+                        </span>
+                        {options.map((t) => {
+                          const active = (trackChoice[i] ?? track) === t;
+                          const theme = TRACK_CARD[t];
+                          return (
+                            <button
+                              key={t}
+                              type="button"
+                              disabled={busy}
+                              onClick={() => setTrackChoice((prev) => ({ ...prev, [i]: t }))}
+                              className={`rounded-lg border px-3 py-1 text-xs font-bold uppercase transition-colors ${
+                                active
+                                  ? (theme?.selected ?? "border-white bg-white/20")
+                                  : `${theme?.base ?? "border-white/15 bg-white/5"} ${theme?.baseHover ?? ""}`
+                              } ${TRACK_BADGE[t]?.text ?? "text-white"}`}
+                            >
+                              {t}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </li>
+                </Fragment>
               );
             })}
           </ol>
