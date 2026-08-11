@@ -8,6 +8,7 @@
  * Per restructuring rules: business logic lives here, API route is a thin shell.
  */
 import { randomBytes, randomUUID } from "crypto";
+import { recordSignageEvent } from "~/features/signage/events.server";
 import { buildGanPrefix } from "@/lib/gan";
 import {
   createDepositAndCharge,
@@ -3299,6 +3300,26 @@ async function unifiedReserveInner(
         } catch (err) {
           console.error("[unified-reserve] BMI confirmed-status update failed (non-fatal):", err);
         }
+      }
+
+      // ── Lobby TVs ───────────────────────────────────────────────────
+      // Someone just finished a booking on a kiosk. Tell the screens above the
+      // bank so they can react while the guest is still standing there.
+      //
+      // Placed BEFORE the racing/attraction split below so it covers every
+      // kiosk booking regardless of item mix, and gated on the kiosk context
+      // alone — a web booking has nobody standing under a screen. Not awaited,
+      // and recordSignageEvent swallows anything it can throw: the booking is
+      // already confirmed and charged, and a wall animation must never be able
+      // to disturb that.
+      if (session.context?.kiosk) {
+        void recordSignageEvent({
+          id: `kiosk-booking-${bmiBillId ?? bmiReservationNumber ?? "na"}-${Date.now()}`,
+          kind: "booking-completed",
+          center: session.center ?? "fort-myers",
+          activityKeys: raceItems.length > 0 ? ["racing"] : undefined,
+          atMs: Date.now(),
+        });
       }
 
       // ── Kiosk post-reserve rail (server-side; WEB never enters) ──────

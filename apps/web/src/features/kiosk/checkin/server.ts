@@ -14,6 +14,7 @@
  */
 import { randomBytes } from "crypto";
 import redis from "@/lib/redis";
+import { recordSignageEvent } from "~/features/signage/events.server";
 import { displayNameFromFull, makeDisplayName } from "@/lib/display-name";
 import { verifyBillSignature } from "@/lib/booking-confirmation-link";
 import { todayET } from "~/features/daily-events/format";
@@ -1746,6 +1747,17 @@ export async function completeCheckin(args: {
         stateStamped ? "set" : attachEnabled && hasRacing ? "failed" : "pending",
       );
     }
+
+    // Tell the lobby TVs a party just checked in on a kiosk. Fire-and-forget,
+    // and recordSignageEvent swallows anything it can throw — a wall animation
+    // must never be able to fail a check-in the guest already completed.
+    void recordSignageEvent({
+      id: `kiosk-checkin-${billId}-${Date.now()}`,
+      kind: "checkin-completed",
+      center,
+      activityKeys: hasRacing ? ["racing"] : undefined,
+      atMs: Date.now(),
+    });
 
     return {
       ok: true,

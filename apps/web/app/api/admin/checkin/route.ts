@@ -4,6 +4,8 @@ import { parseCheckinQr } from "@/lib/qr-checkin";
 import { parseMemberQr } from "~/features/kiosk/qr-scanner/member-qr";
 import { lookupMemberMatches } from "~/features/kiosk/license/lookup.server";
 import { getRacerPass } from "~/features/racing/data/racer-wallet-db";
+import { recordSignageEvent } from "~/features/signage/events.server";
+import { trackFromName, TRACK_RESOURCE_IDS } from "~/features/signage/track";
 import {
   getDepositOverview,
   addDeposit,
@@ -885,6 +887,28 @@ export async function POST(req: NextRequest) {
       birthdayPromise,
       backToBackPromise,
     ]);
+
+    // Tell the lobby TVs. Scoped to the resource so a Blue Track scan lights
+    // the Blue board only, and carrying the birthday flag that turns both
+    // karting boards over.
+    //
+    // Fire-and-forget, and recordSignageEvent swallows everything it can throw:
+    // a display cue must never be able to fail a check-in. Not awaited either —
+    // the racer is standing at the desk waiting for this response.
+    if (checkinResult.success) {
+      const trackKey = trackFromName(track);
+      void recordSignageEvent({
+        id: `scan-${personId}-${sessionId}-${Date.now()}`,
+        kind: "racer-scanned",
+        center: "fort-myers",
+        // First name only — it is going on a public wall.
+        firstName: guestResponse.firstName || undefined,
+        resourceId: trackKey ? TRACK_RESOURCE_IDS[trackKey] : undefined,
+        activityKeys: ["racing"],
+        birthday: birthday === true,
+        atMs: Date.now(),
+      });
+    }
 
     return NextResponse.json({
       success: checkinResult.success,
