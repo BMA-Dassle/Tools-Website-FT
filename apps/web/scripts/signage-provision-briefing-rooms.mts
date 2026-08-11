@@ -29,10 +29,10 @@ const APPLY = process.argv.includes("--apply");
 
 async function main() {
   const { listSignageScreens, saveSignageScreen } = await import(
-    "../src/features/signage/data/signage-screens-db.ts"
+    "../src/features/signage/data/signage-screens-db"
   );
-  const { rolePreset } = await import("../src/features/signage/defaults.ts");
-  const { VENUE_INFO } = await import("../src/features/signage/constants.ts");
+  const { rolePreset } = await import("../src/features/signage/defaults");
+  const { VENUE_INFO } = await import("../src/features/signage/constants");
 
   const existing = await listSignageScreens();
   console.log(`\n── already provisioned (${existing.length}) ──`);
