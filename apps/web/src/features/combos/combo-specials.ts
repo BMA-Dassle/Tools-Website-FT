@@ -408,9 +408,9 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     weekdayBowlingTransitionMinutes: 0,
     includesLicense: true,
     includedPovPerRacer: 1,
-    // Owner 2026-08-10: hourly grid — weekdays start at 3 PM (FT opening), so
-    // 2 PM exists only on the weekend grid.
-    startHours: [14, 15, 16, 17, 18, 19, 20, 21, 22],
+    // Owner 2026-08-10 (two rounds): weekdays run HOURLY 3–10 PM (FT opens at
+    // 3, so no 2 PM); weekends KEEP the classic 2/4/6/8/10 showtimes.
+    startHours: [14, 16, 18, 20, 22],
     weekdayStartHours: [15, 16, 17, 18, 19, 20, 21, 22],
     premium: true,
     // Collapsed split (owner 2026-06-23): ONE line per center, not an itemized
@@ -558,9 +558,9 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     weekdayBowlingTransitionMinutes: 0,
     includesLicense: true,
     includedPovPerRacer: 1,
-    // Owner 2026-08-10: hourly grid — weekdays start at 3 PM (FT opening), so
-    // 2 PM exists only on the weekend grid.
-    startHours: [14, 15, 16, 17, 18, 19, 20, 21, 22],
+    // Owner 2026-08-10 (two rounds): weekdays run HOURLY 3–10 PM (FT opens at
+    // 3, so no 2 PM); weekends KEEP the classic 2/4/6/8/10 showtimes.
+    startHours: [14, 16, 18, 20, 22],
     weekdayStartHours: [15, 16, 17, 18, 19, 20, 21, 22],
     premium: true,
     // V2 split (owner 2026-07-31): the +$14 wd / +$24 we uplift over v1 is
@@ -760,13 +760,15 @@ function hoursRangeLabel(hours: number[]): string {
 /**
  * Human label for the combo's fixed start times — derived from the registry
  * grids so adding/removing a slot is a one-line data change. Shapes:
- *  - hourly day-aware grids (owner 2026-08-10 "top of every hour" rebrand):
- *    "every hour on the hour · 3–10 PM weekdays · 2–10 PM weekends"
+ *  - day-aware grids (owner 2026-08-10, two rounds — weekdays hourly, the
+ *    weekend keeps the classic showtimes):
+ *    "every hour 3–10 PM weekdays · 2 · 4 · 6 · 8 · 10 PM weekends"
  *  - one contiguous hourly grid: "every hour on the hour · 3–10 PM"
- *  - legacy fixed slots: "2 · 4 · 6 · 8 · 10 PM"
+ *  - one fixed-slot grid: "2 · 4 · 6 · 8 · 10 PM"
  * Returns "" when the combo has no fixed grid. English-only surfaces (web
  * tiles/popup); the kiosk builds its own localized line from
- * `comboStartHoursForDate` (vip.startTimesHourly EN/ES).
+ * `comboStartHoursForDate` (vip.startTimesHourly EN/ES with a numeric
+ * fallback for non-contiguous grids).
  */
 export function comboStartHoursLabel(combo: ComboSpecial): string {
   const weekend = combo.startHours;
@@ -774,10 +776,13 @@ export function comboStartHoursLabel(combo: ComboSpecial): string {
   const weekday = combo.weekdayStartHours;
   const contiguous = (h: number[]) =>
     h.length > 2 && h.every((x, i) => i === 0 || x === h[i - 1] + 1);
-  if (weekday?.length && contiguous(weekday) && contiguous(weekend)) {
-    return `every hour on the hour · ${hoursRangeLabel(weekday)} weekdays · ${hoursRangeLabel(weekend)} weekends`;
+  // Per-grid phrasing: an hourly run reads as a range, fixed slots as a list.
+  const part = (h: number[]) =>
+    contiguous(h) ? `every hour ${hoursRangeLabel(h)}` : hoursRangeLabel(h);
+  if (weekday?.length) {
+    return `${part(weekday)} weekdays · ${part(weekend)} weekends`;
   }
-  if (contiguous(weekend) && !weekday) {
+  if (contiguous(weekend)) {
     return `every hour on the hour · ${hoursRangeLabel(weekend)}`;
   }
   return hoursRangeLabel(weekend);
