@@ -19,6 +19,8 @@ import { SceneSleep } from "./SceneSleep";
 import { SceneRaceCheckin } from "./SceneRaceCheckin";
 import { SceneCelebration } from "./SceneCelebration";
 import { SceneBirthdayTakeover } from "./SceneBirthdayTakeover";
+import { SceneEventWelcome } from "./SceneEventWelcome";
+import { SceneVipWelcome } from "./SceneVipWelcome";
 
 /**
  * Render whichever scene a decision names.
@@ -38,6 +40,10 @@ export function SceneSlot(props: SceneProps) {
       return <SceneSleep {...props} />;
     case "race-checkin":
       return <SceneRaceCheckin {...props} />;
+    case "event-welcome":
+      return <SceneEventWelcome {...props} />;
+    case "vip-welcome":
+      return <SceneVipWelcome {...props} />;
     case "celebration":
       // A birthday check-in is a different animal from an ordinary scan: it
       // takes over both boards at once and runs for longer. Routed here rather
@@ -47,8 +53,7 @@ export function SceneSlot(props: SceneProps) {
       ) : (
         <SceneCelebration {...props} />
       );
-    // event-welcome, vip-welcome and billboard-crown land in the following
-    // PRs; until then they fall through to ads.
+    // billboard-crown lands in a following PR; until then it falls through.
     case "ads":
     default:
       return <SceneAdRotation {...props} />;

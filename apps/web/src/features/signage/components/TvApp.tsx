@@ -26,6 +26,7 @@ import {
 } from "../constants";
 import { resolveScreenConfig } from "../defaults";
 import { useTvFeed } from "../useTvFeed";
+import { applyDemo, parseDemoMode, type DemoMode } from "../demo";
 import type { SceneDecision } from "../director/schedule";
 import { SceneDirector } from "../director/SceneDirector";
 import { TvStage } from "./TvStage";
@@ -38,6 +39,7 @@ export function TvApp() {
   const [venue, setVenue] = useState<SignageVenue>("HPFM");
   const [booted, setBooted] = useState(false);
   const [decision, setDecision] = useState<SceneDecision | null>(null);
+  const [demo, setDemo] = useState<DemoMode>("off");
 
   const { offset } = useKioskClock();
 
@@ -53,6 +55,7 @@ export function TvApp() {
 
       const params = new URLSearchParams(window.location.search);
       const fromUrl = params.get("screen");
+      setDemo(parseDemoMode(params.get("demo")));
       let stored: string | null = null;
       try {
         stored = localStorage.getItem(IDENTITY_KEY);
@@ -84,15 +87,24 @@ export function TvApp() {
     };
   }, []);
 
-  const feed = useTvFeed(screenId);
+  const rawFeed = useTvFeed(screenId);
+
+  const parsed = parseScreenKey(screenId);
+  const isTest = parsed?.screenNumber === TEST_SCREEN_NUMBER;
+
+  // Demo fixtures decorate the feed on a TEST screen only, and only in this
+  // tab — never written, never published. See ../demo.ts.
+  // Anchored to the feed's own server timestamp rather than a render-time
+  // clock read: stable across re-renders, and it advances with each poll.
+  const feed = useMemo(
+    () => applyDemo(rawFeed, demo, isTest, rawFeed?.now ?? 0),
+    [rawFeed, demo, isTest],
+  );
 
   const config = useMemo(
     () => resolveScreenConfig(feed?.screen?.config ?? null, venue),
     [feed?.screen?.config, venue],
   );
-
-  const parsed = parseScreenKey(screenId);
-  const isTest = parsed?.screenNumber === TEST_SCREEN_NUMBER;
 
   // Sleep is driven by venue hours, which lands with the welcome-board PR (the
   // same place the day's schedule arrives). Until then the rotation runs all

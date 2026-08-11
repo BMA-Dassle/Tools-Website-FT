@@ -334,6 +334,27 @@
   }
 }
 
+/* ── drifting motes (VIP) ─────────────────────────────────────────────── */
+/* Rises the full canvas height and fades at both ends, so a particle is never
+   seen to pop in or out. Transform + opacity only. */
+
+@keyframes tv-float {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0);
+  }
+  12% {
+    opacity: 0.85;
+  }
+  80% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--dx, 0), -1120px, 0);
+  }
+}
+
 /* ── breathing emphasis ───────────────────────────────────────────────── */
 /* Opacity on a pre-painted glow layer — never an animated box-shadow. */
 

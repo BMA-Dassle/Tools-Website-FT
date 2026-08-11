@@ -25,35 +25,16 @@ export interface SceneProps {
 }
 
 /**
- * Where a screen stands in a choreographed group, for scenes that span more
- * than one physical display.
+ * NOTE ON PAIRED SCREENS — read before adding a spanning layout.
  *
- * The whole trick: a paired scene lays itself out on ONE virtual canvas
- * `count × 1920` wide and each screen shows its own 1920px window of it. Text
- * can then run across the gap between two TVs, and a confetti particle that
- * leaves the right edge of screen 0 arrives on screen 1 — with no messaging
- * between them at all, because both are drawing the same picture from the same
- * shared clock.
+ * The two karting boards are ~4 FEET APART (owner 2026-08-11), not a
+ * bezel-to-bezel video wall. A single virtual canvas spanning both, with each
+ * screen showing its own window, is therefore the WRONG model for anything
+ * readable: a name split across four feet of wall is two broken halves, not a
+ * wide name.
+ *
+ * Pairing is expressed in TIME instead — see SceneBirthdayTakeover. Each board
+ * renders a complete composition; `pairing.position` drives when it takes its
+ * turn in a clock-derived relay, and only abstract things (light, confetti)
+ * play across the gap. `ScreenPairing` lives in ../types.
  */
-export interface PairedLayout {
-  position: number;
-  count: number;
-  /** Total virtual width in canvas px. */
-  spanW: number;
-  /** How far to shift the virtual canvas left for this screen. */
-  offsetX: number;
-}
-
-export function pairedLayout(
-  pairing: { position: number; count: number } | null,
-  tvWidth: number,
-): PairedLayout | null {
-  if (!pairing || pairing.count < 2) return null;
-  const position = Math.min(Math.max(0, pairing.position), pairing.count - 1);
-  return {
-    position,
-    count: pairing.count,
-    spanW: tvWidth * pairing.count,
-    offsetX: -position * tvWidth,
-  };
-}
