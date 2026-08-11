@@ -187,8 +187,19 @@ export interface ComboSpecial {
    * [14, 16, 18, 20] = 2/4/6/8 PM): each hour shows ONE slot per track — the
    * first feasible first-leg start inside that hour — greyed out when no
    * full itinerary (incl. the lane) fits from it. Absent = every start.
+   * This is the WEEKEND (Sat–Sun) grid when `weekdayStartHours` is set;
+   * resolve per-date via `comboStartHoursForDate`, never read this raw in a
+   * dated context.
    */
   startHours?: number[];
+  /**
+   * Mon–Fri (ET) override for `startHours` (owner 2026-08-10: hourly grid,
+   * "top of every hour from 3pm to 10pm" — 2 PM is REMOVED on weekdays, not
+   * greyed, because FastTrax opens at 3 PM Mon–Fri so the tile could never
+   * book). Same Mon–FRI day rule as the bowling floor — NOT the pricing
+   * schedule, whose "weekend" includes Friday. Absent = one grid every day.
+   */
+  weekdayStartHours?: number[];
   /**
    * Premium presentation: double-size marketing tile (2 columns on desktop,
    * taller on mobile), gold treatment, perks list.
@@ -252,6 +263,25 @@ const COMBO_RACE_BOWL_V2_ENABLED = process.env.NEXT_PUBLIC_COMBO_RACE_BOWL_V2_EN
  */
 const COMBO_RACE_BOWL_ENABLED =
   process.env.NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED === "true" && !COMBO_RACE_BOWL_V2_ENABLED;
+
+/**
+ * Mon–Fri (ET). NOT the pricing schedule — `scheduleForDate`'s "weekend"
+ * includes Friday; the weekday scheduling rules (bowling floor, weekday start
+ * grid) do not. Noon parse keeps the day-of-week stable in any runtime tz.
+ */
+export function isWeekdayYmd(dateYmd: string): boolean {
+  const dow = new Date(`${dateYmd}T12:00:00`).getDay();
+  return dow >= 1 && dow <= 5;
+}
+
+/**
+ * The start-hour grid in force on ONE date: `weekdayStartHours` Mon–Fri when
+ * present, else `startHours`. Empty array = combo has no fixed grid.
+ */
+export function comboStartHoursForDate(combo: ComboSpecial, dateYmd: string): number[] {
+  if (combo.weekdayStartHours && isWeekdayYmd(dateYmd)) return combo.weekdayStartHours;
+  return combo.startHours ?? [];
+}
 
 /**
  * Reorder-fallback kill switch: default ON (owner 2026-08-10 — flags are
@@ -378,7 +408,10 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     weekdayBowlingTransitionMinutes: 0,
     includesLicense: true,
     includedPovPerRacer: 1,
-    startHours: [14, 16, 18, 20, 22],
+    // Owner 2026-08-10: hourly grid — weekdays start at 3 PM (FT opening), so
+    // 2 PM exists only on the weekend grid.
+    startHours: [14, 15, 16, 17, 18, 19, 20, 21, 22],
+    weekdayStartHours: [15, 16, 17, 18, 19, 20, 21, 22],
     premium: true,
     // Collapsed split (owner 2026-06-23): ONE line per center, not an itemized
     // parts list. The flat per-person price routes as a single FastTrax racing
@@ -525,7 +558,10 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     weekdayBowlingTransitionMinutes: 0,
     includesLicense: true,
     includedPovPerRacer: 1,
-    startHours: [14, 16, 18, 20, 22],
+    // Owner 2026-08-10: hourly grid — weekdays start at 3 PM (FT opening), so
+    // 2 PM exists only on the weekend grid.
+    startHours: [14, 15, 16, 17, 18, 19, 20, 21, 22],
+    weekdayStartHours: [15, 16, 17, 18, 19, 20, 21, 22],
     premium: true,
     // V2 split (owner 2026-07-31): the +$14 wd / +$24 we uplift over v1 is
     // shared EVENLY — FastTrax $44→$51 / $49→$61, HeadPinz $21→$28 / $26→$38.
@@ -705,21 +741,46 @@ export function legKey(leg: ComboLeg): string {
   return `attr:${leg.slug}`;
 }
 
-/**
- * Human label for the combo's fixed start times, e.g. "2 · 4 · 6 · 8 · 10 PM"
- * — derived from `startHours` (0–26 chip notation) so adding/removing a slot
- * is a one-line registry change. Returns "" when the combo has no fixed grid.
- */
-export function comboStartHoursLabel(combo: ComboSpecial): string {
-  const hours = combo.startHours;
-  if (!hours?.length) return "";
+/** "3–10 PM" for a contiguous hourly run, else the dot list ("2 · 4 · 6 PM"). */
+function hoursRangeLabel(hours: number[]): string {
   const mer = (h: number) => (h % 24 < 12 ? "AM" : "PM");
   const h12 = (h: number) => h % 12 || 12;
-  const sameMeridiem = hours.every((h) => mer(h) === mer(hours[0]));
-  if (sameMeridiem) {
-    return `${hours.map(h12).join(" · ")} ${mer(hours[0])}`;
+  const contiguous = hours.length > 2 && hours.every((h, i) => i === 0 || h === hours[i - 1] + 1);
+  if (contiguous) {
+    const [first, last] = [hours[0], hours[hours.length - 1]];
+    return mer(first) === mer(last)
+      ? `${h12(first)}–${h12(last)} ${mer(last)}`
+      : `${h12(first)} ${mer(first)}–${h12(last)} ${mer(last)}`;
   }
+  const sameMeridiem = hours.every((h) => mer(h) === mer(hours[0]));
+  if (sameMeridiem) return `${hours.map(h12).join(" · ")} ${mer(hours[0])}`;
   return hours.map((h) => `${h12(h)} ${mer(h)}`).join(" · ");
+}
+
+/**
+ * Human label for the combo's fixed start times — derived from the registry
+ * grids so adding/removing a slot is a one-line data change. Shapes:
+ *  - hourly day-aware grids (owner 2026-08-10 "top of every hour" rebrand):
+ *    "every hour on the hour · 3–10 PM weekdays · 2–10 PM weekends"
+ *  - one contiguous hourly grid: "every hour on the hour · 3–10 PM"
+ *  - legacy fixed slots: "2 · 4 · 6 · 8 · 10 PM"
+ * Returns "" when the combo has no fixed grid. English-only surfaces (web
+ * tiles/popup); the kiosk builds its own localized line from
+ * `comboStartHoursForDate` (vip.startTimesHourly EN/ES).
+ */
+export function comboStartHoursLabel(combo: ComboSpecial): string {
+  const weekend = combo.startHours;
+  if (!weekend?.length) return "";
+  const weekday = combo.weekdayStartHours;
+  const contiguous = (h: number[]) =>
+    h.length > 2 && h.every((x, i) => i === 0 || x === h[i - 1] + 1);
+  if (weekday?.length && contiguous(weekday) && contiguous(weekend)) {
+    return `every hour on the hour · ${hoursRangeLabel(weekday)} weekdays · ${hoursRangeLabel(weekend)} weekends`;
+  }
+  if (contiguous(weekend) && !weekday) {
+    return `every hour on the hour · ${hoursRangeLabel(weekend)}`;
+  }
+  return hoursRangeLabel(weekend);
 }
 
 /**

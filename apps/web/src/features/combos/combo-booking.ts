@@ -45,6 +45,7 @@ import type {
 import { wallClockMs, type LegCandidate } from "./combo-itinerary";
 import {
   comboJuniorMirrorEnabled,
+  isWeekdayYmd,
   legKey,
   type ComboLeg,
   type ComboSpecial,
@@ -683,13 +684,9 @@ export function raceLegEndMs(candidate: ComboHeatCandidate): number {
   return lastStartMs + ASSUMED_RACE_LEG_MINUTES * 60_000;
 }
 
-/** Mon–Fri (ET). NOT the pricing schedule — `scheduleForDate`'s "weekend"
- *  includes Friday; the weekday scheduling rules below do not. Noon parse
- *  keeps the day-of-week stable in any runtime timezone. */
-export function isWeekdayYmd(dateYmd: string): boolean {
-  const dow = new Date(`${dateYmd}T12:00:00`).getDay();
-  return dow >= 1 && dow <= 5;
-}
+// Moved to combo-specials (the day-aware start grid needs it there too);
+// re-exported so existing imports keep working.
+export { isWeekdayYmd } from "./combo-specials";
 
 /** The per-call timing knobs `buildChains`/`buildChainFrom` take, resolved
  *  for one combo + leg ordering + date. Every chain-assembly call site MUST

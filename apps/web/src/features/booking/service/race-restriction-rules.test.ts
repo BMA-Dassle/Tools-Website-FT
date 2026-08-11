@@ -764,7 +764,8 @@ describe("evaluateRaceRestrictions — VIP combo anchor reserve", () => {
   afterEach(() => vi.unstubAllEnvs());
 
   // Naive wall-clock starts on Tue 2026-06-23, mid-afternoon — clear of the
-  // opening-heats window. VIP grid = 2/4/6/8/10 PM (registry startHours).
+  // opening-heats window. VIP grid = hourly per registry startHours (2 PM is
+  // a weekend-grid hour since 2026-08-10, but the rule is grid-agnostic).
   const wd = (h: number, m: number) =>
     `2026-06-23T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
 

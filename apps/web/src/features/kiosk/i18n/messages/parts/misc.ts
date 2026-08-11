@@ -53,6 +53,9 @@ export const miscEn = {
   "vip.eyebrow": "Experience",
   "vip.priceLine": "{weekday}/person Mon–Thu · {weekend}/person Fri–Sun",
   "vip.startTimes": "Estimated start times: {times}",
+  // Hourly grid line (owner 2026-08-10 "top of every hour" rebrand) — used
+  // when today's start hours are contiguous; {from}/{to} like "3 PM".
+  "vip.startTimesHourly": "Starts at the top of every hour, {from}–{to}",
   "vip.stepByStep":
     "Your afternoon, step by step — the logo shows where each part happens. Racer accounts & waivers are set up right here.",
   "vip.atVenue": "at {venue}",
@@ -237,6 +240,7 @@ export const miscEs: Record<keyof typeof miscEn, string> = {
   "vip.eyebrow": "Experiencia",
   "vip.priceLine": "{weekday}/persona lun–jue · {weekend}/persona vie–dom",
   "vip.startTimes": "Horas de inicio estimadas: {times}",
+  "vip.startTimesHourly": "Comienza cada hora en punto, {from}–{to}",
   "vip.stepByStep":
     "Tu tarde, paso a paso — el logotipo muestra dónde ocurre cada parte. Las cuentas de corredor y las exenciones se configuran aquí mismo.",
   "vip.atVenue": "en {venue}",

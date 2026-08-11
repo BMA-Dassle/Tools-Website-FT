@@ -38,6 +38,7 @@ import {
   comboHeatsPerRacer,
   comboPriceCentsForDate,
   comboReorderFallbackEnabled,
+  comboStartHoursForDate,
   comboStartHoursLabel,
   getComboSpecial,
   type ComboLeg,
@@ -857,7 +858,10 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
 
   const gridCells: GridCell[] = (() => {
     if (!chains) return [];
-    if (!combo.startHours?.length) {
+    // Day-aware grid (owner 2026-08-10): weekdays run hourly 3–10 PM (no
+    // 2 PM tile — FT opens at 3), weekends hourly 2–10 PM.
+    const startHours = date ? comboStartHoursForDate(combo, date) : (combo.startHours ?? []);
+    if (!startHours.length) {
       return chains.map((result) => ({
         kind: "chain" as const,
         hour: null,
@@ -866,7 +870,7 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
       }));
     }
     const cells: GridCell[] = [];
-    for (const hour of combo.startHours) {
+    for (const hour of startHours) {
       const inHour = chains
         .filter((c) => etHourOfIso(c.anchor.startIso) === hour)
         .sort((a, b) => a.anchor.startMs - b.anchor.startMs);

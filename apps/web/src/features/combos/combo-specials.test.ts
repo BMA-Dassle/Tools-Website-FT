@@ -10,6 +10,7 @@ import {
   comboHeatsPerRacer,
   comboPriceCentsForDate,
   comboRaceLegs,
+  comboStartHoursForDate,
   comboStartHoursLabel,
   comboTotalCents,
   enabledCombos,
@@ -48,11 +49,33 @@ describe("combo-specials registry", () => {
     // Owner: the pack INCLUDES the racing license and one POV per racer.
     expect(raceBowl.includesLicense).toBe(true);
     expect(raceBowl.includedPovPerRacer).toBe(1);
-    // Premium presentation + the fixed 2/4/6/8/10 PM start grid.
+    // Premium presentation + the hourly day-aware start grid (owner
+    // 2026-08-10): weekdays top of every hour 3–10 PM (no 2 PM — FT opens at
+    // 3 Mon–Fri), weekends 2–10 PM.
     expect(raceBowl.premium).toBe(true);
-    expect(raceBowl.startHours).toEqual([14, 16, 18, 20, 22]);
-    expect(comboStartHoursLabel(raceBowl)).toBe("2 · 4 · 6 · 8 · 10 PM");
+    expect(raceBowl.startHours).toEqual([14, 15, 16, 17, 18, 19, 20, 21, 22]);
+    expect(raceBowl.weekdayStartHours).toEqual([15, 16, 17, 18, 19, 20, 21, 22]);
+    expect(comboStartHoursLabel(raceBowl)).toBe(
+      "every hour on the hour · 3–10 PM weekdays · 2–10 PM weekends",
+    );
     expect(raceBowl.perks?.length).toBeGreaterThan(0);
+  });
+
+  it("comboStartHoursForDate: weekday grid Mon–FRI (no 2 PM), weekend grid Sat–Sun", () => {
+    expect(comboStartHoursForDate(raceBowl, MON)).toEqual([15, 16, 17, 18, 19, 20, 21, 22]);
+    expect(comboStartHoursForDate(raceBowl, FRI)).toEqual([15, 16, 17, 18, 19, 20, 21, 22]);
+    expect(comboStartHoursForDate(raceBowl, SAT)).toEqual([14, 15, 16, 17, 18, 19, 20, 21, 22]);
+    expect(comboStartHoursForDate(raceBowl, SUN)).toEqual([14, 15, 16, 17, 18, 19, 20, 21, 22]);
+    // No weekday override → one grid every day; no grid → [].
+    expect(comboStartHoursForDate({ ...raceBowl, weekdayStartHours: undefined }, MON)).toEqual(
+      raceBowl.startHours,
+    );
+    expect(
+      comboStartHoursForDate(
+        { ...raceBowl, startHours: undefined, weekdayStartHours: undefined },
+        MON,
+      ),
+    ).toEqual([]);
   });
 
   it("the VIP experience requires at least 2 people (shared semi-private suite)", () => {

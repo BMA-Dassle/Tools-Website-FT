@@ -127,6 +127,7 @@ describe("race-bowl-v2 registry invariants", () => {
     expect(v2.fallbackComponents).toEqual(v1.fallbackComponents);
     expect(v2.minHeadcount).toBe(v1.minHeadcount);
     expect(v2.startHours).toEqual(v1.startHours);
+    expect(v2.weekdayStartHours).toEqual(v1.weekdayStartHours);
     expect(v2.weekdayBowlingTransitionMinutes).toBe(v1.weekdayBowlingTransitionMinutes);
     expect(v2.adminShortLabel).toBe("VIP V2");
   });

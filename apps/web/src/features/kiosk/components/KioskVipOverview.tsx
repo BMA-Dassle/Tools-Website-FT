@@ -14,7 +14,7 @@ import type { ComboLeg, ComboSpecial } from "~/features/combos";
 import {
   comboPriceCentsForDate,
   comboMinHeadcount,
-  comboStartHoursLabel,
+  comboStartHoursForDate,
 } from "~/features/combos/combo-specials";
 import { todayYmd } from "../service/first-available";
 import { BrandLogo } from "./BrandLogo";
@@ -76,6 +76,14 @@ export function KioskVipOverview({
   const { locale } = useLocale();
   const perPerson = comboPriceCentsForDate(combo, todayYmd());
   const minHead = comboMinHeadcount(combo);
+  // The kiosk always books TODAY, so show today's grid (weekdays run hourly
+  // 3–10 PM, weekends 2–10 PM — owner 2026-08-10). Contiguous hours render as
+  // the localized "every hour on the hour" line; anything else falls back to
+  // the language-neutral numeric list.
+  const todaysHours = comboStartHoursForDate(combo, todayYmd());
+  const hourly =
+    todaysHours.length > 2 && todaysHours.every((h, i) => i === 0 || h === todaysHours[i - 1] + 1);
+  const fmtHour = (h: number) => `${h % 12 || 12} ${h % 24 < 12 ? "AM" : "PM"}`;
   // Combo marketing copy is data (combo-specials.ts); in Spanish, prefer the
   // per-field `es` overrides, falling back to English per field.
   const cEs = locale === "es" ? combo.es : undefined;
@@ -109,9 +117,14 @@ export function KioskVipOverview({
         </div>
         {/* Estimated start times (owner 2026-07-18) — registry-driven, so a
             future combo with different hours self-updates. */}
-        {combo.startHours?.length ? (
+        {todaysHours.length ? (
           <div className="mt-[8px] text-[26px] font-semibold text-[#e8b14c] tabular-nums">
-            {t("vip.startTimes", { times: comboStartHoursLabel(combo) })}
+            {hourly
+              ? t("vip.startTimesHourly", {
+                  from: fmtHour(todaysHours[0]),
+                  to: fmtHour(todaysHours[todaysHours.length - 1]),
+                })
+              : t("vip.startTimes", { times: todaysHours.map(fmtHour).join(" · ") })}
           </div>
         ) : null}
       </div>
@@ -172,9 +185,7 @@ export function KioskVipOverview({
         {/* Voucher inclusions — their own section (registry data with per-field
             ES fallback); the shared terms render once in the note. */}
         {combo.voucherIncludes && (
-          <div
-            className="mt-[20px] rounded-[20px] border-2 border-[#e8b14c]/50 bg-[#e8b14c]/[0.07] p-[28px]"
-          >
+          <div className="mt-[20px] rounded-[20px] border-2 border-[#e8b14c]/50 bg-[#e8b14c]/[0.07] p-[28px]">
             <div className="k-eyebrow mb-[16px] text-[#e8b14c]">
               {cEs?.voucherIncludes?.title ??
                 combo.voucherIncludes.title ??
