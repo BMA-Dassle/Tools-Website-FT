@@ -62,9 +62,6 @@ export function KioskCheckoutScreen({
   onUpdateRacePacks,
   onRemovePackage,
   onChangePackage,
-  onRemovePov,
-  onChangePov,
-  onRemoveAddon,
   onChangeAddons,
 }: {
   session: BookingSession;
@@ -84,13 +81,8 @@ export function KioskCheckoutScreen({
   onRemovePackage?: (itemId: string, category: "adult" | "junior") => void;
   /** Reopen the package screen for this item/category (swap bundles). */
   onChangePackage?: (itemId: string, category: "adult" | "junior") => void;
-  /** Drop the POV video add-on off a race item (povQuantity → 0). */
-  onRemovePov?: (itemId: string) => void;
-  /** Reopen the video step to change the camera count. */
-  onChangePov?: (itemId: string) => void;
-  /** Drop ONE racer's retail add-on (headsock etc.) off a race item. */
-  onRemoveAddon?: (itemId: string, slug: string, memberId: string) => void;
-  /** Reopen the extras step to re-pick add-on racers. */
+  /** The ONE edit affordance for the extras step's items (video + headsock):
+   *  reopens that step, whose chip pickers add and remove. */
   onChangeAddons?: (itemId: string) => void;
 }) {
   const t = useT();
@@ -208,9 +200,6 @@ export function KioskCheckoutScreen({
                     onUpdateRacePacks={onUpdateRacePacks}
                     onRemovePackage={onRemovePackage}
                     onChangePackage={onChangePackage}
-                    onRemovePov={onRemovePov}
-                    onChangePov={onChangePov}
-                    onRemoveAddon={onRemoveAddon}
                     onChangeAddons={onChangeAddons}
                   />
                 ))}

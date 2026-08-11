@@ -5,6 +5,46 @@ import type { BookingAddon } from "~/features/booking/data/addon-catalog";
 import { useT } from "~/features/kiosk/i18n";
 
 /**
+ * Name-chip "who's this for?" picker — shared by every card on the extras
+ * step (headsock AND the video card, owner 2026-08-10: "I'd like these to
+ * look similar to each other"). Pure UI: the caller owns the selection.
+ */
+export function NameChipPicker({
+  members,
+  selected,
+  onToggle,
+}: {
+  members: Array<{ id: string; firstName: string; lastName?: string }>;
+  selected: ReadonlySet<string>;
+  onToggle: (memberId: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {members.map((m) => {
+        const on = selected.has(m.id);
+        const name = `${m.firstName} ${m.lastName ?? ""}`.trim();
+        return (
+          <button
+            key={m.id}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onToggle(m.id)}
+            className={`rounded-full border px-4 py-2 text-sm font-semibold transition-colors ${
+              on
+                ? "border-[#00E2E5]/40 bg-[#00E2E5]/15 text-[#00E2E5]"
+                : "border-white/20 text-white/50 hover:border-white/40 hover:text-white"
+            }`}
+          >
+            {on ? "✓ " : ""}
+            {name}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
  * ONE add-on catalog entry as a card on the "Race Video & Extras" step
  * (below the POV card). Owner-approved mockup 2026-08-10 (rev 3):
  *   - per-racer attribution → "Who needs one?" name-chip picker; each
@@ -82,28 +122,7 @@ export function AddonCard({
         <p className="text-xs font-bold tracking-widest text-white/40 uppercase">
           {t(key("pickerLabel"))}
         </p>
-        <div className="flex flex-wrap gap-2">
-          {session.party.map((m) => {
-            const on = selected.has(m.id);
-            const name = `${m.firstName} ${m.lastName ?? ""}`.trim();
-            return (
-              <button
-                key={m.id}
-                type="button"
-                aria-pressed={on}
-                onClick={() => toggle(m.id)}
-                className={`rounded-full border px-4 py-2 text-sm font-semibold transition-colors ${
-                  on
-                    ? "border-[#00E2E5]/40 bg-[#00E2E5]/15 text-[#00E2E5]"
-                    : "border-white/20 text-white/50 hover:border-white/40 hover:text-white"
-                }`}
-              >
-                {on ? "✓ " : ""}
-                {name}
-              </button>
-            );
-          })}
-        </div>
+        <NameChipPicker members={session.party} selected={selected} onToggle={toggle} />
         {selected.size > 0 ? (
           <div className="flex items-center justify-between pt-1">
             <span className="text-xs text-white/30">{t(key("perRacerHint"))}</span>

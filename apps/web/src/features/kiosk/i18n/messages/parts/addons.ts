@@ -31,6 +31,11 @@ export const addonsEn = {
   // --- Cart teaser (race card, when video/extras were skipped) ---
   "addons.cart.teaserEyebrow": "Video & Extras",
   "addons.cart.addVideo": "+ Add race video",
+
+  // --- Cart race-card actions (owner 2026-08-10: ONE clearly-labeled button
+  //     per concern — no per-row remove clutter) ---
+  "addons.cart.changeAddons": "Change add-ons",
+  "cart.editRaces": "Edit races",
 } as const;
 
 export const addonsEs: Record<keyof typeof addonsEn, string> = {
@@ -56,4 +61,8 @@ export const addonsEs: Record<keyof typeof addonsEn, string> = {
   // --- Sugerencia en el carrito (cuando se omitieron video/extras) ---
   "addons.cart.teaserEyebrow": "Video y extras",
   "addons.cart.addVideo": "+ Agregar video de carrera",
+
+  // --- Acciones de la tarjeta de carrera en el carrito ---
+  "addons.cart.changeAddons": "Cambiar complementos",
+  "cart.editRaces": "Editar carreras",
 };

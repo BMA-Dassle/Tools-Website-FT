@@ -90,15 +90,10 @@ export interface CartViewProps {
   /** KIOSK: reopen the package screen for this item/category so the guest can
    *  swap bundles instead of removing one and rebuilding. */
   onChangePackage?: (itemId: string, category: "adult" | "junior") => void;
-  /** KIOSK: drop the POV video add-on (povQuantity → 0) without touching the
-   *  races — the same undo packages get. Web hosts don't pass it. */
-  onRemovePov?: (itemId: string) => void;
-  /** KIOSK: reopen the video step so the guest can change the camera count. */
-  onChangePov?: (itemId: string) => void;
-  /** KIOSK: drop ONE racer's retail add-on (addon-catalog; v1 headsock) off
-   *  this item — one tap per row, no navigation. Web hosts don't pass it. */
-  onRemoveAddon?: (itemId: string, slug: string, memberId: string) => void;
-  /** KIOSK: reopen the extras step so the guest can re-pick who gets one. */
+  /** KIOSK: the ONE edit affordance for everything on the extras step (video
+   *  + headsock) — reopens that step, whose chip pickers add AND remove
+   *  (owner 2026-08-10: one clearly-labeled "Change add-ons" button replaced
+   *  the per-row Change/Remove pairs). Web hosts don't pass it. */
   onChangeAddons?: (itemId: string) => void;
 }
 
@@ -116,9 +111,6 @@ export function CartView({
   onUpdateRacePacks,
   onRemovePackage,
   onChangePackage,
-  onRemovePov,
-  onChangePov,
-  onRemoveAddon,
   onChangeAddons,
 }: CartViewProps) {
   // Back-to-landing prefers the validated `appliedPromo.code` (set when the
@@ -189,9 +181,6 @@ export function CartView({
                 onUpdateRacePacks={onUpdateRacePacks}
                 onRemovePackage={onRemovePackage}
                 onChangePackage={onChangePackage}
-                onRemovePov={onRemovePov}
-                onChangePov={onChangePov}
-                onRemoveAddon={onRemoveAddon}
                 onChangeAddons={onChangeAddons}
               />
             ))}
@@ -435,9 +424,6 @@ export function CartItemCard({
   onUpdateRacePacks,
   onRemovePackage,
   onChangePackage,
-  onRemovePov,
-  onChangePov,
-  onRemoveAddon,
   onChangeAddons,
 }: {
   item: SessionItem;
@@ -448,9 +434,6 @@ export function CartItemCard({
   onUpdateRacePacks?: (itemId: string, creditPacks: KioskPackSelection[] | undefined) => void;
   onRemovePackage?: (itemId: string, category: "adult" | "junior") => void;
   onChangePackage?: (itemId: string, category: "adult" | "junior") => void;
-  onRemovePov?: (itemId: string) => void;
-  onChangePov?: (itemId: string) => void;
-  onRemoveAddon?: (itemId: string, slug: string, memberId: string) => void;
   onChangeAddons?: (itemId: string) => void;
 }) {
   if (item.kind === "race") {
@@ -464,9 +447,6 @@ export function CartItemCard({
         onUpdateRacePacks={onUpdateRacePacks}
         onRemovePackage={onRemovePackage}
         onChangePackage={onChangePackage}
-        onRemovePov={onRemovePov}
-        onChangePov={onChangePov}
-        onRemoveAddon={onRemoveAddon}
         onChangeAddons={onChangeAddons}
       />
     );
@@ -527,9 +507,6 @@ function RaceCartCard({
   onUpdateRacePacks,
   onRemovePackage,
   onChangePackage,
-  onRemovePov,
-  onChangePov,
-  onRemoveAddon,
   onChangeAddons,
 }: {
   item: RaceItem;
@@ -544,11 +521,10 @@ function RaceCartCard({
    *  to the product step freely). */
   onRemovePackage?: (itemId: string, category: "adult" | "junior") => void;
   onChangePackage?: (itemId: string, category: "adult" | "junior") => void;
-  /** KIOSK: same undo for the POV video add-on (see CartViewProps). */
-  onRemovePov?: (itemId: string) => void;
-  onChangePov?: (itemId: string) => void;
-  /** KIOSK: per-racer retail add-on undo (see CartViewProps). */
-  onRemoveAddon?: (itemId: string, slug: string, memberId: string) => void;
+  /** KIOSK: the ONE button for everything on the extras step (video +
+   *  headsock): reopens that step, where chips toggle off = remove (owner
+   *  2026-08-10: "combine add-ons into one change button and remove the
+   *  remove button"). */
   onChangeAddons?: (itemId: string) => void;
 }) {
   const t = useT();
@@ -617,7 +593,10 @@ function RaceCartCard({
             onClick={onEdit}
             className="rounded-lg border border-white/15 px-3 py-1.5 text-xs font-semibold text-white/70 transition-colors hover:border-white/30 hover:text-white"
           >
-            Edit
+            {/* "Edit races", not "Edit" — the extras got their own clearly-
+                labeled button below, so this one names its scope too (owner
+                2026-08-10). On the kiosk it jumps to the race-picking step. */}
+            {t("cart.editRaces")}
           </button>
           <button
             type="button"
@@ -705,16 +684,12 @@ function RaceCartCard({
               checkout — so the POV row must render here as well, not only in
               the no-package branch below. */}
           {item.povQuantity > 0 && !raceItemFullyPackaged(item, session.party) && (
-            <PovExtras item={item} onRemovePov={onRemovePov} onChangePov={onChangePov} />
+            <PovExtras item={item} />
           )}
           {/* Retail add-ons charge regardless of packaging (a headsock is never
               package-covered), so the rows show on packaged carts too. */}
-          <AddonExtras
-            item={item}
-            session={session}
-            onRemoveAddon={onRemoveAddon}
-            onChangeAddons={onChangeAddons}
-          />
+          <AddonExtras item={item} session={session} />
+          <ChangeAddonsButton item={item} session={session} onChangeAddons={onChangeAddons} />
           {/* Undo the bundle without losing the booking. One button per selected
               variant, because adult and junior are separate purchases — a family
               can drop the junior Rookie Pack and keep the adult one. */}
@@ -758,18 +733,12 @@ function RaceCartCard({
         item.addons.length > 0 ||
         (item.addonSelections?.some((s) => s.memberIds.length > 0) ?? false) ? (
         <div className="mt-3 space-y-1 border-t border-white/10 pt-3 text-xs">
-          {item.povQuantity > 0 && (
-            <PovExtras item={item} onRemovePov={onRemovePov} onChangePov={onChangePov} />
-          )}
+          {item.povQuantity > 0 && <PovExtras item={item} />}
           {item.addons.map((a) => (
             <ExtraRow key={a.id} icon="➕" label={addonLabel(a)} amount={estimateAddon(a)} />
           ))}
-          <AddonExtras
-            item={item}
-            session={session}
-            onRemoveAddon={onRemoveAddon}
-            onChangeAddons={onChangeAddons}
-          />
+          <AddonExtras item={item} session={session} />
+          <ChangeAddonsButton item={item} session={session} onChangeAddons={onChangeAddons} />
         </div>
       ) : null}
 
@@ -779,7 +748,7 @@ function RaceCartCard({
           purpose-built controls (capped stepper / who-picker) live there, and
           it's the wizard's last step so Continue lands back on this screen.
           Kiosk-only (needs onChangeAddons); hidden once both are in the cart
-          — their own rows then carry Change/Remove. */}
+          — the single "Change add-ons" button above then owns the editing. */}
       {onChangeAddons &&
         !combo &&
         (() => {
@@ -1113,70 +1082,59 @@ function ExtraRow({ icon, label, amount }: { icon: string; label: string; amount
   );
 }
 
-/** The standalone POV camera row + its kiosk Change/Remove controls (cloned
- *  from the package pair above). ONE block used by both the package branch and
- *  the no-package branch, so the row and its undo can't diverge between them.
- *  Web hosts don't pass the callbacks → row only, no buttons. */
-function PovExtras({
-  item,
-  onRemovePov,
-  onChangePov,
-}: {
-  item: RaceItem;
-  onRemovePov?: (itemId: string) => void;
-  onChangePov?: (itemId: string) => void;
-}) {
+/** The standalone POV camera row — display only. All editing goes through the
+ *  ONE "Change add-ons" button below the extras rows (owner 2026-08-10:
+ *  per-row Change/Remove read as clutter; deselecting the chips on the extras
+ *  step IS the remove). */
+function PovExtras({ item }: { item: RaceItem }) {
   const t = useT();
   return (
-    <>
-      <ExtraRow
-        icon="🎥"
-        label={t("pov.cart.rowLabel", { count: item.povQuantity })}
-        amount={POV_PRICE * item.povQuantity}
-      />
-      {onRemovePov && (
-        <div className="mt-2 flex items-stretch gap-2">
-          {onChangePov && (
-            <button
-              type="button"
-              onClick={() => onChangePov(item.id)}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[#00E2E5]/40 px-3 py-2 text-[11px] font-semibold text-[#00E2E5] transition-colors hover:bg-[#00E2E5]/10"
-            >
-              {t("pov.cart.change")}
-              <span aria-hidden>›</span>
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => onRemovePov(item.id)}
-            className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-white/15 px-3 py-2 text-[11px] font-semibold text-white/60 transition-colors hover:border-red-400/40 hover:text-red-300"
-          >
-            <span aria-hidden>✕</span>
-            {t("pov.cart.remove")}
-          </button>
-        </div>
-      )}
-    </>
+    <ExtraRow
+      icon="🎥"
+      label={t("pov.cart.rowLabel", { count: item.povQuantity })}
+      amount={POV_PRICE * item.povQuantity}
+    />
+  );
+}
+
+/** The ONE edit affordance for everything the extras step sells (video +
+ *  headsock): reopens that step, where the chip pickers add AND remove.
+ *  Kiosk-only (web hosts don't pass onChangeAddons). Rendered whenever any
+ *  extras row is showing above it. */
+function ChangeAddonsButton({
+  item,
+  session,
+  onChangeAddons,
+}: {
+  item: RaceItem;
+  session: BookingSession;
+  onChangeAddons?: (itemId: string) => void;
+}) {
+  const t = useT();
+  if (!onChangeAddons) return null;
+  const hasPovRow = item.povQuantity > 0 && !raceItemFullyPackaged(item, session.party);
+  const hasAddonRows = item.addonSelections?.some((s) => s.memberIds.length > 0) ?? false;
+  if (!hasPovRow && !hasAddonRows) return null;
+  return (
+    <div className="mt-2 flex items-stretch gap-2">
+      <button
+        type="button"
+        onClick={() => onChangeAddons(item.id)}
+        className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[#00E2E5]/40 px-3 py-2 text-[11px] font-semibold text-[#00E2E5] transition-colors hover:bg-[#00E2E5]/10"
+      >
+        {t("addons.cart.changeAddons")}
+        <span aria-hidden>›</span>
+      </button>
+    </div>
   );
 }
 
 /** Retail add-on rows (data/addon-catalog.ts; v1 the replacement headsock) —
  *  ONE row per selected racer ("Replacement Headsock · Dana", same name the
- *  Square line carries), each with a kiosk one-tap per-racer remove, plus a
- *  single Change that reopens the extras step. PovExtras contract: web hosts
- *  don't pass the callbacks → rows only. Invalid slugs / departed party
- *  members render nothing — the charge builder drops them identically. */
-function AddonExtras({
-  item,
-  session,
-  onRemoveAddon,
-  onChangeAddons,
-}: {
-  item: RaceItem;
-  session: BookingSession;
-  onRemoveAddon?: (itemId: string, slug: string, memberId: string) => void;
-  onChangeAddons?: (itemId: string) => void;
-}) {
+ *  Square line carries). Display only — editing goes through the single
+ *  "Change add-ons" button (ChangeAddonsButton). Invalid slugs / departed
+ *  party members render nothing — the charge builder drops them identically. */
+function AddonExtras({ item, session }: { item: RaceItem; session: BookingSession }) {
   const t = useT();
   const rows: Array<{
     slug: string;
@@ -1215,33 +1173,9 @@ function AddonExtras({
             <span className="mr-1.5">➕</span>
             {t(rowKey(r.i18nPrefix), { name: r.name })}
           </span>
-          <span className="flex items-center gap-2">
-            <span className="text-white/50">${r.price.toFixed(2)}</span>
-            {onRemoveAddon && (
-              <button
-                type="button"
-                onClick={() => onRemoveAddon(item.id, r.slug, r.memberId)}
-                aria-label={`${t("addons.cart.remove")} — ${r.name}`}
-                className="rounded-md border border-white/15 px-2 py-0.5 text-[11px] font-semibold text-white/50 transition-colors hover:border-red-400/40 hover:text-red-300"
-              >
-                ✕
-              </button>
-            )}
-          </span>
+          <span className="text-white/50">${r.price.toFixed(2)}</span>
         </div>
       ))}
-      {onChangeAddons && (
-        <div className="mt-2 flex items-stretch gap-2">
-          <button
-            type="button"
-            onClick={() => onChangeAddons(item.id)}
-            className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-[#00E2E5]/40 px-3 py-2 text-[11px] font-semibold text-[#00E2E5] transition-colors hover:bg-[#00E2E5]/10"
-          >
-            {t("addons.cart.change")}
-            <span aria-hidden>›</span>
-          </button>
-        </div>
-      )}
     </>
   );
 }

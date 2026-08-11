@@ -42,6 +42,10 @@ export interface BookingAddon {
    *  through SQUARE_CATALOG_MAP[chargeLineKey]; keep the two in sync). */
   squareCatalogObjectId: string;
   attribution: AddonAttribution;
+  /** $0 BMI product to record this add-on on the reservation bill (rides the
+   *  same booking/sell call as the $0 POV line, money stays on Square). Omit
+   *  for add-ons ops shouldn't see on the BMI bill. */
+  bmiZeroProductId?: string;
   /** qty attribution only: hard cap; undefined = party size. */
   maxQty?: number;
   /** i18n key prefix in parts/addons.ts — `${i18nPrefix}.name`, `.blurb`,
@@ -69,6 +73,10 @@ export const BOOKING_ADDONS: BookingAddon[] = [
     priceCents: 300, // $3 — matches the e-ticket HeadsockNotice copy
     chargeLineKey: "addon-headsock",
     squareCatalogObjectId: SQ.HEADSOCK,
+    // "Headsock Pre-Purchase" — owner-created 2026-08-10 on the same BMI page
+    // as the $0 POV product, so the reservation bill shows the sock was
+    // pre-bought (the Pandora credit remains the check-in fulfillment signal).
+    bmiZeroProductId: "48952128",
     attribution: "per-racer",
     i18nPrefix: "addon.headsock",
     grant: { depositKindId: HEADSOCK_DEPOSIT_KIND_ID, amountPerUnit: 1 },
