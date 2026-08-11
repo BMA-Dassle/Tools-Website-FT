@@ -1,18 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Redis } from "ioredis";
 import { verifyCron } from "@/lib/cron-auth";
+// Thresholds + qualifiesFor live in ~/features/racing/qualify so this cron and
+// the briefing-room board read ONE set of cutoffs. Duplicating them would mean
+// the level-up text and the wall could disagree about who qualified, in front of
+// the racer.
+import { qualifiesFor, formatLap } from "~/features/racing/qualify";
 
 const REDIS_URL = process.env.REDIS_URL || process.env.KV_URL || "";
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://fasttraxent.com";
 const LOCATION_ID = "LAB52GY480CJF"; // FastTrax Fort Myers
-
-// Qualifying thresholds (in milliseconds, from the racing progression chart)
-// Starter → Intermediate: 41s Blue / 46s Red
-// Intermediate → Pro: 32.5s Blue / 37s Red
-const QUALIFY_INTERMEDIATE_BLUE = 41_000;
-const QUALIFY_INTERMEDIATE_RED = 46_000;
-const QUALIFY_PRO_BLUE = 32_500;
-const QUALIFY_PRO_RED = 37_000;
 
 // Score groups to scan (customize as needed)
 const SCORE_GROUPS = [
@@ -43,19 +40,6 @@ interface Session {
   scheduledStart: string;
   actualStart: string;
   state: number; // 3 = finished
-}
-
-/**
- * Determine what level a racer qualifies for based on lap time + track.
- * Returns the level NAME they qualify for, or null if they don't qualify for anything new.
- */
-function qualifiesFor(bestLapMs: number, track: string): "Intermediate" | "Pro" | null {
-  const isBlue = track.toLowerCase().includes("blue");
-  const intermediateCutoff = isBlue ? QUALIFY_INTERMEDIATE_BLUE : QUALIFY_INTERMEDIATE_RED;
-  const proCutoff = isBlue ? QUALIFY_PRO_BLUE : QUALIFY_PRO_RED;
-  if (bestLapMs <= proCutoff) return "Pro";
-  if (bestLapMs <= intermediateCutoff) return "Intermediate";
-  return null;
 }
 
 /**
@@ -96,13 +80,6 @@ async function hasMembership(
   } catch {
     return null;
   }
-}
-
-/**
- * Format lap time in seconds (e.g. 36785ms → "36.785")
- */
-function formatLap(ms: number): string {
-  return (ms / 1000).toFixed(3);
 }
 
 /**
