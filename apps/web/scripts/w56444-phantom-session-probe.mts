@@ -66,10 +66,8 @@ if (!billId) {
   console.log("  no bmi_bill_id in Neon — cannot fetch Pandora reservation");
 } else {
   const key = process.env.SWAGGER_ADMIN_KEY || "";
-  const res = await fetch(`${PANDORA_BASE}/v2/bmi/reservation`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: `{"locationID":"${FASTTRAX}","reservationId":"${billId}"}`,
+  const res = await fetch(`${PANDORA_BASE}/v2/bmi/reservation/${FASTTRAX}/${billId}`, {
+    headers: { Authorization: `Bearer ${key}` },
     signal: AbortSignal.timeout(20_000),
   });
   const body = parseWithRawIds<any>(await res.text());
