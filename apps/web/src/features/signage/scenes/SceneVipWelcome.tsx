@@ -1,19 +1,21 @@
 "use client";
 
 /**
- * The VIP takeover — a party's bowling leg is minutes away.
+ * The VIP slide — gold, and a sibling of the welcome board.
  *
- * Fires between about ten and three minutes out. It stops at three on purpose:
- * by then they are walking up, and a countdown telling a paying VIP party they
- * are nearly late is worse than showing them nothing at all.
+ * NOT A TAKEOVER (owner 2026-08-11: "it shouldn't just take over everything,
+ * that doesn't make sense"). VipShowcase is a SLIDE the welcome board
+ * interleaves between its own pages — welcome 1, VIP, welcome 2, VIP — so VIP
+ * parties get repeated prominence without seizing the wall.
  *
- * Gold, and nothing else on screen. This is the one moment the wall speaks to a
- * single party by name, so anything else on it competes with that.
+ * Layout mirrors the welcome board (owner): brand rail on the left, one gold
+ * glass tile per party on the right, every in-window party on screen at once.
  */
-import { IconCrown } from "@tabler/icons-react";
+import { IconCrown, IconUsersGroup } from "@tabler/icons-react";
 import { withAlpha } from "../color";
 import { TV_PHOTOS } from "../assets";
-import { isBowlingStep } from "../director/schedule";
+import { isBowlingStep, vipCandidatesAt } from "../director/schedule";
+import { formatLanes } from "../lanes";
 import type { VipEntry, VipStep } from "../types";
 import type { SceneProps } from "../director/types";
 
@@ -21,20 +23,48 @@ const GOLD = "#d4af37";
 const GOLD_SOFT = "#e8b14c";
 const PARTICLES = 36;
 
-export function SceneVipWelcome({ decision }: SceneProps) {
-  // Every in-window party shares the screen at once (owner 2026-08-11) —
-  // "soonest wins" left the second family ungreeted, and a rotation meant
-  // whoever glanced up during the other party's turn missed their own name.
-  const parties = decision.vips?.length ? decision.vips : decision.vip ? [decision.vip] : [];
+const PAD_X = 96;
+const PAD_Y = 54;
+/** Same rail width as the welcome board, so the two scenes read as siblings. */
+const RAIL_PX = 560;
+
+/**
+ * Font size that FITS a word in the rail. Derived, never eyeballed — the
+ * welcome board shipped a 168px headline into a 560px rail and the wall read
+ * "WELCO" (owner). Exo 2 800 italic uppercase runs ~0.68em advance per glyph.
+ */
+function railFit(word: string, capPx: number): number {
+  return Math.min(capPx, Math.floor(RAIL_PX / (0.68 * Math.max(3, word.length))));
+}
+
+/**
+ * Standalone scene form, for a screen whose playlist names vip-welcome
+ * directly. Shows the in-window parties; with none in window it shows every
+ * known party rather than a blank wall.
+ */
+export function SceneVipWelcome({ feed, nowMs, config }: SceneProps) {
+  const inWindow = vipCandidatesAt(nowMs, feed?.vip ?? null, config.vip, isBowlingStep).map(
+    (c) => c.vip,
+  );
+  const parties = inWindow.length > 0 ? inWindow : (feed?.vip ?? []);
   if (parties.length === 0) return null;
-  const eyebrow = parties[0].comboName || "VIP Experience";
+  return <VipShowcase parties={parties} />;
+}
+
+/** The gold slide itself — also rendered by the welcome board's rotation. */
+export function VipShowcase({ parties }: { parties: VipEntry[] }) {
+  if (parties.length === 0) return null;
+
+  // Rebranded 2026-08-10: "VIP Experience", not "The Ultimate VIP Experience"
+  // (owner). The live comboName wins when the feed carries one. Rendered one
+  // word per line so each line can be sized to genuinely fit the rail.
+  const brandWords = (parties[0].comboName || "VIP Experience").split(/\s+/);
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
       {/* NOT the HyperBowling photo. That shot's lane screens carry their own
           marketing slogan ("NO MATTER WHO YOU ARE…"), which on a wall reads as
-          OUR copy, garbled (owner 2026-08-11: "the background says no matter
-          who you are instead of a nice image"). A photo with words in it is a
+          OUR copy, garbled (owner 2026-08-11). A photo with words in it is a
           photo that talks over the scene. */}
       <div
         aria-hidden
@@ -45,18 +75,19 @@ export function SceneVipWelcome({ decision }: SceneProps) {
           backgroundImage: `url(${TV_PHOTOS.bowl})`,
           backgroundSize: "cover",
           backgroundPosition: "center",
-          opacity: 0.5,
+          opacity: 0.45,
           filter: "saturate(0.8) brightness(0.7)",
         }}
       />
-      {/* Gold wash + vignette: the picture should feel lit from the middle. */}
+      {/* Scrim heavier on the left so the rail always carries, gold wash so the
+          whole frame reads as the gold moment even at a glance. */}
       <div
         aria-hidden
         style={{
           position: "absolute",
           inset: 0,
-          background: `radial-gradient(60% 50% at 50% 40%, ${withAlpha(GOLD, 0.28)}, transparent 72%),
-                       radial-gradient(90% 90% at 50% 50%, transparent 40%, #000418 92%)`,
+          background: `linear-gradient(to right, #000418 22%, rgba(2,10,34,0.8) 55%, rgba(2,10,34,0.35) 100%),
+                       radial-gradient(60% 50% at 50% 40%, ${withAlpha(GOLD, 0.22)}, transparent 72%)`,
         }}
       />
 
@@ -65,32 +96,51 @@ export function SceneVipWelcome({ decision }: SceneProps) {
       <div
         style={{
           position: "absolute",
-          inset: 0,
+          inset: `${PAD_Y}px ${PAD_X}px`,
           display: "flex",
-          flexDirection: "column",
+          gap: 64,
           alignItems: "center",
-          justifyContent: "center",
-          gap: 22,
-          padding: "0 96px",
         }}
       >
-        <IconCrown size={96} color={GOLD} style={{ filter: `drop-shadow(0 0 28px ${GOLD})` }} />
-
-        <div
-          className="tv-eyebrow"
-          style={{ color: GOLD_SOFT, fontSize: 30, letterSpacing: "0.32em" }}
-        >
-          {/* Rebranded 2026-08-10: "VIP Experience", not "The Ultimate VIP
-              Experience" (owner). The live comboName wins when the feed
-              carries one; this is only the fallback. */}
-          {eyebrow}
+        {/* Left: the brand. It never changes, so it anchors the screen. */}
+        <div style={{ width: RAIL_PX, flexShrink: 0 }}>
+          <IconCrown size={84} color={GOLD} style={{ filter: `drop-shadow(0 0 26px ${GOLD})` }} />
+          <div
+            className="tv-eyebrow"
+            style={{ color: GOLD_SOFT, fontSize: 26, marginTop: 18, letterSpacing: "0.3em" }}
+          >
+            Get ready
+          </div>
+          <div style={{ marginTop: 12 }}>
+            {brandWords.map((word, i) => (
+              <div
+                key={`${word}-${i}`}
+                className="tv-display"
+                style={{
+                  fontSize: railFit(word, i === 0 ? 150 : 88),
+                  // ≥1 line-height + em padding: gradient-clipped text with a
+                  // tight line box slices glyph paint on a scaled canvas.
+                  lineHeight: 1.04,
+                  padding: "0 0.1em",
+                  whiteSpace: "nowrap",
+                  background: `linear-gradient(180deg, #f5ecee 48%, ${GOLD})`,
+                  WebkitBackgroundClip: "text",
+                  backgroundClip: "text",
+                  color: "transparent",
+                }}
+              >
+                {word}
+              </div>
+            ))}
+          </div>
         </div>
 
-        {/* One block per party, all on screen together. No countdown (owner:
-            "doesn't need the in 8 min") — a greeting, not a schedule. */}
-        {parties.map((vip, i) => (
-          <PartyName key={vip.id} vip={vip} count={parties.length} index={i} />
-        ))}
+        {/* Right: one tile per party, all on screen together. */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 22 }}>
+          {parties.map((vip, i) => (
+            <VipTile key={vip.id} vip={vip} index={i} />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -100,51 +150,82 @@ function bowlingStep(vip: VipEntry): VipStep | null {
   return vip.schedule.find((s) => isBowlingStep(s.label)) ?? null;
 }
 
-/**
- * One party's name and lane. Sized to FIT, painted so it cannot clip.
- *
- * Two separate cut-off bugs live in naive versions of this block, and both have
- * now happened on the real wall (owner 2026-08-11, twice):
- *
- *  1. LENGTH. A fixed 180px with nowrap fits "SARAH" and runs off the canvas
- *     for "Alexandria's". The size is derived from the name length and the
- *     available width — deterministic, no measuring, same on every screen.
- *  2. PAINT. background-clip:text with a sub-1 line-height slices glyph paint
- *     at the line box on a transform-scaled canvas — italic overhang and the
- *     gradient bottom go missing. Line-height ≥ 1 plus em-padding gives the
- *     glyphs room; the flex parent does not clip.
- */
-function PartyName({ vip, count, index }: { vip: VipEntry; count: number; index: number }) {
+/** One party: name big, lane unmissable — the welcome board's card, in gold. */
+function VipTile({ vip, index }: { vip: VipEntry; index: number }) {
   const step = bowlingStep(vip);
-  // Canvas 1920 minus the 96px side padding on each side.
-  const budgetPx = 1920 - 2 * 96;
-  const maxPx = count === 1 ? 180 : count === 2 ? 128 : 96;
-  // Exo 2 800 italic uppercase runs ~0.68em average advance per glyph.
-  const fitted = Math.min(maxPx, Math.floor(budgetPx / (0.68 * Math.max(4, vip.title.length))));
-
+  // "Lanes 1–4", not "Lane 1,2,3,4" — a party big enough to matter holds a
+  // run of lanes and the wall should say it the way a person would (owner).
+  const laneLabel = formatLanes(step?.lane);
   return (
-    <div className="tv-rise" style={{ textAlign: "center", animationDelay: `${index * 120}ms` }}>
+    <div
+      className="tv-glass tv-rise"
+      style={{
+        position: "relative",
+        padding: "26px 34px",
+        borderLeft: `8px solid ${GOLD}`,
+        // Cascade in, one after another, so the tiles read as arrival.
+        animationDelay: `${index * 120}ms`,
+        overflow: "hidden",
+      }}
+    >
       <div
         className="tv-display"
         style={{
-          fontSize: fitted,
-          lineHeight: 1.04,
-          padding: "0 0.14em",
+          fontSize: 66,
+          color: "#fff",
           whiteSpace: "nowrap",
-          background: `linear-gradient(180deg, #f5ecee 48%, ${GOLD})`,
-          WebkitBackgroundClip: "text",
-          backgroundClip: "text",
-          color: "transparent",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          // Leave air for the lane chip so a long name never runs under it.
+          paddingRight: 240,
+          textShadow: `0 0 40px ${withAlpha(GOLD, 0.5)}`,
         }}
       >
         {vip.title}
       </div>
+
       <div
-        className="tv-display"
-        style={{ fontSize: count === 1 ? 62 : 40, color: "#fff", marginTop: count === 1 ? 8 : 2 }}
+        style={{
+          marginTop: 12,
+          display: "flex",
+          alignItems: "center",
+          gap: 30,
+          fontSize: 34,
+          color: "rgba(245,236,238,0.78)",
+        }}
       >
-        VIP bowling{step?.lane ? ` · Lane ${step.lane}` : ""}
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 12 }}>
+          <IconCrown size={30} color={GOLD} aria-hidden />
+          <span>VIP Bowling</span>
+        </span>
+        {vip.playerCount != null && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 12 }}>
+            <IconUsersGroup size={32} aria-hidden style={{ opacity: 0.8 }} />
+            <span>{vip.playerCount} guests</span>
+          </span>
+        )}
       </div>
+
+      {laneLabel && (
+        <div
+          style={{
+            position: "absolute",
+            right: 28,
+            top: "50%",
+            transform: "translateY(-50%)",
+            padding: "10px 24px",
+            borderRadius: 999,
+            border: `2px solid ${withAlpha(GOLD, 0.65)}`,
+            color: GOLD,
+            fontSize: 30,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {laneLabel}
+        </div>
+      )}
     </div>
   );
 }

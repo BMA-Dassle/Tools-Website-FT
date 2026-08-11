@@ -14,7 +14,6 @@ import {
   isRacingBoard,
   recentScans,
   vipCandidatesAt,
-  vipOnStage,
   isBowlingStep,
   minutesUntil,
   resolveActiveScene,
@@ -180,25 +179,23 @@ describe("crownActiveAt", () => {
   });
 });
 
-describe("VIP window + stage", () => {
+describe("VIP greeting window (candidates feed the welcome rotation)", () => {
   const cfg = resolveScreenConfig({}, "HPFM").vip; // lead 10, floor 3
   const now = Date.parse("2026-08-11T23:00:00.000Z");
   const bowlingIn = (mins: number, id = "v1") =>
     vipAt(new Date(now + mins * 60_000).toISOString(), id);
 
   it("greets inside the window", () => {
-    expect(vipOnStage(now, [bowlingIn(8)], cfg, isBowlingStep)?.vips[0].title).toBe("Sarah");
+    expect(vipCandidatesAt(now, [bowlingIn(8)], cfg, isBowlingStep)[0]?.vip.title).toBe("Sarah");
   });
 
   it("stays quiet before the lead", () => {
-    expect(vipOnStage(now, [bowlingIn(20)], cfg, isBowlingStep)).toBeNull();
+    expect(vipCandidatesAt(now, [bowlingIn(20)], cfg, isBowlingStep)).toHaveLength(0);
   });
 
   it("stops once they're walking up (past the floor)", () => {
-    // Deliberate: a takeover greeting someone already at the lanes is worse
-    // than showing nothing.
-    expect(vipOnStage(now, [bowlingIn(2)], cfg, isBowlingStep)).toBeNull();
-    expect(vipOnStage(now, [bowlingIn(-5)], cfg, isBowlingStep)).toBeNull();
+    expect(vipCandidatesAt(now, [bowlingIn(2)], cfg, isBowlingStep)).toHaveLength(0);
+    expect(vipCandidatesAt(now, [bowlingIn(-5)], cfg, isBowlingStep)).toHaveLength(0);
   });
 
   it("ignores non-bowling legs", () => {
@@ -220,34 +217,15 @@ describe("VIP window + stage", () => {
     expect(vipCandidatesAt(now, [raceOnly], cfg, isBowlingStep)).toHaveLength(0);
   });
 
-  it("startedAtMs is STABLE across ticks — the freak-out regression", () => {
-    // The first version stamped startedAtMs with nowMs, so every 250ms tick
-    // read as a brand-new takeover and the scene replayed its entrance over
-    // and over ("the screen is freaking out", owner 2026-08-11).
-    const vips = [bowlingIn(8)];
-    const a = vipOnStage(now, vips, cfg, isBowlingStep);
-    const b = vipOnStage(now + 250, vips, cfg, isBowlingStep);
-    const c = vipOnStage(now + 30_000, vips, cfg, isBowlingStep);
-    expect(a?.startedAtMs).toBe(b?.startedAtMs);
-    expect(a?.startedAtMs).toBe(c?.startedAtMs);
-    expect(a!.startedAtMs).toBeLessThanOrEqual(now);
-  });
-
-  it("BOTH overlapping parties are on stage AT ONCE, most urgent first", () => {
-    // "Soonest wins" meant a second party booked the same hour was never
-    // greeted at all, and a rotation meant whoever glanced up during the other
-    // party's turn missed theirs (owner 2026-08-11: "show multiple VIPs on
-    // screen at same time"). The decision carries them all.
-    const vips = [bowlingIn(9, "party-a"), bowlingIn(5, "party-b")];
-    const on = vipOnStage(now, vips, cfg, isBowlingStep);
-    expect(on?.vips.map((v) => v.id)).toEqual(["party-b", "party-a"]);
-  });
-
-  it("the shared start is stable while the same parties hold the stage", () => {
-    const vips = [bowlingIn(9, "party-a"), bowlingIn(5, "party-b")];
-    const a = vipOnStage(now, vips, cfg, isBowlingStep);
-    const b = vipOnStage(now + 30_000, vips, cfg, isBowlingStep);
-    expect(a?.startedAtMs).toBe(b?.startedAtMs);
+  it("carries EVERY in-window party, most urgent first", () => {
+    // They all appear on the gold slide together (owner 2026-08-11).
+    const out = vipCandidatesAt(
+      now,
+      [bowlingIn(9, "party-a"), bowlingIn(5, "party-b")],
+      cfg,
+      isBowlingStep,
+    );
+    expect(out.map((c) => c.vip.id)).toEqual(["party-b", "party-a"]);
   });
 
   it("is silent when disabled or fed nothing", () => {
@@ -255,8 +233,8 @@ describe("VIP window + stage", () => {
       { interrupts: { "vip-welcome": { enabled: false } } },
       "HPFM",
     ).vip;
-    expect(vipOnStage(now, [bowlingIn(8)], off, isBowlingStep)).toBeNull();
-    expect(vipOnStage(now, null, cfg, isBowlingStep)).toBeNull();
+    expect(vipCandidatesAt(now, [bowlingIn(8)], off, isBowlingStep)).toHaveLength(0);
+    expect(vipCandidatesAt(now, null, cfg, isBowlingStep)).toHaveLength(0);
   });
 
   it("tolerates an unparseable time", () => {
@@ -445,7 +423,6 @@ describe("resolveActiveScene precedence", () => {
     nowMs: now,
     config,
     hasData: always,
-    vips: null,
     events: [] as SignageEvent[],
     seenEventIds: new Set<string>(),
   };
@@ -454,17 +431,15 @@ describe("resolveActiveScene precedence", () => {
     const d = resolveActiveScene({
       ...base,
       asleep: true,
-      events: [evt({ atMs: now - 1_000 })],
-      vips: [vipAt(new Date(now + 8 * 60_000).toISOString())],
+      events: [evt({ atMs: now - 1_000, kind: "racer-scanned", birthday: true })],
     });
     expect(d.scene).toBe("sleep");
   });
 
-  it("a birthday outranks a VIP takeover — that guest is standing right there", () => {
+  it("a birthday takes the racing boards — that guest is standing right there", () => {
     const d = resolveActiveScene({
       ...base,
-      events: [evt({ atMs: now - 1_000, birthday: true })],
-      vips: [vipAt(new Date(now + 8 * 60_000).toISOString())],
+      events: [evt({ atMs: now - 1_000, kind: "racer-scanned", birthday: true })],
     });
     expect(d.scene).toBe("celebration");
     expect(d.event?.id).toBe("e1");
@@ -472,22 +447,16 @@ describe("resolveActiveScene precedence", () => {
     expect(d.durationMs).toBe(BIRTHDAY_SHOW_MS);
   });
 
-  it("an ordinary scan does NOT preempt anything — it belongs on the rail", () => {
+  it("VIP is NOT an interrupt — nothing here can decide vip-welcome", () => {
+    // Owner 2026-08-11: "it shouldn't just take over everything". VIP parties
+    // are a gold slide inside the welcome board's rotation, so the scheduler
+    // has no VIP branch at all — whatever else is going on wins the frame.
     const d = resolveActiveScene({
       ...base,
-      events: [evt({ atMs: now - 1_000 })],
-      vips: [vipAt(new Date(now + 8 * 60_000).toISOString())],
+      events: [evt({ atMs: now - 1_000, kind: "racer-scanned" })],
     });
-    expect(d.scene).toBe("vip-welcome");
-  });
-
-  it("VIP takeover outranks the crown and the rotation", () => {
-    const d = resolveActiveScene({
-      ...base,
-      vips: [vipAt(new Date(now + 8 * 60_000).toISOString())],
-    });
-    expect(d.scene).toBe("vip-welcome");
-    expect(d.isInterrupt).toBe(true);
+    expect(d.scene).not.toBe("vip-welcome");
+    expect(d.scene).not.toBe("celebration"); // ordinary scans stay on the rail
   });
 
   it("crown rides over the rotation inside its window", () => {

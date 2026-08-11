@@ -154,6 +154,8 @@ export interface ScreenConfig {
   /** How many minutes a racer has to check in, counted from the moment the
    *  heat was first called. Drives the countdown on the track boards. */
   checkinWindowMins?: number;
+  /** Show that countdown at all. Off = the session shows with no timer. */
+  showCheckinCountdown?: boolean;
   /** Show a labelled "scan for track records" QR on the track boards. */
   showRecordsQr?: boolean;
   /** Minutes before an event's first leg that it appears on the welcome board. */

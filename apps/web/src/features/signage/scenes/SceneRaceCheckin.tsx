@@ -249,7 +249,7 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
             accent={accent}
             justCalled={justCalled}
             nowMs={nowMs}
-            windowMins={config.checkinWindowMins}
+            windowMins={config.showCheckinCountdown ? config.checkinWindowMins : null}
             standby={!busy}
             checkedIn={feed?.raceCheckin?.checkedIn ?? null}
             total={feed?.raceCheckin?.total ?? null}
@@ -305,7 +305,8 @@ function CheckingIn({
   accent: string;
   justCalled: boolean;
   nowMs: number;
-  windowMins: number;
+  /** Null = the countdown is switched off in admin. */
+  windowMins: number | null;
   standby: boolean;
   checkedIn: number | null;
   total: number | null;
@@ -371,7 +372,9 @@ function CheckingIn({
           It never shows a negative number or a hard zero: staff will still
           check somebody in at 8:01, so a board announcing they have missed it
           would be both unkind and untrue. It becomes an instruction instead. */}
-      <Countdown calledAt={race.calledAt} nowMs={nowMs} windowMins={windowMins} accent={accent} />
+      {windowMins != null && (
+        <Countdown calledAt={race.calledAt} nowMs={nowMs} windowMins={windowMins} accent={accent} />
+      )}
 
       {/* Only while nobody is scanning — that is exactly when we are waiting on
           people to walk up, and the one moment this line is useful. */}

@@ -50,11 +50,6 @@ export interface SceneDecision {
   isInterrupt: boolean;
   /** The event a celebration is showing, when that's the decision. */
   event?: SignageEvent;
-  /** The lead VIP party of a takeover (kept for identity/back-compat). */
-  vip?: VipEntry;
-  /** EVERY party the takeover is greeting, most urgent first — they all share
-   *  the screen at once (owner 2026-08-11). */
-  vips?: VipEntry[];
 }
 
 /* ── base rotation ────────────────────────────────────────────────────── */
@@ -186,41 +181,6 @@ export function vipCandidatesAt(
   return out;
 }
 
-/**
- * Everyone on stage right now, with a STABLE start time.
- *
- * Two rules born from the wall, not theory:
- *
- * EVERY IN-WINDOW PARTY SHOWS TOGETHER (owner 2026-08-11: "show multiple VIPs
- * on screen at same time"). Two lanes booked in the same hour is normal;
- * "soonest wins" meant the second family was never greeted at all, and a
- * rotation meant whoever glanced up during the other party's turn missed
- * theirs. The scene lays out however many are in the window; the decision
- * carries them all, most urgent first.
- *
- * `startedAtMs` MUST NOT TICK. The first version stamped it with `nowMs`, so
- * every 250ms tick looked like a brand-new takeover — the director remounted
- * the scene and replayed its entrance over and over ("the screen is freaking
- * out", owner 2026-08-11). It anchors to the EARLIEST party's window-open
- * moment, rounded to the minute so a preview fixture that drifts a couple of
- * seconds per poll cannot wobble it. A pure function of the clock and the
- * data: it moves only when the set of parties moves, which is a real change.
- */
-export function vipOnStage(
-  nowMs: number,
-  vips: VipEntry[] | null,
-  cfg: ResolvedScreenConfig["vip"],
-  stepLabelMatches: (label: string) => boolean,
-): { vips: VipEntry[]; startedAtMs: number } | null {
-  const candidates = vipCandidatesAt(nowMs, vips, cfg, stepLabelMatches);
-  if (candidates.length === 0) return null;
-
-  const windowOpens = candidates.map((c) => nowMs + c.minsUntil * 60_000 - cfg.leadMins * 60_000);
-  const earliest = Math.min(...windowOpens);
-  const startedAtMs = Math.min(nowMs, Math.floor(earliest / 60_000) * 60_000);
-  return { vips: candidates.map((c) => c.vip), startedAtMs };
-}
-
 /** Default matcher: the VIP itinerary's bowling leg. */
 export function isBowlingStep(label: string): boolean {
   return /bowl/i.test(label);
@@ -326,7 +286,6 @@ export interface DecisionInput {
   nowMs: number;
   config: ResolvedScreenConfig;
   hasData: (scene: SceneType) => boolean;
-  vips: VipEntry[] | null;
   events: SignageEvent[];
   seenEventIds: ReadonlySet<string>;
   /** Venue closed — panel saver wins over everything. */
@@ -339,11 +298,13 @@ export interface DecisionInput {
  * What the screen shows at this instant.
  *
  * PRECEDENCE, highest first:
- *   sleep  →  celebration  →  VIP takeover  →  billboard crown  →  rotation
+ *   sleep  →  celebration  →  billboard crown  →  rotation
  *
- * Celebration outranks the VIP takeover deliberately: it is 8 seconds long and
- * it is about a guest who is standing right there, right now. The VIP takeover
- * has a multi-minute window and loses nothing by yielding briefly.
+ * VIP is deliberately NOT here (owner 2026-08-11: "it shouldn't just take over
+ * everything, that doesn't make sense"). VIP parties are a gold slide the
+ * welcome board interleaves with its own pages — rotation content, not an
+ * interrupt. The only things that preempt are a moment happening right now
+ * (celebration) and the bank choreography (crown).
  */
 export function resolveActiveScene(input: DecisionInput): SceneDecision {
   const { nowMs, config } = input;
@@ -373,22 +334,6 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
       durationMs: event.birthday ? BIRTHDAY_SHOW_MS : config.celebration.showMs,
       isInterrupt: true,
       event,
-    };
-  }
-
-  const vip = implemented("vip-welcome")
-    ? vipOnStage(nowMs, input.vips, config.vip, isBowlingStep)
-    : null;
-  if (vip) {
-    return {
-      scene: "vip-welcome",
-      // Stable across ticks — see vipOnStage. A ticking start here is what made
-      // the takeover remount and replay its entrance every beat.
-      startedAtMs: vip.startedAtMs,
-      durationMs: null,
-      isInterrupt: true,
-      vip: vip.vips[0],
-      vips: vip.vips,
     };
   }
 

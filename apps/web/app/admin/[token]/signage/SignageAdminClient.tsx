@@ -296,7 +296,10 @@ function ScreenRow({
   const resolved = resolveScreenConfig(screen.config, screen.venue as SignageVenue);
   const canRaceCheckin = resolved.playlist.some((p) => p.scene === "race-checkin");
   const canWelcome = resolved.playlist.some((p) => p.scene === "event-welcome");
-  const canVip = resolved.vip.enabled;
+
+  // VIP is welcome-board content now (not an interrupt), so previewing it only
+  // makes sense where the welcome board runs — and only if VIP pages are on.
+  const canVip = canWelcome && resolved.vip.enabled;
   const canCelebrate = resolved.celebration.enabled;
   const online = heartbeat ? nowMs - Date.parse(heartbeat.at) < 60_000 : false;
   const scopedTrack = screen.config.scope?.resourceIds?.[0];
@@ -595,6 +598,7 @@ interface Draft {
   crownEnabled: boolean;
   showNextAvailable: boolean;
   checkinWindowMins: number;
+  showCheckinCountdown: boolean;
   showRecordsQr: boolean;
   trackResourceId: string;
   pairGroupId: string;
@@ -617,6 +621,7 @@ function newDraft(): Draft {
     crownEnabled: true,
     showNextAvailable: false,
     checkinWindowMins: 8,
+    showCheckinCountdown: true,
     showRecordsQr: true,
     trackResourceId: "",
     pairGroupId: "",
@@ -642,6 +647,7 @@ function draftFromScreen(s: SignageScreen): Draft {
     crownEnabled: c.interrupts?.["billboard-crown"]?.enabled === true,
     showNextAvailable: c.showNextAvailable === true,
     checkinWindowMins: c.checkinWindowMins ?? 8,
+    showCheckinCountdown: c.showCheckinCountdown !== false,
     showRecordsQr: c.showRecordsQr === true,
     trackResourceId: c.scope?.resourceIds?.[0] ?? "",
     pairGroupId: c.pairing?.groupId ?? "",
@@ -669,6 +675,7 @@ function draftToConfig(d: Draft): ScreenConfig {
     },
     showNextAvailable: d.showNextAvailable,
     checkinWindowMins: d.checkinWindowMins,
+    showCheckinCountdown: d.showCheckinCountdown,
     showRecordsQr: d.showRecordsQr,
     scope: d.trackResourceId ? { resourceIds: [d.trackResourceId] } : {},
     ...(d.pairGroupId
@@ -812,7 +819,7 @@ function ScreenForm({
           checked={draft.vipEnabled}
           onChange={(v) => set("vipEnabled", v)}
           label="VIP welcome"
-          hint="Takes over the screen ahead of a VIP party's bowling leg."
+          hint="A gold VIP slide joins the welcome rotation — welcome page, VIP, welcome page, VIP — from about 10 minutes before a party's bowling leg. Not a takeover."
         />
         {draft.vipEnabled && (
           <label style={{ ...hint, display: "block", marginLeft: 28 }}>
@@ -844,6 +851,12 @@ function ScreenForm({
 
       {draft.showRaceCheckin && (
         <Field label="Check-in countdown">
+          <Check
+            checked={draft.showCheckinCountdown}
+            onChange={(v) => set("showCheckinCountdown", v)}
+            label="Show the countdown"
+            hint="Off, the board still shows the session and the cut-off state — just without a ticking timer."
+          />
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 14 }}>Racers get</span>
             <input

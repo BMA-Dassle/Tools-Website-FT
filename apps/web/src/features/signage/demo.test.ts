@@ -59,25 +59,29 @@ describe("pushed previews", () => {
     expect(sceneHasData("vip-welcome", decorated)).toBe(true);
   });
 
-  it("a VIP preview actually reaches the screen on a track board", () => {
-    // The end-to-end assertion: admin pushes "vip", and the director decides to
-    // render the VIP takeover on a board whose playlist is race-checkin only.
+  it("a VIP preview reaches a LOBBY board as welcome-board content", () => {
+    // VIP is no longer an interrupt (owner: "it shouldn't just take over
+    // everything") — it is the gold slide inside the welcome rotation, so a
+    // pushed VIP preview must earn the event-welcome segment its slot even
+    // with no parties booked today.
+    const lobby = resolveScreenConfig(
+      { playlist: [{ scene: "event-welcome", slots: 2, requiresData: true }] },
+      "HPFM",
+    );
     const decorated = applyDemo(baseFeed(now), "vip", now);
+    expect(decorated?.vip?.length).toBe(2);
+    expect(sceneHasData("event-welcome", decorated)).toBe(true);
     const decision = resolveActiveScene({
       nowMs: now,
-      config: TRACK_CONFIG,
+      config: lobby,
       hasData: (scene) => sceneHasData(scene, decorated),
-      vips: decorated?.vip ?? null,
       events: decorated?.kioskEvents ?? [],
       seenEventIds: new Set(),
     });
-    expect(decision.scene).toBe("vip-welcome");
-    // Marcus's bowling leg is 6 minutes out to Sarah's 8, so he leads — and
-    // BOTH are on stage at once.
-    expect(decision.vips?.map((v) => v.title)).toEqual(["Marcus", "Sarah"]);
+    expect(decision.scene).toBe("event-welcome");
   });
 
-  it("a preview WINS over a live birthday — press the button, see that scene", () => {
+  it("a preview clears live events — press the button, see that scene", () => {
     // The bug behind "preview VIP is not working": a birthday fired in the last
     // ninety seconds outranks the rotation, so the preview appeared to do
     // nothing. Correct precedence for a guest moment, useless for a staff tool.
@@ -92,11 +96,10 @@ describe("pushed previews", () => {
       nowMs: now,
       config: TRACK_CONFIG,
       hasData: (scene) => sceneHasData(scene, decorated),
-      vips: decorated?.vip ?? null,
       events: decorated?.kioskEvents ?? [],
       seenEventIds: new Set(),
     });
-    expect(decision.scene).toBe("vip-welcome");
+    expect(decision.scene).not.toBe("celebration");
   });
 
   it("an event preview puts parties on the board", () => {

@@ -98,7 +98,9 @@ function demoVip(nowMs: number): VipEntry[] {
       },
     ],
   });
-  return [party("demo-vip-a", "Sarah", "11", 8), party("demo-vip-b", "Marcus", "12", 6)];
+  // Sarah holds a consecutive RUN of lanes so the "Lanes 1–4" formatting is
+  // exactly what a preview shows (owner 2026-08-11).
+  return [party("demo-vip-a", "Sarah", "1,2,3,4", 8), party("demo-vip-b", "Marcus", "12", 6)];
 }
 
 /**

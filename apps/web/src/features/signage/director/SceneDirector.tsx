@@ -69,7 +69,6 @@ export function SceneDirector({
         nowMs,
         config,
         hasData: (scene) => sceneHasData(scene, feed),
-        vips: feed?.vip ?? null,
         events: feed?.kioskEvents ?? [],
         seenEventIds: seen,
         asleep,
@@ -179,15 +178,6 @@ export function SceneDirector({
  * 80-second welcome segment enter once, not once per slot.
  */
 function frameKey(d: SceneDecision): string {
-  // For a takeover the identity is the SET of parties on stage — sorted, so
-  // ordering churn isn't a remount, but a family arriving or leaving is.
-  const identity =
-    d.event?.id ??
-    (d.vips && d.vips.length > 0
-      ? d.vips
-          .map((v) => v.id)
-          .sort()
-          .join("+")
-      : d.vip?.id);
+  const identity = d.event?.id;
   return identity ? `${d.scene}:${identity}` : `${d.scene}:${d.startedAtMs}`;
 }

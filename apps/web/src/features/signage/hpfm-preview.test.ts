@@ -51,7 +51,6 @@ function decide(now: number, mode: "vip" | "event") {
     nowMs: now,
     config: HPFM_CONFIG,
     hasData: (scene) => sceneHasData(scene, decorated),
-    vips: decorated?.vip ?? null,
     events: decorated?.kioskEvents ?? [],
     seenEventIds: new Set(),
     isImplemented: isSceneImplemented,
@@ -64,8 +63,8 @@ describe("HPFM:1 previews, against the real production config", () => {
   // A moment well clear of it.
   const clearOfCrown = 10 * SLOT_MS + CROWN_WINDOW_MS + 5_000;
 
-  it("VIP preview wins outside the crown window", () => {
-    expect(decide(clearOfCrown, "vip").scene).toBe("vip-welcome");
+  it("a VIP preview shows as welcome-board content (VIP is not an interrupt)", () => {
+    expect(decide(clearOfCrown, "vip").scene).toBe("event-welcome");
   });
 
   it("welcome preview shows outside the crown window", () => {
@@ -95,9 +94,7 @@ describe("HPFM:1 previews, against the real production config", () => {
     expect(scenes.join(">")).not.toContain("ads>ads");
   });
 
-  it("a VIP takeover still outranks the crown", () => {
-    // Precedence puts VIP above the crown, so this one was never fully broken —
-    // only interrupted by whatever else the screen was doing.
-    expect(decide(inCrownWindow, "vip").scene).toBe("vip-welcome");
+  it("a VIP preview also survives the crown window — the crown is unbuilt", () => {
+    expect(decide(inCrownWindow, "vip").scene).toBe("event-welcome");
   });
 });

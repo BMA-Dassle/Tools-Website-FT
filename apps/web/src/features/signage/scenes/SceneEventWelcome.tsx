@@ -8,49 +8,90 @@
  * marquee, not a table: a small number of large cards, first names only, and
  * exactly one instruction each.
  *
- * Three at a time, paged on the shared clock. More than that and the type has
- * to shrink past what reads from across a lobby, which defeats the point.
+ * VIP PARTIES ALTERNATE WITH THE WELCOME PAGES (owner 2026-08-11: "welcome 1,
+ * vip, welcome 2, vip" — "it shouldn't just take over everything"). The gold
+ * VIP slide is one page of this rotation, appearing after every welcome page
+ * while a party is inside its greeting window. Repeated prominence, no seizure.
+ *
+ * Pages turn on the shared clock, so two screens showing this board are on the
+ * same page at the same moment and a reboot lands where it should.
  */
 import { IconClock, IconUsersGroup, IconMapPin } from "@tabler/icons-react";
 import { TV_W } from "../constants";
 import { withAlpha } from "../color";
 import { TV_PHOTOS } from "../assets";
+import { isBowlingStep, vipCandidatesAt } from "../director/schedule";
+import { VipShowcase } from "./SceneVipWelcome";
 import type { WelcomeEntry } from "../types";
 import type { SceneProps } from "../director/types";
 
 const PAD_X = 96;
 const PAD_Y = 54;
 const PER_PAGE = 3;
-/** How long one page of parties holds before the next. */
+/** How long one page holds before the next. */
 const PAGE_MS = 12_000;
 
 const CYAN = "#00e2e5";
 const VIP_GOLD = "#d4af37";
 
-export function SceneEventWelcome({ feed, nowMs, venue }: SceneProps) {
-  const all = feed?.events ?? [];
-  if (all.length === 0) return null;
+/**
+ * Backdrops rotate with the welcome pages so the board feels alive, and they
+ * are ACTUALLY VISIBLE — the first version sat one photo at 22% opacity under
+ * a heavy scrim and "you can barely see what shows" (owner 2026-08-11). The
+ * scrim now protects only the left rail, where the type lives; the photo owns
+ * the right, behind glass cards that carry their own contrast.
+ */
+const WELCOME_BACKDROPS = [TV_PHOTOS.kbf, TV_PHOTOS.bowl, TV_PHOTOS.arcade, TV_PHOTOS.gel];
 
-  const pageCount = Math.max(1, Math.ceil(all.length / PER_PAGE));
-  // Clock-derived, like everything else: two screens showing this board are on
-  // the same page at the same moment, and a reboot lands where it should.
-  const page = Math.floor(nowMs / PAGE_MS) % pageCount;
+/** "HeadPinz", not "HeadPinz Fort Myers" — everyone standing in the lobby
+ *  knows which town they are in (owner 2026-08-11). */
+function localBuilding(building: string | null): string | null {
+  if (!building) return null;
+  return building.replace(/\s+(Fort Myers|Naples)\s*$/i, "");
+}
+
+export function SceneEventWelcome({ feed, nowMs, venue, config }: SceneProps) {
+  const all = feed?.events ?? [];
+
+  // VIP parties inside their greeting window join the rotation as gold pages.
+  // With no events at all but VIPs known, the board is VIP wall to wall rather
+  // than blank.
+  const vipParties = vipCandidatesAt(nowMs, feed?.vip ?? null, config.vip, isBowlingStep).map(
+    (c) => c.vip,
+  );
+
+  const welcomePages = Math.ceil(all.length / PER_PAGE);
+  const interleaved = vipParties.length > 0;
+
+  if (welcomePages === 0) {
+    if (!interleaved) return null;
+    return <VipShowcase parties={vipParties} />;
+  }
+
+  // welcome 1, VIP, welcome 2, VIP, … — the VIP slide after every welcome page.
+  const totalPages = interleaved ? welcomePages * 2 : welcomePages;
+  const seq = Math.floor(nowMs / PAGE_MS) % totalPages;
+  if (interleaved && seq % 2 === 1) {
+    return <VipShowcase parties={vipParties} />;
+  }
+  const page = interleaved ? Math.floor(seq / 2) : seq;
   const shown = all.slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE);
+  const backdrop = WELCOME_BACKDROPS[page % WELCOME_BACKDROPS.length];
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
-      {/* A party photo, well behind everything — atmosphere, not content. */}
+      {/* The photo is content now, not a rumour of one. */}
       <div
         aria-hidden
         className="tv-kenburns"
         style={{
           position: "absolute",
           inset: "-6%",
-          backgroundImage: `url(${TV_PHOTOS.kbf})`,
+          backgroundImage: `url(${backdrop})`,
           backgroundSize: "cover",
           backgroundPosition: "center",
-          opacity: 0.22,
-          filter: "saturate(0.75)",
+          opacity: 0.55,
+          filter: "saturate(0.85) brightness(0.75)",
         }}
       />
       <div
@@ -59,7 +100,7 @@ export function SceneEventWelcome({ feed, nowMs, venue }: SceneProps) {
           position: "absolute",
           inset: 0,
           background:
-            "linear-gradient(to right, #000418 26%, rgba(2,10,34,0.82) 60%, #000418 100%)",
+            "linear-gradient(to right, #000418 20%, rgba(2,10,34,0.72) 46%, rgba(2,10,34,0.25) 75%, rgba(2,10,34,0.45) 100%)",
         }}
       />
       <div aria-hidden className="tv-sweep" style={{ position: "absolute", inset: 0 }} />
@@ -84,12 +125,10 @@ export function SceneEventWelcome({ feed, nowMs, venue }: SceneProps) {
             style={{
               marginTop: 18,
               // 108px: sized to FIT the 560px rail. At 168px the word ran
-              // ~730px, and the overflow disappeared UNDER the first party
-              // card's opaque glass — the wall read "WELCO" (owner 2026-08-11,
-              // "graphic is fucked"). Type on a fixed canvas is measured
-              // against its container, never eyeballed against the viewport.
+              // ~730px and the overflow disappeared UNDER the first card's
+              // opaque glass — the wall read "WELCO" (owner 2026-08-11).
               fontSize: 108,
-              lineHeight: 0.9,
+              lineHeight: 1.02,
               whiteSpace: "nowrap",
               background: `linear-gradient(180deg, #f5ecee 52%, ${CYAN})`,
               WebkitBackgroundClip: "text",
@@ -99,7 +138,7 @@ export function SceneEventWelcome({ feed, nowMs, venue }: SceneProps) {
           >
             Welcome
           </div>
-          {pageCount > 1 && <PageDots count={pageCount} active={page} />}
+          {welcomePages > 1 && <PageDots count={welcomePages} active={page} />}
         </div>
 
         {/* Right: the parties. */}
@@ -116,6 +155,7 @@ export function SceneEventWelcome({ feed, nowMs, venue }: SceneProps) {
 
 function PartyCard({ entry, index }: { entry: WelcomeEntry; index: number }) {
   const accent = entry.isVip ? VIP_GOLD : CYAN;
+  const building = localBuilding(entry.building);
   return (
     <div
       className="tv-glass tv-rise"
@@ -164,7 +204,7 @@ function PartyCard({ entry, index }: { entry: WelcomeEntry; index: number }) {
         )}
       </div>
 
-      {entry.building && (
+      {building && (
         <div
           style={{
             position: "absolute",
@@ -183,7 +223,7 @@ function PartyCard({ entry, index }: { entry: WelcomeEntry; index: number }) {
             textOverflow: "ellipsis",
           }}
         >
-          {entry.building}
+          {building}
         </div>
       )}
     </div>

@@ -41,7 +41,6 @@ describe.runIf(RUN)("live probe", () => {
       nowMs: feed.now,
       config,
       hasData: (scene) => sceneHasData(scene, decorated),
-      vips: decorated?.vip ?? null,
       events: decorated?.kioskEvents ?? [],
       seenEventIds: new Set(),
       isImplemented: isSceneImplemented,

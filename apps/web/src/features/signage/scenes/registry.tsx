@@ -102,7 +102,9 @@ export function sceneHasData(scene: SceneType, feed: TvFeed | null): boolean {
     case "sleep":
       return true;
     case "event-welcome":
-      return (feed?.events?.length ?? 0) > 0;
+      // VIP parties are welcome-board content — the gold slide alternates with
+      // the party pages — so either kind of data earns the segment its slot.
+      return (feed?.events?.length ?? 0) > 0 || (feed?.vip?.length ?? 0) > 0;
     case "vip-welcome":
       return (feed?.vip?.length ?? 0) > 0;
     case "race-checkin":

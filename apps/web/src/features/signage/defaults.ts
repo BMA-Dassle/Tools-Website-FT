@@ -127,6 +127,7 @@ export interface ResolvedScreenConfig {
   adSet: string | null;
   showNextAvailable: boolean;
   checkinWindowMins: number;
+  showCheckinCountdown: boolean;
   showRecordsQr: boolean;
   welcomeLeadMins: number;
   welcomeTrailMins: number;
@@ -199,6 +200,7 @@ export function resolveScreenConfig(
     showNextAvailable: c.showNextAvailable === true,
     // 8 minutes from the call (owner 2026-08-11).
     checkinWindowMins: Math.max(1, numOr(c.checkinWindowMins, 8)),
+    showCheckinCountdown: c.showCheckinCountdown !== false,
     showRecordsQr: c.showRecordsQr === true,
     welcomeLeadMins: numOr(c.welcomeLeadMins, 75),
     welcomeTrailMins: numOr(c.welcomeTrailMins, 30),
