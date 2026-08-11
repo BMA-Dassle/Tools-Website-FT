@@ -136,7 +136,11 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
     ? Number.POSITIVE_INFINITY
     : Number.isFinite(calledAtMs)
       ? calledAtMs - 60_000 // small grace: a scan landing as the call goes out
-      : 0;
+      : // No session to attach to ⇒ a name still lives at most ten minutes.
+        // The rail's Redis entries survive an hour, and with a floor of zero
+        // the feed board re-listed every old scan whenever no session was
+        // current — which is how Marcus outstayed his welcome (owner).
+        nowMs - SESSION_LINGER_MS;
   const delay = findDelay(status?.trackStatus.tracks, track);
 
   // VIPs DO NOT SCAN IN — they are met and escorted (owner 2026-08-11). The

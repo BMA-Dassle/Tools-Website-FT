@@ -18,7 +18,8 @@ import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { withAlpha } from "../color";
 
-const QR_PX = 240;
+// A LOT smaller (owner 2026-08-11) — a corner invitation, not a poster.
+const QR_PX = 128;
 
 export function RecordsQr({ url, accent }: { url: string; accent: string }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
@@ -50,9 +51,9 @@ export function RecordsQr({ url, accent }: { url: string; accent: string }) {
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 26,
-        padding: "20px 28px",
-        borderRadius: 24,
+        gap: 16,
+        padding: "12px 18px",
+        borderRadius: 16,
         background: "rgba(7,16,39,0.72)",
         border: `2px solid ${withAlpha(accent, 0.45)}`,
       }}
@@ -64,21 +65,18 @@ export function RecordsQr({ url, accent }: { url: string; accent: string }) {
           alt=""
           width={QR_PX}
           height={QR_PX}
-          style={{ display: "block", borderRadius: 12, background: "#fff", padding: 8 }}
+          style={{ display: "block", borderRadius: 8, background: "#fff", padding: 5 }}
         />
       )}
       <div>
-        <div className="tv-eyebrow" style={{ color: accent, fontSize: 28 }}>
+        <div className="tv-eyebrow" style={{ color: accent, fontSize: 18 }}>
           Scan for
         </div>
         <div
           className="tv-display"
-          style={{ fontSize: 60, color: "#fff", lineHeight: 1.02, marginTop: 6 }}
+          style={{ fontSize: 34, color: "#fff", lineHeight: 1.02, marginTop: 4 }}
         >
           Track records
-        </div>
-        <div style={{ fontSize: 32, color: "rgba(245,236,238,0.72)", marginTop: 8 }}>
-          Tonight&rsquo;s fastest laps and the all-time board
         </div>
       </div>
     </div>
