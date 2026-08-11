@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { modalBackdropProps } from "@/lib/a11y";
+import RaceControlPanels from "./RaceControlPanels";
 import {
   ADMIN_SANS,
   ADMIN_MONO,
@@ -72,9 +73,19 @@ const BAUD_RATES = [9600, 19200, 38400, 115200] as const;
 interface Props {
   token: string;
   version: string;
+  /**
+   * `?board=1` — ADD race control to this station, never replace it.
+   *
+   * The person who checks racers in is the person who sends the heat to a
+   * briefing room, standing in the same spot. Swapping the scanner out for the
+   * board was the wrong shape (owner 2026-08-11: "this was supposed to be a dual
+   * board, where is all the check in stuff") — so the board is an extra section
+   * and every existing behaviour here is untouched.
+   */
+  boardMode?: boolean;
 }
 
-export default function CheckInClient({ token, version }: Props) {
+export default function CheckInClient({ token, version, boardMode = false }: Props) {
   // Serial port state
   const [connectionState, setConnectionState] = useState<ConnectionState>("idle");
   const [portName, setPortName] = useState<string>("");
@@ -772,7 +783,9 @@ export default function CheckInClient({ token, version }: Props) {
         style={{ borderColor: PORTAL_DARK.border, flexWrap: "wrap", gap: 12 }}
       >
         <div>
-          <h1 style={{ fontSize: "1.5rem", fontWeight: 700 }}>Check-In</h1>
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 700 }}>
+            {boardMode ? "Check-In & Race Control" : "Check-In"}
+          </h1>
           <p className="text-xs" style={{ color: PORTAL_DARK.muted }}>
             v{version}
           </p>
@@ -991,6 +1004,10 @@ export default function CheckInClient({ token, version }: Props) {
           </div>
         )}
       </div>
+
+      {/* Race control — briefing rooms. Below the scanner because checking a
+          racer in comes first; the send follows once the heat is in. */}
+      {boardMode && <RaceControlPanels token={token} />}
 
       {/* Test mode panel */}
       {testMode && (

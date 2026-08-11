@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 import CheckInClient from "./CheckInClient";
-import RaceControlBoard from "./RaceControlBoard";
 import { adminPoppins } from "~/components/features/admin-skin/font";
 
 export const dynamic = "force-dynamic";
@@ -20,25 +19,18 @@ export default async function Page({ params, searchParams }: Props) {
   const version = sha ? sha.slice(0, 7) : "dev";
 
   /**
-   * `?board=1` swaps the licence scanner for the race control board.
+   * `?board=1` ADDS the briefing-room controls to this station.
    *
-   * Branched HERE rather than inside CheckInClient on purpose. The scanner opens
-   * a Web Serial port and runs a scan-flash state machine in a dozen hooks; a
-   * mode flag inside it would either have to initialise all of that for a board
-   * that needs none of it, or return early before its own hooks (which React
-   * forbids). Two components behind one URL keeps the station staff use every
-   * night completely untouched by work on the board.
+   * It is a flag on the check-in page, not a different page: the same staff
+   * member checks racers in and sends the heat to a briefing room, and the
+   * scanner, the session counts and the scan flash all stay exactly as they are.
    */
-  const params2 = await searchParams;
-  const wantsBoard = params2.board === "1";
+  const query = await searchParams;
+  const boardMode = query.board === "1";
 
   return (
     <div className={adminPoppins.variable}>
-      {wantsBoard ? (
-        <RaceControlBoard token={token} version={version} />
-      ) : (
-        <CheckInClient token={token} version={version} />
-      )}
+      <CheckInClient token={token} version={version} boardMode={boardMode} />
     </div>
   );
 }
