@@ -129,7 +129,10 @@ export interface ItineraryInput {
   bowlingBuilding: string;
 }
 
-const RACING_CHECKIN_LEAD_MIN = 30;
+/** Racing check-in opens this many minutes before the heat. Exported because
+ *  the lobby-TV track screens tell guests the same number, and a wall that
+ *  disagrees with the itinerary a guest was handed is worse than no wall. */
+export const RACING_CHECKIN_LEAD_MIN = 30;
 
 /**
  * Assemble the sorted activity list + the first-stop card. Racing is one

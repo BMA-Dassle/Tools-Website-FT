@@ -558,6 +558,22 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request: { headers: kioskHeaders } });
   }
 
+  // Lobby TV signage — same shape as the kiosk block above, and for the same
+  // reasons: a wall-mounted display is an in-center device whose brand comes
+  // from its screen config, not from the host, and it serves identically on
+  // BOTH domains. Early return so no rewrite below can touch it. `x-kiosk`
+  // means "shared in-center device" to the root layout (drop MiniCarts +
+  // analytics), which is exactly right for a TV — it is not claiming to be a
+  // kiosk. Trailing slash on the prefix test is mandatory house style.
+  if (pathname === "/tv" || pathname.startsWith("/tv/")) {
+    const tvHeaders = new Headers(request.headers);
+    tvHeaders.set("x-no-chrome", "1");
+    tvHeaders.set("x-no-mobile-bar", "1");
+    tvHeaders.set("x-kiosk", "1");
+    if (isHeadPinz) tvHeaders.set("x-brand", "headpinz");
+    return NextResponse.next({ request: { headers: tvHeaders } });
+  }
+
   // Root-level metadata / static paths that must bypass the /hp rewrite.
   // Without this, Next.js serves /hp/robots.txt → 404 for crawlers hitting
   // headpinz.com/robots.txt. Same story for sitemap, favicon, manifest,
@@ -670,6 +686,11 @@ export async function middleware(request: NextRequest) {
     // /hp-rewriting the kiosk into a 404).
     pathname === "/kiosk" ||
     pathname.startsWith("/kiosk/") ||
+    // Lobby-TV signage (defensive, exactly as for /kiosk above — the early
+    // return normally gets there first, but a reorder must not /hp-rewrite a
+    // wall-mounted screen into a 404 nobody notices until a guest does).
+    pathname === "/tv" ||
+    pathname.startsWith("/tv/") ||
     // Unified first-party waiver flow — QR / email / SMS links land here on
     // EITHER brand host; center comes from ?c=, brand chrome is host-aware.
     // Mirrors /join. (The static /waiver-3 legal page matches neither test.)

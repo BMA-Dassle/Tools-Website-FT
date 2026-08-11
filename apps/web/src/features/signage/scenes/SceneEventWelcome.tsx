@@ -1,0 +1,216 @@
+"use client";
+
+/**
+ * The welcome board: today's parties, and where each one goes first.
+ *
+ * A guest walking in with eight kids does not want a schedule — they want to
+ * see their own name and be told which building to walk to. So the board is a
+ * marquee, not a table: a small number of large cards, first names only, and
+ * exactly one instruction each.
+ *
+ * Three at a time, paged on the shared clock. More than that and the type has
+ * to shrink past what reads from across a lobby, which defeats the point.
+ */
+import { IconClock, IconUsersGroup, IconMapPin } from "@tabler/icons-react";
+import { TV_W } from "../constants";
+import { withAlpha } from "../color";
+import { TV_PHOTOS } from "../assets";
+import type { WelcomeEntry } from "../types";
+import type { SceneProps } from "../director/types";
+
+const PAD_X = 96;
+const PAD_Y = 54;
+const PER_PAGE = 3;
+/** How long one page of parties holds before the next. */
+const PAGE_MS = 12_000;
+
+const CYAN = "#00e2e5";
+const VIP_GOLD = "#d4af37";
+
+export function SceneEventWelcome({ feed, nowMs, venue }: SceneProps) {
+  const all = feed?.events ?? [];
+  if (all.length === 0) return null;
+
+  const pageCount = Math.max(1, Math.ceil(all.length / PER_PAGE));
+  // Clock-derived, like everything else: two screens showing this board are on
+  // the same page at the same moment, and a reboot lands where it should.
+  const page = Math.floor(nowMs / PAGE_MS) % pageCount;
+  const shown = all.slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE);
+
+  return (
+    <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
+      {/* A party photo, well behind everything — atmosphere, not content. */}
+      <div
+        aria-hidden
+        className="tv-kenburns"
+        style={{
+          position: "absolute",
+          inset: "-6%",
+          backgroundImage: `url(${TV_PHOTOS.kbf})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          opacity: 0.22,
+          filter: "saturate(0.75)",
+        }}
+      />
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          background:
+            "linear-gradient(to right, #000418 26%, rgba(2,10,34,0.82) 60%, #000418 100%)",
+        }}
+      />
+      <div aria-hidden className="tv-sweep" style={{ position: "absolute", inset: 0 }} />
+
+      <div
+        style={{
+          position: "absolute",
+          inset: `${PAD_Y}px ${PAD_X}px`,
+          display: "flex",
+          gap: 64,
+          alignItems: "center",
+        }}
+      >
+        {/* Left: the greeting. It never changes, so it anchors the screen while
+            the cards page underneath. */}
+        <div style={{ width: 560, flexShrink: 0 }}>
+          <div className="tv-eyebrow" style={{ fontSize: 26 }}>
+            Today at {venue === "FT" ? "FastTrax" : "HeadPinz"}
+          </div>
+          <div
+            className="tv-display"
+            style={{
+              marginTop: 18,
+              fontSize: 168,
+              lineHeight: 0.9,
+              background: `linear-gradient(180deg, #f5ecee 52%, ${CYAN})`,
+              WebkitBackgroundClip: "text",
+              backgroundClip: "text",
+              color: "transparent",
+            }}
+          >
+            Welcome
+          </div>
+          {pageCount > 1 && <PageDots count={pageCount} active={page} />}
+        </div>
+
+        {/* Right: the parties. */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 22 }}>
+          {shown.map((e, i) => (
+            // Keyed by page so each page's cards replay their cascade.
+            <PartyCard key={`${page}-${e.id}`} entry={e} index={i} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PartyCard({ entry, index }: { entry: WelcomeEntry; index: number }) {
+  const accent = entry.isVip ? VIP_GOLD : CYAN;
+  return (
+    <div
+      className="tv-glass tv-rise"
+      style={{
+        position: "relative",
+        padding: "26px 34px",
+        borderLeft: `8px solid ${accent}`,
+        // Cascade in, one after another, so a page turn reads as arrival.
+        animationDelay: `${index * 90}ms`,
+        overflow: "hidden",
+      }}
+    >
+      <div
+        className="tv-display"
+        style={{
+          fontSize: 66,
+          color: "#fff",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          textShadow: `0 0 40px ${withAlpha(accent, 0.45)}`,
+        }}
+      >
+        {entry.title}
+      </div>
+
+      <div
+        style={{
+          marginTop: 12,
+          display: "flex",
+          alignItems: "center",
+          gap: 30,
+          fontSize: 34,
+          color: "rgba(245,236,238,0.78)",
+          flexWrap: "wrap",
+        }}
+      >
+        {entry.startsAtLabel && (
+          <Meta icon={<IconClock size={32} />} text={entry.startsAtLabel} numeric />
+        )}
+        {entry.guestCount != null && (
+          <Meta icon={<IconUsersGroup size={32} />} text={`${entry.guestCount} guests`} />
+        )}
+        {entry.firstStopLabel && (
+          <Meta icon={<IconMapPin size={32} color={accent} />} text={entry.firstStopLabel} />
+        )}
+      </div>
+
+      {entry.building && (
+        <div
+          style={{
+            position: "absolute",
+            right: 28,
+            top: 28,
+            padding: "8px 20px",
+            borderRadius: 999,
+            border: `2px solid ${withAlpha(accent, 0.55)}`,
+            color: accent,
+            fontSize: 26,
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            whiteSpace: "nowrap",
+            maxWidth: TV_W * 0.2,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {entry.building}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Meta({ icon, text, numeric }: { icon: React.ReactNode; text: string; numeric?: boolean }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 12 }}>
+      <span aria-hidden style={{ display: "inline-flex", opacity: 0.8 }}>
+        {icon}
+      </span>
+      <span className={numeric ? "tv-num" : undefined}>{text}</span>
+    </span>
+  );
+}
+
+/** Which page of parties is up. Only rendered when there is more than one. */
+function PageDots({ count, active }: { count: number; active: number }) {
+  return (
+    <div aria-hidden style={{ marginTop: 34, display: "flex", gap: 12 }}>
+      {Array.from({ length: count }, (_, i) => (
+        <span
+          key={i}
+          style={{
+            width: i === active ? 44 : 14,
+            height: 14,
+            borderRadius: 999,
+            background: i === active ? CYAN : "rgba(245,236,238,0.25)",
+            transition: "width 400ms ease, background 400ms ease",
+          }}
+        />
+      ))}
+    </div>
+  );
+}
