@@ -5,11 +5,13 @@ import type { SignageEvent, VipEntry } from "../types";
 import {
   SLOT_MS,
   CROWN_WINDOW_MS,
+  BIRTHDAY_SHOW_MS,
   buildRotation,
   rotationAt,
   totalSlots,
   crownActiveAt,
   celebrationAt,
+  recentScans,
   vipTakeoverAt,
   isBowlingStep,
   minutesUntil,
@@ -235,31 +237,37 @@ describe("vipTakeoverAt", () => {
   });
 });
 
-describe("celebrationAt", () => {
+describe("celebrationAt — full-screen takeovers only", () => {
   const cfg = resolveScreenConfig({}, "HPFM").celebration; // 90s, 8s show
   const now = 1_000_000;
+  const bday = (over: Partial<SignageEvent> = {}) => evt({ birthday: true, ...over });
 
-  it("shows a fresh unseen event", () => {
-    expect(celebrationAt(now, [evt({ atMs: now - 2_000 })], cfg, [], new Set())?.id).toBe("e1");
+  it("does NOT take the screen over for an ordinary scan", () => {
+    // Racers scan in bursts. A takeover each would queue a minute of them and
+    // bury the session — ordinary scans belong on the rail (see recentScans).
+    expect(celebrationAt(now, [evt({ atMs: now - 2_000 })], cfg, [], new Set())).toBeNull();
+  });
+
+  it("takes over for a birthday", () => {
+    expect(celebrationAt(now, [bday({ atMs: now - 2_000 })], cfg, [], new Set())?.id).toBe("e1");
   });
 
   it("drops stale events rather than replaying old joy after an outage", () => {
-    expect(celebrationAt(now, [evt({ atMs: now - 200_000 })], cfg, [], new Set())).toBeNull();
+    expect(celebrationAt(now, [bday({ atMs: now - 200_000 })], cfg, [], new Set())).toBeNull();
   });
 
   it("distrusts a future-stamped event (writer clock skew)", () => {
-    expect(celebrationAt(now, [evt({ atMs: now + 60_000 })], cfg, [], new Set())).toBeNull();
+    expect(celebrationAt(now, [bday({ atMs: now + 60_000 })], cfg, [], new Set())).toBeNull();
   });
 
   it("never repeats one this screen already showed", () => {
-    const seen = new Set(["e1"]);
-    expect(celebrationAt(now, [evt({ atMs: now - 1000 })], cfg, [], seen)).toBeNull();
+    expect(celebrationAt(now, [bday({ atMs: now - 1000 })], cfg, [], new Set(["e1"]))).toBeNull();
   });
 
   it("takes the newest when several land at once", () => {
     const picked = celebrationAt(
       now,
-      [evt({ id: "old", atMs: now - 30_000 }), evt({ id: "new", atMs: now - 1_000 })],
+      [bday({ id: "old", atMs: now - 30_000 }), bday({ id: "new", atMs: now - 1_000 })],
       cfg,
       [],
       new Set(),
@@ -267,25 +275,70 @@ describe("celebrationAt", () => {
     expect(picked?.id).toBe("new");
   });
 
-  it("respects screen scope — the Blue TV ignores a Red Track scan", () => {
+  it("respects screen scope — the Blue board ignores a Red Track birthday", () => {
     const blue = ["11208654"];
-    const redScan = evt({ atMs: now - 1_000, resourceId: "11208660" });
-    const blueScan = evt({ id: "b", atMs: now - 1_000, resourceId: "11208654" });
-    expect(celebrationAt(now, [redScan], cfg, blue, new Set())).toBeNull();
-    expect(celebrationAt(now, [blueScan], cfg, blue, new Set())?.id).toBe("b");
+    expect(
+      celebrationAt(
+        now,
+        [bday({ atMs: now - 1_000, resourceId: "11208660" })],
+        cfg,
+        blue,
+        new Set(),
+      ),
+    ).toBeNull();
+    expect(
+      celebrationAt(
+        now,
+        [bday({ id: "b", atMs: now - 1_000, resourceId: "11208654" })],
+        cfg,
+        blue,
+        new Set(),
+      )?.id,
+    ).toBe("b");
   });
 
   it("a scoped screen ignores events with no resource at all", () => {
     expect(
-      celebrationAt(now, [evt({ atMs: now - 1_000 })], cfg, ["11208654"], new Set()),
+      celebrationAt(now, [bday({ atMs: now - 1_000 })], cfg, ["11208654"], new Set()),
     ).toBeNull();
   });
+});
 
-  it("an unscoped screen accepts anything in the venue", () => {
-    expect(
-      celebrationAt(now, [evt({ atMs: now - 1_000, resourceId: "11208660" })], cfg, [], new Set())
-        ?.id,
-    ).toBe("e1");
+describe("recentScans — the live rail", () => {
+  const now = 1_000_000;
+  const scan = (id: string, agoMs: number, over: Partial<SignageEvent> = {}) =>
+    evt({ id, kind: "racer-scanned", atMs: now - agoMs, ...over });
+
+  it("shows a whole burst at once, newest first", () => {
+    // The case this exists for: a party of eight through the desk in 20s.
+    const burst = Array.from({ length: 8 }, (_, i) => scan(`r${i}`, i * 2_000));
+    const rail = recentScans(now, burst, [], 90_000, 6);
+    expect(rail).toHaveLength(6);
+    expect(rail[0].id).toBe("r0");
+    expect(rail[5].id).toBe("r5");
+  });
+
+  it("ages names off the rail", () => {
+    const rail = recentScans(now, [scan("old", 200_000), scan("new", 1_000)], [], 90_000, 6);
+    expect(rail.map((r) => r.id)).toEqual(["new"]);
+  });
+
+  it("obeys the screen's track scope", () => {
+    const rail = recentScans(
+      now,
+      [
+        scan("blue", 1_000, { resourceId: "11208654" }),
+        scan("red", 1_000, { resourceId: "11208660" }),
+      ],
+      ["11208654"],
+      90_000,
+      6,
+    );
+    expect(rail.map((r) => r.id)).toEqual(["blue"]);
+  });
+
+  it("ignores anything that isn't a racer scan", () => {
+    expect(recentScans(now, [evt({ atMs: now - 1_000 })], [], 90_000, 6)).toHaveLength(0);
   });
 });
 
@@ -317,15 +370,25 @@ describe("resolveActiveScene precedence", () => {
     expect(d.scene).toBe("sleep");
   });
 
-  it("celebration outranks a VIP takeover — the guest is standing right there", () => {
+  it("a birthday outranks a VIP takeover — that guest is standing right there", () => {
+    const d = resolveActiveScene({
+      ...base,
+      events: [evt({ atMs: now - 1_000, birthday: true })],
+      vips: [vipAt(new Date(now + 8 * 60_000).toISOString())],
+    });
+    expect(d.scene).toBe("celebration");
+    expect(d.event?.id).toBe("e1");
+    // A birthday holds both boards longer than an ordinary moment.
+    expect(d.durationMs).toBe(BIRTHDAY_SHOW_MS);
+  });
+
+  it("an ordinary scan does NOT preempt anything — it belongs on the rail", () => {
     const d = resolveActiveScene({
       ...base,
       events: [evt({ atMs: now - 1_000 })],
       vips: [vipAt(new Date(now + 8 * 60_000).toISOString())],
     });
-    expect(d.scene).toBe("celebration");
-    expect(d.event?.id).toBe("e1");
-    expect(d.durationMs).toBe(8_000);
+    expect(d.scene).toBe("vip-welcome");
   });
 
   it("VIP takeover outranks the crown and the rotation", () => {

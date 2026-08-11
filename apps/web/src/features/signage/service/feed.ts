@@ -25,6 +25,7 @@ import { signageEventsKey, readSignageEvents } from "../events.server";
 import { resolveScreenConfig } from "../defaults";
 import { trackFromResourceIds } from "../track";
 import { raceCheckinInfo } from "./race-checkin";
+import { buildWelcomeBoard } from "./welcome";
 import type { TvFeed } from "../types";
 
 /** Screens phone home on every poll; the admin page reads these for its
@@ -81,21 +82,38 @@ export async function buildTvFeed(screenIdRaw: string | null): Promise<TvFeed> {
   // Track screens only: who is on the heat checking in right now. Everything
   // else the scene needs it fetches itself from the endpoints the website uses.
   const config = resolveScreenConfig(screen.config, parsed.venue);
+  const ymd = businessDayYmdET();
   const track = trackFromResourceIds(config.scope.resourceIds);
-  const raceCheckin = track
-    ? await raceCheckinInfo(track, businessDayYmdET()).catch(() => null)
-    : null;
+
+  // Only build what this screen actually shows. A track screen has no use for
+  // the party board, and a lobby TV has no track — computing both for every
+  // screen would double the work for nothing.
+  const wantsWelcome = config.playlist.some((p) => p.scene === "event-welcome");
+
+  const [raceCheckin, events] = await Promise.all([
+    track ? raceCheckinInfo(track, ymd).catch(() => null) : Promise.resolve(null),
+    wantsWelcome
+      ? buildWelcomeBoard(
+          parsed.venue,
+          config.scope.gfCenterCodes,
+          ymd,
+          { leadMins: config.welcomeLeadMins, trailMins: config.welcomeTrailMins },
+          now,
+        ).catch(() => null)
+      : Promise.resolve(null),
+  ]);
 
   return {
     ...base,
     screen,
     kioskEvents,
     raceCheckin,
-    // events / vip land with the welcome-board PR. Null (not []) on purpose:
-    // "we have nothing to say" and "we could not ask" are different, and only
-    // the former should let a playlist entry claim it has data.
-    events: null,
+    events,
+    // `vip` (the bowling-leg takeover) lands with the next scene.
     vip: null,
+    // Null events mean we could not ask — the welcome entry then self-skips
+    // and the rotation closes over it rather than showing an empty board.
+    degraded: wantsWelcome && events === null,
   };
 }
 

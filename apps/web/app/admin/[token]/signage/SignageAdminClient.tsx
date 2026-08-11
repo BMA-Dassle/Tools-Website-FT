@@ -187,13 +187,13 @@ export default function SignageAdminClient({ token }: { token: string }) {
                 onEdit={() => setEditing(draftFromScreen(s))}
                 onDelete={() => remove(s.screenId)}
                 onTest={() => post({ action: "test-celebration", center: s.center })}
-                onSimulateScan={(track, vip) =>
+                onSimulateScan={(track, opts) =>
                   post({
                     action: "simulate-scan",
                     center: s.center,
                     track,
-                    vip,
                     firstName: "Marcus",
+                    ...opts,
                   })
                 }
                 busy={busy}
@@ -225,7 +225,7 @@ function ScreenRow({
   onEdit: () => void;
   onDelete: () => void;
   onTest: () => void;
-  onSimulateScan: (track: string, vip: boolean) => void;
+  onSimulateScan: (track: string, opts: { vip?: boolean; birthday?: boolean }) => void;
   busy: boolean;
 }) {
   const online = lastSeen ? nowMs - Date.parse(lastSeen) < 60_000 : false;
@@ -299,7 +299,7 @@ function ScreenRow({
         </button>
         <button
           type="button"
-          onClick={() => onSimulateScan(trackName, false)}
+          onClick={() => onSimulateScan(trackName, {})}
           style={btn}
           disabled={busy}
           title="Publishes a racer-scanned event on the real rail"
@@ -308,12 +308,12 @@ function ScreenRow({
         </button>
         <button
           type="button"
-          onClick={() => onSimulateScan(trackName, true)}
-          style={{ ...btn, borderColor: "#d4af37", color: "#d4af37" }}
+          onClick={() => onSimulateScan(trackName, { birthday: true })}
+          style={{ ...btn, borderColor: "#ec4899", color: "#ec4899" }}
           disabled={busy}
-          title="Simulate a VIP racer scanning in"
+          title="Fires the full two-board birthday takeover"
         >
-          Simulate VIP scan
+          Simulate birthday
         </button>
         <button type="button" onClick={onEdit} style={btn} disabled={busy}>
           Edit

@@ -194,6 +194,9 @@ export interface SignageEvent {
   /** This racer is on an Ultimate VIP combo today — drives the gold treatment
    *  and the "proceed to the in-field" instruction on a track screen. */
   vip?: boolean;
+  /** It's their birthday. Triggers the full two-board takeover on the karting
+   *  check-in screens — the biggest thing either wall ever does. */
+  birthday?: boolean;
   /** Shared-clock ms when it happened. */
   atMs: number;
 }

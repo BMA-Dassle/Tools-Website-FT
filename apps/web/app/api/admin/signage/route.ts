@@ -78,6 +78,7 @@ export async function POST(req: NextRequest) {
     firstName?: string;
     track?: string;
     vip?: boolean;
+    birthday?: boolean;
   };
   try {
     body = await req.json();
@@ -133,6 +134,7 @@ export async function POST(req: NextRequest) {
       resourceId,
       activityKeys: ["racing"],
       vip: body.vip === true,
+      birthday: body.birthday === true,
       atMs: Date.now(),
     });
     return NextResponse.json({
@@ -140,6 +142,7 @@ export async function POST(req: NextRequest) {
       center,
       track: track || "any",
       resourceId: resourceId ?? null,
+      birthday: body.birthday === true,
     });
   }
 

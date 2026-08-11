@@ -18,6 +18,7 @@ import { SceneAdRotation } from "./SceneAdRotation";
 import { SceneSleep } from "./SceneSleep";
 import { SceneRaceCheckin } from "./SceneRaceCheckin";
 import { SceneCelebration } from "./SceneCelebration";
+import { SceneBirthdayTakeover } from "./SceneBirthdayTakeover";
 
 /**
  * Render whichever scene a decision names.
@@ -38,7 +39,14 @@ export function SceneSlot(props: SceneProps) {
     case "race-checkin":
       return <SceneRaceCheckin {...props} />;
     case "celebration":
-      return <SceneCelebration {...props} />;
+      // A birthday check-in is a different animal from an ordinary scan: it
+      // takes over both boards at once and runs for longer. Routed here rather
+      // than branched inside SceneCelebration so the two never share layout.
+      return props.decision.event?.birthday ? (
+        <SceneBirthdayTakeover {...props} />
+      ) : (
+        <SceneCelebration {...props} />
+      );
     // event-welcome, vip-welcome and billboard-crown land in the following
     // PRs; until then they fall through to ads.
     case "ads":

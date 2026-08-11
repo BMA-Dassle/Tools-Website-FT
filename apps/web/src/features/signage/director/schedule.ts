@@ -32,6 +32,13 @@ export const SLOT_MS = BILLBOARD_CYCLE_MS;
  */
 export const CROWN_WINDOW_MS = 11_900;
 
+/**
+ * How long a birthday takeover holds both boards. Longer than an ordinary
+ * celebration on purpose — it is a moment for the guest and the people with
+ * them, and eight seconds is not enough to turn round and see it.
+ */
+export const BIRTHDAY_SHOW_MS = 16_000;
+
 /** Which scene is on screen, and why — the director renders from this. */
 export interface SceneDecision {
   scene: SceneType;
@@ -176,12 +183,32 @@ export function isBowlingStep(label: string): boolean {
 
 /* ── celebrations ─────────────────────────────────────────────────────── */
 
+/** Does this event belong to this screen? Empty scope = the whole venue. */
+export function eventInScope(e: SignageEvent, scopeResourceIds: string[]): boolean {
+  if (scopeResourceIds.length === 0) return true;
+  return !!e.resourceId && scopeResourceIds.includes(e.resourceId);
+}
+
 /**
- * The newest kiosk event worth celebrating: recent enough to still be true,
- * not already shown on this screen, and in this screen's scope.
+ * Is this event big enough to take the WHOLE screen?
  *
- * Scope matters for the track TVs — a racer scanning in for Blue must light the
- * Blue screen only. An empty scope means the whole venue (the kiosk-bank TV).
+ * Only the rare, genuinely special ones. Racers scan in bursts — a party of
+ * eight can be through the desk in twenty seconds — so a full-screen takeover
+ * per scan would queue over a minute of them, bury the session information the
+ * screen exists to show, and land the last person's welcome long after they had
+ * walked away (owner, 2026-08-11).
+ *
+ * Ordinary scans appear instead as a LIVE RAIL of names inside the scene,
+ * several at once, while the session stays up. That also earns the takeover its
+ * impact: when the whole wall does change, it is somebody's birthday.
+ */
+export function isTakeoverEvent(e: SignageEvent): boolean {
+  return e.birthday === true;
+}
+
+/**
+ * The newest event worth taking the whole screen over for: recent enough to
+ * still be true, not already shown here, in scope, and takeover-worthy.
  */
 export function celebrationAt(
   nowMs: number,
@@ -195,16 +222,39 @@ export function celebrationAt(
   let best: SignageEvent | null = null;
   for (const e of events) {
     if (seen.has(e.id)) continue;
+    if (!isTakeoverEvent(e)) continue;
     const age = nowMs - e.atMs;
     // Guard both ends: a future-stamped event (clock skew on the writer) is as
     // untrustworthy as an ancient one.
     if (age < -5_000 || age > maxAgeMs) continue;
-    if (scopeResourceIds.length > 0) {
-      if (!e.resourceId || !scopeResourceIds.includes(e.resourceId)) continue;
-    }
+    if (!eventInScope(e, scopeResourceIds)) continue;
     if (!best || e.atMs > best.atMs) best = e;
   }
   return best;
+}
+
+/**
+ * Everyone who has checked in here recently, newest first — the live rail.
+ *
+ * Deliberately a LIST rather than one-at-a-time: rapid scanning is the normal
+ * case at race check-in, and a party wants to watch the whole group land.
+ */
+export function recentScans(
+  nowMs: number,
+  events: SignageEvent[],
+  scopeResourceIds: string[],
+  windowMs: number,
+  limit: number,
+): SignageEvent[] {
+  return events
+    .filter((e) => {
+      if (e.kind !== "racer-scanned") return false;
+      const age = nowMs - e.atMs;
+      if (age < -5_000 || age > windowMs) return false;
+      return eventInScope(e, scopeResourceIds);
+    })
+    .sort((a, b) => b.atMs - a.atMs)
+    .slice(0, limit);
 }
 
 /* ── the decision ─────────────────────────────────────────────────────── */
@@ -248,7 +298,9 @@ export function resolveActiveScene(input: DecisionInput): SceneDecision {
     return {
       scene: "celebration",
       startedAtMs: event.atMs,
-      durationMs: config.celebration.showMs,
+      // A birthday takes over both boards and deserves room to land; an
+      // ordinary scan is a glance. Same scene slot, very different moment.
+      durationMs: event.birthday ? BIRTHDAY_SHOW_MS : config.celebration.showMs,
       isInterrupt: true,
       event,
     };

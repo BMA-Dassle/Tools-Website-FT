@@ -25,12 +25,30 @@ import {
   trackFromResourceIds,
   type TrackKey,
 } from "../track";
+import { recentScans } from "../director/schedule";
 import type { SceneProps } from "../director/types";
 
 const PAD_X = 96;
 const PAD_Y = 54;
 
-export function SceneRaceCheckin({ feed, config }: SceneProps) {
+/** How long a checked-in name stays on the rail, and how many fit. Sized for a
+ *  full heat arriving together — the common case, not the exception. */
+const SCAN_RAIL_WINDOW_MS = 90_000;
+const SCAN_RAIL_LIMIT = 6;
+
+/**
+ * Quiet for this long and the screen goes to STANDBY: the rail clears and the
+ * session gets the whole wall.
+ *
+ * A burst of scans is one arriving group; the gap after it means we are between
+ * heats, or the heat has been called and we are waiting on people. In that gap
+ * the last few names are clutter — what somebody walking up needs is the
+ * session and the time, as large as possible. So the screen alternates between
+ * BUSY (names landing) and STANDBY (clean), rather than holding a stale list.
+ */
+const STANDBY_AFTER_MS = 30_000;
+
+export function SceneRaceCheckin({ feed, nowMs, config }: SceneProps) {
   const status = useTrackStatus();
   const megaEnabled = status?.trackStatus.megaTrackEnabled ?? false;
 
@@ -41,10 +59,22 @@ export function SceneRaceCheckin({ feed, config }: SceneProps) {
   const race = status?.currentRaces?.[track] ?? null;
   const delay = findDelay(status?.trackStatus.tracks, track);
 
-  // VIPs DO NOT SCAN IN — they are met and escorted (owner 2026-08-11). So the
+  // VIPs DO NOT SCAN IN — they are met and escorted (owner 2026-08-11). The
   // banner is driven by who is entered on the heat, computed server-side from
   // the roster, never by anybody swiping a licence at the desk.
   const vip = feed?.raceCheckin?.vipOnHeat ? feed.raceCheckin : null;
+
+  // Racers arrive in bursts, so the rail carries SEVERAL at once rather than
+  // interrupting the screen once per person.
+  const scans = recentScans(
+    nowMs,
+    feed?.kioskEvents ?? [],
+    config.scope.resourceIds,
+    SCAN_RAIL_WINDOW_MS,
+    SCAN_RAIL_LIMIT,
+  );
+  // Quiet for a while ⇒ standby: clear the rail and give the session the wall.
+  const busy = scans.length > 0 && nowMs - scans[0].atMs < STANDBY_AFTER_MS;
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
@@ -54,7 +84,7 @@ export function SceneRaceCheckin({ feed, config }: SceneProps) {
         style={{
           position: "absolute",
           inset: 0,
-          background: `radial-gradient(70% 60% at 50% 30%, ${withAlpha(accent, 0.32)}, transparent 70%)`,
+          background: `radial-gradient(70% 60% at 50% 40%, ${withAlpha(accent, 0.3)}, transparent 72%)`,
         }}
       />
       <div aria-hidden className="tv-sweep" style={{ position: "absolute", inset: 0 }} />
@@ -67,44 +97,109 @@ export function SceneRaceCheckin({ feed, config }: SceneProps) {
           flexDirection: "column",
         }}
       >
-        {/* ── track + delay ─────────────────────────────────────────────── */}
+        {/* Track and delay, small. They are context, not the message. */}
         <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <span
               aria-hidden
               style={{
-                width: 22,
-                height: 22,
+                width: 18,
+                height: 18,
                 borderRadius: "50%",
                 background: accent,
-                boxShadow: `0 0 26px ${accent}`,
+                boxShadow: `0 0 24px ${accent}`,
               }}
             />
-            <span className="tv-display" style={{ fontSize: 46, color: "#fff" }}>
+            <span className="tv-eyebrow" style={{ color: "rgba(245,236,238,0.75)", fontSize: 30 }}>
               {TRACK_LABELS[track]}
             </span>
           </div>
           <DelayChip delay={delay} />
         </header>
 
-        {race ? <CheckingIn race={race} accent={accent} /> : <Idle accent={accent} track={track} />}
+        {race ? (
+          <CheckingIn race={race} accent={accent} standby={!busy} />
+        ) : (
+          <Idle accent={accent} />
+        )}
 
+        {busy && <ScanRail scans={scans} accent={accent} raised={!!vip} />}
         {vip && <VipInfieldBanner names={vip.vipFirstNames} />}
       </div>
     </div>
   );
 }
 
-/* ── the session ──────────────────────────────────────────────────────── */
+/* ── the session ───────────────────────────────────────── */
 
+/**
+ * The session, and — unmissably — which time is on screen.
+ *
+ * Racing check-in opens 30 minutes before the heat, so a bare time reads as the
+ * green flag to anyone who has not been here before, and they wander off. The
+ * screen names it outright.
+ */
 function CheckingIn({
   race,
   accent,
+  standby,
 }: {
   race: NonNullable<ReturnType<typeof useTrackStatus>>["currentRaces"]["blue"];
   accent: string;
+  standby: boolean;
 }) {
   if (!race) return null;
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        gap: 18,
+      }}
+    >
+      <div className="tv-eyebrow" style={{ color: accent, fontSize: 36 }}>
+        Now checking in
+      </div>
+
+      <div
+        className="tv-display tv-rise"
+        style={{
+          fontSize: 210,
+          color: "#fff",
+          lineHeight: 0.9,
+          textShadow: `0 0 70px ${withAlpha(accent, 0.55)}`,
+        }}
+      >
+        Session {race.heatNumber}
+      </div>
+
+      <div className="tv-display" style={{ fontSize: 84, color: withAlpha("#f5ecee", 0.84) }}>
+        {race.raceType}
+      </div>
+
+      <div style={{ marginTop: 18, display: "flex", alignItems: "baseline", gap: 24 }}>
+        <span className="tv-display" style={{ fontSize: 54, color: accent }}>
+          This is your check-in time
+        </span>
+        <span className="tv-num" style={{ fontSize: 44, color: "rgba(245,236,238,0.7)" }}>
+          Race {fmtTime(race.scheduledStart)}
+        </span>
+      </div>
+
+      {/* Only while nobody is scanning — that is exactly when we are waiting on
+          people to walk up, and the one moment this line is useful. */}
+      {standby && (
+        <div style={{ fontSize: 40, color: "rgba(245,236,238,0.55)" }}>
+          Have your e-ticket ready
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Idle({ accent }: { accent: string }) {
   return (
     <div
       style={{
@@ -115,84 +210,31 @@ function CheckingIn({
         gap: 22,
       }}
     >
-      <div className="tv-eyebrow" style={{ color: accent, fontSize: 34 }}>
-        Now checking in
-      </div>
-
-      <div
-        className="tv-display tv-rise"
-        style={{
-          fontSize: 148,
-          color: "#fff",
-          textShadow: `0 0 60px ${withAlpha(accent, 0.6)}`,
-          lineHeight: 0.94,
-        }}
-      >
-        Session {race.heatNumber}
-      </div>
-
-      <div className="tv-display" style={{ fontSize: 72, color: withAlpha("#f5ecee", 0.86) }}>
-        {race.raceType}
-      </div>
-
-      {/* THE POINT OF THE SCREEN. Names the time it is showing, so nobody reads
-          a check-in slot as a green flag. */}
-      <div
-        className="tv-glass"
-        style={{
-          marginTop: 12,
-          padding: "26px 34px",
-          borderLeft: `8px solid ${accent}`,
-          maxWidth: 1180,
-        }}
-      >
-        <div
-          className="tv-display"
-          style={{ fontSize: 52, color: "#fff", letterSpacing: "0.02em" }}
-        >
-          This is your check-in time
-        </div>
-        <div style={{ fontSize: 38, color: "rgba(245,236,238,0.72)", marginTop: 10 }}>
-          Check in now — your race starts at{" "}
-          <span className="tv-num" style={{ color: "#fff", fontWeight: 700 }}>
-            {fmtTime(race.scheduledStart)}
-          </span>
-          . Please have your e-ticket ready.
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Idle({ accent, track }: { accent: string; track: TrackKey }) {
-  return (
-    <div
-      style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        gap: 20,
-      }}
-    >
-      <div className="tv-eyebrow" style={{ color: accent, fontSize: 34 }}>
-        {TRACK_LABELS[track]} check-in
-      </div>
-      <div className="tv-display" style={{ fontSize: 112, color: "#fff", lineHeight: 0.96 }}>
+      <div className="tv-display" style={{ fontSize: 128, color: "#fff", lineHeight: 0.95 }}>
         No session
         <br />
-        checking in yet
+        checking in
       </div>
-      <p style={{ fontSize: 42, color: "rgba(245,236,238,0.7)", maxWidth: 1200, margin: 0 }}>
-        Check-in opens {RACING_CHECKIN_LEAD_MIN} minutes before your race. Watch this screen for
-        your session.
+      <p style={{ fontSize: 44, color: "rgba(245,236,238,0.6)", margin: 0 }}>
+        Check-in opens {RACING_CHECKIN_LEAD_MIN} minutes before your race.
       </p>
+      <div
+        aria-hidden
+        style={{
+          width: 240,
+          height: 5,
+          borderRadius: 3,
+          background: `linear-gradient(90deg, ${accent}, ${withAlpha(accent, 0)})`,
+        }}
+      />
     </div>
   );
 }
 
 /* ── delay ────────────────────────────────────────────────────────────── */
 
+/** On time, or how far behind. Small and in the corner: it matters, but it is
+ *  not what somebody walking up to the desk needs first. */
 function DelayChip({ delay }: { delay: DelayInfo | null }) {
   if (!delay) return null;
   const late = delay.delayMinutes > 0;
@@ -202,20 +244,20 @@ function DelayChip({ delay }: { delay: DelayInfo | null }) {
       style={{
         display: "flex",
         alignItems: "center",
-        gap: 14,
-        padding: "14px 26px",
+        gap: 12,
+        padding: "10px 22px",
         borderRadius: 999,
-        border: `2px solid ${withAlpha(color, 0.5)}`,
-        background: withAlpha(color, 0.12),
+        border: `2px solid ${withAlpha(color, 0.45)}`,
+        background: withAlpha(color, 0.1),
       }}
     >
       <span
         aria-hidden
         className={late ? "tv-blink" : undefined}
-        style={{ width: 14, height: 14, borderRadius: "50%", background: color }}
+        style={{ width: 12, height: 12, borderRadius: "50%", background: color }}
       />
-      <span className="tv-display" style={{ fontSize: 34, color }}>
-        {late ? `Running ${delay.delayFormatted || `${delay.delayMinutes} min`} behind` : "On time"}
+      <span className="tv-display" style={{ fontSize: 30, color }}>
+        {late ? `${delay.delayFormatted || `${delay.delayMinutes} min`} behind` : "On time"}
       </span>
     </div>
   );
@@ -226,14 +268,79 @@ interface DelayInfo {
   delayFormatted: string;
 }
 
+/** Match the track's row in the status feed by name ("Blue Track" → blue). */
 function findDelay(
   tracks: { trackName: string; delayMinutes: number; delayFormatted: string }[] | undefined,
   track: TrackKey,
 ): DelayInfo | null {
   if (!tracks) return null;
-  const hit = tracks.find((t) => new RegExp(`\\b${track}\\b`, "i").test(t.trackName));
+  const hit = tracks.find((t) => new RegExp(`\b${track}\b`, "i").test(t.trackName));
   if (!hit) return null;
   return { delayMinutes: hit.delayMinutes ?? 0, delayFormatted: hit.delayFormatted ?? "" };
+}
+
+/* ── the live rail ────────────────────────────────────────────────────── */
+
+/**
+ * Who just checked in — several at once.
+ *
+ * Racers scan in bursts: a party of eight is through the desk in twenty
+ * seconds. One full-screen welcome per person would queue over a minute of
+ * takeovers and hide the session, so names land HERE, side by side, newest
+ * first, while the session information stays on screen the whole time. Each
+ * chip animates in on its own so an arriving racer still sees their moment.
+ */
+function ScanRail({
+  scans,
+  accent,
+  raised,
+}: {
+  scans: { id: string; firstName?: string }[];
+  accent: string;
+  raised: boolean;
+}) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        // Sits above the VIP banner when both are up.
+        bottom: raised ? 96 : 0,
+        display: "flex",
+        alignItems: "center",
+        gap: 18,
+        flexWrap: "wrap",
+      }}
+    >
+      <span
+        className="tv-eyebrow"
+        style={{ color: "rgba(245,236,238,0.55)", fontSize: 26, letterSpacing: "0.24em" }}
+      >
+        Checked in
+      </span>
+      {scans.map((s, i) => (
+        <span
+          key={s.id}
+          className="tv-display tv-rise"
+          style={{
+            fontSize: 46,
+            color: "#fff",
+            padding: "12px 26px",
+            borderRadius: 999,
+            border: `2px solid ${withAlpha(accent, 0.55)}`,
+            background: withAlpha(accent, 0.16),
+            // Newest first, and each one arrives a beat after the last so a
+            // burst of scans reads as a wave rather than a jump.
+            animationDelay: `${i * 90}ms`,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {s.firstName || "Racer"}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 /* ── VIP ──────────────────────────────────────────────────────────────── */
