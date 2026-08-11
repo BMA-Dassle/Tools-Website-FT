@@ -42,6 +42,7 @@ export async function GET(req: NextRequest) {
         vip: null,
         kioskEvents: [],
         pausedProductIds: [],
+        reloadAt: null,
         degraded: true,
       },
       { headers: { "Cache-Control": "no-store" } },

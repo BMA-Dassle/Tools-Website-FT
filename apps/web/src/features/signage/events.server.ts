@@ -67,3 +67,42 @@ export async function readSignageEvents(center: string): Promise<SignageEvent[]>
     return [];
   }
 }
+
+/* ── remote reload ────────────────────────────────────────────────────── */
+
+const RELOAD_TTL_SECONDS = 24 * 3600;
+
+function reloadKey(center: string): string {
+  return `signage:reload:${center}`;
+}
+
+/**
+ * Ask every screen in a center to reload.
+ *
+ * Screens self-update on a timer, but that is a poll — during a run of rapid
+ * deploys, or when a board is visibly wrong in front of guests, "within a few
+ * minutes" is not good enough and walking to each player PC is worse. This is
+ * the button that fixes a wall from a phone.
+ *
+ * Stored as a timestamp rather than a queued message so it is idempotent: a
+ * screen reloads when it sees a stamp NEWER than its own boot, and pressing the
+ * button twice cannot cause two reloads.
+ */
+export async function requestScreenReload(center: string): Promise<void> {
+  try {
+    await redis.set(reloadKey(center), String(Date.now()), "EX", RELOAD_TTL_SECONDS);
+  } catch {
+    /* the timer-based self-update is the backstop */
+  }
+}
+
+/** When a reload was last requested for this center, or null. */
+export async function reloadRequestedAt(center: string): Promise<number | null> {
+  try {
+    const raw = await redis.get(reloadKey(center));
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}

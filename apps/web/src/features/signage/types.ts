@@ -268,6 +268,9 @@ export interface TvFeed {
   } | null;
   /** Product ids currently off-sale — never advertise a paused product. */
   pausedProductIds: string[];
+  /** Set when staff asked the screens to reload. A screen reloads if this is
+   *  newer than its own boot. Null when nobody has asked. */
+  reloadAt: number | null;
   /** True when an upstream failed and sections were dropped. */
   degraded: boolean;
 }

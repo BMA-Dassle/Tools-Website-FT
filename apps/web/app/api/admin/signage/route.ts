@@ -6,7 +6,7 @@ import {
   saveSignageScreen,
   deleteSignageScreen,
 } from "~/features/signage/data/signage-screens-db";
-import { recordSignageEvent } from "~/features/signage/events.server";
+import { recordSignageEvent, requestScreenReload } from "~/features/signage/events.server";
 import { parseScreenKey, VENUE_INFO, type SignageVenue } from "~/features/signage/constants";
 import { buildStartupScript, startupScriptFileName } from "~/features/signage/startup-script";
 import type { ScreenConfig } from "~/features/signage/types";
@@ -129,6 +129,15 @@ export async function POST(req: NextRequest) {
       activityKeys: ["bowling"],
       atMs: Date.now(),
     });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "reload-screens") {
+    // Screens self-update on a timer, but that is a poll. This is the button
+    // for "a wall is visibly wrong right now" — it beats waiting minutes, and
+    // it beats walking to each player PC.
+    if (!body.center) return NextResponse.json({ error: "center required" }, { status: 400 });
+    await requestScreenReload(body.center);
     return NextResponse.json({ ok: true });
   }
 

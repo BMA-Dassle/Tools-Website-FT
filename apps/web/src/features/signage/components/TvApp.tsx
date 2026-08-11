@@ -15,7 +15,7 @@
  * The URL is rewritten to its canonical form so a hard reload (the self-update
  * path) comes back as the same screen.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useKioskClock } from "../clock";
 import {
   parseScreenKey,
@@ -42,6 +42,12 @@ export function TvApp() {
   const [demo, setDemo] = useState<DemoMode>("off");
 
   const { offset } = useKioskClock();
+  // Fixed at mount; a reload gives the new tab a later value. Stamped in an
+  // effect rather than during render, which must stay pure.
+  const bootedAtRef = useRef(0);
+  useEffect(() => {
+    bootedAtRef.current = Date.now();
+  }, []);
 
   /* ── identity ────────────────────────────────────────────────────────── */
   useEffect(() => {
@@ -91,6 +97,18 @@ export function TvApp() {
 
   const parsed = parseScreenKey(screenId);
   const isTest = parsed?.screenNumber === TEST_SCREEN_NUMBER;
+
+  // Staff asked the screens to reload. Obey it once, only for a request made
+  // AFTER this tab booted — otherwise a day-old stamp would reload every screen
+  // forever. bootedAt is captured on mount, so a reloaded tab has a fresh one.
+  const reloadAt = rawFeed?.reloadAt ?? null;
+  useEffect(() => {
+    // bootedAtRef is 0 until the mount effect runs; guard so we never reload
+    // on the very first paint before it is stamped.
+    if (reloadAt && bootedAtRef.current && reloadAt > bootedAtRef.current) {
+      window.location.reload();
+    }
+  }, [reloadAt]);
 
   // Demo fixtures decorate the feed on a TEST screen only, and only in this
   // tab — never written, never published. See ../demo.ts.

@@ -150,14 +150,32 @@ export default function SignageAdminClient({ token }: { token: string }) {
       )}
 
       {!editing && (
-        <button
-          type="button"
-          onClick={() => setEditing(newDraft())}
-          style={primaryBtn}
-          disabled={busy}
-        >
-          Add a screen
-        </button>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={() => setEditing(newDraft())}
+            style={primaryBtn}
+            disabled={busy}
+          >
+            Add a screen
+          </button>
+          {Array.from(new Set(data.screens.map((s) => s.center))).map((center) => (
+            <button
+              key={center}
+              type="button"
+              onClick={async () => {
+                if (await post({ action: "reload-screens", center })) {
+                  setNote(`Reload sent — screens at ${center} refresh within about 10 seconds.`);
+                }
+              }}
+              style={btn}
+              disabled={busy}
+              title="Force every screen at this center to reload now"
+            >
+              Reload {center} screens
+            </button>
+          ))}
+        </div>
       )}
 
       {editing && (

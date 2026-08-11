@@ -21,7 +21,7 @@ import { pausedProductIds } from "~/features/maintenance";
 import { businessDayYmdET } from "@/lib/race-business-day";
 import { loadSignageScreen } from "../data/signage-screens-db";
 import { parseScreenKey, VENUE_INFO } from "../constants";
-import { signageEventsKey, readSignageEvents } from "../events.server";
+import { signageEventsKey, readSignageEvents, reloadRequestedAt } from "../events.server";
 import { resolveScreenConfig } from "../defaults";
 import { trackFromResourceIds } from "../track";
 import { raceCheckinInfo } from "./race-checkin";
@@ -62,6 +62,7 @@ export async function buildTvFeed(screenIdRaw: string | null): Promise<TvFeed> {
     kioskEvents: [],
     raceCheckin: null,
     pausedProductIds: safePaused(),
+    reloadAt: null,
     degraded: false,
   };
 
@@ -78,6 +79,7 @@ export async function buildTvFeed(screenIdRaw: string | null): Promise<TvFeed> {
   // about someone standing at a kiosk right now, and it must not wait out a
   // cache TTL. One LRANGE is cheap enough to do per screen per poll.
   const kioskEvents = await readSignageEvents(center).catch(() => []);
+  const reloadAt = await reloadRequestedAt(center).catch(() => null);
 
   // Track screens only: who is on the heat checking in right now. Everything
   // else the scene needs it fetches itself from the endpoints the website uses.
@@ -107,6 +109,7 @@ export async function buildTvFeed(screenIdRaw: string | null): Promise<TvFeed> {
     ...base,
     screen,
     kioskEvents,
+    reloadAt,
     raceCheckin,
     events,
     // `vip` (the bowling-leg takeover) lands with the next scene.
