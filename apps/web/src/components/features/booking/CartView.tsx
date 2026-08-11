@@ -28,7 +28,7 @@ import {
   type KioskPackSelection,
 } from "~/features/booking/service/race-pack-kiosk";
 import { redeemedHeatSet } from "~/features/booking/data/race-credits";
-import { getBookingAddon } from "~/features/booking/data/addon-catalog";
+import { getBookingAddon, offerableAddons } from "~/features/booking/data/addon-catalog";
 import { estimateAddonsTotal } from "~/features/booking/service/addon-charge";
 import { getComboSpecial } from "~/features/combos/combo-specials";
 import { resolveCartPurchase } from "~/features/game-cards/cart-purchase";
@@ -772,6 +772,53 @@ function RaceCartCard({
           />
         </div>
       ) : null}
+
+      {/* Video & extras teaser (owner 2026-08-10, cart screenshot): a guest
+          who skipped the extras step gets add buttons right here, mirroring
+          the race-pack row below. Each button reopens the extras step — the
+          purpose-built controls (capped stepper / who-picker) live there, and
+          it's the wizard's last step so Continue lands back on this screen.
+          Kiosk-only (needs onChangeAddons); hidden once both are in the cart
+          — their own rows then carry Change/Remove. */}
+      {onChangeAddons &&
+        !combo &&
+        (() => {
+          const povMissing = item.povQuantity === 0 && !raceItemFullyPackaged(item, session.party);
+          const cartAddons = offerableAddons("race", item).filter(
+            (a) => !item.addonSelections?.some((s) => s.slug === a.slug && s.memberIds.length > 0),
+          );
+          if (!povMissing && cartAddons.length === 0) return null;
+          return (
+            <div className="mt-3 border-t border-white/10 pt-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-bold tracking-wider text-[#00E2E5] uppercase">
+                  {t("addons.cart.teaserEyebrow")}
+                </p>
+                <div className="flex flex-wrap justify-end gap-2">
+                  {povMissing && (
+                    <button
+                      type="button"
+                      onClick={() => onChangeAddons(item.id)}
+                      className="rounded-lg border border-[#00E2E5]/40 px-3 py-1.5 text-xs font-semibold text-[#00E2E5] transition-colors hover:bg-[#00E2E5]/10"
+                    >
+                      {t("addons.cart.addVideo")}
+                    </button>
+                  )}
+                  {cartAddons.map((a) => (
+                    <button
+                      key={a.slug}
+                      type="button"
+                      onClick={() => onChangeAddons(item.id)}
+                      className="rounded-lg border border-[#00E2E5]/40 px-3 py-1.5 text-xs font-semibold text-[#00E2E5] transition-colors hover:bg-[#00E2E5]/10"
+                    >
+                      {t(`${a.i18nPrefix}.cart.add` as Parameters<typeof t>[0])}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
       {/* Race packs on this booking — visible AND editable right here, so
           "the pack only landed on one racer" is a two-tap cart fix instead of a

@@ -22,10 +22,15 @@ export const addonsEn = {
   "addon.headsock.pickerLabel": "Who needs one?",
   "addon.headsock.perRacerHint": "One per racer — it goes on their racing account",
   "addon.headsock.cart.rowLabel": "Replacement Headsock · {name}",
+  "addon.headsock.cart.add": "+ Add headsock",
 
   // --- Cart row controls (shared by all add-ons) ---
   "addons.cart.change": "Change",
   "addons.cart.remove": "Remove",
+
+  // --- Cart teaser (race card, when video/extras were skipped) ---
+  "addons.cart.teaserEyebrow": "Video & Extras",
+  "addons.cart.addVideo": "+ Add race video",
 } as const;
 
 export const addonsEs: Record<keyof typeof addonsEn, string> = {
@@ -42,8 +47,13 @@ export const addonsEs: Record<keyof typeof addonsEn, string> = {
   "addon.headsock.pickerLabel": "¿Quién necesita uno?",
   "addon.headsock.perRacerHint": "Uno por corredor — se registra en su cuenta de carreras",
   "addon.headsock.cart.rowLabel": "Calcetín de repuesto · {name}",
+  "addon.headsock.cart.add": "+ Agregar calcetín",
 
   // --- Controles de la fila del carrito (compartidos) ---
   "addons.cart.change": "Cambiar",
   "addons.cart.remove": "Quitar",
+
+  // --- Sugerencia en el carrito (cuando se omitieron video/extras) ---
+  "addons.cart.teaserEyebrow": "Video y extras",
+  "addons.cart.addVideo": "+ Agregar video de carrera",
 };

@@ -22,11 +22,15 @@ export function AddonCard({
   item,
   session,
   onChange,
+  compact = false,
 }: {
   addon: BookingAddon;
   item: RaceItem;
   session: BookingSession;
   onChange: (patch: Partial<RaceItem>) => void;
+  /** Kiosk fixed-canvas density — tighter paddings/type so the whole extras
+   *  step fits without scrolling (owner 2026-08-10). */
+  compact?: boolean;
 }) {
   const t = useT();
   const selections = item.addonSelections ?? [];
@@ -58,7 +62,7 @@ export function AddonCard({
 
   return (
     <div
-      className={`space-y-4 rounded-xl border p-5 transition-colors ${
+      className={`${compact ? "space-y-3 p-4" : "space-y-4 p-5"} rounded-xl border transition-colors ${
         selected.size > 0 ? "border-[#00E2E5]/30 bg-[#00E2E5]/5" : "border-white/10 bg-white/[0.03]"
       }`}
     >
@@ -69,7 +73,9 @@ export function AddonCard({
             {t(key("priceEach"), { price: `$${price.toFixed(2)}` })}
           </span>
         </div>
-        <p className="text-sm leading-relaxed text-white/50">{t(key("blurb"))}</p>
+        <p className={`${compact ? "text-xs" : "text-sm"} leading-relaxed text-white/50`}>
+          {t(key("blurb"))}
+        </p>
       </div>
 
       <div className="space-y-2">
