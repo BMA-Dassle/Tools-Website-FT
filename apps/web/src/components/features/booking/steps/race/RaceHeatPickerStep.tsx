@@ -29,6 +29,7 @@ import {
   heatsConflict,
 } from "~/features/booking/service/conflict";
 import { evaluateRaceRestrictions } from "~/features/booking/service/race-restriction-rules";
+import { businessDayYmdET } from "@/lib/race-business-day";
 import { releaseHeatBmiLines } from "~/features/booking/service/checkout";
 import { useCrossTierBlocks } from "./useCrossTierBlocks";
 import { holdPickedHeats } from "~/features/booking/service/race";
@@ -572,11 +573,18 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
     // kiosks have no kioskTest flag.
     const testRolledRef = useRef(false);
     const kioskTestRig = !!session.context?.kioskTest;
+    // "Rolled" for DISPLAY derives from the date itself (not the per-mount
+    // ref) so the staff banners survive a back-and-repick remount.
+    const testShowingFutureDay = kioskTestRig && !!item.date && item.date > businessDayYmdET();
     const availabilitySettled =
       queries.length > 0 && queries.every((q) => q.isSuccess || q.isError);
     useEffect(() => {
       if (!kioskTestRig || testRolledRef.current) return;
       if (!item.date || !product) return;
+      // Only ever roll off TODAY (operating day). The per-mount ref alone
+      // isn't enough: re-picking a product remounts this step, and an empty
+      // grid on the already-rolled date would walk another day forward.
+      if (item.date > businessDayYmdET()) return;
       if (!availabilitySettled || allProposals.length > 0) return;
       testRolledRef.current = true;
       const next = new Date(item.date + "T12:00:00");
@@ -782,7 +790,7 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
 
         {/* Test-rig marker (staff-only device, English by design): the grid
             rolled to the next day because today's races were done. */}
-        {kioskTestRig && testRolledRef.current && (
+        {testShowingFutureDay && (
           <div className="mx-auto max-w-sm rounded-xl border border-amber-500/30 bg-amber-500/5 p-2 text-center text-xs text-amber-300">
             Test kiosk: today&apos;s races are done — showing{" "}
             {new Date(item.date + "T12:00:00").toLocaleDateString("en-US", {
@@ -817,9 +825,32 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
             </button>
           </div>
         ) : allProposals.length === 0 ? (
-          <div className="bg-white/3 rounded-xl border border-white/10 p-4 text-center text-sm text-white/50">
-            No heats available for this date.
-          </div>
+          testShowingFutureDay ? (
+            // Test rig rolled to tomorrow but THIS product has no heats there
+            // (schedule differs — e.g. a Red/Blue race on a Mega night, owner
+            // 2026-08-10). The date is right; the product needs re-picking
+            // against tomorrow's schedule. Staff-only device, English by design.
+            <div className="mx-auto max-w-md space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-center text-sm text-amber-300">
+              <p>
+                Test kiosk:{" "}
+                {new Date(item.date + "T12:00:00").toLocaleDateString("en-US", {
+                  weekday: "long",
+                })}{" "}
+                runs a different race schedule — this race has no heats that day.
+              </p>
+              <button
+                type="button"
+                onClick={() => dispatch({ type: "back" })}
+                className="mx-auto block rounded-xl border border-amber-400/40 px-5 py-2.5 text-sm font-semibold text-amber-300 transition-colors hover:bg-amber-400/10"
+              >
+                ← Pick a race that runs that day
+              </button>
+            </div>
+          ) : (
+            <div className="bg-white/3 rounded-xl border border-white/10 p-4 text-center text-sm text-white/50">
+              No heats available for this date.
+            </div>
+          )
         ) : visibleProposals.length === 0 ? (
           <div className="bg-white/3 rounded-xl border border-white/10 p-4 text-center text-sm text-white/50">
             No {activeTrackFilter} Track heats for this date — tap the track above to show all.
