@@ -58,10 +58,12 @@ const KIOSK_BANK_CONFIG: ScreenConfig = {
  * two can perform as one display on Mega races.
  */
 const RACE_CHECKIN_CONFIG: ScreenConfig = {
-  playlist: [
-    { scene: "race-checkin", slots: 3 },
-    { scene: "ads", slots: 1 },
-  ],
+  // NO ADS. A track board has one job, and a racer walking up needs to see
+  // their session — not an advert for bowling, and not a screen they have to
+  // wait out. It has its own designed standby state for between heats, so
+  // there is never dead air to fill (owner 2026-08-11: "karting check in tvs
+  // are showing kiosk ads").
+  playlist: [{ scene: "race-checkin", slots: 3 }],
   interrupts: {
     celebration: { enabled: true, maxAgeSecs: 90, showMs: 8_000 },
     "vip-welcome": { enabled: true, leadMins: 10, floorMins: 0, minShowMs: 30_000 },
