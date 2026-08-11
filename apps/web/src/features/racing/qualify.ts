@@ -51,6 +51,38 @@ export function qualifiesFor(bestLapMs: number, track: string): QualifyLevel | n
   return null;
 }
 
+/**
+ * What lap they have to beat, in the race they are about to run, to earn the next
+ * level — for the briefing-room board (owner 2026-08-11).
+ *
+ * Reads the SAME constants qualifiesFor does, so the target a racer is shown before
+ * the race cannot disagree with the decision made after it.
+ *
+ * Null when there is nothing to aim for: a Pro session (top level), a Mega session
+ * (the combined circuit has no cutoffs — its laps are not comparable to either
+ * track's), or a session type we do not recognise.
+ */
+export function nextLevelTarget(
+  track: string,
+  raceType: string | null | undefined,
+): { level: QualifyLevel; ms: number } | null {
+  const t = (track || "").toLowerCase();
+  if (t.includes("mega")) return null;
+  const isBlue = t.includes("blue");
+  const rt = (raceType || "").toLowerCase();
+  if (!rt || rt.includes("pro")) return null;
+  if (rt.includes("intermediate")) {
+    return { level: "Pro", ms: isBlue ? QUALIFY_PRO_BLUE : QUALIFY_PRO_RED };
+  }
+  if (rt.includes("starter")) {
+    return {
+      level: "Intermediate",
+      ms: isBlue ? QUALIFY_INTERMEDIATE_BLUE : QUALIFY_INTERMEDIATE_RED,
+    };
+  }
+  return null;
+}
+
 /** Lap time in seconds, three decimals — "36.785". */
 export function formatLap(ms: number): string {
   return (ms / 1000).toFixed(3);

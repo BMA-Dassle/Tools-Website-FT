@@ -935,7 +935,13 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
       )}
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6">
+      <div
+        className={
+          boardMode
+            ? "flex flex-col items-center justify-center px-6 py-5"
+            : "flex-1 flex flex-col items-center justify-center px-6"
+        }
+      >
         {!serialSupported ? (
           <div className="text-center">
             <p className="text-red-400 text-lg font-bold">Web Serial API Not Available</p>

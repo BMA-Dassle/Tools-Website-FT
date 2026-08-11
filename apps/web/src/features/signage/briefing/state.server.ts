@@ -80,6 +80,58 @@ export async function readBriefingRooms(
   }
 }
 
+/* ── "this session has been sent to a room" ───────────────────────────── */
+
+/**
+ * A per-session marker the TRACK check-in boards read.
+ *
+ * It exists so the check-in board clears on a real event rather than a timer
+ * (owner 2026-08-11: "send to room should be what clears the check in TV as
+ * well… don't clear it automatically, just do it based on sending to room"). Once
+ * a group has been sent to a briefing room they have finished checking in, so the
+ * board's job for that heat is done — which is a fact about the operation, not
+ * about elapsed minutes.
+ *
+ * A marker rather than a Neon lookup because the boards poll every 15 seconds per
+ * screen, and this has to be one cheap GET.
+ */
+const BRIEFED_TTL_SECONDS = 6 * 3600;
+
+function briefedKey(sessionId: string): string {
+  return `briefing:sent:${sessionId}`;
+}
+
+export async function markSessionBriefed(sessionId: string): Promise<void> {
+  if (!sessionId) return;
+  try {
+    await redis.set(briefedKey(sessionId), String(Date.now()), "EX", BRIEFED_TTL_SECONDS);
+  } catch {
+    /* the board keeps showing the heat — no worse than before this existed */
+  }
+}
+
+/** When this session was sent to a room, or null. */
+export async function sessionBriefedAt(sessionId: string | null): Promise<number | null> {
+  if (!sessionId) return null;
+  try {
+    const raw = await redis.get(briefedKey(sessionId));
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Undo the marker, so an undone send puts the heat back on the check-in board. */
+export async function clearSessionBriefed(sessionId: string | null): Promise<void> {
+  if (!sessionId) return;
+  try {
+    await redis.del(briefedKey(sessionId));
+  } catch {
+    /* it expires on its own */
+  }
+}
+
 /**
  * Validate on the way IN, not on the way out.
  *
@@ -99,6 +151,7 @@ function parseState(raw: string | null): BriefingRoomState | null {
       kind: p.kind,
       tier: p.tier === "starter" || p.tier === "intermediate" ? p.tier : null,
       track: p.track === "blue" || p.track === "red" || p.track === "mega" ? p.track : "mega",
+      raceType: typeof p.raceType === "string" && p.raceType ? p.raceType : null,
       sessionId: typeof p.sessionId === "string" ? p.sessionId : "",
       heatNumber: typeof p.heatNumber === "number" ? p.heatNumber : null,
       triggeredAtMs: p.triggeredAtMs,

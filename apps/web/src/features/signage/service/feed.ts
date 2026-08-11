@@ -34,7 +34,7 @@ import { raceCheckinInfo } from "./race-checkin";
 import { buildWelcomeBoard } from "./welcome";
 import { briefingEnabled } from "../flags";
 import { loadSignageAssetsSafe } from "../data/signage-assets-db";
-import { readBriefingRooms } from "../briefing/state.server";
+import { readBriefingRooms, sessionBriefedAt } from "../briefing/state.server";
 import { resolveRoomQuals } from "../briefing/quals.server";
 import type { TvFeed, TvPulse } from "../types";
 
@@ -142,13 +142,24 @@ export async function buildTvFeed(
       : Promise.resolve(null),
   ]);
 
+  // Has the heat on the track board already been sent to a briefing room? One
+  // Redis GET, and only for screens that actually show a track board.
+  const raceCheckinWithBriefing = raceCheckin
+    ? {
+        ...raceCheckin,
+        briefedAtMs: await sessionBriefedAt(
+          raceCheckin.sessionId != null ? String(raceCheckin.sessionId) : null,
+        ).catch(() => null),
+      }
+    : null;
+
   return {
     ...base,
     screen,
     kioskEvents,
     reloadAt,
     demoMode,
-    raceCheckin,
+    raceCheckin: raceCheckinWithBriefing,
     events,
     nextAvailable,
     briefing: briefing?.section ?? null,

@@ -72,6 +72,16 @@ export interface BriefingControl {
   board: BoardStatus | null;
   note: string | null;
   busy: boolean;
+  /**
+   * WHICH action is in flight, e.g. "start:red" — not merely that one is.
+   *
+   * A single global `busy` flag disabled every button on the board and indicated
+   * nothing about which one had been pressed, so a staff member pressing Start got
+   * no acknowledgement at all until the poll came back (owner 2026-08-11: "make
+   * the buttons actually show input"). With the key, the pressed button can show
+   * its own spinner while the others merely go inert.
+   */
+  pending: string | null;
   /** Staff's film override, per ROOM — on a Mega day both rooms read one
    *  session, so choosing Intermediate for Red must not change Blue. */
   tierOverride: Record<string, BriefingTier | null>;
@@ -83,6 +93,8 @@ export interface BriefingControl {
     heatNumber: number | null;
     raceType: string | null;
   }) => void;
+  /** Phase two: roll the film. Also used for "play it again". */
+  start: (room: BriefingRoom, opts?: { restart?: boolean }) => void;
   showQuals: (room: BriefingRoom) => void;
   clearRoom: (room: BriefingRoom) => void;
 }
@@ -91,6 +103,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   const [board, setBoard] = useState<BoardStatus | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
   const [tierOverride, setTierOverrideState] = useState<Record<string, BriefingTier | null>>({});
 
   const loadBoard = useCallback(
@@ -121,8 +134,9 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
   );
 
   const post = useCallback(
-    async (body: Record<string, unknown>, successNote: string) => {
+    async (body: Record<string, unknown>, successNote: string, key?: string) => {
       setBusy(true);
+      setPending(key ?? null);
       setNote(null);
       try {
         const res = await fetch(`/api/admin/briefing?token=${encodeURIComponent(token)}`, {
@@ -147,6 +161,7 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
         setNote(`✕ Could not reach the server${err instanceof Error ? ` — ${err.message}` : ""}`);
       } finally {
         setBusy(false);
+        setPending(null);
       }
     },
     [token, loadBoard],
@@ -169,24 +184,51 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
           tier: tierOverride[args.room] ?? undefined,
         },
         `Session ${args.heatNumber ?? ""} sent to the ${args.room} room`,
+        `send:${args.room}`,
       );
     },
     [post, tierOverride],
   );
 
+  const start = useCallback<BriefingControl["start"]>(
+    (room, opts) => {
+      void post(
+        { action: opts?.restart ? "restart" : "start", room },
+        opts?.restart ? `${room} briefing restarted` : `${room} briefing started`,
+        opts?.restart ? `restart:${room}` : `start:${room}`,
+      );
+    },
+    [post],
+  );
+
   const showQuals = useCallback<BriefingControl["showQuals"]>(
     (room) => {
-      void post({ action: "show-quals", room }, `Levelled-up board sent to the ${room} room`);
+      void post(
+        { action: "show-quals", room },
+        `Levelled-up board sent to the ${room} room`,
+        `quals:${room}`,
+      );
     },
     [post],
   );
 
   const clearRoom = useCallback<BriefingControl["clearRoom"]>(
     (room) => {
-      void post({ action: "clear", room }, `${room} room cleared`);
+      void post({ action: "clear", room }, `${room} room cleared`, `clear:${room}`);
     },
     [post],
   );
 
-  return { board, note, busy, tierOverride, setTierOverride, send, showQuals, clearRoom };
+  return {
+    board,
+    note,
+    busy,
+    pending,
+    tierOverride,
+    setTierOverride,
+    send,
+    start,
+    showQuals,
+    clearRoom,
+  };
 }

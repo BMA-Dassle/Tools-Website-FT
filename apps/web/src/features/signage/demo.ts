@@ -178,6 +178,9 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
         vipFirstNames: ["Sarah"],
         checkedIn: 5,
         total: 8,
+        // Not yet sent to a briefing room, so the preview shows a live board
+        // rather than a cleared one.
+        briefedAtMs: null,
       },
     };
   }
@@ -239,6 +242,7 @@ export function demoBriefingRooms(
     kind: mode === "briefing-quals" ? "quals-only" : "timeline",
     tier: "starter",
     track: "red",
+    raceType: "Starter",
     sessionId: "demo-60",
     heatNumber: 60,
     // Stamped a beat ago so the timeline starts at the top of its first phase

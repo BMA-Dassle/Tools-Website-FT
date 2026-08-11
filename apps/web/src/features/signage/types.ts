@@ -313,6 +313,13 @@ export interface TvFeed {
      *  rather than a wrong one. */
     checkedIn: number | null;
     total: number | null;
+    /**
+     * When this heat was sent to a briefing room, or null.
+     *
+     * The track board CLEARS on this rather than on elapsed time: a group that has
+     * been sent to a briefing room has finished checking in (owner 2026-08-11).
+     */
+    briefedAtMs: number | null;
   } | null;
   /**
    * Briefing-room extra: the films and poster this screen plays, plus the

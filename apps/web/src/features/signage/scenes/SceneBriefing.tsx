@@ -24,7 +24,8 @@
 import { useEffect, useRef, useState } from "react";
 import { IconAlertTriangleFilled } from "@tabler/icons-react";
 import { withAlpha } from "../color";
-import { TRACK_ACCENTS } from "../track";
+import { nextLevelTarget } from "~/features/racing/qualify";
+import { TRACK_ACCENTS, TRACK_LABELS } from "../track";
 import { briefingTimelineAt } from "../briefing/phase";
 import { tierForRaceType, type BriefingQualifier, type BriefingRoom } from "../briefing/types";
 import { useBriefingAssets } from "../briefing/useBriefingAssets";
@@ -68,7 +69,17 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
-      {timeline.phase === "video" && videoSrc ? (
+      {timeline.phase === "waiting" ? (
+        <TakeASeat
+          accent={accent}
+          heatNumber={state?.heatNumber ?? null}
+          // The session's real level, NOT which film plays — a Pro grid must not
+          // be told they are in a Starter race (owner 2026-08-11).
+          raceType={state?.raceType ?? null}
+          trackLabel={state?.track ? TRACK_LABELS[state.track] : null}
+          target={state?.track ? nextLevelTarget(state.track, state.raceType) : null}
+        />
+      ) : timeline.phase === "video" && videoSrc ? (
         <BriefingVideo
           // Keyed on the send, so a NEW briefing remounts the element and starts
           // its own playback — and a re-render inside one briefing does not.
@@ -409,6 +420,113 @@ function QualsBoard({
       <p style={{ fontSize: 40, color: "rgba(245,236,238,0.6)", margin: 0 }}>
         See the desk to book your next race at the new level.
       </p>
+    </div>
+  );
+}
+
+/**
+ * The holding board: sent here, film not started yet.
+ *
+ * A group walks in over a minute or two, so this is what they see while they find
+ * seats — the session they are in, unmistakably, and an instruction. It exists
+ * because rolling the safety film at send time meant the first arrivals watched
+ * the opening while the rest were still in the corridor (owner 2026-08-11).
+ */
+function TakeASeat({
+  accent,
+  heatNumber,
+  raceType,
+  trackLabel,
+  target,
+}: {
+  accent: string;
+  heatNumber: number | null;
+  raceType: string | null;
+  trackLabel: string | null;
+  /** The lap to beat for the next level, when there is one to aim for. */
+  target: { level: string; ms: number } | null;
+}) {
+  return (
+    <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 16,
+          background: accent,
+          boxShadow: `0 0 60px ${accent}`,
+        }}
+      />
+      <div
+        aria-hidden
+        className="tv-breathe"
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: `radial-gradient(75% 65% at 50% 45%, ${withAlpha(accent, 0.42)}, transparent 74%)`,
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          inset: `${PAD_Y}px ${PAD_X}px`,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          gap: 26,
+        }}
+      >
+        {/* TRACK, then SESSION, then LEVEL — the three things a group walking in
+            needs to confirm they are in the right room for the right race. */}
+        <span className="tv-eyebrow" style={{ color: accent, fontSize: 44 }}>
+          {trackLabel ?? "Your race"}
+        </span>
+        {heatNumber != null && (
+          <div
+            className="tv-display tv-rise"
+            style={{ fontSize: 190, color: "#fff", lineHeight: 0.9 }}
+          >
+            Session {heatNumber}
+          </div>
+        )}
+        {raceType && (
+          <div className="tv-display" style={{ fontSize: 84, color: accent }}>
+            {raceType}
+          </div>
+        )}
+        <p style={{ fontSize: 50, color: "rgba(245,236,238,0.72)", margin: 0 }}>
+          Take a seat — your briefing starts in a moment.
+        </p>
+
+        {/* The lap to beat, before they drive it rather than after. Same constants
+            the level-up decision uses, so the target on the wall and the text
+            they get afterwards cannot disagree. */}
+        {target && (
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "baseline",
+              gap: 20,
+              alignSelf: "flex-start",
+              padding: "18px 34px",
+              borderRadius: 18,
+              border: `3px solid ${withAlpha(accent, 0.75)}`,
+              background: withAlpha(accent, 0.16),
+            }}
+          >
+            <span style={{ fontSize: 34, color: "rgba(245,236,238,0.78)" }}>Beat</span>
+            <span className="tv-display tv-num" style={{ fontSize: 92, color: "#fff" }}>
+              {(target.ms / 1000).toFixed(3)}
+            </span>
+            <span style={{ fontSize: 34, color: "rgba(245,236,238,0.78)" }}>
+              to qualify {target.level}
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

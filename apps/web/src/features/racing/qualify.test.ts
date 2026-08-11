@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   formatLap,
+  nextLevelTarget,
   qualifiesFor,
   QUALIFY_INTERMEDIATE_BLUE,
   QUALIFY_INTERMEDIATE_RED,
@@ -63,5 +64,55 @@ describe("formatLap", () => {
   it("renders milliseconds as seconds with three decimals", () => {
     expect(formatLap(36_785)).toBe("36.785");
     expect(formatLap(32_500)).toBe("32.500");
+  });
+});
+
+describe("nextLevelTarget", () => {
+  it("gives a Starter grid the Intermediate cutoff for their track", () => {
+    expect(nextLevelTarget("blue", "Starter")).toEqual({
+      level: "Intermediate",
+      ms: QUALIFY_INTERMEDIATE_BLUE,
+    });
+    expect(nextLevelTarget("Red Track", "Starter")).toEqual({
+      level: "Intermediate",
+      ms: QUALIFY_INTERMEDIATE_RED,
+    });
+  });
+
+  it("gives an Intermediate grid the Pro cutoff", () => {
+    expect(nextLevelTarget("blue", "Intermediate")).toEqual({
+      level: "Pro",
+      ms: QUALIFY_PRO_BLUE,
+    });
+    expect(nextLevelTarget("red", "Intermediate (2)")).toEqual({
+      level: "Pro",
+      ms: QUALIFY_PRO_RED,
+    });
+  });
+
+  it("shows nothing to a Pro grid — there is nowhere above it", () => {
+    expect(nextLevelTarget("blue", "Pro")).toBeNull();
+    expect(nextLevelTarget("red", "Junior Pro")).toBeNull();
+  });
+
+  it("shows nothing on MEGA — the combined circuit has no comparable cutoff", () => {
+    expect(nextLevelTarget("mega", "Starter")).toBeNull();
+    expect(nextLevelTarget("Mega Track", "Intermediate")).toBeNull();
+  });
+
+  it("shows nothing for a session type it cannot read", () => {
+    expect(nextLevelTarget("blue", null)).toBeNull();
+    expect(nextLevelTarget("blue", "")).toBeNull();
+    expect(nextLevelTarget("blue", "Corporate Event")).toBeNull();
+  });
+
+  it("agrees with qualifiesFor — the target shown IS the line that decides", () => {
+    // The point of sharing the constants: a racer told to beat 41.000 and then
+    // judged against a different number would be a broken promise.
+    for (const track of ["blue", "red"]) {
+      const t = nextLevelTarget(track, "Starter")!;
+      expect(qualifiesFor(t.ms, track)).toBe("Intermediate");
+      expect(qualifiesFor(t.ms + 1, track)).toBeNull();
+    }
   });
 });

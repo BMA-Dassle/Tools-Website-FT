@@ -28,7 +28,14 @@ import {
 } from "./assignments-db";
 import { briefingTimelineAt } from "./phase";
 import { resolveRoomQuals } from "./quals.server";
-import { clearBriefingRoom, readBriefingRooms, setBriefingRoom } from "./state.server";
+import {
+  clearBriefingRoom,
+  clearSessionBriefed,
+  markSessionBriefed,
+  readBriefingRoom,
+  readBriefingRooms,
+  setBriefingRoom,
+} from "./state.server";
 import {
   assetKeyForTier,
   BRIEFING_ROOMS,
@@ -92,9 +99,16 @@ export async function sendBriefing(args: SendBriefingArgs): Promise<SendBriefing
   const video = assets[assetKeyForTier(tier)] ?? null;
 
   const state: BriefingRoomState = {
-    kind: "timeline",
+    // ASSIGNED, not started. The group has to walk to the room and sit down;
+    // rolling a safety film at send time meant they missed its opening (owner
+    // 2026-08-11). Staff press Start when the room is actually ready.
+    //
+    // The video URL is resolved NOW even though nothing plays yet, so the room's
+    // player can pre-download the film into its cache during the walk over.
+    kind: "assigned",
     tier,
     track: args.track,
+    raceType: args.raceType,
     sessionId: args.sessionId,
     heatNumber: args.heatNumber,
     triggeredAtMs: Date.now(),
@@ -103,7 +117,47 @@ export async function sendBriefing(args: SendBriefingArgs): Promise<SendBriefing
   };
   await setBriefingRoom(VENUE, args.room, state);
 
+  // The track check-in board clears off THIS, not off a timer: once a group is
+  // sent to a room they have finished checking in.
+  await markSessionBriefed(args.sessionId);
+
   return { ok: true, tier, hasVideo: !!video?.url };
+}
+
+/**
+ * Roll the film — phase two of a send.
+ *
+ * Re-resolves the video from the manifest rather than trusting what the send
+ * froze in: staff sometimes upload the film between sending a group and starting
+ * it, and the useful behaviour there is obviously to play the new one.
+ *
+ * `restart` is the same operation, and deliberately so. Latecomers walk in, a
+ * projector drops HDMI, a group asks to see it again — all of them mean "play it
+ * from the top now", which is exactly a fresh `triggeredAtMs`. One code path
+ * means the two can never behave differently.
+ */
+export async function startBriefing(
+  room: BriefingRoom,
+): Promise<{ ok: boolean; error?: string; hasVideo?: boolean }> {
+  const current = await readBriefingRoom(VENUE, room);
+  if (!current || current.kind === "quals-only") {
+    return { ok: false, error: "nothing is assigned to that room — send a session first" };
+  }
+
+  const tier = current.tier ?? "starter";
+  const assets = await loadSignageAssetsSafe();
+  const video = assets[assetKeyForTier(tier)] ?? null;
+
+  await setBriefingRoom(VENUE, room, {
+    ...current,
+    kind: "timeline",
+    // The ONLY thing that actually starts (or restarts) the sequence.
+    triggeredAtMs: Date.now(),
+    videoUrl: video?.url ?? null,
+    videoDurationMs: video?.durationMs ?? null,
+  });
+
+  return { ok: true, hasVideo: !!video?.url };
 }
 
 /**
@@ -137,6 +191,7 @@ export async function showQualsNow(room: BriefingRoom): Promise<{ ok: true }> {
     kind: "quals-only",
     tier: null,
     track: (previous?.track as "blue" | "red" | "mega") ?? "mega",
+    raceType: previous?.raceType ?? null,
     sessionId: previous?.sessionId ?? "",
     heatNumber: previous?.heatNumber ?? null,
     triggeredAtMs: Date.now(),
@@ -147,9 +202,17 @@ export async function showQualsNow(room: BriefingRoom): Promise<{ ok: true }> {
   return { ok: true };
 }
 
-/** Clear a room back to its idle helmet board ("room done"). */
+/**
+ * Clear a room back to its idle helmet board — "room done", and also Undo.
+ *
+ * Undoing a send has to put the heat BACK on the track check-in board, otherwise
+ * a mis-send would quietly strand a group: cleared from check-in, and not in a
+ * room either.
+ */
 export async function clearRoom(room: BriefingRoom): Promise<{ ok: true }> {
+  const current = await readBriefingRoom(VENUE, room);
   await clearBriefingRoom(VENUE, room);
+  if (current?.sessionId) await clearSessionBriefed(current.sessionId);
   return { ok: true };
 }
 

@@ -6,6 +6,7 @@ import {
   clearRoom,
   sendBriefing,
   showQualsNow,
+  startBriefing,
 } from "~/features/signage/briefing/service";
 import {
   isBriefingAssetKey,
@@ -123,6 +124,13 @@ export async function POST(req: NextRequest) {
 
   if (action === "show-quals") {
     return NextResponse.json(await showQualsNow(room));
+  }
+
+  // Phase two of a send, and also "play it again" — the same operation either
+  // way, so one action rather than two that could drift (see startBriefing).
+  if (action === "start" || action === "restart") {
+    const result = await startBriefing(room);
+    return NextResponse.json(result, { status: result.ok ? 200 : 409 });
   }
 
   if (action === "send") {

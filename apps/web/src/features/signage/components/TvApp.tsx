@@ -27,6 +27,7 @@ import {
 import { resolveScreenConfig } from "../defaults";
 import { useTvFeed } from "../useTvFeed";
 import { applyDemo, effectiveDemoMode, parseDemoMode, type DemoMode } from "../demo";
+import { briefingTimelineAt } from "../briefing/phase";
 import type { SceneDecision } from "../director/schedule";
 import { SceneDirector } from "../director/SceneDirector";
 import { TvStage } from "./TvStage";
@@ -99,6 +100,58 @@ export function TvApp() {
   const parsed = parseScreenKey(screenId);
   const isTest = parsed?.screenNumber === TEST_SCREEN_NUMBER;
 
+  /**
+   * IS A BRIEFING RUNNING IN THIS ROOM RIGHT NOW?
+   *
+   * Load-bearing for reloads. A briefing room has guests sitting in it watching a
+   * safety film, and a self-update — or a staff "reload screens" press — would
+   * black the wall out mid-sentence (owner 2026-08-11: "if the briefing video is
+   * playing can we make sure that tv doesn't auto reload"). The briefing scene is
+   * ROTATION content, not an interrupt, so `decision.isInterrupt` does not cover
+   * it and the screen would otherwise have reloaded quite happily.
+   *
+   * Derived with the same pure function the scene uses. Deliberately covers the
+   * whole timeline, not just the video: helmet sizes and the levelled-up board are
+   * also shown to a room full of people. Rooms fall idle between groups, and a
+   * deferred reload lands the moment one does.
+   */
+  // Read off the RAW feed, not the resolved `config` — that const is declared
+  // further down this component, and referencing it here would be a
+  // use-before-declaration ReferenceError at runtime rather than a type error
+  // (the TDZ trap this codebase has been bitten by before). The resolver only
+  // validates the literal, so reading it directly is equivalent.
+  const rawBriefingRoom = rawFeed?.screen?.config?.briefingRoom;
+  const briefingRoom =
+    rawBriefingRoom === "red" || rawBriefingRoom === "blue" ? rawBriefingRoom : null;
+  const briefingActive =
+    !!briefingRoom &&
+    briefingTimelineAt(rawFeed?.briefingRooms?.[briefingRoom] ?? null, rawFeed?.now ?? 0).phase !==
+      "idle";
+
+  /**
+   * IS A HEAT CHECKING IN ON THIS TRACK BOARD RIGHT NOW?
+   *
+   * Same protection, for the same reason: racers are standing at the desk scanning,
+   * and blacking the board out to install a build loses the one thing telling them
+   * where to be (owner 2026-08-11: "not reload till next session is cleared or sent
+   * to room").
+   *
+   * A reload itself is SAFE — everything on that board is server state (the session
+   * comes from races-current, the names from the Redis scan rail), so a reloaded tab
+   * repaints the same session and the same checked-in names. This is about not
+   * flashing a wall at the wrong moment, not about losing anything.
+   *
+   * `briefedAtMs` is what ends it: the moment the group is sent to a briefing room
+   * the board has finished with that heat, so a held reload lands immediately.
+   */
+  const checkinActive =
+    !!rawFeed?.raceCheckin &&
+    rawFeed.raceCheckin.sessionId != null &&
+    rawFeed.raceCheckin.briefedAtMs == null;
+
+  /** Hold a reload while guests are depending on what is on this screen. */
+  const holdReloads = briefingActive || checkinActive;
+
   // Staff asked the screens to reload. Obey it once, only for a request made
   // AFTER this tab booted — otherwise a day-old stamp would reload every screen
   // forever. bootedAt is captured on mount, so a reloaded tab has a fresh one.
@@ -106,10 +159,12 @@ export function TvApp() {
   useEffect(() => {
     // bootedAtRef is 0 until the mount effect runs; guard so we never reload
     // on the very first paint before it is stamped.
-    if (reloadAt && bootedAtRef.current && reloadAt > bootedAtRef.current) {
-      window.location.reload();
-    }
-  }, [reloadAt]);
+    if (!reloadAt || !bootedAtRef.current || reloadAt <= bootedAtRef.current) return;
+    // HELD, not dropped: briefingActive is a dependency, so the moment the room
+    // goes idle this effect re-runs and the reload happens then.
+    if (holdReloads) return;
+    window.location.reload();
+  }, [reloadAt, holdReloads]);
 
   // Pushed-preview-or-URL resolution lives in demo.ts (effectiveDemoMode) so
   // the live probe exercises the app's real wiring, not a re-implementation.
@@ -160,8 +215,10 @@ export function TvApp() {
     <TvStage>
       <TvShell
         screenLabel={isTest ? `TEST · ${label}` : label}
-        // Never interrupt a takeover or a celebration to install a new build.
-        safeToReload={!decision?.isInterrupt}
+        // Never interrupt a takeover, a celebration, or a BRIEFING to install a
+        // new build. A briefing is rotation content, so it needs naming here
+        // explicitly — see briefingActive above.
+        safeToReload={!decision?.isInterrupt && !holdReloads}
       >
         <SceneDirector
           feed={feed}
@@ -200,6 +257,13 @@ export function TvApp() {
               `playlist    ${config.playlist.map((p) => p.scene).join(", ")}`,
               `SCENE       ${decision?.scene ?? "(deciding)"}`,
               `interrupt   ${String(decision?.isInterrupt ?? false)}`,
+              `briefing    ${briefingRoom ?? "(not a briefing screen)"}${
+                briefingActive ? " — ACTIVE" : ""
+              }`,
+              `checkin     ${rawFeed?.raceCheckin?.sessionId ?? "(none)"}${
+                checkinActive ? " — checking in" : ""
+              }`,
+              `reloads     ${holdReloads ? "HELD (guests on screen)" : "allowed"}`,
             ].join("\n")}
           </pre>
         )}

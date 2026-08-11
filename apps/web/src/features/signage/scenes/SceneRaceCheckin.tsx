@@ -67,14 +67,13 @@ const WRONG_RACE_SHOW_MS = 12_000;
 const JUST_CALLED_MS = 45_000;
 
 /**
- * A session leaves the boards 10 minutes after its call, and its racers go
- * with it (owner 2026-08-11: "both screens should clear session and/or checked
- * in racers after 10 minutes or when next session is called"). The upstream
- * cache deliberately remembers the last call for hours so e-tickets can read
- * it — the BOARD is where staleness costs, so the board enforces its own
- * lifetime.
+ * How long a scan with NO session to attach to may still be listed.
+ *
+ * Not a session lifetime — a session now ends when the group is sent to a briefing
+ * room (see the note in the component). This only bounds orphan names, so the feed
+ * board cannot re-list an hour of old scans during a gap between heats.
  */
-const SESSION_LINGER_MS = 10 * 60_000;
+const SCAN_ORPHAN_MS = 10 * 60_000;
 
 /** Where the records QR points. The public best-times board, which already
  *  carries the per-track records matrix. */
@@ -127,20 +126,30 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
 
   // The session's own lifetime, and the scans' with it. Names are floored to
   // this session's call — so the moment the NEXT session is called, everyone
-  // from the previous one drops without any bookkeeping. Ten minutes after the
-  // call with no successor, the whole thing clears to idle.
+  // from the previous one drops without any bookkeeping.
+  //
+  // WHAT ENDS A SESSION ON THIS BOARD IS THE BRIEFING SEND, not a timer (owner
+  // 2026-08-11: "send to room should be what clears the check in TV… don't clear
+  // it automatically, just do it based on sending to room"). Once staff send a
+  // group to a briefing room they have finished checking in, so the board's job
+  // for that heat is done — which is a fact about the operation rather than about
+  // elapsed minutes. A ten-minute rule cleared boards while people were still
+  // walking up, and held them for ten minutes after a group had long gone.
+  //
+  // Undoing a send removes the marker, so a mis-send puts the heat straight back.
   const calledAtMs = rawRace?.calledAt ? Date.parse(rawRace.calledAt) : NaN;
-  const sessionExpired = Number.isFinite(calledAtMs) && nowMs - calledAtMs > SESSION_LINGER_MS;
+  const sessionExpired = (feed?.raceCheckin?.briefedAtMs ?? null) !== null;
   const race = sessionExpired ? null : rawRace;
   const scanFloorMs = sessionExpired
     ? Number.POSITIVE_INFINITY
     : Number.isFinite(calledAtMs)
       ? calledAtMs - 60_000 // small grace: a scan landing as the call goes out
-      : // No session to attach to ⇒ a name still lives at most ten minutes.
-        // The rail's Redis entries survive an hour, and with a floor of zero
-        // the feed board re-listed every old scan whenever no session was
-        // current — which is how Marcus outstayed his welcome (owner).
-        nowMs - SESSION_LINGER_MS;
+      : // No session to attach to ⇒ a name still lives at most SCAN_ORPHAN_MS.
+        // This is a different question from "when does a session end": the rail's
+        // Redis entries survive an hour, and with a floor of zero the feed board
+        // re-listed every old scan whenever no session was current — which is how
+        // Marcus outstayed his welcome (owner).
+        nowMs - SCAN_ORPHAN_MS;
   const delay = findDelay(status?.trackStatus.tracks, track);
 
   // VIPs DO NOT SCAN IN — they are met and escorted (owner 2026-08-11). The

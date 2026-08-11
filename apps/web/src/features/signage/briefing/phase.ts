@@ -14,6 +14,7 @@
  * The same property makes this testable by passing numbers in — see phase.test.ts.
  */
 import {
+  ASSIGNED_HOLD_MS,
   HELMET_PHASE_MS,
   NOMINAL_VIDEO_MS,
   QUALS_PHASE_MS,
@@ -54,6 +55,16 @@ export function briefingTimelineAt(
   // Treat it as "just now" rather than sitting on idle until the skew passes —
   // a room with a group standing in it must play the video.
   const elapsed = Math.max(0, nowMs - startedAtMs);
+
+  // ASSIGNED: sent, not started. Holds until staff press Start — deliberately no
+  // auto-advance, because the whole point is that a person decides when the room
+  // is actually ready. It does time out, so a session nobody started cannot sit
+  // on the wall all evening.
+  if (state.kind === "assigned") {
+    return elapsed < ASSIGNED_HOLD_MS
+      ? { phase: "waiting", videoOffsetMs: 0, nextInMs: null, videoMs: 0 }
+      : IDLE;
+  }
 
   if (state.kind === "quals-only") {
     return elapsed < QUALS_PHASE_MS
@@ -102,6 +113,9 @@ export function briefingTimelineAt(
  * sitting in Redis this morning.
  */
 export function briefingStateTtlSeconds(state: BriefingRoomState): number {
+  // An assignment waits on a human, so its key must outlive the hold window
+  // rather than any video length.
+  if (state.kind === "assigned") return Math.ceil((ASSIGNED_HOLD_MS + 60_000) / 1000);
   if (state.kind === "quals-only") return Math.ceil(QUALS_PHASE_MS / 1000);
   const videoMs =
     Number.isFinite(state.videoDurationMs) && (state.videoDurationMs as number) > 0

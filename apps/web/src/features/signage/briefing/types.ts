@@ -99,21 +99,44 @@ export interface BriefingAsset {
  */
 export interface BriefingRoomState {
   /**
-   *  - `timeline`   the ordinary send: video → helmet → quals.
+   * TWO PHASES, because the group has to walk there (owner 2026-08-11).
+   *
+   *  - `assigned`   sent to the room, film NOT started. The room holds on a
+   *                 "Session 13 — take a seat" board while they walk over and sit
+   *                 down. Starting the film at send time meant a group missed the
+   *                 opening of a safety briefing.
+   *  - `timeline`   staff pressed Start: video → helmet → quals, all derived from
+   *                 `triggeredAtMs`.
    *  - `quals-only` staff jumped straight to the qualification board (a group
    *                 came back without a next briefing queued).
    */
-  kind: "timeline" | "quals-only";
+  kind: "assigned" | "timeline" | "quals-only";
   /** Which video the timeline plays. Null for `quals-only`. */
   tier: BriefingTier | null;
-  /** Track the session belongs to — drives the room's accent colour. */
+  /** Track the session belongs to — shown on the pre-video board. */
   track: "blue" | "red" | "mega";
+  /**
+   * The session's own level as the timing system words it ("Starter",
+   * "Intermediate", "Pro").
+   *
+   * DISTINCT FROM `tier`, which is only which of the two films plays — a Pro
+   * session plays the Starter film, so showing `tier` on the wall would tell a Pro
+   * grid they are in a Starter race. The board must show the race they are in.
+   */
+  raceType: string | null;
   /** Pandora session id, as a STRING. Never a number: BMI/Pandora ids can
    *  exceed Number.MAX_SAFE_INTEGER and this one is round-tripped through JSON
    *  and Postgres (house rule — see CLAUDE.md). */
   sessionId: string;
   heatNumber: number | null;
-  /** Shared-clock ms the send happened. THE ONLY CLOCK the timeline has. */
+  /**
+   * Shared-clock ms the timeline STARTED — i.e. when staff pressed Start, not
+   * when they sent the group. THE ONLY CLOCK the timeline has.
+   *
+   * While `kind` is `assigned` this is the send time and nothing reads it as a
+   * video offset; it exists so the holding board can say how long they have been
+   * waiting, and so the state has one consistent stamp.
+   */
   triggeredAtMs: number;
   /** Resolved from the asset manifest at send time, so a mid-briefing re-upload
    *  cannot swap the film out from under a room. */
@@ -124,7 +147,7 @@ export interface BriefingRoomState {
 }
 
 /** What the TV is showing, derived — never stored. */
-export type BriefingPhase = "video" | "helmet" | "quals" | "idle";
+export type BriefingPhase = "waiting" | "video" | "helmet" | "quals" | "idle";
 
 /**
  * One racer who levelled up in the session that just finished.
@@ -171,3 +194,13 @@ export const NOMINAL_VIDEO_MS = 5 * 60_000;
 /** How long the qualification board holds before the room falls idle. Covers a
  *  normal between-heats gap without leaving last hour's names on a wall. */
 export const QUALS_PHASE_MS = 30 * 60_000;
+
+/**
+ * How long a room holds an ASSIGNED session before giving up on it.
+ *
+ * Generous — a group can be held up at the desk, in the toilets, or buying
+ * drinks, and a board that forgets them after five minutes would send staff back
+ * to the control board for nothing. Long enough to be forgiving, short enough
+ * that a session nobody ever started is not still on the wall an hour later.
+ */
+export const ASSIGNED_HOLD_MS = 45 * 60_000;
