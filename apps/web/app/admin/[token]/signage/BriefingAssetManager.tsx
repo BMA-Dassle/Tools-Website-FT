@@ -123,6 +123,15 @@ export default function BriefingAssetManager({
 
         const result = await upload(`briefing/${fileSlug(row.key, file.name)}`, file, {
           access: "public",
+          // SERVE A .MOV AS video/mp4. Chromium refuses `video/quicktime` as media
+          // outright — canPlayType returns "" — so a .mov briefing film played
+          // BLACK in the room even though its bytes were plain H.264 (owner
+          // 2026-08-11). QuickTime and MP4 are both ISO base-media formats, so the
+          // MP4 demuxer handles the file fine; it just has to be asked. This is not
+          // a lie about the payload: the decode probe above has already proved this
+          // browser can decode it, and the browser is the same engine as the
+          // players'.
+          contentType: row.kind === "video" ? "video/mp4" : undefined,
           handleUploadUrl: `/api/admin/signage/briefing-upload?token=${encodeURIComponent(token)}`,
           clientPayload: row.key,
           // REQUIRED for large files — see the header.
@@ -370,7 +379,10 @@ function AssetSlot({
 
 type VideoProbe =
   | { ok: true; durationMs: number; width: number; height: number }
-  | { ok: false; reason: "undecodable" | "no-video-track" | "no-duration" | "timeout" };
+  | {
+      ok: false;
+      reason: "undecodable" | "no-video-track" | "no-duration" | "no-frame" | "timeout";
+    };
 
 /**
  * Can this browser actually decode this file, and how long is it?
@@ -403,13 +415,32 @@ function readVideoMeta(file: File): Promise<VideoProbe> {
       el.removeAttribute("src");
       resolve(value);
     };
-    el.preload = "metadata";
+    // `metadata` is not enough. A QuickTime container holding HEVC parses fine and
+    // reports width, height and duration — and then paints BLACK on a player with no
+    // HEVC decoder, which is exactly what reached the Blue room (owner 2026-08-11:
+    // "in blue I'm getting briefing starting then it blacks out… that's a .mov").
+    // Metadata proved the container was readable, never that a frame could be
+    // decoded. So load enough to seek, then require an actual decoded frame.
+    el.preload = "auto";
     el.muted = true;
+
     el.onloadedmetadata = () => {
       if (!el.videoWidth || !el.videoHeight) return done({ ok: false, reason: "no-video-track" });
       if (!Number.isFinite(el.duration) || el.duration <= 0) {
         return done({ ok: false, reason: "no-duration" });
       }
+      // Seek a little way in: frame 0 of a film is often a black fade, which would
+      // make a legitimate file look undecodable.
+      try {
+        el.currentTime = Math.min(2, el.duration / 4);
+      } catch {
+        /* not seekable — the readyState check below still has to pass */
+      }
+    };
+
+    // A decoded frame has arrived and is drawable.
+    const onDecodable = () => {
+      if (el.readyState < 2) return; // HAVE_CURRENT_DATA
       done({
         ok: true,
         durationMs: Math.round(el.duration * 1000),
@@ -417,10 +448,24 @@ function readVideoMeta(file: File): Promise<VideoProbe> {
         height: el.videoHeight,
       });
     };
+    el.onseeked = onDecodable;
+    el.onloadeddata = onDecodable;
     el.onerror = () => done({ ok: false, reason: "undecodable" });
-    // A file the browser will not even open must not hang the form. Generous,
-    // because reading metadata off a gigabyte on a slow disk is not instant.
-    setTimeout(() => done({ ok: false, reason: "timeout" }), 30_000);
+    // No frame within the window ⇒ the container parses but the codec does not
+    // decode. That is the HEVC case, and it raises no error event at all, so a
+    // timeout IS the signal rather than a fallback.
+    setTimeout(() => {
+      done(
+        el.videoWidth && el.readyState >= 2
+          ? {
+              ok: true,
+              durationMs: Math.round(el.duration * 1000),
+              width: el.videoWidth,
+              height: el.videoHeight,
+            }
+          : { ok: false, reason: el.videoWidth ? "no-frame" : "timeout" },
+      );
+    }, 30_000);
     el.src = objectUrl;
   });
 }
@@ -437,6 +482,8 @@ function describeVideoFailure(reason: string, file: File): string {
   switch (reason) {
     case "no-video-track":
       return `This browser loaded the file but cannot decode its picture — almost always HEVC, which Edge will not play without a paid extension. It would upload and then show black on the wall. ${reencode}`;
+    case "no-frame":
+      return `The file opens and reports its size, but no actual picture could be decoded — the classic HEVC-in-a-.MOV case. It would have uploaded happily and then played BLACK in the briefing room. ${reencode}`;
     case "undecodable":
       return `This browser cannot play that file at all — most likely ProRes or another editing codec. ${reencode}`;
     case "no-duration":
@@ -452,6 +499,10 @@ function describeVideoFailure(reason: string, file: File): string {
 function fileSlug(key: BriefingAssetKey, filename: string): string {
   const base = key.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
   const ext = (filename.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "");
+  // A video always lands as .mp4 whatever it arrived as, so the store's own
+  // extension-based type inference agrees with the contentType above rather than
+  // fighting it. The bytes are untouched — only the name and the header.
+  if (key.startsWith("briefing-video:")) return `${base}.mp4`;
   return `${base}.${ext}`;
 }
 

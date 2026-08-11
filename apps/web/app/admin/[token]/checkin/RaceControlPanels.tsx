@@ -61,8 +61,7 @@ const PHASE_LABEL: Record<BriefingPhase, string> = {
   waiting: "Waiting to start",
   video: "Video playing",
   helmet: "Helmet sizes",
-  quals: "Levelled up",
-  idle: "Empty",
+  idle: "Free",
 };
 
 const STYLES = `
@@ -199,6 +198,15 @@ export default function RaceControlPanels({ control }: { control: BriefingContro
               race={race}
               delay={findDelay(status?.trackStatus.tracks, track)}
               status={board?.rooms.find((r) => r.room === room) ?? null}
+              // Once a session has gone to EITHER room it leaves the Called boxes
+              // (owner 2026-08-11: "once a session is moved to the room it should
+              // clear from these top boxes"). It is no longer waiting to be sent, so
+              // leaving it there only invites sending it twice.
+              sentTo={
+                board?.assignments.find(
+                  (a) => a.mode === "timeline" && !!race && a.sessionId === String(race.sessionId),
+                )?.room ?? null
+              }
               nowMs={nowMs}
               tierOverride={control.tierOverride[room] ?? null}
               onTierOverride={(tier) => control.setTierOverride(room, tier)}
@@ -258,6 +266,7 @@ function RoomColumn({
   delay,
   status,
   nowMs,
+  sentTo,
   tierOverride,
   onTierOverride,
   locked,
@@ -272,6 +281,8 @@ function RoomColumn({
   delay: TrackInfo | null;
   status: RoomStatus | null;
   nowMs: number;
+  /** Which room this called session already went to, if any. */
+  sentTo: BriefingRoom | null;
   tierOverride: BriefingTier | null;
   onTierOverride: (tier: BriefingTier | null) => void;
   locked: boolean;
@@ -312,7 +323,7 @@ function RoomColumn({
 
       {/* ── CALLED ── */}
       <Panel label="Called" flat>
-        {race ? (
+        {race && !sentTo ? (
           <>
             <div style={{ display: "flex", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
               <div style={{ minWidth: 150 }}>
@@ -408,6 +419,10 @@ function RoomColumn({
               )}
             </div>
           </>
+        ) : sentTo && race ? (
+          <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: "2px 0" }}>
+            Session {race.heatNumber} went to the {sentTo} room — waiting on the next call.
+          </p>
         ) : (
           <p style={{ fontSize: 13, color: PORTAL_DARK.muted, margin: "2px 0" }}>
             Nothing called on {cap(track)} Track.
@@ -450,7 +465,6 @@ function RoomColumn({
           color={color}
           state={state}
           timeline={timeline}
-          quals={status?.quals ?? null}
           nowMs={nowMs}
           locked={locked}
           pending={pending}
@@ -469,7 +483,6 @@ function InRoom({
   color,
   state,
   timeline,
-  quals,
   nowMs,
   locked,
   pending,
@@ -480,7 +493,6 @@ function InRoom({
   color: string;
   state: BriefingRoomState | null;
   timeline: BriefingTimeline;
-  quals: RoomStatus["quals"];
   nowMs: number;
   locked: boolean;
   pending: string | null;
@@ -488,8 +500,7 @@ function InRoom({
   onUndo: () => void;
 }) {
   const phase = timeline.phase;
-  const qualCount = quals?.qualifiers.length ?? 0;
-  const running = phase === "video" || phase === "helmet" || phase === "quals";
+  const running = phase === "video" || phase === "helmet";
   const pct =
     timeline.videoMs > 0 ? Math.min(100, (timeline.videoOffsetMs / timeline.videoMs) * 100) : 0;
   const waitingMs = state ? Math.max(0, nowMs - state.triggeredAtMs) : 0;
@@ -576,9 +587,9 @@ function InRoom({
               <Stat
                 label="Left"
                 value={timeline.nextInMs != null ? formatClock(timeline.nextInMs) : "—"}
-                unit={phase === "helmet" ? "until levelled-up board" : "until the room clears"}
+                unit="until the room is free"
                 big
-                tone={phase === "quals" ? GREEN : color}
+                tone={color}
               />
             )}
           </div>
@@ -611,17 +622,9 @@ function InRoom({
                 className="rc-num"
                 style={{ fontSize: 10, color: PORTAL_DARK.muted, marginTop: 4 }}
               >
-                {Math.round(pct)}% · then helmet sizes → levelled up
+                {Math.round(pct)}% · then helmet sizes, then free
               </div>
             </div>
-          )}
-
-          {phase === "quals" && (
-            <span style={{ fontSize: 12, color: qualCount > 0 ? GREEN : PORTAL_DARK.muted }}>
-              {qualCount > 0 && quals
-                ? `On screen: ${quals.qualifiers.map((q) => `${q.firstName} (${q.level})`).join(", ")}`
-                : "Nobody levelled up — fell back to helmet sizes."}
-            </span>
           )}
 
           <div style={{ marginTop: "auto" }}>
@@ -811,7 +814,6 @@ function ActionButton({
 
 function phaseColor(phase: BriefingPhase, roomColor: string): string {
   if (phase === "waiting") return AMBER;
-  if (phase === "quals") return GREEN;
   if (phase === "idle") return PORTAL_DARK.muted;
   return roomColor;
 }

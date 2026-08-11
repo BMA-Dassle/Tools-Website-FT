@@ -5,7 +5,6 @@ import {
   briefingBoardStatus,
   clearRoom,
   sendBriefing,
-  showQualsNow,
   startBriefing,
 } from "~/features/signage/briefing/service";
 import {
@@ -120,10 +119,6 @@ export async function POST(req: NextRequest) {
 
   if (action === "clear") {
     return NextResponse.json(await clearRoom(room));
-  }
-
-  if (action === "show-quals") {
-    return NextResponse.json(await showQualsNow(room));
   }
 
   // Phase two of a send, and also "play it again" — the same operation either

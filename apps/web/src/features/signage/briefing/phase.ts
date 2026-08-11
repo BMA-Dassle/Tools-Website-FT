@@ -3,7 +3,7 @@
  *
  * One send writes a start time. Everything after that is arithmetic:
  *
- *     0 ─────────── video ──────────► d ── helmet ──► d+30s ─── quals ───► +30m ─► idle
+ *     0 ─────────── video ──────────► d ── helmet ──► d+30s ─► free for the next
  *
  * Deriving instead of remembering is what makes a briefing room survive its own
  * player PC. A TV that reboots four minutes into a five-minute video comes back
@@ -17,7 +17,6 @@ import {
   ASSIGNED_HOLD_MS,
   HELMET_PHASE_MS,
   NOMINAL_VIDEO_MS,
-  QUALS_PHASE_MS,
   type BriefingPhase,
   type BriefingRoomState,
 } from "./types";
@@ -66,12 +65,6 @@ export function briefingTimelineAt(
       : IDLE;
   }
 
-  if (state.kind === "quals-only") {
-    return elapsed < QUALS_PHASE_MS
-      ? { phase: "quals", videoOffsetMs: 0, nextInMs: QUALS_PHASE_MS - elapsed, videoMs: 0 }
-      : IDLE;
-  }
-
   // No video URL ⇒ nothing to play, so the timeline starts at the helmet board.
   // This is the honest behaviour for "staff sent a briefing before anybody
   // uploaded the film": show sizing and the qualifiers, never a black screen.
@@ -95,11 +88,14 @@ export function briefingTimelineAt(
     return { phase: "helmet", videoOffsetMs: 0, nextInMs: helmetEnd - elapsed, videoMs };
   }
 
-  const qualsEnd = helmetEnd + QUALS_PHASE_MS;
-  if (elapsed < qualsEnd) {
-    return { phase: "quals", videoOffsetMs: 0, nextInMs: qualsEnd - elapsed, videoMs };
-  }
-
+  // AND THAT IS THE WHOLE BRIEFING. Once helmets are done the room is FREE and
+  // ready for the next group (owner 2026-08-11: "once the helmet portion is done
+  // this should clear and be ready for the next"). It used to hold a third phase for
+  // half an hour, which left a room that had emptied reading as busy on the board.
+  //
+  // Idle is not blank: the room's resting board shows the next heat inbound, the lap
+  // to beat, and where results are posted. "Cleared" and "showing something useful"
+  // are the same state.
   return IDLE;
 }
 
@@ -116,12 +112,11 @@ export function briefingStateTtlSeconds(state: BriefingRoomState): number {
   // An assignment waits on a human, so its key must outlive the hold window
   // rather than any video length.
   if (state.kind === "assigned") return Math.ceil((ASSIGNED_HOLD_MS + 60_000) / 1000);
-  if (state.kind === "quals-only") return Math.ceil(QUALS_PHASE_MS / 1000);
   const videoMs =
     Number.isFinite(state.videoDurationMs) && (state.videoDurationMs as number) > 0
       ? (state.videoDurationMs as number)
       : NOMINAL_VIDEO_MS;
   // One extra minute of headroom: a TV polling every 2s must never be the thing
   // that discovers the key vanished a beat before the board was due to change.
-  return Math.ceil((videoMs + HELMET_PHASE_MS + QUALS_PHASE_MS + 60_000) / 1000);
+  return Math.ceil((videoMs + HELMET_PHASE_MS + 60_000) / 1000);
 }

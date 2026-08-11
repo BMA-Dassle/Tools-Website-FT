@@ -14,7 +14,7 @@
  * payments) is the reason there is no version field here at all — a config we
  * cannot fully parse is a config we partially honour, not one we throw away.
  */
-import type { BriefingQualsBoard, BriefingRoomState } from "./briefing/types";
+import type { BriefingInbound, BriefingRoomState } from "./briefing/types";
 
 /**
  * A scene is one full-screen visual. Adding a scene type is the only reason
@@ -240,6 +240,17 @@ export interface SignageEvent {
    *  Pre-formatted rather than an ISO string because the board must not do
    *  timezone maths to tell somebody where to be. */
   theirRaceLabel?: string;
+  /**
+   * WHO this scan was, for de-duplication — `{personId}:{sessionId}`.
+   *
+   * Not displayed, and not a name: it exists because a racer who scans four times
+   * appeared on the check-in board four times (owner 2026-08-11). The board is a
+   * list of who is here, so the same person twice is simply wrong.
+   *
+   * Keyed by person AND session so a racer legitimately checking in for a later
+   * heat is a different entry, not a suppressed duplicate.
+   */
+  racerKey?: string;
   /** Shared-clock ms when it happened. */
   atMs: number;
 }
@@ -316,10 +327,19 @@ export interface TvFeed {
     /**
      * When this heat was sent to a briefing room, or null.
      *
-     * The track board CLEARS on this rather than on elapsed time: a group that has
-     * been sent to a briefing room has finished checking in (owner 2026-08-11).
+     * The track board hands over on this rather than on elapsed time: a group that
+     * has been sent to a briefing room has finished checking in (owner
+     * 2026-08-11). It first announces where to go for a moment, then goes idle.
      */
     briefedAtMs: number | null;
+    /**
+     * WHICH room to send them to, for that announcement.
+     *
+     * On a Mega day both track boards read the same session, so both name the same
+     * room — the one it actually went to. On an ordinary day each board only ever
+     * sees its own track's session, so only the relevant board reacts at all.
+     */
+    briefedRoom: "red" | "blue" | null;
   } | null;
   /**
    * Briefing-room extra: the films and poster this screen plays, plus the
@@ -332,8 +352,8 @@ export interface TvFeed {
    * send reaches the wall in about two seconds without the player re-reading a
    * manifest it already has.
    *
-   * `quals` is resolved lazily server-side: the group it reports on is still out
-   * on track when the send happens. See briefing/quals.server.ts.
+   * `inbound` is the heat coming to this room next, read from the same warmed
+   * Redis last-race keys the track boards use.
    */
   briefing: {
     videos: {
@@ -341,7 +361,8 @@ export interface TvFeed {
       intermediate: { url: string; durationMs: number | null } | null;
     };
     helmetPosterUrl: string | null;
-    quals: BriefingQualsBoard | null;
+    /** The heat heading for this room next — the third phase of the timeline. */
+    inbound: BriefingInbound | null;
   } | null;
   /**
    * FAST HALF — what each briefing room is showing right now. Also present on

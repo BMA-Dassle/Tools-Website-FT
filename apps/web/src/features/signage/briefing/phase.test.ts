@@ -4,7 +4,6 @@ import {
   ASSIGNED_HOLD_MS,
   HELMET_PHASE_MS,
   NOMINAL_VIDEO_MS,
-  QUALS_PHASE_MS,
   type BriefingRoomState,
 } from "./types";
 
@@ -43,14 +42,17 @@ describe("briefingTimelineAt", () => {
   it("shows helmet sizes for 30 seconds after the film", () => {
     expect(briefingTimelineAt(state(), T0 + VIDEO_MS).phase).toBe("helmet");
     expect(briefingTimelineAt(state(), T0 + VIDEO_MS + 29_000).phase).toBe("helmet");
-    expect(briefingTimelineAt(state(), T0 + VIDEO_MS + HELMET_PHASE_MS).phase).toBe("quals");
+    expect(briefingTimelineAt(state(), T0 + VIDEO_MS + HELMET_PHASE_MS).phase).toBe("idle");
   });
 
-  it("holds the qualification board, then falls idle", () => {
-    const qualsStart = T0 + VIDEO_MS + HELMET_PHASE_MS;
-    expect(briefingTimelineAt(state(), qualsStart + 60_000).phase).toBe("quals");
-    expect(briefingTimelineAt(state(), qualsStart + QUALS_PHASE_MS - 1).phase).toBe("quals");
-    expect(briefingTimelineAt(state(), qualsStart + QUALS_PHASE_MS).phase).toBe("idle");
+  it("FREES THE ROOM the moment helmets are done — there is no third phase", () => {
+    // Owner 2026-08-11: "once the helmet portion is done this should clear and be
+    // ready for the next". A 30-minute third phase left an emptied room reading as
+    // busy on the control board.
+    const helmetEnd = T0 + VIDEO_MS + HELMET_PHASE_MS;
+    expect(briefingTimelineAt(state(), helmetEnd - 1).phase).toBe("helmet");
+    expect(briefingTimelineAt(state(), helmetEnd).phase).toBe("idle");
+    expect(briefingTimelineAt(state(), helmetEnd + 60_000).phase).toBe("idle");
   });
 
   it("REBOOT REJOINS: a player restarting mid-film comes back mid-film", () => {
@@ -65,20 +67,13 @@ describe("briefingTimelineAt", () => {
     const noVideo = state({ videoUrl: null, videoDurationMs: null });
     // Straight to helmet sizes rather than a black screen for five minutes.
     expect(briefingTimelineAt(noVideo, T0).phase).toBe("helmet");
-    expect(briefingTimelineAt(noVideo, T0 + HELMET_PHASE_MS).phase).toBe("quals");
+    expect(briefingTimelineAt(noVideo, T0 + HELMET_PHASE_MS).phase).toBe("idle");
   });
 
   it("falls back to a nominal length when duration is unknown", () => {
     const unknown = state({ videoDurationMs: null });
     expect(briefingTimelineAt(unknown, T0 + NOMINAL_VIDEO_MS - 1).phase).toBe("video");
     expect(briefingTimelineAt(unknown, T0 + NOMINAL_VIDEO_MS).phase).toBe("helmet");
-  });
-
-  it("quals-only jumps straight to the board and never plays a film", () => {
-    const q = state({ kind: "quals-only", tier: null, videoUrl: null });
-    expect(briefingTimelineAt(q, T0).phase).toBe("quals");
-    expect(briefingTimelineAt(q, T0 + QUALS_PHASE_MS - 1).phase).toBe("quals");
-    expect(briefingTimelineAt(q, T0 + QUALS_PHASE_MS).phase).toBe("idle");
   });
 
   it("treats a future-stamped send as starting now (writer clock skew)", () => {
@@ -147,17 +142,12 @@ describe("briefingStateTtlSeconds", () => {
 
   it("outlives the whole timeline", () => {
     const ttlMs = briefingStateTtlSeconds(state()) * 1000;
-    expect(ttlMs).toBeGreaterThan(VIDEO_MS + HELMET_PHASE_MS + QUALS_PHASE_MS);
+    expect(ttlMs).toBeGreaterThan(VIDEO_MS + HELMET_PHASE_MS);
   });
 
   it("scales with a longer film", () => {
     const short = briefingStateTtlSeconds(state({ videoDurationMs: 60_000 }));
     const long = briefingStateTtlSeconds(state({ videoDurationMs: 20 * 60_000 }));
     expect(long).toBeGreaterThan(short);
-  });
-
-  it("covers the quals hold for a quals-only send", () => {
-    const ttl = briefingStateTtlSeconds(state({ kind: "quals-only" }));
-    expect(ttl).toBe(Math.ceil(QUALS_PHASE_MS / 1000));
   });
 });

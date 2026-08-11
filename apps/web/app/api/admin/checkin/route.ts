@@ -915,6 +915,10 @@ export async function POST(req: NextRequest) {
       const trackKey = trackFromName(track);
       void recordSignageEvent({
         id: `scan-${personId}-${sessionId}-${Date.now()}`,
+        // Same person, same heat — the board shows them once however many times
+        // they swipe. The id has to stay unique (it keys the flash animation), so
+        // the identity travels separately.
+        racerKey: `${personId}:${sessionId}`,
         kind: "racer-scanned",
         center: "fort-myers",
         // First name only — it is going on a public wall.

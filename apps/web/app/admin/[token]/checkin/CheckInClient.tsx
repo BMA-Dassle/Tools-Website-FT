@@ -1064,6 +1064,33 @@ export default function CheckInClient({ token, version, boardMode = false }: Pro
         )}
       </div>
 
+      {/* A CHECK-IN STATION THAT IS NOT LISTENING IS THE WORST SILENT FAILURE.
+          Board mode hides the big centre panel, so without this a tab that never
+          got the serial port looks completely normal — which is what happened
+          (owner 2026-08-11: "while check in is in board mode it's not checking in
+          racers… we checked in on the non board version instead"). Web Serial is
+          exclusive PER TAB, so a second tab holding the port leaves this one deaf
+          with no outward sign at all. Now it says so, in amber, across the top. */}
+      {boardMode && serialSupported && connectionState !== "ready" && (
+        <button
+          type="button"
+          onClick={requestPort}
+          className="w-full px-6 py-3 text-left"
+          style={{
+            background: "rgba(240,179,65,0.14)",
+            borderTop: "1px solid rgba(240,179,65,0.5)",
+            borderBottom: "1px solid rgba(240,179,65,0.5)",
+            color: "#f0b341",
+            fontSize: 14,
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
+        >
+          ⚠ Scanner not connected — no scan will check anybody in. Click to connect.
+          {connectionError ? ` (${connectionError})` : ""}
+        </button>
+      )}
+
       {/* Race control — briefing rooms. Below the scanner because checking a
           racer in comes first; the send follows once the heat is in. */}
       {boardMode && <RaceControlPanels control={briefing} />}

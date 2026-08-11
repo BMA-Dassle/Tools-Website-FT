@@ -29,13 +29,14 @@ import {
   demoRequestedFor,
 } from "../events.server";
 import { resolveScreenConfig } from "../defaults";
-import { trackFromResourceIds } from "../track";
+import { TRACK_LABELS, trackFromResourceIds, type TrackKey } from "../track";
 import { raceCheckinInfo } from "./race-checkin";
 import { buildWelcomeBoard } from "./welcome";
 import { briefingEnabled } from "../flags";
 import { loadSignageAssetsSafe } from "../data/signage-assets-db";
-import { readBriefingRooms, sessionBriefedAt } from "../briefing/state.server";
-import { resolveRoomQuals } from "../briefing/quals.server";
+import { readBriefingRooms, sessionBriefed } from "../briefing/state.server";
+import { raceStillDisplayable } from "~/features/racing/current-race-freshness";
+import type { BriefingInbound } from "../briefing/types";
 import type { TvFeed, TvPulse } from "../types";
 
 /** Screens phone home on every poll; the admin page reads these for its
@@ -136,21 +137,19 @@ export async function buildTvFeed(
       ? buildNextAvailable(parsed.venue).catch(() => null)
       : Promise.resolve(null),
     wantsBriefing
-      ? buildBriefingSection(parsed.venue, config.briefingRoom as "red" | "blue", ymd).catch(
-          () => null,
-        )
+      ? buildBriefingSection(parsed.venue, config.briefingRoom as "red" | "blue").catch(() => null)
       : Promise.resolve(null),
   ]);
 
   // Has the heat on the track board already been sent to a briefing room? One
   // Redis GET, and only for screens that actually show a track board.
+  const briefed = raceCheckin
+    ? await sessionBriefed(
+        raceCheckin.sessionId != null ? String(raceCheckin.sessionId) : null,
+      ).catch(() => null)
+    : null;
   const raceCheckinWithBriefing = raceCheckin
-    ? {
-        ...raceCheckin,
-        briefedAtMs: await sessionBriefedAt(
-          raceCheckin.sessionId != null ? String(raceCheckin.sessionId) : null,
-        ).catch(() => null),
-      }
+    ? { ...raceCheckin, briefedAtMs: briefed?.atMs ?? null, briefedRoom: briefed?.room ?? null }
     : null;
 
   return {
@@ -187,7 +186,6 @@ export async function buildTvFeed(
 async function buildBriefingSection(
   venue: SignageVenue,
   room: "red" | "blue",
-  ymd: string,
 ): Promise<{
   section: NonNullable<TvFeed["briefing"]>;
   rooms: TvFeed["briefingRooms"];
@@ -197,15 +195,14 @@ async function buildBriefingSection(
     readBriefingRooms(venue).catch(() => ({ red: null, blue: null })),
   ]);
 
-  // Quals report on the session BEFORE the one in the room now, so the room's
-  // current session is what gets excluded from the lookup.
+  // THE INBOUND HEAT — what is coming to this room next.
+  //
+  // Read from the same warmed Redis last-race keys the track boards use, so the
+  // briefing room and the check-in board can never disagree about which heat is up.
+  // The heat currently IN this room is excluded: a room showing "next: session 13"
+  // while session 13 sits in it would be nonsense.
   const current = rooms[room];
-  const quals = await resolveRoomQuals({
-    venue,
-    businessDay: ymd,
-    room,
-    currentSessionId: current?.kind === "timeline" ? current.sessionId || null : null,
-  }).catch(() => null);
+  const inbound = await inboundFor(room, current?.sessionId ?? null).catch(() => null);
 
   const starter = assets["briefing-video:starter"];
   const intermediate = assets["briefing-video:intermediate"];
@@ -220,9 +217,60 @@ async function buildBriefingSection(
           : null,
       },
       helmetPosterUrl: poster?.url ?? null,
-      quals,
+      inbound,
     },
     rooms,
+  };
+}
+
+/**
+ * The heat heading for a briefing room next.
+ *
+ * A room is fed by the track it is named after — except on a Mega day, when both
+ * rooms are fed by the one combined circuit. Mega is therefore preferred whenever
+ * it has a called heat, which is exactly the rule the track boards follow
+ * (SceneRaceCheckin: "data beats configuration").
+ *
+ * Reads the SAME Redis keys /api/pandora/races-current warms, rather than calling
+ * that route — a screen poll must not fan out to an upstream with a 5-second
+ * timeout, and sharing the key is what guarantees the two agree.
+ */
+async function inboundFor(
+  room: "red" | "blue",
+  excludeSessionId: string | null,
+): Promise<TvFeed["briefing"] extends null ? never : BriefingInbound | null> {
+  const read = async (track: TrackKey) => {
+    try {
+      const raw = await redis.get(`pandora:last-race:fasttrax:${track}`);
+      if (!raw) return null;
+      const r = JSON.parse(raw) as {
+        heatNumber?: number;
+        raceType?: string;
+        scheduledStart?: string;
+        calledAt?: string;
+        sessionId?: number | string;
+      };
+      // Age-gated for the same reason the endpoint is: a heat called this morning
+      // is not "inbound" (see ~/features/racing/current-race-freshness).
+      if (!raceStillDisplayable(r, Date.now())) return null;
+      return { track, race: r };
+    } catch {
+      return null;
+    }
+  };
+
+  const mega = await read("mega");
+  const own = mega ? null : await read(room);
+  const hit = mega ?? own;
+  if (!hit) return null;
+  // Already in this room — not inbound.
+  if (excludeSessionId && String(hit.race.sessionId ?? "") === excludeSessionId) return null;
+
+  return {
+    heatNumber: typeof hit.race.heatNumber === "number" ? hit.race.heatNumber : null,
+    raceType: typeof hit.race.raceType === "string" ? hit.race.raceType : null,
+    trackLabel: TRACK_LABELS[hit.track],
+    scheduledStart: typeof hit.race.scheduledStart === "string" ? hit.race.scheduledStart : null,
   };
 }
 

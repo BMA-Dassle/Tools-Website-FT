@@ -15,19 +15,17 @@ import "server-only";
  *      somebody uploading a replacement film mid-briefing cannot swap it out from
  *      under a room that is watching it.
  *   3. ONE SEND, WHOLE SEQUENCE. There is no "now show helmets" or "now show
- *      quals" call — the TV derives all of that from the send's timestamp. The
+ *      next race" call — the TV derives all of that from the send's timestamp. The
  *      control board therefore cannot get out of step with the room.
  */
 import { businessDayYmdET } from "@/lib/race-business-day";
 import { loadSignageAssetsSafe } from "../data/signage-assets-db";
 import {
   listBriefingAssignments,
-  previousTimelineAssignment,
   recordBriefingAssignment,
   type BriefingAssignment,
 } from "./assignments-db";
 import { briefingTimelineAt } from "./phase";
-import { resolveRoomQuals } from "./quals.server";
 import {
   clearBriefingRoom,
   clearSessionBriefed,
@@ -41,7 +39,6 @@ import {
   BRIEFING_ROOMS,
   tierForRaceType,
   type BriefingPhase,
-  type BriefingQualsBoard,
   type BriefingRoom,
   type BriefingRoomState,
   type BriefingTier,
@@ -119,7 +116,7 @@ export async function sendBriefing(args: SendBriefingArgs): Promise<SendBriefing
 
   // The track check-in board clears off THIS, not off a timer: once a group is
   // sent to a room they have finished checking in.
-  await markSessionBriefed(args.sessionId);
+  await markSessionBriefed(args.sessionId, args.room);
 
   return { ok: true, tier, hasVideo: !!video?.url };
 }
@@ -140,7 +137,7 @@ export async function startBriefing(
   room: BriefingRoom,
 ): Promise<{ ok: boolean; error?: string; hasVideo?: boolean }> {
   const current = await readBriefingRoom(VENUE, room);
-  if (!current || current.kind === "quals-only") {
+  if (!current) {
     return { ok: false, error: "nothing is assigned to that room — send a session first" };
   }
 
@@ -161,48 +158,6 @@ export async function startBriefing(
 }
 
 /**
- * Jump a room straight to the qualification board.
- *
- * The manual override for the case the timeline does not cover: a group comes
- * back and there is no next briefing queued behind them, so no send is going to
- * carry their results onto the wall. Recorded as `mode: 'quals-only'` so it can
- * never be mistaken for a group having been briefed — that distinction is what
- * keeps the next real send reporting on the right session.
- */
-export async function showQualsNow(room: BriefingRoom): Promise<{ ok: true }> {
-  const businessDay = businessDayYmdET();
-  const previous = await previousTimelineAssignment(VENUE, businessDay, room, null).catch(
-    () => null,
-  );
-
-  await recordBriefingAssignment({
-    venue: VENUE,
-    businessDay,
-    room,
-    track: previous?.track ?? "mega",
-    sessionId: previous?.sessionId ?? "",
-    heatNumber: previous?.heatNumber ?? null,
-    raceType: previous?.raceType ?? null,
-    tier: null,
-    mode: "quals-only",
-  });
-
-  await setBriefingRoom(VENUE, room, {
-    kind: "quals-only",
-    tier: null,
-    track: (previous?.track as "blue" | "red" | "mega") ?? "mega",
-    raceType: previous?.raceType ?? null,
-    sessionId: previous?.sessionId ?? "",
-    heatNumber: previous?.heatNumber ?? null,
-    triggeredAtMs: Date.now(),
-    videoUrl: null,
-    videoDurationMs: null,
-  });
-
-  return { ok: true };
-}
-
-/**
  * Clear a room back to its idle helmet board — "room done", and also Undo.
  *
  * Undoing a send has to put the heat BACK on the track check-in board, otherwise
@@ -212,7 +167,19 @@ export async function showQualsNow(room: BriefingRoom): Promise<{ ok: true }> {
 export async function clearRoom(room: BriefingRoom): Promise<{ ok: true }> {
   const current = await readBriefingRoom(VENUE, room);
   await clearBriefingRoom(VENUE, room);
-  if (current?.sessionId) await clearSessionBriefed(current.sessionId);
+
+  // Put the heat back on the check-in board — but ONLY if no other room is still
+  // briefing it. On a Mega day a big group is legitimately split across both
+  // rooms, and clearing one of them used to un-brief the session outright, so the
+  // heat reappeared as "checking in" while half of it was still watching the film
+  // next door.
+  if (current?.sessionId) {
+    const rooms = await readBriefingRooms(VENUE).catch(() => ({ red: null, blue: null }));
+    const stillHeldElsewhere = BRIEFING_ROOMS.some(
+      (r) => r !== room && rooms[r]?.sessionId === current.sessionId,
+    );
+    if (!stillHeldElsewhere) await clearSessionBriefed(current.sessionId);
+  }
   return { ok: true };
 }
 
@@ -224,8 +191,6 @@ export interface BriefingRoomStatus {
   phase: BriefingPhase;
   /** ms until the next phase, for the board's progress readout. */
   nextInMs: number | null;
-  /** What the room's quals board will show when it gets there. */
-  quals: BriefingQualsBoard | null;
 }
 
 export interface BriefingBoardStatus {
@@ -251,19 +216,11 @@ export async function briefingBoardStatus(): Promise<BriefingBoardStatus> {
     loadSignageAssetsSafe(),
   ]);
 
-  const roomStatuses = await Promise.all(
-    BRIEFING_ROOMS.map(async (room): Promise<BriefingRoomStatus> => {
-      const state = rooms[room];
-      const timeline = briefingTimelineAt(state, now);
-      const quals = await resolveRoomQuals({
-        venue: VENUE,
-        businessDay,
-        room,
-        currentSessionId: state?.kind === "timeline" ? state.sessionId || null : null,
-      }).catch(() => null);
-      return { room, state, phase: timeline.phase, nextInMs: timeline.nextInMs, quals };
-    }),
-  );
+  const roomStatuses = BRIEFING_ROOMS.map((room): BriefingRoomStatus => {
+    const state = rooms[room];
+    const timeline = briefingTimelineAt(state, now);
+    return { room, state, phase: timeline.phase, nextInMs: timeline.nextInMs };
+  });
 
   const starter = assets["briefing-video:starter"] ?? null;
   const intermediate = assets["briefing-video:intermediate"] ?? null;

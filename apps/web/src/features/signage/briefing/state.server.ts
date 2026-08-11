@@ -15,7 +15,12 @@ import "server-only";
 import redis from "@/lib/redis";
 import { briefingStateTtlSeconds } from "./phase";
 import { parseBriefingRoomState } from "./state-parse";
-import { BRIEFING_ROOMS, type BriefingRoom, type BriefingRoomState } from "./types";
+import {
+  BRIEFING_ROOMS,
+  parseBriefingRoom,
+  type BriefingRoom,
+  type BriefingRoomState,
+} from "./types";
 
 function roomKey(venue: string, room: BriefingRoom): string {
   return `briefing:room:${venue}:${room}`;
@@ -102,22 +107,48 @@ function briefedKey(sessionId: string): string {
   return `briefing:sent:${sessionId}`;
 }
 
-export async function markSessionBriefed(sessionId: string): Promise<void> {
+/**
+ * Record that a session was sent, AND to which room.
+ *
+ * The room matters because the track check-in board announces it: "PROCEED TO THE
+ * RED BRIEFING ROOM" (owner 2026-08-11). On a Mega day both track boards read the
+ * same session, so both must name the SAME room — the one it actually went to —
+ * which is only possible if the room travels with the marker.
+ */
+export async function markSessionBriefed(sessionId: string, room: BriefingRoom): Promise<void> {
   if (!sessionId) return;
   try {
-    await redis.set(briefedKey(sessionId), String(Date.now()), "EX", BRIEFED_TTL_SECONDS);
+    await redis.set(
+      briefedKey(sessionId),
+      JSON.stringify({ at: Date.now(), room }),
+      "EX",
+      BRIEFED_TTL_SECONDS,
+    );
   } catch {
     /* the board keeps showing the heat — no worse than before this existed */
   }
 }
 
-/** When this session was sent to a room, or null. */
-export async function sessionBriefedAt(sessionId: string | null): Promise<number | null> {
+/** When this session was sent, and where. Null when it has not been. */
+export async function sessionBriefed(
+  sessionId: string | null,
+): Promise<{ atMs: number; room: BriefingRoom | null } | null> {
   if (!sessionId) return null;
   try {
     const raw = await redis.get(briefedKey(sessionId));
-    const n = raw ? Number(raw) : NaN;
-    return Number.isFinite(n) ? n : null;
+    if (!raw) return null;
+    // Older markers were a bare timestamp; read both shapes so a send made by the
+    // previous deploy still clears its board.
+    try {
+      const p = JSON.parse(raw) as { at?: number; room?: string };
+      if (typeof p.at === "number" && Number.isFinite(p.at)) {
+        return { atMs: p.at, room: parseBriefingRoom(p.room) };
+      }
+    } catch {
+      /* fall through to the bare-number form */
+    }
+    const n = Number(raw);
+    return Number.isFinite(n) ? { atMs: n, room: null } : null;
   } catch {
     return null;
   }

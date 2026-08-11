@@ -11,9 +11,21 @@
  * PERSIST AT CAPTURE (house rule, CLAUDE.md): the row is written BEFORE the Redis
  * display state, so a Redis blip loses a wall animation and never the history.
  *
- * IDS ARE TEXT. Pandora session ids are numeric today, but BMI's id space
- * exceeds Number.MAX_SAFE_INTEGER and this column is round-tripped through JSON;
- * storing it as TEXT means a 17-digit id can never silently round (house rule).
+ * IDS ARE TEXT. Pandora session ids are numeric today, but BMI's id space exceeds
+ * Number.MAX_SAFE_INTEGER and this column is round-tripped through JSON; storing it
+ * as TEXT means a 17-digit id can never silently round (house rule, CLAUDE.md).
+ *
+ * WHICH GROUP WENT TO WHICH ROOM — that is what a row here IS, and the owner asked
+ * for it to be kept ("we will use those in future"). A SESSION IS A GROUP: heat
+ * number, race type, track, room, which film, and when. That answers the question
+ * without naming anybody.
+ *
+ * NO ROSTER, deliberately. A per-racer list was added here and then removed the
+ * same day (owner 2026-08-11: "why do we need to keep track of the full group
+ * roster?") — nothing on a briefing screen uses it, so it was person-level data
+ * stored on the chance it might be wanted, which is the wrong default. If a future
+ * report genuinely needs the racers, the roster can be re-read from Pandora against
+ * `session_id`, which is the durable key this row already keeps.
  */
 import { sql, isDbConfigured } from "@ft/db";
 import type { BriefingRoom, BriefingTier } from "./types";
@@ -116,40 +128,4 @@ export async function listBriefingAssignments(
     LIMIT 200
   `) as Array<Record<string, unknown>>;
   return rows.map(toRow);
-}
-
-/**
- * The session this room briefed BEFORE the one it is briefing now — i.e. the
- * group that is out on track and about to come back.
- *
- * `excludeSessionId` is the session currently in the room. Passing it rather
- * than "second row" is deliberate: staff sometimes re-send the same session (a
- * straggler arrives, someone presses it twice), which would otherwise push the
- * genuinely-previous group out of reach. Skipping BY ID makes repeats harmless.
- *
- * Only ever looks at `mode = 'timeline'` rows: a quals-only send is a board
- * being shown, not a group being briefed, so it must not become the thing the
- * next group's board reports on.
- */
-export async function previousTimelineAssignment(
-  venue: string,
-  businessDay: string,
-  room: BriefingRoom,
-  excludeSessionId: string | null,
-): Promise<BriefingAssignment | null> {
-  if (!isDbConfigured()) return null;
-  await ensureSchema();
-  const q = sql();
-  const rows = (await q`
-    SELECT id, venue, business_day, room, track, session_id, heat_number, race_type, tier, mode, sent_at
-    FROM briefing_assignments
-    WHERE venue = ${venue}
-      AND business_day = ${businessDay}
-      AND room = ${room}
-      AND mode = 'timeline'
-      AND (${excludeSessionId}::text IS NULL OR session_id <> ${excludeSessionId})
-    ORDER BY sent_at DESC
-    LIMIT 1
-  `) as Array<Record<string, unknown>>;
-  return rows[0] ? toRow(rows[0]) : null;
 }

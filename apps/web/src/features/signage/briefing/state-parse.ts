@@ -23,7 +23,7 @@ import type { BriefingRoomState } from "./types";
 
 /** Every kind a stored state may carry. Keep in step with BriefingRoomState.kind —
  *  state-parse.test.ts iterates this, so a missing entry fails loudly. */
-export const BRIEFING_ROOM_KINDS = ["assigned", "timeline", "quals-only"] as const;
+export const BRIEFING_ROOM_KINDS = ["assigned", "timeline"] as const;
 
 function isKind(raw: unknown): raw is BriefingRoomState["kind"] {
   return typeof raw === "string" && (BRIEFING_ROOM_KINDS as readonly string[]).includes(raw);

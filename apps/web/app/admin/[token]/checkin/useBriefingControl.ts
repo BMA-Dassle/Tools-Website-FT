@@ -26,24 +26,16 @@ import { useCallback, useState } from "react";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import type {
   BriefingPhase,
-  BriefingQualifier,
   BriefingRoom,
   BriefingRoomState,
   BriefingTier,
 } from "~/features/signage/briefing/types";
-
-export interface QualsBoard {
-  heatNumber: number | null;
-  raceType: string | null;
-  qualifiers: BriefingQualifier[];
-}
 
 export interface RoomStatus {
   room: BriefingRoom;
   state: BriefingRoomState | null;
   phase: BriefingPhase;
   nextInMs: number | null;
-  quals: QualsBoard | null;
 }
 
 export interface Assignment {
@@ -95,7 +87,6 @@ export interface BriefingControl {
   }) => void;
   /** Phase two: roll the film. Also used for "play it again". */
   start: (room: BriefingRoom, opts?: { restart?: boolean }) => void;
-  showQuals: (room: BriefingRoom) => void;
   clearRoom: (room: BriefingRoom) => void;
 }
 
@@ -201,17 +192,6 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     [post],
   );
 
-  const showQuals = useCallback<BriefingControl["showQuals"]>(
-    (room) => {
-      void post(
-        { action: "show-quals", room },
-        `Levelled-up board sent to the ${room} room`,
-        `quals:${room}`,
-      );
-    },
-    [post],
-  );
-
   const clearRoom = useCallback<BriefingControl["clearRoom"]>(
     (room) => {
       void post({ action: "clear", room }, `${room} room cleared`, `clear:${room}`);
@@ -228,7 +208,6 @@ export function useBriefingControl(token: string, enabled: boolean): BriefingCon
     setTierOverride,
     send,
     start,
-    showQuals,
     clearRoom,
   };
 }

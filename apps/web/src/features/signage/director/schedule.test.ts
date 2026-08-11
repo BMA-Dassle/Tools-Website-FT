@@ -475,3 +475,107 @@ describe("resolveActiveScene precedence", () => {
     expect(d.isInterrupt).toBe(false);
   });
 });
+
+describe("recentScans — one entry per racer", () => {
+  const NOW = 1_760_000_000_000;
+  const scan = (personId: string, sessionId: string, agoMs: number, over = {}) => ({
+    id: `scan-${personId}-${sessionId}-${NOW - agoMs}`,
+    kind: "racer-scanned" as const,
+    center: "fort-myers",
+    firstName: `P${personId}`,
+    atMs: NOW - agoMs,
+    ...over,
+  });
+
+  it("shows a racer ONCE however many times they swipe", () => {
+    // The reported bug: someone scanned four times and landed on the board four
+    // times (owner 2026-08-11).
+    const events = [
+      scan("111", "60", 1_000),
+      scan("111", "60", 4_000),
+      scan("111", "60", 8_000),
+      scan("111", "60", 12_000),
+    ];
+    const out = recentScans(NOW, events, [], 90_000, 10);
+    expect(out).toHaveLength(1);
+  });
+
+  it("keeps the NEWEST swipe, which carries current state", () => {
+    const events = [
+      scan("111", "60", 9_000, { headsockDue: true }),
+      scan("111", "60", 1_000, { headsockDue: false }),
+    ];
+    const out = recentScans(NOW, events, [], 90_000, 10);
+    expect(out).toHaveLength(1);
+    expect(out[0].headsockDue).toBe(false);
+    expect(out[0].atMs).toBe(NOW - 1_000);
+  });
+
+  it("keeps different racers separate", () => {
+    const out = recentScans(
+      NOW,
+      [scan("111", "60", 1_000), scan("222", "60", 2_000), scan("333", "60", 3_000)],
+      [],
+      90_000,
+      10,
+    );
+    expect(out).toHaveLength(3);
+  });
+
+  it("treats the same racer in a LATER heat as a new entry", () => {
+    // Legitimately checking in again for their next race — not a duplicate.
+    const out = recentScans(
+      NOW,
+      [scan("111", "61", 1_000), scan("111", "60", 5_000)],
+      [],
+      90_000,
+      10,
+    );
+    expect(out).toHaveLength(2);
+  });
+
+  it("prefers the explicit racerKey over the id shape", () => {
+    const out = recentScans(
+      NOW,
+      [
+        { ...scan("111", "60", 1_000), id: "a", racerKey: "111:60" },
+        { ...scan("111", "60", 3_000), id: "b", racerKey: "111:60" },
+      ],
+      [],
+      90_000,
+      10,
+    );
+    expect(out).toHaveLength(1);
+  });
+
+  it("dedupes events published BEFORE racerKey existed, via the id", () => {
+    // The rail holds an hour, so the fix must work on events already on it —
+    // otherwise it appears to do nothing for the first hour after a deploy.
+    const out = recentScans(
+      NOW,
+      [scan("111", "60", 1_000), scan("111", "60", 6_000)],
+      [],
+      90_000,
+      10,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].racerKey).toBeUndefined();
+  });
+
+  it("leaves un-keyable events (simulated scans) alone", () => {
+    const sim = (i: number) => ({
+      id: `sim-${i}`,
+      kind: "racer-scanned" as const,
+      center: "fort-myers",
+      firstName: "Marcus",
+      atMs: NOW - i * 1_000,
+    });
+    expect(recentScans(NOW, [sim(1), sim(2), sim(3)], [], 90_000, 10)).toHaveLength(3);
+  });
+
+  it("still honours the limit and the window", () => {
+    const many = Array.from({ length: 12 }, (_, i) => scan(String(i), "60", i * 1_000));
+    expect(recentScans(NOW, many, [], 90_000, 6)).toHaveLength(6);
+    expect(recentScans(NOW, [scan("111", "60", 200_000)], [], 90_000, 10)).toHaveLength(0);
+  });
+});

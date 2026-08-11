@@ -269,15 +269,48 @@ export function recentScans(
   windowMs: number,
   limit: number,
 ): SignageEvent[] {
-  return events
+  const inWindow = events
     .filter((e) => {
       if (e.kind !== "racer-scanned") return false;
       const age = nowMs - e.atMs;
       if (age < -5_000 || age > windowMs) return false;
       return eventInScope(e, scopeResourceIds);
     })
-    .sort((a, b) => b.atMs - a.atMs)
-    .slice(0, limit);
+    .sort((a, b) => b.atMs - a.atMs);
+
+  // ONE ENTRY PER RACER. A racer who swipes four times landed on the board four
+  // times (owner 2026-08-11) — the board is a list of who is here, so a person
+  // appearing twice is simply wrong. Newest wins, because the latest swipe is the
+  // one carrying current state (a headsock handed over between swipes, say).
+  const seen = new Set<string>();
+  const deduped: SignageEvent[] = [];
+  for (const e of inWindow) {
+    const key = racerIdentity(e);
+    if (key) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    deduped.push(e);
+    if (deduped.length >= limit) break;
+  }
+  return deduped;
+}
+
+/**
+ * A stable per-racer key for a scan, or null when there is nothing to key on.
+ *
+ * Prefers the explicit `racerKey`. Falls back to parsing the event id, whose shape
+ * is `scan-{personId}-{sessionId}-{timestamp}` — needed because the rail holds an
+ * hour of events and the ones published before `racerKey` existed must dedupe too,
+ * rather than the fix appearing to do nothing for the first hour after a deploy.
+ *
+ * Null for anything else (simulated scans, hand-made events), which keeps those
+ * unique instead of collapsing every one of them into a single entry.
+ */
+function racerIdentity(e: SignageEvent): string | null {
+  if (e.racerKey) return e.racerKey;
+  const m = /^scan-([^-]+)-([^-]+)-/.exec(e.id);
+  return m ? `${m[1]}:${m[2]}` : null;
 }
 
 /* ── the decision ─────────────────────────────────────────────────────── */

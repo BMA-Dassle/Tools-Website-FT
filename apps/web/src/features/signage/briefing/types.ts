@@ -93,25 +93,22 @@ export interface BriefingAsset {
  * What a briefing room is doing right now. Written to Redis by one staff press,
  * read by the TV on its 2-second pulse.
  *
- * PII POSTURE: no names, no ids beyond the session number. The qualifier names
- * that eventually appear on the wall are resolved server-side on the FULL feed
- * (see quals.server.ts) and are first-name only, matching the event rail.
+ * PII POSTURE: no names, no ids beyond the session number. Nothing on this rail
+ * identifies a person.
  */
 export interface BriefingRoomState {
   /**
    * TWO PHASES, because the group has to walk there (owner 2026-08-11).
    *
-   *  - `assigned`   sent to the room, film NOT started. The room holds on a
-   *                 "Session 13 — take a seat" board while they walk over and sit
-   *                 down. Starting the film at send time meant a group missed the
-   *                 opening of a safety briefing.
-   *  - `timeline`   staff pressed Start: video → helmet → quals, all derived from
-   *                 `triggeredAtMs`.
-   *  - `quals-only` staff jumped straight to the qualification board (a group
-   *                 came back without a next briefing queued).
+   *  - `assigned`  sent to the room, film NOT started. The room holds on a
+   *                "Session 13 — take a seat" board while they walk over and sit
+   *                down. Starting the film at send time meant a group missed the
+   *                opening of a safety briefing.
+   *  - `timeline`  staff pressed Start: video → helmet sizes, derived from
+   *                `triggeredAtMs`. After that the room is free.
    */
-  kind: "assigned" | "timeline" | "quals-only";
-  /** Which video the timeline plays. Null for `quals-only`. */
+  kind: "assigned" | "timeline";
+  /** Which video the timeline plays. */
   tier: BriefingTier | null;
   /** Track the session belongs to — shown on the pre-video board. */
   track: "blue" | "red" | "mega";
@@ -147,33 +144,29 @@ export interface BriefingRoomState {
 }
 
 /** What the TV is showing, derived — never stored. */
-export type BriefingPhase = "waiting" | "video" | "helmet" | "quals" | "idle";
+/**
+ * `next` used to be a "who levelled up" board. That is PARKED (owner 2026-08-11:
+ * "for qualifying just hold on that, there might be a better way… instead of
+ * qualifying you could just show the inbound race to that room") — and the probe
+ * agreed: qualifying cutoffs exist per-track only, so nobody can qualify off a Mega
+ * lap, and Pandora's records API was 503-ing besides. The phase now shows the heat
+ * heading for this room, which always has data and is what the room wants to know.
+ */
+export type BriefingPhase = "waiting" | "video" | "helmet" | "idle";
 
 /**
- * One racer who levelled up in the session that just finished.
+ * The heat heading for this room next — what the third phase shows.
  *
- * FIRST NAME ONLY. This goes on a wall in a room full of strangers, and it
- * follows the same posture as the event rail (see SignageEvent): no surname, no
- * ids, nothing that identifies a person beyond the greeting.
+ * No names and no ids beyond the session number: a briefing room is full of
+ * strangers, and this is a "what is coming" board, not a roster.
  */
-export interface BriefingQualifier {
-  /** First name, already reduced server-side. */
-  firstName: string;
-  level: QualifyLevelName;
-  /** Their best lap, pre-formatted ("36.785"). The proof, and the brag. */
-  bestLap: string;
-}
-
-/** Mirrors QualifyLevel in ~/features/racing/qualify — the levels a racer can
- *  qualify INTO. Restated here so this contract file needs no import. */
-export type QualifyLevelName = "Intermediate" | "Pro";
-
-/** What the briefing boards show alongside the room state. */
-export interface BriefingQualsBoard {
-  /** The session these qualifiers came from. */
+export interface BriefingInbound {
   heatNumber: number | null;
   raceType: string | null;
-  qualifiers: BriefingQualifier[];
+  /** "Mega Track", "Red Track" — where the incoming group will race. */
+  trackLabel: string | null;
+  /** ISO check-in cut-off for that heat, when known. */
+  scheduledStart: string | null;
 }
 
 /** How long the helmet-sizing board holds after the video (owner: "about 30
@@ -190,10 +183,6 @@ export const HELMET_PHASE_MS = 30_000;
  * off mid-sentence.
  */
 export const NOMINAL_VIDEO_MS = 5 * 60_000;
-
-/** How long the qualification board holds before the room falls idle. Covers a
- *  normal between-heats gap without leaving last hour's names on a wall. */
-export const QUALS_PHASE_MS = 30 * 60_000;
 
 /**
  * How long a room holds an ASSIGNED session before giving up on it.

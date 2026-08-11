@@ -125,7 +125,21 @@ export async function cachedObjectUrl(url: string): Promise<string | null> {
     const hit = await cache.match(url);
     if (!hit) return null;
     const blob = await hit.blob();
-    return URL.createObjectURL(blob);
+    // RE-TYPE A VIDEO BLOB AS video/mp4 before handing it to <video>.
+    //
+    // A cached Response keeps the store's Content-Type, and an object URL inherits
+    // it from the Blob — so a film stored as `video/quicktime` stayed unplayable
+    // even from cache, because Chromium refuses that MIME type as media (owner
+    // 2026-08-11: a .mov briefing film played black). The bytes are H.264 in an ISO
+    // base-media container, which the MP4 demuxer reads happily once asked.
+    //
+    // Belt-and-braces with the upload-side contentType: this also rescues anything
+    // already sitting in a player's cache from before that fix.
+    const typed =
+      blob.type && blob.type !== "video/mp4" && blob.type.startsWith("video/")
+        ? new Blob([blob], { type: "video/mp4" })
+        : blob;
+    return URL.createObjectURL(typed);
   } catch {
     return null;
   }

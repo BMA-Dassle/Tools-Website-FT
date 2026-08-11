@@ -181,6 +181,7 @@ export function applyDemo(feed: TvFeed | null, mode: DemoMode, nowMs: number): T
         // Not yet sent to a briefing room, so the preview shows a live board
         // rather than a cleared one.
         briefedAtMs: null,
+        briefedRoom: null,
       },
     };
   }
@@ -239,15 +240,21 @@ export function demoBriefingRooms(
 ): Record<"red" | "blue", BriefingRoomState | null> {
   const video = feed?.briefing?.videos.starter ?? null;
   const state: BriefingRoomState = {
-    kind: mode === "briefing-quals" ? "quals-only" : "timeline",
+    // `briefing-quals` previews the third phase; it is now the NEXT-RACE board,
+    // so both previews run the same timeline and differ only in where they start.
+    kind: "timeline",
     tier: "starter",
     track: "red",
     raceType: "Starter",
     sessionId: "demo-60",
     heatNumber: 60,
-    // Stamped a beat ago so the timeline starts at the top of its first phase
-    // and can be watched running, rather than opening mid-way through.
-    triggeredAtMs: nowMs - 1_000,
+    // `briefing` starts at the top so the film can be watched running;
+    // `briefing-quals` jumps to the third phase, which is the half staff most want
+    // to check and would otherwise sit through a five-minute film to reach.
+    triggeredAtMs:
+      mode === "briefing-quals"
+        ? nowMs - ((video?.durationMs ?? 5 * 60_000) + 31_000)
+        : nowMs - 1_000,
     videoUrl: video?.url ?? null,
     videoDurationMs: video?.durationMs ?? null,
   };
@@ -256,21 +263,18 @@ export function demoBriefingRooms(
   return { red: state, blue: state };
 }
 
-/** Fabricated qualifiers, so the levelled-up board has names to lay out. */
+/** Fabricated assets + an inbound heat, so the third phase has something to lay
+ *  out in a preview. */
 function demoBriefingSection(feed: TvFeed): TvFeed["briefing"] {
   const real = feed.briefing;
   return {
     videos: real?.videos ?? { starter: null, intermediate: null },
     helmetPosterUrl: real?.helmetPosterUrl ?? null,
-    quals: {
-      heatNumber: 59,
-      raceType: "Starter",
-      qualifiers: [
-        { firstName: "Marcus", level: "Pro", bestLap: "32.104" },
-        { firstName: "Ava", level: "Intermediate", bestLap: "39.882" },
-        { firstName: "Kenyon", level: "Intermediate", bestLap: "40.451" },
-        { firstName: "Sofia", level: "Intermediate", bestLap: "40.933" },
-      ],
+    inbound: {
+      heatNumber: 61,
+      raceType: "Intermediate",
+      trackLabel: "Red Track",
+      scheduledStart: null,
     },
   };
 }

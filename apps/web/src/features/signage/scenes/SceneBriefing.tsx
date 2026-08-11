@@ -27,7 +27,7 @@ import { withAlpha } from "../color";
 import { nextLevelTarget } from "~/features/racing/qualify";
 import { TRACK_ACCENTS, TRACK_LABELS } from "../track";
 import { briefingTimelineAt } from "../briefing/phase";
-import { tierForRaceType, type BriefingQualifier, type BriefingRoom } from "../briefing/types";
+import { tierForRaceType, type BriefingInbound, type BriefingRoom } from "../briefing/types";
 import { useBriefingAssets } from "../briefing/useBriefingAssets";
 import { demoBriefingRooms } from "../demo";
 import type { SceneProps } from "../director/types";
@@ -49,6 +49,24 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
   const room = config.briefingRoom;
   const assets = useBriefingAssets(feed?.briefing ?? null, !!room);
 
+  /**
+   * A ROOM MUST NEVER GO BLACK.
+   *
+   * If the film cannot be decoded here — an HEVC or ProRes master this player has no
+   * decoder for — Edge paints a black rectangle and holds it (owner 2026-08-11: "in
+   * blue I'm getting briefing starting then it blacks out… that's a .mov"). Black is
+   * the worst possible output: a room full of people, staff assuming the briefing is
+   * running, and nothing on the wall to say otherwise. On failure the scene hands the
+   * wall back to the helmet board, which is at least useful.
+   *
+   * Keyed by src so a re-upload of a working film clears the failure with no reload,
+   * and so one bad file cannot poison the other tier.
+   *
+   * DECLARED HERE, above the `!room` early return below — a hook behind a conditional
+   * return is a rules-of-hooks crash, not a lint nit.
+   */
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+
   // A screen configured as a briefing TV with no room chosen cannot know which
   // of the two states is addressed to it. Say so, quietly, rather than adopting
   // a room at random — this is a setup mistake and a staff member needs to see
@@ -65,7 +83,9 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
 
   const tier = state?.tier ?? tierForRaceType(null);
   const videoSrc = assets.srcFor(tier);
-  const quals = feed?.briefing?.quals ?? null;
+  const videoUnplayable = !!videoSrc && failedSrc === videoSrc;
+
+  const inbound = feed?.briefing?.inbound ?? null;
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#000418" }}>
@@ -79,13 +99,14 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
           trackLabel={state?.track ? TRACK_LABELS[state.track] : null}
           target={state?.track ? nextLevelTarget(state.track, state.raceType) : null}
         />
-      ) : timeline.phase === "video" && videoSrc ? (
+      ) : timeline.phase === "video" && videoSrc && !videoUnplayable ? (
         <BriefingVideo
           // Keyed on the send, so a NEW briefing remounts the element and starts
           // its own playback — and a re-render inside one briefing does not.
           key={`${state?.sessionId ?? "none"}:${state?.triggeredAtMs ?? 0}`}
           src={videoSrc}
           seekToMs={timeline.videoOffsetMs}
+          onUnplayable={() => setFailedSrc(videoSrc)}
         />
       ) : (
         <Board
@@ -93,8 +114,11 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
           room={room}
           phase={timeline.phase === "video" ? "helmet" : timeline.phase}
           posterSrc={assets.posterSrc}
-          quals={quals}
+          inbound={inbound}
           heatNumber={state?.heatNumber ?? null}
+          // The lap THIS room's group has to beat. They sit through the helmet and
+          // next-race boards, which is when there is actually time to read it.
+          target={state?.track ? nextLevelTarget(state.track, state.raceType) : null}
         />
       )}
     </div>
@@ -112,9 +136,17 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
  * audience is watching content, so a mid-video seek would be a visible stutter
  * for no benefit. The seek exists purely so a reboot rejoins in the right place.
  */
-function BriefingVideo({ src, seekToMs }: { src: string; seekToMs: number }) {
+function BriefingVideo({
+  src,
+  seekToMs,
+  onUnplayable,
+}: {
+  src: string;
+  seekToMs: number;
+  /** This player cannot decode the file — hand the wall back to the scene. */
+  onUnplayable: () => void;
+}) {
   const ref = useRef<HTMLVideoElement | null>(null);
-  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
@@ -139,22 +171,26 @@ function BriefingVideo({ src, seekToMs }: { src: string; seekToMs: number }) {
           el.muted = true;
           await el.play();
         } catch {
-          setFailed(true);
+          onUnplayable();
         }
       }
     };
     void play();
-  }, [seekToMs, src]);
 
-  if (failed) {
-    return (
-      <Centered>
-        <span className="tv-display" style={{ fontSize: 92, color: "#fff" }}>
-          Briefing starting…
-        </span>
-      </Centered>
-    );
-  }
+    // DECODING, not merely loading. A container Edge can parse but not decode
+    // reports metadata happily and then paints black forever, so the real test is
+    // whether a frame ever arrives: videoWidth stays 0 and readyState never reaches
+    // HAVE_CURRENT_DATA. Checked shortly after play rather than on an error event,
+    // because this failure mode raises no error at all.
+    const decodeCheck = setTimeout(() => {
+      const v = ref.current;
+      if (!v) return;
+      const noPicture = !v.videoWidth || !v.videoHeight;
+      const noFrame = v.readyState < 2; // HAVE_CURRENT_DATA
+      if (noPicture || noFrame) onUnplayable();
+    }, 6_000);
+    return () => clearTimeout(decodeCheck);
+  }, [seekToMs, src, onUnplayable]);
 
   return (
     /* CAPTIONS: no caption file exists for the briefing films yet. Worth having —
@@ -170,7 +206,7 @@ function BriefingVideo({ src, seekToMs }: { src: string; seekToMs: number }) {
       playsInline
       // NOT muted, NOT looping. It is a briefing: it is heard once, and it ends.
       controls={false}
-      onError={() => setFailed(true)}
+      onError={onUnplayable}
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
     />
   );
@@ -183,24 +219,23 @@ function Board({
   room,
   phase,
   posterSrc,
-  quals,
+  inbound,
   heatNumber,
+  target,
 }: {
   accent: string;
   room: BriefingRoom;
-  phase: "helmet" | "quals" | "idle";
+  phase: "helmet" | "idle";
   posterSrc: string | null;
-  quals: {
-    heatNumber: number | null;
-    raceType: string | null;
-    qualifiers: BriefingQualifier[];
-  } | null;
+  inbound: BriefingInbound | null;
   heatNumber: number | null;
+  target: { level: string; ms: number } | null;
 }) {
-  // The qualification board only earns the wall when it has names. Reaching the
-  // quals phase with nobody to congratulate falls back to helmet sizing, which is
-  // always useful — never an empty "no qualifiers" panel in front of a group.
-  const showQuals = phase === "quals" && (quals?.qualifiers.length ?? 0) > 0;
+  // A FREE ROOM SHOWS WHAT IS COMING. Idle is the resting state: helmets are done,
+  // the group has gone racing, and the useful thing on the wall is the next heat
+  // inbound. Nothing inbound falls back to helmet sizing, which is always useful —
+  // never an empty panel.
+  const showNext = phase === "idle" && !!inbound && inbound.heatNumber != null;
 
   return (
     <div style={{ position: "absolute", inset: 0, overflow: "hidden" }}>
@@ -226,14 +261,15 @@ function Board({
         }}
       />
 
-      {showQuals ? (
-        <QualsBoard accent={accent} room={room} quals={quals!} />
+      {showNext ? (
+        <NextRaceBoard accent={accent} room={room} inbound={inbound!} target={target} />
       ) : (
         <HelmetBoard
           accent={accent}
           room={room}
           posterSrc={posterSrc}
           heatNumber={phase === "helmet" ? heatNumber : null}
+          target={phase === "helmet" ? target : null}
         />
       )}
     </div>
@@ -252,11 +288,13 @@ function HelmetBoard({
   room,
   posterSrc,
   heatNumber,
+  target,
 }: {
   accent: string;
   room: BriefingRoom;
   posterSrc: string | null;
   heatNumber: number | null;
+  target: { level: string; ms: number } | null;
 }) {
   if (posterSrc) {
     return (
@@ -277,24 +315,35 @@ function HelmetBoard({
             background: "#000418",
           }}
         />
-        {heatNumber != null && (
-          <div
-            className="tv-display"
-            style={{
-              position: "absolute",
-              left: PAD_X,
-              bottom: PAD_Y,
-              fontSize: 44,
-              color: "#fff",
-              padding: "10px 28px",
-              borderRadius: 999,
-              background: withAlpha(accent, 0.55),
-              zIndex: 3,
-            }}
-          >
-            Session {heatNumber} · grab your helmet
-          </div>
-        )}
+        <div
+          style={{
+            position: "absolute",
+            left: PAD_X,
+            bottom: PAD_Y,
+            display: "flex",
+            alignItems: "center",
+            gap: 20,
+            flexWrap: "wrap",
+            maxWidth: 1700,
+            zIndex: 3,
+          }}
+        >
+          {heatNumber != null && (
+            <div
+              className="tv-display"
+              style={{
+                fontSize: 44,
+                color: "#fff",
+                padding: "10px 28px",
+                borderRadius: 999,
+                background: withAlpha(accent, 0.55),
+              }}
+            >
+              Session {heatNumber} · grab your helmet
+            </div>
+          )}
+          {target && <QualifyTarget accent={accent} target={target} compact />}
+        </div>
       </>
     );
   }
@@ -320,6 +369,8 @@ function HelmetBoard({
         Find your size on the rack, then take a seat. Staff will fit you before you head out to the
         karts.
       </p>
+      {target && <QualifyTarget accent={accent} target={target} />}
+
       <div
         aria-hidden
         style={{
@@ -334,26 +385,29 @@ function HelmetBoard({
 }
 
 /**
- * Who levelled up in the session that just finished.
+ * WHAT IS COMING TO THIS ROOM NEXT — the third phase.
  *
- * The reason this board exists: a racer's level-up text arrives on their phone,
- * which is in a locker. Putting it on the wall of the room they walk back into
- * means the group sees it together — and the room they walk back into is the room
- * they briefed in, which is exactly why the send is recorded.
+ * This slot used to be a "who levelled up" board. That is PARKED (owner
+ * 2026-08-11: "for qualifying just hold on that, there might be a better way…
+ * instead of qualifying you could just show the inbound race to that room"), and
+ * the probe backed the decision up: qualifying cutoffs exist per-track only, so
+ * nobody can qualify off a Mega lap, and Pandora's records API was 503-ing.
+ *
+ * The inbound heat always has data, comes from the same warmed keys the track
+ * boards read, and is what a room actually wants to know once the film has ended —
+ * a group waiting to be called can see how close they are.
  */
-function QualsBoard({
+function NextRaceBoard({
   accent,
   room,
-  quals,
+  inbound,
+  target,
 }: {
   accent: string;
   room: BriefingRoom;
-  quals: { heatNumber: number | null; raceType: string | null; qualifiers: BriefingQualifier[] };
+  inbound: BriefingInbound;
+  target: { level: string; ms: number } | null;
 }) {
-  const names = quals.qualifiers;
-  // Sized so a full grid still reads from the back of the room.
-  const nameSize = names.length > 8 ? 62 : names.length > 4 ? 78 : 96;
-
   return (
     <div
       style={{
@@ -361,64 +415,39 @@ function QualsBoard({
         inset: `${PAD_Y}px ${PAD_X}px`,
         display: "flex",
         flexDirection: "column",
-        gap: 26,
+        gap: 24,
+        justifyContent: "center",
       }}
     >
-      <header style={{ display: "flex", alignItems: "baseline", gap: 24 }}>
-        <span className="tv-eyebrow" style={{ color: accent, fontSize: 38 }}>
-          {ROOM_LABEL[room]}
-        </span>
-        {quals.heatNumber != null && (
-          <span style={{ fontSize: 34, color: "rgba(245,236,238,0.6)" }}>
-            Session {quals.heatNumber}
-            {quals.raceType ? ` · ${quals.raceType}` : ""}
-          </span>
-        )}
-      </header>
+      <span className="tv-eyebrow" style={{ color: accent, fontSize: 40 }}>
+        {ROOM_LABEL[room]} · next up
+      </span>
 
       <div
         className="tv-display tv-rise"
-        style={{ fontSize: 118, color: "#fff", lineHeight: 0.95 }}
+        style={{ fontSize: 176, color: "#fff", lineHeight: 0.92 }}
       >
-        Levelled up
+        Session {inbound.heatNumber}
       </div>
 
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexWrap: "wrap",
-          alignContent: "flex-start",
-          gap: 18,
-        }}
-      >
-        {names.map((q, i) => (
-          <span
-            key={`${q.firstName}-${i}`}
-            className="tv-display tv-rise"
-            style={{
-              fontSize: nameSize,
-              color: "#fff",
-              padding: "12px 34px",
-              borderRadius: 999,
-              border: `2px solid ${withAlpha(accent, 0.6)}`,
-              background: withAlpha(accent, 0.2),
-              whiteSpace: "nowrap",
-              display: "inline-flex",
-              alignItems: "baseline",
-              gap: 18,
-            }}
-          >
-            {q.firstName}
-            <span className="tv-num" style={{ fontSize: nameSize * 0.42, color: accent }}>
-              {q.level} · {q.bestLap}s
-            </span>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 28, flexWrap: "wrap" }}>
+        {inbound.raceType && (
+          <span className="tv-display" style={{ fontSize: 78, color: accent }}>
+            {inbound.raceType}
           </span>
-        ))}
+        )}
+        {inbound.trackLabel && (
+          <span style={{ fontSize: 52, color: "rgba(245,236,238,0.7)" }}>{inbound.trackLabel}</span>
+        )}
       </div>
 
-      <p style={{ fontSize: 40, color: "rgba(245,236,238,0.6)", margin: 0 }}>
-        See the desk to book your next race at the new level.
+      {/* WHERE THE RESULTS ARE (owner 2026-08-11). A group leaving the briefing
+          asks this immediately, and the answer is a walk, not a screen — so the
+          board says it rather than leaving them to find a staff member. */}
+      {target && <QualifyTarget accent={accent} target={target} />}
+
+      <p style={{ fontSize: 44, color: "rgba(245,236,238,0.72)", margin: 0, maxWidth: 1500 }}>
+        Race results are posted outside Red Track.
       </p>
     </div>
   );
@@ -501,32 +530,53 @@ function TakeASeat({
           Take a seat — your briefing starts in a moment.
         </p>
 
-        {/* The lap to beat, before they drive it rather than after. Same constants
-            the level-up decision uses, so the target on the wall and the text
-            they get afterwards cannot disagree. */}
-        {target && (
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "baseline",
-              gap: 20,
-              alignSelf: "flex-start",
-              padding: "18px 34px",
-              borderRadius: 18,
-              border: `3px solid ${withAlpha(accent, 0.75)}`,
-              background: withAlpha(accent, 0.16),
-            }}
-          >
-            <span style={{ fontSize: 34, color: "rgba(245,236,238,0.78)" }}>Beat</span>
-            <span className="tv-display tv-num" style={{ fontSize: 92, color: "#fff" }}>
-              {(target.ms / 1000).toFixed(3)}
-            </span>
-            <span style={{ fontSize: 34, color: "rgba(245,236,238,0.78)" }}>
-              to qualify {target.level}
-            </span>
-          </div>
-        )}
+        {target && <QualifyTarget accent={accent} target={target} />}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The lap to beat for the next level — one component, every board that shows it.
+ *
+ * It appears on three now (before the film, during helmet sizing, and on the
+ * next-race board) because those are the phases a group is SITTING there with time
+ * to read it (owner 2026-08-11: "we're also listing the qualification times so that
+ * they know what they need to level up"). Extracted rather than repeated: a target
+ * worded three slightly different ways would be three chances to disagree with
+ * itself. The number comes from the same constants the level-up decision uses, so
+ * what a racer is told to beat is the line they are judged against.
+ */
+function QualifyTarget({
+  accent,
+  target,
+  compact,
+}: {
+  accent: string;
+  target: { level: string; ms: number };
+  /** Pill form, for sitting alongside other chrome rather than owning a row. */
+  compact?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "baseline",
+        gap: compact ? 14 : 20,
+        alignSelf: "flex-start",
+        padding: compact ? "10px 22px" : "18px 34px",
+        borderRadius: compact ? 999 : 18,
+        border: `3px solid ${withAlpha(accent, 0.75)}`,
+        background: withAlpha(accent, 0.16),
+      }}
+    >
+      <span style={{ fontSize: compact ? 26 : 34, color: "rgba(245,236,238,0.78)" }}>Beat</span>
+      <span className="tv-display tv-num" style={{ fontSize: compact ? 44 : 92, color: "#fff" }}>
+        {(target.ms / 1000).toFixed(3)}
+      </span>
+      <span style={{ fontSize: compact ? 26 : 34, color: "rgba(245,236,238,0.78)" }}>
+        to qualify {target.level}
+      </span>
     </div>
   );
 }

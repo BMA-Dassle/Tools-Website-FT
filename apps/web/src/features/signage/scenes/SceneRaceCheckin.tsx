@@ -75,6 +75,15 @@ const JUST_CALLED_MS = 45_000;
  */
 const SCAN_ORPHAN_MS = 10 * 60_000;
 
+/**
+ * How long the board announces which briefing room to walk to, after a send.
+ *
+ * A minute: long enough for a group that has just been told verbally to look up and
+ * confirm it, short enough that the board is free for the next heat. After it the
+ * board goes idle — the group has left the desk, so there is nothing to show.
+ */
+const PROCEED_SHOW_MS = 60_000;
+
 /** Where the records QR points. The public best-times board, which already
  *  carries the per-track records matrix. */
 const recordsUrl =
@@ -138,7 +147,23 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
   //
   // Undoing a send removes the marker, so a mis-send puts the heat straight back.
   const calledAtMs = rawRace?.calledAt ? Date.parse(rawRace.calledAt) : NaN;
-  const sessionExpired = (feed?.raceCheckin?.briefedAtMs ?? null) !== null;
+
+  // THE HANDOVER. A send does two things to this board, in order: it announces
+  // where the group is going, and then it lets go of the heat (owner 2026-08-11 —
+  // "when we hit send a room I would like the track check-in TV to let them know
+  // to proceed"). Announcing and clearing are the same event a minute apart, not
+  // two decisions.
+  //
+  // MEGA vs ORDINARY falls out of the data rather than needing a mode: on a Mega
+  // day both track boards read the one combined session, so both announce, and both
+  // name the room it actually went to. On an ordinary day a board only ever sees its
+  // own track's session, so only the board for that track reacts at all.
+  const briefedAtMs = feed?.raceCheckin?.briefedAtMs ?? null;
+  const briefedRoom = feed?.raceCheckin?.briefedRoom ?? null;
+  const briefedAgoMs = briefedAtMs != null ? nowMs - briefedAtMs : null;
+  const announcing =
+    briefedAgoMs != null && briefedAgoMs >= -5_000 && briefedAgoMs < PROCEED_SHOW_MS;
+  const sessionExpired = briefedAtMs !== null;
   const race = sessionExpired ? null : rawRace;
   const scanFloorMs = sessionExpired
     ? Number.POSITIVE_INFINITY
@@ -181,7 +206,8 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
   // duplicate of the wall next to it. The flash goes with the rail: no rail,
   // nothing for the flash to announce.
   const railSuppressed = track === "mega" && config.megaRole === "session";
-  const busy = !railSuppressed && scans.length > 0 && nowMs - scans[0].atMs < STANDBY_AFTER_MS;
+  const busy =
+    !announcing && !railSuppressed && scans.length > 0 && nowMs - scans[0].atMs < STANDBY_AFTER_MS;
 
   // MEGA SPLIT (owner 2026-08-11). On a Mega day both boards read the same
   // single session, so a pair showing identical content wastes a screen. A
@@ -333,7 +359,9 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
           </div>
         </header>
 
-        {race ? (
+        {announcing ? (
+          <ProceedToBriefing room={briefedRoom} accent={accent} />
+        ) : race ? (
           <CheckingIn
             race={race}
             accent={accent}
@@ -475,6 +503,75 @@ function CheckingIn({
           Have your e-ticket ready
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * "PROCEED TO THE RED BRIEFING ROOM" — the whole wall, for a minute after a send.
+ *
+ * This is the one moment the board is giving an instruction rather than reporting
+ * state, so it takes the screen: a group standing at the desk has just been told
+ * where to go verbally, and this is what they look up and confirm against. The
+ * room's own colour carries it, so "red" and "blue" are unmistakable across a room
+ * even to somebody who has not read a word.
+ */
+function ProceedToBriefing({ room, accent }: { room: "red" | "blue" | null; accent: string }) {
+  // A room we could not resolve still gets an instruction — "see the desk" is
+  // useless, but "your briefing room" at least moves them off the check-in point.
+  const roomAccent = room ? TRACK_ACCENTS[room] : accent;
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        gap: 26,
+      }}
+    >
+      <div
+        aria-hidden
+        className="tv-breathe"
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: `radial-gradient(80% 70% at 50% 50%, ${withAlpha(roomAccent, 0.5)}, transparent 74%)`,
+          zIndex: 0,
+          pointerEvents: "none",
+        }}
+      />
+      <div style={{ position: "relative", zIndex: 1, display: "grid", gap: 22 }}>
+        <span className="tv-eyebrow tv-blink" style={{ color: "#fff", fontSize: 46 }}>
+          You&rsquo;re checked in
+        </span>
+        <div
+          className="tv-display tv-rise"
+          style={{ fontSize: 104, color: "#fff", lineHeight: 0.98 }}
+        >
+          Proceed to the
+        </div>
+        {room ? (
+          <div
+            className="tv-display tv-rise"
+            style={{
+              fontSize: 176,
+              lineHeight: 0.92,
+              color: roomAccent,
+              textShadow: `0 0 70px ${withAlpha(roomAccent, 0.75)}`,
+            }}
+          >
+            {room.toUpperCase()} ROOM
+          </div>
+        ) : (
+          <div className="tv-display tv-rise" style={{ fontSize: 140, color: "#fff" }}>
+            briefing room
+          </div>
+        )}
+        <p style={{ fontSize: 46, color: "rgba(245,236,238,0.72)", margin: 0 }}>
+          Your safety briefing starts shortly — take a seat.
+        </p>
+      </div>
     </div>
   );
 }
