@@ -82,6 +82,19 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({
   const selected = new Set((item.povMemberIds ?? []).filter((id) => eligibleIds.has(id)));
   const qty = item.povQuantity;
 
+  // WEB all-new party → plain capped QTY stepper, not the name chips (owner
+  // 2026-08-10: web new racers are placeholder names — "Adult 1/2/3" chips
+  // mean nothing). Kiosk always collects real names; web returning racers
+  // have looked-up names — both keep the picker.
+  const qtyMode = !kiosk && eligible.length > 0 && eligible.every((m) => m.isNewRacer);
+  const offerCount = Math.max(1, eligible.length);
+  const atMax = qty >= offerCount;
+  const setQty = (next: number) => {
+    // qty mode carries no attribution — clear any stale povMemberIds so the
+    // chip back-fill below can't fight the stepper if the party later changes.
+    onChange({ povQuantity: Math.min(offerCount, Math.max(0, next)), povMemberIds: undefined });
+  };
+
   const togglePov = (memberId: string) => {
     const next = new Set(selected);
     if (next.has(memberId)) next.delete(memberId);
@@ -91,40 +104,84 @@ const RacePovStepComponent: StepDef<RaceItem>["Component"] = ({
     onChange({ povMemberIds, povQuantity: povMemberIds.length });
   };
 
-  // Back-fill/normalize once on mount: a session persisted before povMemberIds
-  // existed (or whose party/packages changed) can hold a qty with no/stale
-  // attribution — assign the first N uncovered racers so the chips, the qty,
-  // and the charge agree. Settles in one pass (after it, qty === selection
-  // length), so onChange in the deps can't loop.
+  // Back-fill/normalize once on mount (CHIP mode only — the stepper owns qty
+  // directly): a session persisted before povMemberIds existed (or whose
+  // party/packages changed) can hold a qty with no/stale attribution — assign
+  // the first N uncovered racers so the chips, the qty, and the charge agree.
+  // Settles in one pass (after it, qty === selection length), so onChange in
+  // the deps can't loop. Qty mode just clamps a stale over-cap quantity.
   useEffect(() => {
     if (!showPov) return;
+    if (qtyMode) {
+      if (qty > offerCount) onChange({ povQuantity: offerCount, povMemberIds: undefined });
+      return;
+    }
     if (qty === selected.size) return;
     const povMemberIds = eligible.slice(0, Math.min(qty, eligible.length)).map((m) => m.id);
     onChange({ povMemberIds, povQuantity: povMemberIds.length });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showPov, qty, selected.size]);
+  }, [showPov, qtyMode, qty, offerCount, selected.size]);
 
   // Shared picker block — identical on both layouts (and shaped exactly like
-  // the AddonCard body) so the two cards read as one system.
+  // the AddonCard body) so the two cards read as one system. Web all-new
+  // parties swap the chips for the capped stepper (qtyMode above); the
+  // "added" state (povQuantity) reads the same either way.
+  const addedCount = qtyMode ? qty : selected.size;
   const picker = (
     <div className="space-y-2">
-      <p className="text-xs font-bold tracking-widest text-white/40 uppercase">
-        {t("pov.pickerLabel")}
-      </p>
-      <NameChipPicker members={eligible} selected={selected} onToggle={togglePov} />
-      {selected.size > 0 ? (
+      {qtyMode ? (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setQty(qty - 1)}
+              disabled={qty === 0}
+              aria-label={t("pov.decrementAria")}
+              className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/20 text-lg text-white/50 transition-colors hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:border-white/20 disabled:hover:text-white/50"
+            >
+              -
+            </button>
+            <span className="w-6 text-center text-base font-bold text-white">{qty}</span>
+            <button
+              type="button"
+              onClick={() => setQty(qty + 1)}
+              disabled={atMax}
+              aria-label={t("pov.incrementAria")}
+              className="flex h-10 w-10 items-center justify-center rounded-lg border border-[#00E2E5]/40 bg-[#00E2E5]/10 text-lg text-[#00E2E5] transition-colors hover:bg-[#00E2E5]/20 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-[#00E2E5]/10"
+            >
+              +
+            </button>
+            <span className="text-xs text-white/30">{t("pov.cameraCount", { count: qty })}</span>
+          </div>
+          {qty > 0 && (
+            <span className="text-lg font-bold text-[#00E2E5]">
+              ${(POV_PRICE * qty).toFixed(2)}
+            </span>
+          )}
+        </div>
+      ) : (
+        <>
+          <p className="text-xs font-bold tracking-widest text-white/40 uppercase">
+            {t("pov.pickerLabel")}
+          </p>
+          <NameChipPicker members={eligible} selected={selected} onToggle={togglePov} />
+        </>
+      )}
+      {qtyMode && atMax ? (
+        <p className="text-xs text-white/30">{t("pov.maxHint", { count: offerCount })}</p>
+      ) : addedCount > 0 && !qtyMode ? (
         <div className="flex items-center justify-between pt-1">
           <span className="text-xs text-white/30">{t("pov.perRacerHint")}</span>
           <span className="text-lg font-bold text-[#00E2E5]">
-            ${(POV_PRICE * selected.size).toFixed(2)}
+            ${(POV_PRICE * addedCount).toFixed(2)}
           </span>
         </div>
-      ) : (
+      ) : !qtyMode ? (
         <p className="text-xs text-white/30">{t("pov.perRacerHint")}</p>
-      )}
+      ) : null}
       {/* Explicit decline — advances without adding, so the guest never has
           to work out that the footer button won't add the camera. */}
-      {selected.size === 0 && requestAdvance && (
+      {addedCount === 0 && requestAdvance && (
         <button
           type="button"
           onClick={requestAdvance}
