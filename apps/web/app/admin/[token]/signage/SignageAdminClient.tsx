@@ -19,7 +19,12 @@ import {
   TEST_SCREEN_NUMBER,
   type SignageVenue,
 } from "~/features/signage/constants";
-import { ROLE_PRESETS, rolePreset, type ScreenRole } from "~/features/signage/defaults";
+import {
+  ROLE_PRESETS,
+  rolePreset,
+  resolveScreenConfig,
+  type ScreenRole,
+} from "~/features/signage/defaults";
 import { startupInstructions, startupScriptFileName } from "~/features/signage/startup-script";
 import type { ScreenConfig, SignageScreen } from "~/features/signage/types";
 
@@ -257,6 +262,17 @@ function ScreenRow({
 }) {
   const [showSetup, setShowSetup] = useState(false);
   const [showTests, setShowTests] = useState(false);
+
+  // Only offer tests this screen can actually act on. Pressing "Preview
+  // welcome" on a board whose playlist is race-checkin only did nothing at all
+  // — the welcome board is a rotation scene, so a screen that does not list it
+  // can never show it — and a button that silently does nothing reads as a
+  // broken feature (owner 2026-08-11).
+  const resolved = resolveScreenConfig(screen.config, screen.venue as SignageVenue);
+  const canRaceCheckin = resolved.playlist.some((p) => p.scene === "race-checkin");
+  const canWelcome = resolved.playlist.some((p) => p.scene === "event-welcome");
+  const canVip = resolved.vip.enabled;
+  const canCelebrate = resolved.celebration.enabled;
   const online = lastSeen ? nowMs - Date.parse(lastSeen) < 60_000 : false;
   const scopedTrack = screen.config.scope?.resourceIds?.[0];
   const trackName =
@@ -362,63 +378,77 @@ function ScreenRow({
             seconds.
           </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button type="button" onClick={onTest} style={btn} disabled={busy}>
-              Fire test celebration
-            </button>
-            <button
-              type="button"
-              onClick={() => onSimulateScan(trackName, {})}
-              style={btn}
-              disabled={busy}
-              title="Publishes a racer-scanned event on the real rail"
-            >
-              Simulate scan
-            </button>
-            <button
-              type="button"
-              onClick={() => onSimulateScan(trackName, { birthday: true })}
-              style={{ ...btn, borderColor: "#ec4899", color: "#ec4899" }}
-              disabled={busy}
-              title="Fires the full birthday takeover on BOTH karting boards"
-            >
-              Simulate birthday
-            </button>
-            <button
-              type="button"
-              onClick={() => onSimulate("simulate-wrong-race", { track: trackName })}
-              style={{ ...btn, borderColor: "#f0b341", color: "#f0b341" }}
-              disabled={busy}
-              title="Somebody scanned for a heat that is not the one checking in"
-            >
-              Simulate wrong race
-            </button>
-            <button
-              type="button"
-              onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "race" })}
-              style={btn}
-              disabled={busy}
-              title="Show a live-looking session ON THIS SCREEN for 90 seconds"
-            >
-              Preview session
-            </button>
-            <button
-              type="button"
-              onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "vip" })}
-              style={{ ...btn, borderColor: "#d4af37", color: "#d4af37" }}
-              disabled={busy}
-              title="Show the VIP takeover on this screen"
-            >
-              Preview VIP
-            </button>
-            <button
-              type="button"
-              onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "event" })}
-              style={btn}
-              disabled={busy}
-              title="Show the party welcome board on this screen"
-            >
-              Preview welcome
-            </button>
+            {canCelebrate && (
+              <button type="button" onClick={onTest} style={btn} disabled={busy}>
+                Fire test celebration
+              </button>
+            )}
+            {canRaceCheckin && (
+              <button
+                type="button"
+                onClick={() => onSimulateScan(trackName, {})}
+                style={btn}
+                disabled={busy}
+                title="Publishes a racer-scanned event on the real rail"
+              >
+                Simulate scan
+              </button>
+            )}
+            {canRaceCheckin && (
+              <button
+                type="button"
+                onClick={() => onSimulateScan(trackName, { birthday: true })}
+                style={{ ...btn, borderColor: "#ec4899", color: "#ec4899" }}
+                disabled={busy}
+                title="Fires the full birthday takeover on BOTH karting boards"
+              >
+                Simulate birthday
+              </button>
+            )}
+            {canRaceCheckin && (
+              <button
+                type="button"
+                onClick={() => onSimulate("simulate-wrong-race", { track: trackName })}
+                style={{ ...btn, borderColor: "#f0b341", color: "#f0b341" }}
+                disabled={busy}
+                title="Somebody scanned for a heat that is not the one checking in"
+              >
+                Simulate wrong race
+              </button>
+            )}
+            {canRaceCheckin && (
+              <button
+                type="button"
+                onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "race" })}
+                style={btn}
+                disabled={busy}
+                title="Show a live-looking session ON THIS SCREEN for 90 seconds"
+              >
+                Preview session
+              </button>
+            )}
+            {canVip && (
+              <button
+                type="button"
+                onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "vip" })}
+                style={{ ...btn, borderColor: "#d4af37", color: "#d4af37" }}
+                disabled={busy}
+                title="Show the VIP takeover on this screen"
+              >
+                Preview VIP
+              </button>
+            )}
+            {canWelcome && (
+              <button
+                type="button"
+                onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "event" })}
+                style={btn}
+                disabled={busy}
+                title="Show the party welcome board on this screen"
+              >
+                Preview welcome
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onSimulate("preview", { screenId: screen.screenId, mode: "off" })}
