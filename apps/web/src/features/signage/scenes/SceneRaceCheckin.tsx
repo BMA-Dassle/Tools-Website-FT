@@ -176,24 +176,27 @@ export function SceneRaceCheckin({ feed, nowMs, config, demo }: SceneProps) {
           flexDirection: "column",
         }}
       >
-        {/* Track and delay, small. They are context, not the message. */}
-        <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <span
-              aria-hidden
-              style={{
-                width: 18,
-                height: 18,
-                borderRadius: "50%",
-                background: accent,
-                boxShadow: `0 0 24px ${accent}`,
-              }}
-            />
-            <span className="tv-eyebrow" style={{ color: "rgba(245,236,238,0.75)", fontSize: 30 }}>
+        {/* Track identity, with its status directly UNDERNEATH the name rather
+            than across the room from it (owner 2026-08-11) — "Blue Track" and
+            "running 12 min behind" are one thought and belong together. */}
+        <header style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+          <span
+            aria-hidden
+            style={{
+              width: 18,
+              height: 18,
+              borderRadius: "50%",
+              background: accent,
+              boxShadow: `0 0 24px ${accent}`,
+              marginTop: 14,
+            }}
+          />
+          <div>
+            <div className="tv-eyebrow" style={{ color: "rgba(245,236,238,0.75)", fontSize: 30 }}>
               {TRACK_LABELS[track]}
-            </span>
+            </div>
+            <DelayLine delay={delay} />
           </div>
-          <DelayChip delay={delay} />
         </header>
 
         {race ? (
@@ -352,31 +355,29 @@ function Idle({ accent }: { accent: string }) {
 
 /* ── delay ────────────────────────────────────────────────────────────── */
 
-/** On time, or how far behind. Small and in the corner: it matters, but it is
- *  not what somebody walking up to the desk needs first. */
-function DelayChip({ delay }: { delay: DelayInfo | null }) {
+/**
+ * On time, or how far behind — sitting directly under the track name.
+ *
+ * A racer reads "Blue Track" and immediately wants to know whether it is
+ * running late; putting the two at opposite ends of the screen made them look
+ * like unrelated facts. Amber and blinking when behind, so it is noticed
+ * without being alarming.
+ */
+function DelayLine({ delay }: { delay: DelayInfo | null }) {
   if (!delay) return null;
   const late = delay.delayMinutes > 0;
   const color = late ? "#f0b341" : "#46d68c";
   return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        padding: "10px 22px",
-        borderRadius: 999,
-        border: `2px solid ${withAlpha(color, 0.45)}`,
-        background: withAlpha(color, 0.1),
-      }}
-    >
+    <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 6 }}>
       <span
         aria-hidden
         className={late ? "tv-blink" : undefined}
         style={{ width: 12, height: 12, borderRadius: "50%", background: color }}
       />
-      <span className="tv-display" style={{ fontSize: 30, color }}>
-        {late ? `${delay.delayFormatted || `${delay.delayMinutes} min`} behind` : "On time"}
+      <span className="tv-display" style={{ fontSize: 34, color }}>
+        {late
+          ? `Running ${delay.delayFormatted || `${delay.delayMinutes} min`} behind`
+          : "Running on time"}
       </span>
     </div>
   );
