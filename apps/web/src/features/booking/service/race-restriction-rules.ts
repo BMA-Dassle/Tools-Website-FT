@@ -78,7 +78,11 @@
  * constraint, add an optional constraint block to RaceRestrictionRule and a
  * branch in `evaluateRaceRestrictions`.
  */
-import { activeVipCombo, getComboSpecial } from "~/features/combos/combo-specials";
+import {
+  activeVipCombo,
+  comboStartHoursForDate,
+  getComboSpecial,
+} from "~/features/combos/combo-specials";
 import { fasttraxWeekHours } from "~/lib/constants/fasttrax-hours";
 import type { RaceCategory, RaceTier } from "./race-products";
 
@@ -190,19 +194,29 @@ export interface RaceRestrictionRule {
    */
   reserveStarterRoomPerClockHour?: { minRoom: number };
   /**
-   * Constraint: these center-local start times (minutes since local midnight)
-   * are reserved combo anchor heats — a combo special's fixed start grid
-   * needs its first-leg Starter heat still free when a VIP party books.
-   * Blocks taking a slot at one of these times while it is still EMPTY.
-   * Joining an already-occupied same-tier session is never blocked (the
-   * session IS the anchor — or the anchor is already lost — and BMI capacity
-   * gates it; same join precedent as the Starter room reserve). Pair with an
-   * all-tier/all-category appliesTo: an empty slot appears in every tier's
-   * availability, so any booking at the reserved time would consume the
-   * anchor. Honors `lastMinuteOverrideMinutes` so unclaimed anchors still
-   * fill. No-op when `candidateStartLocal` is absent (epoch-only caller).
+   * Constraint: reserved combo anchor heats — a combo special's fixed start
+   * grid needs its first-leg Starter heat still free when a VIP party books.
+   * Blocks taking a slot at one of the date's anchor times while it is still
+   * EMPTY. Joining an already-occupied same-tier session is never blocked
+   * (the session IS the anchor — or the anchor is already lost — and BMI
+   * capacity gates it; same join precedent as the Starter room reserve).
+   * Honors `lastMinuteOverrideMinutes` so unclaimed anchors still fill.
+   * No-op when `candidateStartLocal` is absent (epoch-only caller).
    */
-  reservedComboAnchorTimes?: { startMinutes: number[] };
+  reservedComboAnchorTimes?: {
+    /** Center-local clock minutes of the anchors ON that date — day-aware
+     *  since 2026-08-10 (the hourly grid differs weekday vs weekend). */
+    startMinutesForDate: (dateYmd: string) => number[];
+    /**
+     * Owner 2026-08-10 ("starters racers could also book those slots — it
+     * doesn't need to be exclusive to VIPs"): ADULT STARTER bookings may take
+     * an empty anchor slot. A Starter session at the anchor time is exactly
+     * what the VIP party's first leg joins, so it PRESERVES the anchor rather
+     * than consuming it. Junior and non-Starter sessions are tier-exclusive
+     * and still consume it, so they stay blocked.
+     */
+    allowAdultStarter?: boolean;
+  };
   /**
    * When true, combo bookings (ctx.isComboBooking — session.comboSpecialId
    * set) skip this rule entirely. The anchor reserve exists FOR combos, so
@@ -270,15 +284,16 @@ function vipAnchorReserveEnabled(): boolean {
   );
 }
 
-/** The combo's start grid (0–26 chip notation) as center-local clock minutes —
- *  derived from the registry so a startHours change stays a one-line edit.
- *  v1 fallback keeps the grid defined even when no pack is enabled (the rule
+/** The combo's start grid for ONE date as center-local clock minutes —
+ *  DAY-AWARE since 2026-08-10 (hourly: weekdays 3–10 PM, weekends 2–10 PM)
+ *  and derived from the registry so a startHours change stays a data edit.
+ *  v2 fallback keeps the grid defined even when no pack is enabled (the rule
  *  itself is off then via vipAnchorReserveEnabled). */
-const VIP_COMBO_ANCHOR_MINUTES: number[] = (
-  activeVipCombo()?.startHours ??
-  getComboSpecial("race-bowl-v2")?.startHours ??
-  []
-).map((h) => (h % 24) * 60);
+function vipComboAnchorMinutesForDate(dateYmd: string): number[] {
+  const combo = activeVipCombo() ?? getComboSpecial("race-bowl-v2");
+  if (!combo) return [];
+  return comboStartHoursForDate(combo, dateYmd).map((h) => (h % 24) * 60);
+}
 
 /**
  * Active restriction rules. Plain const config — edit here to expand.
@@ -294,11 +309,12 @@ export const RACE_RESTRICTION_RULES: RaceRestrictionRule[] = [
     get enabled() {
       return vipAnchorReserveEnabled();
     },
-    // Every tier + category — an empty slot appears in every tier's
-    // availability, so any regular booking at the reserved time consumes the
-    // anchor. (A combo's own Intermediate return heat can theoretically land
-    // on a reserved time, but combos are exempt and itinerary math puts
-    // returns at ~XX:30+.)
+    // Every tier + category EXCEPT adult Starter (allowAdultStarter below) —
+    // an empty slot appears in every tier's availability, and a junior or
+    // non-Starter booking at the reserved time consumes the anchor. (A
+    // combo's own Intermediate return heat can theoretically land on a
+    // reserved time, but combos are exempt and itinerary math puts returns
+    // at ~XX:30+.)
     appliesTo: { tracks: ["Red", "Blue", "Mega"] },
     presentation: {
       action: "disable",
@@ -315,7 +331,10 @@ export const RACE_RESTRICTION_RULES: RaceRestrictionRule[] = [
       tooltip:
         "This start time is held for VIP Experience groups — it opens up one hour before the race if unclaimed.",
     },
-    reservedComboAnchorTimes: { startMinutes: VIP_COMBO_ANCHOR_MINUTES },
+    reservedComboAnchorTimes: {
+      startMinutesForDate: vipComboAnchorMinutesForDate,
+      allowAdultStarter: true,
+    },
     lastMinuteOverrideMinutes: 60,
     exemptComboBookings: true,
   },
@@ -583,14 +602,23 @@ export function evaluateRaceRestrictions(ctx: RestrictionContext): RestrictionRe
     if (rule.exemptComboBookings && ctx.isComboBooking) continue;
 
     // Constraint: reserved combo anchor time — block taking a still-EMPTY
-    // slot at one of the combo grid's start times. Joining an occupied
+    // slot at one of the DATE's combo grid start times. Joining an occupied
     // same-tier session at that time is fine: the session IS the anchor (or
-    // the anchor is already lost) and BMI capacity gates it.
+    // the anchor is already lost) and BMI capacity gates it. Adult Starter
+    // bookings are exempt when the rule says so — they CREATE the joinable
+    // Starter session the VIP's first leg needs (owner 2026-08-10).
     if (rule.reservedComboAnchorTimes && ctx.candidateStartLocal) {
-      const parts = localClockParts(ctx.candidateStartLocal);
-      if (parts && rule.reservedComboAnchorTimes.startMinutes.includes(parts.minutes)) {
-        const joiningOccupied = joiningOccupiedAt(ctx.productBlocks, ctx.candidateStartMs);
-        if (!joiningOccupied && !lastMinuteLift(rule, ctx)) return block(rule, ctx);
+      const anchorCfg = rule.reservedComboAnchorTimes;
+      // category is optional in the context; absent means adult (junior is
+      // always passed explicitly — junior products are their own SKUs).
+      const adultStarterExempt =
+        anchorCfg.allowAdultStarter === true && ctx.tier === "starter" && ctx.category !== "junior";
+      if (!adultStarterExempt) {
+        const parts = localClockParts(ctx.candidateStartLocal);
+        if (parts && anchorCfg.startMinutesForDate(parts.date).includes(parts.minutes)) {
+          const joiningOccupied = joiningOccupiedAt(ctx.productBlocks, ctx.candidateStartMs);
+          if (!joiningOccupied && !lastMinuteLift(rule, ctx)) return block(rule, ctx);
+        }
       }
     }
 

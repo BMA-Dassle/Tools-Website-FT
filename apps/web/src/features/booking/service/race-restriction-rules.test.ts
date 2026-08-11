@@ -764,31 +764,60 @@ describe("evaluateRaceRestrictions — VIP combo anchor reserve", () => {
   afterEach(() => vi.unstubAllEnvs());
 
   // Naive wall-clock starts on Tue 2026-06-23, mid-afternoon — clear of the
-  // opening-heats window. VIP grid = hourly per registry startHours (2 PM is
-  // a weekend-grid hour since 2026-08-10, but the rule is grid-agnostic).
+  // opening-heats window. Since 2026-08-10 the grid is HOURLY and day-aware
+  // (weekday 3–10 PM — no 2 PM; weekend 2–10 PM) and adult STARTER bookings
+  // are exempt (owner: a Starter session at the anchor time is what the VIP
+  // party joins, so it preserves the anchor; other tiers consume it).
   const wd = (h: number, m: number) =>
     `2026-06-23T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
+  const sat = (h: number, m: number) =>
+    `2026-06-27T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
 
+  // Default context is an INTERMEDIATE pick at a weekday anchor (6 PM) —
+  // the shape the reserve still blocks.
   function vipCtx(over: Partial<RestrictionContext> = {}): RestrictionContext {
     return {
-      tier: "starter",
+      tier: "intermediate",
       category: "adult",
       track: "Red",
-      candidateStartMs: ms(14, 0),
-      candidateStartLocal: wd(14, 0),
+      candidateStartMs: ms(18, 0),
+      candidateStartLocal: wd(18, 0),
       nowMs: FAR_BEFORE,
       expressEligible: true,
-      productBlocks: [blk(14, 0, 10)], // the candidate's own slot, still empty
+      productBlocks: [blk(18, 0, 10)], // the candidate's own slot, still empty
       ...over,
     };
   }
 
-  it("blocks the still-empty 2:00 PM slot for adult Starter, action=disable + 'VIP Reserved'", () => {
+  it("blocks a still-empty anchor slot for non-Starter tiers, action=disable + 'VIP Reserved'", () => {
     const r = evaluateRaceRestrictions(vipCtx());
     expect(r.blocked).toBe(true);
     expect(r.ruleId).toBe("vip-combo-anchor-reserve");
     expect(r.action).toBe("disable");
     expect(r.cardLabel).toBe("VIP Reserved");
+  });
+
+  it("adult STARTER may take the empty anchor slot (owner 2026-08-10 — it creates the joinable anchor)", () => {
+    expect(evaluateRaceRestrictions(vipCtx({ tier: "starter" })).blocked).toBe(false);
+    // absent category defaults to adult — some callers omit it
+    expect(evaluateRaceRestrictions(vipCtx({ tier: "starter", category: null })).blocked).toBe(
+      false,
+    );
+  });
+
+  it("junior sessions still consume the anchor — junior Starter stays blocked", () => {
+    const jr = evaluateRaceRestrictions(
+      vipCtx({
+        tier: "starter",
+        category: "junior",
+        track: "Blue",
+        candidateStartMs: ms(18, 0),
+        candidateStartLocal: wd(18, 0),
+        productBlocks: [blk(18, 0, 10)],
+      }),
+    );
+    expect(jr.blocked).toBe(true);
+    expect(jr.ruleId).toBe("vip-combo-anchor-reserve");
   });
 
   it("kiosk surface HIDES the anchor hold instead of greying it (owner 2026-07-19)", () => {
@@ -811,63 +840,68 @@ describe("evaluateRaceRestrictions — VIP combo anchor reserve", () => {
     expect(opening.action).toBe("disable");
   });
 
-  it("blocks every tier and category — the empty slot is shared inventory", () => {
-    const int = evaluateRaceRestrictions(
-      vipCtx({
-        tier: "intermediate",
-        candidateStartMs: ms(18, 0),
-        candidateStartLocal: wd(18, 0),
-        productBlocks: [blk(18, 0, 10)],
-      }),
-    );
-    expect(int.blocked).toBe(true);
-    expect(int.ruleId).toBe("vip-combo-anchor-reserve");
-    const jr = evaluateRaceRestrictions(
-      vipCtx({ category: "junior", track: "Blue", productBlocks: [blk(14, 0, 10)] }),
-    );
-    expect(jr.blocked).toBe(true);
-    expect(jr.ruleId).toBe("vip-combo-anchor-reserve");
-  });
-
-  it("covers the whole grid including 10 PM", () => {
-    const r = evaluateRaceRestrictions(
-      vipCtx({
-        candidateStartMs: ms(22, 0),
-        candidateStartLocal: wd(22, 0),
-        productBlocks: [blk(22, 0, 10)],
-      }),
-    );
-    expect(r.blocked).toBe(true);
-  });
-
-  it("allows non-anchor minutes and non-grid hours", () => {
+  it("day-aware grid: hourly anchors weekdays 3–10 PM; 2 PM is weekend-only", () => {
+    // 7 PM weekday (an odd hour the old 2/4/6/8/10 grid never held) — blocked.
     expect(
       evaluateRaceRestrictions(
         vipCtx({
-          candidateStartMs: ms(14, 12),
-          candidateStartLocal: wd(14, 12),
-          productBlocks: [blk(14, 12, 10)],
+          candidateStartMs: ms(19, 0),
+          candidateStartLocal: wd(19, 0),
+          productBlocks: [blk(19, 0, 10)],
+        }),
+      ).blocked,
+    ).toBe(true);
+    // 10 PM weekday — still covered.
+    expect(
+      evaluateRaceRestrictions(
+        vipCtx({
+          candidateStartMs: ms(22, 0),
+          candidateStartLocal: wd(22, 0),
+          productBlocks: [blk(22, 0, 10)],
+        }),
+      ).blocked,
+    ).toBe(true);
+    // 2 PM on a WEEKDAY is not an anchor (FT opens at 3 Mon–Fri) — allowed.
+    expect(
+      evaluateRaceRestrictions(
+        vipCtx({
+          candidateStartMs: ms(14, 0),
+          candidateStartLocal: wd(14, 0),
+          productBlocks: [blk(14, 0, 10)],
         }),
       ).blocked,
     ).toBe(false);
+    // 2 PM on a SATURDAY is an anchor (weekend grid) — blocked.
     expect(
       evaluateRaceRestrictions(
         vipCtx({
-          candidateStartMs: ms(15, 0),
-          candidateStartLocal: wd(15, 0),
-          productBlocks: [blk(15, 0, 10)],
+          candidateStartMs: ms(14, 0),
+          candidateStartLocal: sat(14, 0),
+          productBlocks: [blk(14, 0, 10)],
+        }),
+      ).blocked,
+    ).toBe(true);
+  });
+
+  it("allows non-anchor minutes", () => {
+    expect(
+      evaluateRaceRestrictions(
+        vipCtx({
+          candidateStartMs: ms(18, 12),
+          candidateStartLocal: wd(18, 12),
+          productBlocks: [blk(18, 12, 10)],
         }),
       ).blocked,
     ).toBe(false);
   });
 
   it("allows joining an already-occupied same-tier session at the anchor time", () => {
-    const r = evaluateRaceRestrictions(vipCtx({ productBlocks: [blk(14, 0, 6)] }));
+    const r = evaluateRaceRestrictions(vipCtx({ productBlocks: [blk(18, 0, 6)] }));
     expect(r.blocked).toBe(false);
   });
 
   it("lifts within 60 min of the heat (unclaimed anchors still fill)", () => {
-    const candidate = ms(14, 0);
+    const candidate = ms(18, 0);
     expect(evaluateRaceRestrictions(vipCtx({ nowMs: candidate - 45 * 60_000 })).blocked).toBe(
       false,
     );
