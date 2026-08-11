@@ -16,6 +16,8 @@ import type { SceneType, TvFeed } from "../types";
 import type { SceneProps } from "../director/types";
 import { SceneAdRotation } from "./SceneAdRotation";
 import { SceneSleep } from "./SceneSleep";
+import { SceneRaceCheckin } from "./SceneRaceCheckin";
+import { SceneCelebration } from "./SceneCelebration";
 
 /**
  * Render whichever scene a decision names.
@@ -33,8 +35,12 @@ export function SceneSlot(props: SceneProps) {
   switch (props.decision.scene) {
     case "sleep":
       return <SceneSleep {...props} />;
-    // event-welcome, vip-welcome, celebration, billboard-crown and race-checkin
-    // land in the following PRs; until then they fall through to ads.
+    case "race-checkin":
+      return <SceneRaceCheckin {...props} />;
+    case "celebration":
+      return <SceneCelebration {...props} />;
+    // event-welcome, vip-welcome and billboard-crown land in the following
+    // PRs; until then they fall through to ads.
     case "ads":
     default:
       return <SceneAdRotation {...props} />;
@@ -59,9 +65,12 @@ export function sceneHasData(scene: SceneType, feed: TvFeed | null): boolean {
     case "vip-welcome":
       return (feed?.vip?.length ?? 0) > 0;
     case "race-checkin":
-      // Ships with the racing-TV PR; until it can render, keep it out of any
-      // rotation that names it rather than showing an empty track panel.
-      return false;
+      // Always true: the scene fetches its own session and delay from
+      // useTrackStatus (the same endpoints the website uses), and it has a
+      // designed idle state for "no session checking in yet". A track screen
+      // whose whole job is this must not rotate away from it just because the
+      // track is between heats.
+      return true;
     default:
       return true;
   }

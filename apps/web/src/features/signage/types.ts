@@ -250,6 +250,19 @@ export interface TvFeed {
   events: WelcomeEntry[] | null;
   vip: VipEntry[] | null;
   kioskEvents: SignageEvent[];
+  /**
+   * Track-screen extra: is a VIP party on the heat checking in right now?
+   *
+   * Server-computed from the HEAT ROSTER, not from scans — VIPs do not scan in
+   * (owner 2026-08-11), they are met and escorted, so the scan rail would never
+   * see them. Null for screens that are not scoped to a track.
+   */
+  raceCheckin: {
+    track: string;
+    sessionId: number | null;
+    vipOnHeat: boolean;
+    vipFirstNames: string[];
+  } | null;
   /** Product ids currently off-sale — never advertise a paused product. */
   pausedProductIds: string[];
   /** True when an upstream failed and sections were dropped. */

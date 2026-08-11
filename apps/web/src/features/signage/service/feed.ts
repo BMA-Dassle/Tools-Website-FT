@@ -18,9 +18,13 @@ import "server-only";
  */
 import redis from "@/lib/redis";
 import { pausedProductIds } from "~/features/maintenance";
+import { businessDayYmdET } from "@/lib/race-business-day";
 import { loadSignageScreen } from "../data/signage-screens-db";
 import { parseScreenKey, VENUE_INFO } from "../constants";
 import { signageEventsKey, readSignageEvents } from "../events.server";
+import { resolveScreenConfig } from "../defaults";
+import { trackFromResourceIds } from "../track";
+import { raceCheckinInfo } from "./race-checkin";
 import type { TvFeed } from "../types";
 
 /** Screens phone home on every poll; the admin page reads these for its
@@ -55,6 +59,7 @@ export async function buildTvFeed(screenIdRaw: string | null): Promise<TvFeed> {
     events: null,
     vip: null,
     kioskEvents: [],
+    raceCheckin: null,
     pausedProductIds: safePaused(),
     degraded: false,
   };
@@ -73,10 +78,19 @@ export async function buildTvFeed(screenIdRaw: string | null): Promise<TvFeed> {
   // cache TTL. One LRANGE is cheap enough to do per screen per poll.
   const kioskEvents = await readSignageEvents(center).catch(() => []);
 
+  // Track screens only: who is on the heat checking in right now. Everything
+  // else the scene needs it fetches itself from the endpoints the website uses.
+  const config = resolveScreenConfig(screen.config, parsed.venue);
+  const track = trackFromResourceIds(config.scope.resourceIds);
+  const raceCheckin = track
+    ? await raceCheckinInfo(track, businessDayYmdET()).catch(() => null)
+    : null;
+
   return {
     ...base,
     screen,
     kioskEvents,
+    raceCheckin,
     // events / vip land with the welcome-board PR. Null (not []) on purpose:
     // "we have nothing to say" and "we could not ask" are different, and only
     // the former should let a playlist entry claim it has data.

@@ -312,6 +312,28 @@
   animation: tv-rise 620ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
+/* ── confetti ─────────────────────────────────────────────────────────── */
+/* One shared keyframe; each particle supplies its own --dx/--dy/--rot inline.
+   Finite and `both`, on spans that unmount with the scene — nothing keeps
+   running after the moment has passed on a screen that never reloads. */
+
+@keyframes tv-confetti {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(0deg);
+  }
+  8% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--dx, 0), var(--dy, -400px), 0) rotate(var(--rot, 360deg));
+  }
+}
+
 /* ── breathing emphasis ───────────────────────────────────────────────── */
 /* Opacity on a pre-painted glow layer — never an animated box-shadow. */
 
