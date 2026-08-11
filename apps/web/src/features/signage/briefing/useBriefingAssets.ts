@@ -72,6 +72,8 @@ export function useBriefingAssets(
   // Object URLs we created, so they can be revoked. A blob URL left un-revoked
   // pins its whole file in memory, and this page runs for weeks.
   const created = useRef<Set<string>>(new Set());
+  /** The in-flight prefetch, so it can be cut off the moment a film plays. */
+  const abortRef = useRef<AbortController | null>(null);
 
   const starterUrl = briefing?.videos.starter?.url ?? null;
   const intermediateUrl = briefing?.videos.intermediate?.url ?? null;
@@ -85,6 +87,11 @@ export function useBriefingAssets(
     if (!enabled) return;
     // Never compete with playback for the link — see `paused` above.
     if (paused) return;
+    // One controller per run, so the effect below can cut a download off the
+    // instant a film starts.
+    const controller = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = controller;
     const manifest = [starterUrl, intermediateUrl, posterUrl];
     if (manifest.every((u) => !u)) return;
 
@@ -112,7 +119,8 @@ export function useBriefingAssets(
         // Sequential on purpose. Two hundred-megabyte downloads racing each
         // other on venue internet finish later than one after the other, and
         // the first one finishing is what gets a room its video.
-        if (await ensureCached(url)) await adopt(url);
+        if (controller.signal.aborted) break;
+        if (await ensureCached(url, controller.signal)) await adopt(url);
         setPending((n) => Math.max(0, n - 1));
       }
     }
@@ -134,6 +142,23 @@ export function useBriefingAssets(
   useEffect(() => {
     void sync();
   }, [sync, manifestKey]);
+
+  /**
+   * CUT OFF AN IN-FLIGHT DOWNLOAD WHEN A FILM STARTS.
+   *
+   * Pausing `sync` only stopped NEW downloads. A prefetch begun while the room was
+   * holding its take-a-seat board carried straight on into playback and fought the
+   * player for the link — the same starvation that blacked a room out, just with a
+   * different trigger. Aborting mid-body loses nothing: cache.put() only ever
+   * commits a complete response, so there is no partial entry to clean up, and the
+   * next idle poll starts it again.
+   */
+  useEffect(() => {
+    if (paused) abortRef.current?.abort();
+  }, [paused]);
+
+  // Nothing half-downloaded should outlive the screen either.
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   // Revoke on unmount only. Revoking when a URL leaves the manifest would pull
   // the film out from under a briefing that is mid-play.

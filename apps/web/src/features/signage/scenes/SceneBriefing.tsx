@@ -271,6 +271,10 @@ function BriefingVideo({
       src={src}
       autoPlay
       playsInline
+      // Buffer ahead rather than stopping at metadata: by the time staff press
+      // Start, the group has usually been walking for a minute and the element has
+      // had that whole time to get ahead.
+      preload="auto"
       // NOT muted, NOT looping. It is a briefing: it is heard once, and it ends.
       controls={false}
       onError={() => onUnplayable(src)}

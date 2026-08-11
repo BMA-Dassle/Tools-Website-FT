@@ -92,7 +92,7 @@ export async function isCached(url: string): Promise<boolean> {
  * could be played. That is why the caller can treat "cached" as "safe to play
  * from disk" with no further checks.
  */
-export async function ensureCached(url: string): Promise<boolean> {
+export async function ensureCached(url: string, signal?: AbortSignal): Promise<boolean> {
   const cache = await openCache();
   if (!cache) return false;
   try {
@@ -100,13 +100,20 @@ export async function ensureCached(url: string): Promise<boolean> {
     // `cache.add()` would be shorter but gives no control over the request, and
     // we want an explicit cors fetch so a redirect or an error page can be
     // rejected before it is stored.
-    const res = await fetch(url, { cache: "no-store", mode: "cors", credentials: "omit" });
+    //
+    // THE SIGNAL IS LOAD-BEARING, not tidiness. These files are hundreds of
+    // megabytes and a download in flight when a briefing starts will fight the
+    // player for the link — which is exactly what blacked a room out before.
+    // Declining to START a new download was not enough; an existing one has to be
+    // cut off.
+    const res = await fetch(url, { cache: "no-store", mode: "cors", credentials: "omit", signal });
     if (!res.ok) return false;
     await cache.put(url, res);
     return true;
   } catch {
-    // Out of quota, offline mid-download, or the tab went away. Nothing was
-    // stored; the next poll tries again.
+    // Aborted, out of quota, offline mid-download, or the tab went away. Nothing
+    // was stored — cache.put() only commits a complete body — so the next poll
+    // simply tries again.
     return false;
   }
 }
