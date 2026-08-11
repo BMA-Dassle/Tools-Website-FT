@@ -109,11 +109,20 @@ export const KIOSK_GLOW_PERIODS_MS: Record<string, number> = {
  * phase WITHIN the shared cycle (still clock-locked, just offset). Used by the
  * attract race car so the bank of kiosks hands the car off screen-to-screen
  * (highest kiosk number → lowest) instead of every screen animating in unison.
+ *
+ * `periods` defaults to the kiosk's own table. The lobby-TV signage surface
+ * passes its own (TV_MOTION_PERIODS_MS, features/signage/clock.ts) so both
+ * device classes share this one implementation instead of forking it — the
+ * mechanism is identical, only the animation names differ.
  */
-export function syncGlowPhase(root: HTMLElement | null, offset: number): void {
+export function syncGlowPhase(
+  root: HTMLElement | null,
+  offset: number,
+  periods: Record<string, number> = KIOSK_GLOW_PERIODS_MS,
+): void {
   if (!root) return;
   const now = Date.now() + offset;
-  for (const [name, period] of Object.entries(KIOSK_GLOW_PERIODS_MS)) {
+  for (const [name, period] of Object.entries(periods)) {
     // Class name and @keyframes name match for every glow effect in kiosk.css.
     root.querySelectorAll<HTMLElement>(`.${name}`).forEach((el) => {
       const phaseShift = Number(el.dataset.glowPhaseMs) || 0;

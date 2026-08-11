@@ -191,6 +191,9 @@ export interface SignageEvent {
   /** Coarse activity keys for copy + accent colour, e.g. ["bowling"]. */
   activityKeys?: string[];
   partySize?: number;
+  /** This racer is on an Ultimate VIP combo today — drives the gold treatment
+   *  and the "proceed to the in-field" instruction on a track screen. */
+  vip?: boolean;
   /** Shared-clock ms when it happened. */
   atMs: number;
 }

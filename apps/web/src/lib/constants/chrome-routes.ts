@@ -70,8 +70,18 @@ export function isChromeFreePath(pathname: string): boolean {
     // In-center self-service kiosk — its own shell (KioskShell), its own
     // chrome, and a shared public device that also drops the mini-carts.
     p === "/kiosk" ||
-    p.startsWith("/kiosk/")
+    p.startsWith("/kiosk/") ||
+    // Wall-mounted lobby TV — a full-bleed 1920×1080 canvas with no input
+    // device at all. Nav, footer and any bar are meaningless on it and would
+    // simply cover the picture.
+    isSignagePath(p)
   );
+}
+
+/** Lobby-TV signage — an in-center display, so no carts and no chrome. */
+export function isSignagePath(pathname: string): boolean {
+  const p = normalize(pathname);
+  return p === "/tv" || p.startsWith("/tv/");
 }
 
 /**
@@ -164,6 +174,6 @@ export function chromeFlagsForPath(pathname: string, brand: Brand): ChromeFlags 
     hpChrome,
     ftMobileBar: ftChrome && !noBar,
     hpMobileBar: hpChrome && !noBar,
-    carts: !admin && !isKioskPath(p),
+    carts: !admin && !isKioskPath(p) && !isSignagePath(p),
   };
 }

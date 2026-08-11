@@ -1,0 +1,373 @@
+/**
+ * Lobby-TV canvas — tokens, type and the whole motion vocabulary.
+ *
+ * Mirrors app/kiosk/kiosk.css deliberately: a TV hanging above a bank of kiosks
+ * has to look like it belongs to the same family, and the two surfaces animate
+ * against the same shared clock. Same palette, same display type, landscape
+ * canvas instead of portrait.
+ *
+ * ── THE 24/7 RULEBOOK (this screen runs for weeks without a reload) ──
+ *
+ *   ANIMATE ONLY `transform` and `opacity`. Both are composited on the GPU, so
+ *   a busy main thread can never make the wall stutter.
+ *
+ *   NEVER animate `box-shadow`, `filter`, `text-shadow`, width/height/top/left.
+ *   They repaint or re-layout every frame. Where a glow must breathe, paint the
+ *   glow once on its own layer and animate that layer's OPACITY — see
+ *   .tv-neon-flicker. (kiosk.css animates box-shadow on a small pill and gets
+ *   away with it; at 1920×1080 hero scale it is not free. Do not copy it here.)
+ *
+ *   The two sweep effects animate `background-position` on a gradient-ONLY
+ *   layer. That is a cheap repaint of a layer with no content, proven on the
+ *   kiosks for months — but keep at most one or two mounted at a time.
+ *
+ *   TIMING TABLE: every duration declared here that must stay phase-locked
+ *   across screens also appears in TV_MOTION_PERIODS_MS (features/signage/
+ *   clock.ts). Change one, change the other IN THE SAME COMMIT — a stale entry
+ *   silently de-syncs that effect between screens, which is exactly the
+ *   2026-07-19 kiosk glow bug.
+ */
+
+/* ── stage + canvas ───────────────────────────────────────────────────── */
+
+.tv-stage {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  /* The panel paints its own ground behind the letterbox bars. */
+  background: #000418;
+}
+.tv-fit {
+  position: relative;
+}
+.tv-canvas {
+  /* tokens — same family as .kiosk-canvas */
+  --k-deep: #000418;
+  --k-card: #071027;
+  --k-card-2: #0d1a36;
+  --k-line: rgba(255, 255, 255, 0.12);
+  --k-text: #f5ecee;
+  --k-dim: rgba(245, 236, 238, 0.58);
+  --k-cyan: #00e2e5;
+  --k-race: #e53935;
+  --k-bowl: #fd5b56;
+  --k-gel: #46d68c;
+  --k-laser: #f800c6;
+  --k-duck: #4fa9ff;
+  --k-shuf: #f0b341;
+  --k-kbf: #46d68c;
+  /* VIP: #d4af37 is the hero gold (the combo's own accentColor); #e8b14c is
+     supporting chrome. Two golds on purpose — the hero reads richer. */
+  --k-vip: #d4af37;
+  --k-vip-soft: #e8b14c;
+  /* Track identity — matches the racing surfaces already in production. */
+  --k-blue-track: #004aad;
+  --k-red-track: #e53935;
+  --k-mega-track: #8652ff;
+
+  --font-heading: var(--font-exo2);
+  --font-body: var(--font-barlow);
+  font-family: var(--font-body), system-ui, sans-serif;
+  /* Base unit for a 1920×1080 canvas read from 6–10 ft away. */
+  font-size: 32px;
+  line-height: 1.3;
+  color: var(--k-text);
+  background: var(--k-deep);
+
+  width: 1920px;
+  height: 1080px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  transform-origin: top left;
+  user-select: none;
+  cursor: none;
+}
+
+/* ── type ─────────────────────────────────────────────────────────────── */
+
+.tv-canvas .tv-display {
+  font-family: var(--font-heading), sans-serif;
+  font-style: italic;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  line-height: 0.94;
+  text-wrap: balance;
+}
+.tv-canvas .tv-eyebrow {
+  font-family: var(--font-heading), sans-serif;
+  font-weight: 700;
+  font-size: 28px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--k-cyan);
+}
+.tv-canvas .tv-dim {
+  color: var(--k-dim);
+}
+.tv-canvas .tv-num {
+  font-variant-numeric: tabular-nums;
+}
+.tv-canvas .tv-glass {
+  background: rgba(7, 16, 39, 0.55);
+  border: 1px solid var(--k-line);
+  border-radius: 28px;
+  backdrop-filter: blur(18px);
+}
+
+/* ── ambient: ken burns ───────────────────────────────────────────────── */
+/* Backdrops are mounted at -6% inset so no edge is ever revealed, which is
+   also what makes the whole-canvas burn-in drift below invisible. */
+
+@keyframes tv-kenburns {
+  from {
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+  to {
+    transform: scale(1.06) translate3d(-1.2%, 0.8%, 0);
+  }
+}
+.tv-kenburns {
+  /* alternate → there-and-back cycle is 60s (TV_MOTION_PERIODS_MS: 60000) */
+  animation: tv-kenburns 30s ease-in-out infinite alternate;
+}
+
+/* ── ambient: light sweep ─────────────────────────────────────────────── */
+
+@keyframes tv-sweep {
+  0% {
+    background-position: 140% 0;
+  }
+  55%,
+  100% {
+    background-position: -60% 0;
+  }
+}
+.tv-sweep {
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.09) 42%,
+    rgba(255, 255, 255, 0.16) 50%,
+    rgba(255, 255, 255, 0.09) 58%,
+    transparent 80%
+  );
+  background-size: 250% 100%;
+  animation: tv-sweep 7.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ── neon ─────────────────────────────────────────────────────────────── */
+/* The glow itself is STATIC (a text-shadow that never animates). Only this
+   duplicate layer's opacity moves, which is what keeps a 170px neon word free. */
+
+@keyframes tv-neon-flicker {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  42% {
+    opacity: 1;
+  }
+  43% {
+    opacity: 0.55;
+  }
+  45% {
+    opacity: 1;
+  }
+  46% {
+    opacity: 0.72;
+  }
+  48% {
+    opacity: 1;
+  }
+  86% {
+    opacity: 1;
+  }
+  87% {
+    opacity: 0.6;
+  }
+  89% {
+    opacity: 1;
+  }
+}
+.tv-neon-flicker {
+  animation: tv-neon-flicker 7s linear infinite;
+}
+
+/* ── beacons + chevrons (the "book below" band) ───────────────────────── */
+
+@keyframes tv-blink {
+  0%,
+  44% {
+    opacity: 1;
+  }
+  50%,
+  94% {
+    opacity: 0.25;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+.tv-blink {
+  animation: tv-blink 1.4s ease-in-out infinite;
+}
+
+@keyframes tv-chev {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+    opacity: 0.75;
+  }
+  50% {
+    transform: translate3d(0, 14px, 0);
+    opacity: 1;
+  }
+}
+.tv-chev {
+  animation: tv-chev 2.4s ease-in-out infinite;
+}
+
+/* ── scene transitions ────────────────────────────────────────────────── */
+/* Driven by a data-state attribute on .tv-frame so the director only has to
+   flip an attribute — no JS animation loop anywhere. */
+
+.tv-frame {
+  position: absolute;
+  inset: 0;
+  will-change: transform, opacity;
+}
+.tv-frame[data-state="entering"] {
+  animation: tv-enter 700ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.tv-frame[data-state="active"] {
+  opacity: 1;
+  transform: none;
+}
+.tv-frame[data-state="exiting"] {
+  animation: tv-exit 500ms ease-in both;
+  pointer-events: none;
+}
+
+@keyframes tv-enter {
+  from {
+    opacity: 0;
+    transform: scale(1.03) translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+}
+@keyframes tv-exit {
+  from {
+    opacity: 1;
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.985) translate3d(0, 0, 0);
+  }
+}
+
+/* The wipe that covers a cut. A diagonal bar of the INCOMING scene's accent
+   crossing the frame once — this is what makes a change of scene read as
+   broadcast rather than as a slideshow advancing. Finite; unmounts after. */
+@keyframes tv-wipe {
+  from {
+    transform: translate3d(-120%, 0, 0) skewX(-12deg);
+  }
+  to {
+    transform: translate3d(120%, 0, 0) skewX(-12deg);
+  }
+}
+.tv-wipe {
+  position: absolute;
+  top: -10%;
+  bottom: -10%;
+  width: 55%;
+  pointer-events: none;
+  animation: tv-wipe 600ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* ── entrance stagger for lists of cards ──────────────────────────────── */
+
+@keyframes tv-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 24px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+.tv-rise {
+  animation: tv-rise 620ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* ── breathing emphasis ───────────────────────────────────────────────── */
+/* Opacity on a pre-painted glow layer — never an animated box-shadow. */
+
+@keyframes tv-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+.tv-breathe {
+  animation: tv-breathe 2.4s ease-in-out infinite;
+}
+
+/* ── burn-in mitigation ───────────────────────────────────────────────── */
+/* A 10-minute figure-8 of ±10px across the WHOLE canvas. Imperceptible to a
+   viewer, but it means no pixel holds the same bright element for hours.
+   Backdrops overdraw the canvas by 6%, so no edge is ever exposed by it.
+   Assumes an LED panel; on OLED this stays mandatory and wants a luminance cap
+   on static marks as well. */
+
+@keyframes tv-drift {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  25% {
+    transform: translate3d(10px, 6px, 0);
+  }
+  50% {
+    transform: translate3d(0, 10px, 0);
+  }
+  75% {
+    transform: translate3d(-10px, 4px, 0);
+  }
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+.tv-drift {
+  position: absolute;
+  inset: 0;
+  animation: tv-drift 600s linear infinite;
+}
+
+/* ── reduced motion ───────────────────────────────────────────────────── */
+/* Free correctness. Signage rarely sees this, but a staff laptop previewing a
+   screen with the OS preference set should not be a wall of movement. */
+
+@media (prefers-reduced-motion: reduce) {
+  .tv-canvas *,
+  .tv-canvas *::before,
+  .tv-canvas *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
