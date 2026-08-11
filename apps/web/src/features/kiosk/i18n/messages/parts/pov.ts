@@ -31,6 +31,12 @@ export const povEn = {
   "pov.setToAll": "{count, plural, one {Set to # racer} other {Set to all # racers}}",
   "pov.decrementAria": "Remove one camera",
   "pov.incrementAria": "Add one camera",
+  "pov.maxHint": "Max {count} — one per racer",
+  "pov.priceEach": "{price} each",
+  "pov.pickerLabel": "Who wants the video?",
+  "pov.perRacerHint": "One camera per racer — delivered after the race",
+  "pov.expandVideo": "Watch bigger",
+  "pov.closeVideo": "Close",
 
   // --- Cart row + controls ---
   "pov.cart.rowLabel": "POV Race Video × {count}",
@@ -64,6 +70,12 @@ export const povEs: Record<keyof typeof povEn, string> = {
     "{count, plural, one {Poner para # corredor} other {Poner para los # corredores}}",
   "pov.decrementAria": "Quitar una cámara",
   "pov.incrementAria": "Agregar una cámara",
+  "pov.maxHint": "Máx. {count} — uno por corredor",
+  "pov.priceEach": "{price} cada uno",
+  "pov.pickerLabel": "¿Quién quiere el video?",
+  "pov.perRacerHint": "Una cámara por corredor — se entrega después de la carrera",
+  "pov.expandVideo": "Ver más grande",
+  "pov.closeVideo": "Cerrar",
 
   // --- Fila del carrito + controles ---
   "pov.cart.rowLabel": "Video POV de carrera × {count}",

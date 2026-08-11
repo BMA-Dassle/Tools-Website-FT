@@ -66,7 +66,7 @@ import {
 } from "../service/qualification-refresh-client";
 import { useKioskConfig } from "../KioskConfigContext";
 import { useLocale, type MessageKey, type Translate } from "../i18n";
-import { gameZoneCapability } from "../config";
+import { gameZoneCapability, isTestKiosk } from "../config";
 import {
   kioskMergedCheckoutEnabled,
   kioskCheckoutUpsellEnabled,
@@ -255,6 +255,7 @@ const STEP_TITLE_KEYS: Record<string, MessageKey> = {
   "Who's playing?": "stepTitle.whosPlaying",
   "Who's racing?": "stepTitle.whosRacing",
   "Race Video": "stepTitle.raceVideo",
+  "Race Video & Extras": "stepTitle.raceExtras",
   // The attraction flow's two reused-web steps (no kiosk-native replacement).
   "Your Info": "stepTitle.yourInfo",
   Activity: "stepTitle.activity",
@@ -355,6 +356,9 @@ export function KioskFlow({
         context: {
           ...(config ? { center: config.center } : {}),
           kiosk: true,
+          // Test rig (kiosk 99): lets shared steps offer test-only affordances
+          // (e.g. the heat grid rolls to tomorrow when today's races are done).
+          ...(isTestKiosk(config) ? { kioskTest: true as const } : {}),
           ...(bowlingV3 ? { bowlingV3: true } : {}),
           ...(kioskVoucher ? { voucherRedeem: true } : {}),
         },
@@ -1134,9 +1138,14 @@ export function KioskFlow({
     if (removed.some((h) => h.bmiLineId)) await releaseHeatBmiLines(session, removed);
   };
 
-  // Reopen the VIDEO STEP so a guest can change the camera count from the cart
-  // (mirrors handleChangePackage; index < 0 falls back to a plain Edit).
-  const handleChangePov = (itemId: string) => {
+  // Reopen the EXTRAS STEP (id "race-pov" — video + headsock live together)
+  // from the cart's ONE "Change add-ons" button. Removing = deselecting the
+  // chips there: the Square lines, Pandora grants, and kiosk POV-code claim
+  // all rebuild from item state at reserve, so pointer edits are the whole
+  // job. A $0 BMI line already sold (povSold/addonsBmiSold) stays on the ops
+  // bill — its line id is never stored; cosmetic leftover, accepted.
+  // (Mirrors handleChangePackage; index < 0 falls back to a plain Edit.)
+  const handleChangeAddons = (itemId: string) => {
     const item = session.items.find((i) => i.id === itemId);
     if (!item) return;
     const visible = KIOSK_STEP_REGISTRY[item.kind].filter((s) => s.isVisible(item, session));
@@ -1147,17 +1156,28 @@ export function KioskFlow({
     if (index >= 0) dispatch({ type: "goto", index });
   };
 
-  // Drop the POV video add-on from the CART, keeping the races — the same undo
-  // packages get. Pure state: the POV money line rebuilds from povQuantity at
-  // charge time, and the kiosk code-claim qty recomputes from item state at
-  // reserve (computeRaceItemPovQty), so no codes get claimed for a removed
-  // camera. If the heats already advanced (povSold set), the $0 BMI POV line
-  // stays on the ops bill — its line id is never stored, so it can't be
-  // released precisely; it's a $0 cosmetic leftover, accepted.
-  const handleRemovePov = (itemId: string) => {
+  // "Edit races" (owner 2026-08-10: the cursor resumes on the LAST step —
+  // the extras page — which reads as the wrong screen for a button that says
+  // races). Jump to the first race-picking step instead; non-race items keep
+  // the plain resume.
+  const handleEditItemFromCart = (itemId: string) => {
+    setCartActive(false);
+    setCheckoutActive(false);
+    dispatch({ type: "setActiveItem", id: itemId });
     const item = session.items.find((i) => i.id === itemId);
     if (!item || item.kind !== "race") return;
-    dispatch({ type: "updateItem", id: itemId, patch: { povQuantity: 0 } as Partial<SessionItem> });
+    const visible = KIOSK_STEP_REGISTRY[item.kind].filter((s) => s.isVisible(item, session));
+    const index = visible.findIndex((s) =>
+      [
+        "race-paymode-adult",
+        "race-product-adult",
+        "race-heats-adult",
+        "race-paymode-junior",
+        "race-product-junior",
+        "race-heats-junior",
+      ].includes(s.id),
+    );
+    if (index >= 0) dispatch({ type: "goto", index });
   };
 
   // Game Zone cards count as a cart entry (owner 2026-07-18: race + cards
@@ -1721,10 +1741,7 @@ export function KioskFlow({
             setCartActive(false);
             dispatch({ type: "setActiveItem", id: null });
           }}
-          onEditItem={(id) => {
-            setCartActive(false);
-            dispatch({ type: "setActiveItem", id });
-          }}
+          onEditItem={handleEditItemFromCart}
           onRemoveItem={handleRemoveItem}
           onRemoveHeat={handleRemoveHeat}
           onRemoveCombo={session.comboSpecialId ? handleRemoveCombo : undefined}
@@ -1738,8 +1755,7 @@ export function KioskFlow({
           }
           onRemovePackage={(id, category) => void handleRemovePackage(id, category)}
           onChangePackage={handleChangePackage}
-          onRemovePov={handleRemovePov}
-          onChangePov={handleChangePov}
+          onChangeAddons={handleChangeAddons}
           onReviewAndPay={() => {
             // Upsell page (owner 2026-07-21): between Review & Pay and the pay
             // screen — BOWLING carts only for now (owner: "they need bowling
@@ -1818,10 +1834,7 @@ export function KioskFlow({
             setCartActive(false);
             dispatch({ type: "setActiveItem", id: null });
           }}
-          onEditItem={(id) => {
-            setCartActive(false);
-            dispatch({ type: "setActiveItem", id });
-          }}
+          onEditItem={handleEditItemFromCart}
           onRemoveItem={handleRemoveItem}
           onRemoveHeat={handleRemoveHeat}
           onCheckout={() => {
@@ -1843,8 +1856,7 @@ export function KioskFlow({
           }
           onRemovePackage={(id, category) => void handleRemovePackage(id, category)}
           onChangePackage={handleChangePackage}
-          onRemovePov={handleRemovePov}
-          onChangePov={handleChangePov}
+          onChangeAddons={handleChangeAddons}
         />
       </div>,
     );

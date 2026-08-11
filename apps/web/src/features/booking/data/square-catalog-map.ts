@@ -137,6 +137,13 @@ export const SQUARE_CATALOG_MAP: Record<string, string> = {
   "rookie-pack-weekday-junior": SQ.ROOKIE_PACK,
   "rookie-pack-weekend-junior": SQ.ROOKIE_PACK,
 
+  // ── Booking add-ons (charge line carries the addon chargeLineKey) ───
+  // Retail extras from data/addon-catalog.ts — same synthetic-key pattern as
+  // the package bundle lines above. NAME_CATALOG_MAP's "Headsock" substring
+  // match is the fallback for these per-racer lines ("Replacement Headsock ·
+  // {name}"), but the explicit key is the primary resolution.
+  "addon-headsock": SQ.HEADSOCK,
+
   // ── Junior races — weekday/mega → Junior Racing Mon-Thur ───────────
   "24960106": SQ.JR_MON_THU, // New Starter Blue
   "24958587": SQ.JR_MON_THU, // New Intermediate Blue

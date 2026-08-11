@@ -26,6 +26,8 @@ import {
 } from "../data/bmi";
 import { registerContact } from "./bmi-register";
 import { getPackage } from "./packages";
+import { bookingAddonsEnabled, getBookingAddon } from "../data/addon-catalog";
+import { addonEligibleMembers } from "./addon-charge";
 import {
   evaluateRaceRestrictions,
   type RestrictionBlock,
@@ -104,13 +106,20 @@ export function computeRaceItemPovQty(item: RaceItem, party: BookingSession["par
  * `includesPov` must never be counted into the "Add for all N" offer, or a
  * partially-packaged party gets sold a camera the bundle already includes.
  */
+export function povUncoveredRacers<M extends { category?: "adult" | "junior" }>(
+  item: Pick<RaceItem, "packageIdAdult" | "packageIdJunior">,
+  party: M[],
+): M[] {
+  return party.filter(
+    (m) => !getPackage(packageIdForCategory(item, m.category ?? "adult"))?.includesPov,
+  );
+}
+
 export function povUncoveredRacerCount(
   item: Pick<RaceItem, "packageIdAdult" | "packageIdJunior">,
   party: Array<{ category?: "adult" | "junior" }>,
 ): number {
-  return party.filter(
-    (m) => !getPackage(packageIdForCategory(item, m.category ?? "adult"))?.includesPov,
-  ).length;
+  return povUncoveredRacers(item, party).length;
 }
 
 /**
@@ -293,6 +302,20 @@ export async function bookHeatsOnAdvance(
         type: "updateItem",
         id: item.id,
         patch: { povSold: true } as Partial<RaceItem>,
+      });
+    }
+  }
+
+  // Retail add-on $0 BMI lines (headsock "pre-purchase" record) — povSold's
+  // exact once-only contract via addonsBmiSold. Money is on Square; this is
+  // the ops-visible reservation record the owner asked for (2026-08-10).
+  if (billId && !item.addonsBmiSold) {
+    const plan = addonZeroSellPlan(item, session.party);
+    if (plan.length > 0 && (await sellAddonZeroLines(billId, plan))) {
+      dispatch({
+        type: "updateItem",
+        id: item.id,
+        patch: { addonsBmiSold: true } as Partial<RaceItem>,
       });
     }
   }
@@ -550,10 +573,30 @@ export async function holdRaceItem(
     licenseSold = raceUsesZeroBmiModel(item) ? true : await sellLicense(billId, newRacerCount);
   }
 
-  // 3. Sell POV cameras (non-fatal)
-  let povSold = false;
-  if (item.povQuantity > 0) {
+  // 3. Sell POV cameras (non-fatal) — guarded by item.povSold, the SAME flag
+  // bookHeatsOnAdvance sets: without it this pay-time hold re-sold the $0 POV
+  // line a second time, and BMI merged it into one line at DOUBLE quantity
+  // (owner smoke 2026-08-10, W59788: 1 camera bought, "POV Video Issued" ×2).
+  let povSold = item.povSold ?? false;
+  if (item.povQuantity > 0 && !item.povSold) {
     povSold = await sellPov(billId, item.povQuantity, raceUsesZeroBmiModel(item));
+    if (povSold) {
+      dispatch({ type: "updateItem", id: item.id, patch: { povSold: true } as Partial<RaceItem> });
+    }
+  }
+
+  // 3b. Retail add-on $0 BMI lines (headsock pre-purchase) — same once-only
+  // guard as the advance-time path (addonsBmiSold), so whichever runs first
+  // records it and the other no-ops.
+  if (!item.addonsBmiSold) {
+    const plan = addonZeroSellPlan(item, session.party);
+    if (plan.length > 0 && (await sellAddonZeroLines(billId, plan))) {
+      dispatch({
+        type: "updateItem",
+        id: item.id,
+        patch: { addonsBmiSold: true } as Partial<RaceItem>,
+      });
+    }
   }
 
   // 4. Book addon activities (non-fatal per addon)
@@ -688,6 +731,70 @@ async function sellLicense(billId: string, quantity: number): Promise<boolean> {
     console.warn("[race.sellLicense] error (non-fatal):", err);
     return false;
   }
+}
+
+// ── internal: $0 add-on BMI lines (headsock etc.) ────────────────────────
+
+/** The $0 BMI lines owed for this item's retail add-on selections — one entry
+ *  per catalog add-on that carries a `bmiZeroProductId` (v1: "Headsock
+ *  Pre-Purchase" 48952128), qty = ELIGIBLE selected racers (the same
+ *  addonEligibleMembers seam the charge uses — the BMI record must never
+ *  exceed what Square charged). Money stays on Square; this is ops
+ *  visibility on the reservation bill, same as $0 POV. */
+export function addonZeroSellPlan(
+  item: RaceItem,
+  party: PartyMember[],
+): Array<{ slug: string; productId: string; quantity: number }> {
+  if (!bookingAddonsEnabled()) return [];
+  const out: Array<{ slug: string; productId: string; quantity: number }> = [];
+  for (const sel of item.addonSelections ?? []) {
+    const addon = getBookingAddon(sel.slug);
+    if (!addon?.bmiZeroProductId) continue;
+    const eligibleIds = new Set(addonEligibleMembers(addon, party).map((m) => m.id));
+    const quantity = new Set(sel.memberIds.filter((id) => eligibleIds.has(id))).size;
+    if (quantity > 0) out.push({ slug: sel.slug, productId: addon.bmiZeroProductId, quantity });
+  }
+  return out;
+}
+
+/** Sell the plan's $0 lines on the bill — sellPov's exact wire call. Returns
+ *  true only if EVERY line landed (the caller's sold-flag semantics). */
+async function sellAddonZeroLines(
+  billId: string,
+  plan: Array<{ slug: string; productId: string; quantity: number }>,
+): Promise<boolean> {
+  let allOk = true;
+  for (const line of plan) {
+    try {
+      const res = await fetch("/api/sms?endpoint=booking%2Fsell", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify([
+          {
+            productId: line.productId,
+            pageId: null,
+            quantity: line.quantity,
+            billId,
+            dynamicLines: null,
+            sellKind: 0,
+          },
+        ]),
+      });
+      if (!res.ok) {
+        console.warn(`[race.sellAddonZeroLines] ${line.slug} failed:`, res.status);
+        allOk = false;
+        continue;
+      }
+      console.log(
+        `[race.sellAddonZeroLines] sold ${line.quantity} × ${line.slug} ($0 product ${line.productId}) on bill`,
+        billId,
+      );
+    } catch (err) {
+      console.warn(`[race.sellAddonZeroLines] ${line.slug} error (non-fatal):`, err);
+      allOk = false;
+    }
+  }
+  return allOk;
 }
 
 // ── internal: POV sell via SMS proxy (different endpoint than BMI!) ──────

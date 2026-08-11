@@ -25,6 +25,7 @@ import { attractionEn, attractionEs } from "./parts/attraction";
 import { giftcardEn, giftcardEs } from "./parts/giftcard";
 import { entryscanEn, entryscanEs } from "./parts/entryscan";
 import { povEn, povEs } from "./parts/pov";
+import { addonsEn, addonsEs } from "./parts/addons";
 import type { KioskLocale } from "../locales";
 
 /** English source of truth — core + every screen fragment. */
@@ -43,6 +44,7 @@ const EN = {
   ...giftcardEn,
   ...entryscanEn,
   ...povEn,
+  ...addonsEn,
 };
 
 /** Spanish — each piece is exhaustively typed against its English counterpart. */
@@ -61,6 +63,7 @@ const ES = {
   ...giftcardEs,
   ...entryscanEs,
   ...povEs,
+  ...addonsEs,
 };
 
 export type MessageKey = keyof typeof EN;

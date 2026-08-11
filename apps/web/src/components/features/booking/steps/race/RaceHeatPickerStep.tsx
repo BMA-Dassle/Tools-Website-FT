@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PartyMember, RaceHeatAssignment, RaceItem, StepDef } from "~/features/booking";
 import {
@@ -562,6 +562,28 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
       session.context?.kiosk,
     ]);
 
+    // TEST KIOSK ONLY (kiosk 99, context.kioskTest): when TODAY's grid is
+    // exhausted — availability settled and zero bookable proposals (all heats
+    // past/full/lead-filtered) — roll the item ONE day forward so after-close
+    // testing has a real grid (owner 2026-08-10: "kiosk 99 should show the
+    // race grid for the next day… only when we run out of races today").
+    // One roll per mount (ref): a closed tomorrow must show its own empty
+    // state, never loop-scan the calendar. Guests never see this — real
+    // kiosks have no kioskTest flag.
+    const testRolledRef = useRef(false);
+    const kioskTestRig = !!session.context?.kioskTest;
+    const availabilitySettled =
+      queries.length > 0 && queries.every((q) => q.isSuccess || q.isError);
+    useEffect(() => {
+      if (!kioskTestRig || testRolledRef.current) return;
+      if (!item.date || !product) return;
+      if (!availabilitySettled || allProposals.length > 0) return;
+      testRolledRef.current = true;
+      const next = new Date(item.date + "T12:00:00");
+      next.setDate(next.getDate() + 1);
+      onChange({ date: next.toISOString().slice(0, 10) });
+    }, [kioskTestRig, availabilitySettled, allProposals.length, item.date, product, onChange]);
+
     // Display-only track filter (picked heats, conflicts, and caps still span
     // the full grid — hiding a track never releases or unpicks anything).
     const visibleProposals = activeTrackFilter
@@ -756,6 +778,20 @@ function makeHeatPickerComponent(category: Category): StepDef<RaceItem>["Compone
             activeTrack={activeTrackFilter}
             onTrackClick={(t) => setTrackFilter((cur) => (cur === t ? null : t))}
           />
+        )}
+
+        {/* Test-rig marker (staff-only device, English by design): the grid
+            rolled to the next day because today's races were done. */}
+        {kioskTestRig && testRolledRef.current && (
+          <div className="mx-auto max-w-sm rounded-xl border border-amber-500/30 bg-amber-500/5 p-2 text-center text-xs text-amber-300">
+            Test kiosk: today&apos;s races are done — showing{" "}
+            {new Date(item.date + "T12:00:00").toLocaleDateString("en-US", {
+              weekday: "long",
+              month: "short",
+              day: "numeric",
+            })}
+            .
+          </div>
         )}
 
         {/* Eager-hold error (the in-progress "Holding…" state shows ON the card). */}

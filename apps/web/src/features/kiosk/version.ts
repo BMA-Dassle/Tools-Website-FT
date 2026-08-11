@@ -15,6 +15,21 @@
  * right of every kiosk screen (KioskShell) so staff can confirm at a glance
  * what a kiosk is running. Bump on every kiosk feature release (the deploy-SHA
  * self-update below is what actually drives reloads).
+ * 1.21.0 — THE VIDEO SCREEN NOW SELLS EXTRAS TOO (owner 2026-08-10). "Race
+ *         Video & Extras": the POV pitch is unchanged on top, and below it the
+ *         first retail add-on — a $3 replacement headsock ("your first one is
+ *         included with your FastTrax license"). The guest picks WHO needs one
+ *         by name, because the $3 grants a headsock credit on that racer's own
+ *         account — so the check-in scan pops "Headsock Due — hand guest a
+ *         headsock" for the right person, and the e-ticket shows the credit on
+ *         file. Cart shows one row per racer with per-row Remove and a Change
+ *         that reopens the screen. The POV stepper finally has a ceiling: max
+ *         one camera per racer, with the + greying out at the cap. A party
+ *         whose package already includes the video still sees the extras page
+ *         (just without the camera pitch). Everything speaks EN+ES. New
+ *         add-ons later are one catalog row + copy — no new screens. Kill
+ *         switch: NEXT_PUBLIC_BOOKING_ADDONS_ENABLED=false darkens sell,
+ *         charge, and grant together.
  * 1.20.0 — THE POV SCREEN SELLS THE VIDEO, NOTHING ELSE (owner 2026-08-10).
  *         The in-step "Rookie Pack" — a $9.98 license+POV pseudo-product that
  *         never behaved like the real packages — is gone everywhere: the radio
@@ -902,7 +917,7 @@
  */
 import { clearEntryScan } from "./entry-scan/handoff";
 
-export const KIOSK_VERSION = "1.20.0";
+export const KIOSK_VERSION = "1.21.0";
 
 let bootVersion: string | null = null;
 let captured = false;

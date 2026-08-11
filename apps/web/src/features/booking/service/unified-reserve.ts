@@ -29,6 +29,9 @@ import {
 } from "./race-pack-kiosk";
 import { grantKioskRacePacks } from "./race-pack-grant.server";
 import { upsertPackPurchases, markPackCharged } from "../data/race-pack-purchases-db";
+import { addonPurchaseIntents } from "./addon-charge";
+import { upsertAddonPurchases } from "../data/addon-purchases-db";
+import { grantAddonCredits } from "./addon-grant.server";
 import { SQUARE_RACE_PACK_CATALOG_ID } from "../data/packs";
 import { centerCodeFor } from "~/config/intercard-centers";
 import { formatPersonName } from "~/lib/helpers/name-format";
@@ -1659,6 +1662,19 @@ async function unifiedReserveInner(
     await upsertPackPurchases({ purchaseKey: baseKey, surface: "booking", packs: kioskPacks });
   }
 
+  // ── 2a-addons. Persist retail add-on grant obligations BEFORE any money
+  // moves (persist-first, race-pack parity — throws if the DB is down). The
+  // intents come from the SAME resolution walk as the charge lines, so the
+  // ledger and the Square order can't disagree. Idempotent on baseKey.
+  const addonIntents = addonPurchaseIntents(session);
+  if (addonIntents.length > 0) {
+    await upsertAddonPurchases({
+      purchaseKey: baseKey,
+      surface: session.context?.kiosk ? "booking-kiosk" : "booking-web",
+      intents: addonIntents,
+    });
+  }
+
   // ── 2b. Validate credit redemptions (charge-time re-eval) ─────────
   // Re-check each redeeming racer's LIVE balance before charging. Throws
   // CreditRedemptionError (→ 400 in the route) on a stale/insufficient balance,
@@ -2944,6 +2960,19 @@ async function unifiedReserveInner(
       bookingMetadata.heats = raceHeatsMetadata(raceItems[0].heats, session.party);
       bookingMetadata.racerNames = racerNamesFromHeats(raceItems[0].heats, session.party);
     }
+    // Retail add-ons (headsock etc.) — persist-at-capture alongside the
+    // ledger rows, so the reservation record itself shows what was sold even
+    // if the addon_purchases table is ever unavailable to a reader.
+    if (addonIntents.length > 0) {
+      bookingMetadata.addons = addonIntents.map((it) => ({
+        slug: it.addonSlug,
+        memberId: it.memberId,
+        racer: it.memberName,
+        bmiPersonId: it.personId,
+        priceCents: it.priceCents,
+        depositKindId: it.depositKindId,
+      }));
+    }
     // Persist attraction slot START times so the day-of settle cron can tell when
     // the activity has actually happened (the anchor row's booked_at is the
     // BOOKING time, not the slot time). `slot` is the ISO start of the chosen slot.
@@ -3250,6 +3279,14 @@ async function unifiedReserveInner(
             granted: outcomes.find((o) => o.memberId === p.memberId)?.granted ?? false,
           };
         });
+      }
+
+      // Retail add-ons: money verified + booking confirmed → grant each
+      // selected racer's Pandora credit (headsock etc.). NX-idempotent,
+      // sweep-recovered; racers with no BMI person yet park as
+      // awaiting-person and resolve at check-in. Never throws.
+      if (addonIntents.length > 0) {
+        await grantAddonCredits({ purchaseKey: baseKey, intents: addonIntents });
       }
 
       // Promote the anchor → confirmed. Non-fatal: race-confirm-reconcile

@@ -609,7 +609,11 @@ export function KioskConfirmation({ src }: { src: string | null }) {
       {povCodes && (
         // Same purple voucher card the web confirmation + e-ticket show, zoomed
         // to kiosk scale (web-rem-sized component on the 1080px canvas).
-        <div className="kiosk-zoom relative w-full max-w-[860px] text-left">
+        // max-w is 860 ÷ the 1.3 kiosk-zoom (kiosk.css) so the RENDERED box
+        // matches every other 860px panel on this screen — at max-w-[860px]
+        // the zoom blew it out to ~1118 canvas px (owner 2026-08-10: "all
+        // these boxes should be like size").
+        <div className="kiosk-zoom relative w-full max-w-[662px] text-left">
           <PovVoucherBlock
             codes={povCodes}
             // TODO(i18n): caption carries inline <strong> emphasis (rich text) —
@@ -634,8 +638,8 @@ export function KioskConfirmation({ src }: { src: string | null }) {
             {formatVoucherCode(vipVoucher.code)}
           </div>
           <p className="mt-2 text-[22px] leading-snug text-white/70">
-            Game Zone cards, Laser Tag or Gel Blaster, and your Shuffly hour live on this one code
-            — it was <strong className="text-white/90">emailed to you</strong> with a scannable QR.
+            Game Zone cards, Laser Tag or Gel Blaster, and your Shuffly hour live on this one code —
+            it was <strong className="text-white/90">emailed to you</strong> with a scannable QR.
             Valid 1 year from your race date. Not transferable.
           </p>
         </div>

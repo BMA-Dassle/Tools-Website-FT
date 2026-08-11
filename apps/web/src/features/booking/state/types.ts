@@ -239,6 +239,26 @@ export interface RaceItem extends BookingItemBase {
    */
   creditPacks?: Array<{ slug: string; memberId: string }>;
   /**
+   * Booking ADD-ONS (retail extras — v1: replacement headsock, owner
+   * 2026-08-10): selection POINTERS only ({addon-catalog slug, party
+   * memberIds}); price/name/grant re-derive from the registry on both the
+   * charge and the reserve rail. Per-racer attribution because fulfillment
+   * grants a Pandora deposit credit on THAT racer's account (check-in's
+   * "Headsock Due" banner). NOT the legacy `addons` rail below — these are
+   * Square-only merch and never touch the BMI bill. Optional so sessions
+   * persisted before this field hydrate undefined (no kiosk schema bump).
+   * `memberIds: []` vs `undefined` is the future forced-answer seam
+   * (declined vs never-asked) — v1's optional UI treats both as "none".
+   */
+  addonSelections?: Array<{ slug: string; memberIds: string[] }>;
+  /**
+   * Idempotency guard for the $0 add-on BMI lines (e.g. "Headsock
+   * Pre-Purchase" 48952128) — povSold's exact contract: set once after the
+   * lines book, never on failure; a change-after-sold leaves the old $0 line
+   * on the ops bill (cosmetic, same accepted trade-off as POV).
+   */
+  addonsBmiSold?: boolean;
+  /**
    * YYYY-MM-DD — the race day. All heats[] fall on this date. The wizard's
    * Date step writes this; subsequent steps (Product, HeatPicker) filter
    * BMI availability by it.
@@ -302,6 +322,15 @@ export interface RaceItem extends BookingItemBase {
    * programmatically. 0 = no POV.
    */
   povQuantity: number;
+  /**
+   * WHO the cameras are for — UI attribution only (owner 2026-08-10: the video
+   * card picks people by name, matching the headsock card). The MONEY stays
+   * `povQuantity` (BMI sells qty; the charge line never reads this) and is
+   * kept = this list's length by the extras step. Optional so pre-existing
+   * sessions hydrate undefined — the step back-fills from povQuantity on
+   * mount. Combos set povQuantity programmatically and never set this.
+   */
+  povMemberIds?: string[];
   /**
    * Idempotency guard for the $0 POV BMI line (product 50361293) + the package
    * disclaimer memo, both written once in `bookHeatsOnAdvance` after the heats
