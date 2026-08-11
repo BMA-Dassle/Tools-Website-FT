@@ -683,6 +683,61 @@ export function raceLegEndMs(candidate: ComboHeatCandidate): number {
   return lastStartMs + ASSUMED_RACE_LEG_MINUTES * 60_000;
 }
 
+/** Mon–Fri (ET). NOT the pricing schedule — `scheduleForDate`'s "weekend"
+ *  includes Friday; the weekday scheduling rules below do not. Noon parse
+ *  keeps the day-of-week stable in any runtime timezone. */
+export function isWeekdayYmd(dateYmd: string): boolean {
+  const dow = new Date(`${dateYmd}T12:00:00`).getDay();
+  return dow >= 1 && dow <= 5;
+}
+
+/** The per-call timing knobs `buildChains`/`buildChainFrom` take, resolved
+ *  for one combo + leg ordering + date. Every chain-assembly call site MUST
+ *  go through `comboChainTiming` — a site that passes `combo.transitionMinutes`
+ *  raw would assemble a different chain than the grid promised. */
+export interface ComboChainTiming {
+  transitionMinutes: number;
+  maxWaitMinutes: Array<number | null>;
+  minWaitMinutes: Array<number | null>;
+}
+
+/**
+ * Chain-timing params for one (combo, ordering, date) — the per-leg wait
+ * bounds plus the weekday bowling compression (owner 2026-08-10: Mon–Fri the
+ * lane may start 30 min after the race start — the 30-min assumed race leg
+ * with NO walk buffer — instead of 45; see
+ * `ComboSpecial.weekdayBowlingTransitionMinutes`).
+ *
+ * The engine's floor before leg i is `prevEnd + max(transition, minWait[i])`,
+ * so a buffer can't be lowered for ONE leg via minWait alone. To shrink only
+ * the bowling legs' buffer we pass the SMALLER (bowling) buffer as the global
+ * transition and restore every other leg's normal buffer through its minWait
+ * floor — same windows as before for non-bowling legs (min floors already at
+ * or above the transition, like the fallback's 20-min race gap, are kept).
+ */
+export function comboChainTiming(
+  combo: ComboSpecial,
+  components: ComboLeg[],
+  dateYmd: string,
+): ComboChainTiming {
+  const maxWaitMinutes = components.map((l) => l.maxWaitMinutes ?? null);
+  const minWaitMinutes = components.map((l) => l.minWaitMinutes ?? null);
+  const weekdayBowl = combo.weekdayBowlingTransitionMinutes;
+  if (weekdayBowl == null || weekdayBowl >= combo.transitionMinutes || !isWeekdayYmd(dateYmd)) {
+    return { transitionMinutes: combo.transitionMinutes, maxWaitMinutes, minWaitMinutes };
+  }
+  return {
+    transitionMinutes: weekdayBowl,
+    maxWaitMinutes,
+    // Leg 0 is the anchor — its entry is ignored by the engine either way.
+    minWaitMinutes: components.map((l, i) =>
+      l.kind === "bowling"
+        ? minWaitMinutes[i]
+        : Math.max(minWaitMinutes[i] ?? 0, combo.transitionMinutes),
+    ),
+  };
+}
+
 /**
  * Fetch every leg's candidates for `buildChains`, in the combo's itinerary
  * order. Legs load IN PARALLEL (BMI dayplanner + the QAMF full-day probe are

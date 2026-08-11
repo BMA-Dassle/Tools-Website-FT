@@ -127,6 +127,7 @@ describe("race-bowl-v2 registry invariants", () => {
     expect(v2.fallbackComponents).toEqual(v1.fallbackComponents);
     expect(v2.minHeadcount).toBe(v1.minHeadcount);
     expect(v2.startHours).toEqual(v1.startHours);
+    expect(v2.weekdayBowlingTransitionMinutes).toBe(v1.weekdayBowlingTransitionMinutes);
     expect(v2.adminShortLabel).toBe("VIP V2");
   });
 
@@ -141,9 +142,8 @@ describe("race-bowl-v2 registry invariants", () => {
   });
 
   it("the gamezone denomination is on the sellable allowlist (mint would throw otherwise)", async () => {
-    const { NATIVE_GRANT_DENOMINATIONS } = await import(
-      "~/features/game-cards/service/native-voucher"
-    );
+    const { NATIVE_GRANT_DENOMINATIONS } =
+      await import("~/features/game-cards/service/native-voucher");
     const grant = specials.getComboSpecial("race-bowl-v2")!.voucherGrant!;
     for (const item of [...grant.perGuest, ...grant.perBooking]) {
       if (item.kind === "gamezone") {

@@ -42,6 +42,9 @@ describe("combo-specials registry", () => {
       { kind: "race", tier: "intermediate" },
     ]);
     expect(raceBowl.transitionMinutes).toBe(15);
+    // Owner 2026-08-10: Mon–Fri the lane may start 30 min after the race
+    // start (assumed 30-min race leg + 0 walk buffer) instead of 45.
+    expect(raceBowl.weekdayBowlingTransitionMinutes).toBe(0);
     // Owner: the pack INCLUDES the racing license and one POV per racer.
     expect(raceBowl.includesLicense).toBe(true);
     expect(raceBowl.includedPovPerRacer).toBe(1);
@@ -137,8 +140,19 @@ describe("reorder fallback registry", () => {
     expect(legKey({ kind: "bowling", durationMinutes: 60 })).toBe("bowl:60:reg");
   });
 
-  it("ships dark — reorder fallback is OFF unless the flag is 'true'", () => {
-    expect(comboReorderFallbackEnabled()).toBe(false);
+  it("reorder fallback is ON by default — the flag is a kill switch (owner 2026-08-10)", () => {
+    expect(comboReorderFallbackEnabled()).toBe(true);
+  });
+
+  it("NEXT_PUBLIC_COMBO_REORDER_FALLBACK=false kills the reorder fallback", () => {
+    const prev = process.env.NEXT_PUBLIC_COMBO_REORDER_FALLBACK;
+    process.env.NEXT_PUBLIC_COMBO_REORDER_FALLBACK = "false";
+    try {
+      expect(comboReorderFallbackEnabled()).toBe(false);
+    } finally {
+      if (prev === undefined) delete process.env.NEXT_PUBLIC_COMBO_REORDER_FALLBACK;
+      else process.env.NEXT_PUBLIC_COMBO_REORDER_FALLBACK = prev;
+    }
   });
 });
 

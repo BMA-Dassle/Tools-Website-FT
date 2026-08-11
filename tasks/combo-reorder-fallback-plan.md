@@ -1,7 +1,8 @@
 # Combo Reorder Fallback (race → race → bowl) — Plan
 
-**Status:** BUILT 2026-06-23 — flag-gated `NEXT_PUBLIC_COMBO_REORDER_FALLBACK` (default OFF,
-ships dark). · **Owner ask:** 2026-06-23 (Eric)
+**Status:** ON BY DEFAULT since 2026-08-10 (owner: flags are kill switches only) —
+`NEXT_PUBLIC_COMBO_REORDER_FALLBACK=false` is the emergency off (build-baked, needs redeploy).
+Originally BUILT 2026-06-23 flag-dark. · **Owner ask:** 2026-06-23 (Eric)
 **Feature area:** Ultimate VIP combo (`apps/web/src/features/combos/*`)
 
 **Landed:** engine `minWaitMinutes` (combo-itinerary), registry `fallbackComponents`/`fallbackNote`

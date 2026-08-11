@@ -21,6 +21,7 @@ import { activeVipCombo, buildChains } from "~/features/combos";
 import { comboMinHeadcount, comboReorderFallbackEnabled } from "~/features/combos/combo-specials";
 import {
   candidatesForOrdering,
+  comboChainTiming,
   fetchComboLegCandidates,
   type ComboLegPayload,
 } from "~/features/combos/combo-booking";
@@ -168,17 +169,22 @@ async function comboFirstOpenToday(center: CenterCode, dateYmd: string): Promise
     newPartyMember({ firstName: `probe${i + 1}`, category: "adult", isNewRacer: true }),
   );
   const legCandidates = await fetchComboLegCandidates({ combo, dateYmd, party, centerId });
+  // comboChainTiming, not raw transition/waits — it carries the Mon–Fri
+  // bowling compression, and MUST match the booking flow's grid exactly.
+  const timing = comboChainTiming(combo, combo.components, dateYmd);
   let feasible = buildChains(
     legCandidates,
-    combo.transitionMinutes,
-    combo.components.map((l) => l.maxWaitMinutes ?? null),
+    timing.transitionMinutes,
+    timing.maxWaitMinutes,
+    timing.minWaitMinutes,
   ).filter((c) => c.chain != null);
   if (feasible.length === 0 && comboReorderFallbackEnabled() && combo.fallbackComponents) {
+    const fbTiming = comboChainTiming(combo, combo.fallbackComponents, dateYmd);
     feasible = buildChains(
       candidatesForOrdering(combo.components, legCandidates, combo.fallbackComponents),
-      combo.transitionMinutes,
-      combo.fallbackComponents.map((l) => l.maxWaitMinutes ?? null),
-      combo.fallbackComponents.map((l) => l.minWaitMinutes ?? null),
+      fbTiming.transitionMinutes,
+      fbTiming.maxWaitMinutes,
+      fbTiming.minWaitMinutes,
     ).filter((c) => c.chain != null);
   }
   if (feasible.length === 0) return null;

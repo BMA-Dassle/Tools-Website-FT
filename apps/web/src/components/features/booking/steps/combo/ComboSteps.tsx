@@ -11,6 +11,7 @@ import { bookHeatsOnAdvance } from "~/features/booking/service/race";
 import {
   candidatesForOrdering,
   comboBowlingPatch,
+  comboChainTiming,
   fetchComboLegCandidates,
   holdComboBowling,
   JUNIOR_MIRROR_COMFORT_MINUTES,
@@ -342,10 +343,15 @@ function ScheduleConfirmModal({
   // Per-leg track override (race legs after the anchor). null/absent = earliest.
   const [trackChoice, setTrackChoice] = useState<Record<number, string>>({});
 
-  // Per-leg gap caps + floors (e.g. lane within 60 min of race 1; reorder's
-  // second race ≥20 / ≤45 min after the first).
-  const maxWaits = components.map((l) => l.maxWaitMinutes ?? null);
-  const minWaits = components.map((l) => l.minWaitMinutes ?? null);
+  // Per-leg gap caps + floors (e.g. lane within 75 min of race 1; reorder's
+  // second race ≥20 / ≤45 min after the first) + the Mon–Fri bowling
+  // compression — the SAME timing the start grid used, or the modal could
+  // reject/reshape the chain its tile promised.
+  const {
+    transitionMinutes,
+    maxWaitMinutes: maxWaits,
+    minWaitMinutes: minWaits,
+  } = comboChainTiming(combo, components, dateYmd);
 
   const filtersFor = (choices: Record<number, string>): Array<LegFilter<ComboLegPayload>> =>
     components.map((leg, i) => {
@@ -358,7 +364,7 @@ function ScheduleConfirmModal({
     () =>
       buildChainFrom(
         legCandidates,
-        combo.transitionMinutes,
+        transitionMinutes,
         anchor,
         filtersFor(trackChoice),
         maxWaits,
@@ -381,7 +387,7 @@ function ScheduleConfirmModal({
         (t) =>
           buildChainFrom(
             legCandidates,
-            combo.transitionMinutes,
+            transitionMinutes,
             anchor,
             filtersFor({ ...trackChoice, [i]: t }),
             maxWaits,
@@ -647,13 +653,17 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
           fetchExistingGroups(combo.id, date),
         ]);
         if (cancelled) return;
+        // comboChainTiming (not raw transition/waits): carries the Mon–Fri
+        // bowling compression alongside the per-leg wait bounds.
+        const timing = comboChainTiming(combo, combo.components, date);
         setFetched({
           key: fetchKey,
           legCandidates,
           chains: buildChains(
             legCandidates,
-            combo.transitionMinutes,
-            combo.components.map((l) => l.maxWaitMinutes ?? null),
+            timing.transitionMinutes,
+            timing.maxWaitMinutes,
+            timing.minWaitMinutes,
           ),
           groups,
           error: null,
@@ -818,20 +828,27 @@ const ComboStartTimeComponent: StepDef<RaceItem>["Component"] = ({
       }
     | { kind: "empty"; hour: number };
 
-  // Reorder fallback (flag-gated): a second set of chains assembled in the
+  // Reorder fallback (kill-switch-gated, default ON): a second set of chains assembled in the
   // combo's `fallbackComponents` order (race → race → bowl) from the SAME
   // fetched candidates — used only to rescue a start-hour the normal order
   // can't fill. Both orderings anchor on the same Starter heats (leg 0), so a
   // normal anchor maps to its fallback chain by (start, track).
   const anchorKey = (a: LegCandidate<ComboLegPayload>) => `${a.startIso}|${trackOf(a) ?? ""}`;
   const fallbackChains: Array<ChainResult<ComboLegPayload>> | null =
-    comboReorderFallbackEnabled() && combo.fallbackComponents && current
-      ? buildChains(
-          candidatesForOrdering(combo.components, current.legCandidates, combo.fallbackComponents),
-          combo.transitionMinutes,
-          combo.fallbackComponents.map((l) => l.maxWaitMinutes ?? null),
-          combo.fallbackComponents.map((l) => l.minWaitMinutes ?? null),
-        )
+    comboReorderFallbackEnabled() && combo.fallbackComponents && current && date
+      ? (() => {
+          const fbTiming = comboChainTiming(combo, combo.fallbackComponents, date);
+          return buildChains(
+            candidatesForOrdering(
+              combo.components,
+              current.legCandidates,
+              combo.fallbackComponents,
+            ),
+            fbTiming.transitionMinutes,
+            fbTiming.maxWaitMinutes,
+            fbTiming.minWaitMinutes,
+          );
+        })()
       : null;
   const fbFeasibleByAnchor = new Map<string, ChainResult<ComboLegPayload>>();
   if (fallbackChains) {

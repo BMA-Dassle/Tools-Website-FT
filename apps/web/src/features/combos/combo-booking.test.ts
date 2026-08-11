@@ -6,6 +6,8 @@ import type {
 } from "~/features/booking/service/race-restriction-rules";
 
 import {
+  comboChainTiming,
+  isWeekdayYmd,
   JUNIOR_MIRROR_WINDOW_MINUTES,
   makeComboRestrictionCheck,
   pickJuniorMirror,
@@ -13,6 +15,7 @@ import {
   type ComboHeatCandidate,
 } from "./combo-booking";
 import { buildChains, wallClockMs, type LegCandidate } from "./combo-itinerary";
+import { getComboSpecial } from "./combo-specials";
 
 /** Naive ET wall-clock ISO on 2026-06-01 (BMI wall-clock-in-Z form). */
 const iso = (t: string) => `2026-06-01T${t}:00Z`;
@@ -281,5 +284,74 @@ describe("chain math — bowling window measures from the junior mirror's end", 
     // A 15:00 lane satisfies both the 14:57 floor and the 75-min max wait
     // (14:42 + 75 = 15:57).
     expect(buildChains([mirroredLeg, [lane("15:00")]], 15, [null, 75])[0].chain).not.toBeNull();
+  });
+});
+
+describe("comboChainTiming — Mon–Fri bowling compression (owner 2026-08-10)", () => {
+  const combo = getComboSpecial("race-bowl")!;
+  // 2026-06-01 = Monday, 06-05 = Friday, 06-06 = Saturday, 06-07 = Sunday.
+  const MON = "2026-06-01";
+  const FRI = "2026-06-05";
+  const SAT = "2026-06-06";
+
+  it("isWeekdayYmd: Mon–FRI true, Sat/Sun false (Friday is a weekday HERE, unlike pricing)", () => {
+    expect(isWeekdayYmd(MON)).toBe(true);
+    expect(isWeekdayYmd(FRI)).toBe(true);
+    expect(isWeekdayYmd(SAT)).toBe(false);
+    expect(isWeekdayYmd("2026-06-07")).toBe(false);
+  });
+
+  it("weekend: the normal 15-min transition and per-leg waits pass through untouched", () => {
+    const t = comboChainTiming(combo, combo.components, SAT);
+    expect(t.transitionMinutes).toBe(15);
+    expect(t.maxWaitMinutes).toEqual([null, 75, null]);
+    expect(t.minWaitMinutes).toEqual([null, null, null]);
+  });
+
+  it("weekday: the bowling buffer drops to 0 — every other leg keeps 15 via its minWait", () => {
+    const t = comboChainTiming(combo, combo.components, MON);
+    expect(t.transitionMinutes).toBe(0);
+    expect(t.maxWaitMinutes).toEqual([null, 75, null]);
+    expect(t.minWaitMinutes).toEqual([15, null, 15]);
+  });
+
+  it("weekday fallback ordering: race 2 keeps its own ≥20 floor; the trailing lane drops to 0", () => {
+    const t = comboChainTiming(combo, combo.fallbackComponents!, MON);
+    expect(t.transitionMinutes).toBe(0);
+    expect(t.maxWaitMinutes).toEqual([null, 45, 45]);
+    expect(t.minWaitMinutes).toEqual([15, 20, null]);
+  });
+
+  it("end-to-end: a lane at race-start + 30 chains on Monday but NOT on Saturday", () => {
+    const legCand = (startIso: string, endMs: number, payload: string): LegCandidate<string> => ({
+      startIso,
+      startMs: wallClockMs(startIso),
+      endMs,
+      payload,
+    });
+    // Starter 2:00 (leg end 2:30) → lane 2:30–4:00 → Intermediate 4:15.
+    const legs = [
+      [legCand(iso("14:00"), wallClockMs(iso("14:30")), "race1")],
+      [legCand(iso("14:30"), wallClockMs(iso("16:00")), "lane")],
+      [legCand(iso("16:15"), wallClockMs(iso("16:45")), "race2")],
+    ];
+    const weekday = comboChainTiming(combo, combo.components, MON);
+    const weekend = comboChainTiming(combo, combo.components, SAT);
+    expect(
+      buildChains(
+        legs,
+        weekday.transitionMinutes,
+        weekday.maxWaitMinutes,
+        weekday.minWaitMinutes,
+      )[0].chain,
+    ).not.toBeNull();
+    expect(
+      buildChains(
+        legs,
+        weekend.transitionMinutes,
+        weekend.maxWaitMinutes,
+        weekend.minWaitMinutes,
+      )[0].chain,
+    ).toBeNull();
   });
 });

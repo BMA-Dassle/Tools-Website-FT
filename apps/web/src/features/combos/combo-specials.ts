@@ -140,8 +140,8 @@ export interface ComboSpecial {
   components: ComboLeg[];
   /**
    * Alternate leg ordering, tried ONLY when the primary `components` ordering
-   * yields no feasible chain for a given start-hour (flag-gated — see
-   * `comboReorderFallbackEnabled`). MUST share the same leg 0 as `components`
+   * yields no feasible chain for a given start-hour (kill-switch-gated,
+   * default ON — see `comboReorderFallbackEnabled`). MUST share the same leg 0 as `components`
    * (the customer still picks that start time); only the later legs reorder.
    * Each leg carries its own min/max wait so the reorder stays bounded (e.g.
    * the Ultimate VIP fallback runs race → race → lane with a 20–45 min gap
@@ -162,6 +162,16 @@ export interface ComboSpecial {
   flatCartDisplay?: boolean;
   /** Walk buffer between legs (minutes) — owner default 15. */
   transitionMinutes: number;
+  /**
+   * Mon–Fri (ET) ONLY: replaces `transitionMinutes` as the walk buffer BEFORE
+   * bowling legs, in both orderings (owner 2026-08-10: "weekdays can lower
+   * that floor to 30 minutes between race and bowling" — 0 here means the
+   * lane may start at the assumed race end, i.e. race-start + 30, instead of
+   * + 45). Non-bowling legs and Sat/Sun keep `transitionMinutes`. Note this
+   * is a Mon–FRI rule — NOT the pricing schedule, whose "weekend" includes
+   * Friday. Absent = no weekday compression. Applied via `comboChainTiming`.
+   */
+  weekdayBowlingTransitionMinutes?: number;
   /**
    * The racing license ($4.99/new racer) is INCLUDED in the combo price —
    * the $0 BMI license record still books, but no separate Square line.
@@ -244,13 +254,14 @@ const COMBO_RACE_BOWL_ENABLED =
   process.env.NEXT_PUBLIC_COMBO_RACE_BOWL_ENABLED === "true" && !COMBO_RACE_BOWL_V2_ENABLED;
 
 /**
- * Reorder-fallback flag: default OFF (ships dark per the v2 cutover rule).
- * When on, a combo's `fallbackComponents` ordering is tried for any start-hour
- * the normal ordering can't fill. Flip `NEXT_PUBLIC_COMBO_REORDER_FALLBACK=true`
- * in Vercel after ops signs off.
+ * Reorder-fallback kill switch: default ON (owner 2026-08-10 — flags are
+ * emergency off switches, never opt-in gates). A combo's `fallbackComponents`
+ * ordering is tried for any start-hour the normal ordering can't fill. Set
+ * `NEXT_PUBLIC_COMBO_REORDER_FALLBACK=false` in Vercel to disable in an
+ * emergency (build-baked NEXT_PUBLIC var — needs a redeploy to take effect).
  */
 export function comboReorderFallbackEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_COMBO_REORDER_FALLBACK === "true";
+  return process.env.NEXT_PUBLIC_COMBO_REORDER_FALLBACK !== "false";
 }
 
 /**
@@ -347,7 +358,7 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
       { kind: "bowling", durationMinutes: 90, vip: true, maxWaitMinutes: 75 },
       { kind: "race", tier: "intermediate" },
     ],
-    // Fallback (flag-gated): when no lane fits within 60 min of the first race
+    // Fallback (kill-switch-gated, default ON): when no lane fits the primary window
     // (e.g. a league owns the VIP lanes mid-evening), run both races up front
     // and bowl last on a later lane. Races ≥20 min apart (one session between),
     // ≤45 min apart (no stranding when Mega heats are sparse), lane ≤45 min
@@ -363,6 +374,8 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
     // itemized license/POV/lane parts (charge stays itemized under the hood).
     flatCartDisplay: true,
     transitionMinutes: 15,
+    // Mon–Fri the lane may start 30 min after the race start (owner 2026-08-10).
+    weekdayBowlingTransitionMinutes: 0,
     includesLicense: true,
     includedPovPerRacer: 1,
     startHours: [14, 16, 18, 20, 22],
@@ -508,6 +521,8 @@ export const COMBO_SPECIALS: ComboSpecial[] = [
       "Both races run first, then your VIP lane — your lane time opens later in the evening.",
     flatCartDisplay: true,
     transitionMinutes: 15,
+    // Mon–Fri the lane may start 30 min after the race start (owner 2026-08-10).
+    weekdayBowlingTransitionMinutes: 0,
     includesLicense: true,
     includedPovPerRacer: 1,
     startHours: [14, 16, 18, 20, 22],
