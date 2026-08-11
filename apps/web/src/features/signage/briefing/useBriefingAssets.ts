@@ -47,6 +47,21 @@ export interface BriefingAssetSources {
 export function useBriefingAssets(
   briefing: TvFeed["briefing"],
   enabled: boolean,
+  /**
+   * PAUSE THE PREFETCH WHILE A FILM IS PLAYING.
+   *
+   * The bug this exists for: the prefetch pulled the whole 218 MB film at the very
+   * moment the <video> element was streaming THAT SAME FILE, and on venue internet
+   * the download starved the player — 55 seconds of saturated link, no frame ever
+   * decoded, and the scene gave up and fell back to the helmet board. From a HAR:
+   * a 200 for the full file taking 55.7s alongside the element's own 206 range
+   * requests (owner 2026-08-11: "briefing starting then it blacks out", and the
+   * same URL playing perfectly on its own).
+   *
+   * A room is idle far more of the time than it is playing, so caching loses
+   * nothing by waiting — and playback is the thing with people watching it.
+   */
+  paused = false,
 ): BriefingAssetSources {
   // url → object URL, for everything we have confirmed on disk.
   const [local, setLocal] = useState<Record<string, string>>({});
@@ -68,6 +83,8 @@ export function useBriefingAssets(
 
   const sync = useCallback(async () => {
     if (!enabled) return;
+    // Never compete with playback for the link — see `paused` above.
+    if (paused) return;
     const manifest = [starterUrl, intermediateUrl, posterUrl];
     if (manifest.every((u) => !u)) return;
 
@@ -112,7 +129,7 @@ export function useBriefingAssets(
       created.current.add(url);
       setLocal((prev) => ({ ...prev, [url]: objectUrl }));
     }
-  }, [enabled, starterUrl, intermediateUrl, posterUrl]);
+  }, [enabled, paused, starterUrl, intermediateUrl, posterUrl]);
 
   useEffect(() => {
     void sync();

@@ -35,6 +35,16 @@ import type { SceneProps } from "../director/types";
 const PAD_X = 96;
 const PAD_Y = 54;
 
+/**
+ * How long a film may make NO progress at all before the room gives up on it.
+ *
+ * Deliberately generous. The failure being caught is a codec the player cannot
+ * decode, which never recovers — so waiting costs nothing in the real failure case,
+ * while being impatient costs a working briefing (see the note in BriefingVideo).
+ * Measured from the last sign of life, not from the start of playback.
+ */
+const STALL_GIVE_UP_MS = 40_000;
+
 /** Room identity colours. A briefing room is named for the track it serves, so
  *  it borrows that track's accent — someone glancing in from the corridor should
  *  know which room they are looking into. */
@@ -47,7 +57,17 @@ const ROOM_LABEL: Record<BriefingRoom, string> = { red: "Red Briefing", blue: "B
 
 export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
   const room = config.briefingRoom;
-  const assets = useBriefingAssets(feed?.briefing ?? null, !!room);
+
+  // Room state is read BEFORE the assets hook, because whether a film is playing
+  // right now decides whether we may use the link to download one.
+  const previewRooms = demo === "briefing" || demo === "briefing-quals";
+  const roomsNow = previewRooms ? demoBriefingRooms(nowMs, feed, demo) : feed?.briefingRooms;
+  const stateNow = room ? (roomsNow?.[room] ?? null) : null;
+  const playingNow = briefingTimelineAt(stateNow, nowMs).phase === "video";
+
+  // Downloading a film while that same film is streaming starves the player — see
+  // the note on `paused` in useBriefingAssets.
+  const assets = useBriefingAssets(feed?.briefing ?? null, !!room, playingNow);
 
   /**
    * A ROOM MUST NEVER GO BLACK.
@@ -74,11 +94,7 @@ export function SceneBriefing({ feed, nowMs, config, demo }: SceneProps) {
   if (!room) return <Unconfigured />;
 
   const accent = ROOM_ACCENT[room];
-  // BOTH briefing previews substitute a room state — `briefing-quals` too, which
-  // is the one staff reach for most (it skips the five-minute film).
-  const previewing = demo === "briefing" || demo === "briefing-quals";
-  const rooms = previewing ? demoBriefingRooms(nowMs, feed, demo) : feed?.briefingRooms;
-  const state = rooms?.[room] ?? null;
+  const state = stateNow;
   const timeline = briefingTimelineAt(state, nowMs);
 
   const tier = state?.tier ?? tierForRaceType(null);
@@ -177,19 +193,46 @@ function BriefingVideo({
     };
     void play();
 
-    // DECODING, not merely loading. A container Edge can parse but not decode
-    // reports metadata happily and then paints black forever, so the real test is
-    // whether a frame ever arrives: videoWidth stays 0 and readyState never reaches
-    // HAVE_CURRENT_DATA. Checked shortly after play rather than on an error event,
-    // because this failure mode raises no error at all.
-    const decodeCheck = setTimeout(() => {
+    /**
+     * IS IT STUCK, OR IS IT JUST SLOW? — and the difference matters enormously.
+     *
+     * A container Edge can parse but not decode paints black forever and raises NO
+     * error, so something has to notice. But the first version of this check gave up
+     * after six seconds flat, which condemned a perfectly good film that was merely
+     * loading: these are 220 MB files, the .mov's index sits at the END so the
+     * demuxer fetches the tail before it can start, and venue internet is what it is.
+     * That turned a slow start into a permanent fallback to the helmet board.
+     *
+     * So this watches for PROGRESS rather than checking a stopwatch once. Any of a
+     * decoded frame, a growing buffer, or advancing playback counts as alive, and the
+     * clock only runs while nothing at all is happening. A film that is downloading
+     * is never declared broken.
+     */
+    let lastProgressAt = Date.now();
+    let lastBuffered = 0;
+    const poll = setInterval(() => {
       const v = ref.current;
       if (!v) return;
-      const noPicture = !v.videoWidth || !v.videoHeight;
-      const noFrame = v.readyState < 2; // HAVE_CURRENT_DATA
-      if (noPicture || noFrame) onUnplayable();
-    }, 6_000);
-    return () => clearTimeout(decodeCheck);
+
+      const buffered = v.buffered.length ? v.buffered.end(v.buffered.length - 1) : 0;
+      const decoded = v.readyState >= 2 && v.videoWidth > 0; // HAVE_CURRENT_DATA + a picture
+      if (decoded || buffered > lastBuffered || v.currentTime > 0.1) {
+        lastBuffered = buffered;
+        lastProgressAt = Date.now();
+      }
+
+      // Playing happily — nothing more to watch for.
+      if (decoded && v.currentTime > 0.1) {
+        clearInterval(poll);
+        return;
+      }
+
+      if (Date.now() - lastProgressAt > STALL_GIVE_UP_MS) {
+        clearInterval(poll);
+        onUnplayable();
+      }
+    }, 2_000);
+    return () => clearInterval(poll);
   }, [seekToMs, src, onUnplayable]);
 
   return (
